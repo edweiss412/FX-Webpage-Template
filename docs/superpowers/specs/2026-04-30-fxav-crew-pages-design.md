@@ -56,11 +56,11 @@ To keep v1 honest and shippable, the following are deliberately deferred:
 ┌──────────────────────────────────────────────────────────────────────┐
 │                       Vercel (Next.js App Router)                     │
 │                                                                       │
-│  ┌────────────┐    ┌─────────────┐    ┌─────────────┐                │
-│  │ /admin     │    │ /show/[id]  │    │ /show/[id]/ │                │
-│  │ (Doug,     │    │ (signed-in  │    │ p?t=<jwt>   │                │
-│  │  Eric)     │    │  crew)      │    │ (link-only) │                │
-│  └────────────┘    └─────────────┘    └─────────────┘                │
+│  ┌────────────┐    ┌────────────────┐ ┌──────────────────┐           │
+│  │ /admin     │    │ /show/[slug]   │ │ /show/[slug]/    │           │
+│  │ (Doug,     │    │ (signed-in     │ │  p?t=<jwt>       │           │
+│  │  Eric)     │    │  crew)         │ │ (link-only)      │           │
+│  └────────────┘    └────────────────┘ └──────────────────┘           │
 │                                                                       │
 │  ┌──────────────────────────────────────────────────────────────┐    │
 │  │  Vercel Cron (every 5 min): drive-sync function              │    │
@@ -166,7 +166,8 @@ create table crew_members (
   phone           text,
   role            text not null,                   -- raw role string, normalized in app code
   role_flags      text[] not null default '{}',    -- ["LEAD","A1","V1","BO","ONLY"] etc.
-  day_restriction jsonb,                           -- { kind: "explicit"|"unknown_asterisk"|"none", days: ["3/24","3/26"]? }
+  date_restriction jsonb,                          -- { kind: "explicit"|"unknown_asterisk"|"none", days: ["3/24","3/26"]? } -- which DATES the crew member works
+  stage_restriction jsonb,                         -- { kind: "explicit"|"none", stages: ["Load In","Set"]? } -- which STAGES (load-in/set/strike/load-out)
   flight_info     text,                            -- only present in 2024-10 fixture
   unique (show_id, name)
 );
@@ -284,14 +285,14 @@ Implementation: Server Components fetch with a `viewerRole` parameter; the data 
 
 - Vercel Cron `*/5 * * * *` runs `app/api/cron/sync/route.ts`.
 - A daily ping at `0 12 * * *` keeps Supabase awake (separate cron or part of the same job).
-- Manual sync trigger available at `/admin/show/<id>` for Doug/Eric to force a refresh.
+- Manual sync trigger available at `/admin/show/<slug>` for Doug/Eric to force a refresh.
 
 ### 5.2 Per-run sequence
 
 1. Authenticate with Drive using the service account credentials (env var `GOOGLE_SERVICE_ACCOUNT_JSON`).
 2. Call `files.list` on the watched folder ID with `q="modifiedTime > '<lastPollAt>' and mimeType='application/vnd.google-apps.spreadsheet'"`.
 3. For each modified file:
-   - Fetch content via `read_file_content`-equivalent (`files.export` with `mimeType=text/csv` per tab, OR `read_file_content`-style markdown export — TBD at implementation time; the parser is fed a markdown-table-like structure either way, identical to the corpus).
+   - Fetch content via Drive API. The exact extraction call (single `files.export` to a markdown-equivalent vs. per-tab `spreadsheets.values.batchGet`) is decided at implementation time and tracked in §16 open questions; the parser's input contract is "markdown-table-shaped text identical in structure to the existing fixture corpus," so either path satisfies it.
    - Run the parser (§6). Capture parse warnings.
    - Upsert to `shows` and child tables. Use `drive_file_id` as the upsert key on `shows`.
    - Insert a `sync_log` row.
@@ -400,13 +401,17 @@ Renderer surfaces them verbatim. New values (TBD, MAYBE, Backup Only, …) flow 
 Per schema-diff §7, the parser extracts these per-crew-member signals:
 
 1. **Crew name → identity.** Used to filter hotel reservations (`namesOnReservation` substring match), driver assignment (`driver` exact match), AGENDA grid flight info, etc.
-2. **Day restriction.** Three sources, in order of precedence:
-   - Inline parens in name cell: `Calvin Saller (5/12 & 5/14 ONLY)` → `{kind: "explicit", days: ["5/12","5/14"]}`.
-   - Role suffix `ONLY` with day list: `Load In / Set ONLY` → `{kind: "explicit", days: derived from role keywords}`.
-   - 2026 `***` flag with no days: `Calvin Saller` + role ending `ONLY***` → `{kind: "unknown_asterisk", days: null}` and a parse warning ("day restriction unknown — please add parenthetical to name").
-   - No restriction → `{kind: "none"}`.
-3. **Role flags from role string.** Tokenize on `/` and `-`, lookup against the master role list (`{LEAD, LEAD/A1, LEAD/V1, A1, V1, BO, ONLY, CAM OP}` per `2025-06-ria-investment-forum.md` lines 110–121). Stored as `role_flags text[]`.
-4. **LEAD detection.** `role_flags` contains `LEAD` ⇒ user sees ops fields (§7).
+2. **Date restriction.** Which calendar days the crew member works. Three sources, in order of precedence:
+   - **Parens with day list in the name cell**: `Calvin Saller (6/24 and 6/26 ONLY)` (verified `2025-06-ria-investment-forum.md:32`) → `{kind: "explicit", days: ["6/24","6/26"]}`. Pattern matched by regex against `\(([^)]+ONLY[^)]*)\)`. Days extracted by date-token scan (e.g., `\d{1,2}/\d{1,2}`).
+   - **2026 `***` flag in role with no parens**: `Calvin Saller` + role ending `... ONLY***` (verified `2026-03-rpas-central-four-seasons.md:38`) → `{kind: "unknown_asterisk", days: null}` and a parse warning (`UNKNOWN_DAY_RESTRICTION`: "Calvin Saller has *** flag but no day list — please add a parenthetical like `(6/24 and 6/26 ONLY)` to the name cell or update the role").
+   - **No flag, no parens** → `{kind: "none"}`.
+3. **Stage restriction.** Independent of date restriction. Which load-in/set/strike/load-out stages the person covers. Source: the role-master enumeration at `2025-06-ria-investment-forum.md:110-121`:
+   - Role string contains `Load In / Set ONLY` → `{kind: "explicit", stages: ["Load In","Set"]}`.
+   - Role string contains `Load Out / Strike ONLY` → `{kind: "explicit", stages: ["Load Out","Strike"]}`.
+   - Role string contains `Load In / Set / Strike / Load Out ONLY` (with or without `***`) → `{kind: "explicit", stages: ["Load In","Set","Strike","Load Out"]}` — i.e., every stage but with the implicit "this person is restricted in some way" signal that pairs with the date_restriction logic above.
+   - All other role values (LEAD, A1, V1, BO, etc.) → `{kind: "none"}` (covers all stages).
+4. **Role flags from role string.** Tokenize on `/` and `-`, lookup against the master role list (`{LEAD, LEAD/A1, LEAD/V1, A1, V1, BO, ONLY, CAM OP}` per `2025-06-ria-investment-forum.md:110-121`). Stored as `role_flags text[]`.
+5. **LEAD detection.** `role_flags` contains `LEAD` ⇒ user sees ops fields (§7).
 
 ### 6.7 Per-show parse contract
 
@@ -508,7 +513,11 @@ Direction **B** from the brainstorm: time-aware home + drill-down tiles. Mobile-
 **Tile grid (2 cols on mobile, 3+ on desktop):**
 - **Lodging tile** — your hotel only (filtered from `hotel_reservations` by `names` substring match on viewer name). Shows hotel, check-in→check-out, confirmation #.
 - **Venue tile** — name, address line, loading dock, "Open in Maps" link, Diagrams gallery entry point.
-- **Schedule tile** — your relevant days only (travel-in, set, show day(s), travel-out — filtered by `day_restriction` if applicable). Shows call time per day if extracted from the inline `TIME / AGENDA` cell.
+- **Schedule tile** — days filtered by `date_restriction.kind`:
+  - `none` → all days (travel-in, set, show day(s), travel-out).
+  - `explicit` → only the listed dates plus a small "Restricted to <dates>" sublabel.
+  - `unknown_asterisk` → all days, but with a yellow callout reading "Day restriction unclear in the sheet — please verify with Doug" so the crew member knows the data is questionable. Same warning surfaces in Doug's parse panel per §6.6.
+  Within each day, shows call time per day if extracted from the inline `TIME / AGENDA` cell.
 - **Audio scope tile** — for A1 / LEAD / LEAD/A1 viewers. Aggregates `rooms[*].audio` across GS, breakouts, additional rooms.
 - **Video scope tile** — for V1 / LEAD / LEAD/V1 viewers. Same for `rooms[*].video`.
 - **Lighting scope tile** — for crew with relevant role flag. Same for `rooms[*].lighting`.
@@ -534,7 +543,8 @@ The card at the top of the page swaps content based on the relationship between 
 | `show_day_n` | today === showDays[n] | "Today: Show day N of M" + "Call: <time> · <room>" + "Strike: <time>" if last day |
 | `travel_out_day` | today === travelOut | "Today: Travel out" + "Hotel check-out: <hotel>" |
 | `post_show` | today > travelOut | "Wrapped <relative time> ago" with link to "view as archive" |
-| `unknown` | dates not parseable | "Show details: <travelIn> – <travelOut>" — fall back to a static date range |
+| `unknown` | one or more dates not parseable but at least one is | "Show details: <travelIn> – <travelOut>" with whatever was parsed; missing values render as "—". |
+| `dateless` | no parseable date at all | "Show details unavailable. Check the sheet's DATES block." Card uses the stale-tint color scheme to signal something is wrong. |
 
 **Compound transitions** (entered from one state, transitioning to another while data also changes):
 
@@ -629,13 +639,19 @@ Per §2 deferral list, agenda PDF parsing is out. But linked content is rendered
 |---|---|---|
 | Agenda PDF (`.pdf`, `.docx`) | `agenda_links[].fileId` or `.url` | "Open agenda" button. On tap: in-page sheet with PDF.js inline preview (or `<iframe>` for native Drive preview as fallback). `.docx` falls back to "Open in Drive" (no inline preview). |
 | Diagrams folder | `diagrams_link` | "Diagrams" tile. On tap: full-screen image gallery (swipeable), images fetched via Drive `files.list` on the folder + `files.get?alt=media` per image. Cached server-side. |
-| Opening reel video | `event_details.opening_reel` if URL | Inline `<video>` with `controls`. Fetched via Drive `files.get?alt=media`. Cached. Hidden if value is `N/A`/`NO`/`MAYBE`/text. |
+| Opening reel video | `event_details.opening_reel` if URL | The renderer detects a Drive URL by regex `^(https?://)?(drive\.google\.com|docs\.google\.com)/[^\s]+`. If matched, render inline `<video controls>` (or `<iframe>` for non-mp4 Drive files), proxied via `/api/asset/reel/<show>`. If the value is text only (`N/A`, `NO`, `MAYBE`, `YES`, `YES - LOOP VIDEO`, `TBD`, etc.), render as a small text line on the venue tile reading "Opening reel: <value>" and skip the player. Mixed values like `YES - <url>` get both: the text status and the player. |
 | Test pattern, Aptos fonts, II LED logo | various | NOT surfaced to crew. These are operations files. They appear in admin under a "Production assets" disclosure. |
 
 **Caching strategy** (Vercel Edge Cache + Supabase storage):
 - Diagram folder image lists are cached for 1 hour. On manual re-sync, cache is invalidated.
 - Individual diagram images are cached at the edge for 24 hours.
 - Opening reel videos are streamed through a Vercel function; not cached locally.
+
+**Caps on unbounded content:**
+- **Diagrams gallery:** up to 12 images shown in initial render; "Show more" reveals the rest. If the folder contains > 60 images, the gallery hides any beyond 60 and surfaces a parse warning + admin note ("Diagrams folder has 78 images — showing first 60. Likely needs trimming.").
+- **Notes tile (aggregated from every block's `notes`):** per-source items truncated at 280 characters with a "tap to expand" affordance. The tile itself shows up to 8 source items; remainder collapsed under "+N more notes."
+- **Crew tile:** all crew members are shown; observed max is 6, theoretical max ≈ 12 — within reason. No truncation.
+- **Hotel reservations:** up to 4 observed; rendered all. > 4 (defensive) reflows into a vertical list.
 
 **Auth note:** Drive content fetches use the service account credentials. The crew page never sees the raw Drive URL; it always goes through an app-controlled URL like `/api/asset/diagram/<show>/<filename>`. This avoids leaking Drive folder access to non-crew.
 
@@ -651,6 +667,7 @@ Per §2 deferral list, agenda PDF parsing is out. But linked content is rendered
 | **Sheet renamed/moved in Drive** | We track `drive_file_id` which survives rename/move. No effect. |
 | **Sheet deleted/un-shared** | `files.get` 404. `last_sync_status = 'auth_error'`. Doug's admin shows "this sheet is no longer accessible — re-share or restore." Page renders last-good. |
 | **Template version changes mid-show** | Per-pull version detection (§6.4) re-dispatches. Field aliases handle most renames; net-new fields land in `raw_unrecognized`. |
+| **No version marker matches** | Parser falls back to `v1` (most permissive) and emits a `VERSION_DETECTION_FAILED` warning naming all markers it tried. Doug's parse panel surfaces this as a hard-to-miss yellow banner. The page still renders from whatever the v1 dispatcher could extract. |
 | **Crew role changes** | Re-fetch on next page load applies new role-based filtering. No session invalidation needed (the JWT carries role for signed links — if role flips, Doug re-issues the link). |
 | **Show date moves** | Right Now card recomputes on next load and on every Realtime update. |
 
@@ -722,7 +739,11 @@ Issue labels auto-applied: `bug-report`, `severity:<info|warn|error>`, `area:par
 
 The submission writes a row to `reports` table for app-side history, populates `github_issue_url` once GitHub returns a URL.
 
-### 13.3 Closing the loop
+### 13.3 Rate limiting
+
+The report API (`/api/report`) is rate-limited at 10 reports per admin per hour. Exceeding the limit returns a 429 with a "Slow down — already opened a lot of issues. Take a break, or message Eric directly" message. Limits are enforced via a Supabase table `report_rate_limits` keyed by reporter email. This protects the GitHub repo from accidental spam (e.g., Doug clicking "Report" on every parse warning at once).
+
+### 13.4 Closing the loop
 
 When Eric closes the GitHub issue (with a referenced commit/PR), the next sync surfaces a "fixed" indicator next to the original warning. v1 implementation: a manual "mark resolved" button on the report row in admin. Webhook-based auto-close is a v2 polish.
 
@@ -843,10 +864,13 @@ Each milestone is a PR. Spec self-review and adversarial review run before miles
 
 ### 16.1 Open questions
 
+- **Drive content extraction call.** Either `files.export` to a markdown-flavored format (matches the corpus shape directly) or per-tab `spreadsheets.values.batchGet` (more structured, requires assembly into the corpus shape). Decide at parser-implementation time. Either feeds the same parser contract.
 - **Domain.** Spec uses `crew.fxav.show` as a placeholder. Eric to register the actual domain. Could also be a path on an existing site.
 - **Vercel cron 5-min cadence vs Drive push notifications.** Push (via `files.watch`) cuts staleness from minutes to seconds and reduces API calls, but adds webhook handling. Defer to v2 unless 5 min feels slow in practice.
 - **Crew-side "report a problem" button.** v1 only ships Doug-facing reporting. Crew may want one too. Decide after Doug's first show.
 - **Should ops fields ever be visible to non-LEAD?** PO# is operations-only today, but a non-LEAD A1 might genuinely need the COI status. Reconsider after Doug's feedback on first show.
+- **Slug generation strategy.** Auto-derive from `<year>-<month>-<title-slug>` (e.g., `2026-03-rpas-central`)? Allow Doug to edit? Decide in milestone 2 when slugs first need to exist.
+- **Date-restriction sanity check.** When `date_restriction.kind === 'explicit'`, should the parser warn if any of the listed dates fall outside the show's `dates.travelIn → dates.travelOut` span? (e.g., Calvin listed for `5/12 & 5/14` on a show that runs `5/13 → 5/15`.) Probably yes as a `DATE_RESTRICTION_OUTSIDE_SHOW_RANGE` warning, but defer the implementation to v2.
 
 ### 16.2 v2+ candidates (deferred but noted)
 
