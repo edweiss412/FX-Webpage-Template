@@ -1,6 +1,10 @@
 ### Goal
 
-I'm a freelance audio engineer (A1) doing mostly corporate events. FXAV is one of my main clinents for corporate AV. Doug Larson uses a sheets doc template for all of the events he PMs. The end goal of this project is a Webapp/webpage that doug can use to upload or connect his completed templated document. The uploaded/connected document is then used to generate interactive webpages for each event, customized for each crew member, links are generated and doug can then send a nice beautifully formatted (and more imporatantly is useful onsite for each crew member) web page (connected to the original sheets document, ideally live updated if possible) to each crew member rather than a dense spreadsheet doc
+I'm a freelance audio engineer (A1) doing mostly corporate events. FXAV is one of my main clients, and Doug Larson PMs every show using a Google Sheets template he fills out per event.
+
+The goal: a webapp where Doug uploads or connects his completed template, and it generates an interactive webpage per show — customized per crew member, with shareable links Doug can send out.
+
+The win: each crew member gets a beautifully formatted page that's actually useful onsite, instead of squinting at a dense spreadsheet. Ideally the page stays connected to the source sheet and updates live as Doug edits.
 
 ### Context
 
@@ -32,4 +36,9 @@ The fixture corpus lives in `fixtures/shows/`. It represents Doug Larson's templ
 - TRANSPORTATION can be per-person flight info with confirmation codes.
 - Some fields (PO#, Proposal, COI) are operations-only and should be hidden from non-lead crew pages.
 
-**Re-pulling source data:** Sheet IDs are documented in the schema diff (TBD). To re-fetch any sheet, use the Drive MCP `read_file_content` tool with the file ID. To find new shows, search Gmail for `from:dlarson@fxav.net subject:"Details for"` — Doug's standard email pattern includes a `https://docs.google.com/spreadsheets/d/<id>/edit` link in the body.
+**Companion docs:**
+
+- `fixtures/shows/README.md` — per-show index with sheet/PDF/email-thread IDs, venues, dates, and the noteworthy quirk per show. Use this to look up a specific show or add a new one.
+- `fixtures/shows/_schema-diff.md` — cross-fixture analysis (~80 fields, 4 template versions, cardinality, edge cases, parser recommendations). Use this for any field-level question or schema decision.
+
+**Re-pulling source data:** To re-fetch any sheet, use the Drive MCP `read_file_content` tool with the file ID from the README. To find new shows, search Gmail for `from:dlarson@fxav.net subject:"Details for"` — Doug's standard email pattern includes a `https://docs.google.com/spreadsheets/d/<id>/edit` link in the body.
