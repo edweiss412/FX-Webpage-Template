@@ -161,7 +161,7 @@ create table shows (
   -- developer accidentally writes a query that selects the whole shows row.
   -- See §4.4 for the policy rationale.
   last_synced_at  timestamptz,
-  last_sync_status text,                           -- "ok" | "parse_error" | "drive_error" | "sheet_unavailable" | "stale_write_aborted" | "concurrent_sync_skipped" | "pending_review" (first-seen sheet awaiting Doug's first-time approval, OR existing show staged for re-review) | "pending"
+  last_sync_status text,                           -- valid values: "ok" | "parse_error" | "drive_error" | "sheet_unavailable" | "pending_review" (an EXISTING approved show is staged for re-review per §6.8) | "pending" (initial state). NOTE: first-seen sheets DO NOT have a shows row at all — they live exclusively in pending_syncs (stage path) or pending_ingestions (hard-fail path) until first Apply per §5.2 / §9.1.1. Transient warnings like STALE_WRITE_ABORTED and CONCURRENT_SYNC_SKIPPED are sync_log entries, NOT show-level status — the show's status reflects its current health, not single-attempt outcomes.
   last_sync_error text,
   archived        boolean not null default false,
   last_seen_modified_time timestamptz,             -- per-show watermark: last Drive `modifiedTime` we successfully ingested. NOT a global cursor — each show is tracked independently so a failed parse on show A doesn't skip an unrelated update on show B (see §5.2).
@@ -375,6 +375,138 @@ A non-LEAD crew member querying directly via the Supabase client (using their ow
 
 ---
 
+### 4.5 Runtime configuration tables
+
+Two operator-controlled settings live in DB-backed tables (not env vars) so the §9.0 onboarding wizard and the per-show admin can change them at runtime without a redeploy:
+
+```sql
+-- Single-row settings table for global app configuration that an operator
+-- (Doug or Eric via /admin) is allowed to change. Singleton: PK = ('default').
+create table app_settings (
+  id                          text primary key default 'default' check (id = 'default'),
+  -- Active configuration consumed by cron and runtime:
+  watched_folder_id           text,                    -- Drive folder currently in use; cron syncs against this
+  watched_folder_name         text,                    -- captured at verification time, displayed in admin
+  watched_folder_set_by_email text,                    -- admin who completed onboarding
+  watched_folder_set_at       timestamptz,
+  -- Candidate (pending) configuration the wizard is currently reviewing.
+  -- Atomic folder switch: cron NEVER reads pending_*. The wizard writes its
+  -- candidate folder here during onboarding and only promotes
+  -- pending_folder_id -> watched_folder_id on wizard EXIT (after every found
+  -- sheet has a resolved disposition per §9.0 step 3). Re-run setup writes
+  -- only to pending_*; the active folder stays live until wizard completion.
+  pending_folder_id           text,
+  pending_folder_name         text,
+  pending_folder_set_by_email text,
+  pending_folder_set_at       timestamptz,
+  pending_wizard_session_id   uuid,                    -- generated at wizard start. All writes to pending_* and the final promotion CAS use it; lets two admins/tabs serialize cleanly. NULL when no wizard is in flight.
+  updated_at                  timestamptz not null default now()
+);
+insert into app_settings (id) values ('default') on conflict do nothing;
+
+-- Durable record of first-seen sheets the admin has chosen to defer or
+-- permanently ignore. Without this, Discard during onboarding (or later)
+-- would leave the next cron run re-staging the same sheet, defeating the
+-- "explicitly discarded for now" promise of §9.0.
+create table deferred_ingestions (
+  drive_file_id            text primary key,
+  deferred_kind            text not null check (deferred_kind in ('defer_until_modified', 'permanent_ignore')),
+  deferred_at_modified_time timestamptz,                -- the file.modifiedTime at the moment of deferral; cron skips this drive_file_id while file.modifiedTime <= this value (defer_until_modified) or always (permanent_ignore)
+  deferred_at              timestamptz not null default now(),
+  deferred_by_email        text not null,               -- admin who deferred
+  reason                   text                         -- optional free-text from admin
+);
+```
+
+RLS: both tables are admin-only.
+
+Lifecycle:
+- `app_settings.watched_folder_id` is `NULL` before the first onboarding wizard runs. The cron sync at §5.1 is a no-op when the value is `NULL` (logs `NO_FOLDER_CONFIGURED` once, then sleeps).
+- **Wizard start.** Admin clicking "Run setup" or "Re-run setup" generates a fresh `wizard_session_id` (UUID). The client opens the wizard and submits step 1's folder URL with this id. Server step-2 verification:
+  ```sql
+  UPDATE app_settings SET
+    pending_folder_id           = $folderId,
+    pending_folder_name         = $folderName,
+    pending_folder_set_by_email = $admin_email,
+    pending_folder_set_at       = now(),
+    pending_wizard_session_id   = $wizard_session_id,
+    updated_at                  = now()
+  WHERE id = 'default';
+  ```
+  This unconditionally overwrites prior pending state. **It does NOT touch `watched_folder_id`.** Cron and the running app keep using the existing active folder the entire time the wizard is open.
+- **Every subsequent wizard write** (admin reviewing scan results, deferring sheets, etc.) carries `wizard_session_id` and is gated by:
+  ```sql
+  ... WHERE pending_wizard_session_id = $submitted_id
+  ```
+  If 0 rows affected → the wizard returns "another setup wizard has been started; please refresh." This protects against stale tabs.
+- **Wizard exit (atomic promotion with session CAS):**
+  ```sql
+  UPDATE app_settings SET
+    watched_folder_id           = pending_folder_id,
+    watched_folder_name         = pending_folder_name,
+    watched_folder_set_by_email = pending_folder_set_by_email,
+    watched_folder_set_at       = pending_folder_set_at,
+    pending_folder_id           = NULL,
+    pending_folder_name         = NULL,
+    pending_folder_set_by_email = NULL,
+    pending_folder_set_at       = NULL,
+    pending_wizard_session_id   = NULL,
+    updated_at                  = now()
+  WHERE id = 'default'
+    AND pending_wizard_session_id = $submitted_id;  -- CAS: only THIS wizard can promote
+  ```
+  0 rows → another wizard ran and promoted in the meantime; this one's request fails with "your wizard session was superseded." The user retries from a fresh wizard.
+- **Abandoned wizard cleanup** (v1: opportunistic): the next admin to start a wizard overwrites the prior pending state. There is no automatic timeout-based cleanup in v1; abandoned `pending_*` data stays harmlessly until next wizard start. v2 candidate: TTL-based expiry on `pending_folder_set_at`.
+- `deferred_ingestions` rows are written by the §9.0 wizard step 3 (when admin discards a first-seen sheet during onboarding) and by §6.8.1's Discard-with-defer affordance (when admin discards a first-seen `pending_syncs` row from the dashboard with the "skip until edited" or "permanently ignore" option). Cron's per-file processor (§5.2) skips files whose `drive_file_id` has a matching `deferred_ingestions` row, with the file.modifiedTime check for `defer_until_modified`.
+
+### 4.6 Admin alerts
+
+Conditions that should be impossible (defended against by parser invariants and DB constraints) but that the runtime still has to handle defensively if they occur — primarily `AMBIGUOUS_EMAIL_BINDING` from `validateGoogleSession` — write a row here. The `/admin` dashboard renders unresolved rows as a top-bar critical banner that cannot be dismissed without clicking through to the affected show and confirming resolution.
+
+```sql
+create table admin_alerts (
+  id              uuid primary key default gen_random_uuid(),
+  show_id         uuid references shows(id) on delete cascade,  -- NULL for global alerts
+  code            text not null,                                -- e.g. 'AMBIGUOUS_EMAIL_BINDING'
+  context         jsonb not null,                               -- structured payload (e.g., colliding crew rows)
+  raised_at       timestamptz not null default now(),
+  last_seen_at    timestamptz not null default now(),           -- bumped on every UPSERT recurrence; lets ops see "this fault has been firing for N hours"
+  occurrence_count int not null default 1,                       -- count of times the validator hit this same condition since first raise
+  resolved_at     timestamptz,                                  -- NULL while unresolved; admin-acknowledged when populated
+  resolved_by     text                                          -- admin email
+);
+-- One unresolved row per (show_id, code). Recurrences UPSERT into the same
+-- row, bumping last_seen_at and occurrence_count. After resolution, the
+-- next recurrence inserts a fresh row (since the partial index allows
+-- multiple resolved rows for the same key).
+create unique index admin_alerts_one_unresolved_idx
+  on admin_alerts (coalesce(show_id::text, ''), code)
+  where resolved_at is null;
+create index admin_alerts_unresolved_recent_idx on admin_alerts (raised_at desc) where resolved_at is null;
+```
+
+RLS: admin-only. The dashboard reads `WHERE resolved_at IS NULL ORDER BY raised_at DESC`. Resolution flow: admin clicks through to the affected show, fixes the source of the alert (e.g., disambiguates duplicate emails in the sheet, then re-syncs), and clicks "Mark resolved" which writes `resolved_at = now()`. Until then, the banner persists.
+
+**UPSERT semantics for the validator** (one durable signal per fault, not one row per failing request):
+
+```sql
+INSERT INTO admin_alerts (show_id, code, context)
+VALUES ($1, $2, $3)
+ON CONFLICT (coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL
+DO UPDATE SET
+  last_seen_at      = now(),
+  occurrence_count  = admin_alerts.occurrence_count + 1,
+  context           = EXCLUDED.context;  -- keep the most recent context
+```
+
+If 100 crew members try to log in against a duplicate-email show, the dashboard shows ONE banner with `occurrence_count = 100`, not 100 separate banners.
+
+This table also provides the durable surface for any future "should-be-impossible-but-defended" code that doesn't naturally fit into `pending_ingestions` (which is keyed on `drive_file_id`) or `sync_log` (which is per-attempt and not surfaced as an alert). v1 has only one such code (`AMBIGUOUS_EMAIL_BINDING`); the table exists so future codes have a home.
+
+**AC** (added to §17.1 milestone 5): AC-5.12 — synthesizing the duplicate-email condition at runtime (bypassing MI-5b in test setup) writes an `admin_alerts` row visible in the dashboard's top-bar banner; resolving it removes the banner.
+
+---
+
 ## 5. Sync pipeline
 
 ### 5.1 Trigger and cadence
@@ -387,26 +519,38 @@ A non-LEAD crew member querying directly via the Supabase client (using their ow
 
 There is **no global watermark**. Each show is tracked independently via `shows.last_seen_modified_time`; a failure on show A cannot cause us to miss an update on show B.
 
-**Two entry points** (both call into the same per-file processor at step 3):
+**Three entry points** (all call into the same per-file processor at step 3):
 
-- **`runScheduledCronSync()`** — invoked by Vercel Cron in `mode: "cron"`. Performs the folder-wide listing in step 2 and processes every file returned. This is the default sweep.
+- **`runScheduledCronSync()`** — invoked by Vercel Cron in `mode: "cron"`. Performs the folder-wide listing in step 2 and processes every file returned. Reads the watched folder ID from `app_settings.watched_folder_id`; if NULL, no-ops.
+- **`runOnboardingScan(folderId)`** — invoked by the §9.0 onboarding wizard step 2 verification path. Folder-wide listing using the supplied `folderId`. **Stage-only mode**: this entry point uses `mode: "onboarding_scan"`, which is structurally different from `cron` / `manual` / `recovery`. It runs Phase 1 (parse + invariant check) but **NEVER enters Phase 2 (destructive snapshot replacement)**, regardless of whether MI invariants would otherwise auto-apply. Outcomes:
+  - **Hard fail (MI-1..MI-5b)**: write to `pending_ingestions` as usual.
+  - **Stage-for-approval (MI-6..MI-14) OR auto-apply-eligible**: BOTH paths write to `pending_syncs` for wizard review. There is no auto-apply during onboarding. This is the rule that closes the round-27 "scan-time mutate live shows" hole — re-running setup against a folder that contains existing-show sheets cannot replace their live data, because Phase 2 doesn't run.
+  - The `triggered_review_items` for an otherwise-clean parse during onboarding gets a single `ONBOARDING_SCAN_REVIEW` sentinel item (action `apply` only) so admin still has to explicitly approve it. (Distinct from `FIRST_SEEN_REVIEW` because the show may not actually be first-seen.)
+- The promotion of pending → active happens at wizard exit (§9.0 step 3 + §4.5 lifecycle), not during the scan.
 - **`runManualSyncForShow(driveFileId, mode = "manual" | "recovery")`** — invoked by the admin "Re-sync" button at `/admin/show/<slug>` (which resolves slug → drive_file_id) and by the recovery path when a `sheet_unavailable` show reappears. **Skips the folder listing entirely** — fetches and processes ONLY the selected `drive_file_id`. This means a manual click can never destructive-replay parses for unrelated shows. Step 2's folder listing is replaced by `files.get(driveFileId)` (or sentinel "file not in folder" handling if the file isn't accessible).
 
-The remainder of this section describes the per-file processor; both entry points feed into it identically from step 3 onward.
+All three entry points feed into the per-file processor identically from step 3 onward.
 
 1. Authenticate with Drive using the service account credentials (env var `GOOGLE_SERVICE_ACCOUNT_JSON`).
-2. **Cron entry point only** — call `files.list` with **folder-scoped** parameters (Drive API does NOT auto-scope by folder; the parent constraint must be explicit). For the manual entry point, this step is replaced by a single `files.get(driveFileId, fields="id, name, modifiedTime, parents")` call; if the file is not in the watched folder (parents check) or returns 404, the manual run records the error and returns without entering the per-file loop.
+2. **Cron and onboarding-scan entry points** — call `files.list` with **folder-scoped** parameters using `app_settings.watched_folder_id` (Drive API does NOT auto-scope by folder; the parent constraint must be explicit). The cron path reads the folder ID from `app_settings`; the onboarding-scan path uses the `folderId` argument passed by the wizard (which has not yet been written to `app_settings`). If `app_settings.watched_folder_id IS NULL` and the call site is cron, log `NO_FOLDER_CONFIGURED` and return immediately (no-op, no error). For the manual single-show entry point, this step is replaced by a single `files.get(driveFileId, fields="id, name, modifiedTime, parents")` call; if the file is not in the configured watched folder (parents check) or returns 404, the manual run records the error and returns without entering the per-file loop.
    ```
-   q: "'<WATCHED_DRIVE_FOLDER_ID>' in parents
+   q: "'<watched_folder_id>' in parents
         and mimeType = 'application/vnd.google-apps.spreadsheet'
         and trashed = false"
+   // <watched_folder_id> = app_settings.watched_folder_id (cron) or the
+   // folderId argument from the onboarding wizard (runOnboardingScan)
    pageSize: 100
    fields: "nextPageToken, files(id, name, modifiedTime, parents)"
    ```
    **Paginate until `nextPageToken` is absent** — never trust a single page. **No `modifiedTime` filter** — list every sheet in the folder every run; per-file decisions about whether to reprocess are made later via per-show `last_seen_modified_time`. With ~14 sheets total and ~12 runs/hour, this is well under any Drive quota.
 
-   Defensive check: if any returned file's `parents` array does not contain `<WATCHED_DRIVE_FOLDER_ID>` (Drive supports multi-parenting; this guards against unexpected Drive behavior), drop it from the listing and emit a `UNEXPECTED_PARENT` warning to `sync_log`.
+   Defensive check: if any returned file's `parents` array does not contain the configured `watched_folder_id` (Drive supports multi-parenting; this guards against unexpected Drive behavior), drop it from the listing and emit a `UNEXPECTED_PARENT` warning to `sync_log`.
 3. For each file in the listing:
+   - **Deferral check (cron only):** if `deferred_ingestions` has a row for this `drive_file_id`:
+     - `permanent_ignore` → skip unconditionally; never re-stage.
+     - `defer_until_modified` AND `file.modifiedTime <= deferred_ingestions.deferred_at_modified_time` → skip.
+     - `defer_until_modified` AND `file.modifiedTime > deferred_ingestions.deferred_at_modified_time` → DELETE the deferral row (the file has been edited; resume normal processing) and continue.
+     The onboarding scan and manual sync ignore deferral rows by design — admin's explicit action overrides the deferral.
    - Look up the matching `shows` row by `drive_file_id`. **Do NOT auto-create a stub** — the schema requires non-null `slug`, `title`, `client_label`, `template_version`, none of which exist before parsing. First-seen sheets without a `shows` row enter the "first-seen" path: parse first, then create the row with parsed metadata in Phase 2 (auto-apply) or in the Phase 1 staging path (pending review). For first-seen sheets the `(prior shows.last_seen_modified_time)` value used for `pending_syncs.base_modified_time` is `NULL` — the CAS in §6.8.1 explicitly handles `IS NOT DISTINCT FROM NULL` for this case.
    - **Watermark gate** — only the **automatic cron** path consults the watermark. Manual re-sync triggered from `/admin/show/<slug>` and `sheet_unavailable`-recovery runs (after a previously-removed sheet reappears) skip the gate. The two run modes are distinguished by an explicit `mode: "cron" | "manual"` parameter passed into the sync function:
      - `mode === "cron"` AND `file.modifiedTime <= shows.last_seen_modified_time` → skip (no work to do).
@@ -694,7 +838,7 @@ The §5.2 transaction does destructive replacement (`DELETE FROM crew_members WH
 
 | # | Invariant | Outcome on failure |
 |---|---|---|
-| MI-1 | Version detection succeeded (`templateVersion ∈ {v1,v2,v3,v4}`) AND no `VERSION_DETECTION_FAILED` warning raised | Hard fail |
+| MI-1 | Version detection succeeded (`templateVersion ∈ {v1,v2,v3,v4}`) AND no `MI-1_VERSION_DETECTION_FAILED` warning raised | Hard fail |
 | MI-2 | `show.title` is a non-empty string | Hard fail |
 | MI-3 | At least one of `dates.travelIn`, `dates.set`, or `dates.showDays[0]` parsed to a valid date | Hard fail |
 | MI-4 | `crewMembers.length >= 1` | Hard fail |
@@ -767,6 +911,7 @@ The client sends only `(item_id, action)` pairs. All other parameters (which cre
 | Triggered item invariant | Valid `action` values | Server-derived auth side-effects |
 |---|---|---|
 | FIRST_SEEN_REVIEW | `apply` | none. The sentinel just confirms Doug has reviewed the brand-new sheet. Apply proceeds as normal first-seen Apply (creates the `shows` row with derived slug, runs Phase 2). |
+| ONBOARDING_SCAN_REVIEW | `apply` | none. Sentinel for files that would have auto-applied except they came from `runOnboardingScan` (`mode: "onboarding_scan"`) which never runs Phase 2 directly. Apply runs the standard Phase 2 flow against the (still possibly active) folder once the wizard exits. |
 | MI-6, MI-7, MI-7b, MI-8, MI-10 | `apply` | none (no auth floor bump) |
 | MI-9 (role_flags change) | `apply` | none — role propagates via Phase 2 UPSERT, takes effect on next request |
 | MI-11 (email change, same name) | `apply` | bump auth floor for `item.crew_name` |
@@ -823,11 +968,17 @@ create index sync_audit_drive_file_id_idx on sync_audit (drive_file_id, applied_
 
 Every Apply produces exactly one `sync_audit` row. This is the canonical record of "who approved what, with which decisions, against what staged version, with what auth side-effects." If a revoke is later observed to have been missed (or unexpectedly applied), `sync_audit` is the source of truth for forensic recovery. RLS: admin-only.
 
-When admin clicks "Discard":
-- Inside the advisory lock and a single transaction:
-  - For an **existing-show** stage: read `pending_syncs.prior_last_sync_status` and `prior_last_sync_error`. UPDATE `shows SET last_sync_status = $prior_status, last_sync_error = $prior_error WHERE drive_file_id = $1`. DELETE the `pending_syncs` row. The page continues serving the prior approved snapshot, and the dashboard's status indicator returns to exactly the value it had before staging (which may itself be a non-`ok` state like `sheet_unavailable` — important so Discard does not falsely make a degraded show look healthy).
-  - For a **first-seen** stage: there is no `shows` row. The discard simply DELETEs the `pending_syncs` row; the next cron run re-fetches and re-stages (or passes / hard-fails) from scratch. No URL slug is reserved until first successful Apply.
-- COMMIT. Lock auto-releases.
+When admin clicks "Discard" — Discard variants depend on stage type and admin's intent:
+
+**Existing-show stage** has one Discard variant:
+- Inside the advisory lock + transaction: read `pending_syncs.prior_last_sync_status` / `prior_last_sync_error`. `UPDATE shows SET last_sync_status = $prior_status, last_sync_error = $prior_error WHERE drive_file_id = $1`. DELETE the `pending_syncs` row. COMMIT. The page continues serving the prior approved snapshot. Status indicator returns to its pre-stage value (which may itself be a non-`ok` state like `sheet_unavailable` — Discard does not falsely make a degraded show look healthy). The next cron run will re-parse the (still-modified) sheet and re-stage if invariants still trip.
+
+**First-seen stage** has THREE Discard variants because the staged data has no prior snapshot to fall back to and we need to control whether the file re-stages on the next cron run:
+- **"Discard — try again next sync"** (default if admin doesn't pick): DELETE the `pending_syncs` row. No `deferred_ingestions` row written. The next cron run re-fetches and re-stages from scratch. Use this when admin meant "I'll come back to this." This is the only Discard path that DOES leave the wizard non-finalizable per §9.0 step 3 — the wizard explicitly cannot consider this state "complete."
+- **"Discard — skip until edited"** (`defer_until_modified`): DELETE the `pending_syncs` row. INSERT a `deferred_ingestions` row with `deferred_kind = 'defer_until_modified'` and `deferred_at_modified_time = pending_syncs.staged_modified_time`. Cron skips this `drive_file_id` until Doug edits the sheet (Drive bumps modifiedTime); then the deferral row is auto-DELETEd and processing resumes. Use this for WIP sheets Doug isn't ready to review yet.
+- **"Discard — permanently ignore"** (`permanent_ignore`): DELETE the `pending_syncs` row. INSERT a `deferred_ingestions` row with `deferred_kind = 'permanent_ignore'`. Cron skips this `drive_file_id` indefinitely until admin manually deletes the deferral row. Use this for sheets that don't belong (someone shared a wrong file into the folder, etc.).
+
+The §9.0 wizard step 3 considers a sheet "resolved for onboarding completion" if any of: applied (becomes a `shows` row), discarded with `defer_until_modified`, or discarded with `permanent_ignore`. The default "try again next sync" variant does NOT count as resolved — the wizard prompts admin to pick one of the three terminal actions before letting onboarding complete.
 
 Hard errors (`hardErrors[]`) from the parser itself remain reserved for unrecoverable structural failures (e.g., the input wasn't a markdown table at all). The minimum invariants are layered on top of `hardErrors` and catch the "parse succeeded technically but the output is suspicious" case.
 
@@ -1066,7 +1217,7 @@ For every request to `/show/<slug>` (or any data fetch behind a redeemed link), 
 **Google-session authorization is structurally different and uses its own validator** (`lib/auth/validateGoogleSession(req)`):
 
 1. Verify the Supabase Auth session is present and unexpired.
-2. Look up `canonicalize(supabase.user.email)` against `crew_members.email` for the requested show. The DB column is already canonical per §4.1.1, so the comparison is exact-match on canonical form. If no match → 403 with "your email isn't on the crew list for this show." **If multi-match → 500 with `AMBIGUOUS_EMAIL_BINDING`** (this should be impossible because of the `crew_members_show_email_unique` partial index plus MI-5b, but the validator must explicitly reject rather than pick a row to defend against any future schema regression). Admin gets a `pending_ingestions`-equivalent alert; Doug fixes the duplicate in the sheet.
+2. Look up `canonicalize(supabase.user.email)` against `crew_members.email` for the requested show. The DB column is already canonical per §4.1.1, so the comparison is exact-match on canonical form. If no match → 403 with "your email isn't on the crew list for this show." **If multi-match → 500 with `AMBIGUOUS_EMAIL_BINDING`** (this should be impossible because of the `crew_members_show_email_unique` partial index plus MI-5b, but the validator must explicitly reject rather than pick a row to defend against any future schema regression). The notification path is concrete (see §4.6 below): the validator INSERTs into `admin_alerts` keyed on `(show_id, code)` with the colliding crew rows captured in `context` JSONB. The dashboard renders any unresolved `admin_alerts` row as a top-bar critical banner that cannot be dismissed without clicking through to the affected show.
 3. **Removal is the only revocation primitive for Google sessions.** When Doug removes a crew member from the sheet, sync's `delete-not-in-set` step removes the `crew_members` row, which causes step 2 to fail on the user's next request. There is no separate "revoke Google login" affordance.
 4. Derive `viewerRole` from current `crew_members.role_flags`. Apply role-based field hiding (§7.4).
 5. Render.
@@ -1239,13 +1390,13 @@ The wizard never says "files.list returned 403." It says one of the three things
 
 **Step 3 — "First sheets review."**
 
-After verification, the app stores `WATCHED_DRIVE_FOLDER_ID` and triggers an immediate sync run in `mode: "manual"`. Doug sees a one-time list of every sheet found in the folder, each with a small status badge:
+After verification, the wizard calls `runOnboardingScan(folderId)` (§5.2) which performs a folder-wide scan against the supplied folder ID **without** writing to `app_settings` yet. The wizard collects per-sheet status from the scan and shows it as a one-time list:
 
 - **Parsed and ready** — green check; click to review and approve (every first-seen sheet stages, see §5.2/§6.8 — Doug always reviews a first-time parse before it goes live, even if invariants would otherwise auto-apply).
 - **Couldn't parse** — yellow warning with the plain-English MI failure ("This sheet doesn't look like your usual template — version markers we expect are missing"); click to see details.
 - **Skipped (not a Google Sheet)** — gray badge for non-spreadsheet items in the folder; informational only.
 
-Doug walks each sheet through review one at a time — same review surface as §6.8 / §6.8.1, just batch-presented for first onboarding. No partial-onboarding states: the wizard exits when all sheets in the folder are either approved/applied or have a reason captured (couldn't parse / explicitly discarded for now).
+Doug walks each sheet through review one at a time — same review surface as §6.8 / §6.8.1, just batch-presented for first onboarding. No partial-onboarding states: the wizard exits when all sheets in the folder are either approved/applied or have a reason captured (couldn't parse / explicitly discarded for now). **Only on wizard exit** does the app write `app_settings.watched_folder_id = $folderId` (plus `watched_folder_name`, `watched_folder_set_by_email`, `watched_folder_set_at`). Until that write commits, the cron sync remains in its `NO_FOLDER_CONFIGURED` no-op state. This guarantees that a partial wizard run cannot leave a dangling configured-but-unreviewed state.
 
 **After onboarding.** The wizard never re-runs unless Doug clicks "Re-run setup" from `/admin` settings (e.g., he wants to point at a different folder). All subsequent sheet additions to the watched folder go through the normal cron + first-seen-stage flow.
 
@@ -1281,9 +1432,19 @@ Empty state if no shows: instructions to share the Drive folder with the service
 
 Both queues live here so brand-new sheets that need attention are visible alongside successful shows. **No public `/show/<slug>` URL is reserved until first successful Apply** — Discard cannot leak slugs.
 
+### 9.1.1 Existing-show staged-review surface
+
+Any existing show with a matching `pending_syncs` row (i.e., a re-stage of an already-live show; not a first-seen) appears with a **distinct status badge in the dashboard's Active Shows panel** — not in the "Sheets we couldn't auto-apply" panel (which is for first-seen). The active-shows row's status badge becomes "⚠ Review staged changes" (yellow), the "Last sync" cell shows the staged_modified_time + the count of triggered review items, and the row's primary action becomes "Review staged changes" linking directly to `/admin/show/<slug>?review=staged_id` (the review surface inside the per-show parse panel — see §9.2 below).
+
+A show in re-stage state continues to render its prior approved snapshot to crew (per §5.2 Phase 1 outcome 2: re-stage updates `last_sync_status` to `pending_review` but doesn't touch the live data). The dashboard makes this state findable so it cannot sit indefinitely.
+
+**Both first-seen and re-stage queues are durable**: first-seen `pending_syncs` rows live in the dashboard's "Sheets we couldn't auto-apply" panel; re-stage `pending_syncs` rows live in the Active Shows panel as "Review staged changes." A staged row never disappears without an Apply or Discard action.
+
 ### 9.2 `/admin/show/<slug>` — per-show parse panel
 
-Three sub-sections:
+Four sub-sections (the first appears only when a `pending_syncs` row exists for this show):
+
+0. **Staged review (when `pending_syncs.drive_file_id = shows.drive_file_id` exists)** — appears at the top of the panel as a yellow "Action required" card. Lists every `triggered_review_items[]` entry with its plain-language description (looked up via §12.4 codes), the staged Apply/Discard pair of buttons, and the diff between prior and incoming for each affected section (crew, hotels, rooms, etc.). Apply submits the §6.8.2 reviewer-choices payload; Discard runs §6.8.1's restore-prior-status flow. The card also surfaces `staged_modified_time` ("staged from edits Doug made on …") so admin knows what version they're approving. While this card is present, the §9.2 1–3 sub-sections render below as informational context. Re-stage of an existing show is the canonical path through this surface; first-seen review uses the same UI shape but reached via the dashboard's "Sheets we couldn't auto-apply" panel.
 
 1. **Sync health** — last 5 sync attempts with status and duration. Manual re-sync button.
 2. **Parse warnings** — list of `parse_warnings` entries. Each warning has:
@@ -1351,7 +1512,7 @@ Per §2 deferral list, agenda PDF parsing is out. But linked content is rendered
 | **Sheet renamed/moved in Drive** | We track `drive_file_id` which survives rename/move. No effect. |
 | **Sheet deleted, un-shared, or moved out of scope** | Detected by §5.2 step 4 (diff Drive listing against `shows` rows). Marked `last_sync_status = 'sheet_unavailable'`. `last_seen_modified_time` is preserved so the cached parsed data still renders on the crew page. Doug's admin shows "this sheet is no longer accessible — re-share or restore." If the sheet returns to the watched folder later, the next sync detects it via the listing and resumes normal updates. The legacy `files.get 404` path remains as a defensive secondary detection for the narrow race where a file disappears between list and fetch within the same run. |
 | **Template version changes mid-show** | Per-pull version detection (§6.4) re-dispatches. Field aliases handle most renames; net-new fields land in `shows_internal.raw_unrecognized`. |
-| **No version marker matches** | Parser emits `VERSION_DETECTION_FAILED` and the run hard-fails per MI-1 (§6.8). The prior-snapshot data is retained on the live page (or, for first-seen sheets, the failure surfaces in `pending_ingestions`). **There is no permissive v1-fallback render** — earlier rounds of this spec described one, but it conflicts with MI-1's hard-fail contract and could push partial / incorrect data into the live snapshot. Hard-fail is the single contract: don't trust an unrecognized template. Doug's parse panel surfaces this as a hard-to-miss banner with the exact markers the parser was looking for. |
+| **No version marker matches** | Parser emits `MI-1_VERSION_DETECTION_FAILED` and the run hard-fails per MI-1 (§6.8). The prior-snapshot data is retained on the live page (or, for first-seen sheets, the failure surfaces in `pending_ingestions`). **There is no permissive v1-fallback render** — earlier rounds of this spec described one, but it conflicts with MI-1's hard-fail contract and could push partial / incorrect data into the live snapshot. Hard-fail is the single contract: don't trust an unrecognized template. Doug's parse panel surfaces this as a hard-to-miss banner with the exact markers the parser was looking for. |
 | **Crew role changes** | Re-fetch on next page load applies new role-based filtering. **No session invalidation needed and no signed-link re-issue needed.** Per §7.2 the JWT carries no `role` claim; role is always derived fresh from the current `crew_members.role_flags`. A demotion from LEAD to A1 takes effect on the very next request to the page, with no token rotation. |
 | **Show date moves** | Right Now card recomputes on next load and on every Realtime update. |
 
@@ -1397,7 +1558,7 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | `LEAKED_LINK_DETECTED` | `?t=` query-param URL detected | "A signed link was opened with `?t=` in the URL — we treat that as a possible leak. The affected link has been auto-revoked and the crew member's row is in 'no live link' state. Click 'Issue new link' for them when you're ready." | "This link format isn't supported and has been revoked. Ask Doug for a new one." | Doug → Issue new link |
 | **Auth — Google login** | | | | |
 | `GOOGLE_NO_CREW_MATCH` | signed-in email isn't on any crew row in this show | — | "Your email isn't on the crew list for this show. Ask Doug to add you." | Crew → text Doug |
-| `GOOGLE_AMBIGUOUS_EMAIL` | multi-match (should be impossible per MI-5b) | "Two crew rows share the same email — Google login is unsafe to resolve. The duplicate-email check normally catches this; please re-share the sheet so we can re-parse, or contact the developer." | "Something is misconfigured for this show. Doug has been notified." | Doug → fix sheet duplicate; if persistent, Eric |
+| `AMBIGUOUS_EMAIL_BINDING` | multi-match (should be impossible per MI-5b + partial unique index) | "Two crew rows share the same email — Google login is unsafe to resolve. The duplicate-email check normally catches this; please re-share the sheet so we can re-parse, or contact the developer." | "Something is misconfigured for this show. Doug has been notified." | Doug → fix sheet duplicate; if persistent, Eric |
 | `SESSION_IDLE_TIMEOUT` | cookie session past 15-min idle window | — | "Your session timed out. Open the original link Doug shared again." | Crew → reopen link |
 | `SESSION_ABSOLUTE_TIMEOUT` | cookie session past 12h absolute | — | "Time to refresh — open the original link Doug shared again." | Crew → reopen link |
 | **Sync — Drive errors** | | | | |
@@ -1416,6 +1577,8 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | `MI-5_NO_ROOMS` | no GS / breakout / additional rooms | "*<sheet-name>* has no rooms — we couldn't find General Session, Breakouts, or Additional Rooms. Make sure your room blocks have setup and time fields filled in." | — | Doug → fix sheet |
 | `MI-5a_DUPLICATE_CREW_NAME` | two crew rows share a name | "Two crew rows share the same name in *<sheet-name>*. Disambiguate them (e.g., 'John C.' vs 'John Carleo') so the app can tell them apart." | — | Doug → fix sheet |
 | `MI-5b_DUPLICATE_CREW_EMAIL` | two crew rows share a non-null email | "Two crew rows share the same email in *<sheet-name>*. Each crew member needs their own email." | — | Doug → fix sheet |
+| `SLUG_COLLISION_LIMIT` | slug derivation reached `-99` collision suffix without finding a free slug | "We couldn't generate a unique URL for *<sheet-name>* — there are too many shows with very similar titles and dates. The developer has been notified." (admin-only; very unlikely in practice — implies a parser bug) | — | Eric → investigate |
+| `NO_FOLDER_CONFIGURED` | cron run before §9.0 onboarding wizard sets `app_settings.watched_folder_id` | (admin-log only on first occurrence; the dashboard explicitly shows the onboarding wizard CTA when no folder is configured, not an error) | — | Doug → run setup wizard |
 | **Parser — stage-for-approval (MI-6..MI-14)** | | | | |
 | `MI-6_CREW_SHRINKAGE` | crew count dropped > 1 | "Heads-up: *<sheet-name>* now has *<N>* crew rows (was *<M>*). Review the changes before applying." | — | Doug → review staged |
 | `MI-7_SECTION_SHRINKAGE` | hotel/room/contact count dropped > 50% | "*<sheet-name>* lost more than half of its *<section>* — *<prior_count>* before, *<new_count>* now. Review before applying." | — | Doug → review staged |
@@ -1465,7 +1628,7 @@ Each report opens a GitHub issue in a designated repo (default: this repo, `eric
 
 **Issue body template:**
 
-```markdown
+````markdown
 **Reported by:** <doug-or-admin email>
 **Show:** <title> (`<slug>`)
 **Surface:** <admin parse panel | preview-as page | other>
@@ -1486,7 +1649,7 @@ Each report opens a GitHub issue in a designated repo (default: this repo, `eric
 **Last sync:** <timestamp>
 **Drive file ID:** <id>
 **Reporter URL:** <admin URL where the report was submitted>
-```
+````
 
 Issue labels auto-applied: `bug-report`, `severity:<info|warn|error>`, `area:parser` (or `area:render`, `area:sync`, etc.).
 
@@ -1584,7 +1747,7 @@ docs/
 | Var | Purpose |
 |---|---|
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | Drive API auth |
-| `WATCHED_DRIVE_FOLDER_ID` | Folder Doug shares |
+| ~~`WATCHED_DRIVE_FOLDER_ID`~~ | **Not an env var.** Folder ID lives in `app_settings` (§4.5), set by Doug via the onboarding wizard (§9.0). Forcing a redeploy to change folders defeats the wizard's whole purpose. |
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase |
 | `JWT_SIGNING_SECRET` | Signed-link tokens |
 | `GITHUB_API_TOKEN` | GH Issues integration |
@@ -1730,7 +1893,8 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-10.1 First-visit `/admin` (no folder configured) shows the §9.0 wizard, not the dashboard.
 - AC-10.2 Wizard step-2 verification produces the documented success/failure messages for each path (success, malformed URL, not-shared, operator-error).
 - AC-10.3 After wizard completion, every sheet in the folder appears in the §9.0 step-3 review list with the correct status badge.
-- AC-10.4 Re-running setup from `/admin` settings clears `WATCHED_DRIVE_FOLDER_ID` and re-presents the wizard.
+- AC-10.4 Re-running setup from `/admin` settings opens the wizard with empty `pending_folder_*` fields. **`watched_folder_id` is NOT cleared** — the existing active folder keeps syncing while the wizard runs. Promotion happens only on wizard exit, atomic per the §4.5 SQL.
+- AC-10.5 Mid-wizard abandonment: leave the wizard open, navigate away. Cron continues to use the existing `watched_folder_id`; `pending_folder_*` may persist as orphan state. Next "Re-run setup" overwrites it. There is no live-sync blackout during the re-run.
 
 ### 17.2 Cross-cutting acceptance criteria (apply across milestones)
 
