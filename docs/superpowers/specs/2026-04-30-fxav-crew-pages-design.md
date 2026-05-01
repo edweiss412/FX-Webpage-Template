@@ -1639,6 +1639,114 @@ Each milestone is a PR. Spec self-review and adversarial review run before miles
 
 ---
 
+## 17. Testability acceptance criteria
+
+This section is **observable contracts**, not test files. Each criterion below is what an automated test or manual check must demonstrate before the corresponding milestone in §15 is considered done. The implementation plan (writing-plans output) will turn each criterion into a concrete test (Vitest, Playwright, or scripted manual check); this spec just commits to what's testable. **Spec is signed off when every criterion has a clear path to an automated assertion.**
+
+Acceptance criteria are the contract between this spec and the implementation. If an implementer can produce code that passes every criterion below, the spec is implemented; if they can't make a criterion pass without violating the spec, the spec has a bug.
+
+### 17.1 Per-milestone acceptance criteria
+
+**Milestone 1 — Parser standalone.**
+- AC-1.1 `parseSheet(markdown)` returns a `ParseResult` with no `hardErrors` for every fixture in `fixtures/shows/raw/` (10 sheets across v1–v4 templates).
+- AC-1.2 For each fixture, `parseResult.show.title`, `dates.travelIn`, `crewMembers[*].name`, and at least one room block are populated.
+- AC-1.3 Day-restriction parser correctly extracts explicit days from the `Calvin Saller (6/24 and 6/26 ONLY)` form (verified against `2025-06-ria-investment-forum.md:32`).
+- AC-1.4 Day-restriction parser correctly emits `kind: "unknown_asterisk"` for the 2026 `ONLY***` form (verified against `2026-03-rpas-central-four-seasons.md:38`).
+- AC-1.5 Role-flags parser produces atomic-only output: `LEAD / A1` becomes `["LEAD","A1"]`, never `["LEAD/A1"]`.
+- AC-1.6 Email canonicalization passes: `Alice@FXAV.NET ` is stored as `alice@fxav.net`. CHECK constraint on the column rejects non-canonical writes.
+- AC-1.7 MI-5a hard-fails when a fixture has duplicate crew names (synthesize a test fixture).
+- AC-1.8 MI-5b hard-fails when two crew rows share an email (synthesize a test fixture).
+- AC-1.9 Slug derivation is deterministic and immutable: `deriveSlug(parseResult, [])` returns the same string twice.
+- AC-1.10 Slug collision policy: `deriveSlug(parseResult, [<existing>])` produces `<existing>-2`; second collision produces `-3`; reaches `SLUG_COLLISION_LIMIT` hard error at 100.
+
+**Milestone 2 — Schema + DB migrations.**
+- AC-2.1 Every table from §4.1 (`shows`, `shows_internal`, `crew_members`, `crew_member_auth`, `revoked_links`, `link_sessions`, `pending_syncs`, `pending_ingestions`, `sync_audit`, `sync_log`, `reports`, `report_rate_limits`, `hotel_reservations`, `rooms`, `transportation`, `contacts`) exists with the documented columns and constraints.
+- AC-2.2 `crew_members_show_email_unique` partial index rejects a duplicate insert with same `(show_id, email)` when both have non-null emails.
+- AC-2.3 `crew_members_email_canonical` CHECK constraint rejects an insert with `email = 'Alice@FXAV.NET'`.
+- AC-2.4 `revoked_links.token_version` CHECK rejects `INSERT ... VALUES (..., 0, ...)`.
+- AC-2.5 RLS: a non-admin Supabase Auth session cannot SELECT any row from `shows_internal`, `pending_syncs`, `pending_ingestions`, `sync_audit`, `crew_member_auth`, or `revoked_links`.
+- AC-2.6 RLS: a non-admin signed-in user whose email matches a `crew_members.email` for show X CAN SELECT the matching `shows` row, but a non-matching user (different show) cannot.
+- AC-2.7 Seed script loads all 10 fixtures into the schema with no errors.
+
+**Milestone 3 — Admin upload-test (no auth).**
+- AC-3.1 `/admin/dev` accepts a fixture filename, runs the parser, runs MI invariants, and routes to the correct outcome (auto-apply / stage / hard-fail) based on the parsed content.
+- AC-3.2 A fixture with synthesized MI-7 (50% hotel drop) lands in `pending_syncs` with the right `triggered_review_items`.
+- AC-3.3 A fixture with synthesized MI-1 (no version markers) lands in `pending_ingestions` with `last_error_code = "MI-1_VERSION_DETECTION_FAILED"`.
+
+**Milestone 4 — Crew page (no auth).**
+- AC-4.1 `/show/<slug>` rendered with hardcoded role `A1` shows Lodging, Venue, Schedule, Audio scope, Crew, Contacts tiles. No Ops tile.
+- AC-4.2 `/show/<slug>` rendered with hardcoded role `LEAD` shows Ops tile in addition.
+- AC-4.3 Right Now card renders the correct state for a synthesized "today is Show Day 1" fixture, including the viewer-aware states (`viewer_off_day`, `viewer_after_last_day`, `viewer_unconfirmed`).
+- AC-4.4 §8.4 dimensional invariants: a Playwright test loads the page at 390px width and asserts `getBoundingClientRect()` per `data-testid` matches the spec (tile min-height 96px, two-column grid, etc.).
+- AC-4.5 Empty-state discipline: a fixture with `Opening Reel = TBD` does NOT render an "Opening Reel: TBD" line on the crew page.
+- AC-4.6 Schedule tile for `unknown_asterisk` crew renders the "days unconfirmed" message and NO per-day schedule.
+
+**Milestone 5 — Auth.**
+- AC-5.1 `validateLinkSession` rejects a JWT whose signature is invalid (401).
+- AC-5.2 `validateLinkSession` rejects a JWT whose `tokenVersion` is older than `crew_member_auth.current_token_version` (410).
+- AC-5.3 `validateLinkSession` rejects a JWT whose `tokenVersion` is newer than `crew_member_auth.current_token_version` (410). Strict equality, not `<`.
+- AC-5.4 `validateLinkSession` rejects when the session's `jwt_token_version <= crew_member_auth.revoked_below_version` (410).
+- AC-5.5 `validateLinkSession` rejects when there's a matching `revoked_links` row with the exact `token_version` (410).
+- AC-5.6 `validateLinkSession` rejects past 15-min idle, advances `last_active_at` on pass.
+- AC-5.7 `validateGoogleSession` rejects a Supabase Auth user whose email doesn't match any crew row in the show (403).
+- AC-5.8 `validateGoogleSession` rejects on multi-match (`AMBIGUOUS_EMAIL_BINDING`, 500). Synthesize a fixture with duplicate emails and seed it bypassing MI-5b.
+- AC-5.9 LEAD viewer's response includes `shows_internal.ops`; non-LEAD viewer's response does not include it (verify via response-payload introspection).
+- AC-5.10 Demote a crew member from LEAD to A1 in the sheet, re-sync, refresh the page: ops tile disappears within one sync cycle without any token rotation.
+- AC-5.11 `?t=` URL: middleware returns 410, inserts `revoked_links` row, and (if the leaked link was current version) auto-rotates the row to "no live link" state. Subsequent requests with the same JWT in `#t=` form fail authz.
+
+**Milestone 6 — Drive sync (cron).**
+- AC-6.1 Cron run lists every spreadsheet in the watched folder; non-spreadsheets are filtered out via `mimeType` query.
+- AC-6.2 Cron run does NOT advance `shows.last_seen_modified_time` for a sheet whose `modifiedTime` is unchanged.
+- AC-6.3 Cron run advances `shows.last_seen_modified_time` for a sheet that was edited (Phase 2 commits).
+- AC-6.4 Cron run that fails parsing of show A still successfully syncs show B (independence verified).
+- AC-6.5 Manual re-sync via `runManualSyncForShow(driveFileId)` only fetches/processes the targeted sheet — confirmed by Drive API call log.
+- AC-6.6 Manual re-sync of an unchanged sheet succeeds (same modtime allowed) and advances `last_seen_modified_time` to that same value (no regression).
+- AC-6.7 Concurrent cron + manual sync attempt: one acquires the advisory lock; the other emits `CONCURRENT_SYNC_SKIPPED` and does not write.
+- AC-6.8 Stale write attempt: simulate two parsers racing; the older parse's UPDATE matches 0 rows under the conditional WHERE and rolls back (`STALE_WRITE_ABORTED`).
+- AC-6.9 Sheet-removal detection: remove a sheet from the watched folder, run cron, verify that show's `last_sync_status` becomes `'sheet_unavailable'` and `last_seen_modified_time` is unchanged.
+- AC-6.10 Sheet reappearance after `sheet_unavailable`: put the sheet back, run cron, verify `last_sync_status` returns to `'ok'`.
+- AC-6.11 First-seen sheet flow: drop a brand-new sheet into the folder, run cron, verify a `pending_syncs` row appears with `triggered_review_items` containing `FIRST_SEEN_REVIEW`. No `shows` row created until Apply.
+- AC-6.12 Realtime channel: edit a sheet, run cron, verify a Supabase Realtime message is published on `show:<id>`.
+
+**Milestone 7 — Linked content.**
+- AC-7.1 `agenda_links[].url` containing a Drive PDF renders an inline embed via PDF.js or `<iframe>`.
+- AC-7.2 Diagrams folder URL fetches the folder image list and renders the gallery (up to 12 images on initial render; "Show more" reveals the rest).
+- AC-7.3 Opening reel URL detection: `https://drive.google.com/file/d/...` renders inline `<video>`; `MAYBE` renders as a text line; `YES - <url>` renders both.
+- AC-7.4 Diagram image fetches go through `/api/asset/diagram/...` (proxied), never expose the raw Drive URL in HTML.
+- AC-7.5 Diagrams folder cap: a folder with 78 images shows the first 60 and surfaces an admin warning.
+
+**Milestone 8 — Bug-report pipeline.**
+- AC-8.1 Click "Report this" in admin parse panel → opens a GitHub issue in the configured repo with the structured body documented in §13.2.
+- AC-8.2 Reports table records the submission with `github_issue_url` populated.
+- AC-8.3 Rate limit: 11th report from same admin within 1h returns 429 with `REPORT_RATE_LIMITED` message.
+- AC-8.4 Every error code surfaced anywhere in the app maps to a row in §12.4 (test asserts no orphan codes).
+
+**Milestone 9 — Stale-data UX, error states, empty states, polish.**
+- AC-9.1 Pull network plug, refresh page: footer turns yellow (1h–6h stale) or red (>6h) with the catalog-mapped message.
+- AC-9.2 Every empty state defined in §8.3 is reachable from a fixture; manual screenshot-comparison is the verification mechanism in v1.
+- AC-9.3 Error boundaries: a synthesized server error in a tile renders the boundary's fallback, not a stack trace.
+
+**Milestone 10 — Onboard Doug.**
+- AC-10.1 First-visit `/admin` (no folder configured) shows the §9.0 wizard, not the dashboard.
+- AC-10.2 Wizard step-2 verification produces the documented success/failure messages for each path (success, malformed URL, not-shared, operator-error).
+- AC-10.3 After wizard completion, every sheet in the folder appears in the §9.0 step-3 review list with the correct status badge.
+- AC-10.4 Re-running setup from `/admin` settings clears `WATCHED_DRIVE_FOLDER_ID` and re-presents the wizard.
+
+### 17.2 Cross-cutting acceptance criteria (apply across milestones)
+
+- AC-X.1 **No orphan error codes.** Every code that appears in code paths exists in §12.4. Every code in §12.4 is reachable from at least one fixture or synthesized scenario. Test: enumerate codes via `git grep` and assert the two sets match.
+- AC-X.2 **No raw error codes in user-visible UI.** Test: a Playwright test crawls every reachable surface (admin + crew + signed-link) and asserts no element's text matches `/^[A-Z][A-Z_]+$/` for codes (heuristic but catches accidental display).
+- AC-X.3 **Single auth-validation entry point.** Static analysis: every page in `app/(crew)/` uses `lib/auth/validateLinkSession` or `lib/auth/validateGoogleSession`; no route re-implements subsets.
+- AC-X.4 **No global cursor.** Static analysis: no source file references a `lastPollAt` global variable, env var, or table column.
+- AC-X.5 **Email canonicalization at every boundary.** Static analysis: every `INSERT ... email` and every `WHERE ... email = ` site uses `canonicalize()` or is documented as already-canonical (e.g., from `crew_members.email`).
+- AC-X.6 **Spec-to-implementation traceability.** Every section number `§N.M` referenced in this spec exists in the spec; every milestone in §15 references the acceptance criteria above; every error code in §12.4 has a generating site in code.
+
+### 17.3 Out of scope for v1 testing
+
+Spec-level performance budgets, load tests, and security pen-tests are deferred. The acceptance criteria above target *correctness* and *user-visible UX behavior*. Performance characterization happens after Doug's first show.
+
+---
+
 ## Appendix A: References to fixture corpus
 
 Every claim in this spec about Doug's template structure traces back to entries in `fixtures/shows/_schema-diff.md` and the raw fixtures themselves. Specifically:
