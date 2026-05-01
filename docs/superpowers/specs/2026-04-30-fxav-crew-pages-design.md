@@ -32,7 +32,7 @@ To keep v1 honest and shippable, the following are deliberately deferred:
 - **Crew notification emails.** When Doug adds a new crew member, the app does not auto-email them. Doug shares the URL out-of-band. Notification is a v2 candidate.
 - **GEAR proposal form (per-day rental quantities).** The Chip-style PROPOSAL grid showing `Item | Mar 21 | Mar 22 | ...` per-day counts is operations/billing data and stays out of scope for crew pages. The crew page surfaces room-level Audio/Video/Lighting from the per-room block instead.
 - **In scope (added per scope review): per-case PULL SHEET packing list when present.** Per-case packing rows (`QTY / CAT / SUB CAT / ITEM`) genuinely matter to crew on set and strike days — they're the manifest a tech is unpacking against. The PULL SHEET tab is present in 2 of 13 fixtures (`2024-05-east-coast-family-office.md`, `2025-05-redefining-fixed-income-private-credit.md`) and absent from the 2025-06+ sheets. The feature is **graceful by design**: if the sheet has the tab, crew see a Pack list tile on set/strike days; if it doesn't, the tile is absent. See §6.10 (parser) and §8.1 tile inventory.
-- **Embedded image ingestion from inline cells.** The Drive MCP `read_file_content` returns text only. Inline image cells are out of scope; linked Drive folders/files are in scope per §10.
+- **Embedded image ingestion from inline cells.** Cells that carry embedded images (rather than referenced URLs) are out of scope: surfacing them would require a separate ingestion path on top of the standard Drive Sheets export. Linked Drive folders/files are in scope per §10. (Reminder: the production Drive integration is the OAuth-scoped Google Drive API via the service account — the Drive MCP was only a dev-time tool used to harvest the fixture corpus, never part of production.)
 - **Multi-PM support.** Chip Mulzoff's and Corey Andrews's freeform-prose emails do not match Doug's template; their workflow stays outside the corpus and outside the parser. v2+ candidate at the earliest.
 - **Native mobile app.** The web app is mobile-primary at ~390px target width. No iOS/Android native wrapper.
 - **Crew-to-crew chat / comments / acknowledgments.** No social layer. The page is one-way: Doug → crew.
@@ -563,11 +563,11 @@ All three entry points feed into the per-file processor identically from step 3 
 
    Defensive check: if any returned file's `parents` array does not contain the configured `watched_folder_id` (Drive supports multi-parenting; this guards against unexpected Drive behavior), drop it from the listing and emit a `UNEXPECTED_PARENT` warning to `sync_log`.
 3. For each file in the listing:
-   - **Deferral check (cron only):** if `deferred_ingestions` has a row for this `drive_file_id`:
+   - **Deferral check (cron AND push, NOT manual or onboarding scan):** if `deferred_ingestions` has a row for this `drive_file_id`:
      - `permanent_ignore` → skip unconditionally; never re-stage.
      - `defer_until_modified` AND `file.modifiedTime <= deferred_ingestions.deferred_at_modified_time` → skip.
      - `defer_until_modified` AND `file.modifiedTime > deferred_ingestions.deferred_at_modified_time` → DELETE the deferral row (the file has been edited; resume normal processing) and continue.
-     The onboarding scan and manual sync ignore deferral rows by design — admin's explicit action overrides the deferral.
+     **Push honors deferred_ingestions identically to cron** — automatic processing must respect Doug's defer/ignore decisions. The onboarding scan and manual sync ignore deferral rows by design: those are operator-explicit actions and admin's deliberate click overrides the deferral. Skipping a deferred drive_file_id during push processing also short-circuits the §5.5.3 step 6 dispatch — the dispatch helper consults `deferred_ingestions` BEFORE acquiring the lock, so a deferred file produces zero work.
    - Look up the matching `shows` row by `drive_file_id`. **Do NOT auto-create a stub** — the schema requires non-null `slug`, `title`, `client_label`, `template_version`, none of which exist before parsing. First-seen sheets without a `shows` row enter the "first-seen" path: parse first, then create the row with parsed metadata in Phase 2 (auto-apply) or in the Phase 1 staging path (pending review). For first-seen sheets the `(prior shows.last_seen_modified_time)` value used for `pending_syncs.base_modified_time` is `NULL` — the CAS in §6.8.1 explicitly handles `IS NOT DISTINCT FROM NULL` for this case.
    - **Watermark gate** — only the **automatic cron** path consults the watermark. Manual re-sync triggered from `/admin/show/<slug>` and `sheet_unavailable`-recovery runs (after a previously-removed sheet reappears) skip the gate. The two run modes are distinguished by an explicit `mode: "cron" | "manual"` parameter passed into the sync function:
      - `mode === "cron"` AND `file.modifiedTime <= shows.last_seen_modified_time` → skip (no work to do).
@@ -604,6 +604,7 @@ All three entry points feed into the per-file processor identically from step 3 
    - **Phase 2 — Destructive snapshot replacement (only if phase 1 chose outcome 3).**
      - **UPDATE on `shows`** — every mode is **monotonic**: a parse from an older `modifiedTime` may NEVER overwrite a snapshot derived from a newer one. Guards differ only in their tolerance for **equal** modifiedTimes:
        - `mode === "cron"` (normal path): `UPDATE shows SET ... WHERE drive_file_id = $1 AND (last_seen_modified_time IS NULL OR last_seen_modified_time < $incomingModifiedTime)`. Strict less-than: cron only writes when the incoming sheet is genuinely newer than what's stored. 0 rows → `STALE_WRITE_ABORTED`, ROLLBACK.
+       - `mode === "push"` (automatic, from §5.5 webhook): same strict `<` guard as cron. 0 rows → `STALE_PUSH_ABORTED`, ROLLBACK. Same `deferred_ingestions` consultation as cron (per §5.2 step 3 deferral check).
        - `mode === "manual"` (forced replay): `UPDATE shows SET ... WHERE drive_file_id = $1 AND (last_seen_modified_time IS NULL OR last_seen_modified_time <= $incomingModifiedTime)`. **Less-than-or-equal**, not unconditional. Doug's manual replay tolerates re-applying the same modifiedTime (e.g., he wants to force a re-render after a parser fix), but cannot push older data over newer data — that would be a regression. 0 rows → `STALE_MANUAL_REPLAY_ABORTED`, ROLLBACK with admin-visible message "this manual sync is stale; a newer parse has already been applied. Refresh and retry."
        - `mode === "cron"` AND status was `sheet_unavailable` (recovery): same `<=` guard as manual. Recovery tolerates equal modtime (sheet was unshared and re-shared without edits) but never older.
      - **Lock-before-fetch is NOT used** — fetch and parse happen before the advisory lock to keep parse work out of the lock window (parses can take seconds; locks should be brief). The monotonic UPDATE guards above are the correctness mechanism, not lock-before-fetch. A stale parse that races a fresher concurrent write loses the UPDATE-WHERE check and rolls back cleanly.
@@ -740,17 +741,43 @@ create index drive_watch_channels_active_idx on drive_watch_channels (watched_fo
 
 RLS: admin-only.
 
-**Subscription operations:**
+**Subscription operations.** External Drive API calls (`files.watch`, `channels.stop`) are not transactional with Postgres — a Drive-side success cannot be rolled back by a DB rollback, and vice versa. The lifecycle uses a **two-phase outbox pattern** so neither side can leak orphans without a documented recovery:
 
-- **Create** (`subscribeToWatchedFolder()`):
-  1. Generate a fresh channel id (UUID) and webhook_secret (32 bytes random).
-  2. Call Drive `files.watch` on `app_settings.watched_folder_id` with `kind: "api#channel"`, `id: <channel-id>`, `type: "web_hook"`, `address: <webhook-public-url>`, `token: <webhook_secret>` (Drive forwards this verbatim in the `X-Goog-Channel-Token` header on every notification).
-  3. Drive returns a `resourceId` and `expiration` (epoch ms). Persist as a `drive_watch_channels` row.
-  4. Older active rows for the same `watched_folder_id` are marked `superseded_at = now()` and their channels are STOPed via `channels.stop` (best-effort — failures don't block).
-- **Renew** (`refreshWatchSubscriptions()`): runs as a Vercel Cron `0 * * * *` (hourly). For any active row whose `expires_at < now() + interval '24 hours'`, create a fresh subscription (per above) and supersede the old one. The 24-hour buffer absorbs cron timing slop and Drive API hiccups.
-- **Revoke** (called when admin runs the §9.0 "Re-run setup" wizard and promotes a new `watched_folder_id`): mark all rows for the prior `watched_folder_id` `superseded_at = now()` and STOP each channel. The new folder's subscription is created as part of wizard exit's promotion transaction.
+```sql
+-- The drive_watch_channels.status column tracks the two-phase state machine:
+-- (already in the schema above; see §5.5.1)
+-- Add a status column if not already present (effective):
+alter table drive_watch_channels
+  add column if not exists status text not null default 'pending'
+  check (status in ('pending', 'active', 'superseded', 'stopping', 'stopped', 'orphaned'));
+```
 
-**Active-folder change atomicity:** the wizard promotion transaction (§4.5) acquires a separate advisory lock keyed on `'drive_watch'`, performs the `UPDATE app_settings` promotion, calls `subscribeToWatchedFolder()` against the new active folder, and supersedes the prior channel. If any step fails, the whole transaction rolls back — the old channel keeps delivering until the new one is up.
+State machine:
+- `pending` — DB row written; Drive `files.watch` not yet called.
+- `active` — Drive confirmed the channel; DB row holds `resource_id` + `expires_at`. Webhook handler (§5.5.3) requires `status = 'active'`.
+- `superseded` — a newer `active` row replaced this one; channel is still alive at Drive but we no longer treat its notifications as authoritative. A garbage collector (§5.5.6) STOPs them at Drive in the background.
+- `stopping` — `channels.stop` issued; awaiting confirmation.
+- `stopped` — `channels.stop` succeeded; safe to delete the row.
+- `orphaned` — the row was created but Drive returned an error and we cannot determine whether the channel exists; flagged for admin (`admin_alerts` row coded `WATCH_CHANNEL_ORPHANED`). The reconciliation cron (§5.5.6) reconciles these.
+
+- **Create** (`subscribeToWatchedFolder()`) — outbox-style:
+  1. Inside one DB transaction: generate a fresh channel id (UUID) and webhook_secret (32 bytes random); INSERT a `drive_watch_channels` row with `status = 'pending'`. COMMIT immediately so we have durable record before any external call.
+  2. Outside the transaction: call Drive `files.watch` on the watched folder with `id`, `token: webhook_secret`, `address: <webhook-public-url>`. Time-boxed; if it doesn't return inside the window, abort.
+  3. On Drive success: another transaction sets `status = 'active'`, `resource_id`, `expires_at` from the response.
+  4. On Drive failure: another transaction sets `status = 'orphaned'` and inserts an `admin_alerts` row keyed on `WATCH_CHANNEL_CREATE_FAILED`. The renewal/reconciliation cron (§5.5.6) tries to clean up the orphan: it calls `channels.stop` blindly with the channel id; whether the call succeeds or 404s, the row goes to `stopped` and gets deleted. The push system stays in fallback (cron-only) until an admin retry succeeds.
+- **Renew** (`refreshWatchSubscriptions()`): runs as a Vercel Cron `0 * * * *` (hourly). For any `active` row whose `expires_at < now() + interval '24 hours'`, run the Create flow above to mint a new subscription, then mark the old row `superseded` (DB-only — the Drive-side stop happens via the §5.5.6 GC, separately from this critical path).
+- **Revoke** (admin promoting a new `watched_folder_id` via the §9.0 wizard): mark all `active` rows for the prior folder `superseded` (DB-only). The new folder's `subscribeToWatchedFolder()` runs after wizard exit's app_settings promotion commit and follows the same two-phase pattern. The wizard's `app_settings` promotion commits regardless of whether the new subscription succeeds; if Drive rejects, the new folder enters cron-only-fallback mode and admin sees a `WATCH_CHANNEL_CREATE_FAILED` banner.
+
+#### 5.5.6 Channel garbage collection
+
+A separate cron `15 * * * *` (offset from the renewal cron to avoid collision) runs `gcWatchChannels()`:
+- For each `superseded` row: call `channels.stop`. On success → `status = 'stopped'`. On 404 (already gone) → `status = 'stopped'`. On other error → leave as `superseded`; retry next pass.
+- For each `stopped` row older than 7 days: DELETE.
+- For each `orphaned` row: call `channels.stop` with the row's id (Drive will 404 if it was never created or is already gone). Either way, set `status = 'stopped'` after the call returns.
+
+This GC runs idempotently — if it crashes mid-pass, the next pass picks up where it left off. The webhook handler (§5.5.3) ignores everything except `status = 'active'` rows, so a non-`active` row in any state cannot affect serving traffic.
+
+**Why this is better than DB-rollback-as-atomicity:** Postgres can't undo external state. The outbox decouples the two writes, and the state machine plus GC handles every leakage path explicitly. If the spec's earlier "wrap it all in one transaction" rule were implemented literally, a power loss between Drive-side success and DB commit would leave a live Drive channel that the app never matches, silently dropping all push deliveries.
 
 #### 5.5.2 Webhook endpoint (`POST /api/drive/webhook`)
 
@@ -773,7 +800,9 @@ The webhook handler:
 3. **Token verification.** Constant-time compare `X-Goog-Channel-Token` against `webhook_secret`. Mismatch → reject 401, write to `admin_alerts` (`WEBHOOK_TOKEN_INVALID` — high signal of spoofing attempt or bug, low chance of legit).
 4. **Resource cross-check.** Confirm `X-Goog-Resource-Id === drive_watch_channels.resource_id`. Mismatch → reject 401.
 5. **State filter.** `sync` (initial sync ack from Drive) → return 200 immediately, no work. `trash` / `untrash` / `remove` → also return 200 (these affect folder membership, which the next cron pass will reconcile via the listing-diff path at §5.2 step 4). Only `add` and `update` enqueue downstream work.
-6. **Folder-listing dispatch.** A folder-level webhook tells us "something changed in the folder" but not which file. We perform a fresh `files.list` against the watched folder (single round-trip; cheaper than naive per-file fetches), compare against `shows.last_seen_modified_time` per existing row, and dispatch `runManualSyncForShow(driveFileId, mode: "manual")` for each file whose `modifiedTime > last_seen_modified_time` (or no `shows` row exists for it — first-seen path). This per-file dispatch reuses the §5.2 entry point so all the existing safety properties (advisory lock, monotonic UPDATE, first-seen-always-stage, deferred_ingestions skip) apply unchanged.
+6. **Folder-listing dispatch.** A folder-level webhook tells us "something changed in the folder" but not which file. We perform a fresh `files.list` against the watched folder (single round-trip; cheaper than naive per-file fetches), compare against `shows.last_seen_modified_time` per existing row, and dispatch `runPushSyncForShow(driveFileId)` (`mode: "push"` — see below) for each file whose `modifiedTime > last_seen_modified_time` (or no `shows` row exists for it — first-seen path). This per-file dispatch reuses the §5.2 entry point so all the existing safety properties (advisory lock, monotonic UPDATE, first-seen-always-stage, deferred_ingestions skip) apply unchanged.
+
+   **`mode: "push"` is distinct from `mode: "manual"`.** `manual` is operator-initiated and explicitly bypasses `deferred_ingestions` (Doug clicked "Re-sync" because he wants this to happen regardless of his earlier defer). `push` is automatic and **honors `deferred_ingestions` exactly as cron does**: a `permanent_ignore` row blocks restage; a `defer_until_modified` row blocks restage while `file.modifiedTime <= deferred_at_modified_time`. The watermark guard for `push` mode uses the same strict `<` rule as cron (only newer modtime can write) — push is automatic and should match cron's monotonicity. `STALE_PUSH_ABORTED` is the corresponding sync_log code (admin log only, similar to STALE_WRITE_ABORTED).
 7. **Deduplication / no-op shortcut.** Drive may deliver multiple notifications for the same change. Before acquiring the per-show advisory lock, the dispatch helper checks `shows.last_seen_modified_time >= file.modifiedTime` and short-circuits with a `WEBHOOK_NOOP_ALREADY_SYNCED` log entry. This is a perf optimization only; the actual correctness against concurrent push + cron comes from §5.2's lock + monotonic UPDATE, which still holds even if dedup fails.
 8. **200 OK** to Drive, with body `{"ok": true}`. Return as fast as possible — Drive doesn't wait for our processing and retries on non-2xx.
 
@@ -944,7 +973,8 @@ The §5.2 transaction does destructive replacement (`DELETE FROM crew_members WH
 | MI-6 | **Crew shrinkage guard:** if a prior snapshot exists, `new.crewMembers.length >= prior.crewMembers.length` OR `prior.crewMembers.length - new.crewMembers.length <= 1`. The "≤1" tolerance covers the normal case of a single crew removal; anything bigger is suspicious. (Replaces the earlier <=2-crew exemption, which was too permissive.) | Stage for approval |
 | MI-7 | **Section shrinkage guard:** for each of `hotelReservations`, `rooms` (sum across kinds), `contacts`: if `prior.<section>.length > 0` AND `new.<section>.length < prior.<section>.length` AND the drop is > 50% (or any drop when `prior <= 2`), stage. Strict collapse to zero is a special case of this. For `transportation` (null vs present): if prior was a populated row and new is null, stage. | Stage for approval |
 | MI-7b | **Keyed preservation across re-syncs:** for sections with stable natural keys, if a key that existed in `prior` is missing from `new`, stage:<br>• `hotel_reservations` keyed on `ordinal` (1..4)<br>• `rooms` keyed on `(kind, name)`<br>• `contacts` keyed on `(kind, name)` (or `(kind, email)` if name absent)<br>This catches the "5 of 6 hotels remain but #2 silently disappeared" parser regression that pure-count thresholds would miss. | Stage for approval |
-| MI-8 | **Financial-field preservation:** if `prior.financials` had any non-empty field (PO#, Proposal, Invoice, Invoice Notes) AND any of those fields is now empty/null in the new parse, stage. **Separately, if `prior.coi_status` was non-empty AND new is empty, also stage** (under the same MI-8 code) because COI flipping unknown-after-known is operationally meaningful — venue may turn the show away. | Stage for approval |
+| MI-8 | **Financial-field preservation:** if `prior.financials` had any non-empty field (PO#, Proposal, Invoice, Invoice Notes) AND any of those fields is now empty/null in the new parse, stage. | Stage for approval |
+| MI-8b | **COI delta — every change to `coi_status` stages, not just blanking.** Now that COI is public to every crew viewer (per §4.4 / §8.1 Show status tile), a wrong non-empty transition (e.g., `SENT → IN PROCESS`, `SENT → arbitrary text`, `SENT → ""`) propagates to all crew immediately. Doug confirms every change before crew see it. Any `prior.coi_status !== new.coi_status` (treating NULL and `""` as equivalent for this comparison) stages. Pure no-op edits where the canonical value is unchanged don't trigger. | Stage for approval |
 | MI-9 | **`role_flags` change for existing crew:** for each crew member that exists in both prior and new snapshots (matched by name), if `prior.role_flags` and `new.role_flags` are not set-equal (treating each as a set of atomic flags per §4.1's canonical shape), stage. Examples (all stage): `['LEAD','A1']` → `['A1']` (silent demotion losing ops access), `['A1']` → `['LEAD','A1']` (silent promotion gaining ops access), `['LEAD','A1']` → `['LEAD','V1']` (capability change), `['LEAD','A1']` → `['LEAD','A1','BO']` (additive change still stages — admin confirms intent), and the original collapse-to-empty case. **Any role_flags delta for an existing crew member triggers staging because role gates server-side data filtering.** | Stage for approval |
 | MI-11 | **Email change for existing crew (auth-sensitive):** for each crew member that exists in both prior and new snapshots (matched by name), if the **normalized** prior and new email values differ — including null→non-null and non-null→null — stage. Email is the principal Google-login binds to: a parser bug or sheet typo that changes Alice's row to a different unique email would silently transfer access. Adding an email where there was none, or removing one, also stages because both flips alter who can sign in for that name. | Stage for approval. Admin review surface shows `prior.email` and `new.email` side by side. **On Apply, the destructive transaction additionally bumps `crew_member_auth.revoked_below_version = current_token_version` for the affected crew_name** so all existing signed links for that name are killed and Doug must Issue New Link before the new email holder gets link access. The Google-login path is also affected: until the next sync commits the new email, `validateGoogleSession` fails for the new email holder ("not on crew list yet"). |
 | MI-12 | **Probable rename — remove+add with matching email:** detect rename candidates by inspecting the symmetric difference of names between prior and new. For each pair `(removed, added)` where `removed.email IS NOT NULL` and `canonicalize(removed.email) === canonicalize(added.email)`, treat as a probable rename. Without this check, a typo fix in the name cell would auto-apply remove-old-row + add-new-row, and (a) old signed links for the old name would survive only as long as the old name's auth row (now floor-revoked by §5.2's removal handler — fine), (b) the new name's `crew_member_auth` row gets fresh state and Doug has no review checkpoint to confirm the rename was intentional. | Stage for approval. Admin review surface shows the rename pair as a single line ("`Old Name` → `New Name`, email retained: `alice@fxav.net`") with explicit "Approve rename" / "Reject — keep prior" actions. On Approve, the destructive transaction runs the standard DELETE-then-UPSERT plus bumps `crew_member_auth.revoked_below_version` for **both** the old and new names so any prior signed links die regardless of which auth row they targeted. |
@@ -962,7 +992,9 @@ If MI-1..MI-5 fail, sync hard-fails. If any of MI-6..MI-14 trip (without MI-1..M
 
 The approval write path runs entirely inside the per-show advisory lock. The compare-and-swap checks are part of the locked transaction, not an out-of-band pre-check, so no concurrent cron run or sheet change can slip a newer write in between the check and the apply.
 
-**The Apply UI sends back the `staged_id` it rendered.** The server uses this to reject "Apply against a stale staged version" (e.g., admin opens two tabs, clicks Apply in tab A, then clicks Apply in tab B which is rendering an older `staged_id`). The server's first action is `SELECT staged_id FROM pending_syncs WHERE drive_file_id = $1` and a strict-equality compare to the submitted value.
+**The Apply UI sends back the `staged_id` it rendered.** The server uses this to reject "Apply against a stale staged version" (e.g., admin opens two tabs, clicks Apply in tab A, then clicks Apply in tab B which is rendering an older `staged_id`). The server's first action is `SELECT staged_id, source_kind, wizard_session_id FROM pending_syncs WHERE drive_file_id = $1` and a strict-equality compare to the submitted value.
+
+**Wizard-session CAS for onboarding-staged rows.** If `source_kind = 'onboarding_scan'` and `wizard_session_id IS NOT NULL`, Apply also CAS-checks against the current `app_settings.pending_wizard_session_id`. Mismatch → 409 with `WIZARD_SESSION_SUPERSEDED`; the row is DELETEd as part of the rejection (the wizard that created it has been superseded). Same check applies to Discard. **A wizard start (§4.5) additionally purges all `pending_syncs` rows whose `wizard_session_id != new pending_wizard_session_id` — so a fresh wizard never inherits stale onboarding-scan rows from a prior session.**
 
 When admin clicks "Apply" on a staged parse:
 
@@ -1270,8 +1302,11 @@ create table pending_syncs (
   prior_last_sync_status text,                       -- snapshot of shows.last_sync_status at the moment of staging. Used by Discard to revert without guessing. NULL when staging a first-seen show (no shows row yet).
   prior_last_sync_error  text,                       -- snapshot of shows.last_sync_error at the moment of staging. Same lifecycle as prior_last_sync_status.
   staged_id            uuid not null default gen_random_uuid(),  -- Apply UI passes this back; admin click that references a no-longer-current staged_id is rejected (defends against multi-tab "Apply" against a superseded staged version)
+  source_kind          text not null check (source_kind in ('cron', 'push', 'manual', 'onboarding_scan')),  -- which sync mode created this staging row
+  wizard_session_id    uuid,                          -- ONLY non-NULL when source_kind = 'onboarding_scan'. Carries the app_settings.pending_wizard_session_id at staging time. Apply / Discard for these rows MUST CAS against current app_settings.pending_wizard_session_id; if mismatch, the wizard that created the row was superseded and the row is purged before any other action runs.
   warning_summary      text not null                -- human message shown in the admin "review and approve" UI
 );
+create index pending_syncs_wizard_session_idx on pending_syncs (wizard_session_id) where wizard_session_id is not null;
 -- triggered_review_items shape (see §6.8.2). Each entry has a stable per-item id
 -- so multiple instances of the same invariant in one parse are independently
 -- representable and auditable:
@@ -1604,7 +1639,7 @@ Per the brainstorm decision: Doug doesn't paste URLs. Instead, on first setup:
 3. Doug returns to `/admin` and clicks "I've shared the folder" (or the app polls and discovers automatically).
 4. Within ~5 min, sheets appear in the dashboard.
 
-For **dev mode** (Eric operating): Eric's Drive credentials (already authorized via the existing Drive MCP setup) authenticate the cron job. Production swaps to a service account with the folder shared by Doug.
+For **dev mode** (Eric operating): Eric authenticates the dev-environment Drive client with his own OAuth credentials so that a folder shared with Eric works without provisioning a separate service account. Production swaps to a service-account credential file (`GOOGLE_SERVICE_ACCOUNT_JSON`) and Doug shares the watched folder with that service-account email. The dev/prod switch is a single env-var swap; the underlying client library and per-folder permissioning model are identical.
 
 ---
 
@@ -1698,6 +1733,10 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | `SHEET_UNAVAILABLE` | sheet detected as removed from watched folder | "*<sheet-name>* isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back." | "We couldn't get the latest from Doug's sheet. Showing what we had at *<time>*." | Doug → re-share sheet |
 | `STALE_WRITE_ABORTED` | conditional cron UPDATE matched 0 rows | (admin log only — informational) | — | none |
 | `STALE_MANUAL_REPLAY_ABORTED` | manual sync UPDATE rejected (newer version exists) | "This manual sync is stale — a newer parse has already been applied. Refresh the page to see the current state." | — | Doug → refresh admin |
+| `STALE_PUSH_ABORTED` | push-mode sync UPDATE rejected (newer version exists) | (admin log only — push raced with cron, normal under load) | — | none |
+| `WIZARD_SESSION_SUPERSEDED` | Apply or Discard against an onboarding-staged row whose wizard session is no longer current | "Your setup wizard was superseded by another wizard. Refresh and start setup again." | — | Doug → restart wizard |
+| `IDEMPOTENCY_IN_FLIGHT` | duplicate `/api/report` submission with same idempotency_key while the original is still mid-call to GitHub | "Hold on — your previous report is still being submitted. Try again in a moment if it doesn't go through." | "Hold on — give it a sec." | client retries after backoff |
+| `WATCH_CHANNEL_ORPHANED` | Drive watch row created but Drive's `files.watch` returned an error or timed out | (admin_alerts banner) "A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved." | — | Eric → reconcile / retry |
 | `WEBHOOK_TOKEN_INVALID` | Drive push webhook arrived with a wrong token | "A push notification from Google Drive failed verification — possible spoofing or misconfiguration. The developer has been notified." (admin_alerts top-bar banner) | — | Eric → investigate |
 | `WEBHOOK_NOOP_ALREADY_SYNCED` | Drive push delivered for a file already up-to-date | (admin log only) | — | none |
 | `WATCH_CHANNEL_CREATE_FAILED` | Drive `files.watch` API returned 4xx | (admin log; admin_alerts banner after 3 consecutive failures) | — | Eric → check Drive API status / quota |
@@ -1826,13 +1865,58 @@ Labels: `bug-report`, `reporter:crew`, `area:render` (default — most crew repo
 
 ### 13.2.3 Submission flow (both surfaces)
 
-POST to `/api/report` (also see §17 AC for testability). Server:
-1. Authenticate the requester. Admin path: validate session → admin role. Crew path: validate via `validateLinkSession` or `validateGoogleSession`. A crew submission carrying neither valid session is rejected 401.
-2. Apply rate limit (§13.3).
-3. Build the issue body using the appropriate §13.2.1/13.2.2 template.
-4. Call GitHub API to create the issue.
-5. INSERT into `reports` with `reported_by_kind`, `reported_by`, `reporter_role` (crew only), `context`, `message`, `github_issue_url`.
-6. Return the GitHub issue URL to the admin client; for crew, return only a "thanks, the developer has been notified" toast (the crew member doesn't need the issue URL).
+POST to `/api/report` with an **idempotency key** in the request body or header (`Idempotency-Key`). The client generates a UUID per click; retries reuse the key.
+
+The flow is **reserve-then-call**: persist intent + reserve quota in one DB transaction BEFORE the GitHub side effect, then update on success. This makes the endpoint safe under retries and concurrency, fixes the quota race, and guarantees `reports.reported_by` traceability.
+
+`reports` schema gets one new column:
+
+```sql
+alter table reports
+  add column if not exists idempotency_key uuid not null default gen_random_uuid();
+create unique index if not exists reports_idempotency_key_idx on reports (idempotency_key);
+```
+
+Server:
+1. **Authenticate** the requester. Admin path: validate session → admin role. Crew path: validate via `validateLinkSession` or `validateGoogleSession`. A crew submission carrying neither valid session is rejected 401.
+2. **Idempotency check + quota reservation in one transaction:**
+   ```sql
+   BEGIN;
+   -- Idempotency: if a row with this key exists, return its status.
+   SELECT id, github_issue_url FROM reports WHERE idempotency_key = $1 FOR UPDATE;
+   -- If found AND github_issue_url IS NOT NULL → return 200 with that URL (idempotent retry).
+   -- If found AND github_issue_url IS NULL    → another in-flight call holds the row; return 409 IDEMPOTENCY_IN_FLIGHT (client can poll).
+   -- If not found → continue.
+   
+   -- Atomic quota reservation. The check + increment is a single statement; concurrent
+   -- callers serialize through the row lock. Returns the post-increment count.
+   INSERT INTO report_rate_limits (kind, identity, hour_bucket, count)
+   VALUES ($kind, $identity, date_trunc('hour', now()), 1)
+   ON CONFLICT (kind, identity, hour_bucket) DO UPDATE
+     SET count = report_rate_limits.count + 1
+   RETURNING count;
+   -- If returned count > limit (10 admin / 3 crew) → ROLLBACK and return 429.
+   
+   -- Reserve: insert reports row with idempotency_key, NULL github_issue_url.
+   INSERT INTO reports (idempotency_key, show_id, reported_by_kind, reported_by, reporter_role, context, message)
+   VALUES ($1, $2, $3, $4, $5, $6, $7)
+   RETURNING id;
+   COMMIT;
+   ```
+3. **Build the issue body** using the appropriate §13.2.1 (admin) or §13.2.2 (crew) template.
+4. **Call GitHub API** to create the issue. (Outside the DB transaction.) Time-boxed.
+5. **On GitHub success:**
+   ```sql
+   UPDATE reports SET github_issue_url = $url WHERE id = $reportId;
+   ```
+   Return 201 to admin client with the URL. Return 201 to crew client with a thanks toast (no URL).
+6. **On GitHub failure:** the `reports` row remains with `github_issue_url IS NULL`. Return 502 to client. Retries with the same idempotency_key see the existing row at step 2 and either get 409 (still in-flight per a configurable timeout, default 60s — after which the orphaned reservation is treated as failed and a fresh retry is allowed) or skip ahead to step 4 again. A daily reaper cron deletes orphaned reservations older than 24h whose `github_issue_url` is still NULL.
+
+This pattern guarantees:
+- **Quota is reserved atomically before GitHub** — concurrent submissions cannot both pass.
+- **Retries are safe** — same `idempotency_key` returns the original result, never opens a duplicate issue.
+- **Traceability is durable** — `reports.reported_by` is written before the GH issue is created, so even a half-failed submission has a row Eric can reconcile.
+- **Crew identity is in the `reports` row but never in the GH issue body** (unchanged from §13.2.2 privacy contract).
 
 ### 13.3 Rate limiting
 
@@ -1992,7 +2076,7 @@ Each milestone is a PR. Spec self-review and adversarial review run before miles
 - **External-viewer principal** — first-class identity for non-FXAV stakeholders (drivers, client contacts, in-house AV). New `external_viewers` table separate from `crew_members`, with its own issuance/revocation/rendering rules. v1 punts; Doug shares info with these people the same way he does today.
 - Webhook-based "fix landed → mark resolved" loop with GitHub.
 - External agenda PDF parsing (option C).
-- Inline image rendering for cells with embedded images (Drive MCP returns text only today; would need a different ingestion path).
+- Inline image rendering for cells with embedded images (the standard Drive Sheets export the parser consumes does not expose embedded images; would need a separate Drive API ingestion path).
 - Multi-PM support (Chip's freeform emails, Corey's freeform emails) — different parser entirely.
 - ~~GEAR / case-prep view for production crew.~~ **Partially in v1**: per-case PULL SHEET packing list is rendered when present (§6.10, §8.1 Pack list tile). The per-day rental quantity grid (Chip's PROPOSAL form) stays out of scope.
 
@@ -2077,7 +2161,14 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-6.15 Push token verification: a synthetic POST to `/api/drive/webhook` with the right channel id but wrong token returns 401 and writes a `WEBHOOK_TOKEN_INVALID` row to `admin_alerts`.
 - AC-6.16 Push de-duplication: two notifications arriving for the same `(drive_file_id, modifiedTime)` result in exactly one Phase 2 commit; the second logs `WEBHOOK_NOOP_ALREADY_SYNCED` and short-circuits before acquiring the lock.
 - AC-6.17 Push-then-cron idempotency: if push processed an edit, the next cron pass observes `last_seen_modified_time === current modifiedTime` and is a no-op for that show.
-- AC-6.18 Channel rotation on folder change: after re-running setup with a new folder, the prior folder's `drive_watch_channels` row is `superseded_at != NULL`; a fresh row exists for the new folder; old webhook deliveries return 410 (Drive instructed to stop).
+- AC-6.18 Channel rotation on folder change: after re-running setup with a new folder, the prior folder's `drive_watch_channels` rows are `status = 'superseded'`; a fresh `status = 'active'` row exists for the new folder; old webhook deliveries return 410 (Drive instructed to stop).
+- AC-6.19 Outbox state machine: simulate Drive returning an error after `drive_watch_channels` row is INSERTed in `pending` state. Row transitions to `orphaned`; `admin_alerts` row coded `WATCH_CHANNEL_ORPHANED` raised; webhook handler does NOT process notifications for this row (status != active). The hourly GC cron transitions `orphaned → stopped` and the row is deleted after 7 days.
+- AC-6.20 Push respects deferred_ingestions: a sheet with a `permanent_ignore` row in `deferred_ingestions` produces no Phase 2 commits when push delivers a notification covering it. Same for `defer_until_modified` while modifiedTime hasn't advanced past the deferral mark.
+- AC-6.21 Push-mode monotonic guard: synthesize concurrent push and cron parses with the cron arriving first; the push run logs `STALE_PUSH_ABORTED` and rolls back, leaving the cron commit intact.
+- AC-6.22 Wizard session purge: start wizard A (session id W1), stage some onboarding rows, then start wizard B (session id W2). All `pending_syncs` rows from W1 are deleted on W2 start; Apply against W1's rows from a stale tab returns 409 `WIZARD_SESSION_SUPERSEDED`.
+- AC-8.9 Report idempotency: POST `/api/report` twice with the same `idempotency_key` (same body). First call opens 1 GitHub issue and writes 1 `reports` row. Second call returns the same `github_issue_url` without opening a second issue.
+- AC-8.10 Report quota race: 4 concurrent crew reports from the same `crew_members.id` produce exactly 3 GitHub issues (3 succeed, 4th gets 429 `REPORT_RATE_LIMITED_CREW`). The atomic `INSERT ... ON CONFLICT DO UPDATE ... RETURNING count` guarantees no race-through.
+- AC-8.11 GitHub-call failure: simulate GitHub API returning 5xx after `reports` row is reserved. Row remains with `github_issue_url IS NULL`. A retry with the same idempotency_key within 60s returns `IDEMPOTENCY_IN_FLIGHT`; after 60s the orphaned reservation is treated as failed and the retry proceeds.
 
 **Milestone 7 — Linked content.**
 - AC-7.1 `agenda_links[].url` containing a Drive PDF renders an inline embed via PDF.js or `<iframe>`.
