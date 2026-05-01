@@ -368,7 +368,7 @@ Tables that **are** normalized (`crew_members`, `hotel_reservations`, `rooms`, e
 
 - `shows`, `crew_members`, `hotel_reservations`, `rooms`, `transportation`, `contacts`: readable by signed-in users whose email matches a `crew_members.email` for that show, OR by users with the `admin` role (Doug, Eric). Writable only by `admin`. Signed-link views bypass RLS via service-role calls in server-rendered routes (the JWT is verified at the route layer).
 - **`shows_internal`: admin-only** for both read and write — no end-user session ever has any RLS path that returns a row from this table. LEAD crew see this table's columns only because the server-side render path uses the service role on their behalf after deriving role from `crew_members.role_flags`.
-- `sync_log`, `reports`, `pending_syncs`, `pending_ingestions`, `crew_member_auth`, `revoked_links`, `link_sessions`: admin-only.
+- **Admin-only tables (no crew/end-user access at all):** `sync_log`, `reports`, `pending_syncs`, `pending_ingestions`, `crew_member_auth`, `revoked_links`, `link_sessions`, `app_settings`, `deferred_ingestions`, `admin_alerts`, `sync_audit`, `drive_watch_channels`, `report_rate_limits`. RLS policies on each table reject every non-admin SELECT/INSERT/UPDATE/DELETE. The list above is the complete set of admin-only tables in v1; per-table notes near each `create table` reaffirm this.
 
 ### 4.4 Sensitive-field protection (defense in depth) — narrowed to financials
 
@@ -1004,8 +1004,8 @@ The client sends only `(item_id, action)` pairs. All other parameters (which cre
 
 | Triggered item invariant | Valid `action` values | Server-derived auth side-effects |
 |---|---|---|
-| FIRST_SEEN_REVIEW | `apply` | none. The sentinel just confirms Doug has reviewed the brand-new sheet. Apply proceeds as normal first-seen Apply (creates the `shows` row with derived slug, runs Phase 2). |
-| ONBOARDING_SCAN_REVIEW | `apply` | none. Sentinel for files that would have auto-applied except they came from `runOnboardingScan` (`mode: "onboarding_scan"`) which never runs Phase 2 directly. Apply runs the standard Phase 2 flow against the (still possibly active) folder once the wizard exits. |
+| FIRST_SEEN_REVIEW | `apply` | none. The sentinel just confirms Doug has reviewed the brand-new sheet. Apply proceeds as normal first-seen Apply (creates the `shows` row with derived slug, runs Phase 2). User-facing copy in §12.4. |
+| ONBOARDING_SCAN_REVIEW | `apply` | none. Sentinel for files that would have auto-applied except they came from `runOnboardingScan` (`mode: "onboarding_scan"`) which never runs Phase 2 directly. Apply runs the standard Phase 2 flow against the (still possibly active) folder once the wizard exits. User-facing copy in §12.4. |
 | MI-6, MI-7, MI-7b, MI-8, MI-10 | `apply` | none (no auth floor bump) |
 | MI-9 (role_flags change) | `apply` | none — role propagates via Phase 2 UPSERT, takes effect on next request |
 | MI-11 (email change, same name) | `apply` | bump auth floor for `item.crew_name` |
@@ -1688,6 +1688,7 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | `MI-13_NAME_AND_EMAIL_CHANGE` | remove+add with both differing | "Both name and email changed in *<sheet-name>*: *<old-pair>* and *<new-pair>*. Are these the same person, or unrelated changes?" | — | Doug → review staged |
 | `MI-14_NO_EMAIL_RENAME` | remove+add with both null emails | "Looks like *<old-name>* was renamed to *<new-name>* (no emails to compare). Approve the rename, or treat as two unrelated changes." | — | Doug → review staged |
 | `FIRST_SEEN_REVIEW` | first-time-seen sheet (per §5.2) | "*<sheet-name>* is new — review the parse before crew see it." | — | Doug → review and approve |
+| `ONBOARDING_SCAN_REVIEW` | sheet found by the onboarding wizard's folder scan (per §5.2 mode `onboarding_scan`) | "*<sheet-name>* was found in your folder — review the parse before activating this folder." | — | Doug → review (within wizard) |
 | **Parser — soft warnings** | | | | |
 | `UNKNOWN_FIELD` | unrecognized row/column in `raw_unrecognized` | "We saw a row called *<key>* in *<sheet-name>* that we don't know how to handle. It's not breaking anything; want to flag it to the developer?" | — | Doug → optional Report |
 | `UNKNOWN_DAY_RESTRICTION` | crew has `***` flag with no day list | "*<crew-name>* is flagged as day-restricted (`***` in the role) but the sheet doesn't say which days. Add a parenthetical to their name like `(6/24 and 6/26 ONLY)`. Until you do, their schedule will show 'days unconfirmed.'" | — | Doug → fix sheet |
@@ -1810,6 +1811,8 @@ create table report_rate_limits (
   primary key (kind, identity, hour_bucket)
 );
 ```
+
+RLS: admin-only. The rate-limit check runs server-side via the service role, so no user (admin or crew) needs RLS read/write access. Per §4.3 admin-only list.
 
 UPSERT on submission; SELECT to check before opening the GH issue. Old buckets pruned by a daily cron (or just left to age out — the table stays small).
 
@@ -2010,6 +2013,7 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-5.9 LEAD viewer's response includes `shows_internal.financials`; non-LEAD viewer's response omits it. Both viewers' responses include `shows.coi_status`. (Verify via response-payload introspection.)
 - AC-5.10 Demote a crew member from LEAD to A1 in the sheet, re-sync, refresh the page: Financials tile disappears within one sync cycle without any token rotation. Show status tile (including COI) is unchanged.
 - AC-5.11 `?t=` URL: middleware returns 410, inserts `revoked_links` row, and (if the leaked link was current version) auto-rotates the row to "no live link" state. Subsequent requests with the same JWT in `#t=` form fail authz.
+- AC-5.12 Synthesizing the duplicate-email runtime condition (bypassing MI-5b in test setup) writes an `admin_alerts` row visible in the dashboard's top-bar banner. Marking resolved removes the banner. (Per §4.6.)
 
 **Milestone 6 — Drive sync (cron).**
 - AC-6.1 Cron run lists every spreadsheet in the watched folder; non-spreadsheets are filtered out via `mimeType` query.
