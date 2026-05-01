@@ -1374,11 +1374,80 @@ Per §2 deferral list, agenda PDF parsing is out. But linked content is rendered
 
 ### 12.3 Crew-side error UX
 
-The page never shows a stack trace, an HTTP status code, or a "something went wrong" generic. Every error has an actionable message:
+The page never shows a stack trace, an HTTP status code, or a "something went wrong" generic. Every error has an actionable message. See §12.4 for the canonical mapping.
 
-- "This link has expired — ask Doug for a new one."
-- "We couldn't sync the latest from Doug's sheet. Showing what we had at <time>."
-- "You're not currently on the crew list for this show."
+### 12.4 User-facing message catalog
+
+Every error code, parse warning, and admin notification produced anywhere in the app maps to **exactly one** user-facing message string. Engineers do not write copy ad-hoc; they pick the appropriate code and the renderer looks up the message from this table. Doug and crew never see a code, an HTTP status, or a stack trace; they see the "Doug-facing message" or "Crew-facing message" column. The "Follow-up" column is the action the UI suggests.
+
+**Conventions:**
+- "Doug-facing" means it appears in `/admin` or in the per-show parse panel.
+- "Crew-facing" means it appears on a `/show/<slug>` or `/show/<slug>/p#t=...` page rendered to a non-admin viewer. `—` means the code never reaches a crew render.
+- Codes are stable identifiers; messages may evolve over time. The bug-report pipeline (§13) carries the code; the developer translates back via this table.
+- Plain language is the rule. "Sheet" not "Drive document"; "your show" not "the resource"; "the developer" not "the maintainer."
+
+| Code | Where it surfaces | Doug-facing message | Crew-facing message | Follow-up |
+|---|---|---|---|---|
+| **Auth — signed-link redemption** | | | | |
+| `LINK_EXPIRED` | `/api/auth/redeem-link` rejects expired JWT | — | "This link has expired. Ask Doug for a new one." | Crew → text Doug |
+| `LINK_REVOKED_FLOOR` | redemption fails token-version floor check | — | "This link has been replaced. Ask Doug for a new link." | Crew → text Doug |
+| `LINK_REVOKED_SURGICAL` | redemption fails exact-version revoked_links check | — | "This link has been revoked. Ask Doug for a new link." | Crew → text Doug |
+| `LINK_VERSION_MISMATCH` | redemption fails strict-equality version check | — | "This link is out of date. Ask Doug for a new link." | Crew → text Doug |
+| `LINK_NO_CREW_MATCH` | crew row referenced by JWT has been removed from sheet | — | "You've been removed from this show. Contact Doug if this is a mistake." | Crew → text Doug |
+| `LEAKED_LINK_DETECTED` | `?t=` query-param URL detected | "A signed link was opened with `?t=` in the URL — we treat that as a possible leak. The affected link has been auto-revoked and the crew member's row is in 'no live link' state. Click 'Issue new link' for them when you're ready." | "This link format isn't supported and has been revoked. Ask Doug for a new one." | Doug → Issue new link |
+| **Auth — Google login** | | | | |
+| `GOOGLE_NO_CREW_MATCH` | signed-in email isn't on any crew row in this show | — | "Your email isn't on the crew list for this show. Ask Doug to add you." | Crew → text Doug |
+| `GOOGLE_AMBIGUOUS_EMAIL` | multi-match (should be impossible per MI-5b) | "Two crew rows share the same email — Google login is unsafe to resolve. The duplicate-email check normally catches this; please re-share the sheet so we can re-parse, or contact the developer." | "Something is misconfigured for this show. Doug has been notified." | Doug → fix sheet duplicate; if persistent, Eric |
+| `SESSION_IDLE_TIMEOUT` | cookie session past 15-min idle window | — | "Your session timed out. Open the original link Doug shared again." | Crew → reopen link |
+| `SESSION_ABSOLUTE_TIMEOUT` | cookie session past 12h absolute | — | "Time to refresh — open the original link Doug shared again." | Crew → reopen link |
+| **Sync — Drive errors** | | | | |
+| `DRIVE_FETCH_FAILED` | `files.export` / content fetch errors | "We couldn't fetch this sheet from Google Drive. Could be a transient network issue, or the sheet's been moved or unshared. We'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings." | "We couldn't get the latest from Doug's sheet. Showing what we had at *<time>*." | Doug → check share / Retry |
+| `SHEET_UNAVAILABLE` | sheet detected as removed from watched folder | "*<sheet-name>* isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back." | "We couldn't get the latest from Doug's sheet. Showing what we had at *<time>*." | Doug → re-share sheet |
+| `STALE_WRITE_ABORTED` | conditional cron UPDATE matched 0 rows | (admin log only — informational) | — | none |
+| `STALE_MANUAL_REPLAY_ABORTED` | manual sync UPDATE rejected (newer version exists) | "This manual sync is stale — a newer parse has already been applied. Refresh the page to see the current state." | — | Doug → refresh admin |
+| `CONCURRENT_SYNC_SKIPPED` | advisory lock not acquired | (admin log only) | — | none |
+| `STAGED_PARSE_OUTDATED` | Drive `modifiedTime` advanced past staged version | "The sheet was edited again since you reviewed this parse. We've discarded the staged version; a fresh parse will be ready in a few minutes." | — | Doug → wait, review next |
+| `STAGED_PARSE_SUPERSEDED` | a newer cron parse committed before Apply | "A newer parse has already been applied. Refresh the admin page to review the latest state." | — | Doug → refresh |
+| **Parser — hard fails (MI-1..MI-5b)** | | | | |
+| `MI-1_VERSION_DETECTION_FAILED` | no template version markers match | "*<sheet-name>* doesn't look like your usual show template — none of the version markers we expect (Contact Office row, MAIN/SECONDARY block, GEAR INVENTORY block) are present. Either this is a different kind of document, or your template has changed in a way we don't recognize. Tell the developer if your template has changed." | — | Doug → check sheet shape; Eric → add v5 detector if real |
+| `MI-2_TITLE_MISSING` | `show.title` empty/null | "*<sheet-name>* doesn't have a recognizable show title. Add or fix the CLIENT row." | — | Doug → fix sheet |
+| `MI-3_NO_PARSEABLE_DATE` | no travel/set/show date parses | "*<sheet-name>* doesn't have any readable dates — we couldn't find Travel In, Set Day, or Show Day 1 as a parseable date. Check the DATES block." | — | Doug → fix sheet |
+| `MI-4_NO_CREW` | parsed `crewMembers.length === 0` | "*<sheet-name>* has no crew rows. Add at least one person to the CREW block." | — | Doug → fix sheet |
+| `MI-5_NO_ROOMS` | no GS / breakout / additional rooms | "*<sheet-name>* has no rooms — we couldn't find General Session, Breakouts, or Additional Rooms. Make sure your room blocks have setup and time fields filled in." | — | Doug → fix sheet |
+| `MI-5a_DUPLICATE_CREW_NAME` | two crew rows share a name | "Two crew rows share the same name in *<sheet-name>*. Disambiguate them (e.g., 'John C.' vs 'John Carleo') so the app can tell them apart." | — | Doug → fix sheet |
+| `MI-5b_DUPLICATE_CREW_EMAIL` | two crew rows share a non-null email | "Two crew rows share the same email in *<sheet-name>*. Each crew member needs their own email." | — | Doug → fix sheet |
+| **Parser — stage-for-approval (MI-6..MI-14)** | | | | |
+| `MI-6_CREW_SHRINKAGE` | crew count dropped > 1 | "Heads-up: *<sheet-name>* now has *<N>* crew rows (was *<M>*). Review the changes before applying." | — | Doug → review staged |
+| `MI-7_SECTION_SHRINKAGE` | hotel/room/contact count dropped > 50% | "*<sheet-name>* lost more than half of its *<section>* — *<prior_count>* before, *<new_count>* now. Review before applying." | — | Doug → review staged |
+| `MI-7b_KEYED_PRESERVATION` | a keyed entry (hotel ordinal, room name, contact) disappeared | "*<sheet-name>*: *<entry>* is no longer in the sheet. Review before applying." | — | Doug → review staged |
+| `MI-8_OPS_FIELD_COLLAPSE` | ops field changed from non-empty to empty | "*<sheet-name>*: *<ops-field>* (e.g., PO#, Proposal) was filled in before and is now blank. Confirm this was intentional." | — | Doug → review staged |
+| `MI-9_ROLE_FLAGS_DELTA` | crew member's role_flags changed | "*<crew-name>*'s role changed from *<prior>* to *<new>*. This affects what they see on their page. Confirm before applying." | — | Doug → review staged |
+| `MI-11_EMAIL_CHANGE` | crew member's email changed | "*<crew-name>*'s email is changing from *<prior>* to *<new>*. After applying, the new email will get sign-in access; their existing share-link will stop working until you Issue a new one." | — | Doug → review staged |
+| `MI-12_PROBABLE_RENAME` | remove+add with matching email | "Looks like *<old-name>* was renamed to *<new-name>* (same email). Approve the rename, or treat as two unrelated changes." | — | Doug → review staged |
+| `MI-13_NAME_AND_EMAIL_CHANGE` | remove+add with both differing | "Both name and email changed in *<sheet-name>*: *<old-pair>* and *<new-pair>*. Are these the same person, or unrelated changes?" | — | Doug → review staged |
+| `MI-14_NO_EMAIL_RENAME` | remove+add with both null emails | "Looks like *<old-name>* was renamed to *<new-name>* (no emails to compare). Approve the rename, or treat as two unrelated changes." | — | Doug → review staged |
+| `FIRST_SEEN_REVIEW` | first-time-seen sheet (per §5.2) | "*<sheet-name>* is new — review the parse before crew see it." | — | Doug → review and approve |
+| **Parser — soft warnings** | | | | |
+| `UNKNOWN_FIELD` | unrecognized row/column in `raw_unrecognized` | "We saw a row called *<key>* in *<sheet-name>* that we don't know how to handle. It's not breaking anything; want to flag it to the developer?" | — | Doug → optional Report |
+| `UNKNOWN_DAY_RESTRICTION` | crew has `***` flag with no day list | "*<crew-name>* is flagged as day-restricted (`***` in the role) but the sheet doesn't say which days. Add a parenthetical to their name like `(6/24 and 6/26 ONLY)`. Until you do, their schedule will show 'days unconfirmed.'" | — | Doug → fix sheet |
+| `UNKNOWN_ROLE_TOKEN` | role token not in canonical set | "*<crew-name>*'s role contains *<token>* which we don't know. We're ignoring it. Tell the developer if this is a real new role you're using." | — | Doug → optional Report |
+| `TYPO_NORMALIZED` | recognized typo (Hotal, DIagrams, Virtaul) silently corrected | (admin log only — informational; Doug doesn't need to act) | — | none |
+| `UNEXPECTED_PARENT` | Drive file's `parents` doesn't include watched folder | (admin log only) | — | none |
+| **Reviewer / Approval flow** | | | | |
+| `MISSING_REVIEWER_CHOICE` | Apply submission missing a choice for a triggered item | "We need your decision for every item — looks like one was skipped. Refresh and try again." | — | Doug → refresh admin |
+| `EXTRA_REVIEWER_CHOICE` | Apply submission carries a choice not in `triggered_review_items` | "Something doesn't match between what you reviewed and what we have on file. Refresh and try again." | — | Doug → refresh admin |
+| `DUPLICATE_REVIEWER_CHOICE` | submission has two choices for the same item_id | "We got the same decision twice for one item. Refresh and try again." | — | Doug → refresh admin |
+| `INVALID_REVIEWER_ACTION` | `action` value not in the invariant's enum | "That action isn't valid for this item. Refresh and try again." | — | Doug → refresh admin |
+| **Bug reporting** | | | | |
+| `REPORT_RATE_LIMITED` | report API exceeded 10/admin/hr | "You've reported a lot already this hour — give the developer a beat to catch up. Try again in *<minutes>* min, or message Eric directly." | — | Doug → wait or message |
+| **Onboarding** | | | | |
+| `ONBOARDING_FOLDER_INVALID_URL` | wizard step 2 URL malformed | "That doesn't look like a Google Drive folder URL. It should look like `https://drive.google.com/drive/folders/...`." | — | Doug → re-paste URL |
+| `ONBOARDING_FOLDER_NOT_SHARED` | wizard step 2 service-account access denied | "We can't see this folder yet. Double-check that you shared it with `<service-account-email>` and try again." | — | Doug → fix Drive share |
+| `ONBOARDING_OPERATOR_ERROR` | wizard step 2 operator-side credential failure | "Something is wrong on our end. The developer has been notified." | — | Doug → wait; Eric → fix |
+
+**v2+ candidates** (deliberately not in v1's catalog because the surfaces don't ship in v1): per-link rotation reason codes, crew-initiated "report a problem" codes, scheduled-archive codes.
+
+This catalog is the **single source of truth** for user-visible copy. The bug-report pipeline (§13) carries the code; the GitHub issue body's `last_error_code` field maps back via this table when Eric triages. Translation libraries (i18n) are out of scope for v1 but the catalog is structured so adding a `language` axis later is a flat extension, not a rewrite.
 
 ---
 
