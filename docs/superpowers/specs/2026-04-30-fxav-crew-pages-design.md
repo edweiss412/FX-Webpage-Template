@@ -419,6 +419,7 @@ The remainder of this section describes the per-file processor; both entry point
    - **Phase 1 — Lock and decide outcome (no destructive writes yet).** Open a single Postgres transaction:
      - **Acquire a per-show advisory lock**: `SELECT pg_try_advisory_xact_lock(hashtext('show:' || $drive_file_id))`. If lock acquisition returns `false`, abort this run for this show — another run is already syncing it. Log a `CONCURRENT_SYNC_SKIPPED` info-level entry and move on. The lock auto-releases on commit/rollback. **The lock is the universal race protection** and applies to every mode (cron, manual, recovery).
      - **Read-only sanity check**: re-read `shows` row by `drive_file_id` to confirm it still exists; capture current `last_seen_modified_time` for the staging path (becomes `pending_syncs.base_modified_time`).
+     - **First-seen mandatory stage.** If no `shows` row exists for this `drive_file_id` (i.e., this is the first time the app has seen this sheet), the run **always** routes to the stage outcome (#2 below) regardless of whether MI invariants would otherwise auto-apply. Rationale: the watched folder is the production source of truth, so adding a sheet to it IS the publish action — but Doug always reviews a brand-new sheet's parse before crew see content. This makes accidental WIP placement safe (parse is captured but no public URL is reserved until Doug approves) and gives Doug a consistent mental model: every new sheet flows through the same review surface, never auto-publishes. Subsequent updates to an already-approved show use the normal MI gates (auto-apply when clean, stage when MI-6..MI-14 trip). Implementation: the condition `is_first_seen = (shows row does not exist for drive_file_id)` is evaluated in Phase 1 before invariant check; if true, jump directly to the stage outcome with `triggered_review_items` extended to include a single sentinel item `{id: <uuid>, invariant: "FIRST_SEEN_REVIEW", action_required: "approve"}` whose only valid action is `apply` (no rename/independent variants — this item just means "this is the first time we've seen this sheet, please confirm").
      - **Run §6.8 minimum-invariant check on the `ParseResult`.** Pick exactly one of three outcomes:
        1. **MI-1..MI-5a fail (hard fail)** → in the same transaction:
           - If `shows` row exists: `UPDATE shows SET last_sync_status = 'parse_error', last_sync_error = $msg WHERE drive_file_id = $1` (does NOT touch `last_seen_modified_time`, sheet-derived columns, or any child table). The "Phase 1 makes no destructive writes" guarantee allows status-column updates because they cannot damage the live snapshot.
@@ -765,6 +766,7 @@ The client sends only `(item_id, action)` pairs. All other parameters (which cre
 
 | Triggered item invariant | Valid `action` values | Server-derived auth side-effects |
 |---|---|---|
+| FIRST_SEEN_REVIEW | `apply` | none. The sentinel just confirms Doug has reviewed the brand-new sheet. Apply proceeds as normal first-seen Apply (creates the `shows` row with derived slug, runs Phase 2). |
 | MI-6, MI-7, MI-7b, MI-8, MI-10 | `apply` | none (no auth floor bump) |
 | MI-9 (role_flags change) | `apply` | none — role propagates via Phase 2 UPSERT, takes effect on next request |
 | MI-11 (email change, same name) | `apply` | bump auth floor for `item.crew_name` |
@@ -1205,6 +1207,57 @@ Tiles regroup into a 3-or-4-column grid. The Right Now card stays full-width abo
 ---
 
 ## 9. Doug's admin UX
+
+The audience for this surface is non-technical. Every screen assumes Doug doesn't know what a service account is, what RLS is, or what a token version is. Failures are described in plain language with one obvious next step (either "fix this in your sheet" or "tell Eric"). Every error code in §12.4 has a paired user-facing message; the codes never appear in the UI text Doug sees.
+
+### 9.0 First-visit onboarding wizard
+
+The first time Doug visits `/admin` (no folder configured, no shows in DB), he sees a three-step wizard. The wizard's purpose is to make the leap from "I have a Google Sheet" to "the app shows my crew their pages" feel obvious and unblockable.
+
+**Step 1 — "Share your show folder."**
+
+A single screen with the service-account email displayed in a large, copyable form, along with plain-English instructions:
+
+> 1. In Google Drive, find the folder where you keep your show sheets (or make a new one).
+> 2. Click "Share" on the folder.
+> 3. Paste this email and give it Viewer access: `<service-account-email>` *[copy button]*
+> 4. Come back here and click "I've shared the folder."
+
+A small disclosure ("What's this email?") expands to two sentences explaining that it's the app's identity in your Drive — it can only see what you share with it, and only the folder you pick.
+
+**Step 2 — "Verify."**
+
+When Doug clicks "I've shared the folder," the app asks him to paste the folder URL or ID and verifies in real time:
+
+- **Success path:** the app calls `files.list` against the folder, confirms read access, and displays a green check with the folder name and a count of sheets it found. "Found *N* sheets in *<folder name>*. Ready to bring them in?"
+- **Common failure paths**, each with one specific fix message:
+  - Folder URL malformed → "That doesn't look like a Google Drive folder URL. It should look like `https://drive.google.com/drive/folders/...`."
+  - Folder not shared with the service account → "We can't see this folder yet. Double-check that you shared it with `<service-account-email>` and try again."
+  - Service-account credentials misconfigured (operator-side error) → "Something is wrong on our end. The developer has been notified." (Sentry alert + admin-visible banner; not Doug's problem to fix.)
+
+The wizard never says "files.list returned 403." It says one of the three things above.
+
+**Step 3 — "First sheets review."**
+
+After verification, the app stores `WATCHED_DRIVE_FOLDER_ID` and triggers an immediate sync run in `mode: "manual"`. Doug sees a one-time list of every sheet found in the folder, each with a small status badge:
+
+- **Parsed and ready** — green check; click to review and approve (every first-seen sheet stages, see §5.2/§6.8 — Doug always reviews a first-time parse before it goes live, even if invariants would otherwise auto-apply).
+- **Couldn't parse** — yellow warning with the plain-English MI failure ("This sheet doesn't look like your usual template — version markers we expect are missing"); click to see details.
+- **Skipped (not a Google Sheet)** — gray badge for non-spreadsheet items in the folder; informational only.
+
+Doug walks each sheet through review one at a time — same review surface as §6.8 / §6.8.1, just batch-presented for first onboarding. No partial-onboarding states: the wizard exits when all sheets in the folder are either approved/applied or have a reason captured (couldn't parse / explicitly discarded for now).
+
+**After onboarding.** The wizard never re-runs unless Doug clicks "Re-run setup" from `/admin` settings (e.g., he wants to point at a different folder). All subsequent sheet additions to the watched folder go through the normal cron + first-seen-stage flow.
+
+### 9.0.1 In-app help and tour
+
+Once the dashboard is active, contextual help is available everywhere:
+
+- A "?" icon next to every section header that opens a small tooltip with one paragraph of explanation in plain language.
+- A "Take the tour" link in the dashboard footer that walks through the dashboard, a per-show parse panel, and the preview-as flow.
+- Every error message links to "What does this mean?" with a one-paragraph plain-language explanation.
+
+These are first-class spec requirements, not "nice-to-have polish." The error catalog in §12.4 is the source of truth for every text string a non-technical user sees.
 
 ### 9.1 `/admin` dashboard
 
