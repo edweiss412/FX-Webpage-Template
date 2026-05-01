@@ -15,7 +15,7 @@ Doug Larson PMs every Institutional Investor show for FXAV using a Google Sheets
 - Doug shares a Drive folder of his show sheets once. The app polls the folder, parses each sheet, and stores a normalized representation in Postgres.
 - Each crew member gets a personalized URL. Opening it (signed in or via signed link) shows a phone-shaped page tailored to their identity and role.
 - The page reflects the sheet within ~5 minutes of any edit Doug makes (poll-based sync; not realtime push at the source level, but realtime push from server to viewer once sync completes).
-- Sensitive ops fields (PO#, Proposal $, Invoice, COI) are server-side filtered out of non-LEAD views.
+- Financial fields (PO#, Proposal $, Invoice, Invoice Notes) are server-side filtered out of non-LEAD views — they're billing details with no role onsite. COI status is shown to every crew viewer because it's operational ("are we insured?"), not financial.
 - Doug can preview the exact page each crew member sees, flag parse warnings, and report issues directly to the developer (Eric) via GitHub Issues with structured context attached.
 - The parser handles all four template versions in the corpus (v1 2024-05 → v4 2026-05) with v4 as the canonical target.
 
@@ -156,9 +156,12 @@ create table shows (
   event_details   jsonb,                           -- flat key/value of EVENT DETAILS section
   agenda_links    jsonb,                           -- [{ label, fileId|url }]
   diagrams_link   text,                            -- Drive folder URL
-  -- ops, parse_warnings, raw_unrecognized live in shows_internal (below) so
-  -- they are physically impossible to read with non-admin RLS, even if a
-  -- developer accidentally writes a query that selects the whole shows row.
+  coi_status      text,                              -- public on shows: COI value verbatim per schema-diff §2.8 ("SENT" / "IN PROCESS" / blank). All crew can see it because it's operational ("are we insured for this venue?"), not a financial detail. Free-text per §6.5 — no enum normalization.
+  -- financials, parse_warnings, raw_unrecognized live in shows_internal (below)
+  -- so they are physically impossible to read with non-admin RLS. Note: ONLY
+  -- the financial fields (PO#, Proposal $, Invoice, Invoice Notes) are
+  -- LEAD-gated; COI is now public on shows.coi_status because it's noise to
+  -- techs only when financial; insurance status is genuinely operational.
   -- See §4.4 for the policy rationale.
   last_synced_at  timestamptz,
   last_sync_status text,                           -- valid values: "ok" | "parse_error" | "drive_error" | "sheet_unavailable" | "pending_review" (an EXISTING approved show is staged for re-review per §6.8) | "pending" (initial state). NOTE: first-seen sheets DO NOT have a shows row at all — they live exclusively in pending_syncs (stage path) or pending_ingestions (hard-fail path) until first Apply per §5.2 / §9.1.1. Transient warnings like STALE_WRITE_ABORTED and CONCURRENT_SYNC_SKIPPED are sync_log entries, NOT show-level status — the show's status reflects its current health, not single-attempt outcomes.
@@ -174,7 +177,7 @@ create table shows (
 -- for this show.
 create table shows_internal (
   show_id          uuid primary key references shows(id) on delete cascade,
-  ops              jsonb,                           -- LEAD-only: { coi, proposal, po, invoice, invoiceNotes }
+  financials       jsonb,                           -- LEAD-only: { po, proposal, invoice, invoiceNotes }. COI moved to shows.coi_status because it's operational, not financial.
   parse_warnings   jsonb default '[]'::jsonb,       -- [{ severity, code, message, blockRef? }]
   raw_unrecognized jsonb default '[]'::jsonb        -- [{ block, key, value }] — see §6
 );
@@ -363,15 +366,19 @@ Tables that **are** normalized (`crew_members`, `hotel_reservations`, `rooms`, e
 - **`shows_internal`: admin-only** for both read and write — no end-user session ever has any RLS path that returns a row from this table. LEAD crew see this table's columns only because the server-side render path uses the service role on their behalf after deriving role from `crew_members.role_flags`.
 - `sync_log`, `reports`, `pending_syncs`, `pending_ingestions`, `crew_member_auth`, `revoked_links`, `link_sessions`: admin-only.
 
-### 4.4 Sensitive-field protection (defense in depth)
+### 4.4 Sensitive-field protection (defense in depth) — narrowed to financials
 
-Three independent layers protect ops/internal data from leaking to non-LEAD users:
+Doug's working model is "everyone gets the same document" — for v1 the only fields that need to stay out of crew views are **financials**: PO#, Proposal $, Invoice, Invoice Notes. Those are billing details that have no role in onsite execution and would only clutter the page for techs. **COI**, although it's in the same template block, is operational (knowing whether the show is insured matters at the venue) and is therefore public to every crew viewer. `parse_warnings` and `raw_unrecognized` remain admin-only because they're parser internals, not crew-facing data.
 
-1. **Physical separation** — `ops`, `parse_warnings`, and `raw_unrecognized` live in `shows_internal`, not `shows`. A `SELECT * FROM shows` cannot return them because they aren't there. This is the **first** line of defense: implementer error or accidental over-selection cannot expose them.
-2. **RLS** — `shows_internal` has admin-only RLS policies. Even if an end-user session somehow gets the row's primary key, no policy admits the read. This is the **second** line of defense.
-3. **Server-side filter at fetch** — the LEAD-aware fetch helper (`lib/data/getShowForViewer(showId, viewerRole)`) explicitly joins `shows_internal` only when `viewerRole === 'lead'` (or admin). For non-LEAD viewers, it does not query `shows_internal` at all. This is the **third** line of defense and the source of the runtime UX.
+Three independent layers protect financials specifically:
 
-A non-LEAD crew member querying directly via the Supabase client (using their own session) cannot reach `shows_internal` because layer 1 puts the data outside the table they can read AND layer 2 denies the read even if they tried to query the inner table by id. Non-LEAD A1 crew page renders are correct because layer 3 doesn't include the data in the response. URL obscurity is not in this list — it has never been a defense in this app.
+1. **Physical separation** — `financials`, `parse_warnings`, and `raw_unrecognized` live in `shows_internal`, not `shows`. A `SELECT * FROM shows` cannot return them because they aren't there. This is the **first** line of defense: implementer error or accidental over-selection cannot expose them. `shows.coi_status` is on the public table by intention.
+2. **RLS** — `shows_internal` has admin-only RLS policies. Even if an end-user session somehow gets the row's primary key, no policy admits the read.
+3. **Server-side filter at fetch** — the LEAD-aware fetch helper (`lib/data/getShowForViewer(showId, viewerRole)`) explicitly joins `shows_internal` only when `viewerRole === 'lead'` (or admin) AND only selects `financials` (parse_warnings/raw_unrecognized are admin-only paths). For non-LEAD viewers, it does not query `shows_internal` at all.
+
+A non-LEAD crew member querying directly via the Supabase client cannot reach financials. They CAN read `shows.coi_status` along with the rest of the public show data, which is the intended outcome. URL obscurity is not in this list — it has never been a defense in this app.
+
+**v2 candidate (per-viewer field segmentation):** Doug today doesn't segment by viewer; he hands the same template to everyone. If he later wants finer-grained per-role visibility (e.g., "only LEAD sees Invoice Notes; A1 still sees everything else"), that's a v2 extension where this same defense-in-depth pattern can be applied to additional field groups.
 
 ---
 
@@ -649,16 +656,16 @@ All three entry points feed into the per-file processor identically from step 3 
        ```
        This invalidates **every** outstanding signed link for that name at the moment of removal. If the name returns to the sheet later, the row is preserved (via the prior step's `ON CONFLICT DO NOTHING`) and the floor stays high, so an old JWT cannot resurrect on re-add. Doug must "Issue new link" on re-add, which bumps `current_token_version` past the floor.
      - For `hotel_reservations`, `rooms`, `transportation`, `contacts`: `DELETE WHERE show_id = $1`, then `INSERT` the parsed rows. These tables have no external FK references and no auth state; full replacement is safe and idempotent.
-     - **`shows_internal` upsert** — sensitive-data table is written here, never on `shows`:
+     - **`shows_internal` upsert** — sensitive (financial) data and parser internals written here, never on `shows`:
        ```sql
-       INSERT INTO shows_internal (show_id, ops, parse_warnings, raw_unrecognized)
-       VALUES ($show_id, $ops, $warnings, $unrecognized)
+       INSERT INTO shows_internal (show_id, financials, parse_warnings, raw_unrecognized)
+       VALUES ($show_id, $financials, $warnings, $unrecognized)
        ON CONFLICT (show_id) DO UPDATE SET
-         ops = EXCLUDED.ops,
+         financials = EXCLUDED.financials,
          parse_warnings = EXCLUDED.parse_warnings,
          raw_unrecognized = EXCLUDED.raw_unrecognized;
        ```
-       This is the **only** write path for `shows_internal`. The `shows` table never carries these fields per §4.1.
+       The parsed `financials` JSONB carries `{ po, proposal, invoice, invoiceNotes }`. The COI value parsed from the same template block is written separately to `shows.coi_status` (public column) per §4.1. This is the **only** write path for `shows_internal`.
      - **DELETE matching `pending_ingestions` row** if one exists (first-seen success path): `DELETE FROM pending_ingestions WHERE drive_file_id = $1`. The brand-new sheet now has a real `shows` row and no longer belongs in the failure-queue surface.
      - `last_seen_modified_time` is set to `$incomingModifiedTime` as part of the same UPDATE in the first step; it commits with the rest. `last_sync_status` is set to `'ok'` (clears any prior `'sheet_unavailable'` etc.).
    - Insert a `sync_log` row (outside the transaction is fine).
@@ -798,7 +805,7 @@ Per schema-diff §7, the parser extracts these per-crew-member signals:
    - Result: `LEAD / A1` becomes `["LEAD","A1"]`, NOT `["LEAD/A1"]`. `BO` becomes `["BO"]`. `ONLY***` becomes `["ONLY"]` (the asterisks fed §6.6 step 2 separately).
    - Unknown tokens not in the canonical list are dropped from `role_flags` and surface as a `UNKNOWN_ROLE_TOKEN` warning.
    The raw role string is preserved in `crew_members.role` for display; `role_flags` is the authorization-safe representation.
-5. **LEAD detection.** `role_flags` contains `LEAD` ⇒ user sees ops fields (§7).
+5. **LEAD detection.** `role_flags` contains `LEAD` ⇒ user sees `shows_internal.financials` (PO/Proposal/Invoice). All crew see `shows.coi_status` regardless of role (§7.4 / §4.4).
 
 ### 6.7 Per-show parse contract
 
@@ -848,7 +855,7 @@ The §5.2 transaction does destructive replacement (`DELETE FROM crew_members WH
 | MI-6 | **Crew shrinkage guard:** if a prior snapshot exists, `new.crewMembers.length >= prior.crewMembers.length` OR `prior.crewMembers.length - new.crewMembers.length <= 1`. The "≤1" tolerance covers the normal case of a single crew removal; anything bigger is suspicious. (Replaces the earlier <=2-crew exemption, which was too permissive.) | Stage for approval |
 | MI-7 | **Section shrinkage guard:** for each of `hotelReservations`, `rooms` (sum across kinds), `contacts`: if `prior.<section>.length > 0` AND `new.<section>.length < prior.<section>.length` AND the drop is > 50% (or any drop when `prior <= 2`), stage. Strict collapse to zero is a special case of this. For `transportation` (null vs present): if prior was a populated row and new is null, stage. | Stage for approval |
 | MI-7b | **Keyed preservation across re-syncs:** for sections with stable natural keys, if a key that existed in `prior` is missing from `new`, stage:<br>• `hotel_reservations` keyed on `ordinal` (1..4)<br>• `rooms` keyed on `(kind, name)`<br>• `contacts` keyed on `(kind, name)` (or `(kind, email)` if name absent)<br>This catches the "5 of 6 hotels remain but #2 silently disappeared" parser regression that pure-count thresholds would miss. | Stage for approval |
-| MI-8 | **Ops-field preservation:** if `prior.ops` had any non-empty field (PO#, Proposal, COI, Invoice) AND any of those fields is now empty/null in the new parse, stage. (Note: any field collapse, not all — partial ops loss is a real signal.) | Stage for approval |
+| MI-8 | **Financial-field preservation:** if `prior.financials` had any non-empty field (PO#, Proposal, Invoice, Invoice Notes) AND any of those fields is now empty/null in the new parse, stage. **Separately, if `prior.coi_status` was non-empty AND new is empty, also stage** (under the same MI-8 code) because COI flipping unknown-after-known is operationally meaningful — venue may turn the show away. | Stage for approval |
 | MI-9 | **`role_flags` change for existing crew:** for each crew member that exists in both prior and new snapshots (matched by name), if `prior.role_flags` and `new.role_flags` are not set-equal (treating each as a set of atomic flags per §4.1's canonical shape), stage. Examples (all stage): `['LEAD','A1']` → `['A1']` (silent demotion losing ops access), `['A1']` → `['LEAD','A1']` (silent promotion gaining ops access), `['LEAD','A1']` → `['LEAD','V1']` (capability change), `['LEAD','A1']` → `['LEAD','A1','BO']` (additive change still stages — admin confirms intent), and the original collapse-to-empty case. **Any role_flags delta for an existing crew member triggers staging because role gates server-side data filtering.** | Stage for approval |
 | MI-11 | **Email change for existing crew (auth-sensitive):** for each crew member that exists in both prior and new snapshots (matched by name), if the **normalized** prior and new email values differ — including null→non-null and non-null→null — stage. Email is the principal Google-login binds to: a parser bug or sheet typo that changes Alice's row to a different unique email would silently transfer access. Adding an email where there was none, or removing one, also stages because both flips alter who can sign in for that name. | Stage for approval. Admin review surface shows `prior.email` and `new.email` side by side. **On Apply, the destructive transaction additionally bumps `crew_member_auth.revoked_below_version = current_token_version` for the affected crew_name** so all existing signed links for that name are killed and Doug must Issue New Link before the new email holder gets link access. The Google-login path is also affected: until the next sync commits the new email, `validateGoogleSession` fails for the new email holder ("not on crew list yet"). |
 | MI-12 | **Probable rename — remove+add with matching email:** detect rename candidates by inspecting the symmetric difference of names between prior and new. For each pair `(removed, added)` where `removed.email IS NOT NULL` and `canonicalize(removed.email) === canonicalize(added.email)`, treat as a probable rename. Without this check, a typo fix in the name cell would auto-apply remove-old-row + add-new-row, and (a) old signed links for the old name would survive only as long as the old name's auth row (now floor-revoked by §5.2's removal handler — fine), (b) the new name's `crew_member_auth` row gets fresh state and Doug has no review checkpoint to confirm the rename was intentional. | Stage for approval. Admin review surface shows the rename pair as a single line ("`Old Name` → `New Name`, email retained: `alice@fxav.net`") with explicit "Approve rename" / "Reject — keep prior" actions. On Approve, the destructive transaction runs the standard DELETE-then-UPSERT plus bumps `crew_member_auth.revoked_below_version` for **both** the old and new names so any prior signed links die regardless of which auth row they targeted. |
@@ -1252,8 +1259,8 @@ Global rotation (rotating `JWT_SIGNING_SECRET`) remains available as a nuclear o
 
 Server-side, in the data layer. **Role is always derived fresh from the current `crew_members.role_flags`, never from a token claim.**
 
-- The matched `crew_members` row has `LEAD` in `role_flags`, OR the viewer is admin → `viewerRole === 'lead'`. The data fetcher joins `shows_internal` and includes `ops` in the response.
-- Otherwise: the data fetcher does not query `shows_internal` at all; `ops` is absent from the response by construction. RLS on `shows_internal` (admin-only) is the second line of defense in case the fetcher is wrong; physical separation per §4.4 is the third.
+- The matched `crew_members` row has `LEAD` in `role_flags`, OR the viewer is admin → `viewerRole === 'lead'`. The data fetcher joins `shows_internal` and includes `financials` in the response.
+- Otherwise: the data fetcher does not query `shows_internal` at all; `financials` is absent from the response by construction. **`shows.coi_status` is in the response for every crew viewer regardless of role**, because it's operational status (per §4.4). RLS on `shows_internal` (admin-only) is the second line of defense in case the fetcher is wrong; physical separation per §4.4 is the third.
 
 The matched-row lookup is identical for signed-in and signed-link paths: signed-in matches by `email`, signed-link matches by JWT-carried `(showId, name)`. In both paths the *current* `role_flags` is the source of truth, so a role demotion takes effect on next request — no token revocation required for ops-field hiding (revocation in §7.2.1 is for entirely cutting access, not for downgrading).
 
@@ -1289,7 +1296,8 @@ Direction **B** from the brainstorm: time-aware home + drill-down tiles. Mobile-
 - **Crew tile** — list of all crew on this show with role + phone + email tap-to-call/email. Always visible.
 - **Contacts tile** — venue contact, in-house AV. Always visible.
 - **Transport tile** — only if viewer is `transportation.driver_name` match, or if any of the schedule rows are tagged with their name (rare). Shows vehicle, license plate, color, parking, schedule. Otherwise hidden.
-- **Ops tile** — LEAD only. PO#, COI, Proposal, Invoice. Hidden entirely for non-LEAD (omitted from data fetch per §7.4).
+- **Show status tile** — visible to every crew viewer. Carries `shows.coi_status`, dress code, venue notes, and other always-public operational signals. COI lives here, not in Financials, because it's ops, not billing (§4.4).
+- **Financials tile** — LEAD only. PO#, Proposal, Invoice, Invoice Notes from `shows_internal.financials`. Hidden entirely for non-LEAD (omitted from data fetch per §7.4 — the JSONB column isn't even queried for them).
 - **Notes tile** — any block-level `notes` content, aggregated into a single "Things to know" card.
 
 **Footer:**
@@ -1583,7 +1591,7 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | `MI-6_CREW_SHRINKAGE` | crew count dropped > 1 | "Heads-up: *<sheet-name>* now has *<N>* crew rows (was *<M>*). Review the changes before applying." | — | Doug → review staged |
 | `MI-7_SECTION_SHRINKAGE` | hotel/room/contact count dropped > 50% | "*<sheet-name>* lost more than half of its *<section>* — *<prior_count>* before, *<new_count>* now. Review before applying." | — | Doug → review staged |
 | `MI-7b_KEYED_PRESERVATION` | a keyed entry (hotel ordinal, room name, contact) disappeared | "*<sheet-name>*: *<entry>* is no longer in the sheet. Review before applying." | — | Doug → review staged |
-| `MI-8_OPS_FIELD_COLLAPSE` | ops field changed from non-empty to empty | "*<sheet-name>*: *<ops-field>* (e.g., PO#, Proposal) was filled in before and is now blank. Confirm this was intentional." | — | Doug → review staged |
+| `MI-8_FINANCIAL_FIELD_COLLAPSE` | financial field or COI changed from non-empty to empty | "*<sheet-name>*: *<field>* (e.g., PO#, Proposal, COI) was filled in before and is now blank. Confirm this was intentional." | — | Doug → review staged |
 | `MI-9_ROLE_FLAGS_DELTA` | crew member's role_flags changed | "*<crew-name>*'s role changed from *<prior>* to *<new>*. This affects what they see on their page. Confirm before applying." | — | Doug → review staged |
 | `MI-11_EMAIL_CHANGE` | crew member's email changed | "*<crew-name>*'s email is changing from *<prior>* to *<new>*. After applying, the new email will get sign-in access; their existing share-link will stop working until you Issue a new one." | — | Doug → review staged |
 | `MI-12_PROBABLE_RENAME` | remove+add with matching email | "Looks like *<old-name>* was renamed to *<new-name>* (same email). Approve the rename, or treat as two unrelated changes." | — | Doug → review staged |
@@ -1765,7 +1773,7 @@ Staged milestones, each independently demoable:
 2. **Schema + DB migrations.** Supabase Postgres tables per §4, RLS policies, seed script that loads parsed fixtures. **Demo:** "run `pnpm db:seed` and query the rows in Supabase Studio."
 3. **Admin upload-test (no auth).** A throwaway `/admin/dev` page that accepts a fixture filename, parses, upserts, and shows the parse warnings. **Demo:** "Eric uploads any fixture and sees the parse panel."
 4. **Crew page (no auth).** `/show/<slug>` renders the page from DB, with role hardcoded for testing. **Demo:** "open the page on a phone, see direction B with empty-state discipline."
-5. **Auth.** Supabase Google OAuth + signed-link JWT (per-request authz against current `crew_members`, no role claim in token, `revoked_links` table). RLS enabled. Role-based field hiding always derived fresh. **Demo:** "sign in as a fixture-defined crew email, see your view; demote a crew member from LEAD in the sheet, re-sync, observe ops fields disappear on next refresh without any token rotation."
+5. **Auth.** Supabase Google OAuth + signed-link JWT (per-request authz against current `crew_members`, no role claim in token, `revoked_links` table). RLS enabled. Role-based hiding always derived fresh and narrowed to `shows_internal.financials` per §4.4. **Demo:** "sign in as a fixture-defined crew email, see your view; demote a crew member from LEAD in the sheet, re-sync, observe Financials tile disappear on next refresh without any token rotation. COI in Show status tile unchanged."
 6. **Drive sync (cron).** Vercel Cron → Drive API → parser → upsert → Realtime publish. **Demo:** "edit a sheet, see the page update within 5 min."
 7. **Linked content (B).** Diagrams gallery, agenda PDF embed, opening reel inline. **Demo:** "tap diagrams, see the gallery; tap agenda, see the embed."
 8. **Bug-report pipeline.** Parse panel + per-warning report button + GitHub Issues integration. **Demo:** "click report, see a GH issue open with full context."
@@ -1784,7 +1792,7 @@ Each milestone is a PR. Spec self-review and adversarial review run before miles
 - **Domain.** Spec uses `crew.fxav.show` as a placeholder. Eric to register the actual domain. Could also be a path on an existing site.
 - **Vercel cron 5-min cadence vs Drive push notifications.** Push (via `files.watch`) cuts staleness from minutes to seconds and reduces API calls, but adds webhook handling. Defer to v2 unless 5 min feels slow in practice.
 - **Crew-side "report a problem" button.** v1 only ships Doug-facing reporting. Crew may want one too. Decide after Doug's first show.
-- **Should ops fields ever be visible to non-LEAD?** PO# is operations-only today, but a non-LEAD A1 might genuinely need the COI status. Reconsider after Doug's feedback on first show.
+- ~~**Should ops fields ever be visible to non-LEAD?**~~ Resolved: financials (PO/Proposal/Invoice/InvoiceNotes) stay LEAD-only because they're billing details and noise to onsite techs. COI is operational, not financial — moved to public `shows.coi_status` per §4.1 / §4.4. v2 candidate: Doug-configurable per-viewer field segmentation if his workflow ever needs it.
 - ~~**Slug generation strategy.**~~ Resolved in §6.9: deterministic `<YYYY-MM>-<title-slug>` derived on first successful parse, immutable thereafter, collisions resolved by `-2`/`-3` suffix.
 - **Date-restriction sanity check.** When `date_restriction.kind === 'explicit'`, should the parser warn if any of the listed dates fall outside the show's `dates.travelIn → dates.travelOut` span? (e.g., Calvin listed for `5/12 & 5/14` on a show that runs `5/13 → 5/15`.) Probably yes as a `DATE_RESTRICTION_OUTSIDE_SHOW_RANGE` warning, but defer the implementation to v2.
 
@@ -1837,8 +1845,8 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-3.3 A fixture with synthesized MI-1 (no version markers) lands in `pending_ingestions` with `last_error_code = "MI-1_VERSION_DETECTION_FAILED"`.
 
 **Milestone 4 — Crew page (no auth).**
-- AC-4.1 `/show/<slug>` rendered with hardcoded role `A1` shows Lodging, Venue, Schedule, Audio scope, Crew, Contacts tiles. No Ops tile.
-- AC-4.2 `/show/<slug>` rendered with hardcoded role `LEAD` shows Ops tile in addition.
+- AC-4.1 `/show/<slug>` rendered with hardcoded role `A1` shows Lodging, Venue, Schedule, Audio scope, Crew, Contacts, Show status (with COI) tiles. No Financials tile.
+- AC-4.2 `/show/<slug>` rendered with hardcoded role `LEAD` shows Financials tile in addition. COI status appears in Show status tile in BOTH renders.
 - AC-4.3 Right Now card renders the correct state for a synthesized "today is Show Day 1" fixture, including the viewer-aware states (`viewer_off_day`, `viewer_after_last_day`, `viewer_unconfirmed`).
 - AC-4.4 §8.4 dimensional invariants: a Playwright test loads the page at 390px width and asserts `getBoundingClientRect()` per `data-testid` matches the spec (tile min-height 96px, two-column grid, etc.).
 - AC-4.5 Empty-state discipline: a fixture with `Opening Reel = TBD` does NOT render an "Opening Reel: TBD" line on the crew page.
@@ -1853,8 +1861,8 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-5.6 `validateLinkSession` rejects past 15-min idle, advances `last_active_at` on pass.
 - AC-5.7 `validateGoogleSession` rejects a Supabase Auth user whose email doesn't match any crew row in the show (403).
 - AC-5.8 `validateGoogleSession` rejects on multi-match (`AMBIGUOUS_EMAIL_BINDING`, 500). Synthesize a fixture with duplicate emails and seed it bypassing MI-5b.
-- AC-5.9 LEAD viewer's response includes `shows_internal.ops`; non-LEAD viewer's response does not include it (verify via response-payload introspection).
-- AC-5.10 Demote a crew member from LEAD to A1 in the sheet, re-sync, refresh the page: ops tile disappears within one sync cycle without any token rotation.
+- AC-5.9 LEAD viewer's response includes `shows_internal.financials`; non-LEAD viewer's response omits it. Both viewers' responses include `shows.coi_status`. (Verify via response-payload introspection.)
+- AC-5.10 Demote a crew member from LEAD to A1 in the sheet, re-sync, refresh the page: Financials tile disappears within one sync cycle without any token rotation. Show status tile (including COI) is unchanged.
 - AC-5.11 `?t=` URL: middleware returns 410, inserts `revoked_links` row, and (if the leaked link was current version) auto-rotates the row to "no live link" state. Subsequent requests with the same JWT in `#t=` form fail authz.
 
 **Milestone 6 — Drive sync (cron).**
