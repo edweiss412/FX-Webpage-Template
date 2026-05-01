@@ -30,7 +30,8 @@ To keep v1 honest and shippable, the following are deliberately deferred:
 - **`pdf-only/` and `email-embedded/` fixtures.** These are historical recovery cases that don't exist for new shows. Doug's actual production input is always a live Sheet. The corpus retains them for context only.
 - **External agenda PDF parsing** (option C from the brainstorm). Agenda PDFs render via inline embed (PDF.js or `<iframe>`), not by extracting structured panel/speaker/sponsor data.
 - **Crew notification emails.** When Doug adds a new crew member, the app does not auto-email them. Doug shares the URL out-of-band. Notification is a v2 candidate.
-- **GEAR / case-prep view.** The GEAR tab is operations data; the crew page surfaces room-level Audio/Video/Lighting from the per-room block, but no per-case packing list. Schema-diff §5 explicitly endorses this stance.
+- **GEAR proposal form (per-day rental quantities).** The Chip-style PROPOSAL grid showing `Item | Mar 21 | Mar 22 | ...` per-day counts is operations/billing data and stays out of scope for crew pages. The crew page surfaces room-level Audio/Video/Lighting from the per-room block instead.
+- **In scope (added per scope review): per-case PULL SHEET packing list when present.** Per-case packing rows (`QTY / CAT / SUB CAT / ITEM`) genuinely matter to crew on set and strike days — they're the manifest a tech is unpacking against. The PULL SHEET tab is present in 2 of 13 fixtures (`2024-05-east-coast-family-office.md`, `2025-05-redefining-fixed-income-private-credit.md`) and absent from the 2025-06+ sheets. The feature is **graceful by design**: if the sheet has the tab, crew see a Pack list tile on set/strike days; if it doesn't, the tile is absent. See §6.10 (parser) and §8.1 tile inventory.
 - **Embedded image ingestion from inline cells.** The Drive MCP `read_file_content` returns text only. Inline image cells are out of scope; linked Drive folders/files are in scope per §10.
 - **Multi-PM support.** Chip Mulzoff's and Corey Andrews's freeform-prose emails do not match Doug's template; their workflow stays outside the corpus and outside the parser. v2+ candidate at the earliest.
 - **Native mobile app.** The web app is mobile-primary at ~390px target width. No iOS/Android native wrapper.
@@ -157,6 +158,7 @@ create table shows (
   agenda_links    jsonb,                           -- [{ label, fileId|url }]
   diagrams_link   text,                            -- Drive folder URL
   coi_status      text,                              -- public on shows: COI value verbatim per schema-diff §2.8 ("SENT" / "IN PROCESS" / blank). All crew can see it because it's operational ("are we insured for this venue?"), not a financial detail. Free-text per §6.5 — no enum normalization.
+  pull_sheet      jsonb,                             -- public on shows: per-case packing list parsed from PULL SHEET tab if present. Shape: [{ caseLabel: string, items: [{ qty: number, cat: string, subCat: string, item: string }] }]. NULL when sheet has no PULL SHEET tab (most v3+ sheets). See §6.10. Crew renders this on set/strike days only (§8.1).
   -- financials, parse_warnings, raw_unrecognized live in shows_internal (below)
   -- so they are physically impossible to read with non-admin RLS. Note: ONLY
   -- the financial fields (PO#, Proposal $, Invoice, Invoice Notes) are
@@ -1096,6 +1098,40 @@ Edge cases:
 - A subsequent show with the same `(year-month, title)` collides at the slug level; `-2` resolves it. Two shows with literally identical 2-tuples is rare in practice (Doug's templates carry the year in the title).
 - A re-share of a previously-deleted show under a fresh `drive_file_id` would produce a fresh `shows` row with a fresh slug; the prior crew URLs from the old `shows` row remain pointed at archived data via the `archived` flag in §11. Doug's choice to re-issue links for the new show is part of the per-show admin flow.
 
+### 6.10 PULL SHEET (per-case packing list) parsing
+
+The PULL SHEET tab is present in only some sheets (`2024-05-east-coast-family-office.md`, `2025-05-redefining-fixed-income-private-credit.md`; absent from 2025-06+). When present, it carries per-case packing rows that are genuinely useful to crew on set/strike days. The parser extracts what's there and stores it in `shows.pull_sheet`; absence is normal and handled gracefully (column stays NULL, tile in §8.1 doesn't render).
+
+**Parse contract:**
+
+```ts
+type PullSheetCase = {
+  caseLabel: string;        // e.g. "CASE 1", "TOTAL COUNT CORP & INS / SALON 1"
+  items: PullSheetItem[];
+};
+type PullSheetItem = {
+  qty: number | null;       // nullable for malformed rows; renderer treats null as "?" or skips
+  cat: string | null;       // category, e.g. "AUDIO"
+  subCat: string | null;    // sub-category, e.g. "MICROPHONE"
+  item: string;             // line-item name (required; rows with no item are dropped)
+  rawSnippet?: string;      // verbatim row for fallback render if anything fails to map
+};
+```
+
+**Detection:**
+- A block whose header row contains the literal `PULL SHEET` (case-insensitive) starts a pull-sheet section.
+- Within the section, sub-headers like `TOTAL COUNT CORP & INS / SALON 1` (from `2024-05`) become `caseLabel`s. Rows of `QTY / CAT / SUB CAT / ITEM` become `items[]`.
+- The 2024-05 fixture has nested sub-tabs ("TOTAL COUNT CORP & INS / SALON 1") — the parser flattens these to one case per sub-tab.
+- 2025-06+ has a structured `QTY / CAT / SUB CAT / ITEM` table inside the GEAR tab BUT it's per-day rental quantity, not per-case packing. The parser distinguishes via the column headers: pull-sheet rows have `QTY / CAT / SUB CAT / ITEM`; per-day rental has `Item | <date> | <date> | ...`. Only the former is captured into `pull_sheet`. (Per-day rental is operations data, stays out of scope per §2.)
+
+**Soft warnings (not hard fails):**
+- `PULL_SHEET_PARSE_PARTIAL` — at least one row had unparseable QTY or category; the row is preserved with `rawSnippet` and `qty: null`. Tile renders the raw snippet for that row.
+- `PULL_SHEET_AMBIGUOUS_FORMAT` — the parser detected something pull-sheet-shaped but column headers don't match the expected `QTY / CAT / SUB CAT / ITEM`. The full block is preserved as a single case with `caseLabel: "Unparsed pull sheet"` and items rendered as raw snippets.
+
+No MI invariant gates the destructive write on pull_sheet content because absence and partial-parse are normal. Pull-sheet shrinkage between syncs (e.g., a previously-N-case sheet now has M cases where M < N) is informational and surfaces as a parse warning, not a stage-for-approval invariant.
+
+**Cardinality cap:** v1 renders up to 12 cases inline; "Show more" reveals the rest. Per-case items have no cap (cases typically hold ≤30 line items).
+
 ---
 
 ## 7. Auth model
@@ -1385,6 +1421,7 @@ Direction **B** from the brainstorm: time-aware home + drill-down tiles. Mobile-
 - **Transport tile** — only if viewer is `transportation.driver_name` match, or if any of the schedule rows are tagged with their name (rare). Shows vehicle, license plate, color, parking, schedule. Otherwise hidden.
 - **Show status tile** — visible to every crew viewer. Carries `shows.coi_status`, dress code, venue notes, and other always-public operational signals. COI lives here, not in Financials, because it's ops, not billing (§4.4).
 - **Financials tile** — LEAD only. PO#, Proposal, Invoice, Invoice Notes from `shows_internal.financials`. Hidden entirely for non-LEAD (omitted from data fetch per §7.4 — the JSONB column isn't even queried for them).
+- **Pack list tile** — visible to every crew viewer **on set day, strike day, and the travel-out day** when `shows.pull_sheet IS NOT NULL`. Hidden on show days (techs are running the show, not packing). Hidden entirely for shows whose sheet has no PULL SHEET tab. Per-day visibility further filtered by viewer's `stage_restriction` per §6.6: a crew member with `stage_restriction.kind === 'explicit'` and `stages = ["Load In", "Set"]` sees the tile only on set day; with `stages = ["Load Out", "Strike"]` only on strike (and travel-out if their schedule includes it). Unrestricted crew (`stage_restriction.kind === 'none'`) see it on every set/strike/travel-out day. Renders cases in `pull_sheet[]` order; "Show more" disclosure beyond 12 cases. Each case's items render in source order.
 - **Notes tile** — any block-level `notes` content, aggregated into a single "Things to know" card.
 
 **Footer:**
@@ -1693,6 +1730,8 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | `UNKNOWN_FIELD` | unrecognized row/column in `raw_unrecognized` | "We saw a row called *<key>* in *<sheet-name>* that we don't know how to handle. It's not breaking anything; want to flag it to the developer?" | — | Doug → optional Report |
 | `UNKNOWN_DAY_RESTRICTION` | crew has `***` flag with no day list | "*<crew-name>* is flagged as day-restricted (`***` in the role) but the sheet doesn't say which days. Add a parenthetical to their name like `(6/24 and 6/26 ONLY)`. Until you do, their schedule will show 'days unconfirmed.'" | — | Doug → fix sheet |
 | `UNKNOWN_ROLE_TOKEN` | role token not in canonical set | "*<crew-name>*'s role contains *<token>* which we don't know. We're ignoring it. Tell the developer if this is a real new role you're using." | — | Doug → optional Report |
+| `PULL_SHEET_PARSE_PARTIAL` | one or more pull-sheet rows had unparseable QTY/category | "We couldn't fully parse *<N>* row(s) in *<sheet-name>*'s PULL SHEET. They render as the raw text from the sheet. Tell the developer if you'd like us to handle that format." | — | Doug → optional Report |
+| `PULL_SHEET_AMBIGUOUS_FORMAT` | pull-sheet block detected but column headers don't match expected format | "*<sheet-name>*'s PULL SHEET has columns we don't recognize. The whole block renders as raw text on crew pages. Tell the developer if you'd like us to handle that format." | — | Doug → optional Report |
 | `TYPO_NORMALIZED` | recognized typo (Hotal, DIagrams, Virtaul) silently corrected | (admin log only — informational; Doug doesn't need to act) | — | none |
 | `UNEXPECTED_PARENT` | Drive file's `parents` doesn't include watched folder | (admin log only) | — | none |
 | **Reviewer / Approval flow** | | | | |
@@ -1955,7 +1994,7 @@ Each milestone is a PR. Spec self-review and adversarial review run before miles
 - External agenda PDF parsing (option C).
 - Inline image rendering for cells with embedded images (Drive MCP returns text only today; would need a different ingestion path).
 - Multi-PM support (Chip's freeform emails, Corey's freeform emails) — different parser entirely.
-- GEAR / case-prep view for production crew.
+- ~~GEAR / case-prep view for production crew.~~ **Partially in v1**: per-case PULL SHEET packing list is rendered when present (§6.10, §8.1 Pack list tile). The per-day rental quantity grid (Chip's PROPOSAL form) stays out of scope.
 
 ---
 
@@ -2000,6 +2039,11 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-4.4 §8.4 dimensional invariants: a Playwright test loads the page at 390px width and asserts `getBoundingClientRect()` per `data-testid` matches the spec (tile min-height 96px, two-column grid, etc.).
 - AC-4.5 Empty-state discipline: a fixture with `Opening Reel = TBD` does NOT render an "Opening Reel: TBD" line on the crew page.
 - AC-4.6 Schedule tile for `unknown_asterisk` crew renders the "days unconfirmed" message and NO per-day schedule.
+- AC-4.7 Parser extracts a populated `pull_sheet` JSONB for `2024-05-east-coast-family-office.md` and `2025-05-redefining-fixed-income-private-credit.md`; column is NULL for the other 8 raw fixtures.
+- AC-4.8 Pack list tile renders on the set day for an unrestricted-crew viewer when `pull_sheet IS NOT NULL`; renders on strike day; does NOT render on show days.
+- AC-4.9 Pack list tile is absent entirely for a viewer of a show whose sheet has no PULL SHEET tab (e.g., 2026-03 RPAS Central).
+- AC-4.10 Pack list tile is absent on set day for a crew member whose `stage_restriction.stages = ["Load Out", "Strike"]`; renders on strike day for the same crew member.
+- AC-4.11 `PULL_SHEET_PARSE_PARTIAL` and `PULL_SHEET_AMBIGUOUS_FORMAT` surface in admin parse panel without blocking sync; affected rows render with their raw snippet on the crew page.
 
 **Milestone 5 — Auth.**
 - AC-5.1 `validateLinkSession` rejects a JWT whose signature is invalid (401).
