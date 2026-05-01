@@ -32,7 +32,7 @@ To keep v1 honest and shippable, the following are deliberately deferred:
 - **Crew notification emails.** When Doug adds a new crew member, the app does not auto-email them. Doug shares the URL out-of-band. Notification is a v2 candidate.
 - **GEAR proposal form (per-day rental quantities).** The Chip-style PROPOSAL grid showing `Item | Mar 21 | Mar 22 | ...` per-day counts is operations/billing data and stays out of scope for crew pages. The crew page surfaces room-level Audio/Video/Lighting from the per-room block instead.
 - **In scope (added per scope review): per-case PULL SHEET packing list when present.** Per-case packing rows (`QTY / CAT / SUB CAT / ITEM`) genuinely matter to crew on set and strike days — they're the manifest a tech is unpacking against. The PULL SHEET tab is present in 2 of 13 fixtures (`2024-05-east-coast-family-office.md`, `2025-05-redefining-fixed-income-private-credit.md`) and absent from the 2025-06+ sheets. The feature is **graceful by design**: if the sheet has the tab, crew see a Pack list tile on set/strike days; if it doesn't, the tile is absent. See §6.10 (parser) and §8.1 tile inventory.
-- **Embedded image ingestion from inline cells.** Cells that carry embedded images (rather than referenced URLs) are out of scope: surfacing them would require a separate ingestion path on top of the standard Drive Sheets export. Linked Drive folders/files are in scope per §10. (Reminder: the production Drive integration is the OAuth-scoped Google Drive API via the service account — the Drive MCP was only a dev-time tool used to harvest the fixture corpus, never part of production.)
+- **Inline `=IMAGE(arbitrary-external-url)` formulas** referencing images hosted outside Google's domains. These are vanishingly rare in the corpus and would require fetching from arbitrary third-party hosts; deferred to v2. **NOTE:** floating embedded images positioned over the DIAGRAMS tab (the common case in 2026+ sheets like the FinTech Forum 2026 fixture) ARE in scope per §10 — these are extracted via `spreadsheets.get` with `fields=sheets(embeddedObjects)` and downloaded through Drive's media path. Production Drive integration uses the OAuth-scoped Google Drive/Sheets API via the service account; the Drive MCP was only a dev-time fixture-gathering tool.
 - **Multi-PM support.** Chip Mulzoff's and Corey Andrews's freeform-prose emails do not match Doug's template; their workflow stays outside the corpus and outside the parser. v2+ candidate at the earliest.
 - **Native mobile app.** The web app is mobile-primary at ~390px target width. No iOS/Android native wrapper.
 - **Crew-to-crew chat / comments / acknowledgments.** No social layer. The page is one-way: Doug → crew.
@@ -156,7 +156,7 @@ create table shows (
   dates           jsonb,                           -- { travelIn, set, showDays: [...], travelOut }
   event_details   jsonb,                           -- flat key/value of EVENT DETAILS section
   agenda_links    jsonb,                           -- [{ label, fileId|url }]
-  diagrams_link   text,                            -- Drive folder URL
+  diagrams        jsonb,                            -- Unified diagrams source. Shape: { linkedFolder: { driveFolderId: text, driveFolderUrl: text } | null, embeddedImages: [{ sheetTab: text, objectId: text, mimeType: text, alt?: text }] }. Either field can be NULL/empty depending on the sheet's authoring style. Replaces the prior `diagrams_link text` column. See §6.11 for extraction.
   coi_status      text,                              -- public on shows: COI value verbatim per schema-diff §2.8 ("SENT" / "IN PROCESS" / blank). All crew can see it because it's operational ("are we insured for this venue?"), not a financial detail. Free-text per §6.5 — no enum normalization.
   pull_sheet      jsonb,                             -- public on shows: per-case packing list parsed from PULL SHEET tab if present. Shape: [{ caseLabel: string, items: [{ qty: number, cat: string, subCat: string, item: string }] }]. NULL when sheet has no PULL SHEET tab (most v3+ sheets). See §6.10. Crew renders this on set/strike days only (§8.1).
   -- financials, parse_warnings, raw_unrecognized live in shows_internal (below)
@@ -1164,6 +1164,27 @@ No MI invariant gates the destructive write on pull_sheet content because absenc
 
 **Cardinality cap:** v1 renders up to 12 cases inline; "Show more" reveals the rest. Per-case items have no cap (cases typically hold ≤30 line items).
 
+### 6.11 DIAGRAMS — embedded-image extraction
+
+Newer sheets (2026+) carry **floating embedded images** positioned over the DIAGRAMS tab — the FinTech Forum 2026 fixture is the canonical example, with a 2D ballroom layout drawing and a 3D photo of the actual ballroom both pasted directly into the sheet. These images never appear in the markdown export the parser consumes for the rest of the sheet, so they need a separate extraction step.
+
+**Extraction path (production):**
+
+1. Standard parse runs against the markdown export (per §6.1–6.10) and produces the bulk `ParseResult`.
+2. **Then** the parser calls `spreadsheets.get` with `ranges=DIAGRAMS!A1:Z1000` (or whatever range covers the DIAGRAMS tab — most sheets stay within Z1000) and `fields=sheets(properties.title,protectedRanges,charts,embeddedObjects(objectId,position,size,sourceUrl,image(contentUrl,sourceUrl,altText,sheetEmbeddedObject)))`. Real field path TBD at implementation time depending on which Sheets API endpoint exposes the most stable image data; fallback is `files.export(mimeType: 'application/zip')` which returns an HTML zip with extracted images and an `images/` folder.
+3. For each embedded object on the DIAGRAMS tab whose type is image-like, record `{ sheetTab: "DIAGRAMS", objectId, mimeType, alt? }` in the `parseResult.diagrams.embeddedImages` array. The actual image bytes are NOT stored in `parse_result` (would bloat the JSONB); they're fetched on demand via the proxy endpoint `/api/asset/diagram/<show>/<objectId>` (per §10), which uses Drive's media-download URL with the service account's auth.
+4. Linked-folder diagrams (older sheets where the DIAGRAMS tab carries `LINK` to an external Drive folder) populate `parseResult.diagrams.linkedFolder` instead.
+5. A sheet may have both: e.g., a few embedded photos on the DIAGRAMS tab AND a linked folder for additional layouts. The UI in §10 renders both sources merged into one gallery in the Diagrams tile.
+
+**Soft warnings (not hard fails):**
+
+- `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` — the API returned a description of an embedded image but the download URL 4xx'd (rare, but possible if the image was inserted via a service the service account can't read). The objectId is preserved with a flag and the gallery renders a placeholder slot.
+- `DIAGRAMS_TAB_MISSING` — the sheet has no tab matching `DIAGRAMS` (case-insensitive, includes typo `DIagrams` per the schema-diff). `embeddedImages: []`. Linked-folder source still extracted from the markdown export if present.
+
+No MI invariant gates destructive write on diagrams content because absence is normal (most fixtures don't have any embedded images at all).
+
+**Cardinality cap:** the DIAGRAMS tab realistically holds ≤10 images per the FinTech Forum example. v1 caps `embeddedImages.length` at 60 to prevent an absurd sheet from blowing up storage; beyond 60, surface a `DIAGRAMS_EMBEDDED_CAP_EXCEEDED` warning to admin and truncate.
+
 ---
 
 ## 7. Auth model
@@ -1650,7 +1671,7 @@ Per §2 deferral list, agenda PDF parsing is out. But linked content is rendered
 | Link kind | Source field | v1 rendering |
 |---|---|---|
 | Agenda PDF (`.pdf`, `.docx`) | `agenda_links[].fileId` or `.url` | "Open agenda" button. On tap: in-page sheet with PDF.js inline preview (or `<iframe>` for native Drive preview as fallback). `.docx` falls back to "Open in Drive" (no inline preview). |
-| Diagrams folder | `diagrams_link` | "Diagrams" tile. On tap: full-screen image gallery (swipeable), images fetched via Drive `files.list` on the folder + `files.get?alt=media` per image. Cached server-side. |
+| Diagrams (linked folder OR embedded images OR both) | `diagrams.linkedFolder.driveFolderId` and/or `diagrams.embeddedImages[]` | "Diagrams" tile. On tap: full-screen image gallery (swipeable). The gallery merges both sources: linked-folder images fetched via Drive `files.list` + `files.get?alt=media`; embedded images fetched via `/api/asset/diagram/<show>/<objectId>` which downloads through Drive media URLs using the service account. Cached server-side at the edge. The gallery presents embedded images first (they're authored by Doug specifically for this show), then linked-folder images. Each image carries an `alt` if available. See §6.11 for extraction. |
 | Opening reel video | `event_details.opening_reel` if URL | The renderer detects a Drive URL by regex `^(https?://)?(drive\.google\.com|docs\.google\.com)/[^\s]+`. If matched, render inline `<video controls>` (or `<iframe>` for non-mp4 Drive files), proxied via `/api/asset/reel/<show>`. If the value is text only (`N/A`, `NO`, `MAYBE`, `YES`, `YES - LOOP VIDEO`, `TBD`, etc.), render as a small text line on the venue tile reading "Opening reel: <value>" and skip the player. Mixed values like `YES - <url>` get both: the text status and the player. |
 | Test pattern, Aptos fonts, II LED logo | various | NOT surfaced to crew. These are operations files. They appear in admin under a "Production assets" disclosure. |
 
@@ -1660,7 +1681,7 @@ Per §2 deferral list, agenda PDF parsing is out. But linked content is rendered
 - Opening reel videos are streamed through a Vercel function; not cached locally.
 
 **Caps on unbounded content:**
-- **Diagrams gallery:** up to 12 images shown in initial render; "Show more" reveals the rest. If the folder contains > 60 images, the gallery hides any beyond 60 and surfaces a parse warning + admin note ("Diagrams folder has 78 images — showing first 60. Likely needs trimming.").
+- **Diagrams gallery:** up to 12 images shown in initial render (embedded images prioritized, linked-folder images filling the remainder); "Show more" reveals the rest. The combined cap across BOTH sources is 60: embedded counts toward the cap first; if `embeddedImages.length >= 60` the linked-folder content is suppressed entirely and a `DIAGRAMS_EMBEDDED_CAP_EXCEEDED` admin warning fires. Otherwise the linked folder fills up to `60 - embeddedImages.length` images per the existing folder-cap rules.
 - **Notes tile (aggregated from every block's `notes`):** per-source items truncated at 280 characters with a "tap to expand" affordance. The tile itself shows up to 8 source items; remainder collapsed under "+N more notes."
 - **Crew tile:** all crew members are shown; observed max is 6, theoretical max ≈ 12 — within reason. No truncation.
 - **Hotel reservations:** up to 4 observed; rendered all. > 4 (defensive) reflows into a vertical list.
@@ -1771,6 +1792,9 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | `UNKNOWN_ROLE_TOKEN` | role token not in canonical set | "*<crew-name>*'s role contains *<token>* which we don't know. We're ignoring it. Tell the developer if this is a real new role you're using." | — | Doug → optional Report |
 | `PULL_SHEET_PARSE_PARTIAL` | one or more pull-sheet rows had unparseable QTY/category | "We couldn't fully parse *<N>* row(s) in *<sheet-name>*'s PULL SHEET. They render as the raw text from the sheet. Tell the developer if you'd like us to handle that format." | — | Doug → optional Report |
 | `PULL_SHEET_AMBIGUOUS_FORMAT` | pull-sheet block detected but column headers don't match expected format | "*<sheet-name>*'s PULL SHEET has columns we don't recognize. The whole block renders as raw text on crew pages. Tell the developer if you'd like us to handle that format." | — | Doug → optional Report |
+| `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` | DIAGRAMS-tab embedded image found but download URL 4xx | "*<sheet-name>*: an image embedded in the DIAGRAMS tab couldn't be downloaded. Crew see a placeholder where it should be. Re-paste the image, or tell the developer if this keeps happening." | — | Doug → optionally fix |
+| `DIAGRAMS_EMBEDDED_CAP_EXCEEDED` | DIAGRAMS-tab has > 60 floating images | (admin log only) "*<sheet-name>*'s DIAGRAMS tab has more than 60 images — only the first 60 will be shown to crew." | — | Doug → optionally trim |
+| `DIAGRAMS_TAB_MISSING` | sheet has no tab named DIAGRAMS (case-insensitive incl. typo `DIagrams`) | (admin log only — informational; many sheets legitimately don't have a DIAGRAMS tab) | — | none |
 | `TYPO_NORMALIZED` | recognized typo (Hotal, DIagrams, Virtaul) silently corrected | (admin log only — informational; Doug doesn't need to act) | — | none |
 | `UNEXPECTED_PARENT` | Drive file's `parents` doesn't include watched folder | (admin log only) | — | none |
 | **Reviewer / Approval flow** | | | | |
@@ -2076,7 +2100,7 @@ Each milestone is a PR. Spec self-review and adversarial review run before miles
 - **External-viewer principal** — first-class identity for non-FXAV stakeholders (drivers, client contacts, in-house AV). New `external_viewers` table separate from `crew_members`, with its own issuance/revocation/rendering rules. v1 punts; Doug shares info with these people the same way he does today.
 - Webhook-based "fix landed → mark resolved" loop with GitHub.
 - External agenda PDF parsing (option C).
-- Inline image rendering for cells with embedded images (the standard Drive Sheets export the parser consumes does not expose embedded images; would need a separate Drive API ingestion path).
+- ~~Inline image rendering for cells with embedded images.~~ Resolved: floating embedded images on the DIAGRAMS tab are now in v1 per §6.11 + §10. Only `=IMAGE(arbitrary-external-url)` formulas referencing third-party hosts stay deferred.
 - Multi-PM support (Chip's freeform emails, Corey's freeform emails) — different parser entirely.
 - ~~GEAR / case-prep view for production crew.~~ **Partially in v1**: per-case PULL SHEET packing list is rendered when present (§6.10, §8.1 Pack list tile). The per-day rental quantity grid (Chip's PROPOSAL form) stays out of scope.
 
@@ -2173,9 +2197,13 @@ Acceptance criteria are the contract between this spec and the implementation. I
 **Milestone 7 — Linked content.**
 - AC-7.1 `agenda_links[].url` containing a Drive PDF renders an inline embed via PDF.js or `<iframe>`.
 - AC-7.2 Diagrams folder URL fetches the folder image list and renders the gallery (up to 12 images on initial render; "Show more" reveals the rest).
+- AC-7.2a Embedded-image extraction: a fixture's `parseResult.diagrams.embeddedImages` is populated for the FinTech Forum 2026 sheet (which has at least 2 floating images on its DIAGRAMS tab — the ballroom layout drawing and the 3D photo). For sheets with neither linked folder nor embedded images, `diagrams.embeddedImages = []` and `diagrams.linkedFolder = null`, and the Diagrams tile is absent.
+- AC-7.2b Merged gallery: a synthesized fixture with BOTH a linked folder (3 images) and embedded images (2 images) renders 5 images in the gallery — embedded images first, then folder images. Combined cap of 60 is honored.
 - AC-7.3 Opening reel URL detection: `https://drive.google.com/file/d/...` renders inline `<video>`; `MAYBE` renders as a text line; `YES - <url>` renders both.
 - AC-7.4 Diagram image fetches go through `/api/asset/diagram/...` (proxied), never expose the raw Drive URL in HTML.
 - AC-7.5 Diagrams folder cap: a folder with 78 images shows the first 60 and surfaces an admin warning.
+- AC-7.6 Embedded-image cap: a synthesized sheet with 65 floating images on its DIAGRAMS tab renders only 60 in the gallery and surfaces `DIAGRAMS_EMBEDDED_CAP_EXCEEDED` warning.
+- AC-7.7 Embedded-image inaccessible: a synthesized embedded image whose download URL 4xx's surfaces `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` warning; gallery renders a placeholder slot for that image rather than disappearing the slot.
 
 **Milestone 8 — Bug-report pipeline.**
 - AC-8.1 Click "Report this" in admin parse panel → opens a GitHub issue in the configured repo with the §13.2.1 admin body template (labels include `reporter:admin`).
