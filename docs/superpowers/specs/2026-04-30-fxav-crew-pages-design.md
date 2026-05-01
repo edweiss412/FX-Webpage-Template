@@ -315,12 +315,16 @@ create table sync_log (
 create table reports (
   id              uuid primary key default gen_random_uuid(),
   show_id         uuid references shows(id),
-  reported_by     text,                            -- email or "doug" identifier
-  context         jsonb not null,                  -- { surface, crewPreview?, fieldRef?, parseWarnings, rawSnippet }
+  reported_by_kind text not null check (reported_by_kind in ('admin', 'crew')),
+  reported_by     text not null,                   -- canonical email (admin) or crew_members.id::text (crew). Crew submissions never expose other crew's PII to the GH issue.
+  reporter_role   text,                            -- crew submissions only: a snapshot of crew_members.role_flags at submission time, for triage context
+  context         jsonb not null,                  -- { surface, crewPreview?, fieldRef?, parseWarnings, rawSnippet, viewerVisibleSection? }
   message         text,
   github_issue_url text,
   created_at      timestamptz not null default now()
 );
+create index reports_show_id_idx on reports (show_id, created_at desc);
+create index reports_reporter_idx on reports (reported_by, created_at desc);
 ```
 
 ### 4.1.1 Email normalization
@@ -1385,7 +1389,7 @@ Direction **B** from the brainstorm: time-aware home + drill-down tiles. Mobile-
 
 **Footer:**
 - `Last updated <relative time> · live from sheet`
-- `Something looks wrong?` link → opens "Report this" dialog (admin only sees the report-to-Eric flow; crew flow deferred to v2).
+- `Something looks wrong?` link — opens the report dialog (§13.1 surface 4 for crew, §13.1 surface 1-3 for admin views). Both go to the same `/api/report` endpoint with the appropriate body template (§13.2).
 
 ### 8.2 Right Now card — time-aware AND viewer-aware states
 
@@ -1696,7 +1700,8 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | `DUPLICATE_REVIEWER_CHOICE` | submission has two choices for the same item_id | "We got the same decision twice for one item. Refresh and try again." | — | Doug → refresh admin |
 | `INVALID_REVIEWER_ACTION` | `action` value not in the invariant's enum | "That action isn't valid for this item. Refresh and try again." | — | Doug → refresh admin |
 | **Bug reporting** | | | | |
-| `REPORT_RATE_LIMITED` | report API exceeded 10/admin/hr | "You've reported a lot already this hour — give the developer a beat to catch up. Try again in *<minutes>* min, or message Eric directly." | — | Doug → wait or message |
+| `REPORT_RATE_LIMITED_ADMIN` | admin report API exceeded 10/hr | "You've reported a lot already this hour — give the developer a beat to catch up. Try again in *<minutes>* min, or message Eric directly." | — | Doug → wait or message |
+| `REPORT_RATE_LIMITED_CREW` | crew report API exceeded 3/hr/crew | — | "We've already heard from you a few times — give the developer a moment to look. Or message Doug directly for show-content questions." | Crew → wait or text Doug |
 | **Onboarding** | | | | |
 | `ONBOARDING_FOLDER_INVALID_URL` | wizard step 2 URL malformed | "That doesn't look like a Google Drive folder URL. It should look like `https://drive.google.com/drive/folders/...`." | — | Doug → re-paste URL |
 | `ONBOARDING_FOLDER_NOT_SHARED` | wizard step 2 service-account access denied | "We can't see this folder yet. Double-check that you shared it with `<service-account-email>` and try again." | — | Doug → fix Drive share |
@@ -1710,20 +1715,26 @@ This catalog is the **single source of truth** for user-visible copy. The bug-re
 
 ## 13. Bug reporting pipeline
 
-### 13.1 Surfaces (Doug-facing)
+### 13.1 Surfaces
 
+**Doug-facing (admin):**
 1. **Live parse feedback** during connect/edit — see §9.2. Inline list with severity, message, snippet, and a per-warning "Report to Eric" button.
 2. **Per-crew preview** — see §9.3. Banner-mounted "Report this view" button.
-3. **Crew page he's previewing as** — same "Report this" button at the page footer (visible only in admin mode).
+3. **Crew page Doug is previewing as** — same "Report this" button at the page footer (visible only in admin mode).
+
+**Crew-facing:**
+4. **"Something looks wrong?" button on every crew page.** Lives in the page footer next to the freshness indicator (§5.4 stale-data UX). Available on both signed-in and signed-link views. Tapping opens a small modal with a single freeform text field ("What's wrong, or what's confusing?"). Submission auto-attaches structured context (see §13.2.1 below). The modal explicitly tells the crew member: "This goes to the developer, not Doug. For show-content questions, message Doug directly." This wording prevents reports from becoming a PM communication channel — they're for app issues only.
+
+The crew button is in v1 because techs hit weird states onsite (a tile shows wrong, a hotel's missing, the Right Now card disagrees with what they see in person) and waiting for Doug to surface it round-trips through Doug's attention; direct dev signal is faster and lower-friction.
 
 ### 13.2 Report destination: GitHub Issues
 
-Each report opens a GitHub issue in a designated repo (default: this repo, `eric-weiss/FX-Webpage-Template`) via the GitHub REST API + a service account PAT (env `GITHUB_API_TOKEN`).
+Each report opens a GitHub issue in a designated repo (default: this repo, `eric-weiss/FX-Webpage-Template`) via the GitHub REST API + a service account PAT (env `GITHUB_API_TOKEN`). Both admin and crew submissions create issues — same destination, different label and body templates.
 
-**Issue body template:**
+#### 13.2.1 Admin issue body template
 
 ````markdown
-**Reported by:** <doug-or-admin email>
+**Reported by:** <admin email>
 **Show:** <title> (`<slug>`)
 **Surface:** <admin parse panel | preview-as page | other>
 **Crew context:** <name + role, if previewing as someone>
@@ -1745,13 +1756,62 @@ Each report opens a GitHub issue in a designated repo (default: this repo, `eric
 **Reporter URL:** <admin URL where the report was submitted>
 ````
 
-Issue labels auto-applied: `bug-report`, `severity:<info|warn|error>`, `area:parser` (or `area:render`, `area:sync`, etc.).
+Labels: `bug-report`, `reporter:admin`, `severity:<info|warn|error>`, `area:parser` (or `area:render`, `area:sync`, etc.).
 
-The submission writes a row to `reports` table for app-side history, populates `github_issue_url` once GitHub returns a URL.
+#### 13.2.2 Crew issue body template
+
+````markdown
+**Reported by:** crew member of `<show-slug>` (role flags: `<role-flags>`)
+*(Reporter identity intentionally NOT included; Eric can look up via `reports.id` if needed.)*
+
+**Show:** <title> (`<slug>`)
+**Surface:** crew page footer report
+**Section being viewed:** <e.g. "lodging" | "right-now" | "audio-scope"> (auto-captured from the URL fragment of the active anchor at submission time)
+
+**Crew member's note:**
+> <freeform message>
+
+**Page state at submission:**
+- Right Now state: <e.g. "show_day_n / day 1">
+- Last sync: <timestamp>
+- Stale tier: <e.g. "fresh" | "1h-6h yellow">
+- User agent: <browser-string>
+
+**Show drive file ID:** <id>
+````
+
+Labels: `bug-report`, `reporter:crew`, `area:render` (default — most crew reports are about what they see, not parse internals).
+
+**Reporter privacy.** The GitHub issue body intentionally does NOT include the crew member's name or email. Eric can look up the reporter via `reports.reported_by` (carrying `crew_members.id`) if disambiguation is needed. This avoids leaking crew identity into a public-ish (or at least multi-engineer) issue tracker. The `reports` table itself is admin-only via RLS.
+
+### 13.2.3 Submission flow (both surfaces)
+
+POST to `/api/report` (also see §17 AC for testability). Server:
+1. Authenticate the requester. Admin path: validate session → admin role. Crew path: validate via `validateLinkSession` or `validateGoogleSession`. A crew submission carrying neither valid session is rejected 401.
+2. Apply rate limit (§13.3).
+3. Build the issue body using the appropriate §13.2.1/13.2.2 template.
+4. Call GitHub API to create the issue.
+5. INSERT into `reports` with `reported_by_kind`, `reported_by`, `reporter_role` (crew only), `context`, `message`, `github_issue_url`.
+6. Return the GitHub issue URL to the admin client; for crew, return only a "thanks, the developer has been notified" toast (the crew member doesn't need the issue URL).
 
 ### 13.3 Rate limiting
 
-The report API (`/api/report`) is rate-limited at 10 reports per admin per hour. Exceeding the limit returns a 429 with a "Slow down — already opened a lot of issues. Take a break, or message Eric directly" message. Limits are enforced via a Supabase table `report_rate_limits` keyed by reporter email. This protects the GitHub repo from accidental spam (e.g., Doug clicking "Report" on every parse warning at once).
+`/api/report` rate limits enforced via `report_rate_limits` keyed by `(kind, identity)`:
+
+- **Admin (Doug, Eric):** 10 reports per hour, returns 429 over limit.
+- **Crew member:** 3 reports per hour per `crew_members.id`. Lower because crew reports are inherently rarer than admin reports (they only fire on a "something looks wrong" experience), and 3/hr/person is more than enough for legitimate use. 4th report in the same hour returns 429 with "We've already heard from you a few times — give the developer a moment to look. Or message Doug directly for show-content questions."
+
+```sql
+create table report_rate_limits (
+  kind        text not null check (kind in ('admin', 'crew')),
+  identity    text not null,                    -- canonical email (admin) or crew_members.id::text (crew)
+  hour_bucket timestamptz not null,             -- date_trunc('hour', now()) at submission time
+  count       int not null default 1,
+  primary key (kind, identity, hour_bucket)
+);
+```
+
+UPSERT on submission; SELECT to check before opening the GH issue. Old buckets pruned by a daily cron (or just left to age out — the table stays small).
 
 ### 13.4 Closing the loop
 
@@ -1877,7 +1937,7 @@ Each milestone is a PR. Spec self-review and adversarial review run before miles
 - **Drive content extraction call.** Either `files.export` to a markdown-flavored format (matches the corpus shape directly) or per-tab `spreadsheets.values.batchGet` (more structured, requires assembly into the corpus shape). Decide at parser-implementation time. Either feeds the same parser contract.
 - **Domain.** Spec uses `crew.fxav.show` as a placeholder. Eric to register the actual domain. Could also be a path on an existing site.
 - ~~**Vercel cron 5-min cadence vs Drive push notifications.**~~ Resolved: push is in v1 per §5.5. Cron stays as the reconciliation fallback. Combined latency is sub-second on the happy path, ≤5 min on push failure.
-- **Crew-side "report a problem" button.** v1 only ships Doug-facing reporting. Crew may want one too. Decide after Doug's first show.
+- ~~**Crew-side "report a problem" button.**~~ Resolved: in v1 per §13.1 surface 4. Per-crew rate limit 3/hr; reports go to GitHub Issues with reporter identity withheld from the issue body but recorded in `reports.reported_by` for triage.
 - ~~**Should ops fields ever be visible to non-LEAD?**~~ Resolved: financials (PO/Proposal/Invoice/InvoiceNotes) stay LEAD-only because they're billing details and noise to onsite techs. COI is operational, not financial — moved to public `shows.coi_status` per §4.1 / §4.4. v2 candidate: Doug-configurable per-viewer field segmentation if his workflow ever needs it.
 - ~~**Slug generation strategy.**~~ Resolved in §6.9: deterministic `<YYYY-MM>-<title-slug>` derived on first successful parse, immutable thereafter, collisions resolved by `-2`/`-3` suffix.
 - **Date-restriction sanity check.** When `date_restriction.kind === 'explicit'`, should the parser warn if any of the listed dates fall outside the show's `dates.travelIn → dates.travelOut` span? (e.g., Calvin listed for `5/12 & 5/14` on a show that runs `5/13 → 5/15`.) Probably yes as a `DATE_RESTRICTION_OUTSIDE_SHOW_RANGE` warning, but defer the implementation to v2.
@@ -1979,10 +2039,14 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-7.5 Diagrams folder cap: a folder with 78 images shows the first 60 and surfaces an admin warning.
 
 **Milestone 8 — Bug-report pipeline.**
-- AC-8.1 Click "Report this" in admin parse panel → opens a GitHub issue in the configured repo with the structured body documented in §13.2.
-- AC-8.2 Reports table records the submission with `github_issue_url` populated.
-- AC-8.3 Rate limit: 11th report from same admin within 1h returns 429 with `REPORT_RATE_LIMITED` message.
-- AC-8.4 Every error code surfaced anywhere in the app maps to a row in §12.4 (test asserts no orphan codes).
+- AC-8.1 Click "Report this" in admin parse panel → opens a GitHub issue in the configured repo with the §13.2.1 admin body template (labels include `reporter:admin`).
+- AC-8.2 Reports table records the submission with `reported_by_kind = 'admin'`, `reported_by = <admin email>`, and `github_issue_url` populated.
+- AC-8.3 Admin rate limit: 11th admin report within 1h returns 429 with `REPORT_RATE_LIMITED_ADMIN`.
+- AC-8.4 Click "Something looks wrong?" on a crew page → opens a GitHub issue with the §13.2.2 crew body template. Issue body does NOT include the crew member's name or email; labels include `reporter:crew`.
+- AC-8.5 Crew submission writes `reports` row with `reported_by_kind = 'crew'`, `reported_by = <crew_members.id>`, `reporter_role = <role flags snapshot>`, `github_issue_url` populated.
+- AC-8.6 Crew rate limit: 4th crew report from the same `crew_members.id` within 1h returns 429 with `REPORT_RATE_LIMITED_CREW`.
+- AC-8.7 Crew submission with no valid session (no link cookie, no Google session) returns 401 — anonymous users cannot open issues.
+- AC-8.8 Every error code surfaced anywhere in the app maps to a row in §12.4 (test asserts no orphan codes).
 
 **Milestone 9 — Stale-data UX, error states, empty states, polish.**
 - AC-9.1 Pull network plug, refresh page: footer turns yellow (1h–6h stale) or red (>6h) with the catalog-mapped message.
