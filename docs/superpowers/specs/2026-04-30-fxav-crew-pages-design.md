@@ -156,9 +156,10 @@ create table shows (
   dates           jsonb,                           -- { travelIn, set, showDays: [...], travelOut }
   event_details   jsonb,                           -- flat key/value of EVENT DETAILS section
   agenda_links    jsonb,                           -- [{ label, fileId|url }]
-  diagrams        jsonb,                            -- Unified diagrams source. Shape: { linkedFolder: { driveFolderId: text, driveFolderUrl: text } | null, embeddedImages: [{ sheetTab, objectId, mimeType, alt?, snapshotPath: text | null, sourceFolder: 'embedded' }], linkedFolderItems: [{ driveFileId, mimeType, alt?, drive_modified_time: timestamptz, snapshotPath: text | null, sourceFolder: 'linked' }], snapshot_revision_id: uuid | null, snapshot_status: 'complete' | 'partial_failure' | null }. drive_modified_time on linkedFolderItems is the version pin captured at Phase 1 stage; asset_recovery and Apply re-verify against it (§6.11) before downloading. BOTH embedded and linked-folder images go through the same Storage snapshotting path; the gallery serves all of them via /api/asset/diagram/<show>/r=<rev>/<assetKey> with no live-Drive reads at request time. snapshot_revision_id is minted fresh per Apply. snapshot_status='partial_failure' triggers asset_recovery mode (per §5.2) which retries snapshotting without re-parsing.
+  diagrams        jsonb,                            -- **Round-44/46 amendment**: Unified diagrams source with the `PersistedDiagrams` shape — every entry now carries an immutable approval token (round-44 closes the TOCTOU windows that modtime-only pinning left open) AND a per-entry `recovery_disposition` flag (round-46 distinguishes recoverable from restage-only entries). Shape: { linkedFolder: { driveFolderId: text, driveFolderUrl: text } | null, embeddedImages: [{ sheetTab, objectId, mimeType, alt?, sheetsRevisionId: text, embeddedFingerprint: text | null, snapshotPath: text | null, sourceFolder: 'embedded', recovery_disposition: 'normal' | 'restage_required' }], linkedFolderItems: [{ driveFileId, mimeType, alt?, drive_modified_time: timestamptz, headRevisionId: text, md5Checksum: text, snapshotPath: text | null, sourceFolder: 'linked', recovery_disposition: 'normal' | 'restage_required' }], snapshot_revision_id: uuid | null, snapshot_status: 'complete' | 'partial_failure' | 'partial_failure_restage_required' | null }. **Embedded entries**: `sheetsRevisionId` (Drive-side spreadsheet revision via drive.revisions.list) + `embeddedFingerprint` (content-derived ETag; null forces restage-only recovery — Apply MUST fail closed when null). **Linked-folder entries**: `headRevisionId` (Drive immutable revision token) + `md5Checksum` (content hash for buffer-then-verify fallback). `drive_modified_time` is informational; the revision/checksum pair is the authoritative byte fence. **Per-entry `recovery_disposition` (round-46)**: `'normal'` allows asset_recovery retries; `'restage_required'` is set when an embedded entry's `embeddedFingerprint` is `null` (no usable approval token) AND tells asset_recovery to skip the entry without re-downloading. The state only converges when a fresh sheet edit advances modtime through Phase 2 and re-mints a new `sheetsRevisionId` + `embeddedFingerprint`. **`snapshot_status` terminal expansion (round-46)**: `'partial_failure'` ≥1 entry is null AND retryable (asset_recovery cron will retry); `'partial_failure_restage_required'` ≥1 entry is null AND every remaining null entry has `recovery_disposition = 'restage_required'` — the show is in a terminal recovery-blocked state. §5.2 cron routing AND Task 6.3 gate logic MUST treat `partial_failure_restage_required` as a SKIP (never as an asset_recovery trigger — would loop forever); Task 7.8 GC suppression MUST extend to it just like `partial_failure` (deleting prior-revision blobs would produce a user-visible asset-loss path). BOTH embedded and linked-folder images go through the same Storage snapshotting path; the gallery serves them via /api/asset/diagram/<show>/r=<rev>/<assetKey> with no live-Drive reads at request time. snapshot_revision_id is minted fresh per Apply. snapshot_status='partial_failure' triggers asset_recovery mode (per §5.2) which retries snapshotting without re-parsing — restage-only embedded entries (`embeddedFingerprint = null`, `recovery_disposition = 'restage_required'`) are excluded from retry and require a fresh sheet edit to mint a new sheetsRevisionId.
   opening_reel_drive_file_id      text,              -- nullable. Drive file id for the opening reel video, captured at Phase 1 if event_details.opening_reel cell holds a Drive URL (per §6.5 free-text fallback the cell value can be a URL or text like "MAYBE"; only URLs populate this field).
-  opening_reel_drive_modified_time timestamptz,      -- nullable. The pinned modifiedTime captured alongside opening_reel_drive_file_id at Phase 1. /api/asset/reel/<show> re-verifies against this on every request (§7.3) and 410s on drift.
+  opening_reel_drive_modified_time timestamptz,      -- nullable. The pinned modifiedTime captured alongside opening_reel_drive_file_id at Phase 1. Used for §6.11.1 drift detection logging; informational only — `headRevisionId` below is the authoritative byte-fence.
+  opening_reel_head_revision_id   text,              -- nullable. The immutable Drive revision token captured at Phase 1 enrichment AND re-verified at Apply (§6.11.1). /api/asset/reel/<show> streams via `revisions.get(fileId, headRevisionId, alt='media')` on every request — this is the TOCTOU fence guaranteeing crew only see the bytes Doug approved. Round-44 amendment: the modtime alone was insufficient (Drive can mutate bytes within a metadata read → byte fetch window), so the immutable `headRevisionId` is now first-class.
   coi_status      text,                              -- public on shows: COI value verbatim per schema-diff §2.8 ("SENT" / "IN PROCESS" / blank). All crew can see it because it's operational ("are we insured for this venue?"), not a financial detail. Free-text per §6.5 — no enum normalization.
   pull_sheet      jsonb,                             -- public on shows: per-case packing list parsed from PULL SHEET tab if present. Shape: [{ caseLabel: string, items: [{ qty: number, cat: string, subCat: string, item: string }] }]. NULL when sheet has no PULL SHEET tab (most v3+ sheets). See §6.10. Crew renders this on set/strike days only (§8.1).
   -- financials, parse_warnings, raw_unrecognized live in shows_internal (below)
@@ -283,7 +284,7 @@ create table rooms (
 
 create table transportation (
   id                uuid primary key default gen_random_uuid(),
-  show_id           uuid not null references shows(id) on delete cascade,
+  show_id           uuid not null unique references shows(id) on delete cascade,  -- round-45: unique(show_id) enforces the spec-wide singular-transportation contract; parser/type model is `TransportationRow | null`, so DB must reject duplicate rows that a buggy Phase 2 write or admin repair could otherwise create.
   driver_name       text,
   driver_phone      text,
   driver_email      text,
@@ -291,7 +292,7 @@ create table transportation (
   license_plate     text,
   color             text,
   parking           text,
-  schedule          jsonb not null default '[]'::jsonb,  -- [{ stage, date, time }]
+  schedule          jsonb not null default '[]'::jsonb,  -- [{ stage, date, time, assigned_names: string[] }] — per-row tags drive TransportTile schedule-tagged visibility (§8.1).
   notes             text
 );
 
@@ -325,6 +326,9 @@ create table reports (
   context         jsonb not null,                  -- { surface, crewPreview?, fieldRef?, parseWarnings, rawSnippet, viewerVisibleSection? }
   message         text,
   github_issue_url text,
+  idempotency_key uuid not null default gen_random_uuid() unique,  -- §13.2.3 idempotency primary
+  processing_lease_until timestamptz,              -- §13.2.3 lease window
+  lease_holder    uuid,                            -- §13.2.3 round-8 ownership token; rotated on lease re-acquisition; required (`AND lease_holder = $myToken`) on every URL-writing tail UPDATE
   created_at      timestamptz not null default now()
 );
 create index reports_show_id_idx on reports (show_id, created_at desc);
@@ -372,7 +376,7 @@ Tables that **are** normalized (`crew_members`, `hotel_reservations`, `rooms`, e
 
 - `shows`, `crew_members`, `hotel_reservations`, `rooms`, `transportation`, `contacts`: readable by signed-in users whose email matches a `crew_members.email` for that show, OR by users with the `admin` role (Doug, Eric). Writable only by `admin`. Signed-link views bypass RLS via service-role calls in server-rendered routes (the JWT is verified at the route layer).
 - **`shows_internal`: admin-only** for both read and write — no end-user session ever has any RLS path that returns a row from this table. LEAD crew see this table's columns only because the server-side render path uses the service role on their behalf after deriving role from `crew_members.role_flags`.
-- **Admin-only tables (no crew/end-user access at all):** `sync_log`, `reports`, `pending_syncs`, `pending_ingestions`, `crew_member_auth`, `revoked_links`, `link_sessions`, `app_settings`, `deferred_ingestions`, `admin_alerts`, `sync_audit`, `drive_watch_channels`, `report_rate_limits`. RLS policies on each table reject every non-admin SELECT/INSERT/UPDATE/DELETE. The list above is the complete set of admin-only tables in v1; per-table notes near each `create table` reaffirm this.
+- **Admin-only tables (no crew/end-user access at all):** `sync_log`, `reports`, `pending_syncs`, `pending_ingestions`, `crew_member_auth`, `revoked_links`, `link_sessions`, `app_settings`, `deferred_ingestions`, `admin_alerts`, `sync_audit`, `drive_watch_channels`, `report_rate_limits`, `onboarding_scan_manifest` (round-48 amendment — wizard scan manifest, internal staging). RLS policies on each table reject every non-admin SELECT/INSERT/UPDATE/DELETE. The list above is the complete set of admin-only tables in v1; per-table notes near each `create table` reaffirm this.
 
 ### 4.4 Sensitive-field protection (defense in depth) — narrowed to financials
 
@@ -382,7 +386,7 @@ Three independent layers protect financials specifically:
 
 1. **Physical separation** — `financials`, `parse_warnings`, and `raw_unrecognized` live in `shows_internal`, not `shows`. A `SELECT * FROM shows` cannot return them because they aren't there. This is the **first** line of defense: implementer error or accidental over-selection cannot expose them. `shows.coi_status` is on the public table by intention.
 2. **RLS** — `shows_internal` has admin-only RLS policies. Even if an end-user session somehow gets the row's primary key, no policy admits the read.
-3. **Server-side filter at fetch** — the LEAD-aware fetch helper (`lib/data/getShowForViewer(showId, viewerRole)`) explicitly joins `shows_internal` only when `viewerRole === 'lead'` (or admin) AND only selects `financials` (parse_warnings/raw_unrecognized are admin-only paths). For non-LEAD viewers, it does not query `shows_internal` at all.
+3. **Server-side filter at fetch** — the LEAD-aware fetch helper (`lib/data/getShowForViewer(showId, viewer)`) accepts **identity only** — `viewer` is `{ kind: 'crew'; crewMemberId: string }` or `{ kind: 'admin' }`, never a role parameter. The helper internally loads `crew_members.role_flags` bound to (`crewMemberId`, `show_id`) BEFORE deciding whether to JOIN `shows_internal`; it joins only when the freshly-derived role is LEAD (or `viewer.kind === 'admin'`) AND only selects `financials` (parse_warnings/raw_unrecognized are admin-only paths). For non-LEAD viewers, it does not query `shows_internal` at all. **Caller-supplied role parameters are explicitly forbidden** — re-deriving role inside the helper on every call closes the stale-role hole where a token claim, preview param, or refactored argument could otherwise unlock financials after a DB demotion.
 
 A non-LEAD crew member querying directly via the Supabase client cannot reach financials. They CAN read `shows.coi_status` along with the rest of the public show data, which is the intended outcome. URL obscurity is not in this list — it has never been a defense in this app.
 
@@ -431,9 +435,36 @@ create table deferred_ingestions (
   deferred_by_email        text not null,               -- admin who deferred
   reason                   text                         -- optional free-text from admin
 );
+
+-- Round-48 amendment: the wizard's per-session scan manifest. Records every Drive item
+-- the onboarding scan saw (sheets + non-sheets) with its terminal lifecycle state.
+-- Replaces row-absence inference in §9.0 step 3 and the wizard finalize gate — the manifest
+-- is the authoritative resolution-state source. Without it, the default 'try again next sync'
+-- Discard variant (which DELETEs the pending_syncs row with NO deferral row) would let the
+-- wizard finalize prematurely on a state §6.8.1 explicitly defines as NOT resolved.
+create table onboarding_scan_manifest (
+  id                       uuid primary key default gen_random_uuid(),
+  folder_id                text not null,                                  -- the wizard's pending_folder_id at scan time
+  wizard_session_id        uuid not null,                                  -- ties manifest rows to a single wizard run; CAS-gated against app_settings.pending_wizard_session_id on every write
+  drive_file_id            text not null,
+  mime_type                text not null,
+  name                     text not null,
+  -- Terminal lifecycle states. Discovery classes: 'staged' (parsed; in pending_syncs), 'hard_failed'
+  -- (parse failed; in pending_ingestions), 'skipped_non_sheet' (non-spreadsheet; auto-resolved).
+  -- Action-driven transitions: 'applied' (operator clicked Apply, success), 'defer_until_modified',
+  -- 'permanent_ignore' (operator chose corresponding Discard variant), 'discard_retryable' (default
+  -- 'try again next sync' Discard — explicitly NOT resolved per §6.8.1; finalize blocks until this
+  -- transitions to a terminal state).
+  status                   text not null check (status in ('staged', 'hard_failed', 'skipped_non_sheet', 'applied', 'defer_until_modified', 'permanent_ignore', 'discard_retryable')),
+  observed_at              timestamptz not null default now(),
+  transitioned_at          timestamptz not null default now(),
+  unique (wizard_session_id, drive_file_id)                                 -- one row per (session, file)
+);
+create index onboarding_scan_manifest_session_idx
+  on onboarding_scan_manifest (wizard_session_id, status);
 ```
 
-RLS: both tables are admin-only.
+RLS: all three tables are admin-only.
 
 Lifecycle:
 - `app_settings.watched_folder_id` is `NULL` before the first onboarding wizard runs. The cron sync at §5.1 is a no-op when the value is `NULL` (logs `NO_FOLDER_CONFIGURED` once, then sleeps).
@@ -578,11 +609,12 @@ All three entry points feed into the per-file processor identically from step 3 
      
      Auto-mode skip rule: `mode IN ('cron', 'push')` AND `file.modifiedTime <= effective_watermark` → skip. This means an unchanged file that's already pending review doesn't re-stage on every cron pass; the existing `staged_id` stays stable so Doug's open review tab continues to match the server state. Only when Drive's `modifiedTime` advances past BOTH the live snapshot AND the staged version does cron/push process the file again.
      - `mode IN ('cron', 'push')` AND `shows.last_sync_status === 'sheet_unavailable'` AND `file` is now present → proceed regardless of watermark (status recovery).
-     - `mode IN ('cron', 'push')` AND `shows.diagrams.snapshot_status === 'partial_failure'` AND `file.modifiedTime <= effective_watermark` → enter `mode: "asset_recovery"`. **This branch is only taken when there's no newer sheet revision waiting.** If `file.modifiedTime > effective_watermark`, the system runs the normal cron/push fetch + parse + Phase 2 path instead, and any unresolved snapshot failures are carried forward into the new revision. This guarantees a permanently broken diagram cannot starve newer sheet content updates. Asset recovery does NOT re-parse the sheet, does NOT touch sheet-derived columns, and does NOT trigger MI invariants. It walks the **unified asset set** — every entry in BOTH `shows.diagrams.embeddedImages[]` AND `shows.diagrams.linkedFolderItems[]` whose `snapshotPath IS NULL`. For each entry: **re-runs the version-pin check** (per §6.11 linked-folder flow): if the source's current `modifiedTime` differs from the staged tuple's pinned `drive_modified_time`, the entry stays unresolved (asset_recovery never silently downloads drifted bytes); otherwise downloads, UPSERTs the snapshotPath. On full resolution across both arrays, flips `snapshot_status` to `'complete'`. Watermark / Phase-2 stale-write guards do NOT apply because asset_recovery doesn't touch anything Phase 2 protects. `last_seen_modified_time` is NOT advanced. Same-modtime partial-failure heals only when the source assets match their pinned versions; drifted assets remain unresolved until a sheet edit forces a fresh Phase 2 stage that captures the new versions.
+     - `mode IN ('cron', 'push')` AND `shows.diagrams.snapshot_status === 'partial_failure'` AND `file.modifiedTime <= effective_watermark` → enter `mode: "asset_recovery"`. **This branch is only taken when there's no newer sheet revision waiting.** If `file.modifiedTime > effective_watermark`, the system runs the normal cron/push fetch + parse + Phase 2 path instead, and any unresolved snapshot failures are carried forward into the new revision. This guarantees a permanently broken diagram cannot starve newer sheet content updates. (Round-46 amendment: `snapshot_status === 'partial_failure_restage_required'` is a TERMINAL state and is NOT routed to asset_recovery — Task 6.3 cron routing returns `{ outcome: 'skip', reason: 'partial_failure_restage_required' }` while modtime ≤ effective_watermark; only a fresh sheet edit advancing modtime past the watermark routes the show to normal Phase 2, which may mint new content-derivable fingerprints that flip the show back to `complete` or normal `partial_failure`.) Asset recovery does NOT re-parse the sheet, does NOT touch sheet-derived columns, and does NOT trigger MI invariants. It walks the **unified asset set** — every entry in BOTH `shows.diagrams.embeddedImages[]` AND `shows.diagrams.linkedFolderItems[]` whose `snapshotPath IS NULL`. For each entry: **re-runs the immutable-pin verify per §6.11's contract** (round-44/47/48 amendment, replacing the older modtime-only fence — `drive_modified_time` is informational only and has a TOCTOU window between metadata read and bytes fetch). For **linked-folder entries**, use Pattern A `revisions.get(driveFileId, headRevisionId, alt='media')` (preferred — exact bytes for the immutable revision; treat 404 from this call as drift since the revision was deleted) OR Pattern B `files.get(alt='media')` then **buffer-then-verify md5 against the pinned `md5Checksum`** (mismatch → discard bytes, leave `snapshotPath = null`, emit `LINKED_ASSET_DRIFTED`). For **embedded entries**, the equivalent fence is `(sheetsRevisionId, embeddedFingerprint)` — entries with `embeddedFingerprint = null` are restage-only and asset_recovery MUST fail closed for them (filtered out of the retry loop per §7 / Task 7.4); entries with non-null fingerprints re-verify the spreadsheet head revision via `drive.revisions.list` and match the content-derived ETag before extracting. asset_recovery NEVER uses `(modifiedTime, trashed)` as the fence — that has the TOCTOU window the immutable-pin contract was added to close. On a successful re-verify-and-download, UPSERT the `snapshotPath` on that entry. On full resolution across both arrays, flips `snapshot_status` to `'complete'`; if every remaining null entry has `recovery_disposition = 'restage_required'`, flips to terminal `'partial_failure_restage_required'`; otherwise stays at `'partial_failure'` for the next cron pass. Watermark / Phase-2 stale-write guards do NOT apply because asset_recovery doesn't touch anything Phase 2 protects. `last_seen_modified_time` is NOT advanced. Same-modtime partial-failure heals only when the source assets match their pinned `(headRevisionId, md5Checksum)` / `(sheetsRevisionId, embeddedFingerprint)` tuples; drifted or restage-only assets remain unresolved until a sheet edit forces a fresh Phase 2 stage that captures new pins.
      - `mode === "manual"` → always proceed regardless of watermark.
-   - Fetch content via Drive API. The exact extraction call (single `files.export` to a markdown-equivalent vs. per-tab `spreadsheets.values.batchGet`) is decided at implementation time and tracked in §16 open questions; the parser's input contract is "markdown-table-shaped text identical in structure to the existing fixture corpus," so either path satisfies it. **If the fetch fails before any parse can run** (Drive auth error, quota exceeded, file race-deletion, etc.):
-     - If `shows` row exists: status-only update `last_sync_status = 'drive_error', last_sync_error = $msg`. Insert sync_log entry. Return without entering Phase 1.
-     - If no `shows` row exists (brand-new sheet, Drive failure before any successful parse): UPSERT `pending_ingestions` keyed on `drive_file_id` with `last_error_code = 'DRIVE_FETCH_FAILED'` (or a more specific code) and the error message. Insert sync_log entry. Return without entering Phase 1. The brand-new sheet is now visible in admin's "Sheets we couldn't parse" panel.
+   - Fetch content via Drive API. The exact extraction call (single `files.export` to a markdown-equivalent vs. per-tab `spreadsheets.values.batchGet`) is decided at implementation time and tracked in §16 open questions; the parser's input contract is "markdown-table-shaped text identical in structure to the existing fixture corpus," so either path satisfies it. **If the fetch fails before any parse can run** (Drive auth error, quota exceeded, file race-deletion, etc.) — round-47 amendment, **the failure-handling writes execute INSIDE the same `withShowSyncTransaction` + per-show advisory-lock boundary as the main sync path**, never outside. Earlier prose described these writes as occurring "before entering Phase 1" without a lock; that allowed a concurrent successful sync to commit fresh data while a slower fetch-failure path raced in afterwards and clobbered `last_sync_status` with `'drive_error'`, OR left a ghost `pending_ingestions` row alongside the legitimate stage another worker had just written. The corrected contract:
+     - **Acquire the per-show advisory lock first**: `SELECT pg_try_advisory_xact_lock(hashtext('show:' || $drive_file_id))`. If `false` → log `CONCURRENT_SYNC_SKIPPED` and return without any write (another worker holds the lock; their outcome is authoritative — either the success they're committing wins, or their own failure path will record the same `drive_error`).
+     - If `shows` row exists: **CAS-gated** status-only update — only overwrite when no fresher successful sync has raced ahead. `UPDATE shows SET last_sync_status = 'drive_error', last_sync_error = $msg, last_sync_attempted_at = now() WHERE drive_file_id = $1 AND (last_synced_at IS NULL OR last_synced_at < $fetchAttemptStartTime)`. Does NOT advance `last_seen_modified_time` and does NOT touch sheet-derived columns. Insert `sync_log` entry. Return.
+     - If no `shows` row exists (brand-new sheet, Drive failure before any successful parse): **first-seen race detection** — re-read `pending_syncs` under the lock (`SELECT 1 FROM pending_syncs WHERE drive_file_id = $1`); if a row exists, a concurrent Phase 1 has already staged this `drive_file_id` between this run's `shows` lookup and now, so the fetch failure is stale. Insert a `sync_log` row coded `drive_fetch_failed_superseded_by_stage` and return WITHOUT writing `pending_ingestions` (the stage represents the authoritative outcome). Otherwise, UPSERT `pending_ingestions` keyed on `drive_file_id` with `last_error_code = 'DRIVE_FETCH_FAILED'` (or a more specific code) and the error message. Insert `sync_log` entry. Return. The brand-new sheet is now visible in admin's "Sheets we couldn't parse" panel.
    - Run the parser (§6). Capture parse warnings.
    - **Phase 1 — Lock and decide outcome (no destructive writes yet).** Open a single Postgres transaction:
      - **Acquire a per-show advisory lock**: `SELECT pg_try_advisory_xact_lock(hashtext('show:' || $drive_file_id))`. If lock acquisition returns `false`, abort this run for this show — another run is already syncing it. Log a `CONCURRENT_SYNC_SKIPPED` info-level entry and move on. The lock auto-releases on commit/rollback. **The lock is the universal race protection** and applies to every mode (cron, manual, recovery).
@@ -812,10 +844,10 @@ State machine:
             activated_at = now()
       WHERE id = $channelId AND status = 'pending';
      ```
-     The two updates run in the same transaction, so the partial unique index never sees two `active` rows simultaneously. If the second UPDATE matches 0 rows (e.g., the row was already cleaned up), the transaction rolls back and the pending row stays — the `WATCH_CHANNEL_CREATE_FAILED` admin alert path takes over.
-  4. **On Drive failure**: another transaction sets `status = 'orphaned'` (resource_id and expires_at remain NULL — the `active` CHECK doesn't apply since status isn't `active`). Insert an `admin_alerts` row coded `WATCH_CHANNEL_CREATE_FAILED`. The reconciliation cron (§5.5.6) tries to clean up the orphan: it calls `channels.stop` blindly with the channel id; whether the call succeeds or 404s, the row goes to `stopped` and gets deleted after the 7-day retention. Push stays in fallback (cron-only) until a retry succeeds.
+     The two updates run in the same transaction, so the partial unique index never sees two `active` rows simultaneously. If the second UPDATE matches 0 rows (e.g., the row was already cleaned up), the transaction rolls back and the pending row stays — the `WATCH_CHANNEL_ORPHANED` admin alert path takes over.
+  4. **On Drive failure**: another transaction sets `status = 'orphaned'` (resource_id and expires_at remain NULL — the `active` CHECK doesn't apply since status isn't `active`). Insert an `admin_alerts` row coded `WATCH_CHANNEL_ORPHANED` (single canonical alert code for every `files.watch` create-or-confirm failure — round-44 normalization). The reconciliation cron (§5.5.6) tries to clean up the orphan: it calls `channels.stop` blindly with the channel id; whether the call succeeds or 404s, the row goes to `stopped` and gets deleted after the 7-day retention. Push stays in fallback (cron-only) until a retry succeeds.
 - **Renew** (`refreshWatchSubscriptions()`): runs as a Vercel Cron `0 * * * *` (hourly). For any `active` row whose `expires_at < now() + interval '24 hours'`, run the Create flow above. The atomic activation in step 3 handles the active→superseded handoff inside the same transaction as the new row's promotion, so there's never a moment when two rows are simultaneously `active`.
-- **Revoke** (admin promoting a new `watched_folder_id` via the §9.0 wizard): mark all `active` rows for the prior folder `superseded` (DB-only). The new folder's `subscribeToWatchedFolder()` runs after wizard exit's app_settings promotion commit and follows the same two-phase pattern. The wizard's `app_settings` promotion commits regardless of whether the new subscription succeeds; if Drive rejects, the new folder enters cron-only-fallback mode and admin sees a `WATCH_CHANNEL_CREATE_FAILED` banner.
+- **Revoke** (admin promoting a new `watched_folder_id` via the §9.0 wizard): mark all `active` rows for the prior folder `superseded` (DB-only). The new folder's `subscribeToWatchedFolder()` runs after wizard exit's app_settings promotion commit and follows the same two-phase pattern. The wizard's `app_settings` promotion commits regardless of whether the new subscription succeeds; if Drive rejects, the new folder enters cron-only-fallback mode and admin sees a `WATCH_CHANNEL_ORPHANED` banner (round-44: single canonical code for every Drive watch create/confirm failure).
 
 #### 5.5.6 Channel garbage collection
 
@@ -868,7 +900,7 @@ Push and cron commit through the same Phase 2 with the same locks; one cannot le
 
 | Failure | Detection | Behavior |
 |---|---|---|
-| Drive returns 4xx on `files.watch` create | API error | Log `WATCH_CHANNEL_CREATE_FAILED`. Cron sync continues to be the source of truth. Renewal cron retries on its next run. After 3 consecutive failures, raise an `admin_alerts` row. |
+| Drive returns 4xx on `files.watch` create | API error | Log `WATCH_CHANNEL_ORPHANED` (round-44 normalization — single canonical code; admin_alerts row keyed `(show_id, code='WATCH_CHANNEL_ORPHANED')` is raised on the first failure, NOT after 3, so the operator surface is immediate). Cron sync continues to be the source of truth. Renewal cron retries on its next run. |
 | Webhook arrives with a stale channel id (old subscription, replaced) | DB lookup at step 2 misses | 410 Gone — Drive stops sending. |
 | Webhook arrives with valid channel id but wrong token | step 3 mismatch | 401 — write `admin_alerts` row coded `WEBHOOK_TOKEN_INVALID`. |
 | Subscription expired before renewal could run (e.g., we were down) | next push fails / next cron observes drift | Cron picks up everything that drifted; renewal cron rebuilds the subscription on its next pass. The window of latency degrades from "seconds" to "5 minutes" until the new subscription is up. No data loss. |
@@ -968,9 +1000,9 @@ Per schema-diff §7, the parser extracts these per-crew-member signals:
 4. **Role flags from role string.** Parse the raw role into the canonical `role_flags text[]` shape: **atomic capability flags only**. The master role list at `2025-06-ria-investment-forum.md:110-121` includes compound entries like `LEAD / A1`; these are decomposed during parse:
    - Strip the `Load In / Set / Strike / Load Out` stage prefix (handled by stage_restriction).
    - Tokenize the remainder by `/` and trim whitespace.
-   - For each token, normalize to its canonical atomic flag: `LEAD`, `A1`, `V1`, `BO`, `ONLY`, `CAM_OP` (collapsed from `CAM OP`), `GAV`.
-   - Result: `LEAD / A1` becomes `["LEAD","A1"]`, NOT `["LEAD/A1"]`. `BO` becomes `["BO"]`. `ONLY***` becomes `["ONLY"]` (the asterisks fed §6.6 step 2 separately).
-   - Unknown tokens not in the canonical list are dropped from `role_flags` and surface as a `UNKNOWN_ROLE_TOKEN` warning.
+   - For each token, normalize to its canonical atomic flag. **Round-49 amendment: the canonical set is the full v4 role-master vocabulary (verified at `2026-04-asset-mgmt-cfo-coo-waldorf.md:718-743`)** — earlier draft listed only `LEAD, A1, V1, BO, ONLY, CAM_OP, GAV`, which would silently drop real fixture roles as `UNKNOWN_ROLE_TOKEN`. The corrected set: `LEAD`, `A1`, `A2`, `V1`, `L1`, `BO`, `GS`, `ONLY`, `CAM_OP` (collapsed from `CAM OP`), `GAV`, `FLOATER`, `FLOOR`, `STREAM`, `PTZ`, `LED`, `SHOW_CALLER` (collapsed from `SHOW CALLER`), `GREEN_ROOM` (collapsed from `GREEN ROOM`), `OWNER`, `CONTENT_CREATION` (collapsed from `CONTENT CREATION`).
+   - Composite tokens decompose to atomic: `LEAD / A1` becomes `["LEAD","A1"]`, NOT `["LEAD/A1"]`. `GS - A1` becomes `["GS","A1"]`. `BO - V1` becomes `["BO","V1"]`. `BO - LEAD` becomes `["BO","LEAD"]`. The dash-separator is treated identically to the slash-separator. `BO` alone becomes `["BO"]`. `ONLY***` becomes `["ONLY"]` (the asterisks fed §6.6 step 2 separately).
+   - Unknown tokens not in the canonical list are dropped from `role_flags` and surface as a `UNKNOWN_ROLE_TOKEN` warning. Plan-side capability predicates (Task 4.6 / 4.12) read atomic-flag membership: `hasA1 = flags.includes('A1') || flags.includes('A2')`, `hasL1 = flags.includes('L1')`, etc.
    The raw role string is preserved in `crew_members.role` for display; `role_flags` is the authorization-safe representation.
 5. **LEAD detection.** `role_flags` contains `LEAD` ⇒ user sees `shows_internal.financials` (PO/Proposal/Invoice). All crew see `shows.coi_status` regardless of role (§7.4 / §4.4).
 
@@ -1074,7 +1106,7 @@ When admin clicks "Apply" on a staged parse:
    - `file.modifiedTime > pending_syncs.staged_modified_time` → behavior continues per below (abort with restage path appropriate to source_kind).
    
    If `file.modifiedTime > pending_syncs.staged_modified_time`, the sheet has been edited again since Doug staged this parse — abort. Behavior depends on `pending_syncs.source_kind`:
-   - **Non-onboarding stage** (`source_kind` IN `'cron', 'push', 'manual'`): DELETE the staged row, log `STAGED_PARSE_OUTDATED`, return "The sheet has been edited since you reviewed this parse. A fresh parse will be staged on the next cron run within 5 minutes (or push notification)." The next cron/push run picks up the new modifiedTime, re-parses, and produces a fresh staging row.
+   - **Non-onboarding stage** (`source_kind` IN `'cron', 'push', 'manual'`): **restore-then-delete, mirroring Discard semantics (round-46 amendment).** Earlier prose only DELETEd the staged row; for an existing-show stage that left `shows.last_sync_status = 'pending_review'` with no backing `pending_syncs` row, producing a phantom "review needed" admin entry with no way to clear it. The corrected flow: read `prior_last_sync_status` and `prior_last_sync_error` from the staged `pending_syncs` row, then `UPDATE shows SET last_sync_status = $prior_status, last_sync_error = $prior_error WHERE drive_file_id = $1`, THEN DELETE the staged row. First-seen stages (no `shows` row) skip the restore and go straight to DELETE since there's no prior status to restore. Log `STAGED_PARSE_OUTDATED`, return "The sheet has been edited since you reviewed this parse. A fresh parse will be staged on the next cron run within 5 minutes (or push notification)." The next cron/push run picks up the new modifiedTime, re-parses, and produces a fresh staging row.
    - **Onboarding stage** (`source_kind = 'onboarding_scan'`): cron is disabled during onboarding (`watched_folder_id` is still NULL — only `pending_folder_id` is set), so the standard "next cron pass" recovery path doesn't exist. Instead, **inline rescan**: in the same advisory-locked transaction, fetch the file via Drive API using `pending_folder_id` as the auth scope, run `runOnboardingScan` semantics (Phase 1 only, never Phase 2), and UPSERT a fresh `pending_syncs` row with the new `staged_modified_time`, fresh `staged_id`, current `wizard_session_id`, and `source_kind = 'onboarding_scan'`. Return `STAGED_PARSE_RESTAGED_INLINE` with the new staged row's data so the wizard UI can re-render the review surface in place. The wizard never gets stuck; Doug always has a current staged row to review.
 
 This step is non-optional; the prior round's "off by default" stance was rejected because for role-affecting changes it can temporarily grant or remove access based on data Doug is no longer approving. The single Drive read per Apply click is well within quota.
@@ -1224,17 +1256,27 @@ type PullSheetItem = {
 };
 ```
 
-**Detection:**
-- A block whose header row contains the literal `PULL SHEET` (case-insensitive) starts a pull-sheet section.
-- Within the section, sub-headers like `TOTAL COUNT CORP & INS / SALON 1` (from `2024-05`) become `caseLabel`s. Rows of `QTY / CAT / SUB CAT / ITEM` become `items[]`.
-- The 2024-05 fixture has nested sub-tabs ("TOTAL COUNT CORP & INS / SALON 1") — the parser flattens these to one case per sub-tab.
-- 2025-06+ has a structured `QTY / CAT / SUB CAT / ITEM` table inside the GEAR tab BUT it's per-day rental quantity, not per-case packing. The parser distinguishes via the column headers: pull-sheet rows have `QTY / CAT / SUB CAT / ITEM`; per-day rental has `Item | <date> | <date> | ...`. Only the former is captured into `pull_sheet`. (Per-day rental is operations data, stays out of scope per §2.)
+**Detection (round-43 amendment — corrected against the real corpus):**
+
+The PULL SHEET tab uses a **positional column layout, NOT a `QTY / CAT / SUB CAT / ITEM` text header**. Verified against `2024-05-east-coast-family-office.md:207-275` and `2025-05-redefining-fixed-income-private-credit.md:360-430`.
+
+- The pull-sheet block starts with a header row whose ALL cells contain the literal text `PULL SHEET` (the merged case-title is replicated across every column of that markdown row — e.g. `| PULL SHEET/East Coast... | PULL SHEET/East Coast... | PULL SHEET/East Coast... | PULL SHEET/East Coast... | PULL SHEET/East Coast... |`). The case label is extracted from the title text after the `PULL SHEET/` prefix; for nested sub-cases like `TOTAL COUNT CORP & INS / SALON 1`, the parser flattens to one case per sub-section.
+- Subsequent rows are positional (5 columns): **`packed_flag | qty | item | sub_cat | cat`**:
+  - col 1 (packed_flag): `FALSE`/`TRUE` checkbox indicator (informational; not stored)
+  - col 2 (qty): integer (parseable as number; null if blank)
+  - col 3 (item): line-item name (REQUIRED; rows with empty col 3 are dropped)
+  - col 4 (sub_cat): nullable sub-category (e.g., `SPEAKERS / MONITOR`)
+  - col 5 (cat): top-level category (e.g., `AUDIO`, `VIDEO`, `BASES`, `FOH`, `SCENIC`)
+- The 2024-05 fixture has nested sub-tabs (`TOTAL COUNT CORP & INS / SALON 1`) — the parser emits one `PullSheetCase` per sub-tab.
+- **The GEAR tab (2025-06+) is NOT a pull sheet** — `2025-06-ria-investment-forum.md:366-388` has the explicit text header `QTY | PULLED | INITAL | CAT | SUB CAT | ITEM | NOTES` (7 columns including the PULLED + INITAL audit columns). That table is operations-side packing data and is OUT OF SCOPE for the crew Pack List tile (§2 deferral list). The parser distinguishes the two by header shape:
+  - **PULL SHEET** → first cell starts with literal `PULL SHEET` (no `QTY` text header below it).
+  - **GEAR** → text header row contains BOTH `PULLED` AND `INITAL` (note the typo — verbatim in the fixture).
 
 **Soft warnings (not hard fails):**
-- `PULL_SHEET_PARSE_PARTIAL` — at least one row had unparseable QTY or category; the row is preserved with `rawSnippet` and `qty: null`. Tile renders the raw snippet for that row.
-- `PULL_SHEET_AMBIGUOUS_FORMAT` — the parser detected something pull-sheet-shaped but column headers don't match the expected `QTY / CAT / SUB CAT / ITEM`. The full block is preserved as a single case with `caseLabel: "Unparsed pull sheet"` and items rendered as raw snippets.
+- `PULL_SHEET_PARSE_PARTIAL` — at least one row had unparseable QTY or empty critical column; the row is preserved with `rawSnippet` and `qty: null`. Tile renders the raw snippet for that row.
+- `PULL_SHEET_AMBIGUOUS_FORMAT` — the parser detected something pull-sheet-shaped (header contains `PULL SHEET`) but the row column count doesn't match the expected 5. The full block is preserved as a single case with `caseLabel: "Unparsed pull sheet"` and items rendered as raw snippets.
 
-No MI invariant gates the destructive write on pull_sheet content because absence and partial-parse are normal. Pull-sheet shrinkage between syncs (e.g., a previously-N-case sheet now has M cases where M < N) is informational and surfaces as a parse warning, not a stage-for-approval invariant.
+**MI-8c gate (clarification, supersedes any earlier soft-warning-only language).** Per §6.8 MI-8c, structural pull-sheet regressions ARE stage-for-approval invariants — full collapse, case-count halved, case-label dropped, or `PULL_SHEET_AMBIGUOUS_FORMAT` against a previously-non-ambiguous parse all stage. Per-row `PULL_SHEET_PARSE_PARTIAL` warnings on individual rows continue to auto-apply with `rawSnippet` fallback (the row is degraded, not the whole structure).
 
 **Cardinality cap:** v1 renders up to 12 cases inline; "Show more" reveals the rest. Per-case items have no cap (cases typically hold ≤30 line items).
 
@@ -1245,31 +1287,34 @@ Newer sheets (2026+) carry **floating embedded images** positioned over the DIAG
 **Extraction path (production):**
 
 1. Standard parse runs against the markdown export (per §6.1–6.10) and produces the bulk `ParseResult`.
-2. **Then** the parser calls `spreadsheets.get` with `ranges=DIAGRAMS!A1:Z1000` (or whatever range covers the DIAGRAMS tab — most sheets stay within Z1000) and `fields=sheets(properties.title,protectedRanges,charts,embeddedObjects(objectId,position,size,sourceUrl,image(contentUrl,sourceUrl,altText,sheetEmbeddedObject)))`. Real field path TBD at implementation time depending on which Sheets API endpoint exposes the most stable image data; fallback is `files.export(mimeType: 'application/zip')` which returns an HTML zip with extracted images and an `images/` folder.
+2. **Then** the sync layer (NOT the parser — round-43 boundary, embedded extraction lives in `lib/sync/enrichWithDrivePins.ts`) calls `spreadsheets.get` with `fields=sheets(properties.title,protectedRanges,charts,embeddedObjects(objectId,position,size,sourceUrl,image(contentUrl,sourceUrl,altText,sheetEmbeddedObject)))` and **NO `ranges=` parameter** (round-48 amendment — the earlier hardcoded `ranges=DIAGRAMS!A1:Z1000` was a case-sensitive A1-notation range that fails tab resolution against the corpus's `DIagrams` typo; spec §6.11 below mandates case-insensitive tab resolution). The implementation fetches all sheets and filters client-side via `sheets.find(s => s.properties.title.toLowerCase() === 'diagrams')` to handle the typo. Fallback is `files.export(mimeType: 'application/zip')` which returns an HTML zip with extracted images and an `images/` folder.
 3. For each embedded object on the DIAGRAMS tab whose type is image-like, record `{ sheetTab: "DIAGRAMS", objectId, mimeType, alt?, snapshotPath: null }` in the `parseResult.diagrams.embeddedImages` array. The bytes themselves are **snapshotted into Supabase Storage at Phase 2 (auto-apply) or Apply (staged) time** — not at parse time. This preserves the live-vs-staged snapshot boundary: the crew page for the currently-approved snapshot serves images from the storage path baked at the last successful Apply, never from live Drive state. If Doug edits an image while a stage is pending, the live crew page continues to show the previously-approved bytes. Specifically:
 
    **Storage layout.** A private Supabase Storage bucket `diagram-snapshots`. Bucket-level policies forbid all anonymous and end-user-session access; only the service role reads/writes. Storage object keys use a per-apply **immutable revision id**, NOT the modifiedTime, because manual/recovery applies are explicitly allowed to replay the same modtime (§5.2). Each successful Phase 2 / Apply mints a fresh `snapshot_revision_id` UUID written into `sync_audit` and into `shows.diagrams.snapshot_revision_id`; storage keys are `shows/<show_id>/r=<snapshot_revision_id>/<objectId>.<ext>`. Two applies of the same Drive `modifiedTime` get distinct revisions, distinct keys, distinct objects.
 
-   **Linked-folder enumeration freezes at Phase 1 (parse / stage), not at Apply.** If we waited until Apply to enumerate the folder, additions/removals between stage and Apply would silently change what Doug actually published. Phase 1 enumerates the folder, captures the exact `(driveFileId, mimeType, alt, drive_modified_time)` tuples, and records them in `parseResult.diagrams.linkedFolderItems` with `snapshotPath: null`. Apply's snapshotting downloads exactly those frozen tuples — folder content changes between stage and Apply do NOT propagate. If a frozen tuple's file is gone at Apply time (404/unshared/trashed), it's preserved with `snapshotPath: null` and contributes to `snapshot_status = 'partial_failure'`; the asset_recovery cron can heal once the file becomes accessible again, OR the next Phase 2 against a newer modtime captures whatever's currently in the folder fresh.
+   **Linked-folder enumeration freezes at Phase 1 (parse / stage) with the immutable pin tuple, not at Apply (round-44 amendment).** If we waited until Apply to enumerate the folder, additions/removals between stage and Apply would silently change what Doug actually published. Phase 1 enumerates the folder via `files.list` with `fields='files(id,name,mimeType,modifiedTime,headRevisionId,md5Checksum,trashed)'` and captures the **immutable approval tuple** `(driveFileId, mimeType, alt, drive_modified_time, headRevisionId, md5Checksum)` per item, recorded in `parseResult.diagrams.linkedFolderItems`. `headRevisionId` + `md5Checksum` are the authoritative byte-fence — `drive_modified_time` is informational because Drive can mutate bytes within a metadata read → byte fetch window. Apply downloads either via `revisions.get(fileId, headRevisionId, alt='media')` (preferred, exact bytes) or via `alt=media` followed by buffer-then-verify against `md5Checksum`. Folder content changes between stage and Apply do NOT propagate. If a frozen tuple's file is gone at Apply time (404/unshared/trashed) OR drift is detected, it's preserved with `snapshotPath: null` and contributes to `snapshot_status = 'partial_failure'`.
+
+   **Embedded-image freeze with content-derived fingerprint (round-44 amendment).** Embedded images on the DIAGRAMS tab carry their own immutable approval pair: `sheetsRevisionId` (captured via `drive.revisions.list(spreadsheetId)` — the spreadsheet's head revision id at extraction time, since the Sheets API does not expose this directly) AND `embeddedFingerprint` (a content-derived ETag from `image.contentUrl`). If the Sheets API cannot supply a content-derived token for a given image, `embeddedFingerprint` is set to `null` AND that entry is **restage-only**: Apply MUST fail closed (no download) and `asset_recovery` MUST exclude that entry from retry. A fresh sheet edit re-mints `sheetsRevisionId` + `embeddedFingerprint` and the snapshot is re-attempted then. Positional/id hashes are forbidden as approval evidence (an in-place image replacement preserves objectId + position).
+
+   **Combined cap upstream of persistence (round-44 amendment).** `MAX_TOTAL_DIAGRAM_ITEMS = 60` is a budget across BOTH `embeddedImages` AND `linkedFolderItems`. The cap is enforced during Phase 1 enrichment (Task 7.1 reserves up to N for embedded; Task 7.2 consumes the residual budget for linked). Items 61+ MUST NOT be persisted — otherwise hidden overflow can drift / 404 / wedge `snapshot_status='partial_failure'` even though the gallery never emits a URL for them.
 
    **Per-apply snapshotting flow** (covers BOTH embedded images AND the frozen linked-folder set so the live page never reaches into Drive at view time):
    - Generate `snapshot_revision_id = gen_random_uuid()`.
-   - For each entry in `parse_result.diagrams.embeddedImages[]`:
-     - Download from Drive using the service-account auth.
-     - Upload to `diagram-snapshots/shows/<show_id>/r=<snapshot_revision_id>/embedded-<objectId>.<ext>`.
-     - Set `snapshotPath` to that path on success.
-     - On failure: leave `snapshotPath = null` AND mark `shows.diagrams.snapshot_status = 'partial_failure'`.
+   - For each entry in `parse_result.diagrams.embeddedImages[]` (round-48 amendment — full immutable-pin re-verify under the per-show advisory lock; mirrors plan Task 7.3. The legacy "download each embedded image directly and mark partial_failure only on download failure" path is RETIRED — drift detection happens BEFORE any byte fetch):
+     - **Restage-only short-circuit**: if the entry's `recovery_disposition = 'restage_required'` (set when `embeddedFingerprint` was null at extraction time per the round-44/46 amendments above), Apply does NOT download. Leave `snapshotPath = null`, mark `snapshot_status = 'partial_failure'`, and exclude the entry from any retry path. The entry converges only when a fresh sheet edit re-mints `sheetsRevisionId` + `embeddedFingerprint` via Phase 2.
+     - **Re-fetch the spreadsheet head revision via `drive.revisions.list(spreadsheetId)` UNDER THE LOCK** and compare the latest `revision.id` to the entry's stored `sheetsRevisionId`.
+     - **Re-run `spreadsheets.get`** to verify the entry's `objectId` is still present on the DIAGRAMS tab AND the entry's stored `embeddedFingerprint` matches the live content-derived token.
+     - **All three checks must pass** (revision unchanged AND objectId present AND fingerprint matches) before any byte download. Drift in any of the three → leave `snapshotPath = null`, mark `snapshot_status = 'partial_failure'`, AND emit `EMBEDDED_ASSET_DRIFTED` warning. No bytes are fetched in the drift case.
+     - On verified-pin match: download bytes → upload to `diagram-snapshots/shows/<show_id>/r=<snapshot_revision_id>/embedded-<objectId>.<ext>` → set `snapshotPath` to that path.
    - For each entry in `parse_result.diagrams.linkedFolderItems[]` (the frozen set from Phase 1):
-     - **Version-pin check (fail-closed):** call `files.get(driveFileId, fields='modifiedTime,trashed')`. If `trashed = true` OR `modifiedTime > parse_result.diagrams.linkedFolderItems[i].drive_modified_time` (or 404), the file's bytes have drifted since stage — leave `snapshotPath = null` AND mark `snapshot_status = 'partial_failure'` AND emit a `LINKED_ASSET_DRIFTED` warning. Do NOT download the current bytes; they were not part of what Doug approved. Same applies in asset_recovery — it's not just a download retry, it always re-verifies the version pin first.
-     - If the version matches: download via `files.get?alt=media` using the captured `driveFileId`.
-     - Upload to `diagram-snapshots/shows/<show_id>/r=<snapshot_revision_id>/folder-<driveFileId>.<ext>`.
-     - Set `snapshotPath` to that path on success.
+     - **Immutable-revision download (round-44 amendment, fail-closed):** Pattern A — `revisions.get(driveFileId, headRevisionId, alt='media')` downloads the exact bytes the freeze tuple pinned regardless of current head; 404 from Drive at this call indicates the revision was deleted (drift case). Pattern B — `files.get(alt='media')` then recompute md5 of the streamed bytes; if computed md5 ≠ `md5Checksum`, discard the bytes and treat as drift. **Never use `(modifiedTime, trashed)` as the fence — it has the TOCTOU window that motivates round-44.** On drift in either pattern: leave `snapshotPath = null` AND mark `snapshot_status = 'partial_failure'` AND emit `LINKED_ASSET_DRIFTED` warning. asset_recovery follows the same revision-pinned download path.
+     - On verified-pin match: upload bytes to `diagram-snapshots/shows/<show_id>/r=<snapshot_revision_id>/folder-<driveFileId>.<ext>` and set `snapshotPath`.
      - On any failure: leave `snapshotPath = null` and mark `snapshot_status = 'partial_failure'`.
    - Phase 2's UPDATE on `shows` writes the new `diagrams` JSONB with all per-entry `snapshotPath` values, the frozen `linkedFolderItems[]` (with snapshotPaths populated), the top-level `snapshot_revision_id`, and `snapshot_status`. **No source type is exempt from snapshotting**; the previous "linked-folder live-fetch" path is replaced.
 
-   **Partial-failure retry path.** When `shows.diagrams.snapshot_status = 'partial_failure'`:
-   - **Auto-syncs (cron, push) IGNORE the watermark gate for this show**, so the system keeps re-attempting the failed snapshots without waiting for Doug to edit the sheet.
-   - On each retry pass: re-attempt only the entries whose `snapshotPath IS NULL`. Successful retries fill the path. Once every entry has a non-null `snapshotPath`, flip `snapshot_status` to `'complete'`; subsequent auto-syncs return to normal watermark behavior.
+   **Partial-failure retry path.** Two terminal sub-states exist (round-46/47/48 amendments):
+   - `snapshot_status = 'partial_failure'` — at least one entry has `snapshotPath = NULL` AND at least one such null entry has `recovery_disposition = 'normal'` (retryable). **Auto-syncs (cron, push) IGNORE the watermark gate for this show** and keep re-attempting the retryable failed snapshots without waiting for Doug to edit the sheet. On each retry pass: re-attempt only the entries whose `snapshotPath IS NULL` AND `recovery_disposition = 'normal'`. Successful retries fill the path. Once every entry has a non-null `snapshotPath`, flip `snapshot_status` to `'complete'`; subsequent auto-syncs return to normal watermark behavior.
+   - `snapshot_status = 'partial_failure_restage_required'` — at least one entry has `snapshotPath = NULL` AND every remaining null entry has `recovery_disposition = 'restage_required'` (no retryable nulls left). **Cron SKIPS this show — does NOT route into asset_recovery and does NOT advance any retry counter.** A null-fingerprint entry cannot be healed by re-downloading; only a fresh sheet edit can re-mint `sheetsRevisionId` + `embeddedFingerprint`, which advances `modifiedTime`, fires Phase 2, and either resolves the entry or keeps it stuck (still detectable via the same gate). The `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` admin alert is raised so Doug sees the stuck state.
    - **Crucially, the prior snapshot's bytes are NOT immediately deleted.** Until `snapshot_status = 'complete'`, the diagram GC (below) suppresses deletion of the prior revision's blobs — so on the gallery, the missing image renders the placeholder per AC-7.7, but at least one consistent revision still has all bytes available for forensic recovery if needed.
    - This means a transient Drive/Storage failure can never permanently degrade the live view, because retries continue automatically rather than being gated by file modtime.
 
@@ -1278,7 +1323,7 @@ Newer sheets (2026+) carry **floating embedded images** positioned over the DIAG
    **Diagram garbage collection cron** (`30 * * * *`, hourly, offset to avoid collisions):
    - For each `(show_id)` in `shows`, list its `diagram-snapshots/shows/<show_id>/` prefix.
    - For each blob whose `r=<revision_id>` segment does NOT match the current `shows.diagrams.snapshot_revision_id`: it's an orphan from a prior revision.
-   - Delete orphan blobs older than **7 days** (grace window for in-flight reads + forensic recovery). Suppress deletion if the current revision has `snapshot_status = 'partial_failure'` (the prior revision is the only complete state available — keep it intact until the new revision finishes capturing).
+   - Delete orphan blobs older than **7 days** (grace window for in-flight reads + forensic recovery). Suppress deletion if the current revision has `snapshot_status = 'partial_failure'` OR `snapshot_status = 'partial_failure_restage_required'` (round-46 amendment — both states leave the prior complete revision as the only consistent fallback while the current revision is intentionally incomplete; deleting prior-revision bytes would produce a user-visible asset-loss path. The terminal-restage variant is a stuck-waiting-for-sheet-edit state, NOT a recovered state, so GC suppression must extend to it for the same reason).
    - For shows whose row is `archived = true`: orphan deletion runs at 30 days instead of 7.
 4. Linked-folder diagrams (older sheets where the DIAGRAMS tab carries `LINK` to an external Drive folder) populate `parseResult.diagrams.linkedFolder` instead.
 5. A sheet may have both: e.g., a few embedded photos on the DIAGRAMS tab AND a linked folder for additional layouts. The UI in §10 renders both sources merged into one gallery in the Diagrams tile.
@@ -1292,17 +1337,21 @@ No MI invariant gates destructive write on diagrams content because absence is n
 
 **Cardinality cap:** the DIAGRAMS tab realistically holds ≤10 images per the FinTech Forum example. v1 caps `embeddedImages.length` at 60 to prevent an absurd sheet from blowing up storage; beyond 60, surface a `DIAGRAMS_EMBEDDED_CAP_EXCEEDED` warning to admin and truncate.
 
-#### 6.11.1 Apply-time reel drift re-verify
+#### 6.11.1 Apply-time reel drift re-verify (round-44 amendment: full immutable pin tuple)
 
-The reel pin captured at Phase 1 (`parseResult.openingReel = { driveFileId, drive_modified_time }`) can drift between stage and Apply just like a linked-folder image. Apply MUST re-verify before persisting into `shows.opening_reel_drive_*`:
+The reel pin captured at Phase 1 carries the full immutable tuple `parseResult.openingReel = { driveFileId, drive_modified_time, headRevisionId }`. Apply MUST re-verify all three components before persisting into `shows.opening_reel_drive_file_id`, `shows.opening_reel_drive_modified_time`, AND `shows.opening_reel_head_revision_id` (round-44: column added to §4.1):
 
-1. If `parseResult.openingReel === null` → set both `shows.opening_reel_drive_file_id` and `shows.opening_reel_drive_modified_time` to NULL. No Drive call needed.
-2. If `parseResult.openingReel !== null`:
-   - Call `files.get(parseResult.openingReel.driveFileId, fields='modifiedTime,trashed')`.
-   - **If `trashed = true` OR current `modifiedTime` differs from `parseResult.openingReel.drive_modified_time`:** the reel has drifted. Persist BOTH columns as NULL (NOT the staged values), emit a `REEL_DRIFTED` warning to `parse_warnings`, and continue with Phase 2. The crew page falls back to the text-only opening_reel value rather than 410-on-first-view; admin sees the warning and knows a fresh sheet sync will re-stage the new reel pin.
-   - If the modtime matches → persist the staged `driveFileId` and `drive_modified_time` into the columns. The route at §7.3 will subsequently re-verify on every request and return drifted bytes as 410.
+1. **Null reel staged** — if `parseResult.openingReel === null` → set ALL THREE `shows.opening_reel_*` columns to NULL atomically. No Drive call needed.
+2. **Re-fetch under the lock** — if `parseResult.openingReel !== null`, call `files.get(parseResult.openingReel.driveFileId, fields='modifiedTime,trashed,headRevisionId,md5Checksum')`.
+3. **Pinned-tuple comparison** — drift case if ANY of:
+   - `trashed = true` OR file gone (404), OR
+   - `current.headRevisionId !== staged.headRevisionId` (authoritative immutable check), OR
+   - `current.modifiedTime !== staged.drive_modified_time` (defense-in-depth — revision check above is the primary fence).
 
-This guards the same class of bug the linked-folder version-pin closes: an asset edited between stage and Apply must NEVER produce an "approved but immediately broken" state on the live page.
+   On drift: persist ALL THREE columns as NULL atomically (not just two), emit `REEL_DRIFTED` warning to `parse_warnings`, continue Phase 2. Crew page falls back to text-only opening_reel value; the asset route returns 410 if hit.
+4. **Success path** — pin tuple matches: persist the full triple `(driveFileId, drive_modified_time, headRevisionId)` into the three columns atomically. The route at §7.3 (`/api/asset/reel/[show]`) streams bytes via `revisions.get(fileId, headRevisionId, alt='media')` on every request — `headRevisionId` is the immutable byte-fence, NOT modtime alone.
+
+This guards the same class of bug the linked-folder revision-pin closes: an asset edited between stage and Apply must NEVER produce an "approved but immediately broken" state on the live page, AND the route must never serve drifted bytes against the approved revision pin.
 
 ---
 
@@ -1342,18 +1391,32 @@ This means the `?t=` form NEVER appears anywhere — not in spec examples, not i
 
 **A request with any `?t=` query parameter is treated as a compromise event, not just a bad link.** Vercel's runtime logs include search params in request log entries, so any URL of the form `/show/<slug>/p?t=<jwt>` that reaches the platform exposes the JWT to anyone with log access — regardless of how quickly middleware rejects the request. We cannot guarantee non-logging at the platform level on Vercel.
 
-**Compromise-event handler** (single place in middleware that handles `/show/<slug>/p` with a `t` search param). Runs inside the per-show advisory lock so a concurrent Apply can't collide:
+**Compromise-event handler** (single place in middleware that handles `/show/<slug>/p` with a `t` search param). Runs inside the per-show advisory lock so a concurrent Apply can't collide. After verifying the JWT signature and parsing `(showId, name, tokenVersion)` from its claims, the handler routes on the comparison of `jwt.tokenVersion` against `crew_member_auth.current_token_version` for that `(show_id, name)`:
 
-1. **Auto-revoke the carried JWT** — if the JWT signature is valid, parse `(showId, name, tokenVersion)` from its claims. If `tokenVersion === crew_member_auth.current_token_version` for that `(show_id, name)` (i.e., the leaked link is the **currently-active** version), the row must also be auto-rotated to "no live link" state — not just an exact-version revocation, because the admin UI's `Copy share link` would still surface this token until Doug manually rotated. Auto-rotation in the same transaction:
-   ```sql
-   UPDATE crew_member_auth
-      SET revoked_below_version = max_issued_version,
-          current_token_version = max_issued_version
-    WHERE show_id = $1 AND crew_name = $2;
-   ```
-   The row enters the same "no live link" state defined in §5.2 — Doug must click "Issue new link" before any sharing affordance appears for that crew member. If `tokenVersion < current_token_version` (the leaked link is a stale historic version), only insert the surgical `revoked_links` row with the exact JWT's `token_version` and reason `leaked_via_query_string`; the current shareable version is unaffected. Using the service-role DB client; the user is unauthenticated at this point.
-2. **Return 410 Gone** with the message: "This link format is no longer supported and the link has been revoked. Ask Doug for a new link." Do not redirect.
-3. **Log a `LEAKED_LINK_DETECTED` warning** to `sync_log` (or a dedicated `security_events` table) so Eric sees it in admin. If the leaked link was the current version (auto-rotation triggered), include `auto_rotated_to_no_live_link: true` so admin can spot it.
+**Branch A — `jwt.tokenVersion === current_token_version` (leaked link IS the currently-active version).** The row must also be auto-rotated to "no live link" state — not just an exact-version revocation, because the admin UI's `Copy share link` would still surface this token until Doug manually rotated. In one transaction: insert the surgical `revoked_links` row at the exact `token_version` (idempotent `ON CONFLICT (show_id, crew_name, token_version) DO NOTHING`) with reason `leaked_via_query_string`, AND set `revoked_below_version = current_token_version` (no auto-mint of a fresh version — `current_token_version` and `max_issued_version` stay unchanged):
+```sql
+INSERT INTO revoked_links (show_id, crew_name, token_version, revoked_reason)
+VALUES ($1, $2, $3, 'leaked_via_query_string')
+ON CONFLICT (show_id, crew_name, token_version) DO NOTHING;
+
+UPDATE crew_member_auth
+   SET revoked_below_version = current_token_version
+ WHERE show_id = $1 AND crew_name = $2;
+```
+The row enters the same "no live link" state defined in §5.2 — Doug must click "Issue new link" before any sharing affordance appears for that crew member. A SINGLE Issue-New-Link click then bumps both `current_token_version` and `max_issued_version` to `floor + 1`, immediately producing a usable token.
+
+**Branch B — `jwt.tokenVersion < current_token_version` (leaked link is a stale historic version).** Insert ONLY the surgical `revoked_links` row at the exact `token_version` (idempotent `ON CONFLICT DO NOTHING`) with reason `leaked_via_query_string`. The current shareable version is unaffected; an older leak must NOT kick everyone off the live link. `crew_member_auth` columns remain unchanged in this branch.
+
+**Branch C — `jwt.tokenVersion > current_token_version` (future-version leak; round-46+ amendment, locked by plan Task 5.6).** The carried JWT claims a version higher than the row knows about. Treat this as the same no-live-link state as Branch A but with the floor lifted to the future version, so a SINGLE manual "Issue new link" still fully recovers. In one transaction:
+- Insert the surgical `revoked_links` row at the exact future `tokenVersion` (idempotent `ON CONFLICT DO NOTHING`) with reason `leaked_via_query_string`.
+- Lift ALL THREE fields to `jwt.tokenVersion` in the same step: `current_token_version = jwt.tokenVersion`, `max_issued_version = jwt.tokenVersion`, `revoked_below_version = jwt.tokenVersion`.
+
+After this transition, ONE manual "Issue new link" click bumps both `current_token_version` and `max_issued_version` to `jwt.tokenVersion + 1`, immediately producing a usable replacement (the new JWT carrying `tokenVersion = jwt.tokenVersion + 1` is `> revoked_below_version` AND `=== current_token_version`, so it passes both the floor check and the strict-equality check). Multi-click recovery would be a regression. An earlier draft only lifted `revoked_below_version` while leaving `current/max` unchanged, requiring multiple Issue-New-Link clicks to clear the floor — that was a real auth-lockout bug. Use the canonical `LEAKED_LINK_DETECTED` user copy — do NOT invent a `SUSPICIOUS_FUTURE_VERSION` code (operator-only future-version anomaly metadata belongs in the structured log payload, not the user-facing message catalog).
+
+All three branches use the service-role DB client; the user is unauthenticated at this point. After the appropriate branch executes:
+
+1. **Return 410 Gone** with the message: "This link format is no longer supported and the link has been revoked. Ask Doug for a new link." Do not redirect.
+2. **Log a `LEAKED_LINK_DETECTED` warning** to `sync_log` (or a dedicated `security_events` table) so Eric sees it in admin. Include the branch taken (A / B / C) and, for Branch A or C, `auto_rotated_to_no_live_link: true` (Branch C also includes the lifted floor value) so admin can spot it.
 
 The JWT in Vercel's request logs is now equivalent to a known-revoked token. After the handler completes, Doug's admin view of the affected crew row reflects "no live link" state and prompts an explicit "Issue new link" — the admin UI cannot accidentally re-distribute the dead token.
 
@@ -1388,8 +1451,8 @@ Why no `role` in the token: roles change. If Doug demotes a LEAD to A1, an outst
 6. Check the `revoked_links` table (see §7.2.3) for surgical exact-version revocations:
    - Row with exact match on `(showId, name, tokenVersion)` → 410 Gone "this link has been revoked."
    - This handles the rare case Doug wants to revoke ONE historic version without affecting the current one. **The legacy wildcard token_version=0 row form is DEPRECATED and not implemented in v1** — its use case is fully covered by `revoked_below_version`, which is recoverable.
-7. Derive `viewerRole` from current `crew_members.role_flags`. Apply role-based field hiding (§7.4) using this fresh value.
-8. Render.
+7. **Resolve identity only** — produce `{ kind: 'crew', crewMemberId, showId }` for the cookie-mint step. Role is NOT derived in the redemption path; downstream `getShowForViewer` re-derives it from `crew_members.role_flags` on every call (§4.4 / Task 4.3).
+8. Mint the cookie session (write `link_sessions`; emit `__Host-fxav_session`) and render.
 
 Signed with HS256 using `JWT_SIGNING_SECRET`.
 
@@ -1501,8 +1564,8 @@ For every request to `/show/<slug>` (or any data fetch behind a redeemed link), 
 8. **Surgical revoked_links check**: if a row exists in `revoked_links` with `(show_id, crew_members.name, token_version = link_sessions.jwt_token_version)` → DELETE the session, 410 Gone "this link has been revoked." (No wildcard form here either.)
 9. **Idle-timeout check**: if `link_sessions.last_active_at < now() - interval '15 minutes'` → DELETE the session, 401 with "Your session has timed out due to inactivity. Open the original signed link again." This is the rolling-idle TTL the §7.2 cookie semantics promised; without this check, a stolen or forgotten cookie remains usable for the full 12-hour absolute TTL.
 10. Update `link_sessions.last_active_at = now()` (advances the idle window for the next request).
-11. Derive `viewerRole` from current `crew_members.role_flags`. Apply role-based field hiding (§7.4).
-12. Render.
+11. **Resolve identity only** — the validator returns `{ kind: 'success', viewer: { kind: 'crew', crewMemberId, showId } }`. Role is NOT derived here; downstream `getShowForViewer(showId, viewer)` re-derives it from `crew_members.role_flags` on every call (§4.4 / Task 4.3).
+12. Render (after `getShowForViewer` returns its role-filtered payload — see §7.4).
 
 **Every numbered step above is a mandatory security check.** Steps 1–4 prove the cookie corresponds to a still-existing session, scoped to the right show, for an existing crew member. Steps 5–7 prove revocations and rotations have not invalidated the underlying authority. Step 8 is the surgical exact-version revocation. Step 9 is the rolling idle TTL. Skipping any step reopens a real attack surface:
 
@@ -1517,15 +1580,21 @@ For every request to `/show/<slug>` (or any data fetch behind a redeemed link), 
 | 8 | Surgical exact-version revocations never take effect on active sessions |
 | 9 | Stolen/forgotten cookies usable for full 12h |
 
-**Implementation note:** all 12 steps are encapsulated in a single `lib/auth/validateLinkSession(req)` helper that returns either `{ ok: true, viewerRole, crewMemberId }` or `{ ok: false, status, message }`. **The helper is the only correct way to authenticate a redeemed-link request; routes must never re-implement subsets.** It is called from every signed-link page route and any server action that mutates state on behalf of a redeemed user.
+**Implementation note:** all 12 steps are encapsulated in a single `lib/auth/validateLinkSession(req)` helper that returns a **tri-state outcome** (round-46+ amendment, locked by plan Task 5.2):
+
+- `{ kind: 'success', viewer: { kind: 'crew'; crewMemberId; showId } }` — auth passes. **Identity-only payload (no `viewerRole`)**: per §4.4 / Task 4.3's locked contract, `getShowForViewer` re-derives role from `crew_members.role_flags` on every call; passing a pre-derived role from the validator would reopen the stale-role hole.
+- `{ kind: 'continue', priorFailure?, clearCookie?: true }` — this branch doesn't apply or recovered cleanly; the caller's chain falls through to `validateGoogleSession` / `requireAdmin`. Steps 1-9 (cookie missing, session not found, expired, cross-show binding mismatch, removed crew, version mismatch, revoked, idle past TTL) produce `continue` with `clearCookie: true` AND DELETE the offending `link_sessions` row when one exists (steps 3-9 only — steps 1-2 have no row to delete).
+- `{ kind: 'terminal_failure', status, code, message }` — only for genuinely unrecoverable cases (malformed cookie format, DB connection failure). Routes never short-circuit on a stale/wrong-show/revoked cookie; §7.3 explicitly authorizes via "Google session OR redeemed-link cookie OR admin," so a stale cookie shouldn't deny a user whose Google or admin session is valid.
+
+Only steps 11-12 produce `kind: 'success'` (with the identity-only viewer payload above — no role). **The helper is the only correct way to authenticate a redeemed-link request; routes must never re-implement subsets.** It is called from every signed-link page route and any server action that mutates state on behalf of a redeemed user.
 
 **Google-session authorization is structurally different and uses its own validator** (`lib/auth/validateGoogleSession(req)`):
 
 1. Verify the Supabase Auth session is present and unexpired.
 2. Look up `canonicalize(supabase.user.email)` against `crew_members.email` for the requested show. The DB column is already canonical per §4.1.1, so the comparison is exact-match on canonical form. If no match → 403 with "your email isn't on the crew list for this show." **If multi-match → 500 with `AMBIGUOUS_EMAIL_BINDING`** (this should be impossible because of the `crew_members_show_email_unique` partial index plus MI-5b, but the validator must explicitly reject rather than pick a row to defend against any future schema regression). The notification path is concrete (see §4.6 below): the validator INSERTs into `admin_alerts` keyed on `(show_id, code)` with the colliding crew rows captured in `context` JSONB. The dashboard renders any unresolved `admin_alerts` row as a top-bar critical banner that cannot be dismissed without clicking through to the affected show.
 3. **Removal is the only revocation primitive for Google sessions.** When Doug removes a crew member from the sheet, sync's `delete-not-in-set` step removes the `crew_members` row, which causes step 2 to fail on the user's next request. There is no separate "revoke Google login" affordance.
-4. Derive `viewerRole` from current `crew_members.role_flags`. Apply role-based field hiding (§7.4).
-5. Render.
+4. **Resolve identity only** — return `{ kind: 'success', viewer: { kind: 'crew', crewMemberId, showId } }`. Role is NOT derived here; downstream `getShowForViewer(showId, viewer)` re-derives it from `crew_members.role_flags` on every call (§4.4 / Task 4.3).
+5. Render (after `getShowForViewer` returns its role-filtered payload — see §7.4).
 
 The signed-link revocation tables (`revoked_links`, `crew_member_auth.revoked_below_version`) are **signed-link-specific** and do NOT apply to Google sessions. They reference `tokenVersion`, which Google sessions don't carry. Implementation must NOT cross-wire these tables to the Google validator. The two validators share only `crew_members` lookup helpers and role-derivation; revocation logic is intentionally separate because the threat model is different (Google login = identity verified by Google, revocation = remove from sheet; signed link = portable token, revocation = explicit token-version invalidation).
 
@@ -1549,8 +1618,8 @@ Global rotation (rotating `JWT_SIGNING_SECRET`) remains available as a nuclear o
 | `/show/<slug>` | signed-in (Google session) OR redeemed-link session cookie (`__Host-fxav_session`) OR admin | Crew page. **No token-bearing form on this route** — `?t=`/fragment-bearing entrypoints live exclusively at `/show/<slug>/p` per §7.2. |
 | `/show/<slug>/p#t=<jwt>` | valid JWT (from fragment) + current matching `crew_members` row + tokenVersion match + not in `revoked_links` | Crew page via signed link. JWT lives in URL fragment only; immediately exchanged for an HTTP-only session cookie via `/api/auth/redeem-link` (§7.2). The JWT alone is insufficient. |
 | `/api/auth/redeem-link` | POST with JWT in body | Per-request authz flow (§7.2). On success: sets `__Host-fxav_session` cookie + writes `link_sessions` row. |
-| `/api/asset/diagram/<show-slug>/r=<revision_id>/<assetKey>` | signed-in OR valid signed-link cookie OR admin (per §7.2 / §7.2.2 / Google validator); show match enforced server-side | Streams snapshotted diagram-image bytes from the private `diagram-snapshots` Storage bucket. **The URL is revision-versioned** — every Apply mints a fresh `snapshot_revision_id` and the rendered crew page emits URLs with the current revision. `<assetKey>` is `objectId` (embedded) or `driveFileId` (linked-folder); the route resolves the matching `snapshotPath` AND verifies the URL's revision_id matches `shows.diagrams.snapshot_revision_id` (mismatch → 410). **Every request re-runs the show-auth check.** **Cache header `Cache-Control: private, max-age=0, must-revalidate`** — the browser MUST revalidate with the server on every use. Long-lived freshness on auth-gated assets would let a revoked session keep displaying already-fetched diagrams from local browser cache for the cache lifetime; `must-revalidate` forces an authenticated round-trip every time. Server-side: a successful revalidation with matching auth+revision returns the bytes again (Storage read is cheap and the bytes themselves are immutable per revision, so no extra correctness work is needed); a revoked session gets 410 and the browser cache entry is replaced with the error. Drive is NEVER called at request time. |
-| `/api/asset/reel/<show-slug>` | Same auth requirements as `/api/asset/diagram/...`: signed-in OR valid signed-link cookie OR admin; show match enforced server-side | Streams the opening-reel video. **Same auth + cache contract as the diagram route** — every request re-runs show-auth; `Cache-Control: private, max-age=0, must-revalidate` so revocation propagates immediately. **Version-pin check at request time:** the route reads `shows.opening_reel_drive_file_id` and `shows.opening_reel_drive_modified_time` (the persisted columns per §4.1 — these are first-class fields, not buried inside `event_details`). It calls `files.get(reelFileId, fields='modifiedTime,trashed')` and compares. If the columns are NULL (the sheet's opening_reel cell wasn't a Drive URL) or `trashed=true` or current modifiedTime ≠ pinned → 410 with a placeholder, NOT a stream of drifted bytes. If matches → stream from Drive. v1 doesn't snapshot reel bytes into Storage (large videos, rarely edited per show); the version pin guarantees crew see only the bytes Doug approved at the last Apply. v2 candidate: snapshot reels into Storage if the version-pin live path becomes operationally noisy. |
+| `/api/asset/diagram/<show-slug>/r=<revision_id>/<assetKey>` | signed-in OR valid signed-link cookie OR admin (per §7.2 / §7.2.2 / Google validator); show match enforced server-side | Streams snapshotted diagram-image bytes from the private `diagram-snapshots` Storage bucket. **The URL is revision-versioned** — every Apply mints a fresh `snapshot_revision_id` and the rendered crew page emits URLs with the current revision. `<assetKey>` is `objectId` (embedded — resolved via the entry's `sheetsRevisionId`/`embeddedFingerprint` pair per round-44 §6.11) or `driveFileId` (linked-folder — resolved via `headRevisionId`/`md5Checksum` pair per round-44); the route resolves the matching `snapshotPath` AND verifies the URL's revision_id matches `shows.diagrams.snapshot_revision_id` (mismatch → 410). **Every request re-runs the show-auth check.** **Cache header `Cache-Control: private, max-age=0, must-revalidate`** — the browser MUST revalidate with the server on every use. Long-lived freshness on auth-gated assets would let a revoked session keep displaying already-fetched diagrams from local browser cache for the cache lifetime; `must-revalidate` forces an authenticated round-trip every time. Server-side: a successful revalidation with matching auth+revision returns the bytes again (Storage read is cheap and the bytes themselves are immutable per revision); a revoked session gets 410. Drive is NEVER called at request time. |
+| `/api/asset/reel/<show-slug>` | Same auth requirements as `/api/asset/diagram/...`: signed-in OR valid signed-link cookie OR admin; show match enforced server-side | Streams the opening-reel video. **Same auth + cache contract as the diagram route** — every request re-runs show-auth; `Cache-Control: private, max-age=0, must-revalidate` so revocation propagates immediately. **Round-44 amendment: revision-pinned byte streaming.** The route reads `shows.opening_reel_drive_file_id`, `shows.opening_reel_drive_modified_time`, AND `shows.opening_reel_head_revision_id` (all three columns per §4.1). If any of the three is NULL → 410 (single contract for both NULL and drift). Else: live drift gate via `files.get(reelFileId, fields='modifiedTime,trashed,headRevisionId,md5Checksum')` on every request — if `trashed=true` OR `current.headRevisionId !== shows.opening_reel_head_revision_id` OR `current.modifiedTime !== shows.opening_reel_drive_modified_time` → 410. Streaming path: Pattern A (preferred) `revisions.get(reelFileId, headRevisionId, alt='media')` — exact revision bytes. Pattern B (fallback when Pattern A unavailable for the mimeType) `files.get(alt='media')` then **buffer the full body and recompute md5 against `current.md5Checksum` BEFORE serving any bytes** — comparing headRevisionId before stream is insufficient because Drive can mutate mid-stream; buffer-then-verify is mandatory. v1 doesn't snapshot reel bytes into Storage (large videos, rarely edited per show); the immutable revision pin + buffer-then-verify guarantee crew see only the bytes Doug approved at the last Apply. v2 candidate: snapshot reels into Storage if the live path becomes operationally noisy. |
 | `/admin` | admin role | Doug/Eric only. |
 | `/admin/show/<slug>` | admin role | Per-show parse panel + impersonation entry points. |
 | `/admin/show/<slug>/preview/<crew-id>` | admin role | Renders the crew page exactly as that person would see it. Sticky banner. |
@@ -1699,15 +1768,25 @@ The wizard never says "files.list returned 403." It says one of the three things
 
 **Step 3 — "First sheets review."**
 
-After verification, the wizard calls `runOnboardingScan(folderId)` (§5.2) which performs a folder-wide scan against the supplied folder ID **without** writing to `app_settings` yet. The wizard collects per-sheet status from the scan and shows it as a one-time list:
+After verification, the wizard calls `runOnboardingScan(folderId, wizardSessionId)` (§5.2) which performs a folder-wide scan against the supplied folder ID **without** writing to `app_settings.watched_folder_id` yet. **Round-48 amendment: the scan populates the `onboarding_scan_manifest` table (§4.5)** — one row per Drive item the scan saw, keyed by `(wizard_session_id, drive_file_id)`, with a terminal-lifecycle `status` enum. Step 3 reads from the manifest as the authoritative per-session state source. Per-sheet status:
 
-- **Parsed and ready** — green check; click to review and approve (every first-seen sheet stages, see §5.2/§6.8 — Doug always reviews a first-time parse before it goes live, even if invariants would otherwise auto-apply).
-- **Couldn't parse** — yellow warning with the plain-English MI failure ("This sheet doesn't look like your usual template — version markers we expect are missing"); click to see details.
-- **Skipped (not a Google Sheet)** — gray badge for non-spreadsheet items in the folder; informational only.
+- **Parsed and ready** (`status='staged'`) — green check; click to review and approve (every first-seen sheet stages — Doug always reviews a first-time parse before it goes live).
+- **Couldn't parse** (`status='hard_failed'`) — yellow warning with the plain-English MI failure; click to see details.
+- **Skipped (not a Google Sheet)** (`status='skipped_non_sheet'`) — gray badge; informational only, auto-resolved.
 
-Doug walks each sheet through review one at a time — same review surface as §6.8 / §6.8.1, just batch-presented for first onboarding. No partial-onboarding states: the wizard exits when all sheets in the folder are either approved/applied or have a reason captured (couldn't parse / explicitly discarded for now). **Only on wizard exit** does the app write `app_settings.watched_folder_id = $folderId` (plus `watched_folder_name`, `watched_folder_set_by_email`, `watched_folder_set_at`). Until that write commits, the cron sync remains in its `NO_FOLDER_CONFIGURED` no-op state. This guarantees that a partial wizard run cannot leave a dangling configured-but-unreviewed state.
+Doug walks each sheet through review. Action endpoints transition the manifest row to a terminal state: Apply → `applied`; Discard `try again next sync` → `discard_retryable` (NOT resolved per §6.8.1); Discard `defer_until_modified` → `defer_until_modified`; Discard `permanent_ignore` → `permanent_ignore`; pending_ingestions Retry → resets to `staged` or stays `hard_failed`; pending_ingestions Defer/Ignore → corresponding terminal status.
 
-**After onboarding.** The wizard never re-runs unless Doug clicks "Re-run setup" from `/admin` settings (e.g., he wants to point at a different folder). All subsequent sheet additions to the watched folder go through the normal cron + first-seen-stage flow.
+**Wizard finalize (§4.5 atomic promotion)** reads the manifest's unresolved set:
+```sql
+SELECT drive_file_id, status FROM onboarding_scan_manifest
+ WHERE wizard_session_id = $sessionId
+   AND status IN ('staged', 'hard_failed', 'discard_retryable');
+```
+If the unresolved set is non-empty → `ONBOARDING_NOT_RESOLVED` 409. If empty → run the §4.5 atomic promotion CAS, then `subscribeToWatchedFolder(folderId)`. The manifest is the SOLE finalize gate — row absence in `pending_*` tables is NOT a substitute (the `discard_retryable` Discard variant deletes pending_syncs with no deferral row, which row-absence inference would silently treat as resolved).
+
+**Wizard-session CAS on every scan write.** Every UPSERT into `pending_syncs`, `pending_ingestions`, AND `onboarding_scan_manifest` is gated by `WHERE EXISTS (SELECT 1 FROM app_settings WHERE pending_wizard_session_id = $myWizardSessionId)` so a slow W1 scan whose start preceded W2's takeover cannot clobber W2's freshly-staged rows. On supersession, W1 logs `WIZARD_SESSION_SUPERSEDED_DURING_SCAN` and exits cleanly.
+
+**After onboarding.** "Re-run Setup" from `/admin/settings` writes a fresh `pending_wizard_session_id` (without touching `watched_folder_id`); cron continues using the live folder while the new wizard runs. Wizard supersession purges prior-session rows across all three onboarding surfaces (`pending_syncs`, `pending_ingestions`, `onboarding_scan_manifest`).
 
 ### 9.0.1 In-app help and tour
 
@@ -1792,8 +1871,8 @@ Per §2 deferral list, agenda PDF parsing is out. But linked content is rendered
 | Link kind | Source field | v1 rendering |
 |---|---|---|
 | Agenda PDF (`.pdf`, `.docx`) | `agenda_links[].fileId` or `.url` | "Open agenda" button. On tap: in-page sheet with PDF.js inline preview (or `<iframe>` for native Drive preview as fallback). `.docx` falls back to "Open in Drive" (no inline preview). |
-| Diagrams (linked folder OR embedded images OR both) | `diagrams.linkedFolder.driveFolderId` and/or `diagrams.embeddedImages[]` and/or `diagrams.linkedFolderItems[]` | "Diagrams" tile. On tap: full-screen image gallery (swipeable). **Both sources go through the same snapshot/proxy path** — no live-Drive read at request time. **Linked-folder enumeration is FROZEN at Phase 1** (per §6.11): `parseResult.diagrams.linkedFolderItems[]` captures `(driveFileId, mimeType, alt, drive_modified_time)` tuples at parse time. Apply downloads exactly that frozen set, with a per-item version-pin check (current Drive modifiedTime must equal the staged drive_modified_time; drift fails closed). Apply does NOT re-enumerate the folder. Each downloaded blob lands at `diagram-snapshots/shows/<show_id>/r=<snapshot_revision_id>/folder-<driveFileId>.<ext>` with the resolved path stored in the row. Embedded images carry `sourceFolder: "embedded"`; linked items carry `sourceFolder: "linked"`. Gallery serves every image through `/api/asset/diagram/<show>/r=<rev>/<assetKey>` per §7.3. See §6.11 for the full snapshotting + version-pin model. |
-| Opening reel video | `event_details.opening_reel` (free-text status; rendered as-is) plus the parser's structured Phase 1 output `parseResult.openingReel = { driveFileId, drive_modified_time } | null` populated from the same cell when a Drive URL is detected | **URL extraction is a substring match**, not start-anchored: the parser uses `/(https?:\/\/)?(drive\.google\.com|docs\.google\.com)\/[^\s]+/` (no `^` anchor) to find a Drive URL anywhere in the cell value, including mixed-value cells like `YES - https://drive.google.com/file/d/...` and `LOOP VIDEO - <url>`. If matched, the parser extracts the Drive `fileId` from the URL path and calls `files.get(fileId, fields='modifiedTime')` at Phase 1 stage time, emitting `parseResult.openingReel = { driveFileId, drive_modified_time }`. **At Apply time, §6.11.1 re-verifies the reel drift before persistence** (matches the linked-folder version-pin model). If the cell is text-only (`MAYBE`, `YES`, `N/A`, etc.) or has no Drive URL substring, `parseResult.openingReel = null` and both columns are set to NULL. The crew page renders inline `<video controls>` proxied via `/api/asset/reel/<show>` (which version-pin-checks per §7.3) when the columns are non-NULL, and a small text line ("Opening reel: <value>") otherwise. Mixed values like `YES - <url>` get both: the text status from the cell value AND the embedded `<video>` because the substring extractor populates the columns. |
+| Diagrams (linked folder OR embedded images OR both) | `diagrams.linkedFolder.driveFolderId` and/or `diagrams.embeddedImages[]` and/or `diagrams.linkedFolderItems[]` | "Diagrams" tile. On tap: full-screen image gallery (swipeable). **Both sources go through the same snapshot/proxy path** — no live-Drive read at request time. **Round-44 amendment: linked-folder enumeration is FROZEN at Phase 1 with the immutable approval tuple** (per §6.11): `parseResult.diagrams.linkedFolderItems[]` captures `(driveFileId, mimeType, alt, drive_modified_time, headRevisionId, md5Checksum)` per item. Apply downloads via `revisions.get(driveFileId, headRevisionId, alt='media')` (Pattern A — exact bytes) or via `alt=media` + buffer-then-verify md5 (Pattern B fallback); modtime alone is NOT a fence (TOCTOU window). Apply does NOT re-enumerate the folder. Embedded entries carry `sheetsRevisionId` + `embeddedFingerprint`; entries with `embeddedFingerprint = null` are restage-only and Apply fails closed for them. Each downloaded blob lands at `diagram-snapshots/shows/<show_id>/r=<snapshot_revision_id>/folder-<driveFileId>.<ext>` with the resolved path stored in the row. Embedded images carry `sourceFolder: "embedded"`; linked items carry `sourceFolder: "linked"`. Gallery serves every image through `/api/asset/diagram/<show>/r=<rev>/<assetKey>` per §7.3. See §6.11 for the full snapshotting + immutable-pin model. |
+| Opening reel video | `event_details.opening_reel` (free-text status; rendered as-is) plus the parser's structured Phase 1 output `parseResult.openingReel = { driveFileId, drive_modified_time, headRevisionId } | null` (round-44 amendment: full immutable pin tuple) populated from the same cell when a Drive URL is detected | **URL extraction is a substring match**, not start-anchored: the parser uses `/(https?:\/\/)?(drive\.google\.com|docs\.google\.com)\/[^\s]+/` (no `^` anchor) to find a Drive URL anywhere in the cell value, including mixed-value cells like `YES - https://drive.google.com/file/d/...` and `LOOP VIDEO - <url>`. If matched, the parser extracts the Drive `fileId` from the URL path. The sync layer then enriches via `files.get(fileId, fields='modifiedTime,headRevisionId,md5Checksum')` at Phase 1 stage time, emitting `parseResult.openingReel = { driveFileId, drive_modified_time, headRevisionId }`. **At Apply time, §6.11.1's full four-step flow re-verifies the reel drift via `headRevisionId` and persists ALL THREE columns** (`shows.opening_reel_drive_file_id`, `shows.opening_reel_drive_modified_time`, `shows.opening_reel_head_revision_id`). If the cell is text-only (`MAYBE`, `YES`, `N/A`, etc.) or has no Drive URL substring, `parseResult.openingReel = null` and all three columns are set to NULL. The crew page renders inline `<video controls>` proxied via `/api/asset/reel/<show>` (which streams via `revisions.get(headRevisionId, alt='media')` or buffer-then-verify md5 per §7.3) when the columns are non-NULL, and a small text line ("Opening reel: <value>") otherwise. Mixed values like `YES - <url>` get both: the text status from the cell value AND the embedded `<video>` because the substring extractor populates the columns. |
 | Test pattern, Aptos fonts, II LED logo | various | NOT surfaced to crew. These are operations files. They appear in admin under a "Production assets" disclosure. |
 
 **Caching strategy** (revision-aware end-to-end so Apply invalidates implicitly via URL rotation):
@@ -1856,6 +1935,7 @@ Every error code, parse warning, and admin notification produced anywhere in the
 - "Crew-facing" means it appears on a `/show/<slug>` or `/show/<slug>/p#t=...` page rendered to a non-admin viewer. `—` means the code never reaches a crew render.
 - Codes are stable identifiers; messages may evolve over time. The bug-report pipeline (§13) carries the code; the developer translates back via this table.
 - Plain language is the rule. "Sheet" not "Drive document"; "your show" not "the resource"; "the developer" not "the maintainer."
+- **`helpfulContext` (M9+M10 batch-8 amendment)**: every code with non-null `dougFacing` ALSO has a non-null `helpfulContext` — a one-paragraph plain-language explanation rendered by the §9.0.1 "What does this mean?" link. The catalog implementation (M9 Task 9.4) carries `helpfulContext` as a fourth column alongside `dougFacing` / `crewFacing` / `followUp`; the table below currently shows only the four legacy columns to keep it readable. The plan (M9+M10 batch-8 Fix 4) populates `helpfulContext` for every dougFacing-non-null row when implementing the catalog. Codes whose `dougFacing` is `—` / null don't need `helpfulContext` because they're admin-log-only and never surface to Doug.
 
 | Code | Where it surfaces | Doug-facing message | Crew-facing message | Follow-up |
 |---|---|---|---|---|
@@ -1873,7 +1953,11 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | `SESSION_ABSOLUTE_TIMEOUT` | cookie session past 12h absolute | — | "Time to refresh — open the original link Doug shared again." | Crew → reopen link |
 | **Sync — Drive errors** | | | | |
 | `DRIVE_FETCH_FAILED` | `files.export` / content fetch errors | "We couldn't fetch this sheet from Google Drive. Could be a transient network issue, or the sheet's been moved or unshared. We'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings." | "We couldn't get the latest from Doug's sheet. Showing what we had at *<time>*." | Doug → check share / Retry |
+<!-- spec-id: section-12-4-row-sheet-unavailable-removed-from-folder -->
 | `SHEET_UNAVAILABLE` | sheet detected as removed from watched folder | "*<sheet-name>* isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back." | "We couldn't get the latest from Doug's sheet. Showing what we had at *<time>*." | Doug → re-share sheet |
+<!-- This row is the canonical SHEET_UNAVAILABLE entry. The crew copy uses `<time>` interpolation; the Doug copy targets the "you moved/unshared it" scenario. The other row at line ~1965 was an earlier round-44 amendment with stale-footer-specific copy and has been retired in favor of this canonical entry. Round-46: see X.1 dedup invariant. -->
+| `PARSE_ERROR_LAST_GOOD` | M9+M10 batch-8: stale-data footer surfacing `shows.last_sync_status='parse_error'` on an existing approved show. The §5.2 Phase-1 hard-fail path sets this status when the latest sheet edit can't parse but the prior approved snapshot is still rendering to crew. Distinct from the parser hard-fail codes (`MI-1`/`MI-2`/etc.) which are admin-facing parse-panel detail; this code is the crew-facing "what you see is older than the latest edit" footer message. Doug-facing copy is admin's heads-up; per-show parse panel still surfaces the underlying MI-* code with full detail. | "*<sheet-name>*'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail." | "We couldn't read the latest edit to Doug's sheet. Showing what we had at *<time>*." | Doug → fix sheet (see parse panel); Crew → mention to Doug |
+
 | `STALE_WRITE_ABORTED` | conditional cron UPDATE matched 0 rows | (admin log only — informational) | — | none |
 | `STALE_MANUAL_REPLAY_ABORTED` | manual sync UPDATE rejected (newer version exists) | "This manual sync is stale — a newer parse has already been applied. Refresh the page to see the current state." | — | Doug → refresh admin |
 | `STALE_PUSH_ABORTED` | push-mode sync UPDATE rejected (newer version exists) | (admin log only — push raced with cron, normal under load) | — | none |
@@ -1882,13 +1966,15 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | `WATCH_CHANNEL_ORPHANED` | Drive watch row created but Drive's `files.watch` returned an error or timed out | (admin_alerts banner) "A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved." | — | Eric → reconcile / retry |
 | `WEBHOOK_TOKEN_INVALID` | Drive push webhook arrived with a wrong token | "A push notification from Google Drive failed verification — possible spoofing or misconfiguration. The developer has been notified." (admin_alerts top-bar banner) | — | Eric → investigate |
 | `WEBHOOK_NOOP_ALREADY_SYNCED` | Drive push delivered for a file already up-to-date | (admin log only) | — | none |
-| `WATCH_CHANNEL_CREATE_FAILED` | Drive `files.watch` API returned 4xx | (admin log; admin_alerts banner after 3 consecutive failures) | — | Eric → check Drive API status / quota |
+| ~~`WATCH_CHANNEL_CREATE_FAILED`~~ | Retired by round-44 normalization. All Drive `files.watch` create/confirm failures use `WATCH_CHANNEL_ORPHANED` (single canonical code). | — | — | — |
 | `CONCURRENT_SYNC_SKIPPED` | advisory lock not acquired | (admin log only) | — | none |
 | `STAGED_PARSE_OUTDATED` | Drive `modifiedTime` advanced past staged version (non-onboarding source) | "The sheet was edited again since you reviewed this parse. We've discarded the staged version; a fresh parse will be ready in a few minutes." | — | Doug → wait, review next |
 | `STAGED_PARSE_SOURCE_GONE` | Apply re-verify found the source sheet has been deleted, unshared, or trashed | "The source sheet is no longer accessible. The staged parse has been discarded. Re-share or restore the sheet to bring this show back." | — | Doug → restore sheet |
 | `STAGED_PARSE_SOURCE_OUT_OF_SCOPE` | Apply re-verify found the source sheet's `parents` no longer includes the watched folder | "The sheet is no longer in the watched folder. We've discarded the staged parse. Move the sheet back into the folder if you want to publish it." | — | Doug → move sheet |
-| `LINKED_ASSET_DRIFTED` | a linked-folder image's current Drive `modifiedTime` differs from the version pinned at stage; bytes were not downloaded | "*<sheet-name>*: a linked-folder diagram has been edited in Drive since the last review. Crew see a placeholder for that image until your next sheet edit re-stages it." | — | Doug → re-edit sheet to re-stage |
-| `REEL_DRIFTED` | opening-reel `modifiedTime` differs at Apply time from the value pinned at stage; persisted columns set to NULL instead | "*<sheet-name>*: the opening-reel video has been edited since you reviewed this parse. Crew see the text status only until your next sheet edit re-stages the new reel." | — | Doug → re-edit sheet |
+| `LINKED_ASSET_DRIFTED` | a linked-folder image's current Drive `headRevisionId` (and/or `md5Checksum`) differs from the immutable approval tuple pinned at stage; bytes were NOT downloaded (round-44/48: the revision/checksum pair is the authoritative byte-fence per §6.11; `modifiedTime` alone has a TOCTOU window). | "*<sheet-name>*: a linked-folder diagram has been edited in Drive since the last review. Crew see a placeholder for that image until your next sheet edit re-stages it." | — | Doug → re-edit sheet to re-stage |
+| `REEL_DRIFTED` | opening-reel `headRevisionId` (and/or `md5Checksum`) differs at Apply time from the immutable pin tuple captured at stage; ALL THREE persisted reel columns set to NULL atomically per §6.11.1 (round-44/48: the revision pin is the authoritative byte-fence; `modifiedTime` is informational only). | "*<sheet-name>*: the opening-reel video has been edited since you reviewed this parse. Crew see the text status only until your next sheet edit re-stages the new reel." | — | Doug → re-edit sheet |
+| `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` | round-48: an embedded image entry has `embeddedFingerprint = null` (the Sheets API didn't supply a content-derived approval token at extraction time), so `asset_recovery` cannot heal it. The show transitions to `partial_failure_restage_required` terminal status; only a fresh sheet edit can mint a new `sheetsRevisionId` + `embeddedFingerprint` and unblock the recovery. | "*<sheet-name>*: a diagram in your sheet can't be re-downloaded automatically. Save the sheet (any edit advances the version) and crew will see the image again on the next sync." | — | Doug → save sheet to advance version |
+| `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE` | round-48: `drive.revisions.list(spreadsheetId)` returned no usable revision token for the spreadsheet, so the embedded-image freeze tuple cannot be captured (rare; happens for files created via APIs that don't track Drive revisions). For first-seen sheets this is a Phase 1 hard-fail recorded in `pending_ingestions.last_error_code`; for existing shows with prior approved diagrams it's a Phase 1 stage-for-approval review item; for existing shows with no prior diagrams it's a status-only `drive_error` UPDATE. The prior approved diagrams are NEVER replaced with an empty gallery. | "*<sheet-name>*'s diagrams couldn't be safely captured this sync. The previous version of those images is still showing. The developer has been notified." | — | Eric → investigate; Doug → optionally Report |
 | `STAGED_PARSE_RESTAGED_INLINE` | onboarding stage was outdated; rescanned inline within the wizard session | "The sheet was edited since your last look — we re-parsed it inside the wizard. Here's the new review." | — | Doug → review the refreshed parse |
 | `STAGED_PARSE_SUPERSEDED` | a newer cron parse committed before Apply | "A newer parse has already been applied. Refresh the admin page to review the latest state." | — | Doug → refresh |
 | **Parser — hard fails (MI-1..MI-5b)** | | | | |
@@ -1936,6 +2022,21 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | `ONBOARDING_FOLDER_INVALID_URL` | wizard step 2 URL malformed | "That doesn't look like a Google Drive folder URL. It should look like `https://drive.google.com/drive/folders/...`." | — | Doug → re-paste URL |
 | `ONBOARDING_FOLDER_NOT_SHARED` | wizard step 2 service-account access denied | "We can't see this folder yet. Double-check that you shared it with `<service-account-email>` and try again." | — | Doug → fix Drive share |
 | `ONBOARDING_OPERATOR_ERROR` | wizard step 2 operator-side credential failure | "Something is wrong on our end. The developer has been notified." | — | Doug → wait; Eric → fix |
+| `ONBOARDING_NOT_RESOLVED` | wizard finalize blocked because at least one sheet still has an unresolved staged parse or hard-fail row in the current wizard session | "Some sheets in your folder still need review before we can finish setup. Resolve them and try again." | — | Doug → resolve remaining sheets, retry finalize |
+| `WIZARD_SESSION_SUPERSEDED_DURING_SCAN` | a `runOnboardingScan` write was blocked because `app_settings.pending_wizard_session_id` no longer matches the scan's session (admin started a new wizard mid-scan) | (admin log only — informational; the new wizard's UI shows the fresh scan state) | — | Doug → use the active wizard tab |
+| **Stale-data UX (crew-facing freshness tiers)** | | | | |
+| `SYNC_DELAYED_MODERATE` | `last_synced_at` is between 1h and 6h old AND `last_sync_status='ok'` | — | "Last synced *<time>* ago. Check with Doug if anything looks off." | Crew → mention to Doug |
+| `SYNC_DELAYED_SEVERE` | `last_synced_at` is more than 6h old AND `last_sync_status='ok'` | "*<sheet-name>*: crew page hasn't synced from Drive in over 6 hours. Push or cron is stalled — check the dashboard." | "Couldn't sync recently — contact Doug." | Crew → text Doug; Doug → check dashboard |
+| ~~`SHEET_UNAVAILABLE` (round-44 stale-footer variant)~~ | Retired in round-46: deduplicated against the canonical `SHEET_UNAVAILABLE` row above (~line 1896). The stale footer reads the canonical row's crew copy `"We couldn't get the latest from Doug's sheet. Showing what we had at *<time>*."` — the round-44 variant's text is dropped. | — | — | — |
+| **Tile error boundaries (server-side)** | | | | |
+| `TILE_SERVER_RENDER_FAILED` | a tile's Server-Component render threw (data fetch, role derivation, DB error). The page renders the rest of the tiles; the affected tile shows a fallback. | "*<sheet-name>*: a section couldn't load on the server. The page will keep trying — refresh in a minute. Tell the developer if this keeps happening." | "This section couldn't load — last good data shown." | Doug → refresh / Report; Eric → investigate |
+| **Auth (validator step 5.6)** | | | | |
+| `STALE_DISCARD_REJECTED` | Apply or Discard against a `pending_syncs` row whose `staged_id` no longer matches the version the operator was viewing (a fresh sync has restaged) | "The staged parse you were viewing was replaced by a newer sync. Refresh and review the latest version before deciding." | — | Doug → refresh admin |
+| `LINK_CROSS_SHOW_REUSE` | (operator-only structured log entry — no user copy) cookie carries a `link_sessions` row whose `show_id` differs from the URL's resolved show; the validator deletes the offending row | (operator log only — user sees a generic 403 page) | — | — |
+| **Bug-report pipeline ops (admin_alerts surfaces)** | | | | |
+| `REPORT_ORPHANED_LOST_LEASE` | retry/reaper tail UPDATE matched 0 rows because the original/retry race produced an orphan GH issue; the orphan was auto-closed and labeled `fxav-orphan-lost-lease`. UPSERTed via `ON CONFLICT (coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL` per §13.2.3. | "An orphaned bug-report issue was created during a retry race and auto-closed. Click through to verify the issue closed correctly. If this code recurs frequently, increase the lease window." | — | Eric → review orphan, tune lease window if recurring |
+| `GITHUB_BOT_LOGIN_MISSING` | `GITHUB_BOT_LOGIN` env var unset; the recovery path's `findIssueByMarker` (`creator=` filter on `issues.listForRepo`) cannot run | "GitHub bot login is unconfigured — the report-recovery path is degraded. Set `GITHUB_BOT_LOGIN` env var to the bot's GitHub username." | — | Eric → configure env var |
+| `REPORT_LEASE_THRASHING` | per-show, the bug-report retry/reaper rate exceeds a configured threshold (e.g., > 5 retries/min) — usually means lease window too short OR GH API consistently slow | "Bug-report processing is thrashing on this show — retries are racing against leases. Check Eric's status; this usually means the lease window needs tuning." | — | Eric → tune lease window |
 
 **v2+ candidates** (deliberately not in v1's catalog because the surfaces don't ship in v1): per-link rotation reason codes, crew-initiated "report a problem" codes, scheduled-archive codes.
 
@@ -2020,60 +2121,112 @@ POST to `/api/report` with an **idempotency key** in the request body or header 
 
 The flow is **reserve-then-call**: persist intent + reserve quota in one DB transaction BEFORE the GitHub side effect, then update on success. This makes the endpoint safe under retries and concurrency, fixes the quota race, and guarantees `reports.reported_by` traceability.
 
-`reports` schema gets one new column:
+**Round-48 amendment: this ALTER block is HISTORICAL — canonical CREATE is in §4.1.** The columns `idempotency_key`, `processing_lease_until`, `lease_holder` and the `reports_idempotency_key_idx` unique index are all part of the §4.1 `create table reports` block (round-23/40 amendment folded inline). The ALTER block below is preserved for reference only; the initial migration in plan Task 2.2 authors `reports` from §4.1's CREATE and does NOT replay this ALTER. Treating the ALTER as authoritative would duplicate the index (with the wrong name `reports_idempotency_key_idx` vs §4.1's canonical name) and create migration drift.
 
 ```sql
+-- HISTORICAL — canonical-source-is-§4.1; preserved for migration-evolution context only
 alter table reports
   add column if not exists idempotency_key uuid not null default gen_random_uuid(),
-  add column if not exists processing_lease_until timestamptz;
+  add column if not exists processing_lease_until timestamptz,
+  add column if not exists lease_holder uuid;       -- round-8 ownership token
 create unique index if not exists reports_idempotency_key_idx on reports (idempotency_key);
 ```
 
+The `lease_holder uuid` column is the round-8 ownership token: stamped at reservation (`gen_random_uuid()`), rotated to a new UUID on every lease re-acquisition, required (`AND lease_holder = $myToken`) on every URL-writing tail UPDATE so a worker whose lease was stolen sees 0 rows from its tail and runs the case-disambiguating orphan-cleanup branch instead of corrupting the row.
+
 Server:
 1. **Authenticate** the requester. Admin path: validate session → admin role. Crew path: validate via `validateLinkSession` or `validateGoogleSession`. A crew submission carrying neither valid session is rejected 401.
-2. **Idempotency check + quota reservation in one transaction:**
+2. **Idempotency check + reservation — INSERT-first, lease-aware (round-24 amendment):**
    ```sql
    BEGIN;
-   -- Idempotency: if a row with this key exists, return its status.
-   SELECT id, github_issue_url FROM reports WHERE idempotency_key = $1 FOR UPDATE;
-   -- If found AND github_issue_url IS NOT NULL → return 200 with that URL (idempotent retry).
-   -- If found AND github_issue_url IS NULL    → another in-flight call holds the row; return 409 IDEMPOTENCY_IN_FLIGHT (client can poll).
-   -- If not found → continue.
-   
-   -- Atomic quota reservation. The check + increment is a single statement; concurrent
-   -- callers serialize through the row lock. Returns the post-increment count.
+
+   -- Step 2a: pre-check existing row. NO `FOR UPDATE` — the retry path must NOT
+   -- hold a row lock during GitHub I/O (round-6/13 lock-free contract).
+   SELECT id, github_issue_url, processing_lease_until
+     FROM reports WHERE idempotency_key = $1;
+   -- If found AND github_issue_url IS NOT NULL → COMMIT, return 200 (idempotent retry).
+   -- If found AND github_issue_url IS NULL AND processing_lease_until > now()
+   --    → COMMIT, return 409 IDEMPOTENCY_IN_FLIGHT (live lease held by another worker).
+   -- If found AND github_issue_url IS NULL AND processing_lease_until <= now()
+   --    → expired-lease retry path: hand off to the lock-free `expiredLeaseRetry`
+   --      flow (label-first findIssueByMarker, then lease-claim with rotated
+   --      lease_holder, then createIssue under fresh ownership). Quota is NOT
+   --      re-charged on this branch; the original reservation already counted.
+   -- If not found → continue to brand-new reservation below.
+
+   -- Brand-new reservation: conflict-safe INSERT first (INSERT-then-quota).
+   -- The lease window starts now and the lease_holder UUID is the worker's
+   -- ownership token for every URL-writing tail UPDATE.
+   INSERT INTO reports (
+     idempotency_key, show_id, reported_by_kind, reported_by, reporter_role,
+     context, message, processing_lease_until, lease_holder
+   ) VALUES (
+     $1, $2, $3, $4, $5, $6, $7, now() + interval '90 seconds', $8::uuid
+   )
+   ON CONFLICT (idempotency_key) DO NOTHING
+   RETURNING id, lease_holder;
+   -- If RETURNING yielded 0 rows → a concurrent first-submitter won the claim;
+   --   re-SELECT for the existing row's status and dispatch per Step 2a.
+   --   Quota is NOT charged for the loser.
+
+   -- Winner branch only — atomic quota reservation under the same transaction:
    INSERT INTO report_rate_limits (kind, identity, hour_bucket, count)
    VALUES ($kind, $identity, date_trunc('hour', now()), 1)
    ON CONFLICT (kind, identity, hour_bucket) DO UPDATE
      SET count = report_rate_limits.count + 1
    RETURNING count;
-   -- If returned count > limit (10 admin / 3 crew) → ROLLBACK and return 429.
-   
-   -- Reserve: insert reports row with idempotency_key, NULL github_issue_url.
-   INSERT INTO reports (idempotency_key, show_id, reported_by_kind, reported_by, reporter_role, context, message)
-   VALUES ($1, $2, $3, $4, $5, $6, $7)
-   RETURNING id;
+   -- If returned count > limit (10 admin / 3 crew) → ROLLBACK the entire
+   --   transaction. The reports INSERT is also discarded; the brand-new row
+   --   never persists. Return 429.
+
    COMMIT;
    ```
-3. **Build the issue body** using the appropriate §13.2.1 (admin) or §13.2.2 (crew) template. **Embed the idempotency_key in the issue body as a hidden marker:** include a literal line `<!-- fxav-report-id: <idempotency_key> -->` at the bottom. GitHub treats this as a comment in markdown but it's searchable and durable. This marker is what makes step 6's retry safe.
-4. **Call GitHub API** to create the issue. Outside the DB transaction. Time-boxed (15s default).
-5. **On GitHub success:**
+   `$8` is the worker's `myLeaseHolder = gen_random_uuid()`, captured in
+   request scope before this transaction so the same UUID can be used in the
+   tail UPDATE's `AND lease_holder = $myLeaseHolder` predicate (Step 5).
+3. **Build the issue body** using the appropriate §13.2.1 (admin) or §13.2.2 (crew) template. **Embed the idempotency_key in the issue body as a hidden marker:** include a literal line `<!-- fxav-report-id: <idempotency_key> -->` at the bottom. The marker is durable and is the per-issue identifier the recovery lookup scans for; **labels are NOT used for per-key identification** (would accumulate unbounded repo metadata).
+4. **Call GitHub API** to create the issue. Outside the DB transaction. Time-boxed (15s default). The `labels` argument uses ONLY the static set (`bug-report`, `reporter:admin`/`reporter:crew`, area labels) — no per-idempotency-key label.
+5. **On GitHub success — fenced tail UPDATE (round-8 lease-ownership protocol):** the worker that called GitHub holds a `lease_holder uuid` token stamped on the row at reservation time (see §4.1 schema and the lease ownership protocol below). Tail UPDATEs MUST include both `github_issue_url IS NULL` and `lease_holder = $myToken`:
    ```sql
-   UPDATE reports SET github_issue_url = $url WHERE id = $reportId;
+   UPDATE reports
+      SET github_issue_url = $url
+    WHERE idempotency_key = $key
+      AND github_issue_url IS NULL
+      AND lease_holder = $myLeaseHolder::uuid
+   RETURNING id;
    ```
-   Return 201 to admin client with the URL. Return 201 to crew client with a thanks toast (no URL).
+   Return 201 to admin client with the URL; 201 to crew client with no URL (privacy §13.2.2). On 0-row tail UPDATE the worker enters the orphan-cleanup branch (case-disambiguating per Case A/B/C below).
 6. **On GitHub failure or unknown outcome (timeout, 5xx, network drop):** the `reports` row remains with `github_issue_url IS NULL`. Return 502 to client.
 
-   **Retry path is search-then-recover, NOT replay-then-create.** When a retry comes in with the same `idempotency_key`:
-   1. Step 2 finds the existing reports row. If `github_issue_url IS NOT NULL` → return 200 with that URL (fast path, GitHub call previously succeeded and DB persisted).
-   2. If `github_issue_url IS NULL` AND a fenced **processing lease** is held (see below) by another in-flight call → return 409 `IDEMPOTENCY_IN_FLIGHT`.
-   3. Otherwise, the orphan-recovery path: **search GitHub Issues** with `q="<idempotency_key>" repo:<configured-repo> in:body`. The marker embedded in step 3 makes this deterministic.
-      - **If a matching issue is found** → the prior call DID create the issue but failed before updating the DB. UPDATE the reports row with the discovered URL and return 200. No second issue created.
-      - **If no matching issue is found** → the prior call did NOT create the issue. Acquire the processing lease and proceed to step 4. (This is the only path where we re-call `create issue`.)
+   **Retry path is `findIssueByMarker`-then-claim, NOT body-search-then-create.** When a retry comes in with the same `idempotency_key`:
+   1. Single fast-path read: if `github_issue_url IS NOT NULL` → return 200 with that URL.
+   2. If `github_issue_url IS NULL` AND a fenced **processing lease** is held by another in-flight call → return 409 `IDEMPOTENCY_IN_FLIGHT`.
+   3. If lease expired AND row is still within the 24h `created_at` horizon: run `findIssueByMarker` (immediately-consistent `octokit.rest.issues.listForRepo` call gated by `creator=GITHUB_BOT_LOGIN`, **`labels='fxav-app:report'`** — every report carries this RESERVED, APP-SPECIFIC label (round-40 amendment, attached by `createIssue` alongside the human-triage `bug-report` label). The reserved label is **operationally protected**: operators MUST NOT add it to unrelated issues or remove it from reports; documentation/runbooks state this explicitly. Round 39 originally proposed filtering on the generic `bug-report` label, but round 40 observed that label was mutable and shareable across automations — a dedicated `fxav-app:` prefix prevents both false positives (other automation accidentally matches) and false negatives (triager removes the generic label from a real report). `since=<T-24h>`, **paginated to exhaustion with `per_page: 100`** — every page returned by GitHub MUST be scanned before a null result is treated as authoritative; ANY incomplete scan (network error mid-pagination, exceeded sanity bound of 1000 pages, unexpected response shape) throws `LookupInconclusive` so a partial scan can NEVER authorize `createIssue`. The scan applies a client-side `issue.created_at` post-filter against the same 24h window AND a skip-orphan filter for `state='closed' && state_reason='not_planned'` issues regardless of label presence (round-16/17 amendment) AND fails closed on any open issue carrying `fxav-orphan-lost-lease` (round-19 amendment).
+      - **Found exactly one live match** → conditional UPDATE on `github_issue_url IS NULL`; if 0 rows (the row was reaped or another retry won), re-SELECT and dispatch 410/200/409.
+      - **Found zero matches** (after pagination exhaustion) → claim the lease via single conditional UPDATE: `WHERE processing_lease_until < now() AND github_issue_url IS NULL AND created_at >= now() - interval '24 hours' AND ...rotate lease_holder`. On 0 rows, re-SELECT and disambiguate stolen-lease vs past-horizon vs URL-was-set. Only after the claim succeeds may `createIssue` be called.
+      - **Found ≥2 live matches OR open-with-orphan-label OR pagination/config errors** → throw `LookupInconclusive` with a concrete discriminator code drawn from the enum below. The route returns 502 with an admin_alerts UPSERT (per-show scoped, context-refreshed) gated by a single SQL-statement `INSERT ... SELECT FROM reports WHERE created_at >= now() - interval '24 hours' ... ON CONFLICT ... RETURNING id`. If the SELECT yields 0 rows the row crossed the horizon during GH I/O — return 410 `REPORT_HORIZON_EXPIRED` with no alert written.
 
-   **Processing lease.** A `reports.processing_lease_until timestamptz` column. Step 2 sets `processing_lease_until = now() + interval '90s'` when claiming a row to call GitHub. While the lease is live, concurrent retries get `IDEMPOTENCY_IN_FLIGHT`. When the lease expires (typically because the original caller crashed), the search-then-recover path activates. The 90s buffer covers GitHub's worst-case API timeout (~15s) plus generous headroom for our own processing.
+      **`LookupInconclusive` discriminator codes and required admin_alerts mappings** (round-26 amendment — every implementation MUST surface these distinct operator signals):
+      
+      | `LookupInconclusive.code` | Trigger | `admin_alerts.code` | Operator action |
+      |---|---|---|---|
+      | `BOT_LOGIN_MISSING` | `GITHUB_BOT_LOGIN` env var unset; surfaced before any HTTP call | **DUAL** (round-36 amendment): per-row `REPORT_LOOKUP_INCONCLUSIVE` keyed on the report's `show_id` (state-gated UPSERT, only fires when the row is genuinely stuck) PLUS global `GITHUB_BOT_LOGIN_MISSING` (`show_id=NULL`, fires unconditionally on this code so operators see the config breakage even when individual rows resolve) | configure env var |
+      | `PAGINATION_ERROR` | `listForRepo` threw mid-pagination | `REPORT_LOOKUP_INCONCLUSIVE` (per-show) | retry; transient if rate-limited |
+      | `PAGINATION_BOUND` | scan exceeded the 1000-page sanity bound | `REPORT_LOOKUP_INCONCLUSIVE` (per-show) | investigate pathological repo state |
+      | `SHAPE_ERROR` | response body shape didn't match expected | `REPORT_LOOKUP_INCONCLUSIVE` (per-show) | investigate API change |
+      | `DUPLICATE_LIVE_MATCHES` | ≥2 non-orphan marker-bearing issues found | `REPORT_DUPLICATE_LIVE_MATCHES` (per-show) | manually close all but one |
+      | `OPEN_ISSUE_WITH_ORPHAN_LABEL` | open issue carries `fxav-orphan-lost-lease` (impossible state) | `REPORT_OPEN_ORPHAN_LABEL` (per-show) | manually reclose or remove the label |
+   4. If row is past the 24h `created_at` horizon at any point (entry, post-lookup, claim) → return 410 `REPORT_HORIZON_EXPIRED`. **Every horizon classification uses Postgres `now()`, never `Date.now()`** — clock skew between app and DB must not change behavior at the boundary.
 
-   A daily reaper cron deletes reports rows with `github_issue_url IS NULL` AND `processing_lease_until < now() - interval '24 hours'` (orphaned reservations older than a day; admin gets a `STALE_ORPHAN_REPORT` audit log entry per row deleted, in case manual recovery is wanted).
+   **Processing lease and ownership.** `reports.processing_lease_until timestamptz` and `reports.lease_holder uuid` (added in this amendment). Reservation INSERT stamps `lease_holder = gen_random_uuid()` and `processing_lease_until = now() + interval '90s'`. Lease re-acquisition rotates `lease_holder` to a new UUID atomically with the lease extension. The 90s buffer covers GitHub's 15s worst-case API timeout plus generous headroom. Tail UPDATEs check `AND lease_holder = $myToken` so a worker whose lease was stolen can detect that and run the orphan-cleanup branch. **0-row tail UPDATE has FOUR causes** — re-read the row (with `SELECT github_issue_url, show_id`) and disambiguate:
+   - **Case A:** stored `github_issue_url` equals my just-created URL → a retry recovered MY issue via `findIssueByMarker`. Issue is live; **DO NOT close it.** Return 200.
+   - **Case B:** stored `github_issue_url` is set but differs from my URL → another worker created a separate issue. Mine is the orphan. Run cleanup; return 200 with the row's URL.
+   - **Case C:** stored `github_issue_url IS NULL` → another worker holds the lease but hasn't finished. Mine is provisionally an orphan. Run cleanup; return 409 `IDEMPOTENCY_IN_FLIGHT`.
+   - **Case Reaped (round-29/32/33 amendment):** the re-read returned no row → the daily reaper deleted it because the row crossed the 24h horizon AND its lease had expired. **MY issue still exists at GitHub regardless** and MUST be closed; otherwise a user-visible duplicate live issue leaks. Run cleanup; UPSERT the alert preferring the **caller-supplied** show_id — for the ORIGINAL-worker tail this is the `show_id` from the request body (the worker just inserted it on the reservation INSERT in this same request, so it's still in scope); for the RETRY-worker tail this is `entryShowId` captured at the start of `expiredLeaseRetry` before the GH lookup. Only fall back to `NULL` if no in-memory show id exists in either caller's scope. Mark `row_reaped: true` in the `context` payload as a discriminator; return 410 `REPORT_HORIZON_EXPIRED`. **Per-show alert keying is preserved across both callers** so two unresolved reaped lost-lease incidents on different shows produce two distinct admin_alerts rows.
+
+   **Orphan cleanup (cases B + C + Reaped)** uses a SINGLE atomic Octokit call: `octokit.rest.issues.update({ issue_number, state: 'closed', state_reason: 'not_planned', labels: [...existing, 'fxav-orphan-lost-lease'] })`. Then UPSERT an `admin_alerts` row coded `REPORT_ORPHANED_LOST_LEASE` via the standard `ON CONFLICT (coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL DO UPDATE SET last_seen_at = now(), occurrence_count = admin_alerts.occurrence_count + 1, context = EXCLUDED.context` pattern. The `show_id` arg is `row.show_id` for Cases B/C and the entry-time captured `show_id` (round-32) for Case Reaped, fallback NULL. The `context` JSONB always carries `idempotency_key`, `orphan_url`, `lease_holder`, and a `row_reaped: boolean` discriminator.
+
+   A daily reaper cron deletes reports rows where **`github_issue_url IS NULL AND created_at < now() - interval '24 hours' AND processing_lease_until < now()`** (the live-lease skip prevents reaping a row a retry actively holds; aligns with the retry path's same `created_at` 24h horizon — round-13 race fix). Admin gets a `STALE_ORPHAN_REPORT` audit log entry per row deleted.
 
 This pattern guarantees:
 - **Quota is reserved atomically before GitHub** — concurrent submissions cannot both pass.
@@ -2195,6 +2348,7 @@ docs/
 | `JWT_SIGNING_SECRET` | Signed-link tokens |
 | `GITHUB_API_TOKEN` | GH Issues integration |
 | `GITHUB_REPO` | `eric-weiss/FX-Webpage-Template` (default) |
+| `GITHUB_BOT_LOGIN` | GitHub username the PAT belongs to. Required by §13.2.3's `findIssueByMarker` recovery path (`creator=` filter on `issues.listForRepo`). Missing config raises `GITHUB_BOT_LOGIN_MISSING` admin alert. |
 | `SENTRY_DSN` | error tracking |
 | `ADMIN_EMAILS` | comma-separated list (`dlarson@fxav.net,edweiss412@gmail.com`) |
 
@@ -2206,8 +2360,8 @@ Staged milestones, each independently demoable:
 
 1. **Parser standalone.** Library function `parseSheet(markdown)` that ingests any fixture in `fixtures/shows/raw/` and returns a `ParseResult`. Vitest test for every fixture, asserting the canonical schema is populated and warnings are captured. No Next.js, no DB. **Demo:** "run `pnpm test:parser` and see all 10 raw fixtures parse cleanly."
 2. **Schema + DB migrations.** Supabase Postgres tables per §4, RLS policies, seed script that loads parsed fixtures. **Demo:** "run `pnpm db:seed` and query the rows in Supabase Studio."
-3. **Admin upload-test (no auth).** A throwaway `/admin/dev` page that accepts a fixture filename, parses, upserts, and shows the parse warnings. **Demo:** "Eric uploads any fixture and sees the parse panel."
-4. **Crew page (no auth).** `/show/<slug>` renders the page from DB, with role hardcoded for testing. **Demo:** "open the page on a phone, see direction B with empty-state discipline."
+3. **Admin upload-test (admin-gated, dev-build only — round-47/48 amendment).** An `/admin/dev` page that accepts a fixture filename, parses through the full production pipeline (`parseSheet → enrichWithDrivePins → runInvariants → phase1`) into an isolated `dev.*` Postgres schema, and shows the parse panel. **Both the page AND every server action AND the reset action call `requireAdmin()` as their first line.** A server-only `ADMIN_DEV_PANEL_ENABLED` build-time env var gates the route at the artifact level: production builds set it to false (or unset) and the route returns 404 even with valid admin auth. The dev panel is for local/test deployments only and MUST NOT ship in customer-facing builds. (Earlier "no auth" framing has been retired — AC-3.2/3.3 explicitly assert rows in `pending_syncs`/`pending_ingestions`, which a real Phase-1 write requires admin auth to expose.) **Demo:** "Eric (admin) uploads any fixture in a dev build and sees the parse panel; the same URL on a prod build returns 404."
+4. **Crew page (identity-only mock — round-46/48 amendment).** `/show/<slug>?crew=<seeded-crewMemberId>` renders the page from DB; `getShowForViewer` re-derives role flags from `crew_members.role_flags` exactly as production will. The mock provides ONLY identity (`?crew=<id>` or `?as=admin`); `?role=` is explicitly ignored, with a regression test asserting `?role=lead` cannot unlock financials when the bound crew row's role_flags don't include LEAD. (Earlier "hardcoded role" framing has been retired — caller-supplied role would reopen the role-spoofing surface Task 4.3 is written to prevent.) **Demo:** "open the page on a phone with `?crew=<seeded-A1>` and `?crew=<seeded-LEAD>` to see role-appropriate tile sets, with empty-state discipline; `?role=lead` does NOTHING."
 5. **Auth.** Supabase Google OAuth + signed-link JWT (per-request authz against current `crew_members`, no role claim in token, `revoked_links` table). RLS enabled. Role-based hiding always derived fresh and narrowed to `shows_internal.financials` per §4.4. **Demo:** "sign in as a fixture-defined crew email, see your view; demote a crew member from LEAD in the sheet, re-sync, observe Financials tile disappear on next refresh without any token rotation. COI in Show status tile unchanged."
 6. **Drive sync (cron).** Vercel Cron → Drive API → parser → upsert → Realtime publish. **Demo:** "edit a sheet, see the page update within 5 min."
 7. **Linked content (B).** Diagrams gallery, agenda PDF embed, opening reel inline. **Demo:** "tap diagrams, see the gallery; tap agenda, see the embed."
@@ -2274,14 +2428,14 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-2.6 RLS: a non-admin signed-in user whose email matches a `crew_members.email` for show X CAN SELECT the matching `shows` row, but a non-matching user (different show) cannot.
 - AC-2.7 Seed script loads all 10 fixtures into the schema with no errors.
 
-**Milestone 3 — Admin upload-test (no auth).**
-- AC-3.1 `/admin/dev` accepts a fixture filename, runs the parser, runs MI invariants, and routes to the correct outcome (auto-apply / stage / hard-fail) based on the parsed content.
-- AC-3.2 A fixture with synthesized MI-7 (50% hotel drop) lands in `pending_syncs` with the right `triggered_review_items`.
-- AC-3.3 A fixture with synthesized MI-1 (no version markers) lands in `pending_ingestions` with `last_error_code = "MI-1_VERSION_DETECTION_FAILED"`.
+**Milestone 3 — Admin upload-test (round-47 amendment: admin-gated + dev-only build flag).**
+- AC-3.1 `/admin/dev` is **admin-gated** (`requireAdmin()` on the page AND on every server action AND the reset action) AND only available in builds where the server-only env var `ADMIN_DEV_PANEL_ENABLED=true`. Production builds (`ADMIN_DEV_PANEL_ENABLED` unset/false) return 404 even for admins. Round-46 retired the earlier "no auth" framing — the dev panel is a real Phase-1 write-through (writes to `dev.*` schema for isolation) AND has a destructive `TRUNCATE dev.* CASCADE` reset, both of which require admin auth in any deployed environment.
+- AC-3.2 A fixture with synthesized MI-7 (50% hotel drop) lands in `dev.pending_syncs` with the right `triggered_review_items`.
+- AC-3.3 A fixture with synthesized MI-1 (no version markers) lands in `dev.pending_ingestions` with `last_error_code = "MI-1_VERSION_DETECTION_FAILED"`.
 
-**Milestone 4 — Crew page (no auth).**
-- AC-4.1 `/show/<slug>` rendered with hardcoded role `A1` shows Lodging, Venue, Schedule, Audio scope, Crew, Contacts, Show status (with COI) tiles. No Financials tile.
-- AC-4.2 `/show/<slug>` rendered with hardcoded role `LEAD` shows Financials tile in addition. COI status appears in Show status tile in BOTH renders.
+**Milestone 4 — Crew page (round-47 amendment: identity-only mock).**
+- AC-4.1 `/show/<slug>?crew=<seeded-A1-crewMemberId>` shows Lodging, Venue, Schedule, Audio scope, Crew, Contacts, Show status (with COI) tiles. No Financials tile. Round-46 retired the earlier "hardcoded role A1" framing — the M4 mock uses the identity-only `?crew=<crewMemberId>` query param and `getShowForViewer` re-derives role from `crew_members.role_flags` exactly as production will (Task 4.3 lookup binds id AND show_id, so a wrong crewMemberId fails closed). `?role=` is explicitly ignored.
+- AC-4.2 `/show/<slug>?crew=<seeded-LEAD-crewMemberId>` shows Financials tile in addition. COI status appears in Show status tile in BOTH renders.
 - AC-4.3 Right Now card renders the correct state for a synthesized "today is Show Day 1" fixture, including the viewer-aware states (`viewer_off_day`, `viewer_after_last_day`, `viewer_unconfirmed`).
 - AC-4.4 §8.4 dimensional invariants: a Playwright test loads the page at 390px width and asserts `getBoundingClientRect()` per `data-testid` matches the spec (tile min-height 96px, two-column grid, etc.).
 - AC-4.5 Empty-state discipline: a fixture with `Opening Reel = TBD` does NOT render an "Opening Reel: TBD" line on the crew page.
@@ -2293,18 +2447,22 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-4.11 `PULL_SHEET_PARSE_PARTIAL` and `PULL_SHEET_AMBIGUOUS_FORMAT` surface in admin parse panel without blocking sync; affected rows render with their raw snippet on the crew page.
 - AC-4.12 MI-8c pull-sheet preservation: synthesize a parse where prior had 6 cases and new has 0 (full collapse) → stages, NOT auto-applied. Same for case-count halved or a case label dropping. Soft per-row PULL_SHEET_PARSE_PARTIAL warnings on individual rows continue to auto-apply (don't trigger MI-8c).
 
-**Milestone 5 — Auth.**
-- AC-5.1 `validateLinkSession` rejects a JWT whose signature is invalid (401).
-- AC-5.2 `validateLinkSession` rejects a JWT whose `tokenVersion` is older than `crew_member_auth.current_token_version` (410).
-- AC-5.3 `validateLinkSession` rejects a JWT whose `tokenVersion` is newer than `crew_member_auth.current_token_version` (410). Strict equality, not `<`.
-- AC-5.4 `validateLinkSession` rejects when the session's `jwt_token_version <= crew_member_auth.revoked_below_version` (410).
-- AC-5.5 `validateLinkSession` rejects when there's a matching `revoked_links` row with the exact `token_version` (410).
-- AC-5.6 `validateLinkSession` rejects past 15-min idle, advances `last_active_at` on pass.
+**Milestone 5 — Auth (round-46 amendment: cookie-session model).** `validateLinkSession` is the cookie-session validator that runs on every page render after the JWT-fragment redemption. The cookie carries an opaque `link_sessions.token`, NOT a JWT — JWT signature verification happens once at redeem-link time (Task 5.4), where the JWT is exchanged for the opaque cookie. The ACs below reflect the §7.2.2 12-step cookie validator, NOT a JWT validator. Earlier draft of §17.1 (rounds 1-44) treated `validateLinkSession` as a JWT validator with bad-signature/older-version/newer-version cases — that text has been retired in round-46 to match the cookie model the plan and §7.2.2 implement.
+- AC-5.1 cookie-session validator: cookie missing OR `link_sessions.token` not found → 401 (no row to delete).
+- AC-5.2 `expires_at <= now()` (12h absolute) → 401 (`SESSION_ABSOLUTE_TIMEOUT`); DELETE the row.
+- AC-5.3 `show.id !== link_sessions.show_id` (cross-show reuse) → 403 (operator-only structured log; no user-facing code); DELETE the row.
+- AC-5.4 `link_sessions.jwt_token_version !== crew_member_auth.current_token_version` (strict equality, both directions) → 410 (`LINK_VERSION_MISMATCH`); DELETE the row. (`jwt_token_version` is the version captured at redemption; the validator does NOT verify JWT signatures.)
+- AC-5.5 `link_sessions.jwt_token_version <= crew_member_auth.revoked_below_version` → 410 (`LINK_REVOKED_FLOOR`); DELETE the row. AND matching `revoked_links` row at exact `(show_id, crew_name, token_version)` → 410 (`LINK_REVOKED_SURGICAL`); DELETE the row.
+- AC-5.6 `last_active_at < now() - interval '15 minutes'` → **401** (`SESSION_IDLE_TIMEOUT`); DELETE the row. Pass advances `last_active_at = now()`.
 - AC-5.7 `validateGoogleSession` rejects a Supabase Auth user whose email doesn't match any crew row in the show (403).
 - AC-5.8 `validateGoogleSession` rejects on multi-match (`AMBIGUOUS_EMAIL_BINDING`, 500). Synthesize a fixture with duplicate emails and seed it bypassing MI-5b.
 - AC-5.9 LEAD viewer's response includes `shows_internal.financials`; non-LEAD viewer's response omits it. Both viewers' responses include `shows.coi_status`. (Verify via response-payload introspection.)
 - AC-5.10 Demote a crew member from LEAD to A1 in the sheet, re-sync, refresh the page: Financials tile disappears within one sync cycle without any token rotation. Show status tile (including COI) is unchanged.
-- AC-5.11 `?t=` URL: middleware returns 410, inserts `revoked_links` row, and (if the leaked link was current version) auto-rotates the row to "no live link" state. Subsequent requests with the same JWT in `#t=` form fail authz.
+- AC-5.11 `?t=` URL compromise-event handler covers ALL THREE branches per §7.2 (round-46+ amendment):
+  - **Branch A** (`jwt.tokenVersion === current_token_version`): middleware returns 410, inserts `revoked_links` row at the exact version (idempotent), AND sets `revoked_below_version = current_token_version` while leaving `current_token_version` / `max_issued_version` unchanged (no auto-mint). The crew row enters "no live link" state; admin UI hides the share affordance until Doug clicks "Issue new link," which bumps both `current_token_version` and `max_issued_version` to `floor + 1` (single-click recovery). Subsequent requests with the same JWT in `#t=` form fail authz.
+  - **Branch B** (`jwt.tokenVersion < current_token_version`): middleware returns 410, inserts ONLY the surgical `revoked_links` row at the exact stale version (idempotent). `crew_member_auth` is unchanged; the live current JWT still passes redemption and cookie validation in a follow-up request.
+  - **Branch C** (`jwt.tokenVersion > current_token_version`, future-version leak): middleware returns 410, inserts `revoked_links` row at the exact future version (idempotent), AND lifts `current_token_version`, `max_issued_version`, AND `revoked_below_version` to `jwt.tokenVersion` in one transaction. A single subsequent "Issue new link" click bumps both `current_token_version` and `max_issued_version` to `jwt.tokenVersion + 1`, producing a usable replacement on the first click (multi-click recovery would be a regression).
+  - All three branches use the canonical `LEAKED_LINK_DETECTED` user copy. All `revoked_links` inserts use `ON CONFLICT (show_id, crew_name, token_version) DO NOTHING` so duplicate hits on the same leaked URL (browser retry, refresh, prefetch) are safe — required test: submit the same leaked `?t=` URL twice; assert the second hit also returns 410 with stable auth state and no 500 / no duplicate row.
 - AC-5.12 Synthesizing the duplicate-email runtime condition (bypassing MI-5b in test setup) writes an `admin_alerts` row visible in the dashboard's top-bar banner. Marking resolved removes the banner. (Per §4.6.)
 
 **Milestone 6 — Drive sync (cron).**
@@ -2364,10 +2522,10 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-6.27 Apply trust-boundary on deletion: stage a sheet, then trash/un-share the source. Apply aborts with `STAGED_PARSE_SOURCE_GONE`. Existing-show stages restore prior status; first-seen stages log to `pending_ingestions`.
 - AC-7.19 Linked-folder freeze at stage: a fixture's linked folder has 3 images at stage time. Between stage and Apply, add a 4th image to the folder. Apply commits with exactly the 3 frozen images snapshotted (the new 4th image is NOT included). The next sync (after sheet edit) re-enumerates and includes the 4th if it's still there.
 - AC-7.20 Linked-folder version pin at Apply: a fixture's linked folder image is EDITED IN PLACE between stage and Apply (same driveFileId, new modifiedTime). Apply's version-pin check fails closed: snapshotPath stays NULL, snapshot_status='partial_failure', LINKED_ASSET_DRIFTED warning surfaced. asset_recovery does NOT silently download the drifted bytes — it re-checks the version pin and continues to fail until a sheet edit re-stages the new version.
-- AC-7.21 Reel version pin: an opening-reel Drive file is edited after the last Apply. Crew load the page, hit `/api/asset/reel/<show>`. Route compares current modifiedTime to `shows.opening_reel_drive_modified_time`, finds drift, returns 410 + placeholder. No drifted bytes ever served.
-- AC-7.22 Reel pin persistence: a fixture whose `event_details.opening_reel` cell holds a Drive URL (anywhere in the cell) produces `shows.opening_reel_drive_file_id` and `shows.opening_reel_drive_modified_time` NOT NULL after Apply. A fixture whose cell is `MAYBE` (text only) leaves both columns NULL.
-- AC-7.23 Mixed-value reel extraction: a fixture whose `event_details.opening_reel` cell is `YES - LOOP VIDEO https://drive.google.com/file/d/<id>/view` produces NON-NULL pin columns AND the crew page renders BOTH the text status and the inline video. Pin extraction is substring-based, not anchored.
-- AC-7.24 Apply-time reel drift: stage a parse with a reel URL. EDIT the reel file in Drive (modifiedTime advances). Click Apply. The Apply-time re-verify (§6.11.1) detects drift, persists BOTH `opening_reel_drive_*` columns as NULL, emits `REEL_DRIFTED` warning. Crew page falls back to text-only display; the route does NOT 410 on first request because the columns are NULL.
+- AC-7.21 Reel version pin (round-47 amendment, full immutable-pin contract): an opening-reel Drive file is edited after the last Apply (`headRevisionId` advances; `modifiedTime` advances; `md5Checksum` changes). Crew load the page, hit `/api/asset/reel/<show>`. Route runs `files.get(reelFileId, fields='modifiedTime,trashed,headRevisionId,md5Checksum')` and compares `current.headRevisionId` against `shows.opening_reel_head_revision_id` — drift detected → 410 + placeholder. **`headRevisionId` is the authoritative byte-fence;** modtime is informational. No drifted bytes ever served, including via the alt=media fallback (which buffers the full body and re-verifies md5 against `current.md5Checksum` before serving any bytes).
+- AC-7.22 Reel pin persistence (round-47 amendment, full triple): a fixture whose `event_details.opening_reel` cell holds a Drive URL produces `shows.opening_reel_drive_file_id`, `shows.opening_reel_drive_modified_time`, AND `shows.opening_reel_head_revision_id` ALL NOT NULL after Apply. A fixture whose cell is `MAYBE` (text only) leaves all three columns NULL.
+- AC-7.23 Mixed-value reel extraction: a fixture whose `event_details.opening_reel` cell is `YES - LOOP VIDEO https://drive.google.com/file/d/<id>/view` produces NON-NULL values for ALL THREE pin columns AND the crew page renders BOTH the text status and the inline video. Pin extraction is substring-based, not anchored.
+- AC-7.24 Apply-time reel drift (round-47 amendment, single 410 contract): stage a parse with a reel URL. EDIT the reel file in Drive (`headRevisionId` advances). Click Apply. The Apply-time re-verify (§6.11.1's four-step flow) detects drift via `headRevisionId` mismatch, persists ALL THREE `opening_reel_*` columns as NULL, emits `REEL_DRIFTED` warning. Crew page falls back to text-only display. **Single 410 contract**: `/api/asset/reel/<show>` returns 410 whenever ANY of the three persisted pin columns is NULL OR live drift is detected — the same 410 status covers both NULL-persisted and drift cases (round-46 retires the earlier "route does NOT 410 when columns are NULL" carve-out; the page knows not to call the route when any column is NULL, but the route still fails closed if hit).
 
 **Milestone 8 — Bug-report pipeline.**
 - AC-8.1 Click "Report this" in admin parse panel → opens a GitHub issue in the configured repo with the §13.2.1 admin body template (labels include `reporter:admin`).
