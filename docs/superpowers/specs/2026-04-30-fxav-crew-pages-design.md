@@ -1,6 +1,6 @@
 # FXAV Crew Pages — Design Spec
 
-**Status:** draft (2026-04-30)
+**Status:** approved 2026-04-30 (after self-review + 38 rounds of cross-model adversarial review against Codex). Implementation plan to follow in a separate session via the writing-plans skill.
 **Author:** Eric Weiss
 **Companion docs:** [`Project-Goal.md`](../../../Project-Goal.md), [`fixtures/shows/README.md`](../../../fixtures/shows/README.md), [`fixtures/shows/_schema-diff.md`](../../../fixtures/shows/_schema-diff.md)
 
