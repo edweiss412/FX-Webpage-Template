@@ -156,7 +156,9 @@ create table shows (
   dates           jsonb,                           -- { travelIn, set, showDays: [...], travelOut }
   event_details   jsonb,                           -- flat key/value of EVENT DETAILS section
   agenda_links    jsonb,                           -- [{ label, fileId|url }]
-  diagrams        jsonb,                            -- Unified diagrams source. Shape: { linkedFolder: { driveFolderId: text, driveFolderUrl: text } | null, embeddedImages: [{ sheetTab: text, objectId: text, mimeType: text, alt?: text }] }. Either field can be NULL/empty depending on the sheet's authoring style. Replaces the prior `diagrams_link text` column. See §6.11 for extraction.
+  diagrams        jsonb,                            -- Unified diagrams source. Shape: { linkedFolder: { driveFolderId: text, driveFolderUrl: text } | null, embeddedImages: [{ sheetTab, objectId, mimeType, alt?, snapshotPath: text | null, sourceFolder: 'embedded' }], linkedFolderItems: [{ driveFileId, mimeType, alt?, drive_modified_time: timestamptz, snapshotPath: text | null, sourceFolder: 'linked' }], snapshot_revision_id: uuid | null, snapshot_status: 'complete' | 'partial_failure' | null }. drive_modified_time on linkedFolderItems is the version pin captured at Phase 1 stage; asset_recovery and Apply re-verify against it (§6.11) before downloading. BOTH embedded and linked-folder images go through the same Storage snapshotting path; the gallery serves all of them via /api/asset/diagram/<show>/r=<rev>/<assetKey> with no live-Drive reads at request time. snapshot_revision_id is minted fresh per Apply. snapshot_status='partial_failure' triggers asset_recovery mode (per §5.2) which retries snapshotting without re-parsing.
+  opening_reel_drive_file_id      text,              -- nullable. Drive file id for the opening reel video, captured at Phase 1 if event_details.opening_reel cell holds a Drive URL (per §6.5 free-text fallback the cell value can be a URL or text like "MAYBE"; only URLs populate this field).
+  opening_reel_drive_modified_time timestamptz,      -- nullable. The pinned modifiedTime captured alongside opening_reel_drive_file_id at Phase 1. /api/asset/reel/<show> re-verifies against this on every request (§7.3) and 410s on drift.
   coi_status      text,                              -- public on shows: COI value verbatim per schema-diff §2.8 ("SENT" / "IN PROCESS" / blank). All crew can see it because it's operational ("are we insured for this venue?"), not a financial detail. Free-text per §6.5 — no enum normalization.
   pull_sheet      jsonb,                             -- public on shows: per-case packing list parsed from PULL SHEET tab if present. Shape: [{ caseLabel: string, items: [{ qty: number, cat: string, subCat: string, item: string }] }]. NULL when sheet has no PULL SHEET tab (most v3+ sheets). See §6.10. Crew renders this on set/strike days only (§8.1).
   -- financials, parse_warnings, raw_unrecognized live in shows_internal (below)
@@ -526,7 +528,7 @@ This table also provides the durable surface for any future "should-be-impossibl
 
 Three triggers, in order of latency:
 
-1. **Drive push notifications (`files.watch`) — primary, sub-second.** A subscription against the watched folder ID delivers a webhook to `/api/drive/webhook` (§5.5) within seconds of any sheet edit. The webhook handler dispatches `runManualSyncForShow(driveFileId, mode: "manual")` per affected file. **Push is best-effort by Drive's contract — Drive may drop, throttle, or fail to deliver notifications**, which is why the cron fallback below is non-negotiable.
+1. **Drive push notifications (`files.watch`) — primary, sub-second.** A subscription against the watched folder ID delivers a webhook to `/api/drive/webhook` (§5.5) within seconds of any sheet edit. The webhook handler dispatches `runPushSyncForShow(driveFileId)` per affected file (`mode: "push"`, NOT `manual`). Push mode honors `deferred_ingestions` and uses the same monotonic `<` watermark guard as cron — see §5.5.3 for the full contract. Webhooks **never** use `mode: "manual"`; that mode is reserved for operator-initiated `/admin/show/<slug>` "Re-sync" clicks. Push is best-effort by Drive's contract (Drive may drop, throttle, or fail to deliver), which is why the cron fallback below is non-negotiable.
 2. **Vercel Cron `*/5 * * * *` reconciliation — fallback.** Runs `runScheduledCronSync()` against the watched folder. Catches anything push missed and confirms steady state. The cron's per-show watermark logic (§5.2) means an already-applied push leaves nothing to do — the cron is idempotent against push.
 3. **Manual sync trigger** at `/admin/show/<slug>` — operator-initiated. Bypasses the watermark check and reprocesses the targeted sheet unconditionally.
 
@@ -569,10 +571,15 @@ All three entry points feed into the per-file processor identically from step 3 
      - `defer_until_modified` AND `file.modifiedTime > deferred_ingestions.deferred_at_modified_time` → DELETE the deferral row (the file has been edited; resume normal processing) and continue.
      **Push honors deferred_ingestions identically to cron** — automatic processing must respect Doug's defer/ignore decisions. The onboarding scan and manual sync ignore deferral rows by design: those are operator-explicit actions and admin's deliberate click overrides the deferral. Skipping a deferred drive_file_id during push processing also short-circuits the §5.5.3 step 6 dispatch — the dispatch helper consults `deferred_ingestions` BEFORE acquiring the lock, so a deferred file produces zero work.
    - Look up the matching `shows` row by `drive_file_id`. **Do NOT auto-create a stub** — the schema requires non-null `slug`, `title`, `client_label`, `template_version`, none of which exist before parsing. First-seen sheets without a `shows` row enter the "first-seen" path: parse first, then create the row with parsed metadata in Phase 2 (auto-apply) or in the Phase 1 staging path (pending review). For first-seen sheets the `(prior shows.last_seen_modified_time)` value used for `pending_syncs.base_modified_time` is `NULL` — the CAS in §6.8.1 explicitly handles `IS NOT DISTINCT FROM NULL` for this case.
-   - **Watermark gate** — only the **automatic cron** path consults the watermark. Manual re-sync triggered from `/admin/show/<slug>` and `sheet_unavailable`-recovery runs (after a previously-removed sheet reappears) skip the gate. The two run modes are distinguished by an explicit `mode: "cron" | "manual"` parameter passed into the sync function:
-     - `mode === "cron"` AND `file.modifiedTime <= shows.last_seen_modified_time` → skip (no work to do).
+   - **Watermark gate** — only the **automatic** paths (`cron` and `push`) consult the watermark. Manual re-sync from `/admin/show/<slug>` and `sheet_unavailable`-recovery runs skip the gate. The watermark is the **higher of two values** to prevent re-staging an unchanged file while Doug is reviewing the prior stage:
+     - **`shows.last_seen_modified_time`** — what's currently live.
+     - **`pending_syncs.staged_modified_time`** — what's currently in review (if a row exists for this `drive_file_id`).
+     - **Effective watermark** = `GREATEST(last_seen_modified_time, pending_syncs.staged_modified_time)`, treating either as `-infinity` if NULL.
+     
+     Auto-mode skip rule: `mode IN ('cron', 'push')` AND `file.modifiedTime <= effective_watermark` → skip. This means an unchanged file that's already pending review doesn't re-stage on every cron pass; the existing `staged_id` stays stable so Doug's open review tab continues to match the server state. Only when Drive's `modifiedTime` advances past BOTH the live snapshot AND the staged version does cron/push process the file again.
+     - `mode IN ('cron', 'push')` AND `shows.last_sync_status === 'sheet_unavailable'` AND `file` is now present → proceed regardless of watermark (status recovery).
+     - `mode IN ('cron', 'push')` AND `shows.diagrams.snapshot_status === 'partial_failure'` AND `file.modifiedTime <= effective_watermark` → enter `mode: "asset_recovery"`. **This branch is only taken when there's no newer sheet revision waiting.** If `file.modifiedTime > effective_watermark`, the system runs the normal cron/push fetch + parse + Phase 2 path instead, and any unresolved snapshot failures are carried forward into the new revision. This guarantees a permanently broken diagram cannot starve newer sheet content updates. Asset recovery does NOT re-parse the sheet, does NOT touch sheet-derived columns, and does NOT trigger MI invariants. It walks the **unified asset set** — every entry in BOTH `shows.diagrams.embeddedImages[]` AND `shows.diagrams.linkedFolderItems[]` whose `snapshotPath IS NULL`. For each entry: **re-runs the version-pin check** (per §6.11 linked-folder flow): if the source's current `modifiedTime` differs from the staged tuple's pinned `drive_modified_time`, the entry stays unresolved (asset_recovery never silently downloads drifted bytes); otherwise downloads, UPSERTs the snapshotPath. On full resolution across both arrays, flips `snapshot_status` to `'complete'`. Watermark / Phase-2 stale-write guards do NOT apply because asset_recovery doesn't touch anything Phase 2 protects. `last_seen_modified_time` is NOT advanced. Same-modtime partial-failure heals only when the source assets match their pinned versions; drifted assets remain unresolved until a sheet edit forces a fresh Phase 2 stage that captures the new versions.
      - `mode === "manual"` → always proceed regardless of watermark.
-     - `mode === "cron"` AND `shows.last_sync_status === 'sheet_unavailable'` AND `file` is now present → proceed regardless of watermark (status recovery).
    - Fetch content via Drive API. The exact extraction call (single `files.export` to a markdown-equivalent vs. per-tab `spreadsheets.values.batchGet`) is decided at implementation time and tracked in §16 open questions; the parser's input contract is "markdown-table-shaped text identical in structure to the existing fixture corpus," so either path satisfies it. **If the fetch fails before any parse can run** (Drive auth error, quota exceeded, file race-deletion, etc.):
      - If `shows` row exists: status-only update `last_sync_status = 'drive_error', last_sync_error = $msg`. Insert sync_log entry. Return without entering Phase 1.
      - If no `shows` row exists (brand-new sheet, Drive failure before any successful parse): UPSERT `pending_ingestions` keyed on `drive_file_id` with `last_error_code = 'DRIVE_FETCH_FAILED'` (or a more specific code) and the error message. Insert sync_log entry. Return without entering Phase 1. The brand-new sheet is now visible in admin's "Sheets we couldn't parse" panel.
@@ -728,15 +735,43 @@ Subscriptions are kept in a small DB table for lifecycle management:
 
 ```sql
 create table drive_watch_channels (
-  id            text primary key,                   -- the channel id we register with Drive (UUID we generate)
-  resource_id   text not null,                      -- Drive's opaque resource handle returned by files.watch
-  watched_folder_id text not null,                  -- which folder this channel watches; matched against app_settings on activation
-  webhook_secret text not null,                     -- HMAC secret unique per channel; verified on every incoming notification (§5.5.3)
-  expires_at    timestamptz not null,               -- Drive caps watch channels at ~7 days; we proactively renew well before
-  created_at    timestamptz not null default now(),
-  superseded_at timestamptz                         -- set when we replace this channel; allows lazy cleanup. NULL = active.
+  id              text primary key,                  -- the channel id we register with Drive (UUID we generate at INSERT time)
+  status          text not null default 'pending'
+    check (status in ('pending', 'active', 'superseded', 'stopping', 'stopped', 'orphaned')),
+  watched_folder_id text not null,                   -- which folder this channel watches; matched against app_settings on activation
+  webhook_secret  text not null,                     -- HMAC-equivalent secret unique per channel; generated at INSERT alongside id
+  -- The next two are populated only after Drive confirms the subscription.
+  -- They're NULL while status='pending' or 'orphaned'; required by CHECK
+  -- when status transitions to 'active'.
+  resource_id     text,                              -- Drive's opaque resource handle returned by files.watch
+  expires_at      timestamptz,                       -- Drive caps watch channels at ~7 days; we proactively renew before
+  created_at      timestamptz not null default now(),
+  activated_at    timestamptz,                       -- set when status transitioned pending→active
+  superseded_at   timestamptz,                       -- set when status transitioned active→superseded; lazy-GC anchor
+  stopped_at      timestamptz,                       -- set when status transitioned to 'stopped' (after channels.stop confirmed)
+  -- A row in 'active' status MUST have resource_id and expires_at populated.
+  -- Other states allow them NULL.
+  constraint drive_watch_channels_active_requires_drive_state
+    check (status != 'active' or (resource_id is not null and expires_at is not null))
 );
-create index drive_watch_channels_active_idx on drive_watch_channels (watched_folder_id) where superseded_at is null;
+-- Single-active invariant per watched folder. Renewal flow uses a "drain
+-- old then activate new" sequence to respect this:
+--   1. INSERT new row as 'pending'.
+--   2. Call files.watch externally (no DB state change yet).
+--   3. In one transaction: UPDATE old active row SET status='superseded',
+--      superseded_at=now(); UPDATE new pending row SET status='active',
+--      resource_id=$rid, expires_at=$exp, activated_at=now().
+-- If step 3 fails midway, both rows revert (single-tx). The new external
+-- channel may still exist at Drive; the §5.5.6 GC reconciles via channels.stop.
+create unique index drive_watch_channels_one_active_per_folder_idx
+  on drive_watch_channels (watched_folder_id)
+  where status = 'active';
+create index drive_watch_channels_lookup_idx
+  on drive_watch_channels (id)
+  where status = 'active';
+create index drive_watch_channels_renewal_due_idx
+  on drive_watch_channels (expires_at)
+  where status = 'active';
 ```
 
 RLS: admin-only.
@@ -760,12 +795,26 @@ State machine:
 - `stopped` — `channels.stop` succeeded; safe to delete the row.
 - `orphaned` — the row was created but Drive returned an error and we cannot determine whether the channel exists; flagged for admin (`admin_alerts` row coded `WATCH_CHANNEL_ORPHANED`). The reconciliation cron (§5.5.6) reconciles these.
 
-- **Create** (`subscribeToWatchedFolder()`) — outbox-style:
-  1. Inside one DB transaction: generate a fresh channel id (UUID) and webhook_secret (32 bytes random); INSERT a `drive_watch_channels` row with `status = 'pending'`. COMMIT immediately so we have durable record before any external call.
-  2. Outside the transaction: call Drive `files.watch` on the watched folder with `id`, `token: webhook_secret`, `address: <webhook-public-url>`. Time-boxed; if it doesn't return inside the window, abort.
-  3. On Drive success: another transaction sets `status = 'active'`, `resource_id`, `expires_at` from the response.
-  4. On Drive failure: another transaction sets `status = 'orphaned'` and inserts an `admin_alerts` row keyed on `WATCH_CHANNEL_CREATE_FAILED`. The renewal/reconciliation cron (§5.5.6) tries to clean up the orphan: it calls `channels.stop` blindly with the channel id; whether the call succeeds or 404s, the row goes to `stopped` and gets deleted. The push system stays in fallback (cron-only) until an admin retry succeeds.
-- **Renew** (`refreshWatchSubscriptions()`): runs as a Vercel Cron `0 * * * *` (hourly). For any `active` row whose `expires_at < now() + interval '24 hours'`, run the Create flow above to mint a new subscription, then mark the old row `superseded` (DB-only — the Drive-side stop happens via the §5.5.6 GC, separately from this critical path).
+- **Create** (`subscribeToWatchedFolder(watched_folder_id)`) — outbox-style:
+  1. Inside one DB transaction: generate channel id (UUID) and webhook_secret (32 bytes random); INSERT a `drive_watch_channels` row with `status = 'pending'`, `resource_id = NULL`, `expires_at = NULL`. COMMIT immediately so we have durable record before any external call. The `pending` status is permitted to coexist with an `active` row for the same folder (the partial unique index is only on `status='active'`).
+  2. Outside the transaction: call Drive `files.watch` with `id`, `token: webhook_secret`, `address: <webhook-public-url>`. Time-boxed (default 15s).
+  3. **On Drive success**, in one transaction (the "atomic activation"):
+     ```sql
+     -- Drain any prior active row for this folder.
+     UPDATE drive_watch_channels
+        SET status = 'superseded', superseded_at = now()
+      WHERE watched_folder_id = $1 AND status = 'active';
+     -- Promote the pending row.
+     UPDATE drive_watch_channels
+        SET status = 'active',
+            resource_id = $rid,
+            expires_at  = $exp,
+            activated_at = now()
+      WHERE id = $channelId AND status = 'pending';
+     ```
+     The two updates run in the same transaction, so the partial unique index never sees two `active` rows simultaneously. If the second UPDATE matches 0 rows (e.g., the row was already cleaned up), the transaction rolls back and the pending row stays — the `WATCH_CHANNEL_CREATE_FAILED` admin alert path takes over.
+  4. **On Drive failure**: another transaction sets `status = 'orphaned'` (resource_id and expires_at remain NULL — the `active` CHECK doesn't apply since status isn't `active`). Insert an `admin_alerts` row coded `WATCH_CHANNEL_CREATE_FAILED`. The reconciliation cron (§5.5.6) tries to clean up the orphan: it calls `channels.stop` blindly with the channel id; whether the call succeeds or 404s, the row goes to `stopped` and gets deleted after the 7-day retention. Push stays in fallback (cron-only) until a retry succeeds.
+- **Renew** (`refreshWatchSubscriptions()`): runs as a Vercel Cron `0 * * * *` (hourly). For any `active` row whose `expires_at < now() + interval '24 hours'`, run the Create flow above. The atomic activation in step 3 handles the active→superseded handoff inside the same transaction as the new row's promotion, so there's never a moment when two rows are simultaneously `active`.
 - **Revoke** (admin promoting a new `watched_folder_id` via the §9.0 wizard): mark all `active` rows for the prior folder `superseded` (DB-only). The new folder's `subscribeToWatchedFolder()` runs after wizard exit's app_settings promotion commit and follows the same two-phase pattern. The wizard's `app_settings` promotion commits regardless of whether the new subscription succeeds; if Drive rejects, the new folder enters cron-only-fallback mode and admin sees a `WATCH_CHANNEL_CREATE_FAILED` banner.
 
 #### 5.5.6 Channel garbage collection
@@ -796,7 +845,7 @@ Headers Drive sends:
 The webhook handler:
 
 1. **Header presence check.** Reject 400 if `X-Goog-Channel-Id`, `X-Goog-Channel-Token`, or `X-Goog-Resource-State` are missing.
-2. **Channel lookup.** `SELECT webhook_secret, watched_folder_id, resource_id FROM drive_watch_channels WHERE id = $X-Goog-Channel-Id AND superseded_at IS NULL`. If no match, reject 410 (channel stale or never existed). The 410 tells Drive to stop sending.
+2. **Channel lookup.** `SELECT webhook_secret, watched_folder_id, resource_id FROM drive_watch_channels WHERE id = $X-Goog-Channel-Id AND status = 'active'`. **Strictly `status = 'active'`** — pending/superseded/orphaned/stopping/stopped rows are NOT matchable by the webhook lookup. If no match, reject 410 (channel stale, orphaned, or never existed). The 410 tells Drive to stop sending.
 3. **Token verification.** Constant-time compare `X-Goog-Channel-Token` against `webhook_secret`. Mismatch → reject 401, write to `admin_alerts` (`WEBHOOK_TOKEN_INVALID` — high signal of spoofing attempt or bug, low chance of legit).
 4. **Resource cross-check.** Confirm `X-Goog-Resource-Id === drive_watch_channels.resource_id`. Mismatch → reject 401.
 5. **State filter.** `sync` (initial sync ack from Drive) → return 200 immediately, no work. `trash` / `untrash` / `remove` → also return 200 (these affect folder membership, which the next cron pass will reconcile via the listing-diff path at §5.2 step 4). Only `add` and `update` enqueue downstream work.
@@ -937,6 +986,21 @@ type ParseResult = {
   rooms: RoomRow[];
   transportation: TransportationRow | null;
   contacts: ContactRow[];
+  pullSheet: PullSheetCase[] | null;       // §6.10: per-case packing list when PULL SHEET tab present, NULL otherwise
+  diagrams: {
+    linkedFolder: { driveFolderId: string; driveFolderUrl: string } | null;
+    embeddedImages: { sheetTab: string; objectId: string; mimeType: string; alt?: string }[];
+    linkedFolderItems: { driveFileId: string; mimeType: string; alt?: string; drive_modified_time: string /* ISO */ }[];
+                                            // §6.11: BOTH source types frozen at Phase 1. Phase 2 / Apply consumes
+                                            // exactly this shape, sets snapshotPath per item, and persists into
+                                            // shows.diagrams (which adds snapshotPath, snapshot_revision_id,
+                                            // snapshot_status to each entry).
+  };
+  openingReel: { driveFileId: string; drive_modified_time: string /* ISO */ } | null;
+                                            // §6.11 / §10: populated when event_details.opening_reel cell holds a
+                                            // Drive URL (anywhere in the cell, not anchored). NULL otherwise.
+                                            // Phase 2 / Apply persists into the shows.opening_reel_drive_* columns
+                                            // AFTER an Apply-time drift re-check (§6.11.1).
   warnings: ParseWarning[];     // soft, sync still succeeds (provided minimum invariants pass)
   hardErrors: ParseError[];     // sync fails — last-good snapshot retained
 };
@@ -975,6 +1039,7 @@ The §5.2 transaction does destructive replacement (`DELETE FROM crew_members WH
 | MI-7b | **Keyed preservation across re-syncs:** for sections with stable natural keys, if a key that existed in `prior` is missing from `new`, stage:<br>• `hotel_reservations` keyed on `ordinal` (1..4)<br>• `rooms` keyed on `(kind, name)`<br>• `contacts` keyed on `(kind, name)` (or `(kind, email)` if name absent)<br>This catches the "5 of 6 hotels remain but #2 silently disappeared" parser regression that pure-count thresholds would miss. | Stage for approval |
 | MI-8 | **Financial-field preservation:** if `prior.financials` had any non-empty field (PO#, Proposal, Invoice, Invoice Notes) AND any of those fields is now empty/null in the new parse, stage. | Stage for approval |
 | MI-8b | **COI delta — every change to `coi_status` stages, not just blanking.** Now that COI is public to every crew viewer (per §4.4 / §8.1 Show status tile), a wrong non-empty transition (e.g., `SENT → IN PROCESS`, `SENT → arbitrary text`, `SENT → ""`) propagates to all crew immediately. Doug confirms every change before crew see it. Any `prior.coi_status !== new.coi_status` (treating NULL and `""` as equivalent for this comparison) stages. Pure no-op edits where the canonical value is unchanged don't trigger. | Stage for approval |
+| MI-8c | **Pull-sheet preservation — public packing data must not silently degrade.** `shows.pull_sheet` is rendered to every crew viewer on set/strike days (§8.1 Pack list tile), so a parser regression or sheet edit that wipes or partially corrupts the manifest is a user-visible operational regression. Stage on any of: (a) `prior.pull_sheet IS NOT NULL` AND `new.pull_sheet IS NULL` (full collapse); (b) `PULL_SHEET_AMBIGUOUS_FORMAT` warning fired AND prior had a non-ambiguous parse (the sheet's column shape changed in a way the parser no longer recognizes); (c) `new.pull_sheet.length < prior.pull_sheet.length / 2` (case-count halved or worse — likely parse drift, not a real edit); (d) any case present in prior whose `caseLabel` is missing from new (case dropped). Soft `PULL_SHEET_PARSE_PARTIAL` warnings on individual rows continue to auto-apply with rawSnippet fallback — only structural collapse stages. | Stage for approval |
 | MI-9 | **`role_flags` change for existing crew:** for each crew member that exists in both prior and new snapshots (matched by name), if `prior.role_flags` and `new.role_flags` are not set-equal (treating each as a set of atomic flags per §4.1's canonical shape), stage. Examples (all stage): `['LEAD','A1']` → `['A1']` (silent demotion losing ops access), `['A1']` → `['LEAD','A1']` (silent promotion gaining ops access), `['LEAD','A1']` → `['LEAD','V1']` (capability change), `['LEAD','A1']` → `['LEAD','A1','BO']` (additive change still stages — admin confirms intent), and the original collapse-to-empty case. **Any role_flags delta for an existing crew member triggers staging because role gates server-side data filtering.** | Stage for approval |
 | MI-11 | **Email change for existing crew (auth-sensitive):** for each crew member that exists in both prior and new snapshots (matched by name), if the **normalized** prior and new email values differ — including null→non-null and non-null→null — stage. Email is the principal Google-login binds to: a parser bug or sheet typo that changes Alice's row to a different unique email would silently transfer access. Adding an email where there was none, or removing one, also stages because both flips alter who can sign in for that name. | Stage for approval. Admin review surface shows `prior.email` and `new.email` side by side. **On Apply, the destructive transaction additionally bumps `crew_member_auth.revoked_below_version = current_token_version` for the affected crew_name** so all existing signed links for that name are killed and Doug must Issue New Link before the new email holder gets link access. The Google-login path is also affected: until the next sync commits the new email, `validateGoogleSession` fails for the new email holder ("not on crew list yet"). |
 | MI-12 | **Probable rename — remove+add with matching email:** detect rename candidates by inspecting the symmetric difference of names between prior and new. For each pair `(removed, added)` where `removed.email IS NOT NULL` and `canonicalize(removed.email) === canonicalize(added.email)`, treat as a probable rename. Without this check, a typo fix in the name cell would auto-apply remove-old-row + add-new-row, and (a) old signed links for the old name would survive only as long as the old name's auth row (now floor-revoked by §5.2's removal handler — fine), (b) the new name's `crew_member_auth` row gets fresh state and Doug has no review checkpoint to confirm the rename was intentional. | Stage for approval. Admin review surface shows the rename pair as a single line ("`Old Name` → `New Name`, email retained: `alice@fxav.net`") with explicit "Approve rename" / "Reject — keep prior" actions. On Approve, the destructive transaction runs the standard DELETE-then-UPSERT plus bumps `crew_member_auth.revoked_below_version` for **both** the old and new names so any prior signed links die regardless of which auth row they targeted. |
@@ -1003,7 +1068,16 @@ When admin clicks "Apply" on a staged parse:
    - `pending_syncs` row still exists for this `drive_file_id` (it wasn't discarded by another admin or superseded by a fresh staging).
    - Submitted `staged_id` matches `pending_syncs.staged_id`. If unequal → abort with "This staging has been superseded. Reload the admin page."
    - **`shows.last_seen_modified_time IS NOT DISTINCT FROM pending_syncs.base_modified_time`** — i.e., the live snapshot Doug compared against during review is still the live snapshot now. The two values intentionally compare as equal when both are NULL (brand-new show). If they differ, a newer parse committed since staging — abort: log `STAGED_PARSE_SUPERSEDED`, DELETE the stale `pending_syncs` row, return "A newer parse has already been applied. Refresh the admin page." The live snapshot has moved past what Doug reviewed; he reviews fresh.
-3. **Mandatory Drive re-verify**: re-fetch `files.get(fileId, fields='modifiedTime')`. If `file.modifiedTime > pending_syncs.staged_modified_time`, the sheet has been edited again since Doug staged this parse — abort: DELETE the staged row, log `STAGED_PARSE_OUTDATED`, return "The sheet has been edited since you reviewed this parse. A fresh parse will be staged on the next cron run." The next cron run picks up the new modifiedTime, re-parses, and produces a fresh staging row. **This step is non-optional**; the prior round's "off by default" stance was rejected because for ops/role changes it can temporarily grant or remove access based on data Doug is no longer approving. The single Drive read per Apply click is well within quota.
+3. **Mandatory Drive re-verify**: re-fetch `files.get(fileId, fields='modifiedTime,parents,trashed')`. The check is broader than just modtime — it must also confirm the sheet is still in scope:
+   - **404 / inaccessible / `trashed=true`** → abort with `STAGED_PARSE_SOURCE_GONE`. The source has been deleted, unshared, or trashed; do NOT publish from `pending_syncs.parse_result`. DELETE the staged row. For existing-show stages, restore prior_last_sync_status (per the discard-restore path); for first-seen stages, log the failure to `pending_ingestions` so admin sees what happened. Never mint a new `shows` row from a sheet Doug has removed from scope.
+   - **`parents` does NOT contain the active `app_settings.watched_folder_id`** (or for onboarding stages, the wizard's `pending_folder_id`) → abort with `STAGED_PARSE_SOURCE_OUT_OF_SCOPE`. Same DELETE + recovery semantics as `_GONE`. Drive supports multi-parenting; the file might have other parents but if our scope folder isn't one of them, it's out of bounds.
+   - `file.modifiedTime > pending_syncs.staged_modified_time` → behavior continues per below (abort with restage path appropriate to source_kind).
+   
+   If `file.modifiedTime > pending_syncs.staged_modified_time`, the sheet has been edited again since Doug staged this parse — abort. Behavior depends on `pending_syncs.source_kind`:
+   - **Non-onboarding stage** (`source_kind` IN `'cron', 'push', 'manual'`): DELETE the staged row, log `STAGED_PARSE_OUTDATED`, return "The sheet has been edited since you reviewed this parse. A fresh parse will be staged on the next cron run within 5 minutes (or push notification)." The next cron/push run picks up the new modifiedTime, re-parses, and produces a fresh staging row.
+   - **Onboarding stage** (`source_kind = 'onboarding_scan'`): cron is disabled during onboarding (`watched_folder_id` is still NULL — only `pending_folder_id` is set), so the standard "next cron pass" recovery path doesn't exist. Instead, **inline rescan**: in the same advisory-locked transaction, fetch the file via Drive API using `pending_folder_id` as the auth scope, run `runOnboardingScan` semantics (Phase 1 only, never Phase 2), and UPSERT a fresh `pending_syncs` row with the new `staged_modified_time`, fresh `staged_id`, current `wizard_session_id`, and `source_kind = 'onboarding_scan'`. Return `STAGED_PARSE_RESTAGED_INLINE` with the new staged row's data so the wizard UI can re-render the review surface in place. The wizard never gets stuck; Doug always has a current staged row to review.
+
+This step is non-optional; the prior round's "off by default" stance was rejected because for role-affecting changes it can temporarily grant or remove access based on data Doug is no longer approving. The single Drive read per Apply click is well within quota.
 4. **Apply the stored `parse_result`** via the §5.2 destructive transaction's snapshot-replacement steps — but using `pending_syncs.parse_result` as the input, NOT re-parsing the live sheet. Set `last_seen_modified_time = pending_syncs.staged_modified_time`.
 5. INSERT a `sync_audit` row (per §6.8.3) capturing `triggered_review_items`, `reviewer_choices`, the server-derived `derived_side_effects`, and a parse_result summary. This is the durable audit record.
 6. DELETE the `pending_syncs` row.
@@ -1172,7 +1246,40 @@ Newer sheets (2026+) carry **floating embedded images** positioned over the DIAG
 
 1. Standard parse runs against the markdown export (per §6.1–6.10) and produces the bulk `ParseResult`.
 2. **Then** the parser calls `spreadsheets.get` with `ranges=DIAGRAMS!A1:Z1000` (or whatever range covers the DIAGRAMS tab — most sheets stay within Z1000) and `fields=sheets(properties.title,protectedRanges,charts,embeddedObjects(objectId,position,size,sourceUrl,image(contentUrl,sourceUrl,altText,sheetEmbeddedObject)))`. Real field path TBD at implementation time depending on which Sheets API endpoint exposes the most stable image data; fallback is `files.export(mimeType: 'application/zip')` which returns an HTML zip with extracted images and an `images/` folder.
-3. For each embedded object on the DIAGRAMS tab whose type is image-like, record `{ sheetTab: "DIAGRAMS", objectId, mimeType, alt? }` in the `parseResult.diagrams.embeddedImages` array. The actual image bytes are NOT stored in `parse_result` (would bloat the JSONB); they're fetched on demand via the proxy endpoint `/api/asset/diagram/<show>/<objectId>` (per §10), which uses Drive's media-download URL with the service account's auth.
+3. For each embedded object on the DIAGRAMS tab whose type is image-like, record `{ sheetTab: "DIAGRAMS", objectId, mimeType, alt?, snapshotPath: null }` in the `parseResult.diagrams.embeddedImages` array. The bytes themselves are **snapshotted into Supabase Storage at Phase 2 (auto-apply) or Apply (staged) time** — not at parse time. This preserves the live-vs-staged snapshot boundary: the crew page for the currently-approved snapshot serves images from the storage path baked at the last successful Apply, never from live Drive state. If Doug edits an image while a stage is pending, the live crew page continues to show the previously-approved bytes. Specifically:
+
+   **Storage layout.** A private Supabase Storage bucket `diagram-snapshots`. Bucket-level policies forbid all anonymous and end-user-session access; only the service role reads/writes. Storage object keys use a per-apply **immutable revision id**, NOT the modifiedTime, because manual/recovery applies are explicitly allowed to replay the same modtime (§5.2). Each successful Phase 2 / Apply mints a fresh `snapshot_revision_id` UUID written into `sync_audit` and into `shows.diagrams.snapshot_revision_id`; storage keys are `shows/<show_id>/r=<snapshot_revision_id>/<objectId>.<ext>`. Two applies of the same Drive `modifiedTime` get distinct revisions, distinct keys, distinct objects.
+
+   **Linked-folder enumeration freezes at Phase 1 (parse / stage), not at Apply.** If we waited until Apply to enumerate the folder, additions/removals between stage and Apply would silently change what Doug actually published. Phase 1 enumerates the folder, captures the exact `(driveFileId, mimeType, alt, drive_modified_time)` tuples, and records them in `parseResult.diagrams.linkedFolderItems` with `snapshotPath: null`. Apply's snapshotting downloads exactly those frozen tuples — folder content changes between stage and Apply do NOT propagate. If a frozen tuple's file is gone at Apply time (404/unshared/trashed), it's preserved with `snapshotPath: null` and contributes to `snapshot_status = 'partial_failure'`; the asset_recovery cron can heal once the file becomes accessible again, OR the next Phase 2 against a newer modtime captures whatever's currently in the folder fresh.
+
+   **Per-apply snapshotting flow** (covers BOTH embedded images AND the frozen linked-folder set so the live page never reaches into Drive at view time):
+   - Generate `snapshot_revision_id = gen_random_uuid()`.
+   - For each entry in `parse_result.diagrams.embeddedImages[]`:
+     - Download from Drive using the service-account auth.
+     - Upload to `diagram-snapshots/shows/<show_id>/r=<snapshot_revision_id>/embedded-<objectId>.<ext>`.
+     - Set `snapshotPath` to that path on success.
+     - On failure: leave `snapshotPath = null` AND mark `shows.diagrams.snapshot_status = 'partial_failure'`.
+   - For each entry in `parse_result.diagrams.linkedFolderItems[]` (the frozen set from Phase 1):
+     - **Version-pin check (fail-closed):** call `files.get(driveFileId, fields='modifiedTime,trashed')`. If `trashed = true` OR `modifiedTime > parse_result.diagrams.linkedFolderItems[i].drive_modified_time` (or 404), the file's bytes have drifted since stage — leave `snapshotPath = null` AND mark `snapshot_status = 'partial_failure'` AND emit a `LINKED_ASSET_DRIFTED` warning. Do NOT download the current bytes; they were not part of what Doug approved. Same applies in asset_recovery — it's not just a download retry, it always re-verifies the version pin first.
+     - If the version matches: download via `files.get?alt=media` using the captured `driveFileId`.
+     - Upload to `diagram-snapshots/shows/<show_id>/r=<snapshot_revision_id>/folder-<driveFileId>.<ext>`.
+     - Set `snapshotPath` to that path on success.
+     - On any failure: leave `snapshotPath = null` and mark `snapshot_status = 'partial_failure'`.
+   - Phase 2's UPDATE on `shows` writes the new `diagrams` JSONB with all per-entry `snapshotPath` values, the frozen `linkedFolderItems[]` (with snapshotPaths populated), the top-level `snapshot_revision_id`, and `snapshot_status`. **No source type is exempt from snapshotting**; the previous "linked-folder live-fetch" path is replaced.
+
+   **Partial-failure retry path.** When `shows.diagrams.snapshot_status = 'partial_failure'`:
+   - **Auto-syncs (cron, push) IGNORE the watermark gate for this show**, so the system keeps re-attempting the failed snapshots without waiting for Doug to edit the sheet.
+   - On each retry pass: re-attempt only the entries whose `snapshotPath IS NULL`. Successful retries fill the path. Once every entry has a non-null `snapshotPath`, flip `snapshot_status` to `'complete'`; subsequent auto-syncs return to normal watermark behavior.
+   - **Crucially, the prior snapshot's bytes are NOT immediately deleted.** Until `snapshot_status = 'complete'`, the diagram GC (below) suppresses deletion of the prior revision's blobs — so on the gallery, the missing image renders the placeholder per AC-7.7, but at least one consistent revision still has all bytes available for forensic recovery if needed.
+   - This means a transient Drive/Storage failure can never permanently degrade the live view, because retries continue automatically rather than being gated by file modtime.
+
+   **Service endpoint** is the revision-versioned `/api/asset/diagram/<show>/r=<snapshot_revision_id>/<assetKey>` per §7.3 routing. Auth + cache contract is documented there in full; the canonical bullet is `Cache-Control: private, max-age=0, must-revalidate` so each fetch re-authenticates with the server (revocation propagates immediately). Drive is never called at request time. The crew page emits URLs at render time using the current `shows.diagrams.snapshot_revision_id`; prior-revision URLs return 410 and naturally fall out of use.
+
+   **Diagram garbage collection cron** (`30 * * * *`, hourly, offset to avoid collisions):
+   - For each `(show_id)` in `shows`, list its `diagram-snapshots/shows/<show_id>/` prefix.
+   - For each blob whose `r=<revision_id>` segment does NOT match the current `shows.diagrams.snapshot_revision_id`: it's an orphan from a prior revision.
+   - Delete orphan blobs older than **7 days** (grace window for in-flight reads + forensic recovery). Suppress deletion if the current revision has `snapshot_status = 'partial_failure'` (the prior revision is the only complete state available — keep it intact until the new revision finishes capturing).
+   - For shows whose row is `archived = true`: orphan deletion runs at 30 days instead of 7.
 4. Linked-folder diagrams (older sheets where the DIAGRAMS tab carries `LINK` to an external Drive folder) populate `parseResult.diagrams.linkedFolder` instead.
 5. A sheet may have both: e.g., a few embedded photos on the DIAGRAMS tab AND a linked folder for additional layouts. The UI in §10 renders both sources merged into one gallery in the Diagrams tile.
 
@@ -1184,6 +1291,18 @@ Newer sheets (2026+) carry **floating embedded images** positioned over the DIAG
 No MI invariant gates destructive write on diagrams content because absence is normal (most fixtures don't have any embedded images at all).
 
 **Cardinality cap:** the DIAGRAMS tab realistically holds ≤10 images per the FinTech Forum example. v1 caps `embeddedImages.length` at 60 to prevent an absurd sheet from blowing up storage; beyond 60, surface a `DIAGRAMS_EMBEDDED_CAP_EXCEEDED` warning to admin and truncate.
+
+#### 6.11.1 Apply-time reel drift re-verify
+
+The reel pin captured at Phase 1 (`parseResult.openingReel = { driveFileId, drive_modified_time }`) can drift between stage and Apply just like a linked-folder image. Apply MUST re-verify before persisting into `shows.opening_reel_drive_*`:
+
+1. If `parseResult.openingReel === null` → set both `shows.opening_reel_drive_file_id` and `shows.opening_reel_drive_modified_time` to NULL. No Drive call needed.
+2. If `parseResult.openingReel !== null`:
+   - Call `files.get(parseResult.openingReel.driveFileId, fields='modifiedTime,trashed')`.
+   - **If `trashed = true` OR current `modifiedTime` differs from `parseResult.openingReel.drive_modified_time`:** the reel has drifted. Persist BOTH columns as NULL (NOT the staged values), emit a `REEL_DRIFTED` warning to `parse_warnings`, and continue with Phase 2. The crew page falls back to the text-only opening_reel value rather than 410-on-first-view; admin sees the warning and knows a fresh sheet sync will re-stage the new reel pin.
+   - If the modtime matches → persist the staged `driveFileId` and `drive_modified_time` into the columns. The route at §7.3 will subsequently re-verify on every request and return drifted bytes as 410.
+
+This guards the same class of bug the linked-folder version-pin closes: an asset edited between stage and Apply must NEVER produce an "approved but immediately broken" state on the live page.
 
 ---
 
@@ -1427,9 +1546,11 @@ Global rotation (rotating `JWT_SIGNING_SECRET`) remains available as a nuclear o
 | `/` | none | Marketing/landing. Optional in v1. |
 | `/auth/sign-in` | none | Google OAuth via Supabase Auth. |
 | `/me` | signed-in | Lists shows where the user's email matches a `crew_members` row. |
-| `/show/<slug>` | signed-in OR has valid `t=` | Crew page. |
+| `/show/<slug>` | signed-in (Google session) OR redeemed-link session cookie (`__Host-fxav_session`) OR admin | Crew page. **No token-bearing form on this route** — `?t=`/fragment-bearing entrypoints live exclusively at `/show/<slug>/p` per §7.2. |
 | `/show/<slug>/p#t=<jwt>` | valid JWT (from fragment) + current matching `crew_members` row + tokenVersion match + not in `revoked_links` | Crew page via signed link. JWT lives in URL fragment only; immediately exchanged for an HTTP-only session cookie via `/api/auth/redeem-link` (§7.2). The JWT alone is insufficient. |
 | `/api/auth/redeem-link` | POST with JWT in body | Per-request authz flow (§7.2). On success: sets `__Host-fxav_session` cookie + writes `link_sessions` row. |
+| `/api/asset/diagram/<show-slug>/r=<revision_id>/<assetKey>` | signed-in OR valid signed-link cookie OR admin (per §7.2 / §7.2.2 / Google validator); show match enforced server-side | Streams snapshotted diagram-image bytes from the private `diagram-snapshots` Storage bucket. **The URL is revision-versioned** — every Apply mints a fresh `snapshot_revision_id` and the rendered crew page emits URLs with the current revision. `<assetKey>` is `objectId` (embedded) or `driveFileId` (linked-folder); the route resolves the matching `snapshotPath` AND verifies the URL's revision_id matches `shows.diagrams.snapshot_revision_id` (mismatch → 410). **Every request re-runs the show-auth check.** **Cache header `Cache-Control: private, max-age=0, must-revalidate`** — the browser MUST revalidate with the server on every use. Long-lived freshness on auth-gated assets would let a revoked session keep displaying already-fetched diagrams from local browser cache for the cache lifetime; `must-revalidate` forces an authenticated round-trip every time. Server-side: a successful revalidation with matching auth+revision returns the bytes again (Storage read is cheap and the bytes themselves are immutable per revision, so no extra correctness work is needed); a revoked session gets 410 and the browser cache entry is replaced with the error. Drive is NEVER called at request time. |
+| `/api/asset/reel/<show-slug>` | Same auth requirements as `/api/asset/diagram/...`: signed-in OR valid signed-link cookie OR admin; show match enforced server-side | Streams the opening-reel video. **Same auth + cache contract as the diagram route** — every request re-runs show-auth; `Cache-Control: private, max-age=0, must-revalidate` so revocation propagates immediately. **Version-pin check at request time:** the route reads `shows.opening_reel_drive_file_id` and `shows.opening_reel_drive_modified_time` (the persisted columns per §4.1 — these are first-class fields, not buried inside `event_details`). It calls `files.get(reelFileId, fields='modifiedTime,trashed')` and compares. If the columns are NULL (the sheet's opening_reel cell wasn't a Drive URL) or `trashed=true` or current modifiedTime ≠ pinned → 410 with a placeholder, NOT a stream of drifted bytes. If matches → stream from Drive. v1 doesn't snapshot reel bytes into Storage (large videos, rarely edited per show); the version pin guarantees crew see only the bytes Doug approved at the last Apply. v2 candidate: snapshot reels into Storage if the version-pin live path becomes operationally noisy. |
 | `/admin` | admin role | Doug/Eric only. |
 | `/admin/show/<slug>` | admin role | Per-show parse panel + impersonation entry points. |
 | `/admin/show/<slug>/preview/<crew-id>` | admin role | Renders the crew page exactly as that person would see it. Sticky banner. |
@@ -1671,14 +1792,15 @@ Per §2 deferral list, agenda PDF parsing is out. But linked content is rendered
 | Link kind | Source field | v1 rendering |
 |---|---|---|
 | Agenda PDF (`.pdf`, `.docx`) | `agenda_links[].fileId` or `.url` | "Open agenda" button. On tap: in-page sheet with PDF.js inline preview (or `<iframe>` for native Drive preview as fallback). `.docx` falls back to "Open in Drive" (no inline preview). |
-| Diagrams (linked folder OR embedded images OR both) | `diagrams.linkedFolder.driveFolderId` and/or `diagrams.embeddedImages[]` | "Diagrams" tile. On tap: full-screen image gallery (swipeable). The gallery merges both sources: linked-folder images fetched via Drive `files.list` + `files.get?alt=media`; embedded images fetched via `/api/asset/diagram/<show>/<objectId>` which downloads through Drive media URLs using the service account. Cached server-side at the edge. The gallery presents embedded images first (they're authored by Doug specifically for this show), then linked-folder images. Each image carries an `alt` if available. See §6.11 for extraction. |
-| Opening reel video | `event_details.opening_reel` if URL | The renderer detects a Drive URL by regex `^(https?://)?(drive\.google\.com|docs\.google\.com)/[^\s]+`. If matched, render inline `<video controls>` (or `<iframe>` for non-mp4 Drive files), proxied via `/api/asset/reel/<show>`. If the value is text only (`N/A`, `NO`, `MAYBE`, `YES`, `YES - LOOP VIDEO`, `TBD`, etc.), render as a small text line on the venue tile reading "Opening reel: <value>" and skip the player. Mixed values like `YES - <url>` get both: the text status and the player. |
+| Diagrams (linked folder OR embedded images OR both) | `diagrams.linkedFolder.driveFolderId` and/or `diagrams.embeddedImages[]` and/or `diagrams.linkedFolderItems[]` | "Diagrams" tile. On tap: full-screen image gallery (swipeable). **Both sources go through the same snapshot/proxy path** — no live-Drive read at request time. **Linked-folder enumeration is FROZEN at Phase 1** (per §6.11): `parseResult.diagrams.linkedFolderItems[]` captures `(driveFileId, mimeType, alt, drive_modified_time)` tuples at parse time. Apply downloads exactly that frozen set, with a per-item version-pin check (current Drive modifiedTime must equal the staged drive_modified_time; drift fails closed). Apply does NOT re-enumerate the folder. Each downloaded blob lands at `diagram-snapshots/shows/<show_id>/r=<snapshot_revision_id>/folder-<driveFileId>.<ext>` with the resolved path stored in the row. Embedded images carry `sourceFolder: "embedded"`; linked items carry `sourceFolder: "linked"`. Gallery serves every image through `/api/asset/diagram/<show>/r=<rev>/<assetKey>` per §7.3. See §6.11 for the full snapshotting + version-pin model. |
+| Opening reel video | `event_details.opening_reel` (free-text status; rendered as-is) plus the parser's structured Phase 1 output `parseResult.openingReel = { driveFileId, drive_modified_time } | null` populated from the same cell when a Drive URL is detected | **URL extraction is a substring match**, not start-anchored: the parser uses `/(https?:\/\/)?(drive\.google\.com|docs\.google\.com)\/[^\s]+/` (no `^` anchor) to find a Drive URL anywhere in the cell value, including mixed-value cells like `YES - https://drive.google.com/file/d/...` and `LOOP VIDEO - <url>`. If matched, the parser extracts the Drive `fileId` from the URL path and calls `files.get(fileId, fields='modifiedTime')` at Phase 1 stage time, emitting `parseResult.openingReel = { driveFileId, drive_modified_time }`. **At Apply time, §6.11.1 re-verifies the reel drift before persistence** (matches the linked-folder version-pin model). If the cell is text-only (`MAYBE`, `YES`, `N/A`, etc.) or has no Drive URL substring, `parseResult.openingReel = null` and both columns are set to NULL. The crew page renders inline `<video controls>` proxied via `/api/asset/reel/<show>` (which version-pin-checks per §7.3) when the columns are non-NULL, and a small text line ("Opening reel: <value>") otherwise. Mixed values like `YES - <url>` get both: the text status from the cell value AND the embedded `<video>` because the substring extractor populates the columns. |
 | Test pattern, Aptos fonts, II LED logo | various | NOT surfaced to crew. These are operations files. They appear in admin under a "Production assets" disclosure. |
 
-**Caching strategy** (Vercel Edge Cache + Supabase storage):
-- Diagram folder image lists are cached for 1 hour. On manual re-sync, cache is invalidated.
-- Individual diagram images are cached at the edge for 24 hours.
-- Opening reel videos are streamed through a Vercel function; not cached locally.
+**Caching strategy** (revision-aware end-to-end so Apply invalidates implicitly via URL rotation):
+- Diagram lists are derived from `shows.diagrams.{embeddedImages,linkedFolderItems}` — read straight from Postgres on every request, no list-level caching layer. List size is small (typically ≤10 items) so DB reads are cheap.
+- Individual diagram images are served via revision-versioned URLs (`/api/asset/diagram/<show>/r=<rev>/<key>`). Every fetch revalidates with the server (`Cache-Control: private, max-age=0, must-revalidate`); the URL identifies which revision is requested but the auth check runs every time. Revisioning solves stale-bytes-after-Apply (URL rotates); `must-revalidate` solves immediate-revocation-on-session-end (revoked sessions can't reuse cached responses without a server check that returns 410).
+- Opening reel videos are streamed through `/api/asset/reel/<show>` (per §7.3 routing) with the same `Cache-Control: private, max-age=0, must-revalidate` policy as diagrams. v1 doesn't snapshot reels into Storage (they aren't typically edited per show) — but the auth contract matches diagrams: every request re-runs auth, revocation propagates immediately.
+- **No manual cache-purge is required** on Apply because every Apply rotates the URL space. The diagram GC cron (§6.11) is the only cleanup; it removes orphaned revision blobs after the 7-day grace window.
 
 **Caps on unbounded content:**
 - **Diagrams gallery:** up to 12 images shown in initial render (embedded images prioritized, linked-folder images filling the remainder); "Show more" reveals the rest. The combined cap across BOTH sources is 60: embedded counts toward the cap first; if `embeddedImages.length >= 60` the linked-folder content is suppressed entirely and a `DIAGRAMS_EMBEDDED_CAP_EXCEEDED` admin warning fires. Otherwise the linked folder fills up to `60 - embeddedImages.length` images per the existing folder-cap rules.
@@ -1762,7 +1884,12 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | `WEBHOOK_NOOP_ALREADY_SYNCED` | Drive push delivered for a file already up-to-date | (admin log only) | — | none |
 | `WATCH_CHANNEL_CREATE_FAILED` | Drive `files.watch` API returned 4xx | (admin log; admin_alerts banner after 3 consecutive failures) | — | Eric → check Drive API status / quota |
 | `CONCURRENT_SYNC_SKIPPED` | advisory lock not acquired | (admin log only) | — | none |
-| `STAGED_PARSE_OUTDATED` | Drive `modifiedTime` advanced past staged version | "The sheet was edited again since you reviewed this parse. We've discarded the staged version; a fresh parse will be ready in a few minutes." | — | Doug → wait, review next |
+| `STAGED_PARSE_OUTDATED` | Drive `modifiedTime` advanced past staged version (non-onboarding source) | "The sheet was edited again since you reviewed this parse. We've discarded the staged version; a fresh parse will be ready in a few minutes." | — | Doug → wait, review next |
+| `STAGED_PARSE_SOURCE_GONE` | Apply re-verify found the source sheet has been deleted, unshared, or trashed | "The source sheet is no longer accessible. The staged parse has been discarded. Re-share or restore the sheet to bring this show back." | — | Doug → restore sheet |
+| `STAGED_PARSE_SOURCE_OUT_OF_SCOPE` | Apply re-verify found the source sheet's `parents` no longer includes the watched folder | "The sheet is no longer in the watched folder. We've discarded the staged parse. Move the sheet back into the folder if you want to publish it." | — | Doug → move sheet |
+| `LINKED_ASSET_DRIFTED` | a linked-folder image's current Drive `modifiedTime` differs from the version pinned at stage; bytes were not downloaded | "*<sheet-name>*: a linked-folder diagram has been edited in Drive since the last review. Crew see a placeholder for that image until your next sheet edit re-stages it." | — | Doug → re-edit sheet to re-stage |
+| `REEL_DRIFTED` | opening-reel `modifiedTime` differs at Apply time from the value pinned at stage; persisted columns set to NULL instead | "*<sheet-name>*: the opening-reel video has been edited since you reviewed this parse. Crew see the text status only until your next sheet edit re-stages the new reel." | — | Doug → re-edit sheet |
+| `STAGED_PARSE_RESTAGED_INLINE` | onboarding stage was outdated; rescanned inline within the wizard session | "The sheet was edited since your last look — we re-parsed it inside the wizard. Here's the new review." | — | Doug → review the refreshed parse |
 | `STAGED_PARSE_SUPERSEDED` | a newer cron parse committed before Apply | "A newer parse has already been applied. Refresh the admin page to review the latest state." | — | Doug → refresh |
 | **Parser — hard fails (MI-1..MI-5b)** | | | | |
 | `MI-1_VERSION_DETECTION_FAILED` | no template version markers match | "*<sheet-name>* doesn't look like your usual show template — none of the version markers we expect (Contact Office row, MAIN/SECONDARY block, GEAR INVENTORY block) are present. Either this is a different kind of document, or your template has changed in a way we don't recognize. Tell the developer if your template has changed." | — | Doug → check sheet shape; Eric → add v5 detector if real |
@@ -1897,7 +2024,8 @@ The flow is **reserve-then-call**: persist intent + reserve quota in one DB tran
 
 ```sql
 alter table reports
-  add column if not exists idempotency_key uuid not null default gen_random_uuid();
+  add column if not exists idempotency_key uuid not null default gen_random_uuid(),
+  add column if not exists processing_lease_until timestamptz;
 create unique index if not exists reports_idempotency_key_idx on reports (idempotency_key);
 ```
 
@@ -1927,14 +2055,25 @@ Server:
    RETURNING id;
    COMMIT;
    ```
-3. **Build the issue body** using the appropriate §13.2.1 (admin) or §13.2.2 (crew) template.
-4. **Call GitHub API** to create the issue. (Outside the DB transaction.) Time-boxed.
+3. **Build the issue body** using the appropriate §13.2.1 (admin) or §13.2.2 (crew) template. **Embed the idempotency_key in the issue body as a hidden marker:** include a literal line `<!-- fxav-report-id: <idempotency_key> -->` at the bottom. GitHub treats this as a comment in markdown but it's searchable and durable. This marker is what makes step 6's retry safe.
+4. **Call GitHub API** to create the issue. Outside the DB transaction. Time-boxed (15s default).
 5. **On GitHub success:**
    ```sql
    UPDATE reports SET github_issue_url = $url WHERE id = $reportId;
    ```
    Return 201 to admin client with the URL. Return 201 to crew client with a thanks toast (no URL).
-6. **On GitHub failure:** the `reports` row remains with `github_issue_url IS NULL`. Return 502 to client. Retries with the same idempotency_key see the existing row at step 2 and either get 409 (still in-flight per a configurable timeout, default 60s — after which the orphaned reservation is treated as failed and a fresh retry is allowed) or skip ahead to step 4 again. A daily reaper cron deletes orphaned reservations older than 24h whose `github_issue_url` is still NULL.
+6. **On GitHub failure or unknown outcome (timeout, 5xx, network drop):** the `reports` row remains with `github_issue_url IS NULL`. Return 502 to client.
+
+   **Retry path is search-then-recover, NOT replay-then-create.** When a retry comes in with the same `idempotency_key`:
+   1. Step 2 finds the existing reports row. If `github_issue_url IS NOT NULL` → return 200 with that URL (fast path, GitHub call previously succeeded and DB persisted).
+   2. If `github_issue_url IS NULL` AND a fenced **processing lease** is held (see below) by another in-flight call → return 409 `IDEMPOTENCY_IN_FLIGHT`.
+   3. Otherwise, the orphan-recovery path: **search GitHub Issues** with `q="<idempotency_key>" repo:<configured-repo> in:body`. The marker embedded in step 3 makes this deterministic.
+      - **If a matching issue is found** → the prior call DID create the issue but failed before updating the DB. UPDATE the reports row with the discovered URL and return 200. No second issue created.
+      - **If no matching issue is found** → the prior call did NOT create the issue. Acquire the processing lease and proceed to step 4. (This is the only path where we re-call `create issue`.)
+
+   **Processing lease.** A `reports.processing_lease_until timestamptz` column. Step 2 sets `processing_lease_until = now() + interval '90s'` when claiming a row to call GitHub. While the lease is live, concurrent retries get `IDEMPOTENCY_IN_FLIGHT`. When the lease expires (typically because the original caller crashed), the search-then-recover path activates. The 90s buffer covers GitHub's worst-case API timeout (~15s) plus generous headroom for our own processing.
+
+   A daily reaper cron deletes reports rows with `github_issue_url IS NULL` AND `processing_lease_until < now() - interval '24 hours'` (orphaned reservations older than a day; admin gets a `STALE_ORPHAN_REPORT` audit log entry per row deleted, in case manual recovery is wanted).
 
 This pattern guarantees:
 - **Quota is reserved atomically before GitHub** — concurrent submissions cannot both pass.
@@ -2152,6 +2291,7 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-4.9 Pack list tile is absent entirely for a viewer of a show whose sheet has no PULL SHEET tab (e.g., 2026-03 RPAS Central).
 - AC-4.10 Pack list tile is absent on set day for a crew member whose `stage_restriction.stages = ["Load Out", "Strike"]`; renders on strike day for the same crew member.
 - AC-4.11 `PULL_SHEET_PARSE_PARTIAL` and `PULL_SHEET_AMBIGUOUS_FORMAT` surface in admin parse panel without blocking sync; affected rows render with their raw snippet on the crew page.
+- AC-4.12 MI-8c pull-sheet preservation: synthesize a parse where prior had 6 cases and new has 0 (full collapse) → stages, NOT auto-applied. Same for case-count halved or a case label dropping. Soft per-row PULL_SHEET_PARSE_PARTIAL warnings on individual rows continue to auto-apply (don't trigger MI-8c).
 
 **Milestone 5 — Auth.**
 - AC-5.1 `validateLinkSession` rejects a JWT whose signature is invalid (401).
@@ -2190,9 +2330,14 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-6.20 Push respects deferred_ingestions: a sheet with a `permanent_ignore` row in `deferred_ingestions` produces no Phase 2 commits when push delivers a notification covering it. Same for `defer_until_modified` while modifiedTime hasn't advanced past the deferral mark.
 - AC-6.21 Push-mode monotonic guard: synthesize concurrent push and cron parses with the cron arriving first; the push run logs `STALE_PUSH_ABORTED` and rolls back, leaving the cron commit intact.
 - AC-6.22 Wizard session purge: start wizard A (session id W1), stage some onboarding rows, then start wizard B (session id W2). All `pending_syncs` rows from W1 are deleted on W2 start; Apply against W1's rows from a stale tab returns 409 `WIZARD_SESSION_SUPERSEDED`.
+- AC-6.23 Pending-review watermark stability: a sheet stages a parse and Doug leaves the review tab open without acting. Subsequent cron passes against the unchanged sheet do NOT rotate `pending_syncs.staged_id`; `staged_modified_time` is unchanged; Doug's CAS continues to match if he then clicks Apply.
+- AC-6.24 Watermark-as-greatest: `last_seen_modified_time = T0`, `pending_syncs.staged_modified_time = T1` (T1 > T0). Cron with `file.modifiedTime = T1` (no advance) skips. Cron with `file.modifiedTime = T2` (advance past T1) processes — re-stages or applies per invariants.
+- AC-6.25 Webhook strict-active match: insert a `pending`/`orphaned`/`superseded`/`stopped` `drive_watch_channels` row that happens to share an id with an old active row Drive is still calling. The webhook handler's lookup MUST return 410 (no `status='active'` row matches), not pass through the old row's secrets. Single-active-per-folder index prevents two rows from being active simultaneously.
 - AC-8.9 Report idempotency: POST `/api/report` twice with the same `idempotency_key` (same body). First call opens 1 GitHub issue and writes 1 `reports` row. Second call returns the same `github_issue_url` without opening a second issue.
 - AC-8.10 Report quota race: 4 concurrent crew reports from the same `crew_members.id` produce exactly 3 GitHub issues (3 succeed, 4th gets 429 `REPORT_RATE_LIMITED_CREW`). The atomic `INSERT ... ON CONFLICT DO UPDATE ... RETURNING count` guarantees no race-through.
-- AC-8.11 GitHub-call failure: simulate GitHub API returning 5xx after `reports` row is reserved. Row remains with `github_issue_url IS NULL`. A retry with the same idempotency_key within 60s returns `IDEMPOTENCY_IN_FLIGHT`; after 60s the orphaned reservation is treated as failed and the retry proceeds.
+- AC-8.11 GitHub-call failure (no GH issue created): simulate GitHub API returning 5xx after `reports` row is reserved. Row remains with `github_issue_url IS NULL`. A retry with the same idempotency_key while the lease is held returns `IDEMPOTENCY_IN_FLIGHT`; after the lease expires the retry searches GH for the marker, finds nothing, and creates the issue. Exactly one issue ever exists.
+- AC-8.12 GitHub-call unknown-outcome (issue created but DB update lost): simulate GitHub create succeeding (issue is on the repo with the marker comment) but the network response timing out. The reports row stays `github_issue_url IS NULL`. A retry with the same idempotency_key after lease expiry searches GitHub Issues with the marker, finds the existing issue, and UPDATEs the reports row with that URL — without creating a second issue. Exactly one issue ever exists.
+- AC-8.13 Concurrent-retry race: two concurrent retries of the same idempotency_key after lease expiry. The first acquires the lease and proceeds; the second gets `IDEMPOTENCY_IN_FLIGHT`. Exactly one issue ever exists regardless of timing.
 
 **Milestone 7 — Linked content.**
 - AC-7.1 `agenda_links[].url` containing a Drive PDF renders an inline embed via PDF.js or `<iframe>`.
@@ -2204,6 +2349,25 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-7.5 Diagrams folder cap: a folder with 78 images shows the first 60 and surfaces an admin warning.
 - AC-7.6 Embedded-image cap: a synthesized sheet with 65 floating images on its DIAGRAMS tab renders only 60 in the gallery and surfaces `DIAGRAMS_EMBEDDED_CAP_EXCEEDED` warning.
 - AC-7.7 Embedded-image inaccessible: a synthesized embedded image whose download URL 4xx's surfaces `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` warning; gallery renders a placeholder slot for that image rather than disappearing the slot.
+- AC-7.8 Snapshot isolation: stage a parse with embedded images, Apply (Phase 2 commits with `snapshotPath`s populated). Then EDIT one of the images in Drive without re-syncing. The crew page MUST continue serving the original (Apply-time) bytes, not the new Drive bytes. After a fresh re-sync + Apply, the crew page reflects the new image.
+- AC-7.9 Snapshot orphan GC: a previously-approved revision's storage objects are eligible for deletion 7 days after a new revision supersedes them. Until then they remain at their `r=<old-revision-id>/` prefix. The diagram GC cron deletes them on day 8. Archived shows extend the grace window to 30 days.
+- AC-7.10 Per-apply revision id: two manual applies of the SAME Drive `modifiedTime` produce DISTINCT `snapshot_revision_id` values and DISTINCT storage prefixes. The earlier apply's blobs become GC-eligible after the second apply commits.
+- AC-7.11 Partial-failure auto-retry: simulate one of N images failing to download during Phase 2. Apply commits with `snapshot_status='partial_failure'` and `last_seen_modified_time` advanced. The next cron pass enters `mode: "asset_recovery"` (NOT Phase 2), re-attempts only the missing snapshotPath, succeeds, and flips status to `'complete'`. **The same Drive `modifiedTime` recovers without needing any sheet edit.** Prior revision blobs are NOT GC'd while `partial_failure` is in effect.
+- AC-7.13 Linked-folder snapshotting: a fixture with a linked DIAGRAMS folder containing 3 images produces 3 entries in `diagrams.linkedFolderItems[]`, each with a `snapshotPath` pointing into Storage at `r=<rev>/folder-<driveFileId>.<ext>`. Subsequent edits to the linked Drive folder (add/remove an image) do NOT propagate to the live crew page until the next sheet sync + Apply.
+- AC-7.14 Asset_recovery covers BOTH source types: synthesize a partial_failure where one `embeddedImages` entry AND one `linkedFolderItems` entry both have NULL `snapshotPath`. The next cron pass enters `mode: "asset_recovery"`, retries BOTH entries, and on success flips `snapshot_status` to `'complete'`. AC-7.11 still holds for embedded; this extends it to linked.
+- AC-7.15 Revision-versioned URL: after Apply, the crew-page renders `/api/asset/diagram/<show>/r=<new-rev>/<key>` for every diagram. A request to `/api/asset/diagram/<show>/r=<old-rev>/<key>` (using the prior revision id) returns 410 Gone. Edge caching the new URL for 24h is safe — the URL itself is the version key; a future Apply rotates the URL space.
+- AC-7.12 Authenticated asset delivery: a request to `/api/asset/diagram/<show>/r=<rev>/<assetKey>` without a valid signed-link cookie or Google session returns 401. A request from a session whose crew_member is no longer in this show returns 403. A request after `Issue New Link` was clicked for that crew returns 410. No long-lived signed Storage URLs are issued; bytes stream through the route on every request and the response carries `Cache-Control: private, max-age=0, must-revalidate` so the browser re-authenticates with the server on every reuse.
+- AC-7.16 Asset_recovery cannot starve newer sheet content: enter `partial_failure` state with one image's snapshotPath NULL. Then edit the source sheet (Drive `modifiedTime` advances). The next cron pass takes the NORMAL Phase 2 path (NOT asset_recovery) because `file.modifiedTime > effective_watermark`, parses the new revision, and applies the sheet-derived data; the still-broken diagram entry is carried forward as NULL with `snapshot_status='partial_failure'` against the new revision. Schedule/hotel/crew updates land within the normal sync window despite the persistent diagram failure.
+- AC-7.17 Cache revalidation propagates revocation: load a diagram in browser A. Click `Issue New Link` for the viewing crew member. Browser A reuses the cached URL → server returns 410 (auth check fails on revalidate). Browser shows the placeholder, not the cached bytes.
+- AC-7.18 Reel route auth + cache parity: same as AC-7.17 but for `/api/asset/reel/<show>` — revoked session can't replay cached reel bytes; revalidate-on-every-use ensures auth fires every request.
+- AC-6.26 Apply trust-boundary re-verify: stage a sheet during onboarding, then in Drive UI move the sheet OUT of the candidate folder (so its `parents` no longer includes `pending_folder_id`). Click Apply. Apply re-fetches `parents` and aborts with `STAGED_PARSE_SOURCE_OUT_OF_SCOPE`. No `shows` row created.
+- AC-6.27 Apply trust-boundary on deletion: stage a sheet, then trash/un-share the source. Apply aborts with `STAGED_PARSE_SOURCE_GONE`. Existing-show stages restore prior status; first-seen stages log to `pending_ingestions`.
+- AC-7.19 Linked-folder freeze at stage: a fixture's linked folder has 3 images at stage time. Between stage and Apply, add a 4th image to the folder. Apply commits with exactly the 3 frozen images snapshotted (the new 4th image is NOT included). The next sync (after sheet edit) re-enumerates and includes the 4th if it's still there.
+- AC-7.20 Linked-folder version pin at Apply: a fixture's linked folder image is EDITED IN PLACE between stage and Apply (same driveFileId, new modifiedTime). Apply's version-pin check fails closed: snapshotPath stays NULL, snapshot_status='partial_failure', LINKED_ASSET_DRIFTED warning surfaced. asset_recovery does NOT silently download the drifted bytes — it re-checks the version pin and continues to fail until a sheet edit re-stages the new version.
+- AC-7.21 Reel version pin: an opening-reel Drive file is edited after the last Apply. Crew load the page, hit `/api/asset/reel/<show>`. Route compares current modifiedTime to `shows.opening_reel_drive_modified_time`, finds drift, returns 410 + placeholder. No drifted bytes ever served.
+- AC-7.22 Reel pin persistence: a fixture whose `event_details.opening_reel` cell holds a Drive URL (anywhere in the cell) produces `shows.opening_reel_drive_file_id` and `shows.opening_reel_drive_modified_time` NOT NULL after Apply. A fixture whose cell is `MAYBE` (text only) leaves both columns NULL.
+- AC-7.23 Mixed-value reel extraction: a fixture whose `event_details.opening_reel` cell is `YES - LOOP VIDEO https://drive.google.com/file/d/<id>/view` produces NON-NULL pin columns AND the crew page renders BOTH the text status and the inline video. Pin extraction is substring-based, not anchored.
+- AC-7.24 Apply-time reel drift: stage a parse with a reel URL. EDIT the reel file in Drive (modifiedTime advances). Click Apply. The Apply-time re-verify (§6.11.1) detects drift, persists BOTH `opening_reel_drive_*` columns as NULL, emits `REEL_DRIFTED` warning. Crew page falls back to text-only display; the route does NOT 410 on first request because the columns are NULL.
 
 **Milestone 8 — Bug-report pipeline.**
 - AC-8.1 Click "Report this" in admin parse panel → opens a GitHub issue in the configured repo with the §13.2.1 admin body template (labels include `reporter:admin`).
@@ -2226,6 +2390,7 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-10.3 After wizard completion, every sheet in the folder appears in the §9.0 step-3 review list with the correct status badge.
 - AC-10.4 Re-running setup from `/admin` settings opens the wizard with empty `pending_folder_*` fields. **`watched_folder_id` is NOT cleared** — the existing active folder keeps syncing while the wizard runs. Promotion happens only on wizard exit, atomic per the §4.5 SQL.
 - AC-10.5 Mid-wizard abandonment: leave the wizard open, navigate away. Cron continues to use the existing `watched_folder_id`; `pending_folder_*` may persist as orphan state. Next "Re-run setup" overwrites it. There is no live-sync blackout during the re-run.
+- AC-10.6 Stale onboarding Apply rescans inline: stage a sheet during wizard step 3, then edit the sheet in Drive, then click Apply. The Drive re-verify finds the modtime advanced; instead of deleting the row and waiting for cron (which is disabled during onboarding), the wizard rescans inline and shows the freshly staged parse with `STAGED_PARSE_RESTAGED_INLINE`. The wizard never gets stuck waiting for cron during onboarding.
 
 ### 17.2 Cross-cutting acceptance criteria (apply across milestones)
 

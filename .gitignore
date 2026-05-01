@@ -40,3 +40,4 @@ coverage/
 *.tsbuildinfo
 .turbo/
 .superpowers/
+.serena/
