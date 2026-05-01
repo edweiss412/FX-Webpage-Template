@@ -518,9 +518,13 @@ This table also provides the durable surface for any future "should-be-impossibl
 
 ### 5.1 Trigger and cadence
 
-- Vercel Cron `*/5 * * * *` runs `app/api/cron/sync/route.ts`.
-- A daily ping at `0 12 * * *` keeps Supabase awake (separate cron or part of the same job).
-- Manual sync trigger available at `/admin/show/<slug>` for Doug/Eric to force a refresh; bypasses the watermark check and reprocesses unconditionally.
+Three triggers, in order of latency:
+
+1. **Drive push notifications (`files.watch`) — primary, sub-second.** A subscription against the watched folder ID delivers a webhook to `/api/drive/webhook` (§5.5) within seconds of any sheet edit. The webhook handler dispatches `runManualSyncForShow(driveFileId, mode: "manual")` per affected file. **Push is best-effort by Drive's contract — Drive may drop, throttle, or fail to deliver notifications**, which is why the cron fallback below is non-negotiable.
+2. **Vercel Cron `*/5 * * * *` reconciliation — fallback.** Runs `runScheduledCronSync()` against the watched folder. Catches anything push missed and confirms steady state. The cron's per-show watermark logic (§5.2) means an already-applied push leaves nothing to do — the cron is idempotent against push.
+3. **Manual sync trigger** at `/admin/show/<slug>` — operator-initiated. Bypasses the watermark check and reprocesses the targeted sheet unconditionally.
+
+A daily ping at `0 12 * * *` keeps Supabase awake (separate cron or part of the same job).
 
 ### 5.2 Per-run sequence
 
@@ -706,6 +710,85 @@ Per §11, the page footer always renders `last updated <relative time> · live f
 - 10 min – 1 h: subtle but with a small dot indicator
 - 1 h – 6 h: yellow tint
 - \> 6 h: red tint with `couldn't sync — contact Doug` callout
+
+### 5.5 Drive push notifications (`files.watch` channel)
+
+Push is the primary low-latency trigger; cron is its fallback. Both feed the same per-file processor at §5.2 step 3, so the correctness invariants (advisory lock, monotonic UPDATE, snapshot replacement) cover both paths uniformly.
+
+#### 5.5.1 Subscription lifecycle
+
+Subscriptions are kept in a small DB table for lifecycle management:
+
+```sql
+create table drive_watch_channels (
+  id            text primary key,                   -- the channel id we register with Drive (UUID we generate)
+  resource_id   text not null,                      -- Drive's opaque resource handle returned by files.watch
+  watched_folder_id text not null,                  -- which folder this channel watches; matched against app_settings on activation
+  webhook_secret text not null,                     -- HMAC secret unique per channel; verified on every incoming notification (§5.5.3)
+  expires_at    timestamptz not null,               -- Drive caps watch channels at ~7 days; we proactively renew well before
+  created_at    timestamptz not null default now(),
+  superseded_at timestamptz                         -- set when we replace this channel; allows lazy cleanup. NULL = active.
+);
+create index drive_watch_channels_active_idx on drive_watch_channels (watched_folder_id) where superseded_at is null;
+```
+
+RLS: admin-only.
+
+**Subscription operations:**
+
+- **Create** (`subscribeToWatchedFolder()`):
+  1. Generate a fresh channel id (UUID) and webhook_secret (32 bytes random).
+  2. Call Drive `files.watch` on `app_settings.watched_folder_id` with `kind: "api#channel"`, `id: <channel-id>`, `type: "web_hook"`, `address: <webhook-public-url>`, `token: <webhook_secret>` (Drive forwards this verbatim in the `X-Goog-Channel-Token` header on every notification).
+  3. Drive returns a `resourceId` and `expiration` (epoch ms). Persist as a `drive_watch_channels` row.
+  4. Older active rows for the same `watched_folder_id` are marked `superseded_at = now()` and their channels are STOPed via `channels.stop` (best-effort — failures don't block).
+- **Renew** (`refreshWatchSubscriptions()`): runs as a Vercel Cron `0 * * * *` (hourly). For any active row whose `expires_at < now() + interval '24 hours'`, create a fresh subscription (per above) and supersede the old one. The 24-hour buffer absorbs cron timing slop and Drive API hiccups.
+- **Revoke** (called when admin runs the §9.0 "Re-run setup" wizard and promotes a new `watched_folder_id`): mark all rows for the prior `watched_folder_id` `superseded_at = now()` and STOP each channel. The new folder's subscription is created as part of wizard exit's promotion transaction.
+
+**Active-folder change atomicity:** the wizard promotion transaction (§4.5) acquires a separate advisory lock keyed on `'drive_watch'`, performs the `UPDATE app_settings` promotion, calls `subscribeToWatchedFolder()` against the new active folder, and supersedes the prior channel. If any step fails, the whole transaction rolls back — the old channel keeps delivering until the new one is up.
+
+#### 5.5.2 Webhook endpoint (`POST /api/drive/webhook`)
+
+Drive POSTs notifications to this endpoint. The endpoint runs at the edge so 200 OKs return fast (Drive retries on non-2xx within a window, but excessive 5xx burns reputation).
+
+Headers Drive sends:
+- `X-Goog-Channel-Id` — matches the id of the channel that fired.
+- `X-Goog-Channel-Token` — the webhook_secret we passed at subscribe time. **HMAC-equivalent verification source**.
+- `X-Goog-Resource-State` — `sync` (initial), `add`, `remove`, `update`, `trash`, `untrash`.
+- `X-Goog-Resource-Id` — Drive's opaque resource handle; we cross-check against `drive_watch_channels.resource_id`.
+- `X-Goog-Channel-Expiration` — informational; we use `drive_watch_channels.expires_at` as the source of truth.
+- `X-Goog-Resource-Uri` — the Drive resource that changed (the watched folder).
+
+#### 5.5.3 Verification + dispatch
+
+The webhook handler:
+
+1. **Header presence check.** Reject 400 if `X-Goog-Channel-Id`, `X-Goog-Channel-Token`, or `X-Goog-Resource-State` are missing.
+2. **Channel lookup.** `SELECT webhook_secret, watched_folder_id, resource_id FROM drive_watch_channels WHERE id = $X-Goog-Channel-Id AND superseded_at IS NULL`. If no match, reject 410 (channel stale or never existed). The 410 tells Drive to stop sending.
+3. **Token verification.** Constant-time compare `X-Goog-Channel-Token` against `webhook_secret`. Mismatch → reject 401, write to `admin_alerts` (`WEBHOOK_TOKEN_INVALID` — high signal of spoofing attempt or bug, low chance of legit).
+4. **Resource cross-check.** Confirm `X-Goog-Resource-Id === drive_watch_channels.resource_id`. Mismatch → reject 401.
+5. **State filter.** `sync` (initial sync ack from Drive) → return 200 immediately, no work. `trash` / `untrash` / `remove` → also return 200 (these affect folder membership, which the next cron pass will reconcile via the listing-diff path at §5.2 step 4). Only `add` and `update` enqueue downstream work.
+6. **Folder-listing dispatch.** A folder-level webhook tells us "something changed in the folder" but not which file. We perform a fresh `files.list` against the watched folder (single round-trip; cheaper than naive per-file fetches), compare against `shows.last_seen_modified_time` per existing row, and dispatch `runManualSyncForShow(driveFileId, mode: "manual")` for each file whose `modifiedTime > last_seen_modified_time` (or no `shows` row exists for it — first-seen path). This per-file dispatch reuses the §5.2 entry point so all the existing safety properties (advisory lock, monotonic UPDATE, first-seen-always-stage, deferred_ingestions skip) apply unchanged.
+7. **Deduplication / no-op shortcut.** Drive may deliver multiple notifications for the same change. Before acquiring the per-show advisory lock, the dispatch helper checks `shows.last_seen_modified_time >= file.modifiedTime` and short-circuits with a `WEBHOOK_NOOP_ALREADY_SYNCED` log entry. This is a perf optimization only; the actual correctness against concurrent push + cron comes from §5.2's lock + monotonic UPDATE, which still holds even if dedup fails.
+8. **200 OK** to Drive, with body `{"ok": true}`. Return as fast as possible — Drive doesn't wait for our processing and retries on non-2xx.
+
+#### 5.5.4 Push-vs-cron reconciliation
+
+The cron at §5.1 still runs every 5 minutes regardless of push activity. Its job in the push world is to:
+- Catch missed pushes (Drive drops, network blips, our 5xx during a deploy).
+- Detect sheets removed from the folder via the listing-diff path (§5.2 step 4) — push doesn't reliably surface deletions.
+- Run renewals via `refreshWatchSubscriptions()`.
+
+Push and cron commit through the same Phase 2 with the same locks; one cannot leave the system in an inconsistent state relative to the other. If push has been delivering reliably, every cron pass is effectively a no-op (every show's `last_seen_modified_time === current modifiedTime`).
+
+#### 5.5.5 Push failure modes
+
+| Failure | Detection | Behavior |
+|---|---|---|
+| Drive returns 4xx on `files.watch` create | API error | Log `WATCH_CHANNEL_CREATE_FAILED`. Cron sync continues to be the source of truth. Renewal cron retries on its next run. After 3 consecutive failures, raise an `admin_alerts` row. |
+| Webhook arrives with a stale channel id (old subscription, replaced) | DB lookup at step 2 misses | 410 Gone — Drive stops sending. |
+| Webhook arrives with valid channel id but wrong token | step 3 mismatch | 401 — write `admin_alerts` row coded `WEBHOOK_TOKEN_INVALID`. |
+| Subscription expired before renewal could run (e.g., we were down) | next push fails / next cron observes drift | Cron picks up everything that drifted; renewal cron rebuilds the subscription on its next pass. The window of latency degrades from "seconds" to "5 minutes" until the new subscription is up. No data loss. |
+| Push delivers but our backend errors during processing | Sentry catches | Drive doesn't retry on application-level errors (only on non-2xx HTTP). The next cron pass picks it up via watermark drift. |
 
 ---
 
@@ -1574,6 +1657,9 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | `SHEET_UNAVAILABLE` | sheet detected as removed from watched folder | "*<sheet-name>* isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back." | "We couldn't get the latest from Doug's sheet. Showing what we had at *<time>*." | Doug → re-share sheet |
 | `STALE_WRITE_ABORTED` | conditional cron UPDATE matched 0 rows | (admin log only — informational) | — | none |
 | `STALE_MANUAL_REPLAY_ABORTED` | manual sync UPDATE rejected (newer version exists) | "This manual sync is stale — a newer parse has already been applied. Refresh the page to see the current state." | — | Doug → refresh admin |
+| `WEBHOOK_TOKEN_INVALID` | Drive push webhook arrived with a wrong token | "A push notification from Google Drive failed verification — possible spoofing or misconfiguration. The developer has been notified." (admin_alerts top-bar banner) | — | Eric → investigate |
+| `WEBHOOK_NOOP_ALREADY_SYNCED` | Drive push delivered for a file already up-to-date | (admin log only) | — | none |
+| `WATCH_CHANNEL_CREATE_FAILED` | Drive `files.watch` API returned 4xx | (admin log; admin_alerts banner after 3 consecutive failures) | — | Eric → check Drive API status / quota |
 | `CONCURRENT_SYNC_SKIPPED` | advisory lock not acquired | (admin log only) | — | none |
 | `STAGED_PARSE_OUTDATED` | Drive `modifiedTime` advanced past staged version | "The sheet was edited again since you reviewed this parse. We've discarded the staged version; a fresh parse will be ready in a few minutes." | — | Doug → wait, review next |
 | `STAGED_PARSE_SUPERSEDED` | a newer cron parse committed before Apply | "A newer parse has already been applied. Refresh the admin page to review the latest state." | — | Doug → refresh |
@@ -1790,7 +1876,7 @@ Each milestone is a PR. Spec self-review and adversarial review run before miles
 
 - **Drive content extraction call.** Either `files.export` to a markdown-flavored format (matches the corpus shape directly) or per-tab `spreadsheets.values.batchGet` (more structured, requires assembly into the corpus shape). Decide at parser-implementation time. Either feeds the same parser contract.
 - **Domain.** Spec uses `crew.fxav.show` as a placeholder. Eric to register the actual domain. Could also be a path on an existing site.
-- **Vercel cron 5-min cadence vs Drive push notifications.** Push (via `files.watch`) cuts staleness from minutes to seconds and reduces API calls, but adds webhook handling. Defer to v2 unless 5 min feels slow in practice.
+- ~~**Vercel cron 5-min cadence vs Drive push notifications.**~~ Resolved: push is in v1 per §5.5. Cron stays as the reconciliation fallback. Combined latency is sub-second on the happy path, ≤5 min on push failure.
 - **Crew-side "report a problem" button.** v1 only ships Doug-facing reporting. Crew may want one too. Decide after Doug's first show.
 - ~~**Should ops fields ever be visible to non-LEAD?**~~ Resolved: financials (PO/Proposal/Invoice/InvoiceNotes) stay LEAD-only because they're billing details and noise to onsite techs. COI is operational, not financial — moved to public `shows.coi_status` per §4.1 / §4.4. v2 candidate: Doug-configurable per-viewer field segmentation if his workflow ever needs it.
 - ~~**Slug generation strategy.**~~ Resolved in §6.9: deterministic `<YYYY-MM>-<title-slug>` derived on first successful parse, immutable thereafter, collisions resolved by `-2`/`-3` suffix.
@@ -1878,6 +1964,12 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-6.10 Sheet reappearance after `sheet_unavailable`: put the sheet back, run cron, verify `last_sync_status` returns to `'ok'`.
 - AC-6.11 First-seen sheet flow: drop a brand-new sheet into the folder, run cron, verify a `pending_syncs` row appears with `triggered_review_items` containing `FIRST_SEEN_REVIEW`. No `shows` row created until Apply.
 - AC-6.12 Realtime channel: edit a sheet, run cron, verify a Supabase Realtime message is published on `show:<id>`.
+- AC-6.13 Push subscription: after onboarding completes, `drive_watch_channels` has exactly one active row (`superseded_at IS NULL`) for the active `watched_folder_id`. The hourly renewal cron creates a fresh row + STOPs the prior one when `expires_at < now() + 24h`.
+- AC-6.14 Push happy path: edit a sheet in Drive; the webhook fires within seconds; the affected show's `last_seen_modified_time` advances within ~5s end-to-end (measured from edit to crew-page reflecting it via Realtime).
+- AC-6.15 Push token verification: a synthetic POST to `/api/drive/webhook` with the right channel id but wrong token returns 401 and writes a `WEBHOOK_TOKEN_INVALID` row to `admin_alerts`.
+- AC-6.16 Push de-duplication: two notifications arriving for the same `(drive_file_id, modifiedTime)` result in exactly one Phase 2 commit; the second logs `WEBHOOK_NOOP_ALREADY_SYNCED` and short-circuits before acquiring the lock.
+- AC-6.17 Push-then-cron idempotency: if push processed an edit, the next cron pass observes `last_seen_modified_time === current modifiedTime` and is a no-op for that show.
+- AC-6.18 Channel rotation on folder change: after re-running setup with a new folder, the prior folder's `drive_watch_channels` row is `superseded_at != NULL`; a fresh row exists for the new folder; old webhook deliveries return 410 (Drive instructed to stop).
 
 **Milestone 7 — Linked content.**
 - AC-7.1 `agenda_links[].url` containing a Drive PDF renders an inline embed via PDF.js or `<iframe>`.
