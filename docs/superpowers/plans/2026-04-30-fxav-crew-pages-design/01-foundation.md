@@ -199,13 +199,13 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 
 Spec context: §14.1 (Tailwind v4 + tokens established by the impeccable v3 design-context flow).
 
-**Files:** Modify: `app/globals.css`, `app/layout.tsx`. (Tailwind v4 has no `tailwind.config.ts`; theming lives in CSS via `@theme` — but no tokens are established in M0.)
+**Files:** Modify: `app/globals.css`, `app/layout.tsx`, `app/page.tsx`. (Tailwind v4 has no `tailwind.config.ts`; theming lives in CSS via `@theme` — but no tokens are established in M0. `app/page.tsx` is included because the scaffolder home page references token-dependent classes that no longer compile after Step 1.)
 
-- [ ] **Step 1: Reduce `app/globals.css` to bare `@import "tailwindcss"`.** The Next.js scaffolder ships pre-established color/font/dark-mode tokens in this file; strip them so Task 4.1 has a clean slate. Also strip the Geist font imports from `app/layout.tsx` (fonts are design tokens that Task 4.1 owns).
+- [ ] **Step 1: Reduce `app/globals.css` to bare `@import "tailwindcss"`.** The Next.js scaffolder ships pre-established color/font/dark-mode tokens in this file; strip them so Task 4.1 has a clean slate. Also strip the Geist font imports from `app/layout.tsx` (fonts are design tokens that Task 4.1 owns), and replace the scaffolder's `app/page.tsx` (which uses `bg-foreground`/`text-background` token classes) with a minimal stub using only built-in Tailwind utilities — the home page is fully replaced in M4.
 - [ ] **Step 2: Verify `PRODUCT.md` is present** at repo root (strategic design context — users, brand, principles). It was established by the impeccable v3 design-context flow ahead of foundation work and is committed at `848fd4f`. Until `DESIGN.md` is created in Task 4.1, components MUST NOT establish color, spacing, font, or radius tokens — those decisions are blocked on Task 4.1's design-token extraction pass.
 - [ ] **Step 3: Commit**
   ```bash
-  git add app/globals.css app/layout.tsx
+  git add app/globals.css app/layout.tsx app/page.tsx
   git commit -m "infra: tailwind v4 base"
   ```
 
