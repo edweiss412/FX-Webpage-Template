@@ -8,12 +8,16 @@ describe("canonicalize email", () => {
   it("passes already-canonical", () => {
     expect(canonicalize("alice@fxav.net")).toBe("alice@fxav.net");
   });
-  it("returns null for null/empty", () => {
+  it("returns null for null/undefined/empty/whitespace-only", () => {
     expect(canonicalize(null)).toBeNull();
+    expect(canonicalize(undefined)).toBeNull();
     expect(canonicalize("")).toBeNull();
+    expect(canonicalize("   ")).toBeNull();
   });
-  it("isCanonical rejects mixed-case", () => {
+  it("isCanonical rejects mixed-case, empty, and untrimmed", () => {
     expect(isCanonical("Alice@FXAV.NET")).toBe(false);
     expect(isCanonical("alice@fxav.net")).toBe(true);
+    expect(isCanonical("")).toBe(false);
+    expect(isCanonical("  alice@fxav.net  ")).toBe(false);
   });
 });
