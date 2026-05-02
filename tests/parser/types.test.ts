@@ -29,6 +29,8 @@ import type {
   PersistedDiagrams,
   ParsedSheet,
   ParseResult,
+  TriggeredReviewItem,
+  InvariantOutcome,
 } from "@/lib/parser/types";
 
 describe("parser/types", () => {
@@ -59,5 +61,15 @@ describe("parser/types", () => {
   it("ParsedSheet diagrams.embeddedImages is the empty-tuple type at parse time", () => {
     const stub: ParsedSheet["diagrams"]["embeddedImages"] = [];
     expect(stub).toHaveLength(0);
+  });
+
+  it("InvariantOutcome and TriggeredReviewItem unions construct under their declared discriminators", () => {
+    const _passOutcome: InvariantOutcome = { outcome: "pass" };
+    // Use the simplest TriggeredReviewItem variant (fewest required fields).
+    const _reviewItem: TriggeredReviewItem = {
+      id: "test-id",
+      invariant: "FIRST_SEEN_REVIEW",
+    };
+    expect(typeof _passOutcome.outcome).toBe("string");
   });
 });

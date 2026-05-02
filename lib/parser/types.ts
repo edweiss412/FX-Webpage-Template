@@ -21,6 +21,13 @@ export type StageRestriction =
 // room the crew member is staffed to); the renderer can use it for tile
 // filtering. Tokens documented in the role master MUST be accepted as
 // canonical and NOT emit UNKNOWN_ROLE_TOKEN warnings.
+//
+// Space-separated fixture tokens ("CAM OP", "SHOW CALLER", "GREEN ROOM",
+// "CONTENT CREATION") are normalized to underscore-separated RoleFlag values
+// ("CAM_OP", "SHOW_CALLER", "GREEN_ROOM", "CONTENT_CREATION") by the role-flag
+// decomposer (Task 1.6) before being asserted against this union. The fixture
+// role-master is the canonical source of truth; this union encodes the
+// post-normalization vocabulary.
 export type RoleFlag =
   // Capability flags
   | "LEAD"
