@@ -4,9 +4,9 @@ import { detectVersion } from "@/lib/parser/schema";
 
 // Fixture paths (all paths relative to project root, loaded at test time)
 const FIXTURE_V4 = "fixtures/shows/raw/2026-03-rpas-central-four-seasons.md";
-const FIXTURE_V3 = "fixtures/shows/raw/2025-06-ria-investment-forum.md";
 const FIXTURE_V2 = "fixtures/shows/raw/2025-03-dci-rpas-central.md";
-const FIXTURE_V1 = "fixtures/shows/raw/2024-05-east-coast-family-office.md";
+// Note: 2024-05-east-coast-family-office.md has "Hotal Contact Info" (v2 marker) — used in v2 suite.
+const FIXTURE_EAST_COAST = "fixtures/shows/raw/2024-05-east-coast-family-office.md";
 
 describe("detectVersion", () => {
   describe("v4 detection", () => {
@@ -18,20 +18,6 @@ describe("detectVersion", () => {
 
     it("returns v4 for minimal markdown with Contact Office cell", () => {
       expect(detectVersion("| Contact Office | 555-1234 |")).toBe("v4");
-    });
-  });
-
-  describe("v3 detection", () => {
-    // Verified: 2025-06-ria-investment-forum.md line 366 has "QTY | PULLED | INITAL" gear-tab header.
-    // No "GEAR INVENTORY" literal text exists in any corpus fixture — the spec's "block:GEAR INVENTORY"
-    // label refers conceptually to this table; detection uses the PULLED/INITAL column markers.
-    it("returns v3 when GEAR tab (PULLED/INITAL columns) present without Contact Office (fixture-grounded)", () => {
-      const md = readFileSync(FIXTURE_V3, "utf8");
-      expect(detectVersion(md)).toBe("v3");
-    });
-
-    it("returns v3 for minimal markdown with PULLED column header", () => {
-      expect(detectVersion("| QTY | PULLED | INITAL | CAT |")).toBe("v3");
     });
   });
 
@@ -52,19 +38,19 @@ describe("detectVersion", () => {
     it("returns v2 for minimal markdown with typo Hotal Contact Info", () => {
       expect(detectVersion("| Hotal Contact Info | .. |")).toBe("v2");
     });
+
+    // Amendment 4: 2024-05-east-coast-family-office.md also has "Hotal Contact Info"
+    // (line 23) — it is v2, not v1. Confirms the PULLED/INITAL removal (former v3 workaround)
+    // did not break classification of this fixture.
+    it("classifies 2024-05-east-coast as v2 (has Hotal Contact Info → venue.contact_info)", () => {
+      const md = readFileSync(FIXTURE_EAST_COAST, "utf8");
+      expect(detectVersion(md)).toBe("v2");
+    });
   });
 
   describe("v1 fallback", () => {
-    // NOTE: 2024-05-east-coast-family-office.md contains "Hotal Contact Info" (line 23),
-    // which resolves via FIELD_ALIASES to venue.contact_info — the v2 marker. The spec's
-    // claim that this fixture has "no v2 markers" is incorrect; the detector correctly
-    // classifies it as v2. The v1 fallback is exercised by sheets with table syntax but
-    // none of the v2/v3/v4 alias markers.
-    it("classifies 2024-05-east-coast as v2 (has Hotal Contact Info → venue.contact_info)", () => {
-      const md = readFileSync(FIXTURE_V1, "utf8");
-      expect(detectVersion(md)).toBe("v2");
-    });
-
+    // v1 is reached only by sheets with markdown table syntax but neither v2 nor v4 markers.
+    // No corpus fixture falls here — v1 is exercised by synthetic input only.
     it("returns v1 for markdown that looks like a sheet (has table) but no version markers", () => {
       expect(detectVersion("| DATES | |\n| :---: | :---: |\n| Travel | 5/13/24 |")).toBe("v1");
     });

@@ -78,7 +78,7 @@ export type ShowRow = {
   title: string;
   client_label: string;
   client_contact: ClientContact | null;
-  template_version: "v1" | "v2" | "v3" | "v4";
+  template_version: "v1" | "v2" | "v4";
   venue: {
     name: string;
     address: string;

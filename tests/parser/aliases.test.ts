@@ -15,10 +15,6 @@ describe("resolveAlias", () => {
       expect(resolveAlias("Virtaul Audience")).toBe("details.virtual_audience");
     });
 
-    it("resolves INITAL gear-tab column typo", () => {
-      expect(resolveAlias("INITAL")).toBe("ops.gear_tab");
-    });
-
     it("resolves Goosneck typo", () => {
       expect(resolveAlias("Goosneck")).toBe("details.gooseneck");
     });

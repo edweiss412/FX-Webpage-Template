@@ -16,10 +16,6 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   // ── Version-detection markers ─────────────────────────────────────────────
   // v4: "Contact Office" row in CLIENT block (2026-03+ sheets)
   "client.contact_office": ["Contact Office"],
-  // v3: GEAR tab columns (spec calls this "GEAR INVENTORY block"; the literal
-  //     text "GEAR INVENTORY" doesn't appear in any corpus fixture — detection
-  //     uses the distinctive PULLED/INITAL column headers instead)
-  "ops.gear_tab": ["PULLED", "INITAL"],
   // v2: standalone "Client Contact" row (v1 uses merged "Client Contact/Name" cells)
   "client.contact": ["Client Contact"],
 
