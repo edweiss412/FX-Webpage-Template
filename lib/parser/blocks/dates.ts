@@ -15,53 +15,8 @@
  * All date parsing is pure regex + Date construction — no date library dependency.
  */
 
-import { parseTableRows, clean, presence } from "./_helpers";
+import { parseTableRows, clean, presence, normalizeDate } from "./_helpers";
 import type { ShowRow } from "@/lib/parser/types";
-
-// ── Date normalization ────────────────────────────────────────────────────────
-
-/**
- * Normalize a raw date string to ISO 'YYYY-MM-DD', or return null if no
- * recognizable date is present.
- *
- * Accepted input formats:
- *   - M/D/YY          e.g. "6/25/25"
- *   - M/D/YYYY        e.g. "6/25/2025"
- *   - Wed 6/25/25     day-of-week prefix (abbreviated or full), stripped
- *   - Wednesday 6/25/25
- *
- * 2-digit year resolution: all 2-digit years are treated as 20XX.
- * This is intentional — the corpus spans 2024–2026 only, and there are
- * no historical sheets. 6/25/85 → 2085 (acceptable edge case; spec §2.3
- * does not mention historical sheets).
- *
- * Exported for use by other block parsers (e.g., hotel check-in/check-out).
- */
-export function normalizeDate(raw: string): string | null {
-  if (!raw) return null;
-
-  // Strip optional leading day-of-week (e.g. "Wed", "Wednesday", "Wed.")
-  const stripped = raw.replace(
-    /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\.?,?\s*/i,
-    "",
-  );
-
-  // Match M/D/YY or M/D/YYYY (possibly followed by extra text like " - AFTER 8PM")
-  const match = stripped.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-  if (!match) return null;
-
-  const month = parseInt(match[1] ?? "", 10);
-  const day = parseInt(match[2] ?? "", 10);
-  const rawYear = parseInt(match[3] ?? "", 10);
-  // 2-digit year: assume 20XX for all values (corpus is 2024-2026 only)
-  const year = rawYear < 100 ? 2000 + rawYear : rawYear;
-
-  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-
-  const mm = String(month).padStart(2, "0");
-  const dd = String(day).padStart(2, "0");
-  return `${year}-${mm}-${dd}`;
-}
 
 // ── Label classification ──────────────────────────────────────────────────────
 

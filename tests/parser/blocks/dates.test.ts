@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseDates } from "@/lib/parser/blocks/dates";
+import { normalizeDate } from "@/lib/parser/blocks/_helpers";
 import { detectVersion } from "@/lib/parser/schema";
 
 // ── Corpus fixtures ──────────────────────────────────────────────────────────
@@ -256,5 +257,14 @@ describe("parseDates — v4 2026-05-fintech-forum-cto-summit", () => {
 
   it("showDays[2] = 2026-05-06", () => {
     expect(d.showDays[2]).toBe("2026-05-06");
+  });
+});
+
+// ── normalizeDate calendar-validity ─────────────────────────────────────────
+describe("normalizeDate — calendar-validity", () => {
+  it("rejects calendar-invalid dates (Feb 30, Apr 31, etc.)", () => {
+    expect(normalizeDate("2/30/25")).toBeNull();
+    expect(normalizeDate("4/31/25")).toBeNull();
+    expect(normalizeDate("13/15/25")).toBeNull(); // month > 12
   });
 });
