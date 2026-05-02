@@ -91,9 +91,9 @@ M0 is the first executed milestone, so there is no prior convergence-log evidenc
 - [ ] **Codex CLI default sandbox:** N/A for M0 — implementer is Claude Code per ROUTING.md.
 - [ ] **Codex CLI with relaxed sandbox:** N/A for M0.
 
-## Deferred items
+## Resolved deferred items
 
-- **Task 0.4 Step 4 — `pnpm dlx supabase@latest start` boot smoke test.** Deferred 2026-05-02 because Docker is not installed on the implementer's machine. Does not block M0 closure or M1 parser work. Re-run the smoke test before any M2 task that relies on `supabase start` for local schema iteration. M2 migrations targeting a remote Supabase project via `supabase db push --db-url ...` do NOT require Docker, so M2 can begin without this verification — just don't claim local-dev parity until the smoke test runs. Track via a TODO at the end of M0 commit `be4f7bc`.
+- **Task 0.4 Step 4 — `pnpm dlx supabase@latest start` boot smoke test (resolved 2026-05-02).** Originally deferred 2026-05-02 (Docker not installed). Re-ran on 2026-05-02 with Docker version 29.4.1 and supabase CLI 2.98.0. Boot succeeded; printed `Project URL = http://127.0.0.1:54321`, `Studio URL = http://127.0.0.1:54323`, Publishable key (`sb_publishable_ACJWl…` — redacted), Secret key (`sb_secret_N7UND0…` — redacted), DB URL `postgresql://postgres:postgres@127.0.0.1:54322/postgres`, S3 Storage URL `http://127.0.0.1:54321/storage/v1/s3`. Note: CLI 2.98.0 outputs `Project URL` + `Publishable`/`Secret` keys in place of the older `API URL` + `anon key`/`service_role key`/`JWT secret` fields — `.env.local.example` variable names may need updating when populating `.env.local` in M2. HTTP smoke against `http://127.0.0.1:54321/rest/v1/` returned 200. `supabase stop` cleaned up cleanly; `docker ps | grep supabase` returned empty. M2 can now use either local Docker-backed iteration or the previously-documented `--db-url` remote path.
 
 ## Resolved local-dev warts
 
