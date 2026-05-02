@@ -125,4 +125,16 @@ After all 14 M1 tasks are committed:
 
 ## Convergence log
 
-_(populated after adversarial review)_
+### Partial-milestone review — Tasks 1.1–1.5 (2026-05-02)
+
+Run mid-milestone at user request to surface foundation defects before high-stakes Task 1.6 lands. M1 base `4daec4b`; partial HEAD at convergence `c3462dc`.
+
+- **Round 1 (2026-05-02):** Codex/GPT-5.5 returned `needs-attention` with 3 findings — (1.high) `lib/parser/types.ts` drift from spec §6.7 (`ParsedSheet.diagrams.linkedFolderItems` missing, `embeddedImages` typed as `[]` instead of `never[]`, `OpeningReelPinned` missing `mimeType: string | null`); (2.high) 2025-10 venue extractor still corrupted name+address despite the Task 1.4 round-1 fix (combined cell stuffed into `name`, address left empty); (3.medium) v1 SHOW dates path bypassed `normalizeDate` calendar validity. All 3 addressed in commits `4b671c5` (types alignment + test strengthening), `4bd9514` (venue split-on-slash for combined NAME/ADDRESS cell), `36b2c2a` (extractAllDates routed through normalizeDate + regression tests for Feb 30 / Apr 31).
+- **Round 2 (2026-05-02):** Codex returned `needs-attention` with 1 finding — (medium) `venue.ts` blank-col0 v2 continuation branch only handled `venue.address` + `venue.loading_dock` but not `venue.google_link` or `venue.notes`, silently dropping data from the 2025-10 fixture line 36. Addressed in commit `c3462dc` (extended branch to 4 sub-handlers + regression tests asserting both `googleLink` and `loadingDock` for 2025-10).
+- **Round 3 (2026-05-02):** Codex returned `verdict: approve`. **Convergence reached.**
+
+158 parser tests passing across 7 test files at convergence. Lint, typecheck, format:check, build all green. No phantom `'v3'` references. Email canonicalization invariant holds (zero direct email-pattern handling outside `canonicalize` call). Foundation tasks 1.1–1.5 cleared for Task 1.6 (crew block + role-flag decomposition) to proceed.
+
+### Final-milestone review — Tasks 1.1–1.14
+
+_(populated after Task 1.14 completion + final adversarial review)_
