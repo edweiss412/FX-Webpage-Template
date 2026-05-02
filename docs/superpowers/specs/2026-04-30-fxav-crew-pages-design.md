@@ -3119,7 +3119,7 @@ When Eric closes the GitHub issue (with a referenced commit/PR), the next sync s
 - **Framework:** Next.js 16 (App Router), Server Components, Server Actions for admin mutations.
 - **Hosting:** Vercel.
 - **Database / auth / realtime:** Supabase Postgres + Supabase Auth + Supabase Realtime. RLS enforced.
-- **Styling:** Tailwind CSS v4 with project-specific tokens established by `/teach-impeccable` (saved to `.impeccable.md`).
+- **Styling:** Tailwind CSS v4 with project-specific tokens established by the impeccable plugin's design-context flow. Strategic design context (users, brand, principles) lives in `PRODUCT.md` at repo root; visual tokens (colors, typography, spacing, radii) extracted from real components live in `DESIGN.md` at repo root, established once UI exists to analyze.
 - **Fonts:** chosen per `frontend-design` skill guidance (no Inter/Roboto/system defaults).
 - **Drive client:** `googleapis` Node SDK with service-account JWT auth.
 - **PDF preview:** `pdfjs-dist` (or `<iframe>` to Drive preview as fallback).
@@ -3186,7 +3186,8 @@ fixtures/                      # already exists
 docs/
   superpowers/
     specs/                     # this file
-.impeccable.md                 # established before UI work begins
+PRODUCT.md                     # strategic design context (users, brand, principles) — established before UI work begins
+DESIGN.md                      # visual tokens — established once UI exists to extract from
 ```
 
 ### 14.3 Environment variables

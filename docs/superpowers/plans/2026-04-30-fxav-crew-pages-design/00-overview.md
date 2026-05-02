@@ -9,7 +9,7 @@
 **Tech Stack:**
 - Next.js 16 (App Router, Server Components, Server Actions) on Vercel
 - Supabase (Postgres + Auth + Realtime + Storage)
-- Tailwind v4 + tokens established by `/teach-impeccable`
+- Tailwind v4 + tokens established by the impeccable v3 design-context flow (`PRODUCT.md` strategic + `DESIGN.md` visual)
 - `googleapis` Node SDK with service-account JWT
 - `@octokit/rest` for GitHub Issues
 - Vitest (parser, unit) + Playwright (e2e + dimensional invariants)

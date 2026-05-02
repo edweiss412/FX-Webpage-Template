@@ -195,22 +195,16 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 
 ### Task 0.5: Tailwind v4 base + design tokens placeholder
 
-Spec context: §14.1 (Tailwind v4 + tokens established by `/teach-impeccable`).
+Spec context: §14.1 (Tailwind v4 + tokens established by the impeccable v3 design-context flow).
 
-**Files:** Modify: `app/globals.css`, `tailwind.config.ts`. Create: `.impeccable.md` placeholder.
+**Files:** Modify: `app/globals.css`, `tailwind.config.ts`. (`PRODUCT.md` already exists at repo root from commit `848fd4f`. `DESIGN.md` is established later in Task 4.1 once UI components exist to extract tokens from.)
 
 - [ ] **Step 1: Configure Tailwind v4** in `app/globals.css` per Tailwind v4 conventions (`@import "tailwindcss"`).
-- [ ] **Step 2: Write a placeholder `.impeccable.md`** at repo root:
-  ```md
-  # Impeccable design context
-
-  > Replaced by `/teach-impeccable` before any UI work begins.
-  > Until then, components MUST NOT establish color, spacing, font, or radius tokens — those decisions are blocked on the design pass.
-  ```
+- [ ] **Step 2: Verify `PRODUCT.md` is present** at repo root (strategic design context — users, brand, principles). It was established by the impeccable v3 design-context flow ahead of foundation work and is committed at `848fd4f`. Until `DESIGN.md` is created in Task 4.1, components MUST NOT establish color, spacing, font, or radius tokens — those decisions are blocked on Task 4.1's design-token extraction pass.
 - [ ] **Step 3: Commit**
   ```bash
-  git add app/globals.css tailwind.config.ts .impeccable.md
-  git commit -m "infra: tailwind v4 base + placeholder design tokens"
+  git add app/globals.css tailwind.config.ts
+  git commit -m "infra: tailwind v4 base"
   ```
 
 ### Task 0.6: ESLint + Prettier + lint-staged

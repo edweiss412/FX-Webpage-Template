@@ -154,19 +154,19 @@ Spec context: §8 entire section, §17.1 milestone 4. Demo: open the page on a p
 
 **Auth is mocked via an identity-only `?crew=<crewMemberId>` query param at this milestone**. Earlier draft used `?role=lead&crew=...` URL steering; that broadens the public route into a role-spoofing surface and undermines Task 4.3's identity-only `getShowForViewer` contract. The corrected mock only supplies the **identity** — `?crew=<crewMemberId>` — and `getShowForViewer` derives role flags fresh from `crew_members.role_flags` exactly as production will (Task 4.3's lookup binds `id` AND `show_id`, so a wrong `crewMemberId` from a different show fails closed). Admin preview is a separate `?as=admin` flag that maps to `Viewer = { kind: 'admin' }`. **`?role=` is ignored** even if present — a regression test (`tests/e2e/role-spoof.spec.ts`) asserts `?role=lead` cannot unlock financials when the bound crew row's role_flags don't include `LEAD`. M5 replaces the mock with real auth chains.
 
-### Task 4.1: Run `/teach-impeccable` to establish design tokens
+### Task 4.1: Establish DESIGN.md (visual tokens) via the impeccable v3 flow
 
-**Files:** Modify: `.impeccable.md` and any token files the skill writes.
+**Files:** Create: `DESIGN.md` at repo root. Modify: any Tailwind theme / CSS custom-property files the skill writes (e.g., `app/globals.css` token block, `tailwind.config.ts` extensions). `PRODUCT.md` is already present (established at commit `848fd4f` and consumed by every impeccable design skill).
 
-- [ ] **Step 1:** Invoke the `frontend-design` and `teach-impeccable` skills per global CLAUDE.md "Frontend Tasks" rule. Capture the design tokens (colors, fonts, spacing, radii) into `.impeccable.md`. This is a one-time setup gating all UI work.
-- [ ] **Step 2:** Commit `chore(design): establish impeccable tokens for crew page UI`.
+- [ ] **Step 1:** Invoke the `frontend-design` and `impeccable` skills per global CLAUDE.md "Frontend Tasks" rule. The flow reads `PRODUCT.md` for strategic context, then derives visual tokens — colors (light + dark), typography scale, spacing scale, radii, motion timings — into `DESIGN.md`. This is the one-time setup gating all subsequent UI work in M3/M4. (Note: under impeccable v3, `PRODUCT.md` and `DESIGN.md` replace the legacy single `.impeccable.md` file. The plugin auto-migrates legacy files; do not create a `.impeccable.md`.)
+- [ ] **Step 2:** Commit `chore(design): establish DESIGN.md tokens for crew page UI`.
 
 ### Task 4.2: Layout shell (`app/show/[slug]/page.tsx` + layout)
 
 **Files:** Create: `app/show/[slug]/page.tsx`, `app/show/[slug]/layout.tsx`, `components/layout/Header.tsx`, `components/layout/Footer.tsx`. Test: `tests/e2e/crew-page.spec.ts`.
 
 - [ ] **Step 1: Failing Playwright test** — assert page renders for a seeded slug; `data-testid="page-shell"` exists; mobile viewport renders the 2-col tile grid.
-- [ ] **Step 2: Implement** Server Component that fetches show + viewer using `lib/data/getShowForViewer`. Viewer identity comes from the **identity-only mock** — `?crew=<crewMemberId>` resolves to `{ kind: 'crew', crewMemberId }`, `?as=admin` resolves to `{ kind: 'admin' }`. **`?role=` is explicitly ignored** if present; the page extracts ONLY `crew` and `as` from `searchParams`. Render Header + RightNowCard slot + tile grid + Footer. Use Tailwind v4 tokens from `.impeccable.md`.
+- [ ] **Step 2: Implement** Server Component that fetches show + viewer using `lib/data/getShowForViewer`. Viewer identity comes from the **identity-only mock** — `?crew=<crewMemberId>` resolves to `{ kind: 'crew', crewMemberId }`, `?as=admin` resolves to `{ kind: 'admin' }`. **`?role=` is explicitly ignored** if present; the page extracts ONLY `crew` and `as` from `searchParams`. Render Header + RightNowCard slot + tile grid + Footer. Use Tailwind v4 tokens from `DESIGN.md` (established in Task 4.1).
 - [ ] **Step 3: Commit** `feat(crew-page): layout shell`.
 
 ### Task 4.3: `getShowForViewer` data fetcher (§7.4)
