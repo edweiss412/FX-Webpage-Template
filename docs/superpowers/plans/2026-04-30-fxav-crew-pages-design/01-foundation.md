@@ -199,13 +199,13 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 
 Spec context: §14.1 (Tailwind v4 + tokens established by the impeccable v3 design-context flow).
 
-**Files:** Modify: `app/globals.css`, `tailwind.config.ts`. (`PRODUCT.md` already exists at repo root from commit `848fd4f`. `DESIGN.md` is established later in Task 4.1 once UI components exist to extract tokens from.)
+**Files:** Modify: `app/globals.css`, `app/layout.tsx`. (Tailwind v4 has no `tailwind.config.ts`; theming lives in CSS via `@theme` — but no tokens are established in M0.)
 
-- [ ] **Step 1: Configure Tailwind v4** in `app/globals.css` per Tailwind v4 conventions (`@import "tailwindcss"`).
+- [ ] **Step 1: Reduce `app/globals.css` to bare `@import "tailwindcss"`.** The Next.js scaffolder ships pre-established color/font/dark-mode tokens in this file; strip them so Task 4.1 has a clean slate. Also strip the Geist font imports from `app/layout.tsx` (fonts are design tokens that Task 4.1 owns).
 - [ ] **Step 2: Verify `PRODUCT.md` is present** at repo root (strategic design context — users, brand, principles). It was established by the impeccable v3 design-context flow ahead of foundation work and is committed at `848fd4f`. Until `DESIGN.md` is created in Task 4.1, components MUST NOT establish color, spacing, font, or radius tokens — those decisions are blocked on Task 4.1's design-token extraction pass.
 - [ ] **Step 3: Commit**
   ```bash
-  git add app/globals.css tailwind.config.ts
+  git add app/globals.css app/layout.tsx
   git commit -m "infra: tailwind v4 base"
   ```
 
