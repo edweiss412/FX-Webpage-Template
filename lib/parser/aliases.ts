@@ -49,6 +49,15 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   "details.gooseneck": ["Gooseneck", "Goosneck", "Goosenecks"],
   "details.agenda_link": ["AGENDA LINK"],
 
+  // ── Dates ─────────────────────────────────────────────────────────────────
+  // v4/v2 DATES table row labels (used for label-to-canonical resolution)
+  "dates.travel_in": ["TRAVEL IN", "Travel In"],
+  "dates.travel_out": ["TRAVEL OUT", "Travel Out"],
+  "dates.travel": ["TRAVEL", "Travel"],
+  "dates.travel_set": ["TRAVEL / SET", "TRAVEL/SET"],
+  "dates.set": ["SET", "Set"],
+  "dates.show": ["SHOW", "Show"],
+
   // ── Transport ─────────────────────────────────────────────────────────────
   "transport.driver": ["Driver", "Equipment Transporter"],
   "transport.vehicle": ["Vehicle"],
