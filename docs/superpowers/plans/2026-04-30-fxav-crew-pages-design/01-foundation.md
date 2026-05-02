@@ -329,7 +329,7 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
     title: string;
     client_label: string;
     client_contact: ClientContact | null;
-    template_version: "v1" | "v2" | "v3" | "v4";
+    template_version: "v1" | "v2" | "v4";
     venue: {
       name: string;
       address: string;
@@ -765,12 +765,6 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
     expect(detectVersion(md)).toBe('v4');
   });
 
-  // v3 — verified against 2025-06-ria-investment-forum.md (GEAR INVENTORY, no Contact Office)
-  it('v3 when GEAR INVENTORY block present without Contact Office', => {
-    const md = readFileSync('fixtures/shows/raw/2025-06-ria-investment-forum.md', 'utf8');
-    expect(detectVersion(md)).toBe('v3');
-  });
-
   // #2: v2 detection MUST work against the only raw v2 fixture
   // (2025-03-dci-rpas-central.md), which has the typo "Hotal Contact Info"
   // at line 236 — NOT the canonical "Hotel Contact Info". Version detection
@@ -788,10 +782,11 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
     expect(detectVersion('| Hotal Contact Info | .. |')).toBe('v2');
   });
 
-  // v1 fallback — verified against 2024-05-east-coast-family-office.md (no v2/v3/v4 markers)
-  it('v1 fallback for the oldest fixture', => {
-    const md = readFileSync('fixtures/shows/raw/2024-05-east-coast-family-office.md', 'utf8');
-    expect(detectVersion(md)).toBe('v1');
+  // v1 fallback — reached by sheets with markdown table syntax but neither v2 nor v4 markers.
+  // NOTE: 2024-05-east-coast-family-office.md contains "Hotal Contact Info" (typo of v2 marker)
+  // and is correctly classified as v2, NOT v1. The v1 fallback is exercised by synthetic input.
+  it('v1 fallback for sheet-shaped markdown with no v2/v4 markers', => {
+    expect(detectVersion('| DATES | |\n| :---: | :---: |\n| Travel | 5/13/24 |')).toBe('v1');
   });
 
   // MI-1 hard-fail when no markers AND no v1-shape fallback signal
@@ -813,7 +808,6 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
         { block: "MAIN/SECONDARY" },
       ],
     },
-    { id: "v3", requires: [{ block: "GEAR INVENTORY" }] },
     {
       id: "v2",
       requires: [
@@ -882,7 +876,7 @@ This is the highest-stakes parser task — the personalization signals gate auth
   // Day restriction in NAME cell (pre-2026 dominant form)
   it('extracts explicit days from parens form (name cell)', => {
     const md = readFileSync('fixtures/shows/raw/2025-06-ria-investment-forum.md', 'utf8');
-    const crew = parseCrew(md, 'v3');
+    const crew = parseCrew(md, 'v2');
     const calvin = crew.find(c => c.name.startsWith('Calvin'))!;
     expect(calvin.date_restriction).toEqual({ kind: 'explicit', days: ['6/24', '6/26'] });
     expect(calvin.name).toBe('Calvin Saller'); // parens stripped from display name
@@ -908,7 +902,7 @@ This is the highest-stakes parser task — the personalization signals gate auth
   // — verified against 2025-10-fixed-income-trading-summit.md:30-31.
   it('extracts stage_restriction kind=explicit stages=["Load In","Set"] from "- Load In / Set ONLY" role', => {
     const md = readFileSync('fixtures/shows/raw/2025-10-fixed-income-trading-summit.md', 'utf8');
-    const crew = parseCrew(md, 'v3');
+    const crew = parseCrew(md, 'v2');
     const maria = crew.find(c => c.name.startsWith('Maria Davila'))!;
     expect(maria.stage_restriction).toEqual({ kind: 'explicit', stages: ['Load In', 'Set'] });
     // ALSO carries the name-cell day restriction "(10/19 ONLY)":
@@ -916,7 +910,7 @@ This is the highest-stakes parser task — the personalization signals gate auth
   });
   it('extracts stage_restriction kind=explicit stages=["Load Out","Strike"] from "- Load Out / Strike ONLY" role', => {
     const md = readFileSync('fixtures/shows/raw/2025-10-fixed-income-trading-summit.md', 'utf8');
-    const crew = parseCrew(md, 'v3');
+    const crew = parseCrew(md, 'v2');
     const rob = crew.find(c => c.name.startsWith('Rob Frye'))!;
     expect(rob.stage_restriction).toEqual({ kind: 'explicit', stages: ['Load Out', 'Strike'] });
     expect(rob.date_restriction).toEqual({ kind: 'explicit', days: ['10/21'] });
@@ -935,7 +929,7 @@ This is the highest-stakes parser task — the personalization signals gate auth
   // atomic flag, NOT silently drop it as UNKNOWN_ROLE_TOKEN.
   it('decomposes compound role into atomic flags (AC-1.5) — full vocabulary', => {
     const md = readFileSync('fixtures/shows/raw/2025-06-ria-investment-forum.md', 'utf8');
-    const crew = parseCrew(md, 'v3');
+    const crew = parseCrew(md, 'v2');
     const doug = crew.find(c => c.name === 'Doug Larson')!;
     expect(doug.role_flags).toEqual(expect.arrayContaining(['LEAD', 'V1']));
     expect(doug.role_flags).not.toContain('LEAD/V1');

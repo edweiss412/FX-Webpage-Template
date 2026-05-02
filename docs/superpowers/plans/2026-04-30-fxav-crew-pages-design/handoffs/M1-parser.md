@@ -23,7 +23,7 @@
 ## 2. Acceptance criteria
 
 - **AC-1.1** — `parseSheet(markdown)` returns a populated `ParsedSheet` with zero hard errors for every fixture in `fixtures/shows/raw/*.md` (10 fixtures).
-- **AC-1.2** — Per-version field extraction: every version (v1–v4) extracts client, venue, dates, crew, hotels, rooms, transport, contacts, pull-sheet, diagrams, reel.
+- **AC-1.2** — Per-version field extraction: every version (v1, v2, v4) extracts client, venue, dates, crew, hotels, rooms, transport, contacts, pull-sheet, diagrams, reel.
 - **AC-1.3** — Role-flag decomposition: compound suffixes ("BO - V1", "GS - LEAD") decompose into multiple flags `['BO','V1']`, NOT a composite single flag.
 - **AC-1.4** — Date-restriction discriminator preserves `kind: 'explicit' | 'unknown_asterisk' | 'none'`.
 - **AC-1.5** — Stage-restriction discriminator (`'explicit' | 'none'`).
