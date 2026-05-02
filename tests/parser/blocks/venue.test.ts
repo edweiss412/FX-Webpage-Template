@@ -164,13 +164,34 @@ const EXPECTED_VENUE_NAMES: Record<string, string | null> = {
   "2025-10-consultants-roundtable.md": "Four Seasons Hotel Chicago",
   // 2025-10 fixture uses a non-standard combined cell: "VENUE NAME/VENUE ADDRESS" as label
   // and "Park Hyatt Chicago/800 N Michigan Ave&#10;Chicago, IL 60611" as value (&#10; is literal).
-  // The parser captures the full col2 value since the combined label doesn't resolve to an alias.
-  "2025-10-fixed-income-trading-summit.md":
-    "Park Hyatt Chicago/800 N Michigan Ave&#10;Chicago, IL 60611",
+  // The parser splits on the first '/' so name = "Park Hyatt Chicago",
+  // address = "800 N Michigan Ave&#10;Chicago, IL 60611".
+  "2025-10-fixed-income-trading-summit.md": "Park Hyatt Chicago",
   "2026-03-rpas-central-four-seasons.md": "Four Seasons Hotel Chicago",
   "2026-04-asset-mgmt-cfo-coo-waldorf.md": "Waldorf Astoria Chicago",
   "2026-05-fintech-forum-cto-summit.md": "Kimpton Gray",
 };
+
+// ── 2025-10 combined-cell split ───────────────────────────────────────────────
+describe("parseVenue — 2025-10 fixture combined VENUE NAME/VENUE ADDRESS split", () => {
+  const md = readFileSync("fixtures/shows/raw/2025-10-fixed-income-trading-summit.md", "utf8");
+
+  it("venue.name is 'Park Hyatt Chicago' (pre-slash portion only)", () => {
+    const r = parseVenue(md, "v2");
+    expect(r?.name).toBe("Park Hyatt Chicago");
+  });
+
+  it("venue.address is the post-slash portion (non-empty, non-null)", () => {
+    const r = parseVenue(md, "v2");
+    expect(r?.address).toBeTruthy();
+    expect(r?.address).toBe("800 N Michigan Ave&#10;Chicago, IL 60611");
+  });
+
+  it("venue.name does not contain a slash (no combined-cell stuffing)", () => {
+    const r = parseVenue(md, "v2");
+    expect(r?.name).not.toContain("/");
+  });
+});
 
 describe("parseVenue — corpus coverage (all 10 fixtures)", () => {
   for (const fixturePath of ALL_FIXTURES) {

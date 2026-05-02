@@ -87,10 +87,22 @@ export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowR
         } else if (subCanon === "venue.loading_dock" && val && loadingDock === null) {
           loadingDock = val;
         } else if (subCanon === null && presence(subLabel) !== null && name === null) {
-          // col1 doesn't resolve to a field label but is non-empty — treat col2 as venue name.
-          // Fix 1: use `val` (the value cell, col2) not `presence(subLabel)` (the label cell, col1).
-          // Handles the 2025-10 non-standard "VENUE NAME/VENUE ADDRESS" combined label row.
-          name = val;
+          // col1 doesn't resolve to a field label but is non-empty.
+          // Special case: "VENUE NAME/VENUE ADDRESS" combined label — split value on first '/'.
+          if (subLabel.match(/VENUE NAME\s*\/\s*VENUE ADDRESS/i) && val) {
+            const slashIdx = val.indexOf("/");
+            if (slashIdx > 0 && slashIdx < val.length - 1) {
+              name = presence(val.slice(0, slashIdx));
+              address = presence(val.slice(slashIdx + 1));
+            } else {
+              // No valid slash split — fall back to full value as name
+              name = val;
+            }
+          } else {
+            // col1 doesn't resolve to a field label — treat col2 as venue name.
+            // Fix 1: use `val` (the value cell, col2) not `presence(subLabel)` (the label cell, col1).
+            name = val;
+          }
         }
       } else {
         // v1-hybrid 2-column shape: | VENUE | <raw name> |
