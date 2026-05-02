@@ -26,6 +26,8 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   "venue.name": ["VENUE NAME", "Venue Name"],
   "venue.address": ["VENUE ADDRESS", "Venue Address", "Hotel Address"],
   "venue.loading_dock": ["LOADING DOCK", "Loading Dock"],
+  "venue.google_link": ["GOOGLE LINK", "Google Link"],
+  "venue.notes": ["VENUE NOTES", "Venue Notes"],
 
   // ── Client ────────────────────────────────────────────────────────────────
   "client.name": ["CLIENT"],

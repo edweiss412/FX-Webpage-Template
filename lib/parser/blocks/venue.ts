@@ -1,48 +1,6 @@
 import type { ShowRow } from "@/lib/parser/types";
 import { resolveAlias } from "@/lib/parser/aliases";
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-/**
- * Parse all markdown table rows into an array of cell arrays.
- * Each entry is the trimmed cells for one non-separator row.
- *
- * Separator/alignment rows are rows where EVERY inter-pipe segment contains
- * only `[\s:|*-]` characters (i.e., Markdown table alignment rows like
- * `| :---: | :-----------: |`). Rows with blank leading cells but meaningful
- * content in later cells (e.g., `|       | VENUE ADDRESS | 120 E ... |`)
- * are NOT separator rows and must be included.
- */
-function parseTableRows(markdown: string): string[][] {
-  const rows: string[][] = [];
-  for (const line of markdown.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("|")) continue;
-    // A true separator row: every segment between pipes is purely [\s:|*-]
-    const parts = trimmed.split("|");
-    // segments are parts[1..length-2] (drop leading/trailing empty from split)
-    const segments = parts.slice(1, parts.length - 1);
-    const isSeparator = segments.every((seg) => /^[\s:|*-]*$/.test(seg));
-    if (isSeparator) continue;
-    const cells: string[] = [];
-    for (const seg of segments) {
-      cells.push(seg.trim());
-    }
-    if (cells.length > 0) rows.push(cells);
-  }
-  return rows;
-}
-
-/** Normalize whitespace and strip markdown escape backslashes. */
-function clean(s: string): string {
-  return s.replace(/\\(.)/g, "$1").trim();
-}
-
-/** Return value if non-empty after cleaning, else null. */
-function presence(s: string): string | null {
-  const c = clean(s);
-  return c.length > 0 ? c : null;
-}
+import { presence, parseTableRows } from "./_helpers";
 
 // ── VENUE block shapes across corpus ─────────────────────────────────────────
 //
@@ -86,7 +44,12 @@ type VenueFields = NonNullable<ShowRow["venue"]>;
  *
  * @param markdown - Raw markdown string of the show sheet.
  * @param version  - Template version (v1 reuses v2 shape per amendment 4).
+ *                   Preserved for API consistency with the sheet orchestrator
+ *                   (Task 1.11: parseSheet calls parseVenue(md, detectVersion(md)!)).
+ *                   Alias-based dispatch handles all versions identically, so
+ *                   the parameter is not read internally.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowRow["venue"] {
   const rows = parseTableRows(markdown);
 
@@ -96,9 +59,6 @@ export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowR
   let googleLink: string | null = null;
   let notes: string | null = null;
 
-  // First-wins guard: once the show's primary venue block is found, ignore later rows
-  // so that the large venue-reference tables later in the file don't clobber values.
-  let anyVenueFieldSet = false;
   // Tracks whether we're inside a v2 3-column "VENUE" scope block specifically,
   // so blank-col0 continuation rows (| | VENUE ADDRESS | ... |) are attributed correctly.
   let inV2VenueBlock = false;
@@ -122,24 +82,21 @@ export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowR
         const val = presence(row[2] ?? "");
         if (subCanon === "venue.name" && val && name === null) {
           name = val;
-          anyVenueFieldSet = true;
         } else if (subCanon === "venue.address" && val && address === null) {
           address = val;
-          anyVenueFieldSet = true;
         } else if (subCanon === "venue.loading_dock" && val && loadingDock === null) {
           loadingDock = val;
-          anyVenueFieldSet = true;
         } else if (subCanon === null && presence(subLabel) !== null && name === null) {
-          // col1 doesn't resolve to a field label but is non-empty — treat as venue name
-          name = presence(subLabel);
-          anyVenueFieldSet = true;
+          // col1 doesn't resolve to a field label but is non-empty — treat col2 as venue name.
+          // Fix 1: use `val` (the value cell, col2) not `presence(subLabel)` (the label cell, col1).
+          // Handles the 2025-10 non-standard "VENUE NAME/VENUE ADDRESS" combined label row.
+          name = val;
         }
       } else {
         // v1-hybrid 2-column shape: | VENUE | <raw name> |
         // col1 is the venue name directly
         if (presence(subLabel) !== null && name === null) {
           name = presence(subLabel);
-          anyVenueFieldSet = true;
         }
       }
       inV2VenueBlock = true;
@@ -153,10 +110,8 @@ export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowR
       const val = presence(row[2] ?? "");
       if (subCanon === "venue.address" && val && address === null) {
         address = val;
-        anyVenueFieldSet = true;
       } else if (subCanon === "venue.loading_dock" && val && loadingDock === null) {
         loadingDock = val;
-        anyVenueFieldSet = true;
       }
       continue;
     }
@@ -181,39 +136,43 @@ export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowR
       const valCanon = val !== null ? resolveAlias(val) : null;
       if (val && valCanon === null && name === null) {
         name = val;
-        anyVenueFieldSet = true;
       }
       continue;
     }
     if (col0Canon === "venue.address") {
       const val = presence(row[1] ?? "");
       const valCanon = val !== null ? resolveAlias(val) : null;
-      if (val && valCanon === null && address === null && anyVenueFieldSet) {
+      // Fix 4: anyVenueFieldSet guard removed — the valCanon===null check already
+      // protects against reference-table header rows. No ordering requirement.
+      if (val && valCanon === null && address === null) {
         address = val;
       }
       continue;
     }
     if (col0Canon === "venue.loading_dock") {
       const val = presence(row[1] ?? "");
-      if (val && loadingDock === null && anyVenueFieldSet) {
+      // Fix 4: anyVenueFieldSet guard removed — no ordering requirement.
+      if (val && loadingDock === null) {
         loadingDock = val;
       }
       continue;
     }
 
-    // GOOGLE LINK — not in FIELD_ALIASES, matched directly
-    if (col0Upper === "GOOGLE LINK") {
+    // GOOGLE LINK — dispatched via canonical alias (Fix 6)
+    if (col0Canon === "venue.google_link") {
       const val = presence(row[1] ?? "");
-      if (val && googleLink === null && anyVenueFieldSet) {
+      // Fix 4: anyVenueFieldSet guard removed — no ordering requirement.
+      if (val && googleLink === null) {
         googleLink = val;
       }
       continue;
     }
 
-    // VENUE NOTES — direct match
-    if (col0Upper === "VENUE NOTES") {
+    // VENUE NOTES — dispatched via canonical alias (Fix 6)
+    if (col0Canon === "venue.notes") {
       const val = presence(row[1] ?? "");
-      if (val && notes === null && anyVenueFieldSet) {
+      // Fix 4: anyVenueFieldSet guard removed — no ordering requirement.
+      if (val && notes === null) {
         notes = val;
       }
       continue;

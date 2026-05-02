@@ -1,40 +1,6 @@
 import type { ShowRow, ClientContact, ClientContactPerson } from "@/lib/parser/types";
 import { canonicalize } from "@/lib/email/canonicalize";
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-/**
- * Parse all markdown table rows into an array of cell arrays.
- * Each entry is the trimmed cells for one non-separator row.
- */
-function parseTableRows(markdown: string): string[][] {
-  const rows: string[][] = [];
-  for (const line of markdown.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed.startsWith("|")) continue;
-    // Skip alignment/separator rows
-    if (/^\|[\s:|*-]+\|/.test(trimmed)) continue;
-    const parts = trimmed.split("|");
-    // Drop first and last empty segments from splitting on leading/trailing |
-    const cells: string[] = [];
-    for (let i = 1; i < parts.length - 1; i++) {
-      cells.push((parts[i] ?? "").trim());
-    }
-    if (cells.length > 0) rows.push(cells);
-  }
-  return rows;
-}
-
-/** Normalize whitespace and strip markdown escape backslashes. */
-function clean(s: string): string {
-  return s.replace(/\\(.)/g, "$1").trim();
-}
-
-/** Return value if non-empty, else null. */
-function presence(s: string): string | null {
-  const c = clean(s);
-  return c.length > 0 ? c : null;
-}
+import { clean, presence, parseTableRows } from "./_helpers";
 
 // ── v4 parser ─────────────────────────────────────────────────────────────────
 //
@@ -177,10 +143,9 @@ function parseClientV4(rows: string[][]): Pick<ShowRow, "client_label" | "client
 //
 // v1 fallback uses merged cells: "CLIENT /Org", "Client Contact/Name", "Client Email/email"
 
-function parseClientV2orV1(
-  rows: string[][],
-  version: "v1" | "v2",
-): Pick<ShowRow, "client_label" | "client_contact"> {
+// v1 and v2 share an identical extraction path (v1 additionally handles merged-cell
+// patterns via regex). No version branching is needed — the private helper takes rows only.
+function parseClientV2orV1(rows: string[][]): Pick<ShowRow, "client_label" | "client_contact"> {
   let clientLabel = "";
   let contactName: string | null = null;
   let contactPhone: string | null = null;
@@ -270,5 +235,5 @@ export function parseClient(
     return parseClientV4(rows);
   }
   // v1 and v2 share the same extraction path; v1 additionally handles merged cells
-  return parseClientV2orV1(rows, version);
+  return parseClientV2orV1(rows);
 }
