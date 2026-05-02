@@ -70,7 +70,7 @@ After running self-review, fix any issues inline. Then proceed to adversarial re
 # Execution handoff
 
 The plan and spec are saved at:
-- Plan: `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design.md`
+- Plan: `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/` (see [README.md](README.md))
 - Spec: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md`
 
 **Two execution paths:**

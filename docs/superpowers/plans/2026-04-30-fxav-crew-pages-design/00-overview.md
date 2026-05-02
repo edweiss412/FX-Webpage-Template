@@ -159,7 +159,7 @@ supabase/
 
 fixtures/ # already exists, not modified
 docs/superpowers/specs/.. # already exists, not modified
-docs/superpowers/plans/2026-04-30-fxav-crew-pages-design.md # this file
+docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/ # this plan directory
 
 tests/
   parser/ # vitest, one file per block

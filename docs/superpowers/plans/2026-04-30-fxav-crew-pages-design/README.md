@@ -47,10 +47,3 @@ Spec section references (`§5.2`, `§7.2.2`, etc.) point into the single-file sp
 
 `<!-- spec-id: ... -->` HTML comment anchors are preserved verbatim and continue to work for the X.6 traceability matrix once the walker is updated to read from this directory.
 
----
-
-## Note on tooling that referenced the monolithic file
-
-**Adversarial review prompts and the X.6 traceability walker need to be updated to read from this directory instead of the prior single file at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design.md`.** That file has been deleted; its content lives in the per-milestone files listed above. Any script that previously globbed the single `.md` file should now glob `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/*.md` (or read the README file map and resolve to the listed files).
-
-The user is handling those caller-side updates separately.

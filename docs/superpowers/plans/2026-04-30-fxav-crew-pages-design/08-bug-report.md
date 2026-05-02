@@ -1053,7 +1053,7 @@ The plan ratifies **three** amendments to §13.2.3. All three must land together
    - On 0-row tail UPDATE: orphan-cleanup branch closes the GH issue with state_reason `not_planned` and adds the `fxav-orphan-lost-lease` label, then INSERTs `admin_alerts` coded `REPORT_ORPHANED_LOST_LEASE`. : if the row was reaped between createIssue and the tail UPDATE, the re-SELECT returns null and the route returns 410 `REPORT_HORIZON_EXPIRED`.
 
 - [ ] **Step 1: Read the existing §13.2.3 text** at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md:2050-2086` to confirm what's being replaced; also locate the `reports` table schema mention in §4 to confirm where the `lease_holder` column declaration lands.
-- [ ] **Step 2: Author the spec patch** that incorporates all three amendments above. Add a sentence pointing back to the plan: "See `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design.md` Tasks 8.1, 8.3b, 8.3d, 8.3e, 8.3f for the full implementation contract and regression-test list."
+- [ ] **Step 2: Author the spec patch** that incorporates all three amendments above. Add a sentence pointing back to the plan: "See `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/08-bug-report.md` Tasks 8.1, 8.3b, 8.3d, 8.3e, 8.3f for the full implementation contract and regression-test list."
 - [ ] **Step 3a: Author the verification script** at `scripts/verify-spec-amendment-3.sh`. The script asserts each invariant below with EXACT match counts (not just "at least one"), exits non-zero if any assertion fails, and is wired into the project's CI as a `pnpm verify:spec-amendment` task. Concrete script body:
 
   ```bash
