@@ -239,14 +239,10 @@ function extractAllDates(text: string): string[] {
     /(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\.?,?\s*)?(\d{1,2})\/(\d{1,2})\/(\d{2,4})/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
-    const month = parseInt(m[1] ?? "", 10);
-    const day = parseInt(m[2] ?? "", 10);
-    const rawYear = parseInt(m[3] ?? "", 10);
-    const year = rawYear < 100 ? 2000 + rawYear : rawYear;
-    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-      const mm = String(month).padStart(2, "0");
-      const dd = String(day).padStart(2, "0");
-      results.push(`${year}-${mm}-${dd}`);
+    // Route through normalizeDate to enforce calendar-validity (rejects Feb 30, Apr 31, etc.)
+    const iso = normalizeDate(m[0]);
+    if (iso !== null) {
+      results.push(iso);
     }
   }
   return results;

@@ -268,3 +268,32 @@ describe("normalizeDate — calendar-validity", () => {
     expect(normalizeDate("13/15/25")).toBeNull(); // month > 12
   });
 });
+
+// ── v1 SHOW rows: calendar-validity gate in extractAllDates ──────────────────
+describe("parseDates — v1 SHOW rows reject calendar-invalid dates", () => {
+  it("drops Feb 30 from showDays but keeps a valid date in the same row", () => {
+    // Synthetic v1-shape DATES block: 2-col rows (label | value).
+    // isV1ShapedDatesBlock returns true when the first data row has exactly 2 cells.
+    const md = [
+      "| DATES | |",
+      "| :---: | :---: |",
+      "| Show | 2/30/25 |",
+      "| Show | 3/15/25 |",
+    ].join("\n");
+    const d = parseDates(md, "v1");
+    expect(d.showDays).not.toContain("2025-02-30");
+    expect(d.showDays).toContain("2025-03-15");
+  });
+
+  it("drops Apr 31 from showDays", () => {
+    const md = [
+      "| DATES | |",
+      "| :---: | :---: |",
+      "| Show | 4/31/25 |",
+      "| Show | 4/30/25 |",
+    ].join("\n");
+    const d = parseDates(md, "v1");
+    expect(d.showDays).not.toContain("2025-04-31");
+    expect(d.showDays).toContain("2025-04-30");
+  });
+});
