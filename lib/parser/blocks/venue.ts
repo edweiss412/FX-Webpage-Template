@@ -124,6 +124,10 @@ export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowR
         address = val;
       } else if (subCanon === "venue.loading_dock" && val && loadingDock === null) {
         loadingDock = val;
+      } else if (subCanon === "venue.google_link" && val && googleLink === null) {
+        googleLink = val;
+      } else if (subCanon === "venue.notes" && val && notes === null) {
+        notes = val;
       }
       continue;
     }

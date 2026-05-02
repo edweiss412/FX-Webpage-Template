@@ -191,6 +191,16 @@ describe("parseVenue — 2025-10 fixture combined VENUE NAME/VENUE ADDRESS split
     const r = parseVenue(md, "v2");
     expect(r?.name).not.toContain("/");
   });
+
+  it("venue.googleLink is captured from the blank-col0 continuation row (line 36)", () => {
+    const r = parseVenue(md, "v2");
+    expect(r?.googleLink).toBe("https://maps.app.goo.gl/CYPC3gxtqUj3AdEk7");
+  });
+
+  it("venue.loadingDock is captured from the blank-col0 continuation row (line 35)", () => {
+    const r = parseVenue(md, "v2");
+    expect(r?.loadingDock).toBe("806 N Rush St Chicago, IL 60611");
+  });
 });
 
 describe("parseVenue — corpus coverage (all 10 fixtures)", () => {
