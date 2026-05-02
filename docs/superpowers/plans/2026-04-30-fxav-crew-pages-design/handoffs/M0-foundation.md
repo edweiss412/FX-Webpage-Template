@@ -95,6 +95,10 @@ M0 is the first executed milestone, so there is no prior convergence-log evidenc
 
 - **Task 0.4 Step 4 — `pnpm dlx supabase@latest start` boot smoke test.** Deferred 2026-05-02 because Docker is not installed on the implementer's machine. Does not block M0 closure or M1 parser work. Re-run the smoke test before any M2 task that relies on `supabase start` for local schema iteration. M2 migrations targeting a remote Supabase project via `supabase db push --db-url ...` do NOT require Docker, so M2 can begin without this verification — just don't claim local-dev parity until the smoke test runs. Track via a TODO at the end of M0 commit `be4f7bc`.
 
+## Known local-dev warts (not blockers)
+
+- **`next-env.d.ts` flaps between `./.next/types/routes.d.ts` (build mode) and `./.next/dev/types/routes.d.ts` (dev mode) depending on which Next.js mode last ran.** Next 16 splits routes-types output by mode; the file is auto-regenerated and Next's own comment says "should not be edited." Task 0.3's CI fix forces `pnpm build && pnpm start` on CI so the committed `./.next/types/...` form is what CI sees, but locally any developer running `pnpm dev` (directly or via `pnpm test:e2e`) will see the file mutate to the dev-mode path. Convention for M0+: **the committed form is always the build-mode path** (`./.next/types/routes.d.ts`); if your `git status` shows a modification on `next-env.d.ts`, run `git checkout -- next-env.d.ts` before committing. Do NOT commit the dev-mode path. A future task can move `next-env.d.ts` to `.gitignore` if this becomes a recurring annoyance, but that requires reworking `pnpm typecheck` to ensure the file is regenerated on fresh checkouts.
+
 ## 10. Adversarial review handoff
 
 After all six M0 tasks are committed:
