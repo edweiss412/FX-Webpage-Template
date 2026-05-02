@@ -48,7 +48,7 @@ If any of the above is not met, do NOT start the milestone. Open a question.
 - [ ] Email canonicalization at boundary — **N/A — `lib/email/canonicalize.ts` is created in M1 (Task 1.2). M0 does not parse or read emails.**
 - [ ] No global cursor — **N/A — sync code does not exist until M6. Verification reserved for M6 handoff.**
 - [ ] No raw error codes in UI — **N/A — UI does not exist until M4. Verification reserved for M4 handoff.**
-- [x] **Commit per task** — applies as a target, not a hard contract. Format: `infra: <one-line summary>` for task implementation; `docs(plan): ...` / `docs(handoff): ...` / `docs: ...` for plan/handoff/spec corrections. One implementation commit per Task 0.1–0.6 (six commits) PLUS additional commits for in-flight corrections produced by the spec-compliance + code-quality review loops, the deferred-then-resolved Task 0.4 Step 4, and the cross-model adversarial review fix loop. Final M0 commit count: 21 (recorded for adversarial-review baseline; subsequent milestones should not exceed ~3× target without justification).
+- [x] **Commit per task** — applies as a target, not a hard contract. Format follows AGENTS.md §1.6 (amended in round-2 adversarial-review fix): conventional-commits `<type>(<scope>): <summary>` or bare `<type>: <summary>` for cross-cutting changes — the `infra:` short form is the established convention for tooling/scaffolding commits in this project. One implementation commit per Task 0.1–0.6 (six commits) PLUS additional commits for in-flight corrections produced by the spec-compliance + code-quality review loops, the deferred-then-resolved Task 0.4 Step 4, the cross-model adversarial review fix loop, and the round-1 adversarial-review fix commits (3) and round-2 fix commits (3). Final M0 commit count: 26 (recorded for adversarial-review baseline; subsequent milestones should not exceed ~3× target without justification).
 
 ## 6. Watchpoints from prior adversarial review
 
@@ -75,15 +75,15 @@ M0 is the first executed milestone, so there is no prior convergence-log evidenc
 
 - [x] All M0 task steps in `01-foundation.md` Tasks 0.1–0.6 checked off (verified by reading the file post-flip).
 - [ ] All AC IDs from §2 above have at least one test asserting them — **N/A — M0 has no AC IDs.**
-- [ ] Adversarial review (per `superpowers:adversarial-review`) ran to convergence — handoff sent to GPT-5.5 / Codex with the M0 diff after all six tasks are committed.
-- [ ] All commits follow `infra: <summary>` format with one task per commit (six commits).
-- [ ] `pnpm lint && pnpm typecheck && pnpm test` clean.
-- [ ] `pnpm build` clean.
-- [ ] `pnpm test:e2e --project=mobile-safari` clean (sample home-page test passes).
-- [ ] No new `// TODO` or `// FIXME` lines unless explicitly in the plan.
-- [ ] `app/globals.css` contains exactly `@import "tailwindcss";` (Tailwind v4 base) and no `align-items` global resets.
-- [ ] `.env.local.example` lists every var named in spec §14.3, including `GITHUB_BOT_LOGIN`, `ADMIN_EMAILS=dlarson@fxav.net,edweiss412@gmail.com`, and the comment "NB: WATCHED_DRIVE_FOLDER_ID is NOT an env var".
-- [ ] `DESIGN.md` does NOT exist yet (correct — it is created in Task 4.1).
+- [ ] Adversarial review (per `superpowers:adversarial-review`) ran to convergence — round-2 fix in progress; convergence pending round-3 confirmation.
+- [x] All commits follow conventional-commits style per AGENTS.md §1.6 (now updated to formalize the short `<scope>:` form). Total commit count: 26 (6 task implementations + 9 docs/correction commits across the spec, plan, and handoff + 6 review-loop fix commits + 3 round-1 adversarial-review fix commits + 2 round-2 adversarial-review fix commits).
+- [x] `pnpm lint && pnpm typecheck && pnpm test` clean.
+- [x] `pnpm build` clean.
+- [x] `pnpm test:e2e --project=mobile-safari` clean (sample home-page test passes).
+- [x] No new `// TODO` or `// FIXME` lines unless explicitly in the plan (verified: zero hits in `app/`, `tests/`, `lib/`).
+- [x] `app/globals.css` contains exactly `@import "tailwindcss";` (Tailwind v4 base) and no `align-items` global resets (verified).
+- [x] `.env.local.example` lists every var named in spec §14.3, including `GITHUB_BOT_LOGIN`, `ADMIN_EMAILS=dlarson@fxav.net,edweiss412@gmail.com`, and the comment "NB: WATCHED_DRIVE_FOLDER_ID is NOT an env var" (verified).
+- [x] `DESIGN.md` does NOT exist yet (verified: `ls DESIGN.md` → no such file).
 
 ## 9. Sandbox / git protocol
 
