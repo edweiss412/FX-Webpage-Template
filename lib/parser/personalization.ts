@@ -35,7 +35,6 @@ const ROLE_NORMALIZATIONS: Record<string, RoleFlag> = {
   OWNER: "OWNER",
   "CONTENT CREATION": "CONTENT_CREATION",
   CONTENT_CREATION: "CONTENT_CREATION",
-  ONLY: "ONLY",
 };
 
 // Multi-word tokens that must be matched BEFORE splitting by / or -.
@@ -185,10 +184,13 @@ export function extractRoleFlags(roleCell: string): RoleFlagResult {
   // Strip full stage list prefix
   if (FULL_STAGE_PATTERN.test(remainder)) {
     remainder = remainder.replace(
-      /^\s*-?\s*Load\s+In\s*\/\s*Set\s*\/\s*Strike\s*\/\s*Load\s+Out\s*(ONLY\*{0,3})?\s*-{1,2}\s*/i,
+      /^\s*-?\s*Load\s+In\s*\/\s*Set\s*\/\s*Strike\s*\/\s*Load\s+Out\s*(ONLY\*{0,3})?\s*(-{1,2}\s*)?/i,
       "",
     );
-    // If nothing remained after the stage list (e.g. "ONLY***"), clear it
+    // If nothing remained after the stage list (e.g. "ONLY***" or bare "ONLY"), clear it.
+    // Note: after the regex above made the dash optional, this catches any residual
+    // ONLY/ONLY*** that was not consumed by the main pattern (e.g. when ONLY appears
+    // without a trailing dash and role flags).
     remainder = remainder.replace(/^\s*ONLY\*{0,3}\s*$/i, "").trim();
   } else if (LOAD_IN_SET_ONLY_PATTERN.test(remainder)) {
     remainder = "";
@@ -229,11 +231,13 @@ export function extractRoleFlags(roleCell: string): RoleFlagResult {
 
   for (const tok of rawTokens) {
     if (!tok) continue;
+    // ONLY is a recognized restriction marker (not a capability flag) — silently skip
+    // without emitting UNKNOWN_ROLE_TOKEN. The stage/date restriction fields carry
+    // the restriction semantics; role_flags should never contain "ONLY".
+    if (tok === "ONLY") continue;
     const canonical = ROLE_NORMALIZATIONS[tok];
     if (canonical) {
-      if (canonical !== "ONLY") {
-        flags.push(canonical);
-      }
+      flags.push(canonical);
     } else {
       unknownTokens.push(tok);
       warnings.push({

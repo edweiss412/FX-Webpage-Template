@@ -28,6 +28,11 @@ export type StageRestriction =
 // decomposer (Task 1.6) before being asserted against this union. The fixture
 // role-master is the canonical source of truth; this union encodes the
 // post-normalization vocabulary.
+//
+// Restriction markers like `ONLY` and the `***` asterisk form are recognized
+// by the parser as valid tokens (no UNKNOWN_ROLE_TOKEN warning is emitted) but
+// do NOT appear in `role_flags`. They influence `stage_restriction` (ONLY) and
+// `date_restriction.kind = 'unknown_asterisk'` (***) instead.
 export type RoleFlag =
   // Capability flags
   | "LEAD"
@@ -51,9 +56,7 @@ export type RoleFlag =
   | "SHOW_CALLER"
   | "GREEN_ROOM"
   | "OWNER"
-  | "CONTENT_CREATION"
-  // Restriction marker (paired with stage_restriction or unknown_asterisk)
-  | "ONLY";
+  | "CONTENT_CREATION";
 
 export type CrewMemberRow = {
   name: string;

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { parseCrew } from "@/lib/parser/blocks/crew";
+import { extractRoleFlags } from "@/lib/parser/personalization";
 import { detectVersion } from "@/lib/parser/schema";
 
 // ── Fixture paths (all verified against corpus) ───────────────────────────────
@@ -316,6 +317,181 @@ describe("parseCrew — corpus coverage (all 10 fixtures)", () => {
           expect(m.email.length).toBeGreaterThan(0);
         }
       }
+    });
+  }
+});
+
+// ── Fix 1 regression: pure-ONLY rows lose no role_flags (stage-strip regex) ───
+// Pre-fix bug: the regex required a mandatory trailing dash separator. When the
+// role cell was exactly "Load In / Set / Strike / Load Out ONLY" (no dash, no
+// trailing role flags) the regex didn't match, leaving the full stage list in
+// `remainder`, which tokenized to UNKNOWN_ROLE_TOKEN for every stage word.
+
+describe("parseCrew — Fix 1 regression: pure stage-only ONLY rows (no trailing dash)", () => {
+  it("Calvin Saller in 2025-06-ria: pure ONLY row → role_flags=[] + all-4-stages restriction", () => {
+    // Line 32: "| | Calvin Saller (6/24 and 6/26 ONLY) | \\- Load In / Set / Strike / Load Out ONLY | ..."
+    // No trailing dash, no role flags after ONLY — pre-fix produced UNKNOWN_ROLE_TOKEN for each stage word.
+    const md = readFileSync("fixtures/shows/raw/2025-06-ria-investment-forum.md", "utf8");
+    const crew = parseCrew(md, "v2");
+    const calvin = crew.find((c) => c.name.startsWith("Calvin"))!;
+    expect(calvin).toBeDefined();
+    expect(calvin.role_flags).toEqual([]);
+    expect(calvin.stage_restriction).toEqual({
+      kind: "explicit",
+      stages: ["Load In", "Set", "Strike", "Load Out"],
+    });
+  });
+
+  it("Calvin Saller in 2025-05-redefining: pure ONLY row → role_flags=[]", () => {
+    // Line 215: "\\- Load In / Set / Strike / Load Out ONLY" — same pure-ONLY form, no dash.
+    const md = readFileSync(
+      "fixtures/shows/raw/2025-05-redefining-fixed-income-private-credit.md",
+      "utf8",
+    );
+    const crew = parseCrew(md, "v2");
+    const calvin = crew.find((c) => c.name === "Calvin Saller")!;
+    expect(calvin).toBeDefined();
+    expect(calvin.role_flags).toEqual([]);
+    expect(calvin.stage_restriction).toEqual({
+      kind: "explicit",
+      stages: ["Load In", "Set", "Strike", "Load Out"],
+    });
+  });
+
+  it("Eric Weiss in 2025-10-fixed-income: pure ONLY row → role_flags=[]", () => {
+    // Line 29: "\\- Load In / Set / Strike / Load Out ONLY" — pure-ONLY form.
+    const md = readFileSync("fixtures/shows/raw/2025-10-fixed-income-trading-summit.md", "utf8");
+    const crew = parseCrew(md, "v2");
+    const eric = crew.find((c) => c.name.startsWith("Eric Weiss"))!;
+    expect(eric).toBeDefined();
+    expect(eric.role_flags).toEqual([]);
+    expect(eric.stage_restriction).toEqual({
+      kind: "explicit",
+      stages: ["Load In", "Set", "Strike", "Load Out"],
+    });
+  });
+
+  it("Calvin Saller ONLY*** in 2026-03-rpas: empty role_flags + unknown_asterisk", () => {
+    // Line 38: "\\- Load In / Set / Strike / Load Out ONLY\\*\\*\\*" — ONLY*** variant.
+    const md = readFileSync("fixtures/shows/raw/2026-03-rpas-central-four-seasons.md", "utf8");
+    const crew = parseCrew(md, "v4");
+    const calvin = crew.find((c) => c.name === "Calvin Saller")!;
+    expect(calvin).toBeDefined();
+    expect(calvin.role_flags).toEqual([]);
+    expect(calvin.date_restriction).toEqual({ kind: "unknown_asterisk", days: null });
+    expect(calvin.stage_restriction).toEqual({
+      kind: "explicit",
+      stages: ["Load In", "Set", "Strike", "Load Out"],
+    });
+  });
+
+  it("Calvin Saller ONLY*** in 2026-05-fintech: empty role_flags + unknown_asterisk", () => {
+    const md = readFileSync("fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md", "utf8");
+    const crew = parseCrew(md, "v4");
+    const calvin = crew.find((c) => c.name === "Calvin Saller")!;
+    expect(calvin).toBeDefined();
+    expect(calvin.role_flags).toEqual([]);
+    expect(calvin.date_restriction).toEqual({ kind: "unknown_asterisk", days: null });
+  });
+
+  it("no UNKNOWN_ROLE_TOKEN warnings emitted for pure-ONLY role cells (extractRoleFlags direct)", () => {
+    // extractRoleFlags receives already-cleaned strings (backslashes stripped by clean() in crew.ts).
+    // Test with the post-clean forms: "- Load In / Set / Strike / Load Out ONLY" (no backslash).
+    const pureCases = [
+      "- Load In / Set / Strike / Load Out ONLY",
+      "Load In / Set / Strike / Load Out ONLY",
+      "- Load In / Set / Strike / Load Out ONLY***",
+    ];
+    for (const cell of pureCases) {
+      const { unknownTokens, warnings } = extractRoleFlags(cell);
+      const unknownWarnings = warnings.filter((w) => w.code === "UNKNOWN_ROLE_TOKEN");
+      expect(unknownWarnings, `Expected no UNKNOWN_ROLE_TOKEN for: "${cell}"`).toHaveLength(0);
+      expect(unknownTokens, `Expected no unknown tokens for: "${cell}"`).toHaveLength(0);
+    }
+  });
+});
+
+// ── Fix 2: synthetic per-token vocabulary test (plan §6.6 requirement) ────────
+// Exercises every token from the v4 role-master at
+// fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md:718-743.
+// Each token that is a capability flag must produce non-empty role_flags and no
+// UNKNOWN_ROLE_TOKEN warning. Restriction-only tokens (ONLY***, Load In/Set ONLY,
+// Load Out/Strike ONLY) produce empty role_flags — that is expected and NOT a failure.
+
+describe("extractRoleFlags — synthetic per-token vocabulary (plan §6.6)", () => {
+  // Canonical capability tokens from the role-master (all must produce ≥1 flag, no UNKNOWN warning).
+  // extractRoleFlags receives post-clean() strings (backslashes already stripped by crew.ts).
+  // The role-master rows use "- Load In / Set / Strike / Load Out - <TOKEN>" form after cleaning.
+  const capabilityTokenCells: Array<{ token: string; cell: string }> = [
+    { token: "LEAD", cell: "- Load In / Set / Strike / Load Out - LEAD" },
+    { token: "LEAD/A1", cell: "- Load In / Set / Strike / Load Out - LEAD / A1" },
+    { token: "LEAD/V1", cell: "- Load In / Set / Strike / Load Out - LEAD / V1" },
+    { token: "A1", cell: "- Load In / Set / Strike / Load Out - A1" },
+    { token: "A2", cell: "- Load In / Set / Strike / Load Out - A2" },
+    { token: "V1", cell: "- Load In / Set / Strike / Load Out - V1" },
+    { token: "BO", cell: "- Load In / Set / Strike / Load Out - BO" },
+    { token: "GS-A1", cell: "- Load In / Set / Strike / Load Out - GS - A1" },
+    { token: "GS-V1", cell: "- Load In / Set / Strike / Load Out - GS - V1" },
+    { token: "BO-A1", cell: "- Load In / Set / Strike / Load Out - BO - A1" },
+    { token: "BO-V1", cell: "- Load In / Set / Strike / Load Out - BO - V1" },
+    { token: "BO-LEAD", cell: "- Load In / Set / Strike / Load Out - BO - LEAD" },
+    { token: "L1", cell: "- Load In / Set / Strike / Load Out - L1" },
+    { token: "FLOATER", cell: "- Load In / Set / Strike / Load Out - FLOATER" },
+    { token: "FLOOR", cell: "- Load In / Set / Strike / Load Out - FLOOR" },
+    { token: "STREAM", cell: "- Load In / Set / Strike / Load Out - STREAM" },
+    { token: "CAM OP", cell: "- Load In / Set / Strike / Load Out - CAM OP" },
+    { token: "PTZ", cell: "- Load In / Set / Strike / Load Out - PTZ" },
+    { token: "LED", cell: "- Load In / Set / Strike / Load Out - LED" },
+    { token: "GAV", cell: "- Load In / Set / Strike / Load Out - GAV" },
+    { token: "SHOW CALLER", cell: "- Load In / Set / Strike / Load Out - SHOW CALLER" },
+    { token: "GREEN ROOM", cell: "- Load In / Set / Strike / Load Out - GREEN ROOM" },
+    { token: "OWNER", cell: "- Load In / Set / Strike / Load Out - OWNER" },
+    {
+      token: "CONTENT CREATION",
+      cell: "- Load In / Set / Strike / Load Out -- CONTENT CREATION",
+    },
+  ];
+
+  for (const { token, cell } of capabilityTokenCells) {
+    it(`token '${token}' → ≥1 role_flag, no UNKNOWN_ROLE_TOKEN`, () => {
+      const { flags, unknownTokens, warnings } = extractRoleFlags(cell);
+      const unknownWarnings = warnings.filter((w) => w.code === "UNKNOWN_ROLE_TOKEN");
+      expect(
+        unknownWarnings,
+        `Token '${token}' emitted UNKNOWN_ROLE_TOKEN from cell: "${cell}"`,
+      ).toHaveLength(0);
+      expect(
+        unknownTokens,
+        `Token '${token}' left unknown tokens from cell: "${cell}"`,
+      ).toHaveLength(0);
+      expect(
+        flags.length,
+        `Token '${token}' produced empty role_flags from cell: "${cell}"`,
+      ).toBeGreaterThan(0);
+    });
+  }
+
+  // Restriction-only tokens: must produce empty role_flags AND no UNKNOWN_ROLE_TOKEN.
+  // Post-clean() forms: backslashes stripped, *** literal (not markdown-escaped).
+  const restrictionOnlyCells: Array<{ token: string; cell: string }> = [
+    { token: "ONLY***", cell: "- Load In / Set / Strike / Load Out ONLY***" },
+    { token: "Load In/Set ONLY", cell: "- Load In / Set ONLY" },
+    { token: "Load Out/Strike ONLY", cell: "- Load Out / Strike ONLY" },
+  ];
+
+  for (const { token, cell } of restrictionOnlyCells) {
+    it(`restriction token '${token}' → role_flags=[], no UNKNOWN_ROLE_TOKEN`, () => {
+      const { flags, unknownTokens, warnings } = extractRoleFlags(cell);
+      const unknownWarnings = warnings.filter((w) => w.code === "UNKNOWN_ROLE_TOKEN");
+      expect(
+        unknownWarnings,
+        `Restriction token '${token}' emitted UNKNOWN_ROLE_TOKEN from cell: "${cell}"`,
+      ).toHaveLength(0);
+      expect(
+        unknownTokens,
+        `Restriction token '${token}' left unknown tokens from cell: "${cell}"`,
+      ).toHaveLength(0);
+      expect(flags, `Restriction token '${token}' should produce empty role_flags`).toEqual([]);
     });
   }
 });
