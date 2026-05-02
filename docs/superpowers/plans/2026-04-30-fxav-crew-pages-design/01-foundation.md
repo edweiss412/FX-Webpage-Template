@@ -181,6 +181,7 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 - [ ] **Step 2: Author `.env.local.example`** — every var listed in spec §14.3, no real secrets:
   ```
   # Supabase
+  SUPABASE_URL=
   NEXT_PUBLIC_SUPABASE_URL=
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
   SUPABASE_SECRET_KEY=
