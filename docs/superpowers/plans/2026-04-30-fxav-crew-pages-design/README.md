@@ -22,13 +22,12 @@ This plan has been split from a single 9,719-line monolithic file into a per-mil
 | [08-bug-report.md](08-bug-report.md) | **Milestone 8** — Bug-report pipeline (Tasks 8.1–8.5 incl. 8.3a–8.3g, AC-8.1..8.13) | 1,261 |
 | [09-10-admin.md](09-10-admin.md) | **Milestone 9** — Stale-data UX, error states, polish (Tasks 9.1–9.4, AC-9.1..9.3); **Milestone 10** — Onboarding wizard (Tasks 10.1–10.10, AC-10.1..10.6) | 1,365 |
 | [11-cross-cutting.md](11-cross-cutting.md) | Cross-cutting tasks X.1–X.6 (AC-X.1..X.6) | 2,024 |
-| [99-execution.md](99-execution.md) | Self-review checklist + Execution handoff | 80 |
 
 ---
 
 ## How to use this plan
 
-1. **Required sub-skill.** Use [`superpowers:subagent-driven-development`](../../../../.claude/skills/superpowers/subagent-driven-development) (recommended) or [`superpowers:executing-plans`](../../../../.claude/skills/superpowers/executing-plans) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+1. **Required sub-skill.** Use [`superpowers:subagent-driven-development`](../../../../.claude/skills/superpowers/subagent-driven-development) (recommended — fresh subagent per task with review between tasks) or [`superpowers:executing-plans`](../../../../.claude/skills/superpowers/executing-plans) (inline batch execution with checkpoints) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 2. **Read 00-overview.md first.** It contains the goal, architecture, tech stack, ratified amendments to the spec, the canonical file structure, and the seven plan-wide invariants (TDD, per-show advisory lock, email canonicalization, no global cursor, no raw error codes in UI, etc).
 3. **Work milestone-by-milestone, top-to-bottom within each file.** Each task has its own TDD red→green→commit loop. Commit per task, don't batch.
 4. **Spec is canonical, with the three amendments listed in 00-overview.md.** When a task and the spec disagree on anything other than those amendments, the spec wins — open a question, do not silently fix it in the plan.
