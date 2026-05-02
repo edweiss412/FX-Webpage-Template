@@ -155,7 +155,7 @@ create table shows (
   title           text not null,                   -- "RPAS Central 2026"
   client_label    text not null,                   -- "II" or "AII/III"
   client_contact  jsonb,                           -- { name, email, phone, officePhone?, secondary? }
-  template_version text not null,                  -- "v1" | "v2" | "v3" | "v4"
+  template_version text not null,                  -- "v1" | "v2" | "v4" (v3 dropped per amendment 4)
   venue           jsonb,                           -- { name, address, loadingDock, googleLink, notes? }
   dates           jsonb,                           -- { travelIn, set, showDays: [...], travelOut }
   event_details   jsonb,                           -- flat key/value of EVENT DETAILS section
@@ -1362,7 +1362,6 @@ A `parser-config.json` file (or DB table) defines:
       "requires": ["row:Contact Office", "block:MAIN/SECONDARY"],
       "fieldMap": "v4-fields.json"
     },
-    { "id": "v3", "requires": ["block:GEAR INVENTORY"], "fieldMap": "v3-fields.json" },
     { "id": "v2", "requires": ["row:Hotel Contact Info"], "fieldMap": "v2-fields.json" },
     { "id": "v1", "fallback": true, "fieldMap": "v1-fields.json" }
   ],
@@ -2757,7 +2756,7 @@ Every error code, parse warning, and admin notification produced anywhere in the
 | `STAGED_PARSE_RESTAGED_INLINE` | onboarding stage was outdated; rescanned inline within the wizard session | "The sheet was edited since your last look — we re-parsed it inside the wizard. Here's the new review." | — | Doug → review the refreshed parse |
 | `STAGED_PARSE_SUPERSEDED` | a newer cron parse committed before Apply | "A newer parse has already been applied. Refresh the admin page to review the latest state." | — | Doug → refresh |
 | **Parser — hard fails (MI-1..MI-5b)** | | | | |
-| `MI-1_VERSION_DETECTION_FAILED` | no template version markers match | "_<sheet-name>_ doesn't look like your usual show template — none of the version markers we expect (Contact Office row, MAIN/SECONDARY block, GEAR INVENTORY block) are present. Either this is a different kind of document, or your template has changed in a way we don't recognize. Tell the developer if your template has changed." | — | Doug → check sheet shape; Eric → add v5 detector if real |
+| `MI-1_VERSION_DETECTION_FAILED` | no template version markers match | "_<sheet-name>_ doesn't look like your usual show template — none of the version markers we expect (Contact Office row, MAIN/SECONDARY block for v4; Hotel Contact Info row for v2) are present. Either this is a different kind of document, or your template has changed in a way we don't recognize. Tell the developer if your template has changed." | — | Doug → check sheet shape; Eric → add new version detector if real |
 | `MI-2_TITLE_MISSING` | `show.title` empty/null | "_<sheet-name>_ doesn't have a recognizable show title. Add or fix the CLIENT row." | — | Doug → fix sheet |
 | `MI-3_NO_PARSEABLE_DATE` | no travel/set/show date parses | "_<sheet-name>_ doesn't have any readable dates — we couldn't find Travel In, Set Day, or Show Day 1 as a parseable date. Check the DATES block." | — | Doug → fix sheet |
 | `MI-4_NO_CREW` | parsed `crewMembers.length === 0` | "_<sheet-name>_ has no crew rows. Add at least one person to the CREW block." | — | Doug → fix sheet |
@@ -2871,7 +2870,7 @@ EMBEDDED_RECOVERY_REQUIRES_RESTAGE: "A diagram in your sheet can't be re-downloa
 DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE: "Google Drive didn't return a usable revision token for this spreadsheet, so we can't safely capture an immutable snapshot of the embedded diagrams. The previous version is still live for crew. The developer has been notified; this is rare and usually clears on the next edit."
 STAGED_PARSE_RESTAGED_INLINE: "The wizard re-parsed the sheet inside your current setup session because Doug edited it after the original scan. Review the refreshed parse — any decisions you made on the prior version were discarded."
 STAGED_PARSE_SUPERSEDED: "A newer parse was applied (probably by a different admin or a cron run) before your Apply landed. Refresh the admin page to see the current state."
-MI-1_VERSION_DETECTION_FAILED: "We look for specific row markers in your show template — the Contact Office row, the MAIN/SECONDARY block, the GEAR INVENTORY block — to recognize that this is a real show sheet. None of those markers were found. Either this isn't a show sheet, or your template has changed in a way the parser doesn't yet recognize. If your template has changed intentionally, tell the developer."
+MI-1_VERSION_DETECTION_FAILED: "We look for specific row markers in your show template — the Contact Office row and MAIN/SECONDARY block (v4 sheets), or the Hotel Contact Info row (v2 sheets) — to recognize that this is a real show sheet. None of those markers were found. Either this isn't a show sheet, or your template has changed in a way the parser doesn't yet recognize. If your template has changed intentionally, tell the developer."
 MI-2_TITLE_MISSING: "Every show needs a title — we read it from the CLIENT row in your sheet. Make sure the CLIENT cell is filled in with the show's title, then save the sheet."
 MI-3_NO_PARSEABLE_DATE: "We look for show dates in the DATES block (Travel In, Set Day, Show Day 1) and couldn't find anything we could read as a calendar date. Make sure your dates are in a familiar format like '6/24' or 'June 24' and that they're in the right cells."
 MI-4_NO_CREW: "Every show needs at least one crew member — we read names from the CREW block. The block exists but no rows have parseable names. Add at least one person to the CREW block."
