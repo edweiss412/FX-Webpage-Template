@@ -39,6 +39,7 @@ coverage/
 # Misc
 *.tsbuildinfo
 .turbo/
+.vercel
 .superpowers/
 .serena/
 .claude/
