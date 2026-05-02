@@ -7,6 +7,22 @@ This file assigns a default implementer (model + harness) to every milestone. Ro
 
 ---
 
+## Hard rule: all UI work is Opus
+
+Regardless of milestone routing below, **every task whose primary deliverable is UI code is owned by Opus / Claude Code**. UI code means:
+
+- Any file under `app/` **except** `app/api/**` (pages, layouts, loading/error/not-found components, route group folders)
+- Any file under `components/`
+- `app/globals.css`, `tailwind.config.ts`, `postcss.config.mjs`, `DESIGN.md`, and any design-token/theme file
+
+This applies even when the surrounding milestone is routed to Codex. M5 (auth backend → Codex) still has Opus building `app/auth/sign-in/page.tsx` and `app/me/page.tsx`. M6 (sync engine → Codex) still has Opus building `components/admin/ParsePanel.tsx`. M8 (report pipeline → Codex) still has Opus building `components/admin/ReportButton.tsx`.
+
+When a milestone splits this way, the handoff doc (per `HANDOFF-TEMPLATE.md`) lists which tasks belong to which implementer. Don't co-mingle UI and backend work in a single subagent dispatch — keep them separated so each runs in its specialist's harness with the correct skill stack (`frontend-design` / `impeccable` for Opus UI work; AGENTS.md discipline for Codex backend work).
+
+The cross-model adversarial review still pairs across milestones, not across split-tasks: M5's reviewer is the opposing harness for whichever side ran *more* of the milestone's task count.
+
+---
+
 ## Rubric
 
 The benchmark's central finding: model fit depends on repo shape, not absolute capability.
@@ -27,13 +43,13 @@ For frontend / UI-design work the benchmark gives no direct evidence (both repos
 | **M2 — Schema, RLS, migrations, seed** (Tasks 2.1–2.5) | graphql-go-tools-shaped | **GPT-5.5 / Codex** | Opus 4.7 / Claude Code | DDL + RLS + RPC read/write paths + propagation triggers + cleanup functions must agree. Classic Tier × domain matrix surface where Opus's known under-reach skips cells. |
 | **M3 — Admin upload-test** (Tasks 3.1–3.2) | Zod-shaped | Opus 4.7 / Claude Code | GPT-5.5 / Codex | Tiny fixture-upload tester. M3-only, narrow scope. |
 | **M4 — Crew page tiles** (Tasks 4.1–4.16) | Frontend / mixed | Opus 4.7 / Claude Code | GPT-5.5 / Codex | Each tile (Lodging, Venue, Schedule, Audio/Video/Lighting Scope, Crew, Contacts, Transport, etc.) is largely local. Plus mandatory `frontend-design` skill + dimensional-invariant Playwright assertions cover the integration risk. **Task 4.1 (DESIGN.md token extraction) is the gate** — assign explicitly to Opus + `impeccable`. |
-| **M5 — Auth** (Tasks 5.1–5.11) | Multi-validator coherence | **GPT-5.5 / Codex** | Opus 4.7 / Claude Code | `validateLinkSession` + `validateGoogleSession` + `validateGoogleIdentity` + `isAdminSession` + cookie helpers must share invariants. Opus's "stop at first passing path" failure mode hurts here. |
-| **M6 — Drive sync, cron + push** (Tasks 6.1–6.13) | graphql-go-tools-shaped | **GPT-5.5 / Codex** | Opus 4.7 / Claude Code | phase1/phase2 + push webhook + 5-min cron + watch refresh + GC + asset-recovery + per-show advisory locks + per-file processor — the largest integration surface in the plan. Highest model-fit gap. |
-| **M7 — Linked content** (Tasks 7.1–7.9) | Mixed | GPT-5.5 / Codex | Opus 4.7 / Claude Code | Diagram snapshots, opening-reel substring extractor, asset routes — touches storage, parser, route handlers, GC. Lean integration-heavy. |
-| **M8 — Bug-report pipeline** (Tasks 8.1–8.5 incl. 8.3a–8.3g) | graphql-go-tools-shaped | **GPT-5.5 / Codex** | Opus 4.7 / Claude Code | The §13.2.3 epic. Three amendments interlock: lease_holder ownership, listForRepo recovery, reaper-vs-retry race. Exactly the companion-surface pattern Opus misses in the benchmark. |
-| **M9 — Stale-data UX, polish** (Tasks 9.1–9.4) | Zod-shaped | Opus 4.7 / Claude Code | GPT-5.5 / Codex | Per-task UI polish, narrow scope. Plus mandatory `frontend-design`/`polish`/`harden` skills. |
-| **M10 — Onboarding wizard** (Tasks 10.1–10.10) | Mixed | Opus 4.7 / Claude Code | GPT-5.5 / Codex | UI-heavy with `onboard` skill, but also touches `api/admin/onboarding/scan/route.ts`, `api/admin/onboarding/finalize/route.ts`, and `runOnboardingScan`. Treat as Zod-shaped *unless* a specific task pulls in cross-cutting concerns. |
-| **X.* — Cross-cutting** (Tasks X.1–X.6) | graphql-go-tools-shaped | **GPT-5.5 / Codex** | Opus 4.7 / Claude Code | By definition spans the codebase: traceability matrix walker, message catalog, etc. |
+| **M5 — Auth** (Tasks 5.1–5.11) | Multi-validator coherence + UI | **GPT-5.5 / Codex (backend)** + **Opus 4.7 / Claude Code (UI)** | Opus 4.7 / Claude Code | Validators (`validateLinkSession`, `validateGoogleSession`, `validateGoogleIdentity`, `isAdminSession`, cookie helpers) → Codex. Pages (`app/auth/sign-in/page.tsx`, `app/me/page.tsx`) and any UI components → Opus per UI hard rule. |
+| **M6 — Drive sync, cron + push** (Tasks 6.1–6.13) | graphql-go-tools-shaped + admin UI | **GPT-5.5 / Codex (engine)** + **Opus 4.7 / Claude Code (admin UI)** | Opus 4.7 / Claude Code | Sync engine (phase1/phase2, webhook, cron, watch refresh, GC, recovery, per-show locks) → Codex. Admin parse panel pages and `components/admin/ParsePanel.tsx` / `StagedReviewCard.tsx` → Opus per UI hard rule. |
+| **M7 — Linked content** (Tasks 7.1–7.9) | Mixed | GPT-5.5 / Codex | Opus 4.7 / Claude Code | Asset route handlers + diagram snapshot logic + opening-reel extractor are pure backend (no UI deliverables in M7 itself; rendering of these assets lives in M4 tiles). |
+| **M8 — Bug-report pipeline** (Tasks 8.1–8.5 incl. 8.3a–8.3g) | graphql-go-tools-shaped + UI button | **GPT-5.5 / Codex (pipeline)** + **Opus 4.7 / Claude Code (ReportButton)** | Opus 4.7 / Claude Code | The §13.2.3 epic — pipeline, idempotency, recovery, reaper, lease_holder → Codex. `components/admin/ReportButton.tsx` and any user-facing report UI → Opus per UI hard rule. |
+| **M9 — Stale-data UX, polish** (Tasks 9.1–9.4) | Zod-shaped + UI | Opus 4.7 / Claude Code | GPT-5.5 / Codex | All-Opus: per-task UI polish, narrow scope. Mandatory `frontend-design`/`polish`/`harden` skills. |
+| **M10 — Onboarding wizard** (Tasks 10.1–10.10) | UI-heavy + admin routes | **Opus 4.7 / Claude Code (wizard UI)** + **GPT-5.5 / Codex (api routes)** | Opus 4.7 / Claude Code | Wizard pages, `OnboardingWizard.tsx`, and `PendingPanel.tsx` → Opus with `onboard` skill. `api/admin/onboarding/scan/route.ts`, `api/admin/onboarding/finalize/route.ts`, and `runOnboardingScan` → Codex. |
+| **X.* — Cross-cutting** (Tasks X.1–X.6) | Mostly graphql-go-tools-shaped | **GPT-5.5 / Codex (most)** + **Opus 4.7 / Claude Code (any UI surface)** | Opus 4.7 / Claude Code | Traceability walker, message catalog, etc. are backend. If a cross-cutting task lands in `components/` or non-api `app/`, that task moves to Opus per UI hard rule. |
 
 ---
 

@@ -82,3 +82,13 @@ These apply when this repo is being driven by Codex CLI (`codex exec`) rather th
 ## Routing convention
 
 Every milestone has an assigned implementer model+harness, documented in `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/ROUTING.md`. When a milestone is delegated across harnesses, the handoff follows `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/HANDOFF-TEMPLATE.md`. Read both before starting any milestone.
+
+### Hard rule: UI work is always Opus / Claude Code
+
+Any task whose primary deliverable is UI code is owned by Opus, regardless of which harness owns the rest of the milestone. UI code means:
+
+- Any file under `app/` **except** `app/api/**` (pages, layouts, loading/error/not-found components, route group folders)
+- Any file under `components/`
+- `app/globals.css`, `tailwind.config.ts`, `postcss.config.mjs`, `DESIGN.md`, design-token / theme files
+
+If you are running under Codex and a task you are about to start lands in any of those locations, **stop**. The task belongs to Opus + the `frontend-design` / `impeccable` skill stack. Hand back to the orchestrator (Claude Code) for that task. The handoff doc records which tasks split which way.
