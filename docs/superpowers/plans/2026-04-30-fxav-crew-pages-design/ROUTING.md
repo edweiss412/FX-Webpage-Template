@@ -49,25 +49,6 @@ Per benchmark code-review correctness scores: GPT-5.5 = 3.16, GPT-5.4 = 2.60, Op
 
 ---
 
-## Cost / time estimates
-
-From the benchmark, per task:
-
-|  | Opus 4.7 | GPT-5.5 |
-|---|---|---|
-| Cost | $3.43 | $2.86 |
-| Time | 11m18s | 6m56s |
-| Output tokens | 1.29M total | 0.72M total |
-
-This plan has ~80 tasks across 11 milestones. Rough order-of-magnitude:
-- All-Opus: ~$275, ~15 hrs of model time
-- All-GPT-5.5: ~$230, ~9 hrs of model time
-- Routing per this doc (mix): ~$250, ~12 hrs
-
-Cost is not the deciding factor; quality + adversarial-review fit is. These numbers exist to set expectations, not to drive choices.
-
----
-
 ## How to override
 
 A milestone's routing is a default, not a hard rule. Override when:
@@ -83,6 +64,5 @@ Document every override in a one-line note at the top of the affected task. Don'
 ## What is NOT decided here
 
 - **Reasoning level.** Default to high for both Opus and GPT-5.5 (matches benchmark configuration). `xhigh`/medium experiments are anecdote-only; if you run one, document the result.
-- **Pricing tier choices.** Out of scope. Pick whatever tier you actually have.
 - **Skill loadout per task.** Continues to follow CLAUDE.md (this session) / AGENTS.md (Codex sessions) and the skill `description:` matchers — `frontend-design`, `impeccable`, `subagent-driven-development`, etc. dispatch as usual.
 - **Whether to actually delegate vs do everything in this session.** Open question — depends on how the early milestones go. M0–M1 in this session is the conservative default. Reassess at the M1 → M2 boundary.
