@@ -171,8 +171,9 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
   JWT_SIGNING_SECRET=
   # GitHub
   GITHUB_API_TOKEN=
-  GITHUB_REPO=eric-weiss/FX-Webpage-Template
-  GITHUB_BOT_LOGIN= # the GitHub username the PAT belongs to; required for /api/report recovery (Task 8.3d)
+  GITHUB_REPO=edweiss412/FX-Webpage-Template
+  # the GitHub username the PAT belongs to; required for /api/report recovery (Task 8.3d)
+  GITHUB_BOT_LOGIN=
   # Sentry
   SENTRY_DSN=
   # Admin allowlist (comma-sep)
@@ -181,7 +182,7 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
   DRIVE_WEBHOOK_PUBLIC_URL=
   # NB: WATCHED_DRIVE_FOLDER_ID is NOT an env var — see §14.3 / §4.5.
   ```
-- [ ] **Step 3: Add `.env*.local`** to `.gitignore`.
+- [x] **Step 3: Add `.env*.local`** to `.gitignore`. *(Pre-satisfied — entries already present at base SHA from earlier commit; no additional change needed in M0.)*
 - [ ] **Step 4: Verify local Supabase boots**
   ```bash
   pnpm dlx supabase@latest start

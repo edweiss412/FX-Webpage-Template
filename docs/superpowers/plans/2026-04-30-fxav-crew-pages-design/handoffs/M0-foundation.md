@@ -93,7 +93,7 @@ M0 is the first executed milestone, so there is no prior convergence-log evidenc
 
 ## Deferred items
 
-- **Task 0.4 Step 4 — `pnpm dlx supabase@latest start` boot smoke test.** Deferred 2026-05-02 because Docker is not installed on the implementer's machine. Does not block M0 closure or M1 parser work. Re-run the smoke test before M2 (schema/RLS/migrations) — that milestone is the first to require a running local Supabase. Track via a TODO at the end of M0 commit `be4f7bc`.
+- **Task 0.4 Step 4 — `pnpm dlx supabase@latest start` boot smoke test.** Deferred 2026-05-02 because Docker is not installed on the implementer's machine. Does not block M0 closure or M1 parser work. Re-run the smoke test before any M2 task that relies on `supabase start` for local schema iteration. M2 migrations targeting a remote Supabase project via `supabase db push --db-url ...` do NOT require Docker, so M2 can begin without this verification — just don't claim local-dev parity until the smoke test runs. Track via a TODO at the end of M0 commit `be4f7bc`.
 
 ## 10. Adversarial review handoff
 

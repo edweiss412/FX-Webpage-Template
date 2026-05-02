@@ -2911,7 +2911,7 @@ The crew button is in v1 because techs hit weird states onsite (a tile shows wro
 
 ### 13.2 Report destination: GitHub Issues
 
-Each report opens a GitHub issue in a designated repo (default: this repo, `eric-weiss/FX-Webpage-Template`) via the GitHub REST API + a service account PAT (env `GITHUB_API_TOKEN`). Both admin and crew submissions create issues — same destination, different label and body templates.
+Each report opens a GitHub issue in a designated repo (default: this repo, `edweiss412/FX-Webpage-Template`) via the GitHub REST API + a service account PAT (env `GITHUB_API_TOKEN`). Both admin and crew submissions create issues — same destination, different label and body templates.
 
 #### 13.2.1 Admin issue body template
 
@@ -3199,7 +3199,7 @@ DESIGN.md                      # visual tokens — established once UI exists to
 | `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase |
 | `JWT_SIGNING_SECRET` | Signed-link tokens |
 | `GITHUB_API_TOKEN` | GH Issues integration |
-| `GITHUB_REPO` | `eric-weiss/FX-Webpage-Template` (default) |
+| `GITHUB_REPO` | `edweiss412/FX-Webpage-Template` (default) |
 | `GITHUB_BOT_LOGIN` | GitHub username the PAT belongs to. Required by §13.2.3's `findIssueByMarker` recovery path (`creator=` filter on `issues.listForRepo`). Missing config raises `GITHUB_BOT_LOGIN_MISSING` admin alert. |
 | `SENTRY_DSN` | error tracking |
 | `ADMIN_EMAILS` | comma-separated list (`dlarson@fxav.net,edweiss412@gmail.com`) |
