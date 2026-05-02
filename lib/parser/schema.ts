@@ -23,9 +23,11 @@ type VersionEntry =
  * Marker choices are grounded in actual corpus fixture content:
  *
  *   v4 -- "Contact Office" row (verified 2026-03-rpas-central-four-seasons.md:6).
- *         The spec's secondary "MAIN/SECONDARY block" marker does not appear as
- *         a literal string in any corpus fixture; "Contact Office" alone uniquely
- *         identifies v4 sheets.
+ *         Per amendment 5 (00-overview.md): v4 detection uses Contact Office row as a
+ *         single marker. The spec's secondary "MAIN/SECONDARY block" marker (§6.4
+ *         pre-amendment) does not appear as a literal string in any corpus fixture
+ *         (only as adjacent table columns in 2/4 v4 fixtures). Contact Office is
+ *         100% reliable across the v4 corpus.
  *
  *   v2 -- venue.contact_info ("Hotel Contact Info" or typo "Hotal Contact Info"),
  *         per spec §6.4 "row:Hotel Contact Info" (verified

@@ -20,7 +20,7 @@
 
 ## How to use this plan
 
-1. **Spec is canonical, with two ratified amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
+1. **Spec is canonical, with four ratified amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
 
    **Ratified plan amendments to spec:**
    1. **§13.2.3 recovery lookup** — the spec specifies eventually-consistent code search via `octokit.rest.search.issuesAndPullRequests({q: '"<idempotency_key>" repo:<repo> in:body'})`. Adversarial-review rounds 6 + 10 demonstrated this is unsafe: GitHub's code-search index can lag tens of seconds, producing false-negative misses that drive `createIssue` and open duplicate issues. **The plan's Tasks 8.3d/8.3e supersede §13.2.3 on this single mechanism.** Revised contract:
@@ -33,9 +33,34 @@
       - **8.3f reaper**: deletes rows where `github_issue_url IS NULL AND created_at < now - interval '24 hours' AND processing_lease_until < now`. The third clause prevents the reaper from removing a row a retry actively holds — race fix. **A row whose `created_at` is past 24h but whose lease is still live is preserved by the reaper**; it becomes reapable only after the lease expires (or is naturally released by a tail UPDATE). With this combined predicate the reaper and the retry path can never both attempt to act on the same row, eliminating the boundary race.
         Aligning both gates on `reports.created_at` plus the lease-expired check on the reaper side eliminates the contradiction, the lease-vs-creation-time mismatch, AND the in-flight-retry race.
 
-   3. **`lease_holder` ownership protocol** — the spec's §13.2.3 shows a bare `UPDATE reports SET github_issue_url = $url WHERE id = $reportId` tail update. Round 8 demonstrated this allows duplicate GitHub issues when a slow original worker completes its `createIssue` after a retry has reclaimed the lease. The plan ratifies an additional `lease_holder uuid` column on `reports`, stamped at reservation, rotated on every lease re-acquisition, and required (`AND lease_holder = $myToken`) on every URL-writing tail UPDATE. A 0-row tail UPDATE triggers orphan cleanup (close GH issue with state_reason `not_planned`, add `fxav-orphan-lost-lease` label, INSERT `admin_alerts` `REPORT_ORPHANED_LOST_LEASE`). If the row has been reaped, the re-SELECT returns null and the route returns 410 `REPORT_HORIZON_EXPIRED`.
-
-   **All three amendments are PATCHED INTO THE SPEC FILE** (rounds 24–40 of the convergence loop): `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` §13.2.3 was rewritten with the listForRepo+findIssueByMarker recovery contract, the `created_at`+lease-expired reaper predicate, the lease_holder ownership protocol with case A/B/C/Reaped 0-row tail disambiguation, and the orphan-cleanup atomic single-call. §4.1 reports-table schema declares `lease_holder uuid`, `idempotency_key`, and `processing_lease_until` inline. §14.3 env-var table includes `GITHUB_BOT_LOGIN`. The `LookupInconclusive` discriminator codes (`BOT_LOGIN_MISSING`, `PAGINATION_ERROR`, `PAGINATION_BOUND`, `SHAPE_ERROR`, `DUPLICATE_LIVE_MATCHES`, `OPEN_ISSUE_WITH_ORPHAN_LABEL`) and their per-show vs global admin_alerts mappings are documented in §13.2.3. The reserved-label provenance (`fxav-app:report`) is documented as the recovery scan filter. Task 8.3g is now a **verification-only task**: an implementer runs `scripts/verify-spec-amendment-3.sh` (authored inline in the task) to assert the patched spec satisfies every invariant before M8 begins. 4. **Spec §6.4 — drop v3 from the version registry.** The spec at §6.4 lines 1361–1367 declares v3's marker as `block:GEAR INVENTORY`, but no fixture in `fixtures/shows/raw/*.md` contains "GEAR INVENTORY" (verified via `grep -i "gear inventory" fixtures/shows/raw/*.md`). M1 Task 1.3 surfaced this during version-detection implementation. Investigation showed every non-v4 fixture contains the v2 marker (`Hotel Contact Info` or its typo `Hotal Contact Info`); v3 has no corpus representation and no structural distinction from v2 beyond per-fixture table-format quirks. **The plan's parser implementation (Task 1.3 onward) treats versions as `'v1' | 'v2' | 'v4'` — v3 is removed from the type union, the version registry, and all detection logic.** v1 remains as the fallback for any sheet that matches neither v2 nor v4 markers. If a real v3 sheet surfaces later, it can be re-introduced cleanly per spec §6.4's "Adding `v5` = adding one entry" design — but until then, encoding a phantom version pollutes the type system and creates untestable code paths.
+   3. **`lease_holder` ownership protocol** _(patched into spec §13.2.3, §4.1, §14.3)_ — the
+      spec's §13.2.3 shows a bare tail UPDATE without a `lease_holder` guard. Round 8
+      demonstrated this allows duplicate GitHub issues when a slow original worker completes
+      `createIssue` after a retry reclaimed the lease. The plan ratifies `lease_holder uuid` on
+      `reports`, stamped at reservation, rotated on re-acquisition, required on every tail
+      UPDATE. A 0-row tail triggers orphan cleanup; a reaped row returns 410. **PATCHED** into
+      §13.2.3 (rounds 24–40): listForRepo+findIssueByMarker recovery, `created_at`+lease-expired
+      reaper predicate, lease_holder case A/B/C disambiguation, orphan-cleanup atomic call.
+      §4.1 schema includes `lease_holder uuid`, `idempotency_key`, `processing_lease_until`.
+      §14.3 includes `GITHUB_BOT_LOGIN`. Task 8.3g is a **verification-only task** that runs
+      `scripts/verify-spec-amendment-3.sh` before M8.
+   4. **Spec §6.4 — drop v3 from the version registry** _(patched into spec §6.4; MI-1 updated
+      to `{v1,v2,v4}`)_ — the spec at §6.4 lines 1361–1367 declares v3's marker as
+      `block:GEAR INVENTORY`, but no corpus fixture contains "GEAR INVENTORY" (verified via
+      `grep -i "gear inventory" fixtures/shows/raw/*.md`). Every non-v4 fixture has the v2
+      marker ("Hotel Contact Info" / typo "Hotal Contact Info"); v3 has no corpus
+      representation. **Parser (Task 1.3 onward) treats versions as `'v1' | 'v2' | 'v4'`.**
+      v1 is the fallback for sheets with no v2/v4 markers. If a genuine v3 sheet surfaces, it
+      can be re-introduced per §6.4's extensibility note.
+   5. **Spec §6.4 — v4 single-marker simplification** _(patched into spec §6.4 v4 entry)_ —
+      the spec declared v4's `requires` as `["row:Contact Office", "block:MAIN/SECONDARY"]`
+      (AND-of-two). The literal string "MAIN/SECONDARY" appears in none of the 10 corpus
+      fixtures (`grep -i "MAIN/SECONDARY" fixtures/shows/raw/*.md` returns zero hits). The
+      pattern `MAIN | SECONDARY` (adjacent table columns) appears in only 2 of 4 v4 fixtures;
+      the other 2 v4 fixtures have no MAIN/SECONDARY at all. Strict AND-of-two detection would
+      produce a 50% false-negative rate. **Parser treats v4 as `row:Contact Office`
+      SINGLE-marker (100% reliable); MAIN/SECONDARY is documentation-only.** Re-introduce as
+      `v4-strict` if a future sub-variant requires it.
 
 2. **TDD is mandatory.** Every task starts with a failing test, then the minimal implementation, then a passing test, then a commit. Skipping the failing-test step means the test isn't actually covering what it claims.
 3. **Commit per task.** Commit messages take the form `feat(<area>): <one-line summary>` or `test(<area>): ...` — area names are `parser`, `db`, `sync`, `auth`, `crew-page`, `admin`, `report`, `onboarding`, `assets`, `infra`.

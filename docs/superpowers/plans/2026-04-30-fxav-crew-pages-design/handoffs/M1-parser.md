@@ -38,8 +38,8 @@
 - [ ] Amendment 1 — listForRepo recovery contract — **N/A — only M8.**
 - [ ] Amendment 2 — created_at horizon + lease-expired reaper predicate — **N/A — only M8.**
 - [ ] Amendment 3 — `lease_holder` ownership protocol — **N/A — only M8.**
-
-M1 is pure parser code; no spec amendments apply.
+- [x] Amendment 4 — §6.4 drop v3 — **applies.** v3 removed from type union, version registry, and all detection logic. Surfaced during M1 Task 1.3; corpus evidence in `00-overview.md` §amendment 4. Result: `template_version: 'v1' | 'v2' | 'v4'`; `detectVersion(...): 'v1' | 'v2' | 'v4' | null`.
+- [x] Amendment 5 — §6.4 v4 single-marker simplification — **applies.** v4 detection uses `row:Contact Office` alone (the spec's `block:MAIN/SECONDARY` requirement was discarded as a 50% false-negative against the v4 corpus). Surfaced during M1 Task 1.3 code review.
 
 ## 4. Pre-handoff state
 
