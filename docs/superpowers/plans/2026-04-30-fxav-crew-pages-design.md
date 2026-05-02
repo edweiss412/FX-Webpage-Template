@@ -77,6 +77,7 @@ app/
   api/admin/onboarding/finalize/route.ts         # wizard exit promotion (§4.5)
   api/admin/staged/[fileId]/apply/route.ts       # Apply staged parse (§6.8.1)
   api/admin/staged/[fileId]/discard/route.ts     # Discard variants (§6.8.1)
+  api/admin/snapshot-rollback/[id]/repair/route.ts # M7 batch-15 finding 3: stuck-rollback admin repair (§6.11 / Task 7.8)
 
 components/
   layout/{Header,Footer}.tsx
@@ -124,9 +125,11 @@ lib/
   auth/
     jwt.ts                                       # signed-link sign/verify
     validateLinkSession.ts                       # §7.2.2 12-step validator
-    validateGoogleSession.ts                     # §7.2.2 Google validator
+    validateGoogleSession.ts                     # §7.2.2 Google validator (show-bound)
+    validateGoogleIdentity.ts                    # §7.2.2 cross-show identity-only validator (M5 batch-12 — for /me)
     requireAdmin.ts
     isAdminSession.ts                            # shared admin-precedence predicate (§4.3 / Task 5.7 / X.3)
+    cookies.ts                                   # shared __Host-fxav_session set/clear helper (M5 batch-9 finding)
     constants.ts                                 # cookie names, TTLs
   supabase/
     server.ts                                    # service-role + RLS clients
@@ -528,7 +531,18 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
     notes: string | null;
   };
 
-  export type TransportScheduleEntry = { stage: string; date: string | null; time: string | null };
+  // Round-50: `assigned_names: string[]` is a CANONICAL part of every schedule entry. It threads
+  // through parser → ParseResult → seed → Phase 2 persistence (`transportation.schedule` JSONB)
+  // → getShowForViewer → TransportTile visibility (§8.1). NEVER omitted at any layer; empty array
+  // when no tagged passengers / co-drivers. The TransportTile predicate is:
+  //   driver_name === viewer.name
+  //     || transportation.schedule.some(s => s.assigned_names.includes(viewer.name))
+  export type TransportScheduleEntry = {
+    stage: string;
+    date: string | null;
+    time: string | null;
+    assigned_names: string[];
+  };
   export type TransportationRow = {
     driver_name: string | null;
     driver_phone: string | null;
@@ -579,10 +593,15 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
   // bytes being downloaded are still the bytes Doug approved. Without this pair,
   // recovery has no way to distinguish an in-place image replacement from the
   // approved bytes (objectId + sheet tab title can stay stable across edits).
-  // **Fingerprint MUST be a content-derived immutable token** — if the Sheets API
-  // cannot provide one (e.g., `image.contentUrl` ETag is unavailable), enrichment
-  // sets `embeddedFingerprint = null` AND marks the entry as restage-only
-  // (recovery of that entry MUST fail closed, not fall back to a positional/id hash).
+  // **Fingerprint MUST be a byte-derived immutable token** (M7 batch-11 finding #3,
+  // canonical derivation): `base64url(SHA-256(<full image bytes from GET image.contentUrl>))`.
+  // NOT an HTTP ETag (server-controlled, proxies/CDNs can rotate without bytes changing).
+  // NOT a HEAD-derived token. NOT a positional/id hash. The same SHA-256(bytes) helper
+  // runs at Phase-1 enrichment (Task 7.1), at Apply re-verify (Task 7.3), and at
+  // asset_recovery re-verify (Task 7.4) — equal inputs produce equal outputs.
+  // If `image.contentUrl` is absent or returns 4xx, enrichment sets
+  // `embeddedFingerprint = null` AND marks the entry as restage-only (recovery of
+  // that entry MUST fail closed, not fall back to a positional/id hash).
   // See Task 7.1 for capture, Task 7.4 for recovery.
   export type EmbeddedImageStub = {
     sheetTab: string;                 // resolved title via case-insensitive match (corpus has 'DIagrams' typo)
@@ -590,7 +609,7 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
     mimeType: string;
     alt?: string;
     sheetsRevisionId: string;         // spreadsheet headRevisionId at extraction time (immutable approval token)
-    embeddedFingerprint: string | null;  // content-derived ETag/hash; null forces restage-only recovery
+    embeddedFingerprint: string | null;  // M7 batch-11 finding #3: base64url(SHA-256(<full image bytes>)). NOT an ETag. null forces restage-only recovery
     // Round-46 amendment: per-entry recovery disposition. 'normal' allows asset_recovery retries;
     // 'restage_required' is set when embeddedFingerprint is null AND tells asset_recovery to skip
     // this entry entirely (a fresh sheet edit must mint new sheetsRevisionId + embeddedFingerprint
@@ -716,12 +735,19 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
   // Triggered-review item types (§6.8.2). Used by Task 1.12's runInvariants result
   // and consumed by sync Phase 1 + Apply endpoints.
   // Round-48 amendment: includes asset-review items (DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE,
-  // DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING, REEL_DRIFT_PENDING) that the SYNC layer (NOT runInvariants)
-  // appends when Phase-1 enrichment surfaces drift/unavailability against an existing show with
-  // approved assets. They share the union so `pending_syncs.triggered_review_items` is a single
-  // homogeneous list and `applyStaged` can iterate without splitting validation paths. MI-* items
-  // remain runInvariants-emitted; asset-review items are sync-emitted; FIRST_SEEN_REVIEW /
-  // ONBOARDING_SCAN_REVIEW remain Phase-1-orchestrator-emitted sentinels.
+  // DIAGRAMS_EMBEDDED_NONE_FOUND, DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING, REEL_DRIFT_PENDING) that the
+  // SYNC layer (NOT runInvariants) appends when Phase-1 enrichment surfaces drift/unavailability
+  // against an existing show with approved assets. They share the union so
+  // `pending_syncs.triggered_review_items` is a single homogeneous list and `applyStaged` can
+  // iterate without splitting validation paths. MI-* items remain runInvariants-emitted;
+  // asset-review items are sync-emitted; FIRST_SEEN_REVIEW / ONBOARDING_SCAN_REVIEW remain
+  // Phase-1-orchestrator-emitted sentinels. Round-50 / M7 batch-10 amendment:
+  // `DIAGRAMS_EMBEDDED_NONE_FOUND` is a SEPARATE variant from
+  // `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE` — they have DISTINCT Apply contracts (the empty-tab
+  // case is operator-confirmation that the gallery is intentionally empty and DOES mint a fresh
+  // snapshot_revision_id with `embeddedImages = []`; the revisions-unavailable case is a
+  // technical-failure recovery and does NOT mutate `shows.diagrams` at all — the prior approved
+  // snapshot stays live with its existing `snapshot_revision_id`).
   export type TriggeredReviewItem =
     | { id: string; invariant: 'FIRST_SEEN_REVIEW' | 'ONBOARDING_SCAN_REVIEW' }
     | { id: string; invariant: 'MI-6' | 'MI-10'; }
@@ -737,10 +763,12 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
     | { id: string; invariant: 'MI-14'; removed_name: string; added_name: string }
     | { id: string; invariant: 'MI-13-orphan-remove' | 'MI-14-orphan-remove'; removed_name: string; reason?: string }
     | { id: string; invariant: 'MI-13-orphan-add'  | 'MI-14-orphan-add';  added_name: string }
-    // Asset-review items (round-48, sync-emitted). Each one only ever has a single valid reviewer
-    // action of `apply` (the operator confirms they accept the consequence; no rename/independent
-    // variants apply). User-facing copy lives in §12.4.
-    | { id: string; invariant: 'DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE'; spreadsheet_id: string }   // Task 7.1: drive.revisions.list returned no usable revision token; existing-show stage path
+    // Asset-review items (round-48 / round-50, sync-emitted). Each one only ever has a single valid
+    // reviewer action of `apply` (the operator confirms they accept the consequence; no
+    // rename/independent variants apply). User-facing copy lives in §12.4. Apply contracts differ
+    // per variant — see Task 6.11 enumeration and spec §6.11 / §6.8.2 for the per-variant effect.
+    | { id: string; invariant: 'DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE'; spreadsheet_id: string }   // Task 7.1: drive.revisions.list returned no usable revision token; technical-failure recovery; Apply does NOT mutate shows.diagrams (prior approved snapshot stays live; same snapshot_revision_id retained)
+    | { id: string; invariant: 'DIAGRAMS_EMBEDDED_NONE_FOUND'; spreadsheet_id: string }              // Task 7.1: DIAGRAMS tab resolved but contains zero embedded objects + no linked-folder URL; operator-confirmation that gallery is intentionally empty; Apply DOES mutate shows.diagrams (mints fresh snapshot_revision_id, persists embeddedImages=[], snapshot_status='complete')
     | { id: string; invariant: 'DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING'; drift_count: number }         // Task 7.2/7.3: linked-folder bytes mutated between stage and Apply; existing-show stage path
     | { id: string; invariant: 'REEL_DRIFT_PENDING'; reel_drive_file_id: string };                  // Task 7.7: reel headRevisionId/modtime drifted between stage and Apply; existing-show stage path
 
@@ -1062,6 +1090,7 @@ For each block, follow the same pattern as Task 1.4:
 4. `event_details` is parsed as a flat key/value record (per §4.1 schema). `ops` parses `{po, proposal, invoice, invoiceNotes}` per §4.4.
 5. **`coi_status` is parsed verbatim** — no enum normalization (§6.5 free-text fallback).
 6. Free-text fields (`event_details.power`, `internet`, `keynote_requirements`, `opening_reel`, `rooms.setup`, `audio`, `video`, `lighting`, `scenic`) are stored as raw strings.
+7. **Transportation `schedule[*].assigned_names: string[]` (round-50)** — the transport extractor MUST emit `assigned_names: string[]` on every schedule entry. Source columns vary across template versions: pre-2026 layouts often carry passenger/co-driver names in a free-text column adjacent to the per-row `stage / date / time` cells; 2026 layouts may use a dedicated `Passengers` or `Tagged` column. The extractor scans the row for any column whose content is a comma-/`&`-separated list of crew-name-shaped tokens (matching against the parsed `crewMembers[].name` set when available, falling back to whitespace-trimmed comma split when not). Empty array (NEVER `null` or `undefined`) when no tagged names are present. Add a failing fixture-grounded test against any transportation row that carries tagged names; if the corpus lacks one, synthesize a `tests/fixtures/transport-tagged-names.md` fixture with a transport row carrying both a `driver_name` AND a per-row `assigned_names = ['Alice', 'Bob']`. **End-to-end visibility test (Task 4.7 cross-reference):** seed a show whose `transportation.driver_name === 'Cara'` and whose `schedule[0].assigned_names = ['Alice']`. Render the crew page as Alice (whose `crew_members.name` is `'Alice'`, `driver_name` does NOT match). Assert TransportTile renders — pure schedule-tag visibility with no driver_name match.
 
 - [ ] **Steps 1–8** per block (5 blocks): write failing test → implement → pass → commit per block.
 
@@ -1280,9 +1309,11 @@ This module is consumed by the sync layer in M6, but the gate is a pure function
 
 **Files:** Create: `lib/parser/slug.ts`. Test: `tests/parser/slug.test.ts`.
 
+**M9+M10 batch-13 finding 4 — split contract.** `deriveSlug(parseResult, existingSlugs)` is now a UX-preview helper (used in dev panels and the wizard's slug-derivation preview); the AUTHORITATIVE collision check is the database's `shows.slug` UNIQUE constraint, observed via Postgres `23505` *unique_violation* in the retry-on-unique-violation loop in `applyStaged` (Task 6.11 amendment). The pure helper is still useful for: (a) Step 5W of the wizard rendering "Your show URL will be `<derived-slug>`" before Apply; (b) tests that don't go through Apply; (c) detection of edge cases that need explicit handling (e.g., empty title → fallback). It computes the SAME `<base>`, `<base>-2`, `<base>-3`, … sequence the retry loop walks; the runtime difference is the retry loop catches the database's UNIQUE-violation signal instead of pre-checking `existingSlugs`.
+
 - [ ] **Step 1: Failing tests**
   ```ts
-  import { deriveSlug } from '@/lib/parser/slug';
+  import { deriveSlug, SlugCollisionExhausted } from '@/lib/parser/slug';
   it('determinism: same input → same output (AC-1.9)', () => {
     const r = makeParseResult({ title: 'RPAS Central 2026', dates: { set: '2026-03-23' } });
     expect(deriveSlug(r, [])).toBe(deriveSlug(r, []));
@@ -1294,17 +1325,18 @@ This module is consumed by the sync layer in M6, but the gate is a pure function
     expect(deriveSlug(r, ['2026-03-rpas-central-2026','2026-03-rpas-central-2026-2']))
       .toBe('2026-03-rpas-central-2026-3');
   });
-  it('SLUG_COLLISION_LIMIT at 99', () => {
-    const existing = Array.from({length: 99}, (_, i) =>
-      i === 0 ? '2026-03-rpas-central-2026' : `2026-03-rpas-central-2026-${i+1}`);
-    expect(() => deriveSlug(r, existing)).toThrow(/SLUG_COLLISION_LIMIT/);
+  it('SLUG_COLLISION_EXHAUSTED at attempt 100 (M9+M10 batch-13 finding 4 — renamed from SLUG_COLLISION_LIMIT)', () => {
+    // 100 existing slugs: <base> plus <base>-2..<base>-100
+    const existing = ['2026-03-rpas-central-2026', ...Array.from({length: 99}, (_, i) => `2026-03-rpas-central-2026-${i+2}`)];
+    expect(() => deriveSlug(r, existing)).toThrow(SlugCollisionExhausted);
+    expect(() => deriveSlug(r, existing)).toThrow(/SLUG_COLLISION_EXHAUSTED/);
   });
   it('uses set date, falls back to travelIn, then showDays[0]', () => { /* ... */ });
   it('caps title-slug at 60 chars', () => { /* ... */ });
   it('ASCII-folds and strips diacritics', () => { /* ... */ });
   ```
-- [ ] **Step 2: Implement** per §6.9 algorithm.
-- [ ] **Step 3: Commit** `feat(parser): deriveSlug (§6.9)`.
+- [ ] **Step 2: Implement** per §6.9 algorithm. Export `SlugCollisionExhausted extends Error` carrying `{ baseSlug, attemptCount }` so the runtime retry loop in `applyStaged` (Task 6.11) can rethrow with the §12.4 `SLUG_COLLISION_EXHAUSTED` code mapped from the same exception type. The helper's `existingSlugs` parameter is informational — the AUTHORITATIVE check is the database UNIQUE constraint observed via Postgres `23505` (see Task 6.11 amendment).
+- [ ] **Step 3: Commit** `feat(parser): deriveSlug + SlugCollisionExhausted (§6.9, M9+M10 batch-13 finding 4)`.
 
 ### Task 1.14: Run full corpus + commit M1 done
 
@@ -1323,7 +1355,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
 **Files:** Create: `supabase/migrations/20260501T0000_initial_public_schema.sql`.
 
 - [ ] **Step 1: Author the migration** — copy SQL verbatim from §4.1 for the **public** tables (`shows`, `crew_members`, `hotel_reservations`, `rooms`, `transportation`, `contacts`). Drop the comments that reference other tables; defer those to subsequent migrations. Include:
-  - Every column from spec §4.1 (verify: `shows` has `coi_status`, `pull_sheet`, `opening_reel_drive_file_id`, `opening_reel_drive_modified_time`, `diagrams jsonb`, `last_seen_modified_time`, etc.).
+  - Every column from spec §4.1 (verify: `shows` has `coi_status`, `pull_sheet`, `opening_reel_drive_file_id`, `opening_reel_drive_modified_time`, `opening_reel_head_revision_id`, `opening_reel_mime_type` — ALL FOUR reel pin columns per §4.1 batch-12 amendment; `diagrams jsonb`, `last_seen_modified_time`, etc.). M3+M4 batch-14 finding 3 propagation: the migration's column list MUST include all FOUR reel pin columns; an earlier draft enumerated only two of them — a 4-tuple regression.
   - The partial unique index `crew_members_show_email_unique`.
   - The CHECK `crew_members_email_canonical` per §4.1.1.
   - All other email-bearing columns also get the canonical CHECK (transportation.driver_email, contacts.email, etc.).
@@ -1341,15 +1373,18 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   |---|---|---|
   | `shows`, `shows_internal`, `crew_members`, `hotel_reservations`, `rooms`, `transportation`, `contacts` | §4.1 `create table` blocks for the public crew-readable schema | none — these are §4.1-canonical |
   | `crew_member_auth`, `revoked_links`, `link_sessions` | §4.1 `create table` blocks for the auth schema | none |
+  | `bootstrap_nonces` | §4.1 `create table bootstrap_nonces` block (M5 batch-10 + batch-11 — login-CSRF defense table for `/api/auth/redeem-link`; columns `nonce_hash text not null, show_id uuid not null references shows(id) on delete cascade, issued_at timestamptz not null default now(), consumed_at timestamptz, primary key (nonce_hash, show_id)` plus the `issued_at` index per spec §4.1; admin-only per spec §4.3). **M5 batch-11 composite PK is mandatory** — earlier single-PK on `nonce_hash` alone forced one live nonce per browser regardless of show, breaking multi-tab/multi-show flows; the composite key + consume-by-`(nonce_hash, show_id)` lets multiple live nonces coexist. The cleanup cron's range scan against `issued_at` is what motivates the index. | none |
   | `pending_syncs`, `pending_ingestions` | §6.8.1 `create table` blocks (the staging surfaces are spec'd in §6.8.1, NOT §4.1) | none |
   | `sync_audit`, `sync_log` | §6.8.3 `create table` blocks (sync audit/log spec'd in §6.8.3) | none |
   | `app_settings` | §4.5 `create table app_settings` block — includes the `check (id = 'default')` singleton AND the bootstrap `INSERT INTO app_settings (id) VALUES ('default') ON CONFLICT DO NOTHING` AS PART OF THE CREATE BLOCK. **No follow-on `ALTER TABLE app_settings ADD CONSTRAINT app_settings_singleton CHECK (id = 'default')` step** — the CHECK is already part of the spec's §4.5 CREATE definition and replaying it as an ALTER would duplicate the constraint. The migration includes the bootstrap insert verbatim from spec §4.5. |
-  | `deferred_ingestions` | §4.5 `create table deferred_ingestions` (deferral surfaces are §4.5-canonical) | none |
+  | `deferred_ingestions` | §4.5 `create table deferred_ingestions` (deferral surfaces are §4.5-canonical) — **M2 batch-11 amendment**: surrogate `id uuid` PK + `wizard_session_id uuid` (nullable) + the two partial unique indexes `deferred_ingestions_live_drive_file_idx` (live partition) and `deferred_ingestions_session_drive_file_idx` (wizard partition). The schema mirrors the round-50 / M6 batch-9 retry-2 `pending_syncs` partition pattern; cron/push consult ONLY the live partition, wizard step-3 Discard writes the wizard partition, and finalize deletes the wizard partition (clean slate option A). | none |
   | `admin_alerts` | §4.6 `create table admin_alerts` (admin alerts are §4.6-canonical, including the `admin_alerts_one_unresolved_idx` partial unique index) | none |
   | `drive_watch_channels` | §5.5.1 `create table drive_watch_channels` (fresh-schema form including all columns + the `active_requires_drive_state` CHECK + `one_active_per_folder_idx`) | the §5.5.1 `ALTER TABLE drive_watch_channels ADD COLUMN IF NOT EXISTS ...` block at the bottom of §5.5.1 — those ALTER fragments are historical/migration-evolution notes; the fresh-schema CREATE at the top of §5.5.1 is canonical. |
   | `reports` | §4.1 `create table reports` block (round-23/40 amendment: `idempotency_key`, `processing_lease_until`, `lease_holder` are part of the §4.1 CREATE) | §13.2.3's `ALTER TABLE reports ADD COLUMN IF NOT EXISTS idempotency_key ...` and the secondary `CREATE UNIQUE INDEX IF NOT EXISTS reports_idempotency_key_idx` block — those are historical migration fragments; spec §13.2.3 keeps them for context only. |
   | `report_rate_limits` | §13.3 `create table report_rate_limits` block (rate-limit table spec'd in §13.3 — the bug-report rate-limit section, NOT §4.1) | none |
   | `onboarding_scan_manifest` | §4.5 `create table onboarding_scan_manifest` block (round-48 amendment — wizard's per-session scan manifest with terminal lifecycle states; includes the `status` CHECK and `onboarding_scan_manifest_session_idx` index) | M10 Task 10.4 contains the same DDL inline as historical context only — the canonical fresh-schema CREATE lives in §4.5 and is authored exclusively by Task 2.2; M10 just stamps rows. |
+  | `pending_snapshot_uploads` | §4.5 `create table pending_snapshot_uploads` block (M7 batch-12 finding 1 + M7 batch-13 findings 1–2 + M7 batch-14 findings 1–2 — commit-aware snapshot ledger; one row per Apply attempt; 3-state lifecycle (unclaimed / claimed / committing_delete); includes `unique (temp_prefix)`, `unique (snapshot_revision_id)`, the `claim_token`/`claimed_at`/`claim_expires_at` triple-symmetry CHECK, the two `delete_started_at` invariant CHECKs, the `pending_snapshot_uploads_unpromoted_idx` partial index, the `pending_snapshot_uploads_claim_expiry_idx` partial index, and the `pending_snapshot_uploads_committing_delete_idx` partial index) | none — §4.5-canonical |
+  | `revision_race_cooldowns` | §4.1 `create table revision_race_cooldowns` block (M3+M4 batch-13 finding 4 — per-`(drive_file_id, raced_head_revision_id)` cooldown ledger that bounds revision-race retry storms; composite PK on `(drive_file_id, raced_head_revision_id)`; includes the `revision_race_cooldowns_last_race_idx` non-partial index on `(last_race_at)` for §7.8 GC age sweep) | none — §4.1-canonical |
 
   Final-validation finding: an earlier draft of this matrix put `app_settings`, `deferred_ingestions`, `admin_alerts`, `sync_audit` all under §4.1 even though their CREATE blocks live in §4.5/§4.6/§6.8.3 of the spec, AND added a redundant `ALTER TABLE app_settings ADD CONSTRAINT app_settings_singleton CHECK (id = 'default')` step that recreated the additive-replay hazard the matrix was supposed to eliminate (the §4.5 CREATE already defines that CHECK inline). The corrected matrix above points to the exact owning section per table and has no redundant ALTER steps.
 
@@ -1363,6 +1398,57 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   - `admin_alerts_one_unresolved_idx` partial unique index.
   - `drive_watch_channels` status CHECK + active-row constraint + partial unique index.
   - `revoked_links.token_version > 0` CHECK (AC-2.4).
+  - **M2 batch-11**: `deferred_ingestions` surrogate `id uuid` PK + `wizard_session_id uuid` column + both partial unique indexes (`deferred_ingestions_live_drive_file_idx` on `(drive_file_id) WHERE wizard_session_id IS NULL`; `deferred_ingestions_session_drive_file_idx` on `(drive_file_id, wizard_session_id) WHERE wizard_session_id IS NOT NULL`). Spec §4.5 is the canonical source.
+  - **M5 batch-10 + batch-11**: `bootstrap_nonces` table (`nonce_hash text not null, show_id uuid not null references shows(id) on delete cascade, issued_at timestamptz not null default now(), consumed_at timestamptz, primary key (nonce_hash, show_id)`) + the `issued_at` index per spec §4.1. **M5 batch-11 composite PK is mandatory** — earlier single-PK on `nonce_hash` alone forced one live nonce per browser regardless of show, breaking multi-tab/multi-show flows. Admin-only RLS per spec §4.3.
+  - **M7 batch-12 finding 1 + M7 batch-13 findings 1–2 + M7 batch-14 findings 1–2**: `pending_snapshot_uploads` table — **grain is one row per Apply attempt (NOT per asset)** per M7 batch-13 finding 2. DDL: `id uuid primary key default gen_random_uuid(), show_id uuid not null references shows(id) on delete cascade, drive_file_id text not null, temp_prefix text not null, snapshot_revision_id uuid not null, asset_count int not null check (asset_count >= 0), uploaded_at timestamptz not null default now(), promoted_at timestamptz, claim_token uuid, claimed_at timestamptz, claim_expires_at timestamptz, delete_started_at timestamptz, unique (temp_prefix), unique (snapshot_revision_id), check ((claim_token IS NULL AND claimed_at IS NULL AND claim_expires_at IS NULL) OR (claim_token IS NOT NULL AND claimed_at IS NOT NULL AND claim_expires_at IS NOT NULL)), check (delete_started_at IS NULL OR claim_token IS NOT NULL), check (delete_started_at IS NULL OR promoted_at IS NULL)`. **3-state lifecycle (M7 batch-14 finding 1, CRITICAL — supersedes the batch-13 CAS-after-delete protocol; the prior order deleted Storage bytes BEFORE the row-DELETE CAS detected lost ownership, so a revived GC worker after claim expiry could destroy bytes already promoted)**: rows are in `unclaimed` (all four nullable cols NULL), `claimed` (claim_token + claimed_at + claim_expires_at set; `delete_started_at IS NULL`; lease = claimed_at + 5 minutes), or `committing_delete` (above + `delete_started_at IS NOT NULL`; lease extended to `delete_started_at + 15 minutes`). Each transition is an atomic UPDATE with state-guarding WHERE clause; 0-row return = lost ownership, abort. The decisive transition is **commit-to-delete**: `UPDATE pending_snapshot_uploads SET delete_started_at = now(), claim_expires_at = now() + interval '15 minutes' WHERE id = $1 AND claim_token = $2 AND promoted_at IS NULL AND delete_started_at IS NULL RETURNING *` — Storage DELETE runs ONLY after this returns 1 row; **promote** and **reclaim-expired** both refuse rows with `delete_started_at IS NOT NULL` (the safety invariant that prevents byte destruction after claim expiry). Spec §6.11 documents the full transition table (claim / heartbeat / reclaim-expired / commit-to-delete / delete / promote). **`claim_expires_at` replaces the prior `claimed_at + 5 minutes` derivation** because the lease length now varies by state (5 min in claimed, 15 min in committing_delete) AND heartbeats need to extend it independently of `claimed_at`. **`delete_started_at` is the new state-discriminator column** that makes the lifecycle a 3-state machine instead of the 2-state machine batch-13 specified. **All-or-nothing promotion (M7 batch-14 finding 2, HIGH)**: the post-commit promoter runs Storage `LIST` on the temp prefix → asserts `count === asset_count` → forward-renames every asset → re-`LIST`s the canonical prefix → asserts manifest match → only then runs the **promote** state transition. ANY failure (rename error, manifest mismatch) reverse-renames every successfully-promoted asset back to the temp prefix; `shows.diagrams.pending_revision_id` stays staged on the JSONB AND `promoted_at` stays NULL so the next sweep retries (M7 batch-15 finding 1 — `shows.pending_snapshot_path` is REMOVED; the staged revision id lives on `shows.diagrams.pending_revision_id` as a JSONB field, NOT on a dedicated column). A partial canonical prefix never becomes live. Indexes: (a) `pending_snapshot_uploads_unpromoted_idx` on `(uploaded_at) WHERE promoted_at IS NULL AND claim_token IS NULL` for the GC sweep range scan in Task 7.8; (b) `pending_snapshot_uploads_claim_expiry_idx` on `(claim_expires_at) WHERE claim_token IS NOT NULL AND promoted_at IS NULL AND delete_started_at IS NULL` for the reclaim-expired path; (c) `pending_snapshot_uploads_committing_delete_idx` on `(delete_started_at) WHERE delete_started_at IS NOT NULL` for crashed-delete-worker recovery (rare; bounded by the 15-minute extended lease). **The §4.5 admin-only list grows from 16 → 17 tables** with this addition; AC-2.5 / Task 2.3 / Task 2.5 propagate automatically since the `ADMIN_TABLES` registry is derived from the spec §4.3 admin-only list at build time. Per spec §6.11 + plan Task 7.3 amendment: each Apply attempt inserts EXACTLY ONE ledger row at temp-prefix-allocation time; post-commit Storage rename promotes via the all-or-nothing manifest protocol then runs the **promote** state transition; abort path leaves `promoted_at IS NULL AND delete_started_at IS NULL` for the Task 7.8 GC sweep.
+  - **M7 batch-15 finding 1 — `shows.pending_snapshot_path` column REMOVED**: the earlier draft (M7 batch-12 finding 1 + M7 batch-13 finding 3) added a `shows.pending_snapshot_path TEXT` column that the asset route consulted as a temp-prefix fallback when the post-commit Storage rename hadn't yet completed. That fallback was the very mechanism that exposed an unpromoted (still-temp-prefix) revision as the live gallery to crew, defeating the all-or-nothing-promotion safety guarantee. The corrected design (M7 batch-15 finding 1) keeps the prior approved revision authoritative until the rename completes and atomically cuts over via the JSONB `pending_revision_id` field on `shows.diagrams` (no new column on `shows`; field lives inside the existing `diagrams` JSONB). The `shows.pending_snapshot_path` column is therefore NOT in the initial schema migration AND is NOT in Task 2.5's `REQUIRED_COLUMNS` matrix — the asset route serves only `snapshot_revision_id`-prefixed bytes per the prior-revision-authoritative-until-promote-succeeds contract documented in Task 7.5 / spec §7.3 / spec §6.11 (P4)/(P5).
+  - **M3+M4 batch-13 finding 4**: `revision_race_cooldowns` table (admin-only per §4.3 — list grows from 17 → 18 tables). DDL: `drive_file_id text not null, raced_head_revision_id text not null, last_race_at timestamptz not null default now(), retry_count int not null default 0, primary key (drive_file_id, raced_head_revision_id)` + index `revision_race_cooldowns_last_race_idx` on `(last_race_at)` for the §7.8 GC age sweep. Cron / push consult BEFORE retrying a `STAGED_PARSE_REVISION_RACE`: compute `cooldown_seconds = LEAST(60 * (2 ^ retry_count), 600)`; if `now() < last_race_at + cooldown_seconds`, skip with `STAGED_PARSE_REVISION_RACE_COOLDOWN` (§12.4 — admin-log only). Manual re-sync and `sheet_unavailable` recovery skip the gate. On race detect: UPSERT with `last_race_at = now(), retry_count = retry_count + 1`. On successful Phase 2 commit: `DELETE FROM revision_race_cooldowns WHERE drive_file_id = $1`. The `ADMIN_TABLES` registry / AC-2.5 propagate automatically via the §4.3 build-time parity invariant (Task X.6).
+  - **M11 batch-14 finding 1**: `wizard_finalize_checkpoints` table (admin-only per §4.3 — list grows from 18 → 19 tables). DDL: `id uuid primary key default gen_random_uuid(), wizard_session_id uuid not null unique, last_processed_drive_file_id text, last_processed_at timestamptz, batches_completed int not null default 0, status text not null default 'in_progress' check (status in ('in_progress', 'all_batches_complete', 'final_cas_done'))` + partial index `wizard_finalize_checkpoints_status_idx` on `(status) WHERE status <> 'final_cas_done'` for the dashboard's "in-flight finalize" lookup AND for the `FINALIZE_OWNED_SHOW` admin-write guard (the join-from-show-to-checkpoint path filters on this index). **Replaces the prior client-driven `?after=<lastDriveFileId>` query parameter from M11 batch-13 finding 2** — the earlier cursor diverged from the `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE` per-row re-Apply contract: a row whose `drive_file_id` sorted alphabetically BEFORE the previous client cursor and was re-Approved between batches would be silently invisible to every subsequent batch (the strict `>` cursor would skip it). Server-driven progression: each batch's row set is derived authoritatively from `pending_syncs WHERE wizard_session_id = $sessionId AND wizard_approved = TRUE ORDER BY drive_file_id LIMIT 100` (re-Approved rows naturally re-enter regardless of `drive_file_id` ordering because §6.8.1 step-list 6L DELETEs promoted rows AND the per-row race-abort follow-up sets `wizard_approved = FALSE` for raced rows). The checkpoint row's `last_processed_drive_file_id` is observability-only — NEVER consulted by the next batch's SELECT. Lifecycle: first finalize call INSERTs with `status = 'in_progress'`; each batch UPDATEs `last_processed_drive_file_id` + `batches_completed` + `last_processed_at`; when a batch drains the last `wizard_approved = TRUE` row, that batch flips `status = 'all_batches_complete'`; the separate Phase D final-CAS endpoint reads the row, verifies `status = 'all_batches_complete'` AND `pending_syncs WHERE wizard_session_id = $sessionId AND wizard_approved = TRUE` count is 0, then runs §4.5 atomic-promotion CAS + `published = TRUE` flip + clean-slate DELETE in ONE short transaction (no Drive/Storage I/O), then sets `status = 'final_cas_done'`. The `ADMIN_TABLES` registry / AC-2.5 propagate automatically via the §4.3 build-time parity invariant (Task X.6) — AC-2.5's table count grows from 18 → 19, assertion count from 72 → 76.
+  - **M3+M4 batch-14 finding 2 — composite `viewer_version_token` columns + UPDATE triggers + SQL helper (this batch-14 amendment).** Realtime invalidation needs a monotonic per-show token that advances on EVERY mutation visible to a viewer — including auth-only mutations on `crew_member_auth` and role-only mutations on `crew_members` that don't touch `shows`. Add the following inline in §4.1's `create table crew_member_auth (...)` and `create table crew_members (...)` blocks; the new columns ship in the initial migration alongside the table CREATE (no follow-on ALTER per Step 1's no-ALTER rule):
+    - `crew_member_auth.last_changed_at TIMESTAMPTZ NOT NULL DEFAULT now()` — bumped to `now()` by an UPDATE-trigger on every UPDATE of any other column.
+    - `crew_members.last_changed_at TIMESTAMPTZ NOT NULL DEFAULT now()` — same pattern.
+    - UPDATE trigger functions and triggers (DDL form):
+      ```sql
+      CREATE OR REPLACE FUNCTION bump_last_changed_at_and_publish_invalidation() RETURNS trigger AS $$
+      BEGIN
+        NEW.last_changed_at := now();
+        PERFORM pg_notify(
+          'realtime:broadcast',
+          json_build_object(
+            'topic',   'show:' || NEW.show_id || ':invalidation',
+            'event',   'invalidate',
+            'payload', json_build_object('show_id', NEW.show_id, 'version_token', viewer_version_token(NEW.show_id))
+          )::text
+        );
+        RETURN NEW;
+      END $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+      CREATE TRIGGER crew_member_auth_bump_and_publish
+        BEFORE UPDATE ON crew_member_auth
+        FOR EACH ROW
+        WHEN (OLD.* IS DISTINCT FROM NEW.*)
+        EXECUTE FUNCTION bump_last_changed_at_and_publish_invalidation();
+
+      CREATE TRIGGER crew_members_bump_and_publish
+        BEFORE UPDATE ON crew_members
+        FOR EACH ROW
+        WHEN (OLD.* IS DISTINCT FROM NEW.*)
+        EXECUTE FUNCTION bump_last_changed_at_and_publish_invalidation();
+      ```
+      The `WHEN (OLD.* IS DISTINCT FROM NEW.*)` predicate prevents trigger recursion on the trigger's own `last_changed_at` write (PG fires BEFORE-UPDATE before checking the predicate against the NEW value supplied to the trigger, so we use a separate `bumped` AFTER-UPDATE pattern in production code if recursion does manifest under the host's specific PG version; the migration tests assert no recursion).
+    - SQL helper:
+      ```sql
+      CREATE OR REPLACE FUNCTION viewer_version_token(p_show_id uuid) RETURNS text AS $$
+        SELECT to_char(GREATEST(
+          COALESCE((SELECT EXTRACT(EPOCH FROM last_synced_at) * 1000 FROM shows WHERE id = p_show_id), 0),
+          COALESCE((SELECT EXTRACT(EPOCH FROM MAX(last_changed_at)) * 1000 FROM crew_member_auth WHERE show_id = p_show_id), 0),
+          COALESCE((SELECT EXTRACT(EPOCH FROM MAX(last_changed_at)) * 1000 FROM crew_members      WHERE show_id = p_show_id), 0)
+        ), 'FM999999999999999');
+      $$ LANGUAGE sql STABLE SECURITY DEFINER;
+      ```
+      Returns a stringified epoch-ms representation that's stable for equality + ordering comparisons. The function is SECURITY DEFINER so non-admin callers (the `/api/show/[slug]/version` route running as the request principal) can compute it without RLS-blocking on `crew_member_auth` reads — the function is owned by the migration role and exposes only the aggregate timestamp, NOT any auth-bearing column.
+    - The publish helper `lib/realtime/showInvalidation.ts` `publishShowInvalidation(tx, showId)` (M4 Task 4.16) is the application-side equivalent for Phase 2 commit sites that don't go through one of these triggers. **Both producers emit the same payload shape AND the same composite token** — the bridge cannot tell whether a Broadcast came from the trigger or from the helper.
+    - Task 2.5 introspection MUST add new `REQUIRED_COLUMNS` entries for `crew_member_auth.last_changed_at` and `crew_members.last_changed_at`, AND add a `REQUIRED_TRIGGERS` matrix asserting each trigger exists with the expected function name + WHEN predicate, AND add a `REQUIRED_FUNCTIONS` matrix asserting `viewer_version_token(uuid)` returns `text` and is `STABLE` `SECURITY DEFINER`. This is the introspection counterpart to the new DDL — without it, a regression that drops the trigger but leaves the column would silently break Realtime invalidation.
 - [ ] **Step 2: `app_settings` singleton bootstrap is part of the §4.5 CREATE block (round-47 amendment — earlier draft added a redundant ALTER ADD CONSTRAINT step that duplicated the inline CHECK in §4.5)**. Spec §4.5 already defines `id text primary key check (id = 'default')` inline AND specifies the bootstrap `INSERT INTO app_settings (id) VALUES ('default') ON CONFLICT DO NOTHING` immediately after the CREATE. The migration copies that block verbatim — no follow-on ALTER. The bootstrap insert is the only post-CREATE step (a one-row INSERT, not a constraint addition):
   ```sql
   -- (CREATE TABLE app_settings ... copied from spec §4.5 — includes the singleton CHECK inline)
@@ -1377,28 +1463,39 @@ Spec context: §4 entire data model, §17.1 milestone 2.
 **Files:** Create: `supabase/migrations/20260501T0020_rls_policies.sql`.
 
 - [ ] **Step 1: Author** RLS per §4.3. For each table:
-  - **Admin-only tables** (full list in §4.3): `ENABLE RLS` + a single policy `admin_only` granting select/insert/update/delete to roles where `auth.jwt()->'app_metadata'->>'role' = 'admin'` OR `auth.email()` is in the configured admin allowlist (read from a small SQL helper `is_admin()`).
+  - **Admin-only tables** (full list in §4.3): `ENABLE RLS` + a single policy `admin_only` granting select/insert/update/delete to roles where `auth.jwt()->'app_metadata'->>'role' = 'admin'` OR `auth.email()` is in the configured admin allowlist (read from a small SQL helper `is_admin()`). **Batch-10 Fix 4 + M2 batch-11/batch-12 amendment + M7 batch-12 finding 1 amendment + M3+M4 batch-13 finding 4 amendment + M11 batch-14 finding 1 amendment**: AC-2.5 covers EVERY table in §4.3's admin-only list across ALL FOUR verbs (SELECT/INSERT/UPDATE/DELETE) — the `ADMIN_TABLES` registry in the AC-2.5 test (Step 4 below) is the single source of truth and MUST contain entries for the complete **19-table** §4.3 list: `shows_internal`, `sync_log`, `reports`, `pending_syncs`, `pending_ingestions`, `crew_member_auth`, `revoked_links`, `link_sessions`, `bootstrap_nonces` (M5 batch-10 — batch-12 propagation: this table is admin-only per §4.3 and MUST be in the registry; earlier inline enumerations stopped at 15 tables omitting it), `app_settings`, `deferred_ingestions`, `admin_alerts`, `sync_audit`, `drive_watch_channels`, `report_rate_limits`, `onboarding_scan_manifest`, `pending_snapshot_uploads` (M7 batch-12 finding 1 — commit-aware snapshot ledger; this table is admin-only per §4.3 and MUST be in the registry; the count grows from 16 → 17 with this addition), `revision_race_cooldowns` (M3+M4 batch-13 finding 4 — per-`(drive_file_id, raced_head_revision_id)` cooldown ledger that bounds revision-race retry storms; admin-only by construction since cron/push are the only writers; the count grows from 17 → 18 with this addition), `wizard_finalize_checkpoints` (M11 batch-14 finding 1 — server-owned multi-batch finalize cursor; admin-only by construction since the finalize endpoint is the sole writer; the count grows from 18 → 19 with this addition). The earlier AC-2.5 acceptance criterion enumerated only `shows_internal`, `pending_syncs`, `pending_ingestions`, `sync_audit`, `crew_member_auth`, `revoked_links` — batch-10 Fix 4 promotes the AC to the full §4.3 list (now 19 tables, with batch-13 adding `revision_race_cooldowns` for 18 and batch-14 adding `wizard_finalize_checkpoints` for 19). The test exercises every (table × verb) cell; missing any cell fails AC-2.5. The `__test_singleton_rls_probe` SECURITY-INVOKER helper (M2 batch-10 fix) handles the singleton tables (`app_settings`); the standard 4-test harness handles all others. **Build-time invariant (X.6 audit, batch-11/batch-12)**: the `ADMIN_TABLES` registry's count and identity MUST agree with the spec §4.3 admin-only list at build time; CI fails if they drift. Task X.6 owns the cross-cutting §4.3 ↔ AC-2.5 parity assertion (see Task X.6 Step 2 — `bootstrap_nonces`, `pending_snapshot_uploads`, `revision_race_cooldowns`, and `wizard_finalize_checkpoints` are entries the parity audit confirms in both lists).
   - **`SECURITY DEFINER` membership helper (final-validation finding).** A naïve `EXISTS (SELECT 1 FROM crew_members ...)` predicate applied to `crew_members` itself is self-referential — when Postgres evaluates the policy, it consults the same RLS-protected relation, which can recurse or fail outright. The corrected design defines a `SECURITY DEFINER` helper that bypasses RLS for the membership lookup:
     ```sql
     CREATE OR REPLACE FUNCTION can_read_show(p_show_id uuid)
     RETURNS boolean
     LANGUAGE sql
     SECURITY DEFINER                          -- runs with the function owner's privileges, NOT the caller's
-    SET search_path = public                  -- defensive: prevent search-path attacks on the helper
+    SET search_path = public, pg_temp         -- M2 batch-10 finding #2: pg_temp MUST be LAST (not omitted).
+                                              -- Postgres prepends an implicit `pg_temp` to search_path if
+                                              -- not listed, meaning `pg_temp` is searched FIRST. An attacker
+                                              -- with CREATE on pg_temp can shadow `crew_members` /
+                                              -- `is_admin` / `auth_email_canonical` with malicious temp
+                                              -- objects and hijack this SECURITY DEFINER predicate.
+                                              -- Listing `pg_temp` explicitly LAST forces the planner to
+                                              -- resolve unqualified names against `public` first. Per
+                                              -- PostgreSQL docs (CREATE FUNCTION → SET clause + Security
+                                              -- chapter on writable-schema-search-path attacks). Same
+                                              -- pattern applied to every SECURITY DEFINER function in
+                                              -- this plan/spec.
     STABLE                                    -- pure within a transaction; planner can cache
     AS $$
-      SELECT is_admin()
+      SELECT public.is_admin()
           OR EXISTS (
-               SELECT 1 FROM crew_members c
+               SELECT 1 FROM public.crew_members c
                 WHERE c.show_id = p_show_id
-                  AND c.email = auth_email_canonical()
+                  AND c.email = public.auth_email_canonical()
              );
     $$;
     REVOKE ALL ON FUNCTION can_read_show(uuid) FROM PUBLIC;
     GRANT EXECUTE ON FUNCTION can_read_show(uuid) TO authenticated, anon;
     ```
-    Because the helper runs with the function owner's privileges, the inner `SELECT FROM crew_members` is NOT subject to crew_members' RLS — no recursion. The `STABLE` marker lets Postgres cache the result within a query plan.
-  - **Crew-readable tables** (`shows`, `crew_members`, `hotel_reservations`, `rooms`, `transportation`, `contacts`): SELECT policy is `can_read_show(<table>.show_id)`. For `shows` itself, the policy keys on `can_read_show(shows.id)`. The helper internally checks `is_admin()` OR membership.
+    Because the helper runs with the function owner's privileges, the inner `SELECT FROM crew_members` is NOT subject to crew_members' RLS — no recursion. The `STABLE` marker lets Postgres cache the result within a query plan. Every relation/function reference in the body is schema-qualified (`public.crew_members`, `public.is_admin()`, `public.auth_email_canonical()`) so even a misordered search_path or a pg_temp shadow cannot redirect resolution. **SECURITY DEFINER hardening matrix (M2 batch-10 #2 propagation):** every SECURITY DEFINER function defined or referenced anywhere in this plan or spec MUST satisfy three rules: (a) `SET search_path = public, pg_temp` (or `= pg_temp` placed LAST in any longer list), never `SET search_path = public` alone; (b) every relation/function reference inside the body is schema-qualified; (c) `REVOKE ALL ... FROM PUBLIC` then explicit `GRANT EXECUTE TO <minimal-role-set>`. Affected sites audited and amended in this plan: `can_read_show` (this section), `is_admin` (defined inline below — apply the same rule), `auth_email_canonical` (helper used by `can_read_show`), `__test_singleton_rls_probe` (Task 2.3 singleton harness — see M2 batch-10 #3 below), `introspect_fk` (Task 2.5 FK-introspection helper), and any other SECURITY DEFINER helper added by Tasks 2.2–2.5, M5 (`applyStaged`-time helpers), M6 (`withShowSyncTransaction` if defined as SECURITY DEFINER), M8 (report-rate-limit helpers), or M10 (wizard-CAS helpers). Self-review must grep the plan and spec for every `SECURITY DEFINER` literal and confirm each adjacent definition shows `pg_temp` in its `SET search_path` and uses fully-qualified names in the body.
+  - **Crew-readable tables** (`shows`, `crew_members`, `hotel_reservations`, `rooms`, `transportation`, `contacts`): SELECT policy is `can_read_show(<table>.show_id)`. **For `shows` itself, the policy is `is_admin() OR (can_read_show(shows.id) AND shows.published = TRUE)` (M2 batch-14 finding 2 propagation of M11 batch-13 finding 2 — interim wizard-finalize batches insert `published = FALSE` rows; without the `AND shows.published = TRUE` predicate, a crew member whose email matches a `crew_members` row for an interim-batch show could read the show via `can_read_show()` BEFORE the FINAL-batch §4.5 CAS atomically flips published to TRUE alongside `watched_folder_id`).** Admins (the `is_admin()` branch) DO see unpublished interim-batch rows so the dashboard can render the yellow "Publishing…" badge per §6.8.1 / spec §4.1 published-column comment. The helper `can_read_show()` itself stays unchanged (`is_admin() OR membership`); the `AND shows.published = TRUE` predicate is in the `shows` policy USING clause so it only applies to the `shows` SELECT path — peer crew-readable tables (`crew_members`, `hotel_reservations`, `rooms`, `transportation`, `contacts`) stay keyed solely on `can_read_show(<table>.show_id)` because they cannot be reached by a crew session whose parent `shows` row is unpublished (the parent-show RLS denial fires first on every crew read path that traverses `shows`). The helper internally checks `is_admin()` OR membership.
   - All writes on crew-readable tables are admin-only (the app uses the service role for mutating operations).
 - [ ] **Step 2: Failing tests** in `tests/db/rls.test.ts` using a Supabase client with anon-only credentials and a synthesized JWT for a fictitious crew email. **EXHAUSTIVE coverage of every admin-only table from §4.3 is required (final-validation finding):** an earlier draft only spot-checked `shows_internal`. A missing policy on any other admin-only table would let crew leak operational/auth data and the spot-check suite would still pass.
 
@@ -1414,7 +1511,16 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     validUpdate: Record<string, any>;           // a column-set update that would succeed if RLS didn't block
     // Round-48 amendment: tables whose physical model rules out the generic INSERT/DELETE harness
     // (e.g., singleton CHECK constraints) opt into a custom strategy. Default is the standard
-    // 4-test harness; 'singleton' runs the savepoint-based custom block defined later in this file.
+    // 4-test harness; 'singleton' delegates write-denial probing to the SECURITY DEFINER RPC
+    // `__test_singleton_rls_probe` (defined later in this file) which executes the entire
+    // disposable-INSERT / RLS-attempt / verify / restore cycle inside a single Postgres
+    // transaction server-side. Round-49 amendment: earlier draft used `BEGIN; SAVEPOINT ...`
+    // issued through `admin.rpc('exec_sql')` and assumed subsequent `admin.from(...)` /
+    // `crewClient.from(...)` calls would participate in that transaction. PostgREST does NOT
+    // pool requests into the same backend connection — every `from(...)` call opens its own
+    // transaction, so the savepoint never wrapped the probes and a failed assertion would
+    // leave the bootstrap row deleted. The SECURITY DEFINER RPC eliminates this entirely:
+    // one round-trip, one server-side tx, atomic rollback regardless of probe outcome.
     testStrategy?: 'standard' | 'singleton';
   };
 
@@ -1452,8 +1558,24 @@ Spec context: §4 entire data model, §17.1 milestone 2.
       validUpdate: { current_token_version: 2, max_issued_version: 2 },
     },
     /* ...repeat for sync_log, reports, pending_syncs, pending_ingestions, revoked_links,
-       app_settings, deferred_ingestions, admin_alerts, sync_audit, drive_watch_channels,
-       report_rate_limits — each with its own pk shape and required-column payload. */
+       bootstrap_nonces (M5 batch-10 — see registry entry below), app_settings, deferred_ingestions,
+       admin_alerts, sync_audit, drive_watch_channels, report_rate_limits — each with its own pk
+       shape and required-column payload. */
+    {
+      // M5 batch-10 + batch-11 propagation: bootstrap_nonces is admin-only per spec §4.1 / §4.3.
+      // **M5 batch-11 composite PK**: primary key is `(nonce_hash, show_id)` — NOT `nonce_hash` alone.
+      // The pk shape below is composite so the .match() probe scopes to BOTH columns. Standard 4-test
+      // harness applies. Seed payload uses a deterministic nonce_hash for the row probes; validInsert
+      // mints a fresh hash so the INSERT-denial harness exercises a non-collision payload.
+      name: 'bootstrap_nonces',
+      seed: async () => (await admin.from('bootstrap_nonces').insert({
+        nonce_hash: 'probe-seeded-' + crypto.randomUUID(),
+        show_id: knownShowId,
+      }).select().single()).data!,
+      pk: { nonce_hash: '<captured from seed>', show_id: knownShowId },   // M5 batch-11 composite PK shape
+      validInsert: () => ({ nonce_hash: 'probe-' + crypto.randomUUID(), show_id: knownShowId }),
+      validUpdate: { consumed_at: new Date().toISOString() },     // simulates atomic single-use consumption
+    },
     {
       // Round-48 propagation: onboarding_scan_manifest is admin-only per spec §4.3 / §4.5.
       // Standard 4-test harness applies (composite unique key on (wizard_session_id, drive_file_id)).
@@ -1542,12 +1664,121 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     }
   });
 
-  // Round-48 amendment: singleton-strategy block for tables capped at exactly one row by a CHECK
-  // constraint (currently only `app_settings` per spec §4.5 `check (id = 'default')`). The generic
-  // INSERT/DELETE harness above is impossible here — no second row can exist, and the bootstrap row
-  // is inserted at migration time so the first INSERT also fails. This block exercises SELECT/UPDATE
-  // denial directly on the singleton, and uses a SAVEPOINT-wrapped DELETE-then-restore pattern to
-  // exercise INSERT/DELETE denial without leaving the table empty if any assertion fails.
+  // Round-48/49 amendment: singleton-strategy block for tables capped at exactly one row by a
+  // CHECK constraint (currently only `app_settings` per spec §4.5 `check (id = 'default')`). The
+  // generic INSERT/DELETE harness above is impossible here — no second row can exist, and the
+  // bootstrap row is inserted at migration time so the first INSERT also fails.
+  //
+  // Round-49 amendment (replaces the round-48 SAVEPOINT pattern). The earlier draft tried to
+  // wrap a DELETE-attempt-restore cycle in `BEGIN; SAVEPOINT singleton_probe;` issued through
+  // `admin.rpc('exec_sql')` and assumed subsequent `admin.from(t.name).delete(...)` and
+  // `crewClient.from(t.name).insert(...)` calls would participate in that same transaction.
+  // They don't: PostgREST opens a fresh transaction (and frequently a fresh backend connection)
+  // for every HTTP request, so the BEGIN/SAVEPOINT issued via the first RPC commits/rolls back
+  // independently of the probes that follow, and the rollback at the end restores nothing.
+  // A failed assertion in the middle of the test would leave the singleton's bootstrap row
+  // deleted for the rest of the suite.
+  //
+  // The corrected design moves the entire INSERT-denial / DELETE-denial / restore cycle into a
+  // SECURITY DEFINER helper RPC `__test_singleton_rls_probe(table_name, expected_admin_can_delete,
+  // expected_crew_cannot_delete)` that runs server-side in a single transaction. The helper is
+  // installed only in test environments (gated by `app_settings.environment = 'test'` OR by a
+  // dedicated migration in `tests/db/_test_helpers.sql` that is NOT registered for production
+  // apply). It returns a structured `probe_result` jsonb describing each step's outcome.
+  //
+  // Helper contract (installed in tests/db/_test_helpers.sql for test runs only):
+  //
+  //   create or replace function __test_singleton_rls_probe(
+  //     table_name      text,
+  //     pk_column       text,
+  //     pk_value        text
+  //   ) returns jsonb
+  //   language plpgsql security definer set search_path = public, pg_temp as $$
+  //   declare
+  //     row_before        jsonb;
+  //     crew_insert_err   text := null;
+  //     crew_insert_count int  := 0;
+  //     crew_delete_err   text := null;
+  //     crew_delete_count int  := 0;
+  //     admin_delete_count int := 0;
+  //     admin_insert_count int := 0;
+  //     row_after         jsonb;
+  //   begin
+  //     execute format('select to_jsonb(t) from %I t where %I = $1', table_name, pk_column)
+  //       into row_before using pk_value;
+  //     if row_before is null then
+  //       raise exception 'singleton row missing before probe';
+  //     end if;
+  //
+  //     -- Step 1: install non-admin JWT claim (M2 batch-10 #3, round-51 amendment).
+  //     -- DO NOT use `SET LOCAL ROLE authenticated` inside SECURITY DEFINER. PostgREST
+  //     -- applies non-admin RLS by setting `request.jwt.claims` only; we mirror that here.
+  //     -- Earlier draft also tried to re-INSERT a row with the same `id='default'` PK,
+  //     -- which fails on the singleton PK regardless of RLS — non-discriminating.
+  //     -- Corrected design DELETEs the bootstrap row first (as service-role, before
+  //     -- installing the claim), so the crew INSERT attempt hits RLS, NOT the PK.
+  //     execute format('delete from %I where %I = $1', table_name, pk_column) using pk_value;
+  //     -- crew claim shape per §7.2 (no admin claim).
+  //     perform set_config('request.jwt.claims',
+  //       jsonb_build_object('role', 'authenticated', 'sub', '00000000-0000-0000-0000-000000000000')::text,
+  //       true);
+  //     -- Probe INSERT: row was just deleted, table is empty. RLS evaluates the crew
+  //     -- claim against the policy. If RLS denies, INSERT raises SQLSTATE 42501 (or
+  //     -- returns 0 affected rows depending on RLS shape); if RLS allows, INSERT succeeds.
+  //     begin
+  //       execute format('insert into %I (%I) values ($1)', table_name, pk_column) using pk_value;
+  //       get diagnostics crew_insert_count = row_count;
+  //     exception when others then
+  //       crew_insert_err := SQLSTATE || ': ' || SQLERRM;
+  //     end;
+  //
+  //     -- For the DELETE probe to be discriminating, the row must EXIST at probe time.
+  //     -- Clear the JWT claim, restore the bootstrap row as service-role, then reinstall
+  //     -- the crew claim before probing DELETE.
+  //     perform set_config('request.jwt.claims', null, true);
+  //     execute format('insert into %I select * from jsonb_populate_record(null::%I, $1)',
+  //       table_name, table_name) using row_before;
+  //     perform set_config('request.jwt.claims',
+  //       jsonb_build_object('role', 'authenticated', 'sub', '00000000-0000-0000-0000-000000000000')::text,
+  //       true);
+  //     begin
+  //       execute format('delete from %I where %I = $1', table_name, pk_column) using pk_value;
+  //       get diagnostics crew_delete_count = row_count;
+  //     exception when others then
+  //       crew_delete_err := SQLSTATE || ': ' || SQLERRM;
+  //     end;
+  //
+  //     -- Step 2: clear the JWT claim and run the positive control as service-role.
+  //     -- (NO `reset role` — we never set the role; we toggled jwt.claims only.)
+  //     perform set_config('request.jwt.claims', null, true);
+  //     execute format('delete from %I where %I = $1', table_name, pk_column) using pk_value;
+  //     get diagnostics admin_delete_count = row_count;
+  //
+  //     -- Step 3: restore the bootstrap row from the snapshot (insert from row_before).
+  //     execute format('insert into %I select * from jsonb_populate_record(null::%I, $1)',
+  //       table_name, table_name) using row_before;
+  //     get diagnostics admin_insert_count = row_count;
+  //
+  //     execute format('select to_jsonb(t) from %I t where %I = $1', table_name, pk_column)
+  //       into row_after using pk_value;
+  //
+  //     return jsonb_build_object(
+  //       'crew_insert_err',    crew_insert_err,
+  //       'crew_insert_count',  crew_insert_count,
+  //       'crew_delete_err',    crew_delete_err,
+  //       'crew_delete_count',  crew_delete_count,
+  //       'admin_delete_count', admin_delete_count,
+  //       'admin_insert_count', admin_insert_count,
+  //       'row_before_eq_after', (row_before = row_after),
+  //       'row_after_present',  row_after is not null
+  //     );
+  //   end;
+  //   $$;
+  //
+  // The whole function body runs in one auto-committed plpgsql block; if any statement raises
+  // and the helper does not catch it, the implicit transaction rolls back atomically and the
+  // bootstrap row survives. The test code calls the RPC ONCE per singleton table and asserts
+  // the structured result.
   describe('AC-2.5 singleton variant: tables with one-row CHECK constraints', () => {
     for (const t of ADMIN_TABLES.filter(s => s.testStrategy === 'singleton')) {
       it(`${t.name}: non-admin SELECT denied (single-row probe with service-role control)`, async () => {
@@ -1566,37 +1797,35 @@ Spec context: §4 entire data model, §17.1 milestone 2.
         expect(ctrlErr).toBeNull();
         expect(ctrlCount).toBe(1);
       });
-      it(`${t.name}: non-admin INSERT denied (SAVEPOINT-wrapped — DELETE bootstrap, attempt INSERT, ROLLBACK to restore)`, async () => {
-        // Wrap in a SAVEPOINT so the DELETE+attempts roll back regardless of assertion outcome,
-        // restoring the bootstrap row. Service-role INSERT control proves the payload itself is valid;
-        // RLS would otherwise be the only gate.
-        await admin.rpc('exec_sql', { sql: 'BEGIN; SAVEPOINT singleton_probe;' });
-        try {
-          await admin.from(t.name).delete().match(t.pk);             // service-role removes singleton inside savepoint
-          const probePayload = { ...t.pk };                          // reinsert the same `id = 'default'` row
-          const { error: denyErr } = await crewClient.from(t.name).insert(probePayload);
-          expect(denyErr).toBeTruthy();                              // RLS denial expected
-          const { error: ctrlErr } = await admin.from(t.name).insert(probePayload);
-          expect(ctrlErr).toBeNull();                                // service-role control succeeds — payload is valid
-        } finally {
-          await admin.rpc('exec_sql', { sql: 'ROLLBACK TO SAVEPOINT singleton_probe; COMMIT;' });   // restores bootstrap row
-        }
-      });
-      it(`${t.name}: non-admin DELETE denied (SAVEPOINT-wrapped — singleton survives the rollback)`, async () => {
-        await admin.rpc('exec_sql', { sql: 'BEGIN; SAVEPOINT singleton_probe;' });
-        try {
-          // Crew-side DELETE attempt — must be denied OR affect zero rows.
-          const { error: denyErr, count } = await crewClient
-            .from(t.name).delete().match(t.pk).select('*', { count: 'exact' });
-          expect(denyErr || count === 0).toBeTruthy();
-          // Service-role control DELETE proves the row was actually present (else denial test was moot).
-          const { error: ctrlErr, count: ctrlCount } = await admin
-            .from(t.name).delete().match(t.pk).select('*', { count: 'exact' });
-          expect(ctrlErr).toBeNull();
-          expect(ctrlCount).toBe(1);
-        } finally {
-          await admin.rpc('exec_sql', { sql: 'ROLLBACK TO SAVEPOINT singleton_probe; COMMIT;' });   // restores bootstrap row
-        }
+      it(`${t.name}: non-admin INSERT + DELETE denied (atomic SECURITY DEFINER probe — bootstrap row restored regardless of probe outcome)`, async () => {
+        // Single round-trip; the helper runs INSERT-attempt + DELETE-attempt + admin control +
+        // restore in one server-side transaction. PostgREST request boundaries are no longer in
+        // play — the entire cycle is one psql call that either commits the restore or aborts
+        // and rolls back. No SAVEPOINT spanning multiple `from(...)` calls.
+        const pkColumn = Object.keys(t.pk)[0];
+        const pkValue  = String(t.pk[pkColumn]);
+        const { data, error } = await admin.rpc('__test_singleton_rls_probe', {
+          table_name: t.name,
+          pk_column:  pkColumn,
+          pk_value:   pkValue,
+        });
+        expect(error).toBeNull();
+        const r = data as {
+          crew_insert_err: string | null;  crew_insert_count: number;
+          crew_delete_err: string | null;  crew_delete_count: number;
+          admin_delete_count: number;      admin_insert_count: number;
+          row_before_eq_after: boolean;    row_after_present: boolean;
+        };
+        // Crew-side INSERT denied (either RLS error OR zero rows affected).
+        expect(r.crew_insert_err !== null || r.crew_insert_count === 0).toBe(true);
+        // Crew-side DELETE denied (either RLS error OR zero rows affected).
+        expect(r.crew_delete_err !== null || r.crew_delete_count === 0).toBe(true);
+        // Service-role control DELETE proves the row WAS present and admin can delete it.
+        expect(r.admin_delete_count).toBe(1);
+        // Restore succeeded and the row is byte-for-byte identical to the pre-probe snapshot.
+        expect(r.admin_insert_count).toBe(1);
+        expect(r.row_after_present).toBe(true);
+        expect(r.row_before_eq_after).toBe(true);
       });
     }
   });
@@ -1631,6 +1860,37 @@ Spec context: §4 entire data model, §17.1 milestone 2.
       it(`${t.name}: matching crew CAN SELECT for their show`, async () => { /* ... */ });
       it(`${t.name}: non-matching crew CANNOT SELECT for a different show`, async () => { /* ... */ });
       it(`${t.name}: admin CAN SELECT (is_admin() branch)`, async () => { /* ... */ });
+
+      // M2 batch-14 finding 2 (M11 batch-13 finding 2 propagation): `shows` policy carries
+      // `AND shows.published = TRUE` for the non-admin branch. Interim wizard-finalize batches
+      // INSERT `shows` rows with `published = FALSE`; without this predicate a crew member whose
+      // email matches a `crew_members` row for an interim-batch show would read the show via
+      // `can_read_show()` BEFORE the FINAL-batch §4.5 CAS atomically flips published to TRUE.
+      // Regression scoped to the `shows` table only — peer crew-readable tables stay keyed solely
+      // on `can_read_show(<table>.show_id)` because reaching them traverses the parent `shows`
+      // row first (which the policy denies on unpublished interim-batch shows).
+      if (t.name === 'shows') {
+        it(`shows: matching crew identity returns zero rows for shows.published = FALSE (interim wizard-finalize batch)`, async () => {
+          const interimShow = await admin
+            .from('shows')
+            .insert({ /* minimal valid row */ published: false })
+            .select()
+            .single();
+          await admin.from('crew_members').insert({
+            show_id: interimShow.data!.id,
+            email: matchingCrewEmail,         // same email the matchingCrewClient is signed in as
+            name: 'Interim Probe',
+          });
+          const { data, error } = await matchingCrewClient
+            .from('shows').select('id, published').eq('id', interimShow.data!.id);
+          expect(error).toBeNull();           // RLS denial returns empty result, not an error
+          expect(data).toEqual([]);           // zero rows — `AND shows.published = TRUE` predicate fired
+          const { data: adminData } = await admin.from('shows').select('id, published').eq('id', interimShow.data!.id);
+          expect(adminData!.length).toBe(1);
+          expect(adminData![0].published).toBe(false);
+          await admin.from('shows').delete().eq('id', interimShow.data!.id);
+        });
+      }
 
       // **Write denial — applies to BOTH matching-crew and non-matching-crew identities**:
       for (const identity of ['matching-crew', 'non-matching-crew'] as const) {
@@ -1678,13 +1938,13 @@ Spec context: §4 entire data model, §17.1 milestone 2.
 
 **Files:** Create: `supabase/seed.ts`. Modify: `package.json` (add `db:seed` script).
 
-- [ ] **Step 1: Failing test** `tests/db/seed.test.ts` asserts AC-2.7 against the **persisted shape from §4.1 + round-44 amendments** — the test must validate every field the production pipeline writes, including `drive_file_id`, `last_seen_modified_time`, and the full reel pin triple (`opening_reel_drive_file_id`, `opening_reel_drive_modified_time`, `opening_reel_head_revision_id`), AND the structured `diagrams` JSONB shape (`{ snapshot_revision_id, snapshot_status, embeddedImages[], linkedFolderItems[] }`):
+- [ ] **Step 1: Failing test** `tests/db/seed.test.ts` asserts AC-2.7 against the **persisted shape from §4.1 + round-44 + M3+M4 batch-12 amendments** — the test must validate every field the production pipeline writes, including `drive_file_id`, `last_seen_modified_time`, and the full reel pin **quadruple** (`opening_reel_drive_file_id`, `opening_reel_drive_modified_time`, `opening_reel_head_revision_id`, `opening_reel_mime_type` — M3+M4 batch-14 finding 3 propagation: corrected from "triple" to match the §4.1 batch-12 4-column persisted shape; the prior "triple" wording was a regression of the batch-13 4-tuple fix), AND the structured `diagrams` JSONB shape (`{ snapshot_revision_id, snapshot_status, embeddedImages[], linkedFolderItems[] }`):
   ```ts
   it('AC-2.7 seed loads 10 fixtures via production pipeline with full persisted-shape integrity', async () => {
     const supa = createServiceClient();
     const { data: shows } = await supa.from('shows').select(
       'id, slug, drive_file_id, last_seen_modified_time, ' +
-      'opening_reel_drive_file_id, opening_reel_drive_modified_time, opening_reel_head_revision_id, ' +
+      'opening_reel_drive_file_id, opening_reel_drive_modified_time, opening_reel_head_revision_id, opening_reel_mime_type, ' +
       'diagrams'
     );
     expect(shows!.length).toBe(10);
@@ -1693,11 +1953,13 @@ Spec context: §4 entire data model, §17.1 milestone 2.
       expect(s.drive_file_id).toEqual(expect.any(String));            // mock Drive provides a deterministic id per fixture
       expect(s.last_seen_modified_time).toEqual(expect.any(String));  // ISO timestamp from mock Drive metadata
 
-      // Reel pin triple — present iff fixture has a reel:
+      // Reel pin quadruple — present iff fixture has a reel (M3+M4 batch-14 finding 3: 3 → 4 cols incl. mime_type per §4.1):
       if (FIXTURES_WITH_REEL.has(s.slug)) {
         expect(s.opening_reel_drive_file_id).not.toBeNull();
         expect(s.opening_reel_drive_modified_time).not.toBeNull();
         expect(s.opening_reel_head_revision_id).not.toBeNull();        // round-44 column is mandatory when reel present
+        expect(s.opening_reel_mime_type).not.toBeNull();               // M3+M4 batch-12 column; mandatory for video reels
+        expect(s.opening_reel_mime_type as string).toMatch(/^video\//);
       }
 
       // Diagrams JSONB structured shape per round-46 PersistedDiagrams type — full contract.
@@ -1715,25 +1977,82 @@ Spec context: §4 entire data model, §17.1 milestone 2.
         )).toBe(true);
         expect(Array.isArray(diagrams.embeddedImages)).toBe(true);
         expect(Array.isArray(diagrams.linkedFolderItems)).toBe(true);
-        // Embedded entries carry sheetsRevisionId + embeddedFingerprint + recovery_disposition (round-46):
+        // Round-49 amendment: full PersistedDiagrams field coverage per spec §4.1.
+        // Earlier draft asserted only a subset (objectId/sheetTab/sheetsRevisionId/
+        // embeddedFingerprint/recovery_disposition for embedded; driveFileId/headRevisionId/
+        // md5Checksum/drive_modified_time for linked) and missed mimeType, snapshotPath,
+        // sourceFolder on BOTH lists, plus recovery_disposition + cross-invariants on linked
+        // entries. Every field the production pipeline persists is now asserted, AND every
+        // cross-field invariant the spec calls out.
         for (const e of diagrams.embeddedImages) {
           expect(e.objectId).toEqual(expect.any(String));
           expect(e.sheetTab).toEqual(expect.any(String));
-          expect(e.sheetsRevisionId).toEqual(expect.any(String));            // mandatory immutable token
-          // embeddedFingerprint: null (restage-required) OR string. recovery_disposition encodes which:
-          expect(e.embeddedFingerprint === null || typeof e.embeddedFingerprint === 'string').toBe(true);
+          // mimeType: REQUIRED string per §4.1 (every embedded image carries the Drive-reported
+          // MIME type so /api/asset/diagram serves the right Content-Type).
+          expect(e.mimeType).toEqual(expect.any(String));
+          expect(e.mimeType.length).toBeGreaterThan(0);
+          // alt: optional — present iff the sheet supplied alt text.
+          if ('alt' in e && e.alt !== undefined && e.alt !== null) {
+            expect(e.alt).toEqual(expect.any(String));
+          }
+          // snapshotPath: nullable string per §4.1. Restage-required entries stay null
+          // permanently until a fresh sheet edit re-mints the fingerprint.
+          expect(e.snapshotPath === null || typeof e.snapshotPath === 'string').toBe(true);
+          // sourceFolder: REQUIRED literal 'embedded' — discriminator for asset_recovery / GC.
+          expect(e.sourceFolder).toBe('embedded');
+          // sheetsRevisionId: mandatory immutable Drive revision token.
+          expect(e.sheetsRevisionId).toEqual(expect.any(String));
+          expect(e.sheetsRevisionId.length).toBeGreaterThan(0);
+          // embeddedFingerprint: null (restage-required) OR non-empty string.
+          expect(e.embeddedFingerprint === null || (typeof e.embeddedFingerprint === 'string' && e.embeddedFingerprint.length > 0)).toBe(true);
+          // recovery_disposition: union enum constraint per round-46 §4.1.
           expect(['normal', 'restage_required']).toContain(e.recovery_disposition);
-          // Cross-invariant: null fingerprint MUST coincide with restage_required disposition.
+          // Cross-invariant 1 (round-46 §4.1): null fingerprint MUST coincide with restage_required.
           if (e.embeddedFingerprint === null) {
             expect(e.recovery_disposition).toBe('restage_required');
           }
+          // Cross-invariant 2 (round-44 §4.1): if recovery_disposition is 'normal', BOTH
+          // sheetsRevisionId AND embeddedFingerprint must be non-null (the byte fence pair).
+          if (e.recovery_disposition === 'normal') {
+            expect(e.sheetsRevisionId).toEqual(expect.any(String));
+            expect(e.embeddedFingerprint).toEqual(expect.any(String));
+          }
+          // Cross-invariant 3 (round-46 §4.1): restage_required entries have snapshotPath = null
+          // (asset_recovery skips them, so the Storage slot is permanently empty).
+          if (e.recovery_disposition === 'restage_required') {
+            expect(e.snapshotPath).toBeNull();
+          }
         }
-        // Linked-folder entries carry headRevisionId + md5Checksum per round-47 PersistedLinkedFolderItem (the persisted counterpart of LinkedFolderItemStub; widens snapshotPath to string|null):
+        // Linked-folder entries — PersistedLinkedFolderItem per round-47 §4.1 (the persisted
+        // counterpart of LinkedFolderItemStub; widens snapshotPath to string|null).
         for (const l of diagrams.linkedFolderItems) {
           expect(l.driveFileId).toEqual(expect.any(String));
-          expect(l.headRevisionId).toEqual(expect.any(String));
-          expect(l.md5Checksum).toEqual(expect.any(String));
+          expect(l.driveFileId.length).toBeGreaterThan(0);
+          // mimeType: REQUIRED string per §4.1.
+          expect(l.mimeType).toEqual(expect.any(String));
+          expect(l.mimeType.length).toBeGreaterThan(0);
+          // alt: optional — present iff the sheet supplied alt text.
+          if ('alt' in l && l.alt !== undefined && l.alt !== null) {
+            expect(l.alt).toEqual(expect.any(String));
+          }
+          // drive_modified_time: ISO timestamp (informational; revision/checksum is the byte fence).
           expect(l.drive_modified_time).toEqual(expect.any(String));
+          // Byte-fence pair: headRevisionId + md5Checksum. Both REQUIRED per round-44 §4.1.
+          expect(l.headRevisionId).toEqual(expect.any(String));
+          expect(l.headRevisionId.length).toBeGreaterThan(0);
+          expect(l.md5Checksum).toEqual(expect.any(String));
+          expect(l.md5Checksum.length).toBeGreaterThan(0);
+          // snapshotPath: nullable string per §4.1.
+          expect(l.snapshotPath === null || typeof l.snapshotPath === 'string').toBe(true);
+          // sourceFolder: REQUIRED literal 'linked' — discriminator for asset_recovery / GC.
+          expect(l.sourceFolder).toBe('linked');
+          // recovery_disposition: union enum constraint per round-46 §4.1 — applies to BOTH
+          // embedded AND linked entries (earlier draft only asserted on embedded).
+          expect(['normal', 'restage_required']).toContain(l.recovery_disposition);
+          // Cross-invariant (round-46 §4.1): restage_required entries have snapshotPath = null.
+          if (l.recovery_disposition === 'restage_required') {
+            expect(l.snapshotPath).toBeNull();
+          }
         }
       }
       // Round-47 amendment: at least one seeded fixture exercises the partial_failure_restage_required
@@ -1862,7 +2181,9 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     {
       // Round-48 amendment: onboarding_scan_manifest.status enum CHECK (spec §4.5).
       table: 'onboarding_scan_manifest', constraint: 'onboarding_scan_manifest_status_check',
-      expectDef: `CHECK ((status = ANY (ARRAY['staged'::text, 'hard_failed'::text, 'skipped_non_sheet'::text, 'applied'::text, 'defer_until_modified'::text, 'permanent_ignore'::text, 'discard_retryable'::text])))`,
+      // M6 batch-10: 'live_row_conflict' joins the enum so the LIVE_ROW_CONFLICT manifest write
+      // (Task 6.8 / Task 10.3 per-file warn-and-continue path) is accepted by the CHECK.
+      expectDef: `CHECK ((status = ANY (ARRAY['staged'::text, 'hard_failed'::text, 'skipped_non_sheet'::text, 'applied'::text, 'defer_until_modified'::text, 'permanent_ignore'::text, 'discard_retryable'::text, 'live_row_conflict'::text])))`,
     },
     /* …repeat for every CHECK named in §4 with its exact expected string generated from spec source. */
   ] as const;
@@ -1876,7 +2197,28 @@ Spec context: §4 entire data model, §17.1 milestone 2.
 
   const REQUIRED_FKS = [
     { table: 'shows_internal',  column: 'show_id',        refTable: 'shows',        refColumn: 'id', onDelete: 'CASCADE', onUpdate: 'NO ACTION' },
-    { table: 'link_sessions',   column: 'crew_member_id', refTable: 'crew_members', refColumn: 'id', onDelete: 'CASCADE', onUpdate: 'NO ACTION' },
+    // M5 batch-10 finding: link_sessions.crew_member_id FK MUST be ON DELETE SET NULL,
+    // NOT CASCADE. Cascade silently destroys the session row when crew is deleted by
+    // sync, making §7.2.2 step 5 (LINK_NO_CREW_MATCH) unreachable — the row the
+    // validator's step 5 expects to observe is gone before the validator runs. SET NULL
+    // preserves the session so the validator can detect the deletion (crew_member_id IS
+    // NULL) and render the documented 410 + "you've been removed" copy. The exact-match
+    // introspection assertion below proves a future migration can't silently revert this
+    // to CASCADE without failing AC-2.1.
+    { table: 'link_sessions',   column: 'crew_member_id', refTable: 'crew_members', refColumn: 'id', onDelete: 'SET NULL', onUpdate: 'NO ACTION' },
+    { table: 'link_sessions',   column: 'show_id',        refTable: 'shows',        refColumn: 'id', onDelete: 'CASCADE', onUpdate: 'NO ACTION' },
+    // M5 batch-10 finding: bootstrap_nonces is the CSRF-defense table minted by
+    // /show/<slug>/p and consumed by /api/auth/redeem-link. show_id FK uses CASCADE
+    // because deleting the show invalidates any in-flight bootstrap (the nonce only
+    // makes sense for that show's redeem-link flow); 30-second TTL means the cleanup
+    // is benign even without cascade, but cascade keeps the table tidy and matches
+    // the pattern used by other auth-related FKs.
+    { table: 'bootstrap_nonces', column: 'show_id',        refTable: 'shows',        refColumn: 'id', onDelete: 'CASCADE', onUpdate: 'NO ACTION' },
+    // M7 batch-12 finding 1 (M2 batch-13 propagation): pending_snapshot_uploads.show_id FK is the
+    // commit-aware snapshot ledger's tether to its show. CASCADE matches the pattern: deleting the
+    // show invalidates the in-flight Apply ledger rows; the GC sweep would have orphaned them
+    // otherwise. The unique constraint on temp_prefix is asserted via the partial-index matrix below.
+    { table: 'pending_snapshot_uploads', column: 'show_id', refTable: 'shows',        refColumn: 'id', onDelete: 'CASCADE', onUpdate: 'NO ACTION' },
     { table: 'admin_alerts',    column: 'show_id',        refTable: 'shows',        refColumn: 'id', onDelete: 'CASCADE', onUpdate: 'NO ACTION' },
     /* …every FK named in §4.1, including the round-23/40 reports additions. */
   ] as const;
@@ -1900,11 +2242,44 @@ Spec context: §4 entire data model, §17.1 milestone 2.
       name: 'pending_syncs_wizard_session_idx',  // canonical spec name
       expectDef: `CREATE INDEX pending_syncs_wizard_session_idx ON public.pending_syncs USING btree (wizard_session_id) WHERE (wizard_session_id IS NOT NULL)`,
     },
+    // Round-50 / M6 batch-9 retry-2 amendment: live-row vs wizard-row partial unique indexes
+    // for pending_syncs and pending_ingestions enable coexistence of one live (NULL-session)
+    // row and one wizard (UUID-session) row per drive_file_id, preventing wizard scans from
+    // overwriting live cron/push/manual rows during Re-run Setup. Spec §4.5 declares them.
+    {
+      name: 'pending_syncs_live_drive_file_idx',
+      expectDef: `CREATE UNIQUE INDEX pending_syncs_live_drive_file_idx ON public.pending_syncs USING btree (drive_file_id) WHERE (wizard_session_id IS NULL)`,
+    },
+    {
+      name: 'pending_syncs_session_drive_file_idx',
+      expectDef: `CREATE UNIQUE INDEX pending_syncs_session_drive_file_idx ON public.pending_syncs USING btree (drive_file_id, wizard_session_id) WHERE (wizard_session_id IS NOT NULL)`,
+    },
+    {
+      name: 'pending_ingestions_live_drive_file_idx',
+      expectDef: `CREATE UNIQUE INDEX pending_ingestions_live_drive_file_idx ON public.pending_ingestions USING btree (drive_file_id) WHERE (wizard_session_id IS NULL)`,
+    },
+    {
+      name: 'pending_ingestions_session_drive_file_idx',
+      expectDef: `CREATE UNIQUE INDEX pending_ingestions_session_drive_file_idx ON public.pending_ingestions USING btree (drive_file_id, wizard_session_id) WHERE (wizard_session_id IS NOT NULL)`,
+    },
     {
       name: 'admin_alerts_one_unresolved_idx',
       // Spec §4.6: admin_alerts.show_id is nullable for global alerts; partial unique key uses
       // `coalesce(show_id::text, '')` so global alerts participate in the dedup index.
       expectDef: `CREATE UNIQUE INDEX admin_alerts_one_unresolved_idx ON public.admin_alerts USING btree (COALESCE((show_id)::text, ''::text), code) WHERE (resolved_at IS NULL)`,
+    },
+    // M2 batch-11 amendment: deferred_ingestions live-vs-wizard partial unique indexes
+    // (mirror pending_syncs / pending_ingestions partition shape from round-50). The live
+    // partition is what cron/push consult exclusively (`WHERE wizard_session_id IS NULL`);
+    // the wizard partition is what wizard step-3 Discard writes and is DELETEd at finalize
+    // (clean slate, option A per spec §4.5 lifecycle).
+    {
+      name: 'deferred_ingestions_live_drive_file_idx',
+      expectDef: `CREATE UNIQUE INDEX deferred_ingestions_live_drive_file_idx ON public.deferred_ingestions USING btree (drive_file_id) WHERE (wizard_session_id IS NULL)`,
+    },
+    {
+      name: 'deferred_ingestions_session_drive_file_idx',
+      expectDef: `CREATE UNIQUE INDEX deferred_ingestions_session_drive_file_idx ON public.deferred_ingestions USING btree (drive_file_id, wizard_session_id) WHERE (wizard_session_id IS NOT NULL)`,
     },
     {
       name: 'drive_watch_channels_one_active_per_folder_idx',
@@ -1924,6 +2299,74 @@ Spec context: §4 entire data model, §17.1 milestone 2.
       name: 'onboarding_scan_manifest_wizard_session_id_drive_file_id_key',
       expectDef: `CREATE UNIQUE INDEX onboarding_scan_manifest_wizard_session_id_drive_file_id_key ON public.onboarding_scan_manifest USING btree (wizard_session_id, drive_file_id)`,
     },
+    // M7 batch-12 finding 1 + M7 batch-13 findings 1–2 + M7 batch-14 finding 1 (M2 batch-14 propagation):
+    // pending_snapshot_uploads partial index for the GC pass (iii) initial-claim range scan in Task 7.8.
+    // Predicate `WHERE promoted_at IS NULL AND claim_token IS NULL` keeps the index small (only unpromoted,
+    // unclaimed ledger rows) so the periodic sweep does a bounded range scan AND skips rows already
+    // claimed by another in-flight GC worker — critical for the M7 batch-14 3-state lifecycle that
+    // closes the GC-vs-promoter race AND the revived-after-expiry vs committing_delete race.
+    {
+      name: 'pending_snapshot_uploads_unpromoted_idx',
+      expectDef: `CREATE INDEX pending_snapshot_uploads_unpromoted_idx ON public.pending_snapshot_uploads USING btree (uploaded_at) WHERE ((promoted_at IS NULL) AND (claim_token IS NULL))`,
+    },
+    // M7 batch-13 finding 1 + M7 batch-14 finding 1 (M2 batch-14 propagation): claim-expiry reclaim
+    // index. Batch-14 renames from `pending_snapshot_uploads_claimed_idx` to
+    // `pending_snapshot_uploads_claim_expiry_idx` because the predicate column shifted from
+    // `claimed_at` (start time) to `claim_expires_at` (lease deadline) — the lease length now
+    // varies by state (5 min in `claimed`, 15 min in `committing_delete`) so the reclaim sweep
+    // MUST range-scan the deadline column, not the start column. Predicate adds
+    // `delete_started_at IS NULL` so a worker that committed-to-delete is invisible to the
+    // reclaim path — that is the M7 batch-14 finding 1 fix that prevents byte destruction after
+    // claim expiry. Without this index a crashed-GC worker's row would be permanently stuck.
+    {
+      name: 'pending_snapshot_uploads_claim_expiry_idx',
+      expectDef: `CREATE INDEX pending_snapshot_uploads_claim_expiry_idx ON public.pending_snapshot_uploads USING btree (claim_expires_at) WHERE ((claim_token IS NOT NULL) AND (promoted_at IS NULL) AND (delete_started_at IS NULL))`,
+    },
+    // M7 batch-14 finding 1 (M2 batch-14 propagation): committing-delete recovery index. Rows in
+    // the `committing_delete` state hold a 15-minute lease; in the rare case a worker crashes
+    // AFTER commit-to-delete but BEFORE Storage DELETE completes, the row stays stuck unless an
+    // operator-driven recovery sweep can find it. Predicate `WHERE delete_started_at IS NOT NULL`
+    // is the simplest possible: it identifies every row in committing_delete state. The sweep is
+    // not on the hourly cron path (the 15-min lease means there is no urgency); it runs on the
+    // daily reconciler path or on-demand for forensics.
+    {
+      name: 'pending_snapshot_uploads_committing_delete_idx',
+      expectDef: `CREATE INDEX pending_snapshot_uploads_committing_delete_idx ON public.pending_snapshot_uploads USING btree (delete_started_at) WHERE (delete_started_at IS NOT NULL)`,
+    },
+    // M7 batch-12 finding 1 + M7 batch-13 finding 2 (M2 batch-13 propagation): pending_snapshot_uploads.temp_prefix
+    // unique constraint per spec §4.5 `unique (temp_prefix)`. PG default name is the table+column form.
+    // Per M7 batch-13 finding 2, grain is one row per Apply attempt (not per asset), so this uniqueness
+    // pairs with `unique (snapshot_revision_id)` below — both columns are unique-per-Apply.
+    {
+      name: 'pending_snapshot_uploads_temp_prefix_key',
+      expectDef: `CREATE UNIQUE INDEX pending_snapshot_uploads_temp_prefix_key ON public.pending_snapshot_uploads USING btree (temp_prefix)`,
+    },
+    // M7 batch-13 finding 2 (M2 batch-13 propagation): pending_snapshot_uploads.snapshot_revision_id
+    // unique constraint per spec §4.5 `unique (snapshot_revision_id)`. Pairs with the per-Apply grain:
+    // every Apply mints a fresh `snapshot_revision_id` so the ledger row keyed on it is also unique-per-Apply.
+    // The post-commit promoter UPDATEs WHERE snapshot_revision_id = $rev for the rename-success transition.
+    {
+      name: 'pending_snapshot_uploads_snapshot_revision_id_key',
+      expectDef: `CREATE UNIQUE INDEX pending_snapshot_uploads_snapshot_revision_id_key ON public.pending_snapshot_uploads USING btree (snapshot_revision_id)`,
+    },
+    // M3+M4 batch-13 finding 4 (M2 batch-14 finding 4 propagation): revision_race_cooldowns_last_race_idx
+    // is a non-partial index on `(last_race_at)` per spec §4.1; powers the §7.8 GC age sweep that
+    // deletes cooldown rows older than 24 hours (defensive cleanup for cooldowns whose successful
+    // sync happened off the explicit clear path). Listed here so a future migration that drops the
+    // index OR changes its column set fails AC-2.1 explicitly.
+    {
+      name: 'revision_race_cooldowns_last_race_idx',
+      expectDef: `CREATE INDEX revision_race_cooldowns_last_race_idx ON public.revision_race_cooldowns USING btree (last_race_at)`,
+    },
+    // M3+M4 batch-13 finding 4 (M2 batch-14 finding 4 propagation): revision_race_cooldowns composite
+    // PK on `(drive_file_id, raced_head_revision_id)`. PG default name for the PK index is the
+    // `<table>_pkey` form. The composite key (NOT a single-column PK on `drive_file_id`) is what
+    // makes per-`raced_head_revision_id` cooldown isolation work: a race against R1 doesn't gate a
+    // race against R2 even when both target the same drive_file_id.
+    {
+      name: 'revision_race_cooldowns_pkey',
+      expectDef: `CREATE UNIQUE INDEX revision_race_cooldowns_pkey ON public.revision_race_cooldowns USING btree (drive_file_id, raced_head_revision_id)`,
+    },
     /* …reports.idempotency_key unique index, reports.lease_holder partial-not-null index, etc. */
   ] as const;
   for (const idx of REQUIRED_PARTIAL_INDEXES) {
@@ -1934,6 +2377,324 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     });
   }
 
+  // **REQUIRED_COLUMNS — column-presence + type/null/default introspection (M2 batch-12 finding #3).**
+  // Three batch-10/batch-11 columns are critical for the wizard finalize CAS, the wizard-Apply
+  // gate, and the first-seen `defer_until_modified` retro-deferral path; all three would silently
+  // absent in a future migration that forgets them, and the CHECK/FK/index matrices above would
+  // not catch it. Add a dedicated REQUIRED_COLUMNS matrix driven by `information_schema.columns`,
+  // plus a CHECK-invariant entry for the wizard_approved-requires-session contract.
+  const REQUIRED_COLUMNS = [
+    {
+      // M6 batch-11 wizard-approved gate: pending_syncs.wizard_approved BOOLEAN NOT NULL DEFAULT FALSE
+      // (per spec §4.5 / Apply contract M11 batch-11 finding 1 — wizard Apply flips this true within
+      // the locked transaction; finalize-time promotion reads `WHERE wizard_approved = TRUE`).
+      table: 'pending_syncs', column: 'wizard_approved',
+      data_type: 'boolean', is_nullable: 'NO', column_default: 'false',
+    },
+    {
+      // M11 batch-12 finding 1: durable wizard-approval payload. NULL until step 5W; finalize
+      // reads these as sync_audit attribution + reviewer-choices replay payload. The §4.5
+      // symmetry CHECK (wizard_approved=false OR all-three-NOT-NULL) is asserted below.
+      table: 'pending_syncs', column: 'wizard_approved_by_email',
+      data_type: 'text', is_nullable: 'YES', column_default: null,
+    },
+    {
+      table: 'pending_syncs', column: 'wizard_approved_at',
+      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+    },
+    {
+      // M11 batch-12 finding 1: validated reviewer_choices payload (post §6.8.2 schema validation)
+      // captured at step 5W and replayed verbatim by finalize Phase B as the Phase 2 `choices`
+      // argument so MI-11/12/13/14 derived_side_effects reflect the operator's actual decisions.
+      table: 'pending_syncs', column: 'wizard_reviewer_choices',
+      data_type: 'jsonb', is_nullable: 'YES', column_default: null,
+    },
+    {
+      // M11 batch-13 finding 3: payload-shape version. Finalize-time replay dispatches to the
+      // version-1 validator + derivation table; unknown version emits
+      // WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED and the operator must re-Apply.
+      // Symmetry CHECK requires NULL on live rows AND NOT NULL when wizard_approved = TRUE
+      // (asserted in REQUIRED_TABLE_CHECKS below alongside the other batch-12 finding-1 CHECKs).
+      table: 'pending_syncs', column: 'wizard_reviewer_choices_version',
+      data_type: 'smallint', is_nullable: 'YES', column_default: null,
+    },
+    {
+      // M11 batch-13 finding 2: row visibility gate for multi-batch wizard finalize. Default TRUE
+      // so live cron/push/manual rows AND existing fixtures behave correctly without explicit
+      // backfill. Wizard-finalize INTERIM batches INSERT shows rows with FALSE; the FINAL batch's
+      // transaction flips to TRUE in the same transaction as the §4.5 atomic-promotion CAS.
+      // The `shows` RLS policy admitting non-admin reads carries `AND shows.published = TRUE` so
+      // interim-batch rows are denied even to crew whose email matches a `crew_members` row.
+      table: 'shows', column: 'published',
+      data_type: 'boolean', is_nullable: 'NO', column_default: 'true',
+    },
+    {
+      // M9+M10 batch-11 wizard-session timestamp: app_settings.pending_wizard_session_at TIMESTAMPTZ
+      // NULL — set when a wizard session is opened; cleared on finalize/abort. Used by the §4.5
+      // pending-wizard-session CAS in Task 10.x.
+      table: 'app_settings', column: 'pending_wizard_session_at',
+      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+    },
+    {
+      // M6 batch-10 pending_ingestions.last_seen_modified_time TIMESTAMPTZ NULL — populated on
+      // every Phase 1 hard-fail UPSERT; read by `/api/admin/pending-ingestions/[id]/discard` to
+      // populate `deferred_ingestions.deferred_at_modified_time` when kind='defer_until_modified'
+      // (mirrors how `pending_syncs.staged_modified_time` feeds the first-seen Discard path).
+      table: 'pending_ingestions', column: 'last_seen_modified_time',
+      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+    },
+    // M7 batch-15 finding 1: shows.pending_snapshot_path REMOVED. The corrected design
+    // stages the not-yet-promoted revision id on `shows.diagrams.pending_revision_id` (a
+    // JSONB field inside the existing `diagrams` column) and atomically cuts over via a
+    // single jsonb_set UPDATE post-Storage-manifest-verification. The asset route never
+    // falls back to the temp prefix; it serves only `snapshot_revision_id`-prefixed bytes.
+    // No `pending_snapshot_path` column entry needed in REQUIRED_COLUMNS — the column does
+    // not exist on `shows`. (Task 2.5 still asserts the `diagrams` JSONB column itself is
+    // present per its existing entry; the JSONB shape is documented in spec §4.1.)
+    // M7 batch-12 finding 1 (M2 batch-13 propagation): pending_snapshot_uploads ledger column
+    // presence — every column on the new admin-only ledger table needs introspection so a
+    // partial migration can't silently drop one. The unique-on-temp_prefix and partial-index
+    // assertions live in REQUIRED_PARTIAL_INDEXES above; the FK lives in REQUIRED_FKS above.
+    {
+      table: 'pending_snapshot_uploads', column: 'id',
+      data_type: 'uuid', is_nullable: 'NO', column_default: 'gen_random_uuid()',
+    },
+    {
+      table: 'pending_snapshot_uploads', column: 'show_id',
+      data_type: 'uuid', is_nullable: 'NO', column_default: null,
+    },
+    {
+      table: 'pending_snapshot_uploads', column: 'drive_file_id',
+      data_type: 'text', is_nullable: 'NO', column_default: null,
+    },
+    {
+      table: 'pending_snapshot_uploads', column: 'temp_prefix',
+      data_type: 'text', is_nullable: 'NO', column_default: null,
+    },
+    {
+      table: 'pending_snapshot_uploads', column: 'uploaded_at',
+      data_type: 'timestamp with time zone', is_nullable: 'NO', column_default: 'now()',
+    },
+    {
+      table: 'pending_snapshot_uploads', column: 'promoted_at',
+      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+    },
+    // M7 batch-13 finding 2 (M2 batch-13 propagation): pending_snapshot_uploads.snapshot_revision_id
+    // is part of the per-Apply ledger key (along with temp_prefix). Both are UNIQUE-per-Apply per the
+    // amended grain. The post-commit promoter UPDATEs `WHERE snapshot_revision_id = $rev` to flip
+    // promoted_at + clear claim_token in one statement.
+    {
+      table: 'pending_snapshot_uploads', column: 'snapshot_revision_id',
+      data_type: 'uuid', is_nullable: 'NO', column_default: null,
+    },
+    // M7 batch-13 finding 2 (M2 batch-13 propagation): pending_snapshot_uploads.asset_count is the
+    // number of assets uploaded under this Apply's temp prefix. Captured at INSERT time so the GC
+    // sweep / promoter can sanity-check the prefix LIST result against the recorded count and
+    // detect partial-upload corner cases.
+    {
+      table: 'pending_snapshot_uploads', column: 'asset_count',
+      data_type: 'integer', is_nullable: 'NO', column_default: null,
+    },
+    // M7 batch-13 finding 1 (M2 batch-13 propagation): pending_snapshot_uploads.claim_token —
+    // the GC worker's single-claim CAS token. NULL on initial INSERT and on the post-promote
+    // success UPDATE; non-NULL only between GC's claim transaction and either (a) the GC delete
+    // transaction's CAS check or (b) the 5-minute claim expiry. Without this column the
+    // GC-vs-promoter race deletes assets out from under a committed revision.
+    {
+      table: 'pending_snapshot_uploads', column: 'claim_token',
+      data_type: 'uuid', is_nullable: 'YES', column_default: null,
+    },
+    // M7 batch-13 finding 1 (M2 batch-13 propagation): pending_snapshot_uploads.claimed_at — the
+    // timestamp the worker first claimed this row. Distinct from `claim_expires_at` (lease deadline);
+    // the M7 batch-14 finding 1 amendment splits these because the lease length now varies by state
+    // (5 min in `claimed`, 15 min in `committing_delete`) AND heartbeats extend the deadline without
+    // resetting `claimed_at`. CHECK invariant `(claim_token IS NULL AND claimed_at IS NULL AND
+    // claim_expires_at IS NULL) OR (claim_token IS NOT NULL AND claimed_at IS NOT NULL AND
+    // claim_expires_at IS NOT NULL)` is asserted in REQUIRED_TABLE_CHECKS.
+    {
+      table: 'pending_snapshot_uploads', column: 'claimed_at',
+      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+    },
+    // M7 batch-14 finding 1 (M2 batch-14 propagation): pending_snapshot_uploads.claim_expires_at —
+    // the lease deadline. Set to `claimed_at + interval '5 minutes'` on initial claim; extended
+    // heartbeat-style on long-running work; jumped to `delete_started_at + interval '15 minutes'`
+    // on commit-to-delete. Replaces the prior `claimed_at < now() - interval '5 minutes'` derivation
+    // because heartbeats need to extend the lease independently of `claimed_at`. The reclaim-expired
+    // path range-scans this column WHERE `delete_started_at IS NULL` — the new
+    // `pending_snapshot_uploads_claim_expiry_idx` partial index supports this.
+    {
+      table: 'pending_snapshot_uploads', column: 'claim_expires_at',
+      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+    },
+    // M7 batch-14 finding 1 (M2 batch-14 propagation): pending_snapshot_uploads.delete_started_at —
+    // the state-discriminator that turns the lifecycle into a 3-state machine (unclaimed / claimed /
+    // committing_delete). NULL in unclaimed and claimed states; NON-NULL ONLY in committing_delete.
+    // The commit-to-delete UPDATE sets this column atomically alongside extending the lease; the
+    // reclaim-expired and promote UPDATEs both INCLUDE `delete_started_at IS NULL` in their WHERE
+    // clauses so they refuse rows that are mid-delete. THIS is the safety invariant that prevents
+    // byte destruction after claim expiry — a revived GC worker after the original claim's
+    // `claim_expires_at` slips CANNOT delete bytes that another worker already committed to delete.
+    // CHECK invariants `delete_started_at IS NULL OR claim_token IS NOT NULL` (must be claimed first)
+    // and `delete_started_at IS NULL OR promoted_at IS NULL` (cannot delete a promoted row) are
+    // asserted in REQUIRED_TABLE_CHECKS.
+    {
+      table: 'pending_snapshot_uploads', column: 'delete_started_at',
+      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+    },
+    // M3+M4 batch-12 (M2 batch-13 propagation): shows.opening_reel_mime_type TEXT NULL — the
+    // 4th reel pin column added by batch-12 to gate inline `<video>` rendering on
+    // `mimeType.startsWith('video/')`. AC-7.24 / AC-7.25 require ALL FOUR pin columns to be
+    // non-NULL for inline video to render and treat ANY NULL as the single 410 contract trigger.
+    // Earlier introspection only covered the original three pin columns; this entry plus the
+    // amended ACs ensure a future migration can't silently drop the MIME-type gate.
+    {
+      table: 'shows', column: 'opening_reel_mime_type',
+      data_type: 'text', is_nullable: 'YES', column_default: null,
+    },
+    // M3+M4 batch-13 finding 4 (M2 batch-14 finding 4 propagation): revision_race_cooldowns
+    // columns. The composite PK / non-partial last_race_at index assertions live in
+    // REQUIRED_PARTIAL_INDEXES above (the `revision_race_cooldowns_pkey` and
+    // `revision_race_cooldowns_last_race_idx` entries). Listed here so a future migration that
+    // forgets any column on this admin-only ledger fails AC-2.1 explicitly. The admin-only RLS
+    // policy is exercised by AC-2.5 (the table is in the §4.3 admin-only list, count = 18).
+    {
+      table: 'revision_race_cooldowns', column: 'drive_file_id',
+      data_type: 'text', is_nullable: 'NO', column_default: null,
+    },
+    {
+      table: 'revision_race_cooldowns', column: 'raced_head_revision_id',
+      data_type: 'text', is_nullable: 'NO', column_default: null,
+    },
+    {
+      table: 'revision_race_cooldowns', column: 'last_race_at',
+      data_type: 'timestamp with time zone', is_nullable: 'NO', column_default: 'now()',
+    },
+    {
+      table: 'revision_race_cooldowns', column: 'retry_count',
+      data_type: 'integer', is_nullable: 'NO', column_default: '0',
+    },
+  ] as const;
+  for (const c of REQUIRED_COLUMNS) {
+    it(`AC-2.1 column presence: ${c.table}.${c.column}`, async () => {
+      const { rows } = await admin.query(
+        `SELECT data_type, is_nullable, column_default
+           FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = $1 AND column_name = $2`,
+        [c.table, c.column],
+      );
+      expect(rows.length).toBe(1);
+      expect(rows[0].data_type).toBe(c.data_type);
+      expect(rows[0].is_nullable).toBe(c.is_nullable);
+      if (c.column_default === null) expect(rows[0].column_default).toBeNull();
+      else expect(String(rows[0].column_default).toLowerCase()).toContain(String(c.column_default).toLowerCase());
+    });
+  }
+  // Additional CHECK invariants tied to batch-11 columns (M2 batch-12 finding #3). Spec §4.5
+  // declares `pending_syncs (... CHECK (wizard_session_id IS NOT NULL OR wizard_approved = false))`
+  // — a wizard_approved=TRUE row MUST have a wizard_session_id; live-partition rows can never be
+  // `approved`. Add the CHECK to REQUIRED_CHECKS above (it's listed there from spec); also assert
+  // its presence here so it can't be silently dropped:
+  it('AC-2.1 CHECK invariant present: pending_syncs_wizard_approved_requires_session', async () => {
+    const { rows } = await admin.rpc('introspect_check', {
+      p_table: 'pending_syncs', p_name: 'pending_syncs_wizard_approved_requires_session',
+    });
+    expect(rows.length).toBe(1);
+    assertExactDefMatch(
+      rows[0].def,
+      `CHECK (((wizard_session_id IS NOT NULL) OR (wizard_approved = false)))`,
+      'pending_syncs_wizard_approved_requires_session',
+    );
+  });
+
+  // M11 batch-12 finding 1: live-rows-have-no-payload invariant. The three approval-payload
+  // columns (wizard_approved_by_email, wizard_approved_at, wizard_reviewer_choices) are
+  // meaningful only for wizard-scope rows. A live-scope row (wizard_session_id IS NULL) MUST
+  // keep all three NULL — the §4.5 CHECK below blocks any attempt to write the payload onto
+  // a live row.
+  it('AC-2.1 CHECK invariant present: pending_syncs_live_rows_have_no_approval_payload', async () => {
+    const { rows } = await admin.rpc('introspect_check', {
+      p_table: 'pending_syncs', p_name: 'pending_syncs_live_rows_have_no_approval_payload',
+    });
+    expect(rows.length).toBe(1);
+    assertExactDefMatch(
+      rows[0].def,
+      // M11 batch-13 finding 3: `wizard_reviewer_choices_version` joins the symmetry pair —
+      // live rows (wizard_session_id IS NULL) MUST keep all FOUR payload columns NULL.
+      `CHECK (((wizard_session_id IS NOT NULL) OR ((wizard_approved_by_email IS NULL) AND (wizard_approved_at IS NULL) AND (wizard_reviewer_choices IS NULL) AND (wizard_reviewer_choices_version IS NULL))))`,
+      'pending_syncs_live_rows_have_no_approval_payload',
+    );
+  });
+
+  // M11 batch-12 finding 1 + M11 batch-13 finding 3: approval-payload symmetry invariant.
+  // wizard_approved=TRUE MUST co-occur with all FOUR payload columns being NOT NULL — the §4.5
+  // CHECK below makes it impossible to set wizard_approved=TRUE without also persisting the
+  // operator email, approval timestamp, validated reviewer_choices payload, AND the payload-shape
+  // version. This is what guarantees finalize can reconstruct sync_audit + replay
+  // MI-11/12/13/14 derived_side_effects through the correct version-keyed handler.
+  it('AC-2.1 CHECK invariant present: pending_syncs_approved_requires_full_payload', async () => {
+    const { rows } = await admin.rpc('introspect_check', {
+      p_table: 'pending_syncs', p_name: 'pending_syncs_approved_requires_full_payload',
+    });
+    expect(rows.length).toBe(1);
+    assertExactDefMatch(
+      rows[0].def,
+      `CHECK (((wizard_approved = false) OR ((wizard_approved_by_email IS NOT NULL) AND (wizard_approved_at IS NOT NULL) AND (wizard_reviewer_choices IS NOT NULL) AND (wizard_reviewer_choices_version IS NOT NULL))))`,
+      'pending_syncs_approved_requires_full_payload',
+    );
+  });
+
+  // M11 batch-12 finding 1: runtime CHECK enforcement — try to violate each invariant and
+  // assert SQL `23514` *check_violation* fires. This catches a schema where the constraints
+  // exist by name but were authored with weakened predicates (e.g., a typo'd column reference
+  // making the OR-clause always true). The introspection-def matchers above guard against
+  // that statically; this runtime check provides defense in depth.
+  it('AC-2.1 CHECK enforces live-rows-have-no-payload at runtime', async () => {
+    const seed = { drive_file_id: 'm12-runtime-1', wizard_session_id: null, wizard_approved: false, /* …other required fields */ };
+    await admin.from('pending_syncs').insert(seed);
+    const result = await admin
+      .from('pending_syncs')
+      .update({ wizard_approved_by_email: 'doug@example.com' })
+      .eq('drive_file_id', seed.drive_file_id);
+    expect(result.error?.code).toBe('23514');
+  });
+  it('AC-2.1 CHECK enforces approved-requires-full-payload at runtime', async () => {
+    // Insert a wizard-scope row, then try wizard_approved=TRUE with one payload column NULL.
+    const seed = { drive_file_id: 'm12-runtime-2', wizard_session_id: TEST_WIZARD_SESSION_ID, wizard_approved: false };
+    await admin.from('pending_syncs').insert(seed);
+    const result = await admin
+      .from('pending_syncs')
+      .update({
+        wizard_approved: true,
+        wizard_approved_by_email: 'doug@example.com',
+        wizard_approved_at: new Date().toISOString(),
+        // wizard_reviewer_choices intentionally omitted → NULL → violates symmetry CHECK
+      })
+      .eq('drive_file_id', seed.drive_file_id);
+    expect(result.error?.code).toBe('23514');
+  });
+
+  // **Live-vs-wizard partition execution contract (M2 batch-10 #1, round-51).** Index
+  // shape introspection above proves DDL is correct but does NOT prove the conflict-target
+  // arbiter fires at runtime. Add execution-level UPSERT contract tests for `pending_syncs`
+  // AND `pending_ingestions` covering: (a) live-partition idempotence (two NULL-session
+  // UPSERTs on same drive_file_id produce one row, second has xmax>0); (b) wizard-partition
+  // idempotence (two same-session UUID UPSERTs same shape); (c) cross-partition coexistence
+  // (one live (NULL) + one wizard (UUID) row coexist, count=2, live_n=1, wizard_n=1);
+  // (d) missing-index rollback — wrap in BEGIN/ROLLBACK, DROP both partial indexes, run a
+  // wizard UPSERT, assert Postgres raises with SQLSTATE 42P10 OR 23505 AND that production
+  // helper `classifyOnboardingUpsertError(err)` (Task 6.8) returns `'LIVE_ROW_CONFLICT'`.
+  // Earlier draft inferred from a zero-row RETURNING heuristic, which silently swallowed
+  // real misses. Classification MUST be SQLSTATE-based, NOT row-count-based. Companion
+  // file `tests/db/partial-index-execution.test.ts` runs the four cases as a parameterized
+  // loop. Sample assertion shape:
+  //   const sql = `INSERT INTO ${tableName} (drive_file_id, wizard_session_id) VALUES ($1, NULL)
+  //                ON CONFLICT (drive_file_id) WHERE wizard_session_id IS NULL DO UPDATE
+  //                  SET attempt_count = ${tableName}.attempt_count + 1
+  //                RETURNING xmax::text::bigint > 0 AS was_update`;
+  //   const a = await admin.query(sql, [driveFileId]); expect(a.rows[0].was_update).toBe(false);
+  //   const b = await admin.query(sql, [driveFileId]); expect(b.rows[0].was_update).toBe(true);
+  // Divergence between the two tables would silently break the wizard-isolation guarantee
+  // in §6.4 / §9.0 / spec §4.5 amendment.
   // Transportation singular-row contract (final-validation finding) — spec §4.1 enforces unique(show_id)
   // because the parser/data-model is `TransportationRow | null`. Add both an introspection assertion
   // for the unique constraint AND a duplicate-insert test that exercises the constraint at runtime.
@@ -1952,10 +2713,14 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     expect(dupErr?.code).toBe('23505');   // Postgres unique_violation
   });
 
-  // Negative assertions — intentionally absent constraints. (final-validation finding)
+  // Negative assertions — intentionally absent constraints. (final-validation finding +
+  // round-49 amendment for crew_member_auth durability.)
   // Some spec rules require the ABSENCE of FKs (e.g., pending_* tables shouldn't FK to shows since
-  // the file may exist before the show row does). Assert these explicitly so a future migration
-  // can't accidentally tighten the schema in a way that breaks the staging contract.
+  // the file may exist before the show row does; crew_member_auth must NOT FK to crew_members.id
+  // since §4.1 requires the auth state to survive crew_members row deletion-and-recreation —
+  // the "remove-and-readd" contract that prevents old JWTs from resurrecting when a name returns
+  // to the sheet). Assert these explicitly so a future migration can't accidentally tighten the
+  // schema in a way that breaks the staging contract OR the auth-survival contract.
   it('AC-2.1 pending_syncs.drive_file_id has NO FK to shows (first-seen staging requires no parent row)', async () => {
     const { rows } = await admin.rpc('introspect_fk', { p_table: 'pending_syncs', p_column: 'drive_file_id' });
     expect(rows.length).toBe(0);
@@ -1963,6 +2728,85 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   it('AC-2.1 pending_ingestions.drive_file_id has NO FK to shows (same rationale)', async () => {
     const { rows } = await admin.rpc('introspect_fk', { p_table: 'pending_ingestions', p_column: 'drive_file_id' });
     expect(rows.length).toBe(0);
+  });
+  // Round-49 amendment — crew_member_auth durability invariant (§4.1 remove-and-readd contract).
+  // §4.1 requires `crew_member_auth` to survive `crew_members` row deletion AND recreation:
+  // when sync deletes a crew_members row (sheet no longer lists that name), crew_member_auth
+  // is NOT touched, and if the same name returns later the prior current_token_version /
+  // max_issued_version / revoked_below_version state must still be in force so old JWTs are
+  // rejected via strict equality. This is structurally guaranteed by (a) crew_member_auth's
+  // (show_id, crew_name) primary key NOT being a foreign key to crew_members.id and (b) NO
+  // ON DELETE CASCADE from crew_members to crew_member_auth. Earlier draft only added negative
+  // FK assertions for pending_syncs and pending_ingestions; missing crew_member_auth here
+  // would let a future migration accidentally add `REFERENCES crew_members(...) ON DELETE
+  // CASCADE` and silently break the auth-survival contract.
+  it('AC-2.1 crew_member_auth has NO FK to crew_members (remove-and-readd survival per §4.1)', async () => {
+    // Introspect every FK on crew_member_auth and assert NONE references crew_members.
+    // Use pg_get_constraintdef so we can also assert against the FK definition string in case
+    // a future migration adds a non-standard column referencing the wrong target.
+    const { rows } = await admin.query(
+      `SELECT conname, pg_get_constraintdef(c.oid) AS def
+         FROM pg_constraint c
+         JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'crew_member_auth' AND c.contype = 'f'`,
+      [],
+    );
+    // ZERO foreign-key constraints referencing crew_members. (FK to shows IS allowed and
+    // expected — that's the show-level cascade per §4.1; only crew_members is forbidden.)
+    for (const r of rows) {
+      expect(r.def.toLowerCase()).not.toMatch(/references\s+crew_members/);
+    }
+  });
+  it('AC-2.1 crew_member_auth survives crew_members delete-and-readd (runtime durability)', async () => {
+    // Integration probe: the negative FK assertion above proves the schema CAN survive the
+    // cycle; this test proves the runtime contract is actually preserved. Earlier draft only
+    // had introspection — without exercising the cycle, nothing catches a future trigger that
+    // deletes from crew_member_auth on crew_members DELETE.
+    const showId = await seedShow();                        // service-role helper (see Task 2.4 fixtures)
+    const name = `Probe ${crypto.randomUUID()}`;            // unique within the show
+    const email = `${name.toLowerCase().replace(/\s+/g, '.')}@probe.test`;
+    // 1. Insert a crew_members row; a crew_member_auth row should exist (per §5.2 sync interaction).
+    //    We seed both directly to avoid coupling this test to the sync code path.
+    const { data: crewRow } = await admin.from('crew_members').insert({
+      show_id: showId, name, email, role: 'PROBE', role_flags: ['PROBE'],
+    }).select().single();
+    expect(crewRow!.id).toEqual(expect.any(String));
+    // Pre-existing auth state with non-default values so a stealth re-init would be visible:
+    const initial = { show_id: showId, crew_name: name,
+      current_token_version: 7, max_issued_version: 9, revoked_below_version: 4 };
+    const { error: authInsertErr } = await admin.from('crew_member_auth')
+      .upsert(initial, { onConflict: 'show_id,crew_name' });
+    expect(authInsertErr).toBeNull();
+    // 2. Delete the crew_members row (sync's "delete-not-in-set" path simulating a sheet
+    //    where Doug removed the name).
+    const { error: delErr } = await admin.from('crew_members').delete().eq('id', crewRow!.id);
+    expect(delErr).toBeNull();
+    // 3. crew_member_auth MUST still hold the prior (current_token_version, max_issued_version,
+    //    revoked_below_version) tuple — no implicit cascade, no trigger, nothing.
+    const afterDelete = await admin.from('crew_member_auth')
+      .select('current_token_version, max_issued_version, revoked_below_version')
+      .eq('show_id', showId).eq('crew_name', name).maybeSingle();
+    expect(afterDelete.error).toBeNull();
+    expect(afterDelete.data).toEqual({
+      current_token_version: 7, max_issued_version: 9, revoked_below_version: 4,
+    });
+    // 4. Re-insert the crew_members row with the SAME (show_id, name). Per §5.2 the sync
+    //    INSERT...ON CONFLICT DO NOTHING for crew_member_auth must NOT clobber the prior
+    //    auth state — the existing row joins back in and old JWTs continue to be rejected.
+    const { data: crewRow2 } = await admin.from('crew_members').insert({
+      show_id: showId, name, email, role: 'PROBE_V2', role_flags: ['PROBE'],
+    }).select().single();
+    expect(crewRow2!.id).toEqual(expect.any(String));
+    // Idempotent upsert mimicking sync's behavior — DO NOTHING when the auth row already exists:
+    await admin.from('crew_member_auth')
+      .upsert({ show_id: showId, crew_name: name }, { onConflict: 'show_id,crew_name', ignoreDuplicates: true });
+    const afterReadd = await admin.from('crew_member_auth')
+      .select('current_token_version, max_issued_version, revoked_below_version')
+      .eq('show_id', showId).eq('crew_name', name).single();
+    expect(afterReadd.error).toBeNull();
+    expect(afterReadd.data).toEqual({
+      current_token_version: 7, max_issued_version: 9, revoked_below_version: 4,
+    });
   });
   ```
 - [ ] **Step 4: Commit** `test(db): exact-def CHECK + FK + partial-index introspection + negative assertions`.
@@ -2225,6 +3069,8 @@ Spec context: §8 entire section, §17.1 milestone 4. Demo: open the page on a p
   ```
   `coi_status` always comes from `shows` (public per §4.4). Return show + crew + hotels (filtered to viewer name) + rooms + transport + contacts + pull_sheet.
 
+  **Transport projection contract (round-50).** When `transportation` is non-null, the helper returns the FULL `TransportationRow` shape including `schedule: TransportScheduleEntry[]` where every entry carries `assigned_names: string[]` (per §4.1 / §6.7 canonical contract). The projection MUST NOT strip `assigned_names` — TransportTile's branch-2 visibility (Task 4.7) reads it directly. Add a regression test asserting that a seeded transportation row whose `schedule[0].assigned_names = ['Alice']` round-trips through `getShowForViewer` unchanged (the returned object's `transportation.schedule[0].assigned_names` deeply equals `['Alice']`).
+
   **Cross-show regression test (mandatory)**: seed two shows. Show A has crew member Alice (LEAD). Show B has crew member Bob (A1). Call `getShowForViewer(showB.id, { kind: 'crew', crewMemberId: alice.id })` (Alice belongs to A, NOT B). Assert the call THROWS `LINK_NO_CREW_MATCH` — does NOT return show B's data with Alice's LEAD role flags applied. Without the `show_id` constraint, this call would return show B's data with `financials` present (cross-show leak).
 - [ ] **Step 3: Commit** `feat(data): getShowForViewer with internal role derivation (§7.4)`.
 
@@ -2263,11 +3109,36 @@ For each tile, follow the same TDD pattern:
 
 ### Task 4.6: Audio/Video/Lighting scope tiles (§8.1)
 
-**Files:** Create: `components/tiles/{AudioScopeTile,VideoScopeTile,LightingScopeTile}.tsx`. Test extends.
+**Files:** Create: `components/tiles/{AudioScopeTile,VideoScopeTile,LightingScopeTile}.tsx`, `lib/visibility/scopeTiles.ts`. Test extends.
 
-- [ ] **Step 1:** failing tests assert tiles render only for crew with the matching role flag (A1 → Audio; V1 → Video; LEAD sees all). Aggregates `rooms[*].audio` etc. across GS / breakouts / additional.
-- [ ] **Step 2:** implement.
-- [ ] **Step 3:** commit `feat(crew-page): scope tiles (§8.1)`.
+**Canonical scope-tile rule (round-50).** Spec §8.1 defines a SINGLE shared predicate set `SCOPE_TILE_VISIBILITY_RULE` that governs scope-tile visibility everywhere — this task, Task 4.12's transition audit, and the §17.1 acceptance criteria. Earlier drafts had two contradictory rules ("LEAD sees all" in this task vs "LEAD-only viewers see ONLY Financials" in Task 4.12); the corrected canonical rule per §8.1 is:
+
+```ts
+// lib/visibility/scopeTiles.ts — single source of truth, imported by every consumer.
+export function audioScopeVisible(flags: RoleFlag[]): boolean {
+  return flags.includes('A1') || flags.includes('A2') || flags.includes('LEAD');
+}
+export function videoScopeVisible(flags: RoleFlag[]): boolean {
+  return flags.includes('V1') || flags.includes('LEAD');
+}
+export function lightingScopeVisible(flags: RoleFlag[]): boolean {
+  // LEAD is INTENTIONALLY NOT included — spec §8.1 says lighting is a discipline LEADs don't manage hands-on.
+  return flags.includes('L1');
+}
+```
+
+LEAD-only viewers see Financials AND Audio scope tile AND Video scope tile (unconditional on the presence of audio/video crew on the show — LEAD has scope visibility regardless). LEAD-only viewers do **NOT** see Lighting scope tile. Compound viewers like `['LEAD','A1']` see Audio (twice-true via either predicate) + Video + Financials.
+
+- [ ] **Step 1:** failing tests assert tiles render per the canonical rule:
+  - `['A1']` viewer → Audio visible; Video and Lighting hidden.
+  - `['V1']` viewer → Video visible; Audio and Lighting hidden.
+  - `['L1']` viewer → Lighting visible; Audio and Video hidden.
+  - `['LEAD']` viewer → Audio AND Video visible; Lighting hidden.
+  - `['LEAD','A1']` viewer → Audio AND Video visible; Lighting hidden.
+  - `['LEAD','L1']` viewer → Audio AND Video AND Lighting visible (Lighting from L1 atomic flag, not LEAD).
+  - Aggregates `rooms[*].audio` etc. across GS / breakouts / additional.
+- [ ] **Step 2:** implement using the shared `lib/visibility/scopeTiles.ts` predicates. Each tile imports its own predicate; NO ad-hoc `viewerRole === 'LEAD'` checks anywhere.
+- [ ] **Step 3:** commit `feat(crew-page): scope tiles with canonical SCOPE_TILE_VISIBILITY_RULE (§8.1)`.
 
 ### Task 4.7: TransportTile (§8.1)
 
@@ -2275,17 +3146,26 @@ For each tile, follow the same TDD pattern:
 
 **Visibility branches (final-validation finding).** The Transport tile renders for **any** of these:
 1. `transportation.driver_name === viewer.name` — the assigned driver.
-2. The viewer's name appears in any per-day transport schedule tag (e.g., `transportation.schedule[*].assigned_names[]`) — passenger or co-driver.
+2. The viewer's name appears in any per-day transport schedule tag (`transportation.schedule[*].assigned_names[]` per the canonical TransportScheduleEntry contract — round-50, threaded end-to-end from parser through `getShowForViewer` projection) — passenger or co-driver.
 
 Earlier draft only checked branch 1. Crew assigned via schedule tags only would never see vehicle/parking/timing data — exactly the population that needs it.
 
+**End-to-end contract dependency (round-50).** This task depends on `assigned_names: string[]` being a canonical field on every `TransportScheduleEntry` AT EVERY LAYER:
+- Parser (§5.4 / Task 1.7 step 7): emits `assigned_names: string[]` on each schedule entry; empty array when no tagged names.
+- Seed (§5.5 / `tests/seed/seed.ts`): seed transportation rows include `assigned_names` populated for fixture viewers who must satisfy branch-2 visibility.
+- Persistence (Phase 2 / Task 2.x snapshot replacement into `transportation.schedule` JSONB): the JSONB write preserves `assigned_names` verbatim.
+- `getShowForViewer` projection (Task 4.3): the helper returns `transportation.schedule[*].assigned_names[]` to the page renderer; it is NOT stripped during projection.
+- TransportTile predicate (this task): consumes the projected `assigned_names[]` directly.
+**If `assigned_names` is missing or stripped at any layer, branch 2 silently fails.** Add a layer-spanning fixture test (below) to catch this end-to-end.
+
 - [ ] **Step 1: Failing tests**
   - Branch 1: tile renders when `transportation.driver_name === viewer.name`.
-  - Branch 2: tile renders when viewer's name is in a transport schedule row's tag list (driver_name does NOT match — pure schedule-tag visibility).
+  - Branch 2: tile renders when viewer's name is in a transport schedule row's `assigned_names[]` (driver_name does NOT match — pure schedule-tag visibility).
   - Branch 1+2: when both true, tile renders once (no duplication).
   - Neither: tile absent.
-- [ ] **Step 2:** implement the OR branch in the visibility predicate. Pull the schedule-tag set from `transportation.schedule[*]` and OR with the driver_name match.
-- [ ] **Step 3:** commit `feat(crew-page): TransportTile with driver + schedule-tag visibility (§8.1)`.
+  - **End-to-end fixture (round-50)**: seed a show whose `transportation.driver_name = 'Cara'` and whose `schedule = [{ stage: 'Travel In', date: '2026-06-01', time: '09:00', assigned_names: ['Alice'] }]`. Render `/show/<slug>?crew=<alice-crewMemberId>`. Assert TransportTile is in the DOM, asserts `[data-testid=transport-tile]` is visible, AND assert (via response-payload introspection of the server-side `getShowForViewer` call) that `transportation.schedule[0].assigned_names` includes `'Alice'` — proving the field survived parser → seed → persistence → projection. A regression at ANY layer that drops `assigned_names` causes this test to fail.
+- [ ] **Step 2:** implement the OR branch in the visibility predicate. Pull the schedule-tag set from `transportation.schedule[*].assigned_names[]` and OR with the driver_name match.
+- [ ] **Step 3:** commit `feat(crew-page): TransportTile with driver + schedule-tag visibility + end-to-end assigned_names contract (§8.1)`.
 
 ### Task 4.8: ShowStatusTile + FinancialsTile (§8.1, AC-4.1..4.2)
 
@@ -2416,45 +3296,69 @@ That gives **66 pairs (12*11/2)**. Most are time-driven date rollovers; some are
 - [ ] **Step 4: Crew-page visibility-mode transitions over `role_flags[]` capability set (separate audit, final-validation finding)** — beyond RightNow states, the crew page's tile-visibility logic is driven by the **`role_flags[]` capability array** (§6.6), NOT a single role enum. Earlier draft used `viewerRole ∈ { A1, V1, L1, LEAD, admin }` — but `L1` isn't even a canonical flag, and a crew member can carry multiple flags simultaneously (`['LEAD', 'A1']`, `['A1', 'BO']`, etc.). The corrected audit drives transitions over capability predicates against the canonical §6.6 flag set:
   - **Canonical atomic flag set (round-47 amendment)** — the parser decomposes composite tokens like `GS - A1` into atomic `['GS', 'A1']` and `BO - V1` into `['BO', 'V1']`. The canonical persisted `role_flags[]` contains ONLY atomic flags: `LEAD`, `A1`, `A2`, `V1`, `L1`, `BO`, `GS`, `ONLY`, `CAM_OP`, `GAV`, `FLOATER`, `FLOOR`, `STREAM`, `PTZ`, `LED`, `SHOW_CALLER`, `GREEN_ROOM`, `OWNER`, `CONTENT_CREATION`. **No composite flag literals like `GS-A1` or `BO-V1` ever appear in `role_flags[]`** — those are parser inputs, not persisted values. The transition audit drives over the atomic set; capability predicates use atomic-flag membership.
   - **Capability predicates** that drive tile visibility:
-    - `hasLead = flags.includes('LEAD')` → unlocks `FinancialsTile`. Per Task 4.6: LEAD does NOT additionally unlock A/V/L scope tiles by itself; LEAD-only viewers see Financials but NOT A/V/L scopes (they have separate role flags layered with LEAD when they're hands-on operators).
-    - `hasA1 = flags.includes('A1') || flags.includes('A2')` → renders `AudioScopeTile`. (`GS-A1` decomposes to `['GS', 'A1']`, so `A1` membership covers it; no special-case for the composite.)
-    - `hasV1 = flags.includes('V1')` → renders `VideoScopeTile`. (`BO-V1` decomposes to `['BO', 'V1']`.)
-    - `hasL1 = flags.includes('L1')` → renders `LightingScopeTile`. (`L1` is a canonical atomic flag in the v4 role-master per fixture `2026-04-asset-mgmt-cfo-coo-waldorf.md:718-743`.)
-    - Each predicate is independent. Compound viewers like `['LEAD', 'A1']` get BOTH `FinancialsTile` AND `AudioScopeTile`.
+    - `hasLead = flags.includes('LEAD')` → unlocks `FinancialsTile`. **Per the canonical `SCOPE_TILE_VISIBILITY_RULE` defined in spec §8.1 and implemented in `lib/visibility/scopeTiles.ts` (Task 4.6 — round-50)**, `hasLead` ALSO unlocks Audio scope tile AND Video scope tile (NOT Lighting). The shared predicates are: `audioScopeVisible = hasA1 || hasLead`, `videoScopeVisible = hasV1 || hasLead`, `lightingScopeVisible = hasL1`. LEAD-only viewers (`['LEAD']`) see Financials + Audio + Video; they do NOT see Lighting. This matrix MUST import the predicates from `lib/visibility/scopeTiles.ts` — no inline rule restatement.
+    - `hasA1 = flags.includes('A1') || flags.includes('A2')` is the **atomic-membership predicate**. Per `SCOPE_TILE_VISIBILITY_RULE`, AudioScopeTile renders when `audioScopeVisible(flags) = hasA1 || hasLead`. (`GS-A1` decomposes to `['GS', 'A1']`, so `A1` membership covers it; no special-case for the composite.)
+    - `hasV1 = flags.includes('V1')` is the atomic-membership predicate. VideoScopeTile renders when `videoScopeVisible(flags) = hasV1 || hasLead`. (`BO-V1` decomposes to `['BO', 'V1']`.)
+    - `hasL1 = flags.includes('L1')` is the atomic-membership predicate. LightingScopeTile renders when `lightingScopeVisible(flags) = hasL1` (LEAD intentionally excluded). (`L1` is a canonical atomic flag in the v4 role-master per fixture `2026-04-asset-mgmt-cfo-coo-waldorf.md:718-743`.)
+    - Each tile-visibility predicate (`audioScopeVisible`, `videoScopeVisible`, `lightingScopeVisible`, `financialsVisible = hasLead || isAdmin`) is imported from `lib/visibility/scopeTiles.ts`. Compound viewers like `['LEAD', 'A1']` get FinancialsTile AND AudioScopeTile (both predicates true) AND VideoScopeTile (LEAD branch). LEAD-only viewers (`['LEAD']`) get FinancialsTile + AudioScopeTile + VideoScopeTile (NOT LightingScopeTile).
   - **Pairwise predicate-flip matrix**: enumerate the 5 × 4 / 2 = 10 ordered transitions across the 5 capability predicates (hasLead, hasA1, hasV1, hasL1, hasAdmin). Each transition is: 'predicate flips false → true' (tile appears) OR 'true → false' (tile disappears).
-  - **Compound transitions**: include at least 3 cases where two predicates flip simultaneously in one render cycle (`['LEAD','A1'] → ['A1']` flips hasLead alone; `['LEAD','A1'] → ['V1']` flips hasLead AND hasA1 AND hasV1 in one update).
+  - **Compound transitions**: include at least 3 cases where two predicates flip simultaneously in one render cycle. **Worked examples under the canonical SCOPE_TILE_VISIBILITY_RULE**:
+    - `['LEAD','A1'] → ['A1']`: `hasLead` flips false. Tile-level: FinancialsTile disappears AND VideoScopeTile disappears (was unlocked by LEAD branch). AudioScopeTile stays visible (hasA1 still true). LightingScopeTile stays hidden.
+    - `['LEAD','A1'] → ['V1']`: `hasLead` flips false, `hasA1` flips false, `hasV1` flips true. Tile-level: FinancialsTile disappears, AudioScopeTile disappears (no LEAD, no A1), VideoScopeTile stays visible (now via hasV1 branch instead of LEAD branch — net visibility unchanged but the *reason* shifted; assert tile renders without flicker).
+    - `['LEAD'] → ['L1']`: `hasLead` flips false, `hasL1` flips true. Tile-level: FinancialsTile disappears, AudioScopeTile disappears, VideoScopeTile disappears, LightingScopeTile appears. Largest single-render visibility delta in the matrix.
   - **`viewer.date_restriction`** uses the spec discriminator literals `{ kind: 'none' } | { kind: 'explicit'; days: Date[] } | { kind: 'unknown_asterisk' }` — 3 states, 3 pairs (changes ScheduleTile rendering). Final-validation finding: earlier draft used `'explicit_days'` and `'asterisk'` which don't match the parser/DB contract; the spec uses `'explicit'` and `'unknown_asterisk'`.
   - **`viewer.stage_restriction`** ∈ `{ kind: 'none' } | { kind: 'explicit'; stages: WorkPhase[] }` — at minimum cover `none ↔ explicit`. **`stage_restriction` only affects PackListTile (per §8.1, final-validation finding)** — it does NOT toggle Audio/Video/Lighting scope-tile filters. ScopeTile visibility is driven solely by capability predicates over `role_flags[]` (`hasA1`, `hasV1`, `hasL1`, etc., as enumerated in Step 4 above). Earlier draft incorrectly tied `stage_restriction` to ScopeTile filters.
   Each pair gets a transition treatment (crossfade tiles, instant for filters, etc.) AND a compound test where role flags + restriction change simultaneously.
+- [ ] **Step 4b: TransportTile reassignment transitions over the canonical TransportationRow contract (M3+M4 batch-10 round-51 finding)** — beyond `role_flags[]` and restriction toggles, the TransportTile's visibility predicate is OR'd over TWO branches (per §8.1 / Task 4.7): (a) `transportation.driver_name === viewer.name` AND (b) `viewer.name ∈ transportation.schedule[*].assigned_names[]` for ANY entry. Both branches can flip during a live sync update — Doug edits the sheet's transport block, the next cron pass replaces the row, the page re-renders with the new shape — and earlier drafts of this task did not enumerate transport-visibility transitions in the matrix. The corrected audit adds a 2 × 2 transition table over the two branch predicates `(driverNameMatch, anyScheduleTagMatch)`:
+    - `(false, false) → (true, false)`: viewer becomes the assigned driver via sheet edit (e.g., Doug fills in `driver: <viewer.name>` in a row that previously had a different name). Transition treatment: TransportTile fades in (`AnimatePresence` mount).
+    - `(false, false) → (false, true)`: viewer is added to a `schedule[*].assigned_names[]` array via sheet edit (Doug tags the viewer as a passenger / co-driver on a per-day row). Treatment: same fade-in mount.
+    - `(true, false) → (false, false)`: viewer is removed as driver via sheet edit (Doug reassigns the driver field to a different name). Treatment: TransportTile fades out (`AnimatePresence` unmount). Grid reflows under the missing tile.
+    - `(false, true) → (false, false)`: viewer's name is removed from every `assigned_names[]` array via sheet edit. Treatment: same fade-out unmount.
+    - `(true, false) ↔ (false, true)`: the OR predicate's net result stays `true` but the *reason* changed (Doug demotes viewer from driver to passenger, or vice versa). Treatment: tile stays mounted (no AnimatePresence cycle); the schedule body inside the tile may pulse on the field that changed (driver name vs schedule entry). The tile MUST NOT flicker — assert it remains in the DOM continuously across the re-render.
+    - `(true, true) → (true, false)` / `(true, true) → (false, true)`: viewer was BOTH driver AND tagged in a schedule row; one branch flips false but the other stays true. Tile stays mounted; the body pulses on the changed field. No flicker.
+    - `(true, true) → (false, false)`: both branches flip false in a single sync (rare — Doug rewrites the entire transport block excluding the viewer). Tile fades out; grid reflows.
+  - **Compound transitions involving transport reassignment** — at least 2 cases must be exercised against a live sync:
+    - **Schedule-tag flip mid `crew_members.name` change**: a sync update simultaneously renames the viewer's `crew_members.name` AND mutates `transportation.schedule[*].assigned_names[]` referencing the old name. The OR predicate must evaluate against the new name (the `getShowForViewer` projection fetches `crew_members.name` AND `transportation.schedule[*].assigned_names[]` together; their consistency is enforced by the sync transaction's per-row replacement semantics in §5.2). Assert the tile's visibility resolves correctly post-sync (whether visible or hidden depends on whether the new name appears in `assigned_names[]`); the tile MUST NOT show stale visibility based on the old name.
+    - **`role_flags[]` capability flip while transport visibility flips**: viewer's `role_flags[]` changes from `['LEAD']` to `['LEAD','A1']` in the same sync that also flips `(false, false) → (false, true)` for transport. Assert: AudioScopeTile fades in (capability transition from Step 4) AND TransportTile fades in (transport branch-2 transition from this step) — both `AnimatePresence` mounts must complete without one cancelling the other. The grid reflows once after both mounts settle.
+  - **End-to-end live-sync test (M3+M4 batch-10 amendment, references Task 4.7's seed-and-render harness)**: write at least ONE Playwright test that (1) seeds a show with `transportation.driver_name = 'Cara'` and `schedule[0].assigned_names = []`; renders the crew page as Alice (`driver_name` does NOT match, `assigned_names` is empty — TransportTile MUST be absent); (2) inside the test, mutates the seeded `transportation.schedule[0].assigned_names` to `['Alice']` via a direct DB write that emulates a successful Phase 2 sync (the test uses the `applyStaged` seed harness from Task 2.4 with a synthetic `transportation` UPDATE — NOT a raw SQL bypass; same path production sync uses); (3) waits for the Realtime channel `show:<id>` to fire — **a real Supabase Realtime channel mock is REQUIRED, NOT a polling fallback (M3+M4 batch-11 finding); see Task 4.16**; if the mock does not fire, the test fails outright (do NOT poll `getShowForViewer` as a backup); (4) asserts TransportTile is now in the DOM (`await expect(page.locator('[data-testid=transport-tile]')).toBeVisible()`) within 2s of the synthetic Apply commit AND that `page.reload()` was NOT called (manual refresh must NOT be the propagation path). Without this test, a regression in the projection layer that drops `assigned_names[]` during sync update (separate code path from initial render) would silently break branch-2 visibility post-sync; without the Realtime-only assertion, the suite would pass with no subscription wired at all.
 - [ ] **Step 5: Implement** the transitions using framer-motion `AnimatePresence` for state swaps and ternary-based opacity transitions for in-state field updates. Card height stays fixed during crossfade by setting `min-h-[X]` on the container.
 - [ ] **Step 6: Commit** `feat(crew-page): RightNow + visibility-mode transition matrix (§8.2 + §8.1)`.
 
 ### Task 4.13: Layout dimensions e2e (AC-4.4, per global CLAUDE.md "Layout dimensions" rule)
 
-**Files:** Test: `tests/e2e/layout-dimensions.spec.ts`.
+**Files:** Test: `tests/e2e/layout-dimensions.spec.ts`. Fixtures: `tests/fixtures/short-content.md`, `tests/fixtures/long-content.md`.
 
 Per global CLAUDE.md: every component with a fixed-dimension parent containing flex/grid children must have a browser-rendered assertion calling `getBoundingClientRect()` on every documented `data-testid` and asserting `child.dimension === parent.dimension` within 0.5px tolerance. Tailwind v4 does NOT default `.flex` to `align-items: stretch`.
 
-The §8.4 dimensional invariants:
-- Right Now card full-width minus container padding; min-height 96px.
-- Tile grid: 2 cols < 640px, 3 cols 640–1024px, 4 cols > 1024px. **Tiles within a row stretch to equal height (`align-items: stretch`).**
-- Each tile min-height 96px; internal "see more" past 240px.
-- Footer sticky to viewport bottom when content short; flows naturally when content long.
+**Full §8.4 dimensional invariants — every one MUST have a corresponding assertion (round-50).** Earlier draft of AC-4.4 only covered grid column count, tile min-height, and equal first-row heights. The full §8.4 list adds three more invariants the test must enforce:
 
-- [ ] **Step 1: Failing test** — at 390px viewport:
+1. **Right Now card full-width across all breakpoints**: at every tested viewport (390px, 1024px, 1200px), `[data-testid=right-now-card]`'s `getBoundingClientRect().width` equals the parent container's content-box width (within 0.5px) — i.e., the card spans the entire container minus container padding.
+2. **Tile grid columns**: 2 cols < 640px, 3 cols 640–1024px, 4 cols > 1024px. Tiles within a row stretch to equal height (`align-items: stretch`) — Tailwind v4 non-default behavior.
+3. **Tile min-height 96px**.
+4. **240px internal-overflow rule**: any tile whose intrinsic content-height exceeds 240px MUST keep the overflow internal — `getComputedStyle(tile).overflowY ∈ {'auto', 'scroll'}` (or an equivalently scrollable container) AND a `[data-testid=tile-show-more]` disclosure control is rendered. Tiles whose content fits within 240px MUST NOT render the disclosure.
+5. **Footer sticky-vs-flow behavior**: on a short-content fixture (page total content height < viewport height), the footer is fixed/sticky to the viewport bottom — `getBoundingClientRect().bottom` of the footer equals (window.innerHeight ± 0.5). On a long-content fixture (page total content height > viewport height), the footer is in the natural flow — its `bottom` position is determined by content, NOT pinned to viewport bottom; scrolling the page moves the footer with the content. Both fixtures must be exercised.
+
+- [ ] **Step 1: Failing tests — exhaustive AC-4.4 coverage (round-50)**:
   ```ts
   test('layout dimensions at 390px (AC-4.4)', async ({ page }) => {
     await page.goto('/show/<seeded-slug>?crew=<seeded-crew-with-A1-flag>');
-    const grid = page.locator('[data-testid=tile-grid]');
+    const container = page.locator('[data-testid=page-container]');
+    const rightNow = page.locator('[data-testid=right-now-card]');
     const tiles = await page.locator('[data-tile]').all();
-    const gridBox = await grid.boundingBox(); // never null after wait
-    // Two-col grid at this width
+    const containerBox = await container.boundingBox();
+    const rightNowBox = await rightNow.boundingBox();
+
+    // Invariant 1: Right Now card full-width minus container padding
+    expect(Math.abs(rightNowBox!.width - containerBox!.width)).toBeLessThan(0.5);
+
+    // Invariant 2: 2-col grid at this width
     const cols = await page.evaluate(() => {
       const g = document.querySelector('[data-testid=tile-grid]')!;
       return getComputedStyle(g).gridTemplateColumns.split(' ').length;
     });
     expect(cols).toBe(2);
-    // Tile min-height 96
+
+    // Invariant 3: Tile min-height 96
     for (const t of tiles) {
       const b = await t.boundingBox();
       expect(b!.height).toBeGreaterThanOrEqual(96 - 0.5);
@@ -2464,18 +3368,197 @@ The §8.4 dimensional invariants:
       .map(b => b!.height);
     expect(Math.abs(tileHeights[0]! - tileHeights[1]!)).toBeLessThan(0.5);
   });
-  test('layout at 1024px is 3 cols, at 1200px is 4 cols', async ({ page }) => { /* ... */ });
+
+  test('Right Now full-width at all breakpoints (AC-4.4 invariant 1)', async ({ page }) => {
+    for (const w of [390, 1024, 1200]) {
+      await page.setViewportSize({ width: w, height: 800 });
+      await page.goto('/show/<seeded-slug>?crew=<seeded-A1>');
+      const container = await page.locator('[data-testid=page-container]').boundingBox();
+      const rightNow = await page.locator('[data-testid=right-now-card]').boundingBox();
+      expect(Math.abs(rightNow!.width - container!.width)).toBeLessThan(0.5);
+    }
+  });
+
+  test('layout at 1024px is 3 cols, at 1200px is 4 cols (AC-4.4 invariant 2)', async ({ page }) => {
+    for (const [w, expected] of [[1024, 3], [1200, 4]] as const) {
+      await page.setViewportSize({ width: w, height: 800 });
+      await page.goto('/show/<seeded-slug>?crew=<seeded-A1>');
+      const cols = await page.evaluate(() => {
+        const g = document.querySelector('[data-testid=tile-grid]')!;
+        return getComputedStyle(g).gridTemplateColumns.split(' ').length;
+      });
+      expect(cols).toBe(expected);
+    }
+  });
+
+  test('Tile internal overflow past 240px (AC-4.4 invariant 4)', async ({ page }) => {
+    // Long-content fixture has one tile carrying long content (e.g., NotesTile with 30+ long notes
+    // whose intrinsic content-height > 240px).
+    await page.goto('/show/<long-content-slug>?crew=<seeded-A1>');
+    const longTile = page.locator('[data-testid=notes-tile]');
+    const overflowY = await longTile.evaluate(el => getComputedStyle(el).overflowY);
+    expect(['auto', 'scroll']).toContain(overflowY);
+    // Disclosure visible for overflowing tile
+    await expect(longTile.locator('[data-testid=tile-show-more]')).toBeVisible();
+    // Short-content tile (e.g., VenueTile with name + address only): NO disclosure
+    const shortTile = page.locator('[data-testid=venue-tile]');
+    await expect(shortTile.locator('[data-testid=tile-show-more]')).toHaveCount(0);
+  });
+
+  test('Footer sticky on short pages, flow on long pages (AC-4.4 invariant 5)', async ({ page }) => {
+    // Short-content fixture: total content < viewport
+    await page.setViewportSize({ width: 390, height: 1200 });
+    await page.goto('/show/<short-content-slug>?crew=<seeded-A1>');
+    const footerShort = await page.locator('[data-testid=page-footer]').boundingBox();
+    expect(Math.abs(footerShort!.y + footerShort!.height - 1200)).toBeLessThan(0.5); // pinned to viewport bottom
+
+    // Long-content fixture: total content > viewport
+    await page.goto('/show/<long-content-slug>?crew=<seeded-A1>');
+    const footerLongInitial = await page.locator('[data-testid=page-footer]').boundingBox();
+    expect(footerLongInitial!.y + footerLongInitial!.height).toBeGreaterThan(1200 + 100); // below viewport — in flow
+    // Scrolling moves the footer with content, NOT pinned to viewport bottom
+    await page.evaluate(() => window.scrollTo(0, 500));
+    const footerLongScrolled = await page.locator('[data-testid=page-footer]').boundingBox();
+    expect(footerLongScrolled!.y).toBeLessThan(footerLongInitial!.y); // moved upward as page scrolled
+  });
   ```
-- [ ] **Step 2: Implement** the grid: `[data-testid=tile-grid]` uses `grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 items-stretch`. Each tile sets `min-h-24` (96px) and `h-full` to ensure it stretches per Tailwind v4's non-default stretch behavior. **Document this in a code comment** referencing the global CLAUDE.md note about Tailwind v4 not defaulting to stretch.
-- [ ] **Step 3: Commit** `feat(crew-page): layout dimensions + invariant assertion (AC-4.4)`.
+- [ ] **Step 2: Implement** the layout primitives:
+  - `[data-testid=tile-grid]` uses `grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 items-stretch`. Each tile sets `min-h-24` (96px) and `h-full` to ensure it stretches per Tailwind v4's non-default stretch behavior. **Document this in a code comment** referencing the global CLAUDE.md note about Tailwind v4 not defaulting to stretch.
+  - `[data-testid=right-now-card]` uses `w-full` (or equivalent fluid full-width) so it spans the container at every breakpoint.
+  - Each tile component wraps its body in a container with `max-h-60 overflow-y-auto` (240px = 60 × 4px Tailwind unit) when content might exceed 240px; renders `[data-testid=tile-show-more]` disclosure control inside the tile when overflow is active.
+  - `[data-testid=page-footer]` uses a sticky/flow pattern: page layout is a flex column with `min-h-screen`, the footer has `mt-auto` (so it floats to the bottom on short pages) but renders inside the natural flow (so on long pages it appears below content and scrolls with the page).
+  - Both `tests/fixtures/short-content.md` (minimal content, total page < viewport) and `tests/fixtures/long-content.md` (NotesTile carrying 30+ long notes, total page > viewport at 390×1200) are added for this task's tests.
+- [ ] **Step 3: Commit** `feat(crew-page): layout dimensions + full §8.4 invariant assertion (AC-4.4)`.
 
-### Task 4.14: Empty-state discipline (AC-4.5, §8.3)
+### Task 4.14: Empty-state discipline (AC-4.5, §8.3, §10)
 
-**Files:** Tests across tile spec files.
+**Files:** Tests across tile spec files; create `lib/visibility/emptyState.ts` for the per-field empty-treatment table.
 
-- [ ] **Step 1: Failing test (AC-4.5)** — synthesize a fixture with `event_details.opening_reel = 'TBD'`. Crew page must NOT render `Opening Reel: TBD`.
-- [ ] **Step 2: Implement** per-tile filter: every value `null`, `''`, `'TBD'`, `'N/A'`, `'TBA'` (case-insensitive) is treated as "not filled in" for *optional* fields. Required fields render the placeholder per §8.3.
-- [ ] **Step 3: Commit** `feat(crew-page): empty-state discipline (§8.3)`.
+**Per-field empty-treatment rules (round-50 finding; M3+M4 batch-10 round-51 amendment for milestone-staged inline `<video>`).** Earlier draft applied a blanket rule treating `null`, `''`, `'TBD'`, `'N/A'`, `'TBA'` (case-insensitive) as "not filled in" for ALL optional fields. That rule is wrong for `event_details.opening_reel`: spec §10 (line ~1923) explicitly says when the cell is text-only with values like `YES`, `MAYBE`, `N/A` the crew page renders a small text line "Opening reel: <value>". Blanket-hiding `N/A` would erase a documented crew-visible status. The corrected design uses a **per-field empty-treatment table** — different fields hide different sets of sentinel values.
+
+**M3+M4 batch-10 amendment: M4 ships URL-stripped text-only opening reel; inline `<video>` rendering defers to M7 Task 7.6.** Earlier draft of AC-4.5 required this task to render an inline `<video>` for mixed-value cells like `YES - <url>` — but the streaming source `/api/asset/reel/[show]` is created by Task 7.6 in M7. M4 cannot satisfy the inline-video assertion without exposing raw Drive URLs (forbidden by §10 / §7.3). Scope split:
+- **M4 (this task)** renders **URL-stripped** text-only opening-reel status. Every non-empty/non-`TBD` cell renders as `Opening reel: <stripped value>` where the stripper removes ALL `https?://drive.google.com|docs.google.com/...` URL substrings AND orphaned ` - ` connector tokens BEFORE rendering. Mixed `YES - <drive-url>` cells render as `Opening reel: YES`. Pure-URL cells (entire cell value is a Drive URL → empty stripped residue) render NO line — empty residue is treated by the empty-state predicate as hide. Phase-1 enrichment still pins the reel (post-Apply, the `shows.opening_reel_*` columns get populated per §6.11.1) — the view layer just doesn't yet emit a `<video>` element.
+- **M7 (Task 7.6 + new AC-7.25)** ADDS the inline `<video src="/api/asset/reel/<show>">` element when the post-Apply pin columns are non-NULL. M7 is purely additive: URL-stripped text status remains; `<video>` appears alongside. Pure-URL cells render ONLY the inline `<video>` at M7.
+
+**M3+M4 batch-11 finding: opening-reel render MUST strip all Drive URL substrings.** Earlier draft of this task said "render the cell value verbatim" — but a mixed-value cell like `YES - https://drive.google.com/file/d/<id>/view` would leak the raw Drive URL into crew DOM, violating the §10 proxy-only auth boundary. The corrected design strips URLs at render time. **Crew DOM MUST NEVER contain `https://` or `drive.google.com` substrings** for any opening-reel fixture (M4 baseline AND M7).
+
+| Field | Empty values (hide entirely) | Render-as-text values | Notes |
+|---|---|---|---|
+| `event_details.opening_reel` (URL-stripped text rendering — M4 baseline; inline `<video>` adds in M7 Task 7.6) | `null`, `''`, `'TBD'` (case-insensitive after trim) AND any value whose URL-stripped residue is empty (the cell was a pure Drive URL — entire value matched the URL regex, OR after stripping connector tokens nothing remained). | `'YES'`, `'MAYBE'`, `'N/A'`, `'TBA'`, `'BACKUP ONLY'`, and the URL-stripped residue of mixed cells (e.g., `'YES - <url>'` → `'YES'`, `'LOOP VIDEO - <url>'` → `'LOOP VIDEO'`), and any other free-text value (per §10 / §6.5 free-text fallback). | Spec §10 names `MAYBE`, `YES`, `N/A` as crew-visible status text AND specifies the URL-strip render contract. M4 renders the URL-stripped value. M7 (Task 7.6) ADDS `<video src="/api/asset/reel/<show>">` when post-Apply `shows.opening_reel_*` columns are non-NULL. ONLY `TBD`, bare empty/null, AND pure-URL cells (empty stripped residue) are hidden at every milestone. |
+| Generic optional text fields (e.g., `event_details.power`, `internet`, `keynote_requirements`, `rooms.scenic`, `notes` columns) | `null`, `''`, `'TBD'`, `'N/A'`, `'TBA'` (case-insensitive) | All other free-text values render verbatim. | Original blanket rule applies — these fields are not in spec §10's named-status list. |
+| Required structural fields (e.g., `show.title`, `venue.name`) | n/a — missing required fields render the §8.3 placeholder ("Doug hasn't filled this in yet"), NEVER hidden. | n/a | §8.3 required-field discipline. |
+| Whole tile missing (e.g., no transport assigned) | Tile not rendered. Grid reflows. | n/a | §8.3 / Task 4.7. |
+
+The implementation lives in `lib/visibility/emptyState.ts` as a small dispatch table keyed by field name; tile components import the field-specific predicate. NO inline string-list duplication across tiles.
+
+- [ ] **Step 1: Failing tests (AC-4.5 expanded — M3+M4 batch-10 round-51 + batch-11 URL-strip — M4 baseline only; inline `<video>` is exercised by M7 Task 7.6 + new AC-7.25)**:
+  - Synthesize a fixture with `event_details.opening_reel = 'TBD'`. Crew page must NOT render any `Opening reel:` line (TBD is hidden for opening_reel per the table).
+  - Synthesize fixtures with `event_details.opening_reel ∈ {'YES', 'MAYBE', 'N/A', 'TBA', 'BACKUP ONLY'}`. Crew page MUST render the small text line `Opening reel: <value>` for each (no URL substrings present, render as-is).
+  - **URL-strip regression (batch-11):** Synthesize a fixture with `event_details.opening_reel = 'YES - https://drive.google.com/file/d/abc/view'`. Crew page MUST render the URL-stripped text status line `Opening reel: YES` (NOT the raw cell value). Assert: `await expect(page.locator('[data-testid=opening-reel-tile]')).toContainText('Opening reel: YES')` AND `await expect(page.locator('main').textContent()).not.toContain('https://')` AND `await expect(page.locator('main').textContent()).not.toContain('drive.google.com')`. **At M4 the page MUST NOT render any `<video>` element**: assert `await expect(page.locator('video[src*="/api/asset/reel/"]')).toHaveCount(0)`. The asset route doesn't exist until M7 Task 7.6; rendering `<video>` against it from M4 would 404. M7's AC-7.25 inverts the `<video>` count assertion AND keeps the URL-absent assertion.
+  - **Pure-URL cell:** Synthesize a fixture with `event_details.opening_reel = 'https://drive.google.com/file/d/abc/view'` (no surrounding text). Crew page MUST NOT render any `Opening reel:` line at M4 (entire cell value is the URL → empty stripped residue → hidden by empty-state predicate). DOM must satisfy `not.toContain('https://')` AND `not.toContain('drive.google.com')`.
+  - **Other URL form:** Synthesize a fixture with `event_details.opening_reel = 'LOOP VIDEO - https://docs.google.com/document/d/abc/edit'`. Crew page MUST render `Opening reel: LOOP VIDEO`. DOM must satisfy `not.toContain('https://')` AND `not.toContain('docs.google.com')`.
+  - Synthesize a fixture with `event_details.opening_reel = ''` (or `null`). Crew page MUST NOT render any `Opening reel:` line.
+  - Synthesize a fixture with `event_details.power = 'N/A'`. Crew page MUST NOT render the power field (generic optional rule applies — power is NOT in spec §10's named-status list).
+  - Synthesize a fixture with `event_details.power = 'House power, 20A'`. Crew page MUST render `Power: House power, 20A`.
+- [ ] **Step 2: Implement** per-field empty-state predicates in `lib/visibility/emptyState.ts` AND the URL-stripping helper in `lib/visibility/openingReelText.ts`:
+  ```ts
+  // lib/visibility/openingReelText.ts — single source of truth for §10 URL-strip render contract.
+  // Strips all https?://drive.google.com|docs.google.com/... URL substrings AND orphaned ` - `
+  // connector tokens left around them, then trims. The crew-page DOM MUST NEVER contain `https://`
+  // or `drive.google.com` substrings for any opening_reel fixture — see batch-11 regression test.
+  const DRIVE_URL_RE = /(https?:\/\/)?(drive\.google\.com|docs\.google\.com)\/[^\s]+/g;
+  export function stripOpeningReelText(value: string | null): string {
+    if (value == null) return '';
+    return value
+      .replace(DRIVE_URL_RE, '')
+      .replace(/\s+-\s+(?=\s*$)/g, '')   // trailing connector
+      .replace(/^\s*-\s+/, '')            // leading connector
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // lib/visibility/emptyState.ts — per-field empty rules; see Task 4.14 table.
+  import { stripOpeningReelText } from './openingReelText';
+  const OPENING_REEL_HIDE = new Set(['', 'TBD']);                        // case-insensitive after trim
+  const GENERIC_OPTIONAL_HIDE = new Set(['', 'TBD', 'N/A', 'TBA']);      // case-insensitive
+
+  export function shouldHideOpeningReel(value: string | null): boolean {
+    if (value == null) return true;
+    // Strip URLs FIRST, then evaluate emptiness — pure-URL cells (empty residue) hide.
+    const stripped = stripOpeningReelText(value);
+    return OPENING_REEL_HIDE.has(stripped.toUpperCase());
+  }
+  export function shouldHideGenericOptional(value: string | null): boolean {
+    if (value == null) return true;
+    return GENERIC_OPTIONAL_HIDE.has(value.trim().toUpperCase());
+  }
+  ```
+  Tiles import `stripOpeningReelText` AND `shouldHideOpeningReel`; NO ad-hoc inline render of the raw cell value. Required-field placeholders per §8.3 are rendered at the tile level when the structural field is missing (separate from these predicates).
+- [ ] **Step 3: Commit** `feat(crew-page): empty-state discipline + §10 opening-reel URL-strip render contract (§8.3, §10)`.
+
+### Task 4.16: Crew-page Realtime bridge — Server Component + thin client `<ShowRealtimeBridge>` calling `router.refresh()` on a server-owned Broadcast topic (M3+M4 batch-11 finding; batch-12 architecture amendment; **batch-14 finding 1 architectural correction: Broadcast, NOT postgres_changes**; **batch-14 finding 2: composite version_token**)
+
+**Files:** Create: `components/realtime/ShowRealtimeBridge.tsx` (client component), `lib/realtime/subscribeToShow.ts` (Supabase Broadcast channel helper), `lib/realtime/showInvalidation.ts` (server-side publish helper called from Phase 2 sync writes + auth-mutation triggers), `app/api/realtime/subscriber-token/route.ts` (mints short-lived Realtime JWTs from the `__Host-fxav_session` cookie), `app/api/show/[slug]/version/route.ts` (returns the composite `viewer_version_token`), **`lib/auth/resolveShowViewer.ts` (M3+M4 batch-15 finding 2: shared auth-chain helper that mirrors `/show/<slug>` and is consumed by BOTH the subscriber-token route AND the version route — see Step 1.5 below)**. Modify: `app/show/[slug]/page.tsx` to mount `<ShowRealtimeBridge showId slug renderVersion>` (the page itself stays a Server Component); every Phase 2 commit site (Tasks 6.5 / 6.11 / etc.) calls `publishShowInvalidation(tx, showId)` inside the transaction. **DB migrations land in Plan Task 2.2 as a single linked unit**: `crew_member_auth.last_changed_at` + `crew_members.last_changed_at` columns, their UPDATE triggers, AND the `viewer_version_token(show_id uuid) returns text` SQL helper. Test: `tests/realtime/showRealtimeBridge.test.tsx` AND `tests/e2e/apply-driven-refresh.spec.ts`.
+
+**Why this task exists (M3+M4 batch-11 finding) AND why the transport is now Broadcast (M3+M4 batch-14 finding 1 architectural correction).** Earlier drafts of M4 referenced "Realtime channel `show:<id>` to fire" inside Task 4.12 step 4b AND inside Tasks 6.6 / 6.10 but no task created the client-side subscription. Batches 11–13 added a thin client bridge with three `postgres_changes` filtered streams (one for `shows`, one for `crew_member_auth`, one for `crew_members`). **That design is architecturally broken for this app's auth model.** Redeemed-link viewers carry only the `__Host-fxav_session` cookie and have NO Supabase Auth session that RLS could authorize, so `postgres_changes` subscriptions cannot be authenticated for them. Even for signed-in (Google) viewers, RLS denies subscriptions to the admin-only `crew_member_auth` table per spec §4.3. Read literally, the batch-13 design would either (a) silently never deliver events to redeemed-link viewers (the dominant viewer class), or (b) throw at subscribe time. Either way, an Apply that flips `crew_members.role_flags` would not propagate to a redeemed-link viewer's page; an admin "Issue new link" click would not invalidate the affected viewer's session.
+
+**Corrected transport (batch-14 finding 1): single server-owned Realtime Broadcast topic, viewer-opaque payload.** Broadcast topics are gated by a custom-issued JWT verified at WebSocket-handshake time, so the bridge's auth path is the existing `__Host-fxav_session` cookie funneled through a server route that mints a short-lived Realtime JWT. No table-level RLS is involved at subscribe time. The publishers are (1) every Phase 2 commit site calling `publishShowInvalidation(tx, showId)` inside the transaction, AND (2) DB UPDATE triggers on `crew_member_auth` and `crew_members` that emit the same publish on every column change. The Broadcast payload is intentionally minimal — `{ type: 'invalidate', show_id, version_token }` — and the bridge's only response is `router.refresh()`. The viewer learns nothing from a Broadcast they didn't already have permission to learn from a re-render. The earlier batch-11 wording referencing TanStack/React Query is also retired in this batch — there is no client-side data cache, no `queryClient`; the data path is the same Server Component path used at first render.
+
+**Architecture: Server-rendered + thin client bridge calling `router.refresh()`.**
+
+- (a) `app/show/[slug]/page.tsx` stays a Server Component. It continues to call `getShowForViewer` directly server-side; no client-side data fetch is introduced.
+- (b) `<ShowRealtimeBridge showId={...} />` is a thin client component (`'use client'`) that mounts inside the page (or its layout) and is the ONLY new client surface this task adds. On mount it opens a Supabase Realtime subscription via `subscribeToShow(showId, onChange)`; on the `onChange` callback it calls `router.refresh()` from `next/navigation`'s `useRouter`, which forces Next.js to re-execute the Server Component and re-fetch `getShowForViewer` server-side. The bridge renders nothing — it returns `null`.
+- (c) NO TanStack Query, NO client-side data cache, NO client-side `getShowForViewer` call, NO `queryClient.invalidateQueries`. The data path is the same Server Component data path used at first render; the bridge merely re-triggers it.
+- (d) On unmount, the bridge unsubscribes (returns `unsubscribe` from `useEffect`).
+- (e) Error boundary: if the subscription fails to open (network, auth, channel error), the bridge logs `console.warn('[ShowRealtimeBridge] subscription failed', err)` and falls back to no-op. The page stays statically rendered against the last server fetch; the user can manually refresh or navigate. No retry storm — a single failed `subscribe()` does NOT loop. (A v2 enhancement may add bounded backoff retry; v1 fails open.)
+- (f) The bridge mounts for every viewer (signed-in OR signed-link cookie OR admin). Auth happens at server fetch time (`getShowForViewer` per §7.2), not at subscription time — so a revoked-mid-session user still triggers a `router.refresh()` whose subsequent server render hits the 410 path and navigates to the bootstrap page.
+
+**Single Broadcast topic, server-issued JWT (batch-14 finding 1; supersedes batch-13 three-`postgres_changes`-streams design).** The bridge subscribes to ONE topic: `show:<showId>:invalidation`. The bridge MUST NOT call `channel.on('postgres_changes', ...)` — Step 1's failing tests assert this registration count is zero (architectural-correction fence). Topic ACL: `topic ~ '^show:([0-9a-f-]{36}):invalidation$' AND ((regexp_match(topic, '^show:([0-9a-f-]{36}):invalidation$'))[1])::uuid = (auth.jwt() ->> 'show_id')::uuid`. Admin sessions admit any `show:*:invalidation` topic. The topic name is intentionally non-secret; only a server-issued JWT subscribes. The earlier batch-13 design (three `postgres_changes` filtered streams, one per table) is RETIRED in batch-14: redeemed-link viewers carry no Supabase Auth session that RLS could authorize, and `crew_member_auth` is admin-only per §4.3 so RLS would deny a direct subscription anyway. Broadcast over a single, server-issued JWT is the corrected transport.
+
+**`POST /api/realtime/subscriber-token` route.** Verifies the request's `__Host-fxav_session` cookie via the existing `validateLinkSession` (signed-link viewers) or `validateGoogleSession` (signed-in viewers) helpers per §7.2. Derives `(showId, crewMemberId)` and signs a Realtime JWT with claims `{ show_id: <uuid>, sub: <crewMemberId>, exp: now+5min, iss: <SUPABASE_REALTIME_ISS>, role: 'authenticated' }` using `SUPABASE_JWT_SECRET`. Returns `{ jwt, exp }`. Failures (invalid/expired cookie, no crew row match) → 401 with code `SHOW_REALTIME_BROADCAST_AUTH_FAILED`. **Service-role secret never reaches the client.**
+
+**Publish-side: `publishShowInvalidation(tx, showId)` (batch-14 finding 1).** Single helper in `lib/realtime/showInvalidation.ts` that runs INSIDE the supplied transaction and emits exactly one `pg_notify('realtime:broadcast', json_build_object('topic', 'show:' || $1 || ':invalidation', 'event', 'invalidate', 'payload', json_build_object('show_id', $1, 'version_token', viewer_version_token($1)))::text)`. Call sites: (1) every Phase 2 commit (Task 6.5 `applyParseResult`, Task 6.11 `applyStagedParse`, plus any other §5.2 / §5.5.1 / §6.8.3 commit) calls the helper AFTER the `UPDATE shows` and BEFORE the transaction commits. (2) DB UPDATE triggers on `crew_member_auth` and `crew_members` fire on UPDATE of any column (`WHEN (OLD.* IS DISTINCT FROM NEW.*)`); the trigger function resolves `show_id` from the row and calls `pg_notify(...)` with the same payload. **Trigger DDL lives in Plan Task 2.2 alongside the new `last_changed_at` columns and the `viewer_version_token` helper.** The publish helper is the SOLE producer of these notifies; the `realtime` schema has no other writers in app code. **Removed**: the earlier "Realtime channel `show:<id>` publish" wording in §5.2 / §5.5.1 / §6.8.3 / Task 6.6 / Task 6.10 / AC-6.12 that framed the `UPDATE shows` row mutation as the publish event is RETIRED — that framing was specific to the `postgres_changes` design which is no longer the transport.
+
+**Composite `viewer_version_token` (batch-14 finding 2).** Earlier batch-13 catch-up derived the token from `shows.last_synced_at` only — auth-only mutations (Issue New Link, role_flags edits without a paired `UPDATE shows`) never bump that column, so a (T0, T1) race against an Issue-New-Link click between SSR and subscribe-completion would catch-up false-positive-clean. The corrected token is composite: `viewer_version_token := GREATEST(shows.last_synced_at, MAX(crew_member_auth.last_changed_at) FOR show_id, MAX(crew_members.last_changed_at) FOR show_id)` for the show, encoded as a stringified ISO-8601 timestamp (or epoch ms) — comparable for equality and ordering. Plan Task 2.2 propagates: `crew_member_auth.last_changed_at TIMESTAMPTZ NOT NULL DEFAULT now()` (UPDATE trigger bumps to `now()` on any-other-column change); `crew_members.last_changed_at TIMESTAMPTZ NOT NULL DEFAULT now()` (same trigger pattern); `viewer_version_token(show_id uuid) returns text` SECURITY-DEFINER SQL helper. The `/api/show/[slug]/version` route returns `{ version_token: <composite> }` from a single `SELECT viewer_version_token($1)` call — no auth-gated payload, single-string response. The Server Component captures the composite at SSR time and renders `<div data-render-version="<token>">`.
+
+**Render-vs-subscribe race + reconnect catch-up (batch-13 refined batch-14).** After `subscribe()` resolves AND on `system.reconnected` events, the bridge fetches `/api/show/[slug]/version`, compares to the `renderVersion` prop (string compare), and on mismatch calls `router.refresh()` once. This closes the (T0, T1) hole AND covers reconnect catch-up AND covers auth-only mutations whose Broadcast may have fired before subscribe-completion.
+
+**No polling fallback in tests.** The transport live-sync test (Task 4.12 step 4b end-to-end live-sync test) is amended to require a real Supabase Realtime Broadcast mock, NOT a polling fallback. Earlier draft of that test said "or polls `getShowForViewer` if Realtime is mocked" — replace with: "the Broadcast mock fires after the synthetic Phase 2 commit; the test asserts the page re-renders via `router.refresh()` WITHIN 2s WITHOUT `page.reload()`; if the mock does not fire, the test fails." Polling is NOT an acceptable backup — it would let the suite pass with no subscription wired.
+
+**JWT renewal on disconnect / auth-failure (M3+M4 batch-15 finding 1, HIGH).** The `POST /api/realtime/subscriber-token` mint signs a JWT with `exp = now+5min` — every page session that stays open longer than 5 minutes WILL eventually see the WebSocket carrying an expired token. Without an explicit renewal flow, any routine WiFi blip past the 5-minute mark drops the subscription silently and the bridge stops delivering invalidations until the user navigates. The bridge MUST listen for both Supabase `system` `disconnected` events AND any channel-level auth-failure error event (`channel.subscribe(status => { if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') ... })`) and on either signal run the renewal sequence: (a) re-`POST /api/realtime/subscriber-token` (returns a fresh JWT — the route enforces idempotency, multiple renewals within the same client session are fine); (b) call `client.realtime.setAuth(newJwt)`; (c) `removeChannel(oldChannel)` and re-create the channel via `subscribeToShow(showId, newJwt, onInvalidate)` with the same topic name `show:<showId>:invalidation`; (d) AFTER the new `subscribe()` resolves successfully, run the `/api/show/[slug]/version` catch-up (same flow used post-initial-subscribe) so any invalidations missed during the disconnect window are reconciled; (e) on renewal success, the bridge clears any "stale connection" UI state it surfaced during the disconnect window — the entire flow is transparent to the user (no pop-up, no manual action). On renewal FAILURE (mint returns 401 because the cookie itself expired, OR re-subscribe returns CHANNEL_ERROR three times in a row): log `SHOW_REALTIME_JWT_RENEWED` with `outcome: 'failed'` and fall back to no-op (the next `router.refresh()` or navigation hits `getShowForViewer` server-side and self-heals via the 410 → bootstrap path). Successful renewals log `SHOW_REALTIME_JWT_RENEWED` with `outcome: 'success'` so admins can trace renewal cadence; this is admin-log-only with no Doug-facing surface (added to §12.4).
+
+**Shared `resolveShowViewer` auth helper (M3+M4 batch-15 finding 2, HIGH).** Earlier batch-14 wording let `/api/realtime/subscriber-token` and `/api/show/[slug]/version` each call `validateLinkSession` / `validateGoogleSession` ad-hoc. That ad-hoc form did NOT mirror the `/show/<slug>` Server Component's complete auth chain — specifically, `/show/<slug>` per §7.2 / batch-9 finding runs `isAdminSession(req)` FIRST (admin precedence over crew credentials), but the subscriber-token / version routes only ran the crew-side validators. **An admin who is admin via `auth.email()` allowlist (NOT via `app_metadata.role='admin'`) thus could not subscribe** — they have no `__Host-fxav_session` cookie (admins go through the Google session path) and their email-allowlist admin status was never consulted by the routes. Worse, a cross-show probe (signed in for show A, requesting `/api/show/B/version`) was not rejected because the routes didn't consult the show-id binding. The corrected design factors the `/show/<slug>` chain into ONE helper `lib/auth/resolveShowViewer.ts` exporting `resolveShowViewer(req, slug): Promise<{ kind: 'admin' | 'crew_link' | 'crew_google' | 'denied', email?: string, show_id?: string, crew_member_id?: string }>`. The helper runs the SAME chain `/show/<slug>` runs, in the same order: (1) `isAdminSession(req)` predicate (per `lib/auth/isAdminSession.ts` — `app_metadata.role='admin'` OR canonicalized email is in the allowlist) → resolves to `{ kind: 'admin', email, show_id: <resolved-from-slug> }`; (2) `validateLinkSession(req, slug)` → on success `{ kind: 'crew_link', show_id, crew_member_id }`; (3) `validateGoogleSession(req, slug)` → on success `{ kind: 'crew_google', email, show_id, crew_member_id }`; (4) all-failed → `{ kind: 'denied' }`. **BOTH `/api/realtime/subscriber-token` AND `/api/show/[slug]/version` MUST call this helper as their FIRST action.** The subscriber-token route then mints the JWT with claim `viewer_kind` matching the helper result (`'admin'` | `'crew_link'` | `'crew_google'`) AND with `show_id` matching the resolved show; admin requests admit any `show:*:invalidation` topic per the existing topic-ACL design. The version route requires a non-`'denied'` result before returning the composite token; cross-show probes (the request's resolved `show_id` does NOT match the `slug` parameter's resolved show) AND fully-denied requests both return 403. Unauthenticated requests (no cookie at all, no session) return 401. The helper is the SOLE consumer of the chain in this batch — duplicate ad-hoc validator-call sites in either route are deleted.
+
+**Per-Apply invalidation dedup via client-side debounce (M3+M4 batch-15 finding 3, MEDIUM).** A single Apply that touches `shows` AND multiple `crew_member_auth` rows AND multiple `crew_members` rows fires the publish path 3+ times in the same transaction (1× from `publishShowInvalidation()` for the `UPDATE shows`, 1× per `crew_members` row from the BEFORE-UPDATE trigger, 1× per `crew_member_auth` row from the BEFORE-UPDATE trigger). Each fires a Broadcast, each Broadcast triggers `router.refresh()`, and the user sees a multi-flash refresh storm during a single Apply that touched 5 crew rows + 2 auth rows + the shows row (8 router.refresh calls in <1s). **Recommended fix: client-side 100ms debounce in `<ShowRealtimeBridge>`** — coalesces multiple `router.refresh()` calls within a 100ms window into one, regardless of how many trigger / helper publishes the Apply emitted. (Server-side AFTER-STATEMENT triggers + transaction-local touched-show set were considered but rejected as overcomplicated for v1: Postgres deferred-trigger lifecycle adds a session-local `pg_temp.touched_shows_<txid>` table, commit-time `pg_notify`, and an extra failure mode if commit aborts mid-flight; the client-side debounce achieves the same UX with one `setTimeout` + one cancel.) The debounce window is 100ms (long enough to coalesce a single Apply transaction's worth of triggers, short enough that crew never perceive lag between commit and visible refresh). Implementation: the bridge's `onInvalidate` callback schedules `router.refresh()` via `setTimeout` after clearing any pending timer; on unmount or render-version-mismatch the pending timer is cancelled. The catch-up `router.refresh()` (subscribe-success / system.reconnected paths) bypasses the debounce — it's already a single call by construction. Test: an Apply that emits 8 invalidations within 50ms triggers exactly ONE `router.refresh()`. The 100ms window is documented in the spec §8 paragraph and in this task's Step 1 failing-test list.
+
+- [ ] **Step 1: Failing tests** (batch-14: rewritten end-to-end for the Broadcast architecture; batch-15: adds renewal + shared-helper + debounce coverage)
+  - **Bridge mints subscriber JWT then opens ONE Broadcast subscription (batch-14 finding 1 — architectural-correction fence)**: render the page in a test harness using a mocked `fetch` for `POST /api/realtime/subscriber-token` (returns `{ jwt: 'fake.jwt.token', exp: <future> }`) and a real `@supabase/supabase-js` client mock. Assert (a) the bridge called `fetch('/api/realtime/subscriber-token', { method: 'POST', credentials: 'same-origin' })` exactly once, (b) `mockSupabase.realtime.setAuth('fake.jwt.token')` was called, (c) `mockSupabase.channel('show:<showId>:invalidation', { config: { broadcast: { self: false } } })` was called, (d) `channel.on('broadcast', { event: 'invalidate' }, ...)` was registered, (e) `channel.subscribe()` was called exactly once. Unmount; assert `mockSupabase.removeChannel` was called. **The bridge MUST NOT call `channel.on('postgres_changes', ...)` at all** — assert that registration count is zero. This is the architectural-correction fence: any future regression that re-introduces `postgres_changes` fails this test.
+  - **Broadcast event triggers `router.refresh()` (batch-14)**: subscribe; emit a Broadcast event on `show:<showId>:invalidation` with payload `{ show_id: '<showId>', version_token: '2026-04-30T00:00:01Z' }`. Assert `router.refresh()` was called exactly once within 100ms. Use a `useRouter` mock from `next/navigation` (`vi.mock('next/navigation', ...)`) with a `router.refresh` spy. The test does NOT assert any `postgres_changes` registration; the test does NOT assert any `queryClient.invalidateQueries` call.
+  - **Cross-show Broadcast event is ignored (batch-14)**: emit a Broadcast event whose payload `show_id` does NOT match the bridge's `showId`. Assert `router.refresh()` was NOT called. (Topic ACL prevents this in production; the test confirms client-side defense in depth.)
+  - **Subscriber-token mint failure logs SHOW_REALTIME_BROADCAST_AUTH_FAILED and falls back to no-op (batch-14)**: mock `fetch('/api/realtime/subscriber-token')` to return 401. Render the bridge. Assert (a) `console.warn` was called once with the `SHOW_REALTIME_BROADCAST_AUTH_FAILED` code prefix, (b) `mockSupabase.channel(...)` was NEVER called, (c) `router.refresh` was NOT called, (d) NO retry loop.
+  - **Subscribe failure logs SHOW_REALTIME_SUBSCRIPTION_FAILED and falls back to no-op (batch-14)**: mint succeeds; instrument `channel.subscribe()` to invoke its callback with status `'CHANNEL_ERROR'`. Assert (a) `console.warn` was called once with the `SHOW_REALTIME_SUBSCRIPTION_FAILED` code prefix, (b) `router.refresh` was NOT called, (c) the bridge does NOT throw to the React tree, (d) NO retry loop.
+  - **Auth-only mutation trigger publishes Broadcast (batch-14 finding 1, end-to-end DB test)**: open a real Postgres connection in test; UPDATE `crew_member_auth.current_token_version` for an existing row. Assert that `pg_notify` was called on channel `realtime:broadcast` with a payload whose `topic` matches `show:<showId>:invalidation` and whose `payload.show_id` matches the row's `show_id`. Repeat for `crew_members.role_flags` UPDATE. Repeat for any other column UPDATE on either table — every UPDATE that changes any column MUST publish (catches the regression where the trigger only fires on a specific column subset).
+  - **Composite version_token advances on auth-only mutation (batch-14 finding 2)**: seed a show; capture `viewer_version_token(showId)` as `T0`; UPDATE `crew_member_auth.current_token_version` (no `shows` UPDATE); capture `viewer_version_token(showId)` as `T1`. Assert `T1 > T0`. Repeat for `crew_members.role_flags` UPDATE. Repeat for `shows.last_synced_at` UPDATE. ALL THREE sources must independently advance the composite token.
+  - **Render-vs-subscribe race catch-up uses composite token (batch-14)**: render with `data-render-version="2026-04-30T00:00:00Z"` on the page root. Mock `/api/show/[slug]/version` to return `{ version_token: '2026-04-30T00:00:05Z' }` (an auth-only mutation landed between SSR and subscribe). Resolve `subscribe()`. Assert (a) the bridge fetched `/api/show/[slug]/version` exactly once after subscribe-success, (b) `router.refresh()` was called exactly once due to token mismatch. Inverse: when the API returns the SAME token, `router.refresh()` is NOT called from the catch-up path.
+  - **Reconnection catch-up (batch-14)**: subscribe successfully; emit a `system` `reconnected` event through the channel mock; assert the bridge re-fetches `/api/show/[slug]/version` and refreshes only on token mismatch.
+  - **Apply-driven role_flags restriction (end-to-end Playwright)**: seed a show with crew member Alice carrying `role_flags = ['A1']`. Render the crew page as Alice — AudioScopeTile is visible, LightingScopeTile is not. From a separate test "operator" client, perform an Apply that mutates the same `crew_members` row to `role_flags = ['A2']` (using the `applyStaged` seed harness). Within 2s the test asserts (a) AudioScopeTile is STILL visible (A2 also unlocks it), (b) `page.reload()` was NOT called, (c) the bridge received a Broadcast event (instrumented). Repeat with `['A1']` → `['L1']`.
+  - **Auth-only revocation end-to-end (batch-14)**: seed Alice with a redeemed signed-link session. Render the crew page as Alice — restricted tiles visible per role. From a separate admin client, click "Issue new link" for Alice (mutates `crew_member_auth` ONLY — `shows` row stays untouched). Within 2s, Alice's open page MUST `router.refresh()` (driven by the `crew_member_auth` UPDATE trigger's Broadcast publish), and the new server render MUST hit the 410 path (her old token version no longer matches `current_token_version`) — page navigates to bootstrap. Without the auth-mutation trigger this test fails.
+  - **Apply-driven viewer-name removal**: seed Alice in the show. Apply removes Alice from `crew_members`. Within 2s, the bridge receives the Broadcast (Phase 2 commit's `publishShowInvalidation`), `router.refresh()` triggers a fresh Server Component render; `getShowForViewer` returns the 410 path AND the page navigates to "you've been removed from this show" instead of rendering stale tiles.
+  - **JWT renewal on disconnect (batch-15 finding 1)**: render the bridge, mint+subscribe successfully. Open the page for >5min (advance fake timers 6min). Emit a `system` `disconnected` event through the channel mock. Assert (a) bridge calls `fetch('/api/realtime/subscriber-token', ...)` a SECOND time exactly once, (b) `mockSupabase.realtime.setAuth(<newJwt>)` called, (c) `mockSupabase.removeChannel(oldChannel)` called, (d) `mockSupabase.channel('show:<showId>:invalidation', ...)` called a second time, (e) second `channel.subscribe()` resolves, (f) `/api/show/[slug]/version` catch-up fetch fires AFTER second subscribe resolves, (g) `console.warn` once with `SHOW_REALTIME_JWT_RENEWED` AND `outcome: 'success'`. Repeat with `'CHANNEL_ERROR'`. Test does NOT call `page.reload()`.
+  - **JWT renewal failure (batch-15 finding 1)**: same setup, but mock the second `fetch('/api/realtime/subscriber-token')` to return 401. Assert (a) `console.warn` once with `SHOW_REALTIME_JWT_RENEWED` AND `outcome: 'failed'`, (b) `mockSupabase.channel(...)` NOT called a second time, (c) `router.refresh` NOT called, (d) NO retry storm.
+  - **Open page for 6min then WiFi disconnect → renewal succeeds, version catch-up fires, stale-state UI cleared (batch-15 finding 1, regression)**: page open >5min, then WS disconnect, then reconnect. Use Playwright + fake-timer harness OR real-clock 6-min wait. Assert: (a) renewal fires; (b) new channel subscribes; (c) version catch-up runs; (d) "stale connection" UI affordance is cleared on success; (e) test does NOT poll; (f) test does NOT call `page.reload()`. Without renewal flow this test fails — original mint's `exp = now+5min` has elapsed.
+  - **Allowlist-only admin can subscribe (batch-15 finding 2)**: mock the request as a Google session with `app_metadata.role` absent / non-admin AND canonicalized email IS in allowlist. Send `POST /api/realtime/subscriber-token` for show A. Assert (a) `resolveShowViewer(req, slug)` was called, (b) helper returned `{ kind: 'admin', email: <allowlisted>, show_id: <show-A-id> }`, (c) response is 200 with JWT carrying `{ viewer_kind: 'admin', show_id: <show-A-id> }` claims, (d) response is NOT 401. Repeat for `/api/show/[slug]/version` for show A.
+  - **Cross-show probe rejected (batch-15 finding 2)**: requestor has fully valid signed-link cookie for show A. Send request for show B. Assert (a) `resolveShowViewer(req, 'show-B-slug')` ran, (b) helper resolved to `{ kind: 'denied' }`, (c) route returns 403 (NOT 200, NOT 401). Repeat for version route. Negative companion: a request for show A from same requestor returns 200.
+  - **Unauthenticated request returns 401 (batch-15 finding 2)**: no cookie, no Supabase Auth session. Both routes return 401 (NOT 403). 401 = no credentials; 403 = wrong show.
+  - **Signed-link viewer for show A → 200 (batch-15 finding 2 positive)**: `resolveShowViewer` returns `{ kind: 'crew_link', show_id: <show-A-id>, crew_member_id: <Alice's id> }`; JWT mint succeeds with `viewer_kind: 'crew_link'` claim; topic ACL admits `show:<show-A-id>:invalidation`. Same viewer attempting `show:<show-B-id>:invalidation` — topic ACL rejects + route 403's at `resolveShowViewer` step.
+  - **Single Apply emits 8 invalidations → exactly one router.refresh() (batch-15 finding 3, debounce dedup)**: synthesize an Apply touching `shows` + 5 `crew_members` rows + 2 `crew_member_auth` rows in same transaction (publish path fires 1+5+2 = 8 times). Subscribe; emit 8 Broadcast events with matching `show_id`, all within a 50ms window. Assert: `router.refresh()` is called EXACTLY ONCE within 200ms of the last Broadcast (debounce window 100ms; +100ms jitter tolerance). Without the 100ms debounce, test sees 8 calls and fails. **Negative regression**: re-run with 1-second gap between events; assert `router.refresh()` is called 8 times.
+  - **Catch-up router.refresh() bypasses the debounce (batch-15 finding 3 carve-out)**: simulate subscribe-success → version mismatch (`T0` vs `T1`). Assert `router.refresh()` is called immediately (NOT delayed by 100ms timer). Same for `system.reconnected` catch-up.
+  - **Unmount during pending debounce cancels the timer (batch-15 finding 3 cleanup)**: schedule a Broadcast; before the 100ms window elapses, unmount. Assert `router.refresh()` is NOT called.
+- [ ] **Step 1.5: Implement `lib/auth/resolveShowViewer.ts` (M3+M4 batch-15 finding 2)** — shared auth-chain helper consumed by BOTH `/api/realtime/subscriber-token` AND `/api/show/[slug]/version`. Signature: `export async function resolveShowViewer(req: NextRequest, slug: string): Promise<{ kind: 'admin' | 'crew_link' | 'crew_google' | 'denied', email?: string, show_id?: string, crew_member_id?: string }>`. Implementation runs the EXACT chain `/show/<slug>` runs (per §7.2 + M5 batch-9 admin-precedence finding), in order: (1) resolve `slug → show_id` via `SELECT id FROM shows WHERE slug = $1` using service role; if no row, return `{ kind: 'denied' }`; (2) call `isAdminSession(req)` from `lib/auth/isAdminSession.ts` — `app_metadata.role='admin'` OR canonicalized email match against allowlist; on `true`, return `{ kind: 'admin', email, show_id }`; (3) call `validateLinkSession(req, slug)` per §7.2 — on `success` with show_id matching, return `{ kind: 'crew_link', show_id, crew_member_id }`; (4) call `validateGoogleSession(req, slug)` per §7.2 — on `success` with show_id matching, return `{ kind: 'crew_google', email, show_id, crew_member_id }`; (5) fall through to `{ kind: 'denied' }`. Helper does NOT throw; returns denied sentinel; caller decides 401 vs 403. **Wire the new helper into `/api/realtime/subscriber-token` and `/api/show/[slug]/version` as their FIRST action; delete any previously inlined `validateLinkSession` / `validateGoogleSession` calls.** Subscriber-token route: `denied` → 401 with `SHOW_REALTIME_BROADCAST_AUTH_FAILED`; cross-show probe → 403; admin/crew_link/crew_google → mint JWT with `viewer_kind` claim. Version route: `denied` → 401; non-denied → run `SELECT viewer_version_token($1)` and return 200.
+- [ ] **Step 2: Implement** `subscribeToShow(showId, jwt, onInvalidate)` in `lib/realtime/subscribeToShow.ts` — calls `supabase.realtime.setAuth(jwt)` then `supabase.channel('show:<showId>:invalidation', { config: { broadcast: { self: false } } }).on('broadcast', { event: 'invalidate' }, ({ payload }) => { if (payload.show_id === showId) onInvalidate(payload.version_token); }).subscribe(status => { ... })`. Implement the version-catchup helper `getServerVersion(slug)` calling `GET /api/show/[slug]/version`. Implement `<ShowRealtimeBridge showId slug renderVersion>` as a `'use client'` component that calls `useRouter()` from `next/navigation`, opens the subscription in `useEffect(() => { ... return removeChannel; }, [showId])`, and on each invalidate-callback invocation calls `router.refresh()` **wrapped in a 100ms debounce timer per M3+M4 batch-15 finding 3 — bridge holds a `pendingRefreshTimer` ref; each Broadcast `onInvalidate` clears any existing timer (`clearTimeout(pendingRefreshTimer.current)`) and schedules a new one via `setTimeout(() => router.refresh(), 100)`; the `useEffect` cleanup MUST also `clearTimeout(pendingRefreshTimer.current)`; the version-mismatch catch-up paths (subscribe-success + system.reconnected) call `router.refresh()` SYNCHRONOUSLY (no debounce)**. **Subscribe to `system` events on the channel for both `'reconnected'` AND `'disconnected'` per M3+M4 batch-15 finding 1 — on `'disconnected'` (or any subscribe-status callback returning `'CHANNEL_ERROR'` / `'TIMED_OUT'` / `'CLOSED'`) trigger the JWT-renewal sequence: (a) re-call `POST /api/realtime/subscriber-token`; (b) on success `client.realtime.setAuth(newJwt)`; (c) `removeChannel(oldChannel)` and re-create via `subscribeToShow(showId, newJwt, onInvalidate)`; (d) AFTER new `subscribe()` resolves, run version catch-up; (e) log `SHOW_REALTIME_JWT_RENEWED` `outcome: 'success'` AND clear "stale connection" UI state. On renewal mint failure: log `outcome: 'failed'` and fall back to no-op. Renewal does NOT retry-loop.** After `subscribe()` resolves AND on `system.reconnected` events, run the catch-up: fetch `/api/show/[slug]/version`, compare to `renderVersion` prop (string compare), refresh on token mismatch. Wrap mint-then-subscribe in try/catch — on mint failure log `SHOW_REALTIME_BROADCAST_AUTH_FAILED`; on subscribe failure log `SHOW_REALTIME_SUBSCRIPTION_FAILED`. Both fall back to no-op cleanup. The component returns `null`. Mount `<ShowRealtimeBridge showId={show.id} slug={params.slug} renderVersion={data.viewer_version_token} />` inside `app/show/[slug]/page.tsx`. Implement `app/api/realtime/subscriber-token/route.ts` (the JWT mint described above) **calling `resolveShowViewer(req, slug)` per Step 1.5 as its FIRST action; on `'denied'` → 401 with `SHOW_REALTIME_BROADCAST_AUTH_FAILED`; on cross-show probe → 403; otherwise mint JWT with `viewer_kind` claim**. Implement `app/api/show/[slug]/version/route.ts` returning `{ version_token: <composite> }` from a single `SELECT viewer_version_token($1)` call **— ALSO calling `resolveShowViewer(req, slug)` as its FIRST action; on `'denied'` → 401; on cross-show probe → 403; otherwise return 200**. Implement `lib/realtime/showInvalidation.ts` exporting `publishShowInvalidation(tx, showId)` that runs the `pg_notify(...)` described above inside the supplied transaction. Wire `publishShowInvalidation` into every Phase 2 commit site (Tasks 6.5 / 6.11 / etc.). Update `lib/data/getShowForViewer.ts` to project `viewer_version_token` (single helper call). Update `app/show/[slug]/page.tsx` to render `<div data-render-version={data.viewer_version_token}>` on the page root. **DDL for `crew_member_auth.last_changed_at` + `crew_members.last_changed_at` + the two UPDATE triggers + the `viewer_version_token(uuid)` helper lives in Plan Task 2.2; this Step 2 pulls it into the migration as a single linked unit.**
+- [ ] **Step 3: Replace polling fallback in Task 4.12 step 4b end-to-end live-sync test** with the Broadcast path. Update the assertion to require a real Supabase Realtime Broadcast mock to fire AND assert `router.refresh()` was called WITHOUT `page.reload()`. If the suite was previously written to fall back to polling, that branch must be removed. Cross-reference: this task supersedes Task 4.12's "or polls `getShowForViewer` if Realtime is mocked" carve-out.
+- [ ] **Step 4: Update §5.2 / §5.5.1 / §6.8.3 publisher wording AND AC-6.12** to match the Broadcast publish-helper contract: every Phase 2 commit calls `publishShowInvalidation(tx, showId)` inside the transaction. AC-6.12's assertion changes to "verify the Phase 2 transaction calls `publishShowInvalidation` AND a Broadcast event for topic `show:<showId>:invalidation` is delivered to a subscribing client whose JWT carries the matching `show_id` claim." All `postgres_changes` references in Tasks 6.6 / 6.10 / AC-6.12 are deleted.
+- [ ] **Step 5: Commit** `feat(crew-page): Server Component + ShowRealtimeBridge over Broadcast topic + composite viewer_version_token + JWT renewal + shared resolveShowViewer helper + 100ms debounce (§8 batch-14 findings 1+2; M3+M4 batch-15 findings 1+2+3)`.
 
 ### Task 4.15: M4 demo verification
 
@@ -2485,7 +3568,7 @@ The §8.4 dimensional invariants:
 
 ---
 
-# Milestone 5 — Auth (AC-5.1..5.12)
+# Milestone 5 — Auth (AC-5.1..5.14)
 
 Spec context: §7 entire section, §17.1 milestone 5.
 
@@ -2523,8 +3606,8 @@ This is the highest-stakes auth function. Every numbered step in §7.2.2 is mand
   |---|---|---|---|
   | 1–2 | cookie missing OR `link_sessions.token` not found | 401 | n/a (no row to delete) |
   | 3 | `expires_at <= now()` (12h absolute) | 401 (`SESSION_ABSOLUTE_TIMEOUT`) | DELETE the row |
-  | 4 | `show.id !== link_sessions.show_id` (cross-show reuse) | 403 | (no §12.4 user-facing code — operator-only structured log entry; user sees the generic 403 page) | DELETE the row |
-  | 5 | `crew_members` row gone | 410 (`LINK_NO_CREW_MATCH`) | DELETE the row |
+  | 4 | `cookie.show_id !== request.show_id` OR `show.id !== link_sessions.show_id` (cross-show reuse — **active enforcement under M5 batch-13 single host-wide cookie**) | n/a (validator returns `{ kind: 'continue', clearCookie: true }`; HTTP status is determined by the chain's terminal validator — typically 401-redirect-to-bootstrap when neither Google nor admin succeeds for the requested show, 200 if either does) | DELETE the offending `link_sessions` row | **M5 batch-14 finding 2 — single canonical contract (replaces stale batch-11 "preserve row", batch-12 "structurally unreachable", AND retired batch-13 "step 4 → 403" framing):** under the single host-wide cookie design (cookie name `__Host-fxav_session`; cookie value URL-encoded JSON `{ token, show_id }`), browsers send the cookie to every same-host request regardless of the URL's slug. The validator MUST verify (a) `cookie.show_id === request.show_id` AND (b) `show.id === link_sessions.show_id`. On any mismatch → return **`{ kind: 'continue', clearCookie: true }` (NOT a 403)** AND DELETE the offending `link_sessions` row server-side; the chain falls through to `validateGoogleSession` / `requireAdmin`. The 403 framing carried in earlier drafts of this row is retired — step 4 cannot return 403 because step 4 is a `continue` outcome by definition (the cookie does not authorize THIS show, but other credential classes might; returning 403 would short-circuit Google/admin and create a login-CSRF-style availability bug equivalent to the M5 batch-10 cookie-parse-fault hole). The `LINK_CROSS_SHOW_REUSE` code is operator-only (admin-log-only per the §12.4 admin-log-only-codes list); the user does NOT see a `LINK_CROSS_SHOW_REUSE` page — they see whatever the fall-through chain renders. The cost is the **A→B→A burn pattern**: a user who briefly visits show B must re-open show A's original signed link to re-mint. This is acceptable for v1 (multi-show navigation is rare); future versions may upgrade to a JSON-array cookie value to avoid the burn. **Required regression test:** redeem signed link for show A → assert `__Host-fxav_session` cookie value decodes to `{ token, show_id: A }`; navigate to `/show/<show-b-slug>` → assert validator returns `{ kind: 'continue', clearCookie: true }` AND response Set-Cookie clears `__Host-fxav_session` AND show-A's `link_sessions` row is DELETEd AND chain falls through to Google/admin (or 401-redirect-to-bootstrap for show B if no other credentials present); navigate back to `/show/<show-a-slug>` → assert no cookie present AND chain falls through. The earlier batch-12 "TWO distinct cookies coexist" test is retired because per-show NAMING did not deliver isolation. |
+  | 5 | `crew_members` row gone — `link_sessions.crew_member_id IS NULL` (FK ON DELETE SET NULL preserved the row per M5 batch-10 schema) OR the join returns zero (defensive — should be unreachable when the FK is enforced) | 410 (`LINK_NO_CREW_MATCH`) | DELETE the row |
   | 6 | `link_sessions.jwt_token_version !== crew_member_auth.current_token_version` (strict equality, both directions) | 410 (`LINK_VERSION_MISMATCH`) | DELETE the row |
   | 7 | `link_sessions.jwt_token_version <= crew_member_auth.revoked_below_version` | 410 (`LINK_REVOKED_FLOOR`) | DELETE the row |
   | 8 | matching `revoked_links` row at exact `(show_id, crew_name, token_version)` | 410 (`LINK_REVOKED_SURGICAL`) | DELETE the row |
@@ -2533,11 +3616,47 @@ This is the highest-stakes auth function. Every numbered step in §7.2.2 is mand
   | 11 | role derivation from `crew_members.role_flags` | n/a | n/a |
   | 12 | render | 200 | n/a |
 
-  AC mapping: AC-5.1 covers steps 1–4 cookie/show binding; AC-5.2..5.5 cover steps 6–8 version/revocation; AC-5.6 covers step 9 idle timeout (401, NOT 410). Each test must DELETE-assert by re-querying `link_sessions WHERE token = $cookie` after the call and expecting zero rows on every fail path through step 9.
+  AC mapping: AC-5.1 covers steps 1–4 cookie/show binding; AC-5.2..5.5 cover steps 6–8 version/revocation; AC-5.6 covers step 9 idle timeout (401, NOT 410). Each test must side-effect-assert by re-querying `link_sessions WHERE token = $cookie` after the call: **steps 3, 4, 5, 6, 7, 8, 9 expect zero rows (DELETE) — M5 batch-14 finding 2: step 4 now DELETEs the offending row, replacing the retired M5 batch-11 PRESERVE contract; under the batch-13 single host-wide cookie design the cookie is unrecoverable from the client once cleared (because the chain adapter ALSO emits `clearCookie:true` on step 4), so server-side row preservation provides no recovery benefit and risks a stale-row leak. See the §7.2.2 step-4 / AC-5.3 / Task 5.2 step-4 contract for the canonical single statement of this behavior**; steps 1-2 have no row to query.
 
   **Removed cases** (do not write these tests; they're spec violations):
   - ~~"bad signature → 401"~~ — no JWT in cookie path; signature verification is Task 5.1's concern.
   - ~~"15-min idle → 410"~~ — idle is 401 per §7.2.2 step 9 ("Your session has timed out").
+
+  **M5 batch-10 + batch-15 finding 3 client-side parse/format-fault regression tests (mandatory).** **Wire-format reset (M5 batch-15 finding 3):** the cookie value is the URL-encoded JSON envelope `{ token, show_id }` per M5 batch-13 — NOT a JWT, NOT base64. The earlier batch-10 fixture list (`malformed-cookie-wrong-issuer`, `-wrong-audience`, `-expired-signature`, `-not-base64`, `-missing-claims`, `-legacy-format`) targeted the retired JWT/base64 wire format and MUST be discarded; signed-claims/base64 failure modes are not reachable on this envelope. The corrected fixture list below targets the URL-encoded JSON envelope produced by `encodeSessionCookieValue({ token, show_id })` and consumed by `decodeSessionCookieValue(raw)`.
+
+  **`decodeSessionCookieValue` helper contract (export from `lib/auth/cookies.ts` — already established in M5 batch-9; verify the export exists in Task 5.4 + Task 5.7 helper-API definitions before wiring tests).** Function signature: `decodeSessionCookieValue(raw: string | undefined): { token: string, show_id: string } | null`. Implementation order (each step short-circuits on failure to `return null`):
+  1. If `raw` is undefined or empty (`""`) → return null.
+  2. If `raw.length > 256` → return null (oversize cap; rejects before any `decodeURIComponent` work).
+  3. Try `decodeURIComponent(raw)` inside try/catch — on throw return null (invalid percent escapes such as `"%xy"` raise `URIError`).
+  4. Try `JSON.parse(decoded)` inside try/catch — on throw return null.
+  5. Verify `typeof result === 'object' && result !== null && !Array.isArray(result)` — reject `null`, top-level strings/numbers/booleans, and arrays.
+  6. Verify `typeof result.token === 'string'` AND `result.token` matches UUID regex `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`.
+  7. Verify `typeof result.show_id === 'string'` AND `result.show_id` matches the same UUID regex.
+  8. Strict shape: reject if any extra fields are present beyond `token` and `show_id` (defends against future-format ambiguity and field-injection attempts).
+  9. On any failure return null. The validator (§7.2.2 step 1) treats null as a client-side parse fault and emits `{ kind: 'continue', clearCookie: true }` (NOT terminal_failure).
+
+  Each negative case below MUST be in this regression-test enumeration AND each MUST resolve to `{ kind: 'continue', clearCookie: true }` per §7.2.2 step 1's tri-state classification (NOT `terminal_failure`), with NO `link_sessions` row deletion (no row exists to delete on parse-failure paths — DB lookup never runs). Each test must seed a valid Google session matching the show's crew so the chain has a real fall-through target, then assert: (a) `validateLinkSession` returns `continue` with `clearCookie: true`; (b) the chain adapter clears the cookie via `clearSessionCookie()`; (c) `validateGoogleSession` runs next and authenticates the user; (d) the page renders 200 with the Google-derived crew role. Without the fall-through assertion, an implementation that incorrectly returns `terminal_failure` would short-circuit the chain and the user would be denied even though Google session OR admin would otherwise authenticate them (login-CSRF-style denial-of-service).
+
+  Required `decodeSessionCookieValue` failing-test fixtures (one test per row; each asserts `decodeSessionCookieValue(raw) === null` AND the validator-level outcome above):
+  - **empty string** — raw is `""`.
+  - **`%`-decode failure** — raw is `"%xy"` (invalid percent escape; `decodeURIComponent` throws `URIError`).
+  - **empty object** — raw decodes to `"{}"` (JSON-valid but missing both fields).
+  - **array, not object** — raw decodes to `"[]"` (top-level array fails the object/array discriminator).
+  - **`null`** — raw decodes to the literal `"null"` (JSON-valid but `result === null`).
+  - **top-level string** — raw decodes to `"\"string\""` (JSON-valid but `typeof !== 'object'`).
+  - **`{"token": null}`** — token field present but null-typed.
+  - **`{"token": "<valid-uuid>", "show_id": null}`** — show_id field present but null-typed.
+  - **`{"token": "<valid-uuid>"}`** — show_id field missing entirely.
+  - **`{"show_id": "<valid-uuid>"}`** — token field missing entirely.
+  - **`{"token": "not-a-uuid", "show_id": "<valid-uuid>"}`** — token does not match UUID regex.
+  - **`{"token": "<valid-uuid>", "show_id": "not-a-uuid"}`** — show_id does not match UUID regex.
+  - **2KB+ payload (oversize)** — raw length exceeds 256-byte cap; rejected before any `decodeURIComponent`/`JSON.parse` work.
+  - **embedded space / `\x00` / control chars** — raw contains a literal space, NUL, or other ASCII control character that breaks the cookie wire format AND/OR percent-decodes to a JSON envelope with control chars in `token` or `show_id` (covers both the upstream `Set-Cookie` header constraint enforced in `encodeSessionCookieValue` and the downstream decode-time strict-string rejection).
+  - **missing `__Host-fxav_session` cookie entirely** — request has NO cookie header at all. **This is NOT a parse fault** — it is the no-credentials path; the validator MUST short-circuit at §7.2.2 step 1's "no cookie present" branch returning `{ kind: 'continue' }` WITHOUT `clearCookie: true` (there is nothing to clear). The chain falls through to Google/admin normally. This case is enumerated here so the test suite explicitly distinguishes the no-cookie path from every parse-fault path; conflating them would let an implementation that incorrectly emits `clearCookie: true` for missing cookies regress without a failing test.
+
+  Each parse-fault fixture (all rows above EXCEPT the missing-cookie row) MUST be paired with a valid Google session in the request context, and the test MUST assert the user is authenticated as the Google viewer at the end of the chain. A negative variant (parse-fault cookie + NO Google session + NO admin) MUST assert the chain renders the catalog 401/410 reflecting the absence of credentials, NOT a terminal-failure 5xx.
+
+  **M5 batch-10 step 5 reachability regression test (mandatory) — FK ON DELETE SET NULL contract proof.** Insert a `link_sessions` row referencing a real `crew_members` row (via the `crew_member_id` FK), then DELETE the `crew_members` row at the DB level (simulating sync's "delete-not-in-set" behavior). The schema's `ON DELETE SET NULL` (per AC-2.1's exact-match FK introspection — see line 2066) MUST preserve the `link_sessions` row with `crew_member_id IS NULL`. Re-query `link_sessions WHERE token = $cookie` after the crew DELETE and assert the row is still present with `crew_member_id IS NULL` BEFORE invoking the validator (this proves the schema contract). Then call `validateLinkSession(req)` against the cookie; assert: outcome is `{ kind: 'continue', clearCookie: true, priorFailure: { status: 410, code: 'LINK_NO_CREW_MATCH' } }` AND the `link_sessions` row is now DELETEd (re-query by token returns zero). This is the ONLY test that proves §7.2.2 step 5 is reachable: a buggy schema with `ON DELETE CASCADE` would silently kill the `link_sessions` row in the crew DELETE step, the validator would then hit step 1-2 (token-not-found) instead of step 5, and the user would see the wrong error code (`SESSION_NOT_FOUND` vs `LINK_NO_CREW_MATCH`). Without this test, a future migration that flipped CASCADE back would silently regress the user-facing error semantics for the most common removal scenario (Doug deletes someone from the crew sheet while their cookie is still alive).
 - [ ] **Step 2: Implement** with the **tri-state contract Task 5.7's auth chain expects (final-validation finding)**:
   ```ts
   type ValidatorOutcome =
@@ -2551,14 +3670,22 @@ This is the highest-stakes auth function. Every numbered step in §7.2.2 is mand
         // to surface the most-informative failure reason (typically the link branch's, since
         // it's the most user-actionable: "this link has been replaced").
         priorFailure?: { status: number; code: string; messageInterpolations?: Record<string, string> };
-        clearCookie: boolean;                                                              // Set-Cookie: __Host-fxav_session=; Max-Age=0
+        clearCookie: boolean;                                                              // when true, the chain adapter MUST emit the clear header via `clearSessionCookie()` from `lib/auth/cookies.ts` (NOT a hand-rolled `__Host-fxav_session=; Max-Age=0` string — the `__Host-` prefix requires the FULL attribute set on the deletion response or the browser keeps the original cookie). M5 batch-9 finding.
       }
-    | { kind: 'terminal_failure'; status: number; code: string };                            // unrecoverable; chain stops (e.g., malformed cookie, DB error)
+    | { kind: 'terminal_failure'; status: number; code: string };                            // unrecoverable SERVER-SIDE faults ONLY (DB outage, Supabase service down, signing-key fetch failure). M5 batch-10 finding: client-side cookie parse/format faults (corrupted/legacy/truncated value, wrong iss/aud, decode failure, missing claims, expired-signature decode, base64/JSON parse) are NOT terminal_failure — they are `continue + clearCookie:true` and the chain falls through to validateGoogleSession + requireAdmin. Reserving terminal_failure for client-side corruption would let a single bad cookie block the entire /show/<slug> chain even when Google session OR admin would otherwise succeed (login-CSRF-style denial-of-service).
 
   export async function validateLinkSession(req: Request): Promise<ValidatorOutcome>;
   ```
   **Chain-adapter contract**: when ALL branches return `continue`, the page renders the priorFailure with the highest user-actionability (typically `LINK_*` codes from the cookie validator over `GOOGLE_*` from the Google branch — operator runbook will document the precedence). When ANY branch returns `success`, prior failures are dropped (the user passed auth via a different credential class).
-  **Identity-only success payload (no `viewerRole`)** — Task 4.3's `getShowForViewer` re-derives role from `crew_members.role_flags` on every call; passing a pre-derived role from the validator reopens the stale-role hole. **Tri-state outcome** — recoverable cookie failures (cookie missing, session not found, expired, cross-show binding mismatch, revoked, idle past TTL) MUST return `continue` AND clear the offending cookie via `Set-Cookie: __Host-fxav_session=; Max-Age=0`; the chain falls through to `validateGoogleSession` / `requireAdmin`. Only genuinely unrecoverable cases (malformed cookie format, DB connection failure) return `terminal_failure`. Internal: use the service-role Supabase client (the user is on a cookie session — RLS doesn't apply at validator scope). Run all 12 §7.2.2 steps in order; the first matching step determines whether the outcome is `continue` (cookie-related failures, steps 1-9) with the cookie-clear side effect AND a DELETE of the `link_sessions` row when one exists (steps 3-9 only — steps 1-2 have no row to delete).
+  **Identity-only success payload (no `viewerRole`)** — Task 4.3's `getShowForViewer` re-derives role from `crew_members.role_flags` on every call; passing a pre-derived role from the validator reopens the stale-role hole. **Tri-state outcome** — recoverable cookie failures (cookie missing, session not found, expired, cross-show binding mismatch, revoked, idle past TTL) MUST return `continue` AND signal the chain adapter to clear the offending cookie via the shared `clearSessionCookie()` helper from `lib/auth/cookies.ts` (M5 batch-9 finding); the chain falls through to `validateGoogleSession` / `requireAdmin`. **M5 batch-10: client-side cookie parse/format faults are `continue + clearCookie:true`, NOT `terminal_failure`** — every cookie-corruption failure mode that originates with the client (truncated/corrupted value, wrong `iss`/`aud` claim, expired-signature decode error, missing required claims, base64 decode failure, JSON parse error on the session lookup, stale cookie from a prior cookie-format version) MUST clear the cookie and fall through. Reserving `terminal_failure` for these would let a corrupt/legacy cookie block the entire `/show/<slug>` chain even though Google session OR admin would still authenticate the user — an availability bug equivalent to login-CSRF denial-of-service. **`terminal_failure` is reserved exclusively for SERVER-SIDE faults**: DB connection failure, Supabase service outage, signing-key fetch failure (when key rotation is added), or any infrastructure error where the validator literally cannot reach the data it needs to make a determination. Internal: use the service-role Supabase client (the user is on a cookie session — RLS doesn't apply at validator scope). Run all 12 §7.2.2 steps in order; the first matching step determines whether the outcome is `continue` (cookie-related failures, steps 1-9, AND any client-side cookie parse/format fault) with the cookie-clear side effect AND a DELETE of the `link_sessions` row when one exists (steps 3-9 only — steps 1-2 + parse/format faults have no row to delete).
+
+  **Shared `__Host-` cookie helper (M5 batch-9 finding — applied below in Task 5.4 + Task 5.7).** A `__Host-` cookie deletion request MUST repeat the FULL set of attributes the original cookie was issued with (`Path=/`, `Secure`, `HttpOnly`, `SameSite=Lax`, NO `Domain`) plus `Max-Age=0`; a bare `__Host-fxav_session=; Max-Age=0` string is NOT sufficient — modern browsers enforce the `__Host-` prefix attribute requirements on the *delete* response too, and a partial header is silently ignored, leaving the original cookie on the client. To eliminate this entire class of bug at the source, define ONE shared module `lib/auth/cookies.ts` exporting both:
+  - `setSessionCookie(value: string, opts: { maxAgeSec: number }): string` — **M5 batch-13: REVERTED to NO slug parameter; the cookie name is the literal `__Host-fxav_session`.** The `value` parameter is the URL-encoded JSON-encoded `{ token, show_id }` payload (callers serialize via the paired `encodeSessionCookieValue({ token, show_id })` helper exported from the same module). Emits `__Host-fxav_session=<value>; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=<opts.maxAgeSec>` (no `Domain`). The batch-12 per-show NAMING (`setSessionCookie(showSlug, ...)`, cookie name `__Host-fxav_session_${showSlug}`) is retired because browsers send all matching `(domain, path)` cookies regardless of name — per-show NAMING delivered zero isolation while making the Cookie request header grow linearly with the number of shows the user has visited. Show-binding now lives in the JSON value, not in the cookie name.
+  - `clearSessionCookie(): string` — **M5 batch-13: REVERTED to NO slug parameter.** Emits `__Host-fxav_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0` (no `Domain`, no value). There is exactly one `__Host-fxav_session` cookie on the host at any time, so there is nothing to iterate.
+  - `encodeSessionCookieValue({ token, show_id }): string` — serializes the JSON payload then `encodeURIComponent`s it; rejects show_id values that don't match the UUID regex `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$` and token values containing `;` / `,` / control characters that would break the `Set-Cookie` header.
+  - `decodeSessionCookieValue(raw: string | undefined): { token: string, show_id: string } | null` — `decodeURIComponent` the raw value, `JSON.parse` the result, validate both fields are present and string-typed and `show_id` matches the UUID regex; return null on any failure (the validator treats null as a client-side parse fault per §7.2.2 step 1's tri-state classification).
+
+  Every set/clear site MUST call one of these helpers — `app/api/auth/redeem-link/route.ts` (mint), `app/show/[slug]/page.tsx` chain adapter (clear on `continue + clearCookie`), `app/auth/sign-out/route.ts` (clear), and any future signed-link surface. **Banned-identifier audit (X.3 cross-cutting, M5 batch-13 — reverted to literal-only):** the literal substring `__Host-fxav_session` outside `lib/auth/cookies.ts` and `lib/auth/constants.ts` MUST fail X.3's substring scan (joins the existing low-level auth-primitive banned list — `link_sessions`, `crew_member_auth`, `verifyLinkJwt`). The earlier batch-12 regex `__Host-fxav_session(_[a-z0-9-]+)?` is replaced with the literal `__Host-fxav_session` (no slug-suffix variant) since per-show cookie names no longer exist; this guarantees the helpers are the only producers of the cookie header.
 - [ ] **Step 3: Pull X.3's semantic AST/control-flow audit forward into M5 (final-validation finding).** Earlier draft used grep/literal-sequence checks; later round flagged that approach as bypassable (validator in dead branches, helpers behind early returns, partial gating on side paths all pass a grep but bypass the actual auth contract). Since M5 is the milestone that introduces the validators, M5 cannot pass until the X.3 semantic audit runs against this milestone's protected routes. Concretely:
   - Implement the X.3 trust-domain classification + path-sensitive AST control-flow audit BEFORE this commit lands (or pull X.3's implementation up so M5 + X.3 land together).
   - For every M5 protected route (`/show/[slug]/page.tsx`, `/api/asset/**`, `/api/report/**`, future server actions touching redeemed-user state), prove via dominator analysis that the declared chain dominates every reachable path to a protected sink.
@@ -2597,9 +3724,9 @@ This is the highest-stakes auth function. Every numbered step in §7.2.2 is mand
     - `Max-Age` matches the expected session window (12h absolute or session-cookie semantics).
   - Invalid JWT → 401.
   - Per-request authz failures → matching status/code from §12.4.
-  - **Opaque-token cookie assertion (final-validation finding)**: assert the cookie value is NOT the JWT itself. Specifically: capture the JWT submitted in the request body and the `__Host-fxav_session` cookie value from the response. Assert `cookie.value !== submittedJwt` AND `cookie.value` matches the format of `link_sessions.token` (e.g., a UUID or random byte string per the schema). Then re-read `link_sessions WHERE token = cookie.value` and assert exactly one row exists with the JWT's `tokenVersion` captured in `jwt_token_version` (NOT the JWT itself stored in `token`). Without this assertion, an implementer could "satisfy" cookie integrity by reusing the JWT as `link_sessions.token`, which would reintroduce the JWT-vs-cookie confusion §7.2.2 and Task 5.2 are written to eliminate.
-- [ ] **Step 2: Implement** the per-request authz flow (§7.2 steps 1–7 of the signed-link path). **Generate a fresh opaque token (`crypto.randomUUID()` or `crypto.getRandomValues(...)`) for the `link_sessions.token` column — NEVER store or echo the JWT itself.** Set cookie via `Set-Cookie` header with the opaque token value, `__Host-` prefix, `Path=/`, no `Domain`, HTTP-only, Secure, SameSite=Lax. Insert `link_sessions` row carrying `(token, crew_member_id, show_id, jwt_token_version, expires_at, last_active_at)`. Return `{ crew_member_id }`.
-- [ ] **Step 3: Commit** `feat(auth): /api/auth/redeem-link with opaque-token cookie (§7.2)`.
+  - **Opaque-token cookie assertion (final-validation finding; M5 batch-14 finding 3 — UPDATED for the batch-13 URL-encoded JSON `{ token, show_id }` cookie shape)**: assert the cookie value is NOT the JWT itself AND that the cookie value matches the canonical batch-13 envelope shape. Capture the JWT submitted in the request body and the `__Host-fxav_session` cookie value from the response. **Decode the cookie value first** — `const decoded = JSON.parse(decodeURIComponent(cookie.value))` (per §7.2.2 step 1's `decodeSessionCookieValue` contract; the cookie value is URL-encoded JSON `{ token, show_id }`, NOT a raw token string). **Shape assertions on `decoded`**: assert `typeof decoded === 'object' && decoded !== null`; assert `typeof decoded.token === 'string'` AND `decoded.token` matches the UUID regex `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$` (the schema for `link_sessions.token`); assert `typeof decoded.show_id === 'string'` AND `decoded.show_id` matches the UUID regex (the schema for `link_sessions.show_id`); assert `decoded.show_id === expectedShowId` (the show whose JWT was redeemed). **Token-vs-JWT distinctness**: assert `decoded.token !== submittedJwt` (the UUID regex assertion above already implies this — JWTs contain `.` separators and are NOT UUIDs — but the explicit inequality catches any future cookie-format change that drops the regex). **DB lookup uses the decoded token, NOT the raw cookie value**: re-read `link_sessions WHERE token = decoded.token` (NOT `WHERE token = cookie.value` — the cookie value is the URL-encoded JSON envelope, not the raw token; querying by the envelope returns zero rows because no row has `token = '%7B%22token%22%3A...'`) AND assert exactly one row exists with `show_id = decoded.show_id` AND `jwt_token_version` matches the JWT's `tokenVersion` claim (NOT the JWT itself stored in `token`). The earlier assertion form `cookie.value !== submittedJwt` AND `cookie.value matches the format of link_sessions.token` AND `query link_sessions WHERE token = cookie.value` is RETIRED in batch-14 — those assertions encoded the pre-batch-13 raw-token cookie shape and would FAIL the canonical envelope shape (the raw cookie value `'%7B%22token%22%3A%22<uuid>%22%2C%22show_id%22%3A%22<uuid>%22%7D'` is neither a UUID nor present as a `link_sessions.token` value). Without the decoded-first assertion form, an implementer could regress to raw-token cookie storage and the test would silently pass; with the decoded-first form, raw-token storage fails the JSON.parse step. Without this assertion, an implementer could also "satisfy" cookie integrity by reusing the JWT as `link_sessions.token`, which would reintroduce the JWT-vs-cookie confusion §7.2.2 and Task 5.2 are written to eliminate.
+- [ ] **Step 2: Implement** the per-request authz flow (§7.2 steps 1–7 of the signed-link path). **M5 batch-10 login-CSRF defense (mandatory): the CSRF gate (Origin / `Sec-Fetch-Site` check + bootstrap-nonce consume) MUST run BEFORE any JWT verification, DB read, or cookie write — pre-condition, not after-the-fact validation.** SameSite=Lax does NOT prevent login-CSRF (it only constrains *existing* cookies, not the act of minting a new one); without these gates, an attacker can force a victim's browser to POST a JWT the attacker controls and mint a `__Host-fxav_session` cookie bound to the attacker's identity. Origin/Sec-Fetch check: reject any POST whose `Sec-Fetch-Site` is anything other than `same-origin`, OR (when absent on pre-Fetch-Metadata browsers) whose `Origin` header is not equal to `process.env.NEXT_PUBLIC_SITE_ORIGIN` (e.g., `https://crew.fxav.show`); 403 with §12.4 code `CSRF_DENIED`; log offending `Origin` and `Sec-Fetch-Site` to the structured operator log. Bootstrap-nonce (M5 batch-11: composite-PK + array-cookie + show-bound consume): require the body's `(nonce, show_id)` pair to match BOTH a non-consumed row in `bootstrap_nonces` AND a `{ nonce_hash, show_id }` entry in the `__Host-fxav_bootstrap_v` cookie's JSON-encoded array (the array carries up to 5 most-recent entries, evicting oldest); atomically consume by composite key via `UPDATE bootstrap_nonces SET consumed_at = now() WHERE nonce_hash = $1 AND show_id = $2 AND consumed_at IS NULL RETURNING nonce_hash` (empty result = already consumed); mismatch / missing / expired (>30s past `issued_at`) / already-consumed → 403 `CSRF_DENIED`; remove the consumed entry from the cookie array (or clear the cookie if the array is now empty). Schema (mandatory): create `bootstrap_nonces (nonce_hash text not null, show_id uuid not null references shows(id) on delete cascade, issued_at timestamptz not null default now(), consumed_at timestamptz, primary key (nonce_hash, show_id))` — composite PK is mandatory per M5 batch-11 (earlier single-PK on `nonce_hash` alone forced one live nonce per browser regardless of show, breaking multi-tab/multi-show flows); periodic cron DELETEs rows older than 5 minutes; the read-time expiry is the security gate, the cleanup is hygiene. Add `bootstrap_nonces` to AC-2.1's REQUIRED FK introspection list AND to the admin-only-tables RLS list per §4.3. **M5 batch-11 multi-instance regression tests (mandatory)**: (a) open `/show/<slug>/p` in two tabs back-to-back → both mints succeed → both redeems succeed (each consumes its own nonce); the cookie array contains both entries between mints; the second mint does NOT clobber the first. (b) open `/show/A/p` and `/show/B/p` in the same browser → both `bootstrap_nonces` rows live → A redeems first → A's nonce consumed → B's nonce still valid and redeemable in a second POST. (c) replay test with the new composite key: a redeem POST that carries the right `nonce` but a wrong `show_id` (attacker swap) → 403 `CSRF_DENIED` (the consume-by-composite-key UPDATE returns zero rows because no `(nonce_hash, attacker_show_id)` pair exists). Required CSRF regression tests: cross-site form POST (synthesized `Origin: https://attacker.example`, `Sec-Fetch-Site: cross-site` or absent) → 403 `CSRF_DENIED` + no row written + no cookie set + offending values logged; same-origin POST without nonce → 403; same-origin POST with nonce in body but no cookie → 403; stale (>30s) nonce → 403; consumed-nonce replay → 403; nonce body/cookie mismatch → 403; happy path with valid nonce → 200 then second POST with same nonce → 403. **After the CSRF gate passes:** generate a fresh opaque token (`crypto.randomUUID()` or `crypto.getRandomValues(...)`) for the `link_sessions.token` column — NEVER store or echo the JWT itself. Emit the `Set-Cookie` header by calling the shared `setSessionCookie(encodeSessionCookieValue({ token: opaqueToken, show_id }), { maxAgeSec })` helper from `lib/auth/cookies.ts` (M5 batch-9 finding; M5 batch-13 — REVERTED to no slug parameter; the cookie name is the literal `__Host-fxav_session` and show-binding lives in the JSON-encoded value `{ token, show_id }`; `show_id` is the UUID of the show resolved during JWT verification, NOT the slug) — do NOT hand-roll a `Set-Cookie` string in this route. The helper guarantees the FULL `__Host-` attribute set (`Path=/`, `Secure`, `HttpOnly`, `SameSite=Lax`, no `Domain`) on the mint response so the matching `clearSessionCookie()` helper can later produce a header the browser actually accepts as a delete. Insert `link_sessions` row carrying `(token, crew_member_id, show_id, jwt_token_version, expires_at, last_active_at)`. Return `{ crew_member_id }`.
+- [ ] **Step 3: Commit** `feat(auth): /api/auth/redeem-link with opaque-token cookie + login-CSRF defense (§7.2)`.
 
 ### Task 5.5: Bootstrap page `app/show/[slug]/p/page.tsx` (§7.2)
 
@@ -2609,8 +3736,8 @@ This is the highest-stakes auth function. Every numbered step in §7.2.2 is mand
   - Server-rendered shell has no PII or role-gated data.
   - Client-side script reads `location.hash`, POSTs to `/api/auth/redeem-link`, then `history.replaceState`s the fragment away.
   - Subsequent navigation to `/show/<slug>` succeeds with cookie-only auth.
-- [ ] **Step 2: Implement** the bootstrap shell per §7.2 first-load bootstrap exchange.
-- [ ] **Step 3: Commit** `feat(auth): signed-link bootstrap (§7.2)`.
+- [ ] **Step 2: Implement** the bootstrap shell per §7.2 first-load bootstrap exchange. **M5 batch-10 + batch-11 bootstrap-nonce minting (mandatory; show-bound + array cookie):** server-rendering MUST mint a 128-bit cryptographically-random nonce (`crypto.randomUUID()` or 16 bytes from `crypto.getRandomValues`), INSERT a `bootstrap_nonces` row `(nonce_hash = SHA-256(nonce), show_id = current show, issued_at = now())` against the composite PK `(nonce_hash, show_id)` per spec §4.1 (M5 batch-11), AND APPEND a `{ nonce_hash, show_id, issued_at }` entry to the SIGNED 30-second `__Host-fxav_bootstrap_v` cookie's JSON-encoded array (cap 5 entries, evict oldest; cookie attributes via `lib/auth/cookies.ts` helper pattern: `Path=/`, `Secure`, `HttpOnly`, `SameSite=Lax`, no `Domain`, `Max-Age=30`), AND embed the same nonce + show_id values in the bootstrap shell HTML (e.g., `<meta name="bootstrap-nonce" content="...">` + `<meta name="bootstrap-show" content="<show-uuid>">` or as constants the client script reads inline) so the client-side script can echo BOTH in the redeem-link POST body alongside the JWT token. The client script reads `location.hash`, reads both embedded values, POSTs `{ token, nonce, show_id }` to `/api/auth/redeem-link`, then `history.replaceState`s the fragment away. **Required failing tests (M5 batch-11):** (a) opening `/show/<slug>/p#t=<jwt>` mints exactly one `bootstrap_nonces` row at the composite PK `(nonce_hash, show_id)` AND APPENDS one entry to the cookie array; the embedded nonce + show_id in the HTML matches the cookie array's most-recent entry AND the row's `(nonce_hash = SHA-256(embedded), show_id = embedded)`. (b) rendering `/show/<slug>/p` twice in quick succession produces TWO distinct nonces and TWO entries in the cookie array (proves no nonce reuse AND no clobber — the second render does NOT overwrite the first entry). (c) opening `/show/A/p` then `/show/B/p` in the same browser produces TWO rows (one per show) and TWO entries in the array (one per show); each is independently redeemable. (d) the array honors the 5-entry cap: a sixth render evicts the oldest entry from the cookie (database row stays — read-time expiry is the security gate; the cookie is just a same-origin proof of "I rendered this page recently"). (e) the cookie name MUST be `__Host-fxav_bootstrap_v` (the `_v` suffix distinguishes it from any single-slot legacy cookie a browser might still hold from a pre-batch-11 build); the redeem-link route MUST NOT read or fall back to a legacy `__Host-fxav_bootstrap` cookie (the redeem-link tests assert this by setting an attacker-controlled `__Host-fxav_bootstrap` cookie — without `_v` — and confirming the request 403s for missing nonce-array, NOT 200 from accidental legacy fallback).
+- [ ] **Step 3: Commit** `feat(auth): signed-link bootstrap with nonce minting (§7.2)`.
 
 ### Task 5.6: Compromise-event handler for `?t=` (§7.2, AC-5.11)
 
@@ -2641,8 +3768,16 @@ This is the highest-stakes auth function. Every numbered step in §7.2.2 is mand
   - `>` → **Branch A with the lifted floor** — insert `revoked_links` at the exact future `tokenVersion`, then set ALL THREE fields aligned to the lifted floor in one step: `current_token_version = jwt.tokenVersion`, `max_issued_version = jwt.tokenVersion`, `revoked_below_version = jwt.tokenVersion` (full no-live-link state). After this transition, ONE manual "Issue new link" click bumps both `current_token_version` and `max_issued_version` to `jwt.tokenVersion + 1`, immediately clearing the floor and producing a usable token (final-validation finding: an earlier draft only set `revoked_below_version = max(current, jwt)` while leaving `current/max` unchanged, requiring multiple Issue-New-Link clicks to clear the floor — a real auth-lockout bug). Use canonical `LEAKED_LINK_DETECTED` user copy. **Do NOT invent a `SUSPICIOUS_FUTURE_VERSION` code** — it isn't in §12.4 and adding ad-hoc codes breaks X.1 catalog parity. The operator-only metadata about the future-version anomaly belongs in the structured log payload, not in a user-facing message code.
 
   **Branch C single-Issue-New-Link recovery test (mandatory)**: setup `current=5, max=5, floor=0`; submit a JWT with `tokenVersion=10`. After the handler runs, assert `current=10, max=10, floor=10`. Click "Issue new link" exactly once. Assert: `current=11, max=11, floor=10`. Mint a fresh JWT against this state — assert it passes redemption (token version 11 > floor 10 AND == current 10? No — strict equality requires `tokenVersion === current_token_version` so version 11 = current 11 passes). The newly minted token works on the first click; multi-click recovery is a regression.
-- [ ] **Step 2: Implement** — `middleware.ts` scans the URL `searchParams` for `t=` only on `/show/[slug]/p` paths. Runs the compromise handler inside the per-show advisory lock using the service-role client. The branch-routing comparison happens AFTER the JWT signature verification but BEFORE writing any DB rows.
-- [ ] **Step 3: Commit** `feat(auth): ?t= compromise event handler with current-vs-historic branches (§7.2)`.
+- [ ] **Step 2: Implement** — `middleware.ts` scans the URL `searchParams` for `t=` across **every request whose pathname matches `^/show/[^/]+`** (M5 batch-9 finding), NOT just `/show/[slug]/p`. Earlier draft narrowed the scope to the `/p` bootstrap route, but Vercel logs the full request URL — query params and all — for every path the platform receives, regardless of which Next.js route ultimately handles it. A copy-paste leak as `/show/<slug>?t=...` (root crew page), `/show/<slug>/p/anything?t=...` (typo / trailing-segment URL), or any future `/show/<slug>/<subroute>?t=...` would still expose the JWT to platform logs and bypass revocation under the prior narrower scope. The middleware MUST therefore extract the `?t=` value BEFORE route-specific dispatch on every path matching `^/show/[^/]+`; resolve `<slug>` from the matched pathname (the slug is always segment 2 under `/show/`). The middleware MUST NOT enumerate a closed list of `/show/*` subpaths — any closed list ages out the moment a future `/show/<slug>/<new-thing>` route ships. Runs the compromise handler inside the per-show advisory lock using the service-role client. The branch-routing comparison happens AFTER the JWT signature verification but BEFORE writing any DB rows.
+
+  **Required regression test fixtures (M5 batch-9 finding) — assert revocation fires on every URL shape, not just `/show/<slug>/p`:**
+  - `/show/<slug>?t=<jwt>` — root crew page leak; assert 410, `revoked_links` row written at the JWT's `tokenVersion`, `LEAKED_LINK_DETECTED` rendered.
+  - `/show/<slug>/p?t=<jwt>` — bootstrap-route leak (existing case); assert same.
+  - `/show/<slug>/p/anything?t=<jwt>` — trailing-segment leak; assert same (slug still resolves from segment 2).
+  - `/show/<slug>/<future-subroute>?t=<jwt>` — speculative future subroute (test fixture creates a synthetic subpath `/show/<slug>/preview` under the `/show/**` tree); assert same. This proves the `^/show/[^/]+` matcher catches future routes without a code change.
+
+  **Self-consistency note:** Spec §7.2 already says "**A request with any `?t=` query parameter is treated as a compromise event**" without restricting to `/p` (and AC-5.11's branches don't restrict either). The middleware scope must match that contract, not narrow it.
+- [ ] **Step 3: Commit** `feat(auth): ?t= compromise handler scans every /show/** request (§7.2)`.
 
 ### Task 5.7: Wire role-based filtering through cookie session (AC-5.9..5.10)
 
@@ -2656,8 +3791,8 @@ This is the highest-stakes auth function. Every numbered step in §7.2.2 is mand
 
   Each validator returns one of three outcomes:
   - `{ kind: 'success', viewer: ... }` — auth passes; chain stops, render proceeds.
-  - `{ kind: 'continue' }` — this branch doesn't apply (e.g., no cookie present, or cookie present but for a different show, or revoked); chain falls through to the next validator. **Stale/wrong-show/revoked link-cookie outcomes MUST clear the offending cookie via `Set-Cookie: __Host-fxav_session=; Max-Age=0` AND return `continue`** — they never short-circuit the chain because §7.3 explicitly authorizes via "Google session OR redeemed-link cookie OR admin," and a stale cookie shouldn't deny a user whose Google or admin session is valid. Spec §7.2.2 reinforces this: signed-link revocation state does not apply to Google sessions.
-  - `{ kind: 'terminal_failure', status, code }` — chain stops with the specified HTTP status (only used for genuinely unrecoverable cases like a malformed request, not for "this credential class doesn't apply").
+  - `{ kind: 'continue' }` — this branch doesn't apply (e.g., no cookie present, decode failure, cookie present but for a different show, or revoked); chain falls through to the next validator. **Stale/wrong-show/revoked link-cookie outcomes MUST signal the chain adapter to clear the offending cookie AND return `continue`** — they never short-circuit the chain because §7.3 explicitly authorizes via "Google session OR redeemed-link cookie OR admin," and a stale cookie shouldn't deny a user whose Google or admin session is valid. Spec §7.2.2 reinforces this: signed-link revocation state does not apply to Google sessions. **The chain adapter MUST emit the clear header via `clearSessionCookie()` from `lib/auth/cookies.ts` (M5 batch-9 finding; M5 batch-13 — REVERTED to no parameters; the cookie name cleared is the literal `__Host-fxav_session`)** — never a hand-rolled `__Host-fxav_session=; Max-Age=0` string. The shared helper guarantees the FULL `__Host-` attribute set on the deletion response (`Path=/`, `Secure`, `HttpOnly`, `SameSite=Lax`, no `Domain`, `Max-Age=0`); a partial header is silently ignored by browsers and leaves the original cookie on the client.
+  - `{ kind: 'terminal_failure', status, code }` — chain stops with the specified HTTP status. **Reserved EXCLUSIVELY for SERVER-SIDE infrastructure faults** (DB connection failure, Supabase service outage, signing-key fetch failure when key rotation is added) — situations where the validator cannot reach the data it needs to render a determination. **Client-side cookie parse/format faults are NOT terminal_failure** (M5 batch-10 finding) — a malformed/corrupted/legacy/wrong-iss/wrong-aud/missing-claims/base64-or-JSON-decode-failure cookie value is `{ kind: 'continue', clearCookie: true }` and the chain falls through to `validateGoogleSession` / `requireAdmin`. Reserving terminal_failure for client-driven cookie corruption would let one bad cookie permanently block the entire `/show/<slug>` chain even when Google session OR admin would otherwise authenticate the user — an availability bug equivalent to login-CSRF denial-of-service.
 
   **Admin precedence over crew-on-self (final-validation finding)**: when an admin session is detected, the admin branch's role MUST win over the Google validator's crew role. The admin-detection predicate is **a single shared helper** `lib/auth/isAdminSession.ts` (round-48+ amendment, M5 batch-8 finding) — both this Task 5.7 runtime branch AND X.3's audit gate use the SAME helper, so the runtime decision and the static audit can never diverge:
 
@@ -2671,11 +3806,14 @@ This is the highest-stakes auth function. Every numbered step in §7.2.2 is mand
   export async function isAdminSession(req: Request | { supabase: SupabaseClient }): Promise<boolean> { /* ... */ }
   ```
 
-  Implement this by running `requireAdmin` FIRST when `isAdminSession(req)` returns true; only falls through to the crew validators when admin detection returns false. Concretely, the chain ordering is:
-  1. `validateLinkSession` (cookie) — `success` | `continue` (clears cookie if invalid) | `terminal_failure` (malformed cookie format).
-  2. **If `isAdminSession(req)` returns true**: `requireAdmin` BEFORE `validateGoogleSession` — admin sessions always resolve to `kind: 'admin'` viewer regardless of whether they're also on the crew list.
+  Implement this by checking `isAdminSession(req)` FIRST, **before** `validateLinkSession` runs (M5 batch-9 finding — corrects the prior chain ordering, which let a valid redeemed-link cookie short-circuit to crew-mode and skip the admin branch entirely). The corrected chain ordering is:
+
+  1. **`isAdminSession(req)` runs FIRST.** This is a pure predicate — no DB writes, no cookie side effects, just a read of the Supabase Auth session's `app_metadata.role` plus an allowlist lookup. If it returns true, run `requireAdmin` immediately and resolve to `{ kind: 'admin' }` — admin precedence wins over EVERY crew credential class (link cookie OR Google session OR both). The `__Host-fxav_session` cookie, if present, is left in place: it's still valid for crew-mode use the next time `isAdminSession` happens to return false (e.g., the admin role is removed from app_metadata). The link `validateLinkSession` chain step is NOT run on this path; the chain stops at `requireAdmin`.
+  2. **Otherwise** (`isAdminSession(req)` returned false), `validateLinkSession` (cookie) — `success` | `continue` (signals adapter to clear cookie via `clearSessionCookie()`; this is the outcome for stale/wrong-show/revoked cookies AND for client-side cookie parse/format faults per M5 batch-10) | `terminal_failure` (SERVER-SIDE infrastructure faults ONLY — DB outage, Supabase down, signing-key fetch failure; NEVER for malformed/corrupted client cookie values).
   3. `validateGoogleSession` (Google session, matching crew member, scoped to requested show).
-  4. (`isAdminSession(req)` returned false earlier) `requireAdmin` — final fallback for non-Google admin paths.
+  4. `requireAdmin` — final fallback (only reachable when `isAdminSession(req)` returned false earlier; preserved for non-OAuth admin auth shapes that may exist in tests, e.g., admin-via-cron-token, or as belt-and-suspenders if `isAdminSession`'s predicate ever drifts from `requireAdmin`'s actual gate).
+
+  **Why admin-first, not link-first.** §7.3 authorizes `/show/<slug>` via "Google session OR redeemed-link cookie OR admin." In dual-credential scenarios the spec implies admin wins (per the §4.3 admin model: admins have full-tier visibility on every show; downgrading them to crew-mode because they also clicked a share link contradicts the trust model — admins click share links during preview/QA workflows and would lose admin-only behavior every time). The earlier ordering (link-first) silently downgraded admins whenever a valid redeemed-link cookie existed for the same show, because `validateLinkSession`'s `success` outcome short-circuited the chain BEFORE the admin check ran. Moving `isAdminSession` to position 1 is the only change that closes this regression without complicating the validator return contract; the predicate itself is cheap (cached Supabase Auth session read) and side-effect-free.
 
   **Test fixtures (mandatory — exercise both OR branches plus the union case):**
   - `admin-via-metadata.fixture` — session with `app_metadata.role = 'admin'`, email NOT in allowlist → `isAdminSession` returns true; chain resolves to admin viewer.
@@ -2689,6 +3827,12 @@ This is the highest-stakes auth function. Every numbered step in §7.2.2 is mand
   - Stale revoked cookie + valid Google session: navigate to `/show/<slug>` with a `__Host-fxav_session` cookie whose `link_sessions` row has been revoked AND a valid signed-in Google session matching this show's crew. Assert: 200 with crew-derived role; the cookie is cleared in the response; the chain fell through link → google.
   - Wrong-show cookie + valid admin: cookie's `link_sessions.show_id` is for show A; URL is `/show/B`; auth session is admin. Assert: 200 with admin role; the cookie is cleared.
   - Admin email also on crew: admin user is also in `crew_members` with role_flags `['A1']`. Assert: viewerRole resolves to admin (full-tier visibility), not A1.
+  - **Admin precedence over valid redeemed-link cookie (M5 batch-9 finding)**: an admin (per the shared `isAdminSession(req)` predicate — either via `app_metadata.role='admin'` OR via email allowlist) navigates to `/show/<slug>` while *also* carrying a fully valid `__Host-fxav_session` cookie whose `link_sessions` row matches THIS show, has not expired, and would normally pass `validateLinkSession` to a `kind: 'success'` outcome. Assert: viewerRole resolves to **admin** (full-tier visibility), NOT crew-from-cookie. This proves admin-precedence runs BEFORE `validateLinkSession`'s success short-circuit. The cookie itself is left in place (it's still valid for crew-mode use if `isAdminSession` later returns false). Without this case the chain silently downgrades admins to crew-mode whenever they happen to also carry a valid redeemed-link cookie for the same show — an admin-on-self regression that earlier drafts had: `validateLinkSession` returned `success` first and the chain stopped before `isAdminSession` ever ran.
+  - **Clear-header attribute assertion (M5 batch-9 finding)** — for every regression test above that asserts "cookie is cleared," parse the response's `Set-Cookie` header for `__Host-fxav_session=` and assert ALL the following are present (a partial header is silently ignored by browsers): name starts with `__Host-`; value is empty; `Path=/`; `Secure`; `HttpOnly`; `SameSite=Lax`; `Max-Age=0`; `Domain` attribute is **absent**. A test that only asserts `Max-Age=0` would pass a buggy implementation that emits a bare `__Host-fxav_session=; Max-Age=0` string — which the browser rejects, leaving the offending cookie alive on the client. Implementing `clearSessionCookie()` in `lib/auth/cookies.ts` and routing every clear path through it is the only correct fix.
+  - **Malformed cookie + valid Google session (M5 batch-10 finding)**: navigate to `/show/<slug>` with a `__Host-fxav_session` cookie whose value is corrupted/truncated/wrong-iss/wrong-aud/missing-claims/decode-failure (use the parse/format-fault fixtures from Task 5.2 step 1) AND a valid signed-in Google session matching this show's crew. Assert: 200 with crew-derived role from the Google branch; the malformed cookie is cleared in the response (full `__Host-` clear-header attribute set); the chain fell through `validateLinkSession (continue)` → `validateGoogleSession (success)`. Without this case, an implementation that incorrectly classifies parse/format faults as `terminal_failure` would short-circuit the chain and deny a user whose Google session would otherwise authenticate them — login-CSRF-style availability bug.
+  - **Malformed cookie + valid admin (M5 batch-10 finding)**: same setup as the previous test, but the auth session is admin instead of Google crew. Assert: 200 with admin viewer role; cookie cleared; admin-precedence chain fired correctly (admin runs first regardless of cookie state).
+  - **Malformed cookie + NO other credentials (M5 batch-10 finding negative)**: malformed cookie + no Google session + no admin. Assert: the page renders the catalog 401/410 reflecting the absence of credentials (NOT a terminal_failure 5xx), with the cookie cleared. Proves a corrupt cookie does not turn into a server-error response.
+  - **A→B→A burn-pattern regression test (M5 batch-13, replaces the retired batch-12 multi-show coexistence test)**: redeem a signed link for show A. Assert: `__Host-fxav_session` cookie value (after `decodeURIComponent` + `JSON.parse`) decodes to `{ token: <opaque>, show_id: <show-a-uuid> }` AND a `link_sessions` row exists with `show_id = <show-a-uuid>` AND `token` matches the cookie's `token` field. Navigate to `/show/<show-b-slug>` (assume the user has no Google/admin credentials for show B). Assert: §7.2.2 step 4 fired (`cookie.show_id !== show.id`); response Set-Cookie clears `__Host-fxav_session` (full `__Host-` attribute set: `Path=/`, `Secure`, `HttpOnly`, `SameSite=Lax`, `Max-Age=0`, no `Domain`); show-A's `link_sessions` row was DELETEd; the chain fell through to Google/admin → 401 redirect-to-bootstrap (or 200 if Google/admin succeeds for show B). Navigate back to `/show/<show-a-slug>`. Assert: no `__Host-fxav_session` cookie present in the request; the chain falls through to Google/admin → 401 redirect-to-bootstrap. The user must re-open show A's original signed link to re-mint. **The earlier batch-12 test asserted "TWO distinct cookies coexist" via per-show NAMING — that test is retired in batch-13 because the underlying browser-cookie model (cookies indexed by `(domain, path)`, sent regardless of name) made per-show naming both ineffective for isolation AND a Cookie-header growth vector.** The batch-13 test asserts the burn pattern explicitly so a future implementer cannot accidentally re-introduce a per-show NAMING contract under the misconception that browsers index cookies by name.
 - [ ] **Step 3: Run X.3's semantic AST/control-flow audit against `app/show/[slug]/page.tsx` (final-validation finding).** Earlier draft used a literal grep for `validateLinkSession → validateGoogleSession → requireAdmin` — that contradicts Step 2's admin-precedence requirement (admin runs BEFORE Google when `isAdminSession(req)` returns true) AND can't prove dominance/reachability. The corrected gate is X.3's path-sensitive AST audit: the route is classified `crew-session` and the audit asserts every reachable path to a protected sink is dominated by the declared chain in declared order (with the admin-precedence ordering Step 2 specifies, branched on the shared `lib/auth/isAdminSession.ts` predicate so the static audit and the runtime decision read the same gate — M5 batch-8 finding). Required regression fixtures:
   - `valid-link-cookie.fixture` — cookie session present and current → 200, link branch wins, sinks fire after.
   - `stale-revoked-cookie-plus-google.fixture` — revoked cookie + valid Google → 200, cookie cleared, Google branch resolves.
@@ -2696,7 +3840,68 @@ This is the highest-stakes auth function. Every numbered step in §7.2.2 is mand
   - `admin-also-on-crew.fixture` — admin email also in `crew_members` for this show → 200 with admin viewer (NOT crew downgrade).
 - [ ] **Step 4: Commit** `feat(auth): role-based hiding wired with admin path (§7.4)`.
 
-### Task 5.8: Admin alerts banner + minimal §12.4 catalog (§4.6, AC-5.12)
+### Task 5.8: Google OAuth sign-in / callback / sign-out (§7.3, AC-5.14)
+
+**Files:** Create app/auth/sign-in/page.tsx, app/auth/callback/route.ts, app/auth/sign-out/route.ts, lib/auth/validateNextParam.ts. Test: tests/auth/oauth-flow.test.ts.
+
+**Why this task exists (M5 batch-12 finding).** Earlier drafts of M5 named "Task 5.8" only in summary lines but never wrote the task body — AC-5.14 (the spec's §7.3 Google-OAuth sign-in/callback/sign-out contract) had no executable owner, and the M5 task list jumped from 5.7 directly to 5.9. Without a Task 5.8 step list, the OAuth entrypoint, callback, and sign-out routes ship without TDD coverage of the PKCE-state, redirect-loop, atomic-cookie-clear, and `next`-validation hardening §7.3 calls for.
+
+- [ ] **Step 1: Failing tests** (driven by AC-5.14 and the `next`-regex from §7.3 spec rows 1807 + 2176 + 2788, all carrying the M5 batch-14 corrected regex `^\/(show|admin|me)(\/[^?#]*)?$` — batch-14 finding 1 added `/me` so the OAuth round-trip targeting `/me` survives `validateNextParam` instead of falling back to `/admin`; without `/me` in the alternation, Task 5.10's `/me?next=...` redirect-to-`/auth/sign-in?next=/me` flow could not round-trip):
+  - **`next`-param validator (`lib/auth/validateNextParam.ts`) — M5 batch-15 finding 1: pathname canonicalization + bootstrap-surface exclusion (HIGH).** The earlier draft used a single regex `^\/(show|admin|me)(\/[^?#]*)?$` against the raw input string. This admitted (a) `/show/<slug>/p` — the fragment-bootstrap surface that mints a session ONLY when `#t=<jwt>` is present, never a valid post-OAuth landing target — and (b) inputs that contained dot-segments or backslashes which a regex cannot canonicalize (e.g., `/show/x/../../auth/sign-in` would pass `[^?#]*` because the regex doesn't resolve `..`; `/admin\..\..\foo` is structurally similar). The corrected validator runs FIVE pre-allowlist guards in order, then matches a NARROWER allowlist against the **canonicalized** pathname:
+    1. **Reject if non-string / empty / null / undefined** → return `/admin`.
+    2. **Reject if input contains any backslash `\`, percent-encoded dot-segment (`%2e%2e`, `%2E%2E`), or any non-printable character (`/[\x00-\x1f\x7f]/`)** → return `/admin`. These never appear in a legitimate path; treating them as invalid before parsing avoids URL-parser quirks that may decode `%2e%2e` into `..` mid-resolution.
+    3. **Parse via `new URL(input, process.env.NEXT_PUBLIC_SITE_ORIGIN)`** inside a try/catch. On parse error → return `/admin`. This step canonicalizes dot-segments (`..`, `.`) per RFC 3986 — the parser resolves them OR rejects them.
+    4. **Reject if `parsed.origin !== process.env.NEXT_PUBLIC_SITE_ORIGIN`** → return `/admin`. This catches absolute URLs (`https://attacker.example/show/x`) AND protocol-relative (`//attacker.example`, which `new URL` treats as a same-protocol cross-origin reference).
+    5. **Reject if `parsed.pathname === '/show/<slug>/p'` for any slug** (regex `^\/show\/[a-z0-9-]+\/p$`) → return `/admin`. The bootstrap surface mints a session ONLY when the URL fragment carries `#t=<jwt>`, which the OAuth callback CANNOT supply (the callback's redirect target is set server-side; fragments don't survive the OAuth round-trip). Landing post-OAuth on `/show/<slug>/p` would render the empty-fragment branch — never useful, and the route is reserved for fragment-bootstrap surface area.
+    6. **Match `parsed.pathname` against the canonicalized allowlist** `^\/(show\/[a-z0-9-]+|admin(\/.*)?|me(\/.*)?)$` — `/show/<slug>` (slug only, no sub-paths because the only sub-path on `/show/<slug>` is `/p` which step 5 already rejected), `/admin` and any sub-path under `/admin/`, `/me` and any sub-path under `/me/`. On match → return `parsed.pathname` (the canonicalized form, query and fragment stripped). On miss → return `/admin`.
+    Required positive tests (all return their input unchanged after canonicalization): `/show/dci-rpas-2026`, `/admin`, `/admin/show/foo`, `/admin/onboarding/wizard`, `/me`, `/me/profile`. Required negative tests (all return `/admin`): `/show/dci-rpas-2026/p` (bootstrap surface — step 5 rejects), `/show/x/../../auth/sign-in` (parser canonicalizes to `/auth/sign-in` which step 6 rejects — proves canonicalization works), `/show/x/..` (canonicalizes to `/show/` which step 6 rejects), `https://attacker.example/show/x` (step 4 rejects on origin mismatch), `//attacker.example/show/x` (step 4 rejects), `/auth/sign-in` (step 6 rejects — self-referential), `/api/foo` (step 6 rejects — off-app), `/random` (step 6 rejects), `/admin\..\..\foo` (step 2 rejects — backslash), `/show/x%2e%2e/p` (step 2 rejects — percent-encoded dot-segment), `/show/x\x00/p` (step 2 rejects — control char), empty string, `null`, `undefined`. Helper signature: `validateNextParam(raw: string | null | undefined): string`. X.3 banned-identifier audit: the canonicalization-allowlist regex `^\/(show\/[a-z0-9-]+|admin(\/.*)?|me(\/.*)?)$` MUST appear ONLY in `lib/auth/validateNextParam.ts`; the bootstrap-rejection regex `^\/show\/[a-z0-9-]+\/p$` MUST also appear ONLY here.
+  - **`/auth/sign-in` redirect-loop guard**: an already-signed-in session navigates to `/auth/sign-in?next=/show/foo` — assert 302 to `validateNextParam(next)`, Supabase Auth `signInWithOAuth` is NOT called, no PKCE state cookie is minted. Without this guard, the page would re-initiate OAuth on every visit, looping users back through Google's consent screen forever.
+  - **`/auth/sign-in` initiates OAuth correctly**: an unauthenticated request to `/auth/sign-in?next=/show/foo` calls `supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: '<origin>/auth/callback?next=<validated-next>', queryParams: { prompt: 'select_account' } } })`. Assert SDK called with EXACTLY those parameters; `redirectTo` URL embeds `validateNextParam(next)` (NOT raw `next`); `prompt: 'select_account'` flag is present; Supabase SDK PKCE state and code-verifier cookies are minted with the FULL `__Host-`-equivalent attribute set (`Path=/`, `Secure`, `HttpOnly`, `SameSite=Lax`, no `Domain`).
+  - **`/auth/callback` happy path**: a request with valid `code` and `next=/show/foo` calls `supabase.auth.exchangeCodeForSession(code)`, succeeds, then 302-redirects to `validateNextParam(next)` (re-validate at callback as belt-and-suspenders against tampering). Assert Supabase Auth session cookie family is set on the response.
+  - **`/auth/callback` PKCE state-cookie missing → `OAUTH_STATE_INVALID`**: callback request with no `sb-*-auth-token-code-verifier` cookie present. Assert: **302-redirect to `/auth/sign-in?code=OAUTH_STATE_INVALID&next=<validated-next>` (M5 batch-13 finding 3 — `code` URL param NOT the retired `error=oauth_callback_failed` flag)**; structured operator log entry records `OAUTH_STATE_INVALID`; PKCE verifier cookie cleared on the failure path; the destination `/auth/sign-in` page renders `<ErrorExplainer code="OAUTH_STATE_INVALID" />` containing the canonical §12.4 message.
+  - **`/auth/callback` PKCE state-cookie expired → `OAUTH_STATE_INVALID`**: stale verifier cookie; same outcome as missing-cookie case; verifier cleared.
+  - **`/auth/callback` double-submit replay → `OAUTH_STATE_INVALID`**: same `code` submitted twice. Supabase's `exchangeCodeForSession` is single-use; second call rejects. Same redirect-with-`OAUTH_STATE_INVALID` outcome; no second session established; verifier cleared.
+  - **PKCE verifier cleanup on success AND on failure**: assert `sb-*-auth-token-code-verifier` is cleared (full `__Host-`-equivalent attribute set + `Max-Age=0`) on BOTH the success response (so a leaked verifier can't be reused) AND every failure response (so a half-initiated flow can be retried).
+  - **`/auth/callback` `next`-validation failure → 302 + `OAUTH_REDIRECT_INVALID`**: `next=https://attacker.example/x`. The route still 302-redirects (M5 batch-13 finding 3: to `/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=/admin` — the validated fallback) AND logs `OAUTH_REDIRECT_INVALID` with offending `next` verbatim. Session is established normally (only the redirect target was tampered). Sign-in page renders `<ErrorExplainer code="OAUTH_REDIRECT_INVALID" />`.
+  - **`/auth/sign-in` page renders `<ErrorExplainer>` from canonical `?code=` URL param (M5 batch-13 finding 3)**: synthesize a request to `/auth/sign-in?code=OAUTH_STATE_INVALID&next=/show/foo`. Assert: page validates `code` against the regex `^[A-Z_]{1,64}$` AND against the allowlist `{ OAUTH_STATE_INVALID, OAUTH_REDIRECT_INVALID }`; renders `<ErrorExplainer code="OAUTH_STATE_INVALID" />` next to the sign-in CTA; the canonical §12.4 message ("Something interrupted your sign-in. Please click the original link from Doug again to start over.") surfaces inline. Negative case: synthesize `/auth/sign-in?code=NOT_A_REAL_CODE` → assert no error block renders (allowlist rejection; defense against attacker-driven `?code=ARBITRARY_STRING` copy injection). Negative case 2: synthesize `/auth/sign-in?code=<script>alert(1)</script>` → regex rejects → no error block renders.
+  - **`/auth/sign-out` POST clears all cookie families atomically (M5 batch-13 — single host-wide cookie)**: a signed-in user with BOTH a Supabase Auth session AND a `__Host-fxav_session` cookie (carrying the JSON-encoded `{ token, show_id }` payload — M5 batch-13 single host-wide cookie design) submits POST `/auth/sign-out`. Assert: `supabase.auth.signOut()` is called AND `clearSessionCookie()` (no parameters — M5 batch-13 reverted the per-show slug parameter) is emitted exactly once AND `__Host-fxav_bootstrap_v` is cleared. 302 to `/`. Negative test: GET `/auth/sign-out` → 405 (CSRF defense — sign-out via `<img>` tag is not a thing).
+  - **Sign-out single-cookie regression (M5 batch-13)**: a user has redeemed signed links for show A and show B in sequence; due to the A→B→A burn pattern (§7.2.2 step 4), only ONE `__Host-fxav_session` cookie is ever present at a time (the most recent show's session — earlier shows' rows have been DELETEd and cookies cleared during cross-show navigation). Sign-out POST clears the SINGLE current `__Host-fxav_session` cookie (no iteration; no per-show cookie family); Supabase Auth session cleared; bootstrap-nonce cookie cleared. **The earlier batch-12 "BOTH per-show cookies cleared" test is retired in batch-13** because per-show NAMING did not deliver isolation and the underlying browser-cookie model never supported the multi-cookie-coexistence story batch-12 was built on.
+- [ ] **Step 2: Implement** the three routes plus the shared validator helper:
+
+  **`lib/auth/validateNextParam.ts` (M5 batch-15 finding 1: pathname canonicalization + bootstrap-surface exclusion)** — exports `validateNextParam(raw: string | null | undefined): string`. Implementation runs the FIVE pre-allowlist guards from Step 1 in order, then matches against the canonicalized allowlist:
+  ```
+  function validateNextParam(raw: string | null | undefined): string {
+    if (typeof raw !== 'string' || raw.length === 0) return '/admin';
+    // Step 2: pre-parse character guards (backslash / encoded dot-segments / control chars)
+    if (/[\\\x00-\x1f\x7f]/.test(raw)) { logOperator('OAUTH_REDIRECT_INVALID', { raw }); return '/admin'; }
+    if (/%2e%2e/i.test(raw)) { logOperator('OAUTH_REDIRECT_INVALID', { raw }); return '/admin'; }
+    // Step 3: parse with site origin as base; canonicalizes dot-segments
+    let parsed: URL;
+    try { parsed = new URL(raw, process.env.NEXT_PUBLIC_SITE_ORIGIN!); }
+    catch { logOperator('OAUTH_REDIRECT_INVALID', { raw }); return '/admin'; }
+    // Step 4: origin must equal canonical site origin (catches absolute + protocol-relative)
+    if (parsed.origin !== process.env.NEXT_PUBLIC_SITE_ORIGIN) { logOperator('OAUTH_REDIRECT_INVALID', { raw, parsedOrigin: parsed.origin }); return '/admin'; }
+    // Step 5: explicit bootstrap-surface exclusion (cannot redeem without #t=)
+    if (/^\/show\/[a-z0-9-]+\/p$/.test(parsed.pathname)) { logOperator('OAUTH_REDIRECT_INVALID', { raw, reason: 'bootstrap_surface' }); return '/admin'; }
+    // Step 6: canonicalized allowlist match
+    if (/^\/(show\/[a-z0-9-]+|admin(\/.*)?|me(\/.*)?)$/.test(parsed.pathname)) return parsed.pathname;
+    logOperator('OAUTH_REDIRECT_INVALID', { raw, parsedPathname: parsed.pathname });
+    return '/admin';
+  }
+  ```
+  The canonicalization-allowlist regex `^\/(show\/[a-z0-9-]+|admin(\/.*)?|me(\/.*)?)$` AND the bootstrap-rejection regex `^\/show\/[a-z0-9-]+\/p$` BOTH live in this file ONLY (X.3 banned-identifier scan enforces no other producers). The retired single-regex form `^\/(show|admin|me)(\/[^?#]*)?$` is replaced because (a) it admitted `/show/<slug>/p` (the fragment-bootstrap surface, not a redeem target — fragments don't survive OAuth so a callback landing on `/show/<slug>/p` would render the empty-fragment branch); (b) it didn't canonicalize dot-segments or backslashes (`/show/x/../../auth/sign-in` and `/admin\..\..\foo` would pass `[^?#]*` because regex doesn't resolve URL semantics).
+
+  **`app/auth/sign-in/page.tsx`** — Server Component. Reads any active Supabase Auth session; if present, 302-redirects to `validateNextParam(searchParams.next)` (redirect-loop guard). Otherwise renders the "Sign in with Google" button, which calls `supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: '<origin>/auth/callback?next=<validated-next>', queryParams: { prompt: 'select_account' } } })`.
+
+  **`app/auth/callback/route.ts`** — Route Handler (GET). Reads `code` and `next`. Calls `supabase.auth.exchangeCodeForSession(code)`; on success → 302 to `validateNextParam(next)` AND clears verifier cookie; on failure → 302 to `/auth/sign-in?code=<§12.4-code>&next=<encoded-validated-next>` where `<§12.4-code>` is `OAUTH_STATE_INVALID` (PKCE / state errors) or `OAUTH_REDIRECT_INVALID` (when failure was the `next`-param validator) — **M5 batch-13 finding 3: the URL param is named `code` (NOT the retired `error=oauth_callback_failed` flag) and carries the canonical §12.4 code so the destination sign-in page can render `<ErrorExplainer code={code} />` with the matching message; structured operator log carries the same code (unchanged from batch-11)**. Clears verifier cookie on every code path (success AND failure).
+
+  **`app/auth/sign-out/route.ts`** — Route Handler. POST-only. GET → 405. Calls `supabase.auth.signOut()` AND emits the clear-header from `clearSessionCookie()` (M5 batch-13 — REVERTED to no parameters; the cookie name cleared is the literal `__Host-fxav_session`; there is at most one such cookie on the request, so no iteration is needed) AND emits a clear-header for `__Host-fxav_bootstrap_v`. 302 to `/`. The earlier batch-12 contract that iterated `^__Host-fxav_session_[a-z0-9-]+$` per-show cookie names is retired because per-show NAMING did not deliver isolation under the actual browser-cookie model.
+
+  All three routes use the per-request Supabase SSR helper from `@supabase/ssr` configured against `process.env.NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`; the SSR helper handles PKCE state/verifier cookies internally with the FULL `__Host-`-equivalent attribute set.
+- [ ] **Step 3: Run X.3's semantic AST/control-flow audit against all three new route files** to verify (a) `app/auth/sign-in/page.tsx` calls `validateNextParam` BEFORE any redirect AND validates `searchParams.code` against the regex `^[A-Z_]{1,64}$` AND against the `{ OAUTH_STATE_INVALID, OAUTH_REDIRECT_INVALID }` allowlist BEFORE rendering `<ErrorExplainer>` (M5 batch-13 finding 3); (b) `app/auth/callback/route.ts` calls `validateNextParam` BEFORE any redirect AND emits the verifier-cookie clear-header on every code path (success AND failure) AND constructs the failure-redirect URL with `code=<canonical-§12.4-code>` (NOT the retired `error=oauth_callback_failed` flag — M5 batch-13 finding 3); (c) `app/auth/sign-out/route.ts` rejects GET and on POST emits a single `clearSessionCookie()` call (M5 batch-13 — no per-show iteration; the cookie name is the literal `__Host-fxav_session`).
+- [ ] **Step 4: Commit** `feat(auth): Google OAuth sign-in / callback / sign-out (§7.3, AC-5.14)`.
+
+### Task 5.9: Admin alerts banner + minimal §12.4 catalog (§4.6, AC-5.12)
 
 **Files:** Create: `components/admin/AlertBanner.tsx`, `lib/messages/catalog.ts`, `lib/messages/lookup.ts`. Modify: `app/admin/layout.tsx` to mount it. Test: e2e.
 
@@ -2710,19 +3915,31 @@ This is the highest-stakes auth function. Every numbered step in §7.2.2 is mand
 - [ ] **Step 2: Implement** the minimal catalog with the M5-needed entries from §12.4 verbatim. Banner reads `WHERE resolved_at IS NULL ORDER BY raised_at DESC` and renders the topmost via `messageFor(alert.code).dougFacing`. Click-through routes to a resolution action that updates `resolved_at = now()` and `resolved_by`.
 - [ ] **Step 3: Commit** `feat(admin): alert banner + minimal §12.4 catalog (§4.6, §12.4)`.
 
-### Task 5.9: `/me` signed-in show list (§7.3)
+### Task 5.10: `/me` signed-in show list (§7.3)
 
-**Files:** Create: `app/me/page.tsx`, `lib/data/listShowsForCrew.ts`. Test: e2e.
+**Files:** Create: `app/me/page.tsx`, `lib/auth/validateGoogleIdentity.ts`, `lib/data/listShowsForCrew.ts`. Test: e2e + `tests/auth/validateGoogleIdentity.test.ts`.
 
-- [ ] **Step 1: Failing test** — sign in as a fixture-defined crew email; navigate to `/me`; assert the page lists every show whose `crew_members` table contains a row with that email (canonicalized). Each list entry links to `/show/<slug>`.
-- [ ] **Step 2: Implement** — `listShowsForCrew(email)` runs `SELECT s.id, s.slug, s.title, s.dates FROM shows s JOIN crew_members c ON c.show_id = s.id WHERE c.email = canonicalize($email) AND s.archived = false ORDER BY (s.dates->>'set')::date DESC`. Page renders as a simple list of cards.
-- [ ] **Step 3: Commit** `feat(crew-page): /me signed-in show list (§7.3)`.
+**M5 batch-12 finding — `/me` MUST use `validateGoogleIdentity` (NOT `validateGoogleSession`).** `validateGoogleSession` is strictly show-bound (§7.2.2 step 2: `crew_members WHERE show_id = $requestedShowId AND email = canonicalize(...)`), but `/me` has no show parameter at validator-call time. Calling `validateGoogleSession` from `/me` is a structural error (no show ID to bind against). The corrected design defines a separate `validateGoogleIdentity(req)` validator that returns `{ kind: 'success', email, providerSub }` from the Supabase Auth session ONLY (no show binding, no `crew_members` lookup, no revocation check). Use ONLY for cross-show signed-in surfaces. Show-bound surfaces keep using `validateGoogleSession` so the per-show membership check still runs.
 
-### Task 5.10: M5 demo verification
+- [ ] **Step 1: Failing tests**
+  - **`validateGoogleIdentity` happy path**: signed-in Supabase Auth session present + unexpired → returns `{ kind: 'success', email: canonicalize(supabase.user.email), providerSub: supabase.user.id }`.
+  - **`validateGoogleIdentity` no session**: no Supabase Auth cookie → returns `{ kind: 'continue' }` (caller redirects to `/auth/sign-in?next=/me`).
+  - **`validateGoogleIdentity` does NOT touch `crew_members`** — assert no DB query against `crew_members` is issued during validation (`validateGoogleSession` would query; `validateGoogleIdentity` must not). This is the structural distinction; without it, `/me` accidentally inherits the show-binding hole.
+  - **`/me` flow**: sign in as a fixture-defined crew email; navigate to `/me`; assert the page calls `validateGoogleIdentity` (NOT `validateGoogleSession`) and then `listShowsForCrew(validator.email)` to enumerate every show whose `crew_members` table contains a row with that email (canonicalized). Each list entry links to `/show/<slug>`.
+  - **X.3 audit fixture pair**: `bad-me-route-uses-validateGoogleSession.tsx` (route under `app/me/**` that imports `validateGoogleSession`) MUST FAIL the audit; `good-me-route-uses-validateGoogleIdentity.tsx` MUST PASS.
+- [ ] **Step 2: Implement**
+  - `lib/auth/validateGoogleIdentity.ts` — small, deliberate non-DRY-with-`validateGoogleSession` (the temptation to share an implementation is exactly what reopens the show-binding hole). Reads the Supabase Auth session via `@supabase/ssr`; on present + unexpired returns `{ kind: 'success', email: canonicalize(session.user.email), providerSub: session.user.id }`; otherwise returns `{ kind: 'continue' }`.
+  - `app/me/page.tsx` — calls `validateGoogleIdentity(req)`. On `continue` redirects to `/auth/sign-in?next=/me`. On `success` calls `listShowsForCrew(validator.email)` and renders the list.
+  - `listShowsForCrew(email)` runs `SELECT s.id, s.slug, s.title, s.dates FROM shows s JOIN crew_members c ON c.show_id = s.id WHERE c.email = canonicalize($email) AND s.archived = false ORDER BY (s.dates->>'set')::date DESC`. Page renders as a simple list of cards.
+- [ ] **Step 3: Commit** `feat(crew-page): /me signed-in show list with validateGoogleIdentity (§7.3, M5 batch-12)`.
 
+### Task 5.11: M5 demo verification
+
+- [ ] **Sign in via Google OAuth** (M5 batch-11 finding) — open `/auth/sign-in` in dev, complete the OAuth dance with a fixture-defined crew Google account, verify landing on `/me` (when no `next` param) or the validated `next` target.
 - [ ] Sign in as a fixture-defined crew email; observe role-appropriate page.
 - [ ] Demote a crew member from LEAD to A1 in the DB; refresh; observe Financials tile disappear.
 - [ ] Submit a `?t=` URL request; observe 410 + revocation.
+- [ ] **Sign out via `/auth/sign-out`** (M5 batch-11 finding) — verify Supabase cookie family AND `__Host-fxav_session` cookie are both cleared in the response; subsequent navigation to `/show/<slug>` redirects to `/auth/sign-in?next=/show/<slug>`.
 - [ ] Commit `chore: M5 demo verified`.
 
 ---
@@ -2754,8 +3971,8 @@ Spec context: §5 entire section + §6.8 / §6.8.1 / §6.8.2 / §6.8.3, §17.1 m
 **Scope clarification (final-validation finding).** `perFileProcessor` owns ONLY the gating phase — deferral check + watermark gate + sheet-unavailable recovery + partial-failure detection — and decides whether to short-circuit (skip / asset_recovery flag) or proceed. **It does NOT call `parseSheet`, `enrichWithDrivePins`, Phase 1, or Phase 2.** Those are the responsibility of the orchestrator (`runScheduledCronSync`, `runManualSyncForShow`, `runPushSyncForShow`) — see Task 6.6's explicit pipeline contract. The earlier draft of Tasks 6.6/6.7/6.10 said "call perFileProcessor() and stop," which read literally allows an implementer to skip Phase 1/Phase 2 entirely. The corrected contract makes the orchestrators explicitly own the full pipeline.
 
 - [ ] **Step 1: Failing tests**
-  - Deferred (`permanent_ignore`) → return `{ outcome: 'skip', reason: 'deferred_permanent' }` for cron/push; return `{ outcome: 'proceed', mode }` for manual/onboarding (AC-6.20).
-  - `defer_until_modified` while modtime ≤ deferred → `{ outcome: 'skip', reason: 'deferred_modtime' }`; modtime > → DELETE deferral row + return `{ outcome: 'proceed' }`.
+  - Deferred (`permanent_ignore`) → return `{ outcome: 'skip', reason: 'deferred_permanent' }` for cron/push; return `{ outcome: 'proceed', mode }` for manual/onboarding (AC-6.20). **M2 batch-11**: the SELECT against `deferred_ingestions` MUST add `AND wizard_session_id IS NULL` so wizard-scoped deferrals NEVER suppress live cron/push processing. Test: seed a wizard-scoped `deferred_ingestions` row (`wizard_session_id = $someUUID`, kind=`permanent_ignore`) for the same `drive_file_id` AND a live cron entry for that file. Assert `perFileProcessor(driveFileId, 'cron', meta)` returns `{ outcome: 'proceed' }` — the wizard-scoped row does NOT suppress the live cron run.
+  - `defer_until_modified` while modtime ≤ deferred → `{ outcome: 'skip', reason: 'deferred_modtime' }`; modtime > → DELETE deferral row + return `{ outcome: 'proceed' }`. **M2 batch-11**: the DELETE predicate also adds `AND wizard_session_id IS NULL` so the auto-clear branch never wipes a wizard-scoped deferral. Test: seed a live `defer_until_modified` row at modtime T0 AND a wizard-scoped `defer_until_modified` row at modtime T0 for the same `drive_file_id`. Cron with modtime T1 > T0 → assert the live row is DELETEd but the wizard-scoped row survives (`SELECT count(*) FROM deferred_ingestions WHERE drive_file_id = $1 AND wizard_session_id IS NOT NULL` is still 1).
   - Watermark-as-greatest gate: `last_seen_modified_time = T0`, `pending_syncs.staged_modified_time = T1`. Cron with file.modifiedTime = T1 → `{ outcome: 'skip', reason: 'watermark' }`; with T2 > T1 → `{ outcome: 'proceed' }` (AC-6.24).
   - `last_sync_status === 'sheet_unavailable'` AND file present → `{ outcome: 'proceed', mode: 'recovery' }` regardless of watermark.
   - `diagrams.snapshot_status === 'partial_failure'` AND modtime ≤ effective_watermark → `{ outcome: 'proceed', mode: 'asset_recovery' }`. AND modtime > effective_watermark → `{ outcome: 'proceed', mode }` (normal Phase 2 path) (AC-7.16).
@@ -2770,12 +3987,22 @@ Spec context: §5 entire section + §6.8 / §6.8.1 / §6.8.2 / §6.8.3, §17.1 m
 
 **Transaction ownership lives in the orchestrator (final-validation finding).** Earlier draft said "Phase 1 runs inside the per-show advisory lock and acquires `pg_try_advisory_xact_lock` itself"; that contradicted Task 6.6's single-transaction contract that wraps Phase 1 + Phase 2 in ONE `withShowSyncTransaction` so the xact lock survives the boundary. The corrected design: `runPhase1` accepts an existing `tx` and never opens, commits, or acquires locks itself. The orchestrator (Task 6.6) acquires the advisory lock once, then calls `runPhase1(tx, ...)` and `runPhase2(tx, ...)` on the same transaction.
 
+**Same-revision binding precondition (M3+M4 batch-11 finding).** `runPhase1` accepts a `binding` argument (`{ headRevisionId: string, modifiedTime: string }`) captured by the orchestrator BEFORE markdown export per §5.2's same-revision-binding contract. Phase 1 MUST NOT advance any watermark, MUST NOT mint a `pending_syncs` / `pending_ingestions` row, AND MUST NOT commit ANY outcome (1/2/3) until the orchestrator has performed the post-enrichment binding re-verify. The re-verify itself lives in Task 6.6's orchestrator (it's a Drive call, not a SQL statement); on mismatch the orchestrator aborts with `STAGED_PARSE_REVISION_RACE` and `runPhase1` is never called. From `runPhase1`'s perspective, every `parseResult` it receives is byte-stable across the binding window. Failing test (Step 1): construct a `ParseResult` whose pins were captured at R1 and whose markdown was exported at R2; assert the orchestrator (Task 6.6) detects mismatch BEFORE `runPhase1` is invoked and emits `STAGED_PARSE_REVISION_RACE` instead of staging.
+
 Phase 1 decides one of three outcomes (hard fail / stage / pass). It must NEVER make destructive writes — only status-column updates and pending_* writes are allowed.
+
+**Routing precedence — explicit ordering (M6 batch-9 retry-2 finding).** First-seen sheets MUST NOT shortcut past the MI hard-fail check. Earlier draft of this task and §5.2 step 3 said "first-seen sheets always route to STAGE regardless of MI invariants" while simultaneously asserting "MI-1..MI-5b hard fail on first-seen sheet → UPSERT `pending_ingestions`" — the two rules are mutually exclusive on the (MI-1..MI-5b ∩ first-seen) intersection. The canonical precedence is **MI hard-fail FIRST, first-seen-mandatory-stage SECOND**:
+  1. Run §6.8 MI-1..MI-5b checks against the parse. If ANY fails → `hard_fail` outcome (UPSERT `pending_ingestions` for first-seen; status-only UPDATE on `shows` for existing). Do NOT emit a `FIRST_SEEN_REVIEW` review item; the sheet is not parseable enough to review.
+  2. Otherwise (MI-1..MI-5b all pass), check `is_first_seen = (shows row does not exist)`. If true → `stage` outcome with `triggered_review_items` extended to include the `FIRST_SEEN_REVIEW` sentinel, regardless of whether MI-6..MI-14 would otherwise auto-apply.
+  3. Otherwise (existing show, MI-1..MI-5b all pass) → run MI-6..MI-14: `stage` if any trip; `pass` if all pass.
+
+  This precedence is canonical across plan + spec — Task 6.4 below, §5.2 step 3 in the spec, and Task 6.8's onboarding-scan path all enforce the same ordering. `FIRST_SEEN_REVIEW` is a stage-route sentinel that ONLY exists when MI-1..MI-5b passed; it is NEVER emitted alongside an MI-1..MI-5b hard fail. Same precedence applies to onboarding-scan mode: `ONBOARDING_SCAN_REVIEW` only emits when MI-1..MI-5b pass; MI-1..MI-5b hard fails route to `pending_ingestions` with no review-sentinel emitted.
 
 - [ ] **Step 1: Failing tests**
   - `runPhase1` does NOT call `pg_try_advisory_xact_lock` itself; the test passes a transaction with the lock already held and asserts `runPhase1` neither acquires nor releases it. The orchestrator's lock-acquisition test (Task 6.6) covers `CONCURRENT_SYNC_SKIPPED` (AC-6.7).
-  - First-seen sheet (no `shows` row) routes to STAGE outcome regardless of MI invariants — `triggered_review_items` includes the `FIRST_SEEN_REVIEW` sentinel (AC-6.11).
-  - Onboarding-scan mode AND otherwise auto-apply-eligible → STAGE with `ONBOARDING_SCAN_REVIEW` sentinel.
+  - **First-seen routing precedence regression (M6 batch-9 retry-2 finding)**: synthesize a first-seen sheet (no `shows` row) whose parse trips MI-1 (no version markers). Assert: Phase 1 returns `hard_fail` with code `MI-1_VERSION_DETECTION_FAILED`; UPSERTs `pending_ingestions`; does NOT write `pending_syncs`; `triggered_review_items` is NOT emitted (no `FIRST_SEEN_REVIEW` sentinel — the sheet didn't pass the gate to be reviewable). Repeat for MI-2/MI-3/MI-4/MI-5/MI-5a/MI-5b. Without this precedence test, an implementation that checks `is_first_seen` BEFORE the MI gate would emit a `FIRST_SEEN_REVIEW`-staged row for an unparseable sheet, contradicting the dashboard's "Sheets we couldn't auto-apply" panel split (`pending_ingestions` rows = "couldn't parse"; first-seen `pending_syncs` rows = "parsed but needs review").
+  - First-seen sheet (no `shows` row) AND MI-1..MI-5b all pass → routes to STAGE outcome regardless of MI-6..MI-14 — `triggered_review_items` includes the `FIRST_SEEN_REVIEW` sentinel (AC-6.11). The "regardless of MI invariants" rationale applies ONLY to the MI-6..MI-14 stage-vs-pass decision; MI-1..MI-5b hard fails come first per the precedence above.
+  - Onboarding-scan mode AND MI-1..MI-5b all pass AND otherwise auto-apply-eligible → STAGE with `ONBOARDING_SCAN_REVIEW` sentinel. Onboarding-scan AND MI-1..MI-5b hard fail → UPSERT `pending_ingestions` (no `ONBOARDING_SCAN_REVIEW` emitted) — same precedence rule.
   - **MI-1..MI-5b** hard fail on first-seen sheet → UPSERT `pending_ingestions` (AC-3.3). **MI-5b duplicate emails are a hard fail (final-validation finding)** — earlier draft text only enumerated MI-1..MI-5a, which lets a duplicate-email parse slip through to staging or auto-apply where the partial unique index catches it as a DB error rather than a clean MI hard-fail. Routing MI-5b through the same hard-fail branch produces a clean `pending_ingestions` row with the right operator-facing message and stops ambiguous-identity changes before they reach Phase 2.
   - **MI-1..MI-5b** hard fail on existing show → status-only UPDATE on `shows`; no destructive writes; `last_seen_modified_time` unchanged.
   - MI-5b duplicate-email Phase-1 routing test (final-validation finding): synthesize a parse with two `crew_members` rows whose canonicalized emails collide. Assert (a) Phase 1 returns hard_fail with code `MI-5b`, (b) NO row was written to `pending_syncs`, (c) NO Phase 2 code path was reached, (d) on first-seen, a `pending_ingestions` row with the duplicate-email message was UPSERTed.
@@ -2820,6 +4047,7 @@ Phase 1 decides one of three outcomes (hard fail / stage / pass). It must NEVER 
   - `shows_internal` UPSERT for financials + parse_warnings + raw_unrecognized.
   - First-seen Apply DELETEs matching `pending_ingestions` row.
 - [ ] **Step 3: Implement** the Phase 2 SQL in the order specified by §5.2 phase 2. Pull the SQL verbatim into `lib/sync/applyParseResult.ts` so it's reusable from M2's seed script (which currently uses a slim version).
+- [ ] **Step 3b: Same-revision binding stamp regression (M3+M4 batch-11 finding)**: assert Phase 2 stamps `shows.last_seen_modified_time` (and any staged-row's `pending_syncs.staged_modified_time`) from `binding.modifiedTime` provided by the orchestrator (captured at the same `binding.headRevisionId` re-verified by Task 6.6), NOT from `fileMeta.modifiedTime` (the `files.list` row, which can be stale by the time enrichment finishes). Test: synthesize a Drive scenario where `files.list.modifiedTime = T0` and `binding.modifiedTime = T1` (T1 > T0 — sheet was edited between list and binding-capture); after Apply, `shows.last_seen_modified_time === T1`. Without this test, an implementation that uses `fileMeta.modifiedTime` as the persisted stamp violates §5.2 step 5.
 - [ ] **Step 4: Commit** `feat(sync): phase 2 — destructive snapshot (§5.2)`.
 
 ### Task 6.6: `runScheduledCronSync` entry point + Vercel cron route (§5.1, AC-6.1..6.4, AC-6.9..6.12)
@@ -2829,6 +4057,8 @@ Phase 1 decides one of three outcomes (hard fail / stage / pass). It must NEVER 
 **Pipeline contract (final-validation finding).** `perFileProcessor` owns gating only (Task 6.3 scope clarification). The orchestrator explicitly owns the full pipeline below. An earlier draft of this task said "call perFileProcessor() and stop" — read literally, that allows an implementation to satisfy the milestone while NEVER running parse / enrichment / Phase 1 / Phase 2. The corrected per-file flow is mandatory.
 
 **Single-transaction lock contract (final-validation finding).** Postgres advisory `pg_try_advisory_xact_lock` releases at COMMIT/ROLLBACK. If Phase 1 and Phase 2 each open and close their own transaction, the lock dies between them, opening the race spec §5.2 explicitly forbids. The orchestrator owns ONE transaction that spans lock acquisition through Phase 2 commit/rollback; both phase helpers receive that connection/transaction context as an argument. `runPhase1(tx, ...)` and `runPhase2(tx, ...)` MUST NOT begin or commit transactions internally; they only execute SQL on the passed-in connection.
+
+**`processOneFile` lock-owner split (M6 batch-10 fix-3, M6 batch-11 finding 3 brand amendment).** `processOneFile` (the locked outer wrapper) calls `withShowLock(driveFileId, fn, { tryOnly: true })` (Task 6.7's branded helper — see "Branded `LockedShowTx<T>`" subsection there) and passes the resulting `LockedShowTx<Tx>` to `processOneFile_unlocked`. To support routes that ALREADY own the per-show lock (Task 10.6's dashboard pending-ingestions retry route, Task 6.7's `runManualSyncForShow_unlocked`), this task ALSO ships a peer **`processOneFile_unlocked(tx: LockedShowTx<Tx>, driveFileId, mode, fileMeta)`** — the lock-free body that accepts a branded externally-managed `LockedShowTx<Tx>` (M6 batch-11 finding 3, NOT a raw `Tx`), runs gate → parseSheet → enrichWithDrivePins → `runPhase1_unlocked(lockedTx, ...)` → `runPhase2_unlocked(lockedTx, ...)` on it, and MUST NOT call `pg_*advisory*_lock` / BEGIN / COMMIT / ROLLBACK / open a fresh connection. The locked `processOneFile` is implemented as `withShowLock(driveFileId, lockedTx => processOneFile_unlocked(lockedTx, ...), { tryOnly: true })`; on `{ skipped: 'CONCURRENT_SYNC_SKIPPED' }` it logs and returns. **Step 1 adds three failing tests mirroring the Task 6.7 `_unlocked` contract** (M6 batch-11 finding 3 expansion): (i) `processOneFile_unlocked` with a pre-locked `LockedShowTx<Tx>` runs end-to-end AND fails if it attempts any `pg_*advisory*_lock` call OR any transaction-boundary statement (`BEGIN`/`COMMIT`/`ROLLBACK`); (ii) **TypeScript compile-time test**: `processOneFile_unlocked(rawTx, ...)` produces a TS2345 type error because `Tx` is not assignable to `LockedShowTx<Tx>`; (iii) **DEV runtime ownership assertion**: force-cast a raw `tx` to `LockedShowTx<Tx>` (no lock acquired) and call `processOneFile_unlocked` with it — assert it throws `LOCK_OWNERSHIP_ASSERTION_FAILED` via `withShowLock`'s `assertShowLockHeld` (`pg_locks` query). Same brand contract applies to `runPhase1_unlocked` and `runPhase2_unlocked`.
 
 ```ts
 // lib/sync/runScheduledCronSync.ts — for each file in folder:
@@ -2853,13 +4083,31 @@ async function processOneFile(driveFileId: string, fileMeta: FileMeta, mode: Syn
     return;
   }
 
-  // 2. Fetch — pre-parse Drive failure path (final-validation finding).
+  // 2a. Capture binding revision FIRST — same-revision binding contract per §5.2 (M3+M4 batch-11
+  //     finding). All subsequent Drive reads (markdown export, enrichment substeps) MUST be pinned
+  //     to this binding.headRevisionId. The post-enrichment re-verify (step 5 below) detects
+  //     mid-flight edits BEFORE Phase 1 commits any outcome.
+  let binding: { headRevisionId: string; modifiedTime: string };
+  try {
+    const bindingRead = await getDriveClient().files.get(
+      driveFileId,
+      { fields: 'headRevisionId,modifiedTime', supportsAllDrives: true }
+    );
+    binding = { headRevisionId: bindingRead.headRevisionId, modifiedTime: bindingRead.modifiedTime };
+  } catch (err) {
+    await handleDriveFetchFailure(driveFileId, err);
+    return;
+  }
+
+  // 2. Fetch — pre-parse Drive failure path (final-validation finding) + same-revision binding
+  //    (M3+M4 batch-11 finding). Markdown export is pinned to binding.headRevisionId — preferred
+  //    via revisions.export when supported; otherwise files.export + immediate head re-verify.
   // Spec §5.2/§5.3 requires: existing show → status-only `drive_error` UPDATE; first-seen → UPSERT
   // pending_ingestions(DRIVE_FETCH_FAILED). Earlier draft went straight from fetch → parse and
   // never specified the failure branch.
   let markdown: string;
   try {
-    markdown = await fetchSheetAsMarkdown(driveFileId);   // exportAsMarkdown wrapper; throws on 4xx/5xx/network
+    markdown = await fetchSheetAsMarkdownAtRevision(driveFileId, binding.headRevisionId);
   } catch (err) {
     await handleDriveFetchFailure(driveFileId, err);      // see helper below
     return;
@@ -2868,8 +4116,26 @@ async function processOneFile(driveFileId: string, fileMeta: FileMeta, mode: Syn
   // 3. Parse (round-43 type split: parseSheet returns ParsedSheet — pure, no Drive).
   const parsed = parseSheet(markdown);
 
-  // 4. Enrichment (round-43 type split: enrichWithDrivePins returns ParseResult).
-  const parseResult = await enrichWithDrivePins(parsed, getDriveClient(), { driveFileId, fileMeta });
+  // 4. Enrichment (round-43 type split: enrichWithDrivePins returns ParseResult). Substeps run
+  //    against binding.headRevisionId per §5.2's same-revision binding contract.
+  const parseResult = await enrichWithDrivePins(parsed, getDriveClient(), { driveFileId, fileMeta, binding });
+
+  // 4a. Final binding re-verify — M3+M4 batch-11 finding. If the head has advanced since binding
+  //     capture (Doug edited mid-flight), abort with STAGED_PARSE_REVISION_RACE BEFORE entering
+  //     Phase 1; do NOT advance any watermark; the next cron pass picks it up with a fresh binding.
+  const reVerify = await getDriveClient().files.get(
+    driveFileId,
+    { fields: 'headRevisionId,modifiedTime', supportsAllDrives: true }
+  );
+  if (reVerify.headRevisionId !== binding.headRevisionId) {
+    logSyncOutcome({
+      kind: 'skip',
+      reason: 'STAGED_PARSE_REVISION_RACE',
+      driveFileId,
+      payload: { staged: binding.headRevisionId, current: reVerify.headRevisionId },
+    });
+    return;   // do NOT enter the transaction; nothing to commit; nothing to advance.
+  }
 
   // 5. Single transaction spans lock + Phase 1 + Phase 2 commit/rollback.
   await withShowSyncTransaction(async (tx) => {
@@ -2881,14 +4147,17 @@ async function processOneFile(driveFileId: string, fileMeta: FileMeta, mode: Syn
       return;
     }
 
-    // Phase 1 — receives the resolved mode (NOT the original caller mode).
-    const phase1 = await runPhase1(tx, { mode: resolvedMode, driveFileId, parseResult, fileMeta });
+    // Phase 1 — receives the resolved mode (NOT the original caller mode) + binding for
+    //   stamping `pending_syncs.staged_modified_time` from binding.modifiedTime per §5.2 step 5.
+    const phase1 = await runPhase1(tx, { mode: resolvedMode, driveFileId, parseResult, fileMeta, binding });
     if (phase1.outcome === 'hard_fail' || phase1.outcome === 'stage') return;
 
     // Phase 2 — destructive snapshot replacement; receives resolvedMode so `recovery` mode uses
     // the relaxed `<=` monotonic guard (a re-shared sheet with unchanged modtime can advance
-    // last_seen_modified_time and clear `sheet_unavailable`).
-    await runPhase2(tx, { mode: resolvedMode, driveFileId, parseResult, fileMeta });
+    // last_seen_modified_time and clear `sheet_unavailable`). `binding.modifiedTime` is the
+    // authoritative source for `shows.last_seen_modified_time` per §5.2 step 5 — NOT
+    // `fileMeta.modifiedTime` (which is the `files.list` row, possibly stale by now).
+    await runPhase2(tx, { mode: resolvedMode, driveFileId, parseResult, fileMeta, binding });
     // sync_audit is NOT written by auto-sync paths — Apply-only per §6.8.3.
   });
 }
@@ -2916,17 +4185,48 @@ async function handleDriveFetchFailure(driveFileId: string, err: unknown): Promi
       `SELECT id, last_sync_status, last_synced_at FROM shows WHERE drive_file_id = $1 LIMIT 1`, [driveFileId]
     );
     if (showRow) {
+      // **Existing-show stage-wins guard (M6 batch-9 retry-2 finding; M6 batch-10 read-side scope).**
+      // Before clobbering `last_sync_status` with `'drive_error'`, check for a concurrent successful
+      // Phase-1 stage: a LIVE `pending_syncs` row for this drive_file_id (existing-show re-stage)
+      // OR an already `pending_review` status backed by such a row. The earlier amendment guarded
+      // only the first-seen branch with this race-detection; the existing-show branch had the same
+      // hole. A slower fetch-failure write that lands AFTER a successful Phase-1 stage would
+      // overwrite `pending_review` with `drive_error`, hiding the legitimate review surface from
+      // the admin queue and leaving the staged row orphaned with a contradictory show status.
+      // **The `AND wizard_session_id IS NULL` predicate is mandatory (M6 batch-10):** the
+      // automatic-path fetch-failure handler MUST NOT inspect wizard-partition rows. An
+      // onboarding-staged row for a candidate folder must not suppress real fetch-failure status
+      // writes for the live folder's show — the wizard's partition is not the live folder's
+      // authoritative outcome. Read scoped to the live partition only.
+      const concurrentExistingStage = await tx.queryOne(
+        `SELECT 1 FROM pending_syncs WHERE drive_file_id = $1 AND wizard_session_id IS NULL LIMIT 1`, [driveFileId]
+      );
+      if (concurrentExistingStage) {
+        await insertSyncLog(tx, {
+          show_id: showRow.id,
+          drive_file_id: driveFileId,
+          kind: 'drive_fetch_failed_superseded_by_stage',
+          payload: { error: formatError(err), reason: 'concurrent_pending_syncs_row_existing_show' },
+        });
+        return;   // skip the shows UPDATE — stage wins
+      }
+
       // Existing show — status-only UPDATE; do NOT advance last_seen_modified_time.
       // CAS guard: only overwrite if the show isn't currently in a fresher 'ok' state from a
       // concurrent successful sync. (last_synced_at is updated on every successful sync; if it's
       // newer than this fetch attempt, the success won the race and we shouldn't clobber.)
+      // The second predicate `last_sync_status NOT IN ('pending_review')` guards the rare race
+      // where a concurrent stage commits AND deletes its own pending_syncs row (Apply path)
+      // between our concurrentExistingStage check and this UPDATE — defense in depth so the
+      // drive_error never overwrites a status that reflects a stage outcome.
       await tx.execute(
         `UPDATE shows
             SET last_sync_status = 'drive_error',
                 last_sync_error  = $2,
                 last_sync_attempted_at = now()
           WHERE id = $1
-            AND (last_synced_at IS NULL OR last_synced_at < $3)`,   // CAS: a fresher success wins
+            AND (last_synced_at IS NULL OR last_synced_at < $3)
+            AND last_sync_status IS DISTINCT FROM 'pending_review'`,   // CAS: a fresher success wins; stage wins
         [showRow.id, formatError(err), fetchAttemptStartTime]
       );
       await insertSyncLog(tx, { show_id: showRow.id, drive_file_id: driveFileId, kind: 'drive_fetch_failed', payload: { error: formatError(err) } });
@@ -2938,8 +4238,15 @@ async function handleDriveFetchFailure(driveFileId: string, err: unknown): Promi
       // (a more recent fetch succeeded and parsed). Without this guard, a slow fetch-failure path
       // can race and create a contradictory ghost pending_ingestions row alongside the legitimate
       // pending_syncs row, breaking admin-queue accounting.
+      // **M6 batch-10 read-side scope**: the race-detection SELECT and the pending_ingestions UPSERT
+      // both target the LIVE PARTITION (`AND wizard_session_id IS NULL` for the SELECT;
+      // `wizard_session_id = NULL` on insert; `ON CONFLICT (drive_file_id) WHERE wizard_session_id
+      // IS NULL` for the upsert target). An onboarding wizard's pending_syncs row in the wizard
+      // partition is NOT the live folder's authoritative outcome, and the wizard partition's
+      // pending_ingestions row is NOT the live folder's brand-new failure state — the live folder's
+      // automatic path is owned by the live partition exclusively.
       const concurrentStage = await tx.queryOne(
-        `SELECT 1 FROM pending_syncs WHERE drive_file_id = $1 LIMIT 1`, [driveFileId]
+        `SELECT 1 FROM pending_syncs WHERE drive_file_id = $1 AND wizard_session_id IS NULL LIMIT 1`, [driveFileId]
       );
       if (concurrentStage) {
         await insertSyncLog(tx, {
@@ -2950,15 +4257,21 @@ async function handleDriveFetchFailure(driveFileId: string, err: unknown): Promi
         });
         return;   // skip the pending_ingestions UPSERT — stage wins
       }
+      // M6 batch-10 fix-2: populate last_seen_modified_time so a later defer_until_modified
+      // discard can read the watermark off this row. Drive `modifiedTime` is captured from the
+      // pre-fetch metadata that the listing/`files.get` call returned; if the failure occurred
+      // BEFORE we saw any metadata for the file (e.g., listing-side error), pass NULL — the
+      // discard route's MISSING_PENDING_INGESTION_MODTIME guard will surface the rare case.
       await tx.execute(
-        `INSERT INTO pending_ingestions (drive_file_id, last_error_code, last_error_message, last_attempt_at)
-           VALUES ($1, 'DRIVE_FETCH_FAILED', $2, now())
-         ON CONFLICT (drive_file_id) DO UPDATE
+        `INSERT INTO pending_ingestions (drive_file_id, wizard_session_id, last_error_code, last_error_message, last_attempt_at, last_seen_modified_time)
+           VALUES ($1, NULL, 'DRIVE_FETCH_FAILED', $2, now(), $3)
+         ON CONFLICT (drive_file_id) WHERE wizard_session_id IS NULL DO UPDATE
            SET last_error_code = EXCLUDED.last_error_code,
                last_error_message = EXCLUDED.last_error_message,
                last_attempt_at = EXCLUDED.last_attempt_at,
-               attempt_count = pending_ingestions.attempt_count + 1`,
-        [driveFileId, formatError(err)]
+               attempt_count = pending_ingestions.attempt_count + 1,
+               last_seen_modified_time = COALESCE(EXCLUDED.last_seen_modified_time, pending_ingestions.last_seen_modified_time)`,
+        [driveFileId, formatError(err), fileMeta?.modifiedTime ?? null]
       );
       await insertSyncLog(tx, { show_id: null, drive_file_id: driveFileId, kind: 'drive_fetch_failed_first_seen', payload: { error: formatError(err) } });
     }
@@ -2980,6 +4293,11 @@ This contract is **identical for cron, manual, and push** entry points (Tasks 6.
   - AC-6.11: first-seen → `pending_syncs` row with `FIRST_SEEN_REVIEW`.
   - AC-6.12: Realtime publish on `show:<id>`.
   - **End-to-end pipeline test (final-validation finding)**: edit a fixture sheet's Drive `modifiedTime`; run `runScheduledCronSync()`; assert (a) `parseSheet` was invoked, (b) `enrichWithDrivePins` was invoked AFTER parseSheet, (c) the staged or persisted row carries the enriched ParseResult fields (Drive pins for reel + diagrams), (d) Phase 2 ran (`sync_log` row inserted, `last_seen_modified_time` advanced, Realtime published on `show:<id>`). **Do NOT assert `sync_audit` row** — `sync_audit` is Apply-only per §6.8.3; auto-sync writes only `sync_log`. Without this end-to-end, an implementation that wires fetch but skips parse/enrich/phase1/phase2 still passes AC-6.1..6.12.
+  - **Same-revision binding race regression (M3+M4 batch-11 finding)**: instrument the Drive client mock to return `headRevisionId = R1` on the first `files.get` (binding capture), serve markdown bytes pinned to R1, run `enrichWithDrivePins` against R1, THEN return `headRevisionId = R2` (different value) on the post-enrichment `files.get` re-verify. Assert (a) the orchestrator emits `STAGED_PARSE_REVISION_RACE` to `sync_log` with payload `{ staged: 'R1', current: 'R2' }`, (b) NO row was written to `pending_syncs` / `pending_ingestions` / `shows` (no commit), (c) `last_seen_modified_time` is unchanged, (d) `runPhase1` was NOT invoked (assert via spy). The next cron pass (with the mock now stable at R2) re-stages from start with a fresh binding. **Without this regression test**, an implementation that calls `enrichWithDrivePins` on a stale binding would silently produce a `ParseResult` whose row data describes R1 while its pins describe R2; that mismatch would then commit at Apply with no detection. The test must use the binding-capture / markdown-export / enrichment / re-verify split exactly — not just any "modtime advanced" race, since the older modtime-only check (round-44 retired) wouldn't catch a `headRevisionId` mismatch with an unchanged modtime.
+  - **Same-revision binding extended-classification regressions (M3+M4 batch-12 finding)**: in addition to the head-mismatch case above, exercise EACH of the four additional `STAGED_PARSE_REVISION_RACE` trigger classes per spec §5.2 + §12.4 — for each, assert the orchestrator emits `STAGED_PARSE_REVISION_RACE` (NOT generic `drive_error`), no commit, no watermark advance, `runPhase1` not invoked. (a) **`revisions.export` 404 mid-flight**: capture `binding.headRevisionId = R1`; subsequent `revisions.export(driveFileId, R1, mimeType)` returns 404 (revision retired). (b) **`spreadsheets.get` 404 mid-flight**: enrichment-time `spreadsheets.get` for the bound revision returns 404. (c) **`drive.revisions.list` missing bound revision**: call succeeds but returned list does NOT include `binding.headRevisionId` (revision trimmed). (d) **enrichment-time pinned read 404**: a per-asset `revisions.get`/`revisions.export` returns 404 specifically because the bound revision is gone (NOT because the file is gone — that case must still produce `STAGED_PARSE_SOURCE_GONE`). For each, also assert the FILE-gone case (`files.get` returning 404 on the file itself) is correctly classified as `STAGED_PARSE_SOURCE_GONE` and NOT confused with `STAGED_PARSE_REVISION_RACE`. Without these regressions, classifying any of (a)–(d) as generic `drive_error` would write `last_sync_status = 'drive_error'` instead of leaving the row untouched for the next cron pass to converge.
+  - **Revision-race cooldown gate (M3+M4 batch-13 finding 4)**: stage a fixture where the binding race fires twice against the SAME `(drive_file_id, head_revision_id = R1)` from cron. (a) **First race**: assert `STAGED_PARSE_REVISION_RACE` emitted AND `revision_race_cooldowns` UPSERTed with `(drive_file_id, R1, last_race_at = now(), retry_count = 1)`. (b) **Second pass within 60s**: cron consults the cooldown table, computes `cooldown_seconds = LEAST(60 * 2^1, 600) = 120s`, AND skips with `STAGED_PARSE_REVISION_RACE_COOLDOWN` (admin-log-only) — assert `runPhase1` NOT invoked AND no Drive `revisions.export` / `spreadsheets.get` calls fire. (c) **Exponential backoff progression**: simulate 5 races in succession (advance time past each cooldown); assert `cooldown_seconds` follows `60, 120, 240, 480, 600` (capped at 600) and `retry_count` advances `1, 2, 3, 4, 5`. (d) **Different `head_revision_id` is independent**: a race against `(drive_file_id, R2)` while `(drive_file_id, R1)` is in cooldown succeeds at the gate (composite-PK isolation). (e) **Successful Phase 2 commit clears cooldown**: simulate a successful sync after 3 races on `(drive_file_id, R1)`; assert `DELETE FROM revision_race_cooldowns WHERE drive_file_id = $1` is issued post-commit AND a subsequent race starts at `retry_count = 1` (not 4). (f) **Manual override**: `runManualSyncForShow(driveFileId)` while a cooldown is live for that `drive_file_id` MUST skip the cooldown gate (admin override) AND still clear matching rows on success. (g) **Push path same gate**: same assertions for `runPushSyncForShow` (push + cron share the gate; manual does not). Without these regressions, a hot sheet (Doug repeatedly editing) would burn Drive API quota indefinitely with no convergence.
+  - **Existing-show stage-wins regression (M6 batch-9 retry-2 finding)**: Worker A successfully completes Phase 1 stage for an existing show (`shows.last_sync_status` = `'pending_review'`, fresh `pending_syncs` row exists); concurrently Worker B's `fetchSheetAsMarkdown` rejects (Drive 503) AFTER Worker A's commit. Worker B enters `handleDriveFetchFailure`. Assert: (a) Worker B's pre-UPDATE `pending_syncs` re-read finds the row, (b) Worker B logs a `drive_fetch_failed_superseded_by_stage` sync_log entry with kind discriminator `concurrent_pending_syncs_row_existing_show`, (c) Worker B does NOT touch `shows.last_sync_status` (it stays at `'pending_review'`, NOT `'drive_error'`), (d) the staged `pending_syncs` row is preserved, (e) the `drive_error` is NOT persisted as the show's status. Without this regression, the slower fetch-failure path can clobber a successful Phase-1 stage's `'pending_review'` with `'drive_error'`, hiding the legitimate review surface from the admin queue.
+  - **Coexistence regression — wizard row + live row both with distinct `staged_modified_time` (M6 batch-10 finding)**: stage a LIVE `pending_syncs` row for `drive_file_id = X` (`wizard_session_id = NULL`, `staged_modified_time = T_live`) AND a wizard `pending_syncs` row for the same `drive_file_id` (`wizard_session_id = W1`, `staged_modified_time = T_wizard != T_live`). Run cron's automatic-path watermark calc for X. Assert: (a) the watermark lookup uses ONLY `T_live` (the lookup query carries `AND wizard_session_id IS NULL`), NOT `GREATEST(T_live, T_wizard)`. (b) the existing-show stage-wins guard inside `handleDriveFetchFailure` re-reads ONLY the live partition; the wizard row is invisible to the guard. (c) the first-seen race-detection (with `shows` row absent variant) re-reads ONLY the live partition. (d) The dashboard's "Sheets we couldn't auto-apply" SELECT and the Active Shows panel's "Review staged changes" join both filter `WHERE wizard_session_id IS NULL` and surface ONLY the live row. (e) The wizard's step-3 manifest renderer + finalize gate scope by `wizard_session_id = W1` and surface ONLY the wizard row. **Without this scope**, an unscoped read returns BOTH rows, the watermark calc could pick up `T_wizard` and skip legitimate live-cron processing OR miss a live stage and re-stage every pass; the fetch-failure superseded-by-stage detector could be tricked by a wizard row into suppressing real live `drive_error` writes. The four assertions above each fail without the per-site scope predicate.
 - [ ] **Step 2: Implement** `runScheduledCronSync()` per the pipeline contract above. Inside: `listFolder()` → for each file run `processOneFile(driveFileId, 'cron', fileMeta)` (the shared helper) → after the loop run §5.2 step 4 (removed-sheet detection via diff).
 - [ ] **Step 3: Add `vercel.json`** with the cron schedules (`*/5 * * * *` for sync; `0 12 * * *` for keepalive; `0 * * * *` for refresh-watch; `15 * * * *` for gc-watch; `30 * * * *` for diagram-gc).
 - [ ] **Step 4: Commit** `feat(sync): runScheduledCronSync + cron routes (§5.1)`.
@@ -2988,11 +4306,101 @@ This contract is **identical for cron, manual, and push** entry points (Tasks 6.
 
 **Files:** Create: `lib/sync/runManualSyncForShow.ts`, `app/api/admin/sync/[slug]/route.ts`.
 
+**Lock-owner split (M6 batch-10 fix-3): two helpers, ONE lock owner per call chain.** Earlier draft of `runManualSyncForShow` was the lone manual-mode entry point and acquired its own per-show advisory lock internally. The dashboard pending-ingestions retry route (Task 10.6) wanted to ALSO acquire the lock at the route layer (for fast 409 on contention), but composing the two produced a self-conflict: the route's blocking `pg_advisory_xact_lock` would acquire successfully, then the inner helper's `pg_try_advisory_xact_lock` against the SAME key returns true (same session re-entrant) but a SECOND parallel route call would BLOCK on the route's outer blocking lock instead of returning 409. To make lock-acquisition the route's responsibility cleanly, this task ships TWO helpers:
+
+- **`runManualSyncForShow_unlocked(tx, driveFileId, mode='manual')`** — the **lock-free inner body**. Accepts an externally-managed `tx` (with the lock already held by the caller). Runs `files.get(driveFileId)` → `processOneFile_unlocked(tx, driveFileId, 'manual', fileMeta)` (the lock-free variant of Task 6.6's `processOneFile` — same lock-extraction split applies there: caller owns the lock; `processOneFile_unlocked` runs gate → parseSheet → enrichWithDrivePins → Phase 1 → Phase 2 on the passed-in `tx`). MUST NOT call `pg_try_advisory_xact_lock` / `pg_advisory_xact_lock`, MUST NOT BEGIN/COMMIT/ROLLBACK, MUST NOT open a fresh DB connection.
+- **`runManualSyncForShow(driveFileId, mode='manual')`** — the **locked outer wrapper**. Opens its own `withShowSyncTransaction` and calls `pg_try_advisory_xact_lock(hashtext('show:' || $driveFileId))`. On lock acquisition, calls `runManualSyncForShow_unlocked(tx, driveFileId, mode)`. On lock-acquisition failure logs `CONCURRENT_SYNC_SKIPPED` and returns. **Used by**: existing admin "Re-sync" route at `/admin/show/<slug>` AND recovery path when a `sheet_unavailable` show reappears. **NOT used by** the dashboard retry route (Task 10.6) — that route owns its own lock acquisition and calls `runManualSyncForShow_unlocked` directly to avoid double-acquisition.
+
+This split is symmetric with Task 6.6's `runPhase1(tx, ...)` / `runPhase2(tx, ...)` "callee never acquires the lock" contract. The `_unlocked` suffix is a hard naming convention; **but a naming convention alone is unforgeable only at code-review time, not at runtime — a future caller could pass a raw `Tx` without holding the lock and the type system would silently accept it (M6 batch-11 finding 3, mandatory).** To make lock ownership unforgeable end-to-end, this plan defines an opaque branded transaction type and routes EVERY `_unlocked` helper through it.
+
+**Branded `LockedShowTx<T extends Tx>` (M6 batch-11 finding 3, mandatory).**
+
+```ts
+// lib/sync/lockedShowTx.ts
+declare const LockedShowTxBrand: unique symbol;
+export type LockedShowTx<T extends Tx = Tx> = T & {
+  readonly [LockedShowTxBrand]: { driveFileId: string };
+};
+
+/**
+ * The ONLY way to obtain a `LockedShowTx<Tx>`. Acquires
+ * `pg_advisory_xact_lock(hashtext('show:' || driveFileId))` (or `pg_try_advisory_xact_lock`
+ * via the variant below) and passes the branded value to `fn`. The brand cannot be
+ * forged from outside this module; any external `as LockedShowTx<Tx>` cast trips the
+ * runtime DEV assertion below.
+ */
+export async function withShowLock<R>(
+  driveFileId: string,
+  fn: (tx: LockedShowTx<Tx>) => Promise<R>,
+  opts?: { tryOnly?: boolean }
+): Promise<R | { skipped: 'CONCURRENT_SYNC_SKIPPED' }> {
+  return withShowSyncTransaction(async (tx) => {
+    const acquired = opts?.tryOnly
+      ? (await tx.queryOne<{ pg_try_advisory_xact_lock: boolean }>(
+          `SELECT pg_try_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]
+        )).pg_try_advisory_xact_lock
+      : (await tx.execute(`SELECT pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]), true);
+    if (!acquired) return { skipped: 'CONCURRENT_SYNC_SKIPPED' as const };
+    if (process.env.NODE_ENV !== 'production') await assertShowLockHeld(tx, driveFileId);
+    const branded = tx as LockedShowTx<Tx>;
+    return await fn(branded);
+  });
+}
+
+/**
+ * DEV-only runtime assertion: queries `pg_locks` to verify the advisory lock for the
+ * passed driveFileId is currently held by THIS session. Throws
+ * `LOCK_OWNERSHIP_ASSERTION_FAILED` (new internal-only sync_log code; admin-invisible)
+ * when the lock is missing — defends against the case where a future refactor casts a
+ * raw `Tx` to `LockedShowTx<Tx>` to bypass the type-system gate. Skipped in production
+ * for performance; the type system carries the contract in prod.
+ */
+async function assertShowLockHeld(tx: Tx, driveFileId: string): Promise<void> {
+  const lockKey = await tx.queryOne<{ key: number }>(
+    `SELECT (hashtext('show:' || $1))::bigint AS key`, [driveFileId]
+  );
+  const held = await tx.queryOne<{ count: number }>(
+    `SELECT count(*)::int FROM pg_locks
+       WHERE locktype = 'advisory' AND objid = $1::bigint
+         AND pid = pg_backend_pid() AND granted = true`,
+    [lockKey.key]
+  );
+  if (held.count === 0) throw new Error('LOCK_OWNERSHIP_ASSERTION_FAILED');
+}
+```
+
+Every `_unlocked` helper in this plan (`runPhase1_unlocked`, `runPhase2_unlocked` per Task 6.6, `processOneFile_unlocked` per Task 6.6, `runManualSyncForShow_unlocked` per Task 6.7, the dashboard retry route's helpers per Task 10.6, and Task 6.12 Discard's inner body) MUST accept `LockedShowTx<Tx>` instead of `Tx`. The locked outer wrappers (`runManualSyncForShow`, `processOneFile`, the existing-show Apply / Discard routes) call `withShowLock(driveFileId, fn)` once at the top of the request and pass the branded `LockedShowTx<Tx>` down. This makes lock ownership an unforgeable invariant: a caller cannot type-check a call to `runManualSyncForShow_unlocked(rawTx, ...)` because `rawTx: Tx` is not assignable to `LockedShowTx<Tx>`. The runtime DEV check catches the residual case where a refactor casts to bypass the type system.
+
+**Failing tests (Step 1 below) MUST include**: (i) a TypeScript compile-time test (typed-test fixture) that asserts `runManualSyncForShow_unlocked(rawTx)` produces a TS2345 type error; (ii) a runtime DEV-mode test that calls `runManualSyncForShow_unlocked(rawTx as unknown as LockedShowTx<Tx>)` (forced cast) WITHOUT the lock acquired and asserts the helper throws `LOCK_OWNERSHIP_ASSERTION_FAILED`; (iii) the existing "no `pg_*advisory*_lock` call" assertion stays — `_unlocked` helpers MUST never reach for the lock themselves.
+
+The `_unlocked` suffix is retained as the human-readable naming convention; the brand is the machine-enforced contract.
+
 - [ ] **Step 1: Failing tests (AC-6.5..6.6)**
+  - **`_unlocked` variant — caller-owned-lock contract (M6 batch-10 fix-3)**: pass a `LockedShowTx<Tx>` (M6 batch-11 finding 3) whose advisory lock is already held by the caller. Assert `runManualSyncForShow_unlocked(lockedTx, driveFileId, 'manual')` runs end-to-end on that `tx` AND fails the test if the helper itself attempts any `pg_*advisory*_lock` call (mock `tx.queryOne` to throw on a regex matching `pg_.*advisory.*lock`). Mirror Task 6.6's `runPhase1` lock-acquisition refusal test. Same contract for the lock-free `processOneFile_unlocked` peer.
+  - **`_unlocked` variant — type-system unforgeability (M6 batch-11 finding 3, mandatory)**: TypeScript compile-time test asserts `runManualSyncForShow_unlocked(rawTx, ...)` (where `rawTx: Tx`) produces a TS2345 type error because `Tx` is not assignable to `LockedShowTx<Tx>`. Use the `expectTypeOf` (vitest) or `tsd` typed-test approach so the error is asserted at type-check time, not runtime. The same compile-time test applies to `processOneFile_unlocked`, `runPhase1_unlocked`, `runPhase2_unlocked`, and any other `_unlocked` peer.
+  - **`_unlocked` variant — DEV runtime ownership assertion (M6 batch-11 finding 3, mandatory)**: in DEV mode, force-cast a raw `tx` (no lock acquired) to `LockedShowTx<Tx>` via `tx as unknown as LockedShowTx<Tx>` and call `runManualSyncForShow_unlocked` with it. Assert the helper throws `LOCK_OWNERSHIP_ASSERTION_FAILED` (the new internal-only sync_log code introduced by `withShowLock`'s DEV `assertShowLockHeld`). The check queries `pg_locks` for `(locktype='advisory', objid=hashtext('show:' || driveFileId)::bigint, pid=pg_backend_pid(), granted=true)`; zero rows triggers the throw. Same contract for `processOneFile_unlocked`. This catches the residual case where a future refactor casts past the type system. Production builds skip this check (the brand is unforgeable in TS-checked code; the runtime check is a DEV-mode safety net).
+  - **`withShowLock` happy path**: call `withShowLock(driveFileId, async (lockedTx) => …)` and assert (a) `pg_advisory_xact_lock(hashtext('show:' || driveFileId))` was issued exactly once before `fn` ran; (b) `fn` received a value branded `LockedShowTx<Tx>` (verifiable in DEV via `assertShowLockHeld`); (c) on commit the advisory lock auto-released. With `{ tryOnly: true }`: contention test — two parallel `withShowLock(driveFileId, …, { tryOnly: true })` calls; assert one resolves with the inner result, the other resolves with `{ skipped: 'CONCURRENT_SYNC_SKIPPED' }`.
+  - **`_unlocked` variant — no transaction boundaries**: pass a `tx`; assert the helper does NOT issue `BEGIN`, `COMMIT`, or `ROLLBACK`. The caller owns the transaction.
+  - **Locked outer wrapper — concurrent skip**: spawn two parallel calls to `runManualSyncForShow(driveFileId, 'manual')` against the same `driveFileId`. Assert one COMMITs the sync result; the other logs `CONCURRENT_SYNC_SKIPPED` and returns without writing anything. Same contract as `processOneFile` from Task 6.6.
   - Manual sync only fetches the targeted file; same-modtime advance succeeds and updates `last_seen_modified_time` to that same value.
   - **End-to-end pipeline test**: trigger manual sync; assert the same `processOneFile` flow ran (gate → parseSheet → enrichWithDrivePins → Phase 1 → Phase 2) per Task 6.6's pipeline contract — with `mode = 'manual'`. Manual must NOT diverge from cron's pipeline; the only differences are the file-source (`files.get` instead of `listFolder`) and the monotonic guard rule (`<=` instead of `<`).
-- [ ] **Step 2: Implement.** Calls `files.get(driveFileId)` (in place of `listFolder`); if parents check fails OR 404, record error. Then dispatches `processOneFile(driveFileId, 'manual', fileMeta)` — the shared helper from Task 6.6. **Do NOT re-implement the parse/enrich/Phase 1/Phase 2 sequence inline** — call the shared helper.
-- [ ] **Step 3: Commit** `feat(sync): runManualSyncForShow (§5.2)`.
+- [ ] **Step 2: Implement.** Implement `runManualSyncForShow_unlocked` first as the `tx`-accepting body. Then implement `runManualSyncForShow` as the locked wrapper that opens a transaction, acquires `pg_try_advisory_xact_lock`, and calls `runManualSyncForShow_unlocked(tx, ...)`. Calls `files.get(driveFileId)` (in place of `listFolder`); if parents check fails OR 404, record error. Then dispatches `processOneFile_unlocked(tx, driveFileId, 'manual', fileMeta)` — the lock-free shared helper from Task 6.6. **Do NOT re-implement the parse/enrich/Phase 1/Phase 2 sequence inline** — call the shared helper.
+- [ ] **Step 2b: M11 batch-14 finding 2 — FINALIZE_OWNED_SHOW guard.** BEFORE acquiring the per-show advisory lock (so the 409 returns instantly without waiting on a parallel finalize's lock), `runManualSyncForShow` (the locked outer wrapper) MUST check whether the target show is currently owned by an in-flight wizard finalize:
+  ```sql
+  SELECT s.published, c.status AS finalize_status
+    FROM shows s
+    LEFT JOIN onboarding_scan_manifest m ON m.drive_file_id = s.drive_file_id AND m.status = 'applied'
+    LEFT JOIN wizard_finalize_checkpoints c ON c.wizard_session_id = m.wizard_session_id
+   WHERE s.drive_file_id = $1
+   LIMIT 1;
+  ```
+  If `published = false` AND `finalize_status IN ('in_progress', 'all_batches_complete')` (Phase D has not yet committed), return HTTP 409 `FINALIZE_OWNED_SHOW` (§12.4 — new code). The route bails BEFORE any DB write or Drive call so the in-flight finalize state is unaffected. The same guard pattern propagates to: `/api/admin/show/[slug]/archive`, `/admin/show/[slug]/preview-as` (read-only access permitted; the WRITE actions on this route — e.g., resolving alerts — are gated), `/admin/show/staged/<stagedId>` Apply/Discard for the wizard partition, and the per-show staged-review Apply/Discard at `/admin/show/<slug>?review=staged_id` (Task 10.7). **Step 1 failing tests for this guard:**
+  - **Guard fires**: stage 2 sheets in W1, Apply both, run finalize batch 1 against `/finalize` (which inserts both with `published = false` and the checkpoint `status = 'in_progress'`), but DO NOT run `/finalize-cas` yet. From a separate admin session, POST to `runManualSyncForShow` for one of the freshly-minted shows. Assert (a) HTTP 409 `FINALIZE_OWNED_SHOW`; (b) no rows in `pending_syncs` with `wizard_session_id IS NULL` for that drive_file_id (the manual route bailed before any DB write); (c) `finalize-cas` still completes successfully against the unchanged interim state; (d) AFTER `finalize-cas` commits and `published = true` is durable, a fresh `runManualSyncForShow` call against the same show succeeds (the guard's predicate `shows.published = FALSE` no longer matches).
+  - **Guard does NOT fire on legitimate live shows**: a `shows` row with `published = true` (cron-minted; never went through wizard finalize) MUST allow `runManualSyncForShow` to proceed regardless of whether ANY wizard checkpoint exists for ANY other session.
+  - **Guard does NOT fire mid-Phase-A**: stage 1 sheet in W1, Apply, then call `/finalize` but cause Phase A's Drive re-verify to hang (mock `files.get` with a 30s delay). During the hang, attempt `runManualSyncForShow` for an UNRELATED live show. Assert the unrelated call succeeds (the guard predicate joins on the show's own `drive_file_id`, not "any in-flight finalize anywhere").
+  - **Concurrent guard contention**: two parallel `runManualSyncForShow` calls against a `published=false` show; both should hit the 409 in the read-only guard query (which doesn't take a lock); neither should proceed to the lock-acquisition step.
+  - **Read-only routes are NOT gated**: `GET /admin/show/<slug>` against a `published=false` show MUST return the page (with the in-flight badge / panel UI) — admins need to see what's happening.
+- [ ] **Step 3: Commit** `feat(sync): runManualSyncForShow + _unlocked variant for caller-owned lock contract + FINALIZE_OWNED_SHOW guard (§5.2, M11 batch-14 finding 2)`.
 
 ### Task 6.8: `runOnboardingScan` (§5.2, AC-10.x partial)
 
@@ -3002,8 +4410,16 @@ This contract is **identical for cron, manual, and push** entry points (Tasks 6.
 
 - [ ] **Step 1: Failing tests** — `runOnboardingScan(folderId, wizardSessionId)` `mode: 'onboarding_scan'` runs Phase 1 only; never Phase 2. Hard fails write `pending_ingestions` (with `wizard_session_id = wizardSessionId` AND `discovered_during_folder_id = folderId`). Otherwise `pending_syncs` with the `ONBOARDING_SCAN_REVIEW` sentinel AND `wizard_session_id`. Manifest rows in `onboarding_scan_manifest` carry `wizard_session_id` AND `folder_id`. **Doesn't write to `app_settings.watched_folder_id`** (that's Task 10.5's atomic promotion).
   - **Wizard-session CAS test (final-validation)**: simulate W2 taking over mid-scan by setting `app_settings.pending_wizard_session_id = W2_id` between sheets 2 and 3 of W1's scan. Assert sheets 3–5's INSERTs into `pending_syncs` / `pending_ingestions` / `onboarding_scan_manifest` ALL no-op (the `WHERE EXISTS (SELECT 1 FROM app_settings WHERE pending_wizard_session_id = $myWizardSessionId)` predicate fails). Assert W1 logs `WIZARD_SESSION_SUPERSEDED_DURING_SCAN` and exits cleanly. Final state: only W2's freshly-scanned rows survive in all three onboarding surfaces.
-- [ ] **Step 2: Implement.** Every UPSERT into `pending_syncs`, `pending_ingestions`, AND `onboarding_scan_manifest` is CAS-gated against the active `app_settings.pending_wizard_session_id`:
+- [ ] **Step 2: Implement.** Every UPSERT into `pending_syncs`, `pending_ingestions`, AND `onboarding_scan_manifest` is CAS-gated against the active `app_settings.pending_wizard_session_id` AND scoped to the wizard's own session-partition (live-row isolation, M6 batch-9 retry-2):
   ```sql
+  -- Round-50 / M6 batch-9 retry-2 amendment: REJECT writes against NULL-session rows.
+  -- Earlier draft included `OR <table>.wizard_session_id IS NULL` so onboarding-scan UPSERTs
+  -- could overwrite a pre-existing non-onboarding row (NULL-session) on the same drive_file_id.
+  -- That clause was the wizard-isolation hole: spec §9.0 explicitly allows the live folder to
+  -- keep cron-syncing while a Re-run Setup wizard runs, so a NULL-session row IS the shape of
+  -- a normal cron/push/manual-owned live row — overwriting it would let the wizard's
+  -- onboarding-only writes clobber a live show's authoritative pending_syncs / sync_log state.
+  -- The corrected ON CONFLICT predicate matches ONLY the wizard's own session partition.
   INSERT INTO <table> (..., wizard_session_id, ...)
   SELECT ..., $myWizardSessionId, ...
   WHERE EXISTS (
@@ -3011,12 +4427,58 @@ This contract is **identical for cron, manual, and push** entry points (Tasks 6.
      WHERE id = 'default'
        AND pending_wizard_session_id = $myWizardSessionId
   )
-  ON CONFLICT (...) DO UPDATE SET ...
+  ON CONFLICT (drive_file_id, wizard_session_id) WHERE wizard_session_id IS NOT NULL
+  DO UPDATE SET ...
    WHERE <table>.wizard_session_id = $myWizardSessionId
-      OR <table>.wizard_session_id IS NULL;
+  RETURNING wizard_session_id;
   ```
-  This applies to ALL THREE onboarding write surfaces — `pending_syncs`, `pending_ingestions`, `onboarding_scan_manifest`. (Task 10.3 sets `app_settings.pending_wizard_session_id` BEFORE calling this scan; Task 10.5 promotes the folder.)
-- [ ] **Step 3: Commit** `feat(sync): runOnboardingScan with wizard-session CAS (§5.2)`.
+  After the statement, **inspect the RETURNING row**: zero rows AND a successful WHERE-EXISTS gate (verified via a follow-up `SELECT pending_wizard_session_id FROM app_settings`) means no conflict — the live (NULL-session) row, if any, sits in a different partial-index slot. **M6 batch-10 fix-4 (replaces zero-RETURNING-row heuristic):** missing partial-index arbiter raises a hard SQLSTATE (`42P10` *invalid_column_reference* OR `23505` *unique_violation* against the original drive_file_id PK), NOT a zero-row return; zero RETURNING rows is the GOOD path (CAS-gate fired). Detection has TWO parts: **(A) probe schema state at scan start via `pg_indexes` BEFORE any UPSERT — if any of the four expected partial unique indexes (`pending_syncs_live_drive_file_idx`, `pending_syncs_session_drive_file_idx`, `pending_ingestions_live_drive_file_idx`, `pending_ingestions_session_drive_file_idx`) is missing, ABORT with `WIZARD_ISOLATION_INDEXES_MISSING` (NEW §12.4 code; doug-facing: "We can't safely scan your folder right now — a recent database update hasn't been applied yet. Eric has been notified; setup will be available again in a few minutes.") AND emit `sync_log` `onboarding_scan_aborted_migration_state`; do NOT issue any UPSERT.** **(B) per-row SQLSTATE catch on each wizard UPSERT**: `42P10` → kind `invalid_arbiter_inference` → `LIVE_ROW_CONFLICT`; `23505` against the original `drive_file_id` PK → kind `unique_violation_against_legacy_pk` → `LIVE_ROW_CONFLICT`; any other SQLSTATE re-throws. **Zero RETURNING rows is NEVER a `LIVE_ROW_CONFLICT` signal** — only the SQLSTATE catches in (B) surface that condition. On `LIVE_ROW_CONFLICT`: (a) emit `sync_log` entry coded `onboarding_scan_live_row_conflict` with `payload = { drive_file_id, sqlstate }`; (b) **UPSERT a row into `onboarding_scan_manifest` with `status = 'live_row_conflict'` (M6 batch-10 finding)** so the wizard finalize gate (which reads the manifest as its sole resolution-state source per §9.0 / Task 10.5) blocks promotion until the operator resolves the live row from the dashboard and re-runs the wizard. **Without the manifest write**, finalize sees nothing for the conflicted file, counts zero unresolved rows, and the folder promotes while a real live-row collision is unresolved. The manifest UPSERT carries the same wizard-session CAS gate as every other onboarding scan write (`WHERE EXISTS (SELECT 1 FROM app_settings WHERE pending_wizard_session_id = $myWizardSessionId)`); a superseded scan's conflict-manifest write is correctly no-op'd. SQL shape:
+  ```sql
+  INSERT INTO onboarding_scan_manifest
+    (folder_id, wizard_session_id, drive_file_id, mime_type, name, status)
+  SELECT $folderId, $myWizardSessionId, $driveFileId, $mimeType, $name, 'live_row_conflict'
+  WHERE EXISTS (
+    SELECT 1 FROM app_settings
+     WHERE id = 'default'
+       AND pending_wizard_session_id = $myWizardSessionId
+  )
+  ON CONFLICT (wizard_session_id, drive_file_id) DO UPDATE
+    SET status = 'live_row_conflict', transitioned_at = now();
+  ```
+  (c) surface the per-file warning in the wizard's scan summary; (d) **continue** to the next file (do NOT abort the whole scan).
+
+  **Schema decision: composite uniqueness with `wizard_session_id` (M6 batch-9 retry-2 finding).** The current spec §4.5 declares `pending_syncs.drive_file_id PRIMARY KEY` and `pending_ingestions.drive_file_id PRIMARY KEY`. With this PK shape, a wizard scan and a live row on the same drive_file_id CANNOT coexist — one row's PK rejects the other. The reviewer chose option (b) over option (a) (separate `onboarding_pending_syncs` / `onboarding_pending_ingestions` tables) for surgical impact: Task 2.2's schema migration is amended to declare composite uniqueness via TWO partial unique indexes that treat NULL as distinct from any UUID:
+  ```sql
+  -- pending_syncs: drop drive_file_id PK, add a surrogate id PK + two partial unique indexes.
+  ALTER TABLE pending_syncs DROP CONSTRAINT pending_syncs_pkey;
+  ALTER TABLE pending_syncs ADD COLUMN id uuid NOT NULL DEFAULT gen_random_uuid();
+  ALTER TABLE pending_syncs ADD CONSTRAINT pending_syncs_pkey PRIMARY KEY (id);
+  CREATE UNIQUE INDEX pending_syncs_live_drive_file_idx
+    ON pending_syncs (drive_file_id) WHERE wizard_session_id IS NULL;       -- one live row per drive_file_id
+  CREATE UNIQUE INDEX pending_syncs_session_drive_file_idx
+    ON pending_syncs (drive_file_id, wizard_session_id) WHERE wizard_session_id IS NOT NULL;
+  -- pending_ingestions: identical pattern.
+  ALTER TABLE pending_ingestions DROP CONSTRAINT pending_ingestions_pkey;
+  ALTER TABLE pending_ingestions ADD COLUMN id uuid NOT NULL DEFAULT gen_random_uuid();
+  ALTER TABLE pending_ingestions ADD CONSTRAINT pending_ingestions_pkey PRIMARY KEY (id);
+  CREATE UNIQUE INDEX pending_ingestions_live_drive_file_idx
+    ON pending_ingestions (drive_file_id) WHERE wizard_session_id IS NULL;
+  CREATE UNIQUE INDEX pending_ingestions_session_drive_file_idx
+    ON pending_ingestions (drive_file_id, wizard_session_id) WHERE wizard_session_id IS NOT NULL;
+  ```
+  Every UPSERT must specify the right partial index in `ON CONFLICT`: live-path writes (cron/push/manual `runPhase1`, `handleDriveFetchFailure`) target `(drive_file_id) WHERE wizard_session_id IS NULL` AND set `wizard_session_id = NULL` on insert; onboarding-scan writes target `(drive_file_id, wizard_session_id) WHERE wizard_session_id IS NOT NULL`. The Apply path's `SELECT FROM pending_syncs WHERE drive_file_id = $1` MUST scope by source: dashboard Apply for live rows adds `AND wizard_session_id IS NULL`; wizard step-3 Apply for onboarding rows adds `AND wizard_session_id = $myWizardSessionId`. Discard, pending_ingestions retry/defer/ignore, and the manifest-status-transition queries (Task 10.4) all carry the same scope. Task 2.2's introspection matrix (§4.5 schema check) MUST validate both partial indexes' definitions verbatim.
+
+  **Round-50 propagation matrix — every site that queries `pending_syncs` / `pending_ingestions` MUST add the source-scope predicate.** Audit set: `runPhase1` UPSERTs, `handleDriveFetchFailure` race-detection SELECTs, dashboard "Sheets we couldn't auto-apply" panel SELECT (live only — `WHERE wizard_session_id IS NULL`), Active Shows panel "Review staged changes" join (live only), Apply route SELECT (scoped by source), Discard route SELECT (scoped by source), wizard step-3 manifest renderer (onboarding only — `WHERE wizard_session_id = $myWizardSessionId`), wizard finalize gate (onboarding only), every test fixture's verification query. The introspection matrix's grep-for-pattern test catches any unscoped `SELECT FROM pending_syncs` / `pending_ingestions` in `lib/sync/**` and `app/admin/**`.
+
+  **Concurrency regression tests (M6 batch-9 retry-2 finding, both directions, mandatory):**
+  1. **Wizard UPSERT alongside live row → coexistence, live row untouched**: cron-mode `runPhase1` stages a `pending_syncs` row for `drive_file_id = X` with `wizard_session_id = NULL`. Then start wizard W1 and run `runOnboardingScan` against a folder containing X. Assert: (a) the wizard's UPSERT for X targets the `(drive_file_id, wizard_session_id) WHERE wizard_session_id IS NOT NULL` partial index — empty before this insert — and SUCCEEDS as a fresh insert (because the live row sits in a DIFFERENT partial index slot, not a conflict). (b) BOTH rows now exist for X: one with `wizard_session_id = NULL` (live), one with `wizard_session_id = W1` (wizard). (c) the live row's contents are byte-for-byte unchanged. (d) the wizard does NOT abort.
+  2. **Schema-migration-rollback at scan start → fail-fast WIZARD_ISOLATION_INDEXES_MISSING (M6 batch-10 fix-4)**: drop ALL FOUR partial indexes (full rollback simulation). Call `runOnboardingScan(folderId, wizardSessionId)`. Assert: (a) the function ABORTS BEFORE issuing any UPSERT — mock the `pending_syncs` / `pending_ingestions` / `onboarding_scan_manifest` connections to throw if any `INSERT` / `UPDATE` is issued; the scan must NOT trip the mocks; (b) `sync_log` entry coded `onboarding_scan_aborted_migration_state` is written; (c) the function raises `WIZARD_ISOLATION_INDEXES_MISSING`; (d) abort completes in <100ms (single `pg_indexes` query). The wizard surface displays the doug-facing copy from the §12.4 catalog (rendered through `messageFor`).
+  2a. **Per-row SQLSTATE rollback fallback → LIVE_ROW_CONFLICT, scan continues, finalize blocks (M6 batch-10 fix-4)**: drop ONLY the live partial index for `pending_syncs` (transient-window simulation; the schema-state probe at scan start passes if the drop happens AFTER the probe — for this test, mock the probe to return all-four-present, then drop the live index immediately before the per-row UPSERT). Replay scenario 1's wizard UPSERT alongside a pre-existing live row. Assert: (a) the wizard's UPSERT raises **SQLSTATE `42P10`** (NOT zero RETURNING rows — that's the GOOD path under the corrected design) which the per-file try/catch translates to `LIVE_ROW_CONFLICT` with kind `invalid_arbiter_inference`, (b) the live row stays unchanged, (c) the per-file `LIVE_ROW_CONFLICT` `sync_log` entry is written with `payload.sqlstate = '42P10'`, (d) **a manifest row UPSERTs with `status = 'live_row_conflict'`** (without this, finalize sees no row for the file and silently treats the conflict as resolved), (e) the scan continues with the next file. Repeat with the live partial index dropped AND the original `drive_file_id PRIMARY KEY` recreated → SQLSTATE `23505` against the live row's `drive_file_id` → kind `unique_violation_against_legacy_pk` → same `LIVE_ROW_CONFLICT` handling. Then call wizard finalize: assert it returns 409 `ONBOARDING_NOT_RESOLVED` with the conflicted `drive_file_id` in the response body. Now resolve the live row from the dashboard (Discard the live `pending_syncs` row) AND restore the partial indexes (rollforward) AND re-run `runOnboardingScan`: assert the wizard's UPSERT for X now succeeds (live partition empty), the manifest row transitions from `'live_row_conflict'` to `'staged'` / `'hard_failed'` / `'skipped_non_sheet'`, and a follow-up finalize succeeds.
+  2b. **Zero RETURNING rows is NEVER LIVE_ROW_CONFLICT (M6 batch-10 fix-4)**: with all four partial indexes present (healthy schema), trigger the wizard-session CAS gate to fire by setting `app_settings.pending_wizard_session_id = W2_id` BETWEEN W1's UPSERT preparation and execution. Assert W1's UPSERT returns **zero RETURNING rows** AND does NOT raise `LIVE_ROW_CONFLICT` (the corrected design treats zero rows as `WIZARD_SESSION_SUPERSEDED_DURING_SCAN`, not as a rollback signal); W1 logs the supersession and aborts cleanly; no manifest `status = 'live_row_conflict'` row is written for that file.
+  3. **Live cron writes during wizard run → both rows coexist**: start wizard W1 and stage an onboarding row for `drive_file_id = X` (`wizard_session_id = W1`). Then trigger cron-mode `runPhase1` for X (live folder syncs while wizard runs per spec §9.0). Assert: (a) the cron path's UPSERT into `(drive_file_id) WHERE wizard_session_id IS NULL` succeeds against the empty live-partition slot. (b) BOTH rows now exist in `pending_syncs` for X. (c) the dashboard's "Sheets we couldn't auto-apply" panel queries with `WHERE wizard_session_id IS NULL` and shows ONLY the live row. (d) the wizard's step-3 query with `WHERE wizard_session_id = W1` shows ONLY the onboarding row. (e) the wizard's finalize gate counts ONLY the onboarding row in its unresolved-set query. (f) Apply on the live row from the dashboard runs Phase 2 normally without touching the onboarding row. (g) Apply on the wizard row runs Phase 1-only without touching the live row.
+
+  This applies to ALL THREE onboarding write surfaces — `pending_syncs`, `pending_ingestions`, `onboarding_scan_manifest`. (Task 10.3 sets `app_settings.pending_wizard_session_id` BEFORE calling this scan; Task 10.5 promotes the folder.) `onboarding_scan_manifest` already has `wizard_session_id NOT NULL` per spec §4.5 so its uniqueness `(wizard_session_id, drive_file_id)` already provides natural session isolation; only `pending_syncs` and `pending_ingestions` need the new partial-index split.
+- [ ] **Step 3: Commit** `feat(sync): runOnboardingScan with wizard-session CAS + live-row isolation (§5.2, §4.5)`.
 
 ### Task 6.9: Drive watch subscription lifecycle (§5.5.1, AC-6.13)
 
@@ -3063,16 +4525,39 @@ This contract is **identical for cron, manual, and push** entry points (Tasks 6.
 
 **Files:** Create: `app/api/admin/staged/[fileId]/apply/route.ts`, `lib/sync/applyStaged.ts`. Test: `tests/sync/applyStaged.test.ts`.
 
+**Source-scoped selector contract (M6 batch-10 finding, mandatory).** After the round-50 partial-index split, a wizard onboarding row and a live cron/push/manual row can coexist on the same `drive_file_id`. The Apply route MUST disambiguate by source context BEFORE reading `pending_syncs`. Two distinct call shapes:
+
+1. **Dashboard / live-row Apply** (route resolves `source_scope = 'live'` from request context — origin URL `/admin/show/<slug>` OR the dashboard first-seen panel): `SELECT staged_id, source_kind, wizard_session_id, parse_result, base_modified_time, staged_modified_time, prior_last_sync_status, prior_last_sync_error, triggered_review_items FROM pending_syncs WHERE drive_file_id = $1 AND wizard_session_id IS NULL`. 0 rows → 404 `PENDING_SYNC_NOT_FOUND`. The Apply route MUST NOT fall back to the wizard partition.
+2. **Wizard step-3 Apply** (route receives `wizardSessionId` from the wizard's request body or session): `... WHERE drive_file_id = $1 AND wizard_session_id = $myWizardSessionId`. 0 rows → 404. THEN run the `WIZARD_SESSION_SUPERSEDED` CAS against `app_settings.pending_wizard_session_id` per §6.8.1.
+
+The `source_scope` parameter is required on the Apply call, NOT inferred from the row content. Inferring scope from the SELECTed row's `wizard_session_id` value would let an unscoped SELECT return the wrong row in coexistence, then back-derive the scope from that wrong row — inverting the invariant. The route MUST get the scope from the request context, scope the SELECT, then verify the returned row's `wizard_session_id` matches the expected scope (defense in depth).
+
+The same source-scoped DELETE applies in step 6 (after sync_audit insert) and in the modtime-drift `STAGED_PARSE_OUTDATED` restore-then-delete branch — both `DELETE FROM pending_syncs WHERE drive_file_id = $1 AND <scope predicate>`.
+
+**Apply contract is split by source scope (M11 batch-11 finding 1 — DEFERRED-UNTIL-FINALIZE).** Earlier versions of this task carried two contradictory contracts: (a) "wizard Apply runs Phase 2" (matched spec §6.8.2 ONBOARDING_SCAN_REVIEW row pre-amendment), AND (b) "wizard Apply is Phase-1-only no-op leaving live row untouched" (the coexistence test below). Both are now retired in favor of the single authoritative contract from spec §6.8.1 step 4 + §6.8.2 ONBOARDING_SCAN_REVIEW row + §9.0 finalize-promotion sequence (M11 batch-11 finding 1):
+
+- **Live-scope Apply** (`wizard_session_id IS NULL`): runs full Phase 2 (4L → 5L → 6L → 7L) — insert/update `shows`, write `sync_audit`, DELETE `pending_syncs`, all in one transaction. Same as the historical contract.
+- **Wizard-scope Apply** (`wizard_session_id = $myWizardSessionId`): Phase-1-only approval (4W → 5W → 6W) — atomically `UPDATE pending_syncs SET wizard_approved = TRUE, wizard_approved_by_email = auth_email_canonical($admin.email), wizard_approved_at = now(), wizard_reviewer_choices = $validatedReviewerChoices` (M11 batch-12 finding 1: all four columns set in the SAME UPDATE so the §4.5 symmetry CHECKs hold row-locally; `$validatedReviewerChoices` is the §6.8.2 reviewer_choices payload AFTER the same server-side schema-validation pass live Apply runs), UPDATE manifest row to `'applied'`. Does NOT mutate `shows`, does NOT INSERT `sync_audit`, does NOT DELETE the staged row, does NOT mint a fresh `snapshot_revision_id`. The approved row stays in `pending_syncs WHERE wizard_session_id = $sessionId AND wizard_approved = TRUE` carrying its full immutable approval payload.
+- **Wizard finalize promotion** (Task 9.x finalize endpoint, separate from this Apply task; M11 batch-12 findings 2 + 3): SELECT every `wizard_approved = TRUE` row carrying its persisted approval payload (`wizard_approved_by_email`, `wizard_approved_at`, `wizard_reviewer_choices`); enforce a 100-row cap per finalize call (return `ONBOARDING_BATCH_TOO_LARGE` 409 if exceeded; the wizard UI surfaces a "Promote next 100" affordance). **Phase A — pre-commit work outside any DB transaction:** for each row do Drive re-verify + asset snapshot upload to a TEMPORARY prefix `_finalize-pending/<wizard_session_id>/<drive_file_id>/<asset_key>` (M11 batch-12 finding 3 temp prefix; OUTSIDE the canonical `<show_id>/<snapshot_revision_id>/` keyspace so a failed finalize cannot leave half-uploaded blobs at a real revision prefix). NO locks held during Phase A. **Phase B — single short transaction:** acquire per-show advisory locks for each `drive_file_id` in deterministic alphabetical order (prevents deadlocks across concurrent finalize clicks); within each row's lock, run the standard live Apply 4L → 5L → 6L flow against `parse_result` **passing `wizard_reviewer_choices` as the choices payload** (so MI-11/12/13/14 derived_side_effects reflect Doug's actual ACCEPT/REJECT decisions) AND **passing `wizard_approved_by_email` + `wizard_approved_at` as the sync_audit attribution fields** (so the audit row reflects the operator who clicked Apply, not whoever clicks Finalize); within the same per-row sub-statement, move Storage objects from `_finalize-pending/<wizard_session_id>/<drive_file_id>/<asset_key>` to `shows/<show_id>/<snapshot_revision_id>/<asset_key>` AND UPDATE `onboarding_scan_manifest SET status = 'applied'` (M11 batch-12 finding 2: manifest `'applied'` write commits with the `shows` write, never before — there is NO transient pre-commit `'applied'` state). After all per-row sub-statements succeed, run the §4.5 atomic-promotion CAS, commit. **Phase C — best-effort cleanup post-commit:** call `subscribeToWatchedFolder(folderId)` AND best-effort Storage DELETE under `_finalize-pending/<wizard_session_id>/` to remove any temp blobs from sheets superseded mid-finalize; cleanup failure logs `finalize_temp_prefix_cleanup_failed` but does NOT fail the finalize. On Phase B abort (any `STAGED_PARSE_SOURCE_GONE` / `_OUT_OF_SCOPE` / `_SUPERSEDED` from the §6.8.1 step-3 Drive re-verify, OR Storage move failure, OR Phase 2 error): ROLLBACK, then in a separate follow-up transaction UPDATE the offending manifest row(s) back to `'staged'` (M11 batch-12 finding 2: the rollback-time manifest demotion happens OUTSIDE the rolled-back transaction so it is a real durable write), AND issue a Storage DELETE under `_finalize-pending/<wizard_session_id>/` to clean up the orphan temp blobs from this finalize attempt. THIS (Phase B commit) is when the candidate folder becomes the watched folder AND the approved staged rows become public `shows` rows.
+
+The schema columns `pending_syncs.wizard_approved BOOLEAN NOT NULL DEFAULT FALSE`, `wizard_approved_by_email TEXT`, `wizard_approved_at TIMESTAMPTZ`, `wizard_reviewer_choices JSONB` (with table CHECKs `wizard_session_id IS NOT NULL OR wizard_approved = false`, `wizard_session_id IS NOT NULL OR (wizard_approved_by_email IS NULL AND wizard_approved_at IS NULL AND wizard_reviewer_choices IS NULL)`, AND `wizard_approved = false OR (wizard_approved_by_email IS NOT NULL AND wizard_approved_at IS NOT NULL AND wizard_reviewer_choices IS NOT NULL)`) were added in Task 2.2's introspection matrix per spec §4.5 (M11 batch-12 finding 1).
+
 - [ ] **Step 1: Failing tests**
-  - Standard Apply: lock → CAS on `staged_id` AND `base_modified_time IS NOT DISTINCT FROM` → mandatory Drive re-verify (`files.get` for `modifiedTime,parents,trashed`) → run Phase 2 with stored `parse_result` → INSERT `sync_audit` → DELETE `pending_syncs`.
-  - AC-6.26: source out of scope at Apply time → abort `STAGED_PARSE_SOURCE_OUT_OF_SCOPE`; existing-show stages restore prior status; first-seen stages log to `pending_ingestions`.
+  - **Live-scope Apply (live partition)**: lock → source-scoped SELECT (`AND wizard_session_id IS NULL`) → CAS on `staged_id` AND `base_modified_time IS NOT DISTINCT FROM` → mandatory Drive re-verify (`files.get` for `modifiedTime,parents,trashed`) → run Phase 2 with stored `parse_result` → INSERT `sync_audit` → DELETE `pending_syncs` (live-scope predicate). Pre-existing assertions hold.
+  - **Wizard-scope Apply (wizard partition, M11 batch-11 finding 1, DEFERRED-UNTIL-FINALIZE)**: lock → source-scoped SELECT (`AND wizard_session_id = $myWizardSessionId`) → CAS on `staged_id` AND `base_modified_time IS NOT DISTINCT FROM` → mandatory Drive re-verify (parents check pinned to `pending_folder_id` per round-47 amendment) → wizard-session CAS against `app_settings.pending_wizard_session_id` → `UPDATE pending_syncs SET wizard_approved = TRUE` → UPDATE `onboarding_scan_manifest SET status = 'applied'` (both scoped by `wizard_session_id` AND `drive_file_id`). **Assert ALL of**: (i) `shows` table is byte-for-byte unchanged (no INSERT, no UPDATE); (ii) `sync_audit` has zero rows for this `drive_file_id` after Apply (sync_audit is written at finalize-time promotion, NOT at wizard Apply); (iii) `pending_syncs` row STILL EXISTS post-Apply with `wizard_approved = TRUE` (NOT DELETEd); (iv) the live folder's cron continues to process the watched folder unaffected (mock a cron tick during the wizard-Apply call and assert no double-write to the candidate folder's `pending_*` partition); (v) `snapshot_revision_id` was NOT minted for any `shows` row.
+  - **Coexistence Apply routing regression (M6 batch-10 finding, M11 batch-11 finding 1 amendment)**: stage a LIVE `pending_syncs` row for `drive_file_id = X` (`wizard_session_id = NULL`, `staged_id = S_live`) AND a wizard `pending_syncs` row for the same `drive_file_id` (`wizard_session_id = W1`, `staged_id = S_wizard != S_live`). (a) Submit dashboard Apply for X with rendered `staged_id = S_live`. Assert: server's source-scoped SELECT (`AND wizard_session_id IS NULL`) returns the live row only; CAS matches; Phase 2 runs against the LIVE row's `parse_result`; the live `pending_syncs` row is DELETEd; the wizard row is byte-for-byte unchanged (still has `wizard_approved = FALSE` AND `staged_id = S_wizard`); a follow-up `SELECT staged_id, wizard_approved FROM pending_syncs WHERE drive_file_id = $X AND wizard_session_id = $W1` returns `(S_wizard, false)`. (b) Submit wizard step-3 Apply for X with `wizardSessionId = W1` and rendered `staged_id = S_wizard`. Assert: server's source-scoped SELECT (`AND wizard_session_id = W1`) returns the wizard row only; CAS matches; **DEFERRED-UNTIL-FINALIZE flow runs (4W → 5W → 6W) — `wizard_approved` flipped to TRUE on the wizard row, manifest transitioned to `'applied'`, `pending_syncs` row PRESERVED, no `shows` mutation, no `sync_audit` write**; the live row is byte-for-byte unchanged. (c) Confused-deputy variant — submit dashboard Apply with `staged_id = S_wizard` (the WIZARD row's staged_id, sent by a malicious or stale client). Assert: server's source-scoped SELECT (`AND wizard_session_id IS NULL`) returns the live row whose `staged_id = S_live`; the staged_id-CAS rejects (`S_wizard != S_live`) → 409 `STAGED_PARSE_SUPERSEDED`; neither row is mutated. (d) Inverse confused-deputy — submit wizard Apply with `staged_id = S_live`. Assert: server's source-scoped SELECT scoped to W1 returns the wizard row whose `staged_id = S_wizard`; staged_id-CAS rejects → 409. **Without the source-scoped selector, an unscoped `WHERE drive_file_id = $1` returns up to two rows and the route's CAS ambiguously matches whichever row the database happens to return first — applying or discarding work the operator never saw.**
+  - **CHECK enforcement on wizard_approved (M11 batch-11 finding 1)**: directly attempt `UPDATE pending_syncs SET wizard_approved = TRUE WHERE wizard_session_id IS NULL` (a live row). Assert the table CHECK constraint rejects with `23514` *check_violation* — live rows can never carry `wizard_approved = TRUE`. The applyStaged route's live-scope branch MUST NOT touch `wizard_approved` (verify by SQL trace).
+  - AC-6.26: source out of scope at Apply time → abort `STAGED_PARSE_SOURCE_OUT_OF_SCOPE`; existing-show stages restore prior status; first-seen stages log to `pending_ingestions` **scoped to the same partition as the staged row (M11 batch-11 finding 2)**: live-scope stages (`wizard_session_id IS NULL`) write a live `pending_ingestions` row (`ON CONFLICT (drive_file_id) WHERE wizard_session_id IS NULL`, `wizard_session_id = NULL` on insert) and DO NOT touch the manifest; onboarding-scope stages (`wizard_session_id = $session`) write a wizard `pending_ingestions` row (`ON CONFLICT (drive_file_id, wizard_session_id) WHERE wizard_session_id IS NOT NULL`, `wizard_session_id = $session` on insert) AND UPDATE the `onboarding_scan_manifest` row from `'staged'` / `'applied'` to `'hard_failed'` so finalize continues to block. Failing tests cover both partitions: (live) stage a brand-new sheet on the live folder, then trash it in Drive UI; click Apply; assert a `pending_ingestions` row exists with `wizard_session_id IS NULL`, no row exists with `wizard_session_id IS NOT NULL`, no `onboarding_scan_manifest` row was inserted/touched. (wizard) start an onboarding wizard for a candidate folder, stage a brand-new sheet, then trash it in Drive UI; click Apply in wizard step-3; assert a `pending_ingestions` row exists with `wizard_session_id = $session`, no row exists with `wizard_session_id IS NULL`, the manifest row for `(session, drive_file_id)` is now `'hard_failed'` and finalize returns 409 `ONBOARDING_NOT_RESOLVED` listing this `drive_file_id`. **Forbidden cross-partition writes asserted in tests:** wizard-scope Apply must NOT INSERT a live `pending_ingestions` row (would surface a wizard-only failure on the live dashboard); live-scope Apply must NOT touch `onboarding_scan_manifest` (live partition has no manifest by design).
   - **Onboarding Apply parents check pinned to `pending_folder_id`, NOT `watched_folder_id` (round-47 amendment)**: when the staged row's `source_kind = 'onboarding_scan'`, the parents re-verify compares `current.parents` against `app_settings.pending_folder_id` (the folder the wizard is currently scanning), NOT `app_settings.watched_folder_id` (which is still NULL or points at the previous folder during step 3 of the first onboarding). Earlier draft used a generic parents check against the active watched folder; that would reject every valid onboarding-staged sheet during step 3 because the watched folder isn't promoted until finalize succeeds. Required test: stage a sheet during onboarding step 3 (`pending_folder_id` set, `watched_folder_id` still NULL); click Apply on the staged row; assert success — the parents check passes against `pending_folder_id`, NOT a NULL `watched_folder_id`. Reject as `STAGED_PARSE_SOURCE_OUT_OF_SCOPE` only when `current.parents` doesn't include `pending_folder_id` (file moved out of the wizard's folder mid-stage).
-  - AC-6.27: source trashed/deleted → `STAGED_PARSE_SOURCE_GONE`.
+  - AC-6.27: source trashed/deleted → `STAGED_PARSE_SOURCE_GONE`. **Same partition-scoped recovery as AC-6.26 (M11 batch-11 finding 2)**: live-scope stages route the recovery `pending_ingestions` UPSERT to the live partition AND skip the manifest write; onboarding-scope stages route the UPSERT to the wizard partition AND UPDATE the manifest row to `'hard_failed'` so finalize blocks. Same forbidden-cross-partition assertions as AC-6.26 apply.
   - Modtime drift on non-onboarding stage → DELETE staged + `STAGED_PARSE_OUTDATED` + **restore prior_last_sync_status / prior_last_sync_error on `shows` (final-validation finding)**. Earlier draft just deleted the staged row; that left existing shows stuck in `last_sync_status = 'pending_review'` with no backing `pending_syncs` row, so the admin queue showed a phantom "review needed" with no way to clear it. The corrected flow runs the same restore-and-delete the Discard variants do (read `prior_last_sync_status` + `prior_last_sync_error` from the staged row before DELETEing, UPDATE `shows` to those values, then DELETE the staged row).
   - Modtime drift on onboarding stage → inline rescan + UPSERT fresh `pending_syncs` + return `STAGED_PARSE_RESTAGED_INLINE` (AC-10.6).
   - Wizard session CAS for onboarding-staged rows → mismatch → `WIZARD_SESSION_SUPERSEDED` (AC-6.22).
   - Reviewer-choices validation — missing/extra/duplicate/invalid action → `MISSING_REVIEWER_CHOICE` etc.
-  - Reject-action routes to Discard path (server-side).
+  - **Asset-review items reviewer-choices enumeration (round-49 / M7 batch-10 amendment).** The TriggeredReviewItem union (Task 1.1) carries FOUR sync-emitted asset-review variants — `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE`, `DIAGRAMS_EMBEDDED_NONE_FOUND`, `DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING`, `REEL_DRIFT_PENDING` — that the reviewer-choices validator MUST treat as **`apply`-only** (no `reject`, no `rename`, no per-tier independent variants). They are drift/availability/confirmation markers, not data choices: the operator confirms they accept the consequence of applying. Required reviewer choice shape per item: `{ item_id, action: 'apply' }`. Validator behavior: `action: 'reject'` on any of the four → 400 `INVALID_REVIEWER_ACTION` (asset-review items have no Discard variant; the operator must either Apply or Discard the entire staged row via Task 6.12). `action: 'rename'` (or any other action) on any of the four → 400 `INVALID_REVIEWER_ACTION`. Missing choice for one of these item_ids while other items have choices → 400 `MISSING_REVIEWER_CHOICE` (same code as MI-* items).
+  - **Apply-time effect for each asset-review item (round-49 / M7 batch-10 amendment).** When the validator passes and Apply enters Phase 2, the asset-review items dispatch as follows. Add one failing test per item. **Snapshot-mutation invariant (M7 batch-10):** EVERY successful Apply that mutates `shows.diagrams` MUST mint a fresh `snapshot_revision_id`; an Apply that does NOT mutate `shows.diagrams` MUST NOT touch the column. The four variants split cleanly along this axis — (a) is non-mutating; (b), (c), (d) are mutating. (a) `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE` — **technical-failure recovery; non-mutating Apply**. On apply, retry `drive.revisions.list(spreadsheetId)` once under the per-show advisory lock. If the call succeeds, proceed with normal Task 7.1 embedded extraction + Task 7.3 snapshotting (the transient cause cleared — this IS a mutating Apply path that mints a fresh `snapshot_revision_id` per the invariant). If still unavailable, the staged row is marked applied (DELETE `pending_syncs`) AND `last_seen_modified_time` advances normally AND non-diagram sheet-derived columns update via the normal Phase 2 path, BUT **`shows.diagrams` is NOT touched at all** — the prior approved diagrams snapshot stays live verbatim (same `snapshot_revision_id`, same `embeddedImages[]` entries, same `linkedFolderItems[]` entries, same `snapshotPath`s, same `snapshot_status`). The Phase 2 UPDATE statement explicitly excludes the `diagrams` column on this code path (do not include it in the SET clause; do not write `embeddedImages = []`; do not flip `snapshot_status`; do not mint a new `snapshot_revision_id`). Emit `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` in `parse_warnings` AND UPSERT an `admin_alerts` row of the same code. The PRIOR diagrams stay live — both the gallery and the `/api/asset/diagram/.../<rev>/...` route continue to resolve against the pre-existing `snapshot_revision_id` because the route resolves the current row's `snapshotPath` after checking `shows.diagrams.snapshot_revision_id` (§7.3 contract). Convergence requires a fresh sheet edit that mints a usable `sheetsRevisionId` + `embeddedFingerprint` via Phase 2; only THAT path mutates `shows.diagrams` and only THEN is a fresh `snapshot_revision_id` minted. **Test asserts: post-Apply `shows.diagrams` JSONB === prior `shows.diagrams` JSONB (deep-equal, including `snapshot_revision_id`); `last_seen_modified_time` advanced; non-diagram columns updated; `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` emitted; `pending_syncs` row deleted.** (a-bis) `DIAGRAMS_EMBEDDED_NONE_FOUND` — **operator-confirmation; mutating Apply**. **Routing (M7 batch-11 finding #2):** This Apply path is reached from THREE staging branches — first-seen sheets carrying the warning, AND existing shows with a non-empty current gallery (`embeddedImages[].length > 0` OR `linkedFolderItems[].length > 0`) carrying the warning. The earlier round-49 path that AUTO-APPLIED for existing shows is RETIRED — an ambiguous empty `spreadsheets.get` MUST NOT silently wipe an approved gallery; existing shows with a prior gallery now route to stage-for-approval, and only operator-Apply mutates `shows.diagrams`. The third branch (existing show with already-empty gallery) auto-applies as an idempotent no-op WITHOUT this Apply path being invoked. On apply, the operator has confirmed the sheet is intentionally image-free (no embedded objects on the resolved DIAGRAMS tab AND no linked-folder URL in the parsed body). Persist `embeddedImages = []` AND `linkedFolderItems = []` AND `linkedFolder = null` to `shows.diagrams` AS THE NEW APPROVED SNAPSHOT, mint a fresh `snapshot_revision_id` (per the invariant; this IS a snapshot mutation), set `snapshot_status = 'complete'` (no entries means no nulls means no partial-failure), advance `last_seen_modified_time` normally, DELETE `pending_syncs`. Do NOT emit `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` (this is not a recovery case). Do NOT UPSERT an `admin_alerts` row (operator already confirmed). The crew page renders the empty-gallery state per §10 / AC-7.7. The audit/UI distinction from variant (a) is the source of finding #3: variant (a) is technical-failure ("we couldn't capture, prior diagrams stay live"), variant (a-bis) is operator-confirmation ("there are intentionally no diagrams, replace prior approved gallery with empty"). **Test asserts: post-Apply `shows.diagrams.snapshot_revision_id` !== prior `snapshot_revision_id` (fresh UUID); `embeddedImages.length === 0`; `linkedFolderItems.length === 0`; `snapshot_status === 'complete'`; `last_seen_modified_time` advanced; `pending_syncs` row deleted; gallery URL for prior `snapshot_revision_id` returns 410 per §7.3.** (b) `DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING` — on apply, run Task 7.3's per-entry immutable-pin re-verify under the lock. Mints a fresh `snapshot_revision_id` (this IS a mutating Apply). Snapshot ONLY the `linkedFolderItems[]` entries whose `(headRevisionId, md5Checksum)` still matches; drifted entries persist with `snapshotPath = null` AND emit `LINKED_ASSET_DRIFTED` per drifted entry in `parse_warnings`. Show transitions to `snapshot_status = 'partial_failure'` (retryable) when any null entry has `recovery_disposition = 'normal'`; transitions to `partial_failure_restage_required` only if every remaining null is restage-required (per the Task 7.4 terminal-state recompute). (c) `REEL_DRIFT_PENDING` — on apply, run Task 7.7's `verifyReelOnApply` four-step flow. If the pin tuple `(driveFileId, drive_modified_time, headRevisionId, mime_type)` has drifted (or the file is now trashed/404/permission-denied/non-video), persist ALL FOUR reel columns as NULL atomically (`opening_reel_drive_file_id`, `opening_reel_drive_modified_time`, `opening_reel_head_revision_id`, `opening_reel_mime_type`) AND emit `REEL_DRIFTED` warning. The crew page falls back to text-only opening-reel display per §10. **Test asserts all FOUR NULLs together — never two-of-four / three-of-four (M3+M4 batch-14 finding 3 propagation: regression of the batch-13 4-tuple fix; the X.6 4-column atomic-NULL static invariant added below catches the regression class at build time).** (Reel columns are not part of `shows.diagrams`; the snapshot-mutation invariant does not apply to this variant.)
+  - **Validator test matrix (round-49 / M7 batch-10 amendment, four failing tests per asset-review item, four asset-review item variants total):** synthesize a staged row with each of the four asset-review items in turn (`DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE`, `DIAGRAMS_EMBEDDED_NONE_FOUND`, `DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING`, `REEL_DRIFT_PENDING`). (i) Submit `{ action: 'apply' }` for the asset-review item → 200 OK + the per-item Apply behavior above lands. (ii) Submit `{ action: 'reject' }` → 400 `INVALID_REVIEWER_ACTION`; staged row preserved. (iii) Submit `{ action: 'rename', new_value: 'foo' }` → 400 `INVALID_REVIEWER_ACTION`; staged row preserved. (iv) Omit the asset-review item from `reviewerChoices` while submitting choices for any concurrent MI-* items → 400 `MISSING_REVIEWER_CHOICE` referencing the asset-review item_id.
+  - Reject-action routes to Discard path (server-side). **Asset-review items are exempt** — they do NOT support `reject` (see enumeration above); the routing only applies to MI-* items where reject = "operator declines the change, restore prior state."
   - Auth side-effects per §6.8.2 derivation table:
     - **MI-11** email change → bumps `revoked_below_version` for the affected crew_name.
     - **MI-12** probable rename → bumps `revoked_below_version` for BOTH old and new names.
@@ -3089,17 +4574,22 @@ This contract is **identical for cron, manual, and push** entry points (Tasks 6.
 
 **Files:** Create: `app/api/admin/staged/[fileId]/discard/route.ts`. Test extends.
 
+**Source-scoped selector contract — symmetric with Apply (M6 batch-10 finding, mandatory).** Once the wizard partition can coexist with the live partition, Discard's selector MUST be source-scoped exactly like Apply (Task 6.11). The route accepts a `source_scope` parameter from request context: `'live'` for dashboard Discard (origin URL `/admin/show/<slug>` or dashboard first-seen panel); `'wizard'` carrying `wizardSessionId` for wizard step-3 Discard. Every Discard SELECT, restore-status UPDATE, and DELETE adds either `AND wizard_session_id IS NULL` (live) or `AND wizard_session_id = $myWizardSessionId` (wizard). **M2 batch-11**: the `deferred_ingestions` INSERT for the two first-seen Discard variants now also carries `wizard_session_id` matching the source scope (NULL for dashboard Discard targeting `deferred_ingestions_live_drive_file_idx`; the active `wizardSessionId` for wizard step-3 Discard targeting `deferred_ingestions_session_drive_file_idx`). Earlier prose said "no wizard_session_id column on `deferred_ingestions`" — superseded by the M2 batch-11 schema amendment in Task 2.2.
+
 - [ ] **Step 1: Failing tests** — three Discard variants for first-seen + one for existing-show + wizard CAS + staged_id CAS:
-  - Existing-show Discard: restore `prior_last_sync_status`/`prior_last_sync_error`; DELETE pending row.
-  - First-seen "try again next sync" (default): DELETE pending row only.
-  - First-seen "skip until edited": DELETE pending + INSERT `deferred_ingestions` with `defer_until_modified`.
-  - First-seen "permanently ignore": DELETE pending + INSERT `deferred_ingestions` with `permanent_ignore`.
+  - Existing-show Discard: source-scoped SELECT (live-only — `AND wizard_session_id IS NULL`); restore `prior_last_sync_status`/`prior_last_sync_error`; DELETE pending row (same source-scoped predicate).
+  - First-seen "try again next sync" (default): source-scoped DELETE pending row only.
+  - First-seen "skip until edited": source-scoped DELETE pending + INSERT `deferred_ingestions` with `defer_until_modified` AND `wizard_session_id` matching source scope (NULL for dashboard Discard, `$wizardSessionId` for wizard Discard) — M2 batch-11.
+  - First-seen "permanently ignore": source-scoped DELETE pending + INSERT `deferred_ingestions` with `permanent_ignore` AND `wizard_session_id` matching source scope — M2 batch-11.
+  - **M2 batch-11 partition routing regression**: dashboard "skip until edited" Discard for first-seen `drive_file_id = X` writes a `deferred_ingestions` row with `wizard_session_id = NULL`. Assert (a) `SELECT count(*) FROM deferred_ingestions WHERE drive_file_id = X AND wizard_session_id IS NULL` is 1; (b) `SELECT count(*) FROM deferred_ingestions WHERE drive_file_id = X AND wizard_session_id IS NOT NULL` is 0. Inverse for wizard step-3 "permanently ignore" Discard — wizard partition gets the row, live partition stays empty. **Without this scope on the INSERT**, both Discard paths would compete for the single live partition slot, causing one path to clobber the other's deferral or fail with a unique-violation collision when both a live folder and a wizard candidate folder share a drive_file_id.
+  - **Coexistence Discard routing regression (M6 batch-10 finding)**: stage a LIVE `pending_syncs` row for `drive_file_id = X` (`wizard_session_id = NULL`, `staged_id = S_live`) AND a wizard `pending_syncs` row for the same `drive_file_id` (`wizard_session_id = W1`, `staged_id = S_wizard`). (a) Submit dashboard Discard for X with rendered `staged_id = S_live`. Assert: server's source-scoped DELETE (`AND wizard_session_id IS NULL`) deletes ONLY the live row; the wizard row is byte-for-byte unchanged. (b) Submit wizard step-3 Discard for X with `wizardSessionId = W1` and rendered `staged_id = S_wizard`. Assert: server's source-scoped DELETE (`AND wizard_session_id = W1`) deletes ONLY the wizard row; the live row is byte-for-byte unchanged. (c) Confused-deputy: dashboard Discard with `staged_id = S_wizard` → 409 `STALE_DISCARD_REJECTED` (live row's `staged_id = S_live` doesn't match); neither row mutated. (d) Inverse: wizard Discard with `staged_id = S_live` → 409 (wizard row's `staged_id = S_wizard` doesn't match); neither row mutated. **Without this scope, an unscoped `WHERE drive_file_id = $1` could DELETE or DEFER work belonging to the wrong partition — exactly the failure mode the staged_id CAS was supposed to close, but staged_id alone cannot disambiguate when both partitions render different staged_ids that the operator's tab sends back unchanged.**
   - **Wizard-session CAS for onboarding-staged rows (final-validation finding)**: an onboarding-staged `pending_syncs` row carries `wizard_session_id = W1`. A second admin starts wizard W2 (which purges any pending row whose `wizard_session_id != W2`). The original W1 tab — now stale — submits a Discard. Assert: the call returns `WIZARD_SESSION_SUPERSEDED`, the W2 row remains untouched, and no `deferred_ingestions` row was inserted.
-  - **Staged-id CAS — symmetric with Apply (final-validation finding)**: an admin opens a staged review for `drive_file_id = X` with `staged_id = S1`. While the tab is open, a fresh sync runs (cron/push/manual restages X with new content) and produces `staged_id = S2`. The first admin's stale tab submits a Discard. The Discard request body MUST carry the rendered `staged_id = S1`. Server reads current `pending_syncs.staged_id` under the advisory lock; comparison fails (`S1 ≠ S2`); Discard aborts with 409 `STALE_DISCARD_REJECTED` (new §12.4 entry — see below). Without this CAS, an old tab can DELETE or DEFER a `pending_syncs` row containing review work the operator never saw. The same hole affects rejected-review submissions, since Apply with `action: 'reject'` routes through Discard server-side.
+  - **Staged-id CAS — symmetric with Apply (final-validation finding)**: an admin opens a staged review for `drive_file_id = X` with `staged_id = S1`. While the tab is open, a fresh sync runs (cron/push/manual restages X with new content) and produces `staged_id = S2`. The first admin's stale tab submits a Discard. The Discard request body MUST carry the rendered `staged_id = S1`. Server reads current `pending_syncs.staged_id` under the advisory lock **using the same source-scoped selector as Apply** (`AND wizard_session_id IS NULL` for live Discard; `AND wizard_session_id = $myWizardSessionId` for wizard Discard); comparison fails (`S1 ≠ S2`); Discard aborts with 409 `STALE_DISCARD_REJECTED` (new §12.4 entry — see below). Without this CAS, an old tab can DELETE or DEFER a `pending_syncs` row containing review work the operator never saw. The same hole affects rejected-review submissions, since Apply with `action: 'reject'` routes through Discard server-side.
 - [ ] **Step 2: Implement.** Discard runs inside the **same blocking per-show advisory lock Apply uses** (`pg_advisory_xact_lock(hashtext('show:' || $driveFileId))`, NOT `pg_try_advisory_xact_lock` — final-validation finding: admin/operator paths use the blocking variant per the plan-wide invariant in "How to use this plan" §4; `pg_try_*` is for cron/sync paths where skip-on-contention is acceptable. An admin click that quietly fails because another sync is in flight produces a confusing operator experience). AND validates BOTH:
-  1. **`staged_id` CAS**: request body MUST include the `staged_id` rendered to the operator. Server compares against the current `pending_syncs.staged_id` for `(drive_file_id)`. Mismatch → 409 `STALE_DISCARD_REJECTED` without mutating anything.
-  2. **Wizard-session CAS for onboarding-staged rows**: read `app_settings.pending_wizard_session_id` (the active wizard) AND the row's `wizard_session_id`; if they don't match, return 409 `WIZARD_SESSION_SUPERSEDED` without mutating anything.
-  Only after BOTH CAS gates pass does the variant logic (DELETE pending, INSERT deferred_ingestions if applicable, restore prior_last_sync_status if existing-show) run within the same lock.
+  1. **Source-scoped SELECT (M6 batch-10)**: read `pending_syncs.staged_id, source_kind, wizard_session_id, prior_last_sync_status, prior_last_sync_error` using the source-scoped selector (live-only or wizard-only per request context). 0 rows → 404 `PENDING_SYNC_NOT_FOUND`.
+  2. **`staged_id` CAS**: request body MUST include the `staged_id` rendered to the operator. Server compares against the current `pending_syncs.staged_id` returned by the source-scoped SELECT. Mismatch → 409 `STALE_DISCARD_REJECTED` without mutating anything.
+  3. **Wizard-session CAS for onboarding-staged rows**: read `app_settings.pending_wizard_session_id` (the active wizard) AND the row's `wizard_session_id`; if they don't match, return 409 `WIZARD_SESSION_SUPERSEDED` without mutating anything.
+  Only after ALL THREE gates pass does the variant logic (DELETE pending using the same source-scoped predicate, INSERT deferred_ingestions if applicable, restore prior_last_sync_status if existing-show) run within the same lock.
 - [ ] **Step 3:** Add `STALE_DISCARD_REJECTED` to §12.4 catalog with admin-facing copy: "The staged parse you were viewing was replaced by a newer sync. Refresh and review the latest version before deciding."
 - [ ] **Step 4: Commit** `feat(sync): discard staged parse + variants + wizard CAS + staged_id CAS (§6.8.1)`.
 
@@ -3122,22 +4612,24 @@ Spec context: §6.11, §10, §17.1 milestone 7.
 
 **Combined cap upstream of persistence (final-validation finding).** `MAX_TOTAL_DIAGRAM_ITEMS = 60` is a budget across BOTH `embeddedImages` AND `linkedFolderItems`. Earlier draft only enforced the cap in Task 7.2 against linked-folder enumeration. A sheet with 65 embedded images and no linked folder would still persist 65 entries while Task 7.9 only limits gallery rendering. The hidden 5 overflow entries can drift / 404 / wedge `snapshot_status='partial_failure'` / suppress GC indefinitely. The corrected design enforces the cap during embedded extraction first (Task 7.1 reserves up to N for embedded), then Task 7.2 consumes only the residual budget for linked.
 
-**Embedded fingerprint must be content-derived (final-validation finding).** Earlier draft allowed a positional+id hash as a fallback fingerprint. That isn't a content proof: an in-place image replacement preserves both objectId and position, so `asset_recovery` would treat the new bytes as the approved bytes. The corrected design REQUIRES `embeddedFingerprint` to be a content-derived immutable token (e.g., the image's `contentUrl` ETag from the Sheets API). If the API doesn't supply one, set `embeddedFingerprint = null` and **mark the entry as restage-only** — `asset_recovery` MUST fail closed for that entry (see Task 7.4); never use a positional/id hash as approval evidence.
+**Embedded fingerprint must be content-derived (final-validation finding; M7 batch-11 finding #3 makes the derivation canonical).** Earlier draft allowed a positional+id hash as a fallback fingerprint. That isn't a content proof: an in-place image replacement preserves both objectId and position, so `asset_recovery` would treat the new bytes as the approved bytes. **Canonical derivation (M7 batch-11 finding #3, MANDATORY at every call site): `embeddedFingerprint = base64url(SHA-256(<full image bytes from GET image.contentUrl>))`.** NOT an HTTP ETag (server-controlled, can rotate without bytes changing under proxy/CDN caching). NOT a HEAD-derived token. NOT a positional/id hash. NOT a Last-Modified timestamp (TOCTOU window). The same SHA-256 helper runs at Phase-1 enrichment (Task 7.1), at Apply-time re-verify (Task 7.3), and at asset_recovery re-verify (Task 7.4) — three call sites, byte-stable and byte-derived, equal inputs produce equal outputs. If `image.contentUrl` is absent or returns 4xx at enrichment time, set `embeddedFingerprint = null` and **mark the entry as restage-only** — `asset_recovery` MUST fail closed for that entry (see Task 7.4); never use a positional/id hash or ETag as approval evidence.
 
 - [ ] **Step 1: Failing tests** — for the FinTech Forum 2026 fixture (`2026-05-fintech-forum-cto-summit.md`), `enrichWithDrivePins(parsed, driveClient, ctx)` populates `parseResult.diagrams.embeddedImages` with at least 2 entries, each carrying `sheetsRevisionId` AND `embeddedFingerprint` AND `recovery_disposition` (the latter explicitly set to `'normal'` when the fingerprint is non-null and `'restage_required'` when null — round-48 amendment, no marker overloading on `snapshotPath`). Sheets without embedded images → empty array. **Case-insensitive DIAGRAMS-tab match**: fixture-backed assertion using `2025-03-dci-rpas-central.md`'s `DIagrams` tab — extractor MUST resolve via case-insensitive lookup of `sheets[].properties.title`. **Cap upstream — all-embedded overflow**: synthesize a sheet with 65 embedded images + no linked folder. Assert `embeddedImages.length <= 60` after extraction AND `DIAGRAMS_EMBEDDED_CAP_EXCEEDED` warning emitted with the dropped count. **Restage-only fallback**: synthesize an embedded image whose Sheets API response carries no ETag/contentUrl. Assert `embeddedFingerprint === null` AND `recovery_disposition === 'restage_required'` AND `snapshotPath === null` (plain `null`, not a marker string) AND the entry is excluded from asset_recovery retries (Task 7.4) until a fresh sheet edit re-mints the fingerprint via Phase 2.
-- [ ] **Step 2: Implement** — inside `enrichWithDrivePins`:
-  1. Capture the spreadsheet-level revision token via the **Drive API**, not the Sheets API: `drive.revisions.list(fileId, fields='revisions(id,modifiedTime)')` returns the revision history; the LAST entry's `id` is the head revision (Sheets-as-Drive-files participate in Drive revision tracking the same way other Drive files do, even though the Sheets API doesn't expose a `headRevisionId` field for spreadsheets directly). Persist this as `sheetsRevisionId` on every embedded-image entry. Then call `spreadsheets.get(spreadsheetId, fields='sheets(properties.title,protectedRanges,charts,embeddedObjects(...))')` for the embedded-object enumeration.
+- [ ] **Step 2: Implement** — inside `enrichWithDrivePins`. **Step ordering (M7 batch-10 amendment, MANDATORY).** Production runtime MUST call `spreadsheets.get` FIRST to determine whether the DIAGRAMS tab exists AND whether it contains image-like `embeddedObjects`. ONLY IF at least one embedded image is resolved is `drive.revisions.list` then called to capture `sheetsRevisionId`. For linked-only sheets (DIAGRAMS tab present but only contains a linked-folder URL — zero embeddedObjects), AND for no-DIAGRAMS-tab sheets, `drive.revisions.list` is NEVER called and enrichment/Apply lands successfully even when the revisions API is entirely unavailable. The earlier draft made `drive.revisions.list` a precondition called BEFORE the embedded-presence check; that would block linked-only and no-DIAGRAMS-tab sheets behind an embedded-only API prerequisite. **Mandatory regression tests (M7 batch-10):** (i) **linked-only with revisions API unavailable** — DIAGRAMS tab + zero embeddedObjects + parsed body carries linked-folder URL; render `drive.revisions.list` unavailable; assert enrichment succeeds, `drive.revisions.list` is NEVER called (spy assertion on the Drive client), `embeddedImages: []`, `linkedFolderItems[]` populated, Apply lands. (ii) **no-DIAGRAMS-tab with revisions API unavailable** — no DIAGRAMS tab at all; assert enrichment succeeds, `drive.revisions.list` NEVER called, `DIAGRAMS_TAB_MISSING` warning emitted, Apply lands. (iii) **`DIAGRAMS_EMBEDDED_NONE_FOUND` with revisions API unavailable** — DIAGRAMS tab + zero embeddedObjects + no linked folder; assert `drive.revisions.list` NEVER called, the warning routes per Task 1.1's NEW `DIAGRAMS_EMBEDDED_NONE_FOUND` triggered review item variant for first-seen sheets, OR (M7 batch-11 finding #2) for existing shows with non-empty current gallery routes to stage-for-approval (NOT auto-apply), OR for existing shows with already-empty current gallery is an idempotent no-op auto-apply. The textual order of sub-steps below is preserved for readability; runtime gating is enforced by the call-ordering note inside sub-step 1.
+  1. Capture the spreadsheet-level revision token via the **Drive API**, not the Sheets API: `drive.revisions.list(fileId, fields='revisions(id,modifiedTime)')` returns the revision history; the LAST entry's `id` is the head revision (Sheets-as-Drive-files participate in Drive revision tracking the same way other Drive files do, even though the Sheets API doesn't expose a `headRevisionId` field for spreadsheets directly). Persist this as `sheetsRevisionId` on every embedded-image entry. Then call `spreadsheets.get(spreadsheetId, fields='sheets(properties.title,protectedRanges,charts,embeddedObjects(...))')` for the embedded-object enumeration. **CALL-ORDERING NOTE (M7 batch-10):** in production runtime the `spreadsheets.get` call MUST execute FIRST; the `drive.revisions.list` call MUST be deferred until sub-step 2's tab-resolution AND `embeddedObjects.length > 0` check both pass. The deferred `drive.revisions.list` call is the FIRST OPERATION of sub-step 2's "DIAGRAMS tab present AND at least one embedded image-like object resolved" branch. See "Step ordering" prose above for rationale.
      - **If `drive.revisions.list` is unavailable** (round-47 amendment: revisions-unavailable is a HARD FAIL, not a silent empty-set). Earlier draft set `embeddedImages = []` and emitted a warning; that path silently looks identical to "no embedded images at all" — a downstream Apply would replace any approved diagrams with an empty gallery, dropping every embedded image and triggering normal-tier GC of the prior revision's blobs. The corrected behavior:
        - **For first-seen sheets**: route to Phase 1 hard-fail. Do NOT auto-apply; UPSERT a `pending_ingestions` row with `last_error_code = 'DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE'` so the operator sees the broken sheet in the admin queue.
        - **For existing shows with prior approved diagrams**: route to Phase 1 stage-for-approval (NOT auto-apply). The staged row carries `triggered_review_items` including `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE` so the operator sees that approving will replace approved diagrams with whatever the parser/sync layer was able to produce. Until approved, the prior approved revision's bytes remain live (GC suppression maintained because we never advanced past Phase 1).
        - **For existing shows with no prior approved diagrams**: route to status-only `drive_error` UPDATE on `shows`; do not advance `last_seen_modified_time`. Same as a transient Drive failure — the next cron pass retries.
        - In every case: the prior approved diagrams are preserved until an explicit reviewer action replaces them.
-  2. Locate the DIAGRAMS tab by `sheets.find(s => s.properties.title.toLowerCase() === 'diagrams')`. If absent → emit `DIAGRAMS_TAB_MISSING` warning, return empty `embeddedImages`.
+  2. Locate the DIAGRAMS tab by `sheets.find(s => s.properties.title.toLowerCase() === 'diagrams')`. If absent → emit `DIAGRAMS_TAB_MISSING` warning, return empty `embeddedImages`. **SKIP `drive.revisions.list` ENTIRELY (M7 batch-10)** — there are no embedded entries that need a `sheetsRevisionId`; the revisions API is irrelevant for no-DIAGRAMS-tab sheets. **The legacy `files.export(mimeType: 'application/zip')` fallback is RETIRED (round-49 amendment, propagated from spec §6.11)** — the zip export cannot supply content-derived `embeddedFingerprint` ETags and would silently produce entries that pass capture but fail the round-46 immutable-pin contract. **No fallback path is invoked when `spreadsheets.get` returns no embeddedObjects.** **DIAGRAMS tab present, `embeddedObjects` empty, AND parsed body carries a linked-folder URL** (linked-only configuration) → emit no warning, return `embeddedImages: []`, **SKIP `drive.revisions.list` ENTIRELY (M7 batch-10)** — embedded entries are absent so `sheetsRevisionId` has nothing to pin; linked-folder enrichment via Task 7.2 proceeds unaffected. **DIAGRAMS tab present AND at least one embedded image-like object resolved** → NOW invoke `drive.revisions.list(fileId)` per sub-step 1's CALL-ORDERING NOTE (this is the gated runtime location where the revisions API is actually called).
+  2a. **`DIAGRAMS_EMBEDDED_NONE_FOUND` warning (round-49 / M7 batch-10 amendment).** If `spreadsheets.get` resolved a DIAGRAMS tab (case-insensitive) but the tab returned ZERO image-like embeddedObjects AND the parsed sheet body carries no linked-folder URL (i.e., `parseResult.diagrams.linkedFolder === null`), emit `DIAGRAMS_EMBEDDED_NONE_FOUND` warning. **SKIP `drive.revisions.list` ENTIRELY (M7 batch-10)** — there are zero embedded entries to pin. Routing per round-49 / M7 batch-10: for **first-seen sheets** carrying this warning, the orchestrator routes to Phase 1 stage-for-approval, appending a **`DIAGRAMS_EMBEDDED_NONE_FOUND` triggered review item** to the staged row — its OWN variant per Task 1.1 (NOT aliased to `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE`; the two have DISTINCT Apply contracts per Task 6.11 / spec §6.11 — `DIAGRAMS_EMBEDDED_NONE_FOUND` Apply mints a fresh `snapshot_revision_id` and persists `embeddedImages = []` as the new approved snapshot, while `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE` Apply does NOT mutate `shows.diagrams` at all). For **existing shows** (M7 batch-11 finding #2 — replaces the round-49 auto-apply path; spec §6.11 + §12.4 catalog row aligned): routing splits on whether the prior approved gallery is empty. **(b) Existing show with non-empty current gallery** (`shows.diagrams.embeddedImages[].length > 0` OR `shows.diagrams.linkedFolderItems[].length > 0`): do NOT auto-apply; route to Phase 1 stage-for-approval, appending a `DIAGRAMS_EMBEDDED_NONE_FOUND` triggered review item; the prior approved gallery stays live (`shows.diagrams.snapshot_revision_id` unchanged) until the operator clicks Apply. **An ambiguous empty `spreadsheets.get` response MUST NOT silently wipe an approved gallery.** **(c) Existing show with already-empty current gallery** (both arrays empty): idempotent no-op auto-apply path — Phase 2 advances `last_seen_modified_time`; the diagrams JSONB shape is unchanged. **Tests (failing — M7 batch-11):** (i) synthesize a sheet whose DIAGRAMS tab resolves but holds zero embeddedObjects + no linked folder; assert `drive.revisions.list` is NEVER called (spy assertion) AND `parseResult.warnings` contains `DIAGRAMS_EMBEDDED_NONE_FOUND`. (ii) **First-seen path** routes to stage-for-approval with a `DIAGRAMS_EMBEDDED_NONE_FOUND` triggered review item (NOT `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE`; no `shows` row created). (iii) **Existing show with 5 approved diagrams** (mandated regression — M7 batch-11): seed `shows.diagrams.embeddedImages.length === 5`, Drive returns zero embedded objects, no linked folder. Assert: `pending_syncs` row created with `DIAGRAMS_EMBEDDED_NONE_FOUND` triggered review item; `shows.diagrams.snapshot_revision_id` UNCHANGED (deep-equal to prior); `shows.diagrams.embeddedImages.length === 5` still; gallery URL `/api/asset/diagram/<show>/<prior-rev>/<key>` still streams bytes for all 5 diagrams. (iv) **Existing show with already-empty gallery** (`embeddedImages.length === 0` AND `linkedFolderItems.length === 0`): no `pending_syncs` row created (auto-apply); `last_seen_modified_time` advances; `shows.diagrams` unchanged. Sheet WITH a linked-folder URL + zero embeddedObjects → no warning (that's a normal linked-only sheet).
   3. **Apply the combined cap budget**: enforce `MAX_TOTAL_DIAGRAM_ITEMS = 60` across embeddedImages + linkedFolderItems. In Task 7.1's pass, take up to MAX_TOTAL minus the linked-folder count Task 7.2 will see (the parser knows whether a linked folder URL is present in the parsed sheet — but the actual linked-folder count comes later, so this task uses MAX_TOTAL as the upper bound for embedded). Task 7.2 will then consume the residual budget. Truncate over-cap embedded objects in document order (preserve position-stable ordering) and emit `DIAGRAMS_EMBEDDED_CAP_EXCEEDED` warning with dropped count.
-  4. For each image-like embedded object kept after the cap, derive `embeddedFingerprint` AND set `recovery_disposition` explicitly (round-48 amendment — never overload `snapshotPath` as a marker channel; `recovery_disposition` is a first-class field on `EmbeddedImageStub` per the type contract in Task 1.1):
-     - **Preferred**: `embeddedFingerprint = <ETag from `image.contentUrl` HTTP HEAD or whichever immutable content token the Sheets API exposes>`, `recovery_disposition = 'normal'`.
-     - **Fallback**: `embeddedFingerprint = null`, `recovery_disposition = 'restage_required'`. Task 7.3 (Apply) and Task 7.4 (asset_recovery) both gate on `recovery_disposition === 'restage_required'` to fail closed — no special marker is encoded into `snapshotPath`, which remains its plain `string | null` representation of "snapshotted bytes path or none."
-     - **Forbidden**: positional+id hash. Doesn't prove content.
+  4. For each image-like embedded object kept after the cap, derive `embeddedFingerprint` AND set `recovery_disposition` explicitly (round-48 amendment — never overload `snapshotPath` as a marker channel; `recovery_disposition` is a first-class field on `EmbeddedImageStub` per the type contract in Task 1.1). **Canonical derivation (M7 batch-11 finding #3): `embeddedFingerprint` is a SHA-256 of the full image bytes, base64url-encoded — NEVER an HTTP ETag.** The earlier "ETag from `image.contentUrl` HEAD" / "whichever immutable content token the Sheets API exposes" language is RETIRED (ETags are server-controlled metadata that proxies/CDNs can rotate without changing bytes; the round-44 immutable-pin contract requires byte-stability). Specifically:
+     - **Preferred (canonical)**: GET `image.contentUrl` (full body, NOT HEAD); SHA-256 the bytes; base64url-encode the digest. `embeddedFingerprint = base64url(SHA-256(bytes))`. `recovery_disposition = 'normal'`. The same derivation is used at Phase-1 enrichment, at Apply-time re-verify (Task 7.3), AND at asset_recovery re-verify (Task 7.4) — three call sites, one byte-stable hash function, byte-equal output for byte-equal inputs.
+     - **Fallback (ONLY when `image.contentUrl` is absent or 4xx at enrichment time)**: `embeddedFingerprint = null`, `recovery_disposition = 'restage_required'`. Task 7.3 (Apply) and Task 7.4 (asset_recovery) both gate on `recovery_disposition === 'restage_required'` to fail closed — no special marker is encoded into `snapshotPath`, which remains its plain `string | null` representation of "snapshotted bytes path or none."
+     - **Forbidden**: HTTP ETag (server-controlled, not byte-derived; proxy caches can rotate without bytes changing). HEAD-derived tokens of any kind. Positional+id hash (doesn't prove content). Last-Modified timestamps (TOCTOU window).
+     - **Mandatory regression tests (M7 batch-11 finding #3):** (a) **Same-bytes test** — fetch the same `image.contentUrl` twice via GET; assert both `embeddedFingerprint` values are equal. (b) **Byte-flip test** — flip one bit of the response bytes (test fixture or stubbed Drive client); assert the recomputed `embeddedFingerprint` differs from the prior value. (c) **ETag-skew test** — server changes `ETag` response header (proxy caching scenario) WITHOUT changing the response body; assert `embeddedFingerprint` is unchanged across the two fetches (proves the derivation does NOT consume ETag). (d) **Cross-call-site equality** — same bytes hashed at enrichment, Apply, and asset_recovery produce the SAME `embeddedFingerprint`; assert all three call sites use the same `sha256(bytes)` helper (e.g., `lib/crypto/sha256.ts`).
   5. Push `{ sheetTab: <resolvedTitle>, objectId, mimeType, alt?, sheetsRevisionId, embeddedFingerprint, recovery_disposition, snapshotPath: null }`.
 - [ ] **Step 3: Commit** `feat(sync): embedded extraction + content-derived fingerprint + cap upstream + DIAGRAMS case-insensitive (§6.11)`.
 
@@ -3168,18 +4660,26 @@ Spec context: §6.11, §10, §17.1 milestone 7.
   - AC-7.10: two manual applies of same `modifiedTime` produce DISTINCT `snapshot_revision_id` and DISTINCT storage prefixes.
   - AC-7.11: simulate one of N images failing — Apply commits with `snapshot_status='partial_failure'` and `last_seen_modified_time` advanced. Next cron pass enters `mode: 'asset_recovery'` (NOT Phase 2), retries only missing snapshotPath, succeeds, flips status to `'complete'`.
   - AC-7.20: linked-folder image edited in place → version-pin mismatch → snapshotPath stays NULL, `LINKED_ASSET_DRIFTED` warning. asset_recovery does NOT silently download drifted bytes.
-  - **TOCTOU drift test (final-validation finding)**: stage with `headRevisionId=R1, md5=M1`. Between Apply's `files.get` re-verify and the bytes download, mutate the file (R1→R2). Assert Apply either downloads R1 by revision id (preferred) OR re-verifies md5 after streaming and aborts that entry (snapshotPath NULL, partial_failure). The bytes from R2 MUST NOT land in `r=<rev>/folder-<driveFileId>.<ext>`.
-- [ ] **Step 2: Implement** the per-apply snapshotting flow per §6.11:
-  1. Mint `snapshot_revision_id = randomUUID()`.
+  - **TOCTOU drift test (final-validation finding)**: stage with `headRevisionId=R1, md5=M1`. Between Apply's `files.get` re-verify and the bytes download, mutate the file (R1→R2). Assert Apply either downloads R1 by revision id (preferred) OR re-verifies md5 after streaming and aborts that entry (snapshotPath NULL, partial_failure). The bytes from R2 MUST NOT land in `<rev>/folder-<driveFileId>.<ext>`.
+  - **Commit-aware snapshot writes (M7 batch-12 finding 1) — abort-after-upload regression**: stage parse with embedded + linked images. Begin Apply: Phase 2 transaction opens, `snapshotAssets` uploads bytes to the per-apply temp prefix `diagram-snapshots/shows/<show_id>/_pending/<run_uuid>/<asset_key>` AND inserts ledger rows into `pending_snapshot_uploads (show_id, drive_file_id, temp_prefix, uploaded_at, promoted_at NULL)`. Force the DB transaction to ROLLBACK before commit (e.g., a Phase 2 monotonic UPDATE returns 0 rows; or inject a synthetic `STAGED_PARSE_SUPERSEDED` between upload and commit). Assert: (a) NO blob exists under `diagram-snapshots/shows/<show_id>/<snapshot_revision_id>/`; (b) blobs DO exist under the temp prefix immediately after rollback; (c) `pending_snapshot_uploads` ledger rows for this run carry `promoted_at IS NULL`; (d) `shows.diagrams` is unchanged from before the Apply attempt; (e) NO orphan blobs exist under any `<snapshot_revision_id>/` prefix.
+  - **Commit-aware snapshot writes — promote-on-commit happy path**: same setup but Apply commits cleanly. Assert: (a) the post-commit storage rename moves every temp-prefix blob to `diagram-snapshots/shows/<show_id>/<snapshot_revision_id>/<asset_key>`; (b) the temp prefix is empty after rename; (c) the ledger rows transition to `promoted_at = now()`; (d) `shows.diagrams.snapshot_status` reflects the per-entry result; (e) gallery URLs `/api/asset/diagram/<show>/<snapshot_revision_id>/<asset_key>` resolve 200.
+  - **Commit-aware snapshot writes — rename-failure recovery (M7 batch-15 finding 1 amendment)**: same setup, commit succeeds, but the post-commit Storage rename API fails (mock the move call to return 5xx). Assert: (a) `shows.diagrams.snapshot_revision_id` is UNCHANGED (still pointing at the prior approved revision); (b) `shows.diagrams.pending_revision_id = $newRev` (the freshly-minted-but-not-yet-promoted revision id captured at Phase-2 DB commit); (c) ledger rows still have `promoted_at IS NULL`; (d) the gallery route serves the prior revision's bytes from the prior canonical prefix (NEVER the temp prefix — there is no `pending_snapshot_path` fallback per M7 batch-15 finding 1); (e) the next reconciler/GC sweep re-attempts the rename and on success runs the atomic JSONB cutover advancing `snapshot_revision_id` to `pending_revision_id` and setting `pending_revision_id = NULL`.
+  - **Commit-aware snapshot writes — GC sweep of unpromoted temp prefixes (M7 batch-15 finding 1 amendment)**: synthesize ledger rows older than 1 hour with `promoted_at IS NULL` AND no live reference from `shows.diagrams.pending_revision_id` (i.e., abandoned Apply attempts whose JSONB cutover never landed). Run the GC sweep (extends Task 7.8). Assert: every such temp prefix is deleted from Storage AND the ledger row is deleted in the same transaction. Live ledger rows whose `promoted_at IS NULL` AND age < 1h are NOT swept. Live ledger rows whose `snapshot_revision_id` matches `shows.diagrams.pending_revision_id` are NOT swept regardless of age (RENAME-RETRY route).
+- [ ] **Step 2: Implement** the per-apply commit-aware snapshotting flow per §6.11 (M7 batch-12 finding 1 — temp-prefix + promotion + ledger; the prior "upload-to-final-prefix-then-commit-DB" flow leaked blobs under unreferenced revisions on Phase-2 abort because the Storage write happened BEFORE the DB commit boundary):
+  1. Mint `snapshot_revision_id = randomUUID()` AND `run_uuid = randomUUID()`. The `run_uuid` is the temp-prefix discriminator (so two concurrent Apply attempts for the same show write to disjoint temp paths). **Insert EXACTLY ONE ledger row per Apply attempt (M7 batch-13 finding 2 grain — NOT one row per asset; the `unique (temp_prefix)` AND `unique (snapshot_revision_id)` constraints would collide if every asset got its own row)**: `INSERT INTO pending_snapshot_uploads (show_id, drive_file_id, temp_prefix, snapshot_revision_id, asset_count, uploaded_at, promoted_at, claim_token, claimed_at) VALUES ($show_id, $drive_file_id, $temp_prefix, $snapshot_revision_id, $asset_count, now(), NULL, NULL, NULL)` inside the SAME Phase-2 DB transaction that will eventually UPDATE `shows.diagrams` so the rollback path takes both. `$asset_count` is the count of `embeddedImages[].length + linkedFolderItems[].length` that this Apply will attempt to upload; the GC sweep / promoter use it as a sanity check against the prefix LIST result. Asset-level tracking is implicit — each asset gets its own Storage object under the per-Apply temp prefix, but only ONE row exists in the ledger per Apply attempt. (See Task 2.2 amendment for the `pending_snapshot_uploads` table DDL — added to the §4.5 admin-only list, growing the count from 16 → 17 tables, with corresponding propagation to AC-2.5 / Task 2.3 / Task 2.5.) **DO NOT write `shows.pending_snapshot_path` (M7 batch-15 finding 1 — column REMOVED)** — the new revision id is staged on `shows.diagrams.pending_revision_id` (JSONB field) by Phase 2 step 4 below; the gallery route NEVER reads `pending_revision_id` and serves only `snapshot_revision_id`-prefixed bytes from the canonical prefix.
   2. For each `embeddedImages[]`:
      - **Restage-only entries are NON-RECOVERABLE (final-validation finding)**: if the entry's `embeddedFingerprint` is `null`, set a per-entry flag `recovery_disposition = 'restage_required'` on the persisted entry. Apply does NOT download. The entry contributes to `snapshot_status = 'partial_failure'` BUT is excluded from `asset_recovery` retries — see Task 7.4 for the recovery-side filter. Without this exclusion, cron keeps routing the show into `asset_recovery` forever (modtime hasn't changed, fingerprint still null) and GC stays suppressed indefinitely. The state only converges when a fresh sheet edit advances modtime and Phase 2 re-mints a new `sheetsRevisionId` + `embeddedFingerprint`.
-     - Else (fingerprint present): **re-fetch the spreadsheet head revision via `drive.revisions.list(spreadsheetId)` (Drive API) under the lock** and compare the latest `revision.id` to the stored `sheetsRevisionId`. If unchanged AND the Sheets API `spreadsheets.get` shows the entry's `objectId` still present with the captured `embeddedFingerprint`, download bytes via the Sheets API embedded-image path → upload to `diagram-snapshots/shows/<show_id>/r=<rev>/embedded-<objectId>.<ext>`. **Otherwise drift** (revision changed, fingerprint changed, objectId absent, or revision token unavailable) — leave NULL + mark `partial_failure` + emit `EMBEDDED_ASSET_DRIFTED`. Without the explicit drive-revision re-fetch (final-validation finding), the `sheetsRevisionId` half of the approval tuple is captured at Phase 1 but never verified at Apply, leaving implementers free to skip it; this step makes the verification mandatory.
+     - Else (fingerprint present): **re-fetch the spreadsheet head revision via `drive.revisions.list(spreadsheetId)` (Drive API) under the lock** and compare the latest `revision.id` to the stored `sheetsRevisionId`. If unchanged AND the Sheets API `spreadsheets.get` shows the entry's `objectId` still present, **GET `image.contentUrl` (full body, NOT HEAD; streamed via `crypto.createHash('sha256')` per M7 batch-12 finding 2 to avoid full-buffering 50MB images)**, **recompute `base64url(SHA-256(bytes))` per the M7 batch-11 finding #3 canonical derivation** (NOT an ETag; call the same `sha256(bytes)` helper used at Phase-1 enrichment in Task 7.1) and compare to the stored `embeddedFingerprint`. If matched → upload the same bytes to **the temp prefix** `diagram-snapshots/shows/<show_id>/_pending/<run_uuid>/embedded-<objectId>.<ext>` (M7 batch-12 finding 1 — NOT directly to the final `<snapshot_revision_id>/` prefix; the post-commit promotion in Step 6 renames the prefix). **Otherwise drift** (revision changed, recomputed SHA-256 differs from stored `embeddedFingerprint`, objectId absent, or revision token unavailable) — leave NULL + mark `partial_failure` + emit `EMBEDDED_ASSET_DRIFTED`. Without the explicit drive-revision re-fetch (final-validation finding), the `sheetsRevisionId` half of the approval tuple is captured at Phase 1 but never verified at Apply, leaving implementers free to skip it; this step makes the verification mandatory.
   3. For each `linkedFolderItems[]`: **download by immutable revision, not by current head**. Two acceptable patterns:
      - **Pattern A (preferred)** — `revisions.get(fileId, headRevisionId, alt='media')`. Downloads the exact bytes the freeze tuple pinned, regardless of current head. Drive can later 404 the revision if it was permanently deleted; treat 404 as drift (NULL + partial_failure).
-     - **Pattern B (fallback if revisions.get is unavailable for the mimeType)** — `files.get(fileId, alt='media')` THEN recompute md5 of the streamed bytes. If md5 ≠ captured `md5Checksum` → discard the bytes, leave NULL + mark `partial_failure` + emit `LINKED_ASSET_DRIFTED`. If md5 matches → upload to `r=<rev>/folder-<driveFileId>.<ext>`.
+     - **Pattern B (fallback if revisions.get is unavailable for the mimeType)** — `files.get(fileId, alt='media')` THEN recompute md5 of the streamed bytes (use `crypto.createHash('md5')` against the readable stream — NOT `Buffer.concat` of the full body, per M7 batch-12 finding 2). If md5 ≠ captured `md5Checksum` → discard the bytes, leave NULL + mark `partial_failure` + emit `LINKED_ASSET_DRIFTED`. If md5 matches → upload to **the temp prefix** `diagram-snapshots/shows/<show_id>/_pending/<run_uuid>/folder-<driveFileId>.<ext>` (M7 batch-12 finding 1; the post-commit promotion in Step 6 below renames `_pending/<run_uuid>/` to `<snapshot_revision_id>/`).
      - **Never** trust a `files.get(modifiedTime,trashed)` pre-check + a separate `alt=media` call as the approval fence — that has the TOCTOU window.
-  4. Phase 2 writes the new `diagrams` JSONB (with all approved snapshotPaths and the partial_failure status if any drifted/failed).
-- [ ] **Step 3: Commit** `feat(sync): per-apply asset snapshotting + immutable-revision download (§6.11)`.
+  4. **Phase 2 DB transaction body** (still inside the per-show advisory lock): UPDATE `shows.diagrams` JSONB so each per-entry `snapshotPath` carries the **expected post-promotion path** `diagram-snapshots/shows/<show_id>/<snapshot_revision_id>/<asset_key>` (NOT the temp path) — the JSONB is the operator-visible shape and must reflect the canonical revision-prefixed path. **CRITICAL (M7 batch-15 finding 1): DO NOT update `shows.diagrams.snapshot_revision_id` to the new revision in this transaction — instead write `shows.diagrams.pending_revision_id = $newRev` ALONGSIDE the existing `snapshot_revision_id` (which keeps pointing at the prior approved revision).** Concretely: `UPDATE shows SET diagrams = jsonb_set(diagrams, '{pending_revision_id}', to_jsonb($newRev::text)) WHERE id = $showId`. The atomic cutover that advances `snapshot_revision_id` happens in Step 6d ONLY AFTER Storage manifest verification passes. Until that cutover commits, the prior revision's bytes remain authoritative end-to-end and the asset route serves only the prior canonical prefix. Insert `sync_audit` per §6.8.3.
+  5. **COMMIT the DB transaction**, releasing the advisory lock.
+  6. **After DB commit succeeds, PROMOTE the temp prefix to the canonical prefix via the all-or-nothing manifest protocol** (M7 batch-12 finding 1 + M7 batch-13 finding 1 + M7 batch-14 findings 1–2 + **M7 batch-15 findings 1–3**). **The promoter is a `claimed`-state worker** — it MUST first acquire a claim using the **claim** state transition (`UPDATE pending_snapshot_uploads SET claim_token = $newToken, claimed_at = now(), claim_expires_at = now() + interval '5 minutes', promote_started_at = now() WHERE id = $rowId AND claim_token IS NULL AND delete_started_at IS NULL AND promote_started_at IS NULL RETURNING *`) before touching Storage. **`promote_started_at` is set in the SAME UPDATE that acquires the claim (M7 batch-15 finding 2)** — this transitions the row into the non-reclaimable promotion state so the reclaim-expired sweep refuses to touch it. If the claim returns 0 rows, the row is either already claimed by another worker (defer; the next sweep retries) OR is in `committing_delete` state OR has `promote_started_at IS NOT NULL` (a stuck-rollback per M7 batch-15 finding 3 — admin repair only, abort). **(6a) Manifest pre-flight (M7 batch-14 finding 2)** — Storage `LIST` the temp prefix `diagram-snapshots/shows/<show_id>/_pending/<run_uuid>/`. Record the enumerated `(asset_key, size)` tuples; assert `count(enumerated) === asset_count` (read from the just-claimed ledger row). If mismatch → clear `promote_started_at` (set to NULL) AND release the claim via `UPDATE pending_snapshot_uploads SET promote_started_at = NULL, claim_expires_at = now() WHERE id = $rowId AND claim_token = $token AND delete_started_at IS NULL` (heartbeat-back so the next sweep can re-claim) AND ABORT the promotion (the temp prefix itself is incomplete; the next sweep will retry). **(6b) Forward rename** — for each enumerated asset, Storage rename `<temp_prefix><asset_key>` → `<canonical_prefix><asset_key>` where `<canonical_prefix> = diagram-snapshots/shows/<show_id>/<snapshot_revision_id>/`. Track the running set `renamedAssets[]` of successfully renamed asset_keys. **Heartbeat the claim** every 60s during long-running renames via `UPDATE pending_snapshot_uploads SET claim_expires_at = now() + interval '5 minutes' WHERE id = $rowId AND claim_token = $token AND delete_started_at IS NULL` so the lease doesn't expire mid-promote. **On any individual rename failure** (storage 5xx, transient network error): jump to (6e) ROLLBACK with the current `renamedAssets[]` set. **(6c) Manifest post-check (M7 batch-14 finding 2)** — after all renames complete, Storage `LIST` the canonical prefix; assert `count(canonical) === asset_count` AND every enumerated asset_key from (6a) is present in (6c). On mismatch → jump to (6e) ROLLBACK. **(6d) Atomic JSONB cutover + Promote state transition (M7 batch-15 finding 1)** — within a single DB transaction, run TWO statements: **(i)** `UPDATE shows SET diagrams = jsonb_set(jsonb_set(diagrams, '{snapshot_revision_id}', diagrams->'pending_revision_id'), '{pending_revision_id}', 'null'::jsonb) WHERE id = $showId AND (diagrams->>'pending_revision_id')::uuid = $newRev` (advances the canonical revision from prior to new in one atomic JSONB write — the asset route now serves the new revision's canonical bytes); **(ii)** `UPDATE pending_snapshot_uploads SET promoted_at = now(), claim_token = NULL, claimed_at = NULL, claim_expires_at = NULL, promote_started_at = NULL WHERE id = $rowId AND claim_token = $token AND delete_started_at IS NULL RETURNING *`. If BOTH return 1 row: COMMIT — the canonical gallery is now authoritative. If statement (i) returns 0 rows (a concurrent worker beat us OR the JSONB precondition no longer matches), ROLLBACK the DB transaction → jump to (6e) ROLLBACK. If statement (ii) returns 0 rows, ROLLBACK the DB transaction → jump to (6e) ROLLBACK. **(6e) ROLLBACK (any failure in 6b–6d) — reverse-rename ALL `renamedAssets[]`** — for each asset_key in `renamedAssets[]`, Storage rename `<canonical_prefix><asset_key>` → `<temp_prefix><asset_key>`. **(6e-success path)** When all reverse-renames succeed: `UPDATE shows SET diagrams = jsonb_set(diagrams, '{pending_revision_id}', 'null'::jsonb) WHERE id = $showId` (clear the staged-but-failed `pending_revision_id` so a future Apply can mint a fresh one), then `UPDATE pending_snapshot_uploads SET promote_started_at = NULL, claim_expires_at = now() WHERE id = $rowId AND claim_token = $token AND delete_started_at IS NULL` (clear `promote_started_at` AND release the claim so the next sweep retries OR — if Apply's caller has given up — the GC sweeps the orphan temp prefix normally). The canonical prefix MUST be empty post-rollback so the §6.11 GC observing it knows nothing was promoted; `shows.diagrams.snapshot_revision_id` still points at the prior approved revision (which has kept serving uninterrupted). **(6e-stuck path — M7 batch-15 finding 3)** When ANY reverse-rename ITSELF fails (storage 5xx mid-rollback): the row is in a split-prefix state with assets straddling temp + canonical. DO NOT clear `promote_started_at` (so the row stays non-reclaimable to the GC sweep); DO NOT clear `pending_revision_id` (admin repair needs it); DO NOT release the claim. Emit an `admin_alerts` row coded `PENDING_SNAPSHOT_ROLLBACK_STUCK` (UPSERT into `admin_alerts` keyed `(show_id, code, ledger_row_id)` so duplicate emissions coalesce) with metadata `{ row_id, snapshot_revision_id, assets_reverted: [...], assets_still_canonical: [...] }` so Eric sees the stuck state. The reclaim-expired GC sweep WILL refuse to act on this row because its `promote_started_at IS NOT NULL`; recovery is admin-only via `/api/admin/snapshot-rollback/[id]/repair` (see new admin route below). **No partial gallery is ever live** — `shows.diagrams.snapshot_revision_id` still points at the prior approved revision throughout, regardless of which 6e branch ran.
+  7. **Phase-2 abort path** (any rollback before COMMIT): the temp prefix blobs remain orphan; ledger row still carries `promoted_at IS NULL` AND `delete_started_at IS NULL`. The Task 7.8 GC sweep follows the **M7 batch-14 finding 1 3-state lifecycle (supersedes the batch-13 CAS-after-delete protocol)**: pass (iii) initial-claim acquires the row via `UPDATE pending_snapshot_uploads SET claim_token = gen_random_uuid(), claimed_at = now(), claim_expires_at = now() + interval '5 minutes' WHERE id IN (SELECT id FROM pending_snapshot_uploads WHERE promoted_at IS NULL AND uploaded_at < now() - interval '1 hour' AND claim_token IS NULL AND delete_started_at IS NULL FOR UPDATE SKIP LOCKED LIMIT 100) RETURNING id, temp_prefix, claim_token`. Pass (iv-b) DELETE-ORPHAN runs commit-to-delete `UPDATE pending_snapshot_uploads SET delete_started_at = now(), claim_expires_at = now() + interval '15 minutes' WHERE id = $1 AND claim_token = $2 AND promoted_at IS NULL AND delete_started_at IS NULL RETURNING *` — Storage DELETE runs ONLY after this returns 1 row. **The byte-protection invariant is the state guard, not a post-Storage CAS** — promote and reclaim-expired both refuse rows with `delete_started_at IS NOT NULL`, so a revived worker after the original claim's lease slipped CANNOT delete bytes another worker already committed to delete.
+  8. **Streaming hash invariant (M7 batch-12 finding 2)**: every byte fetch above (Pattern A `revisions.get(alt='media')`, Pattern B `files.get(alt='media')`, embedded `image.contentUrl` GET) is read via a Node.js `Readable` stream piped into `crypto.createHash('sha256')` / `crypto.createHash('md5')` AND the Storage upload — bytes are NEVER fully buffered into a `Buffer.concat`. This caps in-memory residency at the streaming-chunk size regardless of asset size; per Task 7.4 finding 2 the per-recovery-run cap is enforced upstream of `assetRecovery`.
+- [ ] **Step 3: Commit** `feat(sync): per-apply commit-aware asset snapshotting (temp prefix + promotion + ledger + pending_revision_id JSONB cutover + stuck-rollback contract) (§6.11, M7 batch-15 findings 1+3)`.
 
 ### Task 7.4: `asset_recovery` mode (§5.2, §6.11, AC-7.11, AC-7.14, AC-7.16)
 
@@ -3187,17 +4687,25 @@ Spec context: §6.11, §10, §17.1 milestone 7.
 
 **Per-show advisory lock is mandatory** — `asset_recovery` is a sync-mode write path that mutates `shows.diagrams` JSONB and flips `snapshot_status`. Per the universal lock invariant in this plan's "How to use this plan" §4, every code path that mutates show-derived state runs inside `pg_try_advisory_xact_lock(hashtext('show:' || drive_file_id))`. Without the lock, recovery can race a concurrent cron/push/manual Phase 2 or an Apply commit and either (a) write a stale revision id over a newer snapshot, (b) flip `snapshot_status='complete'` against a revision that has just been superseded, or (c) miss a `snapshot_revision_id` rotation and mark a now-orphan revision complete. The lock + the post-acquire revision/modtime re-read together close those windows.
 
-**`asset_recovery` reads exclusively from persisted `shows.diagrams`.** After a successful Apply, `pending_syncs.parse_result` is DELETED (per §6.8.1 step 6). The version pin (`drive_modified_time`) and every other input recovery needs are therefore stored ON the `shows.diagrams` JSONB itself — every entry of `embeddedImages[]` and `linkedFolderItems[]` carries its own `drive_modified_time` at the row level. Recovery NEVER consults `pending_syncs.parse_result` (it may not exist) or any other staged data — only the live `shows.diagrams` row. This guarantees recovery is well-defined regardless of whether the show was last applied via auto-apply (no staging history), via Apply-from-staged (staging history deleted), or via asset_recovery itself in a prior pass.
+**`asset_recovery` reads exclusively from persisted `shows.diagrams`.** After a successful Apply, `pending_syncs.parse_result` is DELETED (per §6.8.1 step 6). The **immutable approval pins** (round-44+) and every other input recovery needs are therefore stored ON the `shows.diagrams` JSONB itself — every linked-folder entry carries `(headRevisionId, md5Checksum)`; every embedded entry carries `(sheetsRevisionId, embeddedFingerprint)` at the row level. `drive_modified_time` is informational only and is **NEVER** used as the recovery pin — it has the TOCTOU window the immutable-pin contract was added to close (see Task 7.2 / §6.11 / §6.11.1 amendments). Recovery NEVER consults `pending_syncs.parse_result` (it may not exist) or any other staged data — only the live `shows.diagrams` row. This guarantees recovery is well-defined regardless of whether the show was last applied via auto-apply (no staging history), via Apply-from-staged (staging history deleted), or via asset_recovery itself in a prior pass.
 
 - [ ] **Step 1: Failing tests**
   - AC-7.14: synthesized partial_failure with one embedded + one linked unresolved. Recovery retries BOTH; on success flips to `complete`.
   - AC-7.16: in partial_failure, sheet edited (modtime advances) → next cron takes NORMAL Phase 2 path (NOT asset_recovery); broken diagram carried forward as NULL against new revision; non-diagram updates land within sync window.
   - **Lock acquisition test:** `assetRecovery(showId)` calls `pg_try_advisory_xact_lock(hashtext('show:' || drive_file_id))` first; if `false` → log `CONCURRENT_SYNC_SKIPPED` and return without any DB writes (mirrors Phase 1's behavior).
-  - **No-pending_syncs test (round-2 finding):** synthesize a `partial_failure` show whose Apply happened long ago — DELETE every `pending_syncs` row for the show before invoking recovery. Recovery still runs to completion using only `shows.diagrams.linkedFolderItems[i].drive_modified_time` as the pin source. Assert recovery succeeds (or fails closed with `LINKED_ASSET_DRIFTED`) without ever SELECTing from `pending_syncs`. Verify by spying on the Postgres query stream; any read of `pending_syncs` during recovery is a test failure.
+  - **No-pending_syncs test (round-2 finding, round-49 amendment):** synthesize a `partial_failure` show whose Apply happened long ago — DELETE every `pending_syncs` row for the show before invoking recovery. Recovery still runs to completion using only the **immutable approval pins on each persisted entry** as the pin source: linked-folder entries verify against `(headRevisionId, md5Checksum)` (Pattern A: `revisions.get(driveFileId, headRevisionId, alt='media')`; Pattern B: `files.get(alt='media')` + buffer-then-verify md5). Embedded entries re-fetch via `drive.revisions.list(spreadsheetId)` and match on `(sheetsRevisionId, objectId presence, embeddedFingerprint)`. **Assert no per-entry `drive_modified_time` field is read or compared anywhere in the recovery code path** (modtime is informational only — using it as a fence has the TOCTOU window the immutable pins were introduced to close). Assert recovery succeeds (or fails closed with `LINKED_ASSET_DRIFTED` / `EMBEDDED_ASSET_DRIFTED`) without ever SELECTing from `pending_syncs`. Verify by spying on the Postgres query stream; any read of `pending_syncs` during recovery is a test failure.
   - **Race vs. fresh Phase 2:** synthesize a `partial_failure` revision (rev_id = R1). Begin asset_recovery on a separate connection that holds at the lock-acquire step. On the main connection, run a normal Phase 2 against a newer modtime that mints a new `snapshot_revision_id = R2` and commits. Release the recovery's lock-acquire blocker. Recovery's first action AFTER lock is to re-read `shows.diagrams.snapshot_revision_id` and `shows.diagrams.snapshot_status`; both have changed (R1 → R2, partial_failure → complete OR a fresh partial_failure on R2). Recovery MUST NOT write paths or flip status against the now-stale R1; it either no-ops (if R2 is complete) or restarts its work against R2's missing entries.
   - **Race vs. concurrent Apply:** same pattern but the racing path is a manual Apply that mints R2. Recovery sees R2 ≠ R1 after lock acquisition and aborts cleanly.
-- [ ] **Step 2: Implement.** `assetRecovery(showId, driveFileId)`:
-  1. Open one Postgres transaction.
+  - **Lock-free pre-pass + byte ceiling (M7 batch-12 finding 2)**: synthesize a `partial_failure` show with 60 unresolved entries × 50MB each (3GB total — the per-recovery-run ceiling). Run `assetRecovery(showId, driveFileId)`. Assert: (a) recovery completes; (b) the per-show advisory lock is held ONLY during DB writes — measure the lock-hold window via `pg_locks` polling and assert it is <1s, NOT the multi-minute window the byte-fetch pass would consume; (c) no Drive API calls (`drive.revisions.list`, `spreadsheets.get`, `GET image.contentUrl`) are issued WHILE the lock is held — verify by spying the Drive client and asserting every Drive call's wall-clock window does NOT overlap any `pg_advisory_xact_lock` window for the show.
+  - **Lock-free pre-pass — byte ceiling — 61st-image abort (M7 batch-12 finding 2)**: synthesize 61 unresolved entries. Recovery aborts BEFORE acquiring the lock with `ASSET_RECOVERY_BYTES_EXCEEDED` (new §12.4 entry — see Step 3 below). Assert: `admin_alerts` row coded `ASSET_RECOVERY_BYTES_EXCEEDED` UPSERTed; NO `shows.diagrams` mutation; NO Drive bytes downloaded (the cap check fires off the per-entry metadata `size`, not the response body, so the bytes aren't fetched at all).
+  - **Lock-free pre-pass — byte ceiling — 51MB single-image abort (M7 batch-12 finding 2)**: synthesize 1 unresolved entry whose `files.get` reports `size > 50MB`. Recovery aborts BEFORE downloading with `ASSET_RECOVERY_BYTES_EXCEEDED`. Same admin-alert + no-mutation invariants.
+  - **Streaming hard-stop — embedded image 51MB mid-stream abort (M7 batch-13 finding 4)**: synthesize 1 unresolved EMBEDDED entry. `drive.revisions.list` returns no `size` field (correct — the API doesn't supply it for embedded images). The pre-flight metadata cap CANNOT fire for this entry. Stub `image.contentUrl` to stream 51MB of bytes. Assert: the streaming hash hook detects `entryBytes > 50MB` mid-stream, calls `stream.destroy()`, and aborts recovery with `ASSET_RECOVERY_BYTES_EXCEEDED` (admin alert UPSERTed; no `shows.diagrams` mutation; tempfiles for the run discarded). Verify the streamed-bytes counter never reaches 51MB+epsilon — the abort fires AS SOON AS the cap is crossed, not after the full body buffers. **This test catches the M7 batch-13 finding 4 class — the metadata pre-flight is unimplementable for embedded images, so the streaming hard-stop is the only authoritative gate; a build that elided it would silently allow embedded images of any size to pin recovery memory.**
+  - **Streaming hard-stop — cumulative 3GB mid-stream abort (M7 batch-13 finding 4)**: synthesize 60 unresolved entries each just under 50MB (so individual caps don't fire) totaling > 3GB. Stream-fetch each entry; assert the in-flight stream aborts as soon as `cumulativeBytes > 3GB`, regardless of which entry is mid-stream. The abort discards all tempfiles for the run and returns `ASSET_RECOVERY_BYTES_EXCEEDED`. Without the cumulative streaming check, 60 × 49MB embedded images would pass every per-entry cap but exceed the 3GB recovery budget.
+  - **Streaming hard-stop — under-cap success (M7 batch-13 finding 4)**: synthesize entries totaling < 3GB with each individual entry < 50MB. Stream-fetch each entry; assert all tempfiles are produced, recovery proceeds normally to the locked phase, no `ASSET_RECOVERY_BYTES_EXCEEDED` is raised. This is the happy-path counterexample to the two abort tests above.
+  - **Streaming hash invariant (M7 batch-12 finding 2)**: every byte fetch (Pattern A `revisions.get(alt='media')`, Pattern B `files.get(alt='media')`, embedded `image.contentUrl` GET) is read via a Node.js `Readable` stream piped into `crypto.createHash('sha256')` (or `'md5'` for linked) AND a per-stream tempfile — bytes are NEVER fully buffered into a `Buffer.concat`. Assert: process RSS during recovery does NOT exceed the streaming-chunk-size headroom (the test holds RSS at <250MB even when total bytes is 3GB).
+- [ ] **Step 2: Implement.** `assetRecovery(showId, driveFileId)` — **two-phase: byte-heavy verification OUT of the lock, DB writes IN the lock (M7 batch-12 finding 2)**. The earlier draft acquired the per-show advisory lock and then ran `drive.revisions.list` + `spreadsheets.get` + `GET image.contentUrl` + `SHA-256(bytes)` for up to 60 images while holding it; that pinned the lock for minutes and serialized every concurrent cron/push/manual sync against an unrelated show. The corrected design splits as follows:
+  0. **Lock-free pre-pass (M7 batch-12 finding 2 + M7 batch-13 finding 4 streaming hard-stop)** — runs BEFORE acquiring the per-show advisory lock. (a) Open a short read-only transaction; `SELECT diagrams FROM shows WHERE id = $showId`; capture `lockedRevPreview` and the unresolved entry set (`snapshotPath IS NULL`, `recovery_disposition = 'normal'`); COMMIT. NO lock held. (b) For each candidate entry, fetch metadata WITHOUT bytes — for embedded entries `drive.revisions.list(spreadsheetId)` (returns spreadsheet revision id; **does NOT return per-image byte size — embedded images have no metadata size source per M7 batch-13 finding 4**); for linked entries `files.get(fileId, fields='size,headRevisionId,md5Checksum,trashed')` (Drive returns `size` for binary files — usable as a cheap pre-flight). (c) **Entry-count cap (metadata-only check)**: if `entries.length > 60` → abort recovery with `ASSET_RECOVERY_BYTES_EXCEEDED` (new §12.4 code — see Step 3). UPSERT an `admin_alerts` row keyed `ASSET_RECOVERY_BYTES_EXCEEDED` so Doug sees the stuck state. Do NOT acquire the advisory lock; do NOT mutate `shows.diagrams`. **Linked-folder pre-flight (optimization, not authoritative)**: if any linked entry's `metadata.size > 50MB` OR `sum(linked.size) > 3GB` → abort the same way (cheap rejection without any byte fetch). The streaming hard-stop in (d) is still the authoritative gate — for embedded images it's the ONLY gate. (d) **Streaming hard-stop byte fetch (M7 batch-13 finding 4 — replaces the metadata `sum(entries.size)` cap that was unimplementable for embedded images)**: for each within-count-cap entry, stream-fetch bytes via a Node.js `Readable` piped into `crypto.createHash('sha256').on('data', chunk => { entryBytes += chunk.length; cumulativeBytes += chunk.length; if (entryBytes > 50MB) { stream.destroy(); abort('ASSET_RECOVERY_BYTES_EXCEEDED'); } if (cumulativeBytes > 3GB) { stream.destroy(); abort('ASSET_RECOVERY_BYTES_EXCEEDED'); } })` (or `'md5'` for linked) AND a per-recovery-run tempfile (e.g., `os.tmpdir() + '/asset-recovery-<run_uuid>/<asset_key>'`). The single-image cap fires mid-stream (download terminates as soon as `entryBytes` exceeds 50MB; no full body buffered). The cumulative cap is tracked across all entries; the in-flight stream aborts as soon as `cumulativeBytes` crosses 3GB. NEVER `Buffer.concat` the full body. On any cap breach: destroy the in-flight stream, discard all tempfiles for the run (`rm -rf os.tmpdir() + '/asset-recovery-<run_uuid>/'`), UPSERT the `admin_alerts` row, return `ASSET_RECOVERY_BYTES_EXCEEDED` immediately. Do NOT acquire the advisory lock. Record the streamed digest for entries that completed under-cap. (e) Per-entry verification: for embedded, compare streamed digest to `entry.embeddedFingerprint`; for linked, compare streamed md5 to `entry.md5Checksum`; on mismatch, discard the tempfile + emit `LINKED_ASSET_DRIFTED` / `EMBEDDED_ASSET_DRIFTED` and mark the entry as drift-skipped (NOT eligible for upload in the locked phase below). (f) Cache the per-entry verified-tempfile mapping in request-local memory. **The pre-pass ends with all bytes verified and on local disk; the lock has not yet been acquired.**
+  1. Open one Postgres transaction (the locked transaction; ONLY DB writes happen below this point — no network I/O while the lock is held).
   2. `SELECT pg_try_advisory_xact_lock(hashtext('show:' || $driveFileId))`. If `false` → log `CONCURRENT_SYNC_SKIPPED`, ROLLBACK, return.
   3. **Inside the lock, read live state from `shows.diagrams` only**:
      ```sql
@@ -3205,10 +4713,7 @@ Spec context: §6.11, §10, §17.1 milestone 7.
      ```
      Capture `lockedRev = diagrams.snapshot_revision_id`, `lockedStatus = diagrams.snapshot_status`. If `lockedStatus !== 'partial_failure'` → no work to do, COMMIT, return. **At no point query `pending_syncs.parse_result` — it may not exist post-Apply.**
   4. **Filter out restage-only entries (final-validation finding).** Before the per-entry retry loop, exclude every embedded entry whose `recovery_disposition = 'restage_required'`. These entries have no usable approval token and asset_recovery cannot heal them; they need a fresh sheet edit to mint new `sheetsRevisionId` + `embeddedFingerprint`. **If after filtering, ZERO retryable entries remain, abort recovery WITHOUT marking the show recovered**: instead, transition the show to a terminal sub-state — flip `snapshot_status` to `partial_failure_restage_required` (new value distinguishes "actively retrying" from "stuck waiting for sheet edit"). The cron `partial_failure → asset_recovery` routing in Task 6.3 MUST treat `partial_failure_restage_required` as a SKIP, not a retry trigger, so the show isn't routed back into asset_recovery on every cron tick. UPSERT an `admin_alerts` row coded `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` so Doug sees the stuck state. The show converges back to `complete` (or normal `partial_failure`) only when a fresh Phase 2 (next sheet edit) mints a new revision.
-  5. For each entry `e` in the filtered retryable set whose `e.snapshotPath IS NULL`:
-     - **For linked-folder entries:** verify against the immutable revision pinned at Task 7.2. Use Pattern A — `revisions.get(e.driveFileId, e.headRevisionId, alt='media')` — and treat 404 as `LINKED_ASSET_DRIFTED` (skip; snapshotPath stays NULL). Or Pattern B — `files.get(alt='media')` then recompute md5 against `e.md5Checksum`; mismatch → discard bytes + emit `LINKED_ASSET_DRIFTED` + skip. **Never use `(modifiedTime,trashed)` as the fence — that has the TOCTOU window the freeze tuple was added to close.**
-     - **For embedded entries:** re-fetch the spreadsheet head revision via `drive.revisions.list(spreadsheetId)` (Drive API — same path Task 7.1 used to capture `sheetsRevisionId`) under the lock; compare the current head to the entry's stored `sheetsRevisionId`. THEN re-run the Sheets API `spreadsheets.get` for the DIAGRAMS tab to verify the entry's `objectId` is still present AND the stored `embeddedFingerprint` matches. **All three checks (revision token, objectId presence, content fingerprint) must pass** — otherwise emit `EMBEDDED_ASSET_DRIFTED` and skip (snapshotPath remains NULL). The drive.revisions.list re-fetch is mandatory (final-validation finding): without it, the `sheetsRevisionId` half of the approval tuple is never verified at recovery time, leaving the byte fence unenforceable.
-     - On verified-pin match: download bytes → upload to `diagram-snapshots/shows/<show_id>/r=<lockedRev>/<key>` (linked: `folder-<driveFileId>.<ext>`; embedded: `embedded-<objectId>.<ext>`). **Use `lockedRev` everywhere — never a fresh UUID.** Record the new path locally.
+  5. For each entry `e` in the filtered retryable set whose `e.snapshotPath IS NULL` AND whose pre-pass produced a verified tempfile (drift-skipped entries from Step 0(e) are excluded — their `snapshotPath` stays NULL and they contribute to the post-loop terminal-state recompute via the standard partial-failure path): **upload the cached tempfile bytes** (M7 batch-12 finding 2 — bytes were stream-fetched and content-verified in the lock-free pre-pass; this step is upload-only and runs entirely against local disk + Storage, NO Drive API calls under the lock) to `diagram-snapshots/shows/<show_id>/<lockedRev>/<key>` (linked: `folder-<driveFileId>.<ext>`; embedded: `embedded-<objectId>.<ext>`). **Use `lockedRev` everywhere — never a fresh UUID.** Record the new path locally. The contract is: all Drive-API-backed verification (`drive.revisions.list`, `spreadsheets.get`, `GET image.contentUrl`) AND all SHA-256/md5 hashing of bytes happened in Step 0 OUTSIDE the lock; under the lock the only side-effect channels are Storage uploads and Postgres writes. (The legacy "verify-and-download under lock" prose is RETIRED — see Task 7.4 amendment for finding 2.)
   5. **Re-read `shows.diagrams.snapshot_revision_id` again** before the final UPDATE; if it has changed since `lockedRev`, ROLLBACK (a concurrent Phase 2 or Apply mutated state under us — should be impossible because we hold the lock, but defend regardless). This is a defense-in-depth check matching the spec's monotonic UPDATE pattern.
   6. UPDATE `shows.diagrams` JSONB with the populated `snapshotPath`s on the per-entry items. **Recompute the terminal state from the post-loop unresolved set (round-47 amendment)** — earlier draft only flipped to `partial_failure_restage_required` BEFORE the retry loop; if recovery healed retryable nulls and the only remaining nulls were `restage_required`, status stayed `partial_failure` and cron would loop forever:
      - If every entry now has a non-null `snapshotPath` → `snapshot_status = 'complete'`.
@@ -3216,8 +4721,9 @@ Spec context: §6.11, §10, §17.1 milestone 7.
      - Else → `snapshot_status = 'partial_failure'` (still retryable on the next cron pass — at least one null entry has `recovery_disposition = 'normal'` and could heal on the next attempt).
      This recompute runs whether the loop ran zero entries (all restage-required) OR after partial healing — the terminal state is determined by the post-loop unresolved set, not pre-loop state.
   7. **Never advance `last_seen_modified_time`** — recovery doesn't touch sheet-derived columns. Asset recovery never advances watermarks.
-  8. COMMIT. Lock auto-releases.
-- [ ] **Step 3: Commit** `feat(sync): asset_recovery mode + advisory lock + race protection (§5.2, §6.11)`.
+  8. COMMIT. Lock auto-releases. Clean up the per-recovery-run tempfile cache (delete the `os.tmpdir()/asset-recovery-<run_uuid>/` directory).
+- [ ] **Step 3: Add `ASSET_RECOVERY_BYTES_EXCEEDED` to §12.4 catalog** (M7 batch-12 finding 2): admin-facing copy "*<sheet-name>*: this show's diagram set is too large to recover automatically (more than 60 images, an image >50MB, or >3GB total). Crew see placeholders for the missing diagrams. Tell the developer if you need this raised, or trim the gallery." Crew-facing: `—`. helpfulContext: explains the per-recovery-run bytes ceiling, why it exists (lock-free pre-pass cap to keep the per-show advisory lock window short), and that a fresh sheet edit with a smaller gallery resolves it.
+- [ ] **Step 4: Commit** `feat(sync): asset_recovery mode + lock-free pre-pass + byte ceiling + advisory lock + race protection (§5.2, §6.11)`.
 
 ### Task 7.5: Diagram asset route `/api/asset/diagram/[show]/[rev]/[key]` (§7.3, AC-7.4, AC-7.12, AC-7.15, AC-7.17)
 
@@ -3228,25 +4734,45 @@ Spec context: §6.11, §10, §17.1 milestone 7.
   - AC-7.12: no valid signed-link cookie OR Google session → 401. Session whose crew_member is no longer in this show → 403. After "Issue New Link" → 410. No long-lived signed Storage URLs.
   - AC-7.15: revision-versioned URL — request with prior revision → 410.
   - AC-7.17: cache revalidation propagates revocation. Load image, click "Issue New Link" → reuse cached URL → server returns 410.
+  - **Canonical URL shape (M7 batch-11 finding #1):** the `[rev]` route segment is a BARE UUID — NO `r=` prefix. Regression tests:
+    - **Bare-UUID happy path:** mint a fresh `snapshot_revision_id = '12345678-1234-1234-1234-123456789abc'`, persist it on `shows.diagrams.snapshot_revision_id`. Request `/api/asset/diagram/<show>/12345678-1234-1234-1234-123456789abc/<key>`. Assert: route handler does a literal equality compare of `params.rev` against the stored UUID; 200 OK + bytes.
+    - **`r=`-prefixed URL is rejected:** request `/api/asset/diagram/<show>/r=12345678-1234-1234-1234-123456789abc/<key>` (the legacy/bad shape). Assert: route returns 410 (the `r=` literal is reserved as a hard-rejection marker; any URL whose `params.rev` contains `r=` MUST 410, regardless of whether the embedded UUID matches the stored value). This protects against any pre-batch-11 URL leaked into a browser cache or hand-rolled link from accidentally resolving.
+    - **Storage prefix shape:** assert the Storage object key for an approved snapshot is `diagram-snapshots/shows/<show_id>/<snapshot_revision_id>/<assetKey>` — bare UUID, NO `r=` prefix in the storage path either.
+  - **Prior-revision-authoritative-until-promote-succeeds contract (M7 batch-15 finding 1, REPLACES the M7 batch-13 finding 3 `pending_snapshot_path` fallback):** the route MUST serve only canonical `snapshot_revision_id`-prefixed bytes — never falls back to the `_pending/` temp prefix. The atomic JSONB cutover (post-commit promoter advances `shows.diagrams.snapshot_revision_id` from prior to new ONLY after Storage manifest verification passes) guarantees that a successful Storage read at the canonical prefix exists for every revision the route serves. Required regression tests:
+    - **Canonical-prefix happy path (promoted)**: persist `shows.diagrams.snapshot_revision_id = $rev` AND `shows.diagrams.pending_revision_id = NULL` (cutover complete). Object exists at `diagram-snapshots/shows/<show_id>/<rev>/<key>` ONLY (no temp-prefix duplicate). Request the route. Assert: route resolves bytes from the canonical path and returns 200.
+    - **Pre-promotion (pending_revision_id staged but cutover not committed)**: persist `shows.diagrams.snapshot_revision_id = $priorRev` (prior approved revision) AND `shows.diagrams.pending_revision_id = $newRev` (Phase-2 DB commit landed but Storage manifest verification + JSONB cutover hasn't run yet). The prior revision's bytes still exist at `diagram-snapshots/shows/<show_id>/<priorRev>/`; the new revision's bytes exist ONLY at the temp prefix `_pending/<run_uuid>/`. Request the route with `[rev] = $priorRev`. Assert: 200 + bytes from prior canonical prefix (prior revision keeps serving uninterrupted). Request the same route with `[rev] = $newRev`. Assert: 410 (the new revision is staged in `pending_revision_id` but is invisible to crew until cutover; route does literal equality on `snapshot_revision_id` and rejects mismatches).
+    - **`pending_revision_id` is NEVER read by the route**: persist `shows.diagrams.snapshot_revision_id = $priorRev` AND `shows.diagrams.pending_revision_id = $newRev` AND make the canonical bytes for `$priorRev` MISSING (rare/synthetic; e.g., GC race). Request `/api/asset/diagram/<show>/<newRev>/<key>`. Assert: 410 — the route does NOT consult `pending_revision_id` and never resolves the new revision pre-cutover.
+    - **Stale-revision rejection**: request the route with a `[rev]` that matches neither `snapshot_revision_id` nor any historical revision. Assert: 410 (literal equality on `snapshot_revision_id` only).
+    - **No-direct-temp-URL bypass**: attempt to request `/api/asset/diagram/<show>/_pending%2F<run_uuid>%2F<key>` or any URL where `[rev]` resolves to anything other than a bare UUID. Assert: 410 (the `[rev]` segment MUST be a bare UUID per the M7 batch-11 finding #1 contract; the route NEVER resolves a temp-prefix segment).
+    - **Canonical 404 → 410**: persist `shows.diagrams.snapshot_revision_id = $rev`. No object exists at the canonical path. Assert: 410 (NOT 404 — single contract for missing bytes regardless of cause; matches AC-7.15 / §7.3). **There is no temp-prefix fallback** (M7 batch-15 finding 1).
 - [ ] **Step 2: Implement**:
   1. Run `validateLinkSession` or `validateGoogleSession` (admin allowed).
   2. Verify show match (cookie session's `show_id` === URL slug's show id).
-  3. Read `shows.diagrams` row; resolve `assetKey` against the snapshot list; verify URL revision === `shows.diagrams.snapshot_revision_id`. Mismatch → 410.
-  4. Read bytes from Storage via service role.
-  5. Stream bytes with `Cache-Control: private, max-age=0, must-revalidate`.
-- [ ] **Step 3: Commit** `feat(assets): diagram route + revision-versioned URLs (§7.3)`.
+  3. **Reject `r=`-prefixed rev (M7 batch-11 finding #1):** if `params.rev.includes('=')` (or starts with `r=`), return 410 immediately — the canonical shape is a bare UUID with NO key=value form.
+  4. Read `shows.diagrams` row; resolve `assetKey` against the snapshot list; verify URL revision (literal equality on the bare UUID) === `(shows.diagrams ->> 'snapshot_revision_id')::uuid`. Mismatch → 410. **NEVER read `(shows.diagrams ->> 'pending_revision_id')` (M7 batch-15 finding 1)** — that JSONB field is the cutover staging slot for the post-commit promoter and is invisible to crew.
+  5. **Read bytes from the canonical path**: `diagram-snapshots/shows/<show_id>/<rev>/<assetKey>` via the service role. **There is no temp-prefix fallback (M7 batch-15 finding 1)** — the prior-revision-authoritative-until-promote-succeeds contract guarantees the canonical bytes exist whenever the route's literal equality check passes; the asset route never serves unpromoted revisions from the `_pending/` prefix.
+  6. **On canonical-path 404**: return 410 (single missing-bytes contract; never 404). The crew page renders a placeholder for the missing diagram.
+  7. Stream bytes with `Cache-Control: private, max-age=0, must-revalidate`.
+- [ ] **Step 3: Commit** `feat(assets): diagram route + revision-versioned URLs + canonical-only contract (§7.3, M7 batch-15 finding 1)`.
 
-### Task 7.6: Reel asset route `/api/asset/reel/[show]` (§7.3, AC-7.18, AC-7.21..7.24)
+### Task 7.6: Reel asset route `/api/asset/reel/[show]` + crew-page inline `<video>` (§7.3, AC-7.18, AC-7.21..7.25)
 
 **Files:** Create: `app/api/asset/reel/[show]/route.ts`. Test extends.
 
 - [ ] **Step 1: Failing tests**
   - AC-7.18: same auth + cache parity as diagrams.
   - AC-7.21: reel file edited after last Apply → page hits route → route compares modtime AND `headRevisionId` to `shows.opening_reel_*` → drift → 410 + placeholder.
-  - AC-7.22: cell with Drive URL → all reel pin columns NOT NULL after Apply (`opening_reel_drive_file_id`, `opening_reel_drive_modified_time`, `opening_reel_head_revision_id`).
-  - AC-7.23: cell `YES - LOOP VIDEO https://drive.google.com/file/d/<id>/view` → all reel pin columns NOT NULL AND crew page renders text+video.
+  - AC-7.22: cell with Drive URL → ALL FOUR reel pin columns NOT NULL after Apply (`opening_reel_drive_file_id`, `opening_reel_drive_modified_time`, `opening_reel_head_revision_id`, `opening_reel_mime_type`) — M3+M4 batch-14 finding 3 propagation (3 → 4 columns to match the canonical AC-7.22 wording in spec §17 and the X.6 4-column atomic-NULL invariant below).
+  - AC-7.23: cell `YES - LOOP VIDEO https://drive.google.com/file/d/<id>/view` → ALL FOUR reel pin columns NOT NULL AND crew page renders text+video (the text+video assertion is verified by AC-7.25 below — this AC alone covers persisted-column shape).
   - **AC-7.24 (clarified — final-validation finding)**: stage with reel URL, EDIT reel between stage and Apply, click Apply → §6.11.1 detects drift → all reel pin columns persist NULL → emit `REEL_DRIFTED` warning. Crew page in this state SHOULD NOT call `/api/asset/reel/[show]` at all (text-only fallback). However, **if the route IS called with NULL persisted columns, it returns 410** (not 404) — same `Cache-Control: private, max-age=0, must-revalidate` as the diagram route, so any racing browser cache from before the drift is invalidated. **Single response contract**: 410 for both NULL-persisted and live-drift cases, never 404.
+  - **AC-7.25 (M3+M4 batch-10 round-51 — inverts the M4 baseline `<video>`-absent assertion; batch-11 URL-strip amendment)**: this AC is M7's counterpart to AC-4.5 (which kept `<video>` count === 0 at M4). Each case asserts `not.toContain('https://')` and `not.toContain('drive.google.com')` against the crew DOM — the URL-strip render contract from §10 holds at M7 just as at M4.
+    - **Mixed-value cell with valid pin tuple** — fixture with `event_details.opening_reel = 'YES - https://drive.google.com/file/d/<valid-id>/view'`. After Apply, all three `shows.opening_reel_*` columns are non-NULL. Render the crew page as a seeded crew member. Assert: URL-stripped text line `Opening reel: YES` is present (NOT the raw cell value) AND `await expect(page.locator('[data-testid=opening-reel-tile] video[src*="/api/asset/reel/"]')).toHaveCount(1)` AND `await expect(page.locator('main').textContent()).not.toContain('https://')` AND `not.toContain('drive.google.com')`. The `<video>` element MUST be inside `[data-testid=opening-reel-tile]` (scope guards against any future media tile that might also embed `<video>`).
+    - **Pure-URL cell with valid pin tuple** — fixture `event_details.opening_reel = 'https://drive.google.com/file/d/<valid-id>/view'` (no surrounding text). After Apply, columns non-NULL. Assert: NO `Opening reel:` text line (entire cell value was the URL → empty stripped residue → empty-state predicate hides it). The page renders only the inline `<video>`. `[data-testid=opening-reel-tile] video` count === 1 AND DOM `not.toContain('https://')` AND `not.toContain('drive.google.com')`.
+    - **Text-only cell** — fixture `event_details.opening_reel = 'MAYBE'` (no Drive URL substring). All FOUR pin columns are NULL after Apply (M3+M4 batch-14 finding 3 propagation: 3 → 4 to include `opening_reel_mime_type`). Assert: text line `Opening reel: MAYBE` is present AND `[data-testid=opening-reel-tile] video` count === 0 — text-only at M7 just like at M4.
+    - **Drift case** — fixture stages with reel URL; reel is edited between stage and Apply (`headRevisionId` advances). Apply persists ALL FOUR pin columns NULL per AC-7.24 (M3+M4 batch-14 finding 3 propagation: 3 → 4 to include `opening_reel_mime_type`). Assert: URL-stripped text line `Opening reel: <stripped value>` is present (the renderer strips the URL at render time even when pin columns are NULL — the strip rule is unconditional) AND `[data-testid=opening-reel-tile] video` count === 0 (page knows not to call the route when columns are NULL — drift falls back to text-only just like text-only cells) AND DOM `not.toContain('https://')` AND `not.toContain('drive.google.com')`.
+    - **Cross-reference**: this AC supersedes AC-4.5's `<video>` count === 0 assertion for fixtures with valid post-Apply pin tuples; AC-4.5 remains valid for the M4 baseline AND for M7's text-only and drift cases (both keep `<video>` count === 0). The URL-absence assertion from AC-4.5 remains valid at every milestone — crew DOM never carries `https://` or `drive.google.com` for opening_reel.
   - **TOCTOU drift test**: route compares `current.headRevisionId` to `shows.opening_reel_head_revision_id` (immutable). Mutate the reel between the route's `files.get` and any byte stream — if streaming by revision id, bytes are pinned; if streaming by `alt=media` then re-verifying md5 mid-stream, abort with 410 on mismatch. Live bytes never reach the client under a stale pin.
+  - **MIME-type gate regression (M3+M4 batch-12 finding)**: synthesize a fixture with `event_details.opening_reel = 'https://docs.google.com/document/d/<valid-id>/edit'` (Drive URL substring extractor resolves a `driveFileId`, but the file is a Google Doc — `mimeType = 'application/vnd.google-apps.document'`). Run the full sync pipeline (parseSheet → enrichWithDrivePins → Phase 1 → Phase 2 / Apply). Assert: (a) Phase-1 enrichment called `files.get(fileId, fields='mimeType,modifiedTime,headRevisionId,md5Checksum')` (NOT the old 3-field shape), (b) `OPENING_REEL_NOT_VIDEO` was emitted to `parse_warnings`, (c) post-Apply `shows.opening_reel_drive_file_id`, `shows.opening_reel_drive_modified_time`, `shows.opening_reel_head_revision_id`, AND `shows.opening_reel_mime_type` are ALL NULL atomically (no two-of-four / three-of-four states), (d) crew page renders text-only with NO `<video>` element, (e) DOM does NOT contain `https://` or `docs.google.com`, (f) `/api/asset/reel/<show>` returns 410 if hit. Repeat for `application/vnd.google-apps.presentation` (Slides), `image/png`, `application/pdf`. Sanity case: a fixture with a valid `video/mp4` MIME persists all four columns non-NULL and renders the inline `<video>` per AC-7.25. Without this regression, an operator pasting a Doc URL into the opening-reel cell would have M7 emit `<video src="/api/asset/reel/<show>">` against a non-video file — the browser's native player would render a broken UI element with no fallback. Update Task 7.1 enrichment tests to also assert the new 4-field `files.get` shape AND the `OPENING_REEL_NOT_VIDEO` emission for non-video MIME types.
 - [ ] **Step 2: Implement** with a **pre-stream live drift gate AND a buffer-then-verify fallback** (final-validation finding). Earlier draft only treated 404 as drift on the `revisions.get` path, missing cases where the old revision still exists; the `alt=media` fallback compared `headRevisionId` before stream but bytes could still change between metadata and stream. The corrected flow:
   ```ts
   // app/api/asset/reel/[show]/route.ts
@@ -3256,11 +4782,19 @@ Spec context: §6.11, §10, §17.1 milestone 7.
     if (!auth.ok) return new Response(null, { status: auth.status });
 
     // 2. Read pin tuple. NULL on any column → 410.
+    //    Batch-12 amendment: opening_reel_mime_type is the 4th pin column.
+    //    NULL covers both: (a) no Drive URL in cell, (b) OPENING_REEL_NOT_VIDEO branch.
     const show = await db.queryOne(
-      `SELECT opening_reel_drive_file_id, opening_reel_drive_modified_time, opening_reel_head_revision_id
+      `SELECT opening_reel_drive_file_id, opening_reel_drive_modified_time, opening_reel_head_revision_id, opening_reel_mime_type
          FROM shows WHERE id = $1`, [auth.showId]
     );
-    if (!show?.opening_reel_drive_file_id || !show.opening_reel_drive_modified_time || !show.opening_reel_head_revision_id) {
+    if (!show?.opening_reel_drive_file_id || !show.opening_reel_drive_modified_time || !show.opening_reel_head_revision_id || !show.opening_reel_mime_type) {
+      return new Response('REEL_NOT_AVAILABLE', { status: 410, headers: cacheHeaders });
+    }
+    // Defense-in-depth: even if all four columns are non-NULL, a defensive check that
+    // mime_type is video/* — guards against future enrichment regressions writing
+    // non-video MIME into the column.
+    if (!show.opening_reel_mime_type.startsWith('video/')) {
       return new Response('REEL_NOT_AVAILABLE', { status: 410, headers: cacheHeaders });
     }
 
@@ -3313,32 +4847,59 @@ Spec context: §6.11, §10, §17.1 milestone 7.
 
 **Files:** Modify: `lib/sync/applyStaged.ts` and `lib/sync/phase2.ts` to call a new `verifyReelOnApply` helper. Spec amendment: §6.11.1 + §4.1 (`shows.opening_reel_head_revision_id` column). Test extends.
 
-**Full reel pin tuple end-to-end (final-validation finding).** Earlier draft delegated to a "§6.11.1 four-step flow" without specifying capture/persist of `opening_reel_head_revision_id`. That left a real gap: Task 7.6 makes the route depend on `opening_reel_head_revision_id` for byte streaming, but no task minted/persisted it. The corrected flow makes capture explicit:
+**Full reel pin tuple end-to-end (final-validation finding; batch-13 findings 2 + 3 — four-column persist + 403/MIME classification).** Earlier draft persisted only three columns and did not classify 403/permission-denied or MIME-flip as drift. **Batch-13 amendment**: the flow now persists ALL FOUR columns atomically (driveFileId, drive_modified_time, head_revision_id, mime_type) AND classifies 403 and non-video MIME as drift. The corrected flow:
 
-1. **Re-fetch metadata under the lock**: `files.get(reelFileId, fields='modifiedTime,trashed,headRevisionId,md5Checksum')`.
+1. **Re-fetch metadata under the lock**: `files.get(reelFileId, fields='mimeType,modifiedTime,trashed,headRevisionId,md5Checksum')`.
 2. **Pinned-tuple comparison**:
-   - `trashed = true` OR file gone (404) → drift case.
-   - `current.headRevisionId !== staged.headRevisionId` → drift case.
-   - `current.modifiedTime !== staged.drive_modified_time` → drift case (defense-in-depth; revision check above is the authoritative fence).
-   - All match → success path.
-3. **Drift case** — set ALL THREE columns to NULL atomically: `UPDATE shows SET opening_reel_drive_file_id = NULL, opening_reel_drive_modified_time = NULL, opening_reel_head_revision_id = NULL WHERE id = $showId`. Emit `REEL_DRIFTED` warning. Crew page falls back to text-only.
-4. **Success path** — persist the full pin tuple: `UPDATE shows SET opening_reel_drive_file_id = $fileId, opening_reel_drive_modified_time = $modtime, opening_reel_head_revision_id = $headRevisionId WHERE id = $showId`. The route subsequently streams via `revisions.get(fileId, headRevisionId, alt='media')`.
+   - `trashed = true` OR file gone (404) → drift case (`REEL_DRIFTED`).
+   - **403 / `permissionDenied` / unshared (batch-13 finding 3)** → drift case (`OPENING_REEL_PERMISSION_DENIED` per §12.4 — new code).
+   - `current.headRevisionId !== staged.headRevisionId` → drift case (`REEL_DRIFTED`).
+   - `current.modifiedTime !== staged.drive_modified_time` → drift case (`REEL_DRIFTED`; defense-in-depth — revision check above is the authoritative fence).
+   - `!current.mimeType.startsWith('video/')` (batch-13 finding 2 + 3) → drift case (`OPENING_REEL_NOT_VIDEO`).
+   - All match AND mimeType is video → success path.
+3. **Drift case** — set ALL FOUR columns to NULL atomically: `UPDATE shows SET opening_reel_drive_file_id = NULL, opening_reel_drive_modified_time = NULL, opening_reel_head_revision_id = NULL, opening_reel_mime_type = NULL WHERE id = $showId`. Emit the appropriate warning code. Crew page falls back to text-only.
+4. **Success path** — persist the full pin tuple: `UPDATE shows SET opening_reel_drive_file_id = $fileId, opening_reel_drive_modified_time = $modtime, opening_reel_head_revision_id = $headRevisionId, opening_reel_mime_type = $mimeType WHERE id = $showId`. The route subsequently streams via `revisions.get(fileId, headRevisionId, alt='media')`.
+
+**Type-level invariant (batch-13 finding 2)**: every code path that persists `shows.opening_reel_*` MUST persist ALL FOUR columns in the same SQL UPDATE. The `verifyReelOnApply` helper returns `SetReelColumnsArg = { driveFileId: string|null; drive_modified_time: string|null; headRevisionId: string|null; mimeType: string|null }` (exact-type) and the SQL site uses the helper's return verbatim.
 
 - [ ] **Step 1: Failing tests**
-  - **Drift via revision id (final-validation)**: stage parse with reel `(headRevisionId=R1, modifiedTime=T1)`. Mutate the reel in Drive (now `R2/T2`). Click Apply. Assert: all three reel columns persist NULL + `REEL_DRIFTED` warning + crew page text-only fallback + `/api/asset/reel/[show]` returns 410 on subsequent request.
-  - **Success path captures all three columns**: stage parse with reel `(R1, T1)`. No mutation. Click Apply. Assert: `opening_reel_drive_file_id = $fileId`, `opening_reel_drive_modified_time = T1`, `opening_reel_head_revision_id = R1` all NOT NULL.
-  - **404 / trashed treated as drift**: stage parse, then `trashed=true` before Apply. Assert all three columns NULL + `REEL_DRIFTED`.
-- [ ] **Step 2: Implement** per the four-step flow above.
-- [ ] **Step 3: Spec amendments** — patch §6.11.1 to define the full four-step flow with the `headRevisionId` pin (replacing the older two-branch modtime-only check) AND patch §4.1 `shows` table to add `opening_reel_head_revision_id text` column. Commit as a single SPEC change before this task is merged.
-- [ ] **Step 4: Commit** `feat(sync): apply-time reel drift re-verify + full pin tuple capture (§6.11.1, §4.1 amendment)`.
+  - **Drift via revision id**: stage parse with reel `(headRevisionId=R1, modifiedTime=T1, mimeType='video/mp4')`. Mutate the reel in Drive (now `R2/T2`). Click Apply. Assert: ALL FOUR reel columns persist NULL + `REEL_DRIFTED` warning + crew page text-only fallback + `/api/asset/reel/[show]` returns 410.
+  - **Success path captures all four columns (batch-13)**: stage parse with reel `(R1, T1, video/mp4)`. No mutation. Click Apply. Assert: `opening_reel_drive_file_id`, `opening_reel_drive_modified_time = T1`, `opening_reel_head_revision_id = R1`, AND `opening_reel_mime_type = 'video/mp4'` ALL NOT NULL.
+  - **404 / trashed treated as drift**: stage parse, then `trashed=true` before Apply. Assert ALL FOUR columns NULL + `REEL_DRIFTED`.
+  - **403 / permission-denied treated as drift (batch-13 finding 3)**: stage parse with a public reel, then revoke share access on the reel file before Apply (Drive returns 403 / `permissionDenied` on `files.get`). Assert: ALL FOUR columns NULL atomically + `OPENING_REEL_PERMISSION_DENIED` warning emitted (NOT generic `drive_error` / 500), crew page text-only fallback, `/api/asset/reel/[show]` returns 410. Without this branch, a private-reel scenario surfaces as a generic 500 with no text-only fallback.
+  - **MIME-flip treated as drift (batch-13 finding 2 + 3)**: stage parse with reel `(R1, T1, video/mp4)`. Replace the SAME Drive file with a non-video (`mimeType='application/vnd.google-apps.document'`) before Apply. Assert: ALL FOUR columns NULL + `OPENING_REEL_NOT_VIDEO` emitted.
+  - **Partial-column write fails type check (batch-13 finding 2)**: static analysis assertion — grep `lib/sync/` for `'opening_reel_'`; every `UPDATE shows SET ...` that touches any reel column MUST touch all four. Test fails with named diff if any `UPDATE` is missing one of the four column names.
+  - **Asset route 403 → 410 (batch-13 finding 3)**: at runtime, `/api/asset/reel/<show>` live-drift gate runs `files.get(...)`; if Drive returns 403 / `permissionDenied`, the route returns 410 (NOT 403/500) and does NOT serve any bytes.
+- [ ] **Step 2: Implement** per the four-step flow above. The `verifyReelOnApply` helper accepts the staged 4-tuple, returns a `SetReelColumnsArg`; the SQL `UPDATE` site uses the helper's return verbatim. The helper exports an `enum DriftReason = 'TRASHED' | 'PERMISSION_DENIED' | 'REVISION_MISMATCH' | 'MODTIME_MISMATCH' | 'NON_VIDEO_MIME'`.
+- [ ] **Step 3: Spec amendments** — §6.11.1 already updated in batch-13 (four-column persist + 403/MIME drift); §12.4 adds `OPENING_REEL_PERMISSION_DENIED` row.
+- [ ] **Step 4: Commit** `feat(sync): apply-time reel drift re-verify + four-column persist + 403/MIME classification (§6.11.1, §4.1, §12.4)`.
 
 ### Task 7.8: Diagram garbage collection cron (§6.11, AC-7.9)
 
 **Files:** Create: `app/api/cron/diagram-gc/route.ts`, `lib/sync/diagramGc.ts`. Test extends.
 
 - [ ] **Step 1: Failing tests** — orphan blobs from prior revisions GC'd at 7 days (active shows) / 30 days (archived). **GC suppressed when current revision is in `partial_failure` OR `partial_failure_restage_required` (round-46 amendment)** — both states leave the previous complete revision as the only consistent fallback while the current revision is intentionally incomplete; deleting the prior revision's bytes would produce a user-visible asset-loss path. Required test: synthesize a show with `snapshot_status = 'partial_failure_restage_required'` AND a prior complete revision aged > 30 days (archived show); run GC; assert the prior revision's blobs are NOT deleted. Same assertion for `partial_failure`.
-- [ ] **Step 2: Implement.**
-- [ ] **Step 3: Commit** `feat(sync): diagram GC cron (§6.11)`.
+  - **`pending_snapshot_uploads` ledger sweep (M7 batch-12 finding 1 + M7 batch-14 finding 1 + M7 batch-15 finding 1 — sweep order corrected; live-reference predicate is now `shows.diagrams->>'pending_revision_id' = ledger_row.snapshot_revision_id::text`)**: synthesize three rows in `pending_snapshot_uploads` — (a) one with `promoted_at IS NULL`, `uploaded_at < now() - interval '1 hour'`, `claim_token IS NULL`, `delete_started_at IS NULL`, `promote_started_at IS NULL`, AND `shows.diagrams->>'pending_revision_id' IS NULL` (orphan — no live reference; the Apply abandoned without staging cutover OR cleared `pending_revision_id` on rollback); (b) one with `promoted_at IS NULL`, `uploaded_at < now() - interval '1 hour'`, `claim_token IS NULL`, `delete_started_at IS NULL`, `promote_started_at IS NULL`, AND `shows.diagrams->>'pending_revision_id' = ledger_row.snapshot_revision_id::text` (rename-failure recovery in flight — `pending_revision_id` is staged on the JSONB but cutover never landed; promoter re-attempt is needed); (c) one with `promoted_at IS NULL` AND `uploaded_at > now() - interval '1 hour'` (live; abort window not yet open). Run GC. Assert: (a) is swept — pass (iii) initial-claim acquires the row → pass (iv-b) DELETE-ORPHAN runs commit-to-delete (UPDATE returns 1 row, transitioning to `committing_delete`), THEN Storage DELETE temp prefix, THEN row DELETE; (b) is RETRY-promoted — pass (iii) initial-claim acquires the row → pass (iv-a) RENAME-RETRY runs Task 7.3 step 6 (all-or-nothing manifest protocol); on success the atomic JSONB cutover advances `snapshot_revision_id ← pending_revision_id` and clears `pending_revision_id` to NULL; on rename failure the (6e-success) rollback path reverse-renames + clears `pending_revision_id` from JSONB + clears `promote_started_at` + releases the claim for the next pass; (c) is left untouched.
+  - **`pending_snapshot_uploads` ledger sweep — promoted-but-orphan (defensive)**: ledger row with `promoted_at IS NOT NULL` AND `promoted_at < now() - interval '24 hours'`. Asssert: row is DELETEd from `pending_snapshot_uploads` (post-promotion ledger rows are no longer needed for recovery; keep them for 24h for debugging then sweep).
+  - **GC-vs-promoter race regression (M7 batch-13 finding 1 + M7 batch-14 finding 1, CRITICAL — replaces the prior CAS-after-delete formulation)**: synthesize a ledger row with `promoted_at IS NULL`, `uploaded_at < now() - interval '1 hour'`, `claim_token IS NULL`, `delete_started_at IS NULL`. Step 1: invoke GC pass (iii) on connection A; the initial-claim UPDATE returns 1 row with `claim_token = uuid_X`, `claim_expires_at = now() + 5min`. Pause BEFORE the (iv-b) commit-to-delete UPDATE. Step 2: on connection B, invoke the post-commit promoter for the SAME row — its claim UPDATE returns 0 rows because `claim_token IS NOT NULL`; promoter DEFERS, no Storage I/O. Step 3: release connection A — its commit-to-delete UPDATE `WHERE id = $1 AND claim_token = uuid_X AND promoted_at IS NULL AND delete_started_at IS NULL` returns 1 row (transitioning to `committing_delete`); THEN connection A Storage-DELETEs the temp prefix; THEN runs `DELETE FROM pending_snapshot_uploads WHERE id = $1 AND claim_token = uuid_X` and the ledger row goes away. Result: NO orphan in canonical prefix, NO partial rename mid-claim. **Now invert (the M7 batch-14 finding 1 critical case)**: Step 1 connection A claims; Step 2 connection A pauses BETWEEN the (iv-b) commit-to-delete UPDATE (which ran successfully — row is now in `committing_delete`) AND the Storage-DELETE. Step 3 connection A's `claim_expires_at` slips past `now()` (clock skew or scheduler stall — simulate by setting `claim_expires_at = now() - interval '1 minute'`). Step 4 invoke GC pass (ii) reclaim-expired on connection B — assert it returns 0 rows (no reclaim) because the WHERE clause includes `delete_started_at IS NULL`. **The bytes are protected** — connection A holds the `committing_delete` ownership until it completes. Step 5 release connection A — Storage DELETE proceeds; row DELETE proceeds; row gone. **Without the `delete_started_at IS NULL` guard on reclaim-expired, connection B would have stolen the claim and a third worker C reclaiming via expired could double-delete.**
+  - **GC worker crash mid-claim, claim_expires_at expired (M7 batch-13 finding 1 + M7 batch-14 finding 1)**: synthesize a row with `promoted_at IS NULL`, `claim_token = some_uuid`, `claimed_at = now() - interval '6 minutes'`, `claim_expires_at = now() - interval '1 minute'`, `delete_started_at IS NULL`. Run GC pass (ii) reclaim-expired. Assert: the UPDATE returns 1 row, atomically setting a fresh `claim_token`, `claimed_at = now()`, `claim_expires_at = now() + 5min` — proceeding with the normal sweep. Without the `claim_expires_at` column the lease would be permanently stuck (the original `claimed_at < now() - interval '5 minutes'` check confused start-time with deadline once heartbeats existed).
+  - **Promoter post-commit, GC observes promoted_at NULL but rename in flight (M7 batch-13 finding 1 + M7 batch-14 finding 2 — now resolves all-or-nothing rather than degrading)**: race scenario where the promoter committed the DB transaction (so `shows.diagrams.snapshot_revision_id` is durable) but is still copying bytes from temp prefix to canonical prefix. **The promoter holds an active claim with heartbeats — GC pass (ii) reclaim-expired returns 0 rows because `claim_expires_at > now()`, AND GC pass (iii) initial-claim returns 0 rows because `claim_token IS NOT NULL`**. The promoter completes (6b) forward rename, runs (6c) post-check, runs (6d) promote — all under its claim. The race is resolved entirely under the promoter's claim; the GC never observed the half-promotion. **This supersedes the batch-13 "graceful loss-of-some-assets" formulation**: with the all-or-nothing manifest protocol, the canonical gallery either fully populated (success path) or fully reverse-renamed back to temp (rollback path). A partial canonical never becomes live.
+  - **Revived worker after expiry vs committing_delete (M7 batch-14 finding 1, CRITICAL — the new regression that motivates the 3-state lifecycle)**: synthesize a row with `promoted_at IS NULL`, `claim_token = uuid_A`, `claimed_at = now() - interval '20 minutes'`, `delete_started_at = now() - interval '14 minutes'`, `claim_expires_at = now() + interval '1 minute'` (worker A is in committing_delete with the 15-min extended lease, just under the deadline). Step 1: worker A is paused BEFORE the Storage DELETE (e.g., container OOM-killed mid-step but the DB row still reflects committing_delete). Step 2: invoke GC pass (ii) reclaim-expired with `claim_expires_at < now()` (skip 90s); assert it returns 0 rows because `delete_started_at IS NOT NULL` — reclaim REFUSES even though the lease deadline slipped. Step 3: invoke a separate operator-driven recovery flow that observes `committing_delete` state with expired lease; this flow MUST raise `admin_alerts.PENDING_SNAPSHOT_DELETE_STUCK` and require manual investigation, NOT silently reclaim. **Without the `delete_started_at IS NULL` guard, a revived worker would steal the claim, run Storage DELETE, and either (a) double-delete bytes the original worker A is still touching, OR (b) delete bytes that worker A had already migrated.** The 3-state lifecycle's commit-to-delete state is the explicit "do not touch" marker that the byte-protection safety invariant rests on.
+  - **All-or-nothing promotion rollback regression (M7 batch-14 finding 2 + M7 batch-15 finding 1, HIGH)**: synthesize a 5-asset Apply that promotes successfully through (6a) manifest pre-flight (LIST returns 5 entries; asset_count = 5). In (6b) forward rename, mock the Storage rename API to fail on the 4th asset (404 / 5xx). Assert: the promoter detects the failure, jumps to (6e-success) rollback, reverse-renames assets 1–3 from canonical back to temp prefix (asset 4 was never moved; assets 5 untouched). Post-rollback assertions: (a) the temp prefix LIST returns all 5 entries (assets 1–5 all back in temp); (b) the canonical prefix LIST returns 0 entries; (c) `shows.diagrams.snapshot_revision_id` is unchanged — still pointing at the prior approved revision (prior revision stayed authoritative throughout); (d) `shows.diagrams.pending_revision_id IS NULL` (cleared by 6e-success); (e) the ledger row's `promoted_at IS NULL` AND `promote_started_at IS NULL` AND `claim_expires_at = now()` (claim released for next sweep). The next Apply for this show may now mint a fresh `pending_revision_id` without colliding. Trigger Task 7.8 GC again — pass (iii) initial-claim re-claims (since the row's `promote_started_at IS NULL` AND `pending_revision_id IS NULL` on the show, this row goes through DELETE-ORPHAN — pass (iv-b) commit-to-delete + Storage DELETE temp prefix + row DELETE). **Critical: at no point did the gallery serve a partial canonical revision.**
+  - **Stuck-rollback (M7 batch-15 finding 3, CRITICAL): reverse-rename ITSELF fails mid-flight**: synthesize a 5-asset Apply that promotes through (6a)/(6b) successfully (5 assets all renamed canonical), THEN (6c) manifest post-check fails (mock Storage LIST to return only 4 entries). Promoter jumps to (6e). In the reverse-rename loop, mock the Storage rename API to succeed for the first 2 assets (assets 1–2 back to temp) BUT fail for the 3rd asset (returns 5xx). Assert (6e-stuck path): (a) `promote_started_at` is NOT cleared (stays non-NULL with its original timestamp); (b) `pending_revision_id` is NOT cleared on `shows.diagrams` (admin repair needs it); (c) the claim is NOT released; (d) an `admin_alerts` row with `code = 'PENDING_SNAPSHOT_ROLLBACK_STUCK'`, `show_id = $showId`, metadata containing `{ row_id, snapshot_revision_id: $newRev, assets_reverted: [asset_1, asset_2], assets_still_canonical: [asset_3, asset_4, asset_5] }` is UPSERTed; (e) `shows.diagrams.snapshot_revision_id` STILL points at the prior approved revision (the 6d cutover never ran); (f) crew requests to `/api/asset/diagram/<show>/<priorRev>/<key>` STILL serve 200 from the prior canonical prefix (prior revision keeps serving). Now invoke Task 7.8 GC: assert (i) reclaim-expired pass refuses this row because `promote_started_at IS NOT NULL`; (ii) initial-claim pass refuses this row for the same reason; (iii) the orphan-blob sweep refuses to delete blobs whose `<revision_id>` segment matches `pending_revision_id` of any row with `promote_started_at IS NOT NULL` — the 3 still-canonical assets are NOT swept. Repair flow: invoke `/api/admin/snapshot-rollback/[id]/repair` (admin-authenticated POST). Assert: the route LISTs both prefixes, computes the union manifest, performs final reverse-renames of assets 3–5 from canonical → temp (mock all 3 to succeed this time), THEN clears `promote_started_at`, clears `pending_revision_id` from JSONB, releases the claim. Post-repair: GC sweep on the next pass routes the row through DELETE-ORPHAN normally; admin alert is resolved.
+  - **Stuck-rollback admin repair endpoint negative tests (M7 batch-15 finding 3)**: (i) repair endpoint requires admin session — non-admin POST returns 403; (ii) repair endpoint with `id` matching no row returns 404; (iii) repair endpoint with `id` matching a row whose `promote_started_at IS NULL` returns 409 (the row is not stuck — repair is irrelevant; reject so an operator doesn't accidentally double-clear an in-flight promote); (iv) repair endpoint executes idempotently — calling it twice on a stuck row leaves the second call as a no-op (after the first call clears `promote_started_at`, the second call hits the 409 path).
+- [ ] **Step 2: Implement** the GC cron. **Five passes per run (M7 batch-14 finding 1 amendment supersedes the batch-13 three-pass design — the prior order Storage-DELETEd bytes BEFORE the row-DELETE CAS detected lost ownership; the corrected lifecycle requires explicit commit-to-delete BEFORE any Storage write; M7 batch-15 findings 1+3 amendment: live-reference predicate is now `shows.diagrams->>'pending_revision_id'` instead of the removed `shows.pending_snapshot_path`, AND every claim-acquiring pass adds `promote_started_at IS NULL` to inhibit acting on stuck-rollback rows)**: **(i) Orphan-blob sweep** — for every show, for every blob path in `diagram-snapshots/shows/<show_id>/`, if the path's `<revision_id>` segment ≠ `shows.diagrams.snapshot_revision_id` AND the show isn't in suppressed status (per round-46), AND **the path's `<revision_id>` segment ≠ `shows.diagrams->>'pending_revision_id'` of any `pending_snapshot_uploads` row whose `promote_started_at IS NOT NULL` (M7 batch-15 finding 3 — stuck-rollback inhibition; deleting these blobs would race the admin repair flow)**, AND age threshold met → DELETE the blob. **(ii) Reclaim-expired pass (M7 batch-14 finding 1, replaces batch-13 "claim expiry reclaim"; M7 batch-15 finding 3 amendment adds `promote_started_at IS NULL`)** — `UPDATE pending_snapshot_uploads SET claim_token = $newToken, claimed_at = now(), claim_expires_at = now() + interval '5 minutes' WHERE id IN (SELECT id FROM pending_snapshot_uploads WHERE claim_expires_at < now() AND promoted_at IS NULL AND delete_started_at IS NULL AND promote_started_at IS NULL FOR UPDATE SKIP LOCKED LIMIT 100) RETURNING id, show_id, drive_file_id, temp_prefix, snapshot_revision_id, claim_token`. **The `delete_started_at IS NULL` predicate is the M7 batch-14 finding 1 fix; the `promote_started_at IS NULL` predicate is the M7 batch-15 finding 3 fix** — reclaim REFUSES to touch rows in either non-reclaimable state. **(iii) Initial-claim pass — claim unclaimed rows older than 1 hour**: `UPDATE pending_snapshot_uploads SET claim_token = $newToken, claimed_at = now(), claim_expires_at = now() + interval '5 minutes' WHERE id IN (SELECT id FROM pending_snapshot_uploads WHERE promoted_at IS NULL AND uploaded_at < now() - interval '1 hour' AND claim_token IS NULL AND delete_started_at IS NULL AND promote_started_at IS NULL FOR UPDATE SKIP LOCKED LIMIT 100) RETURNING id, show_id, drive_file_id, temp_prefix, snapshot_revision_id, claim_token`. Claims are durable BEFORE any Storage I/O. **(iv) Per-row work** (for each row claimed by passes (ii) or (iii), OUTSIDE the claim transaction): **(iv-a) RENAME-RETRY branch (M7 batch-15 finding 1)** — if `shows.diagrams->>'pending_revision_id' = ledger_row.snapshot_revision_id::text` (the JSONB cutover staged this revision but never landed — rename-failure recovery): re-attempt Task 7.3 step 6 (the all-or-nothing manifest protocol with reverse-rename rollback). The promoter re-runs (6a) → (6d) under the existing claim AND sets `promote_started_at = now()` at the top of the retry; on success the atomic JSONB cutover advances `snapshot_revision_id` ← `pending_revision_id` and clears `pending_revision_id`; on rollback the (6e-success) path clears `pending_revision_id` + `promote_started_at` and releases the claim; on stuck-rollback (6e-stuck) the row stays non-reclaimable for admin repair. **(iv-b) DELETE-ORPHAN branch** — if `shows.diagrams->>'pending_revision_id' IS NULL` OR `shows.diagrams->>'pending_revision_id' != ledger_row.snapshot_revision_id::text` (orphan, no live reference — Apply abandoned without staging cutover OR rolled back cleanly): **commit-to-delete FIRST**: `UPDATE pending_snapshot_uploads SET delete_started_at = now(), claim_expires_at = now() + interval '15 minutes' WHERE id = $rowId AND claim_token = $token AND promoted_at IS NULL AND delete_started_at IS NULL RETURNING *`. **If 0 rows: ABORT — the row was promoted between claim and commit-to-delete, OR another worker already committed to delete. DO NOT touch Storage.** If 1 row: the row is now in `committing_delete` state with the byte-protection invariant in place. **NOW** Storage DELETE the temp prefix recursively (under the 15-minute extended lease). **THEN** `DELETE FROM pending_snapshot_uploads WHERE id = $rowId AND claim_token = $token` to clean up the ledger row. **(v) Post-promotion cleanup** — DELETE rows with `promoted_at IS NOT NULL AND promoted_at < now() - interval '24 hours'` (rows that completed the **promote** transition more than 24h ago are no longer needed for forensics). Also handle rare crashed-delete-worker recovery (rows in `committing_delete` state with `claim_expires_at < now()` — surfaced via `admin_alerts.PENDING_SNAPSHOT_DELETE_STUCK`) AND **stuck-promote / stuck-rollback recovery (M7 batch-15 findings 2+3)**: rows with `promote_started_at IS NOT NULL AND promote_started_at < now() - interval '15 minutes' AND promoted_at IS NULL` are NOT auto-reclaimed — they emit `PENDING_SNAPSHOT_PROMOTE_STUCK` (if the row never made it into 6e-stuck) or `PENDING_SNAPSHOT_ROLLBACK_STUCK` (if the (6e-stuck) emitter wrote it during rollback failure). The admin repair endpoint `/api/admin/snapshot-rollback/[id]/repair` (see new admin route in Task 7.8 step 4 below) is the only path that clears these rows.
+- [ ] **Step 3: Implement admin repair endpoint `/api/admin/snapshot-rollback/[id]/repair` (M7 batch-15 finding 3).** **Files:** Create `app/api/admin/snapshot-rollback/[id]/repair/route.ts` (added to plan file tree). The route is admin-authenticated (uses `requireAdmin` per §4.3 / Task 5.7); non-admin sessions return 403. Behavior:
+  1. Parse `params.id` as a `pending_snapshot_uploads.id` UUID; 400 on parse failure.
+  2. `SELECT id, show_id, drive_file_id, temp_prefix, snapshot_revision_id, promote_started_at, promoted_at, claim_token, claim_expires_at FROM pending_snapshot_uploads WHERE id = $1` — 404 if no row.
+  3. If `promote_started_at IS NULL` → 409 `{ code: 'PENDING_SNAPSHOT_NOT_STUCK', id }` (the row is not in stuck state — repair is irrelevant).
+  4. Acquire the per-show advisory lock `pg_try_advisory_xact_lock(hashtext('show:' || drive_file_id))` to serialize against any concurrent Apply / cron / push for the same show; if `false` → 409 `{ code: 'CONCURRENT_SYNC_SKIPPED' }`.
+  5. **Reconciliation**: Storage `LIST` the canonical prefix `diagram-snapshots/shows/<show_id>/<snapshot_revision_id>/` AND the temp prefix `<temp_prefix>`; compute the union manifest. For each asset_key, decide which prefix is authoritative based on rename-audit log entries (where available) — default to "treat canonical-side residues as still-needs-reverse-rename" since the (6e-stuck) emitter recorded which assets were already reverted. Perform final reverse-renames `<canonical_prefix><asset_key>` → `<temp_prefix><asset_key>` for every asset still on the canonical side. If any individual reverse-rename fails 5xx → 502 `{ code: 'STORAGE_RENAME_FAILED', completed_assets: [...], failed_asset: $key }` (operator retries — endpoint is idempotent at the per-asset granularity).
+  6. After all reverse-renames succeed: in a single DB transaction run `UPDATE shows SET diagrams = jsonb_set(diagrams, '{pending_revision_id}', 'null'::jsonb) WHERE id = $showId AND (diagrams->>'pending_revision_id')::uuid = $snapshot_revision_id` (clear the staged revision id) AND `UPDATE pending_snapshot_uploads SET promote_started_at = NULL, claim_token = NULL, claimed_at = NULL, claim_expires_at = NULL WHERE id = $1 AND claim_token = $rowClaimToken` (clear stuck-promote state AND release the claim — do NOT release through `claim_expires_at = now()` because that doesn't clear `claim_token`; this hard-clear matches the (6e-success) post-rollback shape).
+  7. Resolve the `admin_alerts` row coded `PENDING_SNAPSHOT_ROLLBACK_STUCK` for `(show_id, ledger_row_id)` (UPDATE its `resolved_at` to `now()`).
+  8. Return 200 `{ id, snapshot_revision_id, assets_reverted: [...], state: 'cleared' }`.
+  Add to AC-X.3 PROTECTED_SINKS coverage automatically (the route's `.from('pending_snapshot_uploads')` and `.from('shows')` calls are admin-table writes; X.3 audit catches them via the existing `ADMIN_TABLES` registry derived from §4.3).
+- [ ] **Step 4: Commit** `feat(sync): diagram GC cron + pending_revision_id-based ledger sweep + stuck-rollback admin repair endpoint (§6.11, M7 batch-15 findings 1+3)`.
 
 ### Task 7.9: Diagrams gallery component + agenda PDF embed (§10, AC-7.1..7.3)
 
@@ -4759,13 +6320,17 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
 
 ### Task 10.1: First-visit `/admin` routing + Re-run Setup (AC-10.1, AC-10.4, AC-10.5)
 
-**Files:** Modify: `app/admin/page.tsx` to render `<OnboardingWizard>` OR `<Dashboard>` based on `app_settings.watched_folder_id` AND `app_settings.pending_wizard_session_id`. Create: `app/admin/settings/page.tsx` for the post-onboarding settings surface. Test: e2e.
+**Files:** Modify: `app/admin/page.tsx` to render `<OnboardingWizard>` OR `<Dashboard>` OR `<FinalizeInProgress>` OR `<ReadyToPublish>` based on `app_settings.watched_folder_id`, `app_settings.pending_wizard_session_id`, AND `wizard_finalize_checkpoints.status` (M9+M10 batch-15 finding 2 — mid-finalize re-entry UI). Create: `app/admin/settings/page.tsx` for the post-onboarding settings surface. Create: `app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts` (M9+M10 batch-15 finding 1 — wraps the `cleanupAbandonedFinalize` helper from Task 10.1 with route-level `requireAdmin()` + `sync_audit` before/after rows). Create: `components/admin/FinalizeInProgress.tsx`, `components/admin/ReadyToPublish.tsx`, `components/admin/ResumeFinalizeButton.tsx`, `components/admin/RunFinalCASButton.tsx` (M9+M10 batch-15 finding 2). Test: e2e.
 
 **Single inline route owner — no separate `/admin/onboarding` page (M9+M10 batch-8 finding).** Earlier draft of this task had two regressions: (a) the routing predicate gated the wizard solely on `pending_wizard_session_id !== null`, but a fresh install has BOTH columns NULL — that path fell into the dashboard branch instead of the wizard, contradicting AC-10.1 ("First-visit `/admin` shows the wizard"); (b) the wizard was redirected to `/admin/onboarding`, but no Milestone 10 task creates that page (it would 404). The corrected design picks `/admin` as the single inline route owner: the wizard renders inline at `/admin` exactly like the dashboard does. There is no `/admin/onboarding` route, and the `app/admin/onboarding/page.tsx` line in the file-tree map (~§17.3 / Task X.3) is a historical artifact — removed elsewhere in batch-8 if it still appears.
 
 **Re-run Setup path (round-47 amendment, refined in batch-8).** Once the first onboarding succeeded, Doug needs a supported way to start a fresh wizard while the live folder keeps syncing. AC-10.4 ("re-running setup opens wizard with empty pending_*") and AC-10.5 ("mid-wizard abandonment — cron continues using existing watched_folder_id") both require an explicit dashboard/settings affordance:
-- A "Re-run Setup" button on `/admin/settings` (admin-gated). Clicking it generates a fresh `wizard_session_id`, writes it to `app_settings.pending_wizard_session_id` (does NOT touch `watched_folder_id`), then redirects to `/admin` (which renders the wizard inline because `pending_wizard_session_id` is non-null).
+- A "Re-run Setup" button on `/admin/settings` (admin-gated). Clicking it generates a fresh `wizard_session_id`, writes it to `app_settings.pending_wizard_session_id` AND `pending_wizard_session_at = now()` (does NOT touch `watched_folder_id`), then redirects to `/admin` (which renders the wizard inline because `pending_wizard_session_id` is non-null).
 - The `/admin` page checks **both** columns to decide between wizard and dashboard. Both routes coexist via the single `/admin` URL: the live folder keeps cron-syncing while the wizard runs inline.
+
+**Pre-onboarding "Start over" affordance (M11 batch-11 finding 1).** First-visit abandonment cannot recover via "Re-run Setup" because `/admin/settings` is not reachable until `watched_folder_id IS NOT NULL`. To close that gap, every `/admin` GET when `watched_folder_id IS NULL` (wizard mode) MUST surface a "Start over" affordance. Clicking the affordance always rotates `pending_wizard_session_id` (fresh UUID) AND `pending_wizard_session_at = now()` AND purges ALL onboarding surfaces in a single transaction: `DELETE FROM pending_syncs WHERE wizard_session_id IS NOT NULL`, `DELETE FROM pending_ingestions WHERE wizard_session_id IS NOT NULL`, `DELETE FROM onboarding_scan_manifest`. The button is NOT gated to a specific session id — its job is "anything pre-onboarding goes" reset, including the case where step-2 was abandoned mid-write so partial rows of the current session need clearing. Once `watched_folder_id IS NOT NULL` (post-onboarding), the affordance disappears — restart goes through `/admin/settings` "Re-run Setup" which preserves the live folder.
+
+**24-hour auto-rotate (M11 batch-11 finding 1; M9+M10 batch-12 finding 4 — clock-skew hardening).** On every wizard-step page-load (`/admin` in wizard-mode, plus the wizard-step renders Task 10.2/10.3/10.4/10.5 build), the server invokes `purgeAndRotateIfStale()`, a single-transaction SQL gate that **decides AND acts on the same DB clock**. The earlier draft computed staleness in JS (`Date.now() - settings.pending_wizard_session_at.getTime() > 24 * 3600 * 1000`) and then ran the purge in SQL — those two clocks can disagree under app-host vs DB clock skew, producing either premature rotation of an active wizard (app clock ahead of DB) or stale rows surviving past the boundary (app clock behind DB). The corrected design replaces the JS comparison with a **SQL `WHERE` predicate inside the same transaction as the rotate/purge**: `WHERE pending_wizard_session_at < now() - interval '24 hours'`. The decision and the four DML statements (rotate, three deletes) all evaluate against the database's `now()` in one atomic transaction; clock skew on the app host is irrelevant. Without auto-rotate, a long-abandoned wizard's stale `pending_*` rows would survive indefinitely and silently corrupt a future onboarding session that picks up the partial state.
 
 - [ ] **Step 1: Failing tests**
   - **First-visit (AC-10.1)**: fresh DB → `/admin` → wizard rendered inline (both `watched_folder_id` AND `pending_wizard_session_id` are NULL; routing falls into wizard mode via the first predicate). The page MUST render `<OnboardingWizard>`, NOT `<Dashboard>`, NOT a redirect to a non-existent `/admin/onboarding` URL.
@@ -4773,23 +6338,409 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
   - **Steady-state dashboard**: `watched_folder_id` non-null AND `pending_wizard_session_id IS NULL` → `/admin` renders `<Dashboard>`.
   - **Mid-wizard abandonment (AC-10.5)**: start re-run setup, stage some sheets in W1, abandon (close tab without finalizing). Wait for a cron tick. Assert: cron continues using `watched_folder_id` (no live-sync blackout), W1's `pending_syncs` rows are still keyed to W1. Re-open `/admin/settings`, click "Re-run Setup" again. Assert: W2 starts with W1's pending rows purged across all three onboarding surfaces.
   - **No phantom `/admin/onboarding` route**: assert there is no `app/admin/onboarding/page.tsx` file in the project tree (test scans the directory). The wizard lives at `/admin`.
+  - **First-visit pre-onboarding "Start over" present (M11 batch-11 finding 1)**: fresh DB → `/admin` → wizard rendered inline → assert a "Start over" button (admin-only) is present in the wizard chrome. Spec §9.0 reference: pre-onboarding affordance.
+  - **Pre-onboarding "Start over" purges + rotates (M11 batch-11 finding 1)**: fresh DB. Run step-2 verify against a folder so step-3 has staged + hard-fail + manifest rows for session W1 (with `pending_wizard_session_at` set to now). Browser-close (simulate by abandoning the wizard tab). Re-visit `/admin`. Click "Start over". Assert: (a) new session `W2 != W1` is now in `app_settings.pending_wizard_session_id`; (b) `pending_wizard_session_at` updated to within 1 second of now; (c) every row in `pending_syncs WHERE wizard_session_id IS NOT NULL`, `pending_ingestions WHERE wizard_session_id IS NOT NULL`, and `onboarding_scan_manifest` is GONE; (d) live (NULL-session) rows in `pending_syncs` / `pending_ingestions` are UNTOUCHED (synthesize one beforehand to verify); (e) `/admin` re-renders the wizard at step 1 with empty state. The purge runs in a single transaction along with the session rotate.
+  - **24-hour auto-rotate (M11 batch-11 finding 1; M9+M10 batch-12 finding 4)**: fresh DB → run step-2 verify so W1 is in flight (rows in all three surfaces). Manually update `app_settings.pending_wizard_session_at = now() - interval '25 hours'`. Reload `/admin`. Assert: server-side, BEFORE rendering, the wizard auto-rotates to W2 and purges all three surfaces — same SQL contract as the "Start over" button. The page renders with empty state. No flash banner; the user simply sees a fresh step 1.
+  - **Auto-rotate boundary (M11 batch-11 finding 1)**: set `pending_wizard_session_at = now() - interval '23 hours'` → reload `/admin` → assert the session is NOT rotated (rows survive). Set to `now() - interval '24 hours' - interval '1 minute'` → assert session IS rotated.
+  - **Auto-rotate exact-boundary (M9+M10 batch-12 finding 4)**: set `pending_wizard_session_at = now() - interval '24 hours'` exactly (24:00:00 to the microsecond by deriving the timestamp via `SELECT now() - interval '24 hours'` in the test setup). Reload `/admin`. Assert: row IS rotated — the SQL predicate `pending_wizard_session_at < now() - interval '24 hours'` evaluates with `now()` advanced past the captured boundary by the time the predicate runs (any positive elapsed microseconds satisfy `<`); the test pins the deterministic boundary behavior. The earlier JS-side `Date.now() - getTime() > 24 * 3600 * 1000` could under-rotate at exact boundary depending on rounding.
+  - **Auto-rotate under app-clock-AHEAD-of-DB skew (M9+M10 batch-12 finding 4)**: synthesize an environment where the app server's `Date.now()` is 5 minutes AHEAD of `SELECT now()` on the DB (test harness can override `Date.now()` via the global mock or run the page render with a faked system clock). Set `pending_wizard_session_at = now() - interval '23 hours 58 minutes'` (within DB horizon by 2 minutes). Reload `/admin`. Assert: session is NOT rotated (DB-time predicate `pending_wizard_session_at < now() - interval '24 hours'` evaluates false; the prior app-side `Date.now() - getTime()` would have evaluated `~24h 3m > 24h` and incorrectly rotated under the JS-driven design). Rows in all three onboarding surfaces survive; `pending_wizard_session_id` unchanged.
+  - **Auto-rotate under app-clock-BEHIND-DB skew (M9+M10 batch-12 finding 4)**: same setup but app clock 5 minutes BEHIND DB. Set `pending_wizard_session_at = now() - interval '24 hours 2 minutes'` (past DB horizon by 2 minutes). Reload `/admin`. Assert: session IS rotated (DB-time predicate evaluates true; the prior app-side `Date.now() - getTime()` would have evaluated `~23h 57m < 24h` and incorrectly preserved a stale session under the JS-driven design). All onboarding surfaces purged; `pending_wizard_session_id` is now a fresh UUID.
+  - **Post-onboarding "Start over" hidden (M11 batch-11 finding 1)**: complete first onboarding so `watched_folder_id IS NOT NULL`. Visit `/admin` (steady-state dashboard). Assert: NO "Start over" button is rendered anywhere on the dashboard (Re-run Setup lives in `/admin/settings`).
+  - **Auto-rotate suppressed by in-flight multi-batch finalize (M9+M10 batch-14 finding 1)**: stage 200 rows in W1 each carrying `wizard_approved = TRUE`. POST `/api/admin/onboarding/finalize` once (no cursor) so batch-1 commits 100 `shows` rows with `published = FALSE` AND a `wizard_finalize_checkpoints` row exists with `batches_completed = 1`. DO NOT continue to batch 2. Manually update `app_settings.pending_wizard_session_at = now() - interval '25 hours'` (past horizon). Reload `/admin`. Assert: (a) auto-rotate is SUPPRESSED — `app_settings.pending_wizard_session_id` is unchanged (still W1); the 100 `shows` rows are still present with `published = FALSE`; the `onboarding_scan_manifest` rows are still present; the `wizard_finalize_checkpoints` row is still present. (b) the page renders the wizard with a "Resume finalize" affordance AND a "Cleanup abandoned finalize" affordance (admin-gated). (c) `sync_log` has a fresh row with `kind = 'WIZARD_FINALIZE_BATCHES_PENDING'` AND `payload->>'wizard_session_id'` equals W1. The `purgeAndRotateIfStale()` helper return value is `{ suppressed: 'WIZARD_FINALIZE_BATCHES_PENDING' }`.
+  - **Resume finalize from suppressed state (M9+M10 batch-14 finding 1; M9+M10 batch-15 finding 3 — Phase D split)**: continuing from the prior test, click "Resume finalize". Assert the Phase D split protocol step-by-step:
+    - (a) The button POSTs to `/api/admin/onboarding/finalize` (server-owned protocol per M6 batch-14 finding 1 — no client `?after=` cursor); batch 2 commits the remaining 100 rows under per-row Phase B transactions (M11 batch-14 finding 3); each row's `shows` INSERT lands with `published = FALSE` (NOT `TRUE`); each row's manifest UPDATE writes `status = 'applied'`; `wizard_finalize_checkpoints` increments `batches_completed` to 200 and `last_processed_drive_file_id` to the alphabetically-last row of batch 2. After batch 2's last per-row commit, the response checks `SELECT count(*) FROM pending_syncs WHERE wizard_session_id = W1 AND wizard_approved = TRUE` and finds 0; the response also checks `SELECT count(*) FROM onboarding_scan_manifest WHERE wizard_session_id = W1 AND status IN ('staged','hard_failed','discard_retryable','live_row_conflict')` and finds 0. The checkpoint flips to `status = 'all_batches_complete'`. Response: `{ status: 'all_batches_complete', per_row: [...] }`.
+    - (b) The /finalize call DOES NOT flip ANY `shows.published` to TRUE. Assert: ALL 200 rows still have `published = FALSE` after this response.
+    - (c) The /finalize call DOES NOT run the §4.5 atomic-promotion CAS. Assert: `app_settings.watched_folder_id` is UNCHANGED (still its prior value — typically NULL on first onboarding, or the old folder on Re-run-Setup); `app_settings.pending_wizard_session_id` is STILL W1 (NOT NULL).
+    - (d) The /finalize call DOES NOT delete the `wizard_finalize_checkpoints` row. Assert: the row still exists with `status = 'all_batches_complete'`, `batches_completed = 200`, `last_processed_at` recently updated.
+    - (e) The wizard UI auto-fires the next request to `/api/admin/onboarding/finalize-cas` (Phase D) AS SOON AS it sees `{ status: 'all_batches_complete' }` in the /finalize response. The auto-fire happens client-side via the `<ResumeFinalizeButton />` (M9+M10 batch-15 finding 2): on `all_batches_complete`, the next page-load (after `router.refresh()`) renders `<ReadyToPublish />` whose `<RunFinalCASButton />` POSTs `/finalize-cas` automatically (or after one operator click — the test asserts both the auto-fire path AND the manual-click path land on the same 200 response shape).
+    - (f) Phase D's response shape: `{ status: 'finalize_complete', watched_folder_id: <new folder id> }`.
+    - (g) Phase D's effects (in ONE short transaction, NO Drive/Storage I/O): bulk `UPDATE shows SET published = TRUE WHERE drive_file_id IN (SELECT drive_file_id FROM onboarding_scan_manifest WHERE wizard_session_id = W1 AND status = 'applied')` flips all 200 rows. `UPDATE app_settings SET watched_folder_id = pending_folder_id, pending_folder_id = NULL, pending_wizard_session_id = NULL, pending_wizard_session_at = NULL` runs the §4.5 atomic-promotion CAS. `DELETE FROM deferred_ingestions WHERE wizard_session_id = W1` runs the M2 batch-11 wizard-deferral clean-slate. `UPDATE wizard_finalize_checkpoints SET status = 'final_cas_done' WHERE wizard_session_id = W1` transitions the checkpoint to its terminal state.
+    - (h) Phase D DOES NOT delete the checkpoint row. Assert: the row still exists post-Phase-D with `status = 'final_cas_done'` (audit trail). The cleanup hook GC sweeps checkpoint rows older than 7 days as the long-term retention bound (Task 7.8 GC backstop addition: `DELETE FROM wizard_finalize_checkpoints WHERE status = 'final_cas_done' AND COALESCE(last_processed_at, now()) < now() - interval '7 days'`). Assert: a checkpoint row aged to `last_processed_at = now() - interval '8 days'` AND `status = 'final_cas_done'` is removed by the next Task 7.8 sweep; a checkpoint with the same age but `status = 'in_progress'` is NOT removed (only `final_cas_done` rows are eligible — anything else is a live workflow).
+    - (i) Phase D's `subscribeToWatchedFolder(folderId)` runs OUTSIDE the transaction, after commit (preserving the prior Phase C non-transactional semantics).
+  - **Cleanup abandoned finalize from suppressed state (M9+M10 batch-14 finding 1; M9+M10 batch-15 finding 3 — Phase D split)**: re-run the suppressed-by-finalize-gate scenario fresh (200 rows staged, batch-1 committed, 25h elapsed). Click "Cleanup abandoned finalize". Assert: the 100 `published = FALSE` `shows` rows are GONE; the `wizard_finalize_checkpoints` row for W1 is GONE (cleanup is the operator's explicit-discard path — distinct from Phase D's `final_cas_done` path which PRESERVES the checkpoint for audit; cleanup signals "discard this entire wizard run" so the checkpoint row goes too); `app_settings.pending_wizard_session_id` is now a fresh UUID (W2); all three onboarding surfaces (`pending_syncs`, `pending_ingestions`, `onboarding_scan_manifest`) are EMPTY of W1's rows; the page renders a fresh wizard at step 1. ALL of (a)–(c) commit in a single transaction — partial-failure regression: inject a fault between the manifest cleanup and the checkpoint DELETE; assert the entire cleanup ROLLBACKs and `shows` rows reappear.
+  - **Finalize endpoint refuses to start fresh promotion against pending checkpoint (M9+M10 batch-14 finding 1)**: synthesize a wizard W1 whose checkpoint has `batches_completed = 1` (interim batch committed) but where the `pending_wizard_session_id` was somehow rotated to W2 (defensive — should be impossible if auto-rotate gate works, but the finalize endpoint defends in depth). POST `/api/admin/onboarding/finalize` with `pending_wizard_session_id = W2`. Assert: HTTP 409 `WIZARD_FINALIZE_BATCHES_PENDING` body referencing W1's checkpoint; no Phase B work runs against W2; W1's `shows` rows are unchanged; the operator must "Cleanup abandoned finalize" for W1 first.
 - [ ] **Step 2: Implement** the routing logic in `app/admin/page.tsx` as inline rendering — no `redirect()` calls into a non-existent URL:
   ```ts
+  // M9+M10 batch-12 finding 4: auto-rotate decision MUST evaluate on DB time, not app-host time,
+  // so app-vs-DB clock skew can't prematurely rotate an active wizard nor preserve a stale one.
+  // The helper runs the staleness predicate INSIDE the same transaction as the rotate/purge so
+  // the decision and the action share one clock atomically. We no longer pre-decide in JS.
   const settings = await getAppSettings();
   if (settings.watched_folder_id === null) {
-    return <OnboardingWizard />;                          // first-visit (AC-10.1)
+    await purgeAndRotateIfStale();                        // M9+M10 batch-12 finding 4: SQL-gated; see helper below
+    // M9+M10 batch-15 finding 2: even on first-visit (no live folder yet), the in-flight finalize
+    // can already exist for THIS session — the wizard reaches Apply-all + first /finalize batch
+    // BEFORE watched_folder_id is set (Phase D is what flips it). Operator may close the tab between
+    // /finalize batches OR after all_batches_complete but before /finalize-cas. Render the matching
+    // re-entry surface based on the checkpoint status.
+    return await renderWizardOrFinalizeReentry(settings);
   }
   if (settings.pending_wizard_session_id !== null) {
-    return <OnboardingWizard />;                          // re-run setup (AC-10.4)
+    await purgeAndRotateIfStale();                        // M9+M10 batch-12 finding 4: same SQL gate during Re-run Setup
+    // M9+M10 batch-15 finding 2: re-run-setup wizards may also have a checkpoint mid-flight (the
+    // 24h-stale gate at finding 1 SUPPRESSES auto-rotate when batches_completed > 0; with this UI
+    // path, an under-24h re-entry where Phase D hasn't run is the COMMON case the user sees).
+    return await renderWizardOrFinalizeReentry(settings);
   }
   return <Dashboard />;                                   // steady state
+
+  // M9+M10 batch-15 finding 2: mid-finalize re-entry router. Reads wizard_finalize_checkpoints
+  // and picks the right surface for the operator's current finalize state. Distinct from the
+  // 24h-stale path (finding 1) — this fires regardless of session age, and it does NOT rotate
+  // the session id; it just shows the operator how to resume what they already started.
+  async function renderWizardOrFinalizeReentry(settings: AppSettings) {
+    if (settings.pending_wizard_session_id === null) {
+      // First-visit + no minted session yet → Step 1 of the wizard (canonical first-visit flow).
+      return <OnboardingWizard />;
+    }
+    const checkpointRow = await sql`
+      SELECT status, batches_completed, last_processed_drive_file_id, last_processed_at
+        FROM wizard_finalize_checkpoints
+       WHERE wizard_session_id = ${settings.pending_wizard_session_id}`;
+    if (checkpointRow.length === 0) {
+      // No checkpoint yet → wizard is pre-finalize (steps 1/2/3, possibly mid-Apply). Render the
+      // normal wizard inline; the OnboardingWizard component picks its own current step from
+      // the staged-row + manifest state per Task 10.4 / 10.5.
+      return <OnboardingWizard />;                        // first-visit OR re-run setup (AC-10.1 / AC-10.4)
+    }
+    const cp = checkpointRow[0];
+    if (cp.status === 'in_progress') {
+      // Mid-finalize: at least one batch committed; either the operator paused mid-batch (e.g.,
+      // closed tab after batch 2 of 3) OR a per-row abort left wizard_approved=FALSE on a row
+      // that still needs re-Apply. Resume button fires the next /finalize batch.
+      return <FinalizeInProgress
+        sessionId={settings.pending_wizard_session_id}
+        batchesCompleted={cp.batches_completed}
+        lastProcessedAt={cp.last_processed_at}
+      />;
+    }
+    if (cp.status === 'all_batches_complete') {
+      // All Phase B batches landed; Phase D (final-CAS) hasn't fired yet. The wizard UI's auto-fire
+      // path would normally hit /finalize-cas immediately on receiving this status, but if the
+      // operator closed the tab between /finalize's all_batches_complete response and the auto-fire,
+      // they re-enter here and need an explicit "Publish" button.
+      return <ReadyToPublish sessionId={settings.pending_wizard_session_id} />;
+    }
+    // status === 'final_cas_done' → Phase D committed; pending_wizard_session_id should be NULL
+    // already (the Phase D transaction CAS-clears it). If we somehow observe final_cas_done with
+    // a non-null pending_wizard_session_id, the page-load that runs AFTER Phase D's commit will
+    // see settings.pending_wizard_session_id === NULL and fall through to the steady-state
+    // dashboard branch above; this branch should be unreachable, but we render the dashboard
+    // defensively so a stale view never strands the operator on a wizard surface.
+    return <Dashboard />;
+  }
   ```
+
+  **M9+M10 batch-15 finding 2 — re-entry component contracts.** Each of the four new client components below is rendered server-side as a Server Component (no client state at first paint). Buttons are bare client components that POST to the matching admin route, then `router.refresh()` so the page-load loops back through `renderWizardOrFinalizeReentry()` for the next state.
+
+  - `components/admin/FinalizeInProgress.tsx` — props: `{ sessionId, batchesCompleted, lastProcessedAt }`. Renders: title "Setup is publishing your shows…", a progress bar showing `batches_completed / total_approved_count` where `total_approved_count` is computed server-side via `SELECT count(*) FROM onboarding_scan_manifest WHERE wizard_session_id = $sessionId AND status = 'applied'` PLUS `SELECT count(*) FROM pending_syncs WHERE wizard_session_id = $sessionId AND wizard_approved = TRUE` (the manifest-applied set is already-promoted; the pending_syncs set is the still-to-promote remainder; the sum is total approved at any given moment), and a `<ResumeFinalizeButton sessionId={sessionId} />`. Also renders a "Cleanup abandoned finalize" link (admin-only) — a small secondary action that POSTs to the new cleanup route from finding 1 (only fires the 409-or-success path; the helper's own staleness gate refuses fresh sessions per finding 1's helper guards 3 + 4).
+  - `components/admin/ResumeFinalizeButton.tsx` — single button "Resume publishing"; on click POSTs to `/api/admin/onboarding/finalize` (no body). Disables itself + shows a spinner during the request. On `{ status: 'batch_complete' }` response → calls `router.refresh()` (the next page-load reads the updated checkpoint and either re-renders FinalizeInProgress with incremented batchesCompleted OR transitions to ReadyToPublish if all_batches_complete). On `{ status: 'all_batches_complete' }` → same `router.refresh()` (next page-load lands on ReadyToPublish). On per-row `failed` array non-empty → renders the failed `drive_file_id` list with re-Apply links to `/admin/show/staged/<stagedId>?firstSeen=true` per Task 10.4.
+  - `components/admin/ReadyToPublish.tsx` — props: `{ sessionId }`. Renders: title "Ready to publish — one click to make your shows live.", a brief explainer ("All sheets have been processed. Click Publish to flip them visible to crew and connect your folder for ongoing syncs."), a `<RunFinalCASButton sessionId={sessionId} />`. NO Cleanup affordance here — once `all_batches_complete` is reached, the only forward path is Phase D; cleanup at this stage would discard fully-approved shows that are seconds away from publication. Operators who genuinely need to abandon must wait for the 24h-stale path (finding 1) to surface the Cleanup affordance under FinalizeInProgress.
+  - `components/admin/RunFinalCASButton.tsx` — single button "Publish all"; on click POSTs to `/api/admin/onboarding/finalize-cas`. Disables itself + shows a spinner during the request. On `{ status: 'finalize_complete', watched_folder_id }` response → calls `router.refresh()`; the next page-load sees `pending_wizard_session_id IS NULL` AND `watched_folder_id IS NOT NULL` and falls through to `<Dashboard />`. On 409 `WIZARD_FINALIZE_CHECKPOINT_MISSING` (race: a /finalize call landed between the operator's last refresh and this click and demoted the checkpoint back to in_progress) → toast the §12.4 message + `router.refresh()` (next page-load shows FinalizeInProgress).
+
+  **Step-1 failing tests for finding 2 (mid-finalize re-entry UI):**
+  - **Close tab during batch 2 of 3 → re-entry shows FinalizeInProgress + Resume works**: stage 250 rows in W1, Apply all. Click Finalize once (batch 1 of 3 commits). Simulate tab close (no further client-side requests). Wait until `last_processed_at` is at the hour-1 mark (well before the 24h horizon) so the auto-rotate gate is irrelevant. Re-load `/admin`. Assert: (a) the page renders `<FinalizeInProgress />` (NOT OnboardingWizard, NOT Dashboard, NOT ReadyToPublish); (b) the progress bar reads "100 / 250" (or whatever the current snapshot is); (c) a "Resume publishing" button is visible. Click Resume. Assert: a POST `/api/admin/onboarding/finalize` is fired; batch 2 lands (200 / 250); the page refreshes via `router.refresh()` and renders FinalizeInProgress again with the updated count. Click Resume again — batch 3 lands; the response is `{ status: 'all_batches_complete' }`; the next page-load renders `<ReadyToPublish />`. Click "Publish all". Assert: POST `/api/admin/onboarding/finalize-cas` succeeds; the next page-load renders `<Dashboard />` (the steady-state branch — `pending_wizard_session_id IS NULL` after Phase D); ALL 250 `shows.published = TRUE`.
+  - **Close tab AFTER all_batches_complete BEFORE finalize-cas → re-entry shows ReadyToPublish**: stage 50 rows in W1, Apply all. Click Finalize (50 < 100, single batch — the response is `{ status: 'all_batches_complete' }`). Mock the wizard UI's auto-fire of /finalize-cas to be intercepted (simulate operator closing the tab in the few-ms window before the auto-fire). Re-load `/admin`. Assert: (a) the page renders `<ReadyToPublish />` (NOT FinalizeInProgress); (b) the "Publish all" button is visible; (c) NO "Resume publishing" affordance is rendered (Resume is for in_progress only, not for the post-batch-complete pre-Phase-D state). Click Publish. Assert: Phase D runs; ALL 50 rows flip to `published = TRUE`; `watched_folder_id` is now set; next page-load renders Dashboard.
+  - **First-visit, no checkpoint → wizard renders normally**: fresh DB. Reload `/admin`. Assert: `<OnboardingWizard />` renders (the `checkpointRow.length === 0` branch); FinalizeInProgress / ReadyToPublish do NOT render; the page is at step 1.
+  - **Steady-state with no pending session → Dashboard**: `watched_folder_id IS NOT NULL` AND `pending_wizard_session_id IS NULL`. Reload `/admin`. Assert: `<Dashboard />` renders; none of the re-entry surfaces render.
+  - **Defensive `final_cas_done` with non-null `pending_wizard_session_id`** (impossible-but-defended): synthesize an inconsistent state — a checkpoint row with `status = 'final_cas_done'` AND `app_settings.pending_wizard_session_id` STILL pointing at that session (this should never happen after Phase D commits because Phase D atomically clears the session id, but the test is defensive). Reload `/admin`. Assert: the page renders `<Dashboard />` (the defensive fall-through branch in `renderWizardOrFinalizeReentry`); no FinalizeInProgress / ReadyToPublish strands the operator on the wizard.
+  - **Cleanup affordance only on FinalizeInProgress**: synthesize an in_progress checkpoint state. Reload. Assert: `<FinalizeInProgress />` renders WITH a "Cleanup abandoned finalize" link. Now mutate the checkpoint to `all_batches_complete` (simulate the operator successfully running the next /finalize batch). Reload. Assert: `<ReadyToPublish />` renders WITHOUT any cleanup affordance (the only forward path is Phase D's "Publish all").
+  - **Resume button surfaces per-row failed list**: stage 5 rows, Apply all. Force a STAGED_PARSE_REVISION_RACE_DURING_FINALIZE on the 3rd row by mutating its source sheet between Apply and Resume. Click Resume. Assert: the response carries `per_row` with `[2].code = 'STAGED_PARSE_REVISION_RACE_DURING_FINALIZE'`; the page renders the failed row's `drive_file_id` with a "re-Apply" link to `/admin/show/staged/<stagedId>?firstSeen=true`; the wizard UI does NOT auto-fire /finalize-cas (per the Task 10.5 race-row contract).
+  Implement `purgeAndRotateOnboardingSession()` as the **unconditional** single-transaction server helper (lives in `lib/onboarding/sessionLifecycle.ts`) — used by the "Start over" button and the post-onboarding "Re-run Setup" path, both of which have already decided to rotate:
+  ```ts
+  // M11 batch-11 finding 1: shared by "Start over" button and Re-run Setup.
+  // Rotates the session id + timestamp AND purges all three onboarding surfaces in one transaction.
+  // Always rotates — caller has already decided this is the right action.
+  await withTx(async (tx) => {
+    const newId = randomUUID();
+    await tx.query(
+      `UPDATE app_settings
+          SET pending_wizard_session_id = $1,
+              pending_wizard_session_at = now(),
+              updated_at = now()
+        WHERE id = 'default'`,
+      [newId]);
+    await tx.query(`DELETE FROM pending_syncs WHERE wizard_session_id IS NOT NULL`);
+    await tx.query(`DELETE FROM pending_ingestions WHERE wizard_session_id IS NOT NULL`);
+    await tx.query(`DELETE FROM onboarding_scan_manifest`);
+  });
+  ```
+  Implement `purgeAndRotateIfStale()` as the **conditional** SQL-gated helper used by the auto-rotate path (M9+M10 batch-12 finding 4). The staleness predicate is part of the SQL `WHERE` clause inside the same transaction as the rotate + three DELETEs, so DB `now()` drives both the decision and the action atomically:
+  ```ts
+  // M9+M10 batch-12 finding 4: clock-skew-safe auto-rotate. The earlier draft computed staleness
+  // in JS (`Date.now() - settings.pending_wizard_session_at.getTime() > 24 * 3600 * 1000`) and
+  // then ran the purge in SQL — those two clocks can disagree under app-vs-DB clock skew. The
+  // corrected design moves the comparison into a SQL `WHERE` clause inside the same tx as the
+  // rotate/purge so DB `now()` drives both the decision and the action.
+  export async function purgeAndRotateIfStale(): Promise<{ suppressed?: 'WIZARD_FINALIZE_BATCHES_PENDING' }> {
+    return await withTx(async (tx) => {
+      const newId = randomUUID();
+      // M9+M10 batch-14 finding 1: multi-batch finalize gate.
+      // Conditional rotate: matches 0 rows if pending_wizard_session_at is fresh (or NULL),
+      // OR if a multi-batch finalize has committed at least one batch (batches_completed > 0).
+      // Without the second clause, an operator who paused overnight after batch 1..N-1 commits
+      // would have their interim published=false shows rows orphaned (manifest purged → no
+      // durable record of which shows belong to the in-flight promotion set).
+      const { rowCount } = await tx.query(
+        `UPDATE app_settings
+            SET pending_wizard_session_id = $1,
+                pending_wizard_session_at = now(),
+                updated_at = now()
+          WHERE id = 'default'
+            AND pending_wizard_session_at IS NOT NULL
+            AND pending_wizard_session_at < now() - interval '24 hours'
+            AND NOT EXISTS (
+              SELECT 1 FROM wizard_finalize_checkpoints c
+               WHERE c.wizard_session_id = app_settings.pending_wizard_session_id
+                 AND c.batches_completed > 0
+            )`,
+        [newId]);
+      if (rowCount === 0) {
+        // M9+M10 batch-14 finding 1: distinguish "not stale" vs "stale-but-suppressed-by-finalize-gate".
+        // The latter triggers a sync_log entry so operators see why auto-rotate was suppressed AND so
+        // the wizard render path can surface the Resume/Cleanup affordances per spec §4.5 prong 3.
+        const probe = await tx.query(
+          `SELECT 1 FROM app_settings a
+            JOIN wizard_finalize_checkpoints c ON c.wizard_session_id = a.pending_wizard_session_id
+            WHERE a.id = 'default'
+              AND a.pending_wizard_session_at IS NOT NULL
+              AND a.pending_wizard_session_at < now() - interval '24 hours'
+              AND c.batches_completed > 0`);
+        if (probe.rowCount > 0) {
+          await tx.query(
+            `INSERT INTO sync_log (kind, payload)
+             VALUES ('WIZARD_FINALIZE_BATCHES_PENDING',
+                     jsonb_build_object('wizard_session_id',
+                       (SELECT pending_wizard_session_id FROM app_settings WHERE id='default')))`);
+          return { suppressed: 'WIZARD_FINALIZE_BATCHES_PENDING' };
+        }
+        return {};                                        // not stale; tx commits with no changes
+      }
+      // Stale by DB clock AND no in-flight finalize → purge all three onboarding surfaces in the SAME tx.
+      await tx.query(`DELETE FROM pending_syncs WHERE wizard_session_id IS NOT NULL`);
+      await tx.query(`DELETE FROM pending_ingestions WHERE wizard_session_id IS NOT NULL`);
+      await tx.query(`DELETE FROM onboarding_scan_manifest`);
+      return {};
+    });
+  }
+
+  // M9+M10 batch-14 finding 1: explicit operator escape hatch invoked by the
+  // "Cleanup abandoned finalize" admin action when WIZARD_FINALIZE_BATCHES_PENDING fires.
+  // Single transaction: (a) DELETE shows rows still at published=false in this session's
+  // manifest-applied set; (b) DELETE the wizard_finalize_checkpoints row; (c) THEN run the
+  // standard unconditional purge-and-rotate so the operator gets a fresh wizard.
+  //
+  // M6 batch-15 finding 3 (HIGH — adds four mandatory guards): the prior implementation took
+  // NO advisory lock, NO admin auth, NO session-staleness check, AND NO checkpoint-recency
+  // check, so a stale tab clicking "Cleanup abandoned finalize" against a session whose
+  // /finalize batch was actively running would race with the live finalize: the cleanup's
+  // `DELETE FROM wizard_finalize_checkpoints` runs while finalize's per-row tx is mid-commit
+  // (which UPDATEs that same checkpoint row), the cleanup's `DELETE FROM shows` removes shows
+  // a per-row Phase B is about to UPDATE/INSERT, and the cleanup's `DELETE FROM pending_syncs`
+  // strips state Phase D will read. The four guards close every race surface AND restrict the
+  // route to the legitimate "abandoned for 24+h" use case:
+  //   (1) `pg_advisory_xact_lock(hashtext('finalize:' || sessionId))` — same lock /finalize and
+  //       /finalize-cas use; cleanup waits for any in-flight finalize to complete OR finalize
+  //       waits for cleanup. NOT `pg_try_advisory_xact_lock` — cleanup is operator-initiated and
+  //       should block briefly rather than fail noisily.
+  //   (2) `requireAdmin()` + record actor in `sync_audit` — every cleanup is attributable.
+  //   (3) Session-staleness CAS: `SELECT pending_wizard_session_id, pending_wizard_session_at
+  //       FROM app_settings FOR UPDATE` AND verify `pending_wizard_session_id = $sessionId` AND
+  //       `pending_wizard_session_at < now() - interval '24 hours'`. The 24h horizon matches the
+  //       §4.5 auto-rotate clock; cleanup is the manual-equivalent operation. If the session is
+  //       still fresh (under 24h), refuse with `CLEANUP_REQUIRES_STALE_SESSION` (NEW §12.4 code,
+  //       409). This prevents an over-eager operator from nuking a healthy mid-finalize session.
+  //   (4) Checkpoint-recency check: `SELECT status, last_processed_at FROM
+  //       wizard_finalize_checkpoints WHERE wizard_session_id = $sessionId`. If `status =
+  //       'in_progress'` AND `last_processed_at > now() - interval '1 hour'`, refuse with
+  //       `CLEANUP_REQUIRES_STALE_SESSION` — a finalize that progressed in the last hour is NOT
+  //       abandoned, even if the broader session is over 24h old (some operators legitimately
+  //       resume a batched finalize after a long pause).
+  // Idempotency: returns `{ status: 'already_cleaned' }` on repeat calls (the session-staleness
+  // check refuses if `pending_wizard_session_id` no longer matches the input — a previous
+  // cleanup already rotated it).
+  export async function cleanupAbandonedFinalize(sessionId: string): Promise<{
+    status: 'cleaned' | 'already_cleaned',
+  }> {
+    await requireAdmin();  // (2) admin-only — the route handler also checks; this is defense-in-depth.
+    const adminEmail = await currentAdminEmail();
+    return withTx(async (tx) => {
+      // (1) advisory-xact lock — held until commit; same key as /finalize and /finalize-cas.
+      await tx.query(`SELECT pg_advisory_xact_lock(hashtext('finalize:' || $1))`, [sessionId]);
+
+      // (3) session-staleness CAS — refuses fresh sessions.
+      const settings = await tx.query<{
+        pending_wizard_session_id: string | null,
+        pending_wizard_session_at: string | null,
+      }>(`SELECT pending_wizard_session_id, pending_wizard_session_at
+            FROM app_settings WHERE id = 'default' FOR UPDATE`);
+      if (settings.rows.length === 0 ||
+          settings.rows[0].pending_wizard_session_id !== sessionId) {
+        // Already cleaned (or never owned by this session). Idempotent return.
+        return { status: 'already_cleaned' as const };
+      }
+      const sessionAt = new Date(settings.rows[0].pending_wizard_session_at!);
+      if (sessionAt > new Date(Date.now() - 24 * 60 * 60 * 1000)) {
+        throw new HttpError(409, 'CLEANUP_REQUIRES_STALE_SESSION', {
+          wizard_session_id: sessionId,
+          pending_wizard_session_at: sessionAt.toISOString(),
+          reason: 'session_too_fresh',
+        });
+      }
+
+      // (4) checkpoint-recency check — refuses if a finalize ran within the past hour.
+      const cp = await tx.query<{ status: string, last_processed_at: string | null }>(
+        `SELECT status, last_processed_at FROM wizard_finalize_checkpoints
+          WHERE wizard_session_id = $1`, [sessionId]);
+      if (cp.rows.length > 0 &&
+          cp.rows[0].status === 'in_progress' &&
+          cp.rows[0].last_processed_at &&
+          new Date(cp.rows[0].last_processed_at) > new Date(Date.now() - 60 * 60 * 1000)) {
+        throw new HttpError(409, 'CLEANUP_REQUIRES_STALE_SESSION', {
+          wizard_session_id: sessionId,
+          last_processed_at: cp.rows[0].last_processed_at,
+          reason: 'finalize_active_within_last_hour',
+        });
+      }
+
+      // Audit trail: record the actor BEFORE doing destructive work.
+      await tx.query(`INSERT INTO sync_audit (kind, payload, actor_email, occurred_at)
+                       VALUES ('cleanup_abandoned_finalize',
+                               jsonb_build_object('wizard_session_id', $1::text),
+                               $2, now())`, [sessionId, adminEmail]);
+
+      // Destructive work — same as before, now safely fenced by the four guards above.
+      await tx.query(
+        `DELETE FROM shows
+          WHERE published = FALSE
+            AND drive_file_id IN (
+              SELECT drive_file_id FROM onboarding_scan_manifest
+               WHERE wizard_session_id = $1 AND status = 'applied'
+            )`,
+        [sessionId]);
+      await tx.query(`DELETE FROM wizard_finalize_checkpoints WHERE wizard_session_id = $1`, [sessionId]);
+      const newId = randomUUID();
+      await tx.query(
+        `UPDATE app_settings
+            SET pending_wizard_session_id = $1,
+                pending_wizard_session_at = now(),
+                updated_at = now()
+          WHERE id = 'default'`,
+        [newId]);
+      await tx.query(`DELETE FROM pending_syncs WHERE wizard_session_id IS NOT NULL`);
+      await tx.query(`DELETE FROM pending_ingestions WHERE wizard_session_id IS NOT NULL`);
+      await tx.query(`DELETE FROM onboarding_scan_manifest`);
+      return { status: 'cleaned' as const };
+    });
+  }
+  ```
+  **M9+M10 batch-15 finding 1 — `cleanupAbandonedFinalize` route handler.** The helper above is invoked exclusively through `app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts` (admin-gated, listed in X.3 PROTECTED_ROUTES). The route is the audit-trail-bearing wrapper: it writes `sync_audit` rows BEFORE and AFTER the helper runs so every cleanup action is durably attributable to a specific admin email regardless of the helper's commit/abort outcome.
+
+  ```ts
+  // app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts (M9+M10 batch-15 finding 1)
+  export async function POST(req: Request, { params }: { params: { sessionId: string } }) {
+    const adminSession = await requireAdmin();           // (1) admin auth at the route layer (defense-in-depth; helper also calls requireAdmin)
+    const sessionId = params.sessionId;
+
+    // Pre-action audit row — captures intent + observed state BEFORE any destructive work.
+    // Written in its OWN short transaction so the audit trail survives even if the helper aborts.
+    // Snapshots: checkpoint state (status / batches_completed), unpublished show count attributed
+    // to this session via the manifest-applied join, and total manifest unresolved count. These
+    // payload fields are the diagnostic record for "what was the wizard's state when the operator
+    // chose to abandon it?" and feed any future post-incident review.
+    await withTx(async (tx) => {
+      const cp = await tx.query<{ status: string, batches_completed: number, last_processed_at: string | null }>(
+        `SELECT status, batches_completed, last_processed_at FROM wizard_finalize_checkpoints WHERE wizard_session_id = $1`,
+        [sessionId]);
+      const unpublished = await tx.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM shows
+          WHERE published = FALSE
+            AND drive_file_id IN (
+              SELECT drive_file_id FROM onboarding_scan_manifest
+               WHERE wizard_session_id = $1 AND status = 'applied')`,
+        [sessionId]);
+      const unresolved = await tx.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM onboarding_scan_manifest
+          WHERE wizard_session_id = $1
+            AND status IN ('staged', 'hard_failed', 'discard_retryable', 'live_row_conflict')`,
+        [sessionId]);
+      await tx.query(
+        `INSERT INTO sync_audit (kind, payload, actor_email, occurred_at)
+              VALUES ('cleanup_abandoned_finalize_started',
+                      jsonb_build_object(
+                        'wizard_session_id', $1::text,
+                        'checkpoint_state', $2::jsonb,
+                        'unpublished_show_count', $3::int,
+                        'manifest_unresolved_count', $4::int),
+                      $5, now())`,
+        [
+          sessionId,
+          cp.rows.length > 0 ? JSON.stringify(cp.rows[0]) : null,
+          unpublished.rows[0]?.n ?? 0,
+          unresolved.rows[0]?.n ?? 0,
+          adminSession.email,
+        ]);
+    });
+
+    // Invoke the helper. Helper's own four guards apply (advisory lock, requireAdmin DiD,
+    // session-staleness CAS, checkpoint-recency CAS). Helper may throw HttpError(409,
+    // 'CLEANUP_REQUIRES_STALE_SESSION', ...) — surface that to the client unchanged.
+    let result: { status: 'cleaned' | 'already_cleaned' };
+    try {
+      result = await cleanupAbandonedFinalize(sessionId);
+    } catch (e) {
+      if (e instanceof HttpError && e.code === 'CLEANUP_REQUIRES_STALE_SESSION') {
+        // The helper refused — record that fact in audit too (returns 409 with the existing payload).
+        await withTx(async (tx) => {
+          await tx.query(
+            `INSERT INTO sync_audit (kind, payload, actor_email, occurred_at)
+                  VALUES ('cleanup_abandoned_finalize_refused',
+                          jsonb_build_object('wizard_session_id', $1::text, 'reason', $2::text),
+                          $3, now())`,
+            [sessionId, (e.body as any)?.reason ?? 'unknown', adminSession.email]);
+        });
+        return jsonError(e.status, e.code, e.body);
+      }
+      throw e;
+    }
+
+    // Post-action audit row — captures successful outcome.
+    await withTx(async (tx) => {
+      await tx.query(
+        `INSERT INTO sync_audit (kind, payload, actor_email, occurred_at)
+              VALUES ('cleanup_abandoned_finalize_completed',
+                      jsonb_build_object('wizard_session_id', $1::text, 'helper_result', $2::text),
+                      $3, now())`,
+        [sessionId, result.status, adminSession.email]);
+    });
+
+    // Idempotent return shape (M9+M10 batch-15 finding 1):
+    //   - 'cleaned' — helper performed destructive work this call.
+    //   - 'already_cleaned' — repeat call (session-staleness CAS detected the session is no longer owned by this id).
+    // The helper's `CLEANUP_REQUIRES_STALE_SESSION` 409 path is handled above and never reaches here;
+    // the `session_not_stale` and `finalize_in_progress` shapes referenced in the batch-15 finding
+    // are SUB-classifications of `CLEANUP_REQUIRES_STALE_SESSION` carried in the 409 body's `reason`
+    // field (`'session_too_fresh'` for the 24h-window guard, `'finalize_active_within_last_hour'`
+    // for the checkpoint-recency guard) — the helper already encodes these distinctions.
+    return jsonOk(result);
+  }
+  ```
+
+  **Step-1 failing tests for the route (M9+M10 batch-15 finding 1):**
+  - **Idempotency**: stage 200 rows in W1, finalize batch 1 commits, age the session to 25h, click "Cleanup abandoned finalize" → 200 `{ status: 'cleaned' }`; assert `sync_audit` has TWO new rows (`'cleanup_abandoned_finalize_started'` + `'cleanup_abandoned_finalize_completed'`) both bearing the admin's email. Click again → 200 `{ status: 'already_cleaned' }`; assert `sync_audit` has TWO MORE rows (the audit pair fires every call regardless of helper outcome — start-row captures empty state, complete-row carries `helper_result = 'already_cleaned'`).
+  - **Refusal under fresh-session guard**: stage 200 rows in W1, finalize batch 1 commits, leave session at <24h. Click "Cleanup abandoned finalize" → 409 `CLEANUP_REQUIRES_STALE_SESSION` with body `{ reason: 'session_too_fresh', ... }`; assert `sync_audit` has the `'cleanup_abandoned_finalize_started'` row AND a `'cleanup_abandoned_finalize_refused'` row (NO `'_completed'` row); assert ALL destructive state is unchanged (the 100 `published=false` shows still exist, checkpoint row still exists, manifest rows still exist, `pending_wizard_session_id` still W1).
+  - **Refusal under recent-finalize guard**: stage 200 in W1, finalize batch 1 commits, age session to 25h BUT set `wizard_finalize_checkpoints.last_processed_at = now() - interval '30 minutes'`. Cleanup click → 409 `CLEANUP_REQUIRES_STALE_SESSION` with body `{ reason: 'finalize_active_within_last_hour', ... }`; same audit-row pattern + same destructive-state-untouched assertion as the fresh-session guard test.
+  - **Pre-action snapshot fidelity**: synthesize a known checkpoint state (`batches_completed = 7`, `status = 'in_progress'`, 4 unpublished shows joined via the manifest, 2 unresolved manifest rows in `'live_row_conflict'`). Cleanup runs (assume staleness gates pass). Read the `'cleanup_abandoned_finalize_started'` row's `payload` JSONB; assert `checkpoint_state.batches_completed === 7`, `checkpoint_state.status === 'in_progress'`, `unpublished_show_count === 4`, `manifest_unresolved_count === 2`. The audit row is the durable diagnostic record of what was discarded.
+  - **Concurrent cleanup serializes through the advisory lock**: two parallel POSTs against the same `sessionId`. Helper-level `pg_advisory_xact_lock` serializes them; second call observes `pending_wizard_session_id` already rotated and returns `'already_cleaned'`. Assert FOUR `sync_audit` rows total (two start + two complete; one complete carries `'cleaned'`, the other `'already_cleaned'`).
+
+  Implement the "Start over" button on the wizard surface (admin-gated; rendered when `watched_folder_id IS NULL`). Clicking calls a server action that runs `purgeAndRotateOnboardingSession()` and `redirect('/admin')`. The Task 10.2 step-1 component is the canonical render site; subsequent step components ALSO show the same affordance so it's reachable from every wizard step. Once `watched_folder_id IS NOT NULL` the affordance is hidden — restart goes through `/admin/settings` "Re-run Setup".
+
   Implement `app/admin/settings/page.tsx` with the "Re-run Setup" button calling a server action that:
   1. Calls `requireAdmin()`.
   2. Generates `pendingWizardSessionId = randomUUID()`.
-  3. UPDATEs `app_settings` setting `pending_wizard_session_id = $pendingWizardSessionId` (does NOT touch `watched_folder_id`). This is the SAME session id Task 10.3's verify-folder server action will read back from `app_settings` and pass to `runOnboardingScan` — the wizard does NOT mint a second session id (see Task 10.3 amendment).
+  3. UPDATEs `app_settings` setting `pending_wizard_session_id = $pendingWizardSessionId` AND `pending_wizard_session_at = now()` (does NOT touch `watched_folder_id`). This is the SAME session id Task 10.3's verify-folder server action will read back from `app_settings` and pass to `runOnboardingScan` — the wizard does NOT mint a second session id (see Task 10.3 amendment). The `pending_wizard_session_at` write is paired with the id write per §4.5 invariant; without it the 24h auto-rotate cannot work.
   4. `redirect('/admin')` — which then renders the wizard inline because `pending_wizard_session_id` is non-null.
-- [ ] **Step 3: Commit** `feat(admin): first-visit wizard routing + Re-run Setup path (§9.0, AC-10.1/10.4/10.5)`.
+- [ ] **Step 3: Commit** `feat(admin): first-visit wizard routing + Re-run Setup + Start over + 24h auto-rotate (§9.0, AC-10.1/10.4/10.5, M11 batch-11 finding 1)`.
 
 ### Task 10.2: Wizard step 1 — share folder (§9.0)
 
@@ -4805,6 +6756,8 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
 
 **Critical ordering (final-validation finding):** the `pending_wizard_session_id` MUST be written to `app_settings` BEFORE `runOnboardingScan` runs. If the scan ran first, staged rows would be tagged with no/stale wizard_session_id, breaking the §6.8.1 wizard-session CAS that gates Apply/Discard against `WIZARD_SESSION_SUPERSEDED`. The §6.4 wizard-session purge in Phase 1 also depends on the new id being authoritative at scan time so prior-session staged rows are correctly purged.
 
+**24-hour auto-rotate check on page-load (M11 batch-11 finding 1).** Step 2's component renderer (`components/admin/wizard/Step2Verify.tsx`) is reached via the `/admin` inline wizard route — Task 10.1 owns the `pending_wizard_session_at < now() - interval '24 hours'` check at the route level. This task does NOT duplicate the check; it inherits it. **However** the `pending_wizard_session_at` MUST be paired with the id on every step-2 verify-folder action that mints/updates the session (per §4.5 invariant): the verify action's UPDATE on `app_settings` MUST set BOTH `pending_wizard_session_id` AND `pending_wizard_session_at = now()` so the auto-rotate timer resets on legitimate progress. This applies to BOTH the first-visit-mints-session path AND the Re-run-Setup-already-minted path: the verify action does NOT need to bump `pending_wizard_session_at` if it's reusing an already-minted id (re-run setup already set it via Task 10.1's settings server action), but it MUST NOT clobber it to NULL.
+
 - [ ] **Step 1: Failing tests (AC-10.2)** — every documented success/failure message:
   - Success → green check + folder name + sheet count.
   - Malformed URL → `ONBOARDING_FOLDER_INVALID_URL`.
@@ -4815,7 +6768,7 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
   - **First-visit mint regression (M9+M10 batch-8)**: fresh DB (both `watched_folder_id` AND `pending_wizard_session_id` NULL). Open `/admin` (wizard inline). Complete step-2 verify. Assert: `app_settings.pending_wizard_session_id` is now non-null (the verify action minted it because it was the first owner) AND every staged row carries that id.
 - [ ] **Step 2: Implement** the server action with this exact ordering:
   1. Validate folder URL → extract ID.
-  2. **Read or mint the session id (M9+M10 batch-8 finding)** — the wizard mints **exactly one** `pending_wizard_session_id` per setup attempt, owned by whichever route opens the wizard. `SELECT pending_wizard_session_id FROM app_settings WHERE id = 'default'`. If non-null, reuse it as `wizardSessionId` (Re-run Setup case — Task 10.1's `/admin/settings` server action already minted the id BEFORE redirecting to `/admin`). If NULL, mint `wizardSessionId = randomUUID()` (first-visit case — the wizard's verify-folder action is the first owner of the session id). Then UPDATE `app_settings` setting `pending_wizard_session_id = $wizardSessionId` (no-op when reusing; sets the new value when first-visit) AND the other `pending_*` fields (`pending_folder_id`, `pending_folder_set_by_email`, etc.) per §4.5 lifecycle. Do NOT touch `watched_folder_id`. Earlier draft said "Generate fresh `wizardSessionId = randomUUID()` ... FIRST" unconditionally, which would silently overwrite the Re-run Setup id minted by `/admin/settings` — every row written through that path would be orphaned and the Re-run Setup id-reuse test wouldn't actually exercise the post-redirect path.
+  2. **Read or mint the session id (M9+M10 batch-8 finding; M11 batch-11 finding 1: `pending_wizard_session_at` paired-write invariant)** — the wizard mints **exactly one** `pending_wizard_session_id` per setup attempt, owned by whichever route opens the wizard. `SELECT pending_wizard_session_id, pending_wizard_session_at FROM app_settings WHERE id = 'default'`. If `pending_wizard_session_id` non-null, reuse it as `wizardSessionId` (Re-run Setup case — Task 10.1's `/admin/settings` server action already minted the id AND its `pending_wizard_session_at` BEFORE redirecting to `/admin`); the verify action MUST NOT bump the timestamp on reuse (it's a legitimate continuation of the same session, not a fresh mint). If `pending_wizard_session_id` is NULL, mint `wizardSessionId = randomUUID()` AND set `pending_wizard_session_at = now()` (first-visit case — the wizard's verify-folder action is the first owner of the session id; the §4.5 paired-write invariant requires the timestamp to be set whenever the id is set). Then UPDATE `app_settings` setting `pending_wizard_session_id = $wizardSessionId` (no-op when reusing; sets the new value when first-visit) AND `pending_wizard_session_at` (only when first-visit minting; left untouched when reusing) AND the other `pending_*` fields (`pending_folder_id`, `pending_folder_set_by_email`, etc.) per §4.5 lifecycle. Do NOT touch `watched_folder_id`. Earlier draft said "Generate fresh `wizardSessionId = randomUUID()` ... FIRST" unconditionally, which would silently overwrite the Re-run Setup id minted by `/admin/settings` — every row written through that path would be orphaned and the Re-run Setup id-reuse test wouldn't actually exercise the post-redirect path.
   3. **Purge any prior-session onboarding rows across ALL three onboarding surfaces (final-validation finding)**:
      ```sql
      -- pending_syncs (staged parses)
@@ -4835,12 +6788,13 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
   **CAS gate inside scan writes (final-validation finding).** Writing `pending_wizard_session_id` first and purging old rows is necessary but NOT sufficient: a slow W1 scan whose start preceded W2 can still issue UPSERTs after W2 has taken over and clobber W2's freshly-staged rows (since `pending_syncs` and `pending_ingestions` are keyed by `drive_file_id` and W1 didn't know W2 was coming). Every scan-time write inside `runOnboardingScan` MUST CAS-gate against the current `app_settings.pending_wizard_session_id`:
 
   ```sql
-  -- Inside runOnboardingScan — every UPSERT to ALL THREE onboarding surfaces guards (round-46 amendment):
-  --   pending_syncs, pending_ingestions, onboarding_scan_manifest
-  -- (Earlier draft only CAS-gated pending_syncs/pending_ingestions; the manifest is now the
-  -- authoritative finalize source per Task 10.5, so leaving it ungated would let a slow W1
-  -- scan keep updating manifest rows after W2 took over, corrupting Step 3's render and
-  -- finalize's resolution count.)
+  -- Inside runOnboardingScan — every UPSERT to ALL THREE onboarding surfaces guards
+  -- (round-46 amendment for the three-surface coverage; round-50 / M6 batch-9 retry-2 amendment
+  -- for the live-row isolation). The earlier `OR <table>.wizard_session_id IS NULL` clause was
+  -- the wizard-isolation hole — it let a wizard UPSERT overwrite a live (NULL-session)
+  -- pending_syncs/pending_ingestions row owned by cron/push/manual, even though spec §9.0
+  -- explicitly allows the live folder to keep cron-syncing while a Re-run Setup wizard runs.
+  -- The corrected ON CONFLICT predicate matches ONLY the wizard's own session partition.
   INSERT INTO <table> (..., wizard_session_id, ...)
   SELECT ..., $myWizardSessionId, ...
   WHERE EXISTS (
@@ -4848,14 +6802,20 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
      WHERE id = 'default'
        AND pending_wizard_session_id = $myWizardSessionId
   )
-  ON CONFLICT (...) DO UPDATE SET ...
+  ON CONFLICT (drive_file_id, wizard_session_id) WHERE wizard_session_id IS NOT NULL
+  DO UPDATE SET ...
    WHERE <table>.wizard_session_id = $myWizardSessionId   -- never overwrite a different session's row
-      OR <table>.wizard_session_id IS NULL;               -- pre-existing non-onboarding rows (pending_syncs only) are still fair game
+  RETURNING wizard_session_id;
   ```
+
+  After the statement, **inspect the RETURNING row**: zero rows AND a successful WHERE-EXISTS gate (verified via a follow-up `SELECT pending_wizard_session_id FROM app_settings`) means no conflict — the live (NULL-session) row, if any, sits in a different partial-index slot per the composite-uniqueness schema in Task 6.8 step 2. **M6 batch-10 fix-4 (replaces zero-RETURNING-row heuristic — see Task 6.8 step 2 for the canonical version of this contract)**: missing partial-index arbiter raises a hard SQLSTATE (`42P10` OR `23505`), NOT zero RETURNING rows. Detection has TWO parts: **(A) `pg_indexes` schema-state probe at scan start; abort with `WIZARD_ISOLATION_INDEXES_MISSING` if the four expected partial unique indexes aren't all present.** **(B) per-row SQLSTATE catch — `42P10`/`23505` → `LIVE_ROW_CONFLICT`.** Zero RETURNING rows is NEVER a `LIVE_ROW_CONFLICT` signal. On `LIVE_ROW_CONFLICT` for that file: (a) emit `sync_log` entry coded `onboarding_scan_live_row_conflict` with `payload = { drive_file_id, sqlstate }`; (b) **UPSERT `onboarding_scan_manifest` with `status = 'live_row_conflict'` (M6 batch-10 finding)** using the same SQL shape Task 6.8 specifies (with the wizard-session WHERE-EXISTS gate); finalize blocks until this manifest row leaves the unresolved set; (c) surface the per-file warning in the scan summary; (d) continue to the next file (do NOT abort the whole scan).
 
   If `app_settings.pending_wizard_session_id` no longer matches (W2 took over mid-scan), the WHERE-EXISTS gate makes the INSERT a no-op AND the scan logs `WIZARD_SESSION_SUPERSEDED_DURING_SCAN`, then aborts the rest of the scan loop.
 
-  **Concurrency regression test (mandatory)**: spawn W1's scan against a folder of 5 sheets. Mid-scan (between sheet 2 and sheet 3), trigger W2's `app_settings.pending_*` write + purge. Assert: W1's writes for sheets 3-5 become no-ops across ALL THREE surfaces (`pending_syncs`, `pending_ingestions`, `onboarding_scan_manifest`); only W2's freshly-scanned rows survive in each; W1 logs the supersession and exits cleanly.
+  **Concurrency regression tests (mandatory, M6 batch-9 retry-2)**:
+  1. **Wizard supersession**: spawn W1's scan against a folder of 5 sheets. Mid-scan (between sheet 2 and sheet 3), trigger W2's `app_settings.pending_*` write + purge. Assert: W1's writes for sheets 3-5 become no-ops across ALL THREE surfaces (`pending_syncs`, `pending_ingestions`, `onboarding_scan_manifest`); only W2's freshly-scanned rows survive in each; W1 logs the supersession and exits cleanly.
+  2. **Wizard UPSERT alongside live row → coexistence (M6 batch-9 retry-2)**: cron-mode `runPhase1` stages a `pending_syncs` row for `drive_file_id = X` with `wizard_session_id = NULL`. Then start wizard W1 and run the verify-folder action against a folder containing X. Assert: BOTH rows now exist for X (one live, one wizard); the live row's contents are byte-for-byte unchanged; the wizard does NOT abort.
+  3. **Live cron writes during wizard run → both rows coexist (M6 batch-9 retry-2)**: start wizard W1 and stage an onboarding row for `drive_file_id = X`. Then trigger cron-mode `runPhase1` for X. Assert the cron path's UPSERT into the live partial-index slot succeeds; BOTH rows coexist; dashboard panel queries (live-only) and wizard step-3 queries (W1-only) each see only their own row.
 - [ ] **Step 3: Commit** `feat(admin): wizard step 2 — session-first scan ordering (§9.0)`.
 
 ### Task 10.4: Wizard step 3 — first sheets review (§9.0, AC-10.3, AC-10.6)
@@ -4866,7 +6826,7 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
 
 The fix has two parts:
 1. **Scan manifest table** — a new `onboarding_scan_manifest` row per (folder, wizard_session_id) carrying every Drive item the scan saw (sheets + non-sheets), with a status enum `staged | hard_failed | skipped_non_sheet`. This gives the wizard a single per-session source of truth.
-2. **Provenance on `pending_ingestions`** — add `wizard_session_id uuid` and `discovered_during_folder_id text` columns so onboarding hard-fails are scoped to the current wizard run (Task 10.5 references this for the finalize provenance fix).
+2. **Provenance on `pending_ingestions`** — add `wizard_session_id uuid` and `discovered_during_folder_id text` columns so onboarding hard-fails are scoped to the current wizard run (Task 10.5 references this for the finalize provenance fix). **M6 batch-10 fix-2: also add `last_seen_modified_time timestamptz`** so the dashboard discard route (`/api/admin/pending-ingestions/[id]/discard`) can populate `deferred_ingestions.deferred_at_modified_time` from the row at discard time without re-fetching Drive metadata. Every `pending_ingestions` UPSERT site (Phase 1 hard-fail in `runPhase1`, `handleDriveFetchFailure`, `runOnboardingScan` hard-fails, `runManualStageForFirstSeen`, wizard `retrySingleFile`) populates it from the just-fetched `fileMeta.modifiedTime`. The §4.5 CREATE TABLE block carries this column. Task 2.2's introspection matrix MUST validate the column exists.
 
 - [ ] **Step 1: Failing tests**
   - AC-10.3: every sheet appears with correct status badge across all three classes:
@@ -4884,7 +6844,8 @@ The fix has two parts:
     - `'defer_until_modified'` — Discard variant; `deferred_ingestions` row inserted.
     - `'permanent_ignore'` — Discard variant; `deferred_ingestions` row inserted.
     - `'discard_retryable'` — default "try again next sync" Discard; NO deferral row; explicitly NOT resolved (finalize blocks on this state).
-  - `ALTER TABLE pending_ingestions ADD COLUMN wizard_session_id uuid, ADD COLUMN discovered_during_folder_id text` (both nullable; new onboarding-scan rows populate them).
+    - `'live_row_conflict'` (M6 batch-10) — schema-rollback collision: the wizard's per-file UPSERT for this `drive_file_id` raised `LIVE_ROW_CONFLICT` because the partial-index target collapsed back to the table's `drive_file_id` PK and a live (NULL-session) row owns the slot. Explicitly NOT resolved — finalize blocks on this state. Resolved only by the operator clearing the live row from the dashboard and re-running the wizard so a fresh `runOnboardingScan` re-attempts the per-file UPSERT (transitions to `'staged'` / `'hard_failed'` / etc. on success; stays at `'live_row_conflict'` on re-collision). The CHECK constraint in §4.5 includes this status; Task 2.2's introspection matrix asserts the eight-value enum.
+  - `ALTER TABLE pending_ingestions ADD COLUMN wizard_session_id uuid, ADD COLUMN discovered_during_folder_id text, ADD COLUMN last_seen_modified_time timestamptz` (all nullable; M6 batch-10 fix-2 amendment adds `last_seen_modified_time` so the dashboard discard route can populate `deferred_ingestions.deferred_at_modified_time` from the row at discard time without re-fetching Drive metadata; new onboarding-scan rows AND every Phase-1 hard-fail / `handleDriveFetchFailure` / `runManualStageForFirstSeen` UPSERT populates it from `fileMeta.modifiedTime`).
   - Update `runOnboardingScan` (Task 6.8) to: (a) list ALL Drive items in the folder; (b) for spreadsheets, run the existing parse path AND tag any resulting `pending_ingestions` row with `wizard_session_id` + `discovered_during_folder_id`; (c) for non-spreadsheets, INSERT a manifest row with `status='skipped_non_sheet'`; (d) for staged parses, INSERT manifest with `status='staged'`; (e) for hard-failed parses, INSERT manifest with `status='hard_failed'`.
   - **Lifecycle transitions** — every Apply/Discard/Retry/Defer/Ignore endpoint MUST update the manifest row's `status` AND `transitioned_at` in the same transaction as its primary effect:
     - Apply succeeds → `status = 'applied'`.
@@ -4896,10 +6857,10 @@ The fix has two parts:
   - **Finalize gate (Task 10.5) reads from the manifest, NOT from row-absence**:
     ```sql
     -- Resolved iff status is one of: applied, defer_until_modified, permanent_ignore, skipped_non_sheet.
-    -- Unresolved iff status is: staged, hard_failed, discard_retryable.
+    -- Unresolved iff status is: staged, hard_failed, discard_retryable, live_row_conflict (M6 batch-10).
     SELECT count(*) FROM onboarding_scan_manifest
      WHERE wizard_session_id = $sessionId
-       AND status IN ('staged', 'hard_failed', 'discard_retryable');
+       AND status IN ('staged', 'hard_failed', 'discard_retryable', 'live_row_conflict');
     ```
     If count > 0 → 409 `ONBOARDING_NOT_RESOLVED`.
 - [ ] **Step 3: Implement step 3 UI** — query the manifest for `wizard_session_id = current`, render badges by status, group by sheet. Skipped non-sheets render an info-only row with no action button. The "all sheets resolved" check requires every spreadsheet to be either applied OR discarded with `defer_until_modified` OR `permanent_ignore` (the default "try again next sync" Discard does NOT count per §6.8.1). Skipped non-sheets are auto-resolved (they need no action).
@@ -4929,20 +6890,339 @@ The fix has two parts:
   - AC-10.5: mid-wizard abandonment — cron continues using existing `watched_folder_id`. Next "Re-run setup" overwrites pending state. No live-sync blackout.
   - **Resolution-completeness regression (final-validation):** stage two sheets — sheet A passes parse and lands in `pending_syncs` (current `wizard_session_id`); sheet B hard-fails MI-1 and lands in `pending_ingestions`. Apply sheet A. Click Finalize **without resolving sheet B**. Assert: finalize returns 409 `ONBOARDING_NOT_RESOLVED` (new error code, see message catalog). Now Discard sheet B with `permanent_ignore` → click Finalize again → succeeds, promotes the folder. Per the §6.8.1 first-seen Discard semantics, only `defer_until_modified` and `permanent_ignore` count as "resolved"; the default "try again next sync" Discard does NOT.
   - **Stale-tab finalize race:** start wizard W1, stage rows, abandon. Start wizard W2 in another tab. Stale tab clicks Finalize from W1's state. Server's CAS on `pending_wizard_session_id = W1_id` matches 0 rows (W2 has overwritten the pending state). Return 409 `WIZARD_SESSION_SUPERSEDED`.
+  - **Durable wizard-approval payload (M11 batch-12 finding 1; M11 batch-13 finding 3 versioning)**: stage two sheets in W1, click Apply on each. After step 5W commits, assert (a) BOTH `pending_syncs` rows have `wizard_approved = TRUE` AND `wizard_approved_by_email IS NOT NULL` AND `wizard_approved_at IS NOT NULL` AND `wizard_reviewer_choices IS NOT NULL` AND `wizard_reviewer_choices_version = 1` (the §4.5 symmetry CHECK forces this — try synthesizing a row with `wizard_approved = TRUE` and any of the FOUR payload columns NULL, assert SQL `23514` *check_violation*); (b) `wizard_approved_by_email` matches `auth_email_canonical(admin.email)`; (c) `wizard_reviewer_choices` round-trips through the §6.8.2 validator under version 1. **Reviewer-choice replay regression (canonical §6.8.2 shape — `item_id` field, `apply`/`reject`/`rename`/`independent` actions, NOT `id`/`accept`)**: stage a sheet whose parse triggers MI-13 with two review items (`item_id = 'item-A-uuid'` paired-rename candidate, `item_id = 'item-B-uuid'` paired-rename candidate); the wizard Apply UI submits the canonical §6.8.2 payload `{ choices: [{ item_id: 'item-A-uuid', action: 'rename' }, { item_id: 'item-B-uuid', action: 'independent' }] }`. After Apply, assert `pending_syncs.wizard_reviewer_choices` contains the operator's exact A/B pairing (NOT defaults) AND `wizard_reviewer_choices_version = 1`. Click Finalize; assert the `sync_audit` row's `derived_side_effects` matches the operator-choice variant (item-A `rename` bumps both removed_name + added_name auth floors per §6.8.2 derivation table; item-B `independent` does NOT pair-rename), NOT the triggered-review-items default variant. **Operator-attribution regression**: admin Doug clicks Apply (captured as `wizard_approved_by_email = doug@…`); a different admin Eric clicks Finalize. The `sync_audit` row MUST carry `applied_by = doug@…` (the persisted approval-payload column), NOT `eric@…`. **Version-unsupported replay regression (M11 batch-13 finding 3)**: synthesize a `pending_syncs` row with `wizard_approved = TRUE` and `wizard_reviewer_choices_version = 99` (a future version not in the supported set). Click Finalize. Assert (a) Phase A aborts with HTTP 409 `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED` referencing the offending `drive_file_id`; (b) the offending row's manifest is demoted to `'staged'` in the post-abort follow-up transaction; (c) Phase B never runs (no `shows` writes, no §4.5 CAS).
+  - **Manifest lifecycle — no transient pre-commit 'applied' (M11 batch-12 finding 2)**: insert a Phase B abort barrier (e.g., make `runPhase2WithDurablePayload` throw on the second per-row sub-statement). With two approved rows in W1, click Finalize. Assert (a) Phase B aborts → ROLLBACK; (b) the FIRST row's manifest write that was about to commit IS rolled back (no transient `'promoting'` state — the `onboarding_scan_manifest.status` CHECK rejects any non-listed value); (c) the second row's failure triggers the post-rollback follow-up `UPDATE onboarding_scan_manifest SET status = 'staged'` for THAT `drive_file_id` and that update durably commits (re-query in a fresh transaction confirms the demotion); (d) Phase C cleanup runs and the `_finalize-pending/<W1>/` prefix is empty. Re-run finalize against the same W1 — assert it succeeds because both manifest rows are back to a state the unresolved-gate query handles correctly.
+  - **Three-phase finalize lock window (M11 batch-12 finding 3)**: stage 50 rows in W1 each carrying a synthetic embedded image. Time the finalize call. Assert (a) Phase A (Drive re-verify + asset upload) runs OUTSIDE any DB transaction — set up a probe that opens `pg_advisory_xact_lock` for the same `show:` key on every row's `drive_file_id` from a separate connection; assert NO lock contention during Phase A; (b) Phase B's per-show locks are acquired in alphabetical order — instrument `pg_advisory_xact_lock` to record acquire-time and `drive_file_id`; assert the recorded sequence is sorted by `drive_file_id`; (c) total Phase B duration < 5 seconds for 50 rows. Cron locks on the live folder during finalize never block on Phase A.
+  - **M11 batch-14 amendments to the 100-row batch protocol (server-owned cursor + per-row Phase B + Phase D split):** the prior `?after=<lastDriveFileId>` contract is RETIRED. The endpoint now reads `pending_syncs WHERE wizard_session_id = $sessionId AND wizard_approved = TRUE ORDER BY drive_file_id LIMIT 100` authoritatively each call (no client cursor); per-batch progression is recorded in the new admin-only `wizard_finalize_checkpoints` table; Phase B runs as N per-row transactions (NOT one batch-wide tx) so the per-show advisory lock is held for ~200ms per row, not ~20s per batch; the §4.5 atomic-promotion CAS + `published = TRUE` flip + clean-slate DELETE move from "FINAL batch's Phase B transaction" to a SEPARATE Phase D `/finalize-cas` endpoint (separate request, separate <100ms tx, NO Drive/Storage I/O). **Test changes flowing from this:** (a) stage-101 first-call test asserts `{ status: 'batch_complete', remaining_count: 1, per_row: [...] }` (NO `next_batch_token`; NO `batch_size`); 100 `shows` rows `published=false`; 100 `pending_syncs` GONE; 1 remains; checkpoint row exists with `status='in_progress'` AND `batches_completed=100`. (b) Stage-101 second-call test asserts `{ status: 'all_batches_complete', per_row: [...] }`; ALL 101 rows still `published=false` (Phase D hasn't run yet); checkpoint `status='all_batches_complete'`; `app_settings.watched_folder_id` UNCHANGED. (c) NEW Phase D test: POST `/finalize-cas`. Assert `{ status: 'finalize_complete', watched_folder_id: <new> }`; ALL 101 `shows.published = TRUE`; `app_settings.watched_folder_id = pending_folder_id`; `pending_wizard_session_id IS NULL`; checkpoint `status='final_cas_done'`. (d) The "cursor mismatch" test is RETIRED (no client cursor). (e) Phase D idempotency: POST `/finalize-cas` AGAIN against the same session → 200 `{ status: 'finalize_complete' }` (no extra writes). (f) Phase D early-fire: POST `/finalize-cas` with checkpoint `status='in_progress'` → 409 `WIZARD_FINALIZE_CHECKPOINT_MISSING`. (g) Phase D missing-row: POST `/finalize-cas` with `wizard_approved=TRUE` rows still in `pending_syncs` (synthesize the inconsistent state) → 409 `WIZARD_FINALIZE_CHECKPOINT_MISSING`. (h) Race-row re-Apply: stage 5 rows in W1, Apply all, kick off finalize, force a `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE` on the 3rd row. Assert (i) rows 1, 2, 4, 5 commit `published=false` and manifest `'applied'`; (ii) row 3's manifest is `'staged'` AND its `pending_syncs.wizard_approved = FALSE` AND all four payload columns NULL; (iii) the response status is `'batch_complete'` with `remaining_count=0` and `per_row[2].code = 'STAGED_PARSE_REVISION_RACE_DURING_FINALIZE'`; **wait — `wizard_approved=FALSE` for row 3 means the SELECT count = 0** so checkpoint flips to `'all_batches_complete'`. The wizard UI re-fires `/finalize` (gets `{ status: 'all_batches_complete' }` with no rows to process) but does NOT auto-fire `/finalize-cas` because the response also surfaces the failed-row list to the operator UI; the operator must re-Apply row 3 first. After re-Apply (`wizard_approved=TRUE` again), the next `/finalize` call processes row 3 alone, flips checkpoint back to `'all_batches_complete'`, and the wizard UI fires `/finalize-cas` to publish all 5. (i) Per-row Phase B concurrency: stage 50 rows in W1, kick off finalize. From a separate connection, run `runScheduledCronSync` against an UNRELATED live folder/show during the per-row loop. Assert cron's per-show advisory-lock acquire on the unrelated drive_file_id NEVER blocks (the per-row Phase B holds the lock for at most ~200ms before commit-and-release). (j) FINALIZE_OWNED_SHOW guard test (covered in Task 6.7 step 2b — cross-reference here): same-show admin Re-sync during finalize returns 409, doesn't write. (k) Three previously-listed tests are RETIRED with the prior contract: "(7) Cursor mismatch", "(9) Mid-batch Phase B abort: stage 250, batch 1 commits; batch 2 aborts on row 150 → ROLLBACK; rows 1–100 STILL with `published = FALSE` (unchanged from batch 1)" — the new design is per-row commit (batch 1's rows 1–100 stay `published=false` regardless; row 150 aborts itself, sibling rows 101–149 + 151–250 still process). The replacement test for (9): stage 250, Apply all, kick off batch 1; force row 150's per-row tx to throw. Assert rows 1–100 (batch 1) commit; in batch 2, rows 101–149 + 151–250 commit; row 150 manifest `'staged'`, `wizard_approved = FALSE`, `per_row[49].code` matches the synthesized error; checkpoint `batches_completed = 249`; `remaining_count = 1` (row 150 with `wizard_approved = FALSE` is excluded). The tests below are kept for reference but their assertions about `next_batch_token` / single batch-wide rollback are superseded by this amendment.
+  - **100-row batch cursor protocol (M11 batch-12 finding 3; M9+M10 batch-13 finding 2 — implementable contract)**: prior draft was unimplementable (no cursor parameter; no mechanism to defer §4.5 CAS until final batch). Implementable contract: (1) **Endpoint signature**: `POST /api/admin/onboarding/finalize?after=<lastDriveFileId>` (query param OPTIONAL; absent on first call). Cursor is the **`drive_file_id` of the last row processed in the previous batch** — NOT an opaque server token; deterministic ORDER BY `drive_file_id` ASC keeps it stable across server restarts. First call: `WHERE wizard_session_id = $sessionId AND wizard_approved = TRUE ORDER BY drive_file_id ASC LIMIT 100`. Subsequent call adds `AND drive_file_id > $after`. Endpoint NEVER rejects with 409 `ONBOARDING_BATCH_TOO_LARGE` — `> 100` rows is the EXPECTED case. The prior `ONBOARDING_BATCH_TOO_LARGE` §12.4 entry is RETIRED. (2) **Per-batch return shape**: after each Phase B commit, `SELECT count(*) FROM pending_syncs WHERE wizard_session_id = $sessionId AND wizard_approved = TRUE`. If `remaining_count > 0` → return `{ status: 'batch_complete', batch_size, remaining_count, next_batch_token: <lastDriveFileIdInThisBatch> }` AND **defer** §4.5 CAS (`pending_wizard_session_id` stays set). If `remaining_count === 0` → run §4.5 atomic-promotion CAS + M2 batch-11 wizard-deferral clean-slate DELETE inside Phase B (FINAL batch only) AND flip `published = TRUE` on every show INSERTed across all batches. Return `{ status: 'finalized' }`. (3) **Published-flag protocol (M9+M10 batch-13 finding 2 schema addition)**: `shows.published BOOLEAN NOT NULL DEFAULT TRUE` (cron / manual / dashboard-first-seen mints `published = TRUE` — backwards-compatible). Wizard-promoted shows: each batch's Phase B INSERT writes `published = FALSE`. After the FINAL batch's §4.5 CAS, the same Phase B flips `published = TRUE` for the in-flight session's promoted rows. **The promoted-set is identified via `onboarding_scan_manifest WHERE wizard_session_id = $sessionId AND status = 'applied'` joined to `shows.drive_file_id` — NOT a separate `wizard_session_promoted_shows` table** (M9+M10 batch-14 finding 2 — table-name reconciliation): the prior prose mentioned a `wizard_session_promoted_shows` tracking table that was never added to §4.3 admin-only registry and is not implemented in step 2 below; the actual implementation (see step 2 SQL — `UPDATE shows SET published = TRUE WHERE drive_file_id IN (SELECT drive_file_id FROM onboarding_scan_manifest WHERE wizard_session_id = $sessionId AND status = 'applied')`) uses the manifest as the durable join because `onboarding_scan_manifest` is ALREADY admin-only per §4.3 and `status = 'applied'` already tracks every promoted row. **Crew RLS update (Task 2.3 propagation)**: `can_read_show()` adds `AND shows.published = TRUE` for `kind='crew'`; admins see unpublished shows. (4) **Schema migration (Task 2.2 propagation)**: ALTER TABLE shows ADD COLUMN published BOOLEAN NOT NULL DEFAULT TRUE; CREATE INDEX shows_unpublished_idx ON shows (created_at) WHERE published = false. **No `wizard_session_promoted_shows` CREATE TABLE statement** (M9+M10 batch-14 finding 2 — `wizard_session_promoted_shows` removed): the prior prose's CREATE TABLE was stale and is removed; the manifest-join implementation supersedes it. The only NEW admin-only table this milestone introduces is `wizard_finalize_checkpoints` (M11 batch-14 finding 1; admin-only per §4.3 — admin-only registries propagate automatically per the build-time invariant; AC-2.5 / Task 2.3 / Task 2.5 / X.3 PROTECTED_SINKS updates are owned by the M2 batch-14 subagent). (5) **Stage 101 rows → first call**: stage 101 in W1, Apply all. POST `/api/admin/onboarding/finalize` (no cursor). Assert: HTTP 200 `{ status: 'batch_complete', batch_size: 100, remaining_count: 1, next_batch_token: '<drive_file_id of 100th row alphabetically>' }`; 100 `shows` rows with `published = FALSE`; 100 `pending_syncs` GONE; 1 row remains; `app_settings.watched_folder_id` STILL the OLD folder; `pending_wizard_session_id` STILL `W1`. (6) **Second call**: POST `?after=<token>`. Assert: HTTP 200 `{ status: 'finalized' }`; 101st `shows` row exists; ALL 101 `shows.published = TRUE`; `pending_syncs` empty for W1; `app_settings.watched_folder_id = pending_folder_id` (CAS ran); `pending_wizard_session_id IS NULL`. (7) **Cursor mismatch**: POST `?after=<bogus>` not in W1 → HTTP 400 `WIZARD_FINALIZE_CURSOR_INVALID` (new §12.4 entry — Doug-facing "The wizard's batch tracking got confused. Refresh the dashboard and click 'Promote next 100' to continue."); no Phase B work. (8) **Concurrent finalize calls**: TWO parallel POSTs with SAME `?after=` → exactly one wins via `pg_try_advisory_xact_lock(hashtext('finalize:' || $sessionId))` at Phase B start; loser returns 409 `CONCURRENT_FINALIZE_IN_FLIGHT` (new §12.4 entry). (9) **Mid-batch Phase B abort**: stage 250, Apply all; batch 1 commits; batch 2 aborts on row 150 (`STAGED_PARSE_SOURCE_GONE`) → ROLLBACK; rows 1–100 STILL with `published = FALSE` (unchanged from batch 1); row 150's manifest demoted to `'staged'`; rows 101–149 NEVER INSERTed; HTTP 409. **Crew NEVER see rows 1–100 during the multi-batch interruption window** — the entire point of the published-flag protocol.
+  - **Storage temp-prefix isolation (M11 batch-12 finding 3)**: stage and Apply a sheet in W1. After step 5W, assert NO Storage objects exist under `_finalize-pending/<W1>/` (Phase A hasn't run yet). Click Finalize. Mock the Phase B Storage move to fail on the second sub-statement. Assert (a) Phase B aborts → ROLLBACK; (b) the rollback-time cleanup DELETE under `_finalize-pending/<W1>/` removes all temp blobs; (c) the canonical `shows/<show_id>/<rev>/` prefix is EMPTY (no half-uploaded assets at canonical paths — temp-prefix invariant). The `/api/asset/diagram/<show>/<rev>/<key>` route is NEVER consulted for `_finalize-pending/` paths — attempting to construct an asset URL whose `<rev>` maps to a temp path returns 410.
+  - **M6 batch-15 finding 1 (CRITICAL) — Re-run-setup preserves `published=TRUE` for already-live shows throughout finalize**: seed 50 LIVE shows (`published = TRUE`, `wizard_session_id = NULL` on every `pending_syncs` row that ever existed for them; folder F-old). From `/admin/settings`, click "Re-run Setup" (mints fresh wizard W2 against folder F-new which contains 50 brand-new sheets PLUS the same 50 drive_file_ids as F-old — i.e., F-new is a superset). Run the wizard scan, Apply all 100. Click Finalize batch 1 (which processes the alphabetically-first 100 — a mix of update-existing rows and first-seen rows). DURING finalize batch 1's per-row loop, in a parallel session, run `SELECT id, drive_file_id, published FROM shows WHERE drive_file_id IN (<the 50 already-live drive_file_ids>)` repeatedly. Assert: (a) every already-live row's `published` value is `TRUE` continuously throughout finalize — NEVER flips to FALSE; (b) every first-seen row appears in the same SELECT (via JOIN to `pending_syncs` post-commit) with `published = FALSE` until Phase D runs; (c) Phase D's bulk `UPDATE shows SET published = TRUE WHERE drive_file_id IN (<manifest-applied set>)` runs and is a no-op for the 50 already-live rows (but flips the 50 first-seen rows to TRUE); (d) crew can read all 50 already-live rows continuously throughout the multi-batch finalize window — instrument a crew-role SELECT loop and assert zero row-disappearance windows. **Negative regression** (the bug this finding catches): with the prior code that hard-coded `publishVisibility: false` for every wizard finalize per-row commit, asserting (a) FAILS — every live row's `published` flips to FALSE inside batch 1's per-row UPDATE branch and stays FALSE until Phase D, making it crew-invisible during the entire multi-batch finalize window. The fix verifies the `existing_show_id` Phase A capture + per-row `publishVisibility = existing_show_id === null ? false : existing_published!` decision in Phase B.
+  - **Phase B abort during Drive re-verify (M11 batch-12 finding 3)**: stage 3 rows in W1. Trash row 2's source sheet in Drive UI. Click Finalize. Phase A captures `reverify = 'gone'` for row 2. Phase B opens the transaction; the abort fires before the lock loop because `phaseAResults.find(r => r.reverify !== 'ok')` returns row 2. Assert (a) Phase B never acquires per-show locks for any of the 3 rows; (b) ROLLBACK runs; (c) the post-rollback follow-up demotes row 2's manifest to `'staged'`; (d) `_finalize-pending/<W1>/` is cleaned up; (e) the `STAGED_PARSE_SOURCE_GONE` recovery path from §6.8.1 step-3 fires for row 2; (f) HTTP 409 with `{ code: 'STAGED_PARSE_SOURCE_GONE', drive_file_id: row2.drive_file_id }`.
 - [ ] **Step 2: Implement** the finalize endpoint reading **`onboarding_scan_manifest` only** (final-validation finding). Task 10.4 introduced the manifest with terminal lifecycle states precisely because row absence in `pending_*` is insufficient — the default `try again next sync` Discard deletes the `pending_syncs` row with NO deferral row, and per §6.8.1 that's an explicitly-NOT-resolved state (`discard_retryable`). Earlier draft of this step regressed back to a UNION over `pending_syncs` + `pending_ingestions` row absence, which would let `discard_retryable` rows pass the gate. The corrected query reads the manifest exclusively:
   ```sql
   -- Resolved iff status ∈ { applied, defer_until_modified, permanent_ignore, skipped_non_sheet }.
-  -- Unresolved iff status ∈ { staged, hard_failed, discard_retryable }.
+  -- Unresolved iff status ∈ { staged, hard_failed, discard_retryable, live_row_conflict (M6 batch-10) }.
   SELECT drive_file_id, status
     FROM onboarding_scan_manifest
    WHERE wizard_session_id = $sessionId
-     AND status IN ('staged', 'hard_failed', 'discard_retryable');
+     AND status IN ('staged', 'hard_failed', 'discard_retryable', 'live_row_conflict');
   ```
-  If row count > 0 → return 409 `ONBOARDING_NOT_RESOLVED` with the list of unresolved `(drive_file_id, status)` pairs in the response body so the client can guide the user to the right action (Apply for `staged`, Retry/Defer/Ignore for `hard_failed`, Discard-with-defer-or-ignore for `discard_retryable`).
-  If count = 0 → run the §4.5 atomic promotion CAS, then call `subscribeToWatchedFolder(folderId)` (succeed even if subscribe fails — push falls back to cron-only with `WATCH_CHANNEL_ORPHANED` admin alert per Task 6.9 enum normalization).
+  If row count > 0 → return 409 `ONBOARDING_NOT_RESOLVED` with the list of unresolved `(drive_file_id, status)` pairs in the response body so the client can guide the user to the right action (Apply for `staged`, Retry/Defer/Ignore for `hard_failed`, Discard-with-defer-or-ignore for `discard_retryable`, **resolve live row from dashboard then re-run wizard for `live_row_conflict` — M6 batch-10**).
+  If count = 0 → **M11 batch-12 findings 2 + 3 + M11 batch-13 findings 1, 2, 3 + M11 batch-14 findings 1, 2, 3: four-phase finalize.** Phase A: pre-commit work without locks (Drive re-verify + Storage temp-prefix asset upload). Phase B: SEQUENCE of N **per-row** transactions (NOT one batch-wide transaction — M11 batch-14 finding 3); each per-row tx acquires the per-show advisory lock, runs the per-row Drive head CAS (M11 batch-13 finding 1), runs Phase 2 + sync_audit + DELETE + Storage move + manifest UPDATE, UPDATEs the `wizard_finalize_checkpoints` row's high-water `last_processed_drive_file_id` and increments `batches_completed`, then commits and releases the lock. Phase C: best-effort post-batch temp-prefix cleanup. **Phase D (NEW — M11 batch-14 finding 1):** SEPARATE final-CAS endpoint that reads the checkpoint, verifies `status = 'all_batches_complete'` AND `pending_syncs WHERE wizard_approved = TRUE` count is 0, then runs §4.5 atomic-promotion CAS + `published = TRUE` flip for ALL session-promoted rows + M2 batch-11 wizard-deferral clean-slate DELETE in ONE short transaction (NO Drive/Storage I/O — the move from inside the per-row loop to a separate endpoint is what makes this transaction <100ms instead of ~20s). The `published = TRUE` flip from inside the FINAL batch's Phase B (per the prior draft) is REMOVED — it now lives in Phase D, after ALL batches across ALL finalize calls have committed. Reviewer-choices version dispatch (M11 batch-13 finding 3) still applies (any unsupported version aborts Phase A with `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED`). The cursor protocol is server-owned (M11 batch-14 finding 1) — the endpoint accepts NO `?after=` query parameter; each batch's row set is derived authoritatively from `pending_syncs WHERE wizard_session_id = $sessionId AND wizard_approved = TRUE ORDER BY drive_file_id LIMIT 100`. Admin write-action guard (M11 batch-14 finding 2) propagates to all admin write routes via Task 6.7 step 2b's `FINALIZE_OWNED_SHOW` predicate.
+
+  ```ts
+  // M11 batch-13 finding 3: supported reviewer-choices versions in this build.
+  const SUPPORTED_REVIEWER_CHOICES_VERSIONS = new Set([1]);
+
+  // M11 batch-14 finding 1 (server-owned cursor): no `?after=` query parameter.
+  // Each batch's row set is derived authoritatively from the live `pending_syncs` partition;
+  // previously-promoted rows have already been DELETEd (§6.8.1 step-list 6L); raced rows have
+  // their `wizard_approved` reverted to FALSE in the per-row abort follow-up (M11 batch-14
+  // finding 1.x), so re-Approved rows naturally re-enter the next batch's SELECT regardless of
+  // where their `drive_file_id` sorts.
+  const PER_BATCH_CAP = 100;
+
+  // M11 batch-14 finding 1: ensure the checkpoint row exists for this session. If it's already
+  // 'final_cas_done', return idempotency response without doing any work. If it's
+  // 'all_batches_complete', the wizard UI should be calling /finalize-cas (Phase D), not
+  // /finalize — return the checkpoint state so the UI auto-fires the correct endpoint.
+  const checkpoint = await sql`
+    INSERT INTO wizard_finalize_checkpoints (wizard_session_id) VALUES (${sessionId})
+    ON CONFLICT (wizard_session_id) DO UPDATE SET wizard_session_id = EXCLUDED.wizard_session_id
+    RETURNING id, status, batches_completed, last_processed_drive_file_id, last_processed_at`;
+  if (checkpoint[0].status === 'final_cas_done') {
+    return jsonOk({ status: 'finalize_complete' });
+  }
+  if (checkpoint[0].status === 'all_batches_complete') {
+    return jsonOk({ status: 'all_batches_complete' });  // wizard UI fires /finalize-cas next
+  }
+
+  // Phase A: pre-commit, NO transaction, NO per-show locks.
+  // M11 batch-14 finding 1: SELECT is authoritative (no `?after` cursor); LIMIT bounds work per call.
+  const batchRows = await sql`
+    SELECT id, drive_file_id, parse_result, triggered_review_items, staged_modified_time,
+           wizard_approved_by_email, wizard_approved_at, wizard_reviewer_choices,
+           wizard_reviewer_choices_version
+      FROM pending_syncs
+     WHERE wizard_session_id = ${sessionId} AND wizard_approved = TRUE
+     ORDER BY drive_file_id
+     LIMIT ${PER_BATCH_CAP}`;  // deterministic alphabetical for Phase B deadlock prevention
+
+  // M11 batch-13 finding 3: refuse to replay any row whose version this build doesn't support.
+  // Phase A aborts BEFORE Drive re-verify or asset upload work; the offending row's manifest
+  // is demoted back to 'staged' in a separate follow-up transaction so the operator can re-Apply.
+  const versionMismatch = batchRows.find(r =>
+    r.wizard_reviewer_choices_version === null ||
+    !SUPPORTED_REVIEWER_CHOICES_VERSIONS.has(r.wizard_reviewer_choices_version)
+  );
+  if (versionMismatch) {
+    await sql`UPDATE onboarding_scan_manifest SET status = 'staged'
+               WHERE wizard_session_id = ${sessionId} AND drive_file_id = ${versionMismatch.drive_file_id}`;
+    return jsonError(409, 'WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED', {
+      drive_file_id: versionMismatch.drive_file_id,
+      stored_version: versionMismatch.wizard_reviewer_choices_version,
+      supported_versions: [...SUPPORTED_REVIEWER_CHOICES_VERSIONS],
+    });
+  }
+
+  // M11 batch-13 finding 1: capture per-row Phase-A binding so Phase B can re-fetch + CAS-check
+  // the live `headRevisionId` INSIDE the per-show advisory lock. Closes the Phase-A → Phase-B
+  // TOCTOU window where a Drive edit between Phase A.2 (re-verify) and Phase B's commit could
+  // let stale snapshot bytes promote.
+  const phaseAResults: Array<{
+    row,
+    reverify: 'ok' | 'gone' | 'oos' | 'superseded',
+    tempPaths: Map<assetKey, storagePath>,
+    binding: { headRevisionId: string, modifiedTime: string } | null,  // null when reverify !== 'ok'
+    // M6 batch-15 finding 1 (CRITICAL): per-row capture of whether this drive_file_id ALREADY
+    // corresponds to a live `shows` row at finalize-start. Re-run-setup wizards run against
+    // folders that may already contain LIVE shows (`published = TRUE`); blindly forcing
+    // `publishVisibility = false` for those would demote a live row to `published = false` for
+    // the entire multi-batch finalize window — minutes of crew downtime, indefinite if finalize
+    // stalls. We capture (existing_show_id, existing_published) here in Phase A (BEFORE Phase B)
+    // and use it to choose the correct `publishVisibility` per row at Phase B commit time:
+    //   existing_show_id IS NULL → first-seen wizard row → publishVisibility = false (interim invisibility)
+    //   existing_show_id IS NOT NULL → re-run-setup against an already-live show → publishVisibility =
+    //                                  existing_published (typically TRUE; the row stays crew-visible
+    //                                  throughout finalize because the wizard's content updates are
+    //                                  applied to the live row without changing its published flag).
+    existing_show_id: string | null,
+    existing_published: boolean | null,
+  }> = [];
+  for (const row of batchRows) {
+    // M6 batch-15 finding 1: lookup is BEFORE re-verify so we have the existing-show binding
+    // even for rows whose source has gone (it's a no-op on the abort-demotion path but the
+    // symmetry keeps Phase B's type narrowing simple).
+    const existing = await sql`SELECT id, published FROM shows
+                                  WHERE drive_file_id = ${row.drive_file_id} LIMIT 1`;
+    const existing_show_id = existing.length > 0 ? existing[0].id : null;
+    const existing_published = existing.length > 0 ? existing[0].published : null;
+
+    const reverify = await reverifyStagedSourceForOnboarding(row);  // §6.8.1 step 3 (parents pinned to pending_folder_id)
+    if (reverify.outcome !== 'ok') {
+      phaseAResults.push({ row, reverify: reverify.outcome, tempPaths: new Map(), binding: null,
+                          existing_show_id, existing_published });
+      continue;
+    }
+    const tempPaths = await snapshotAssetsToTempPrefix(row, sessionId);
+    // Uploads to: diagram-snapshots/_finalize-pending/<sessionId>/<row.drive_file_id>/<asset_key>
+    phaseAResults.push({
+      row,
+      reverify: 'ok',
+      tempPaths,
+      binding: { headRevisionId: reverify.headRevisionId, modifiedTime: reverify.modifiedTime },
+      existing_show_id,
+      existing_published,
+    });
+  }
+
+  // Phase B: SEQUENCE of N per-row transactions (M11 batch-14 finding 3 — REPLACES the prior
+  // single batch-wide transaction; the prior design held per-show advisory locks for ~20s
+  // across the 100-row Drive + Storage I/O loop, contending heavily with concurrent live cron
+  // passes against the same per-show key). Each per-row tx acquires the lock, does Drive
+  // re-verify CAS + Phase 2 + sync_audit + DELETE + Storage move + manifest UPDATE +
+  // checkpoint UPDATE, and commits. A per-row abort affects ONLY that row; sibling rows
+  // already committed remain committed. Interim-batch rows ALWAYS land at `published = false`;
+  // the published flip is moved to Phase D (the separate /finalize-cas endpoint).
+  const perRowOutcomes: Array<{ drive_file_id: string, status: 'committed' | 'aborted', code?: string }> = [];
+  for (const { row, tempPaths, binding, reverify, existing_show_id, existing_published } of phaseAResults) {
+    if (reverify !== 'ok') {
+      // M11 batch-14 finding 1.x: revert wizard_approved to FALSE so the row is excluded from
+      // subsequent batches' SELECTs until the operator re-Applies. Manifest stays 'staged'.
+      await sql`UPDATE onboarding_scan_manifest SET status = 'staged'
+                 WHERE wizard_session_id = ${sessionId} AND drive_file_id = ${row.drive_file_id}`;
+      await sql`UPDATE pending_syncs
+                   SET wizard_approved = FALSE, wizard_approved_at = NULL,
+                       wizard_approved_by_email = NULL, wizard_reviewer_choices = NULL,
+                       wizard_reviewer_choices_version = NULL
+                 WHERE wizard_session_id = ${sessionId} AND drive_file_id = ${row.drive_file_id}`;
+      await storage.deletePrefix(`_finalize-pending/${sessionId}/${row.drive_file_id}/`);
+      perRowOutcomes.push({ drive_file_id: row.drive_file_id, status: 'aborted',
+        code: reverify === 'gone' ? 'STAGED_PARSE_SOURCE_GONE'
+            : reverify === 'oos' ? 'STAGED_PARSE_SOURCE_OUT_OF_SCOPE'
+            : 'STAGED_PARSE_SUPERSEDED' });
+      continue;
+    }
+    try {
+      await withShowSyncTransaction(async (tx) => {
+        await tx`SELECT pg_advisory_xact_lock(hashtext('show:' || ${row.drive_file_id}))`;
+        // M11 batch-13 finding 1: MANDATORY pre-commit head re-verify INSIDE the lock.
+        // Without this, mid-flight Drive edits between Phase A.2 (re-verify) and now would let
+        // stale snapshot bytes promote. CAS-check live `headRevisionId` against the Phase-A binding.
+        const liveHead = await driveClient.files.get({
+          fileId: row.drive_file_id,
+          fields: 'headRevisionId,modifiedTime,trashed,parents',
+          supportsAllDrives: true,
+        });
+        if (liveHead.headRevisionId !== binding!.headRevisionId) {
+          throw new FinalizeRowAbort(row, 'STAGED_PARSE_REVISION_RACE_DURING_FINALIZE', {
+            phase_a: binding!.headRevisionId, phase_b: liveHead.headRevisionId,
+          });
+        }
+        if (liveHead.trashed) {
+          throw new FinalizeRowAbort(row, 'STAGED_PARSE_SOURCE_GONE', { reason: 'trashed' });
+        }
+        if (!liveHead.parents?.includes(pendingFolderId)) {
+          throw new FinalizeRowAbort(row, 'STAGED_PARSE_SOURCE_OUT_OF_SCOPE', { parents: liveHead.parents });
+        }
+        // §6.8.1 step-list 4L → 5L → 6L: insert/update shows, write sync_audit, DELETE pending_syncs.
+        // M6 batch-15 finding 1 (CRITICAL — REPLACES the prior unconditional `publishVisibility: false`):
+        // distinguish first-seen wizard rows from re-run-setup updates against ALREADY-LIVE shows.
+        //   - First-seen (existing_show_id IS NULL): row is INSERTed with `published = false`. The
+        //     row stays invisible to crew until Phase D's bulk flip. Identical to the prior contract.
+        //   - Re-run-setup (existing_show_id IS NOT NULL): the wizard's content updates are applied
+        //     to the already-live row WITHOUT changing its `published` value. We pass through
+        //     `existing_published` (typically TRUE for live shows) so the §6.8.1 step-list 4L UPDATE
+        //     branch preserves crew visibility throughout finalize. Phase D's bulk flip is a no-op
+        //     for these rows because they were already `published = true` (the WHERE-clause `IN
+        //     (... manifest applied ...)` set still includes them but UPDATE … SET published = TRUE
+        //     against an already-TRUE row is a no-op write).
+        // Without this split, a re-run-setup against a 50-show folder would demote all 50 LIVE
+        // rows to `published = false` for the entire multi-batch finalize window (potentially
+        // many minutes; indefinitely if finalize stalls), making them disappear for crew per the
+        // §4.3 RLS gate `AND shows.published = TRUE`. The fix is row-scoped — interim-finalize
+        // invisibility for first-seen rows is preserved.
+        const publishVisibility = existing_show_id === null ? false : existing_published!;
+        const newRevisionId = await runPhase2WithDurablePayload(tx, row, {
+          choices: row.wizard_reviewer_choices,
+          choicesVersion: row.wizard_reviewer_choices_version,
+          approvedByEmail: row.wizard_approved_by_email,
+          approvedAt: row.wizard_approved_at,
+          publishVisibility,
+        });
+        for (const [assetKey, srcPath] of tempPaths) {
+          const dstPath = `shows/${row.show_id}/${newRevisionId}/${assetKey}`;
+          await storage.move(srcPath, dstPath);  // per-row tx rolls back on failure
+        }
+        await tx`UPDATE onboarding_scan_manifest
+                    SET status = 'applied', transitioned_at = now()
+                  WHERE wizard_session_id = ${sessionId} AND drive_file_id = ${row.drive_file_id}`;
+        // M11 batch-14 finding 1: per-row checkpoint UPDATE — high-water observability ONLY.
+        // The next batch's SELECT does NOT consult `last_processed_drive_file_id`; this UPDATE
+        // is purely for the dashboard / progress-indicator readers + Phase D verification.
+        await tx`UPDATE wizard_finalize_checkpoints
+                    SET last_processed_drive_file_id = ${row.drive_file_id},
+                        last_processed_at = now(),
+                        batches_completed = batches_completed + 1
+                  WHERE wizard_session_id = ${sessionId}`;
+      });
+      perRowOutcomes.push({ drive_file_id: row.drive_file_id, status: 'committed' });
+    } catch (err) {
+      // Per-row rollback. Demote manifest, revert wizard_approved (M11 batch-14 finding 1.x),
+      // clean up THIS row's temp prefix. Sibling rows already committed are unaffected.
+      if (err instanceof FinalizeRowAbort) {
+        await sql`UPDATE onboarding_scan_manifest SET status = 'staged'
+                   WHERE wizard_session_id = ${sessionId} AND drive_file_id = ${row.drive_file_id}`;
+        await sql`UPDATE pending_syncs
+                     SET wizard_approved = FALSE, wizard_approved_at = NULL,
+                         wizard_approved_by_email = NULL, wizard_reviewer_choices = NULL,
+                         wizard_reviewer_choices_version = NULL
+                   WHERE wizard_session_id = ${sessionId} AND drive_file_id = ${row.drive_file_id}`;
+        await storage.deletePrefix(`_finalize-pending/${sessionId}/${row.drive_file_id}/`);
+        perRowOutcomes.push({ drive_file_id: row.drive_file_id, status: 'aborted', code: err.code });
+      } else {
+        throw err;  // unexpected error — caller-facing 500
+      }
+    }
+  }
+
+  // M11 batch-14 finding 1: after the batch completes, re-SELECT remaining count. If 0, flip the
+  // checkpoint to 'all_batches_complete' so the wizard UI knows to fire /finalize-cas next.
+  // The §4.5 atomic-promotion CAS + `published = TRUE` flip + clean-slate DELETE that the prior
+  // draft ran inside the FINAL batch's Phase B transaction are MOVED to Phase D's separate
+  // /finalize-cas endpoint (a separate request, separate short transaction, no Drive/Storage I/O).
+  //
+  // M6 batch-15 finding 2 (HIGH — adds the second predicate): the prior gate only checked
+  // `count(pending_syncs WHERE wizard_approved = TRUE) == 0`. That misses the per-row failure-
+  // demotion case: when a row's Phase B aborts, the per-row rollback follow-up reverts its
+  // `wizard_approved` to FALSE AND demotes its manifest back to 'staged'. With the prior single-
+  // predicate gate, that row would be EXCLUDED from this SELECT, the count would erroneously hit
+  // 0, and the checkpoint would flip to 'all_batches_complete' — leaving Phase D ready to fire
+  // while a real unresolved manifest row still exists. Phase D would then run the §4.5 CAS
+  // against an inconsistent session (the watched_folder_id flips while the operator still has
+  // an unresolved sheet to re-Apply). The corrected gate requires BOTH (a) zero approved
+  // pending_syncs AND (b) zero unresolved manifest rows. The unresolved-manifest predicate
+  // mirrors the §9.0 Step 2 resolution-completeness query. The Phase D endpoint enforces the
+  // SAME both-predicates gate (see Phase D pseudo-code below) and additionally fails closed with
+  // `WIZARD_FINALIZE_UNRESOLVED_ROWS` (NEW §12.4 code) if the unresolved-manifest predicate is
+  // non-zero — defense-in-depth against a session that somehow advanced its checkpoint to
+  // 'all_batches_complete' while still having unresolved manifest rows.
+  const remaining = await sql`SELECT count(*)::int AS n FROM pending_syncs
+                                WHERE wizard_session_id = ${sessionId} AND wizard_approved = TRUE`;
+  const unresolvedManifest = await sql`
+    SELECT count(*)::int AS n FROM onboarding_scan_manifest
+     WHERE wizard_session_id = ${sessionId}
+       AND status IN ('staged', 'hard_failed', 'discard_retryable', 'live_row_conflict')`;
+  if (remaining[0].n === 0 && unresolvedManifest[0].n === 0) {
+    await sql`UPDATE wizard_finalize_checkpoints SET status = 'all_batches_complete'
+               WHERE wizard_session_id = ${sessionId} AND status = 'in_progress'`;
+    return jsonOk({ status: 'all_batches_complete', per_row: perRowOutcomes });
+  }
+  return jsonOk({
+    status: 'batch_complete',
+    remaining_count: remaining[0].n,
+    unresolved_manifest_count: unresolvedManifest[0].n,
+    per_row: perRowOutcomes,
+  });
+
+  // -- Phase D: SEPARATE endpoint POST /api/admin/onboarding/finalize-cas. M11 batch-14 finding 1.
+  // Runs the §4.5 atomic-promotion CAS + `published = TRUE` flip + clean-slate DELETE in ONE
+  // short transaction with NO Drive/Storage I/O (the move from inside the per-row Phase B loop
+  // to a separate endpoint is what makes this transaction <100ms instead of ~20s). Implementation
+  // in `app/api/admin/onboarding/finalize-cas/route.ts` (separate route handler):
+  //
+  //   const cp = await sql`SELECT status FROM wizard_finalize_checkpoints WHERE wizard_session_id = ${sessionId}`;
+  //   if (cp.length === 0 || cp[0].status === 'in_progress') {
+  //     return jsonError(409, 'WIZARD_FINALIZE_CHECKPOINT_MISSING');
+  //   }
+  //   if (cp[0].status === 'final_cas_done') return jsonOk({ status: 'finalize_complete' });
+  //   const remaining = await sql`SELECT count(*)::int AS n FROM pending_syncs
+  //                                 WHERE wizard_session_id = ${sessionId} AND wizard_approved = TRUE`;
+  //   if (remaining[0].n !== 0) return jsonError(409, 'WIZARD_FINALIZE_CHECKPOINT_MISSING');
+  //   // M6 batch-15 finding 2 (HIGH — Phase D defense-in-depth): even if the checkpoint says
+  //   // 'all_batches_complete' AND no approved pending_syncs remain, refuse Phase D if any
+  //   // manifest row is still in an unresolved state. This catches the race where a /finalize
+  //   // batch flipped the checkpoint based on the OLD single-predicate gate (e.g., during a
+  //   // mid-rollout window) OR where an operator manually edited the checkpoint table.
+  //   const unresolvedManifest = await sql`SELECT count(*)::int AS n FROM onboarding_scan_manifest
+  //     WHERE wizard_session_id = ${sessionId}
+  //       AND status IN ('staged', 'hard_failed', 'discard_retryable', 'live_row_conflict')`;
+  //   if (unresolvedManifest[0].n !== 0) return jsonError(409, 'WIZARD_FINALIZE_UNRESOLVED_ROWS', {
+  //     wizard_session_id: sessionId, unresolved_count: unresolvedManifest[0].n });
+  //   const folderId = await withShowSyncTransaction(async (tx) => {
+  //     const lockOk = (await tx.queryOne<{ ok: boolean }>(
+  //       `SELECT pg_try_advisory_xact_lock(hashtext('finalize:' || $1)) AS ok`, [sessionId]
+  //     )).ok;
+  //     if (!lockOk) throw new ConcurrentFinalizeInFlight();
+  //     await tx`UPDATE shows SET published = TRUE
+  //               WHERE drive_file_id IN (SELECT drive_file_id FROM onboarding_scan_manifest
+  //                                        WHERE wizard_session_id = ${sessionId} AND status = 'applied')`;
+  //     await tx`DELETE FROM deferred_ingestions WHERE wizard_session_id = ${sessionId}`;
+  //     const cas = await tx`UPDATE app_settings
+  //                             SET watched_folder_id = pending_folder_id, pending_folder_id = NULL,
+  //                                 pending_wizard_session_id = NULL, pending_wizard_session_at = NULL
+  //                           WHERE id = 'default' AND pending_wizard_session_id = ${sessionId}
+  //                           RETURNING watched_folder_id`;
+  //     if (cas.length === 0) throw new WizardSessionSuperseded();
+  //     await tx`UPDATE wizard_finalize_checkpoints SET status = 'final_cas_done'
+  //               WHERE wizard_session_id = ${sessionId}`;
+  //     return cas[0].watched_folder_id;
+  //   });
+  //   // Phase D's subscribeToWatchedFolder runs OUTSIDE the transaction, after commit.
+  //   await subscribeToWatchedFolder(folderId);
+  //   try { await storage.deletePrefix(`_finalize-pending/${sessionId}/`); }
+  //   catch (e) { /* Task 7.8 GC backstop */ }
+  //   return jsonOk({ status: 'finalize_complete', watched_folder_id: folderId });
+  ```
+  **Manifest lifecycle invariant (M11 batch-12 finding 2):** the manifest's `'applied'` status is written ONLY in Phase B, in the same per-row sub-statement as the `shows` INSERT/UPDATE. There is NO transient pre-commit `'applied'` state and NO post-commit demotion path that fires inside the rolled-back transaction (which would be a no-op anyway). On Phase B abort, the offending manifest row is demoted back to `'staged'` in a SEPARATE follow-up transaction outside the rolled-back outer one — that follow-up commits independently and durably. The unresolved-gate query continues to treat `'applied'` as resolved AND `'staged'` as unresolved correctly.
+  **Storage temp-prefix invariant (M11 batch-12 finding 3):** all asset bytes uploaded during Phase A land at `diagram-snapshots/_finalize-pending/<wizard_session_id>/<drive_file_id>/<asset_key>` — a prefix that is OUTSIDE the canonical `shows/<show_id>/<snapshot_revision_id>/<asset_key>` keyspace. The `_finalize-pending/` prefix is reserved by Task 7.8 GC: a backstop sweep deletes any `_finalize-pending/*` blobs older than 24h that finalize cleanup missed (Phase B abort + Phase C failure), so orphan temp blobs cannot accumulate indefinitely. The `/api/asset/diagram/<show>/<rev>/<key>` route REJECTS any `<rev>` whose corresponding storage path includes `_finalize-pending/` — temp blobs are never publicly resolvable.
   **`pending_syncs` and `pending_ingestions` are NOT queried by finalize** — they're internal staging surfaces; the manifest is the authoritative resolution-state source.
-- [ ] **Step 3:** Add `ONBOARDING_NOT_RESOLVED` to the §12.4 message catalog (Doug-facing: "Some sheets in your folder still need review before we can finish setup. Resolve them and try again.").
-- [ ] **Step 4: Commit** `feat(admin): wizard finalize — full-resolution gate + atomic promotion (§4.5, §9.0)`.
+
+  **M2 batch-11 regression tests (mandatory):**
+  - **Wizard-deferral clean slate**: seed a live `deferred_ingestions` row for `drive_file_id = 'live-X'` with `wizard_session_id = NULL` AND a wizard-scoped row for `drive_file_id = 'wiz-Y'` with `wizard_session_id = $W1`. Run finalize for W1. Assert (a) the wizard-scoped row is GONE post-finalize (`SELECT count(*) FROM deferred_ingestions WHERE wizard_session_id = $W1` is 0); (b) the live row SURVIVES (`SELECT count(*) FROM deferred_ingestions WHERE drive_file_id = 'live-X' AND wizard_session_id IS NULL` is still 1) — clean slate is partition-scoped.
+  - **Cross-partition isolation (the original M2 batch-11 finding)**: seed a live `defer_until_modified` deferral for `drive_file_id = 'shared-X'` (cron's existing suppression) AND construct a wizard candidate folder that ALSO lists `shared-X`. Run `runOnboardingScan` for the wizard. Assert (a) the wizard scan can still see `shared-X` (it does NOT consult `deferred_ingestions` at all per spec §5.2 step 3 "NOT manual or onboarding scan"); (b) a live cron pass for the active folder STILL skips `shared-X` (the live row in `deferred_ingestions_live_drive_file_idx` continues to suppress it). Without partitioning, a wizard-side write would either suppress the live cron OR a live deferral would invisibly disable the wizard scan from surfacing the file — either direction breaks the partition isolation guarantee.
+- [ ] **Step 3:** Add `ONBOARDING_NOT_RESOLVED` to the §12.4 message catalog (Doug-facing: "Some sheets in your folder still need review before we can finish setup. Resolve them and try again."). **M11 batch-12 finding 3: also add `ONBOARDING_BATCH_TOO_LARGE`** (Doug-facing: "We can only promote up to 100 sheets per click. Click 'Promote next 100' to continue with the remaining sheets.") AND `finalize_temp_prefix_cleanup_failed` to the sync_log kind enum (operator-internal log signal; no Doug-facing copy). **M9+M10 batch-14 finding 1**: also add `WIZARD_FINALIZE_BATCHES_PENDING` to the §12.4 catalog as admin-log-only. **M11 batch-14 findings 1, 2 amendments to Step 3**: this Task's client-supplied `?after=<lastDriveFileId>` cursor protocol is RETIRED in favor of the server-owned `wizard_finalize_checkpoints` protocol. Concretely: (a) the `/finalize` endpoint signature becomes `POST /api/admin/onboarding/finalize` (NO `?after=` query parameter); (b) a NEW `POST /api/admin/onboarding/finalize-cas` endpoint is implemented as Phase D (separate route handler; see the Phase D pseudo-code in Step 2 above); (c) the prior `WIZARD_FINALIZE_CURSOR_INVALID` error code is RETIRED (no client cursor → no cursor mismatch); (d) the prior `next_batch_token` field in the response shape is REMOVED; (e) two NEW §12.4 codes are added — `FINALIZE_OWNED_SHOW` (admin write-action guard per M11 batch-14 finding 2; gates `runManualSyncForShow` + `/admin/show/[slug]/archive` + per-show staged-review Apply/Discard against `published=false` rows whose owning wizard's checkpoint is not yet `final_cas_done`) AND `WIZARD_FINALIZE_CHECKPOINT_MISSING` (Phase D was called against a session whose checkpoint is `'in_progress'` or absent; Doug-facing: "Setup isn't ready to publish yet. Click 'Promote next batch' until all sheets are processed, then publish."). Both new codes have full §12.4 catalog rows + matching `lib/messages/catalog.ts` entries + matching YAML appendix entries (X.1 three-way parity test). Phase D's batch-rolled `subscribeToWatchedFolder` call runs OUTSIDE the Phase D transaction (after commit), preserving the prior Phase C semantics that watch-channel registration is non-transactional.
+- [ ] **Step 4: Commit** `feat(admin): wizard finalize — Phase A/B/C/D + per-row Phase B txn + server-owned checkpoint + FINALIZE_OWNED_SHOW guard (§4.5, §9.0, M11 batch-12 / batch-13 / batch-14)`.
 
 ### Task 10.6: Dashboard panels + admin_alerts banner (§9.1, §9.1.1, §4.6)
 
@@ -4950,12 +7230,40 @@ The fix has two parts:
 
 **admin_alerts banner is a required dashboard surface (final-validation finding).** Spec §4.6 makes unresolved `admin_alerts` rows a persistent top-bar banner. Earlier milestones already produce alerts (`AMBIGUOUS_EMAIL_BINDING`, `WEBHOOK_TOKEN_INVALID`, `WATCH_CHANNEL_ORPHANED`, `LEAKED_LINK_DETECTED`, `REPORT_ORPHANED_LOST_LEASE`, etc.). Earlier draft of this task only planned Active/Pending panels; without the banner, those alerts have no UI binding and the only durable surface for those faults is silently dropped.
 
+**Pending-panel action workflows are required (M9+M10 batch-9 retry-2 finding).** Spec §9.1 panel 2 requires every row in the "Sheets we couldn't auto-apply" panel to expose concrete actions: `pending_ingestions` rows → "Open in Drive" + "Retry now"; first-seen `pending_syncs` rows → "Review and Apply" + "Discard". Earlier draft of this task verified listing + banner only; without action workflows, brand-new sheets that hard-failed parse have NO admin-side recovery path on the dashboard — the operator sees the row but cannot act. The fix wires four concrete action endpoints + UI buttons + tests below. (Wizard-step-3 routes are separate per Task 10.4 because the wizard scopes by `wizard_session_id`; dashboard routes scope by `wizard_session_id IS NULL` per the round-50 live-row isolation.)
+
 - [ ] **Step 1: Failing tests**
   - Active shows panel lists `shows` rows with status.
-  - Sheets-we-couldn't-auto-apply panel combines `pending_ingestions` + first-seen `pending_syncs` (excluding ones tagged with the active `wizard_session_id` — those belong to the wizard, not the dashboard).
+  - Sheets-we-couldn't-auto-apply panel combines `pending_ingestions` + first-seen `pending_syncs` — both filtered to LIVE rows only (`WHERE wizard_session_id IS NULL`), per the round-50 live-row isolation. Onboarding-staged rows tagged with a `wizard_session_id` belong to the wizard's step-3 surface, NOT the dashboard.
   - Existing-show stages appear in Active panel as "⚠ Review staged changes" (§9.1.1).
-  - **AdminAlertsBanner: per-show alert** (final-validation finding). Synthesize an `admin_alerts` row with code `AMBIGUOUS_EMAIL_BINDING` for a specific show. Assert (a) banner renders at the top of the dashboard with the §12.4 doug-facing copy via `messageFor()`, (b) banner has `position: sticky; top: 0; z-index: 100;` and red tint, (c) clicking through routes to `/admin/show/<slug>` with the alert highlighted, (d) marking resolved (`UPDATE admin_alerts SET resolved_at = now(), resolved_by = $admin WHERE id = $alertId`) removes the banner on next render.
-  - **AdminAlertsBanner: global alert**. Synthesize a row with `show_id = NULL` (a system-wide alert like a config error). Banner renders without a click-through to a specific show; resolution flow is a "Mark resolved" button on the banner itself.
+  - **PendingPanel: pending_ingestions row actions (M9+M10 batch-9 retry-2)**:
+    - Render `drive_file_name`, first-seen timestamp, attempt_count, `last_error_code` + `last_error_message` (rendered via `messageFor(code, params).dougFacing` where applicable; never raw code text — see Task X.2 substring detection).
+    - "Open in Drive" anchor links to `https://drive.google.com/open?id=<drive_file_id>` with `target="_blank" rel="noopener"`. Test asserts the href is the exact Drive URL constructed from `drive_file_id`; assert `target="_blank"` for correct UX (operator stays on dashboard while inspecting the sheet in Drive).
+    - "Retry now" button → POST `/api/admin/pending-ingestions/[id]/retry` (NEW route, defined in step 2). Tests:
+      - **First-seen retry MUST NEVER bypass the mandatory review gate (M6 batch-10 finding).** Earlier draft routed every `pending_ingestions` retry through the full `runManualSyncForShow(...)` helper, which can return `{ status: 'applied', slug }` for a clean parse — bypassing the spec §5.2 / §9.1.1 first-seen-mandatory-review rule that says brand-new sheets always need Doug's review before crew see content. The dashboard retry route MUST split into TWO paths discriminated by whether a `shows` row already exists for `drive_file_id`:
+        - **First-seen path** (`NOT EXISTS(SELECT 1 FROM shows WHERE drive_file_id = $driveFileId)`): the route MUST run a stage-only helper `runManualStageForFirstSeen(driveFileId)` (NEW — Phase-1-only; symmetric with the wizard's `retrySingleFile` helper from Task 10.4 except scoped to a live `pending_ingestions` row, i.e. `wizard_session_id IS NULL`). The helper runs gate → `parseSheet` → `enrichWithDrivePins` → Phase 1 ONLY. It is forbidden from calling Phase 2 OR inserting a `shows` row OR returning an `applied` outcome. On Phase 1 outcome 1 (hard_fail) → re-UPSERT `pending_ingestions` with incremented `attempt_count` and updated `last_error_code`. On Phase 1 outcome 2 (stage) → INSERT `pending_syncs` (with `wizard_session_id = NULL`, live partition) + DELETE the originating `pending_ingestions` row IN THE SAME TX → return `{ status: 'parsed_pending_review', stagedId }`. On Phase 1 outcome 3 (auto-apply-eligible — every MI invariant including MI-6..MI-14 passes) → FORCE-DOWNGRADE to outcome 2 by appending a synthetic `FIRST_SEEN_REVIEW` review item to `triggered_review_items` (matches Task 6.6 §5.2 routing precedence: first-seen ALWAYS routes to STAGE, never auto-apply). The helper's outcome enum has NO `applied` variant.
+        - **Existing-show path** (`EXISTS(SELECT 1 FROM shows WHERE drive_file_id = $driveFileId)` — possible when an existing show somehow re-acquired a `pending_ingestions` row, e.g. after a sheet_unavailable→DRIVE_FETCH_FAILED→re-share path): full `runManualSyncForShow_unlocked(driveFileId, mode='manual')` (the unlocked inner variant introduced for fix-3 below) is allowed because the show is already public; auto-apply is fine and the existing operator-review surface is `/admin/show/<slug>` not the panel-2 first-seen review.
+      - Success path test (first-seen, parse passes all invariants): synthesize a first-seen `pending_ingestions` row whose underlying sheet now parses cleanly with EVERY invariant passing. POST retry. Assert: response is `{ status: 'parsed_pending_review', stagedId }` (NOT `{ status: 'applied', slug }`); a `pending_syncs` row exists with `wizard_session_id IS NULL` AND `triggered_review_items` contains `FIRST_SEEN_REVIEW`; the originating `pending_ingestions` row is GONE; **NO `shows` row was minted; NO public `/show/<slug>` URL is reachable yet**. Doug must explicitly Apply from the panel-2 first-seen surface to mint the show row.
+      - Success path test (first-seen, MI hard-fail): the parse still trips MI-1..MI-5b. POST retry. Assert: the same `pending_ingestions` row's `attempt_count` increments and `last_error_code` updates; `pending_syncs` is empty; NO `shows` row.
+      - Success path test (existing-show retry, auto-apply eligible): a `shows` row already exists. POST retry. Assert: full `runManualSyncForShow_unlocked` runs end-to-end; on auto-apply the show updates and `last_seen_modified_time` advances; on stage the `pending_syncs` row appears with `wizard_session_id IS NULL`.
+      - Validation failure: missing or non-existent `id` → 404 `PENDING_INGESTION_NOT_FOUND`. Calling against a wizard-session row (`wizard_session_id IS NOT NULL`) → 409 `LIVE_ROW_REQUIRED` (the dashboard route only operates on live rows; wizard rows go through Task 10.4's wizard endpoint).
+      - **Concurrent retry → 409 without blocking (M6 batch-10 fix-3)**: spawn TWO parallel POST `/retry` calls for the same id. Assert exactly one returns 200 with the sync result; the other returns 409 `CONCURRENT_SYNC_SKIPPED` within ~100ms WITHOUT blocking on the first call's lock. The route uses `pg_try_advisory_xact_lock(hashtext('show:' || drive_file_id))` (NOT the blocking `pg_advisory_xact_lock`) — if try-lock returns `false` the route emits 409 immediately. The inner helper (`runManualStageForFirstSeen` OR `runManualSyncForShow_unlocked`) MUST NOT acquire its own advisory lock — the route owns the single lock acquisition for the entire call. Earlier draft ran the route's blocking `pg_advisory_xact_lock` AND then called the locked outer `runManualSyncForShow` (which itself acquires `pg_try_advisory_xact_lock`), producing a self-conflict where the second call would BLOCK on the route's outer lock instead of returning 409. Fix-3 below extracts the lock-free body of `runManualSyncForShow` into the `_unlocked` variant so the route is the sole lock owner.
+      - **Race regressions — row-state read sequencing (M11 batch-11 finding 2; FOUR scenarios — both endpoints x both action pairs)**:
+        1. **Retry-then-discard race (the canonical scenario)**: synthesize a first-seen `pending_ingestions` row whose underlying sheet now parses cleanly. Run two parallel calls: POST `/retry` (call A) and POST `/discard` with `kind='permanent_ignore'` (call B). Use a test-only barrier (e.g., a `pg_advisory_lock` acquired by an external probe just before A's per-show lock) to force A to win the lock first, complete its restage (DELETE the original row + INSERT a fresh `pending_syncs`), then release. Assert: A returns 200 `parsed_pending_review` (or `applied`); B returns 409 `PENDING_INGESTION_TRANSITIONED` (the row is gone after the lock acquires; B's post-lock re-SELECT FOR UPDATE returns 0 rows). NO `deferred_ingestions` row was written by B (its work was correctly aborted before the INSERT).
+        2. **Discard-then-retry race**: same setup. Call A is `/discard kind='defer_until_modified'`; call B is `/retry`. Force A to win first. A inserts `deferred_ingestions` and DELETEs the row. B's lock acquires, post-lock re-SELECT returns 0 rows → 409 `PENDING_INGESTION_TRANSITIONED`. NO restage happened (no `pending_syncs` row exists with this `drive_file_id`).
+        3. **Retry-then-retry race**: TWO parallel `/retry` calls. Force A to win the lock first; A restages and DELETEs. B's lock acquires; post-lock re-SELECT FOR UPDATE returns 0 rows → 409 `PENDING_INGESTION_TRANSITIONED`. The first 409 path (`CONCURRENT_SYNC_SKIPPED` on `try_lock = false`) ALSO covers this scenario when the lock contention is the path that happens first; the test pins both outcomes by gating with the external probe so the second call definitively reaches its post-lock re-SELECT after A committed. (Both outcomes — `CONCURRENT_SYNC_SKIPPED` from try-lock failure AND `PENDING_INGESTION_TRANSITIONED` from post-lock re-SELECT — are valid race signals; the test asserts the response is ONE OF the two codes, never 200, never 500.)
+        4. **Discard-then-discard race**: TWO parallel `/discard` calls (e.g., both `kind='permanent_ignore'`). Same gate. A inserts `deferred_ingestions` and DELETEs. B's lock acquires; post-lock re-SELECT returns 0 rows → 409 `PENDING_INGESTION_TRANSITIONED`. EXACTLY ONE `deferred_ingestions` row exists for this `drive_file_id` (B did NOT write a duplicate).
+        Common assertion across all four: NO state-mutating effect happens after the loser detects transition. Specifically: (a) no extra `deferred_ingestions` row beyond what the winner wrote; (b) no extra `pending_syncs` row beyond what the winner wrote; (c) no extra `sync_audit` row from the loser; (d) no error log entry coded `LOCK_OWNERSHIP_ASSERTION_FAILED` (that code is reserved for the impossible bootstrap-vs-relock drive_file_id mismatch, NOT the normal transition race).
+      - **Bootstrap-vs-post-lock drive_file_id consistency (defensive — M11 batch-11 finding 2)**: synthesize a row, capture its id and drive_file_id. The route's bootstrap read returns `drive_file_id_X`. If by some impossible mechanism the row's `drive_file_id` could change between bootstrap and post-lock re-SELECT (e.g., a buggy migration that alters PKs in flight), the route MUST detect via the post-lock guard `(c) drive_file_id mismatch → 500 LOCK_OWNERSHIP_ASSERTION_FAILED`. Test stub: monkey-patch the bootstrap read to return a fixed value differing from the current row's drive_file_id; assert the route returns 500 with that code. (This test is a defensive sanity check; in normal operation the path is unreachable because `pending_ingestions.drive_file_id` is immutable.)
+    - "Discard — permanently ignore" button (the `pending_ingestions` analog of `pending_syncs`'s permanent-ignore Discard) → POST `/api/admin/pending-ingestions/[id]/discard` (NEW route, defined in step 2). Tests: success path INSERTs a `deferred_ingestions` row with `kind = 'permanent_ignore'` AND DELETEs the `pending_ingestions` row. Validation/wizard-row guards as above.
+  - **PendingPanel: first-seen pending_syncs row actions (M9+M10 batch-9 retry-2)**:
+    - Render candidate `title`/`dates` from `parse_result.show`, the `staged_id`, and the triggered invariants list (each invariant code via `messageFor`).
+    - "Review and Apply" link routes to `/admin/show/staged/[stagedId]?firstSeen=true` — the same parse-panel review UI Task 10.7 builds, scoped to first-seen mode (the URL is distinct from `/admin/show/<slug>` because no slug exists yet for first-seen rows). Assert: clicking opens the review surface; on Apply the `pending_syncs` row is DELETEd, a fresh `shows` row is INSERTed with the slug derived from `parse_result` (per §6.9), and the operator is redirected to `/admin/show/<derived-slug>`.
+    - "Discard" button → POST `/api/admin/staged/[fileId]/discard` (existing Task 6.12 route) with the rendered `staged_id` for CAS. Test: success path DELETEs the `pending_syncs` row; no `shows` row is ever created. Test the three §6.8.1 first-seen Discard variants — `try again next sync`, `defer_until_modified`, `permanent_ignore` — each exercising the corresponding `deferred_ingestions` write.
+  - **AdminAlertsBanner: per-show alert** (final-validation finding; M9+M10 batch-12 finding 3 — no inline resolve). Synthesize an `admin_alerts` row with code `AMBIGUOUS_EMAIL_BINDING` for a specific show. Assert (a) banner renders at the top of the dashboard with the §12.4 doug-facing copy via `messageFor()`, (b) banner has `position: sticky; top: 0; z-index: 100;` and red tint, (c) **the per-show banner row does NOT render an inline "Mark resolved" button** — only global rows do (M9+M10 batch-12 finding 3 — per-show alerts must be resolved from the show context via the per-show alert section in Task 10.7), (d) clicking through routes to `/admin/show/<slug>?alert_id=<id>` (highlight + resolution wired in Task 10.7 — see split note below), (e) marking resolved through the per-show route in Task 10.7 removes the banner on next render. **Listing + banner-row click-through ONLY in this task.** The per-show alert section (highlight-on-arrival + resolve mutation) is owned by Task 10.7 to keep that task the single owner of `/admin/show/<slug>` surfaces.
+  - **AdminAlertsBanner: global alert** (M9+M10 batch-12 finding 3 — strictly global resolve). Synthesize a row with `show_id = NULL` (a system-wide alert like a config error). Banner renders without a click-through to a specific show; resolution flow is a "Mark resolved" button on the banner itself that POSTs to `/api/admin/admin-alerts/[id]/resolve` (NEW route, defined in step 2). Per-show banners do NOT carry this button — clicking through to `/admin/show/<slug>?alert_id=<id>` triggers the per-show resolve flow Task 10.7 owns.
+  - **AdminAlertsBanner client never sends per-show alerts to the global route (M9+M10 batch-12 finding 3)**. Negative test: synthesize a per-show alert. Render the banner. Inspect the banner-row component's "Mark resolved" affordance. Assert: it is NOT a `<button onClick={postGlobalResolve}>` element — it is a `<Link href={'/admin/show/<slug>?alert_id=<id>'}>` clickthrough. Conversely, synthesize a global alert; assert the banner row IS a `<button>` that POSTs to the global route. The banner code never has a code path that sends a per-show alert id to `/api/admin/admin-alerts/[id]/resolve`. (Defense-in-depth complement to the route's server-side 400 `ALERT_REQUIRES_SHOW_SCOPED_RESOLVE` rejection.)
+  - **Per-show alert sent to global route is rejected (M9+M10 batch-12 finding 3 — negative server test)**. Synthesize a per-show alert on Show A. Bypass the banner-renderer client logic and POST directly to `/api/admin/admin-alerts/<alert-id>/resolve`. Assert: response is 400 `ALERT_REQUIRES_SHOW_SCOPED_RESOLVE`; the response body's `redirect_to` field points at `/api/admin/show/<show-A-slug>/alerts/<alert-id>/resolve`; the alert row's `resolved_at` remains NULL. POST against `redirect_to`; assert 200 success and `resolved_at` is now non-null.
   - **Multi-alert ordering**: synthesize 3 unresolved alerts with different `raised_at`. Banner renders the most recent first per §4.6 (`ORDER BY raised_at DESC`).
 - [ ] **Step 2: Implement Dashboard with AdminAlertsBanner mounted at the top.** Banner reads `SELECT * FROM admin_alerts WHERE resolved_at IS NULL ORDER BY raised_at DESC` and renders all of them stacked (or just the topmost with a "+N more" disclosure if count > 3). **Each row uses `messageFor(alert.code, params)` with the params object derived from `alert.show_id` AND `alert.context` JSONB (round-47 amendment)** — earlier draft only used `messageFor(alert.code)` without params. Codes like `TILE_SERVER_RENDER_FAILED` carry `<sheet-name>` placeholders in their §12.4 doug-facing copy; rendering without params would surface raw placeholder text. Concretely:
   ```ts
@@ -4973,15 +7281,54 @@ The fix has two parts:
   <BannerRow message={messageFor(alert.code, deriveBannerParams(alert)).dougFacing} />
   ```
   Required test for placeholder-bearing codes: synthesize a `TILE_SERVER_RENDER_FAILED` alert tied to a specific show. Assert the rendered banner text contains the show's actual `title`, NOT the literal `<sheet-name>` placeholder, NOT the literal code.
-- [ ] **Step 3: Commit** `feat(admin): dashboard panels + admin_alerts banner (§9.1, §9.1.1, §4.6)`.
 
-### Task 10.7: Per-show parse panel (§9.2)
+  **Pending-panel action endpoints (M9+M10 batch-9 retry-2 finding).** Implement THREE new server actions / route handlers on top of the existing M6 staged routes. Each runs inside `requireAdmin()` + the per-show advisory lock + scopes by `wizard_session_id IS NULL` to enforce live-row isolation:
+  - `app/api/admin/pending-ingestions/[id]/retry/route.ts` — POST handler. Accepts `{ id: string }` (the `pending_ingestions.id` UUID, round-50 surrogate PK). **Lock contract (M6 batch-10 fix-3): the route is the SOLE owner of the per-show advisory lock for this call.** **Row-state read sequencing (M11 batch-11 finding 2): every state-bearing read on `pending_ingestions` MUST happen INSIDE the advisory lock.** Earlier draft selected the row BEFORE acquiring the lock, opening a retry-then-discard race: between the route's pre-lock SELECT and lock acquisition, the row could transition (a sibling Discard could DELETE it; a sibling Retry could DELETE-and-restage it as `pending_syncs`); the route would then proceed under the lock with stale state and write effects against an already-transitioned row. The corrected ordering is: (1) `requireAdmin()`. (2) **Lock-key bootstrap read (no state decisions)** — `SELECT drive_file_id FROM pending_ingestions WHERE id = $1` to derive the lock key only. If row missing here → 404 `PENDING_INGESTION_NOT_FOUND` (early-exit; the row will not appear later). NO state checks against `wizard_session_id`, `last_seen_modified_time`, `attempt_count`, or any other field happen at this read — those are gathered post-lock in step 4. (3) Open a transaction via `withShowSyncTransaction(...)` and acquire `SELECT pg_try_advisory_xact_lock(hashtext('show:' || $driveFileId))` — **non-blocking** so a contending second click returns immediately (NOT the blocking `pg_advisory_xact_lock` the earlier draft used; see Step-1 idempotency test). If try-lock returns `false` → ROLLBACK and return 409 `CONCURRENT_SYNC_SKIPPED` within ~100ms. (4) **INSIDE the lock — re-SELECT the row authoritative state with `FOR UPDATE`**: `SELECT id, drive_file_id, wizard_session_id, last_seen_modified_time FROM pending_ingestions WHERE id = $1 FOR UPDATE`. **(a)** If the re-SELECT returns 0 rows → ROLLBACK and return 409 `PENDING_INGESTION_TRANSITIONED` (M11 batch-11 finding 2 — new code; see §12.4): the row was deleted between the bootstrap read and lock acquisition (a sibling Retry restaged it OR a sibling Discard wrote a deferral and removed it). The error response carries `{ id, transitioned_to_state: 'unknown' }` so the client can re-fetch the panel and present the latest state. **(b)** If the re-SELECT row's `drive_file_id` differs from the bootstrap value (theoretically impossible but defended) → ROLLBACK and return 500 `LOCK_OWNERSHIP_ASSERTION_FAILED` (M11 batch-11 finding 2 — defensive code; see §12.4 + helpfulContext). **(c)** If `wizard_session_id IS NOT NULL` → ROLLBACK and return 409 `LIVE_ROW_REQUIRED` (this endpoint operates on live rows ONLY; wizard rows have a separate Task 10.4 endpoint). (5) **Branch on `EXISTS(SELECT 1 FROM shows WHERE drive_file_id = $driveFileId)` (fix-1)**: if no `shows` row → call `runManualStageForFirstSeen(tx, driveFileId)` (NEW; Phase-1-only; cannot mint `shows`; on outcome 3 forces synthetic `FIRST_SEEN_REVIEW` per the bullet above). The helper accepts the existing `tx` and MUST NOT acquire its own lock OR open a fresh transaction. If a `shows` row exists → call `runManualSyncForShow_unlocked(tx, driveFileId, mode='manual')` — the lock-free inner variant introduced in this fix (see Task 6.7 amendment). The unlocked variant accepts the existing `tx` and MUST NOT call any `pg_*advisory*_lock` itself; it runs gate → parseSheet → enrichWithDrivePins → Phase 1 → Phase 2 on the passed-in connection. (6) On COMMIT, return the resulting state to the client (`{ status: 'parsed_pending_review', stagedId }` for first-seen success, `{ status: 'applied', slug }` for existing-show auto-apply, `{ status: 'parsed', stagedId }` for existing-show stage, or `{ status: 'still_failed', errorCode }`). Test the success/validation-failure/concurrent-409/transitioned-409 paths.
+  - `app/api/admin/pending-ingestions/[id]/discard/route.ts` — POST handler. Accepts `{ id: string, kind: 'permanent_ignore' | 'defer_until_modified' }`. **Row-state read sequencing (M11 batch-11 finding 2): identical lock-first ordering as the retry route**, so a retry-then-discard race cannot let this handler write `deferred_ingestions` against an already-restaged row. Steps: (1) `requireAdmin()`. (2) **Lock-key bootstrap read (no state decisions)** — `SELECT drive_file_id FROM pending_ingestions WHERE id = $1` to derive the lock key only. If row missing → 404 `PENDING_INGESTION_NOT_FOUND`. NO state checks at this read. (3) Open a transaction via `withShowSyncTransaction(...)` and acquire the per-show advisory lock — `SELECT pg_try_advisory_xact_lock(hashtext('show:' || $driveFileId))`. **Non-blocking** (matches retry route's contract): on `false` → ROLLBACK and return 409 `CONCURRENT_SYNC_SKIPPED` within ~100ms. (4) **INSIDE the lock — re-SELECT the row authoritative state with `FOR UPDATE`**: `SELECT id, drive_file_id, wizard_session_id, last_seen_modified_time FROM pending_ingestions WHERE id = $1 FOR UPDATE`. **(a)** 0 rows → ROLLBACK and return 409 `PENDING_INGESTION_TRANSITIONED` (M11 batch-11 finding 2 — new code) — the row was deleted between the bootstrap read and lock acquisition (a sibling Retry restaged it OR a sibling Discard already wrote a deferral). **(b)** `wizard_session_id IS NOT NULL` → ROLLBACK and return 409 `LIVE_ROW_REQUIRED`. **(c)** `last_seen_modified_time IS NULL` AND `kind = 'defer_until_modified'` → ROLLBACK and return 500 `MISSING_PENDING_INGESTION_MODTIME` (deferral cannot be safely created without a watermark; the Phase 1 hard-fail / `handleDriveFetchFailure` / `runManualStageForFirstSeen` UPSERT sites are required to populate this column — a NULL is a corruption signal). For `kind = 'permanent_ignore'` the column is irrelevant and not checked. (5) INSERT `deferred_ingestions` (`drive_file_id`, **`wizard_session_id = NULL`** (M2 batch-11 — this dashboard route writes ONLY live deferrals targeting `deferred_ingestions_live_drive_file_idx`; wizard step-3 Discard goes through the separate Task 10.4 endpoint that sets `wizard_session_id = $myWizardSessionId` and targets `deferred_ingestions_session_drive_file_idx`), `kind`, `deferred_at_modified_time = pending_ingestions.last_seen_modified_time` for `defer_until_modified`; NULL for `permanent_ignore`). (6) DELETE the `pending_ingestions` row by `id`. (7) Return 200. Test: `permanent_ignore` writes `kind = 'permanent_ignore'` AND `deferred_at_modified_time IS NULL` AND **`wizard_session_id IS NULL`** AND DELETEs the source row; `defer_until_modified` writes `kind = 'defer_until_modified'` AND `deferred_at_modified_time = pending_ingestions.last_seen_modified_time` (assert non-null) AND **`wizard_session_id IS NULL`** AND DELETEs the source row.
+  - `app/api/admin/admin-alerts/[id]/resolve/route.ts` — **Global-only route (M11 batch-11 finding 3; M9+M10 batch-12 finding 3 — scope hardening)**. POST handler. Admin-gated. Resolves **strictly global alerts** (rows where `show_id IS NULL`). Used by the AdminAlertsBanner's "Mark resolved" button on global alerts. **The earlier draft phrased this as "resolves any alert by id, regardless of show_id" — that undercut §4.6's per-show resolution model where a per-show alert persists until the operator clicks through to `/admin/show/<slug>?alert_id=<id>` and resolves it from the show context.** A per-show alert silently dismissed via the global route would lose its show-scoped audit trail (the per-show resolve flow records the implicit show context) and would let stale dashboard tabs accidentally close per-show alerts the operator has not actually triaged. Steps: (1) `requireAdmin()`. (2) `SELECT id, show_id, resolved_at FROM admin_alerts WHERE id = $1`. If row missing → 404 `ADMIN_ALERT_NOT_FOUND`. **(3) NEW (M9+M10 batch-12 finding 3): if the row's `show_id IS NOT NULL` → return 400 `ALERT_REQUIRES_SHOW_SCOPED_RESOLVE` (new code in §12.4) with response body `{ id, show_id, redirect_to: '/api/admin/show/<resolved-slug>/alerts/<id>/resolve' }` so the client knows to retry against the show-scoped route. The handler resolves the slug via `SELECT slug FROM shows WHERE id = $showId` (or omits `redirect_to` if the show was deleted, in which case the response carries `show_id` only and the client surfaces a manual cleanup hint via the §9.0.1 explainer).** (4) If `resolved_at IS NOT NULL` → return 200 with the row as-is (idempotent on already-resolved); do NOT update timestamps. (5) Otherwise `UPDATE admin_alerts SET resolved_at = now(), resolved_by = $admin WHERE id = $1 AND resolved_at IS NULL AND show_id IS NULL` (the `show_id IS NULL` predicate enforces the global-only contract at the SQL layer as a belt-and-suspenders against application-layer bugs that bypass step 3) and return 200 with the updated row. Tests: first-call success on a `show_id IS NULL` row writes timestamps; second call against an already-resolved global row returns 200 with the SAME `resolved_at` (idempotent — does NOT write a new timestamp); 404 only on a truly missing id. **NEW negative test (M9+M10 batch-12 finding 3)**: synthesize a per-show alert on Show A (`show_id = <show-A-id>`). POST `/api/admin/admin-alerts/<alert-id>/resolve`. Assert: response is 400 `ALERT_REQUIRES_SHOW_SCOPED_RESOLVE`; the response body contains `redirect_to` pointing at `/api/admin/show/<show-A-slug>/alerts/<alert-id>/resolve`; the alert row is UNCHANGED (`resolved_at` still NULL). Then POST against the redirect URL → assert 200 success and `resolved_at` is now set. **NEW belt-and-suspenders test**: bypass step 3 by patching the application layer to skip the per-show check and go straight to the UPDATE; assert the SQL `AND show_id IS NULL` predicate matches 0 rows so the per-show alert is STILL not resolved (defensive — guards a future application-layer bug that re-introduces the original hole). **Cross-show forgery is also NOT a concern here** — this route now refuses ALL per-show alerts, so cross-show is by definition impossible to reach via this surface; the show-scoped variant in Task 10.7 owns cross-show forgery rejection for legitimate per-show resolves.
 
-**Files:** Create: `app/admin/show/[slug]/page.tsx`, `components/admin/ParsePanel.tsx`, `components/admin/StagedReviewCard.tsx`. Test: e2e.
+  **Pending-panel SELECT scope (round-50 + M9+M10 batch-9 retry-2)**: the panel's data-loader runs:
+  ```sql
+  -- Live (NULL-session) hard-fails
+  SELECT id, drive_file_id, drive_file_name, last_error_code, last_error_message,
+         attempt_count, first_seen_at, last_attempt_at
+    FROM pending_ingestions
+   WHERE wizard_session_id IS NULL
+   ORDER BY first_seen_at ASC;
+  -- Live first-seen stages (where no shows row exists)
+  SELECT ps.drive_file_id, ps.staged_id, ps.parse_result->'show' AS show_meta,
+         ps.triggered_review_items, ps.staged_modified_time, ps.parsed_at
+    FROM pending_syncs ps
+    LEFT JOIN shows s ON s.drive_file_id = ps.drive_file_id
+   WHERE ps.wizard_session_id IS NULL
+     AND s.id IS NULL                                  -- first-seen only; existing-show stages live in ActiveShowsPanel
+   ORDER BY ps.parsed_at ASC;
+  ```
+  Both queries' `WHERE wizard_session_id IS NULL` is the round-50 live-row scope; without it, onboarding rows would leak into the dashboard during a Re-run Setup.
+
+- [ ] **Step 3: Commit** `feat(admin): dashboard panels + admin_alerts banner + pending-panel action endpoints (§9.1, §9.1.1, §4.6)`.
+
+### Task 10.7: Per-show parse panel + per-show alerts (§9.2, §4.6)
+
+**Files:** Create: `app/admin/show/[slug]/page.tsx`, `components/admin/ParsePanel.tsx`, `components/admin/StagedReviewCard.tsx`, `components/admin/PerShowAlertSection.tsx`. Test: e2e.
+
+**Per-show alert clickthrough + resolve is owned by this task (M9+M10 batch-9 retry-2 finding).** Task 10.6 routes per-show banners to `/admin/show/<slug>?alert_id=<id>` but the highlight-on-arrival behavior + the resolve mutation have no task owner. This task owns both — keeping `/admin/show/<slug>` as the single owner of all surfaces under that URL prefix. The alert section is rendered above the four §9.2 parse-panel sub-sections so a clicked-through banner takes the operator straight to a highlighted, resolvable surface.
 
 - [ ] **Step 1: Failing tests** — four sub-sections per §9.2; staged-review card appears at top when `pending_syncs` exists; Apply/Discard buttons wire to M6 endpoints. Reviewer-choices payload uses the §6.8.2 client-submission shape.
+  - **Per-show alert section: data load + render (M9+M10 batch-9 retry-2)**: synthesize an unresolved `admin_alerts` row with `show_id = <thisShow.id>` and code `AMBIGUOUS_EMAIL_BINDING`. Navigate to `/admin/show/<slug>` (no `?alert_id` param). Assert: `<PerShowAlertSection>` renders ABOVE the four §9.2 sub-sections, listing every unresolved alert for this show with `messageFor(code, params).dougFacing` headline + an `<ErrorExplainer>` link (Task 10.9) + a "Mark resolved" button. Multiple unresolved alerts render stacked, ordered by `raised_at DESC` (mirroring the dashboard banner).
+  - **Per-show alert section: highlight-on-arrival (M9+M10 batch-9 retry-2)**: navigate to `/admin/show/<slug>?alert_id=<id>` for an unresolved alert. Assert: (a) the matching alert row is rendered with a visual emphasis ring (Tailwind class such as `ring-2 ring-amber-500 ring-offset-2`) and a different background tint than other alerts in the list; (b) on first paint the page scrolls the matching row into view (`element.scrollIntoView({ behavior: 'smooth', block: 'center' })`); (c) the URL `?alert_id` param can match at most one row — if no match (already-resolved or different-show alert id), render the section as if no `?alert_id` was provided AND emit a `sync_log` entry coded `admin_alert_clickthrough_stale` with `payload = { alert_id, show_id }` so ops can spot a misrouted click; (d) the highlight does NOT auto-resolve the alert — the operator must click the "Mark resolved" button.
+  - **Per-show alert section: resolve mutation (M9+M10 batch-9 retry-2; M11 batch-11 finding 3 — separate show-scoped route)**: click "Mark resolved" on a highlighted row. Assert: POST `/api/admin/show/[slug]/alerts/[id]/resolve` (NEW show-scoped route created by this task — distinct from Task 10.6's global-by-id route). Server action runs `UPDATE admin_alerts SET resolved_at = now(), resolved_by = $admin WHERE id = $1 AND show_id = (SELECT id FROM shows WHERE slug = $2) AND resolved_at IS NULL`. The `show_id` predicate is the per-show scope guard — a path-bound resolve on `/admin/show/<otherSlug>` cannot resolve an alert belonging to a different show even if the operator forges the `id` param. Assert: (a) row updates with `resolved_at` and `resolved_by` populated; (b) banner clears for that show on next render; (c) if the alert was already resolved (UPDATE matches 0 rows because of the `resolved_at IS NULL` filter) → return 200 idempotent on the already-resolved row, NOT 404; (d) if the alert belongs to a different show OR doesn't exist → return 404 `ADMIN_ALERT_NOT_FOUND`; (e) idempotency — second click after success returns 200 with the SAME `resolved_at` timestamp (does NOT write a new one).
+  - **Cross-show forgery hardening (M11 batch-11 finding 3 — split route ownership; M9+M10 batch-12 finding 3; M9+M10 batch-13 finding 3 stale-assertion sweep)**: synthesize alert A on show A. (a) Call POST `/api/admin/show/<show-B-slug>/alerts/<alert-A-id>/resolve` (cross-show forgery via show-scoped route). Assert: 404 `ADMIN_ALERT_NOT_FOUND` (the show-scoped route's `show_id = (SELECT id FROM shows WHERE slug = $slug)` predicate doesn't match alert A's row). Alert A remains unresolved. (b) Call POST `/api/admin/admin-alerts/<alert-A-id>/resolve` (per-show alert posted to the global route). Assert: 400 `ALERT_REQUIRES_SHOW_SCOPED_RESOLVE` with response body carrying `redirect_to: '/api/admin/show/<show-A-slug>/alerts/<alert-A-id>/resolve'` (M9+M10 batch-12 finding 3 — the global route refuses ALL per-show alerts; the earlier prose asserting "200 — the global route resolves any alert by id" is RETIRED because that contract was specifically rewritten in batch-12 finding 3 to close the per-show silent-dismiss hole). Alert A remains unresolved. (c) POST against the `redirect_to` URL — assert 200 success and `resolved_at` is now non-null (this is the legitimate show-scoped resolve flow). (d) Call POST `/api/admin/show/<show-A-slug>/alerts/<alert-C-id>/resolve` with a cross-show id (synthesize a SECOND alert C on show C, then call show-A-scoped resolve with `<alert-C-id>`). Assert: 404 `ADMIN_ALERT_NOT_FOUND` (the show-scoped route's `show_id = (SELECT id FROM shows WHERE slug = $slug)` predicate doesn't match alert C's row).
+  - **Cross-show clickthrough hardening regression**: synthesize alert A on show A and navigate to `/admin/show/<show-B-slug>?alert_id=<alert-A-id>`. Assert: per-show alert section does NOT render alert A under show B (the SELECT scopes by `show_id = $thisShow.id`); the highlight code path falls through to "no match" and emits `admin_alert_clickthrough_stale`; show B's own unresolved alerts (if any) render normally with no highlight.
 - [ ] **Step 2: Implement.** Reviewer choices use server-derived per-item options (FIRST_SEEN_REVIEW → `apply` only; MI-12 → `rename` | `reject`; MI-13 → `rename` | `independent`; etc.). The diff view per section shows prior vs incoming with deletions in red and changes in yellow.
-- [ ] **Step 3: Commit** `feat(admin): per-show parse panel + staged review (§9.2)`.
+
+  **Per-show alert section implementation (M9+M10 batch-9 retry-2; M11 batch-11 finding 3 — separate show-scoped route).** Render `<PerShowAlertSection showId={show.id} highlightAlertId={searchParams.alert_id} />` ABOVE the four §9.2 sub-sections. Component data load: `SELECT id, code, context, raised_at, last_seen_at, occurrence_count FROM admin_alerts WHERE show_id = $showId AND resolved_at IS NULL ORDER BY raised_at DESC`. Render each row with the §12.4 doug-facing copy (via `messageFor(code, deriveBannerParams(alert)).dougFacing`), the §9.0.1 `<ErrorExplainer>` (Task 10.9), and a "Mark resolved" button that POSTs to the **show-scoped route** `/api/admin/show/[slug]/alerts/[id]/resolve`. The matching row receives a `data-testid="alert-row-highlighted"` AND a visual emphasis ring; non-matching rows receive `data-testid="alert-row"` only. On mount, the client component runs `document.querySelector('[data-testid="alert-row-highlighted"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })`.
+
+  **Show-scoped resolve route — `app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts` (NEW; M11 batch-11 finding 3).** POST handler. Admin-gated. The route owns cross-show forgery rejection — Task 10.6's global-by-id route is the unscoped variant for global alerts; this route enforces the per-show match. Steps: (1) `requireAdmin()`. (2) Resolve `slug → show_id`: `SELECT id FROM shows WHERE slug = $slug`. If no row → 404 `ADMIN_ALERT_NOT_FOUND` (the slug doesn't exist). (3) `SELECT id, show_id, resolved_at FROM admin_alerts WHERE id = $alertId`. If row missing → 404. If `show_id` does NOT match the resolved show id → 404 (cross-show forgery rejection — DON'T leak the alert's existence). (4) If `resolved_at IS NOT NULL` → return 200 idempotent (alert already resolved; don't write a new timestamp). (5) Otherwise `UPDATE admin_alerts SET resolved_at = now(), resolved_by = $admin WHERE id = $alertId AND show_id = $resolvedShowId AND resolved_at IS NULL` and return 200 with the updated row. The `AND show_id = $resolvedShowId` predicate is the second line of defense (the SELECT in step 3 is the first); together they make cross-show resolution impossible regardless of param forgery.
+
+  **Why two routes (M11 batch-11 finding 3).** The earlier draft tried to use a single `/api/admin/admin-alerts/[id]/resolve` route for both global and per-show alerts, with Task 10.7 "adding" a `show_id` predicate via a server-action prop. That couples the route's behavior to the caller's claim about which surface invoked it — which is exactly the forgery hole the per-show predicate is supposed to close. The corrected design exposes TWO distinct routes with non-overlapping contracts: the global route resolves by id with no scope check (used only by the AdminAlertsBanner for `show_id IS NULL` rows); the show-scoped route enforces the slug-id match server-side and is the only path used by `<PerShowAlertSection>`. Server logic is statically tied to the route, not to caller-supplied scope.
+
+- [ ] **Step 3: Commit** `feat(admin): per-show parse panel + staged review + per-show alerts section (§9.2, §4.6)`.
 
 ### Task 10.8: Impersonation / preview-as (§9.3)
 
@@ -5020,8 +7367,17 @@ The explainer is implemented as a small inline link rendered next to every catal
 - [ ] **Step 1: Failing tests**
   - **Section-header help icons**: every section header in `/admin/dashboard`, `/admin/show/[slug]`, `/admin/settings`, and the wizard steps has a `?` icon adjacent to it; clicking opens a tooltip with the section's plain-language description.
   - **"Take the tour" link**: dashboard footer renders a "Take the tour" link; clicking starts a guided walkthrough of dashboard → per-show parse panel → preview-as.
-  - **Error explainer link rendered for every catalog-bound error (M9+M10 batch-8)**: at every error-message render site in admin UI — `AdminAlertsBanner` (Task 10.6), parse-panel warnings (Task 10.7), action-failure toasts (Task 6.11/6.12 Apply/Discard, Task 10.4 retry/defer/ignore endpoints) — assert a "What does this mean?" link is rendered next to the message text. Click opens a popover showing the catalog's `dougFacing` headline + the new `helpfulContext` longer copy.
+  - **Error explainer link rendered for every catalog-bound error (M9+M10 batch-8 + batch-9 retry-2 expansion)**: at every error-message render site in admin UI, assert a "What does this mean?" link is rendered next to the message text. Earlier draft enumerated only `AdminAlertsBanner` + parse-panel warnings + Apply/Discard toasts. The corrected enumeration covers ALL admin error surfaces:
+    - **Dashboard surfaces**: `AdminAlertsBanner` (Task 10.6) — banner rows AND global-alert "Mark resolved" failure toasts (M11 batch-11 finding 3: `ADMIN_ALERT_NOT_FOUND`); `PendingPanel` row error rendering — `pending_ingestions.last_error_code` with `<ErrorExplainer>` next to the message (Task 10.6 retry-2 amendment); Pending-panel action-failure toasts on `/api/admin/pending-ingestions/[id]/retry|discard` failures including the M11 batch-11 finding-2/4 codes (`PENDING_INGESTION_NOT_FOUND`, `LIVE_ROW_REQUIRED`, `MISSING_PENDING_INGESTION_MODTIME`, `PENDING_INGESTION_TRANSITIONED`).
+    - **Per-show parse panel**: parse-panel warnings (Task 10.7), per-show alert section rows (Task 10.7 retry-2 amendment) including `AMBIGUOUS_EMAIL_BINDING` etc., Apply/Discard action-failure toasts (Task 6.11/6.12), per-show "Mark resolved" failure toasts (M11 batch-11 finding 3: `ADMIN_ALERT_NOT_FOUND`).
+    - **Wizard step 2 (verify-folder) failures (M9+M10 batch-9 retry-2)**: every error message rendered by `<Step2Verify>` MUST carry an `<ErrorExplainer>` next to it — `ONBOARDING_FOLDER_INVALID_URL`, `ONBOARDING_FOLDER_NOT_SHARED`, `ONBOARDING_OPERATOR_ERROR`, `WIZARD_SESSION_SUPERSEDED`, `LIVE_ROW_CONFLICT` (round-50), `WIZARD_ISOLATION_INDEXES_MISSING` (M6 batch-10 fix-4). **NOT** `WIZARD_SESSION_SUPERSEDED_DURING_SCAN` — that code is admin-log-only per §12.4 conventions and never reaches Doug's UI; the new wizard's UI implicitly reflects the supersession via the rotated session id. The wizard inline-error component reads the §12.4 catalog via `messageFor(code).dougFacing` AND wires `<ErrorExplainer code=... />` so Doug can read the longer plain-language explanation without leaving the wizard.
+    - **Auth — OAuth callback (M11 batch-11 finding 4)**: `/auth/sign-in` callback failure surface renders `OAUTH_STATE_INVALID` and `OAUTH_REDIRECT_INVALID` with `<ErrorExplainer>` next to the message.
+    - **Wizard step 3 action-failure toasts (M9+M10 batch-9 retry-2)**: Task 10.4's three `pending_ingestions` endpoints (Retry / Defer / Ignore) and the staged Apply/Discard flows return error codes that surface as toasts; each toast renders the message via `messageFor` AND attaches `<ErrorExplainer>`.
+    - **Wizard finalize failures (M9+M10 batch-9 retry-2)**: `ONBOARDING_NOT_RESOLVED`, `WIZARD_SESSION_SUPERSEDED` rendered by Task 10.5's finalize button — toast carries `<ErrorExplainer>`.
+    - **Settings page failures (M9+M10 batch-9 retry-2)**: Re-run Setup action-failure messages render with `<ErrorExplainer>`.
+    - **Report-flow surfaces (M9+M10 batch-9 retry-2)**: the admin report modal (§13) and the per-page Report buttons that surface `REPORT_RATE_LIMITED_ADMIN`, `IDEMPOTENCY_IN_FLIGHT`, `REPORT_HORIZON_EXPIRED`, `REPORT_LOOKUP_INCONCLUSIVE`, `REPORT_LEASE_THRASHING` — each error-rendering toast/inline message in `components/report/**` MUST attach `<ErrorExplainer>`. The crew Report flow surfaces only crew-facing copy and no explainer (per spec §9.0.1 the explainer is admin-side only).
   - **Per-code catalog-explainer coverage assertion (M9+M10 batch-8)**: enumerate every code in `lib/messages/catalog.ts` that has `dougFacing` non-null. For each code, assert the catalog entry also has `helpfulContext` non-null AND non-empty. (Codes whose `dougFacing` is `—` / null don't need an explainer because they never reach Doug's UI — they're admin-log only.) Test fails if any new code is added without `helpfulContext`.
+  - **Catalog-explainer renderer-coverage assertion (M9+M10 batch-9 retry-2 finding)**: enumerate every spec §12.4 code whose `dougFacing` is non-null AND assert it has at least one renderer site in source that uses `<ErrorExplainer code="<code>"` (or pulls the code from a runtime variable bound to that code). Use the X.1 `CODE_SCENARIOS` registry as the spec input: for each entry whose §12.4 row has `dougFacing` non-null, run the scenario and assert the rendered tree contains at least one `<ErrorExplainer>` instance whose `code` prop matches. Failure mode this catches: a new admin-facing code added to §12.4 that falls into a render site (wizard, settings, report modal, dashboard) which forgot to attach the explainer. Scope: admin-facing codes only — codes whose §12.4 audience is crew-only (`crewFacing` non-null, `dougFacing` null, e.g., `LINK_EXPIRED`, `SESSION_IDLE_TIMEOUT`) are exempt because the explainer per §9.0.1 is admin-only. Required to fail if any of the following codes lacks renderer coverage: `ONBOARDING_FOLDER_INVALID_URL`, `ONBOARDING_FOLDER_NOT_SHARED`, `ONBOARDING_OPERATOR_ERROR`, `ONBOARDING_NOT_RESOLVED`, `WIZARD_SESSION_SUPERSEDED`, `LIVE_ROW_CONFLICT`, `WIZARD_ISOLATION_INDEXES_MISSING`, `REPORT_RATE_LIMITED_ADMIN`, `IDEMPOTENCY_IN_FLIGHT`, `REPORT_HORIZON_EXPIRED`, `REPORT_LOOKUP_INCONCLUSIVE`, `REPORT_LEASE_THRASHING`, `STALE_DISCARD_REJECTED`, `STAGED_PARSE_OUTDATED`, `STAGED_PARSE_SOURCE_GONE`, `STAGED_PARSE_SOURCE_OUT_OF_SCOPE`, `STAGED_PARSE_RESTAGED_INLINE`, `STAGED_PARSE_SUPERSEDED`, **M11 batch-11 finding 4: `PENDING_INGESTION_NOT_FOUND`, `LIVE_ROW_REQUIRED`, `MISSING_PENDING_INGESTION_MODTIME`, `PENDING_INGESTION_TRANSITIONED`, `ADMIN_ALERT_NOT_FOUND`, `OAUTH_STATE_INVALID`, `OAUTH_REDIRECT_INVALID`** — surface inventory: `PENDING_INGESTION_NOT_FOUND` / `LIVE_ROW_REQUIRED` / `MISSING_PENDING_INGESTION_MODTIME` / `PENDING_INGESTION_TRANSITIONED` render in PendingPanel action-failure toasts (Task 10.6); `ADMIN_ALERT_NOT_FOUND` renders in AdminAlertsBanner global-resolve failure toasts (Task 10.6) AND PerShowAlertSection resolve-failure toasts (Task 10.7); `OAUTH_STATE_INVALID` / `OAUTH_REDIRECT_INVALID` render in `/auth/sign-in` callback failure surface. **M9+M10 batch-12 finding 3: `ALERT_REQUIRES_SHOW_SCOPED_RESOLVE`** — surface inventory: renders in AdminAlertsBanner global-resolve failure toasts (Task 10.6) when the route returns 400 because a per-show alert was incorrectly POSTed to the global route. The toast surfaces the `redirect_to` URL from the response body as a clickable link so the operator can hop directly to `/admin/show/<slug>?alert_id=<id>` (where the per-show resolve flow lives). **Codes explicitly EXEMPT (admin-log-only — `dougFacing` is null per §12.4 conventions section)**: `WIZARD_SESSION_SUPERSEDED_DURING_SCAN`, `CONCURRENT_SYNC_SKIPPED`, `LOCK_OWNERSHIP_ASSERTION_FAILED`, `STAGED_PARSE_REVISION_RACE`, `STALE_WRITE_ABORTED`, `STALE_PUSH_ABORTED`, `WEBHOOK_NOOP_ALREADY_SYNCED`, `LINK_CROSS_SHOW_REUSE`, `UNEXPECTED_PARENT`, `DIAGRAMS_TAB_MISSING`, `TYPO_NORMALIZED` — these fire only into structured logs / `sync_log`, never to Doug's UI, and are exempt from explainer wiring. The exempt-set is auto-derived from `SPEC_CODES` (any row whose `dougFacing` is null is exempt) per the X.1 contract — manual maintenance of the exempt list above is for documentation only. The full list is auto-derived from `SPEC_CODES` per the X.1 contract.
   - **Explainer renders catalog content, NOT raw code text**: synthesize an admin alert (`AMBIGUOUS_EMAIL_BINDING`) and click its "What does this mean?" link. Assert the popover content contains the §12.4 `dougFacing` copy AND the `helpfulContext` text; assert it does NOT contain the literal string `AMBIGUOUS_EMAIL_BINDING` (the code stays internal). Cross-references X.2 substring detection.
 - [ ] **Step 2: Implement** `?` icons next to every section header in admin; "Take the tour" link in dashboard footer.
 - [ ] **Step 3: Implement `<ErrorExplainer>`** as a small inline link/icon (`<button>` element with text "What does this mean?", styled as a link). Props: `{ code: MessageCode; params?: Record<string, string> }`. On click, opens a popover/modal containing:
@@ -5029,15 +7385,65 @@ The explainer is implemented as a small inline link rendered next to every catal
   2. Body: `lookupHelpfulContext(code)` — a longer one-paragraph plain-language explanation pulled from the new `helpfulContext` catalog field (added in Step 4 below).
   3. Optional follow-up: if the catalog row's `followUp` column is non-empty, render it as a hint line ("Doug → fix sheet", etc.) translated to user-facing copy.
 
-  Wire `<ErrorExplainer code=... params=... />` into every error-message render site in admin UI:
-  - `AdminAlertsBanner` (Task 10.6): render explainer next to every banner row.
-  - Parse-panel warnings (Task 10.7): render explainer next to every triggered-MI item, every warning, every error toast on Apply/Discard/Retry/Defer/Ignore action failure.
-  - Action-failure toasts (Tasks 6.11/6.12, 10.4): render explainer inside the toast next to the message text.
+  Wire `<ErrorExplainer code=... params=... />` into every error-message render site in admin UI (M9+M10 batch-9 retry-2 expansion — earlier draft missed the wizard, settings, and report-flow surfaces):
+  - **Dashboard surfaces**:
+    - `AdminAlertsBanner` (Task 10.6): explainer next to every banner row.
+    - `PendingPanel` (Task 10.6 retry-2 amendment + M11 batch-11 finding 4): explainer next to each `pending_ingestions.last_error_code` rendering AND next to action-failure toasts on `/api/admin/pending-ingestions/[id]/retry|discard` failures, including the M11 batch-11 codes `PENDING_INGESTION_NOT_FOUND`, `LIVE_ROW_REQUIRED`, `MISSING_PENDING_INGESTION_MODTIME`, and `PENDING_INGESTION_TRANSITIONED`.
+    - `AdminAlertsBanner` (Task 10.6 + M11 batch-11 finding 3): explainer next to every banner row AND next to global-alert "Mark resolved" failure toasts including `ADMIN_ALERT_NOT_FOUND`.
+  - **Per-show parse panel (Task 10.7 + retry-2 amendment + M11 batch-11 finding 3)**: explainer next to every triggered-MI item, every parse warning, every per-show alert section row, every Apply/Discard action-failure toast, AND next to per-show "Mark resolved" failure toasts including `ADMIN_ALERT_NOT_FOUND`.
+  - **Wizard surfaces (M9+M10 batch-9 retry-2)**:
+    - `<Step2Verify>` (Task 10.3): explainer next to every inline error rendering — `ONBOARDING_FOLDER_INVALID_URL`, `ONBOARDING_FOLDER_NOT_SHARED`, `ONBOARDING_OPERATOR_ERROR`, `WIZARD_SESSION_SUPERSEDED`, `LIVE_ROW_CONFLICT` (round-50), `WIZARD_ISOLATION_INDEXES_MISSING` (M6 batch-10 fix-4). **NOT** `WIZARD_SESSION_SUPERSEDED_DURING_SCAN` — that code is admin-log-only per §12.4 conventions and never reaches Doug's UI; the new wizard's UI implicitly reflects the supersession via the rotated session id.
+    - `<Step3Review>` (Task 10.4): explainer next to action-failure toasts on Retry / Defer / Ignore / Apply / Discard endpoints.
+    - Wizard finalize button (Task 10.5): explainer next to `ONBOARDING_NOT_RESOLVED` and `WIZARD_SESSION_SUPERSEDED` toasts.
+  - **Auth — OAuth callback surface (M11 batch-11 finding 4)**: `/auth/sign-in` callback failure surface — explainer next to inline rendering of `OAUTH_STATE_INVALID` and `OAUTH_REDIRECT_INVALID` (these codes are crew-facing AND admin-facing; per §9.0.1 the explainer is admin-side only, BUT both codes have non-null `dougFacing` because they can also fire when an admin completes the OAuth round-trip).
+  - **Settings surface**: `/admin/settings` Re-run Setup action-failure toasts carry the explainer.
+  - **Report-flow surfaces (M9+M10 batch-9 retry-2)**: admin Report modal AND per-page admin Report buttons (§13) carry `<ErrorExplainer>` next to error toasts/inline messages — `REPORT_RATE_LIMITED_ADMIN`, `IDEMPOTENCY_IN_FLIGHT`, `REPORT_HORIZON_EXPIRED`, `REPORT_LOOKUP_INCONCLUSIVE`, `REPORT_LEASE_THRASHING`. Crew Report flow surfaces only crew-facing copy and does NOT carry the explainer (per spec §9.0.1 the explainer is admin-side only).
+  - **Generic action-failure toasts (Tasks 6.11/6.12, 10.4)**: explainer inside the toast next to the message text.
 - [ ] **Step 4: Extend catalog** — modify `lib/messages/catalog.ts` (Task 9.4) to add a `helpfulContext: string | null` field to every entry. Populate `helpfulContext` for every code whose `dougFacing` is non-null. The `helpfulContext` copy is one paragraph of plain-language explanation written for a non-technical reader (Doug). Examples:
   - `AMBIGUOUS_EMAIL_BINDING` → `helpfulContext`: "When two people on the crew list share the same email address, we can't safely tell who's logging in. The duplicate-email check should normally catch this in the parse step. If you're seeing this code, the safest fix is to look at the most recent edits to your crew block — usually one of the two emails is a typo or a paste mistake. Once you correct the duplicate in your sheet, this alert will clear automatically on the next sync."
   - `DRIVE_FETCH_FAILED` → `helpfulContext`: "Google Drive temporarily blocked or refused our request to read this sheet. The most common cause is a transient network or permissions hiccup; we keep retrying automatically. If this stays for more than an hour, double-check that the folder is still shared with the service account email and that the sheet hasn't been moved out of the watched folder."
   - … one row per dougFacing-non-null code. **Spec §12.4 catalog amendment is required** — the new `helpfulContext` column is added to the spec's §12.4 table by the Fix 4 spec amendment so the source of truth and the implementation stay in lockstep.
 - [ ] **Step 5:** Commit `feat(admin): help + tour + error explainer with catalog helpfulContext (§9.0.1, §12.4)`.
+
+### Task 10.10: First-seen staged review surface (§9.1 panel 2, §9.2 sub-section 0; M9+M10 batch-12 finding 2)
+
+**Files:** Create: `app/admin/show/staged/[stagedId]/page.tsx`, `app/api/admin/show/staged/[stagedId]/apply/route.ts`, `app/api/admin/show/staged/[stagedId]/discard/route.ts`. Test: e2e + unit.
+
+**Why this task exists (M9+M10 batch-12 finding 2).** Task 10.6's PendingPanel renders first-seen `pending_syncs` rows with a "Review and Apply" link routed to `/admin/show/staged/[stagedId]?firstSeen=true`. Earlier draft of M10 had no task creating that route — clicking the link would 404 and dead-end every first-seen review flow. Spec §9.1 panel 2 + §9.2 sub-section 0 require a real review surface for first-seen candidates. The route is distinct from `/admin/show/<slug>` because **no slug exists yet** for the candidate (the slug is minted only on Apply, derived from `parse_result` per §6.9). Lookup is keyed on `pending_syncs.staged_id`.
+
+**Why a separate route, not a query param on `/admin/show/<slug>`.** The slug is the lookup key for `/admin/show/[slug]/page.tsx`'s `SELECT * FROM shows WHERE slug = $1`. First-seen candidates have NO `shows` row, so there is no slug to put in the URL. A slug-less route at `/admin/show/staged/[stagedId]` keys off the `pending_syncs.staged_id` directly and avoids contorting the `[slug]` route to handle the no-row-yet case.
+
+**Apply contract (M9+M10 batch-12 finding 2 — split route).** The Apply path is its OWN route handler (`POST /api/admin/show/staged/[stagedId]/apply`), distinct from the existing `/api/admin/staged/[fileId]/apply` route (Task 6.11) which is keyed on `drive_file_id`. The new route is keyed on `staged_id` (a stronger CAS — same `staged_id` is per-version, whereas `drive_file_id` is per-file and survives across re-stages), and runs the §5.2 Phase 2 path with the operator-supplied `reviewer_choices` payload. On success it returns `{ slug }` so the client can redirect to `/admin/show/<slug>`. On reviewer-choices validation failure it returns the §12.4 codes (`MISSING_REVIEWER_CHOICE`, `EXTRA_REVIEWER_CHOICE`, `DUPLICATE_REVIEWER_CHOICE`, `INVALID_REVIEWER_ACTION`).
+
+- [ ] **Step 1: Failing tests**
+  - **Page renders staged data**: synthesize a first-seen `pending_syncs` row with `staged_id = <stagedId>`, `wizard_session_id IS NULL`, no matching `shows` row. Navigate to `/admin/show/staged/<stagedId>`. Assert: page renders the same review-card UI shape as `/admin/show/<slug>?review=staged_id` (from Task 10.7). Specifically: the `triggered_review_items[]` are listed with their §12.4-resolved doug-facing copy (via `messageFor`), each with a reviewer-choice control wired to its invariant's enum (per §6.8.2); the candidate `title`/`dates` from `parse_result.show` render at the top; `staged_modified_time` renders as "staged from edits Doug made on …"; the diff against an empty prior state (since no `shows` row exists) renders as "all incoming rows are new"; an Apply button is enabled once every `triggered_review_items[]` entry has a non-default choice; a Discard button is always enabled. **The §9.2 1–3 informational sub-sections (last 5 sync attempts, parse_warnings history, crew preview links) do NOT render** — they assume an existing `shows` row.
+  - **Page on missing stagedId returns 404**: navigate to `/admin/show/staged/<unknown-stagedId>`. Assert: 404 response with the §12.4 `STALE_DISCARD_REJECTED` code.
+  - **Page on EXISTING-show staged_id rejects**: synthesize a `pending_syncs` row whose `drive_file_id` matches an existing `shows` row (a re-stage of an already-live show). Navigate to `/admin/show/staged/<stagedId>`. Assert: the route 302-redirects to `/admin/show/<slug>?review=<stagedId>` (the existing-show review surface owned by Task 10.7); the first-seen route is exclusively for candidates without an existing `shows` row. Without this guard a re-stage could be reviewed twice (once via slug, once via stagedId) and produce inconsistent reviewer-choice audit trails.
+  - **Apply success path**: synthesize a first-seen `pending_syncs` row whose `triggered_review_items[]` are all approvable (e.g., a `FIRST_SEEN_REVIEW` invariant where `action='approve'`). POST `/api/admin/show/staged/<stagedId>/apply` with the §6.8.2 reviewer-choices payload. Assert: response is 200 `{ slug: '<derived-slug>' }`; a `shows` row exists with the slug derived from `parse_result.show.title` + dates per §6.9; the original `pending_syncs` row is GONE; both writes happen in the same transaction (verify by injecting a fault between the INSERT and DELETE — both should rollback together). The route then issues a 302 redirect to `/admin/show/<derived-slug>` for client-side navigation, OR the client reads the `{ slug }` body and navigates itself; both behaviors are tested.
+  - **Apply on slug-derivation collision (M9+M10 batch-13 finding 4 — retry-on-unique-violation loop)**: synthesize a first-seen candidate whose derived slug would collide with an existing `shows.slug` (e.g., another show with the same title + dates). Assert: §6.9 retry-on-unique-violation loop produces `<slug>-2` (or `-3`, etc.) by catching Postgres `23505` *unique_violation* on the INSERT and advancing the suffix; the loser's INSERT raises `23505`, the loop catches it, retries with the next suffix, and INSERTs successfully. On 100 attempts exhausted (`<base>` + `<base>-2`..`<base>-100` all collided) the route returns 500 with `SLUG_COLLISION_EXHAUSTED` per §12.4 (renamed from `SLUG_COLLISION_LIMIT`).
+  - **Concurrent first-seen Applies — slug-derivation race regression (M9+M10 batch-13 finding 4, MANDATORY)**: synthesize TWO first-seen `pending_syncs` rows with DISTINCT `drive_file_id`s (`drive_file_id_A`, `drive_file_id_B`) whose `parse_result.show.title` and dates yield the SAME `<base>` slug (e.g., both titled "RPAS Central 2026" with set date 2026-03-23). POST both `/api/admin/staged/<fileId>/apply` calls in parallel. Assert: exactly one wins with `slug = <base>` and the other wins with `slug = <base>-2`; both `shows` rows exist; both `pending_syncs` rows are GONE; both `sync_audit` rows are written. Without the retry loop, a non-deterministic outcome would result: either both INSERTs see the same empty `existingSlugs`, both pick `<base>`, and one fails with `23505` and surfaces as a 500 to the operator (UX failure mode), OR a pre-check-then-INSERT TOCTOU window allows two `<base>` rows briefly which violates the UNIQUE constraint. The retry loop closes both windows: the database's UNIQUE constraint is the authoritative check, observed via `23505`, and the loser silently advances to `-2`. Repeat the test with THREE concurrent Applies for the same base — assert one `<base>`, one `<base>-2`, one `<base>-3`.
+  - **Apply with invalid reviewer choices**: POST with a missing/extra/duplicate/invalid `reviewer_choices` entry. Assert: response is 400 with `MISSING_REVIEWER_CHOICE` / `EXTRA_REVIEWER_CHOICE` / `DUPLICATE_REVIEWER_CHOICE` / `INVALID_REVIEWER_ACTION` per §12.4; the `pending_syncs` row is UNCHANGED; no `shows` row was created.
+  - **Apply with stale staged_id (CAS race)**: synthesize a candidate. Then in a sibling transaction, DELETE the `pending_syncs` row (simulating a sibling Discard or a fresh re-stage that DELETED + INSERTed with a new `staged_id`). Now POST `/api/admin/show/staged/<old-stagedId>/apply`. Assert: response is 404 `STALE_DISCARD_REJECTED`; no `shows` row was created.
+  - **Discard success path (three §6.8.1 variants)**: POST `/api/admin/show/staged/<stagedId>/discard` with `{ kind: 'try_again_next_sync' | 'defer_until_modified' | 'permanent_ignore' }`. Assert: for `try_again_next_sync` — `pending_syncs` row is DELETEd, no `deferred_ingestions` row written. For `defer_until_modified` — `pending_syncs` row DELETEd AND a `deferred_ingestions` row is written with `kind = 'defer_until_modified'` AND `deferred_at_modified_time = pending_syncs.staged_modified_time`. For `permanent_ignore` — `pending_syncs` row DELETEd AND `deferred_ingestions` written with `kind = 'permanent_ignore'`. In all three, NO `shows` row is created.
+  - **Concurrent Apply + Discard race**: two parallel POSTs (Apply + Discard) targeting the same `staged_id`. Assert: exactly one wins (the loser returns 404 `STALE_DISCARD_REJECTED`). If Apply won — `shows` row exists, `pending_syncs` GONE, NO `deferred_ingestions`. If Discard won — no `shows` row, `pending_syncs` GONE, `deferred_ingestions` written iff `kind != 'try_again_next_sync'`. The race is gated by the per-show advisory lock derived from `pending_syncs.drive_file_id`.
+  - **End-to-end happy path**: from the dashboard PendingPanel, click "Review and Apply" → land on `/admin/show/staged/<stagedId>` → fill reviewer choices → click Apply → assert redirect to `/admin/show/<derived-slug>` → assert the `<derived-slug>` page renders successfully (the new show is live).
+- [ ] **Step 2: Implement** `app/admin/show/staged/[stagedId]/page.tsx` as a Server Component. Steps:
+  1. `requireAdmin()`.
+  2. `SELECT staged_id, drive_file_id, parse_result, triggered_review_items, staged_modified_time, parsed_at, wizard_session_id FROM pending_syncs WHERE staged_id = $1 AND wizard_session_id IS NULL`. **The `wizard_session_id IS NULL` clause enforces live-row scope** — wizard-staged rows have their own Task 10.4 surface and must not surface here.
+  3. If no row → render 404 page (use `notFound()` from `next/navigation`).
+  4. If `EXISTS(SELECT 1 FROM shows WHERE drive_file_id = <row.drive_file_id>)` → 302 redirect to `/admin/show/<slug>?review=<stagedId>` (existing-show review surface).
+  5. Render the same `<StagedReviewCard>` component Task 10.7 builds, parameterized for first-seen mode. Pass `parse_result.show` for title/dates header, `triggered_review_items` for the reviewer-choice controls, `staged_modified_time` for the "staged from …" line, and `mode = 'first_seen'` so the card knows to (a) hide the §9.2 1–3 sub-sections, (b) wire Apply to `POST /api/admin/show/staged/[stagedId]/apply` instead of the slug-keyed route, (c) wire Discard to `POST /api/admin/show/staged/[stagedId]/discard`.
+- [ ] **Step 3: Implement** `app/api/admin/show/staged/[stagedId]/apply/route.ts` as a **THIN FRONT DOOR** delegating to the canonical `applyStaged` helper from Task 6.11 (M9+M10 batch-13 finding 1 — the route MUST NOT carry its own §6.8.1 gates; the inline draft skipped `base_modified_time` CAS, the mandatory Drive `files.get(modifiedTime,parents,trashed)` re-verify, and the `sync_audit` write that exist as **non-negotiable canonical gates** in Task 6.11). The first-seen route is **always live-scope** (wizard step-3 first-seen review is a separate Task 10.4 surface). Steps:
+  1. `requireAdmin()`.
+  2. **Bootstrap row read** (lock-key derivation only, no state decisions): `SELECT drive_file_id FROM pending_syncs WHERE staged_id = $1 AND wizard_session_id IS NULL`. If 0 rows → 404 `STALE_DISCARD_REJECTED`.
+  3. Parse and validate the request body's `reviewer_choices` payload shape (light JSON-shape check — full per-item validation happens inside `applyStaged`). On JSON-shape failure → 400.
+  4. **Delegate to the canonical helper**: call `applyStaged({ stagedId, sourceScope: 'live', reviewerChoices, adminEmail: $admin.email })` (Task 6.11's exported `lib/sync/applyStaged.ts`). The helper enforces ALL of: per-show advisory lock acquisition (`CONCURRENT_SYNC_SKIPPED` on `pg_try_advisory_xact_lock` returning false), source-scoped re-SELECT with `FOR UPDATE` (row missing post-lock → `STALE_DISCARD_REJECTED`), **`staged_id` CAS + `base_modified_time IS NOT DISTINCT FROM` CAS** (M9+M10 batch-13 finding 1 — was missing from the inline draft; mismatch → `STAGED_PARSE_OUTDATED`), **mandatory Drive `files.get(modifiedTime,parents,trashed)` re-verify** with `STAGED_PARSE_OUTDATED` / `STAGED_PARSE_SOURCE_GONE` (recovery UPSERTs `pending_ingestions` with `wizard_session_id IS NULL` per AC-6.27) / `STAGED_PARSE_SOURCE_OUT_OF_SCOPE` (recovery UPSERTs `pending_ingestions` with `wizard_session_id IS NULL` per AC-6.26) — these recovery paths were missing from the inline draft, reviewer-choices validation per §6.8.2, slug derivation per §6.9 with the M9+M10 batch-13 finding 4 retry-on-unique-violation loop, Phase 2 INSERT of `shows` row, **`sync_audit` row write** with full attribution (M9+M10 batch-13 finding 1 — was missing), DELETE of the `pending_syncs` row by `staged_id`, and auth side-effects per §6.8.2 (the first-seen branch has no MI-11/12/13/14 — only the universal "bump on add" floor applies). Same helper call shape live Apply uses; the only difference is the helper's first-seen branch INSERTs a fresh `shows` row + derives a slug instead of UPDATE-ing. The route is intentionally a thin shell so first-seen Apply cannot drift away from the canonical gates as Task 6.11 evolves.
+  5. **First-seen branch in `applyStaged` (Task 6.11 helper amendment; M9+M10 batch-14 finding 4 — single canonical bound + observability)**: when no existing `shows` row matches `drive_file_id`, the helper (a) derives the slug per §6.9 with the M9+M10 batch-13 finding 4 retry-on-unique-violation loop (wraps `INSERT INTO shows (slug, ...) VALUES ($candidateSlug, ...)` in a `for (let attempt = 1; attempt <= MAX_SLUG_COLLISION_ATTEMPTS; attempt++)` where **`MAX_SLUG_COLLISION_ATTEMPTS = 100`** is the SINGLE canonical constant exported from `lib/parser/slug.ts` and referenced by every callsite — pseudocode at spec §6.9, the helper here, the deriveSlug `SLUG_COLLISION_EXHAUSTED` test at line 1327, the §12.4 catalog row at spec line 2320, and the catalog-completeness assertion in Task X.1 — all read this same constant, never a hardcoded literal; catches Postgres `23505` *unique_violation* on `shows.slug`, advances to next collision suffix `<base>-<attempt+1>` and retries; on `attempt > MAX_SLUG_COLLISION_ATTEMPTS` throws `SLUG_COLLISION_EXHAUSTED` per §12.4), (b) writes `sync_audit` with `applied_by = $admin.email`, `applied_at = now()`, `mode = 'first_seen_apply'`, `source_scope = 'live'`, (c) DELETEs the `pending_syncs` row by `staged_id`, (d) returns `{ status: 'first_seen_applied', slug }`. The route returns 200 with `{ slug }`. The "existing-show guard" from the prior inline draft is now enforced by the helper's pre-existing logic: when `EXISTS(SELECT 1 FROM shows WHERE drive_file_id = $driveFileId)` AND `sourceScope: 'live'`, the helper returns 409 `STAGED_PARSE_SUPERSEDED` with `redirect_to: '/admin/show/<slug>?review=<stagedId>'`. **Observability (M9+M10 batch-14 finding 4)**: the helper emits a `slug_collision_count` metric per Apply (the final loop iteration count, 1 on first-attempt success); a `sync_log` `SLUG_COLLISION_STORM` entry (admin-log-only) is written when any single Apply records `slug_collision_count > 50` (operational red flag — well below the exhaustion ceiling at 100, but indicative of a parser bug or attack scenario; payload `{ drive_file_id, base_slug, count }`).
+  6. **Regression tests for the delegated gate coverage (M9+M10 batch-13 finding 1, MANDATORY):** four canonical-gate scenarios. (a) **Stale `base_modified_time`**: synthesize a `pending_syncs` row, then `UPDATE pending_syncs SET base_modified_time = base_modified_time + interval '1 second' WHERE staged_id = $1` in a sibling tx. POST `/apply`. Assert: 409 `STAGED_PARSE_OUTDATED`; no `shows` row; no `sync_audit`. (b) **Drive 404 mid-Apply (`STAGED_PARSE_SOURCE_GONE`)**: mock `drive.files.get` to return 404. POST `/apply`. Assert: 409 `STAGED_PARSE_SOURCE_GONE`; helper UPSERTs `pending_ingestions` with `wizard_session_id IS NULL`; no `shows`; no `sync_audit`. (c) **Drive moved out of scope (`STAGED_PARSE_SOURCE_OUT_OF_SCOPE`)**: mock parents to NOT include `app_settings.watched_folder_id`. POST `/apply`. Assert: 409 `STAGED_PARSE_SOURCE_OUT_OF_SCOPE`; same `pending_ingestions` UPSERT; no `shows`; no `sync_audit`. (d) **Success — sync_audit gate is the canary**: clean staged row, all gates pass. POST `/apply`. Assert: 200 `{ slug }`; new `shows` row with derived slug; `pending_syncs` GONE; **`sync_audit` row written** with `applied_by = $admin.email`, `applied_at` populated, `mode = 'first_seen_apply'`, `source_scope = 'live'`.
+- [ ] **Step 4: Implement** `app/api/admin/show/staged/[stagedId]/discard/route.ts` as a POST handler. Accepts `{ kind: 'try_again_next_sync' | 'defer_until_modified' | 'permanent_ignore' }`. Same lock-first ordering as Apply. INSIDE the lock, DELETE the `pending_syncs` row by `staged_id` AND, for `defer_until_modified` and `permanent_ignore`, INSERT a `deferred_ingestions` row with `wizard_session_id = NULL` (live partition per §4.5), `drive_file_id`, `kind`, and `deferred_at_modified_time = pending_syncs.staged_modified_time` (NULL for `permanent_ignore`). For `try_again_next_sync` only the DELETE happens — the next cron pass will re-stage the candidate.
+- [ ] **Step 5: Update PendingPanel link** (Task 10.6 amendment). The "Review and Apply" link in `components/admin/PendingPanel.tsx` already routes to `/admin/show/staged/[stagedId]?firstSeen=true`. Drop the `?firstSeen=true` query param — the route is now exclusively first-seen by design (the existing-show guard in step 3 above redirects re-stages elsewhere), so the query param is redundant. Update the Task 10.6 test bullet that asserts the link href to expect the bare `/admin/show/staged/<stagedId>` URL.
+- [ ] **Step 6: Update §9.0.1 explainer renderer-coverage assertion** (Task 10.9 amendment). Add `/admin/show/staged/[stagedId]` to the "Per-show parse panel" surface inventory in Task 10.9 Step 3, since the same `<ErrorExplainer>` requirement applies to the first-seen review surface's reviewer-choice validation toasts and Apply/Discard action-failure toasts.
+- [ ] **Step 7: Commit** `feat(admin): first-seen staged review surface (§9.1 panel 2, §9.2 sub-section 0, M9+M10 batch-12 finding 2)`.
 
 ---
 
@@ -5051,13 +7457,62 @@ Spec context: §17.2.
 
 **Spec-driven (final-validation finding).** Earlier draft compared source to `lib/messages/catalog.ts` keys. That's two-way (source ↔ catalog) but not spec-anchored — if `catalog.ts` drifts from §12.4 (Doug-facing copy edited, ID renamed), the test goes green while users see stale or wrong copy. The corrected design treats **§12.4 as the authoritative input** and asserts three-way parity: spec code ↔ catalog key ↔ at least one producer site ↔ at least one renderer that uses catalog copy via the lookup helper (not interpolated raw IDs).
 
-- [ ] **Step 1: Build a §12.4 extractor** — `scripts/extract-spec-codes.ts` parses the canonical messages section in `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` and emits a typed manifest with active codes AND retired codes separately classified (final-validation finding — earlier draft would either resurrect retired codes into the active registry or fail CI on a struck-through row):
+- [ ] **Step 1: Build a §12.4 extractor** — `scripts/extract-spec-codes.ts` parses the canonical messages section in `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` and emits a typed manifest with active codes AND retired codes separately classified (final-validation finding — earlier draft would either resurrect retired codes into the active registry or fail CI on a struck-through row).
+
+  **Batch-9 amendment: SPEC_CODES carries the FULL §12.4 row payload — not just `audience`/`copy`.** Earlier draft collapsed each code to a 2-field shape `{ audience, copy }`, and the parity test (Step 2) only compared `Object.keys()`. That proves IDs match but says nothing about the actual user-facing copy in each column — a row whose `dougFacing` was edited in §12.4 but never propagated to `catalog.ts` would still pass the keys-only check. The corrected extractor emits every column the spec defines: `dougFacing`, `crewFacing`, `followUp`, and `helpfulContext` (the M9+M10 batch-8 column added by Fix 4's spec amendment) — verbatim from §12.4 — and the parity test (Step 2 below) deep-compares each catalog entry against `SPEC_CODES[code]` field-by-field. The duplicate-active-code dedup invariant uses the FULL row payload as its key, so duplicate rows with identical content remain detectable separately from duplicate rows whose copy diverges.
+
+  **Batch-10 Fix 1 amendment: extractor reads `helpfulContext` from the §12.4 YAML appendix.** The spec's §12.4 markdown table carries `dougFacing` / `crewFacing` / `followUp` (the four-column visual table). The fifth field `helpfulContext` lives in a structured YAML block immediately following the table, anchored by the HTML comment `<!-- §12.4 helpfulContext appendix -->` (see spec §12.4). The extractor parses BOTH sources:
+  1. **Markdown table parser**: walks the `| Code | ... | Doug-facing message | Crew-facing message | Follow-up |` table, extracts non-retired rows (rejects `~~strikethrough~~` rows into a separate `RETIRED_CODES` set), normalizes `—` / `n/a` / empty cells to `null`, emits `{ dougFacing, crewFacing, followUp }` per code. Header rows (e.g., `**Auth — signed-link redemption**` with empty data cells) are skipped.
+  2. **YAML appendix parser**: locates the fenced ```yaml block after the `<!-- §12.4 helpfulContext appendix -->` HTML comment, parses with the `yaml` package, emits a `{ [code]: helpfulContext }` mapping. A missing key is normalized to `helpfulContext: null` (admin-log-only codes whose `dougFacing` is null are intentionally absent from the appendix).
+  3. **Merge + invariant checks**:
+     - For every code from (1) whose `dougFacing` is non-null, (2) MUST have a non-null, non-empty entry. Mismatch fails extraction with `§12.4 helpfulContext appendix missing entry for code <X> (dougFacing is non-null)`.
+     - For every code in (2), it MUST appear in (1) — orphan YAML keys fail extraction with `§12.4 helpfulContext appendix references unknown code <X>`.
+     - For every code from (1) whose `dougFacing` is null, (2) MUST omit the key — a YAML entry for an admin-log-only code fails extraction with `§12.4 helpfulContext appendix has entry for code <X> whose dougFacing is null (admin-log-only codes never surface to Doug — remove the YAML entry)`.
+     - **Batch-11 amendment — em-dash sentinel discipline**: the table parser MUST recognize `—` (em-dash), empty cell, and the `(admin log only ...)` parenthetical preamble as the canonical null markers per spec §12.4 Conventions; pseudo-null sentinel text (`null`, `none`, `n/a`, prose like "no Doug-facing message" without an em-dash) fails extraction with `§12.4 row uses pseudo-null sentinel '<X>' for code <Y>; use '—' (em-dash) or empty cell per §12.4 Conventions`. This protects the invariant above from misclassifying genuine admin-log-only rows as Doug-facing (which would then incorrectly demand a YAML entry).
+     - **Batch-11 amendment — Task 10.9 messageFor() coverage cross-check**: after extraction succeeds, for every code that appears as the literal first argument to a `messageFor(<code>, ...).dougFacing` call site in plan Task 10.9's renderer (or any §9.0.1 `<ErrorExplainer code="<X>" />`), the extractor cross-checks that `<code>` has a non-null `helpfulContext` entry in the YAML appendix. A `messageFor(<X>).dougFacing` call site for a code missing from the YAML fails extraction with `§12.4 helpfulContext appendix missing entry for <X>; the code is rendered to Doug via messageFor() at <fileName>:<line> but has no helpfulContext for the <ErrorExplainer> link to render`. This is the symmetric guard against the batch-11 finding-4 omission shape: UNKNOWN_FIELD, PULL_SHEET_PARSE_PARTIAL, and WIZARD_ISOLATION_INDEXES_MISSING all had non-null Doug-facing copy in the table but were absent from the YAML; the X.1 cross-check ensures the next such omission fails the build instead of shipping silently.
+  4. Final emit: `SPEC_CODES[code] = { dougFacing, crewFacing, followUp, helpfulContext }` with all four fields populated from the merged sources.
+
+  Required regression-test fixtures for the extractor (`tests/cross-cutting/fixtures/extract-spec-codes/`):
+  - `bad-missing-helpful-context.md`: synthetic spec excerpt where the table has a code with non-null dougFacing but the YAML appendix omits it — extractor MUST throw with the missing-entry message.
+  - `bad-orphan-yaml-key.md`: YAML appendix has an entry for a code that doesn't appear in the table — extractor MUST throw with the unknown-code message.
+  - `bad-yaml-entry-for-null-dougfacing.md`: YAML appendix has an entry for a code whose table `dougFacing` is `—` (admin-log-only) — extractor MUST throw with the admin-log-only message.
+  - `good-complete.md`: every code with non-null dougFacing has a YAML entry; admin-log-only codes have no entry — extractor MUST succeed and emit four-field `SPEC_CODES`.
+
   ```ts
   // Output: lib/messages/__generated__/spec-codes.ts (committed, regenerated by CI)
-  export const SPEC_CODES = {
-    LINK_NO_CREW_MATCH:    { audience: 'crew',     copy: "You've been removed from this show. Contact Doug if this is a mistake." },
-    LINK_VERSION_MISMATCH: { audience: 'crew',     copy: "This link is out of date. Ask Doug for a new link." },
-    /* ...every ACTIVE code in §12.4 verbatim... */
+
+  // Per-row payload — every column from §12.4. Schema MUST match the catalog's row shape exactly so
+  // the deep-compare parity test can assert byte-for-byte equality. `null` is the canonical "—" / "n/a"
+  // marker; the extractor normalizes "—" / "n/a" / empty cells to `null`. `helpfulContext` is the
+  // M9+M10 batch-8 column added by Fix 4's spec amendment; codes whose `dougFacing` is null don't
+  // need `helpfulContext` (they're admin-log only and never reach Doug's UI).
+  export type SpecCodePayload = {
+    dougFacing:     string | null;
+    crewFacing:     string | null;
+    followUp:       string | null;
+    helpfulContext: string | null;   // batch-8 column; non-null when dougFacing is non-null
+  };
+
+  export const SPEC_CODES: Record<string, SpecCodePayload> = {
+    LINK_NO_CREW_MATCH: {
+      dougFacing:     null,
+      crewFacing:     "You've been removed from this show. Contact Doug if this is a mistake.",
+      followUp:       null,
+      helpfulContext: null,
+    },
+    LINK_VERSION_MISMATCH: {
+      dougFacing:     null,
+      crewFacing:     "This link is out of date. Ask Doug for a new link.",
+      followUp:       null,
+      helpfulContext: null,
+    },
+    AMBIGUOUS_EMAIL_BINDING: {
+      dougFacing:     "We can't tell which crew member is signing in — two emails are the same.",
+      crewFacing:     "We can't sign you in right now. Doug has been alerted.",
+      followUp:       "Fix the duplicate email in your sheet, then re-sync.",
+      helpfulContext: "When two people on the crew list share the same email address, we can't safely tell who's logging in...",
+    },
+    /* ...every ACTIVE code in §12.4 with all four columns verbatim... */
   } as const;
 
   // Retired codes — the spec marks rows with `~~CODE~~` (markdown strikethrough) when a code is
@@ -5068,7 +7523,7 @@ Spec context: §17.2.
     /* ...every retired code... */
   } as const;
   ```
-  The generator parses the markdown table rows in §12.4. Rows whose code cell is wrapped in `~~...~~` are retired; rows without strikethrough are active. The generator fails CI if a row is malformed OR if an active row's code appears in `RETIRED_CODES` (active + retired exclusivity) **OR if the same active code appears in two different rows with different copy (round-46 amendment — duplicate-active dedup invariant)**. A flat object keyed by code silently last-write-wins on duplicate keys; the corrected extractor explicitly fails on duplicate active rows. Required test: synthesize a spec with two active `SHEET_UNAVAILABLE` rows whose Doug/crew copy differs; assert the extractor throws `SPEC_DUPLICATE_ACTIVE_CODE` with both row line numbers in the error. (Spec round-46 cleanup retired one of the two `SHEET_UNAVAILABLE` rows that had drifted; this invariant prevents future regressions.)
+  The generator parses the markdown table rows in §12.4. Rows whose code cell is wrapped in `~~...~~` are retired; rows without strikethrough are active. The generator fails CI if a row is malformed OR if an active row's code appears in `RETIRED_CODES` (active + retired exclusivity) **OR if the same active code appears in two different rows whose FULL payload differs (round-46 amendment + batch-9 amendment — duplicate-active dedup invariant uses the full row payload as its key, not just the code string)**. A flat object keyed by code silently last-write-wins on duplicate keys; the corrected extractor explicitly fails when two active rows share the same code AND any column differs. Required test: synthesize a spec with two active `SHEET_UNAVAILABLE` rows whose Doug/crew copy differs; assert the extractor throws `SPEC_DUPLICATE_ACTIVE_CODE` with both row line numbers AND a column-by-column diff in the error message. (Spec round-46 cleanup retired one of the two `SHEET_UNAVAILABLE` rows that had drifted; this invariant prevents future regressions.)
 - [ ] **Step 2: Code-to-scenario registry (final-validation finding).** AC-X.1 requires every code to be reachable from at least one fixture or synthesized scenario. Earlier draft only proved string-literal existence in source — that lets dead branches and unused producer code paths satisfy the test. The grep for `messageFor('CODE')` literals also clashes with the realistic dynamic-rendering pattern `messageFor(error.code)` where `error.code` is a runtime variable. The corrected design uses a typed registry that maps every spec code to at least one named test that drives the production path:
 
   ```ts
@@ -5094,8 +7549,27 @@ Spec context: §17.2.
     const catalogKeys = Object.keys(catalog);
     const scenarioKeys = Object.keys(CODE_SCENARIOS);
 
-    expect(catalogKeys.sort()).toEqual(specCodes.sort());           // catalog == spec, byte-for-byte
+    // **Batch-9 amendment: deep-compare every catalog entry against SPEC_CODES[code] field-by-field.**
+    // Earlier draft only compared Object.keys(); that proved IDs match but said nothing about whether
+    // the actual user-facing copy in each column matches. The corrected assertion verifies key parity
+    // AND every column's value verbatim, so a row whose `dougFacing` was edited in §12.4 but never
+    // propagated to `catalog.ts` fails immediately.
+    expect(catalogKeys.sort()).toEqual(specCodes.sort());           // catalog == spec keys
     expect(scenarioKeys.sort()).toEqual(specCodes.sort());          // scenario registry covers every code
+
+    // Field-by-field deep-compare for every catalog entry (batch-9).
+    for (const code of specCodes) {
+      const specRow    = SPEC_CODES[code];
+      const catalogRow = catalog[code];
+      expect(catalogRow.dougFacing,     `catalog ${code}.dougFacing differs from §12.4`)
+        .toEqual(specRow.dougFacing);
+      expect(catalogRow.crewFacing,     `catalog ${code}.crewFacing differs from §12.4`)
+        .toEqual(specRow.crewFacing);
+      expect(catalogRow.followUp,       `catalog ${code}.followUp differs from §12.4`)
+        .toEqual(specRow.followUp);
+      expect(catalogRow.helpfulContext, `catalog ${code}.helpfulContext differs from §12.4`)
+        .toEqual(specRow.helpfulContext);
+    }
 
     for (const [code, runScenario] of Object.entries(CODE_SCENARIOS)) {
       // Drive the production path — assert the code is actually emitted in the structured log/response/admin_alerts row.
@@ -5113,7 +7587,7 @@ Spec context: §17.2.
   This catches:
   - Codes with no producer (compile fails — registry missing the entry).
   - Codes with a producer but no actual reachability (scenario runs but doesn't emit the code).
-  - Drift where catalog disagrees with spec (catalog/spec equality assertion fails).
+  - Drift where catalog disagrees with spec at the **column-value level** (batch-9 amendment — a §12.4 edit to `dougFacing` / `crewFacing` / `followUp` / `helpfulContext` that doesn't propagate to `catalog.ts` fails the deep-compare even when the keys still line up).
   - Orphan codes in source that aren't in §12.4 (reverse assertion fails).
   - **Retired-code resurrection (final-validation finding)**: an inverse-invariant test asserts NO source file across **every renderable surface** (TSX components included) references any code in `RETIRED_CODES`. Earlier draft scanned only `lib/**/*.ts`, `app/**/*.ts`, `middleware.ts` — that excluded `components/**/*.tsx` where retired codes can reappear in JSX strings:
     ```ts
@@ -5223,8 +7697,69 @@ The audit fails if any of these strings appear as text-content / user-visible at
         expect(value, `surface ${surface.url} leaked code ${code} via @${attr}: ${value.slice(0, 200)}`).not.toContain(code);
       }
     }
+    // 1c. **Live DOM property values on form controls (batch-10 Fix 5 — controlled-input regression).**
+    // The previous getAttribute('value') scan only sees the SERVER-RENDERED initial value attribute;
+    // it MISSES every controlled-input value owned by client React state — `<textarea value={state} />`
+    // / `<select value={state}><option>...</option></select>` / contenteditable `<div>{state}</div>`,
+    // where React reconciles the live `.value` (or `.textContent`) property AFTER hydration without
+    // ever writing the new value to the HTML `value` attribute. A user-visible spec code that lives
+    // ONLY in client state would slip past 1a (textContent doesn't include input internals) AND past
+    // 1b (no `value` attribute is ever written). Read the LIVE DOM PROPERTIES post-hydration:
+    const liveProps = await surface.evaluate((el) => {
+      const out: { tag: string; kind: string; value: string }[] = [];
+      function walk(n: Element) {
+        // <input value> — controlled OR uncontrolled; the property always reflects the rendered state.
+        if (n.tagName === 'INPUT') {
+          const v = (n as HTMLInputElement).value;
+          if (v) out.push({ tag: 'INPUT', kind: 'input.value', value: v });
+        }
+        // <textarea value> — same.
+        if (n.tagName === 'TEXTAREA') {
+          const v = (n as HTMLTextAreaElement).value;
+          if (v) out.push({ tag: 'TEXTAREA', kind: 'textarea.value', value: v });
+        }
+        // <select> — read the selected option's text AND value; both are user-visible.
+        if (n.tagName === 'SELECT') {
+          const s = n as HTMLSelectElement;
+          const opt = s.selectedOptions?.[0];
+          if (opt?.text) out.push({ tag: 'SELECT', kind: 'select.selectedOptions[0].text', value: opt.text });
+          if (opt?.value) out.push({ tag: 'SELECT', kind: 'select.selectedOptions[0].value', value: opt.value });
+        }
+        // contenteditable — `textContent` is owned by client React state for these elements.
+        if ((n as HTMLElement).isContentEditable) {
+          const t = n.textContent ?? '';
+          if (t) out.push({ tag: n.tagName, kind: 'contenteditable.textContent', value: t });
+        }
+        // **React state via __reactFiber$ / __reactProps$ fallback (advanced; defense-in-depth).**
+        // When a component binds spec-code text to a non-form prop (e.g., `<span>{errorCode}</span>`),
+        // the rendered textContent is captured by 1a. But for components that mount the text into a
+        // form control's value via `defaultValue` + ref-mutation pattern, the live DOM property is
+        // the only place to see it. The above checks cover that. Reading React Fiber internals
+        // (`Object.keys(node).find(k => k.startsWith('__reactFiber$'))`) to traverse memoized state
+        // is intentionally OUT OF SCOPE for this audit — it depends on React internals that change
+        // between minor versions and would create flaky tests. The DOM-property reads above are
+        // the supported surface; if a future component manages a user-visible value entirely
+        // through a ref-attached imperative handle without writing it to a DOM property, the AST
+        // audit (Step 2) catches it via the JSXAttribute / JSXText scan instead.
+        for (const child of n.children) walk(child);
+      }
+      walk(el as Element);
+      return out;
+    });
+    for (const { kind, value } of liveProps) {
+      for (const code of ALL_FORBIDDEN_CODES) {
+        expect(value, `surface ${surface.url} leaked code ${code} via live DOM ${kind}: ${value.slice(0, 200)}`).not.toContain(code);
+      }
+    }
   }
   ```
+
+  **Batch-10 Fix 5 regression-test fixture (mandatory)** — `tests/cross-cutting/fixtures/x2-controlled-input/`:
+  - `bad-controlled-textarea.tsx`: a route renders `<textarea value={errorCode} onChange={...} />` where `errorCode` is bound to React state initialized to a raw spec code (e.g., `useState('LINK_REVOKED_FLOOR')`). The HTML `value` attribute is NEVER written because React owns the value via the property setter. Crawl Step 1a (textContent) misses it (textarea internals aren't text). Crawl Step 1b (`getAttribute('value')`) misses it (no attribute). Crawl Step 1c (`textarea.value` live DOM property) MUST catch it and fail the audit.
+  - `bad-controlled-select.tsx`: a route renders `<select value={errorCode}><option value="LINK_REVOKED_FLOOR">LINK_REVOKED_FLOOR</option></select>`. Step 1a may catch the option's textContent, but Step 1c MUST also flag the live `select.selectedOptions[0].value` and `.text` reads — covers the case where the options come from a typed enum constant.
+  - `bad-controlled-input.tsx`: a route renders `<input value={errorCode} readOnly />`. Step 1c MUST catch via `input.value`.
+  - `bad-contenteditable.tsx`: a route renders `<div contentEditable>{errorCode}</div>`. Step 1c's `isContentEditable` branch MUST catch via the live `textContent`.
+  - `good-noncontrolled.tsx`: a route renders `<input defaultValue="placeholder text" />` (no spec code anywhere). All three crawl phases (1a/1b/1c) MUST NOT flag this surface.
 - [ ] **Step 2: Static-analysis test (round-47 amendment: AST-based JSXAttribute audit, NOT grep)**. Earlier draft used a regex grep for `\{[^}]*['"\`]CODE['"\`][^}]*\}|>CODE<` which only catches text-content + plain interpolation. JSX-attribute leaks like `title="LINK_REVOKED_FLOOR"`, `alt={'MI-5b_DUPLICATE_CREW_EMAIL'}`, or `placeholder={someRetiredCode}` slip through. The corrected design uses ts-morph to walk every `JSXAttribute` node:
   ```ts
   // tests/cross-cutting/no-raw-code-render.test.ts
@@ -5307,9 +7842,9 @@ The corrected design has two parts:
 
 | Domain | Examples | Auth contract |
 |---|---|---|
-| `crew-session` | `app/show/[slug]/page.tsx`, `app/api/asset/diagram/**`, `app/api/asset/reel/**`, `app/api/report/**` | **Terminal-success branches (round-49 amendment — replaces the round-47/48 "linear all-three-required" model AND the M5 batch-8 single-tuple)**. The auth chain has **OR semantics**: success at ANY validator TERMINATES the chain (subsequent validators do NOT run). The audit accepts a path if it matches ANY of the spec-allowed terminal-success branches. Each branch enumerates the validators that MUST be called, in order; the LAST entry on a branch is the validator that produces terminal success on that path; subsequent validators are NOT invoked on that path. Branches: <br>**B1 — link wins**: `[validateLinkSession]`. Cookie present + valid → success → chain stops; google + admin never run. <br>**B2 — link continue → admin wins** (covers admin-not-on-crew AND admin-also-on-crew per Task 5.7): `[validateLinkSession, requireAdmin]`. Link continue; admin succeeds → chain stops; google never runs. <br>**B3 — link continue → google wins** (no admin metadata): `[validateLinkSession, validateGoogleSession]`. Link continue; google succeeds → chain stops; admin never runs. <br>**B4 — link continue → google continue → admin wins** (signed-in user not on crew but is admin): `[validateLinkSession, validateGoogleSession, requireAdmin]`. <br>**B5 — admin-precedence (`isAdminSession(req)` returns true at runtime)**: `[validateLinkSession, requireAdmin, validateGoogleSession]`. Per Task 5.7, when the **shared `lib/auth/isAdminSession.ts` predicate** returns true, the route runs `requireAdmin` BEFORE `validateGoogleSession`; admin succeeds → chain stops at admin (collapses to B2 at runtime). The audit recognizes the branch as ANY conditional whose test statically resolves to a call to `isAdminSession`; using the shared helper that Task 5.7's runtime uses keeps the static audit and the executed branch from diverging. Audit fixtures: `admin-not-on-crew.fixture` MUST pass via B2 (admin succeeds; google never runs); `admin-also-on-crew.fixture` MUST pass via B2/B5 (admin role, NOT crew downgrade); `crew-only.fixture` MUST pass via B3; `crew-removed-but-google.fixture` MUST pass via B4. Round-48's `anyOf: [linear-A, linear-B]` still required ALL THREE on each branch — that rejected admin-not-on-crew sessions where admin succeeds and google never runs. M5 batch-8 finding additionally observed earlier drafts branched on the literal `auth.jwt()->'app_metadata'->>'role' = 'admin'` while Task 5.7 branched on email-allowlist membership; the shared `isAdminSession` helper closes that divergence. |
+| `crew-session` | `app/show/[slug]/page.tsx`, `app/api/asset/diagram/**`, `app/api/asset/reel/**`, `app/api/report/**` | **Terminal-success branches (M5 batch-9 amendment — replaces the round-49 link-first ordering)**. The auth chain has **OR semantics**: success at ANY validator TERMINATES the chain (subsequent validators do NOT run). The audit accepts a path if it matches ANY of the spec-allowed terminal-success branches. Each branch enumerates the validators that MUST be called, in order; the LAST entry on a branch is the validator that produces terminal success on that path; subsequent validators are NOT invoked on that path. **Admin-precedence ordering (M5 batch-9)**: `isAdminSession(req)` is checked FIRST as a side-effect-free predicate; when it returns true, `requireAdmin` runs immediately and the chain stops there — even when a valid redeemed-link cookie is also present (link-first ordering would have silently downgraded the admin to crew-mode). Branches: <br>**B1 — admin-precedence wins**: `[requireAdmin]` under the `isAdminSession(req) === true` guard. Admin succeeds → chain stops; link + google never run; the cookie (if present) is left in place. <br>**B2 — link wins (admin not detected)**: `[validateLinkSession]`. `isAdminSession` returned false; cookie present + valid → success → chain stops; google + admin never run. <br>**B3 — link continue → google wins**: `[validateLinkSession, validateGoogleSession]`. Admin not detected; link continue; google succeeds → chain stops. <br>**B4 — link continue → google continue → admin wins**: `[validateLinkSession, validateGoogleSession, requireAdmin]`. Belt-and-suspenders fallback for non-OAuth admin paths (e.g., session-refresh races where admin metadata appears mid-render). <br>The audit recognizes B1's admin-precedence branch as ANY conditional whose test statically resolves to a call to `isAdminSession` from `lib/auth/isAdminSession.ts`; using the shared helper that Task 5.7's runtime uses keeps the static audit and the executed branch from diverging. Audit fixtures: `admin-not-on-crew.fixture` MUST pass via B1 (admin-precedence); `admin-also-on-crew.fixture` MUST pass via B1 (admin role, NOT crew downgrade); `admin-with-valid-link-cookie.fixture` (M5 batch-9 finding — admin AND a valid `__Host-fxav_session` cookie for THIS show) MUST pass via B1 (admin role, link branch never runs); `crew-only.fixture` MUST pass via B2 or B3; `crew-removed-but-google.fixture` MUST pass via B4. Earlier round-49 placed `validateLinkSession` first on every branch — that rejected admin-precedence (admin runs without link being called) AND silently downgraded admins to crew-mode whenever a valid link cookie existed for the same show. The M5 batch-9 ordering closes both holes. |
 | `admin` | `app/admin/**/page.tsx`, `app/api/admin/**` (excluding cron) | `requireAdmin` only |
-| `me` | `app/me/page.tsx` | `validateGoogleSession` only (signed-in user's own list) |
+| `me` | `app/me/page.tsx` | **`validateGoogleIdentity` ONLY (M5 batch-12 finding — replaces earlier `validateGoogleSession`).** `validateGoogleSession` is strictly show-bound (its step 2 looks up `crew_members WHERE show_id = $requestedShowId AND email = canonicalize(...)`) and CANNOT be called from a cross-show signed-in surface like `/me`. The `me` trust domain uses `validateGoogleIdentity(req)` that returns `{ kind: 'success', email, providerSub }` from the Supabase Auth session ONLY (no show binding) per spec §7.2.2. A file under `app/me/**` that imports `validateGoogleSession` MUST FAIL X.3; canonical fixtures: `bad-me-route-uses-validateGoogleSession.tsx` (fail) + `good-me-route-uses-validateGoogleIdentity.tsx` (pass). |
 | `auth-library` | `lib/auth/**`, `app/api/auth/redeem-link/route.ts`, `middleware.ts` | exempt — these are the validators themselves and the cookie-mint route |
 | `public-bootstrap` | `app/show/[slug]/p/page.tsx` | exempt — bootstrap shell renders without a cookie (Task 5.5) |
 | `public-webhook` | `app/api/drive/webhook/route.ts` | uses constant-time token compare, NOT the user-session validator chain |
@@ -5320,14 +7855,26 @@ The corrected design has two parts:
 Every `app/**` file MUST appear in exactly one classification entry. Adding a new file in `app/api/`, `app/admin/`, `app/show/`, or `app/me/` without classifying it fails CI.
 
 **(B) Path-sensitive AST control-flow audit.** Replace text-position heuristics with a real call-graph analysis. For each `crew-session` / `admin` / `me` route file:
-1. Locate the request entry point: the default export for `page.tsx`, the named exports `GET`/`POST`/`PUT`/`DELETE`/etc. for `route.ts`, the server-action default export for action files.
+1. Locate every request entry point in the file. `findRequestEntries` discovers the FULL set of server-side execution entries that App Router invokes during a request lifecycle, NOT just `page.tsx` default + `route.ts` HTTP-method handlers (X.1-X.6 batch-13 finding #3 — earlier scope was incomplete; the missed entries below ALL execute server-side and ALL can independently touch protected sinks). Discovered entries:
+   - **Page default export** (`page.tsx`/`page.ts`): the Server Component render.
+   - **Route HTTP-method named exports** (`route.ts`/`route.tsx`): `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `OPTIONS`, `HEAD` — each treated as a separate entry.
+   - **Server-action default export for `actions.ts`** plus AST-detected inline `'use server'` functions in any file (round-49 amendment, owned by 2a's `findServerActionsInFile`).
+   - **`generateMetadata` / `generateViewport` named exports** (`page.tsx`, `layout.tsx`, `route.ts`, or sibling `metadata.ts`/`viewport.ts`): App Router invokes these server-side BEFORE page render to compute `<head>` content; they receive `params`/`searchParams` and can independently fetch from any DB. A `generateMetadata` that calls `from('shows_internal')` without auth leaks data through Open Graph tags / page titles. Each exported `generateMetadata`/`generateViewport` function is its own entry, classified via the SAME path-based trust-domain chain that classifies the page itself.
+   - **`head.tsx`/`head.ts` default export** (legacy App Router `<head>` Server Component, supported through Next 15+): same trust-domain chain as the page.
+   - **`loading.tsx`/`loading.ts` default export**: streaming loading UI Server Component. Renders before page completes; can fetch data; counts as a request entry.
+   - **`error.tsx`/`error.ts` default export**: server-rendered error boundary fallback (NOTE: error.tsx is `'use client'` per Next.js convention but `global-error.tsx` and any non-`'use client'` error file render server-side; AST scan detects the directive and skips audit when present).
+   - **`not-found.tsx`/`not-found.ts` default export**: rendered server-side when `notFound()` fires; can fetch data.
+   - **`template.tsx`/`template.ts` default export**: re-rendered server-side per navigation; same trust-domain chain.
+   - **`middleware.ts` matcher-scoped exports**: classified as `auth-library` (exempt) — the cookie-mint flow legitimately runs here.
+
+   Every discovered entry is classified via `classifyTrustDomain(path)` (the file path's trust domain applies to all its entries) and runs through the chain audit independently. **Required negative fixture (X.1-X.6 batch-13 finding #3, mandatory)**: `bad-generate-metadata-touches-shows-internal.tsx` — a `crew-session` page file whose `generateMetadata` named export calls `from('shows_internal')` WITHOUT calling `validateLinkSession` first. The audit MUST throw because `generateMetadata` is now a discovered entry and the chain must dominate every reachable sink. Companion fixtures: `bad-loading-touches-protected-table.tsx` (`loading.tsx` default export fetches from `reports`); `bad-not-found-touches-protected-table.tsx` (`not-found.tsx` fetches from `pending_syncs`); `bad-head-tsx-touches-protected-table.tsx` (`head.tsx` reads `shows_internal`); `good-generate-metadata-via-validator.tsx` — `generateMetadata` calls `validateLinkSession` first then `from('shows_internal')` (must NOT throw).
 2. Walk every reachable statement on EVERY control-flow path from the entry. For each protected sink encountered, prove (via dominator analysis on the call graph) that EVERY path from the entry to that sink passes through the required validator chain in the declared order.
 3. Validator calls in unreachable branches (early-returned, conditional-false-only) do NOT count.
 4. Helper functions called from the handler are inlined into the analysis (transitive flow): if `handler() → fetchShow() → from('shows_internal')` and `fetchShow` is defined locally, the audit walks into `fetchShow` rather than treating it as opaque.
 
 - [ ] **Step 1: Author the protected-routes allowlist** with per-route **valid terminal-success paths** (round-49 amendment — replaces the round-48 `anyOf: [linear-A, linear-B]` model that still required ALL THREE validators on each branch). The auth chain has **OR semantics**: success at ANY validator TERMINATES the chain, and subsequent validators do NOT run. The allowlist therefore declares a SET of `ValidPath`s; each is the ordered list of validators that must all be CALLED on that runtime path AND whose LAST entry is the validator that produces terminal success on that path. The audit accepts the actual control-flow if it matches ANY single `ValidPath`: (1) every validator on the path is called, (2) in declared order, (3) the path ends at the last validator's call site as the terminal-success producer, (4) sinks fire AFTER that last validator (sinks before, or paths whose terminating validator differs from the one that actually returned success, are rejected).
   ```ts
-  type ChainStep = 'validateLinkSession' | 'validateGoogleSession' | 'requireAdmin';
+  type ChainStep = 'validateLinkSession' | 'validateGoogleSession' | 'validateGoogleIdentity' | 'requireAdmin';   // M5 batch-12: validateGoogleIdentity is the cross-show identity-only validator used EXCLUSIVELY by `/me` and other no-show-context signed-in surfaces; show-bound surfaces still use validateGoogleSession.
   type ValidPath = ReadonlyArray<ChainStep>;             // ordered list; LAST entry = terminal-success validator on this path
   type ExpectedChain =
     | ValidPath                                          // single valid terminal-success path required
@@ -5336,20 +7883,28 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
   // Backwards-compat alias (round-49): older code references `SingleChain`. New code MUST use ValidPath.
   type SingleChain = ValidPath;
 
-  // crew-session routes accept five terminal-success branches (round-49 amendment). Success at ANY
-  // validator terminates the chain — subsequent validators do NOT run. The audit recognizes the
-  // runtime branch on the SHARED `lib/auth/isAdminSession.ts` predicate (Task 5.7) for B5 — using
-  // the shared helper that Task 5.7's runtime uses keeps the static audit and the executed branch
-  // from diverging (M5 batch-8 finding). For B1..B4 the branch is determined at runtime by validator
-  // return values (success vs continue); the audit checks each enumerated control-flow path against
-  // ANY ValidPath in the set.
+  // crew-session routes accept the following terminal-success branches (M5 batch-9 amendment —
+  // corrects the prior round-49 ordering, which placed `validateLinkSession` BEFORE `isAdminSession`
+  // and silently downgraded admins to crew-mode whenever they ALSO carried a valid redeemed-link
+  // cookie for the same show; see Task 5.7 Step 2 for the corrected runtime ordering). The audit
+  // recognizes the runtime branch on the SHARED `lib/auth/isAdminSession.ts` predicate (Task 5.7).
+  // Success at ANY validator terminates the chain — subsequent validators do NOT run. The audit
+  // checks each enumerated control-flow path against ANY ValidPath in the set.
+  //
+  // Branches:
+  //   B1 — admin-precedence wins: requireAdmin runs FIRST under the `isAdminSession(req) === true`
+  //        guard. Chain stops at requireAdmin; validateLinkSession + validateGoogleSession never run.
+  //   B2 — link wins (admin not detected): isAdminSession returns false, validateLinkSession returns
+  //        success. Chain stops at validateLinkSession; google + admin never run.
+  //   B3 — link continue → google wins.
+  //   B4 — link continue → google continue → admin wins (signed-in user not on crew but admin
+  //        metadata appears later, e.g., session refreshed mid-render). Belt-and-suspenders branch.
   const CREW_SESSION_CHAINS: { anyOf: ReadonlyArray<ValidPath> } = {
     anyOf: [
-      ['validateLinkSession'],                                            // B1: link succeeds → chain stops
-      ['validateLinkSession', 'requireAdmin'],                            // B2: link continue → admin succeeds (admin-on-crew or admin-not-on-crew)
-      ['validateLinkSession', 'validateGoogleSession'],                   // B3: link continue → google succeeds (no admin metadata)
-      ['validateLinkSession', 'validateGoogleSession', 'requireAdmin'],   // B4: link continue → google continue → admin succeeds
-      ['validateLinkSession', 'requireAdmin', 'validateGoogleSession'],   // B5: admin-precedence (isAdminSession(req)) — link continue → admin precedence (returns continue if not admin) → google succeeds
+      ['requireAdmin'],                                                   // B1: admin-precedence — `isAdminSession(req)` true → requireAdmin succeeds → chain stops
+      ['validateLinkSession'],                                            // B2: admin not detected → link succeeds → chain stops
+      ['validateLinkSession', 'validateGoogleSession'],                   // B3: admin not detected → link continue → google succeeds
+      ['validateLinkSession', 'validateGoogleSession', 'requireAdmin'],   // B4: admin not detected initially → link continue → google continue → admin succeeds (rare; covers session-refresh races)
     ],
   };
 
@@ -5357,7 +7912,7 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
     // Crew page — terminal-success branches (round-49; replaces round-48 linear-pair anyOf).
     { path: 'app/show/[slug]/page.tsx',                                  chain: CREW_SESSION_CHAINS },
     // /me — Google session only (signed-in user's own list); no admin path needed.
-    { path: 'app/me/page.tsx',                                           chain: ['validateGoogleSession'] },
+    { path: 'app/me/page.tsx',                                           chain: ['validateGoogleIdentity'] },   // M5 batch-12: cross-show identity-only validator (NOT show-bound validateGoogleSession; see spec §7.2.2 cross-show identity-only validator amendment)
     // Admin surfaces — admin only.
     { path: 'app/admin/page.tsx',                                  chain: ['requireAdmin'] },
     { path: 'app/admin/show/[slug]/page.tsx',                      chain: ['requireAdmin'] },
@@ -5367,7 +7922,7 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
     // inline at `/admin` per Task 10.1's single-inline-route-owner contract. `/admin` is
     // already in this map above and gates with requireAdmin().
     { path: 'app/admin/settings/page.tsx',                         chain: ['requireAdmin'] },
-    // Asset routes — terminal-success branches (round-49; admin allowed for preview via B2/B5).
+    // Asset routes — terminal-success branches (M5 batch-9 / batch-10 Fix 2; admin allowed for preview via B1 admin-precedence; there is NO B5 in the current 4-branch design).
     { path: 'app/api/asset/diagram/[show]/[rev]/[key]/route.ts',         chain: CREW_SESSION_CHAINS },
     { path: 'app/api/asset/reel/[show]/route.ts',                        chain: CREW_SESSION_CHAINS },
     // Report routes — same branching chain (Task 8.3).
@@ -5377,6 +7932,11 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
     { path: 'app/api/admin/staged/[fileId]/apply/route.ts',        chain: ['requireAdmin'] },
     { path: 'app/api/admin/staged/[fileId]/discard/route.ts',      chain: ['requireAdmin'] },
     { path: 'app/api/admin/onboarding/finalize/route.ts',          chain: ['requireAdmin'] },
+    // M11 batch-14 finding 1: Phase D final-CAS endpoint (Task 10.5 step 2 Phase D pseudo-code).
+    { path: 'app/api/admin/onboarding/finalize-cas/route.ts',      chain: ['requireAdmin'] },
+    // M9+M10 batch-15 finding 1: cleanup-abandoned-finalize route owned by Task 10.1 (wraps the
+    // cleanupAbandonedFinalize helper with route-level requireAdmin + sync_audit before/after rows).
+    { path: 'app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts', chain: ['requireAdmin'] },
     // Round-47 amendment: previously-missing onboarding routes (Task 10.3 scan + Task 10.4 hard-fail action endpoints).
     { path: 'app/api/admin/onboarding/scan/route.ts',                                       chain: ['requireAdmin'] },
     { path: 'app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts',              chain: ['requireAdmin'] },
@@ -5397,7 +7957,10 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
     'lib/auth/jwt.ts',
     'lib/auth/validateLinkSession.ts',
     'lib/auth/validateGoogleSession.ts',
+    'lib/auth/validateGoogleIdentity.ts',  // M5 batch-12: cross-show identity-only validator (used by /me, kept distinct from show-bound validateGoogleSession)
     'lib/auth/requireAdmin.ts',
+    'lib/auth/isAdminSession.ts',          // shared admin-precedence predicate (Task 5.7 / X.3)
+    'lib/auth/cookies.ts',                 // shared __Host-fxav_session set/clear helper (M5 batch-9 finding)
     'lib/auth/constants.ts',
     'app/api/auth/redeem-link/route.ts',   // mints the session — must touch primitives
     'middleware.ts',                       // ?t= compromise handler — service-role
@@ -5410,33 +7973,196 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
   const BANNED_OUTSIDE_AUTH_LIB = [
     'link_sessions',          // direct DB access bypassing the validator
     'crew_member_auth',       // direct auth-state read
-    '__Host-fxav_session',    // direct cookie read bypassing the validator
+    /^__Host-fxav_session$/,    // M5 batch-13: REVERTED to literal-only — per-show NAMING is retired because browsers index cookies by `(domain, path)` not by name, so per-show suffix delivered zero isolation while making the Cookie header grow linearly. Direct cookie read bypasses the validator.
     'verifyLinkJwt',          // raw JWT verify outside the validator
     'revoked_links',          // direct revocation-state read
   ];
   // Comprehensive protected-data sinks (ANY of these called before the chain completes is a violation).
   // Final-validation finding: earlier draft only had 4 sinks (shows_internal / reports / createServiceClient /
   // getShowForViewer). That left every other protected DB table, Storage client, and Drive client unguarded.
+  //
+  // **Batch-9 amendment: PROTECTED_SINKS table list is GENERATED from spec §4.3 admin-only list at
+  // build time, not hand-rolled.** A small build-time script (`scripts/extract-protected-sinks.ts`)
+  // parses the spec's §4.3 bullets to extract the admin-only table set and emits a generated module
+  // the audit imports. The generator output — NOT a hand-rolled count in this comment — is the
+  // canonical sink list; future schema additions auto-update PROTECTED_SINKS without regex drift.
+  // **Batch-11 amendment: hardcoded count language removed.** The earlier comment said "currently
+  // 14 tables" and enumerated the §4.3 admin-only set. That stale count became wrong when round-48
+  // added `onboarding_scan_manifest` (15) and again when M5 batch-10 added `bootstrap_nonces` (16).
+  // The canonical list is now ALWAYS read from the build-time-generated reference (`scripts/
+  // extract-protected-sinks.ts` parsing §4.3) — the comment no longer hardcodes a count or
+  // enumeration. Crew-readable tables are also included as protected sinks: `shows`,
+  // `shows_internal`, `crew_members`, `hotel_reservations`, `rooms`, `transportation`, `contacts`.
+  // The literal regex list below is the bootstrap set the generator's output is checked against;
+  // CI fails if the generator's parsed §4.3 set disagrees with this list (pre-generation safety
+  // net). Paired with the M2 batch-11 / M2 batch-13 findings that grew AC-2.5 to 17 tables: spec §4.3 already
+  // lists `bootstrap_nonces`; AC-2.5 (M2 owner) and PROTECTED_SINKS (this audit) both grow
+  // automatically because they read §4.3 as the single source of truth. Round-48 added
+  // `onboarding_scan_manifest` to §4.3 but the plan's regex list missed it; M5 batch-10 added
+  // `bootstrap_nonces` to §4.3 but the plan's regex list missed it. Generation (driven by §4.3
+  // parsing) closes both bug classes uniformly.
+  // **M2 batch-13 propagation: PROTECTED_SINKS regexes are now BUILD-GENERATED from Task 2.3's
+  // ADMIN_TABLES registry, not hand-maintained inline.** The earlier hand-maintained list drifted
+  // three times: round-48 added `onboarding_scan_manifest` to §4.3 but missed it here; M5 batch-10
+  // added `bootstrap_nonces` to §4.3 but missed it here; M5 batch-10 admin-only enumeration
+  // already named `crew_member_auth` and `link_sessions` but those NEVER landed in this regex list
+  // either (silent gap). M7 batch-12 added `pending_snapshot_uploads` to §4.3 — the same drift
+  // would happen if this list were still hand-rolled. **X.1-X.6 batch-13 finding #2: prior
+  // wording used `<task-2.3>/admin-tables.ts` as a placeholder import path with no concrete
+  // build-script step or emitted-file path; that left every "PROTECTED_SINKS sample" comment
+  // (and any prose enumeration of admin tables) as a hand-maintained drift surface — the
+  // round-48-era sample illustrated only ~14 of the 17 tables, silently omitting
+  // `crew_member_auth`, `link_sessions`, and `pending_snapshot_uploads`. The corrected design
+  // specifies the exact generation file paths, build-script step, and diff-or-fail contract.**
+  //
+  // **Generation contract (X.1-X.6 batch-13 finding #2 + M2 batch-14 finding 3 + X.1-X.6
+  // batch-15 finding 2 amendments):**
+  //   1. Build script `scripts/generate-admin-tables.ts` parses spec §4.3's admin-only bullet
+  //      list at build time. **X.1-X.6 batch-15 finding 2: generation MUST be a HARD prerequisite
+  //      of every TS entrypoint**, not just `prebuild` + Vitest setup. The earlier wording left
+  //      `tsc --noEmit` (manual run, IDE/editor language server, the `pnpm typecheck` script,
+  //      and `pnpm lint`) free to consume a stale generated file because none of those entry
+  //      points fire `prebuild`. A spec edit to §4.3 with a forgotten `pnpm gen:admin-tables`
+  //      run could therefore typecheck green locally and only fail at `pnpm build` — far too
+  //      late. The corrected wiring runs `gen:admin-tables` automatically before EVERY entry
+  //      point that consumes the generated module:
+  //      (a) Add explicit `gen:admin-tables` script to `package.json`'s `scripts` block:
+  //          `"gen:admin-tables": "tsx scripts/generate-admin-tables.ts"`.
+  //      (b) Wire `pretypecheck`, `prelint`, `pretest`, `prebuild` ALL to `gen:admin-tables`.
+  //          npm/pnpm/yarn run `pre<script>` automatically before `<script>` — so a developer
+  //          running `pnpm typecheck` or `pnpm lint` or `pnpm test` ALWAYS regenerates first.
+  //          The generated file is then committed to Git (point (c) below) — local writes are
+  //          a no-op when §4.3 hasn't changed because the script writes only on diff.
+  //      (c) Commit the generated file to Git as `lib/audit/admin-tables.generated.ts` with
+  //          a `// @generated` header on line 1 so ESLint's overrides config can match the
+  //          file glob and skip lint rules that fight machine output (no-multi-spaces,
+  //          import-order, etc.). Add `lib/audit/admin-tables.generated.ts` to the project's
+  //          `eslint.config.js` (or `.eslintrc.json`) `overrides` array with `rules: {}` to
+  //          silence rule violations on the generated file. Do NOT add it to `.gitignore` —
+  //          committing it is the entire point of the "committed source of truth + diff-on-CI"
+  //          contract; CI cannot run a freshness check against an ignored file.
+  //      (d) Add a CI step BEFORE every job in `.github/workflows/x-audits.yml` (and any
+  //          other workflow that runs `pnpm typecheck`/`pnpm lint`/`pnpm test`/`pnpm build`):
+  //          ```yaml
+  //          - run: pnpm gen:admin-tables
+  //          - run: git diff --exit-code lib/audit/admin-tables.generated.ts
+  //          ```
+  //          The first command regenerates from the spec; the second fails the workflow if
+  //          the regeneration produced any diff against the committed file. A PR that edits
+  //          §4.3 without running `pnpm gen:admin-tables` locally will fail this gate with a
+  //          named diff — surfaced BEFORE typecheck/lint/test consume the stale module.
+  //      **Standalone `tsc --noEmit` / editor / typecheck MUST also see fresh generated file
+  //      because `pretypecheck` runs first** — the `pre<script>` hook fires for `pnpm typecheck`
+  //      and `pnpm lint` and `pnpm test` regardless of how invoked (CLI, IDE task runner, CI).
+  //      The single uncovered path is direct `tsc --noEmit` invocation that bypasses the
+  //      `package.json` script — the X.6 traceability-audit Step 2 asserts the project's CI
+  //      and pre-commit hook (if present) ALWAYS go through `pnpm typecheck`, NEVER raw `tsc`.
+  //      Emits `lib/audit/admin-tables.generated.ts`
+  //      containing a **PLAIN STRING ARRAY** (NOT objects with `.name` keys; M2 batch-14 finding 3
+  //      — earlier example mixed shapes, causing the consumer regex builder to do `t.name` against
+  //      plain strings and either typecheck-fail OR silently produce `RegExp("undefined")` patterns):
+  //      ```ts
+  //      // AUTO-GENERATED — do not edit. Run `pnpm gen:admin-tables` to regenerate.
+  //      // Source: docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md §4.3 admin-only.
+  //      // Count: 19 tables as of M11 batch-14 finding 1 (wizard_finalize_checkpoints added).
+  //      export const ADMIN_TABLES: readonly string[] = [
+  //        'shows_internal',
+  //        'sync_log',
+  //        'reports',
+  //        'pending_syncs',
+  //        'pending_ingestions',
+  //        'crew_member_auth',
+  //        'revoked_links',
+  //        'link_sessions',
+  //        'bootstrap_nonces',
+  //        'app_settings',
+  //        'deferred_ingestions',
+  //        'admin_alerts',
+  //        'sync_audit',
+  //        'drive_watch_channels',
+  //        'report_rate_limits',
+  //        'onboarding_scan_manifest',
+  //        'pending_snapshot_uploads',
+  //        'revision_race_cooldowns',          // M3+M4 batch-13 finding 4 — 18th admin-only table
+  //        'wizard_finalize_checkpoints',      // M11 batch-14 finding 1 — 19th admin-only table
+  //      ] as const;
+  //      ```
+  //   2. The X.3 audit, AC-2.5's harness in Task 2.3, and every other consumer import this
+  //      single file (NOT a hand-rolled list); the regex builder consumes the strings DIRECTLY
+  //      (the array elements ARE the table-name strings — NEVER `t.name`). Backticks also match
+  //      template-literal-quoted table names (`from(\`shows_internal\`)`):
+  //      ```ts
+  //      import { ADMIN_TABLES } from '@/lib/audit/admin-tables.generated';
+  //      const ADMIN_FROM_REGEXES = ADMIN_TABLES.map(t =>
+  //        new RegExp(`\\.from\\(['"\`]${t}['"\`]\\)`)
+  //      );
+  //      ```
+  //      The AC-2.5 `ADMIN_TABLES` registry in Task 2.3 (the test-side `AdminTableSpec[]`) is
+  //      a SEPARATE structure — it carries `name`/`pk`/`seed`/`validInsert`/`validUpdate` per
+  //      entry — but its `name` field MUST come from the generated string list (a parity check
+  //      asserts every Task-2.3 registry entry's `name` is a member of the generated string
+  //      array, and every generated string has exactly one Task-2.3 registry entry).
+  //   3. **Diff-or-fail step (X.1-X.6 batch-15 finding 2 amendment)**: every CI job in
+  //      `.github/workflows/x-audits.yml` (and any other workflow that runs `pnpm typecheck`,
+  //      `pnpm lint`, `pnpm test`, or `pnpm build`) MUST include the two-step pre-job freshness
+  //      check enumerated in point 1(d) above:
+  //      `- run: pnpm gen:admin-tables` then `- run: git diff --exit-code lib/audit/admin-tables.generated.ts`.
+  //      The first command regenerates from the live spec; the second fails the workflow if
+  //      the regeneration produced any diff against the committed file. The diff line emits
+  //      `+missing_in_generated:<name>` / `-extra_in_generated:<name>` when the spec and the
+  //      committed module disagree on table membership — surfacing the staleness BEFORE the
+  //      job's typecheck/lint/test step consumes the stale module. **Every job step that
+  //      could execute TS code touching `ADMIN_TABLES` MUST be preceded by this two-step
+  //      check** — the new `verify-branch-protection` job is exempted only because it does
+  //      not import the generated file.
+  //   4. **Sweep mandate**: every other hand-maintained inline enumeration of admin tables
+  //      anywhere in this plan or in implementation code (`ADMIN_BOOTSTRAP_NAMES` reference
+  //      list below; AC-2.5's `ADMIN_TABLES` registry in Task 2.3; any future "admin only:"
+  //      prose enumeration) MUST import from `lib/audit/admin-tables.generated.ts`. The
+  //      `traceability-audit` CI check (Task X.6 Step 3) additionally fails if ANY plan section
+  //      enumerates admin tables in prose and disagrees with the generated file by name or
+  //      count.
+  //
+  // The CREW_READABLE_FROM_REGEXES list (`shows`, `crew_members`, `hotel_reservations`, `rooms`,
+  // `transportation`, `contacts`) is the small fixed addition for crew-readable tables that ALSO
+  // need protection (because they leak per-show identity even though RLS allows crew SELECT —
+  // the chain audit must prove auth ran first so the right show's row is what gets fetched).
+  // CI fails (Task X.6 parity gate, line ~8019) if Task 2.3's ADMIN_TABLES count/identity
+  // disagrees with the spec §4.3 admin-only bullet list parsed at build time.
+  // M2 batch-14 finding 3: ADMIN_TABLES is a `readonly string[]` (plain strings, NOT objects
+  // with `.name`), so the regex builder consumes `t` directly. Backticks also match
+  // template-literal-quoted table names (`from(\`shows_internal\`)`). Earlier draft was
+  // `${t.name}` which silently produced RegExp("undefined") patterns — typecheck would catch
+  // it now that the generated module uses an explicit `readonly string[]` type.
+  const ADMIN_FROM_REGEXES = ADMIN_TABLES.map(t => new RegExp(`\\.from\\(['"\`]${t}['"\`]\\)`));
+  // Bootstrap reference list — the canonical 19-table set as of M11 batch-14 finding 1
+  // (wizard_finalize_checkpoints added on top of revision_race_cooldowns from M3+M4 batch-13
+  // finding 4; M2 batch-14 finding 3 propagation). CI cross-checks ADMIN_TABLES against this
+  // list AND against spec §4.3; any drift fails the audit.
+  const ADMIN_BOOTSTRAP_NAMES = [
+    'shows_internal', 'sync_log', 'reports', 'pending_syncs', 'pending_ingestions',
+    'crew_member_auth', 'revoked_links', 'link_sessions', 'bootstrap_nonces', 'app_settings',
+    'deferred_ingestions', 'admin_alerts', 'sync_audit', 'drive_watch_channels',
+    'report_rate_limits', 'onboarding_scan_manifest', 'pending_snapshot_uploads',
+    'revision_race_cooldowns', 'wizard_finalize_checkpoints',
+  ] as const;
   const PROTECTED_SINKS = [
-    // DB tables (every table in §4.3 admin-only list + every crew-readable table — no anonymous read allowed):
+    // DB tables — auto-generated from Task 2.3 ADMIN_TABLES registry (spec §4.3 admin-only list,
+    // 19 tables: shows_internal, sync_log, reports, pending_syncs, pending_ingestions,
+    // crew_member_auth, revoked_links, link_sessions, bootstrap_nonces, app_settings,
+    // deferred_ingestions, admin_alerts, sync_audit, drive_watch_channels, report_rate_limits,
+    // onboarding_scan_manifest, pending_snapshot_uploads, revision_race_cooldowns,
+    // wizard_finalize_checkpoints):
+    ...ADMIN_FROM_REGEXES,
+    // Crew-readable tables — small fixed list, NOT generated from §4.3 (these are the §4.3
+    // crew-readable bullets; the chain audit must still prove auth ran first so RLS scopes the
+    // SELECT to the right show).
     /\.from\(['"]shows['"]\)/,
-    /\.from\(['"]shows_internal['"]\)/,
     /\.from\(['"]crew_members['"]\)/,
     /\.from\(['"]hotel_reservations['"]\)/,
     /\.from\(['"]rooms['"]\)/,
     /\.from\(['"]transportation['"]\)/,
     /\.from\(['"]contacts['"]\)/,
-    /\.from\(['"]reports['"]\)/,
-    /\.from\(['"]pending_syncs['"]\)/,
-    /\.from\(['"]pending_ingestions['"]\)/,
-    /\.from\(['"]admin_alerts['"]\)/,
-    /\.from\(['"]sync_log['"]\)/,
-    /\.from\(['"]sync_audit['"]\)/,
-    /\.from\(['"]app_settings['"]\)/,
-    /\.from\(['"]drive_watch_channels['"]\)/,
-    /\.from\(['"]deferred_ingestions['"]\)/,
-    /\.from\(['"]revoked_links['"]\)/,
-    /\.from\(['"]report_rate_limits['"]\)/,
     // Service-role + storage + Drive clients:
     /createServiceClient\b/,
     /getServiceRoleClient\b/,
@@ -5446,6 +8172,291 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
     // Role-aware data fetcher (its own validators must have run upstream).
     /getShowForViewer\b/,
   ];
+
+  // **RPC sinks — protected-by-default (batch-9 amendment).** Every `supabase.rpc(<name>, ...)` call
+  // is a sink unless `<name>` is explicitly allowlisted. SECURITY DEFINER functions can read any
+  // table at service-role privilege; treating RPCs as opaque "not a `from()`" calls left every
+  // SECURITY DEFINER helper unguarded. `RPC_ALLOWLIST` starts EMPTY — adding an entry requires a
+  // reviewed return-shape contract documenting why the RPC is safe to call before auth. The
+  // cookie-mint RPC inside `app/api/auth/redeem-link/route.ts` remains exempt via the file-level
+  // `AUTH_LIB_ALLOWLIST`, NOT via `RPC_ALLOWLIST`. Audit treats `client.rpc('<name>', ...)`,
+  // `supabase.rpc('<name>', ...)`, and named imports of RPC wrappers as protected sinks unless the
+  // literal `<name>` is in `RPC_ALLOWLIST`. Non-literal RPC names (e.g., `rpc(varName)`) are ALWAYS
+  // sinks — the audit cannot statically prove safety.
+  const RPC_ALLOWLIST: ReadonlyArray<string> = [
+    // Initially empty. Entries require a reviewed return-shape contract. Format example:
+    //   { name: 'rpcFoo', reason: 'pure utility — reads no protected rows', return_shape: '...' }
+  ];
+  function isProtectedRpcCall(node: Node): boolean {
+    if (!Node.isCallExpression(node)) return false;
+    const expr = node.getExpression();
+    if (!Node.isPropertyAccessExpression(expr)) return false;
+    if (expr.getName() !== 'rpc') return false;
+    const args = node.getArguments();
+    if (args.length === 0) return true;                       // rpc() with no args — anomalous; treat as sink
+    const first = args[0];
+    if (Node.isStringLiteral(first) || Node.isNoSubstitutionTemplateLiteral(first)) {
+      const name = (first as any).getLiteralValue
+        ? (first as any).getLiteralValue()
+        : (first as any).getLiteralText();
+      return !RPC_ALLOWLIST.includes(name);                   // not allowlisted → sink
+    }
+    return true;                                              // dynamic name → conservatively a sink
+  }
+  // findProtectedSinks(callGraph, PROTECTED_SINKS) is extended to ALSO classify any node for which
+  // isProtectedRpcCall(node) returns true as a sink. The chain audit treats RPC sinks identically
+  // to table/Storage/Drive sinks — they must fire AFTER the terminal validator's success on every
+  // control-flow path.
+
+  // **`.from(<arg>)` sinks — AST-aware, protected-by-default for non-literal arguments
+  // (X.1-X.6 batch-12 finding #2).** The string-literal `PROTECTED_SINKS` regex list above only
+  // matches `from('shows_internal')`, `from('bootstrap_nonces')`, etc. — call sites where the
+  // table name is a JS string literal. A non-literal argument (`from(tableName)` where `tableName`
+  // is a parameter, or `` from(`${expr}`) `` with a substitution template) bypasses every regex
+  // and would silently allow a route to touch a protected table BEFORE auth completes. An
+  // attacker (or a refactor) could intentionally write `.from(req.query.table)` and bypass the
+  // entire admin-table allowlist. The audit therefore treats EVERY `.from(<non-literal>)` call as
+  // a protected sink unless the call site is explicitly listed in `DYNAMIC_FROM_ALLOWLIST` with a
+  // reviewed justification. Mirrors the `.rpc(<dynamic-name>)` rule in isProtectedRpcCall above.
+  // **X.1-X.6 batch-13 finding #4 amendment — call-site-scoped fingerprint, NOT file-scoped.**
+  // Earlier wording keyed entries on `{ file, reason }` and exempted via `filePath.endsWith(e.file)`.
+  // That made allowlisting transitive: ONE legitimate dynamic-from in `lib/auth/internal/some-
+  // resolver.ts` blessed every FUTURE dynamic `.from()` added to the same file forever. A refactor
+  // that introduced a SECOND, unrelated dynamic-from in that file would silently pass the audit,
+  // bypassing the admin-only allowlist on the second site. The corrected design fingerprints the
+  // EXACT call-site AST node so each call site requires its own allowlist entry; adding a new
+  // dynamic .from in the same file requires reviewing and listing that NEW entry — the existing
+  // entry's exemption does NOT extend to it.
+  //
+  // **X.1-X.6 batch-15 finding 3 amendment — semantic identity via enclosing_symbol, NOT
+  // (line, columnRange).** The batch-13 design keyed entries on `(file, line, columnRange,
+  // fingerprint, reason)`. That made entry identity FRAGILE under any change to the file ABOVE
+  // the call site: adding an import, inserting a new helper 200 lines earlier, or running a
+  // formatter that wraps lines differently shifts `line` and `columnRange` even though the call
+  // site itself is unchanged. Reviewers would see "stale entry" CI failures on PRs that did NOT
+  // touch the allowlisted call — eroding trust in the gate and pressuring the team to either
+  // disable it or rubber-stamp every "stale" claim. The corrected design replaces `(file, line,
+  // columnRange)` with `(file, enclosing_symbol, fingerprint)`:
+  //   - `enclosing_symbol` is the qualified name of the function/method/class lexically
+  //     containing the call expression — e.g., `lib/data/showRouter.tsx::resolveTableName` for
+  //     a module-level function, `lib/auth/internal/some-resolver.ts::SomeClass.lookup` for a
+  //     class method, `lib/foo.ts::default` for the default-exported anonymous function, or
+  //     `lib/foo.ts::<module>` for top-level program scope. Resolved via ts-morph: walk
+  //     `node.getParent()` until hitting FunctionDeclaration / FunctionExpression /
+  //     ArrowFunction / MethodDeclaration / GetAccessor / SetAccessor / ClassDeclaration; emit
+  //     `<repo-relative-file>::<class>.<method>` (or `<file>::<fn>`, `<file>::default`,
+  //     `<file>::<module>`).
+  //   - `fingerprint` is the SHA-256 of the call-site's normalized AST text (unchanged from
+  //     batch-13). Cosmetic reformatting does NOT change the fingerprint; argument-list edits DO.
+  //   - The match key is `(file, enclosing_symbol, fingerprint)`. `line` and `columnRange` are
+  //     RETAINED on the entry as ADVISORY metadata for diagnostics (audit failure messages
+  //     print "<file>:<line>" so reviewers can find the call quickly), but they are NOT part of
+  //     the identity used for matching. Reformatting that shifts line/column but does not alter
+  //     the enclosing symbol or the call's normalized text passes — no false-stale failures.
+  //
+  // **Ambiguity disambiguator (batch-15 finding 3):** when two `.from(<dynamic>)` calls live in
+  // the SAME enclosing symbol with the SAME normalized fingerprint (rare but possible — e.g.,
+  // two retries of the same call in different branches of one function), the allowlist entry
+  // MUST include `occurrence_index: 0 | 1 | 2 | ...` specifying which 0-indexed occurrence (in
+  // source order, top-to-bottom) the entry covers. The audit walks the enclosing symbol's body
+  // in source order, counts occurrences with a matching `(file, enclosing_symbol, fingerprint)`,
+  // and matches the n-th occurrence against the entry whose `occurrence_index` equals n. An
+  // ambiguous match (multiple occurrences but no `occurrence_index` provided) fails the audit
+  // with `DYNAMIC_FROM_AMBIGUOUS_ALLOWLIST` naming the file and enclosing symbol; the operator
+  // must add `occurrence_index` to the entry. For singleton matches, `occurrence_index` is
+  // optional and defaults to `0` — most entries omit it.
+  //
+  // **Fingerprint stability test (batch-15 finding 3, MANDATORY):** `tests/cross-cutting/auth.test.ts`
+  // includes a stability test that pretty-prints the SAME source file under multiple formatter
+  // configs (single-quote vs double-quote, semicolons-on vs semicolons-off, 2-space vs 4-space
+  // indent) and asserts `fingerprintCallSite()` returns the SAME hash for the same logical call
+  // expression across all formatter outputs. Test fixture `fingerprint-stability/` contains the
+  // same `.from(tableName)` call rendered three ways; the test loads each, fingerprints the
+  // call site, and asserts equality. A future regression that lets formatter cosmetics leak
+  // into the fingerprint surfaces as a failed test, NOT a flood of false-stale CI failures.
+  type DynamicFromAllowEntry = {
+    file: string;                  // repo-relative path (matched via endsWith)
+    enclosing_symbol: string;      // qualified `<file>::<symbol>` of the lexically enclosing function/method/class (batch-15 finding 3 — replaces line/columnRange in the identity tuple)
+    fingerprint: string;           // SHA-256 of the AST node text (the .from(...) call expression source,
+                                   // trimmed and normalized — leading/trailing whitespace stripped, runs
+                                   // of internal whitespace collapsed to a single space). Recomputed on
+                                   // every audit run from the live AST node; mismatch => stale entry.
+    occurrence_index?: number;     // 0-indexed nth occurrence within the enclosing symbol when the same fingerprint appears multiple times (batch-15 finding 3); optional for singleton occurrences (defaults to 0)
+    reason: string;                // human-readable reviewed justification + reviewer date
+    // ADVISORY-ONLY metadata (NOT part of the match key — present so failure diagnostics can
+    // print "<file>:<line>" without re-walking the AST; line/column WILL drift under formatter
+    // / above-the-call edits and that is fine because they are not consulted during match):
+    line_advisory?: number;             // 1-indexed source line at last entry-write (diagnostic-only)
+    column_advisory?: [number, number]; // 0-indexed [start, end) column range at last entry-write (diagnostic-only)
+  };
+  const DYNAMIC_FROM_ALLOWLIST: ReadonlyArray<DynamicFromAllowEntry> = [
+    // Initially EMPTY. Format example:
+    //   {
+    //     file: 'lib/auth/internal/some-resolver.ts',
+    //     enclosing_symbol: 'lib/auth/internal/some-resolver.ts::SomeClass.lookup',
+    //     fingerprint: 'sha256-…',
+    //     // occurrence_index omitted because the fingerprint appears only once in the symbol
+    //     reason: 'table name comes from a static enum literal map; resolver is auth-library-
+    //              internal and never reaches user-facing routes; reviewed by Eric on YYYY-MM-DD.',
+    //     line_advisory: 47,                  // diagnostic-only — drifts under formatter edits
+    //     column_advisory: [12, 56],          // diagnostic-only — drifts under formatter edits
+    //   }
+  ];
+  function fingerprintCallSite(node: Node): string {
+    // Normalize: trim, collapse internal whitespace runs to a single space. SHA-256 the result.
+    // Stable across cosmetic reformat (indentation, line breaks within the call) but breaks on
+    // argument changes — editing the call's argument list invalidates the entry and forces
+    // re-review. Audit imports `import { createHash } from 'node:crypto'` at the top of the file.
+    const raw = node.getText();
+    const normalized = raw.trim().replace(/\s+/g, ' ');
+    return 'sha256-' + createHash('sha256').update(normalized).digest('hex');
+  }
+  function getEnclosingSymbol(node: Node): string {
+    // X.1-X.6 batch-15 finding 3: walk upward through the AST to find the nearest
+    // FunctionDeclaration / FunctionExpression / ArrowFunction / MethodDeclaration / GetAccessor
+    // / SetAccessor / ClassDeclaration that lexically contains `node`. Compose
+    // `<repo-relative-file>::<symbol>` where <symbol> is:
+    //   - For a named FunctionDeclaration: the function name.
+    //   - For a MethodDeclaration / GetAccessor / SetAccessor: `<ClassName>.<methodName>` (or
+    //     `<ClassName>.[get|set]<accessorName>`).
+    //   - For an ArrowFunction / FunctionExpression assigned to a const/let/var: the binding name.
+    //   - For a default export of an anonymous function: `default`.
+    //   - For top-level module scope (no enclosing function): `<module>`.
+    // ts-morph: walk `node.getParent()` until matching one of the kinds above; for class methods,
+    // also walk up to the ClassDeclaration to compose the class-qualified name. The repo-relative
+    // file path strips the project root prefix and uses forward slashes on all platforms
+    // (`path.relative(repoRoot, sf.getFilePath()).replaceAll('\\', '/')`).
+    return composeQualifiedSymbol(node);
+  }
+  function isProtectedFromCall(node: Node): boolean {
+    if (!Node.isCallExpression(node)) return false;
+    const expr = node.getExpression();
+    if (!Node.isPropertyAccessExpression(expr)) return false;
+    if (expr.getName() !== 'from') return false;                  // not a .from(...) sink
+    const args = node.getArguments();
+    if (args.length === 0) return true;                           // from() with no args — anomalous; treat as sink
+    const first = args[0];
+    // String-literal table names go through the existing PROTECTED_SINKS regex list — leave them
+    // to that path so the static admin-only check still emits its specific error message. Here we
+    // are policing the dynamic-from gap.
+    if (Node.isStringLiteral(first) || Node.isNoSubstitutionTemplateLiteral(first)) {
+      return false;                                                // string literal: handled by PROTECTED_SINKS regex elsewhere
+    }
+    // Any non-literal argument (Identifier, PropertyAccessExpression, TemplateExpression with
+    // substitutions, conditional expression, call expression, `as any` escape, etc.) is a dynamic-
+    // from sink unless THIS SPECIFIC call site is allowlisted by `(file, enclosing_symbol,
+    // fingerprint)` semantic identity (X.1-X.6 batch-13 finding #4: file-scoped allowlisting was
+    // transitive — fingerprint isolates each site; X.1-X.6 batch-15 finding 3: replaced
+    // line/columnRange with enclosing_symbol so harmless formatter / above-the-call edits do
+    // not invalidate reviewed entries).
+    const sf = node.getSourceFile();
+    const filePath = sf.getFilePath();
+    const enclosingSymbol = getEnclosingSymbol(node);
+    const fingerprint = fingerprintCallSite(node);
+    // Find every entry whose (file, enclosing_symbol, fingerprint) matches.
+    const candidates = DYNAMIC_FROM_ALLOWLIST.filter(e =>
+      filePath.endsWith(e.file) &&
+      e.enclosing_symbol === enclosingSymbol &&
+      e.fingerprint === fingerprint
+    );
+    if (candidates.length === 0) return true;                      // no match → sink (audit must throw)
+    if (candidates.length === 1 && candidates[0].occurrence_index === undefined) {
+      // Singleton entry without disambiguator: only valid if THIS call site is the sole
+      // occurrence of (enclosing_symbol, fingerprint) in the file. If multiple occurrences share
+      // the same enclosing symbol AND fingerprint and the entry omits `occurrence_index`, the
+      // entry is AMBIGUOUS — fail with DYNAMIC_FROM_AMBIGUOUS_ALLOWLIST.
+      const allOccurrences = collectFromCallsInSymbol(sf, enclosingSymbol).filter(n =>
+        fingerprintCallSite(n) === fingerprint
+      );
+      if (allOccurrences.length > 1) {
+        throw new Error(`DYNAMIC_FROM_AMBIGUOUS_ALLOWLIST at ${filePath}::${enclosingSymbol} — ${allOccurrences.length} occurrences with fingerprint ${fingerprint} but allowlist entry omits occurrence_index`);
+      }
+      return false;                                                // singleton match → exempt
+    }
+    // Disambiguator path: at least one entry has `occurrence_index`. Compute THIS node's
+    // 0-indexed occurrence within (enclosing_symbol, fingerprint) and find the matching entry.
+    const occurrencesInSymbol = collectFromCallsInSymbol(sf, enclosingSymbol).filter(n =>
+      fingerprintCallSite(n) === fingerprint
+    );
+    const nodeIndex = occurrencesInSymbol.findIndex(n => n.getStart() === node.getStart());
+    const matched = candidates.find(e => (e.occurrence_index ?? 0) === nodeIndex);
+    return !matched;
+  }
+  // findProtectedSinks is ALSO extended to classify any node for which isProtectedFromCall(node)
+  // returns true as a protected sink. Audit emit message:
+  //   `AC-X.3 violation: dynamic .from(<arg>) sink at <file>:<line> — non-literal table-name
+  //    argument bypasses the static admin-only allowlist. Either (a) refactor the call site to
+  //    use a string literal so PROTECTED_SINKS can audit it, or (b) add an entry to
+  //    DYNAMIC_FROM_ALLOWLIST with reviewed justification.`
+  //
+  // **Required negative fixture (X.1-X.6 batch-12, mandatory):**
+  // - `bad-dynamic-from-bypass.tsx`: a route file outside AUTH_LIB_ALLOWLIST whose handler does
+  //   `const tableName = req.query.table; await supabase.from(tableName).select('*');` (the
+  //   classic dynamic-from bypass pattern — `tableName` is a parameter, NOT a string literal).
+  //   The audit MUST throw because (a) the call site is outside DYNAMIC_FROM_ALLOWLIST and (b)
+  //   `from()`'s argument is non-literal. A bug-class regression: prior to batch-12 this fixture
+  //   would silently pass because every PROTECTED_SINKS regex requires a quoted table name and
+  //   `from(tableName)` matches none of them.
+  // - Companion `bad-template-from-bypass.tsx`: same bug class via a template literal with a
+  //   substitution: `` await supabase.from(`${prefix}_${suffix}`).select('*') `` — must also throw.
+  // - Companion `good-from-string-literal.tsx`: a route doing `from('shows')` (string literal) —
+  //   must NOT throw the dynamic-from rule because the literal goes through PROTECTED_SINKS
+  //   regex (separate audit path; the auth chain still gates the call).
+  // - **Required negative fixture (X.1-X.6 batch-13 finding #4, mandatory):**
+  //   `bad-second-dynamic-from-in-allowlisted-file.fixture` — a file whose path is `lib/auth/
+  //   internal/some-resolver.ts` (i.e., the SAME file allowlisted in `DYNAMIC_FROM_ALLOWLIST`
+  //   for an EXISTING dynamic .from in `SomeClass.lookup`). The file contains a SECOND, NEW
+  //   dynamic `.from(otherTable)` in a DIFFERENT enclosing symbol (e.g., a new top-level helper
+  //   `resolveSecondaryTable`) than the existing allowlist entry. The audit MUST throw because
+  //   the new call site's `(file, enclosing_symbol, fingerprint)` does not match any allowlist
+  //   entry — even though the file path does. This directly tests the file-scoped-vs-symbol-
+  //   scoped distinction: a file-scoped allowlist would silently bless the new site (the
+  //   round-48 wording's bug); the corrected semantic-identity contract rejects it. Companion
+  //   fixture `good-allowlisted-call-site-unchanged.fixture`: the SAME file with ONLY the
+  //   existing allowlisted call site (no new dynamic-from added) — must NOT throw.
+  //
+  // - **Required positive fixture (X.1-X.6 batch-15 finding 3, MANDATORY): formatter-edit
+  //   tolerance.** `good-allowlisted-call-site-after-formatter.fixture` — the SAME allowlisted
+  //   call site as `good-allowlisted-call-site-unchanged.fixture`, but with 50 import lines
+  //   inserted at the top of the file AND with the call expression's argument list reformatted
+  //   onto multiple lines (preserved fingerprint via whitespace normalization). `line` and
+  //   `columnRange` of the call site shift — but `enclosing_symbol` is unchanged AND
+  //   `fingerprint` is unchanged. The audit MUST NOT throw. This directly tests batch-15
+  //   finding 3's "no false-stale failures under formatter edits" promise. Companion negative
+  //   fixture `bad-allowlisted-argument-changed.fixture` — same allowlisted site but the
+  //   argument list is edited (`.from(tableName)` → `.from(tableName + suffix)`); fingerprint
+  //   changes; entry is now stale. The audit MUST throw — argument-list changes invalidate the
+  //   reviewed exemption.
+  //
+  // - **Required ambiguity fixture (X.1-X.6 batch-15 finding 3, MANDATORY).**
+  //   `bad-ambiguous-from-without-occurrence-index.fixture` — a file with TWO `.from(tableName)`
+  //   calls in the SAME enclosing symbol (`SomeClass.retryLookup`), with the SAME normalized
+  //   fingerprint (e.g., one in the try-block, one in the catch-block retry path). Allowlist
+  //   contains one entry for this `(file, enclosing_symbol, fingerprint)` tuple WITHOUT
+  //   `occurrence_index`. The audit MUST throw `DYNAMIC_FROM_AMBIGUOUS_ALLOWLIST` naming the
+  //   file and enclosing symbol. Companion positive fixture
+  //   `good-ambiguous-from-with-explicit-occurrence-index.fixture` — same file, but the
+  //   allowlist entry adds `occurrence_index: 1` (covering only the catch-block retry); a
+  //   second entry covers `occurrence_index: 0` (the try-block). The audit MUST NOT throw, and
+  //   each occurrence must match exactly one entry.
+  //
+  // - **Required fingerprint stability test (X.1-X.6 batch-15 finding 3, MANDATORY) — added
+  //   to Step 1 test list (see Step 1 below).** Fixture directory `fingerprint-stability/`
+  //   contains three sibling files `singleq.ts`, `doubleq.ts`, `tabs4.ts` — all three render
+  //   the SAME logical `.from(tableName)` call inside the SAME enclosing symbol but with
+  //   different formatter outputs (single-quote string literals + 2-space indent + semicolons;
+  //   double-quote + 2-space + no-semicolons; double-quote + 4-space + semicolons). The test
+  //   loads each, finds the `.from(...)` CallExpression, fingerprints it, and asserts all three
+  //   fingerprints are bit-equal. A future regression (e.g., a non-whitespace-normalizing
+  //   change to `fingerprintCallSite`) fails this test instead of producing a flood of CI
+  //   stale-entry false positives on real PRs.
+  //
+  // **Defense-in-depth note**: the same rule already applies to `.rpc(<arg>)` via
+  // isProtectedRpcCall above — non-literal RPC names are ALWAYS sinks (no allowlist). The
+  // `.from()` rule mirrors that contract for symmetry; the only difference is `.from()` gets a
+  // (reviewed, initially-empty) escape-hatch allowlist because some auth-internal resolvers
+  // legitimately resolve table names from static maps. Verify the .rpc rule is still in place
+  // (batch-9 amendment) — it is, see `isProtectedRpcCall` above.
 
   function chainPositions(text: string, chain: readonly string[]): { name: string; pos: number }[] {
     return chain.map(name => {
@@ -5537,7 +8548,7 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
     const expectedChain: ExpectedChain =
         pathClassification === 'crew-session' ? CREW_SESSION_CHAINS                   // round-49: terminal-success branches
       : pathClassification === 'admin' ? ['requireAdmin']
-      : pathClassification === 'me' ? ['validateGoogleSession']
+      : pathClassification === 'me' ? ['validateGoogleIdentity']                 // M5 batch-12: cross-show identity-only validator (NOT validateGoogleSession, which is show-bound)
       : pathClassification === 'server-action' ? inheritedChainForAction(path)        // legacy path-based server-action classification (still recognized for `actions.ts` files)
       : (() => { throw new Error(`unhandled domain: ${pathClassification}`); })();
 
@@ -5549,13 +8560,45 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
 
     // 2c. AST-driven control-flow audit on remaining (non-action) request entries.
     // Server-action entries were already audited in 2a above (regardless of file path); this block
-    // catches `page.tsx` default exports and `route.ts` HTTP-method exports. NOTE (round-49 amendment):
+    // catches every OTHER server-side App Router entry. NOTE (round-49 amendment):
     // `findRequestEntries` no longer enumerates server actions — those are owned by 2a's
     // `findServerActionsInFile` which detects them via AST regardless of filename. Earlier round-48
     // draft conflated them, which (combined with the path-based classification skip) meant inline
     // `'use server'` actions in component files were skipped twice — once because the file was
     // classified `non-route`, again because `findRequestEntries` was only scoped to `actions.ts`.
-    const entries = findRequestEntries(sf);   // returns [{ node, kind: 'page' | 'route-handler', name? }]
+    //
+    // **X.1-X.6 batch-13 finding #3 amendment**: `findRequestEntries` now discovers the FULL set of
+    // server-side execution entries App Router invokes per request, NOT just page-default and
+    // route-HTTP-methods. Each discovered entry runs through the chain audit independently because
+    // each can touch protected sinks before the page itself renders (or after it short-circuits).
+    // `findRequestEntries` classifies each entry via the kind discriminator below; the audit treats
+    // every kind identically (chain must dominate sinks on every control-flow path):
+    //   - `kind: 'page'`              — `page.tsx`/`page.ts` default export.
+    //   - `kind: 'route-handler'`     — `route.ts` named exports `GET`/`POST`/`PUT`/`DELETE`/`PATCH`/`OPTIONS`/`HEAD`.
+    //   - `kind: 'generate-metadata'` — `page.tsx`/`layout.tsx`/`route.ts`/`metadata.ts` named export
+    //                                   `generateMetadata` (App Router invokes server-side BEFORE
+    //                                   page render to compute <head>; receives `params`/`searchParams`
+    //                                   and can fetch from any DB; missing this is the X.1-X.6
+    //                                   batch-13 finding #3 bug class).
+    //   - `kind: 'generate-viewport'` — same files, named export `generateViewport` (server-side, same
+    //                                   capability profile as `generateMetadata`).
+    //   - `kind: 'head'`              — `head.tsx`/`head.ts` default export (legacy App Router head
+    //                                   Server Component; still supported through Next 15+).
+    //   - `kind: 'loading'`           — `loading.tsx`/`loading.ts` default export (streaming loading
+    //                                   UI Server Component; renders before page completes; can fetch).
+    //   - `kind: 'error'`             — `error.tsx`/`error.ts` default export iff the file does NOT
+    //                                   contain a `'use client'` directive at the top (Next.js
+    //                                   convention is client error boundaries, but `global-error.tsx`
+    //                                   and non-`'use client'` error files render server-side).
+    //   - `kind: 'not-found'`         — `not-found.tsx`/`not-found.ts` default export (server-rendered
+    //                                   when `notFound()` fires; can fetch).
+    //   - `kind: 'template'`          — `template.tsx`/`template.ts` default export (re-rendered server-
+    //                                   side per navigation).
+    // Each entry uses the SAME trust-domain classification that `classifyTrustDomain(path)` returned
+    // for the file: a `crew-session` page's `generateMetadata` is `crew-session`, an `admin` page's
+    // `loading.tsx` is `admin`, etc. The candidate-chain matching in 2c below is identical for every
+    // entry kind.
+    const entries = findRequestEntries(sf);   // returns [{ node, kind: 'page' | 'route-handler' | 'generate-metadata' | 'generate-viewport' | 'head' | 'loading' | 'error' | 'not-found' | 'template', name? }]
     if (entries.length === 0) continue;        // no entry points — file is config/component-only (server actions, if any, were already audited in 2a)
 
     for (const entry of entries) {
@@ -5602,6 +8645,26 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
               lastError = `sink fires BEFORE chain completion for candidate ${candidate.join(' → ')}`;
               continue;
             }
+            // **Outcome-discriminator audit (batch-9 amendment).** Calling the validator is not
+            // enough — the route MUST inspect the discriminated-union result (`{ kind: 'success' |
+            // 'continue' | 'terminal_failure' }`, spec §7.2.2; plan ~line 2545) before any sink
+            // fires. A route that calls `validateLinkSession()`, IGNORES the result, then touches
+            // `from('shows_internal')` would otherwise match the candidate even though no
+            // discriminator was checked. The walker asserts:
+            //   (a) for the TERMINAL validator (last entry on the matched candidate), some node
+            //       BETWEEN its call site and the sink checks `result.kind === 'success'` (or
+            //       equivalent: `if (result.kind === 'success')`, switch-case 'success', early-
+            //       return on non-success, ts-pattern `match(result).with({ kind: 'success' }, ...)`).
+            //       Walking a `result.viewer` property is NOT sufficient — TypeScript narrowing
+            //       requires the discriminator literal check.
+            //   (b) for each NON-TERMINAL (preceding) validator, some node BETWEEN its call site and
+            //       the next validator checks `result.kind === 'continue'` (or equivalent — early-
+            //       return on `success`/`terminal_failure`, switch-case 'continue').
+            const outcomeOk = verifyOutcomeDiscriminators(flowPath, candidate, chainCallsInOrder, sink.node);
+            if (!outcomeOk.ok) {
+              lastError = `outcome-discriminator missing: ${outcomeOk.reason} for candidate ${candidate.join(' → ')}`;
+              continue;                                                             // try next candidate
+            }
             matched = true;
             break;                                                                  // this candidate dominates — accept the path
           }
@@ -5613,33 +8676,86 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
       }
     }
   }
+
+  // verifyOutcomeDiscriminators(flowPath, candidate, chainCallsInOrder, sinkNode):
+  //   Returns { ok: true } | { ok: false, reason: string }.
+  //   For each validator on the candidate at index i:
+  //     - Resolve `binding`: walk from chainCallsInOrder[i] upward through Parent until a
+  //       VariableDeclaration whose initializer (or AwaitExpression argument) IS the validator
+  //       CallExpression. If the call result is not bound (e.g., `await validateLinkSession();`
+  //       with the value discarded), return { ok: false, reason: `result of '${candidate[i]}' is
+  //       discarded — must be captured in a const and the .kind discriminator checked` }.
+  //     - Determine `windowEnd`:
+  //         - terminal validator (i === candidate.length - 1): the sinkNode index on flowPath.
+  //         - non-terminal validator: chainCallsInOrder[i+1] (the next validator's call site).
+  //     - Determine `requiredDiscriminator`:
+  //         - terminal validator: 'success'
+  //         - non-terminal validator: 'continue'
+  //     - Walk flowPath nodes between chainCallsInOrder[i] (exclusive) and windowEnd (exclusive).
+  //       Accept the candidate as proven for this validator if any of the following appears on the
+  //       path AND dominates the next call/sink:
+  //         (a) `if (binding.kind === '<requiredDiscriminator>')` — IfStatement whose Expression is
+  //             a BinaryExpression (===) with left = PropertyAccess(binding, 'kind') and right =
+  //             StringLiteral(requiredDiscriminator). The protected sink/next-validator must reside
+  //             inside the then-branch (terminal validator) OR after the if-block (non-terminal
+  //             with early-return-on-non-success).
+  //         (b) Early-return on the OPPOSITE: `if (binding.kind !== '<requiredDiscriminator>') return
+  //             ...` (or `redirect(...)`, `NextResponse.json(...)`, `notFound()`) — accepted because
+  //             control flow after the IfStatement is narrowed by TypeScript to the success branch.
+  //         (c) `switch (binding.kind) { case '<requiredDiscriminator>': ... }` — SwitchStatement on
+  //             PropertyAccess(binding, 'kind') with a CaseClause for the required discriminator
+  //             whose body dominates the remaining flow.
+  //         (d) ts-pattern `match(binding).with({ kind: '<requiredDiscriminator>' }, handler)` —
+  //             CallExpression chain (`match(binding).with(...).otherwise(...)` or `.exhaustive()`)
+  //             with a `.with({ kind: '<requiredDiscriminator>' }, ...)` call where the handler
+  //             reaches the sink/next-validator.
+  //     - If no acceptable discriminator check is found on the path window, return
+  //       { ok: false, reason: `validator '${candidate[i]}' result captured but its .kind
+  //       discriminator was never inspected before ${i === candidate.length - 1 ? 'sink ' +
+  //       sinkNode.name : 'next validator ' + candidate[i+1]}` }.
+  //     - Bare fall-through (next validator runs unconditionally without ever reading
+  //       `binding.kind`) is REJECTED — that's the exact bug class this audit catches.
+  //   If all validators on the candidate satisfy the rule, return { ok: true }.
   ```
   This audit asserts:
   - **(a)** no file outside the auth-library allowlist references low-level auth primitives;
   - **(b)** every classified route's reachable paths to a protected sink pass through the declared chain in declared order;
   - **(c)** validator calls in DEAD branches (provably unreachable) do NOT count toward the audit — only paths that reach a sink matter;
   - **(d)** helper functions are inlined transitively across module boundaries (round-46 amendment) — `handler() → loadShow() → from('shows_internal')` is attributed correctly whether `loadShow` is defined locally OR imported from another file. The call-graph builder follows imports via `tsmorph`'s `ImportDeclaration` resolution. **An imported helper that touches a protected sink before the local validator chain runs is a violation, NOT an exempt black box.** Earlier draft only inlined locally-defined helpers, leaving `import { loadShow } from '@/lib/data/loadShow'` as an escape hatch where the imported function could fetch from `shows_internal` before any validator. Required regression fixture: `bad-imported-helper.tsx` — a route that imports `loadShow` from a sibling module, calls `loadShow()` BEFORE `validateLinkSession`, where `loadShow` queries `shows_internal`. Audit MUST reject this even though the sink call doesn't appear textually in the route file. As a defense-in-depth fallback when an import resolves to an external module the audit can't statically inline (e.g., a node_modules helper), the audit conservatively treats the call site as a sink unless the function is explicitly added to a `KNOWN_PURE_HELPERS` allowlist;
-  - **(e)** any new file in `app/api/`, `app/admin/`, `app/show/`, or `app/me/` that isn't classified in `TRUST_DOMAINS` fails CI immediately, forcing the engineer to declare its trust domain explicitly.
+  - **(e)** any new file in `app/api/`, `app/admin/`, `app/show/`, or `app/me/` that isn't classified in `TRUST_DOMAINS` fails CI immediately, forcing the engineer to declare its trust domain explicitly;
+  - **(f)** every validator's discriminated-union outcome is INSPECTED before any sink fires (batch-9 amendment via `verifyOutcomeDiscriminators`). A route that calls `validateLinkSession()` and IGNORES the `{ kind: 'continue' }` result, then touches a protected sink, is rejected even though presence + order + sink-after-call all pass. The terminal validator's `kind === 'success'` discriminator MUST be checked before the sink; each preceding validator's `kind === 'continue'` discriminator MUST be checked before falling through to the next validator.
 - [ ] **Step 2: Regression fixtures** in `tests/cross-cutting/fixtures/auth-x3/`:
   - `bad-import-only.tsx`: imports `validateLinkSession` but never calls it; queries `shows_internal` — must throw.
   - `bad-access-before-validate.tsx`: queries `shows_internal` then later calls `validateLinkSession` — must throw.
   - `bad-direct-link-sessions.ts`: a route file outside the allowlist that does `from('link_sessions')` — must throw.
+  - **`bad-bootstrap-nonces-direct-access.tsx` (batch-11 — paired with M2 finding #1)**: a route file outside the auth-library allowlist that does `supabase.from('bootstrap_nonces').select(...)` (or any verb) — must throw because `bootstrap_nonces` is admin-only per spec §4.3 (M5 batch-10) and is now in PROTECTED_SINKS. Only auth-library files (`app/api/auth/redeem-link/route.ts` consume path; `/show/<slug>/p` mint path via the bootstrap-shell route) may legitimately touch this table; any other route reading or writing it bypasses the login-CSRF defense.
   - `good-validator-first.tsx`: calls `validateLinkSession` on the first line, then `getShowForViewer` — must NOT throw.
   - `good-allowlisted.ts`: `app/api/auth/redeem-link/route.ts` reads `link_sessions` directly — must NOT throw (allowlisted).
-  - **Round-49 terminal-success branches — one fixture per spec-allowed branch (must NOT throw)**:
-    - `good-b1-link-wins.tsx`: route calls `validateLinkSession`; on `success` returns/renders directly; google + admin are NEVER called on this control-flow path; sinks fire after link's success. Audit accepts via B1.
-    - `good-b2-admin-on-no-cookie.tsx`: route calls `validateLinkSession`, falls through on `continue`; `requireAdmin` returns success; google never called; sinks fire after admin's success. Audit accepts via B2.
-    - `good-b3-google-wins.tsx`: link continue → `validateGoogleSession` succeeds; admin never called. Audit accepts via B3.
-    - `good-b4-google-then-admin.tsx`: link continue → google continue → admin succeeds; sinks fire after admin. Audit accepts via B4.
-    - `good-b5-admin-precedence.tsx`: route guards on `isAdminSession(req)`; in the true-branch runs `requireAdmin` then `validateGoogleSession` (per Task 5.7); in the false-branch runs google before admin. Audit accepts: true-branch via B2/B5; false-branch via B3/B4.
-  - **Round-49 negative cases (must throw)**:
-    - `bad-skip-link.tsx`: route calls `requireAdmin` directly without ever calling `validateLinkSession` first → no `ValidPath` matches (every B1..B5 starts with `validateLinkSession`).
-    - `bad-google-before-link.tsx`: route calls `validateGoogleSession` BEFORE `validateLinkSession` → wrong order on every branch that contains both.
+  - **`good-redeem-link-via-auth-lib.tsx` (batch-11 — paired with M2 finding #1)**: `app/api/auth/redeem-link/route.ts` legitimately reads/UPSERTs `bootstrap_nonces` for the atomic single-use consumption per §7.2 / AC-5.13; because the file is in `AUTH_LIB_ALLOWLIST`, the audit MUST NOT throw. Companion fixture `good-bootstrap-shell-mint.tsx`: the `/show/<slug>/p` server-rendered bootstrap shell INSERTs a `bootstrap_nonces` row at mint time per the M5 batch-10 contract — this file MUST also be in the allowlist (it's the only legitimate non-redeem-link mint surface). If the shell route is not yet in `AUTH_LIB_ALLOWLIST`, this fixture's failure is the signal to add it.
+  - **M5 batch-9 / batch-10 Fix 2 terminal-success branches — one fixture per spec-allowed branch (must NOT throw)**. The current 4-branch design (B1 admin-precedence; B2 link wins; B3 link continue → google; B4 link continue → google continue → admin) replaces the round-49 link-first ordering. **Branch B1 starts with `requireAdmin` (under the `isAdminSession(req) === true` guard), NOT with `validateLinkSession`** — admin-precedence is the whole point of B1. Branches B2/B3/B4 all start with `validateLinkSession` because admin was not detected:
+    - `good-b1-admin-precedence.tsx` (batch-10 Fix 2 — replaces retired `good-b1-link-wins.tsx`): route guards on `isAdminSession(req)`; in the true-branch runs `requireAdmin` AS THE FIRST validator on the path; link + google are NEVER called; sinks fire after admin's success. Audit accepts via B1. **The retired `good-b1-link-wins.tsx` fixture's link-success behavior is now covered by `good-b2-link-wins.tsx`** — link-success is B2 in the current design, not B1.
+    - `good-b2-link-wins.tsx` (batch-10 Fix 2 — replaces retired `good-b2-admin-on-no-cookie.tsx`): route calls `isAdminSession(req)` (returns false in this fixture), then `validateLinkSession`; on `success` returns/renders directly; google + admin are NEVER called; sinks fire after link's success. Audit accepts via B2.
+    - `good-b3-google-wins.tsx`: admin not detected → `validateLinkSession` continue → `validateGoogleSession` succeeds; admin never called. Audit accepts via B3.
+    - `good-b4-google-then-admin.tsx`: admin not detected → link continue → google continue → admin succeeds; sinks fire after admin. Audit accepts via B4.
+    - **`good-admin-precedence-no-link.fixture` (batch-10 Fix 2 — replaces retired `good-b5-admin-precedence.tsx`)**: route classified `crew-session`; admin session present (per `isAdminSession`); NO `__Host-fxav_session` cookie present at all; NO Google session. Route calls `isAdminSession(req)` → true; calls `requireAdmin` → success; sinks fire after admin's success. Audit MUST accept via B1 with link + google NEVER called. Proves B1 doesn't require a cookie or a Google session — it's the canonical admin-only path. **There is NO B5 in the current 4-branch design (B1..B4); the retired `good-b5-admin-precedence.tsx` fixture from earlier drafts is removed by batch-10 Fix 2.**
+  - **M5 batch-9 / batch-10 Fix 2 negative cases (must throw)**:
+    - **`bad-link-before-admin-precedence.fixture` (batch-10 Fix 2 — new negative case)**: an old-style chain that runs `validateLinkSession` BEFORE checking `isAdminSession`. Specifically: route calls `validateLinkSession` first, then conditionally calls `requireAdmin` only on link's `continue` outcome. This was the round-49 link-first ordering that the M5 batch-9 fix retired — it silently downgrades admins-with-valid-link-cookies to crew-mode because link returns `success` and the chain stops before admin is checked. Audit MUST throw because no `ValidPath` in `CREW_SESSION_CHAINS` permits link-before-admin-precedence: B1 starts with `requireAdmin` (under the admin guard); B2/B3/B4 only start with `validateLinkSession` AFTER `isAdminSession(req)` has been called and returned false. The audit recognizes admin-precedence as a conditional whose test statically resolves to a call to `isAdminSession` from `lib/auth/isAdminSession.ts` — a route that calls `validateLinkSession` without that admin-precedence guard preceding it fails the audit.
+    - `bad-skip-link.tsx` (rationale rewritten by batch-10 Fix 2): route calls `requireAdmin` directly WITHOUT the `isAdminSession(req)` admin-precedence guard preceding it AND WITHOUT calling `validateLinkSession` on any non-admin code path. Audit MUST throw because: (a) for B1 acceptance the admin call must be reached through the `isAdminSession(req) === true` guard — a bare `requireAdmin` call without that guard is NOT B1; (b) for B2/B3/B4 the path must start with `validateLinkSession`. Neither holds, so no `ValidPath` matches. **The earlier rationale "every B1..B5 starts with validateLinkSession" is wrong on the current 4-branch design** (B1 starts with `requireAdmin` under the admin guard; only B2/B3/B4 start with `validateLinkSession`); this fixture's CORRECT rationale per batch-10 Fix 2 is the dual-condition statement above. The retired B5 reference is removed.
+    - `bad-google-before-link.tsx`: route reaches the non-admin code path (admin guard returned false), then calls `validateGoogleSession` BEFORE `validateLinkSession` → wrong order on every non-admin branch (B2/B3/B4 all start with `validateLinkSession`).
     - `bad-sink-before-terminal.tsx`: route calls `validateLinkSession` (returns success), but ALSO accesses `from('shows_internal')` BEFORE the link call → sink fires before terminal validator on every branch.
+    - **`bad-ignored-continue.tsx` (batch-9 outcome-discriminator regression)**: route calls `await validateLinkSession()`, IGNORES the result (e.g., `await validateLinkSession();` with no binding, OR `const r = await validateLinkSession();` with `r.kind` never inspected), then accesses `from('shows_internal')` directly. Presence + order + sink-after-call all pass, but `verifyOutcomeDiscriminators` MUST throw because the terminal validator's `kind === 'success'` discriminator is never checked before the sink. Variant: `bad-ignored-continue-bound.tsx` binds the result to `const r` and reads `r.viewer.crewMemberId` (touching `viewer` is NOT the discriminator check) — must throw with reason "captured but its .kind discriminator is never inspected."
+    - **`bad-fallthrough-no-continue-check.tsx` (batch-9 non-terminal outcome regression)**: route calls `validateLinkSession`, binds the result, then unconditionally calls `validateGoogleSession` and `requireAdmin` without ever reading `linkResult.kind`. Even though every validator on B4 is called in order, the non-terminal validators' `kind === 'continue'` discriminator was never checked — must throw.
     - **`bad-inline-action-in-component.tsx` (round-49 server-action AST-detection regression)**: a component file under `app/show/[slug]/components/` (filename pattern that round-48 classified as `non-route`) declares an async function with a function-scoped `'use server'` directive at the top of its body, and that action body calls `from('shows_internal')` WITHOUT calling `validateLinkSession` first. Round-49's `findServerActionsInFile` MUST detect the inline directive, infer `crew-session` chain from the path subtree, and throw. Earlier round-48 draft would have skipped this file entirely because path classification put it in `non-route`.
     - **`bad-module-use-server-non-actions-file.ts` (round-49 module-level directive)**: a file at `app/admin/dev/helpers.ts` (NOT named `actions.ts`) starts with a top-of-file `'use server'` directive, and exports a function that calls `from('admin_alerts')` without `requireAdmin`. Round-49 MUST detect the module-level directive and audit every exported function with the inherited `admin` chain.
-  - **Round-49 superset proof (must NOT throw — same case the round-48 draft accepted)**: `good-stale-linear-tuple.tsx`: route calls `validateLinkSession → validateGoogleSession → requireAdmin` then accesses sinks AFTER admin → round-49 accepts this via B4 (the path is a valid ValidPath in the set). Documented here to prove the round-49 audit is a STRICT SUPERSET of round-48: every previously-accepted route still passes.
-  - **`good-inline-action-with-validation.tsx` (round-49 positive case for inline-action audit)**: a component file under `app/show/[slug]/components/` declares an async function with a function-scoped `'use server'` directive that calls `validateLinkSession` first then `from('shows_internal')`. Audit accepts via B1.
+  - **Superset proof (must NOT throw — same case the round-48 draft accepted)**: `good-stale-linear-tuple.tsx`: route reaches the non-admin code path (admin guard returned false), then calls `validateLinkSession → validateGoogleSession → requireAdmin` and accesses sinks AFTER admin → audit accepts this via B4 (the path is a valid ValidPath in the set). Documented here to prove the audit is a STRICT SUPERSET of round-48: every previously-accepted route still passes.
+  - **`good-inline-action-with-validation.tsx` (positive case for inline-action audit)**: a component file under `app/show/[slug]/components/` declares an async function with a function-scoped `'use server'` directive that calls `validateLinkSession` first then `from('shows_internal')`. Audit accepts via B2 (link-success on the non-admin path; B1 would require `isAdminSession`-guarded admin precedence).
+  - **DYNAMIC_FROM_ALLOWLIST semantic-identity tests (X.1-X.6 batch-15 finding 3, MANDATORY)** — added to Step 1 / Step 2 of this task per the new contract above:
+    - `good-allowlisted-call-site-after-formatter.fixture` (formatter-edit tolerance) — same allowlisted site as `good-allowlisted-call-site-unchanged.fixture` but with 50 import lines inserted at the top + the call's argument list reformatted onto multiple lines. `enclosing_symbol` and `fingerprint` unchanged. Audit MUST NOT throw.
+    - `bad-allowlisted-argument-changed.fixture` — same allowlisted site but the argument list edited (e.g., `.from(tableName)` → `.from(tableName + suffix)`); fingerprint changes; entry stale. Audit MUST throw.
+    - `bad-second-dynamic-from-different-symbol.fixture` (replaces / supersedes round-13's column-shift fixture) — `lib/auth/internal/some-resolver.ts` has the existing allowlisted call in `SomeClass.lookup` AND a NEW dynamic `.from(otherTable)` in a NEW top-level helper `resolveSecondaryTable`. The new call has a different `enclosing_symbol` than the existing entry, so audit MUST throw — file-scoped exemption does NOT extend.
+    - `bad-ambiguous-from-without-occurrence-index.fixture` (ambiguity required) — file with TWO `.from(tableName)` calls in `SomeClass.retryLookup` with the SAME normalized fingerprint. Allowlist has ONE entry without `occurrence_index`. Audit MUST throw `DYNAMIC_FROM_AMBIGUOUS_ALLOWLIST` naming the file and `SomeClass.retryLookup`.
+    - `good-ambiguous-from-with-explicit-occurrence-index.fixture` — same file, but allowlist has TWO entries: `occurrence_index: 0` and `occurrence_index: 1`. Audit MUST NOT throw and each occurrence matches exactly one entry.
+    - **Fingerprint stability test (`fingerprint-stability/`)**: three sibling files (`singleq.ts`, `doubleq.ts`, `tabs4.ts`) render the same logical `.from(tableName)` call inside the same enclosing symbol with different formatter outputs (single-quote 2-space + semis; double-quote 2-space no-semis; double-quote 4-space + semis). Test asserts all three `fingerprintCallSite()` results are bit-equal. Catches future regressions where formatter cosmetics leak into the fingerprint.
 - [ ] **Step 3: Commit** `test(cross-cutting): single auth-entry-point semantic audit (AC-X.3)`.
 
 ### Task X.4: No global cursor — positive invariant audit (AC-X.4)
@@ -5650,17 +8766,34 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
 
 **Files:** Test: `tests/cross-cutting/no-global-cursor.test.ts`. Migration: `supabase/migrations/20260501T0040_no_global_cursor_event_trigger.sql`.
 
-- [ ] **Step 1: Authored allowlist** — enumerate the only watermark-shaped fields that may participate in sync decisions:
+- [ ] **Step 1: Authored allowlist** — enumerate the only watermark-shaped fields that may participate in sync decisions. **Batch-10 Fix 3 amendment**: the allowlist is now SPLIT into two named sets so the semantic layer (Step 2 layer 3) can fail the audit when a sync-decision comparison reads a display-only value:
+
+  **AUTHORITATIVE_GATING_WATERMARKS — valid as the RHS of a sync-decision comparison (Drive-derived per-row sources only):**
   - `shows.last_seen_modified_time` (per-show; spec §4.1, §5.2)
-  - `shows.last_synced_at` (per-show display field; never gates writes)
+  - **M2 batch-12 finding #2 — corrected schema names** (paired with spec §X.4 prose corrections, M7 batch-11 finding #4):
+    - `pending_syncs.base_modified_time` (NOT `shows.base_modified_time` — the column lives on `pending_syncs`, NOT `shows`; the Apply-time CAS predicate per §5.2 / §6.8.2 is `shows.last_seen_modified_time IS NOT DISTINCT FROM pending_syncs.base_modified_time` joining the two tables; batch-10 Fix 3 mis-located it).
+    - `shows.diagrams ->> 'snapshot_revision_id'` (NOT `shows.snapshot_revision_id` — there is no top-level column; the value lives inside the `shows.diagrams` JSONB at JSON path `->> 'snapshot_revision_id'`. Apply-time snapshot-stability checks compare against the JSONB-path expression `(shows.diagrams ->> 'snapshot_revision_id')::uuid = reviewed_revision_id`. The audit MUST recognize the JSONB-path form, not just bare column references; §7 / §6.11; batch-10 Fix 3 mis-located it).
   - `pending_syncs.staged_modified_time` and `pending_syncs.base_modified_time` (per-row; §6.8.1)
-  - `pending_syncs.parsed_at` (display only; never gates writes)
-  - `deferred_ingestions.deferred_at_modified_time`, `deferred_ingestions.deferred_at` (per-file; §4.5)
+  - `pending_syncs.staged_id` (per-row; Apply/Discard CAS predicate, §5.2 / §6.8.1; batch-10 Fix 3)
+  - `fileMeta.modifiedTime` / `fileMeta.driveModifiedTime` (per-file; Drive-direct read in `processOneFile(fileMeta)`)
+  - `fileMeta.headRevisionId` / `fileMeta.md5Checksum` (per-file revision pin; §6.11; batch-10 Fix 3)
+  - `deferred_ingestions.deferred_at_modified_time` (per-file; §4.5)
   - `drive_watch_channels.expires_at`, `activated_at`, `superseded_at`, `stopped_at`, `created_at` (per-channel; §5.5.1)
+
+  **DISPLAY_ONLY_TIMESTAMPS — rendered to the operator but NEVER read as the RHS of a sync-decision comparison; a sync-decision read fails the audit:**
+  - `shows.last_synced_at` (per-show display field; §5.4 stale-data footer / §9 admin display)
+  - `pending_syncs.parsed_at` (display only; §9.2 staged-review panel)
+  - `pending_ingestions.last_attempt_at` (display only; §9.2 retry-log; **M2 batch-12 finding #2 — corrected from `last_attempted_at`**: real column per spec §4.1 `create table pending_ingestions` is `last_attempt_at` with no `-ed`; earlier name was a fabrication that would never resolve)
+  - `pending_ingestions.first_seen_at` (display only; §9.2 retry-log; batch-10 Fix 3)
+  - `deferred_ingestions.deferred_at` (display only; §9.2 deferred-list)
+
+  **Out-of-scope timestamps — auth/quota/event log; never read by sync gating:**
   - `crew_member_auth.{current_token_version, max_issued_version, revoked_below_version}` (per-crew; auth, not sync)
   - `link_sessions.{expires_at, last_active_at, created_at}` (per-session; auth, not sync)
   - `report_rate_limits.hour_bucket` (per-identity-bucket; bug-report quota, not sync)
   - `sync_log.occurred_at`, `sync_audit.applied_at`, `admin_alerts.{raised_at,last_seen_at,resolved_at}`, `reports.created_at` (per-row event timestamps; never read by sync gating)
+
+  Anything outside the union of these lists with a watermark-shape name (matches `/last_(seen|sync|poll|processed|run|cursor)|watermark|cursor/i`) is a violation. **A sync-decision comparison whose RHS resolves to a `DISPLAY_ONLY_TIMESTAMPS` member is ALSO a violation** (batch-10 Fix 3 — the audit specifically catches the "display-only timestamp drifted into the gating predicate" class), with error message `AC-X.4 violation: sync-decision comparison reads display-only timestamp '<X>'. Display-only timestamps are rendered to the operator but never gate writes; replace with the corresponding authoritative gating watermark (e.g., last_seen_modified_time, base_modified_time, staged_modified_time, or fileMeta.modifiedTime).`
 
   Anything outside this list with a watermark-shape name (matches `/last_(seen|sync|poll|processed|run|cursor)|watermark|cursor/i`) is a violation.
 
@@ -5808,6 +8941,12 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
 
      // Sync entry points the audit roots at — every sync-decision call graph starts here.
      // Amend this list whenever Task 6.x adds a new entry point.
+     // **Batch-10 Fix 3 amendment**: Apply-time and Discard-time CAS paths are sync-decision
+     // entry points too — Task 6.11's Apply CAS (staged_id + base_modified_time IS NOT
+     // DISTINCT FROM, per §5.2 / §6.8.2) and Task 6.12's Discard CAS (staged_id, per §6.8.1)
+     // both gate writes against per-row Drive-derived watermarks. Earlier draft listed only
+     // the cron/push/manual/onboarding/asset-recovery entry points; the Apply/Discard CAS
+     // paths went un-audited.
      const SYNC_ENTRY_POINTS = [
        'runScheduledCronSync',     // Task 6.7 cron path
        'runManualSyncForShow',     // Task 6.8 admin-triggered single-show sync
@@ -5815,18 +8954,75 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
        'runOnboardingScan',        // Task 10.3 wizard scan
        'retrySingleFile',          // Task 10.4 hard-fail retry
        'assetRecovery',            // Task 7.4 asset_recovery loop
+       'applyStagedParse',         // Task 6.11 Apply CAS (batch-10 Fix 3): staged_id + base_modified_time CAS, §5.2 / §6.8.2
+       'discardStagedParse',       // Task 6.12 Discard CAS (batch-10 Fix 3): staged_id CAS, §6.8.1
      ];
 
-     // Acceptable per-row watermark sources — exact match against the Step-1 allowlist.
+     // **Batch-10 Fix 3 amendment**: per-row sources are split into TWO sets — one set of
+     // AUTHORITATIVE GATING WATERMARKS (Drive-derived; valid as the RHS of a sync-decision
+     // comparison) and one set of DISPLAY-ONLY TIMESTAMPS (rendered to the operator but
+     // NEVER gates a write). The earlier flat `ACCEPTABLE_PER_ROW_SOURCES` set blessed
+     // `shows.last_synced_at` and `pending_syncs.parsed_at` even though Step 1 explicitly
+     // marks them "never gates writes." That permitted an implementer to drift the CAS
+     // predicate from the canonical Drive-derived watermark to a display value. The
+     // corrected design fails the audit if a sync-decision comparison reads a DISPLAY_ONLY
+     // value with: `AC-X.4 violation: sync-decision comparison reads display-only
+     // timestamp '<X>'. Display-only timestamps are rendered to the operator but never
+     // gate writes; replace with the corresponding authoritative gating watermark (e.g.,
+     // last_seen_modified_time, base_modified_time, staged_modified_time, or
+     // fileMeta.modifiedTime).`
+     //
      // ts-morph resolves a SQL builder call like `from('shows').select('last_seen_modified_time')`
      // OR a typed row property like `showRow.last_seen_modified_time` to one of these.
-     const ACCEPTABLE_PER_ROW_SOURCES = new Set([
-       'shows.last_seen_modified_time', 'shows.last_synced_at',
-       'pending_syncs.staged_modified_time', 'pending_syncs.base_modified_time', 'pending_syncs.parsed_at',
-       'deferred_ingestions.deferred_at_modified_time', 'deferred_ingestions.deferred_at',
-       'drive_watch_channels.expires_at', 'drive_watch_channels.activated_at',
-       // Per-file fileMeta from Drive — Task 6.x's processOneFile(fileMeta) parameter:
+     const AUTHORITATIVE_GATING_WATERMARKS = new Set([
+       // Per-show Drive-derived (§4.1, §5.2, §6.11):
+       'shows.last_seen_modified_time',
+       // **M2 batch-12 finding #2 — corrected schema names**:
+       //   - `shows.base_modified_time` was a stale name; the column lives on `pending_syncs`,
+       //     NOT `shows`. The Apply-time CAS predicate per §5.2 / §6.8.2 is
+       //     `shows.last_seen_modified_time IS NOT DISTINCT FROM pending_syncs.base_modified_time`
+       //     joining the live snapshot against the staged base across the two tables.
+       //   - `shows.snapshot_revision_id` was a stale name; there is no top-level column. The
+       //     value lives inside the `shows.diagrams` JSONB at JSON path `->> 'snapshot_revision_id'`.
+       //     Apply-time snapshot-stability checks read the JSONB-path expression
+       //     `(shows.diagrams ->> 'snapshot_revision_id')::uuid`. The audit MUST recognize the
+       //     JSONB-path form as well as a bare column reference.
+       'shows.diagrams->>snapshot_revision_id',     // batch-12: JSONB-path form per spec §X.4 (M7 batch-11 finding #4)
+       // Per-row Drive-derived (§4.1, §6.8.1):
+       'pending_syncs.staged_modified_time',
+       'pending_syncs.base_modified_time',          // batch-10 Fix 3: Apply-time CAS predicate per §5.2 / §6.8.2 — column lives on pending_syncs (NOT shows; batch-12 correction)
+       'pending_syncs.staged_id',                   // batch-10 Fix 3: Apply/Discard CAS predicate per §5.2 / §6.8.1
+       // Per-file from Drive (Task 6.x's processOneFile(fileMeta) parameter):
        'fileMeta.modifiedTime', 'fileMeta.driveModifiedTime',
+       'fileMeta.headRevisionId', 'fileMeta.md5Checksum',  // batch-10 Fix 3: revision-pin verification per §6.11
+       // Per-file (deferred ingestions):
+       'deferred_ingestions.deferred_at_modified_time',
+       // Per-channel (push-mode subscription lifecycle; gates webhook activation):
+       'drive_watch_channels.expires_at', 'drive_watch_channels.activated_at',
+     ]);
+
+     // Display-only timestamps — rendered to the operator (footer freshness, parse panel,
+     // retry log) but NEVER read as the RHS of a sync-decision comparison. A sync-decision
+     // read of any of these fails the audit.
+     const DISPLAY_ONLY_TIMESTAMPS = new Set([
+       'shows.last_synced_at',                       // §5.4 stale-data footer / §9 admin display
+       'pending_syncs.parsed_at',                    // §9.2 staged-review panel display
+       // **M2 batch-12 finding #2 — corrected schema name**: real column is `last_attempt_at`
+       // (no -ed; per spec §4.1 `create table pending_ingestions` block). Earlier draft used
+       // `last_attempted_at` which doesn't exist; resolve calls would never match and the
+       // display-only check would silently no-op.
+       'pending_ingestions.last_attempt_at',         // §9.2 retry-log display (batch-12 corrected from `last_attempted_at`)
+       'pending_ingestions.first_seen_at',           // §9.2 retry-log display (batch-10 Fix 3)
+       'deferred_ingestions.deferred_at',            // §9.2 deferred-list display
+     ]);
+
+     // Legacy flat-set view kept ONLY for backward-compat with code that asks
+     // "is this a per-row source at all?". The audit ITSELF uses the SPLIT sets — a sync-
+     // decision comparison reading any DISPLAY_ONLY_TIMESTAMPS member fails the audit; an
+     // admin-UI / non-sync-decision read of either set is fine.
+     const ACCEPTABLE_PER_ROW_SOURCES = new Set([
+       ...AUTHORITATIVE_GATING_WATERMARKS,
+       ...DISPLAY_ONLY_TIMESTAMPS,
      ]);
 
      // Forbidden source kinds — any RHS resolving (transitively) to one of these fails the audit
@@ -5843,11 +9039,47 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
        isModuleLevelMutableConst,   // matches `let WATERMARK = ...` / `export const STATE = { ... }` at module scope
      ];
 
+     // **Batch-9 amendment: missing sync roots are a HARD FAILURE, not a silent skip.**
+     // Earlier draft used `if (!decl) continue` so an entry point that vanished from the codebase
+     // (rename, accidental deletion, refactor that split it across files) would silently pass the
+     // semantic audit. The corrected design runs a precheck FIRST that asserts every name in
+     // SYNC_ENTRY_POINTS resolves to exactly one declaration; if any resolves to zero or multiple,
+     // the audit throws with the unresolved name(s). The inner loop then trusts the precheck and
+     // throws on a missing decl as a defensive backstop (should never fire after the precheck).
+     // Required regression test: rename one entry point temporarily and verify the audit fails
+     // at the precheck (not silently passes).
+     const unresolvedEntries: string[] = [];
+     const ambiguousEntries: { name: string; matches: number }[] = [];
+     for (const entry of SYNC_ENTRY_POINTS) {
+       const matches = findAllFunctionDeclarationsByName(project, entry);   // returns FunctionDeclaration[]
+       if (matches.length === 0) unresolvedEntries.push(entry);
+       else if (matches.length > 1) ambiguousEntries.push({ name: entry, matches: matches.length });
+     }
+     if (unresolvedEntries.length > 0 || ambiguousEntries.length > 0) {
+       const parts: string[] = [];
+       if (unresolvedEntries.length > 0) {
+         parts.push(`unresolved sync entry points (zero declarations): ${unresolvedEntries.join(', ')}`);
+       }
+       if (ambiguousEntries.length > 0) {
+         parts.push(`ambiguous sync entry points (multiple declarations): ${
+           ambiguousEntries.map(e => `${e.name} (${e.matches} matches)`).join(', ')
+         }`);
+       }
+       throw new Error(
+         `AC-X.4 semantic-layer precheck failed — ${parts.join('; ')}. ` +
+         `Update SYNC_ENTRY_POINTS to match the live codebase, or restore the missing declarations.`
+       );
+     }
+
      // For each entry point: walk the call graph; for every comparison/expression whose operands
      // are typed `Date | number | string`, resolve the SOURCE of each operand transitively.
      for (const entry of SYNC_ENTRY_POINTS) {
        const decl = findFunctionDeclarationByName(project, entry);
-       if (!decl) continue;   // optional — not every entry point is implemented in every milestone
+       if (!decl) {
+         // Defensive backstop — the precheck above should have caught this. If we reach here, the
+         // precheck logic and the inner resolver disagree; fail loudly rather than silently skip.
+         throw new Error(`AC-X.4 invariant violation: '${entry}' resolved during precheck but is null in main loop`);
+       }
        const callGraph = buildCallGraph(decl);              // resolves local + imported helpers transitively
        const watermarkComparisons = findWatermarkShapeComparisons(callGraph);
        for (const comp of watermarkComparisons) {
@@ -5874,7 +9106,12 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
      }
      ```
      **Implementation notes:**
-     - `findWatermarkShapeComparisons(callGraph)` matches `BinaryExpression` nodes whose operator is `<`, `<=`, `>`, `>=`, or `===` AND whose at-least-one operand has a type that resolves (via `getTypeChecker`) to `Date | number | string` AND whose textual content references a name token from the layer-2 BANNED_COMBOS or any property whose declared type is `modified_time | last_synced_at`-shape.
+     - **`findWatermarkShapeComparisons(callGraph)` (batch-11 amendment — paired with M7 finding #4 spec-side update of §X.4 prose)**. The earlier matcher only inspected comparisons that referenced a layer-2 BANNED_COMBO token OR a property whose declared type was `modified_time | last_synced_at`-shape. That left **pure UUID gates out of scope** — `staged_id === reviewedStagedId`, `snapshot_revision_id === reviewedRevisionId`, `headRevisionId === pinnedRevisionId`, `md5Checksum === pinnedChecksum`, `embeddedFingerprint === pinnedFingerprint`, `base_modified_time === reviewedBaseModifiedTime` — none of which match a BANNED_COMBO when the property is `staged_id`/`snapshot_revision_id`/etc. The batch-11 matcher is **driven from the Step-1 authoritative/display-only symbol sets directly**, so EVERY gating-watermark CAS site is in scope regardless of the operand's textual shape:
+       - **Match rule (revised)**: a `BinaryExpression` (operators `<`, `<=`, `>`, `>=`, `===`, `!==`, `==`, `!=`) is in scope iff AT LEAST ONE operand resolves (via `resolveSourceOfValue`) to a member access into `AUTHORITATIVE_GATING_WATERMARKS` (per Step-1, **M2 batch-12 corrected schema names**: `shows.last_seen_modified_time`, `pending_syncs.base_modified_time` (NOT `shows.base_modified_time` — column lives on `pending_syncs`), `shows.diagrams ->> 'snapshot_revision_id'` (NOT `shows.snapshot_revision_id` — JSONB path, not top-level column), `pending_syncs.staged_modified_time`, `pending_syncs.staged_id`, `fileMeta.modifiedTime`, `fileMeta.driveModifiedTime`, `fileMeta.headRevisionId`, `fileMeta.md5Checksum`, `deferred_ingestions.deferred_at_modified_time`, the `drive_watch_channels.*` lifecycle columns, and the §6.11 `embeddedFingerprint`/`sheetsRevisionId` per-row tokens) — regardless of whether the operand name contains `modified_time` or `last_synced_at`. **Audit MUST recognize the JSONB-path expression form** (e.g., `(shows.diagrams ->> 'snapshot_revision_id')::uuid = reviewed_revision_id`) as a member access into `AUTHORITATIVE_GATING_WATERMARKS`, not just bare column references — the resolver must extract the JSONB-path operator chain and normalize it to the `'shows.diagrams->>snapshot_revision_id'` set entry.
+       - **Audit checks (per matched comparison)**:
+         - **(a) Other-operand provenance**: the OTHER operand MUST derive (transitively, via `resolveSourceOfValue`) from a **reviewed/staged context input** — e.g., `reviewedStagedId`, `reviewedRevisionId`, `reviewedBaseModifiedTime`, `req.params.rev`, `payload.expected_revision`, `expectedRevisionId`, `pinnedFingerprint`, an explicitly-passed function parameter, or another `AUTHORITATIVE_GATING_WATERMARKS` member already CAS'd against an upstream review token. It MUST NOT derive from a **fresh DB read inside the same statement / block** (e.g., `(await db.from('shows').select('snapshot_revision_id').eq('id', showId).single()).data.snapshot_revision_id`) — that pattern collapses CAS to "compare a row to itself" and is the bug class this matcher catches. The audit emits `AC-X.4 violation: gating-watermark CAS at <fileName>:<line> compares <FQN-of-watermark> against a fresh-read value; the other operand must come from the reviewed/staged context (e.g., reviewedStagedId, payload.expected_revision), NOT from a fresh SELECT inside the comparison.` when the resolver attributes the other operand to a `from(<sameTable>)` read in the same call's data-flow lineage.
+         - **(b) Coverage sweep**: the audit ALSO emits a positive scan over every member access into `AUTHORITATIVE_GATING_WATERMARKS` across the call graph from each entry point in `SYNC_ENTRY_POINTS` (now including `applyStagedParse` and `discardStagedParse`). For each gating field, the audit asserts at least ONE in-scope CAS comparison reaches a write sink (UPDATE / DELETE / UPSERT) along that entry point's call graph. A gating field that's READ but NEVER compared as a CAS predicate before a write is itself a violation: `AC-X.4 violation: gating watermark <FQN> is read by <entry> but never enforced as a CAS predicate before a write sink. Every AUTHORITATIVE_GATING_WATERMARKS member must be CAS'd against the reviewed/staged context value before mutating writes.`
+       - The display-only check from batch-10 Fix 3 is preserved: any sync-decision comparison whose operand resolves to `DISPLAY_ONLY_TIMESTAMPS` still throws with the existing display-only message.
      - `resolveSourceOfValue(operand)` walks back through `VariableDeclaration`, `Parameter`, `ReturnStatement`, and `PropertyAccessExpression` to find the originating call/literal/property read. ts-morph's type checker handles transitive imports.
      - For SQL builder calls, the resolver matches patterns: `client.from(<table>).select(<col>).single()` → `<table>.<col>`; `await rpc(<fnName>, args)` → resolved to the RPC's known return shape (registry hand-maintained for SECURITY DEFINER functions used in sync paths).
 
@@ -5885,6 +9122,14 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
      - **`bad-untyped-any.ts`**: `const cursor = (rows[0] as any).runStartedAt;` — layer 3 catches the unresolvable `as any` escape via the conservative-fail rule.
      - **`good-per-row.ts`**: synthetic function reads `await client.from('shows').select('last_seen_modified_time').eq('id', showId).single()` and compares to `fileMeta.modifiedTime` — both operands resolve to ACCEPTABLE_PER_ROW_SOURCES. Audit MUST NOT throw.
      - **`good-fileMeta-only.ts`**: function uses only `fileMeta.modifiedTime` and a per-row column — must NOT throw.
+     - **`bad-display-only-in-sync-decision.fixture` (batch-10 Fix 3 — display-only-drift regression)**: synthetic `applyStagedParse` body reads `await client.from('shows').select('last_synced_at').eq('id', showId).single()` and uses the result as the RHS of a CAS predicate (`WHERE last_synced_at = $reviewedTimestamp`). Both layers 1–2 pass (the name `last_synced_at` is on the legacy flat allowlist). Layer 3 (semantic layer) MUST throw with `AC-X.4 violation: sync-decision comparison reads display-only timestamp 'shows.last_synced_at'. Display-only timestamps are rendered to the operator but never gate writes; replace with the corresponding authoritative gating watermark (e.g., last_seen_modified_time, base_modified_time, staged_modified_time, or fileMeta.modifiedTime).`. Companion fixture `bad-display-only-parsed-at.fixture`: `discardStagedParse` body reads `pending_syncs.parsed_at` as the CAS predicate (instead of `staged_id`) — must throw with the same shape of message naming `pending_syncs.parsed_at`. Companion fixture `bad-display-only-last-attempt-at.fixture` (**M2 batch-12 — corrected from `last_attempted_at`**: real column per spec §4.1 is `last_attempt_at` with no `-ed`; prior fixture name referenced a non-existent column): a sync-entry-point function reads `pending_ingestions.last_attempt_at` and compares against `fileMeta.modifiedTime` — must throw with the same shape of message naming `pending_ingestions.last_attempt_at`.
+     - **`good-apply-cas.fixture` (batch-10 Fix 3 + M2 batch-12 — Apply CAS positive case)**: `applyStagedParse` body reads `pending_syncs.staged_id` AND `pending_syncs.base_modified_time` for the CAS predicate (per §5.2 / §6.8.2 — note: column lives on `pending_syncs`, NOT `shows`; **M2 batch-12 correction**: prior fixture text said `shows.base_modified_time` which was a fabrication). Both operands resolve to AUTHORITATIVE_GATING_WATERMARKS — must NOT throw. Companion `good-discard-cas.fixture`: `discardStagedParse` body reads `pending_syncs.staged_id` for the CAS predicate (per §6.8.1) — must NOT throw.
+     - **`good-apply-cas-staged-id.fixture` (batch-11 — UUID-gate positive case for Apply)**: `applyStagedParse` enforces `WHERE staged_id = $reviewedStagedId` where `reviewedStagedId` is a function parameter sourced from the operator's review payload. The new (batch-11) matcher MUST recognize `pending_syncs.staged_id` as an in-scope gating watermark even though the operand name carries no `modified_time` token, and MUST accept because the other operand derives from a reviewed-context input — not from a fresh DB read. Audit MUST NOT throw.
+     - **`good-discard-cas-staged-id.fixture` (batch-11 — UUID-gate positive case for Discard)**: `discardStagedParse` enforces `WHERE staged_id = $reviewedStagedId` per §6.8.1; matcher in scope, provenance OK — audit MUST NOT throw.
+     - **`good-asset-route-cas-revision-id.fixture` (batch-11 + M2 batch-12 — snapshot revision pin positive case)**: `app/api/asset/diagram/[show]/[rev]/[key]/route.ts`-shape fixture compares `(shows.diagrams ->> 'snapshot_revision_id')::uuid === req.params.rev` (**M2 batch-12 correction**: the value lives in the JSONB `shows.diagrams` at JSON path `->> 'snapshot_revision_id'`, NOT a top-level `shows.snapshot_revision_id` column — there is no top-level column). Matcher recognizes the JSONB-path expression as a gating watermark; the other operand derives from a route param (reviewed/staged context input). Audit MUST NOT throw. Companion `good-asset-route-cas-head-revision.fixture`: compares `fileMeta.headRevisionId === pinnedRevisionId` — must NOT throw. Companion `good-asset-route-cas-md5.fixture`: compares `fileMeta.md5Checksum === pinnedChecksum` — must NOT throw.
+     - **`bad-uuid-cas-against-fresh-read.fixture` (batch-11 — fresh-read regression for UUID gate)**: `applyStagedParse` regenerates `expected_revision` via a fresh SELECT inside the comparison: `WHERE staged_id = (await db.from('pending_syncs').select('staged_id').eq('drive_file_id', fid).single()).data.staged_id`. The matcher recognizes `pending_syncs.staged_id` as a gating watermark AND audit check (a) MUST throw because the other operand resolves to a fresh `from('pending_syncs').select('staged_id')` read in the same data-flow lineage — i.e., the CAS is comparing the row to itself. Companion `bad-uuid-cas-revision-id-against-fresh-read.fixture` (**M2 batch-12 — corrected expression form**): same shape but with the JSONB-path expression `(shows.diagrams ->> 'snapshot_revision_id')::uuid` as the watermark and a fresh `from('shows').select('diagrams').single()` regenerating the RHS via `.diagrams.snapshot_revision_id` — must throw with the same shape of message naming the JSONB-path expression.
+     - **`bad-uncovered-gating-watermark.fixture` (batch-11 + M2 batch-12 — coverage-sweep regression)**: a synthetic project where `applyStagedParse` READS the JSONB-path expression `(shows.diagrams ->> 'snapshot_revision_id')` (e.g., to log it) but never CAS-compares it against any reviewed-context value before its UPDATE statement. Audit check (b) MUST throw with `AC-X.4 violation: gating watermark shows.diagrams->>snapshot_revision_id is read by applyStagedParse but never enforced as a CAS predicate before a write sink.` (**M2 batch-12 correction**: prior fixture used the fabricated top-level name `shows.snapshot_revision_id`; the real expression is the JSONB path.)
+     - **`bad-missing-entry-point.fixture` (batch-9 amendment — precheck regression)**: a fixture project where `runScheduledCronSync` (declared in SYNC_ENTRY_POINTS) is RENAMED to `runScheduledCronSyncRenamed` everywhere in source. The semantic-layer precheck MUST throw with `unresolved sync entry points (zero declarations): runScheduledCronSync` — silently skipping the entry would let an engineer rename the cron path and bypass the audit entirely. Companion fixture `bad-ambiguous-entry-point.fixture`: `runScheduledCronSync` is declared in TWO files (e.g., a stale duplicate left after a refactor); precheck MUST throw with `ambiguous sync entry points (multiple declarations): runScheduledCronSync (2 matches)`. **Batch-10 Fix 3** adds analogous regression fixtures for the Apply/Discard entry points: `bad-missing-applyStagedParse-entry-point.fixture` (renames `applyStagedParse` to `applyStagedParseRenamed`) and `bad-missing-discardStagedParse-entry-point.fixture` (renames `discardStagedParse`); each MUST throw at the precheck.
 
      The semantic layer is the primary gate against the round-49 finding's named-bypass class. Layers 1–2 (regex + token-based identifier audit) remain as defense in depth.
   4. **DDL guard via Postgres event trigger — global, allowlist-based (replaces the table CHECK approach, which cannot police future column names):**
@@ -5965,7 +9210,7 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
      SELECT evtname FROM pg_event_trigger WHERE evtname = 'no_global_cursor_columns';
      ```
      and asserts exactly one row. It then exercises the trigger by:
-     - Attempting `ALTER TABLE app_settings ADD COLUMN last_processed_at timestamptz` in a SAVEPOINT-rolled-back probe → expect exception (no allowlist row).
+     - Attempting `ALTER TABLE app_settings ADD COLUMN last_processed_at timestamptz` inside a single transactional probe (`BEGIN; ALTER TABLE ...; ROLLBACK;` issued as one `exec_sql` call so the transaction stays on the same backend connection — round-49 amendment: do NOT split the BEGIN/ALTER/ROLLBACK across multiple PostgREST calls, since each call gets its own backend tx) → expect exception (no allowlist row).
      - Attempting `CREATE TABLE system_state (last_run_at timestamptz)` (round-5 regression — singleton other than `app_settings`) → expect exception.
      - Attempting `ALTER TABLE shows ADD COLUMN global_cursor int` → expect exception.
      - Attempting `ALTER TABLE shows ADD COLUMN last_seen_modified_time timestamptz` (already allowlisted) → expect success (the allowlist exempts the existing column shape).
@@ -6021,7 +9266,7 @@ The earlier draft was a string-grep over `INSERT ... email`. That misses JSONB f
 
 **Mechanized matrix (final-validation finding).** Earlier draft was a manual checklist that collapsed whole sections (`§13 → M8 tasks 8.1..8.5`) and skipped §16 entirely. Manual checklists at this scale can't reliably catch (a) the round-43 ParsedSheet/ParseResult split staying mapped, (b) the round-23/40 `lease_holder` protocol amendments being represented, (c) orphaned ACs beyond human diligence, or (d) §16 secrets/env coverage being addressed. The corrected design generates the matrix from spec headings + AC anchors.
 
-**Files:** Create: `scripts/generate-traceability.ts`. Test: `tests/cross-cutting/traceability.test.ts`. Output: `docs/superpowers/plans/coverage.md`.
+**Files:** Create: `scripts/generate-traceability.ts`, `scripts/verify-branch-protection.ts` (X.1-X.6 batch-15 finding 1 — programmatic branch-protection verification, see Step 3c), `.github/workflows/x-audits.yml` (X.1-X.6 batch-14 finding #2 — workflow ownership: this Task X.6 file list is the SOLE creator of the workflow file; tasks X.1..X.5 reference this workflow via their respective job names but do NOT create it). Test: `tests/cross-cutting/traceability.test.ts`, `tests/cross-cutting/verify-branch-protection.test.ts` (X.1-X.6 batch-15 finding 1). Output: `docs/superpowers/plans/coverage.md`.
 
 - [ ] **Step 1: Implement the generator** `scripts/generate-traceability.ts` that:
   1. Walks every heading in the spec markdown — H1/H2/H3/H4 — and records the `§N`, `§N.M`, `§N.M.O`, and `§N.M.O.P` anchors plus their titles.
@@ -6078,8 +9323,163 @@ The earlier draft was a string-grep over `INSERT ... email`. That misses JSONB f
   - **Round-23/40 lease_holder amendments** are mapped (Task 8.1's `lease_holder uuid` migration is the canonical anchor; the test asserts the migration step references the round-23/40 amendment text).
   - **§16 (secrets/env)** has at least one explicit task. (Earlier draft skipped §16 entirely — this assertion catches that regression.)
   - Every code in §12.4 has a producer site (cross-references X.1's three-way parity).
-- [ ] **Step 3:** CI runs the generator, fails the build if `MISSING` count > 0, and uploads `coverage.md` as a build artifact for the spec author to review.
-- [ ] **Step 4: Commit** `feat(cross-cutting): machine-generated traceability matrix + §16 coverage gate (AC-X.6)`.
+  - **§4.3 ↔ AC-2.5 admin-table parity (batch-11/batch-12 build-time invariant)**: parse the spec's §4.3 admin-only bullet list to extract the canonical admin-only table set; parse Task 2.3's `ADMIN_TABLES` registry (and the equivalent regex list in Task X.3's `PROTECTED_SINKS`); assert `setEqual(specAdminTables, ac25AdminTables)` AND `specAdminTables.every(t => protectedSinksRegexList.includes(t))`. The test fails with a named diff (`+missing_in_ac25:bootstrap_nonces`, `-missing_in_spec:foo`) when any one of the three lists drifts. This is the cross-cutting parity gate that catches the M2 batch-11/batch-12 finding (`bootstrap_nonces` was added to spec §4.3 but missed in plan Task 2.3's inline enumeration / Task X.3's PROTECTED_SINKS regex list); future admin-only tables added to §4.3 must propagate to all three lists or CI fails.
+  - **Reel pin 4-column atomic-NULL/SET invariant (M3+M4 batch-14 finding 3 — propagation-of-batch-13 4-tuple fix; static CI assertion).** Static AST scan of every TypeScript / SQL source file finds every UPDATE/INSERT/UPSERT statement whose targeted column set intersects `REEL_PIN_COLUMNS = { 'opening_reel_drive_file_id', 'opening_reel_drive_modified_time', 'opening_reel_head_revision_id', 'opening_reel_mime_type' }`. For each such statement, assert ONE OF: (a) all four columns appear in the SET clause and all four are assigned the same NULL literal (atomic-NULL drift / non-video / permission-denied path), OR (b) all four columns appear in the SET clause and all four are assigned non-NULL bound parameters (atomic-SET success path), OR (c) the statement is part of an explicit allowlist with reviewed justification (initially empty). A statement that updates 1, 2, or 3 of the four columns in isolation (or mixes NULL with non-NULL across the four) fails CI with `REEL_PIN_PARTIAL_UPDATE` naming the offending file:line. **Symbol set is driven from §4.1 column comments**, not hardcoded — the audit re-reads §4.1 at build time and discovers the canonical reel-pin column set, so a future 5th pin column added to §4.1 auto-grows the invariant. This static gate catches the regression class that surfaced in M3+M4 batch-13 / batch-14 (multiple plan/spec sites enumerated only 3 of the 4 reel pin columns; the runtime test asserts pass with all-NULL but the source still wrote partial NULLs through helper functions that bypassed the test path). **Companion plan/spec-side cardinality check**: every plan/spec reference to "reel pin tuple" / "reel pin triple" / "reel pin quadruple" / "all N reel columns" / "ALL N persisted reel columns" / "ALL N pin columns" / "<N> NULLs together" is parsed and the cardinality must match `|REEL_PIN_COLUMNS| === 4`; a `triple` / `three` / `3` mention fails with `REEL_PIN_CARDINALITY_DRIFT` naming the offending file:line. Allowlist exception: prose explicitly framing a count as "earlier wording said three" (a deliberate retrospective reference) passes if the corrected `four`/`4` mention appears in the same paragraph.
+- [ ] **Step 3: CI gating — substantive parity assertions are PR-required (X.1-X.6 batch-13 finding #1).** The earlier wording fired CI ONLY on `MISSING > 0` count, which left every Step-2 substantive parity assertion (§4.3 ↔ AC-2.5 admin-table parity; §16 secrets/env coverage; §12.4 code-producer parity; round-43 ParsedSheet/ParseResult split mapping; round-23/40 lease_holder amendment mapping; X.4 watermark spec ↔ plan parity) un-wired into the PR-required check — a spec drift that broke admin-table parity but left every anchor still mapped would have a green CI. The corrected contract: **CI MUST run the X.6 traceability test file (`tests/cross-cutting/traceability.test.ts`) on EVERY pull request and EVERY branch build. Failing ANY Step-2 assertion blocks merge** — not just `MISSING > 0`, but every parity, coverage, and code-producer check enumerated in Step 2. The required GitHub status check is named **`traceability-audit`** (registered as a required check on the `main` branch via repository settings; spec §17.2 acceptance language references this exact check name as a hard ship gate). Required checks for the full X.* gate set (each implemented as a separate Vitest project + GitHub status check, all required for merge): `traceability-audit` (X.6 — this task), `x1-catalog-parity` (X.1 — Task X.1 owner), `x2-no-raw-codes` (X.2 — Task X.2 owner), `x3-trust-domain` (X.3 — Task X.3 owner), `x4-no-global-cursor` (X.4 — Task X.4 owner), `x5-rls-coverage` (X.5 — Task X.5 owner). The CI workflow file is `.github/workflows/x-audits.yml`; each job uploads its respective audit artifact (`coverage.md` for X.6; named diffs for X.1–X.5) on every run regardless of pass/fail. **Post-merge / deploy-only audits are NOT acceptable for any X.* gate** — they must run on the PR-required check path so a regression cannot land. This X.6 task additionally asserts spec §17.2 enumerates all six required check names verbatim (`traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-rls-coverage`); a spec edit that drops any name fails the audit.
+- [ ] **Step 3a: Create `.github/workflows/x-audits.yml` (X.1-X.6 batch-14 finding #2).** Earlier draft mandated six PR-required status checks but never owned the workflow file — Task X.6's file list created only the generator + test + coverage.md, leaving the CI gate un-wired. This step creates the workflow file as a Task X.6 deliverable. Workflow structure:
+  ```yaml
+  name: Cross-cutting audits
+  on:
+    pull_request:
+    push:
+      branches: [main]
+    schedule:
+      # X.1-X.6 batch-15 finding 1: weekly cron trigger so the
+      # `verify-branch-protection` job runs even when no PRs flow through.
+      # All other jobs gate themselves with `if: github.event_name != 'schedule'`
+      # so the cron run executes ONLY the branch-protection verification.
+      - cron: '0 9 * * 1'
+  jobs:
+    traceability-audit:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - uses: pnpm/action-setup@v4
+        - uses: actions/setup-node@v4
+          with: { node-version: '20', cache: 'pnpm' }
+        - run: pnpm install --frozen-lockfile
+        - run: pnpm test:audit:traceability
+        - uses: actions/upload-artifact@v4
+          if: always()
+          with: { name: traceability-coverage, path: docs/superpowers/plans/coverage.md }
+    x1-catalog-parity:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - uses: pnpm/action-setup@v4
+        - uses: actions/setup-node@v4
+          with: { node-version: '20', cache: 'pnpm' }
+        - run: pnpm install --frozen-lockfile
+        - run: pnpm test:audit:x1-catalog
+        - uses: actions/upload-artifact@v4
+          if: always()
+          with: { name: x1-catalog-diff, path: artifacts/x1-catalog-diff.txt }
+    x2-no-raw-codes:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - uses: pnpm/action-setup@v4
+        - uses: actions/setup-node@v4
+          with: { node-version: '20', cache: 'pnpm' }
+        - run: pnpm install --frozen-lockfile
+        - run: pnpm test:audit:x2-no-raw-codes
+        - uses: actions/upload-artifact@v4
+          if: always()
+          with: { name: x2-raw-codes-diff, path: artifacts/x2-raw-codes-diff.txt }
+    x3-trust-domain:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - uses: pnpm/action-setup@v4
+        - uses: actions/setup-node@v4
+          with: { node-version: '20', cache: 'pnpm' }
+        - run: pnpm install --frozen-lockfile
+        - run: pnpm test:audit:x3-trust-domain
+        - uses: actions/upload-artifact@v4
+          if: always()
+          with: { name: x3-trust-domain-diff, path: artifacts/x3-trust-domain-diff.txt }
+    x4-no-global-cursor:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - uses: pnpm/action-setup@v4
+        - uses: actions/setup-node@v4
+          with: { node-version: '20', cache: 'pnpm' }
+        - run: pnpm install --frozen-lockfile
+        - run: pnpm test:audit:x4-no-global-cursor
+        - uses: actions/upload-artifact@v4
+          if: always()
+          with: { name: x4-cursor-diff, path: artifacts/x4-cursor-diff.txt }
+    x5-rls-coverage:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - uses: pnpm/action-setup@v4
+        - uses: actions/setup-node@v4
+          with: { node-version: '20', cache: 'pnpm' }
+        - run: pnpm install --frozen-lockfile
+        - run: pnpm test:audit:x5-rls-coverage
+        - uses: actions/upload-artifact@v4
+          if: always()
+          with: { name: x5-rls-diff, path: artifacts/x5-rls-diff.txt }
+    verify-branch-protection:
+      # X.1-X.6 batch-15 finding 1: programmatic guard against the manual
+      # branch-protection admin step being skipped or later reverted. The
+      # script asserts all six required X.* status-check names are present
+      # in `required_status_checks.contexts`, `enforce_admins=true`, and
+      # `required_pull_request_reviews.required_approving_review_count >= 1`.
+      # On drift, the job fails AND inserts a `BRANCH_PROTECTION_DRIFT`
+      # row into `admin_alerts` (spec §12.4 catalog entry; admin-log only).
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - uses: pnpm/action-setup@v4
+        - uses: actions/setup-node@v4
+          with: { node-version: '20', cache: 'pnpm' }
+        - run: pnpm install --frozen-lockfile
+        - run: pnpm tsx scripts/verify-branch-protection.ts
+          env:
+            # Preferred: GitHub App installation token minted at job start
+            # via a separate composite action (least-privilege, no PAT
+            # rotation burden). Fallback: `BRANCH_PROTECTION_PAT` repo
+            # secret (PAT with `repo` scope — must be rotated quarterly).
+            # The script picks `GH_APP_TOKEN` first and falls back to
+            # `BRANCH_PROTECTION_PAT` if the App token is absent. CI fails
+            # if NEITHER secret is set.
+            GH_APP_TOKEN: ${{ secrets.GH_APP_TOKEN }}
+            BRANCH_PROTECTION_PAT: ${{ secrets.BRANCH_PROTECTION_PAT }}
+            SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+            SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        - uses: actions/upload-artifact@v4
+          if: always()
+          with: { name: branch-protection-report, path: artifacts/branch-protection-report.json }
+  ```
+  Each job pinned to `ubuntu-latest`, runs `pnpm install --frozen-lockfile` then **(X.1-X.6 batch-15 finding 2 amendment)** runs `pnpm gen:admin-tables` followed by `git diff --exit-code lib/audit/admin-tables.generated.ts` BEFORE its `pnpm test:audit:<name>` step. The first command regenerates the admin-tables module from the live spec §4.3; the second fails the workflow if the regeneration produced any diff against the committed `lib/audit/admin-tables.generated.ts` (named diff: `+missing_in_generated:<table>` / `-extra_in_generated:<table>`). This freshness gate is required on EVERY audit job so a stale generated module cannot silently feed into typecheck/lint/test consumers. The `verify-branch-protection` job is exempt only because it does not import the generated file. Then runs `pnpm test:audit:<name>` (the audit scripts are added to `package.json`'s `scripts` block by the respective Task X.1..X.6 owners — `test:audit:traceability`, `test:audit:x1-catalog`, `test:audit:x2-no-raw-codes`, `test:audit:x3-trust-domain`, `test:audit:x4-no-global-cursor`, `test:audit:x5-rls-coverage`; this Task X.6 step adds `test:audit:traceability` to `package.json` as part of the workflow-creation step). Additionally, `package.json`'s `scripts` block is wired so `pretypecheck`, `prelint`, `pretest`, `prebuild` ALL run `gen:admin-tables` first — so any local `pnpm typecheck` / `pnpm lint` / `pnpm test` / `pnpm build` ALWAYS sees a fresh generated file even outside CI. Each job uploads its named artifact via `actions/upload-artifact@v4` with `if: always()` so failure runs still surface diffs. **All non-`verify-branch-protection` jobs gate themselves on `if: github.event_name != 'schedule'`** so the weekly cron trigger fires only the branch-protection verification (X.1-X.6 batch-15 finding 1). **Branch-protection step (manual one-time admin action, called out in Step 3a's commit body for the operator):** after the workflow lands and runs green at least once on `main`, an admin must navigate to repository **Settings → Branches → Branch protection rules → `main`**, enable **"Require status checks to pass before merging"**, and add all six check names verbatim to the **"Required status checks"** list: `traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-rls-coverage`. Repo-settings ownership lives outside the codebase, so this is a manual admin task that lands as a one-time follow-up (the spec §17.2 acceptance language already mandates these as PR-blocking; the workflow file alone does not configure protection — GitHub requires the admin step). **X.1-X.6 batch-15 finding 1: the manual step is followed by Step 3c's programmatic verification** — `scripts/verify-branch-protection.ts` runs both as the `verify-branch-protection` workflow job (added above) AND as a weekly scheduled cron (a `schedule:` trigger added at the top of `x-audits.yml` with `cron: '0 9 * * 1'` Monday 09:00 UTC running ONLY the `verify-branch-protection` job — separate `workflow_dispatch`/`schedule` event filter on the job's `if:` gate), so any later revert of the manual settings is caught within at most 7 days regardless of whether new PRs flow through the `pull_request` trigger.
+- [ ] **Step 3b: Verify workflow runs against a known-bad fixture branch and fails as expected (X.1-X.6 batch-14 finding #2).** Create a throwaway branch `verify/x6-workflow-fails-on-bad-spec` that intentionally introduces a spec drift — e.g., remove one entry from §4.3's admin-only bullet list while leaving Plan Task 2.3's `ADMIN_TABLES` registry unchanged (this should fail the §4.3 ↔ AC-2.5 admin-table parity assertion in `tests/cross-cutting/traceability.test.ts`). Push the branch and open a draft PR. Assert: (a) GitHub Actions kicks off the workflow on the PR; (b) the `traceability-audit` job FAILS with a named diff (`+missing_in_ac25:<dropped-table>` or equivalent); (c) the PR shows `traceability-audit` as a failed check; (d) the artifact upload succeeded despite the failure (proving the `if: always()` clause works). Repeat for at least one other audit (e.g., introduce a raw `'WIZARD_SESSION_SUPERSEDED'` string literal inside a `components/**/*.tsx` user-facing JSX attribute so `x2-no-raw-codes` fails). Once both verifications pass, close the throwaway PR and delete the verify branch. **This step does NOT block the rest of Task X.6**, but it MUST run before Step 4's commit lands on `main` so the operator has evidence the gate works end-to-end.
+- [ ] **Step 3c: Implement `scripts/verify-branch-protection.ts` and its test (X.1-X.6 batch-15 finding 1).** The Step 3a manual admin action ("after the workflow runs green, configure required status checks in GitHub Settings") is plain prose in a commit body — there is nothing in the codebase that detects when the settings are absent OR later reverted. A future admin who disables `enforce_admins` to land an emergency hotfix, or who removes one X.* check from the required list during a flaky-CI episode, leaves the X.* gate suite advisory and there is no automated alarm. This step adds a programmatic verification.
+  Script contract (`scripts/verify-branch-protection.ts`):
+  1. **Authentication**: prefers `GH_APP_TOKEN` env var (GitHub App installation token, least-privilege); falls back to `BRANCH_PROTECTION_PAT` env var (PAT with `repo` scope). Fails with a named error if neither is set.
+  2. **API call**: `GET /repos/{owner}/{repo}/branches/main/protection` (Branch Protection REST endpoint) AND `GET /repos/{owner}/{repo}/rulesets` (Rulesets API — covers organizations using rulesets instead of legacy branch protection). Owner/repo are read from `GITHUB_REPOSITORY` env var when running in Actions, or from `git remote get-url origin` parsing locally. The script accepts EITHER protection model: if a legacy branch-protection rule exists for `main`, validate against its fields; if a `ref_name` ruleset targets `main`, validate against its rules instead. Drift in either model fails identically.
+  3. **Assertions** (every failure produces a named diff line in the JSON report at `artifacts/branch-protection-report.json`):
+     - `required_status_checks.strict === true` (require branches up-to-date with base before merging).
+     - `required_status_checks.contexts` contains ALL SIX names verbatim: `traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-rls-coverage`. Missing any name → `BRANCH_PROTECTION_DRIFT` with `+missing_check:<name>` diff. Extra check names not in the spec are allowed (defense-in-depth).
+     - `required_pull_request_reviews.required_approving_review_count >= 1`.
+     - `required_pull_request_reviews.dismiss_stale_reviews === true` (so a force-push doesn't preserve old approvals).
+     - `enforce_admins === true` (admins cannot bypass the gate).
+     - `allow_force_pushes.enabled === false` AND `allow_deletions.enabled === false` on `main`.
+  4. **On drift**: emits the JSON report (one entry per failed assertion), prints a human-readable summary to stdout, AND inserts a row into the `admin_alerts` table:
+     ```ts
+     await supabaseAdmin.from('admin_alerts').insert({
+       code: 'BRANCH_PROTECTION_DRIFT',
+       context: { failures: failedAssertions, repo: `${owner}/${repo}`, ts: new Date().toISOString() },
+       severity: 'high',
+     });
+     ```
+     Then exits non-zero (workflow job fails; required-check status surfaces in the `verify-branch-protection` job and any cron-only run also fails its check). Insertion uses the Supabase service-role client (`SUPABASE_SERVICE_ROLE_KEY`) since CI runs outside any user session; the workflow injects the secret via env (see Step 3a's `verify-branch-protection` job env block).
+  5. **On success**: emits a green report (`{ status: 'ok', checks: [...] }`) and exits zero.
+  Test (`tests/cross-cutting/verify-branch-protection.test.ts`) — the script's behavior is exercised against mocked GitHub API responses (`nock` or `msw` intercepts the REST calls; `supabaseAdmin.from('admin_alerts').insert` is mocked to a Vitest spy). Required cases:
+  - `missing-check-name` fixture: API response omits `x3-trust-domain` from `contexts` → script exits 1, `admin_alerts` insert called with `code: 'BRANCH_PROTECTION_DRIFT'` and `context.failures` includes `+missing_check:x3-trust-domain`.
+  - `insufficient-review-count` fixture: API returns `required_approving_review_count: 0` → exits 1, named diff `review_count:0 < 1`.
+  - `enforce-admins-disabled` fixture: API returns `enforce_admins.enabled: false` → exits 1, named diff `enforce_admins:false`.
+  - `strict-false` fixture: API returns `required_status_checks.strict: false` → exits 1, named diff `strict:false`.
+  - `dismiss-stale-disabled` fixture: API returns `dismiss_stale_reviews: false` → exits 1, named diff.
+  - `allow-force-push-enabled` fixture: API returns `allow_force_pushes.enabled: true` → exits 1, named diff.
+  - `ruleset-only-happy-path` fixture: legacy branch-protection 404, Rulesets API returns a `ref_name=main` ruleset with all six checks + admin enforcement + 1 review required → exits 0, no `admin_alerts` insert.
+  - `legacy-protection-happy-path` fixture: legacy branch-protection returns full passing config → exits 0, no `admin_alerts` insert.
+  - `no-token` fixture: neither `GH_APP_TOKEN` nor `BRANCH_PROTECTION_PAT` set → exits 1 with `MISSING_AUTH_TOKEN` named error (does NOT insert into `admin_alerts` — auth failure is operator misconfiguration, not policy drift).
+  - **Anti-tautology**: each test scopes its assertion to the specific spy call's payload (`expect(insertSpy).toHaveBeenCalledWith({ code: 'BRANCH_PROTECTION_DRIFT', context: expect.objectContaining({ failures: expect.arrayContaining([...]) }), severity: 'high' })`), NOT to "exit code is non-zero" alone — the latter would pass for any thrown error and not prove the alert mechanism works.
+  Add `pnpm test:audit:branch-protection` to `package.json` (runs the test file). The Step 3a workflow's `verify-branch-protection` job runs the SCRIPT (live API call); the test file runs against the mocks.
+- [ ] **Step 4: Commit** `feat(cross-cutting): machine-generated traceability matrix + §16 coverage gate + x-audits.yml workflow + verify-branch-protection (AC-X.6)`.
 
 ---
 
@@ -6116,7 +9516,7 @@ Per the writing-plans skill: after writing the complete plan, look at the spec w
   - `getShowForViewer` (Task 4.3) used in 4.4..4.10, 5.7, 10.8.
   - `snapshotAssets` (Task 7.3) called from `phase2.ts` (Task 6.5).
 
-- [ ] **Layout dimensions task present** — Task 4.13 covers AC-4.4 with `getBoundingClientRect()` per `data-testid`, asserting `child.height === parent.height` within 0.5px tolerance, including the explicit Tailwind v4 `align-items: stretch` invariant.
+- [ ] **Layout dimensions task present** — Task 4.13 covers AC-4.4 with `getBoundingClientRect()` per `data-testid`, asserting `child.height === parent.height` within 0.5px tolerance, including the explicit Tailwind v4 `align-items: stretch` invariant. **Round-50: every §8.4 invariant has a corresponding assertion** — (1) Right Now full-width across breakpoints, (2) grid column count + equal-row stretch, (3) tile min-height 96px, (4) 240px internal-overflow rule + `[data-testid=tile-show-more]` disclosure, (5) footer sticky-on-short / flow-on-long with both short-content and long-content fixtures exercised.
 
 - [ ] **Transition audit task present** — Task 4.12 enumerates every Right Now state transition pair from §8.2's table including compound transitions (e.g., `Any → unknown` mid-flight against another transition).
 
@@ -6192,7 +9592,7 @@ The spec-amendment verifier (`scripts/verify-spec-amendment-3.sh`) has been auth
 **Round 41 — Final validation pass (executed):** scoped explicitly to the milestones outside §13.2.3. Codex returned 5 findings (4 high, 1 medium), ALL legitimate and ALL closed:
 - **Wizard session ordering (Task 10.3, AC-6.22 / §6.4):** `pending_wizard_session_id` is now written BEFORE `runOnboardingScan` runs, with explicit prior-session purge between the write and the scan. Earlier ordering would have left staged rows un-tagged with the current session id, breaking the §6.8.1 wizard-session CAS.
 - **Wizard finalize completeness (Task 10.5, §9.0 step 3):** finalize endpoint now performs a server-side resolution check across BOTH `pending_syncs` AND `pending_ingestions` for the wizard session before the §4.5 atomic promotion CAS; new `ONBOARDING_NOT_RESOLVED` 409 + message catalog entry. Earlier draft only checked `pending_syncs`, allowing folder promotion to proceed with parse-failed sheets unrepresented.
-- **RLS coverage (Task 2.3, AC-2.5):** failing test now enumerates EVERY admin-only table from §4.3 (14 tables) with denied SELECT/INSERT/UPDATE/DELETE — not just `shows_internal`. Crew-readable tables get positive AND negative case coverage.
+- **RLS coverage (Task 2.3, AC-2.5):** failing test now enumerates EVERY admin-only table from §4.3 (17 tables — round-51 / batch-10 added `onboarding_scan_manifest`; M5 batch-10 added `bootstrap_nonces`; M7 batch-12 / M2 batch-13 added `pending_snapshot_uploads`) with denied SELECT/INSERT/UPDATE/DELETE — not just `shows_internal`. Crew-readable tables get positive AND negative case coverage.
 - **Auth entry-point semantic audit (Task X.3, AC-X.3):** rewritten from import-presence check to a ts-morph semantic audit that asserts the validator is CALLED before any protected-data access, with a banned-identifier audit for low-level auth primitives (`link_sessions`, `__Host-fxav_session`, `crew_member_auth`, `verifyLinkJwt`) outside the `lib/auth/` allowlist. New regression fixtures in `tests/cross-cutting/fixtures/auth-x3/`.
 - **/admin/dev contract (Task 3.1/3.2):** resolved as REAL Phase-1 write-through against an isolated `dev.*` Postgres schema (NOT a dry-run preview, since AC-3.2/3.3 explicitly assert rows in `pending_syncs`/`pending_ingestions`). Migrations apply DDL to both `public` AND `dev` schemas; the dev panel sets `search_path = dev, public`; "Reset dev schema" affordance + Playwright `TRUNCATE dev.*` setup hooks isolate each test.
 
@@ -6208,11 +9608,13 @@ After round 41, both the recovery pipeline (rounds 6–40) and the foundational 
 
 **Phase-2 batches 1–7 — fixes by milestone (highlights):**
 
-- **M2 schema (rounds 1, 5, 12, 19, 25):** RLS recursion closed via `can_read_show()` SECURITY DEFINER helper (was self-referential `EXISTS (SELECT 1 FROM crew_members ...)` inside crew_members own policy). RLS coverage expanded from SELECT-only to full INSERT/UPDATE/DELETE denial with service-role controls under matching-crew AND non-matching-crew identities. Schema introspection switched from name-presence to byte-for-byte `pg_get_constraintdef`/`pg_get_indexdef` string equality after whitespace normalization (was wildcards letting extra enum values slip past). Single-canonical-source DDL matrix per table with exact spec section ownership (§4.1 / §4.5 / §4.6 / §5.5.1 / §6.8.1 / §6.8.3 / §13.3) — no replay of additive ALTER fragments. Seed parity through `applyStaged` only (synthetic FIRST_SEEN_REVIEW reviewer choices through the same Apply transaction production uses); no parallel `applyParseResult` shortcut. transportation `unique(show_id)` introspection + duplicate-insert runtime test. AC-2.7 expanded to assert full round-46 PersistedDiagrams shape including recovery_disposition + partial_failure_restage_required terminal status.
+- **M2 schema (rounds 1, 5, 12, 19, 25, batch-10 round-51):** Round-51 / batch-10 amendments: (a) Task 2.5 partial-index coverage extended from `pg_get_indexdef` string-equality to execution-level UPSERT contract tests for `pending_syncs` AND `pending_ingestions` — live partition idempotence, wizard partition idempotence, cross-partition coexistence, AND missing-index rollback that classifies LIVE_ROW_CONFLICT via SQLSTATE (42P10/23505), NOT zero-row heuristic; (b) SECURITY DEFINER hardening matrix mandates `SET search_path = public, pg_temp` (pg_temp LAST, NEVER omitted) on every helper — `can_read_show` / `is_admin` / `auth_email_canonical` / `__test_singleton_rls_probe` / `introspect_fk` / `introspect_check`, plus any future M5/M6/M8/M10 helpers; (c) `__test_singleton_rls_probe` rewritten to drop `SET LOCAL ROLE authenticated` (forbidden semantics inside SECURITY DEFINER) — uses `set_config('request.jwt.claims', ...)` only, mirroring PostgREST's actual non-admin path. INSERT-denial branch also reordered to DELETE the bootstrap row first so the crew INSERT attempt evaluates RLS instead of colliding with the singleton PK. SQLSTATE captured in `crew_insert_err`/`crew_delete_err` (was bare SQLERRM) so callers can discriminate 42501 (RLS) from 23514 (singleton CHECK). RLS recursion closed via `can_read_show()` SECURITY DEFINER helper (was self-referential `EXISTS (SELECT 1 FROM crew_members ...)` inside crew_members own policy). RLS coverage expanded from SELECT-only to full INSERT/UPDATE/DELETE denial with service-role controls under matching-crew AND non-matching-crew identities. Schema introspection switched from name-presence to byte-for-byte `pg_get_constraintdef`/`pg_get_indexdef` string equality after whitespace normalization (was wildcards letting extra enum values slip past). Single-canonical-source DDL matrix per table with exact spec section ownership (§4.1 / §4.5 / §4.6 / §5.5.1 / §6.8.1 / §6.8.3 / §13.3) — no replay of additive ALTER fragments. Seed parity through `applyStaged` only (synthetic FIRST_SEEN_REVIEW reviewer choices through the same Apply transaction production uses); no parallel `applyParseResult` shortcut. transportation `unique(show_id)` introspection + duplicate-insert runtime test. AC-2.7 expanded to assert full round-46 PersistedDiagrams shape including recovery_disposition + partial_failure_restage_required terminal status.
 
-- **M5 auth (rounds 2, 6, 11, 14, 22, 26):** §17.1 ACs reconciled to cookie-session model (was JWT-validator semantics). validateLinkSession contract rewritten to tri-state `success | continue (lossless) | terminal_failure` with identity-only success payload (no role); recoverable cookie failures clear the cookie and fall through to Google/admin. Three-branch chain encoded as branching valid paths with admin-precedence (Path A: link → google → admin; Path B with admin metadata: link → admin → google). `?t=` compromise handler: Branch A no-live-link state (`current = max = floor`), Branch B surgical revoke only (current link stays usable), Branch C future-version single-step transition; idempotent `INSERT ... ON CONFLICT DO NOTHING`. validateGoogleSession lookup show-bound (`WHERE show_id = $requestedShowId AND email = canonicalize(...)`). Redeem-link cookie integrity assertions (`__Host-` + Path=/ + no Domain + opaque token != JWT). Canonical §12.4 codes only (no aliases — earlier rewrites had introduced `CREW_REMOVED`/`LINK_REPLACED`/etc. that aren't in the catalog). Minimal §12.4 catalog pulled forward into M5 so admin-alerts banner + auth errors render via `messageFor()`. AMBIGUOUS_EMAIL_BINDING upsert coalescing test (one row per code, occurrence_count, last_seen_at, latest context).
+- **M5 auth batch-11:** Google OAuth sign-in/callback/sign-out flow (new Task 5.8 ships `/auth/sign-in`, `/auth/callback`, `/auth/sign-out`; new §12.4 codes `OAUTH_STATE_INVALID`, `OAUTH_REDIRECT_INVALID`; AC-5.14). bootstrap_nonces composite PK `(nonce_hash, show_id)` + array cookie `__Host-fxav_bootstrap_v` so multi-tab/multi-show nonces coexist (earlier single-PK + single-slot cookie clobbered live nonces across tabs/shows). Cross-show cookie reuse (§7.2.2 step 4) — see M5 auth batch-13 below for the current canonical contract; the batch-11 PRESERVE-row exception is retired.
+- **M5 auth batch-13:** REVERTED batch-12's per-show cookie NAMING (`__Host-fxav_session_<slug>`). The browser-cookie model is `(domain, path)`-keyed, NOT name-keyed — every same-host `__Host-` cookie attaches to every same-host request regardless of name, so per-show NAMING delivered zero client-side isolation while making the Cookie request header grow linearly with the number of shows the user had visited (eventual `400 Request Header Fields Too Large` / `431` outcomes). Cookie name reverted to the literal `__Host-fxav_session`; cookie value is now a JSON-encoded `{ token, show_id }` payload (URL-encoded) so the validator can still bind sessions to shows via `cookie.show_id === request.show_id`. §7.2.2 step 4 reinstated as the active cross-show check with single canonical contract: `continue + clearCookie + DELETE row` (replaces both the batch-11 "preserve row" exception AND the batch-12 "structurally unreachable" framing). Steps 3, 4, 5, 6, 7, 8, 9 ALL DELETE the offending row. The cost is the **A→B→A burn pattern** (multi-show navigation is rare; v1 trade-off; future versions may upgrade to a JSON-array cookie value). `setSessionCookie(value, opts)` and `clearSessionCookie()` no longer take slug parameters; sign-out emits exactly one clear (no iteration). PROTECTED_SINKS regex tightened from `__Host-fxav_session(_[a-z0-9-]+)?` to literal `__Host-fxav_session`. AC-5.3 rewritten as the A→B→A burn-pattern regression test. **Finding 3 (canonical error-code URL handoff):** OAuth callback failures now redirect with the explicit canonical §12.4 code in the URL (`/auth/sign-in?code=OAUTH_STATE_INVALID&next=...` or `?code=OAUTH_REDIRECT_INVALID&next=...`); sign-in page validates `code` against regex `^[A-Z_]{1,64}$` AND the §12.4 allowlist `{ OAUTH_STATE_INVALID, OAUTH_REDIRECT_INVALID }`, then renders `<ErrorExplainer code={code} />` with the canonical message. The retired batch-11 generic `?error=oauth_callback_failed` flag is gone — it forced one-size-fits-all error copy regardless of which §12.4 code actually fired.
+- **M5 auth (rounds 2, 6, 11, 14, 22, 26, batch 8, batch 9, batch 10):** **Batch-10: malformed-cookie tri-state** — client-side cookie parse/format faults are `continue + clearCookie:true` (NOT `terminal_failure`); terminal_failure is reserved for SERVER-SIDE infrastructure only. **Batch-10: `link_sessions.crew_member_id` FK = `ON DELETE SET NULL`** (was CASCADE) so §7.2.2 step 5 (LINK_NO_CREW_MATCH) is reachable; new AC-5.3a + AC-2.1 FK introspection. **Batch-10: `/api/auth/redeem-link` login-CSRF defense** — Origin/`Sec-Fetch-Site` check + single-use bootstrap nonce (new `bootstrap_nonces` table, 30-second TTL, §12.4 code `CSRF_DENIED`, AC-5.13) before any JWT verification or cookie write; SameSite=Lax does NOT prevent login-CSRF on cookie-mint. §17.1 ACs reconciled to cookie-session model (was JWT-validator semantics). validateLinkSession contract rewritten to tri-state `success | continue (lossless) | terminal_failure` with identity-only success payload (no role); recoverable cookie failures clear the cookie and fall through to Google/admin. **Batch-9: chain ordering corrected to admin-first** — `isAdminSession(req)` now runs as a side-effect-free predicate BEFORE `validateLinkSession`, so a valid redeemed-link cookie no longer silently downgrades an admin session to crew-mode. Branches collapsed to four (B1 admin-precedence; B2 link wins; B3 link continue → google; B4 link continue → google continue → admin). `?t=` compromise handler: Branch A no-live-link state (`current = max = floor`), Branch B surgical revoke only (current link stays usable), Branch C future-version single-step transition; idempotent `INSERT ... ON CONFLICT DO NOTHING`. **Batch-9: `?t=` middleware scope broadened from `/show/[slug]/p` exactly to every request matching `^/show/[^/]+`** — Vercel logs the full URL regardless of which Next.js route handles it, so a leaked `?t=` on `/show/<slug>` (root crew page) or any future `/show/<slug>/<subroute>` would have bypassed revocation. validateGoogleSession lookup show-bound (`WHERE show_id = $requestedShowId AND email = canonicalize(...)`). Redeem-link cookie integrity assertions (`__Host-` + Path=/ + no Domain + opaque token != JWT). **Batch-9: shared `lib/auth/cookies.ts` cookie helper** — `setSessionCookie()` and `clearSessionCookie()` are the ONLY producers of the `__Host-fxav_session` `Set-Cookie` header; the literal `__Host-fxav_session=` is banned outside `lib/auth/cookies.ts` + `lib/auth/constants.ts` via X.3's substring scan, eliminating the partial-attribute-clear-header bug class (a `__Host-` cookie deletion needs `Path=/` + `Secure` + `HttpOnly` + `SameSite=Lax` + no `Domain` + `Max-Age=0`; a bare `__Host-fxav_session=; Max-Age=0` is silently rejected by browsers and leaves the original cookie alive). Canonical §12.4 codes only (no aliases — earlier rewrites had introduced `CREW_REMOVED`/`LINK_REPLACED`/etc. that aren't in the catalog). Minimal §12.4 catalog pulled forward into M5 so admin-alerts banner + auth errors render via `messageFor()`. AMBIGUOUS_EMAIL_BINDING upsert coalescing test (one row per code, occurrence_count, last_seen_at, latest context).
 
-- **M6 sync (rounds 3, 7, 13, 18, 23, 27):** Phase 1/Phase 2 single-transaction lock contract — orchestrator owns one tx spanning lock acquisition through Phase 2 commit/rollback; `runPhase1(tx, ...)` and `runPhase2(tx, ...)` accept the tx and never acquire/release locks themselves. `processOneFile` carries `gate.mode` forward (asset_recovery short-circuits Phase 1/2; sheet_unavailable recovery uses `<=` monotonic guard; partial_failure_restage_required SKIP). Pre-parse Drive failure path inside `withShowSyncTransaction` with `last_synced_at` CAS guard + first-seen race detection (skip pending_ingestions if a concurrent Phase 1 already staged). Discard adds staged_id CAS symmetric with Apply; uses blocking `pg_advisory_xact_lock` (admin path) vs `pg_try_*` (cron path). Onboarding Apply parents check pinned to `pending_folder_id` not `watched_folder_id`. MI matrix per-family tests including MI-7 transportation collapse + MI-13/MI-14 orphan-remove/orphan-add cases with `revoked_below_version` bumps for orphan-remove. Webhook 8-step verification covers all 4 missing steps (header presence 400, non-active channel 410, resource_id mismatch 401, sync/trash/remove/untrash fast-200). gcWatchChannels handles `orphaned → stopped`; alert codes normalized to single canonical `WATCH_CHANNEL_ORPHANED`. sync_audit boundary corrected (Apply-only, NOT Phase 2). Wizard-session CAS gates ALL three onboarding write surfaces (pending_syncs + pending_ingestions + onboarding_scan_manifest).
+- **M6 sync (rounds 3, 7, 13, 18, 23, 27):** Phase 1/Phase 2 single-transaction lock contract — orchestrator owns one tx spanning lock acquisition through Phase 2 commit/rollback; `runPhase1(tx, ...)` and `runPhase2(tx, ...)` accept the tx and never acquire/release locks themselves. `processOneFile` carries `gate.mode` forward (asset_recovery short-circuits Phase 1/2; sheet_unavailable recovery uses `<=` monotonic guard; partial_failure_restage_required SKIP). Pre-parse Drive failure path inside `withShowSyncTransaction` with `last_synced_at` CAS guard + first-seen race detection (skip pending_ingestions if a concurrent Phase 1 already staged). Discard adds staged_id CAS symmetric with Apply; uses blocking `pg_advisory_xact_lock` (admin path) vs `pg_try_*` (cron path). Onboarding Apply parents check pinned to `pending_folder_id` not `watched_folder_id`. MI matrix per-family tests including MI-7 transportation collapse + MI-13/MI-14 orphan-remove/orphan-add cases with `revoked_below_version` bumps for orphan-remove. Webhook 8-step verification covers all 4 missing steps (header presence 400, non-active channel 410, resource_id mismatch 401, sync/trash/remove/untrash fast-200). gcWatchChannels handles `orphaned → stopped`; alert codes normalized to single canonical `WATCH_CHANNEL_ORPHANED`. sync_audit boundary corrected (Apply-only, NOT Phase 2). Wizard-session CAS gates ALL three onboarding write surfaces (pending_syncs + pending_ingestions + onboarding_scan_manifest). **M6 batch-10 read-side propagation:** every read of `pending_syncs` / `pending_ingestions` keyed by `drive_file_id` carries the source-scope predicate (`AND wizard_session_id IS NULL` for live/automatic paths; `AND wizard_session_id = $myWizardSessionId` for wizard paths). Watermark calc, fetch-failure existing-show stage-wins guard, fetch-failure first-seen race-detection, Apply route SELECT + DELETE, Discard route SELECT + DELETE + restore-status UPDATE, dashboard panel SELECTs, wizard step-3 manifest renderer, wizard finalize gate all scoped. LIVE_ROW_CONFLICT writes a manifest row with `status = 'live_row_conflict'` so finalize blocks (the new status joins §4.5's CHECK and the §9.0 / §10.5 unresolved set; resolved only by clearing the live row from the dashboard and re-running the wizard).
 
 - **M7 diagrams + reel (rounds 4, 8, 16, 20, 30, 33):** Round-44 immutable-pin amendment landed across §6.11 / §6.11.1 / §7.3 / §10 / §4.1 — every linked-folder item carries `(headRevisionId, md5Checksum)`; every embedded image carries `(sheetsRevisionId, embeddedFingerprint, recovery_disposition)`; reel pin is the full triple `(driveFileId, drive_modified_time, headRevisionId)`. Apply downloads via `revisions.get(fileId, headRevisionId, alt='media')` (Pattern A) or buffer-then-verify md5 (Pattern B fallback) — never `(modifiedTime, trashed)` as the fence (TOCTOU window). Reel route: pre-stream live drift gate + buffer-then-verify md5 fallback; single 410 contract for both NULL and drift. asset_recovery filters out restage-required entries; recomputes terminal `partial_failure_restage_required` status AFTER the retry loop based on post-loop unresolved set. Task 6.3 routing AND Task 7.8 GC suppression both treat `partial_failure_restage_required` correctly. drive.revisions.list failure routes to Phase 1 stage/hard-fail per show state (was silent `embeddedImages = []` which would replace approved diagrams with empty gallery). Combined embedded+linked cap (60) enforced upstream of persistence. Case-insensitive DIAGRAMS-tab match. Persisted vs stub types split — `PersistedEmbeddedImage` / `PersistedLinkedFolderItem` widen `snapshotPath` to `string | null` so successful state is representable. AC-7.21..7.24 amended to immutable-pin contract.
 
@@ -6220,7 +9622,7 @@ After round 41, both the recovery pipeline (rounds 6–40) and the foundational 
 
 - **M9 stale UX + M10 onboarding wizard (rounds 9, 15, 29, 32):** Task 9.2 server fallback with `load`/pure-`render` split — load() runs INSIDE try/catch, pure render() returns ReactElement; pure-render compliance test catches view components that add throwing async helpers. Stale footer status takes precedence over age (drive_error AND sheet_unavailable beat age tiers); copy from canonical §12.4 via `messageFor()`. onboarding_scan_manifest with terminal lifecycle states (staged | hard_failed | skipped_non_sheet | applied | defer_until_modified | permanent_ignore | discard_retryable). Wizard finalize reads manifest unresolved set EXCLUSIVELY (not row absence — discard_retryable would slip past row-absence query and promote the folder prematurely). Three pending_ingestions terminal-action endpoints (retry via per-file `retrySingleFile` helper / defer_until_modified / permanent_ignore — NOT folder-wide rescan). Wizard supersession purges ALL three onboarding surfaces with CAS gate inside scan writes. Re-run Setup path (writes pending_wizard_session_id without touching watched_folder_id; live folder keeps cron-syncing while wizard runs). AdminAlertsBanner uses `messageFor(code, params)` with params from alert.show_id + context for placeholder-bearing codes like `TILE_SERVER_RENDER_FAILED`.
 
-- **X.1–X.6 cross-cutting audits (rounds 10, 21, 34):** X.1 SPEC_CODES + RETIRED_CODES classification with code-to-scenario registry; duplicate-active-code invariant. X.2 substring + AST audit covers ACTIVE and RETIRED across `components/**/*.tsx` AND user-visible attributes (aria-label, title, alt, placeholder, value); JSXAttribute-aware static analysis replaces grep. X.3 trust-domain classification (crew-session / admin / me / auth-library / public-bootstrap / public-webhook / cron-internal / server-action / non-route) + AST control-flow / dominator analysis with cross-import call graph; banned-primitive scan covers Identifier AND StringLiteral / NoSubstitutionTemplateLiteral nodes; multi-entry server-action resolver. X.4 three-layer audit (name heuristic + semantic data-flow + DDL event trigger). X.5 boundary list expanded across every spec-defined email persistence path including admin_alerts.context, report_rate_limits.identity, sync_audit.applied_by, listShowsForCrew (/me), app_settings.{watched_folder_set_by_email, pending_folder_set_by_email}, deferred_ingestions.deferred_by_email, admin_alerts.resolved_by. X.6 stable spec-id HTML-comment anchors for non-heading normative units; Task X.6.0 prerequisite inserts anchors for §6.8 derivation table, §6.8.2 auth side-effects, §13.2.3 lease protocol, round-23/40/43/44/46/47 amendments. Heuristic prose-mention fallback retired — only structured `<!-- coverage: ... -->` markers count.
+- **X.1–X.6 cross-cutting audits (rounds 10, 21, 34; batch-9 amendments):** X.1 SPEC_CODES + RETIRED_CODES classification with code-to-scenario registry; duplicate-active-code invariant; **batch-9: SPEC_CODES carries the FULL §12.4 row payload (`dougFacing`/`crewFacing`/`followUp`/`helpfulContext`); parity test deep-compares each catalog entry field-by-field; duplicate-active dedup invariant uses the full row hash as its key**. X.2 substring + AST audit covers ACTIVE and RETIRED across `components/**/*.tsx` AND user-visible attributes (aria-label, title, alt, placeholder, value); JSXAttribute-aware static analysis replaces grep. X.3 trust-domain classification (crew-session / admin / me / auth-library / public-bootstrap / public-webhook / cron-internal / server-action / non-route) + AST control-flow / dominator analysis with cross-import call graph; banned-primitive scan covers Identifier AND StringLiteral / NoSubstitutionTemplateLiteral nodes; multi-entry server-action resolver; **batch-9: outcome-discriminator audit (`verifyOutcomeDiscriminators`) requires every validator's `kind === 'success' | 'continue'` discriminator to be inspected before sinks/next-validator (closes the ignored-result class); PROTECTED_SINKS table list GENERATED from spec §4.3 admin-only list (not hand-rolled), now includes `onboarding_scan_manifest`; `.rpc(...)` calls treated as protected-by-default with empty initial RPC_ALLOWLIST**. X.4 three-layer audit (name heuristic + semantic data-flow + DDL event trigger); **batch-9: missing sync entry points are a HARD precheck failure with named unresolved/ambiguous list (no silent skip)**. X.5 boundary list expanded across every spec-defined email persistence path including admin_alerts.context, report_rate_limits.identity, sync_audit.applied_by, listShowsForCrew (/me), app_settings.{watched_folder_set_by_email, pending_folder_set_by_email}, deferred_ingestions.deferred_by_email, admin_alerts.resolved_by. X.6 stable spec-id HTML-comment anchors for non-heading normative units; Task X.6.0 prerequisite inserts anchors for §6.8 derivation table, §6.8.2 auth side-effects, §13.2.3 lease protocol, round-23/40/43/44/46/47 amendments. Heuristic prose-mention fallback retired — only structured `<!-- coverage: ... -->` markers count.
 
 **Spec amendments applied across phase 1 + phase 2:**
 1. **§13.2.3 lease-holder protocol** (phase 1 round 8) — `reports.lease_holder uuid` column; rotated on every lease re-acquisition; fence on every URL-writing tail UPDATE.
