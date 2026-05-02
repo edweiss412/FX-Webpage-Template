@@ -262,6 +262,11 @@ export type OpeningReelPinned = {
   driveFileId: string;
   drive_modified_time: string; // ISO; for drift detection logging
   headRevisionId: string; // immutable revision token used by /api/asset/reel/[show] for byte streaming
+  mimeType: string | null; // Drive-reported MIME captured at Phase-1 enrichment; nullable at parse time.
+  // MUST be non-null in any ParseResult flowing into Phase 2 / Apply.
+  // Persisted into shows.opening_reel_mime_type.
+  // MIME-type gate `mimeType.startsWith('video/')` enforced inside enrichWithDrivePins;
+  // non-video collapses to null per §10.
 };
 
 // split parse-time stubs from persisted asset types so successful snapshots
@@ -306,7 +311,8 @@ export type ParsedSheet = {
   pullSheet: PullSheetCase[] | null;
   diagrams: {
     linkedFolder: LinkedFolderRef | null; // URL only at parse time
-    embeddedImages: []; // ALWAYS empty at parse time; sync layer fills via Sheets API
+    embeddedImages: never[]; // ALWAYS empty at parse time; sync layer fills via Sheets API
+    linkedFolderItems: never[]; // ALWAYS empty at parse time. Populated by enrichWithDrivePins via files.list + per-item files.get (§6.11).
   };
   openingReel: OpeningReelRef | null; // driveFileId only at parse time
   raw_unrecognized: { block: string; key: string; value: string }[];

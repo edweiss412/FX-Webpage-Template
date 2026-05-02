@@ -63,6 +63,28 @@ describe("parser/types", () => {
     expect(stub).toHaveLength(0);
   });
 
+  it("ParsedSheet diagrams.linkedFolderItems is the empty-tuple type at parse time", () => {
+    const stub: ParsedSheet["diagrams"]["linkedFolderItems"] = [];
+    expect(stub).toHaveLength(0);
+  });
+
+  it("OpeningReelPinned compiles with mimeType field (non-null and null variants)", () => {
+    const withMime: OpeningReelPinned = {
+      driveFileId: "abc123",
+      drive_modified_time: "2026-01-01T00:00:00Z",
+      headRevisionId: "rev1",
+      mimeType: "video/mp4",
+    };
+    const withNullMime: OpeningReelPinned = {
+      driveFileId: "abc123",
+      drive_modified_time: "2026-01-01T00:00:00Z",
+      headRevisionId: "rev1",
+      mimeType: null,
+    };
+    expect(withMime.mimeType).toBe("video/mp4");
+    expect(withNullMime.mimeType).toBeNull();
+  });
+
   it("InvariantOutcome and TriggeredReviewItem unions construct under their declared discriminators", () => {
     const _passOutcome: InvariantOutcome = { outcome: "pass" };
     // Use the simplest TriggeredReviewItem variant (fewest required fields).
