@@ -48,7 +48,7 @@ If any of the above is not met, do NOT start the milestone. Open a question.
 - [ ] Email canonicalization at boundary — **N/A — `lib/email/canonicalize.ts` is created in M1 (Task 1.2). M0 does not parse or read emails.**
 - [ ] No global cursor — **N/A — sync code does not exist until M6. Verification reserved for M6 handoff.**
 - [ ] No raw error codes in UI — **N/A — UI does not exist until M4. Verification reserved for M4 handoff.**
-- [x] **Commit per task** — applies. Format: `infra: <one-line summary>` for all M0 tasks (the canonical area name for foundation per AGENTS.md §1.6). One commit per Task 0.1, 0.2, 0.3, 0.4, 0.5, 0.6 — six commits total expected at M0 completion.
+- [x] **Commit per task** — applies as a target, not a hard contract. Format: `infra: <one-line summary>` for task implementation; `docs(plan): ...` / `docs(handoff): ...` / `docs: ...` for plan/handoff/spec corrections. One implementation commit per Task 0.1–0.6 (six commits) PLUS additional commits for in-flight corrections produced by the spec-compliance + code-quality review loops, the deferred-then-resolved Task 0.4 Step 4, and the cross-model adversarial review fix loop. Final M0 commit count: 21 (recorded for adversarial-review baseline; subsequent milestones should not exceed ~3× target without justification).
 
 ## 6. Watchpoints from prior adversarial review
 
@@ -73,7 +73,7 @@ M0 is the first executed milestone, so there is no prior convergence-log evidenc
 
 ## 8. Exit criteria
 
-- [ ] All six tasks in `01-foundation.md` (0.1–0.6) checked off (`- [x]` on every step in the plan file).
+- [x] All M0 task steps in `01-foundation.md` Tasks 0.1–0.6 checked off (verified by reading the file post-flip).
 - [ ] All AC IDs from §2 above have at least one test asserting them — **N/A — M0 has no AC IDs.**
 - [ ] Adversarial review (per `superpowers:adversarial-review`) ran to convergence — handoff sent to GPT-5.5 / Codex with the M0 diff after all six tasks are committed.
 - [ ] All commits follow `infra: <summary>` format with one task per commit (six commits).

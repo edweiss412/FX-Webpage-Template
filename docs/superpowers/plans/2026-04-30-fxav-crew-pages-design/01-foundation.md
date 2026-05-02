@@ -8,7 +8,7 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 
 **Files:** Create: `package.json`, `tsconfig.json`, `next.config.mjs`, `pnpm-workspace.yaml` (if needed), `.gitignore` augmentation.
 
-- [ ] **Step 1: Verify pnpm version**
+- [x] **Step 1: Verify pnpm version**
 
   ```bash
   pnpm --version
@@ -16,7 +16,7 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 
   Expected: `>= 9.0.0`. Install/upgrade if missing.
 
-- [ ] **Step 2: Initialize Next.js**
+- [x] **Step 2: Initialize Next.js**
 
   ```bash
   pnpm create next-app@latest . --ts --tailwind --eslint --app --src-dir=false --import-alias="@/*" --turbopack --skip-install
@@ -24,7 +24,7 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 
   Expected: scaffolded `app/`, `package.json`, `tsconfig.json`. Answer "no" to "would you like to use src directory" (the spec uses `app/` at root).
 
-- [ ] **Step 3: Pin Next.js 16, install dependencies**
+- [x] **Step 3: Pin Next.js 16, install dependencies**
       Edit `package.json` to set `"next": "16.0.0"` exactly. Then:
 
   ```bash
@@ -35,7 +35,7 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 
   Expected: lockfile written; no peer-dep errors.
 
-- [ ] **Step 4: Add tsconfig strictness**
+- [x] **Step 4: Add tsconfig strictness**
       Edit `tsconfig.json` to add:
 
   ```json
@@ -50,7 +50,7 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
   }
   ```
 
-- [ ] **Step 5: Verify build runs**
+- [x] **Step 5: Verify build runs**
 
   ```bash
   pnpm build
@@ -58,7 +58,7 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 
   Expected: builds the Next.js scaffold cleanly.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   ```bash
   git add package.json pnpm-lock.yaml tsconfig.json next.config.mjs app/
   git commit -m "infra: initialize Next.js 16 + TypeScript strict + dependencies"
@@ -68,7 +68,7 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 
 **Files:** Create: `vitest.config.ts`, `tests/setup.ts`, `tests/sample.test.ts`. Modify: `package.json` (test script).
 
-- [ ] **Step 1: Write a sample failing test**
+- [x] **Step 1: Write a sample failing test**
       Create `tests/sample.test.ts`:
 
   ```ts
@@ -97,15 +97,15 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 
   And empty `tests/setup.ts`.
 
-- [ ] **Step 2: Add test script** Edit `package.json`:
+- [x] **Step 2: Add test script** Edit `package.json`:
 
   ```json
   { "scripts": { "test": "vitest run", "test:watch": "vitest" } }
   ```
 
-- [ ] **Step 3: Run** `pnpm test` — expect PASS.
+- [x] **Step 3: Run** `pnpm test` — expect PASS.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   ```bash
   git add vitest.config.ts tests/ package.json
   git commit -m "infra: configure vitest"
@@ -115,11 +115,11 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 
 **Files:** Create: `playwright.config.ts`, `tests/e2e/sample.spec.ts`.
 
-- [ ] **Step 1: Initialize Playwright**
+- [x] **Step 1: Initialize Playwright**
   ```bash
   pnpm exec playwright install --with-deps chromium webkit
   ```
-- [ ] **Step 2: Write `playwright.config.ts`**
+- [x] **Step 2: Write `playwright.config.ts`**
   ```ts
   import { defineConfig, devices } from "@playwright/test";
   export default defineConfig({
@@ -150,7 +150,7 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
     },
   });
   ```
-- [ ] **Step 3: Sample e2e test** at `tests/e2e/sample.spec.ts`:
+- [x] **Step 3: Sample e2e test** at `tests/e2e/sample.spec.ts`:
   ```ts
   import { test, expect } from "@playwright/test";
   test("home page loads", async ({ page }) => {
@@ -158,12 +158,12 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
     await expect(page).toHaveTitle(/.*/);
   });
   ```
-- [ ] **Step 4: Add scripts** in `package.json`:
+- [x] **Step 4: Add scripts** in `package.json`:
   ```json
   { "scripts": { "test:e2e": "playwright test", "test:e2e:ui": "playwright test --ui" } }
   ```
-- [ ] **Step 5: Run** `pnpm test:e2e --project=mobile-safari` and confirm pass.
-- [ ] **Step 6: Commit**
+- [x] **Step 5: Run** `pnpm test:e2e --project=mobile-safari` and confirm pass.
+- [x] **Step 6: Commit**
   ```bash
   git add playwright.config.ts tests/e2e/ package.json
   git commit -m "infra: configure playwright"
@@ -173,12 +173,12 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 
 **Files:** Create: `.env.local.example`, `supabase/config.toml`, `supabase/.gitignore`. Modify: `.gitignore`.
 
-- [ ] **Step 1: Initialize Supabase**
+- [x] **Step 1: Initialize Supabase**
   ```bash
   pnpm dlx supabase@latest init
   ```
   Expected: `supabase/` directory created.
-- [ ] **Step 2: Author `.env.local.example`** — every var listed in spec §14.3, no real secrets:
+- [x] **Step 2: Author `.env.local.example`** — every var listed in spec §14.3, no real secrets:
   ```
   # Supabase
   SUPABASE_URL=
@@ -203,12 +203,12 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
   # NB: WATCHED_DRIVE_FOLDER_ID is NOT an env var — see §14.3 / §4.5.
   ```
 - [x] **Step 3: Add `.env*.local`** to `.gitignore`. _(Pre-satisfied — entries already present at base SHA from earlier commit; no additional change needed in M0.)_
-- [ ] **Step 4: Verify local Supabase boots**
+- [x] **Step 4: Verify local Supabase boots**
   ```bash
   pnpm dlx supabase@latest start
   ```
   Expected: `API URL`, `anon key`, `service_role key` printed.
-- [ ] **Step 5: Stop and commit**
+- [x] **Step 5: Stop and commit**
   ```bash
   pnpm dlx supabase@latest stop
   git add .env.local.example .gitignore supabase/
@@ -221,9 +221,9 @@ Spec context: §14.1 (Tailwind v4 + tokens established by the impeccable v3 desi
 
 **Files:** Modify: `app/globals.css`, `app/layout.tsx`, `app/page.tsx`. (Tailwind v4 has no `tailwind.config.ts`; theming lives in CSS via `@theme` — but no tokens are established in M0. `app/page.tsx` is included because the scaffolder home page references token-dependent classes that no longer compile after Step 1.)
 
-- [ ] **Step 1: Reduce `app/globals.css` to bare `@import "tailwindcss"`.** The Next.js scaffolder ships pre-established color/font/dark-mode tokens in this file; strip them so Task 4.1 has a clean slate. Also strip the Geist font imports from `app/layout.tsx` (fonts are design tokens that Task 4.1 owns), and replace the scaffolder's `app/page.tsx` (which uses `bg-foreground`/`text-background` token classes) with a minimal stub using only built-in Tailwind utilities — the home page is fully replaced in M4.
-- [ ] **Step 2: Verify `PRODUCT.md` is present** at repo root (strategic design context — users, brand, principles). It was established by the impeccable v3 design-context flow ahead of foundation work and is committed at `848fd4f`. Until `DESIGN.md` is created in Task 4.1, components MUST NOT establish color, spacing, font, or radius tokens — those decisions are blocked on Task 4.1's design-token extraction pass.
-- [ ] **Step 3: Commit**
+- [x] **Step 1: Reduce `app/globals.css` to bare `@import "tailwindcss"`.** The Next.js scaffolder ships pre-established color/font/dark-mode tokens in this file; strip them so Task 4.1 has a clean slate. Also strip the Geist font imports from `app/layout.tsx` (fonts are design tokens that Task 4.1 owns), and replace the scaffolder's `app/page.tsx` (which uses `bg-foreground`/`text-background` token classes) with a minimal stub using only built-in Tailwind utilities — the home page is fully replaced in M4.
+- [x] **Step 2: Verify `PRODUCT.md` is present** at repo root (strategic design context — users, brand, principles). It was established by the impeccable v3 design-context flow ahead of foundation work and is committed at `848fd4f`. Until `DESIGN.md` is created in Task 4.1, components MUST NOT establish color, spacing, font, or radius tokens — those decisions are blocked on Task 4.1's design-token extraction pass.
+- [x] **Step 3: Commit**
   ```bash
   git add app/globals.css app/layout.tsx app/page.tsx
   git commit -m "infra: tailwind v4 base"
@@ -233,11 +233,11 @@ Spec context: §14.1 (Tailwind v4 + tokens established by the impeccable v3 desi
 
 **Files:** Create: `.prettierrc`, `.prettierignore`, `.eslintrc.json`. Modify: `package.json`.
 
-- [ ] **Step 1: `.prettierrc`** — opinionated defaults (single quotes, semi, 100-col, trailing comma all).
-- [ ] **Step 2: Update ESLint** to extend `next/core-web-vitals`, `next/typescript`, `prettier`.
-- [ ] **Step 3: Add scripts** `lint`, `format`, `typecheck` (`tsc --noEmit`) to `package.json`.
-- [ ] **Step 4: Run** `pnpm lint && pnpm typecheck` — expect pass.
-- [ ] **Step 5: Commit**.
+- [x] **Step 1: `.prettierrc`** — opinionated defaults (single quotes, semi, 100-col, trailing comma all).
+- [x] **Step 2: Update ESLint** to extend `next/core-web-vitals`, `next/typescript`, `prettier`.
+- [x] **Step 3: Add scripts** `lint`, `format`, `typecheck` (`tsc --noEmit`) to `package.json`.
+- [x] **Step 4: Run** `pnpm lint && pnpm typecheck` — expect pass.
+- [x] **Step 5: Commit**.
 
 ---
 
