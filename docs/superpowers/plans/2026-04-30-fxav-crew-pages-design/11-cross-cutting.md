@@ -2211,7 +2211,7 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
             # if NEITHER secret is set.
             GH_APP_TOKEN: ${{ secrets.GH_APP_TOKEN }}
             BRANCH_PROTECTION_PAT: ${{ secrets.BRANCH_PROTECTION_PAT }}
-            SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+            SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
             SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         - uses: actions/upload-artifact@v4
           if: always
@@ -2308,7 +2308,7 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
        severity: "high",
      });
      ```
-     Then exits non-zero (workflow job fails; required-check status surfaces in the `verify-branch-protection` job and any cron-only run also fails its check). Insertion uses the Supabase service-role client (`SUPABASE_SERVICE_ROLE_KEY`) since CI runs outside any user session; the workflow injects the secret via env (see Step 3a's `verify-branch-protection` job env block).
+     Then exits non-zero (workflow job fails; required-check status surfaces in the `verify-branch-protection` job and any cron-only run also fails its check). Insertion uses the Supabase service-role client (`SUPABASE_SECRET_KEY`) since CI runs outside any user session; the workflow injects the secret via env (see Step 3a's `verify-branch-protection` job env block).
   5. **On success**: emits a green report (`{ status: 'ok', checks: [...] }`) and exits zero.
      Test (`tests/cross-cutting/verify-branch-protection.test.ts`) — the script's behavior is exercised against mocked GitHub API responses (`nock` or `msw` intercepts the REST calls; `supabaseAdmin.from('admin_alerts').insert` is mocked to a Vitest spy). Required cases:
   - `missing-check-name` fixture: API response omits `x3-trust-domain` from `contexts` → script exits 1, `admin_alerts` insert called with `code: 'BRANCH_PROTECTION_DRIFT'` and `context.failures` includes `+missing_check:x3-trust-domain`.

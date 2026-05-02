@@ -182,8 +182,8 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
   ```
   # Supabase
   NEXT_PUBLIC_SUPABASE_URL=
-  NEXT_PUBLIC_SUPABASE_ANON_KEY=
-  SUPABASE_SERVICE_ROLE_KEY=
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+  SUPABASE_SECRET_KEY=
   # Google
   GOOGLE_SERVICE_ACCOUNT_JSON=
   # Auth
