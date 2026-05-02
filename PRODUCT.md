@@ -2,7 +2,7 @@
 
 ### Users
 
-**Doug Larson (admin, single primary user of `/admin`).** Late 30s / early 40s, project manager at FX Audio Visual. Tech-comfortable from a decade in AV, but the app must not *feel* technical — it has to slide into his existing Google-Sheets-driven workflow with as little friction as possible. He'll touch the admin UI from two physical contexts: a quiet desk between shows, and the venue floor mid-show on a phone. The admin UX must work in both — no hover-only affordances, no tiny click targets, no five-step modals.
+**Doug Larson (admin, single primary user of `/admin`).** Late 30s / early 40s, project manager at FX Audio Visual. Tech-comfortable from a decade in AV, but the app must not _feel_ technical — it has to slide into his existing Google-Sheets-driven workflow with as little friction as possible. He'll touch the admin UI from two physical contexts: a quiet desk between shows, and the venue floor mid-show on a phone. The admin UX must work in both — no hover-only affordances, no tiny click targets, no five-step modals.
 
 **Crew on the venue floor (the audience for `/show/[slug]`).** Indoor corporate event environments — hotel ballrooms and convention center halls. Lighting ranges from house-lights-up bright to dim-stage backstage. Devices are personal phones (Safari/Chrome, ~390px), occasionally pulled up at a loading dock in direct sunlight. Crew are glancing, often one-handed, often mid-task. They came to the page with one of these questions and need it answered in under five seconds:
 
@@ -10,7 +10,7 @@
 - **Show days:** what's my call time, where am I standing, what room?
 - **All days:** my hotel, my transport, who else is on this crew, is there a Zoom feed I need to factor in, is there client content (decks, video, playlists) I need to know about?
 
-The page replaces a dense spreadsheet. The job is making that information beautifully presentable and fast to navigate, *not* surfacing every field.
+The page replaces a dense spreadsheet. The job is making that information beautifully presentable and fast to navigate, _not_ surfacing every field.
 
 ### Brand Personality
 
@@ -18,19 +18,21 @@ The page replaces a dense spreadsheet. The job is making that information beauti
 
 Voice is direct, plain-language, and respectful of the reader's time. No jargon, no error codes in user copy, no "field undefined" — when data is missing, the copy is a human sentence. The interface should feel like a confident, well-engineered tool made by someone who actually does this work — not a template, not a SaaS dashboard, not a consumer app trying too hard to be friendly.
 
-**Emotional goal:** when a crew member taps the link and the page loads, they should feel *that's exactly what I needed.* Calm competence. The page works. Doug looks good for sharing it.
+**Emotional goal:** when a crew member taps the link and the page loads, they should feel _that's exactly what I needed._ Calm competence. The page works. Doug looks good for sharing it.
 
 ### Aesthetic Direction
 
 **Anchor.** FXAV's logo gives one durable brand cue: a saturated warm orange (in the `#F79338`–`#FF8C1A` range) used as an accent against a high-contrast neutral. That orange is the only inherited brand asset worth carrying forward — the rest of FXAV's existing web presence is not a design reference. Everything else is a clean slate.
 
 **Visual tone.**
+
 - **Bold over minimal (75% bold).** Typography has presence, key numbers (call times, room names, dates) are large and confident, and the page never reads as cautious or anonymous.
 - **Slightly elegant over utilitarian (~55% elegant).** Generous spacing, considered type pairing, and intentional hierarchy — but never decorative for its own sake. This is a working tool, not a portfolio piece.
 - **Balanced quiet/expressive.** Restrained palette and chrome; expressive moments reserved for the hero "Right Now" card, time-sensitive states, and key transitions.
 
 **Anti-references — what this is NOT.**
-- Not a printed paper / run-of-show skeuomorph (cream paper, ruled lines, serif body). The whole point is to *replace* the spreadsheet aesthetic, not echo it.
+
+- Not a printed paper / run-of-show skeuomorph (cream paper, ruled lines, serif body). The whole point is to _replace_ the spreadsheet aesthetic, not echo it.
 - Not "enterprise SaaS dashboard" — no dense sidebar nav, no chart-grid density, no neutral-gray-on-neutral-gray.
 - Not consumer playful — no bouncy mascots, no rounded-everything, no gradient-on-gradient.
 - Not "techie" — even though the audience is an AV crew, the surface should feel like good consumer product design, not a developer tool.
@@ -38,12 +40,14 @@ Voice is direct, plain-language, and respectful of the reader's time. No jargon,
 **Light AND dark, both first-class.** Crew may open the page on a sunlit loading dock at noon (light mode wins) or backstage at midnight before a 6am call (dark mode wins). Both modes are designed deliberately, not auto-derived from each other. A clearly discoverable theme toggle lives in the UI; respect `prefers-color-scheme` on first paint.
 
 **Color system.**
+
 - **Neutrals carry the page.** Light mode: near-white surface with deep neutral text. Dark mode: deep warm-neutral surface (not pure black — black against the FXAV orange is harsh; aim for a slightly warm `#0E0E10`–`#141416` range) with soft off-white text.
-- **One signature accent — FXAV orange.** Reserved for: the active/live indicator on the Right Now card, the "today" pin on the schedule, primary CTAs, and the brand mark. Use it sparingly so it stays meaningful — when orange appears, it means *this matters now.*
+- **One signature accent — FXAV orange.** Reserved for: the active/live indicator on the Right Now card, the "today" pin on the schedule, primary CTAs, and the brand mark. Use it sparingly so it stays meaningful — when orange appears, it means _this matters now._
 - **Avoid red/green as primary semantic colors.** Color-blind crew exist; pair color with text or icon for any state signal (stale sync, COI status, parse warning).
 - **Permitted secondary tones:** muted slate / desaturated neutrals for borders, dividers, secondary text. No competing accent hue (no blue, no purple) — the orange stays alone so it carries the brand.
 
 **Typography.**
+
 - **One contemporary sans for UI.** Geometric or neo-grotesque, with a confident range of weights (400/500/600/700) and a strong tabular-figure variant for times, dates, and quantities. Inter, Geist, or General Sans are all fine starting points; pick one and commit. The same family handles headlines and body — no display/body pairing in v1.
 - **No serif body.** Serif would pull toward the paper-skeuomorph direction the user explicitly rejected.
 - **Tabular figures (`font-feature-settings: 'tnum'`) on every time, date, count, and confirmation number** — these read at a glance and shouldn't shift width as values change.

@@ -2,7 +2,6 @@
 
 > Part of [the FXAV crew pages design plan](README.md).
 
-
 Spec context: §17.2.
 
 ### Task X.1: No orphan error codes — three-way §12.4 parity (AC-X.1)
@@ -17,7 +16,7 @@ Spec context: §17.2.
 
   ** Fix 1 amendment: extractor reads `helpfulContext` from the §12.4 YAML appendix.** The spec's §12.4 markdown table carries `dougFacing` / `crewFacing` / `followUp` (the four-column visual table). The fifth field `helpfulContext` lives in a structured YAML block immediately following the table, anchored by the HTML comment `<!-- §12.4 helpfulContext appendix -->` (see spec §12.4). The extractor parses BOTH sources:
   1. **Markdown table parser**: walks the `| Code | .. | Doug-facing message | Crew-facing message | Follow-up |` table, extracts non-retired rows (rejects `~~strikethrough~~` rows into a separate `RETIRED_CODES` set), normalizes `—` / `n/a` / empty cells to `null`, emits `{ dougFacing, crewFacing, followUp }` per code. Header rows (e.g., `**Auth — signed-link redemption**` with empty data cells) are skipped.
-  2. **YAML appendix parser**: locates the fenced ```yaml block after the `<!-- §12.4 helpfulContext appendix -->` HTML comment, parses with the `yaml` package, emits a `{ [code]: helpfulContext }` mapping. A missing key is normalized to `helpfulContext: null` (admin-log-only codes whose `dougFacing` is null are intentionally absent from the appendix).
+  2. **YAML appendix parser**: locates the fenced ```yaml block after the `<!-- §12.4 helpfulContext appendix -->`HTML comment, parses with the`yaml`package, emits a`{ [code]: helpfulContext }`mapping. A missing key is normalized to`helpfulContext: null`(admin-log-only codes whose`dougFacing` is null are intentionally absent from the appendix).
   3. **Merge + invariant checks**: - For every code from (1) whose `dougFacing` is non-null, (2) MUST have a non-null, non-empty entry. Mismatch fails extraction with `§12.4 helpfulContext appendix missing entry for code <X> (dougFacing is non-null)`.
      - For every code in (2), it MUST appear in (1) — orphan YAML keys fail extraction with `§12.4 helpfulContext appendix references unknown code <X>`.
      - For every code from (1) whose `dougFacing` is null, (2) MUST omit the key — a YAML entry for an admin-log-only code fails extraction with `§12.4 helpfulContext appendix has entry for code <X> whose dougFacing is null (admin-log-only codes never surface to Doug — remove the YAML entry)`.
@@ -63,7 +62,8 @@ Spec context: §17.2.
       dougFacing: "We can't tell which crew member is signing in — two emails are the same.",
       crewFacing: "We can't sign you in right now. Doug has been alerted.",
       followUp: "Fix the duplicate email in your sheet, then re-sync.",
-      helpfulContext: "When two people on the crew list share the same email address, we can't safely tell who's logging in...",
+      helpfulContext:
+        "When two people on the crew list share the same email address, we can't safely tell who's logging in...",
     },
     /* ...every ACTIVE code in §12.4 with all four columns verbatim.. */
   } as const;
@@ -72,11 +72,13 @@ Spec context: §17.2.
   // retired in favor of a canonical replacement. The extractor classifies struck-through rows
   // separately and emits an inverse invariant: no producer, no renderer, no scenario.
   export const RETIRED_CODES = {
-    WATCH_CHANNEL_CREATE_FAILED: { replacedBy: 'WATCH_CHANNEL_ORPHANED', retiredInRound: 44 },
+    WATCH_CHANNEL_CREATE_FAILED: { replacedBy: "WATCH_CHANNEL_ORPHANED", retiredInRound: 44 },
     /* ...every retired code.. */
   } as const;
   ```
+
   The generator parses the markdown table rows in §12.4. Rows whose code cell is wrapped in `~~...~~` are retired; rows without strikethrough are active. The generator fails CI if a row is malformed OR if an active row's code appears in `RETIRED_CODES` (active + retired exclusivity) **OR if the same active code appears in two different rows whose FULL payload differs**. A flat object keyed by code silently last-write-wins on duplicate keys; the corrected extractor explicitly fails when two active rows share the same code AND any column differs. Required test: synthesize a spec with two active `SHEET_UNAVAILABLE` rows whose Doug/crew copy differs; assert the extractor throws `SPEC_DUPLICATE_ACTIVE_CODE` with both row line numbers AND a column-by-column diff in the error message.
+
 - [ ] **Step 2: Code-to-scenario registry.** AC-X.1 requires every code to be reachable from at least one fixture or synthesized scenario. Earlier draft only proved string-literal existence in source — that lets dead branches and unused producer code paths satisfy the test. The grep for `messageFor('CODE')` literals also clashes with the realistic dynamic-rendering pattern `messageFor(error.code)` where `error.code` is a runtime variable. The corrected design uses a typed registry that maps every spec code to at least one named test that drives the production path:
 
   ```ts
@@ -97,7 +99,7 @@ Spec context: §17.2.
   ```
 
   ```ts
-  it('AC-X.1 three-way parity: every §12.4 code maps to spec ↔ catalog ↔ scenario', async => {
+  it("AC-X.1 three-way parity: every §12.4 code maps to spec ↔ catalog ↔ scenario", (async) => {
     const specCodes = Object.keys(SPEC_CODES);
     const catalogKeys = Object.keys(catalog);
     const scenarioKeys = Object.keys(CODE_SCENARIOS);
@@ -114,14 +116,19 @@ Spec context: §17.2.
     for (const code of specCodes) {
       const specRow = SPEC_CODES[code];
       const catalogRow = catalog[code];
-      expect(catalogRow.dougFacing, `catalog ${code}.dougFacing differs from §12.4`)
-        .toEqual(specRow.dougFacing);
-      expect(catalogRow.crewFacing, `catalog ${code}.crewFacing differs from §12.4`)
-        .toEqual(specRow.crewFacing);
-      expect(catalogRow.followUp, `catalog ${code}.followUp differs from §12.4`)
-        .toEqual(specRow.followUp);
-      expect(catalogRow.helpfulContext, `catalog ${code}.helpfulContext differs from §12.4`)
-        .toEqual(specRow.helpfulContext);
+      expect(catalogRow.dougFacing, `catalog ${code}.dougFacing differs from §12.4`).toEqual(
+        specRow.dougFacing,
+      );
+      expect(catalogRow.crewFacing, `catalog ${code}.crewFacing differs from §12.4`).toEqual(
+        specRow.crewFacing,
+      );
+      expect(catalogRow.followUp, `catalog ${code}.followUp differs from §12.4`).toEqual(
+        specRow.followUp,
+      );
+      expect(
+        catalogRow.helpfulContext,
+        `catalog ${code}.helpfulContext differs from §12.4`,
+      ).toEqual(specRow.helpfulContext);
     }
 
     for (const [code, runScenario] of Object.entries(CODE_SCENARIOS)) {
@@ -144,17 +151,25 @@ Spec context: §17.2.
   - Orphan codes in source that aren't in §12.4 (reverse assertion fails).
   - **Retired-code resurrection**: an inverse-invariant test asserts NO source file across **every renderable surface** (TSX components included) references any code in `RETIRED_CODES`. Earlier draft scanned only `lib/**/*.ts`, `app/**/*.ts`, `middleware.ts` — that excluded `components/**/*.tsx` where retired codes can reappear in JSX strings:
     ```ts
-    it('AC-X.1 retired §12.4 codes have no producer / renderer / scenario across all source surfaces', async => {
+    it("AC-X.1 retired §12.4 codes have no producer / renderer / scenario across all source surfaces", (async) => {
       for (const code of Object.keys(RETIRED_CODES)) {
         const producers = await grepRepo(`['"\`]${code}['"\`]`, {
-          include: 'lib/**/*.{ts,tsx},app/**/*.{ts,tsx},components/**/*.{ts,tsx},middleware.{ts,tsx}',
+          include:
+            "lib/**/*.{ts,tsx},app/**/*.{ts,tsx},components/**/*.{ts,tsx},middleware.{ts,tsx}",
         });
-        expect(producers, `retired code ${code} still has a producer at ${producers.join(', ')}`).toEqual([]);
+        expect(
+          producers,
+          `retired code ${code} still has a producer at ${producers.join(", ")}`,
+        ).toEqual([]);
         expect(Object.keys(catalog), `retired code ${code} still in catalog`).not.toContain(code);
-        expect(Object.keys(CODE_SCENARIOS), `retired code ${code} still in scenario registry`).not.toContain(code);
+        expect(
+          Object.keys(CODE_SCENARIOS),
+          `retired code ${code} still in scenario registry`,
+        ).not.toContain(code);
       }
     });
     ```
+
 - [ ] **Step 3: Commit** `test(cross-cutting): three-way §12.4 / catalog / source parity (AC-X.1)`.
 
 ### Task X.2: No raw error codes in user-visible UI — substring leak detection (AC-X.2)
@@ -170,19 +185,19 @@ Spec context: §17.2.
 // Extracted from typed enum sources in the codebase, NOT from §12.4.
 export const INTERNAL_CODE_ENUMS = {
   // From `parse_warnings[].code` enum — defined in lib/parser/types.ts; emitted by lib/parser/blocks/**.
-  UNKNOWN_FIELD: { source: 'parse_warnings.code' },
-  UNKNOWN_DAY_RESTRICTION: { source: 'parse_warnings.code' },
-  UNKNOWN_ROLE_TOKEN: { source: 'parse_warnings.code' },
-  TYPO_NORMALIZED: { source: 'parse_warnings.code' },
+  UNKNOWN_FIELD: { source: "parse_warnings.code" },
+  UNKNOWN_DAY_RESTRICTION: { source: "parse_warnings.code" },
+  UNKNOWN_ROLE_TOKEN: { source: "parse_warnings.code" },
+  TYPO_NORMALIZED: { source: "parse_warnings.code" },
   // From `shows.last_sync_status` enum — values that may appear in admin tooling without
   // catalog binding if a developer renders the raw column. Tile/footer code MUST use
   // messageFor lookup keyed on a §12.4 mapping (DRIVE_FETCH_FAILED, SHEET_UNAVAILABLE, etc.),
   // never the raw status string.
-  drive_error: { source: 'shows.last_sync_status' },
-  sheet_unavailable: { source: 'shows.last_sync_status' },
-  parse_error: { source: 'shows.last_sync_status' },
-  pending_review: { source: 'shows.last_sync_status' },
-  ok: { source: 'shows.last_sync_status' }, // raw 'ok' MUST NOT render — but it's a common 2-letter substring; see exclusion below.
+  drive_error: { source: "shows.last_sync_status" },
+  sheet_unavailable: { source: "shows.last_sync_status" },
+  parse_error: { source: "shows.last_sync_status" },
+  pending_review: { source: "shows.last_sync_status" },
+  ok: { source: "shows.last_sync_status" }, // raw 'ok' MUST NOT render — but it's a common 2-letter substring; see exclusion below.
   // From `pending_ingestions.last_error_code` enum — every MI-N_* code from spec §6.8.
   // Auto-extracted from lib/parser/invariants.ts and lib/sync/applyParseResult.ts.
   // (the generator scans for `last_error_code: '<VALUE>'` writes and unions them in.)
@@ -212,19 +227,28 @@ const ALL_FORBIDDEN_CODES = [
 The audit fails if any of these strings appear as text-content / user-visible attribute / JSX literal in app/components surfaces. Internal codes ALWAYS render via `messageFor` lookup that returns Doug-facing or crew-facing copy from §12.4; they MUST NOT be rendered raw. False-positive guard: `INTERNAL_CODE_ENUMS` keys shorter than `SUBSTRING_LEAK_MIN_LENGTH` (4) are excluded from substring scans at runtime; AST scans still enforce exact-match on those.
 
 - [ ] **Step 1: Failing test** — Playwright crawls every reachable surface (loop over fixture-seeded routes + admin routes + asset-route 410 / 401 surfaces). The audit covers BOTH visible text AND user-visible attributes. For every element on every surface, assert that **textContent AND the attribute set ['aria-label', 'title', 'alt', 'placeholder', 'value', 'aria-description', 'aria-roledescription']** do NOT contain any literal code from `SPEC_CODES` OR `RETIRED_CODES` OR `INTERNAL_CODE_ENUMS`:
+
   ```ts
   const ALL_FORBIDDEN_CODES = [
     ...Object.keys(SPEC_CODES),
     ...Object.keys(RETIRED_CODES),
-    ...Object.keys(INTERNAL_CODE_ENUMS).filter(c => c.length >= SUBSTRING_LEAK_MIN_LENGTH),
+    ...Object.keys(INTERNAL_CODE_ENUMS).filter((c) => c.length >= SUBSTRING_LEAK_MIN_LENGTH),
   ];
-  const USER_VISIBLE_ATTRS = ['aria-label', 'title', 'alt', 'placeholder', 'value', 'aria-description', 'aria-roledescription'];
+  const USER_VISIBLE_ATTRS = [
+    "aria-label",
+    "title",
+    "alt",
+    "placeholder",
+    "value",
+    "aria-description",
+    "aria-roledescription",
+  ];
   for await (const surface of crawlAllSurfaces(page)) {
     // 1a. textContent on every element
     const allText = await surface.evaluate((el) => {
       const out: string[] = [];
       function walk(n: Element) {
-        out.push(n.textContent ?? '');
+        out.push(n.textContent ?? "");
         for (const child of n.children) walk(child);
       }
       walk(el as Element);
@@ -232,14 +256,20 @@ The audit fails if any of these strings appear as text-content / user-visible at
     });
     for (const text of allText) {
       for (const code of ALL_FORBIDDEN_CODES) {
-        expect(text, `surface ${surface.url} leaked code ${code} via textContent: ${text.slice(0, 200)}`).not.toContain(code);
+        expect(
+          text,
+          `surface ${surface.url} leaked code ${code} via textContent: ${text.slice(0, 200)}`,
+        ).not.toContain(code);
       }
     }
     // 1b. User-visible attributes on every element.
     const allAttrs = await surface.evaluate((el, attrs) => {
       const out: { attr: string; value: string }[] = [];
       function walk(n: Element) {
-        for (const a of attrs) { const v = n.getAttribute(a); if (v) out.push({ attr: a, value: v }); }
+        for (const a of attrs) {
+          const v = n.getAttribute(a);
+          if (v) out.push({ attr: a, value: v });
+        }
         for (const child of n.children) walk(child);
       }
       walk(el as Element);
@@ -247,7 +277,10 @@ The audit fails if any of these strings appear as text-content / user-visible at
     }, USER_VISIBLE_ATTRS);
     for (const { attr, value } of allAttrs) {
       for (const code of ALL_FORBIDDEN_CODES) {
-        expect(value, `surface ${surface.url} leaked code ${code} via @${attr}: ${value.slice(0, 200)}`).not.toContain(code);
+        expect(
+          value,
+          `surface ${surface.url} leaked code ${code} via @${attr}: ${value.slice(0, 200)}`,
+        ).not.toContain(code);
       }
     }
     // 1c. **Live DOM property values on form controls.**
@@ -262,26 +295,28 @@ The audit fails if any of these strings appear as text-content / user-visible at
       const out: { tag: string; kind: string; value: string }[] = [];
       function walk(n: Element) {
         // <input value> — controlled OR uncontrolled; the property always reflects the rendered state.
-        if (n.tagName === 'INPUT') {
+        if (n.tagName === "INPUT") {
           const v = (n as HTMLInputElement).value;
-          if (v) out.push({ tag: 'INPUT', kind: 'input.value', value: v });
+          if (v) out.push({ tag: "INPUT", kind: "input.value", value: v });
         }
         // <textarea value> — same.
-        if (n.tagName === 'TEXTAREA') {
+        if (n.tagName === "TEXTAREA") {
           const v = (n as HTMLTextAreaElement).value;
-          if (v) out.push({ tag: 'TEXTAREA', kind: 'textarea.value', value: v });
+          if (v) out.push({ tag: "TEXTAREA", kind: "textarea.value", value: v });
         }
         // <select> — read the selected option's text AND value; both are user-visible.
-        if (n.tagName === 'SELECT') {
+        if (n.tagName === "SELECT") {
           const s = n as HTMLSelectElement;
           const opt = s.selectedOptions?.[0];
-          if (opt?.text) out.push({ tag: 'SELECT', kind: 'select.selectedOptions[0].text', value: opt.text });
-          if (opt?.value) out.push({ tag: 'SELECT', kind: 'select.selectedOptions[0].value', value: opt.value });
+          if (opt?.text)
+            out.push({ tag: "SELECT", kind: "select.selectedOptions[0].text", value: opt.text });
+          if (opt?.value)
+            out.push({ tag: "SELECT", kind: "select.selectedOptions[0].value", value: opt.value });
         }
         // contenteditable — `textContent` is owned by client React state for these elements.
         if ((n as HTMLElement).isContentEditable) {
-          const t = n.textContent ?? '';
-          if (t) out.push({ tag: n.tagName, kind: 'contenteditable.textContent', value: t });
+          const t = n.textContent ?? "";
+          if (t) out.push({ tag: n.tagName, kind: "contenteditable.textContent", value: t });
         }
         // **React state via __reactFiber$ / __reactProps$ fallback (advanced; defense-in-depth).**
         // When a component binds spec-code text to a non-form prop (e.g., `<span>{errorCode}</span>`),
@@ -301,7 +336,10 @@ The audit fails if any of these strings appear as text-content / user-visible at
     });
     for (const { kind, value } of liveProps) {
       for (const code of ALL_FORBIDDEN_CODES) {
-        expect(value, `surface ${surface.url} leaked code ${code} via live DOM ${kind}: ${value.slice(0, 200)}`).not.toContain(code);
+        expect(
+          value,
+          `surface ${surface.url} leaked code ${code} via live DOM ${kind}: ${value.slice(0, 200)}`,
+        ).not.toContain(code);
       }
     }
   }
@@ -313,10 +351,12 @@ The audit fails if any of these strings appear as text-content / user-visible at
   - `bad-controlled-input.tsx`: a route renders `<input value={errorCode} readOnly />`. Step 1c MUST catch via `input.value`.
   - `bad-contenteditable.tsx`: a route renders `<div contentEditable>{errorCode}</div>`. Step 1c's `isContentEditable` branch MUST catch via the live `textContent`.
   - `good-noncontrolled.tsx`: a route renders `<input defaultValue="placeholder text" />` (no spec code anywhere). All three crawl phases (1a/1b/1c) MUST NOT flag this surface.
-- [ ] **Step 2: Static-analysis test**. Earlier draft used a regex grep for `\{[^}]*['"\`]CODE['"\`][^}]*\}|>CODE<` which only catches text-content + plain interpolation. JSX-attribute leaks like `title="LINK_REVOKED_FLOOR"`, `alt={'MI-5b_DUPLICATE_CREW_EMAIL'}`, or `placeholder={someRetiredCode}` slip through. The corrected design uses ts-morph to walk every `JSXAttribute` node:
+
+- [ ] **Step 2: Static-analysis test**. Earlier draft used a regex grep for `\{[^}]*['"\`]CODE['"\`][^}]\*\}|>CODE<`which only catches text-content + plain interpolation. JSX-attribute leaks like`title="LINK_REVOKED_FLOOR"`, `alt={'MI-5b_DUPLICATE_CREW_EMAIL'}`, or `placeholder={someRetiredCode}`slip through. The corrected design uses ts-morph to walk every`JSXAttribute` node:
+
   ```ts
   // tests/cross-cutting/no-raw-code-render.test.ts
-  import { Project, SyntaxKind, Node } from 'ts-morph';
+  import { Project, SyntaxKind, Node } from "ts-morph";
   // forbidden set includes INTERNAL_CODE_ENUMS (parse_warnings.code,
   // last_sync_status enum, last_error_code values, admin_alerts.code values not in §12.4).
   // AST audit enforces exact-match on every entry regardless of length — runtime
@@ -327,14 +367,17 @@ The audit fails if any of these strings appear as text-content / user-visible at
     ...Object.keys(RETIRED_CODES),
     ...Object.keys(INTERNAL_CODE_ENUMS),
   ];
-  const project = new Project({ tsConfigFilePath: 'tsconfig.json' });
+  const project = new Project({ tsConfigFilePath: "tsconfig.json" });
 
-  for (const sf of project.getSourceFiles(['app/**/*.tsx', 'components/**/*.tsx'])) {
+  for (const sf of project.getSourceFiles(["app/**/*.tsx", "components/**/*.tsx"])) {
     // 1. Text content + plain JSX interpolation (existing coverage)
     for (const text of sf.getDescendantsOfKind(SyntaxKind.JsxText)) {
       const t = text.getText;
       for (const code of ALL_FORBIDDEN_CODES) {
-        if (t.includes(code)) throw new Error(`Raw code ${code} in JSX text at ${sf.getFilePath}:${text.getStartLineNumber}`);
+        if (t.includes(code))
+          throw new Error(
+            `Raw code ${code} in JSX text at ${sf.getFilePath}:${text.getStartLineNumber}`,
+          );
       }
     }
     // 2. JSXAttribute audit — covers literal AND expression initializers
@@ -346,7 +389,9 @@ The audit fails if any of these strings appear as text-content / user-visible at
         const v = (init as any).getLiteralValue;
         for (const code of ALL_FORBIDDEN_CODES) {
           if (v === code || v.includes(code)) {
-            throw new Error(`Raw code ${code} in @${attr.getName}="${v}" at ${sf.getFilePath}:${attr.getStartLineNumber}`);
+            throw new Error(
+              `Raw code ${code} in @${attr.getName}="${v}" at ${sf.getFilePath}:${attr.getStartLineNumber}`,
+            );
           }
         }
       }
@@ -357,14 +402,19 @@ The audit fails if any of these strings appear as text-content / user-visible at
           const v = lit.getLiteralValue;
           for (const code of ALL_FORBIDDEN_CODES) {
             if (v === code || v.includes(code)) {
-              throw new Error(`Raw code ${code} in @${attr.getName}={...} at ${sf.getFilePath}:${lit.getStartLineNumber}`);
+              throw new Error(
+                `Raw code ${code} in @${attr.getName}={...} at ${sf.getFilePath}:${lit.getStartLineNumber}`,
+              );
             }
           }
         }
         for (const lit of init.getDescendantsOfKind(SyntaxKind.NoSubstitutionTemplateLiteral)) {
           const v = lit.getLiteralText;
           for (const code of ALL_FORBIDDEN_CODES) {
-            if (v.includes(code)) throw new Error(`Raw code ${code} in @${attr.getName}={\`...\`} at ${sf.getFilePath}:${lit.getStartLineNumber}`);
+            if (v.includes(code))
+              throw new Error(
+                `Raw code ${code} in @${attr.getName}={\`...\`} at ${sf.getFilePath}:${lit.getStartLineNumber}`,
+              );
           }
         }
         // Variable references like `placeholder={someRetiredCode}` aren't literal — those are caught
@@ -375,6 +425,7 @@ The audit fails if any of these strings appear as text-content / user-visible at
     }
   }
   ```
+
 - [ ] **Step 3: Commit** `test(cross-cutting): substring + AST raw-code leak detection (AC-X.2)`.
 
 ### Task X.3: Single auth-validation entry point — semantic audit (AC-X.3)
@@ -386,6 +437,7 @@ The earlier draft was an import-presence check: if a route imported `validateLin
 **Files:** Test: `tests/cross-cutting/auth.test.ts`.
 
 **Trust-domain classification + AST control-flow audit.** Earlier drafts of this task tried two heuristics:
+
 1. "First occurrence of any validator before any of four sinks" — too lax (a validator in a dead branch passes; non-listed sinks slip through).
 2. "Per-route ExpectedChain tuples + comprehensive sinks via `text.indexOf` and `text.match`" — still too lax: file-text ordering doesn't prove ANYTHING about the executed request path. Validator calls inside dead branches, after early returns, or in unused helper functions pass the audit. Conversely, helper functions called from the handler that themselves access protected sinks are invisible to the regex scan.
 
@@ -393,21 +445,22 @@ The corrected design has two parts:
 
 **(A) Trust-domain classification — NOT a path-segment sweep.** `app/api/**`, `app/admin/**`, `app/show/**`, `app/me/**` cover four very different trust models. The earlier draft's catch-all sweep ("any unlisted file under those paths is a protected-shaped route") swept in cron handlers, the Drive webhook, server actions, and component files that don't share the user/session-auth trust model — forcing implementers to add bogus exceptions or fail CI permanently. The corrected classifier explicitly assigns each file to one of:
 
-| Domain | Examples | Auth contract |
-|---|---|---|
-| `crew-session` | `app/show/[slug]/page.tsx`, `app/api/asset/diagram/**`, `app/api/asset/reel/**`, `app/api/report/**` | **Terminal-success branches**. The auth chain has **OR semantics**: success at ANY validator TERMINATES the chain (subsequent validators do NOT run). The audit accepts a path if it matches ANY of the spec-allowed terminal-success branches. Each branch enumerates the validators that MUST be called, in order; the LAST entry on a branch is the validator that produces terminal success on that path; subsequent validators are NOT invoked on that path. **Admin-precedence ordering**: `isAdminSession(req)` is checked FIRST as a side-effect-free predicate; when it returns true, `requireAdmin` runs immediately and the chain stops there — even when a valid redeemed-link cookie is also present (link-first ordering would have silently downgraded the admin to crew-mode). Branches: <br>**B1 — admin-precedence wins**: `[requireAdmin]` under the `isAdminSession(req) === true` guard. Admin succeeds → chain stops; link + google never run; the cookie (if present) is left in place. <br>**B2 — link wins (admin not detected)**: `[validateLinkSession]`. `isAdminSession` returned false; cookie present + valid → success → chain stops; google + admin never run. <br>**B3 — link continue → google wins**: `[validateLinkSession, validateGoogleSession]`. Admin not detected; link continue; google succeeds → chain stops. <br>**B4 — link continue → google continue → admin wins**: `[validateLinkSession, validateGoogleSession, requireAdmin]`. Belt-and-suspenders fallback for non-OAuth admin paths (e.g., session-refresh races where admin metadata appears mid-render). <br>The audit recognizes B1's admin-precedence branch as ANY conditional whose test statically resolves to a call to `isAdminSession` from `lib/auth/isAdminSession.ts`; using the shared helper that Task 5.7's runtime uses keeps the static audit and the executed branch from diverging. Audit fixtures: `admin-not-on-crew.fixture` MUST pass via B1 (admin-precedence); `admin-also-on-crew.fixture` MUST pass via B1 (admin role, NOT crew downgrade); `admin-with-valid-link-cookie.fixture` MUST pass via B1 (admin role, link branch never runs); `crew-only.fixture` MUST pass via B2 or B3; `crew-removed-but-google.fixture` MUST pass via B4. Earlier placed `validateLinkSession` first on every branch — that rejected admin-precedence (admin runs without link being called) AND silently downgraded admins to crew-mode whenever a valid link cookie existed for the same show. The ordering closes both holes. |
-| `admin` | `app/admin/**/page.tsx`, `app/api/admin/**` (excluding cron) | `requireAdmin` only |
-| `me` | `app/me/page.tsx` | **`validateGoogleIdentity` ONLY.** `validateGoogleSession` is strictly show-bound (its step 2 looks up `crew_members WHERE show_id = $requestedShowId AND email = canonicalize(...)`) and CANNOT be called from a cross-show signed-in surface like `/me`. The `me` trust domain uses `validateGoogleIdentity(req)` that returns `{ kind: 'success', email, providerSub }` from the Supabase Auth session ONLY (no show binding) per spec §7.2.2. A file under `app/me/**` that imports `validateGoogleSession` MUST FAIL X.3; canonical fixtures: `bad-me-route-uses-validateGoogleSession.tsx` (fail) + `good-me-route-uses-validateGoogleIdentity.tsx` (pass). |
-| `auth-library` | `lib/auth/**`, `app/api/auth/redeem-link/route.ts`, `middleware.ts` | exempt — these are the validators themselves and the cookie-mint route |
-| `public-bootstrap` | `app/show/[slug]/p/page.tsx` | exempt — bootstrap shell renders without a cookie (Task 5.5) |
-| `public-webhook` | `app/api/drive/webhook/route.ts` | uses constant-time token compare, NOT the user-session validator chain |
-| `cron-internal` | `app/api/cron/**` | uses Vercel cron auth header, NOT user validators |
-| `server-action` | **AST-DETECTED, NOT path-classified.** Any `.ts`/`.tsx` file under `app/**` containing a `'use server'` directive — module-level OR function-scoped — exposes server actions. This includes `app/**/actions.ts` AND component files like `app/show/components/*.tsx`, `app/admin/dev/page.tsx`, etc. that declare `'use server'` inline at the top of an async function (Next.js inline-action pattern) or as a module-level directive in a non-`actions.ts` file. **Server actions are detected by AST scan BEFORE path-based classification skip** — a component file does NOT escape audit because of its filename. | subject to chain audit per spec §7.2.2 (`validateLinkSession` required on any action mutating state for a redeemed user). **Trust domain is inherited from the containing route subtree, NOT the file's path-based bucket**: an action in `app/show/[slug]/components/foo.tsx` inherits `crew-session`; an action in `app/admin/**/components/bar.tsx` inherits `admin`; an action in `app/me/**/*.tsx` inherits `me`. The chain audit runs over the discovered server-action entry (the action function), NOT the file as a whole. Earlier draft only matched `app/**/actions.ts` via filename, so inline `'use server'` actions in component files (which Next.js fully supports for forms) silently slipped past audit — closes that hole. |
-| `non-route` | `app/**/components/*.tsx`, `*.test.ts`, `app/**/loading.tsx`, `app/**/error.tsx`, `app/**/layout.tsx` (layouts that don't fetch data) — **only if the file does NOT contain any `'use server'` directive**. The `'use server'` AST scan runs FIRST; if it finds any module-level or function-scoped directive, the file is reclassified as `server-action` (with the chain inherited from its containing route subtree) regardless of its filename. | not a request entry point AND don't mutate state — exempt from chain audit but subject to `BANNED_OUTSIDE_AUTH_LIB` primitive checks. A non-route file that contains a `'use server'` directive is NOT non-route; it's `server-action`. |
+| Domain             | Examples                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Auth contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `crew-session`     | `app/show/[slug]/page.tsx`, `app/api/asset/diagram/**`, `app/api/asset/reel/**`, `app/api/report/**`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | **Terminal-success branches**. The auth chain has **OR semantics**: success at ANY validator TERMINATES the chain (subsequent validators do NOT run). The audit accepts a path if it matches ANY of the spec-allowed terminal-success branches. Each branch enumerates the validators that MUST be called, in order; the LAST entry on a branch is the validator that produces terminal success on that path; subsequent validators are NOT invoked on that path. **Admin-precedence ordering**: `isAdminSession(req)` is checked FIRST as a side-effect-free predicate; when it returns true, `requireAdmin` runs immediately and the chain stops there — even when a valid redeemed-link cookie is also present (link-first ordering would have silently downgraded the admin to crew-mode). Branches: <br>**B1 — admin-precedence wins**: `[requireAdmin]` under the `isAdminSession(req) === true` guard. Admin succeeds → chain stops; link + google never run; the cookie (if present) is left in place. <br>**B2 — link wins (admin not detected)**: `[validateLinkSession]`. `isAdminSession` returned false; cookie present + valid → success → chain stops; google + admin never run. <br>**B3 — link continue → google wins**: `[validateLinkSession, validateGoogleSession]`. Admin not detected; link continue; google succeeds → chain stops. <br>**B4 — link continue → google continue → admin wins**: `[validateLinkSession, validateGoogleSession, requireAdmin]`. Belt-and-suspenders fallback for non-OAuth admin paths (e.g., session-refresh races where admin metadata appears mid-render). <br>The audit recognizes B1's admin-precedence branch as ANY conditional whose test statically resolves to a call to `isAdminSession` from `lib/auth/isAdminSession.ts`; using the shared helper that Task 5.7's runtime uses keeps the static audit and the executed branch from diverging. Audit fixtures: `admin-not-on-crew.fixture` MUST pass via B1 (admin-precedence); `admin-also-on-crew.fixture` MUST pass via B1 (admin role, NOT crew downgrade); `admin-with-valid-link-cookie.fixture` MUST pass via B1 (admin role, link branch never runs); `crew-only.fixture` MUST pass via B2 or B3; `crew-removed-but-google.fixture` MUST pass via B4. Earlier placed `validateLinkSession` first on every branch — that rejected admin-precedence (admin runs without link being called) AND silently downgraded admins to crew-mode whenever a valid link cookie existed for the same show. The ordering closes both holes. |
+| `admin`            | `app/admin/**/page.tsx`, `app/api/admin/**` (excluding cron)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | `requireAdmin` only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `me`               | `app/me/page.tsx`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | **`validateGoogleIdentity` ONLY.** `validateGoogleSession` is strictly show-bound (its step 2 looks up `crew_members WHERE show_id = $requestedShowId AND email = canonicalize(...)`) and CANNOT be called from a cross-show signed-in surface like `/me`. The `me` trust domain uses `validateGoogleIdentity(req)` that returns `{ kind: 'success', email, providerSub }` from the Supabase Auth session ONLY (no show binding) per spec §7.2.2. A file under `app/me/**` that imports `validateGoogleSession` MUST FAIL X.3; canonical fixtures: `bad-me-route-uses-validateGoogleSession.tsx` (fail) + `good-me-route-uses-validateGoogleIdentity.tsx` (pass).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `auth-library`     | `lib/auth/**`, `app/api/auth/redeem-link/route.ts`, `middleware.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | exempt — these are the validators themselves and the cookie-mint route                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `public-bootstrap` | `app/show/[slug]/p/page.tsx`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | exempt — bootstrap shell renders without a cookie (Task 5.5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `public-webhook`   | `app/api/drive/webhook/route.ts`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | uses constant-time token compare, NOT the user-session validator chain                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `cron-internal`    | `app/api/cron/**`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | uses Vercel cron auth header, NOT user validators                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `server-action`    | **AST-DETECTED, NOT path-classified.** Any `.ts`/`.tsx` file under `app/**` containing a `'use server'` directive — module-level OR function-scoped — exposes server actions. This includes `app/**/actions.ts` AND component files like `app/show/components/*.tsx`, `app/admin/dev/page.tsx`, etc. that declare `'use server'` inline at the top of an async function (Next.js inline-action pattern) or as a module-level directive in a non-`actions.ts` file. **Server actions are detected by AST scan BEFORE path-based classification skip** — a component file does NOT escape audit because of its filename. | subject to chain audit per spec §7.2.2 (`validateLinkSession` required on any action mutating state for a redeemed user). **Trust domain is inherited from the containing route subtree, NOT the file's path-based bucket**: an action in `app/show/[slug]/components/foo.tsx` inherits `crew-session`; an action in `app/admin/**/components/bar.tsx` inherits `admin`; an action in `app/me/**/*.tsx` inherits `me`. The chain audit runs over the discovered server-action entry (the action function), NOT the file as a whole. Earlier draft only matched `app/**/actions.ts` via filename, so inline `'use server'` actions in component files (which Next.js fully supports for forms) silently slipped past audit — closes that hole.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `non-route`        | `app/**/components/*.tsx`, `*.test.ts`, `app/**/loading.tsx`, `app/**/error.tsx`, `app/**/layout.tsx` (layouts that don't fetch data) — **only if the file does NOT contain any `'use server'` directive**. The `'use server'` AST scan runs FIRST; if it finds any module-level or function-scoped directive, the file is reclassified as `server-action` (with the chain inherited from its containing route subtree) regardless of its filename.                                                                                                                                                                    | not a request entry point AND don't mutate state — exempt from chain audit but subject to `BANNED_OUTSIDE_AUTH_LIB` primitive checks. A non-route file that contains a `'use server'` directive is NOT non-route; it's `server-action`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 Every `app/**` file MUST appear in exactly one classification entry. Adding a new file in `app/api/`, `app/admin/`, `app/show/`, or `app/me/` without classifying it fails CI.
 
 **(B) Path-sensitive AST control-flow audit.** Replace text-position heuristics with a real call-graph analysis. For each `crew-session` / `admin` / `me` route file:
+
 1. Locate every request entry point in the file. `findRequestEntries` discovers the FULL set of server-side execution entries that App Router invokes during a request lifecycle, NOT just `page.tsx` default + `route.ts` HTTP-method handlers. Discovered entries:
    - **Page default export** (`page.tsx`/`page.ts`): the Server Component render.
    - **Route HTTP-method named exports** (`route.ts`/`route.tsx`): `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `OPTIONS`, `HEAD` — each treated as a separate entry.
@@ -421,18 +474,24 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
    - **`middleware.ts` matcher-scoped exports**: classified as `auth-library` (exempt) — the cookie-mint flow legitimately runs here.
 
    Every discovered entry is classified via `classifyTrustDomain(path)` (the file path's trust domain applies to all its entries) and runs through the chain audit independently. **Required negative fixture**: `bad-generate-metadata-touches-shows-internal.tsx` — a `crew-session` page file whose `generateMetadata` named export calls `from('shows_internal')` WITHOUT calling `validateLinkSession` first. The audit MUST throw because `generateMetadata` is now a discovered entry and the chain must dominate every reachable sink. Companion fixtures: `bad-loading-touches-protected-table.tsx` (`loading.tsx` default export fetches from `reports`); `bad-not-found-touches-protected-table.tsx` (`not-found.tsx` fetches from `pending_syncs`); `bad-head-tsx-touches-protected-table.tsx` (`head.tsx` reads `shows_internal`); `good-generate-metadata-via-validator.tsx` — `generateMetadata` calls `validateLinkSession` first then `from('shows_internal')` (must NOT throw).
+
 2. Walk every reachable statement on EVERY control-flow path from the entry. For each protected sink encountered, prove (via dominator analysis on the call graph) that EVERY path from the entry to that sink passes through the required validator chain in the declared order.
 3. Validator calls in unreachable branches (early-returned, conditional-false-only) do NOT count.
 4. Helper functions called from the handler are inlined into the analysis (transitive flow): if `handler → fetchShow → from('shows_internal')` and `fetchShow` is defined locally, the audit walks into `fetchShow` rather than treating it as opaque.
 
 - [ ] **Step 1: Author the protected-routes allowlist** with per-route **valid terminal-success paths**. The auth chain has **OR semantics**: success at ANY validator TERMINATES the chain, and subsequent validators do NOT run. The allowlist therefore declares a SET of `ValidPath`s; each is the ordered list of validators that must all be CALLED on that runtime path AND whose LAST entry is the validator that produces terminal success on that path. The audit accepts the actual control-flow if it matches ANY single `ValidPath`: (1) every validator on the path is called, (2) in declared order, (3) the path ends at the last validator's call site as the terminal-success producer, (4) sinks fire AFTER that last validator (sinks before, or paths whose terminating validator differs from the one that actually returned success, are rejected).
+
   ```ts
-  type ChainStep = 'validateLinkSession' | 'validateGoogleSession' | 'validateGoogleIdentity' | 'requireAdmin'; // validateGoogleIdentity is the cross-show identity-only validator used EXCLUSIVELY by `/me` and other no-show-context signed-in surfaces; show-bound surfaces still use validateGoogleSession.
+  type ChainStep =
+    | "validateLinkSession"
+    | "validateGoogleSession"
+    | "validateGoogleIdentity"
+    | "requireAdmin"; // validateGoogleIdentity is the cross-show identity-only validator used EXCLUSIVELY by `/me` and other no-show-context signed-in surfaces; show-bound surfaces still use validateGoogleSession.
   type ValidPath = ReadonlyArray<ChainStep>; // ordered list; LAST entry = terminal-success validator on this path
   type ExpectedChain =
     | ValidPath // single valid terminal-success path required
     | { anyOf: ReadonlyArray<ValidPath> }; // terminal-success branches (OR semantics)
-  type RouteSpec = { path: string; chain: ExpectedChain | 'auth-library-exception' };
+  type RouteSpec = { path: string; chain: ExpectedChain | "auth-library-exception" };
   // Backwards-compat alias: older code references `SingleChain`. New code MUST use ValidPath.
   type SingleChain = ValidPath;
 
@@ -451,56 +510,70 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
   // metadata appears later, e.g., session refreshed mid-render). Belt-and-suspenders branch.
   const CREW_SESSION_CHAINS: { anyOf: ReadonlyArray<ValidPath> } = {
     anyOf: [
-      ['requireAdmin'], // B1: admin-precedence — `isAdminSession(req)` true → requireAdmin succeeds → chain stops
-      ['validateLinkSession'], // B2: admin not detected → link succeeds → chain stops
-      ['validateLinkSession', 'validateGoogleSession'], // B3: admin not detected → link continue → google succeeds
-      ['validateLinkSession', 'validateGoogleSession', 'requireAdmin'], // B4: admin not detected initially → link continue → google continue → admin succeeds (rare; covers session-refresh races)
+      ["requireAdmin"], // B1: admin-precedence — `isAdminSession(req)` true → requireAdmin succeeds → chain stops
+      ["validateLinkSession"], // B2: admin not detected → link succeeds → chain stops
+      ["validateLinkSession", "validateGoogleSession"], // B3: admin not detected → link continue → google succeeds
+      ["validateLinkSession", "validateGoogleSession", "requireAdmin"], // B4: admin not detected initially → link continue → google continue → admin succeeds (rare; covers session-refresh races)
     ],
   };
 
   const PROTECTED_ROUTES: RouteSpec[] = [
     // Crew page — terminal-success branches.
-    { path: 'app/show/[slug]/page.tsx', chain: CREW_SESSION_CHAINS },
+    { path: "app/show/[slug]/page.tsx", chain: CREW_SESSION_CHAINS },
     // /me — Google session only (signed-in user's own list); no admin path needed.
-    { path: 'app/me/page.tsx', chain: ['validateGoogleIdentity'] }, // cross-show identity-only validator (NOT show-bound validateGoogleSession; see spec §7.2.2 cross-show identity-only validator amendment)
+    { path: "app/me/page.tsx", chain: ["validateGoogleIdentity"] }, // cross-show identity-only validator (NOT show-bound validateGoogleSession; see spec §7.2.2 cross-show identity-only validator amendment)
     // Admin surfaces — admin only.
-    { path: 'app/admin/page.tsx', chain: ['requireAdmin'] },
-    { path: 'app/admin/show/[slug]/page.tsx', chain: ['requireAdmin'] },
-    { path: 'app/admin/show/[slug]/preview/[crewId]/page.tsx', chain: ['requireAdmin'] },
-    { path: 'app/admin/dev/page.tsx', chain: ['requireAdmin'] },
+    { path: "app/admin/page.tsx", chain: ["requireAdmin"] },
+    { path: "app/admin/show/[slug]/page.tsx", chain: ["requireAdmin"] },
+    { path: "app/admin/show/[slug]/preview/[crewId]/page.tsx", chain: ["requireAdmin"] },
+    { path: "app/admin/dev/page.tsx", chain: ["requireAdmin"] },
     // + : no `app/admin/onboarding/page.tsx` — the wizard renders
     // inline at `/admin` per Task 10.1's single-inline-route-owner contract. `/admin` is
     // already in this map above and gates with requireAdmin.
-    { path: 'app/admin/settings/page.tsx', chain: ['requireAdmin'] },
+    { path: "app/admin/settings/page.tsx", chain: ["requireAdmin"] },
     // Asset routes — terminal-success branches.
-    { path: 'app/api/asset/diagram/[show]/[rev]/[key]/route.ts', chain: CREW_SESSION_CHAINS },
-    { path: 'app/api/asset/reel/[show]/route.ts', chain: CREW_SESSION_CHAINS },
+    { path: "app/api/asset/diagram/[show]/[rev]/[key]/route.ts", chain: CREW_SESSION_CHAINS },
+    { path: "app/api/asset/reel/[show]/route.ts", chain: CREW_SESSION_CHAINS },
     // Report routes — same branching chain (Task 8.3).
-    { path: 'app/api/report/route.ts', chain: CREW_SESSION_CHAINS },
+    { path: "app/api/report/route.ts", chain: CREW_SESSION_CHAINS },
     // Admin API — admin only.
-    { path: 'app/api/admin/sync/[slug]/route.ts', chain: ['requireAdmin'] },
-    { path: 'app/api/admin/staged/[fileId]/apply/route.ts', chain: ['requireAdmin'] },
-    { path: 'app/api/admin/staged/[fileId]/discard/route.ts', chain: ['requireAdmin'] },
-    { path: 'app/api/admin/onboarding/finalize/route.ts', chain: ['requireAdmin'] },
+    { path: "app/api/admin/sync/[slug]/route.ts", chain: ["requireAdmin"] },
+    { path: "app/api/admin/staged/[fileId]/apply/route.ts", chain: ["requireAdmin"] },
+    { path: "app/api/admin/staged/[fileId]/discard/route.ts", chain: ["requireAdmin"] },
+    { path: "app/api/admin/onboarding/finalize/route.ts", chain: ["requireAdmin"] },
     // Phase D final-CAS endpoint (Task 10.5 step 2 Phase D pseudo-code).
-    { path: 'app/api/admin/onboarding/finalize-cas/route.ts', chain: ['requireAdmin'] },
+    { path: "app/api/admin/onboarding/finalize-cas/route.ts", chain: ["requireAdmin"] },
     // cleanup-abandoned-finalize route owned by Task 10.1 (wraps the
     // cleanupAbandonedFinalize helper with route-level requireAdmin + sync_audit before/after rows).
-    { path: 'app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts', chain: ['requireAdmin'] },
+    {
+      path: "app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts",
+      chain: ["requireAdmin"],
+    },
     // previously-missing onboarding routes (Task 10.3 scan + Task 10.4 hard-fail action endpoints).
-    { path: 'app/api/admin/onboarding/scan/route.ts', chain: ['requireAdmin'] },
-    { path: 'app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts', chain: ['requireAdmin'] },
-    { path: 'app/api/admin/onboarding/pending_ingestions/[id]/defer_until_modified/route.ts', chain: ['requireAdmin'] },
-    { path: 'app/api/admin/onboarding/pending_ingestions/[id]/permanent_ignore/route.ts', chain: ['requireAdmin'] },
+    { path: "app/api/admin/onboarding/scan/route.ts", chain: ["requireAdmin"] },
+    {
+      path: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
+      chain: ["requireAdmin"],
+    },
+    {
+      path: "app/api/admin/onboarding/pending_ingestions/[id]/defer_until_modified/route.ts",
+      chain: ["requireAdmin"],
+    },
+    {
+      path: "app/api/admin/onboarding/pending_ingestions/[id]/permanent_ignore/route.ts",
+      chain: ["requireAdmin"],
+    },
     // Auth library exceptions (the validators themselves, the cookie-mint route, the compromise handler):
-    { path: 'app/api/auth/redeem-link/route.ts', chain: 'auth-library-exception' },
-    { path: 'middleware.ts', chain: 'auth-library-exception' },
+    { path: "app/api/auth/redeem-link/route.ts", chain: "auth-library-exception" },
+    { path: "middleware.ts", chain: "auth-library-exception" },
   ];
   ```
+
   Every protected route in the codebase MUST appear in this list. Step 2's audit fails on any unlisted route under `app/api/`, `app/show/`, `app/me/`, or `app/admin/`.
 
 - [ ] **Step 2: Failing semantic-audit test** via `ts-morph`:
-  ```ts
+
+  ````ts
   import { Project, SyntaxKind, Node } from 'ts-morph';
   // Allowed direct consumers of low-level auth/session primitives:
   const AUTH_LIB_ALLOWLIST = [
@@ -1335,7 +1408,8 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
   // - Bare fall-through (next validator runs unconditionally without ever reading
   // `binding.kind`) is REJECTED — that's the exact bug class this audit catches.
   // If all validators on the candidate satisfy the rule, return { ok: true }.
-  ```
+  ````
+
   This audit asserts:
   - **(a)** no file outside the auth-library allowlist references low-level auth primitives;
   - **(b)** every classified route's reachable paths to a protected sink pass through the declared chain in declared order;
@@ -1343,6 +1417,7 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
   - **(d)** helper functions are inlined transitively across module boundaries — `handler → loadShow → from('shows_internal')` is attributed correctly whether `loadShow` is defined locally OR imported from another file. The call-graph builder follows imports via `tsmorph`'s `ImportDeclaration` resolution. **An imported helper that touches a protected sink before the local validator chain runs is a violation, NOT an exempt black box.** Earlier draft only inlined locally-defined helpers, leaving `import { loadShow } from '@/lib/data/loadShow'` as an escape hatch where the imported function could fetch from `shows_internal` before any validator. Required regression fixture: `bad-imported-helper.tsx` — a route that imports `loadShow` from a sibling module, calls `loadShow` BEFORE `validateLinkSession`, where `loadShow` queries `shows_internal`. Audit MUST reject this even though the sink call doesn't appear textually in the route file. As a defense-in-depth fallback when an import resolves to an external module the audit can't statically inline (e.g., a node_modules helper), the audit conservatively treats the call site as a sink unless the function is explicitly added to a `KNOWN_PURE_HELPERS` allowlist;
   - **(e)** any new file in `app/api/`, `app/admin/`, `app/show/`, or `app/me/` that isn't classified in `TRUST_DOMAINS` fails CI immediately, forcing the engineer to declare its trust domain explicitly;
   - **(f)** every validator's discriminated-union outcome is INSPECTED before any sink fires. A route that calls `validateLinkSession` and IGNORES the `{ kind: 'continue' }` result, then touches a protected sink, is rejected even though presence + order + sink-after-call all pass. The terminal validator's `kind === 'success'` discriminator MUST be checked before the sink; each preceding validator's `kind === 'continue'` discriminator MUST be checked before falling through to the next validator.
+
 - [ ] **Step 2: Regression fixtures** in `tests/cross-cutting/fixtures/auth-x3/`:
   - `bad-import-only.tsx`: imports `validateLinkSession` but never calls it; queries `shows_internal` — must throw.
   - `bad-access-before-validate.tsx`: queries `shows_internal` then later calls `validateLinkSession` — must throw.
@@ -1428,6 +1503,7 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
      ```
      Every returned row must be in the Step-1 allowlist. Any new column matching the heuristic without an allowlist entry fails the test. The `app_settings` table specifically must NOT contain any column matching this heuristic.
   2. **Code audit via `ts-morph` (replaces the earlier grep) — token-aware identifier match:**
+
      ```ts
      import { Project, SyntaxKind, Node } from 'ts-morph';
      const project = new Project({ tsConfigFilePath: 'tsconfig.json' });
@@ -1532,6 +1608,7 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
        }
      }
      ```
+
      **Why token-based, not anchored-regex:** the observed that `/^last_?(seen|sync|poll|processed|run|cursor)/` doesn't match `lastWatermark` (token "watermark" is not in the alternation) nor `appState.lastWatermark` (anchor `^` won't match in the middle of a property access). Tokenizing first and asking "does this identifier contain BOTH `last` AND `watermark`?" catches the entire family — `lastWatermark`, `last_watermark`, `LAST_WATERMARK`, `appState.lastWatermark`, `process.env.LAST_WATERMARK` (via the StringLiteral element-access scan), and snake_case variants like `app_state.last_cursor`.
 
      **Required regression-test fixtures** — the test ships a small `tests/cross-cutting/fixtures/no-global-cursor/` directory containing test files that MUST be detected:
@@ -1552,14 +1629,16 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
      - `good-allowlisted.ts`: `shows.last_seen_modified_time` — must NOT throw.
      - `good-unrelated.ts`: `const lastUserAction = ...` — must NOT throw (no `watermark`/`cursor`/`poll`/etc. token).
      - `good-component.tsx`: a React component using `shows.last_seen_modified_time` from props — must NOT throw.
-     The audit test runs the matcher over each fixture file and asserts the expected pass/fail. Then the audit is run over the real `lib/`, `app/` (including .tsx), `components/`, and `middleware.{ts,tsx}` tree.
+       The audit test runs the matcher over each fixture file and asserts the expected pass/fail. Then the audit is run over the real `lib/`, `app/` (including .tsx), `components/`, and `middleware.{ts,tsx}` tree.
 
      The earlier `lastPollAt` literal-string grep is preserved as a defense-in-depth secondary check, but the token-based AST audit is the primary mechanism.
+
   3. **Semantic data-flow audit.** Naming heuristics alone fail when an engineer introduces a singleton sync checkpoint under a domain-neutral name like `processedAt`, `runStartedAt`, or `checkpoint` on `app_settings` — every word slips through the `last_(seen|sync|poll|processed|run|cursor)|watermark|cursor` regex AND the token combos. The semantic layer catches this by walking the call graph rooted at sync entry points and resolving the SOURCE of every value compared against a `modifiedTime`-shape RHS:
+
      ```ts
      // tests/cross-cutting/no-global-cursor.test.ts — semantic layer.
-     import { Project, SyntaxKind, Node, Type } from 'ts-morph';
-     const project = new Project({ tsConfigFilePath: 'tsconfig.json' });
+     import { Project, SyntaxKind, Node, Type } from "ts-morph";
+     const project = new Project({ tsConfigFilePath: "tsconfig.json" });
 
      // Sync entry points the audit roots at — every sync-decision call graph starts here.
      // Amend this list whenever Task 6.x adds a new entry point.
@@ -1570,14 +1649,14 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
      // the cron/push/manual/onboarding/asset-recovery entry points; the Apply/Discard CAS
      // paths went un-audited.
      const SYNC_ENTRY_POINTS = [
-       'runScheduledCronSync', // Task 6.7 cron path
-       'runManualSyncForShow', // Task 6.8 admin-triggered single-show sync
-       'runPushSyncForShow', // Task 6.9 push-mode (Drive webhook)
-       'runOnboardingScan', // Task 10.3 wizard scan
-       'retrySingleFile', // Task 10.4 hard-fail retry
-       'assetRecovery', // Task 7.4 asset_recovery loop
-       'applyStagedParse', // Task 6.11 Apply CAS: staged_id + base_modified_time CAS, §5.2 / §6.8.2
-       'discardStagedParse', // Task 6.12 Discard CAS: staged_id CAS, §6.8.1
+       "runScheduledCronSync", // Task 6.7 cron path
+       "runManualSyncForShow", // Task 6.8 admin-triggered single-show sync
+       "runPushSyncForShow", // Task 6.9 push-mode (Drive webhook)
+       "runOnboardingScan", // Task 10.3 wizard scan
+       "retrySingleFile", // Task 10.4 hard-fail retry
+       "assetRecovery", // Task 7.4 asset_recovery loop
+       "applyStagedParse", // Task 6.11 Apply CAS: staged_id + base_modified_time CAS, §5.2 / §6.8.2
+       "discardStagedParse", // Task 6.12 Discard CAS: staged_id CAS, §6.8.1
      ];
 
      // ** Fix 3 amendment**: per-row sources are split into TWO sets — one set of
@@ -1598,7 +1677,7 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
      // OR a typed row property like `showRow.last_seen_modified_time` to one of these.
      const AUTHORITATIVE_GATING_WATERMARKS = new Set([
        // Per-show Drive-derived (§4.1, §5.2, §6.11):
-       'shows.last_seen_modified_time',
+       "shows.last_seen_modified_time",
        // ** — corrected schema names**: // - `shows.base_modified_time` was a stale name; the column lives on `pending_syncs`,
        // NOT `shows`. The Apply-time CAS predicate per §5.2 / §6.8.2 is
        // `shows.last_seen_modified_time IS NOT DISTINCT FROM pending_syncs.base_modified_time`
@@ -1608,33 +1687,36 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
        // Apply-time snapshot-stability checks read the JSONB-path expression
        // `(shows.diagrams ->> 'snapshot_revision_id')::uuid`. The audit MUST recognize the
        // JSONB-path form as well as a bare column reference.
-       'shows.diagrams->>snapshot_revision_id', // JSONB-path form per spec §X.4
+       "shows.diagrams->>snapshot_revision_id", // JSONB-path form per spec §X.4
        // Per-row Drive-derived (§4.1, §6.8.1):
-       'pending_syncs.staged_modified_time',
-       'pending_syncs.base_modified_time', // Fix 3: Apply-time CAS predicate per §5.2 / §6.8.2 — column lives on pending_syncs (NOT shows; correction)
-       'pending_syncs.staged_id', // Fix 3: Apply/Discard CAS predicate per §5.2 / §6.8.1
+       "pending_syncs.staged_modified_time",
+       "pending_syncs.base_modified_time", // Fix 3: Apply-time CAS predicate per §5.2 / §6.8.2 — column lives on pending_syncs (NOT shows; correction)
+       "pending_syncs.staged_id", // Fix 3: Apply/Discard CAS predicate per §5.2 / §6.8.1
        // Per-file from Drive (Task 6.x's processOneFile(fileMeta) parameter):
-       'fileMeta.modifiedTime', 'fileMeta.driveModifiedTime',
-       'fileMeta.headRevisionId', 'fileMeta.md5Checksum', // Fix 3: revision-pin verification per §6.11
+       "fileMeta.modifiedTime",
+       "fileMeta.driveModifiedTime",
+       "fileMeta.headRevisionId",
+       "fileMeta.md5Checksum", // Fix 3: revision-pin verification per §6.11
        // Per-file (deferred ingestions):
-       'deferred_ingestions.deferred_at_modified_time',
+       "deferred_ingestions.deferred_at_modified_time",
        // Per-channel (push-mode subscription lifecycle; gates webhook activation):
-       'drive_watch_channels.expires_at', 'drive_watch_channels.activated_at',
+       "drive_watch_channels.expires_at",
+       "drive_watch_channels.activated_at",
      ]);
 
      // Display-only timestamps — rendered to the operator (footer freshness, parse panel,
      // retry log) but NEVER read as the RHS of a sync-decision comparison. A sync-decision
      // read of any of these fails the audit.
      const DISPLAY_ONLY_TIMESTAMPS = new Set([
-       'shows.last_synced_at', // §5.4 stale-data footer / §9 admin display
-       'pending_syncs.parsed_at', // §9.2 staged-review panel display
+       "shows.last_synced_at", // §5.4 stale-data footer / §9 admin display
+       "pending_syncs.parsed_at", // §9.2 staged-review panel display
        // ** — corrected schema name**: real column is `last_attempt_at`
        // (no -ed; per spec §4.1 `create table pending_ingestions` block). Earlier draft used
        // `last_attempted_at` which doesn't exist; resolve calls would never match and the
        // display-only check would silently no-op.
-       'pending_ingestions.last_attempt_at', // §9.2 retry-log display ( corrected from `last_attempted_at`)
-       'pending_ingestions.first_seen_at', // §9.2 retry-log display
-       'deferred_ingestions.deferred_at', // §9.2 deferred-list display
+       "pending_ingestions.last_attempt_at", // §9.2 retry-log display ( corrected from `last_attempted_at`)
+       "pending_ingestions.first_seen_at", // §9.2 retry-log display
+       "deferred_ingestions.deferred_at", // §9.2 deferred-list display
      ]);
 
      // Legacy flat-set view kept ONLY for backward-compat with code that asks
@@ -1679,16 +1761,20 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
      if (unresolvedEntries.length > 0 || ambiguousEntries.length > 0) {
        const parts: string[] = [];
        if (unresolvedEntries.length > 0) {
-         parts.push(`unresolved sync entry points (zero declarations): ${unresolvedEntries.join(', ')}`);
+         parts.push(
+           `unresolved sync entry points (zero declarations): ${unresolvedEntries.join(", ")}`,
+         );
        }
        if (ambiguousEntries.length > 0) {
-         parts.push(`ambiguous sync entry points (multiple declarations): ${
-           ambiguousEntries.map(e => `${e.name} (${e.matches} matches)`).join(', ')
-         }`);
+         parts.push(
+           `ambiguous sync entry points (multiple declarations): ${ambiguousEntries
+             .map((e) => `${e.name} (${e.matches} matches)`)
+             .join(", ")}`,
+         );
        }
        throw new Error(
-         `AC-X.4 semantic-layer precheck failed — ${parts.join('; ')}. ` +
-         `Update SYNC_ENTRY_POINTS to match the live codebase, or restore the missing declarations.`
+         `AC-X.4 semantic-layer precheck failed — ${parts.join("; ")}. ` +
+           `Update SYNC_ENTRY_POINTS to match the live codebase, or restore the missing declarations.`,
        );
      }
 
@@ -1699,7 +1785,9 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
        if (!decl) {
          // Defensive backstop — the precheck above should have caught this. If we reach here, the
          // precheck logic and the inner resolver disagree; fail loudly rather than silently skip.
-         throw new Error(`AC-X.4 invariant violation: '${entry}' resolved during precheck but is null in main loop`);
+         throw new Error(
+           `AC-X.4 invariant violation: '${entry}' resolved during precheck but is null in main loop`,
+         );
        }
        const callGraph = buildCallGraph(decl); // resolves local + imported helpers transitively
        const watermarkComparisons = findWatermarkShapeComparisons(callGraph);
@@ -1708,24 +1796,25 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
            const source = resolveSourceOfValue(operand); // walks back through assignments, parameters, returns
            const fqName = qualifiedName(source); // 'shows.last_seen_modified_time' / 'fileMeta.modifiedTime' / 'app_settings.processed_at' / 'process.env.LAST_WATERMARK' / etc.
            if (ACCEPTABLE_PER_ROW_SOURCES.has(fqName)) continue;
-           if (FORBIDDEN_SOURCE_KINDS.some(test => test(source))) {
+           if (FORBIDDEN_SOURCE_KINDS.some((test) => test(source))) {
              throw new Error(
                `AC-X.4 semantic-layer violation at ${comp.fileName}:${comp.line}: ` +
-               `watermark-shape comparison consumes forbidden source '${fqName}'. ` +
-               `Sync gating decisions MUST read watermarks from per-row sources only.`
+                 `watermark-shape comparison consumes forbidden source '${fqName}'. ` +
+                 `Sync gating decisions MUST read watermarks from per-row sources only.`,
              );
            }
            // Unresolvable source (e.g., `as any` escape) → fail closed. The semantic layer is
            // conservative: anything not provably per-row is rejected.
            throw new Error(
              `AC-X.4 semantic-layer violation at ${comp.fileName}:${comp.line}: ` +
-             `watermark-shape source '${fqName}' could not be resolved to a per-row column. ` +
-             `If this is a legitimate per-row watermark, add it to ACCEPTABLE_PER_ROW_SOURCES.`
+               `watermark-shape source '${fqName}' could not be resolved to a per-row column. ` +
+               `If this is a legitimate per-row watermark, add it to ACCEPTABLE_PER_ROW_SOURCES.`,
            );
          }
        }
      }
      ```
+
      **Implementation notes:**
      - **`findWatermarkShapeComparisons(callGraph)`**. The earlier matcher only inspected comparisons that referenced a layer-2 BANNED_COMBO token OR a property whose declared type was `modified_time | last_synced_at`-shape. That left **pure UUID gates out of scope** — `staged_id === reviewedStagedId`, `snapshot_revision_id === reviewedRevisionId`, `headRevisionId === pinnedRevisionId`, `md5Checksum === pinnedChecksum`, `embeddedFingerprint === pinnedFingerprint`, `base_modified_time === reviewedBaseModifiedTime` — none of which match a BANNED_COMBO when the property is `staged_id`/`snapshot_revision_id`/etc. The matcher is **driven from the Step-1 authoritative/display-only symbol sets directly**, so EVERY gating-watermark CAS site is in scope regardless of the operand's textual shape:
        - **Match rule (revised)**: a `BinaryExpression` (operators `<`, `<=`, `>`, `>=`, `===`, `!==`, `==`, `!=`) is in scope iff AT LEAST ONE operand resolves (via `resolveSourceOfValue`) to a member access into `AUTHORITATIVE_GATING_WATERMARKS` (per Step-1, ** corrected schema names**: `shows.last_seen_modified_time`, `pending_syncs.base_modified_time` (NOT `shows.base_modified_time` — column lives on `pending_syncs`), `shows.diagrams ->> 'snapshot_revision_id'` (NOT `shows.snapshot_revision_id` — JSONB path, not top-level column), `pending_syncs.staged_modified_time`, `pending_syncs.staged_id`, `fileMeta.modifiedTime`, `fileMeta.driveModifiedTime`, `fileMeta.headRevisionId`, `fileMeta.md5Checksum`, `deferred_ingestions.deferred_at_modified_time`, the `drive_watch_channels.*` lifecycle columns, and the §6.11 `embeddedFingerprint`/`sheetsRevisionId` per-row tokens) — regardless of whether the operand name contains `modified_time` or `last_synced_at`. **Audit MUST recognize the JSONB-path expression form** (e.g., `(shows.diagrams ->> 'snapshot_revision_id')::uuid = reviewed_revision_id`) as a member access into `AUTHORITATIVE_GATING_WATERMARKS`, not just bare column references — the resolver must extract the JSONB-path operator chain and normalize it to the `'shows.diagrams->>snapshot_revision_id'` set entry.
@@ -1737,7 +1826,7 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
 
      **Required regression-test fixtures** — `tests/cross-cutting/fixtures/no-global-cursor-semantic/`:
      - **`bad-app-settings-cursor.ts`**: synthetic sync function `runScheduledCronSync` reads `await client.from('app_settings').select('processed_at').single` (column name `processed_at` slips past layer 2 — no `last_` prefix means no BANNED_COMBO match) and compares it to `fileMeta.modifiedTime`. Layer 3 MUST throw on `app_settings.processed_at` resolved as a singleton-table read regardless of column name.
-     - **`bad-env-watermark.ts`**: function reads `new Date(process.env.LAST_WATERMARK)` (layer 2 catches the StringLiteral element-access; layer 3 catches the use-site too — important when the env name is constructed: `process.env[`${prefix}_AT`]`).
+     - **`bad-env-watermark.ts`**: function reads `new Date(process.env.LAST_WATERMARK)` (layer 2 catches the StringLiteral element-access; layer 3 catches the use-site too — important when the env name is constructed: `process.env[`${prefix}\_AT`]`).
      - **`bad-module-const-checkpoint.ts`**: `export let CHECKPOINT = 0; .. if (fileMeta.modifiedTime > CHECKPOINT) ...` — layer 2 misses `CHECKPOINT` (no banned combo); layer 3 catches it as a module-level mutable const used as a watermark RHS.
      - **`bad-untyped-any.ts`**: `const cursor = (rows[0] as any).runStartedAt;` — layer 3 catches the unresolvable `as any` escape via the conservative-fail rule.
      - **`good-per-row.ts`**: synthetic function reads `await client.from('shows').select('last_seen_modified_time').eq('id', showId).single` and compares to `fileMeta.modifiedTime` — both operands resolve to ACCEPTABLE_PER_ROW_SOURCES. Audit MUST NOT throw.
@@ -1752,8 +1841,10 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
      - **`bad-missing-entry-point.fixture`**: a fixture project where `runScheduledCronSync` (declared in SYNC_ENTRY_POINTS) is RENAMED to `runScheduledCronSyncRenamed` everywhere in source. The semantic-layer precheck MUST throw with `unresolved sync entry points (zero declarations): runScheduledCronSync` — silently skipping the entry would let an engineer rename the cron path and bypass the audit entirely. Companion fixture `bad-ambiguous-entry-point.fixture`: `runScheduledCronSync` is declared in TWO files (e.g., a stale duplicate left after a refactor); precheck MUST throw with `ambiguous sync entry points (multiple declarations): runScheduledCronSync (2 matches)`. adds analogous regression fixtures for the Apply/Discard entry points: `bad-missing-applyStagedParse-entry-point.fixture` (renames `applyStagedParse` to `applyStagedParseRenamed`) and `bad-missing-discardStagedParse-entry-point.fixture` (renames `discardStagedParse`); each MUST throw at the precheck.
 
      The semantic layer is the primary gate against the 's named-bypass class. Layers 1–2 (regex + token-based identifier audit) remain as defense in depth.
+
   4. **DDL guard via Postgres event trigger — global, allowlist-based (replaces the table CHECK approach, which cannot police future column names):**
      The earlier draft scoped the trigger to `app_settings` only. The observed this leaves a different singleton table (`system_state`, `runtime_config`, etc.) able to reintroduce a global cursor while the guard stays green. The corrected design rejects watermark-shaped column names on **any** table in the `public` schema, with a positive allowlist of permitted (table, column) pairs that exactly matches the Step-1 allowlist.
+
      ```sql
      -- Allowlist table: (table_name, column_name) pairs that are exempt from
      -- the watermark-name ban. Seeded once with the Step-1 allowlist; every
@@ -1825,16 +1916,20 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
        WHEN TAG IN ('CREATE TABLE', 'ALTER TABLE')
        EXECUTE FUNCTION reject_global_watermark_columns;
      ```
+
      The test introspects via:
+
      ```sql
      SELECT evtname FROM pg_event_trigger WHERE evtname = 'no_global_cursor_columns';
      ```
+
      and asserts exactly one row. It then exercises the trigger by:
      - Attempting `ALTER TABLE app_settings ADD COLUMN last_processed_at timestamptz` inside a single transactional probe → expect exception (no allowlist row).
      - Attempting `CREATE TABLE system_state (last_run_at timestamptz)` → expect exception.
      - Attempting `ALTER TABLE shows ADD COLUMN global_cursor int` → expect exception.
      - Attempting `ALTER TABLE shows ADD COLUMN last_seen_modified_time timestamptz` (already allowlisted) → expect success (the allowlist exempts the existing column shape).
-     This catches DDL-time additions on **any** table, not just `app_settings`.
+       This catches DDL-time additions on **any** table, not just `app_settings`.
+
 - [ ] **Step 3: Run** — FAIL initially because the event trigger and migration haven't been added yet. Add the migration. Re-run, expect PASS.
 - [ ] **Step 4: Commit** `test(cross-cutting): no global cursor — AST audit + event-trigger DDL guard (AC-X.4)`.
 
@@ -1846,34 +1941,34 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
 
 - [ ] **Step 1: Authored allowlist** — enumerate every email-bearing path the spec calls out (§4.1.1, §7.2.2, §13.2):
 
-  | Layer | Path | Boundary check |
-  |---|---|---|
-  | Parser write | `lib/parser/blocks/crew.ts` → `crew_members.email` | `canonicalize` called before populating `CrewMemberRow.email` |
-  | Parser write | `lib/parser/blocks/client.ts` → `shows.client_contact.email` (JSONB) | `canonicalize` before populating `ClientContact.email` and `secondary.email` |
-  | Parser write | `lib/parser/blocks/transport.ts` → `transportation.driver_email` | `canonicalize` before populating `TransportationRow.driver_email` |
-  | Parser write | `lib/parser/blocks/contacts.ts` → `contacts.email` | `canonicalize` before populating `ContactRow.email` |
-  | DB write | `lib/sync/applyParseResult.ts` → all `INSERT/UPSERT` of email columns | **defensive `canonicalize` at the write boundary** — even though `ParseResult` should already be canonicalized, the DB-layer write helper runs `canonicalize` again per spec §4.1.1's mandate. Catches: a future caller (test fixtures, import jobs) that bypasses the parser; a parser regression that misses a normalization site; a JSONB payload constructed directly. |
-  | DB write | `lib/reports/submit.ts` → `reports.reported_by` (when admin email; never crew email) | admin path: `canonicalize(adminEmail)`. Crew path: `crew_members.id::text` (no email written) |
-  | DB write | `lib/reports/rateLimit.ts` → `report_rate_limits.identity` UPSERT | admin path's identity is canonical email; without canonicalization, `Doug@...` and `doug@...` land in different bucket rows and double the effective quota. The atomic UPSERT MUST canonicalize before the `INSERT .. ON CONFLICT (kind, identity, hour_bucket)` call. Test: insert via mixed-case admin identity in two requests; assert exactly one bucket row with the canonical identity AND `count=2`. |
-  | DB write | `lib/sync/applyStaged.ts` → `sync_audit.applied_by` | spec §6.8.3 stores the admin email of the operator who clicked Apply in `sync_audit.applied_by`. §4.1.1 requires every persisted email to be canonicalized; without canonicalization here, mixed-case admin emails would persist into the audit trail uncanonicalized AND the schema's `*_email_canonical` CHECK on this column (if added) would reject the row. The Apply path MUST `canonicalize(adminEmail)` before INSERT. Test: synthesize an Apply call with admin identity `'Doug@FXAV.NET'`; assert the resulting `sync_audit.applied_by` row stores `'doug@fxav.net'`. |
-  | DB write | `lib/admin/onboarding/finalize.ts` → `app_settings.watched_folder_set_by_email` AND `app_settings.pending_folder_set_by_email` | spec §4.5 stores the admin email that promoted/staged the folder. Both columns require canonicalize before write; without it, mixed-case admin identities leak into the audit trail. Test: synthesize folder promotion with admin identity `'Eric@example.com'`; assert both columns store `'eric@example.com'`. |
-  | DB write | `lib/sync/discard.ts` AND `lib/admin/onboarding/pendingIngestionsActions.ts` → `deferred_ingestions.deferred_by_email` | spec §4.5 records the admin who triggered defer_until_modified / permanent_ignore. Same canonicalize-before-write contract. Test: defer-with-permanent-ignore via mixed-case admin; assert canonical persisted email. |
-  | DB write | `lib/admin/alerts.ts` → `admin_alerts.resolved_by` | spec §4.6 records who resolved an alert. canonicalize before the resolution UPDATE. Test: resolve alert as mixed-case admin; assert canonical persisted email. |
-  | DB write | `lib/auth/validateGoogleSession.ts` → `admin_alerts.context` JSONB on `AMBIGUOUS_EMAIL_BINDING` UPSERT | the duplicate-email collision payload — emails of the colliding crew rows — must be canonicalized BEFORE being stored in the JSONB. Without this, mixed-case emails in `context.collidingEmails[]` make operator triage and any future comparison against canonical DB values inconsistent. |
-  | DB write | any other `admin_alerts.context` write that includes an email field (e.g., a future `WEBHOOK_TOKEN_INVALID` payload that captures the requester email) | every email-bearing field within the JSONB payload runs through `canonicalize` before UPSERT |
-  | Read | `lib/auth/validateGoogleSession.ts` → `WHERE email = canonicalize(supabaseAuth.user.email)` | explicit `canonicalize` call before `WHERE` |
-  | Read | `lib/data/listShowsForCrew.ts` → `/me` email-driven show list | the `/me` page reads `crew_members.email = canonicalize(supabaseAuth.user.email)` to enumerate shows the signed-in user is on. Without canonicalization, mixed-case Google emails (`Doug@FXAV.NET`) would miss the crew row stored as `doug@fxav.net` and the user would see an empty `/me` list. Test: sign in with `' Doug@FXAV.NET '`; assert `listShowsForCrew` returns the same shows as `'doug@fxav.net'`. |
-  | Read | RLS policies that compare `auth.email` to `crew_members.email` | use the SQL helper `auth_email_canonical()` (zero-arg, defined in Task 2.3 — every callsite invokes it as a function call with parens, never as a bare identifier) |
-  | Schema | `crew_members.email`, `transportation.driver_email`, `contacts.email`, `client_contact.email` JSONB extracted via CHECK if reachable | every one has a `*_email_canonical` CHECK constraint per §4.1.1 |
+  | Layer        | Path                                                                                                                                                   | Boundary check                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+  | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | Parser write | `lib/parser/blocks/crew.ts` → `crew_members.email`                                                                                                     | `canonicalize` called before populating `CrewMemberRow.email`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+  | Parser write | `lib/parser/blocks/client.ts` → `shows.client_contact.email` (JSONB)                                                                                   | `canonicalize` before populating `ClientContact.email` and `secondary.email`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+  | Parser write | `lib/parser/blocks/transport.ts` → `transportation.driver_email`                                                                                       | `canonicalize` before populating `TransportationRow.driver_email`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+  | Parser write | `lib/parser/blocks/contacts.ts` → `contacts.email`                                                                                                     | `canonicalize` before populating `ContactRow.email`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+  | DB write     | `lib/sync/applyParseResult.ts` → all `INSERT/UPSERT` of email columns                                                                                  | **defensive `canonicalize` at the write boundary** — even though `ParseResult` should already be canonicalized, the DB-layer write helper runs `canonicalize` again per spec §4.1.1's mandate. Catches: a future caller (test fixtures, import jobs) that bypasses the parser; a parser regression that misses a normalization site; a JSONB payload constructed directly.                                                                                                                                                                                                      |
+  | DB write     | `lib/reports/submit.ts` → `reports.reported_by` (when admin email; never crew email)                                                                   | admin path: `canonicalize(adminEmail)`. Crew path: `crew_members.id::text` (no email written)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+  | DB write     | `lib/reports/rateLimit.ts` → `report_rate_limits.identity` UPSERT                                                                                      | admin path's identity is canonical email; without canonicalization, `Doug@...` and `doug@...` land in different bucket rows and double the effective quota. The atomic UPSERT MUST canonicalize before the `INSERT .. ON CONFLICT (kind, identity, hour_bucket)` call. Test: insert via mixed-case admin identity in two requests; assert exactly one bucket row with the canonical identity AND `count=2`.                                                                                                                                                                     |
+  | DB write     | `lib/sync/applyStaged.ts` → `sync_audit.applied_by`                                                                                                    | spec §6.8.3 stores the admin email of the operator who clicked Apply in `sync_audit.applied_by`. §4.1.1 requires every persisted email to be canonicalized; without canonicalization here, mixed-case admin emails would persist into the audit trail uncanonicalized AND the schema's `*_email_canonical` CHECK on this column (if added) would reject the row. The Apply path MUST `canonicalize(adminEmail)` before INSERT. Test: synthesize an Apply call with admin identity `'Doug@FXAV.NET'`; assert the resulting `sync_audit.applied_by` row stores `'doug@fxav.net'`. |
+  | DB write     | `lib/admin/onboarding/finalize.ts` → `app_settings.watched_folder_set_by_email` AND `app_settings.pending_folder_set_by_email`                         | spec §4.5 stores the admin email that promoted/staged the folder. Both columns require canonicalize before write; without it, mixed-case admin identities leak into the audit trail. Test: synthesize folder promotion with admin identity `'Eric@example.com'`; assert both columns store `'eric@example.com'`.                                                                                                                                                                                                                                                                |
+  | DB write     | `lib/sync/discard.ts` AND `lib/admin/onboarding/pendingIngestionsActions.ts` → `deferred_ingestions.deferred_by_email`                                 | spec §4.5 records the admin who triggered defer_until_modified / permanent_ignore. Same canonicalize-before-write contract. Test: defer-with-permanent-ignore via mixed-case admin; assert canonical persisted email.                                                                                                                                                                                                                                                                                                                                                           |
+  | DB write     | `lib/admin/alerts.ts` → `admin_alerts.resolved_by`                                                                                                     | spec §4.6 records who resolved an alert. canonicalize before the resolution UPDATE. Test: resolve alert as mixed-case admin; assert canonical persisted email.                                                                                                                                                                                                                                                                                                                                                                                                                  |
+  | DB write     | `lib/auth/validateGoogleSession.ts` → `admin_alerts.context` JSONB on `AMBIGUOUS_EMAIL_BINDING` UPSERT                                                 | the duplicate-email collision payload — emails of the colliding crew rows — must be canonicalized BEFORE being stored in the JSONB. Without this, mixed-case emails in `context.collidingEmails[]` make operator triage and any future comparison against canonical DB values inconsistent.                                                                                                                                                                                                                                                                                     |
+  | DB write     | any other `admin_alerts.context` write that includes an email field (e.g., a future `WEBHOOK_TOKEN_INVALID` payload that captures the requester email) | every email-bearing field within the JSONB payload runs through `canonicalize` before UPSERT                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+  | Read         | `lib/auth/validateGoogleSession.ts` → `WHERE email = canonicalize(supabaseAuth.user.email)`                                                            | explicit `canonicalize` call before `WHERE`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+  | Read         | `lib/data/listShowsForCrew.ts` → `/me` email-driven show list                                                                                          | the `/me` page reads `crew_members.email = canonicalize(supabaseAuth.user.email)` to enumerate shows the signed-in user is on. Without canonicalization, mixed-case Google emails (`Doug@FXAV.NET`) would miss the crew row stored as `doug@fxav.net` and the user would see an empty `/me` list. Test: sign in with `' Doug@FXAV.NET '`; assert `listShowsForCrew` returns the same shows as `'doug@fxav.net'`.                                                                                                                                                                |
+  | Read         | RLS policies that compare `auth.email` to `crew_members.email`                                                                                         | use the SQL helper `auth_email_canonical()` (zero-arg, defined in Task 2.3 — every callsite invokes it as a function call with parens, never as a bare identifier)                                                                                                                                                                                                                                                                                                                                                                                                              |
+  | Schema       | `crew_members.email`, `transportation.driver_email`, `contacts.email`, `client_contact.email` JSONB extracted via CHECK if reachable                   | every one has a `*_email_canonical` CHECK constraint per §4.1.1                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 - [ ] **Step 2: Failing test** — six positive assertions across the boundary layers:
   1. **Parser canonicalization at every write site.** Static analysis: every assignment to a property whose name matches `/^email$|_email$/` in `lib/parser/**/*.ts` is the result of a call to `canonicalize(...)` (or is the literal `null`). Test parses each file with `ts-morph`, walks property assignments, and asserts the right-hand side is a `canonicalize` CallExpression or `null`/`undefined`.
   2. **DB-write-helper defensive canonicalization.** Static analysis: every `INSERT`/`UPSERT` in `lib/sync/applyParseResult.ts`, `lib/reports/submit.ts`, and any helper that writes to email-bearing tables MUST run `canonicalize` on email-bearing values immediately before the SQL call. Test walks each file with ts-morph, finds `from(<table>).insert(<obj>)` / `from(<table>).upsert(<obj>)` / equivalent SQL builder calls where `<table>` is in the email-bearing tables list, and asserts every email-shaped property in `<obj>` is the result of a `canonicalize` call.
   3. **DB schema CHECK exact-expression match.** SQL introspection: for each email-bearing column, assert `pg_get_constraintdef` returns the exact normalized form `CHECK ((<column> = lower(btrim(<column>))))`. Catches a CHECK with the right name but a wrong/weakened body (e.g., a regex check instead of the canonical-form check).
-  3. **RLS helper definition.** `SELECT proname, pronargs FROM pg_proc WHERE proname='auth_email_canonical' AND pronamespace = 'public'::regnamespace` returns exactly one row with `pronargs = 0`; `pg_get_functiondef(oid)` body lowercases + trims `auth.email()` (or delegates to `canonicalize_email(auth.email())`). Companion assertions: `is_admin` returns one row with `pronargs = 0`; `canonicalize_email` returns one row with `pronargs = 1`. All three helper definitions match the canonical bodies documented in Task 2.3.
-  4. **Validator canonicalization.** `lib/auth/validateGoogleSession.ts` contains a call `canonicalize(supabaseAuth.user.email)` (or equivalent named binding) BEFORE the SELECT against `crew_members.email`. Verified via `ts-morph`.
-  5. **Reports `reported_by` canonicalization.** `lib/reports/submit.ts` admin path canonicalizes the admin email before INSERT. Crew path writes `crew_members.id::text` — test asserts no email-shaped string ever lands in `reports.reported_by` for crew submissions (round-trip: insert a crew report, re-read, assert `!/.+@.+/.test(reported_by)`).
-  6. **`admin_alerts.context` JSONB email canonicalization.** Any UPSERT into `admin_alerts` whose `context` payload includes email fields canonicalizes them first. Test: synthesize `validateGoogleSession` against two crew rows with mixed-case duplicate emails (e.g., `Alice@FXAV.NET` and `alice@fxav.net`). Trigger `AMBIGUOUS_EMAIL_BINDING`. Read the resulting `admin_alerts.context` JSONB. Assert every email field within the payload (e.g., `context.collidingEmails[]`, `context.matchedEmail`) is already canonicalized — `lower(trim(value))` matches the stored value. Repeat for any other path that writes email-bearing context (operator-only paths flagged in Step 1's allowlist).
+  4. **RLS helper definition.** `SELECT proname, pronargs FROM pg_proc WHERE proname='auth_email_canonical' AND pronamespace = 'public'::regnamespace` returns exactly one row with `pronargs = 0`; `pg_get_functiondef(oid)` body lowercases + trims `auth.email()` (or delegates to `canonicalize_email(auth.email())`). Companion assertions: `is_admin` returns one row with `pronargs = 0`; `canonicalize_email` returns one row with `pronargs = 1`. All three helper definitions match the canonical bodies documented in Task 2.3.
+  5. **Validator canonicalization.** `lib/auth/validateGoogleSession.ts` contains a call `canonicalize(supabaseAuth.user.email)` (or equivalent named binding) BEFORE the SELECT against `crew_members.email`. Verified via `ts-morph`.
+  6. **Reports `reported_by` canonicalization.** `lib/reports/submit.ts` admin path canonicalizes the admin email before INSERT. Crew path writes `crew_members.id::text` — test asserts no email-shaped string ever lands in `reports.reported_by` for crew submissions (round-trip: insert a crew report, re-read, assert `!/.+@.+/.test(reported_by)`).
+  7. **`admin_alerts.context` JSONB email canonicalization.** Any UPSERT into `admin_alerts` whose `context` payload includes email fields canonicalizes them first. Test: synthesize `validateGoogleSession` against two crew rows with mixed-case duplicate emails (e.g., `Alice@FXAV.NET` and `alice@fxav.net`). Trigger `AMBIGUOUS_EMAIL_BINDING`. Read the resulting `admin_alerts.context` JSONB. Assert every email field within the payload (e.g., `context.collidingEmails[]`, `context.matchedEmail`) is already canonicalized — `lower(trim(value))` matches the stored value. Repeat for any other path that writes email-bearing context (operator-only paths flagged in Step 1's allowlist).
 - [ ] **Step 3: Failure modes the test catches**
   - A new email-bearing column added without the `*_email_canonical` CHECK → test fails because the introspection misses an entry.
   - A new email write site in `lib/parser/blocks/` that bypasses `canonicalize` → ts-morph audit fails.
@@ -1906,37 +2001,47 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
   - Plan task references an anchor that doesn't exist in spec → `MISSING_ANCHOR`.
   - Spec normative unit has no anchor → `UNANCHORED_NORMATIVE_UNIT` (detected by parsing spec subsections and flagging blocks that aren't headings + don't start with a spec-id comment).
   - Plan task uses a free-form prose mention (e.g., `ParsedSheet`) WITHOUT a structured `<!-- coverage: -parsedsheet-parseresult-split -->` marker → that task counts as `MISSING` for , not implemented.
-     ```markdown
-     <!-- spec-id: section-6-8-derivation-table -->
-     | MI-12 | … | apply rename + bump auth floor for both names |
 
-     <!-- spec-id: section-13-2-3-lease-holder-protocol -->
-     The lease_holder UUID is written at reservation time and rotated on every reacquisition…
+    ```markdown
+    <!-- spec-id: section-6-8-derivation-table -->
 
-     <!-- spec-id: -immutable-pin-amendment -->
-     [ text]
-     ```
-     Coverage markers in plan tasks resolve against the union of heading anchors AND `spec-id:` slugs. This eliminates the heuristic string-matching approach (`§5.2-phase-2`, `ParsedSheet` + `enrichWithDrivePins`) that would let prose mentions satisfy coverage.
+    | MI-12 | … | apply rename + bump auth floor for both names |
+
+    <!-- spec-id: section-13-2-3-lease-holder-protocol -->
+
+    The lease_holder UUID is written at reservation time and rotated on every reacquisition…
+
+    <!-- spec-id: -immutable-pin-amendment -->
+
+    [ text]
+    ```
+
+    Coverage markers in plan tasks resolve against the union of heading anchors AND `spec-id:` slugs. This eliminates the heuristic string-matching approach (`§5.2-phase-2`, `ParsedSheet` + `enrichWithDrivePins`) that would let prose mentions satisfy coverage.
   3. Walks every `AC-*` row from §17 and records its identifier + body.
-  3. **Scopes the plan-side scan to TASK BLOCKS ONLY.** A raw grep across the entire plan markdown finds spec anchors and AC references in non-executable prose — the self-review checklist near the end of the plan blanket-maps whole spec sections to milestones (`§13 → M8 tasks 8.1..8.5`), and the review-history appendix mentions amendments/types/codes extensively. Counting those as coverage produces a false-zero `MISSING` result. The corrected scope: only count anchor/AC references inside **task blocks** delimited by `^### Task N\.M:` headers, plus their bodies up to the next `### ` heading at the same level. Explicitly EXCLUDE these sections from coverage extraction:
+  4. **Scopes the plan-side scan to TASK BLOCKS ONLY.** A raw grep across the entire plan markdown finds spec anchors and AC references in non-executable prose — the self-review checklist near the end of the plan blanket-maps whole spec sections to milestones (`§13 → M8 tasks 8.1..8.5`), and the review-history appendix mentions amendments/types/codes extensively. Counting those as coverage produces a false-zero `MISSING` result. The corrected scope: only count anchor/AC references inside **task blocks** delimited by `^### Task N\.M:` headers, plus their bodies up to the next `### ` heading at the same level. Explicitly EXCLUDE these sections from coverage extraction:
      - `# Self-review checklist` and everything beneath it.
      - `# Adversarial review history` / `## Convergence summary` / any `# Review history` heading.
      - `# How to use this plan` / `## Glossary` / `## Round-N notes` prose blocks.
      - Any heading whose title matches `/review|history|retrospective|how[- ]to[- ]use|glossary|appendix/i`.
-  4. Each task block must include a structured **Coverage Annotation** at the start, e.g.:
+  5. Each task block must include a structured **Coverage Annotation** at the start, e.g.:
+
      ```markdown
      ### Task 6.5: Phase 2 — destructive snapshot replacement
+
      <!-- coverage: §5.2-phase-2, §6.8.2-derivation-table, AC-6.8, AC-6.21 -->
      ```
+
      The generator parses `<!-- coverage: .. -->` markers as the **sole** authoritative mapping. Free-form prose mentions of spec anchors are NOT evidence; only structured markers count. A task body that mentions `§5.2` without a `<!-- coverage: §5.2 -->` marker counts as MISSING for that anchor.
-  5. Emits a Markdown table with columns: `Spec anchor | Title | Owning task ID(s) | Status | Implementation evidence | Notes`. Status is one of:
+
+  6. Emits a Markdown table with columns: `Spec anchor | Title | Owning task ID(s) | Status | Implementation evidence | Notes`. Status is one of:
      - `planned` — ≥1 task's coverage marker references this anchor (default state once a marker exists).
      - `implemented` — `planned` AND the implementation evidence column is populated by file/symbol references emitted from a separate code-side annotation (e.g., a structured `// @covers §6.5` comment on the implementing function, parsed by a companion script). **`planned` does NOT imply `implemented`** — task markers are plan-side metadata; the gate must inspect actual code to claim implementation.
      - `deferred` — explicit `<!-- coverage: deferred-v2 -->` annotation.
      - `intentionally out of scope` — explicit `<!-- coverage: out-of-scope -->`.
      - `MISSING` — no marker mapping.
-  6. Same per-AC table.
-  7. Writes to `docs/superpowers/plans/coverage.md`.
+  7. Same per-AC table.
+  8. Writes to `docs/superpowers/plans/coverage.md`.
+
 - [ ] **Step 2: Failing test** — runs the generator and asserts:
   - Zero anchors at status `MISSING`.
   - ** ParsedSheet/ParseResult split** is mapped via an explicit `<!-- coverage: -parsedsheet-parseresult-split -->` marker on Task 1.1 AND any task that uses the type split. The generator only counts structured markers.
@@ -1946,7 +2051,7 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
   - **§4.3 ↔ AC-2.5 admin-table parity (/ build-time invariant)**: parse the spec's §4.3 admin-only bullet list to extract the canonical admin-only table set; parse Task 2.3's `ADMIN_TABLES` registry (and the equivalent regex list in Task X.3's `PROTECTED_SINKS`); assert `setEqual(specAdminTables, ac25AdminTables)` AND `specAdminTables.every(t => protectedSinksRegexList.includes(t))`. The test fails with a named diff (`+missing_in_ac25:bootstrap_nonces`, `-missing_in_spec:foo`) when any one of the three lists drifts. This is the cross-cutting parity gate that catches the / finding (`bootstrap_nonces` was added to spec §4.3 but missed in plan Task 2.3's inline enumeration / Task X.3's PROTECTED_SINKS regex list); future admin-only tables added to §4.3 must propagate to all three lists or CI fails.
   - **`.github/workflows/x-audits.yml` freshness-gate parity.** The traceability test parses `.github/workflows/x-audits.yml` as YAML and asserts: (a) every audit job in the set `{traceability-audit, x1-catalog-parity, x2-no-raw-codes, x3-trust-domain, x4-no-global-cursor, x5-rls-coverage}` contains a step named `Verify generated admin tables file is fresh` whose `if` clause is `github.event_name != 'schedule'` and whose `run` body invokes `pnpm gen:admin-tables` followed by `git diff --exit-code lib/audit/admin-tables.generated.ts`; (b) the privileged `verify-branch-protection` job is gated to `if: github.event_name == 'push' || github.event_name == 'schedule'` (NEVER fires on `pull_request`); (c) the lightweight reader `verify-branch-protection-status` exists, has NO secrets in its env block, and uses only `GH_TOKEN: ${{ github.token }}`; (d) the file does NOT contain the string `pull_request_target` (security hole guard). Any missing freshness step, any privileged-job exposure to PR_HEAD, or any `pull_request_target` usage fails the audit with a named diff (`+missing_freshness_step:<job>`, `+privileged_on_pull_request:<job>`, `+pull_request_target_used`, `+secrets_in_reader_job:<key>`). This catches the regression class where a future YAML edit drops the freshness step from one job (silently letting that job consume a stale generated module) or accidentally promotes the privileged job to PR-required (resurfacing the fork-PR merge deadlock).
   - **Reel pin 4-column atomic-NULL/SET invariant.** Static AST scan of every TypeScript / SQL source file finds every UPDATE/INSERT/UPSERT statement whose targeted column set intersects `REEL_PIN_COLUMNS = { 'opening_reel_drive_file_id', 'opening_reel_drive_modified_time', 'opening_reel_head_revision_id', 'opening_reel_mime_type' }`. For each such statement, assert ONE OF: (a) all four columns appear in the SET clause and all four are assigned the same NULL literal (atomic-NULL drift / non-video / permission-denied path), OR (b) all four columns appear in the SET clause and all four are assigned non-NULL bound parameters (atomic-SET success path), OR (c) the statement is part of an explicit allowlist with reviewed justification (initially empty). A statement that updates 1, 2, or 3 of the four columns in isolation (or mixes NULL with non-NULL across the four) fails CI with `REEL_PIN_PARTIAL_UPDATE` naming the offending file:line. **Symbol set is driven from §4.1 column comments**, not hardcoded — the audit re-reads §4.1 at build time and discovers the canonical reel-pin column set, so a future 5th pin column added to §4.1 auto-grows the invariant. This static gate catches the regression class that surfaced in / (multiple plan/spec sites enumerated only 3 of the 4 reel pin columns; the runtime test asserts pass with all-NULL but the source still wrote partial NULLs through helper functions that bypassed the test path). **Companion plan/spec-side cardinality check**: every plan/spec reference to "reel pin tuple" / "reel pin triple" / "reel pin quadruple" / "all N reel columns" / "ALL N persisted reel columns" / "ALL N pin columns" / "<N> NULLs together" is parsed and the cardinality must match `|REEL_PIN_COLUMNS| === 4`; a `triple` / `three` / `3` mention fails with `REEL_PIN_CARDINALITY_DRIFT` naming the offending file:line. Allowlist exception: prose explicitly framing a count as "earlier wording said three" (a deliberate retrospective reference) passes if the corrected `four`/`4` mention appears in the same paragraph.
-- [ ] **Step 3: CI gating — substantive parity assertions are PR-required.** The earlier wording fired CI ONLY on `MISSING > 0` count, which left every Step-2 substantive parity assertion un-wired into the PR-required check — a spec drift that broke admin-table parity but left every anchor still mapped would have a green CI. The corrected contract: **CI MUST run the X.6 traceability test file (`tests/cross-cutting/traceability.test.ts`) on EVERY pull request and EVERY branch build. Failing ANY Step-2 assertion blocks merge** — not just `MISSING > 0`, but every parity, coverage, and code-producer check enumerated in Step 2. The required GitHub status check is named **`traceability-audit`** (registered as a required check on the `main` branch via repository settings; spec §17.2 acceptance language references this exact check name as a hard ship gate). Required checks for the full X.* gate set (each implemented as a separate Vitest project / script + GitHub status check, all required for merge): `traceability-audit` (X.6 — this task), `x1-catalog-parity` (X.1 — Task X.1 owner), `x2-no-raw-codes` (X.2 — Task X.2 owner), `x3-trust-domain` (X.3 — Task X.3 owner), `x4-no-global-cursor` (X.4 — Task X.4 owner), `x5-rls-coverage` (X.5 — Task X.5 owner), `verify-branch-protection-status` (X.6 drift-detector reader — this task; the 7th required check is the LIGHTWEIGHT READER, NOT the privileged `verify-branch-protection` job itself, because GitHub does not send secrets on `pull_request` from forks and `pull_request_target` would expose secrets to untrusted PR code — a known security hole. The reader uses only the auto-injected read-only `GITHUB_TOKEN` to query the latest successful run of `verify-branch-protection` on `main` and asserts it succeeded within an 8-day freshness window; if so, the reader passes — if not, it fails and blocks merge. This satisfies "merge requires recent successful verification" without exposing secrets to fork code). The privileged `verify-branch-protection` job itself runs ONLY on `push` to `main` + weekly `schedule` cron (both contexts run committed-to-main code with secrets safely available). The CI workflow file is `.github/workflows/x-audits.yml`; each job uploads its respective audit artifact (`coverage.md` for X.6; named diffs for X.1–X.5; `branch-protection-report.json` for the privileged verify-branch-protection job) on every run regardless of pass/fail. **Post-merge / deploy-only audits are NOT acceptable for any X.* gate** — they must run on the PR-required check path so a regression cannot land. This X.6 task additionally asserts spec §17.2 enumerates all SEVEN required check names verbatim (`traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-rls-coverage`, `verify-branch-protection-status`); a spec edit that drops any name fails the audit. **Trust-boundary documentation:** the spec §17.2.1 runbook documents the split — privileged check runs on trusted contexts only; reader is the PR-required check that runs on untrusted PR_HEAD; the two together close the fork-PR merge-deadlock that an earlier draft would have hit (every fork PR would have failed `verify-branch-protection` because secrets are not sent to fork workflows → permanent merge block on every external contribution).
+- [ ] **Step 3: CI gating — substantive parity assertions are PR-required.** The earlier wording fired CI ONLY on `MISSING > 0` count, which left every Step-2 substantive parity assertion un-wired into the PR-required check — a spec drift that broke admin-table parity but left every anchor still mapped would have a green CI. The corrected contract: **CI MUST run the X.6 traceability test file (`tests/cross-cutting/traceability.test.ts`) on EVERY pull request and EVERY branch build. Failing ANY Step-2 assertion blocks merge** — not just `MISSING > 0`, but every parity, coverage, and code-producer check enumerated in Step 2. The required GitHub status check is named **`traceability-audit`** (registered as a required check on the `main` branch via repository settings; spec §17.2 acceptance language references this exact check name as a hard ship gate). Required checks for the full X._ gate set (each implemented as a separate Vitest project / script + GitHub status check, all required for merge): `traceability-audit` (X.6 — this task), `x1-catalog-parity` (X.1 — Task X.1 owner), `x2-no-raw-codes` (X.2 — Task X.2 owner), `x3-trust-domain` (X.3 — Task X.3 owner), `x4-no-global-cursor` (X.4 — Task X.4 owner), `x5-rls-coverage` (X.5 — Task X.5 owner), `verify-branch-protection-status` (X.6 drift-detector reader — this task; the 7th required check is the LIGHTWEIGHT READER, NOT the privileged `verify-branch-protection` job itself, because GitHub does not send secrets on `pull_request` from forks and `pull_request_target` would expose secrets to untrusted PR code — a known security hole. The reader uses only the auto-injected read-only `GITHUB_TOKEN` to query the latest successful run of `verify-branch-protection` on `main` and asserts it succeeded within an 8-day freshness window; if so, the reader passes — if not, it fails and blocks merge. This satisfies "merge requires recent successful verification" without exposing secrets to fork code). The privileged `verify-branch-protection` job itself runs ONLY on `push` to `main` + weekly `schedule` cron (both contexts run committed-to-main code with secrets safely available). The CI workflow file is `.github/workflows/x-audits.yml`; each job uploads its respective audit artifact (`coverage.md` for X.6; named diffs for X.1–X.5; `branch-protection-report.json` for the privileged verify-branch-protection job) on every run regardless of pass/fail. \*\*Post-merge / deploy-only audits are NOT acceptable for any X._ gate** — they must run on the PR-required check path so a regression cannot land. This X.6 task additionally asserts spec §17.2 enumerates all SEVEN required check names verbatim (`traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-rls-coverage`, `verify-branch-protection-status`); a spec edit that drops any name fails the audit. **Trust-boundary documentation:\*\* the spec §17.2.1 runbook documents the split — privileged check runs on trusted contexts only; reader is the PR-required check that runs on untrusted PR_HEAD; the two together close the fork-PR merge-deadlock that an earlier draft would have hit (every fork PR would have failed `verify-branch-protection` because secrets are not sent to fork workflows → permanent merge block on every external contribution).
 - [ ] **Step 3a: Create `.github/workflows/x-audits.yml`.** Earlier draft mandated six PR-required status checks but never owned the workflow file — Task X.6's file list created only the generator + test + coverage.md, leaving the CI gate un-wired. This step creates the workflow file as a Task X.6 deliverable. Workflow structure:
   ```yaml
   name: Cross-cutting audits
@@ -1959,7 +2064,7 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
       # `verify-branch-protection` job runs even when no PRs flow through.
       # All other jobs gate themselves with `if: github.event_name != 'schedule'`
       # so the cron run executes ONLY the branch-protection verification.
-      - cron: '0 9 * * 1'
+      - cron: "0 9 * * 1"
   jobs:
     traceability-audit:
       runs-on: ubuntu-latest
@@ -1967,7 +2072,7 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
         - uses: actions/checkout@v4
         - uses: pnpm/action-setup@v4
         - uses: actions/setup-node@v4
-          with: { node-version: '20', cache: 'pnpm' }
+          with: { node-version: "20", cache: "pnpm" }
         - run: pnpm install --frozen-lockfile
         # Freshness gate: regenerate the admin-tables module from the live
         # spec §4.3 and fail if the committed file is stale. Required on
@@ -1990,7 +2095,7 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
         - uses: actions/checkout@v4
         - uses: pnpm/action-setup@v4
         - uses: actions/setup-node@v4
-          with: { node-version: '20', cache: 'pnpm' }
+          with: { node-version: "20", cache: "pnpm" }
         - run: pnpm install --frozen-lockfile
         - name: Verify generated admin tables file is fresh
           if: github.event_name != 'schedule'
@@ -2008,7 +2113,7 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
         - uses: actions/checkout@v4
         - uses: pnpm/action-setup@v4
         - uses: actions/setup-node@v4
-          with: { node-version: '20', cache: 'pnpm' }
+          with: { node-version: "20", cache: "pnpm" }
         - run: pnpm install --frozen-lockfile
         - name: Verify generated admin tables file is fresh
           if: github.event_name != 'schedule'
@@ -2026,7 +2131,7 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
         - uses: actions/checkout@v4
         - uses: pnpm/action-setup@v4
         - uses: actions/setup-node@v4
-          with: { node-version: '20', cache: 'pnpm' }
+          with: { node-version: "20", cache: "pnpm" }
         - run: pnpm install --frozen-lockfile
         - name: Verify generated admin tables file is fresh
           if: github.event_name != 'schedule'
@@ -2044,7 +2149,7 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
         - uses: actions/checkout@v4
         - uses: pnpm/action-setup@v4
         - uses: actions/setup-node@v4
-          with: { node-version: '20', cache: 'pnpm' }
+          with: { node-version: "20", cache: "pnpm" }
         - run: pnpm install --frozen-lockfile
         - name: Verify generated admin tables file is fresh
           if: github.event_name != 'schedule'
@@ -2062,7 +2167,7 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
         - uses: actions/checkout@v4
         - uses: pnpm/action-setup@v4
         - uses: actions/setup-node@v4
-          with: { node-version: '20', cache: 'pnpm' }
+          with: { node-version: "20", cache: "pnpm" }
         - run: pnpm install --frozen-lockfile
         - name: Verify generated admin tables file is fresh
           if: github.event_name != 'schedule'
@@ -2093,7 +2198,7 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
         - uses: actions/checkout@v4
         - uses: pnpm/action-setup@v4
         - uses: actions/setup-node@v4
-          with: { node-version: '20', cache: 'pnpm' }
+          with: { node-version: "20", cache: "pnpm" }
         - run: pnpm install --frozen-lockfile
         - run: pnpm tsx scripts/verify-branch-protection.ts
           env:
@@ -2134,7 +2239,7 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
         - uses: actions/checkout@v4
         - uses: pnpm/action-setup@v4
         - uses: actions/setup-node@v4
-          with: { node-version: '20', cache: 'pnpm' }
+          with: { node-version: "20", cache: "pnpm" }
         - run: pnpm install --frozen-lockfile
         - name: Assert recent successful verify-branch-protection run on main
           env:
@@ -2178,10 +2283,10 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
           if: always
           with: { name: branch-protection-status-report, path: /dev/null }
   ```
-  Each job pinned to `ubuntu-latest`, runs `pnpm install --frozen-lockfile` then **** runs `pnpm gen:admin-tables` followed by `git diff --exit-code lib/audit/admin-tables.generated.ts` BEFORE its `pnpm test:audit:<name>` step. The first command regenerates the admin-tables module from the live spec §4.3; the second fails the workflow if the regeneration produced any diff against the committed `lib/audit/admin-tables.generated.ts` (named diff: `+missing_in_generated:<table>` / `-extra_in_generated:<table>`). This freshness gate is required on EVERY audit job so a stale generated module cannot silently feed into typecheck/lint/test consumers. The `verify-branch-protection` job is exempt only because it does not import the generated file. Then runs `pnpm test:audit:<name>` (the audit scripts are added to `package.json`'s `scripts` block by the respective Task X.1..X.6 owners — `test:audit:traceability`, `test:audit:x1-catalog`, `test:audit:x2-no-raw-codes`, `test:audit:x3-trust-domain`, `test:audit:x4-no-global-cursor`, `test:audit:x5-rls-coverage`; this Task X.6 step adds `test:audit:traceability` to `package.json` as part of the workflow-creation step). Additionally, `package.json`'s `scripts` block is wired so `pretypecheck`, `prelint`, `pretest`, `prebuild` ALL run `gen:admin-tables` first — so any local `pnpm typecheck` / `pnpm lint` / `pnpm test` / `pnpm build` ALWAYS sees a fresh generated file even outside CI. Each job uploads its named artifact via `actions/upload-artifact@v4` with `if: always` so failure runs still surface diffs. **All non-`verify-branch-protection` jobs gate themselves on `if: github.event_name != 'schedule'`** so the weekly cron trigger fires only the branch-protection verification. **Branch-protection step (manual one-time admin action, called out in Step 3a's commit body for the operator):** after the workflow lands and runs green at least once on `main`, an admin must navigate to repository **Settings → Branches → Branch protection rules → `main`**, enable **"Require status checks to pass before merging"**, and add all SEVEN check names verbatim to the **"Required status checks"** list: `traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-rls-coverage`, `verify-branch-protection-status`. The 7th name is the LIGHTWEIGHT READER (`verify-branch-protection-status`), NOT the privileged `verify-branch-protection` job itself — the privileged job cannot be PR-required because GitHub does not send secrets on `pull_request` from forks (every fork PR would fail closed → permanent merge deadlock). The reader uses only the auto-injected read-only `GITHUB_TOKEN` (safe on fork PRs) to assert the privileged job succeeded recently on `main` (8-day freshness window). The recursive-bootstrap property still holds: the privileged `verify-branch-protection` script (Step 3c) asserts `verify-branch-protection-status` is in the required-checks set, so a future admin who removes it from the list will trigger drift on the very next privileged run. First-deploy bootstrap: the operator explicitly types all seven names; subsequent runs of the verify script confirm all seven are still present. Repo-settings ownership lives outside the codebase, so this is a manual admin task that lands as a one-time follow-up (the spec §17.2 acceptance language already mandates these as PR-blocking; the workflow file alone does not configure protection — GitHub requires the admin step). **X.1-X.6 : the manual step is followed by Step 3c's programmatic verification** — `scripts/verify-branch-protection.ts` runs both as the privileged `verify-branch-protection` workflow job (which fires only on `push` to `main` + weekly `schedule` cron, never on `pull_request` from forks) AND as a weekly scheduled cron (a `schedule:` trigger added at the top of `x-audits.yml` with `cron: '0 9 * * 1'` Monday 09:00 UTC running ONLY the privileged `verify-branch-protection` job — separate `push`/`schedule` event filter on the job's `if:` gate), so any later revert of the manual settings is caught within at most 7 days regardless of whether new PRs flow through. **`pull_request_target` is explicitly NOT used** anywhere in this workflow — using it would run untrusted PR_HEAD code with privileged secrets attached (a documented security hole). The trust-boundary contract is: privileged check on trusted contexts (`push` to main + `schedule`) where committed-to-main code runs with secrets; PR-required reader on untrusted contexts (`pull_request` from forks) where only the read-only `GITHUB_TOKEN` is used to query the privileged job's history.
+  Each job pinned to `ubuntu-latest`, runs `pnpm install --frozen-lockfile` then \***\* runs `pnpm gen:admin-tables` followed by `git diff --exit-code lib/audit/admin-tables.generated.ts` BEFORE its `pnpm test:audit:<name>` step. The first command regenerates the admin-tables module from the live spec §4.3; the second fails the workflow if the regeneration produced any diff against the committed `lib/audit/admin-tables.generated.ts` (named diff: `+missing_in_generated:<table>` / `-extra_in_generated:<table>`). This freshness gate is required on EVERY audit job so a stale generated module cannot silently feed into typecheck/lint/test consumers. The `verify-branch-protection` job is exempt only because it does not import the generated file. Then runs `pnpm test:audit:<name>` (the audit scripts are added to `package.json`'s `scripts` block by the respective Task X.1..X.6 owners — `test:audit:traceability`, `test:audit:x1-catalog`, `test:audit:x2-no-raw-codes`, `test:audit:x3-trust-domain`, `test:audit:x4-no-global-cursor`, `test:audit:x5-rls-coverage`; this Task X.6 step adds `test:audit:traceability` to `package.json` as part of the workflow-creation step). Additionally, `package.json`'s `scripts` block is wired so `pretypecheck`, `prelint`, `pretest`, `prebuild` ALL run `gen:admin-tables` first — so any local `pnpm typecheck` / `pnpm lint` / `pnpm test` / `pnpm build` ALWAYS sees a fresh generated file even outside CI. Each job uploads its named artifact via `actions/upload-artifact@v4` with `if: always` so failure runs still surface diffs. **All non-`verify-branch-protection` jobs gate themselves on `if: github.event_name != 'schedule'`** so the weekly cron trigger fires only the branch-protection verification. **Branch-protection step (manual one-time admin action, called out in Step 3a's commit body for the operator):** after the workflow lands and runs green at least once on `main`, an admin must navigate to repository **Settings → Branches → Branch protection rules → `main`**, enable **"Require status checks to pass before merging"**, and add all SEVEN check names verbatim to the **"Required status checks"** list: `traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-rls-coverage`, `verify-branch-protection-status`. The 7th name is the LIGHTWEIGHT READER (`verify-branch-protection-status`), NOT the privileged `verify-branch-protection` job itself — the privileged job cannot be PR-required because GitHub does not send secrets on `pull_request` from forks (every fork PR would fail closed → permanent merge deadlock). The reader uses only the auto-injected read-only `GITHUB_TOKEN` (safe on fork PRs) to assert the privileged job succeeded recently on `main` (8-day freshness window). The recursive-bootstrap property still holds: the privileged `verify-branch-protection` script (Step 3c) asserts `verify-branch-protection-status` is in the required-checks set, so a future admin who removes it from the list will trigger drift on the very next privileged run. First-deploy bootstrap: the operator explicitly types all seven names; subsequent runs of the verify script confirm all seven are still present. Repo-settings ownership lives outside the codebase, so this is a manual admin task that lands as a one-time follow-up (the spec §17.2 acceptance language already mandates these as PR-blocking; the workflow file alone does not configure protection — GitHub requires the admin step). **X.1-X.6 : the manual step is followed by Step 3c's programmatic verification** — `scripts/verify-branch-protection.ts` runs both as the privileged `verify-branch-protection` workflow job (which fires only on `push` to `main` + weekly `schedule` cron, never on `pull_request` from forks) AND as a weekly scheduled cron (a `schedule:` trigger added at the top of `x-audits.yml` with `cron: '0 9 * * 1'` Monday 09:00 UTC running ONLY the privileged `verify-branch-protection` job — separate `push`/`schedule` event filter on the job's `if:` gate), so any later revert of the manual settings is caught within at most 7 days regardless of whether new PRs flow through. **`pull_request_target` is explicitly NOT used\*\* anywhere in this workflow — using it would run untrusted PR_HEAD code with privileged secrets attached (a documented security hole). The trust-boundary contract is: privileged check on trusted contexts (`push` to main + `schedule`) where committed-to-main code runs with secrets; PR-required reader on untrusted contexts (`pull_request` from forks) where only the read-only `GITHUB_TOKEN` is used to query the privileged job's history.
 - [ ] **Step 3b: Verify workflow runs against a known-bad fixture branch and fails as expected.** Create a throwaway branch `verify/x6-workflow-fails-on-bad-spec` that intentionally introduces a spec drift — e.g., remove one entry from §4.3's admin-only bullet list while leaving Plan Task 2.3's `ADMIN_TABLES` registry unchanged (this should fail the §4.3 ↔ AC-2.5 admin-table parity assertion in `tests/cross-cutting/traceability.test.ts`). Push the branch and open a draft PR. Assert: (a) GitHub Actions kicks off the workflow on the PR; (b) the `traceability-audit` job FAILS with a named diff (`+missing_in_ac25:<dropped-table>` or equivalent); (c) the PR shows `traceability-audit` as a failed check; (d) the artifact upload succeeded despite the failure (proving the `if: always` clause works). Repeat for at least one other audit (e.g., introduce a raw `'WIZARD_SESSION_SUPERSEDED'` string literal inside a `components/**/*.tsx` user-facing JSX attribute so `x2-no-raw-codes` fails). Once both verifications pass, close the throwaway PR and delete the verify branch. **This step does NOT block the rest of Task X.6**, but it MUST run before Step 4's commit lands on `main` so the operator has evidence the gate works end-to-end.
-- [ ] **Step 3c: Implement `scripts/verify-branch-protection.ts` and its test.** The Step 3a manual admin action ("after the workflow runs green, configure required status checks in GitHub Settings") is plain prose in a commit body — there is nothing in the codebase that detects when the settings are absent OR later reverted. A future admin who disables `enforce_admins` to land an emergency hotfix, or who removes one X.* check from the required list during a flaky-CI episode, leaves the X.* gate suite advisory and there is no automated alarm. This step adds a programmatic verification.
-  Script contract (`scripts/verify-branch-protection.ts`):
+- [ ] **Step 3c: Implement `scripts/verify-branch-protection.ts` and its test.** The Step 3a manual admin action ("after the workflow runs green, configure required status checks in GitHub Settings") is plain prose in a commit body — there is nothing in the codebase that detects when the settings are absent OR later reverted. A future admin who disables `enforce_admins` to land an emergency hotfix, or who removes one X._ check from the required list during a flaky-CI episode, leaves the X._ gate suite advisory and there is no automated alarm. This step adds a programmatic verification.
+      Script contract (`scripts/verify-branch-protection.ts`):
   1. **Authentication**: prefers `GH_APP_TOKEN` env var (GitHub App installation token, least-privilege); falls back to `BRANCH_PROTECTION_PAT` env var (PAT with `repo` scope). **Auth-failure is treated as an alertable control failure, NOT a silent operator-misconfiguration:** if BOTH env vars are absent OR neither authenticates against the GitHub API (the protection / rulesets calls return 401 / 403 / token-expired), the script emits a `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` admin alert (new §12.4 catalog code) into `admin_alerts` with `context: { gh_app_token_set: boolean, pat_set: boolean, http_status: number | null, last_successful_auth: timestamptz | null, repo: '<owner>/<repo>' }`, then exits non-zero so the workflow job fails (and, since `verify-branch-protection` is now a 7th required check, blocks merge). Without this contract, a token rotation that silently expires both creds would leave the verifier going blind in CI with no admin signal — drift could ship undetected. **Escalation procedure (also documented in spec §17.2 / runbook):** if `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` fires, an admin must rotate the GH App credentials (or the PAT) within 24h or branch-protection drift can ship undetected.
   2. **API call**: `GET /repos/{owner}/{repo}/branches/main/protection` (Branch Protection REST endpoint) AND `GET /repos/{owner}/{repo}/rulesets` (Rulesets API — covers organizations using rulesets instead of legacy branch protection). Owner/repo are read from `GITHUB_REPOSITORY` env var when running in Actions, or from `git remote get-url origin` parsing locally. The script accepts EITHER protection model: if a legacy branch-protection rule exists for `main`, validate against its fields; if a `ref_name` ruleset targets `main`, validate against its rules instead. Drift in either model fails identically.
   3. **Assertions** (every failure produces a named diff line in the JSON report at `artifacts/branch-protection-report.json`):
@@ -2193,15 +2298,19 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
      - `allow_force_pushes.enabled === false` AND `allow_deletions.enabled === false` on `main`.
   4. **On drift**: emits the JSON report (one entry per failed assertion), prints a human-readable summary to stdout, AND inserts a row into the `admin_alerts` table:
      ```ts
-     await supabaseAdmin.from('admin_alerts').insert({
-       code: 'BRANCH_PROTECTION_DRIFT',
-       context: { failures: failedAssertions, repo: `${owner}/${repo}`, ts: new Date.toISOString },
-       severity: 'high',
+     await supabaseAdmin.from("admin_alerts").insert({
+       code: "BRANCH_PROTECTION_DRIFT",
+       context: {
+         failures: failedAssertions,
+         repo: `${owner}/${repo}`,
+         ts: new Date.toISOString(),
+       },
+       severity: "high",
      });
      ```
      Then exits non-zero (workflow job fails; required-check status surfaces in the `verify-branch-protection` job and any cron-only run also fails its check). Insertion uses the Supabase service-role client (`SUPABASE_SERVICE_ROLE_KEY`) since CI runs outside any user session; the workflow injects the secret via env (see Step 3a's `verify-branch-protection` job env block).
   5. **On success**: emits a green report (`{ status: 'ok', checks: [...] }`) and exits zero.
-  Test (`tests/cross-cutting/verify-branch-protection.test.ts`) — the script's behavior is exercised against mocked GitHub API responses (`nock` or `msw` intercepts the REST calls; `supabaseAdmin.from('admin_alerts').insert` is mocked to a Vitest spy). Required cases:
+     Test (`tests/cross-cutting/verify-branch-protection.test.ts`) — the script's behavior is exercised against mocked GitHub API responses (`nock` or `msw` intercepts the REST calls; `supabaseAdmin.from('admin_alerts').insert` is mocked to a Vitest spy). Required cases:
   - `missing-check-name` fixture: API response omits `x3-trust-domain` from `contexts` → script exits 1, `admin_alerts` insert called with `code: 'BRANCH_PROTECTION_DRIFT'` and `context.failures` includes `+missing_check:x3-trust-domain`.
   - `insufficient-review-count` fixture: API returns `required_approving_review_count: 0` → exits 1, named diff `review_count:0 < 1`.
   - `enforce-admins-disabled` fixture: API returns `enforce_admins.enabled: false` → exits 1, named diff `enforce_admins:false`.
@@ -2215,8 +2324,7 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
   - `pat-403` fixture: PAT set but lacks `repo` scope; API call returns 403 → exits 1 AND `admin_alerts` insert with `code: 'BRANCH_PROTECTION_MONITOR_AUTH_FAILED'` and `context.http_status === 403` and `context.pat_set === true`.
   - `expired-token` fixture: API returns the GitHub-specific expired-token signal (401 with body `{ "message": "Bad credentials" }` or `X-GitHub-SSO` re-auth header) → exits 1 AND `admin_alerts` insert with `code: 'BRANCH_PROTECTION_MONITOR_AUTH_FAILED'` and `context.http_status === 401`.
   - **Anti-tautology**: each test scopes its assertion to the specific spy call's payload (`expect(insertSpy).toHaveBeenCalledWith({ code: 'BRANCH_PROTECTION_DRIFT', context: expect.objectContaining({ failures: expect.arrayContaining([...]) }), severity: 'high' })`), NOT to "exit code is non-zero" alone — the latter would pass for any thrown error and not prove the alert mechanism works.
-  Add `pnpm test:audit:branch-protection` to `package.json` (runs the test file). The Step 3a workflow's `verify-branch-protection` job runs the SCRIPT (live API call); the test file runs against the mocks.
+    Add `pnpm test:audit:branch-protection` to `package.json` (runs the test file). The Step 3a workflow's `verify-branch-protection` job runs the SCRIPT (live API call); the test file runs against the mocks.
 - [ ] **Step 4: Commit** `feat(cross-cutting): machine-generated traceability matrix + §16 coverage gate + x-audits.yml workflow + verify-branch-protection (AC-X.6)`.
 
 ---
-

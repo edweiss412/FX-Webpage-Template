@@ -1,4 +1,5 @@
 # Source
+
 - Gmail thread ID: 19258900e77e70f7
 - From: dlarson@fxav.net
 - Date: 2024-10-04
@@ -31,13 +32,11 @@ Let me know you got this and if you have any questions.
 Thanks,
 Doug
 
-
 CLIENT
 Institutional Investor
 
 Client Contact
 Joann Chmura
-
 
 VENUE
 VENUE NAME
@@ -50,38 +49,35 @@ Washington, DC 20007
 LOADING DOCK
 1109 29th NW Washington DC
 
-
 TRANSPORTATION
-NAME	PHONE
+NAME PHONE
 
-Driver	CJ	609-727-9581
-Vehicle	26' Box Truck
-
+Driver CJ 609-727-9581
+Vehicle 26' Box Truck
 
 TRAVEL
 10/6/2024
 
 SET
-10/7/2024	8:00 AM
+10/7/2024 8:00 AM
 
 SHOW
-10/8/2024	8:00am - 4:50pm
-10/9/2024	8:15am - 5:40pm
-10/10/2024	7:45am - 12:25pm
+10/8/2024 8:00am - 4:50pm
+10/9/2024 8:15am - 5:40pm
+10/10/2024 7:45am - 12:25pm
 
 10/8 - Full Day Legal Forum - no breakouts
 10/9 - Half Day Legal Forum / Overlap Lunch / CHRO Afternoon
 10/10 - Half Day CHRO
 
 TRAVEL
-10/10/2024	*SAME DAY AS STRIKE
-
+10/10/2024 \*SAME DAY AS STRIKE
 
 CREW
 
-Jhai Sinnatamby	- Load In / Set / Strike / Load Out - LEAD	617-281-7889
+Jhai Sinnatamby - Load In / Set / Strike / Load Out - LEAD 617-281-7889
 
-Dean Santini	- Load In / Set / Strike / Load Out - V1	914-539-2400
+Dean Santini - Load In / Set / Strike / Load Out - V1 914-539-2400
 AMERICAN
 #NVZWTD
 AA2033 LGA-DCA 10/6 5:20pm - 6:41pm
@@ -89,14 +85,13 @@ AMERICAN
 #NVZWTD
 AA4505 DCA-LGA 10/10 10:10pm - 11:27pm
 
-Eric Weiss	- Load In / Set / Strike / Load Out - A1	508-404-4496
+Eric Weiss - Load In / Set / Strike / Load Out - A1 508-404-4496
 UNITED
 #DWGGME
 UA395 ORD-DCA 10/6 12:45pm - 3:42pm
 UNITED
 #DWGGME
 UA1738 IAD-ORD 10/10 10:10pm - 11:14pm
-
 
 Hotel Reservations
 Four Seasons:
@@ -105,14 +100,13 @@ Dean Santini
 Check In 10/6
 Check Out 10/10
 
--------------
+---
 
 Sonder Hotel
 1111 30th Street Northwest
 Eric Weiss - SR-FGEP63UX
 Check In 10/6 @ 4pm
 Check Out 10/10 @ 11am
-
 
 Hotel Contact Info
 Falencia Normeus
@@ -122,32 +116,30 @@ In House AV
 Andy Downing
 andy.downey@encoreglobal.com
 
-
 DETAILS
 
-Floor Plan	LINK
-Room Diagram	LINK
-LED	II LED BACKGROUND LOGO (drive.google.com/drive/folders/1nmMJfTDBifPG2nVVJUxYxqXmftzPHiFM)
+Floor Plan LINK
+Room Diagram LINK
+LED II LED BACKGROUND LOGO (drive.google.com/drive/folders/1nmMJfTDBifPG2nVVJUxYxqXmftzPHiFM)
 Backdrop / Scenic
 (1) Logo Spandex
 (2) Grey Spandex
-Stage Size	8' x 24' x 2'
-Opening Reel	YES - LOOP VIDEO (drive.google.com/file/d/1_XbZncqdT2clfMpZIXeWeb9FL0rx4g4l)
-Keynote Requirements	Speaker for Lunch on Wed 10/9
-Virtual Speaker	NO
-Virtual Audience	NO
-GS Podium Type	Truss Podium
-Record	Backup Only
-Polling	YES
-Internet	Wifi In Room
-  Network: Four Seasons Meeting
-  Password: Invest2024
-Power	Handled by Hotel / Engineering
-Equipment Storage	Behind Spandex Set
-Staff Office Room	NONE
-Test Pattern	16 x 9 Test Pattern (docs.google.com/presentation/d/1E9L-WTFxFHAbpM3aZ9Gn-de4CWOQWJOa)
-Fonts	Aptos Font Folder (drive.google.com/drive/folders/1pC9Zsh5B7j8Sqypa0tA6VhVih9T4jrau)
-
+Stage Size 8' x 24' x 2'
+Opening Reel YES - LOOP VIDEO (drive.google.com/file/d/1_XbZncqdT2clfMpZIXeWeb9FL0rx4g4l)
+Keynote Requirements Speaker for Lunch on Wed 10/9
+Virtual Speaker NO
+Virtual Audience NO
+GS Podium Type Truss Podium
+Record Backup Only
+Polling YES
+Internet Wifi In Room
+Network: Four Seasons Meeting
+Password: Invest2024
+Power Handled by Hotel / Engineering
+Equipment Storage Behind Spandex Set
+Staff Office Room NONE
+Test Pattern 16 x 9 Test Pattern (docs.google.com/presentation/d/1E9L-WTFxFHAbpM3aZ9Gn-de4CWOQWJOa)
+Fonts Aptos Font Folder (drive.google.com/drive/folders/1pC9Zsh5B7j8Sqypa0tA6VhVih9T4jrau)
 
 Dumbarton
 32' x 57' x 9.1'
@@ -161,9 +153,9 @@ set stage on long wall
 CHRO:
 6 pods of 6
 
-GS Set Time	10/7 @ 8am
-GS Show Time	10/8 @ 7:30am
-GS Strike Time	10/10 @ 12:25pm
+GS Set Time 10/7 @ 8am
+GS Show Time 10/8 @ 7:30am
+GS Strike Time 10/10 @ 12:25pm
 
 GS Audio
 (1) QU24
@@ -202,16 +194,15 @@ GS Other
 (2) Sections Grey Spandex
 (1) Truss Podium
 
-Digital Signage	(1) 50" Monitor w Laptop and Clicker
-
+Digital Signage (1) 50" Monitor w Laptop and Clicker
 
 Seasons Restaurant
 Lunch Session on Wed, 10/9
 
-Setup	TBD
-Set Time	10/9 @ 8:00am
-Show Time	10/9 @ 12:10pm
-Strike Time	10/9 @ 1:10pm
+Setup TBD
+Set Time 10/9 @ 8:00am
+Show Time 10/9 @ 12:10pm
+Strike Time 10/9 @ 1:10pm
 
 Audio
 (1) Presonus 16
@@ -220,5 +211,5 @@ Audio
 (1) LAV
 (2) Speaker Stands
 
-Video	NONE
-Lighting	NONE
+Video NONE
+Lighting NONE

@@ -2,7 +2,6 @@
 
 > Part of [the FXAV crew pages design plan](README.md).
 
-
 Spec context: §4 entire data model, §17.1 milestone 2.
 
 ### Task 2.1: Initial schema migration — public tables
@@ -24,22 +23,22 @@ Spec context: §4 entire data model, §17.1 milestone 2.
 
 - [ ] **Step 1: Author the canonical fresh-schema DDL — ONE source per table.** Earlier draft said "copy verbatim from §4 + §5.5.1 + §6.8.1 + §13.2.3" — but those sections contain overlapping additive DDL: §4.1 `CREATE TABLE drive_watch_channels` already defines `status`, then §5.5.1 `ALTER TABLE drive_watch_channels ADD COLUMN IF NOT EXISTS status` repeats it. §4.1 has `reports.idempotency_key .. unique`, §13.2.3 then adds an incremental unique index with a different name. Replaying both would either duplicate constraints or have `IF NOT EXISTS` mask drift that Task 2.5's exact-def matching is supposed to catch. The corrected design pins ONE authoritative source per table:
 
-  | Table | Canonical fresh-schema source (exact spec section that owns the CREATE TABLE block) | Spec sections to IGNORE during initial migration |
-  |---|---|---|
-  | `shows`, `shows_internal`, `crew_members`, `hotel_reservations`, `rooms`, `transportation`, `contacts` | §4.1 `create table` blocks for the public crew-readable schema | none — these are §4.1-canonical |
-  | `crew_member_auth`, `revoked_links`, `link_sessions` | §4.1 `create table` blocks for the auth schema | none |
-  | `bootstrap_nonces` | §4.1 `create table bootstrap_nonces` block ( + — login-CSRF defense table for `/api/auth/redeem-link`; columns `nonce_hash text not null, show_id uuid not null references shows(id) on delete cascade, issued_at timestamptz not null default now, consumed_at timestamptz, primary key (nonce_hash, show_id)` plus the `issued_at` index per spec §4.1; admin-only per spec §4.3). ** composite PK is mandatory** — earlier single-PK on `nonce_hash` alone forced one live nonce per browser regardless of show, breaking multi-tab/multi-show flows; the composite key + consume-by-`(nonce_hash, show_id)` lets multiple live nonces coexist. The cleanup cron's range scan against `issued_at` is what motivates the index. | none |
-  | `pending_syncs`, `pending_ingestions` | §6.8.1 `create table` blocks (the staging surfaces are spec'd in §6.8.1, NOT §4.1) | none |
-  | `sync_audit`, `sync_log` | §6.8.3 `create table` blocks (sync audit/log spec'd in §6.8.3) | none |
-  | `app_settings` | §4.5 `create table app_settings` block — includes the `check (id = 'default')` singleton AND the bootstrap `INSERT INTO app_settings (id) VALUES ('default') ON CONFLICT DO NOTHING` AS PART OF THE CREATE BLOCK. **No follow-on `ALTER TABLE app_settings ADD CONSTRAINT app_settings_singleton CHECK (id = 'default')` step** — the CHECK is already part of the spec's §4.5 CREATE definition and replaying it as an ALTER would duplicate the constraint. The migration includes the bootstrap insert verbatim from spec §4.5. |
-  | `deferred_ingestions` | §4.5 `create table deferred_ingestions` (deferral surfaces are §4.5-canonical) — surrogate `id uuid` PK + `wizard_session_id uuid` (nullable) + the two partial unique indexes `deferred_ingestions_live_drive_file_idx` (live partition) and `deferred_ingestions_session_drive_file_idx` (wizard partition). The schema mirrors the / `pending_syncs` partition pattern; cron/push consult ONLY the live partition, wizard step-3 Discard writes the wizard partition, and finalize deletes the wizard partition (clean slate option A). | none |
-  | `admin_alerts` | §4.6 `create table admin_alerts` (admin alerts are §4.6-canonical, including the `admin_alerts_one_unresolved_idx` partial unique index) | none |
-  | `drive_watch_channels` | §5.5.1 `create table drive_watch_channels` (fresh-schema form including all columns + the `active_requires_drive_state` CHECK + `one_active_per_folder_idx`) | the §5.5.1 `ALTER TABLE drive_watch_channels ADD COLUMN IF NOT EXISTS ...` block at the bottom of §5.5.1 — those ALTER fragments are historical/migration-evolution notes; the fresh-schema CREATE at the top of §5.5.1 is canonical. |
-  | `reports` | §4.1 `create table reports` block | §13.2.3's `ALTER TABLE reports ADD COLUMN IF NOT EXISTS idempotency_key ...` and the secondary `CREATE UNIQUE INDEX IF NOT EXISTS reports_idempotency_key_idx` block — those are historical migration fragments; spec §13.2.3 keeps them for context only. |
-  | `report_rate_limits` | §13.3 `create table report_rate_limits` block (rate-limit table spec'd in §13.3 — the bug-report rate-limit section, NOT §4.1) | none |
-  | `onboarding_scan_manifest` | §4.5 `create table onboarding_scan_manifest` block | M10 Task 10.4 contains the same DDL inline as historical context only — the canonical fresh-schema CREATE lives in §4.5 and is authored exclusively by Task 2.2; M10 just stamps rows. |
-  | `pending_snapshot_uploads` | §4.5 `create table pending_snapshot_uploads` block ( + findings 1–2 + findings 1–2 — commit-aware snapshot ledger; one row per Apply attempt; 3-state lifecycle (unclaimed / claimed / committing_delete); includes `unique (temp_prefix)`, `unique (snapshot_revision_id)`, the `claim_token`/`claimed_at`/`claim_expires_at` triple-symmetry CHECK, the two `delete_started_at` invariant CHECKs, the `pending_snapshot_uploads_unpromoted_idx` partial index, the `pending_snapshot_uploads_claim_expiry_idx` partial index, and the `pending_snapshot_uploads_committing_delete_idx` partial index) | none — §4.5-canonical |
-  | `revision_race_cooldowns` | §4.1 `create table revision_race_cooldowns` block ( — per-`(drive_file_id, raced_head_revision_id)` cooldown ledger that bounds revision-race retry storms; composite PK on `(drive_file_id, raced_head_revision_id)`; includes the `revision_race_cooldowns_last_race_idx` non-partial index on `(last_race_at)` for §7.8 GC age sweep) | none — §4.1-canonical |
+  | Table                                                                                                  | Canonical fresh-schema source (exact spec section that owns the CREATE TABLE block)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Spec sections to IGNORE during initial migration                                                                                                                                                                                                           |
+  | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `shows`, `shows_internal`, `crew_members`, `hotel_reservations`, `rooms`, `transportation`, `contacts` | §4.1 `create table` blocks for the public crew-readable schema                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | none — these are §4.1-canonical                                                                                                                                                                                                                            |
+  | `crew_member_auth`, `revoked_links`, `link_sessions`                                                   | §4.1 `create table` blocks for the auth schema                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | none                                                                                                                                                                                                                                                       |
+  | `bootstrap_nonces`                                                                                     | §4.1 `create table bootstrap_nonces` block ( + — login-CSRF defense table for `/api/auth/redeem-link`; columns `nonce_hash text not null, show_id uuid not null references shows(id) on delete cascade, issued_at timestamptz not null default now, consumed_at timestamptz, primary key (nonce_hash, show_id)` plus the `issued_at` index per spec §4.1; admin-only per spec §4.3). ** composite PK is mandatory** — earlier single-PK on `nonce_hash` alone forced one live nonce per browser regardless of show, breaking multi-tab/multi-show flows; the composite key + consume-by-`(nonce_hash, show_id)` lets multiple live nonces coexist. The cleanup cron's range scan against `issued_at` is what motivates the index. | none                                                                                                                                                                                                                                                       |
+  | `pending_syncs`, `pending_ingestions`                                                                  | §6.8.1 `create table` blocks (the staging surfaces are spec'd in §6.8.1, NOT §4.1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | none                                                                                                                                                                                                                                                       |
+  | `sync_audit`, `sync_log`                                                                               | §6.8.3 `create table` blocks (sync audit/log spec'd in §6.8.3)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | none                                                                                                                                                                                                                                                       |
+  | `app_settings`                                                                                         | §4.5 `create table app_settings` block — includes the `check (id = 'default')` singleton AND the bootstrap `INSERT INTO app_settings (id) VALUES ('default') ON CONFLICT DO NOTHING` AS PART OF THE CREATE BLOCK. **No follow-on `ALTER TABLE app_settings ADD CONSTRAINT app_settings_singleton CHECK (id = 'default')` step** — the CHECK is already part of the spec's §4.5 CREATE definition and replaying it as an ALTER would duplicate the constraint. The migration includes the bootstrap insert verbatim from spec §4.5.                                                                                                                                                                                                |
+  | `deferred_ingestions`                                                                                  | §4.5 `create table deferred_ingestions` (deferral surfaces are §4.5-canonical) — surrogate `id uuid` PK + `wizard_session_id uuid` (nullable) + the two partial unique indexes `deferred_ingestions_live_drive_file_idx` (live partition) and `deferred_ingestions_session_drive_file_idx` (wizard partition). The schema mirrors the / `pending_syncs` partition pattern; cron/push consult ONLY the live partition, wizard step-3 Discard writes the wizard partition, and finalize deletes the wizard partition (clean slate option A).                                                                                                                                                                                        | none                                                                                                                                                                                                                                                       |
+  | `admin_alerts`                                                                                         | §4.6 `create table admin_alerts` (admin alerts are §4.6-canonical, including the `admin_alerts_one_unresolved_idx` partial unique index)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | none                                                                                                                                                                                                                                                       |
+  | `drive_watch_channels`                                                                                 | §5.5.1 `create table drive_watch_channels` (fresh-schema form including all columns + the `active_requires_drive_state` CHECK + `one_active_per_folder_idx`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | the §5.5.1 `ALTER TABLE drive_watch_channels ADD COLUMN IF NOT EXISTS ...` block at the bottom of §5.5.1 — those ALTER fragments are historical/migration-evolution notes; the fresh-schema CREATE at the top of §5.5.1 is canonical.                      |
+  | `reports`                                                                                              | §4.1 `create table reports` block                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | §13.2.3's `ALTER TABLE reports ADD COLUMN IF NOT EXISTS idempotency_key ...` and the secondary `CREATE UNIQUE INDEX IF NOT EXISTS reports_idempotency_key_idx` block — those are historical migration fragments; spec §13.2.3 keeps them for context only. |
+  | `report_rate_limits`                                                                                   | §13.3 `create table report_rate_limits` block (rate-limit table spec'd in §13.3 — the bug-report rate-limit section, NOT §4.1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | none                                                                                                                                                                                                                                                       |
+  | `onboarding_scan_manifest`                                                                             | §4.5 `create table onboarding_scan_manifest` block                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | M10 Task 10.4 contains the same DDL inline as historical context only — the canonical fresh-schema CREATE lives in §4.5 and is authored exclusively by Task 2.2; M10 just stamps rows.                                                                     |
+  | `pending_snapshot_uploads`                                                                             | §4.5 `create table pending_snapshot_uploads` block ( + findings 1–2 + findings 1–2 — commit-aware snapshot ledger; one row per Apply attempt; 3-state lifecycle (unclaimed / claimed / committing_delete); includes `unique (temp_prefix)`, `unique (snapshot_revision_id)`, the `claim_token`/`claimed_at`/`claim_expires_at` triple-symmetry CHECK, the two `delete_started_at` invariant CHECKs, the `pending_snapshot_uploads_unpromoted_idx` partial index, the `pending_snapshot_uploads_claim_expiry_idx` partial index, and the `pending_snapshot_uploads_committing_delete_idx` partial index)                                                                                                                           | none — §4.5-canonical                                                                                                                                                                                                                                      |
+  | `revision_race_cooldowns`                                                                              | §4.1 `create table revision_race_cooldowns` block ( — per-`(drive_file_id, raced_head_revision_id)` cooldown ledger that bounds revision-race retry storms; composite PK on `(drive_file_id, raced_head_revision_id)`; includes the `revision_race_cooldowns_last_race_idx` non-partial index on `(last_race_at)` for §7.8 GC age sweep)                                                                                                                                                                                                                                                                                                                                                                                          | none — §4.1-canonical                                                                                                                                                                                                                                      |
 
   : an earlier draft of this matrix put `app_settings`, `deferred_ingestions`, `admin_alerts`, `sync_audit` all under §4.1 even though their CREATE blocks live in §4.5/§4.6/§6.8.3 of the spec, AND added a redundant `ALTER TABLE app_settings ADD CONSTRAINT app_settings_singleton CHECK (id = 'default')` step that recreated the additive-replay hazard the matrix was supposed to eliminate (the §4.5 CREATE already defines that CHECK inline). The corrected matrix above points to the exact owning section per table and has no redundant ALTER steps.
 
@@ -66,6 +65,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     - `crew_member_auth.last_changed_at TIMESTAMPTZ NOT NULL DEFAULT now` — bumped to `now` by a per-row BEFORE-UPDATE trigger on every UPDATE of any other column.
     - `crew_members.last_changed_at TIMESTAMPTZ NOT NULL DEFAULT now` — same pattern.
     - **Trigger split: BEFORE-ROW for `last_changed_at` bump (cheap, per-row); AFTER-STATEMENT for `pg_notify` (one notify per show_id per statement, regardless of row count).** A naive design that combined both into a single per-row trigger fires `pg_notify` once per touched row AND re-aggregates `MAX(last_changed_at)` across BOTH `crew_member_auth` and `crew_members` for the affected show on EVERY row. An Apply touching 5 `crew_members` rows + 2 `crew_member_auth` rows + the `shows` row would emit 8 notifies AND run the helper's two `SELECT MAX(...)` aggregates 7 times — O(N×rows-per-table) write amplification on busy shows. The corrected design uses Postgres `REFERENCING NEW TABLE AS new_rows` transition-table support: the AFTER-STATEMENT trigger reads `SELECT DISTINCT show_id FROM new_rows` (cardinality bounded by the number of distinct show_ids the statement touched — typically 1) and emits exactly ONE `pg_notify` per unique show_id. DDL form (copy spec §4.1 verbatim, including the SECURITY DEFINER hardening: `SET search_path = public, pg_temp` with `pg_temp` placed LAST; every relation/function reference inside the body schema-qualified; `REVOKE ALL ... FROM PUBLIC` to deny ambient EXECUTE since the function is invoked only via trigger context):
+
       ```sql
       -- BEFORE-ROW trigger: bump last_changed_at only. No pg_notify here. Cheap per-row work.
       create or replace function bump_last_changed_at()
@@ -151,7 +151,9 @@ Spec context: §4 entire data model, §17.1 milestone 2.
         for each statement
         execute function publish_show_invalidation_after_statement();
       ```
+
       The `WHEN (OLD.* IS DISTINCT FROM NEW.*)` predicate on the BEFORE-ROW bump trigger prevents trigger recursion on the trigger's own `last_changed_at` write. The AFTER-STATEMENT trigger does NOT take a WHEN predicate (transition-table triggers cannot use `OLD.*` / `NEW.*` row references); recursion is structurally impossible because the AFTER-STATEMENT body issues only `pg_notify` and `SELECT` calls, no UPDATE/INSERT/DELETE on the same tables. **Write-amplification regression test (mandatory)**: in a single transaction execute `UPDATE crew_member_auth SET ... WHERE show_id = $1` (5 rows) AND `UPDATE crew_members SET ... WHERE show_id = $1` (2 rows) AND `UPDATE shows SET ... WHERE id = $1` (1 row). Capture every `pg_notify` issued during the transaction (via a `LISTEN realtime:broadcast` test fixture). Assert: EXACTLY THREE notifies were issued — one per statement, each carrying the same `show_id` payload — NOT seven (one-per-row regression) and NOT eight. **Helper-call regression test**: count `viewer_version_token($1)` invocations during the same transaction. Assert: EXACTLY THREE (one per AFTER-STATEMENT firing), NOT seven. The per-statement boundary is the contract.
+
     - SQL helper (copy spec §4.1 verbatim, including the SECURITY DEFINER hardening: `SET search_path = public, pg_temp`; every relation reference inside the body schema-qualified with `public.`; `REVOKE ALL ... FROM PUBLIC` then explicit `GRANT EXECUTE TO authenticated, anon, service_role` so the `/api/show/[slug]/version` route can call it under the request principal regardless of whether it carries a Supabase Auth session):
       ```sql
       create or replace function viewer_version_token(p_show_id uuid)
@@ -173,6 +175,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
       Returns a stringified epoch-ms representation that's stable for equality + ordering comparisons. The function is SECURITY DEFINER so non-admin callers (the `/api/show/[slug]/version` route running as the request principal) can compute it without RLS-blocking on `crew_member_auth` reads — the function is owned by the migration role and exposes only the aggregate timestamp, NOT any auth-bearing column. **Hardening posture:** `SET search_path = public, pg_temp` with `pg_temp` placed LAST closes the writable-schema search-path attack (an attacker with CREATE on `pg_temp` cannot shadow `public.shows` / `public.crew_member_auth` / `public.crew_members` because the planner resolves unqualified names against `public` first). Schema-qualifying every relation reference inside the body provides defense-in-depth even if `search_path` is later misconfigured. `REVOKE ALL ... FROM PUBLIC` denies ambient EXECUTE; the explicit `GRANT EXECUTE TO authenticated, anon, service_role` is the minimal role set needed by the version route's three caller identities (signed-in admin via `service_role`-equivalent, signed-in crew via `authenticated`, redeemed-link crew with no Supabase Auth via `anon`).
     - The publish helper `lib/realtime/showInvalidation.ts` `publishShowInvalidation(tx, showId)` (M4 Task 4.16) is the application-side equivalent for Phase 2 commit sites that don't go through one of these triggers. **Both producers emit the same payload shape AND the same composite token** — the bridge cannot tell whether a Broadcast came from the trigger or from the helper.
     - Task 2.5 introspection MUST add new `REQUIRED_COLUMNS` entries for `crew_member_auth.last_changed_at` and `crew_members.last_changed_at`, AND add a `REQUIRED_TRIGGERS` matrix covering the BEFORE-ROW bump triggers (`crew_member_auth_bump_last_changed_at`, `crew_members_bump_last_changed_at`) AND the AFTER-STATEMENT publish triggers (`crew_member_auth_publish_invalidation`, `crew_member_auth_publish_invalidation_insert`, `crew_members_publish_invalidation`, `crew_members_publish_invalidation_insert`). The publish-trigger assertion MUST verify (i) trigger timing is `AFTER` (not `BEFORE`); (ii) trigger level is `STATEMENT` (not `ROW`); (iii) the trigger references a transition table named `new_rows` — query `pg_trigger.tgoldtable` / `pg_trigger.tgnewtable` and assert `tgnewtable = 'new_rows'` AND `tgoldtable IS NULL`; (iv) the bump trigger is `BEFORE ROW` with WHEN predicate `(old.* IS DISTINCT FROM new.*)`. AND add a `REQUIRED_FUNCTIONS` matrix asserting (a) `viewer_version_token(uuid)` returns `text` and is `STABLE` `SECURITY DEFINER`, (b) `bump_last_changed_at()` returns `trigger` and is `SECURITY DEFINER`, (c) `publish_show_invalidation_after_statement()` returns `trigger` and is `SECURITY DEFINER`. **For all three functions the matrix MUST also assert SECURITY DEFINER hardening posture verbatim:** (i) `pg_get_functiondef(oid)` contains the literal substring `SET search_path TO public, pg_temp` — a regression that drops the SET clause OR places `pg_temp` first OR omits it entirely fails the assertion; (ii) `pg_get_functiondef(oid)` shows every relation/function reference inside the body schema-qualified — regex `/\bpublic\.(shows|crew_member_auth|crew_members|viewer_version_token)\b/` matching at least once AND `/(?<!public\.)\b(shows|crew_member_auth|crew_members|viewer_version_token)\b/` matching ZERO times inside the body region; (iii) `has_function_privilege('public', '<fn>', 'EXECUTE')` returns FALSE for `bump_last_changed_at()` AND for `publish_show_invalidation_after_statement()` (proves `REVOKE ALL ... FROM PUBLIC` ran on both trigger-context functions); (iv) for `viewer_version_token(uuid)`, `has_function_privilege` returns TRUE for `authenticated`, `anon`, AND `service_role`; (v) the two trigger-context functions assert no GRANT (invoked only via trigger context — `REVOKE ALL FROM PUBLIC` is sufficient). The matrix is the introspection counterpart to the new DDL — without it, a regression that drops the AFTER-STATEMENT trigger but leaves the BEFORE-ROW bump trigger would silently break Realtime invalidation (rows get bumped, no broadcast fires), AND a regression that re-merges the two triggers into the original per-row form would silently restore the O(N) write-amplification bug.
+
 - [ ] **Step 2: `app_settings` singleton bootstrap is part of the §4.5 CREATE block**. Spec §4.5 already defines `id text primary key check (id = 'default')` inline AND specifies the bootstrap `INSERT INTO app_settings (id) VALUES ('default') ON CONFLICT DO NOTHING` immediately after the CREATE. The migration copies that block verbatim — no follow-on ALTER. The bootstrap insert is the only post-CREATE step (a one-row INSERT, not a constraint addition):
   ```sql
   -- (CREATE TABLE app_settings .. copied from spec §4.5 — includes the singleton CHECK inline)
@@ -686,7 +689,9 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     }
   });
   ```
+
   The four-test pattern (with controls) per admin-only table catches missing policies, over-permissive policies, and accidental column-grant gaps. The crew-readable block adds explicit admin-read positives AND write-denial across the full CRUD verb set under both matching-crew and non-matching-crew identities — without this, a `FOR ALL` policy slipping into a public table would still pass the SELECT-only suite.
+
 - [ ] **Step 3: Apply migration; run RLS tests; iterate until pass.**
 - [ ] **Step 4: Commit** `feat(db): RLS policies (§4.3)`.
 
@@ -695,14 +700,17 @@ Spec context: §4 entire data model, §17.1 milestone 2.
 **Files:** Create: `supabase/seed.ts`. Modify: `package.json` (add `db:seed` script).
 
 - [ ] **Step 1: Failing test** `tests/db/seed.test.ts` asserts AC-2.7 against the **persisted shape from §4.1 + + s** — the test must validate every field the production pipeline writes, including `drive_file_id`, `last_seen_modified_time`, and the full reel pin **quadruple**, AND the structured `diagrams` JSONB shape (`{ snapshot_revision_id, snapshot_status, embeddedImages[], linkedFolderItems[] }`):
+
   ```ts
-  it('AC-2.7 seed loads 10 fixtures via production pipeline with full persisted-shape integrity', async => {
+  it("AC-2.7 seed loads 10 fixtures via production pipeline with full persisted-shape integrity", (async) => {
     const supa = createServiceClient;
-    const { data: shows } = await supa.from('shows').select(
-      'id, slug, drive_file_id, last_seen_modified_time, ' +
-      'opening_reel_drive_file_id, opening_reel_drive_modified_time, opening_reel_head_revision_id, opening_reel_mime_type, ' +
-      'diagrams'
-    );
+    const { data: shows } = await supa
+      .from("shows")
+      .select(
+        "id, slug, drive_file_id, last_seen_modified_time, " +
+          "opening_reel_drive_file_id, opening_reel_drive_modified_time, opening_reel_head_revision_id, opening_reel_mime_type, " +
+          "diagrams",
+      );
     expect(shows!.length).toBe(10);
     for (const s of shows!) {
       // Production pipeline persists the Drive metadata even at seed time:
@@ -724,13 +732,16 @@ Spec context: §4 entire data model, §17.1 milestone 2.
         expect(diagrams).not.toBeNull;
         expect(diagrams.snapshot_revision_id).toEqual(expect.any(String));
         // snapshot_status union includes the terminal restage-required state.
-        expect(['complete', 'partial_failure', 'partial_failure_restage_required']).toContain(diagrams.snapshot_status);
+        expect(["complete", "partial_failure", "partial_failure_restage_required"]).toContain(
+          diagrams.snapshot_status,
+        );
         // linkedFolder is a top-level field on the persisted shape per spec §4.1.
         // Either null (no linked folder URL in the parsed sheet) OR { driveFolderId, driveFolderUrl }.
-        expect(diagrams.linkedFolder === null || (
-          typeof diagrams.linkedFolder?.driveFolderId === 'string' &&
-          typeof diagrams.linkedFolder?.driveFolderUrl === 'string'
-        )).toBe(true);
+        expect(
+          diagrams.linkedFolder === null ||
+            (typeof diagrams.linkedFolder?.driveFolderId === "string" &&
+              typeof diagrams.linkedFolder?.driveFolderUrl === "string"),
+        ).toBe(true);
         expect(Array.isArray(diagrams.embeddedImages)).toBe(true);
         expect(Array.isArray(diagrams.linkedFolderItems)).toBe(true);
         // full PersistedDiagrams field coverage per spec §4.1.
@@ -748,34 +759,37 @@ Spec context: §4 entire data model, §17.1 milestone 2.
           expect(e.mimeType).toEqual(expect.any(String));
           expect(e.mimeType.length).toBeGreaterThan(0);
           // alt: optional — present iff the sheet supplied alt text.
-          if ('alt' in e && e.alt !== undefined && e.alt !== null) {
+          if ("alt" in e && e.alt !== undefined && e.alt !== null) {
             expect(e.alt).toEqual(expect.any(String));
           }
           // snapshotPath: nullable string per §4.1. Restage-required entries stay null
           // permanently until a fresh sheet edit re-mints the fingerprint.
-          expect(e.snapshotPath === null || typeof e.snapshotPath === 'string').toBe(true);
+          expect(e.snapshotPath === null || typeof e.snapshotPath === "string").toBe(true);
           // sourceFolder: REQUIRED literal 'embedded' — discriminator for asset_recovery / GC.
-          expect(e.sourceFolder).toBe('embedded');
+          expect(e.sourceFolder).toBe("embedded");
           // sheetsRevisionId: mandatory immutable Drive revision token.
           expect(e.sheetsRevisionId).toEqual(expect.any(String));
           expect(e.sheetsRevisionId.length).toBeGreaterThan(0);
           // embeddedFingerprint: null (restage-required) OR non-empty string.
-          expect(e.embeddedFingerprint === null || (typeof e.embeddedFingerprint === 'string' && e.embeddedFingerprint.length > 0)).toBe(true);
+          expect(
+            e.embeddedFingerprint === null ||
+              (typeof e.embeddedFingerprint === "string" && e.embeddedFingerprint.length > 0),
+          ).toBe(true);
           // recovery_disposition: union enum constraint per §4.1.
-          expect(['normal', 'restage_required']).toContain(e.recovery_disposition);
+          expect(["normal", "restage_required"]).toContain(e.recovery_disposition);
           // Cross-invariant 1: null fingerprint MUST coincide with restage_required.
           if (e.embeddedFingerprint === null) {
-            expect(e.recovery_disposition).toBe('restage_required');
+            expect(e.recovery_disposition).toBe("restage_required");
           }
           // Cross-invariant 2: if recovery_disposition is 'normal', BOTH
           // sheetsRevisionId AND embeddedFingerprint must be non-null (the byte fence pair).
-          if (e.recovery_disposition === 'normal') {
+          if (e.recovery_disposition === "normal") {
             expect(e.sheetsRevisionId).toEqual(expect.any(String));
             expect(e.embeddedFingerprint).toEqual(expect.any(String));
           }
           // Cross-invariant 3: restage_required entries have snapshotPath = null
           // (asset_recovery skips them, so the Storage slot is permanently empty).
-          if (e.recovery_disposition === 'restage_required') {
+          if (e.recovery_disposition === "restage_required") {
             expect(e.snapshotPath).toBeNull;
           }
         }
@@ -788,7 +802,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
           expect(l.mimeType).toEqual(expect.any(String));
           expect(l.mimeType.length).toBeGreaterThan(0);
           // alt: optional — present iff the sheet supplied alt text.
-          if ('alt' in l && l.alt !== undefined && l.alt !== null) {
+          if ("alt" in l && l.alt !== undefined && l.alt !== null) {
             expect(l.alt).toEqual(expect.any(String));
           }
           // drive_modified_time: ISO timestamp (informational; revision/checksum is the byte fence).
@@ -799,14 +813,14 @@ Spec context: §4 entire data model, §17.1 milestone 2.
           expect(l.md5Checksum).toEqual(expect.any(String));
           expect(l.md5Checksum.length).toBeGreaterThan(0);
           // snapshotPath: nullable string per §4.1.
-          expect(l.snapshotPath === null || typeof l.snapshotPath === 'string').toBe(true);
+          expect(l.snapshotPath === null || typeof l.snapshotPath === "string").toBe(true);
           // sourceFolder: REQUIRED literal 'linked' — discriminator for asset_recovery / GC.
-          expect(l.sourceFolder).toBe('linked');
+          expect(l.sourceFolder).toBe("linked");
           // recovery_disposition: union enum constraint per §4.1 — applies to BOTH
           // embedded AND linked entries (earlier draft only asserted on embedded).
-          expect(['normal', 'restage_required']).toContain(l.recovery_disposition);
+          expect(["normal", "restage_required"]).toContain(l.recovery_disposition);
           // Cross-invariant: restage_required entries have snapshotPath = null.
-          if (l.recovery_disposition === 'restage_required') {
+          if (l.recovery_disposition === "restage_required") {
             expect(l.snapshotPath).toBeNull;
           }
         }
@@ -816,17 +830,23 @@ Spec context: §4 entire data model, §17.1 milestone 2.
       // produce. Synthesize via a fixture variant whose enrichment mock returns a Sheets API response
       // with no content-derived fingerprint for at least one embedded image.
       if (s.slug === FIXTURE_WITH_RESTAGE_REQUIRED) {
-        expect(diagrams.snapshot_status).toBe('partial_failure_restage_required');
-        const restageRequired = diagrams.embeddedImages.find((e: any) => e.recovery_disposition === 'restage_required');
+        expect(diagrams.snapshot_status).toBe("partial_failure_restage_required");
+        const restageRequired = diagrams.embeddedImages.find(
+          (e: any) => e.recovery_disposition === "restage_required",
+        );
         expect(restageRequired).toBeDefined;
         expect(restageRequired.embeddedFingerprint).toBeNull;
       }
 
-      const { count: crew } = await supa.from('crew_members').select('id', { count: 'exact', head: true }).eq('show_id', s.id);
+      const { count: crew } = await supa
+        .from("crew_members")
+        .select("id", { count: "exact", head: true })
+        .eq("show_id", s.id);
       expect(crew).toBeGreaterThan(0);
     }
   });
   ```
+
 - [ ] **Step 2: Implement** seed using **the exact production pipeline from the type split — including the first-seen Apply gate**. On a fresh database every fixture is first-seen, and §5.2/§9.0 require first-seen sheets to STAGE with a `FIRST_SEEN_REVIEW` review item before any `shows` row exists. A seed that calls `applyParseResult` directly bypasses that gate and produces show rows that production could never produce. The corrected design: seed runs the same `parseSheet → enrichWithDrivePins → runInvariants → phase1` chain as production, then dispatches a **synthetic Apply** that supplies pre-approved reviewer choices for the `FIRST_SEEN_REVIEW` item AND any other invariants the fixture trips:
 
   ```ts
@@ -839,7 +859,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   // `runPhase1Standalone`, which is the canonical production entry point that knows how to
   // route pass/stage/hard_fail correctly. Only `hard_fail` is a real seed failure.
   for (const fixturePath of fixtureFiles) {
-    const raw = await fs.readFile(fixturePath, 'utf8');
+    const raw = await fs.readFile(fixturePath, "utf8");
     const parsed = parseSheet(raw); // ParsedSheet
     const fixtureMockMeta = mockDriveMetaFor(fixturePath);
     const enriched = await enrichWithDrivePins(parsed, mockDriveClient, {
@@ -850,12 +870,12 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // Stage via the production Phase 1 path — first-seen lands in pending_syncs with FIRST_SEEN_REVIEW.
     // runPhase1Standalone runs the invariants internally and returns the routed outcome.
     const phase1Result = await runPhase1Standalone(supabaseAdmin, {
-      mode: 'manual',
+      mode: "manual",
       driveFileId: fixtureMockMeta.driveFileId,
       parseResult: enriched,
       fileMeta: fixtureMockMeta,
     });
-    if (phase1Result.outcome === 'hard_fail') {
+    if (phase1Result.outcome === "hard_fail") {
       throw new Error(`seed fixture ${fixturePath} hard-failed: ${phase1Result.code}`);
     }
     // `stage` is the EXPECTED outcome for first-seen fixtures (the FIRST_SEEN_REVIEW gate per §5.2 / §9.0
@@ -866,7 +886,9 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // This goes through the SAME applyStaged endpoint production uses (Task 6.11) — no parallel writer.
     await applyStagedSeedMode(supabaseAdmin, {
       driveFileId: fixtureMockMeta.driveFileId,
-      reviewerChoices: { /* one pre-approved 'apply' choice per triggered_review_item from the staged row */ },
+      reviewerChoices: {
+        /* one pre-approved 'apply' choice per triggered_review_item from the staged row */
+      },
       seedMode: true, // bypasses interactive admin auth; otherwise identical to runtime Apply
     });
   }
@@ -876,6 +898,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   **The seed has ONE canonical implementation path — through `applyStaged`.** Earlier draft showed both an `applyStaged` path (with synthetic reviewer choices) AND a direct `applyParseResult` shortcut as alternative implementations; the duplicate code block has been removed in this batch so the implementer reading Task 2.4 sees ONLY the canonical seed path defined above. The shortcut bypassed the staged row, reviewer-choice validation, the `sync_audit` write, and the auth side-effects — producing seeded shows that production could never produce. Seed exclusively goes through `runPhase1Standalone` → `applyStagedSeedMode` (which is `applyStaged` with synthesized admin identity + auto-derived `apply` reviewer choices for every `triggered_review_items` entry). Step 1's failing test additionally asserts production-path artifacts: one `sync_audit` row per fixture, no lingering `pending_*` rows, expected auth side-effects (e.g., `crew_member_auth` rows with the universal "bump on add" floor for every newly-added crew name).
 
   Task 6.5 (M6) formalizes the `applyParseResult` low-level helper that `applyStaged` invokes internally. **`applyParseResult` is NEVER called directly by the seed.** The seed always goes through `applyStaged` so the path is byte-identical to production Apply.
+
 - [ ] **Step 3: Run** `pnpm db:seed`. Expect 10 shows inserted, no errors.
 - [ ] **Step 4: Commit** `feat(db): seed script for fixture corpus (AC-2.7)`.
 
@@ -885,16 +908,21 @@ Spec context: §4 entire data model, §17.1 milestone 2.
 
 - [ ] **Step 1: Failing tests** — try inserts that should be rejected:
   ```ts
-  it('crew_members_email_canonical rejects mixed-case (AC-2.3)', async => {
+  it("crew_members_email_canonical rejects mixed-case (AC-2.3)", (async) => {
     /* assert INSERT with email='Alice@FXAV.NET' raises check_violation */
   });
-  it('crew_members_show_email_unique rejects dup (AC-2.2)', async => { /* .. */ });
-  it('revoked_links rejects token_version=0 (AC-2.4)', async => { /* .. */ });
+  it("crew_members_show_email_unique rejects dup (AC-2.2)", (async) => {
+    /* .. */
+  });
+  it("revoked_links rejects token_version=0 (AC-2.4)", (async) => {
+    /* .. */
+  });
   ```
 - [ ] **Step 2: Run; iterate until pass.**
 - [ ] **Step 3: Schema introspection matrix — exact-definition matching.** Name-based presence checks ("constraint with name X exists") are too shallow: a wrong CHECK expression, wrong indexed columns, or weakened partial predicate would still pass while the schema silently drifted from spec. The corrected design asserts the FULL definition via `pg_get_constraintdef` and `pg_get_indexdef` against expected normalized strings. Plan also catches the index-name drift (the earlier draft had `pending_syncs_wizard_session_id_idx`; spec uses `pending_syncs_wizard_session_idx` — implementation must align AND the introspection test uses the canonical name from spec, not the draft name).
 
   Add `tests/db/schema-introspection.test.ts`:
+
   ```ts
   // Generator-driven expected definitions.
   // Earlier draft hand-wrote regexes with `.*` wildcards that allowed real drift to pass — extra
@@ -905,7 +933,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   // `pg_get_indexdef` output the spec's SQL would produce when applied to a fresh database.
 
   function normalizeWhitespace(s: string): string {
-    return s.replace(/\s+/g, ' ').trim;
+    return s.replace(/\s+/g, " ").trim;
   }
   function assertExactDefMatch(actual: string, expected: string, context: string) {
     const a = normalizeWhitespace(actual);
@@ -914,29 +942,34 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   }
   const REQUIRED_CHECKS = [
     {
-      table: 'crew_members', constraint: 'crew_members_email_canonical',
+      table: "crew_members",
+      constraint: "crew_members_email_canonical",
       // Spec §4.1.1: email column is nullable, so the CHECK admits NULL OR canonical-form match.
       // Exact pg_get_constraintdef output (whitespace-normalized).
       expectDef: `CHECK (((email IS NULL) OR (email = lower(btrim(email)))))`,
     },
     {
-      table: 'pending_syncs', constraint: 'pending_syncs_source_kind_check',
+      table: "pending_syncs",
+      constraint: "pending_syncs_source_kind_check",
       // Exact enum list — extra values would silently slip past a `.*` regex.
       expectDef: `CHECK ((source_kind = ANY (ARRAY['cron'::text, 'push'::text, 'manual'::text, 'onboarding_scan'::text])))`,
     },
     {
-      table: 'revoked_links', constraint: 'revoked_links_token_version_positive',
+      table: "revoked_links",
+      constraint: "revoked_links_token_version_positive",
       expectDef: `CHECK ((token_version > 0))`,
     },
     {
-      table: 'drive_watch_channels', constraint: 'drive_watch_channels_active_requires_drive_state',
+      table: "drive_watch_channels",
+      constraint: "drive_watch_channels_active_requires_drive_state",
       // Spec §5.5.1: column is `resource_id` (not `drive_resource_id`); CHECK admits non-active status
       // OR an active row with both resource_id AND expires_at non-null.
       expectDef: `CHECK (((status <> 'active'::text) OR ((resource_id IS NOT NULL) AND (expires_at IS NOT NULL))))`,
     },
     {
       // onboarding_scan_manifest.status enum CHECK (spec §4.5).
-      table: 'onboarding_scan_manifest', constraint: 'onboarding_scan_manifest_status_check',
+      table: "onboarding_scan_manifest",
+      constraint: "onboarding_scan_manifest_status_check",
       // 'live_row_conflict' joins the enum so the LIVE_ROW_CONFLICT manifest write
       // (Task 6.8 / Task 10.3 per-file warn-and-continue path) is accepted by the CHECK.
       expectDef: `CHECK ((status = ANY (ARRAY['staged'::text, 'hard_failed'::text, 'skipped_non_sheet'::text, 'applied'::text, 'defer_until_modified'::text, 'permanent_ignore'::text, 'discard_retryable'::text, 'live_row_conflict'::text])))`,
@@ -944,15 +977,25 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     /* …repeat for every CHECK named in §4 with its exact expected string generated from spec source. */
   ] as const;
   for (const c of REQUIRED_CHECKS) {
-    it(`AC-2.1 CHECK definition matches: ${c.table}.${c.constraint}`, async => {
-      const { rows } = await admin.rpc('introspect_check', { p_table: c.table, p_name: c.constraint });
+    it(`AC-2.1 CHECK definition matches: ${c.table}.${c.constraint}`, (async) => {
+      const { rows } = await admin.rpc("introspect_check", {
+        p_table: c.table,
+        p_name: c.constraint,
+      });
       expect(rows.length).toBe(1);
       assertExactDefMatch(rows[0].def, c.expectDef, `${c.table}.${c.constraint}`); // string equality (whitespace-normalized)
     });
   }
 
   const REQUIRED_FKS = [
-    { table: 'shows_internal', column: 'show_id', refTable: 'shows', refColumn: 'id', onDelete: 'CASCADE', onUpdate: 'NO ACTION' },
+    {
+      table: "shows_internal",
+      column: "show_id",
+      refTable: "shows",
+      refColumn: "id",
+      onDelete: "CASCADE",
+      onUpdate: "NO ACTION",
+    },
     // finding: link_sessions.crew_member_id FK MUST be ON DELETE SET NULL,
     // NOT CASCADE. Cascade silently destroys the session row when crew is deleted by
     // sync, making §7.2.2 step 5 (LINK_NO_CREW_MATCH) unreachable — the row the
@@ -961,26 +1004,61 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // NULL) and render the documented 410 + "you've been removed" copy. The exact-match
     // introspection assertion below proves a future migration can't silently revert this
     // to CASCADE without failing AC-2.1.
-    { table: 'link_sessions', column: 'crew_member_id', refTable: 'crew_members', refColumn: 'id', onDelete: 'SET NULL', onUpdate: 'NO ACTION' },
-    { table: 'link_sessions', column: 'show_id', refTable: 'shows', refColumn: 'id', onDelete: 'CASCADE', onUpdate: 'NO ACTION' },
+    {
+      table: "link_sessions",
+      column: "crew_member_id",
+      refTable: "crew_members",
+      refColumn: "id",
+      onDelete: "SET NULL",
+      onUpdate: "NO ACTION",
+    },
+    {
+      table: "link_sessions",
+      column: "show_id",
+      refTable: "shows",
+      refColumn: "id",
+      onDelete: "CASCADE",
+      onUpdate: "NO ACTION",
+    },
     // finding: bootstrap_nonces is the CSRF-defense table minted by
     // /show/<slug>/p and consumed by /api/auth/redeem-link. show_id FK uses CASCADE
     // because deleting the show invalidates any in-flight bootstrap (the nonce only
     // makes sense for that show's redeem-link flow); 30-second TTL means the cleanup
     // is benign even without cascade, but cascade keeps the table tidy and matches
     // the pattern used by other auth-related FKs.
-    { table: 'bootstrap_nonces', column: 'show_id', refTable: 'shows', refColumn: 'id', onDelete: 'CASCADE', onUpdate: 'NO ACTION' },
+    {
+      table: "bootstrap_nonces",
+      column: "show_id",
+      refTable: "shows",
+      refColumn: "id",
+      onDelete: "CASCADE",
+      onUpdate: "NO ACTION",
+    },
     // pending_snapshot_uploads.show_id FK is the
     // commit-aware snapshot ledger's tether to its show. CASCADE matches the pattern: deleting the
     // show invalidates the in-flight Apply ledger rows; the GC sweep would have orphaned them
     // otherwise. The unique constraint on temp_prefix is asserted via the partial-index matrix below.
-    { table: 'pending_snapshot_uploads', column: 'show_id', refTable: 'shows', refColumn: 'id', onDelete: 'CASCADE', onUpdate: 'NO ACTION' },
-    { table: 'admin_alerts', column: 'show_id', refTable: 'shows', refColumn: 'id', onDelete: 'CASCADE', onUpdate: 'NO ACTION' },
+    {
+      table: "pending_snapshot_uploads",
+      column: "show_id",
+      refTable: "shows",
+      refColumn: "id",
+      onDelete: "CASCADE",
+      onUpdate: "NO ACTION",
+    },
+    {
+      table: "admin_alerts",
+      column: "show_id",
+      refTable: "shows",
+      refColumn: "id",
+      onDelete: "CASCADE",
+      onUpdate: "NO ACTION",
+    },
     /* …every FK named in §4.1, including the /40 reports additions. */
   ] as const;
   for (const fk of REQUIRED_FKS) {
-    it(`AC-2.1 FK exact-match: ${fk.table}.${fk.column} → ${fk.refTable}.${fk.refColumn}`, async => {
-      const { rows } = await admin.rpc('introspect_fk', { p_table: fk.table, p_column: fk.column });
+    it(`AC-2.1 FK exact-match: ${fk.table}.${fk.column} → ${fk.refTable}.${fk.refColumn}`, (async) => {
+      const { rows } = await admin.rpc("introspect_fk", { p_table: fk.table, p_column: fk.column });
       expect(rows[0].ref_table).toBe(fk.refTable);
       expect(rows[0].ref_column).toBe(fk.refColumn);
       expect(rows[0].on_delete).toBe(fk.onDelete);
@@ -990,12 +1068,12 @@ Spec context: §4 entire data model, §17.1 milestone 2.
 
   const REQUIRED_PARTIAL_INDEXES = [
     {
-      name: 'crew_members_show_email_unique',
+      name: "crew_members_show_email_unique",
       // Exact pg_get_indexdef output — string equality, not regex.
       expectDef: `CREATE UNIQUE INDEX crew_members_show_email_unique ON public.crew_members USING btree (show_id, email) WHERE (email IS NOT NULL)`,
     },
     {
-      name: 'pending_syncs_wizard_session_idx', // canonical spec name
+      name: "pending_syncs_wizard_session_idx", // canonical spec name
       expectDef: `CREATE INDEX pending_syncs_wizard_session_idx ON public.pending_syncs USING btree (wizard_session_id) WHERE (wizard_session_id IS NOT NULL)`,
     },
     // / amendment: live-row vs wizard-row partial unique indexes
@@ -1003,23 +1081,23 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // row and one wizard (UUID-session) row per drive_file_id, preventing wizard scans from
     // overwriting live cron/push/manual rows during Re-run Setup. Spec §4.5 declares them.
     {
-      name: 'pending_syncs_live_drive_file_idx',
+      name: "pending_syncs_live_drive_file_idx",
       expectDef: `CREATE UNIQUE INDEX pending_syncs_live_drive_file_idx ON public.pending_syncs USING btree (drive_file_id) WHERE (wizard_session_id IS NULL)`,
     },
     {
-      name: 'pending_syncs_session_drive_file_idx',
+      name: "pending_syncs_session_drive_file_idx",
       expectDef: `CREATE UNIQUE INDEX pending_syncs_session_drive_file_idx ON public.pending_syncs USING btree (drive_file_id, wizard_session_id) WHERE (wizard_session_id IS NOT NULL)`,
     },
     {
-      name: 'pending_ingestions_live_drive_file_idx',
+      name: "pending_ingestions_live_drive_file_idx",
       expectDef: `CREATE UNIQUE INDEX pending_ingestions_live_drive_file_idx ON public.pending_ingestions USING btree (drive_file_id) WHERE (wizard_session_id IS NULL)`,
     },
     {
-      name: 'pending_ingestions_session_drive_file_idx',
+      name: "pending_ingestions_session_drive_file_idx",
       expectDef: `CREATE UNIQUE INDEX pending_ingestions_session_drive_file_idx ON public.pending_ingestions USING btree (drive_file_id, wizard_session_id) WHERE (wizard_session_id IS NOT NULL)`,
     },
     {
-      name: 'admin_alerts_one_unresolved_idx',
+      name: "admin_alerts_one_unresolved_idx",
       // Spec §4.6: admin_alerts.show_id is nullable for global alerts; partial unique key uses
       // `coalesce(show_id::text, '')` so global alerts participate in the dedup index.
       expectDef: `CREATE UNIQUE INDEX admin_alerts_one_unresolved_idx ON public.admin_alerts USING btree (COALESCE((show_id)::text, ''::text), code) WHERE (resolved_at IS NULL)`,
@@ -1030,15 +1108,15 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // the wizard partition is what wizard step-3 Discard writes and is DELETEd at finalize
     // (clean slate, option A per spec §4.5 lifecycle).
     {
-      name: 'deferred_ingestions_live_drive_file_idx',
+      name: "deferred_ingestions_live_drive_file_idx",
       expectDef: `CREATE UNIQUE INDEX deferred_ingestions_live_drive_file_idx ON public.deferred_ingestions USING btree (drive_file_id) WHERE (wizard_session_id IS NULL)`,
     },
     {
-      name: 'deferred_ingestions_session_drive_file_idx',
+      name: "deferred_ingestions_session_drive_file_idx",
       expectDef: `CREATE UNIQUE INDEX deferred_ingestions_session_drive_file_idx ON public.deferred_ingestions USING btree (drive_file_id, wizard_session_id) WHERE (wizard_session_id IS NOT NULL)`,
     },
     {
-      name: 'drive_watch_channels_one_active_per_folder_idx',
+      name: "drive_watch_channels_one_active_per_folder_idx",
       expectDef: `CREATE UNIQUE INDEX drive_watch_channels_one_active_per_folder_idx ON public.drive_watch_channels USING btree (watched_folder_id) WHERE (status = 'active'::text)`,
     },
     {
@@ -1046,13 +1124,13 @@ Spec context: §4 entire data model, §17.1 milestone 2.
       // on (wizard_session_id, status) per spec §4.5. Listed here so the introspection matrix proves
       // its exact definition rather than just presence — extra columns or a missing predicate would
       // silently slip past name-only checks.
-      name: 'onboarding_scan_manifest_session_idx',
+      name: "onboarding_scan_manifest_session_idx",
       expectDef: `CREATE INDEX onboarding_scan_manifest_session_idx ON public.onboarding_scan_manifest USING btree (wizard_session_id, status)`,
     },
     {
       // onboarding_scan_manifest unique constraint on (wizard_session_id, drive_file_id)
       // per spec §4.5 `unique (wizard_session_id, drive_file_id)`. PG default name is the table+column form.
-      name: 'onboarding_scan_manifest_wizard_session_id_drive_file_id_key',
+      name: "onboarding_scan_manifest_wizard_session_id_drive_file_id_key",
       expectDef: `CREATE UNIQUE INDEX onboarding_scan_manifest_wizard_session_id_drive_file_id_key ON public.onboarding_scan_manifest USING btree (wizard_session_id, drive_file_id)`,
     },
     // + findings 1–2 + :
@@ -1062,7 +1140,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // claimed by another in-flight GC worker — critical for the 3-state lifecycle that
     // closes the GC-vs-promoter race AND the revived-after-expiry vs committing_delete race.
     {
-      name: 'pending_snapshot_uploads_unpromoted_idx',
+      name: "pending_snapshot_uploads_unpromoted_idx",
       expectDef: `CREATE INDEX pending_snapshot_uploads_unpromoted_idx ON public.pending_snapshot_uploads USING btree (uploaded_at) WHERE ((promoted_at IS NULL) AND (claim_token IS NULL))`,
     },
     // + : claim-expiry reclaim
@@ -1075,7 +1153,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // reclaim path — that is the that prevents byte destruction after
     // claim expiry. Without this index a crashed-GC worker's row would be permanently stuck.
     {
-      name: 'pending_snapshot_uploads_claim_expiry_idx',
+      name: "pending_snapshot_uploads_claim_expiry_idx",
       expectDef: `CREATE INDEX pending_snapshot_uploads_claim_expiry_idx ON public.pending_snapshot_uploads USING btree (claim_expires_at) WHERE ((claim_token IS NOT NULL) AND (promoted_at IS NULL) AND (delete_started_at IS NULL) AND (promote_started_at IS NULL))`,
     },
     // pending_snapshot_uploads_promote_stuck_idx — partial index on
@@ -1086,7 +1164,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // admin must repair via /api/admin/snapshot-rollback/[id]/repair). Without this index the
     // admin sweep would full-scan the ledger every time.
     {
-      name: 'pending_snapshot_uploads_promote_stuck_idx',
+      name: "pending_snapshot_uploads_promote_stuck_idx",
       expectDef: `CREATE INDEX pending_snapshot_uploads_promote_stuck_idx ON public.pending_snapshot_uploads USING btree (promote_started_at) WHERE ((promote_started_at IS NOT NULL) AND (promoted_at IS NULL))`,
     },
     // committing-delete recovery index. Rows in
@@ -1097,7 +1175,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // not on the hourly cron path (the 15-min lease means there is no urgency); it runs on the
     // daily reconciler path or on-demand for forensics.
     {
-      name: 'pending_snapshot_uploads_committing_delete_idx',
+      name: "pending_snapshot_uploads_committing_delete_idx",
       expectDef: `CREATE INDEX pending_snapshot_uploads_committing_delete_idx ON public.pending_snapshot_uploads USING btree (delete_started_at) WHERE (delete_started_at IS NOT NULL)`,
     },
     // + : pending_snapshot_uploads.temp_prefix
@@ -1105,7 +1183,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // Per , grain is one row per Apply attempt (not per asset), so this uniqueness
     // pairs with `unique (snapshot_revision_id)` below — both columns are unique-per-Apply.
     {
-      name: 'pending_snapshot_uploads_temp_prefix_key',
+      name: "pending_snapshot_uploads_temp_prefix_key",
       expectDef: `CREATE UNIQUE INDEX pending_snapshot_uploads_temp_prefix_key ON public.pending_snapshot_uploads USING btree (temp_prefix)`,
     },
     // pending_snapshot_uploads.snapshot_revision_id
@@ -1113,7 +1191,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // every Apply mints a fresh `snapshot_revision_id` so the ledger row keyed on it is also unique-per-Apply.
     // The post-commit promoter UPDATEs WHERE snapshot_revision_id = $rev for the rename-success transition.
     {
-      name: 'pending_snapshot_uploads_snapshot_revision_id_key',
+      name: "pending_snapshot_uploads_snapshot_revision_id_key",
       expectDef: `CREATE UNIQUE INDEX pending_snapshot_uploads_snapshot_revision_id_key ON public.pending_snapshot_uploads USING btree (snapshot_revision_id)`,
     },
     // revision_race_cooldowns_last_race_idx
@@ -1122,7 +1200,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // sync happened off the explicit clear path). Listed here so a future migration that drops the
     // index OR changes its column set fails AC-2.1 explicitly.
     {
-      name: 'revision_race_cooldowns_last_race_idx',
+      name: "revision_race_cooldowns_last_race_idx",
       expectDef: `CREATE INDEX revision_race_cooldowns_last_race_idx ON public.revision_race_cooldowns USING btree (last_race_at)`,
     },
     // revision_race_cooldowns composite
@@ -1131,14 +1209,17 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // makes per-`raced_head_revision_id` cooldown isolation work: a race against R1 doesn't gate a
     // race against R2 even when both target the same drive_file_id.
     {
-      name: 'revision_race_cooldowns_pkey',
+      name: "revision_race_cooldowns_pkey",
       expectDef: `CREATE UNIQUE INDEX revision_race_cooldowns_pkey ON public.revision_race_cooldowns USING btree (drive_file_id, raced_head_revision_id)`,
     },
     /* …reports.idempotency_key unique index, reports.lease_holder partial-not-null index, etc. */
   ] as const;
   for (const idx of REQUIRED_PARTIAL_INDEXES) {
-    it(`AC-2.1 partial index exact-def: ${idx.name}`, async => {
-      const { rows } = await admin.query(`SELECT pg_get_indexdef(c.oid) AS def FROM pg_class c WHERE c.relname = $1`, [idx.name]);
+    it(`AC-2.1 partial index exact-def: ${idx.name}`, (async) => {
+      const { rows } = await admin.query(
+        `SELECT pg_get_indexdef(c.oid) AS def FROM pg_class c WHERE c.relname = $1`,
+        [idx.name],
+      );
       expect(rows.length).toBe(1);
       assertExactDefMatch(rows[0].def, idx.expectDef, `index ${idx.name}`); // string equality
     });
@@ -1154,26 +1235,38 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     {
       // wizard-approved gate: pending_syncs.wizard_approved BOOLEAN NOT NULL DEFAULT FALSE
       //.
-      table: 'pending_syncs', column: 'wizard_approved',
-      data_type: 'boolean', is_nullable: 'NO', column_default: 'false',
+      table: "pending_syncs",
+      column: "wizard_approved",
+      data_type: "boolean",
+      is_nullable: "NO",
+      column_default: "false",
     },
     {
       // durable wizard-approval payload. NULL until step 5W; finalize
       // reads these as sync_audit attribution + reviewer-choices replay payload. The §4.5
       // symmetry CHECK (wizard_approved=false OR all-three-NOT-NULL) is asserted below.
-      table: 'pending_syncs', column: 'wizard_approved_by_email',
-      data_type: 'text', is_nullable: 'YES', column_default: null,
+      table: "pending_syncs",
+      column: "wizard_approved_by_email",
+      data_type: "text",
+      is_nullable: "YES",
+      column_default: null,
     },
     {
-      table: 'pending_syncs', column: 'wizard_approved_at',
-      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+      table: "pending_syncs",
+      column: "wizard_approved_at",
+      data_type: "timestamp with time zone",
+      is_nullable: "YES",
+      column_default: null,
     },
     {
       // validated reviewer_choices payload (post §6.8.2 schema validation)
       // captured at step 5W and replayed verbatim by finalize Phase B as the Phase 2 `choices`
       // argument so MI-11/12/13/14 derived_side_effects reflect the operator's actual decisions.
-      table: 'pending_syncs', column: 'wizard_reviewer_choices',
-      data_type: 'jsonb', is_nullable: 'YES', column_default: null,
+      table: "pending_syncs",
+      column: "wizard_reviewer_choices",
+      data_type: "jsonb",
+      is_nullable: "YES",
+      column_default: null,
     },
     {
       // payload-shape version. Finalize-time replay dispatches to the
@@ -1181,8 +1274,11 @@ Spec context: §4 entire data model, §17.1 milestone 2.
       // WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED and the operator must re-Apply.
       // Symmetry CHECK requires NULL on live rows AND NOT NULL when wizard_approved = TRUE
       //.
-      table: 'pending_syncs', column: 'wizard_reviewer_choices_version',
-      data_type: 'smallint', is_nullable: 'YES', column_default: null,
+      table: "pending_syncs",
+      column: "wizard_reviewer_choices_version",
+      data_type: "smallint",
+      is_nullable: "YES",
+      column_default: null,
     },
     {
       // row visibility gate for multi-batch wizard finalize. Default TRUE
@@ -1194,23 +1290,32 @@ Spec context: §4 entire data model, §17.1 milestone 2.
       // (or, on `shows` itself, `AND shows.published = TRUE`) so interim-batch rows are denied
       // even to crew whose email matches a `crew_members` row — the gate is replicated on every
       // peer table to close the PostgREST direct-query bypass.
-      table: 'shows', column: 'published',
-      data_type: 'boolean', is_nullable: 'NO', column_default: 'true',
+      table: "shows",
+      column: "published",
+      data_type: "boolean",
+      is_nullable: "NO",
+      column_default: "true",
     },
     {
       // wizard-session timestamp: app_settings.pending_wizard_session_at TIMESTAMPTZ
       // NULL — set when a wizard session is opened; cleared on finalize/abort. Used by the §4.5
       // pending-wizard-session CAS in Task 10.x.
-      table: 'app_settings', column: 'pending_wizard_session_at',
-      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+      table: "app_settings",
+      column: "pending_wizard_session_at",
+      data_type: "timestamp with time zone",
+      is_nullable: "YES",
+      column_default: null,
     },
     {
       // pending_ingestions.last_seen_modified_time TIMESTAMPTZ NULL — populated on
       // every Phase 1 hard-fail UPSERT; read by `/api/admin/pending-ingestions/[id]/discard` to
       // populate `deferred_ingestions.deferred_at_modified_time` when kind='defer_until_modified'
       // (mirrors how `pending_syncs.staged_modified_time` feeds the first-seen Discard path).
-      table: 'pending_ingestions', column: 'last_seen_modified_time',
-      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+      table: "pending_ingestions",
+      column: "last_seen_modified_time",
+      data_type: "timestamp with time zone",
+      is_nullable: "YES",
+      column_default: null,
     },
     // shows.pending_snapshot_path REMOVED. The corrected design
     // stages the not-yet-promoted revision id on `shows.diagrams.pending_revision_id` (a
@@ -1225,44 +1330,68 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // partial migration can't silently drop one. The unique-on-temp_prefix and partial-index
     // assertions live in REQUIRED_PARTIAL_INDEXES above; the FK lives in REQUIRED_FKS above.
     {
-      table: 'pending_snapshot_uploads', column: 'id',
-      data_type: 'uuid', is_nullable: 'NO', column_default: 'gen_random_uuid',
+      table: "pending_snapshot_uploads",
+      column: "id",
+      data_type: "uuid",
+      is_nullable: "NO",
+      column_default: "gen_random_uuid",
     },
     {
-      table: 'pending_snapshot_uploads', column: 'show_id',
-      data_type: 'uuid', is_nullable: 'NO', column_default: null,
+      table: "pending_snapshot_uploads",
+      column: "show_id",
+      data_type: "uuid",
+      is_nullable: "NO",
+      column_default: null,
     },
     {
-      table: 'pending_snapshot_uploads', column: 'drive_file_id',
-      data_type: 'text', is_nullable: 'NO', column_default: null,
+      table: "pending_snapshot_uploads",
+      column: "drive_file_id",
+      data_type: "text",
+      is_nullable: "NO",
+      column_default: null,
     },
     {
-      table: 'pending_snapshot_uploads', column: 'temp_prefix',
-      data_type: 'text', is_nullable: 'NO', column_default: null,
+      table: "pending_snapshot_uploads",
+      column: "temp_prefix",
+      data_type: "text",
+      is_nullable: "NO",
+      column_default: null,
     },
     {
-      table: 'pending_snapshot_uploads', column: 'uploaded_at',
-      data_type: 'timestamp with time zone', is_nullable: 'NO', column_default: 'now',
+      table: "pending_snapshot_uploads",
+      column: "uploaded_at",
+      data_type: "timestamp with time zone",
+      is_nullable: "NO",
+      column_default: "now",
     },
     {
-      table: 'pending_snapshot_uploads', column: 'promoted_at',
-      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+      table: "pending_snapshot_uploads",
+      column: "promoted_at",
+      data_type: "timestamp with time zone",
+      is_nullable: "YES",
+      column_default: null,
     },
     // pending_snapshot_uploads.snapshot_revision_id
     // is part of the per-Apply ledger key (along with temp_prefix). Both are UNIQUE-per-Apply per the
     // amended grain. The post-commit promoter UPDATEs `WHERE snapshot_revision_id = $rev` to flip
     // promoted_at + clear claim_token in one statement.
     {
-      table: 'pending_snapshot_uploads', column: 'snapshot_revision_id',
-      data_type: 'uuid', is_nullable: 'NO', column_default: null,
+      table: "pending_snapshot_uploads",
+      column: "snapshot_revision_id",
+      data_type: "uuid",
+      is_nullable: "NO",
+      column_default: null,
     },
     // pending_snapshot_uploads.asset_count is the
     // number of assets uploaded under this Apply's temp prefix. Captured at INSERT time so the GC
     // sweep / promoter can sanity-check the prefix LIST result against the recorded count and
     // detect partial-upload corner cases.
     {
-      table: 'pending_snapshot_uploads', column: 'asset_count',
-      data_type: 'integer', is_nullable: 'NO', column_default: null,
+      table: "pending_snapshot_uploads",
+      column: "asset_count",
+      data_type: "integer",
+      is_nullable: "NO",
+      column_default: null,
     },
     // pending_snapshot_uploads.claim_token —
     // the GC worker's single-claim CAS token. NULL on initial INSERT and on the post-promote
@@ -1270,8 +1399,11 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // transaction's CAS check or (b) the 5-minute claim expiry. Without this column the
     // GC-vs-promoter race deletes assets out from under a committed revision.
     {
-      table: 'pending_snapshot_uploads', column: 'claim_token',
-      data_type: 'uuid', is_nullable: 'YES', column_default: null,
+      table: "pending_snapshot_uploads",
+      column: "claim_token",
+      data_type: "uuid",
+      is_nullable: "YES",
+      column_default: null,
     },
     // pending_snapshot_uploads.claimed_at — the
     // timestamp the worker first claimed this row. Distinct from `claim_expires_at` (lease deadline);
@@ -1281,8 +1413,11 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // claim_expires_at IS NULL) OR (claim_token IS NOT NULL AND claimed_at IS NOT NULL AND
     // claim_expires_at IS NOT NULL)` is asserted in REQUIRED_TABLE_CHECKS.
     {
-      table: 'pending_snapshot_uploads', column: 'claimed_at',
-      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+      table: "pending_snapshot_uploads",
+      column: "claimed_at",
+      data_type: "timestamp with time zone",
+      is_nullable: "YES",
+      column_default: null,
     },
     // pending_snapshot_uploads.claim_expires_at —
     // the lease deadline. Set to `claimed_at + interval '5 minutes'` on initial claim; extended
@@ -1292,8 +1427,11 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // path range-scans this column WHERE `delete_started_at IS NULL` — the new
     // `pending_snapshot_uploads_claim_expiry_idx` partial index supports this.
     {
-      table: 'pending_snapshot_uploads', column: 'claim_expires_at',
-      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+      table: "pending_snapshot_uploads",
+      column: "claim_expires_at",
+      data_type: "timestamp with time zone",
+      is_nullable: "YES",
+      column_default: null,
     },
     // pending_snapshot_uploads.delete_started_at —
     // the state-discriminator that turns the lifecycle into a 3-state machine (unclaimed / claimed /
@@ -1307,8 +1445,11 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // and `delete_started_at IS NULL OR promoted_at IS NULL` (cannot delete a promoted row) are
     // asserted in REQUIRED_TABLE_CHECKS.
     {
-      table: 'pending_snapshot_uploads', column: 'delete_started_at',
-      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+      table: "pending_snapshot_uploads",
+      column: "delete_started_at",
+      data_type: "timestamp with time zone",
+      is_nullable: "YES",
+      column_default: null,
     },
     // pending_snapshot_uploads.promote_started_at —
     // the non-reclaimable-promotion sub-state column. Set in the SAME UPDATE that acquires the
@@ -1320,8 +1461,11 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // `pending_snapshot_uploads_promote_stuck_idx` partial index in REQUIRED_PARTIAL_INDEXES backs
     // the `PENDING_SNAPSHOT_PROMOTE_STUCK` admin-alert sweep over this column.
     {
-      table: 'pending_snapshot_uploads', column: 'promote_started_at',
-      data_type: 'timestamp with time zone', is_nullable: 'YES', column_default: null,
+      table: "pending_snapshot_uploads",
+      column: "promote_started_at",
+      data_type: "timestamp with time zone",
+      is_nullable: "YES",
+      column_default: null,
     },
     // shows.opening_reel_mime_type TEXT NULL — the
     // 4th reel pin column added by to gate inline `<video>` rendering on
@@ -1330,8 +1474,11 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // Earlier introspection only covered the original three pin columns; this entry plus the
     // amended ACs ensure a future migration can't silently drop the MIME-type gate.
     {
-      table: 'shows', column: 'opening_reel_mime_type',
-      data_type: 'text', is_nullable: 'YES', column_default: null,
+      table: "shows",
+      column: "opening_reel_mime_type",
+      data_type: "text",
+      is_nullable: "YES",
+      column_default: null,
     },
     // revision_race_cooldowns
     // columns. The composite PK / non-partial last_race_at index assertions live in
@@ -1340,20 +1487,32 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // forgets any column on this admin-only ledger fails AC-2.1 explicitly. The admin-only RLS
     // policy is exercised by AC-2.5 (the table is in the §4.3 admin-only list, count = 18).
     {
-      table: 'revision_race_cooldowns', column: 'drive_file_id',
-      data_type: 'text', is_nullable: 'NO', column_default: null,
+      table: "revision_race_cooldowns",
+      column: "drive_file_id",
+      data_type: "text",
+      is_nullable: "NO",
+      column_default: null,
     },
     {
-      table: 'revision_race_cooldowns', column: 'raced_head_revision_id',
-      data_type: 'text', is_nullable: 'NO', column_default: null,
+      table: "revision_race_cooldowns",
+      column: "raced_head_revision_id",
+      data_type: "text",
+      is_nullable: "NO",
+      column_default: null,
     },
     {
-      table: 'revision_race_cooldowns', column: 'last_race_at',
-      data_type: 'timestamp with time zone', is_nullable: 'NO', column_default: 'now',
+      table: "revision_race_cooldowns",
+      column: "last_race_at",
+      data_type: "timestamp with time zone",
+      is_nullable: "NO",
+      column_default: "now",
     },
     {
-      table: 'revision_race_cooldowns', column: 'retry_count',
-      data_type: 'integer', is_nullable: 'NO', column_default: '0',
+      table: "revision_race_cooldowns",
+      column: "retry_count",
+      data_type: "integer",
+      is_nullable: "NO",
+      column_default: "0",
     },
     // JWT signing-key rotation columns (§4.5 / §7.2.3 / AC-5.6a). Both columns ship in the initial
     // migration as a single linked unit (no follow-on ALTER per Step 1's no-ALTER rule). The
@@ -1363,16 +1522,22 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     // migration could silently drop either column and break the §7.2.3 global-rotation contract
     // without any failing test surfacing the regression.
     {
-      table: 'link_sessions', column: 'signing_key_id',
-      data_type: 'text', is_nullable: 'NO', column_default: null,
+      table: "link_sessions",
+      column: "signing_key_id",
+      data_type: "text",
+      is_nullable: "NO",
+      column_default: null,
     },
     {
-      table: 'app_settings', column: 'active_signing_key_id',
-      data_type: 'text', is_nullable: 'NO', column_default: "'k1'::text",
+      table: "app_settings",
+      column: "active_signing_key_id",
+      data_type: "text",
+      is_nullable: "NO",
+      column_default: "'k1'::text",
     },
   ] as const;
   for (const c of REQUIRED_COLUMNS) {
-    it(`AC-2.1 column presence: ${c.table}.${c.column}`, async => {
+    it(`AC-2.1 column presence: ${c.table}.${c.column}`, (async) => {
       const { rows } = await admin.query(
         `SELECT data_type, is_nullable, column_default
            FROM information_schema.columns
@@ -1383,7 +1548,10 @@ Spec context: §4 entire data model, §17.1 milestone 2.
       expect(rows[0].data_type).toBe(c.data_type);
       expect(rows[0].is_nullable).toBe(c.is_nullable);
       if (c.column_default === null) expect(rows[0].column_default).toBeNull;
-      else expect(String(rows[0].column_default).toLowerCase).toContain(String(c.column_default).toLowerCase);
+      else
+        expect(String(rows[0].column_default).toLowerCase).toContain(
+          String(c.column_default).toLowerCase,
+        );
     });
   }
   // Additional CHECK invariants tied to columns. Spec §4.5
@@ -1391,15 +1559,16 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   // — a wizard_approved=TRUE row MUST have a wizard_session_id; live-partition rows can never be
   // `approved`. Add the CHECK to REQUIRED_CHECKS above (it's listed there from spec); also assert
   // its presence here so it can't be silently dropped:
-  it('AC-2.1 CHECK invariant present: pending_syncs_wizard_approved_requires_session', async => {
-    const { rows } = await admin.rpc('introspect_check', {
-      p_table: 'pending_syncs', p_name: 'pending_syncs_wizard_approved_requires_session',
+  it("AC-2.1 CHECK invariant present: pending_syncs_wizard_approved_requires_session", (async) => {
+    const { rows } = await admin.rpc("introspect_check", {
+      p_table: "pending_syncs",
+      p_name: "pending_syncs_wizard_approved_requires_session",
     });
     expect(rows.length).toBe(1);
     assertExactDefMatch(
       rows[0].def,
       `CHECK (((wizard_session_id IS NOT NULL) OR (wizard_approved = false)))`,
-      'pending_syncs_wizard_approved_requires_session',
+      "pending_syncs_wizard_approved_requires_session",
     );
   });
 
@@ -1408,9 +1577,10 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   // meaningful only for wizard-scope rows. A live-scope row (wizard_session_id IS NULL) MUST
   // keep all three NULL — the §4.5 CHECK below blocks any attempt to write the payload onto
   // a live row.
-  it('AC-2.1 CHECK invariant present: pending_syncs_live_rows_have_no_approval_payload', async => {
-    const { rows } = await admin.rpc('introspect_check', {
-      p_table: 'pending_syncs', p_name: 'pending_syncs_live_rows_have_no_approval_payload',
+  it("AC-2.1 CHECK invariant present: pending_syncs_live_rows_have_no_approval_payload", (async) => {
+    const { rows } = await admin.rpc("introspect_check", {
+      p_table: "pending_syncs",
+      p_name: "pending_syncs_live_rows_have_no_approval_payload",
     });
     expect(rows.length).toBe(1);
     assertExactDefMatch(
@@ -1418,7 +1588,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
       // `wizard_reviewer_choices_version` joins the symmetry pair —
       // live rows (wizard_session_id IS NULL) MUST keep all FOUR payload columns NULL.
       `CHECK (((wizard_session_id IS NOT NULL) OR ((wizard_approved_by_email IS NULL) AND (wizard_approved_at IS NULL) AND (wizard_reviewer_choices IS NULL) AND (wizard_reviewer_choices_version IS NULL))))`,
-      'pending_syncs_live_rows_have_no_approval_payload',
+      "pending_syncs_live_rows_have_no_approval_payload",
     );
   });
 
@@ -1428,15 +1598,16 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   // operator email, approval timestamp, validated reviewer_choices payload, AND the payload-shape
   // version. This is what guarantees finalize can reconstruct sync_audit + replay
   // MI-11/12/13/14 derived_side_effects through the correct version-keyed handler.
-  it('AC-2.1 CHECK invariant present: pending_syncs_approved_requires_full_payload', async => {
-    const { rows } = await admin.rpc('introspect_check', {
-      p_table: 'pending_syncs', p_name: 'pending_syncs_approved_requires_full_payload',
+  it("AC-2.1 CHECK invariant present: pending_syncs_approved_requires_full_payload", (async) => {
+    const { rows } = await admin.rpc("introspect_check", {
+      p_table: "pending_syncs",
+      p_name: "pending_syncs_approved_requires_full_payload",
     });
     expect(rows.length).toBe(1);
     assertExactDefMatch(
       rows[0].def,
       `CHECK (((wizard_approved = false) OR ((wizard_approved_by_email IS NOT NULL) AND (wizard_approved_at IS NOT NULL) AND (wizard_reviewer_choices IS NOT NULL) AND (wizard_reviewer_choices_version IS NOT NULL))))`,
-      'pending_syncs_approved_requires_full_payload',
+      "pending_syncs_approved_requires_full_payload",
     );
   });
 
@@ -1445,29 +1616,37 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   // exist by name but were authored with weakened predicates (e.g., a typo'd column reference
   // making the OR-clause always true). The introspection-def matchers above guard against
   // that statically; this runtime check provides defense in depth.
-  it('AC-2.1 CHECK enforces live-rows-have-no-payload at runtime', async => {
-    const seed = { drive_file_id: 'm12-runtime-1', wizard_session_id: null, wizard_approved: false, /* …other required fields */ };
-    await admin.from('pending_syncs').insert(seed);
+  it("AC-2.1 CHECK enforces live-rows-have-no-payload at runtime", (async) => {
+    const seed = {
+      drive_file_id: "m12-runtime-1",
+      wizard_session_id: null,
+      wizard_approved: false /* …other required fields */,
+    };
+    await admin.from("pending_syncs").insert(seed);
     const result = await admin
-      .from('pending_syncs')
-      .update({ wizard_approved_by_email: 'doug@example.com' })
-      .eq('drive_file_id', seed.drive_file_id);
-    expect(result.error?.code).toBe('23514');
+      .from("pending_syncs")
+      .update({ wizard_approved_by_email: "doug@example.com" })
+      .eq("drive_file_id", seed.drive_file_id);
+    expect(result.error?.code).toBe("23514");
   });
-  it('AC-2.1 CHECK enforces approved-requires-full-payload at runtime', async => {
+  it("AC-2.1 CHECK enforces approved-requires-full-payload at runtime", (async) => {
     // Insert a wizard-scope row, then try wizard_approved=TRUE with one payload column NULL.
-    const seed = { drive_file_id: 'm12-runtime-2', wizard_session_id: TEST_WIZARD_SESSION_ID, wizard_approved: false };
-    await admin.from('pending_syncs').insert(seed);
+    const seed = {
+      drive_file_id: "m12-runtime-2",
+      wizard_session_id: TEST_WIZARD_SESSION_ID,
+      wizard_approved: false,
+    };
+    await admin.from("pending_syncs").insert(seed);
     const result = await admin
-      .from('pending_syncs')
+      .from("pending_syncs")
       .update({
         wizard_approved: true,
-        wizard_approved_by_email: 'doug@example.com',
-        wizard_approved_at: new Date.toISOString,
+        wizard_approved_by_email: "doug@example.com",
+        wizard_approved_at: new Date.toISOString(),
         // wizard_reviewer_choices intentionally omitted → NULL → violates symmetry CHECK
       })
-      .eq('drive_file_id', seed.drive_file_id);
-    expect(result.error?.code).toBe('23514');
+      .eq("drive_file_id", seed.drive_file_id);
+    expect(result.error?.code).toBe("23514");
   });
 
   // **Live-vs-wizard partition execution contract.** Index
@@ -1495,19 +1674,27 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   // Transportation singular-row contract — spec §4.1 enforces unique(show_id)
   // because the parser/data-model is `TransportationRow | null`. Add both an introspection assertion
   // for the unique constraint AND a duplicate-insert test that exercises the constraint at runtime.
-  it('AC-2.1 transportation has unique(show_id) — introspection', async => {
+  it("AC-2.1 transportation has unique(show_id) — introspection", (async) => {
     const { rows } = await admin.query(
       `SELECT pg_get_indexdef(c.oid) AS def FROM pg_class c WHERE c.relname = $1`,
-      ['transportation_show_id_key'], // PG default name for `UNIQUE` column constraint; adjust if migration uses an explicit name
+      ["transportation_show_id_key"], // PG default name for `UNIQUE` column constraint; adjust if migration uses an explicit name
     );
     expect(rows.length).toBe(1);
-    assertExactDefMatch(rows[0].def, `CREATE UNIQUE INDEX transportation_show_id_key ON public.transportation USING btree (show_id)`, 'transportation_show_id_key');
+    assertExactDefMatch(
+      rows[0].def,
+      `CREATE UNIQUE INDEX transportation_show_id_key ON public.transportation USING btree (show_id)`,
+      "transportation_show_id_key",
+    );
   });
-  it('AC-2.1 transportation rejects duplicate (show_id) insert', async => {
-    const { error: firstErr } = await admin.from('transportation').insert({ show_id: knownShowId, driver_name: 'A' });
+  it("AC-2.1 transportation rejects duplicate (show_id) insert", (async) => {
+    const { error: firstErr } = await admin
+      .from("transportation")
+      .insert({ show_id: knownShowId, driver_name: "A" });
     expect(firstErr).toBeNull;
-    const { error: dupErr } = await admin.from('transportation').insert({ show_id: knownShowId, driver_name: 'B' });
-    expect(dupErr?.code).toBe('23505'); // Postgres unique_violation
+    const { error: dupErr } = await admin
+      .from("transportation")
+      .insert({ show_id: knownShowId, driver_name: "B" });
+    expect(dupErr?.code).toBe("23505"); // Postgres unique_violation
   });
 
   // Negative assertions — intentionally absent constraints.
@@ -1517,12 +1704,18 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   // the "remove-and-readd" contract that prevents old JWTs from resurrecting when a name returns
   // to the sheet). Assert these explicitly so a future migration can't accidentally tighten the
   // schema in a way that breaks the staging contract OR the auth-survival contract.
-  it('AC-2.1 pending_syncs.drive_file_id has NO FK to shows (first-seen staging requires no parent row)', async => {
-    const { rows } = await admin.rpc('introspect_fk', { p_table: 'pending_syncs', p_column: 'drive_file_id' });
+  it("AC-2.1 pending_syncs.drive_file_id has NO FK to shows (first-seen staging requires no parent row)", (async) => {
+    const { rows } = await admin.rpc("introspect_fk", {
+      p_table: "pending_syncs",
+      p_column: "drive_file_id",
+    });
     expect(rows.length).toBe(0);
   });
-  it('AC-2.1 pending_ingestions.drive_file_id has NO FK to shows (same rationale)', async => {
-    const { rows } = await admin.rpc('introspect_fk', { p_table: 'pending_ingestions', p_column: 'drive_file_id' });
+  it("AC-2.1 pending_ingestions.drive_file_id has NO FK to shows (same rationale)", (async) => {
+    const { rows } = await admin.rpc("introspect_fk", {
+      p_table: "pending_ingestions",
+      p_column: "drive_file_id",
+    });
     expect(rows.length).toBe(0);
   });
   // — crew_member_auth durability invariant (§4.1 remove-and-readd contract).
@@ -1536,7 +1729,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   // FK assertions for pending_syncs and pending_ingestions; missing crew_member_auth here
   // would let a future migration accidentally add `REFERENCES crew_members(...) ON DELETE
   // CASCADE` and silently break the auth-survival contract.
-  it('AC-2.1 crew_member_auth has NO FK to crew_members (remove-and-readd survival per §4.1)', async => {
+  it("AC-2.1 crew_member_auth has NO FK to crew_members (remove-and-readd survival per §4.1)", (async) => {
     // Introspect every FK on crew_member_auth and assert NONE references crew_members.
     // Use pg_get_constraintdef so we can also assert against the FK definition string in case
     // a future migration adds a non-standard column referencing the wrong target.
@@ -1553,59 +1746,85 @@ Spec context: §4 entire data model, §17.1 milestone 2.
       expect(r.def.toLowerCase).not.toMatch(/references\s+crew_members/);
     }
   });
-  it('AC-2.1 crew_member_auth survives crew_members delete-and-readd (runtime durability)', async => {
+  it("AC-2.1 crew_member_auth survives crew_members delete-and-readd (runtime durability)", (async) => {
     // Integration probe: the negative FK assertion above proves the schema CAN survive the
     // cycle; this test proves the runtime contract is actually preserved. Earlier draft only
     // had introspection — without exercising the cycle, nothing catches a future trigger that
     // deletes from crew_member_auth on crew_members DELETE.
     const showId = await seedShow; // service-role helper (see Task 2.4 fixtures)
     const name = `Probe ${crypto.randomUUID}`; // unique within the show
-    const email = `${name.toLowerCase.replace(/\s+/g, '.')}@probe.test`;
+    const email = `${name.toLowerCase.replace(/\s+/g, ".")}@probe.test`;
     // 1. Insert a crew_members row; a crew_member_auth row should exist (per §5.2 sync interaction).
     // We seed both directly to avoid coupling this test to the sync code path.
-    const { data: crewRow } = await admin.from('crew_members').insert({
-      show_id: showId, name, email, role: 'PROBE', role_flags: ['PROBE'],
+    const { data: crewRow } = await admin.from("crew_members").insert({
+      show_id: showId,
+      name,
+      email,
+      role: "PROBE",
+      role_flags: ["PROBE"],
     }).select.single;
     expect(crewRow!.id).toEqual(expect.any(String));
     // Pre-existing auth state with non-default values so a stealth re-init would be visible:
-    const initial = { show_id: showId, crew_name: name,
-      current_token_version: 7, max_issued_version: 9, revoked_below_version: 4 };
-    const { error: authInsertErr } = await admin.from('crew_member_auth')
-      .upsert(initial, { onConflict: 'show_id,crew_name' });
+    const initial = {
+      show_id: showId,
+      crew_name: name,
+      current_token_version: 7,
+      max_issued_version: 9,
+      revoked_below_version: 4,
+    };
+    const { error: authInsertErr } = await admin
+      .from("crew_member_auth")
+      .upsert(initial, { onConflict: "show_id,crew_name" });
     expect(authInsertErr).toBeNull;
     // 2. Delete the crew_members row (sync's "delete-not-in-set" path simulating a sheet
     // where Doug removed the name).
-    const { error: delErr } = await admin.from('crew_members').delete.eq('id', crewRow!.id);
+    const { error: delErr } = await admin.from("crew_members").delete.eq("id", crewRow!.id);
     expect(delErr).toBeNull;
     // 3. crew_member_auth MUST still hold the prior (current_token_version, max_issued_version,
     // revoked_below_version) tuple — no implicit cascade, no trigger, nothing.
-    const afterDelete = await admin.from('crew_member_auth')
-      .select('current_token_version, max_issued_version, revoked_below_version')
-      .eq('show_id', showId).eq('crew_name', name).maybeSingle;
+    const afterDelete = await admin
+      .from("crew_member_auth")
+      .select("current_token_version, max_issued_version, revoked_below_version")
+      .eq("show_id", showId)
+      .eq("crew_name", name).maybeSingle;
     expect(afterDelete.error).toBeNull;
     expect(afterDelete.data).toEqual({
-      current_token_version: 7, max_issued_version: 9, revoked_below_version: 4,
+      current_token_version: 7,
+      max_issued_version: 9,
+      revoked_below_version: 4,
     });
     // 4. Re-insert the crew_members row with the SAME (show_id, name). Per §5.2 the sync
     // INSERT...ON CONFLICT DO NOTHING for crew_member_auth must NOT clobber the prior
     // auth state — the existing row joins back in and old JWTs continue to be rejected.
-    const { data: crewRow2 } = await admin.from('crew_members').insert({
-      show_id: showId, name, email, role: 'PROBE_V2', role_flags: ['PROBE'],
+    const { data: crewRow2 } = await admin.from("crew_members").insert({
+      show_id: showId,
+      name,
+      email,
+      role: "PROBE_V2",
+      role_flags: ["PROBE"],
     }).select.single;
     expect(crewRow2!.id).toEqual(expect.any(String));
     // Idempotent upsert mimicking sync's behavior — DO NOTHING when the auth row already exists:
-    await admin.from('crew_member_auth')
-      .upsert({ show_id: showId, crew_name: name }, { onConflict: 'show_id,crew_name', ignoreDuplicates: true });
-    const afterReadd = await admin.from('crew_member_auth')
-      .select('current_token_version, max_issued_version, revoked_below_version')
-      .eq('show_id', showId).eq('crew_name', name).single;
+    await admin
+      .from("crew_member_auth")
+      .upsert(
+        { show_id: showId, crew_name: name },
+        { onConflict: "show_id,crew_name", ignoreDuplicates: true },
+      );
+    const afterReadd = await admin
+      .from("crew_member_auth")
+      .select("current_token_version, max_issued_version, revoked_below_version")
+      .eq("show_id", showId)
+      .eq("crew_name", name).single;
     expect(afterReadd.error).toBeNull;
     expect(afterReadd.data).toEqual({
-      current_token_version: 7, max_issued_version: 9, revoked_below_version: 4,
+      current_token_version: 7,
+      max_issued_version: 9,
+      revoked_below_version: 4,
     });
   });
   ```
+
 - [ ] **Step 4: Commit** `test(db): exact-def CHECK + FK + partial-index introspection + negative assertions`.
 
 ---
-

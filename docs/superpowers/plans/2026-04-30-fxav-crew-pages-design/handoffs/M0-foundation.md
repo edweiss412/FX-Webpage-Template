@@ -1,6 +1,6 @@
 # Handoff — M0: Repository bootstrap, tooling, env
 
-**Handed off:** 2026-05-02  by Eric Weiss
+**Handed off:** 2026-05-02 by Eric Weiss
 **Implementer:** Opus 4.7 / Claude Code (this session, via subagent-driven-development)
 **Adversarial reviewer:** GPT-5.5 / Codex
 **Plan file:** `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/01-foundation.md`

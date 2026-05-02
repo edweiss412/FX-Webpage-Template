@@ -1,0 +1,33 @@
+# Dependencies / lockfiles
+node_modules/
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Build output
+.next/
+out/
+build/
+dist/
+
+# Test artifacts
+coverage/
+test-results/
+playwright-report/
+blob-report/
+
+# Generated
+next-env.d.ts
+
+# Editor / OS
+.DS_Store
+
+# Supabase managed
+supabase/.branches/
+supabase/.temp/
+
+# Tool dirs
+.serena/
+.superpowers/
+.claude/
+.vercel/

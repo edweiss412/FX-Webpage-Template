@@ -2,7 +2,6 @@
 
 > Part of [the FXAV crew pages design plan](README.md).
 
-
 Spec context: §17.1 milestone 3 + §15 demo wording. Eric uploads any fixture and sees the parse panel.
 
 ### Task 3.1: `/admin/dev` form — real Phase-1 write-through with isolated test schema
@@ -12,6 +11,7 @@ Spec context: §17.1 milestone 3 + §15 demo wording. Eric uploads any fixture a
 **Auth gate is mandatory.** `/admin/dev` is a write surface (creates `dev.pending_syncs` rows) AND has a destructive `TRUNCATE dev.* CASCADE` reset action. Schema isolation prevents `public.*` corruption but does NOT solve the access-control problem: without an auth gate, anyone hitting the URL can pollute test state and hammer reset. Per the spec routing table §7.3, every `/admin/**` route is admin-auth-required. **Both the page (`app/admin/dev/page.tsx`) AND the server action (`parseAndStage`) AND the reset action MUST call `requireAdmin` as their first line — X.3's chain audit catches missing gates as a blocking CI failure.**
 
 **Build-time flag (server-only, NOT NEXT_PUBLIC).** Earlier draft used `NEXT_PUBLIC_ENABLE_ADMIN_DEV_PANEL`; that prefix means the value is inlined into the client bundle at build time AND can be mutated at runtime via `process.env`/`env.set`. A Playwright test toggling it via `env.set` only changes runtime process state; it does NOT validate the actual build artifact. Switch to a **server-only env var `ADMIN_DEV_PANEL_ENABLED`** (no `NEXT_PUBLIC_` prefix), read in the route's Server Component `process.env.ADMIN_DEV_PANEL_ENABLED === 'true'`, and add an explicit dual-build test:
+
 - Build the app twice — once with `ADMIN_DEV_PANEL_ENABLED=true` (dev/test), once with the var unset/`false` (prod). Run each build separately.
 - For the prod build: assert `/admin/dev` returns 404 even with admin auth.
 - For the dev build: assert the route loads with admin auth AND returns 403 without.
@@ -23,13 +23,16 @@ This proves the build artifact, not just runtime state. The dev panel must NEVER
 **Pipeline contract.** `parseAndStage` MUST exercise the **same** parser/enrichment boundary production uses, otherwise `/admin/dev` validates routing while the real sync path stages different data. Earlier drafts called `parseSheet` and went straight to invariants — that skips `enrichWithDrivePins` entirely, so the dev panel never exercises reel pins, linked-folder pins, embedded-image extraction, or enrichment-time warnings. The corrected flow is `parseSheet → enrichWithDrivePins(parsed, mockDriveClient) → runInvariants → phase1`, with the mock Drive client returning fixture-resident metadata for any folder/file IDs the fixture markdown references.
 
 - [ ] **Step 1: Failing Playwright test**
+
   ```ts
-  test('admin/dev: upload fixture, see parse panel (AC-3.1)', async ({ page }) => {
-    await page.goto('/admin/dev');
-    await page.selectOption('[data-testid=fixture-picker]', '2026-03-rpas-central-four-seasons.md');
-    await page.click('[data-testid=parse-and-stage]');
-    await expect(page.locator('[data-testid=parse-outcome]')).toHaveText(/auto[ -]apply|stage|hard fail/i);
-    await expect(page.locator('[data-testid=triggered-items]')).toBeVisible;
+  test("admin/dev: upload fixture, see parse panel (AC-3.1)", async ({ page }) => {
+    await page.goto("/admin/dev");
+    await page.selectOption("[data-testid=fixture-picker]", "2026-03-rpas-central-four-seasons.md");
+    await page.click("[data-testid=parse-and-stage]");
+    await expect(page.locator("[data-testid=parse-outcome]")).toHaveText(
+      /auto[ -]apply|stage|hard fail/i,
+    );
+    await expect(page.locator("[data-testid=triggered-items]")).toBeVisible;
     // The dev panel writes to `dev.*` schemas, not `public.*` — assert prod tables untouched.
     /*
      * Comprehensive public-schema isolation probe:
@@ -54,19 +57,27 @@ This proves the build artifact, not just runtime state. The dev panel must NEVER
   // Dual-build test for the server-only ADMIN_DEV_PANEL_ENABLED flag.
   // Run as separate Playwright projects with different build artifacts:
   // playwright.config.ts: { projects: [{ name: 'prod-build', use: { baseURL: 'http://localhost:3000' } /* ADMIN_DEV_PANEL_ENABLED unset */ }, { name: 'dev-build', use: { baseURL: 'http://localhost:3001' } /* built with ADMIN_DEV_PANEL_ENABLED=true */ }] }
-  test('admin/dev: prod build returns 404 even for admin (build artifact gate)', async ({ page }) => {
-    test.skip(test.info.project.name !== 'prod-build', 'this test is for the prod-build project only');
+  test("admin/dev: prod build returns 404 even for admin (build artifact gate)", async ({
+    page,
+  }) => {
+    test.skip(
+      test.info.project.name !== "prod-build",
+      "this test is for the prod-build project only",
+    );
     await signInAs(page, ADMIN_FIXTURE);
-    const response = await page.goto('/admin/dev');
+    const response = await page.goto("/admin/dev");
     expect(response?.status).toBe(404);
   });
-  test('admin/dev: dev build rejects non-admin', async ({ page, request }) => {
-    test.skip(test.info.project.name !== 'dev-build', 'this test is for the dev-build project only');
+  test("admin/dev: dev build rejects non-admin", async ({ page, request }) => {
+    test.skip(
+      test.info.project.name !== "dev-build",
+      "this test is for the dev-build project only",
+    );
     await signInAs(page, NON_ADMIN_CREW_FIXTURE);
-    const response = await page.goto('/admin/dev');
+    const response = await page.goto("/admin/dev");
     expect(response?.status).toBe(403);
     // Verify dev.* state was NOT mutated:
-    const { count } = await admin.from('dev.shows').select('*', { count: 'exact', head: true });
+    const { count } = await admin.from("dev.shows").select("*", { count: "exact", head: true });
     expect(count).toBe(0);
   });
   // ONE invocation model end-to-end (not a mix of fictitious POST URLs and
@@ -77,56 +88,69 @@ This proves the build artifact, not just runtime state. The dev panel must NEVER
   // `/admin/dev/reset` route handler. The negative tests drive the SAME surface production uses:
   // render the page (admin or non-admin), submit the form, observe the server action's response.
 
-  test('admin/dev: parseAndStage form submit rejects non-admin (dev build)', async ({ page }) => {
-    test.skip(test.info.project.name !== 'dev-build', 'dev-build only');
+  test("admin/dev: parseAndStage form submit rejects non-admin (dev build)", async ({ page }) => {
+    test.skip(test.info.project.name !== "dev-build", "dev-build only");
     await signInAs(page, NON_ADMIN_CREW_FIXTURE);
-    const response = await page.goto('/admin/dev');
+    const response = await page.goto("/admin/dev");
     expect(response?.status).toBe(403); // page-level requireAdmin already rejects
-    const { count } = await admin.from('dev.pending_syncs').select('*', { count: 'exact', head: true });
+    const { count } = await admin
+      .from("dev.pending_syncs")
+      .select("*", { count: "exact", head: true });
     expect(count).toBe(0); // no fixture-derived rows landed
   });
-  test('admin/dev: parseAndStage server action rejects non-admin even if page were bypassed (defense in depth, dev build)', async => {
-    test.skip(test.info.project.name !== 'dev-build', 'dev-build only');
+  test("admin/dev: parseAndStage server action rejects non-admin even if page were bypassed (defense in depth, dev build)", (async) => {
+    test.skip(test.info.project.name !== "dev-build", "dev-build only");
     // Server-side integration test of the action function directly — bypasses HTTP and Next.js
     // entirely. Imports the action and invokes it with a simulated non-admin auth context. This
     // proves requireAdmin runs as the action's first line, even if some future caller reaches
     // the action through a non-page entry point.
-    const { parseAndStage } = await import('@/app/admin/dev/actions');
-    await expect(parseAndStage.bind(null, '2026-03-rpas-central-four-seasons.md')).rejects.toThrow(/requireAdmin/);
-    const { count } = await admin.from('dev.pending_syncs').select('*', { count: 'exact', head: true });
+    const { parseAndStage } = await import("@/app/admin/dev/actions");
+    await expect(parseAndStage.bind(null, "2026-03-rpas-central-four-seasons.md")).rejects.toThrow(
+      /requireAdmin/,
+    );
+    const { count } = await admin
+      .from("dev.pending_syncs")
+      .select("*", { count: "exact", head: true });
     expect(count).toBe(0);
   });
-  test('admin/dev: reset action rejects non-admin via server-side integration test (dev build)', async => {
-    test.skip(test.info.project.name !== 'dev-build', 'dev-build only');
-    await admin.from('dev.shows').insert({ /* minimal */ });
-    const { resetDevSchema } = await import('@/app/admin/dev/actions');
+  test("admin/dev: reset action rejects non-admin via server-side integration test (dev build)", (async) => {
+    test.skip(test.info.project.name !== "dev-build", "dev-build only");
+    await admin.from("dev.shows").insert({
+      /* minimal */
+    });
+    const { resetDevSchema } = await import("@/app/admin/dev/actions");
     await expect(resetDevSchema.bind(null)).rejects.toThrow(/requireAdmin/);
-    const { count } = await admin.from('dev.shows').select('*', { count: 'exact', head: true });
+    const { count } = await admin.from("dev.shows").select("*", { count: "exact", head: true });
     expect(count).toBe(1); // reset blocked
   });
 
   // Pipeline-parity test:
-  test('admin/dev runs the FULL parseSheet → enrichWithDrivePins → invariants → phase1 chain', async ({ page }) => {
-    await page.goto('/admin/dev');
-    await page.selectOption('[data-testid=fixture-picker]', '2026-05-fintech-forum-cto-summit.md'); // has reel + diagrams
-    await page.click('[data-testid=parse-and-stage]');
+  test("admin/dev runs the FULL parseSheet → enrichWithDrivePins → invariants → phase1 chain", async ({
+    page,
+  }) => {
+    await page.goto("/admin/dev");
+    await page.selectOption("[data-testid=fixture-picker]", "2026-05-fintech-forum-cto-summit.md"); // has reel + diagrams
+    await page.click("[data-testid=parse-and-stage]");
     // Enrichment ran — assertions visible in the rendered panel:
-    await expect(page.locator('[data-testid=enriched-reel-pin]')).toBeVisible; // headRevisionId + modifiedTime captured
-    await expect(page.locator('[data-testid=enriched-linked-folder-items]')).toBeVisible; // linkedFolderItems[] populated
-    await expect(page.locator('[data-testid=enriched-embedded-images]')).toBeVisible; // embeddedImages[] populated
+    await expect(page.locator("[data-testid=enriched-reel-pin]")).toBeVisible; // headRevisionId + modifiedTime captured
+    await expect(page.locator("[data-testid=enriched-linked-folder-items]")).toBeVisible; // linkedFolderItems[] populated
+    await expect(page.locator("[data-testid=enriched-embedded-images]")).toBeVisible; // embeddedImages[] populated
     // Server-side spy: assert mockDriveClient was called (would be wired via test fixture).
   });
   // Parse-panel diagnostics test:
-  test('admin/dev surfaces parse_warnings, every triggered MI, and raw_unrecognized chunks', async ({ page }) => {
-    await page.goto('/admin/dev');
-    await page.selectOption('[data-testid=fixture-picker]', '2025-03-dci-rpas-central.md'); // raw v2 fixture with typo
-    await page.click('[data-testid=parse-and-stage]');
-    await expect(page.locator('[data-testid=parse-warnings]')).toBeVisible; // §15 demo: warning list
-    await expect(page.locator('[data-testid=parse-warning-item]')).toHaveCount(/* >= 1 */);
-    await expect(page.locator('[data-testid=raw-unrecognized]')).toBeVisible; // raw_unrecognized chunks visible with snippet
-    await expect(page.locator('[data-testid=triggered-mi]')).toBeVisible; // every MI code with name + reason
+  test("admin/dev surfaces parse_warnings, every triggered MI, and raw_unrecognized chunks", async ({
+    page,
+  }) => {
+    await page.goto("/admin/dev");
+    await page.selectOption("[data-testid=fixture-picker]", "2025-03-dci-rpas-central.md"); // raw v2 fixture with typo
+    await page.click("[data-testid=parse-and-stage]");
+    await expect(page.locator("[data-testid=parse-warnings]")).toBeVisible; // §15 demo: warning list
+    await expect(page.locator("[data-testid=parse-warning-item]")).toHaveCount(/* >= 1 */);
+    await expect(page.locator("[data-testid=raw-unrecognized]")).toBeVisible; // raw_unrecognized chunks visible with snippet
+    await expect(page.locator("[data-testid=triggered-mi]")).toBeVisible; // every MI code with name + reason
   });
   ```
+
 - [ ] **Step 2: Implement** the page and a server action `parseAndStage(filename)` that:
   1. Reads the fixture from disk.
   2. **`const parsed = parseSheet(markdown)`** — pure parser, returns `ParsedSheet`.
@@ -214,6 +238,7 @@ Spec context: §8 entire section, §17.1 milestone 4. Demo: open the page on a p
   });
   ```
 - [ ] **Step 2: Implement** with this exact signature AND show-bound viewer lookup:
+
   ```ts
   // Round-X / : third kind 'admin_preview' added for Task 10.8 preview-as.
   // Identity-only — carries ONLY crewMemberId, no impersonate/role-bearing field. Resolves
@@ -221,12 +246,12 @@ Spec context: §8 entire section, §17.1 milestone 4. Demo: open the page on a p
   // cross-show). Difference vs 'crew' is surface-level only: the admin_preview route requires
   // requireAdmin and renders the sticky preview banner.
   type Viewer =
-    | { kind: 'crew'; crewMemberId: string }
-    | { kind: 'admin' }
-    | { kind: 'admin_preview'; crewMemberId: string };
+    | { kind: "crew"; crewMemberId: string }
+    | { kind: "admin" }
+    | { kind: "admin_preview"; crewMemberId: string };
   export async function getShowForViewer(showId: string, viewer: Viewer): Promise<ShowForViewer> {
-    const isAdmin = viewer.kind === 'admin';
-    const needsCrewLookup = viewer.kind === 'crew' || viewer.kind === 'admin_preview';
+    const isAdmin = viewer.kind === "admin";
+    const needsCrewLookup = viewer.kind === "crew" || viewer.kind === "admin_preview";
     let roleFlags: RoleFlag[] = [];
     if (needsCrewLookup) {
       // **Bind lookup to BOTH id AND show_id.** Without the show_id
@@ -236,27 +261,30 @@ Spec context: §8 entire section, §17.1 milestone 4. Demo: open the page on a p
       // designed to prevent. admin_preview obeys the SAME contract — it never accepts caller-
       // supplied role flags or a passed-in crewMember object.
       const { data } = await supabase
-        .from('crew_members')
-        .select('role_flags')
-        .eq('id', viewer.crewMemberId)
-        .eq('show_id', showId) // mandatory show binding
-        .single;
-      if (!data) throw new Error('LINK_NO_CREW_MATCH'); // §7.2.2 step 5; canonical §12.4 code
+        .from("crew_members")
+        .select("role_flags")
+        .eq("id", viewer.crewMemberId)
+        .eq("show_id", showId).single; // mandatory show binding
+      if (!data) throw new Error("LINK_NO_CREW_MATCH"); // §7.2.2 step 5; canonical §12.4 code
       roleFlags = data.role_flags; // FRESH from DB, never from caller
     }
-    const isLead = isAdmin || roleFlags.includes('LEAD');
+    const isLead = isAdmin || roleFlags.includes("LEAD");
     const showCols = isLead
-      ? ['*, shows_internal(financials)'] // JOIN only when authorized
-      : ['*']; // never query shows_internal otherwise
+      ? ["*, shows_internal(financials)"] // JOIN only when authorized
+      : ["*"]; // never query shows_internal otherwise
     /* ...select shows + filter related tables to viewer's crew row.. */
-    return { /* .. financials only present when isLead .. */ };
+    return {
+      /* .. financials only present when isLead .. */
+    };
   }
   ```
+
   `coi_status` always comes from `shows` (public per §4.4). Return show + crew + hotels (filtered to viewer name) + rooms + transport + contacts + pull_sheet.
 
   **Transport projection contract.** When `transportation` is non-null, the helper returns the FULL `TransportationRow` shape including `schedule: TransportScheduleEntry[]` where every entry carries `assigned_names: string[]` (per §4.1 / §6.7 canonical contract). The projection MUST NOT strip `assigned_names` — TransportTile's branch-2 visibility (Task 4.7) reads it directly. Add a regression test asserting that a seeded transportation row whose `schedule[0].assigned_names = ['Alice']` round-trips through `getShowForViewer` unchanged (the returned object's `transportation.schedule[0].assigned_names` deeply equals `['Alice']`).
 
   **Cross-show regression test (mandatory)**: seed two shows. Show A has crew member Alice (LEAD). Show B has crew member Bob (A1). Call `getShowForViewer(showB.id, { kind: 'crew', crewMemberId: alice.id })` (Alice belongs to A, NOT B). Assert the call THROWS `LINK_NO_CREW_MATCH` — does NOT return show B's data with Alice's LEAD role flags applied. Without the `show_id` constraint, this call would return show B's data with `financials` present (cross-show leak).
+
 - [ ] **Step 3: Commit** `feat(data): getShowForViewer with internal role derivation (§7.4)`.
 
 ### Task 4.4: Tile components (Lodging, Venue, Crew, Contacts)
@@ -264,6 +292,7 @@ Spec context: §8 entire section, §17.1 milestone 4. Demo: open the page on a p
 **Files:** Create: `components/tiles/{LodgingTile,VenueTile,CrewTile,ContactsTile}.tsx`. Test: `tests/e2e/crew-page.spec.ts` extends.
 
 For each tile, follow the same TDD pattern:
+
 1. Failing Playwright test asserts the tile's `data-testid` is visible and contains expected text from a seeded fixture.
 2. Implement Server Component reading from props (shape derived from `getShowForViewer`).
 3. Apply empty-state discipline per §8.3:
@@ -281,13 +310,21 @@ For each tile, follow the same TDD pattern:
 
 - [ ] **Step 1: Failing tests**
   ```ts
-  test('unknown_asterisk crew sees days-unconfirmed message, NO per-day schedule (AC-4.6)', async ({ page }) => {
+  test("unknown_asterisk crew sees days-unconfirmed message, NO per-day schedule (AC-4.6)", async ({
+    page,
+  }) => {
     /* seed a fixture with unknown_asterisk crew member; navigate as them via mock */
-    await expect(page.locator('[data-testid=schedule-tile]')).toContainText(/days aren't confirmed/i);
-    await expect(page.locator('[data-testid=schedule-day]')).toHaveCount(0);
+    await expect(page.locator("[data-testid=schedule-tile]")).toContainText(
+      /days aren't confirmed/i,
+    );
+    await expect(page.locator("[data-testid=schedule-day]")).toHaveCount(0);
   });
-  test('explicit-day crew sees only their days', async ({ page }) => { /* .. */ });
-  test('unrestricted crew sees all show days', async ({ page }) => { /* .. */ });
+  test("explicit-day crew sees only their days", async ({ page }) => {
+    /* .. */
+  });
+  test("unrestricted crew sees all show days", async ({ page }) => {
+    /* .. */
+  });
   ```
 - [ ] **Step 2: Implement** the three branches per §8.1 schedule tile spec.
 - [ ] **Step 3: Commit** `feat(crew-page): ScheduleTile (§8.1)`.
@@ -301,14 +338,14 @@ For each tile, follow the same TDD pattern:
 ```ts
 // lib/visibility/scopeTiles.ts — single source of truth, imported by every consumer.
 export function audioScopeVisible(flags: RoleFlag[]): boolean {
-  return flags.includes('A1') || flags.includes('A2') || flags.includes('LEAD');
+  return flags.includes("A1") || flags.includes("A2") || flags.includes("LEAD");
 }
 export function videoScopeVisible(flags: RoleFlag[]): boolean {
-  return flags.includes('V1') || flags.includes('LEAD');
+  return flags.includes("V1") || flags.includes("LEAD");
 }
 export function lightingScopeVisible(flags: RoleFlag[]): boolean {
   // LEAD is INTENTIONALLY NOT included — spec §8.1 says lighting is a discipline LEADs don't manage hands-on.
-  return flags.includes('L1');
+  return flags.includes("L1");
 }
 ```
 
@@ -330,18 +367,20 @@ LEAD-only viewers see Financials AND Audio scope tile AND Video scope tile (unco
 **Files:** Create: `components/tiles/TransportTile.tsx`.
 
 **Visibility branches.** The Transport tile renders for **any** of these:
+
 1. `transportation.driver_name === viewer.name` — the assigned driver.
 2. The viewer's name appears in any per-day transport schedule tag — passenger or co-driver.
 
 Earlier draft only checked branch 1. Crew assigned via schedule tags only would never see vehicle/parking/timing data — exactly the population that needs it.
 
 **End-to-end contract dependency.** This task depends on `assigned_names: string[]` being a canonical field on every `TransportScheduleEntry` AT EVERY LAYER:
+
 - Parser (§5.4 / Task 1.7 step 7): emits `assigned_names: string[]` on each schedule entry; empty array when no tagged names.
 - Seed (§5.5 / `tests/seed/seed.ts`): seed transportation rows include `assigned_names` populated for fixture viewers who must satisfy branch-2 visibility.
 - Persistence (Phase 2 / Task 2.x snapshot replacement into `transportation.schedule` JSONB): the JSONB write preserves `assigned_names` verbatim.
 - `getShowForViewer` projection (Task 4.3): the helper returns `transportation.schedule[*].assigned_names[]` to the page renderer; it is NOT stripped during projection.
 - TransportTile predicate (this task): consumes the projected `assigned_names[]` directly.
-**If `assigned_names` is missing or stripped at any layer, branch 2 silently fails.** Add a layer-spanning fixture test (below) to catch this end-to-end.
+  **If `assigned_names` is missing or stripped at any layer, branch 2 silently fails.** Add a layer-spanning fixture test (below) to catch this end-to-end.
 
 - [ ] **Step 1: Failing tests**
   - Branch 1: tile renders when `transportation.driver_name === viewer.name`.
@@ -358,12 +397,12 @@ Earlier draft only checked branch 1. Crew assigned via schedule tags only would 
 
 - [ ] **Step 1: Failing tests**
   ```ts
-  test('Show status tile visible to every crew viewer with COI (AC-4.1)', async ({ page }) => {
+  test("Show status tile visible to every crew viewer with COI (AC-4.1)", async ({ page }) => {
     /* navigate as A1 viewer */
-    await expect(page.locator('[data-testid=show-status-tile]')).toBeVisible;
-    await expect(page.locator('[data-testid=coi-status]')).toContainText(/SENT|IN PROCESS/);
+    await expect(page.locator("[data-testid=show-status-tile]")).toBeVisible;
+    await expect(page.locator("[data-testid=coi-status]")).toContainText(/SENT|IN PROCESS/);
   });
-  test('Financials tile only for LEAD viewers (AC-4.2)', async ({ page }) => {
+  test("Financials tile only for LEAD viewers (AC-4.2)", async ({ page }) => {
     /* as A1 → absent; as LEAD → present and contains PO/Proposal/Invoice */
   });
   ```
@@ -385,12 +424,13 @@ Earlier draft only checked branch 1. Crew assigned via schedule tags only would 
   - AC-4.11: per-row partial-parse rows render rawSnippet; tile still appears.
   - AC-4.12: MI-8c stages on collapse / case drop / halved (this is exercised in M6's invariant tests; cross-check here that the tile renders the prior approved snapshot while review pending).
 - [ ] **Step 2: Implement** with per-day visibility logic against the spec §6.6 stage_restriction shape AND the parser-derived schedule:
+
   ```ts
   // §6.6 stage_restriction shape — verbatim from spec:
   type StageRestriction =
-    | { kind: 'none' } // no restriction (default)
-    | { kind: 'explicit'; stages: WorkPhase[] }; // explicit work-phase set
-  type WorkPhase = 'Load In' | 'Set' | 'Show' | 'Strike' | 'Load Out';
+    | { kind: "none" } // no restriction (default)
+    | { kind: "explicit"; stages: WorkPhase[] }; // explicit work-phase set
+  type WorkPhase = "Load In" | "Set" | "Show" | "Strike" | "Load Out";
 
   // Today's work-phase set comes DIRECTLY from `ShowRow.schedule_phases`. NO re-derivation from `show.dates + show.schedule`
   // — that was an earlier draft that conflated two data sources. The parser owns the authoritative
@@ -404,8 +444,8 @@ Earlier draft only checked branch 1. Crew assigned via schedule tags only would 
     // day early/late. The corrected derivation uses date-fns-tz `formatInTimeZone` against the
     // show's venue timezone (or America/New_York as the default for FXAV's domestic-US event
     // domain — captured during the §9.0 onboarding wizard or derived from the venue address).
-    const tz = show.venue?.timezone ?? 'America/New_York';
-    const isoDate = formatInTimeZone(today, tz, 'yyyy-MM-dd'); // date-fns-tz; key matches schedule_phases insert-side keying
+    const tz = show.venue?.timezone ?? "America/New_York";
+    const isoDate = formatInTimeZone(today, tz, "yyyy-MM-dd"); // date-fns-tz; key matches schedule_phases insert-side keying
     return show.schedule_phases[isoDate] ?? []; // empty array means no work-phase activity that day
   }
 
@@ -413,20 +453,20 @@ Earlier draft only checked branch 1. Crew assigned via schedule tags only would 
   // (Earlier draft included 'Load In'; spec §8.1 makes the pack-list tile visible only on
   // execution-phase days where crew need the manifest in hand. Load In is the day BEFORE
   // the manifest matters in this contract.)
-  const PACK_LIST_VISIBLE_PHASES = new Set<WorkPhase>(['Set', 'Strike', 'Load Out']);
+  const PACK_LIST_VISIBLE_PHASES = new Set<WorkPhase>(["Set", "Strike", "Load Out"]);
 
   function isPackListVisibleToday(show: ShowRow, viewer: Viewer): boolean {
     const phases = todayWorkPhases(show, today);
-    if (!phases.some(p => PACK_LIST_VISIBLE_PHASES.has(p))) return false;
+    if (!phases.some((p) => PACK_LIST_VISIBLE_PHASES.has(p))) return false;
     const restrict = viewer.stage_restriction;
-    if (restrict.kind === 'none') return true;
+    if (restrict.kind === "none") return true;
     // Intersect today's actual phase set with the viewer's restriction set.
-    return phases.some(p => restrict.stages.includes(p));
+    return phases.some((p) => restrict.stages.includes(p));
   }
   ```
-  **Three corrections from earlier draft**: 1. `stage_restriction` uses spec §6.6's `{ kind: 'none' }` | `{ kind: 'explicit'; stages[] }` discriminator — NOT `{ kind: 'work_phase'; stages[] }`. Earlier text used the wrong discriminator literal in test cases; the corrected predicate accepts only `'none'` or `'explicit'`.
-  2. Today's phases come from `ShowRow.schedule_phases[isoDate]` — NOT from `show.dates + show.schedule` re-derivation. A single source of truth eliminates schedule-vs-dates drift. Earlier draft conflated those; the parser owns `schedule_phases` and the tile reads it directly.
-  3. `PACK_LIST_VISIBLE_PHASES = {Set, Strike, Load Out}` — `Load In` is excluded per spec §8.1. Earlier draft included `Load In`, which would surface the tile a day too early for restricted crew.
+
+  **Three corrections from earlier draft**: 1. `stage_restriction` uses spec §6.6's `{ kind: 'none' }` | `{ kind: 'explicit'; stages[] }` discriminator — NOT `{ kind: 'work_phase'; stages[] }`. Earlier text used the wrong discriminator literal in test cases; the corrected predicate accepts only `'none'` or `'explicit'`. 2. Today's phases come from `ShowRow.schedule_phases[isoDate]` — NOT from `show.dates + show.schedule` re-derivation. A single source of truth eliminates schedule-vs-dates drift. Earlier draft conflated those; the parser owns `schedule_phases` and the tile reads it directly. 3. `PACK_LIST_VISIBLE_PHASES = {Set, Strike, Load Out}` — `Load In` is excluded per spec §8.1. Earlier draft included `Load In`, which would surface the tile a day too early for restricted crew.
+
 - [ ] **Step 3: Cardinality cap** — render up to 12 cases inline; "Show more" disclosure for the rest. Items per case have no cap.
 - [ ] **Step 4: Commit** `feat(crew-page): PackListTile with travel-out + stage_restriction (§6.10, §8.1)`.
 
@@ -455,18 +495,18 @@ The state machine is a pure function `selectRightNowState(today, dates, viewerDa
 
 **Files:** Test: `tests/e2e/right-now-transitions.spec.ts`.
 
-Per global CLAUDE.md: any component with multiple visual states must have a Transition audit task with **N*(N-1)/2 enumerated state-pair matrix** + compound-transition tests. Earlier drafts of this task hand-picked 7 transitions while claiming exhaustive coverage — that violates the inventory rule. The corrected scope below enumerates **all** §8.2 RightNow states pairwise and adds a separate transition audit for crew-page visibility modes.
+Per global CLAUDE.md: any component with multiple visual states must have a Transition audit task with **N\*(N-1)/2 enumerated state-pair matrix** + compound-transition tests. Earlier drafts of this task hand-picked 7 transitions while claiming exhaustive coverage — that violates the inventory rule. The corrected scope below enumerates **all** §8.2 RightNow states pairwise and adds a separate transition audit for crew-page visibility modes.
 
 **§8.2 RightNow states**: `pre_travel`, `travel_in_day`, `set_day`, `show_day_n`, `travel_out_day`, `post_show`, `viewer_off_day`, `viewer_off_day_pre`, `viewer_unconfirmed`, `viewer_after_last_day`, `dateless`, `unknown`.
 
-That gives **66 pairs (12*11/2)**. Most are time-driven date rollovers; some are sync-driven (e.g., Any → `unknown`); a handful never occur naturally (e.g., `post_show → pre_travel`) and get an explicit "unreachable — no animation needed" annotation. **All 12 states get matrix coverage** — `viewer_off_day_pre` (viewer's off day BEFORE their first assigned day) and `dateless` (sheet has no parsed dates) cannot be omitted from the matrix or from Task 4.11's state-precedence tests.
+That gives **66 pairs (12\*11/2)**. Most are time-driven date rollovers; some are sync-driven (e.g., Any → `unknown`); a handful never occur naturally (e.g., `post_show → pre_travel`) and get an explicit "unreachable — no animation needed" annotation. **All 12 states get matrix coverage** — `viewer_off_day_pre` (viewer's off day BEFORE their first assigned day) and `dateless` (sheet has no parsed dates) cannot be omitted from the matrix or from Task 4.11's state-precedence tests.
 
 - [ ] **Step 1: Pairwise matrix.** Build the 66-pair table (12 states × 11 / 2); each cell carries one of:
   - `crossfade-body` (date rollover; container `min-h-[X]` to preserve card height)
   - `morph-to-last-good` (any → `unknown` mid-show; stale tint applied)
   - `instant` (state changes that are user-initiated and acceptable as snap)
   - `unreachable` (no natural code path; assert never triggered in tests)
-  Table lives in plan as a markdown grid (rows: from-state, cols: to-state); implementer copies into a TypeScript constant for the audit test to drive.
+    Table lives in plan as a markdown grid (rows: from-state, cols: to-state); implementer copies into a TypeScript constant for the audit test to drive.
 - [ ] **Step 2: Failing tests** — one assertion per pair (66 tests). Drive the from-state, mutate inputs (date prop / viewer.date_restriction / show.dates / sync error), assert the resulting animation treatment matches the matrix cell. For unreachable cells, write a `it.skip` with the reason and a regression guard that fails if the state ever transitions there. **Include `viewer_off_day_pre → set_day` (viewer's first assigned day arrives) and `dateless → unknown` / `dateless → pre_travel` (sync resolves the missing dates) — both are real production transitions.**
 - [ ] **Step 3: Compound transitions** — 6 representative cases:
   - `Any → unknown` mid-`pre_travel → travel_in_day` crossfade (sync error during date rollover).
@@ -485,19 +525,19 @@ That gives **66 pairs (12*11/2)**. Most are time-driven date rollovers; some are
     - Each tile-visibility predicate (`audioScopeVisible`, `videoScopeVisible`, `lightingScopeVisible`, `financialsVisible = hasLead || isAdmin`) is imported from `lib/visibility/scopeTiles.ts`. Compound viewers like `['LEAD', 'A1']` get FinancialsTile AND AudioScopeTile (both predicates true) AND VideoScopeTile (LEAD branch). LEAD-only viewers (`['LEAD']`) get FinancialsTile + AudioScopeTile + VideoScopeTile (NOT LightingScopeTile).
   - **Pairwise predicate-flip matrix**: enumerate the 5 × 4 / 2 = 10 ordered transitions across the 5 capability predicates (hasLead, hasA1, hasV1, hasL1, hasAdmin). Each transition is: 'predicate flips false → true' (tile appears) OR 'true → false' (tile disappears).
   - **Compound transitions**: include at least 3 cases where two predicates flip simultaneously in one render cycle. **Worked examples under the canonical SCOPE_TILE_VISIBILITY_RULE**: - `['LEAD','A1'] → ['A1']`: `hasLead` flips false. Tile-level: FinancialsTile disappears AND VideoScopeTile disappears (was unlocked by LEAD branch). AudioScopeTile stays visible (hasA1 still true). LightingScopeTile stays hidden.
-    - `['LEAD','A1'] → ['V1']`: `hasLead` flips false, `hasA1` flips false, `hasV1` flips true. Tile-level: FinancialsTile disappears, AudioScopeTile disappears (no LEAD, no A1), VideoScopeTile stays visible (now via hasV1 branch instead of LEAD branch — net visibility unchanged but the *reason* shifted; assert tile renders without flicker).
+    - `['LEAD','A1'] → ['V1']`: `hasLead` flips false, `hasA1` flips false, `hasV1` flips true. Tile-level: FinancialsTile disappears, AudioScopeTile disappears (no LEAD, no A1), VideoScopeTile stays visible (now via hasV1 branch instead of LEAD branch — net visibility unchanged but the _reason_ shifted; assert tile renders without flicker).
     - `['LEAD'] → ['L1']`: `hasLead` flips false, `hasL1` flips true. Tile-level: FinancialsTile disappears, AudioScopeTile disappears, VideoScopeTile disappears, LightingScopeTile appears. Largest single-render visibility delta in the matrix.
   - **`viewer.date_restriction`** uses the spec discriminator literals `{ kind: 'none' } | { kind: 'explicit'; days: Date[] } | { kind: 'unknown_asterisk' }` — 3 states, 3 pairs (changes ScheduleTile rendering). : earlier draft used `'explicit_days'` and `'asterisk'` which don't match the parser/DB contract; the spec uses `'explicit'` and `'unknown_asterisk'`.
   - **`viewer.stage_restriction`** ∈ `{ kind: 'none' } | { kind: 'explicit'; stages: WorkPhase[] }` — at minimum cover `none ↔ explicit`. **`stage_restriction` only affects PackListTile** — it does NOT toggle Audio/Video/Lighting scope-tile filters. ScopeTile visibility is driven solely by capability predicates over `role_flags[]` (`hasA1`, `hasV1`, `hasL1`, etc., as enumerated in Step 4 above). Earlier draft incorrectly tied `stage_restriction` to ScopeTile filters.
-  Each pair gets a transition treatment (crossfade tiles, instant for filters, etc.) AND a compound test where role flags + restriction change simultaneously.
+    Each pair gets a transition treatment (crossfade tiles, instant for filters, etc.) AND a compound test where role flags + restriction change simultaneously.
 - [ ] **Step 4b: TransportTile reassignment transitions over the canonical TransportationRow contract** — beyond `role_flags[]` and restriction toggles, the TransportTile's visibility predicate is OR'd over TWO branches (per §8.1 / Task 4.7): (a) `transportation.driver_name === viewer.name` AND (b) `viewer.name ∈ transportation.schedule[*].assigned_names[]` for ANY entry. Both branches can flip during a live sync update — Doug edits the sheet's transport block, the next cron pass replaces the row, the page re-renders with the new shape — and earlier drafts of this task did not enumerate transport-visibility transitions in the matrix. The corrected audit adds a 2 × 2 transition table over the two branch predicates `(driverNameMatch, anyScheduleTagMatch)`:
-    - `(false, false) → (true, false)`: viewer becomes the assigned driver via sheet edit (e.g., Doug fills in `driver: <viewer.name>` in a row that previously had a different name). Transition treatment: TransportTile fades in (`AnimatePresence` mount).
-    - `(false, false) → (false, true)`: viewer is added to a `schedule[*].assigned_names[]` array via sheet edit (Doug tags the viewer as a passenger / co-driver on a per-day row). Treatment: same fade-in mount.
-    - `(true, false) → (false, false)`: viewer is removed as driver via sheet edit (Doug reassigns the driver field to a different name). Treatment: TransportTile fades out (`AnimatePresence` unmount). Grid reflows under the missing tile.
-    - `(false, true) → (false, false)`: viewer's name is removed from every `assigned_names[]` array via sheet edit. Treatment: same fade-out unmount.
-    - `(true, false) ↔ (false, true)`: the OR predicate's net result stays `true` but the *reason* changed (Doug demotes viewer from driver to passenger, or vice versa). Treatment: tile stays mounted (no AnimatePresence cycle); the schedule body inside the tile may pulse on the field that changed (driver name vs schedule entry). The tile MUST NOT flicker — assert it remains in the DOM continuously across the re-render.
-    - `(true, true) → (true, false)` / `(true, true) → (false, true)`: viewer was BOTH driver AND tagged in a schedule row; one branch flips false but the other stays true. Tile stays mounted; the body pulses on the changed field. No flicker.
-    - `(true, true) → (false, false)`: both branches flip false in a single sync (rare — Doug rewrites the entire transport block excluding the viewer). Tile fades out; grid reflows.
+  - `(false, false) → (true, false)`: viewer becomes the assigned driver via sheet edit (e.g., Doug fills in `driver: <viewer.name>` in a row that previously had a different name). Transition treatment: TransportTile fades in (`AnimatePresence` mount).
+  - `(false, false) → (false, true)`: viewer is added to a `schedule[*].assigned_names[]` array via sheet edit (Doug tags the viewer as a passenger / co-driver on a per-day row). Treatment: same fade-in mount.
+  - `(true, false) → (false, false)`: viewer is removed as driver via sheet edit (Doug reassigns the driver field to a different name). Treatment: TransportTile fades out (`AnimatePresence` unmount). Grid reflows under the missing tile.
+  - `(false, true) → (false, false)`: viewer's name is removed from every `assigned_names[]` array via sheet edit. Treatment: same fade-out unmount.
+  - `(true, false) ↔ (false, true)`: the OR predicate's net result stays `true` but the _reason_ changed (Doug demotes viewer from driver to passenger, or vice versa). Treatment: tile stays mounted (no AnimatePresence cycle); the schedule body inside the tile may pulse on the field that changed (driver name vs schedule entry). The tile MUST NOT flicker — assert it remains in the DOM continuously across the re-render.
+  - `(true, true) → (true, false)` / `(true, true) → (false, true)`: viewer was BOTH driver AND tagged in a schedule row; one branch flips false but the other stays true. Tile stays mounted; the body pulses on the changed field. No flicker.
+  - `(true, true) → (false, false)`: both branches flip false in a single sync (rare — Doug rewrites the entire transport block excluding the viewer). Tile fades out; grid reflows.
   - **Compound transitions involving transport reassignment** — at least 2 cases must be exercised against a live sync:
     - **Schedule-tag flip mid `crew_members.name` change**: a sync update simultaneously renames the viewer's `crew_members.name` AND mutates `transportation.schedule[*].assigned_names[]` referencing the old name. The OR predicate must evaluate against the new name (the `getShowForViewer` projection fetches `crew_members.name` AND `transportation.schedule[*].assigned_names[]` together; their consistency is enforced by the sync transaction's per-row replacement semantics in §5.2). Assert the tile's visibility resolves correctly post-sync (whether visible or hidden depends on whether the new name appears in `assigned_names[]`); the tile MUST NOT show stale visibility based on the old name.
     - **`role_flags[]` capability flip while transport visibility flips**: viewer's `role_flags[]` changes from `['LEAD']` to `['LEAD','A1']` in the same sync that also flips `(false, false) → (false, true)` for transport. Assert: AudioScopeTile fades in (capability transition from Step 4) AND TransportTile fades in (transport branch-2 transition from this step) — both `AnimatePresence` mounts must complete without one cancelling the other. The grid reflows once after both mounts settle.
@@ -520,88 +560,92 @@ Per global CLAUDE.md: every component with a fixed-dimension parent containing f
 5. **Footer sticky-vs-flow behavior**: on a short-content fixture (page total content height < viewport height), the footer is fixed/sticky to the viewport bottom — `getBoundingClientRect.bottom` of the footer equals (window.innerHeight ± 0.5). On a long-content fixture (page total content height > viewport height), the footer is in the natural flow — its `bottom` position is determined by content, NOT pinned to viewport bottom; scrolling the page moves the footer with the content. Both fixtures must be exercised.
 
 - [ ] **Step 1: Failing tests — exhaustive AC-4.4 coverage**: ```ts
-  test('layout dimensions at 390px (AC-4.4)', async ({ page }) => {
-    await page.goto('/show/<seeded-slug>?crew=<seeded-crew-with-A1-flag>');
-    const container = page.locator('[data-testid=page-container]');
-    const rightNow = page.locator('[data-testid=right-now-card]');
-    const tiles = await page.locator('[data-tile]').all;
-    const containerBox = await container.boundingBox;
-    const rightNowBox = await rightNow.boundingBox;
+      test('layout dimensions at 390px (AC-4.4)', async ({ page }) => {
+      await page.goto('/show/<seeded-slug>?crew=<seeded-crew-with-A1-flag>');
+      const container = page.locator('[data-testid=page-container]');
+      const rightNow = page.locator('[data-testid=right-now-card]');
+      const tiles = await page.locator('[data-tile]').all;
+      const containerBox = await container.boundingBox;
+      const rightNowBox = await rightNow.boundingBox;
 
-    // Invariant 1: Right Now card full-width minus container padding
-    expect(Math.abs(rightNowBox!.width - containerBox!.width)).toBeLessThan(0.5);
+  // Invariant 1: Right Now card full-width minus container padding
+  expect(Math.abs(rightNowBox!.width - containerBox!.width)).toBeLessThan(0.5);
 
-    // Invariant 2: 2-col grid at this width
-    const cols = await page.evaluate( => {
-      const g = document.querySelector('[data-testid=tile-grid]')!;
-      return getComputedStyle(g).gridTemplateColumns.split(' ').length;
-    });
-    expect(cols).toBe(2);
+  // Invariant 2: 2-col grid at this width
+  const cols = await page.evaluate( => {
+  const g = document.querySelector('[data-testid=tile-grid]')!;
+  return getComputedStyle(g).gridTemplateColumns.split(' ').length;
+  });
+  expect(cols).toBe(2);
 
-    // Invariant 3: Tile min-height 96
-    for (const t of tiles) {
-      const b = await t.boundingBox;
-      expect(b!.height).toBeGreaterThanOrEqual(96 - 0.5);
-    }
-    // First-row tiles share height (align-items: stretch verification)
-    const tileHeights = (await Promise.all(tiles.slice(0, 2).map(t => t.boundingBox)))
-      .map(b => b!.height);
-    expect(Math.abs(tileHeights[0]! - tileHeights[1]!)).toBeLessThan(0.5);
+  // Invariant 3: Tile min-height 96
+  for (const t of tiles) {
+  const b = await t.boundingBox;
+  expect(b!.height).toBeGreaterThanOrEqual(96 - 0.5);
+  }
+  // First-row tiles share height (align-items: stretch verification)
+  const tileHeights = (await Promise.all(tiles.slice(0, 2).map(t => t.boundingBox)))
+  .map(b => b!.height);
+  expect(Math.abs(tileHeights[0]! - tileHeights[1]!)).toBeLessThan(0.5);
   });
 
   test('Right Now full-width at all breakpoints (AC-4.4 invariant 1)', async ({ page }) => {
-    for (const w of [390, 1024, 1200]) {
-      await page.setViewportSize({ width: w, height: 800 });
-      await page.goto('/show/<seeded-slug>?crew=<seeded-A1>');
-      const container = await page.locator('[data-testid=page-container]').boundingBox;
-      const rightNow = await page.locator('[data-testid=right-now-card]').boundingBox;
-      expect(Math.abs(rightNow!.width - container!.width)).toBeLessThan(0.5);
-    }
+  for (const w of [390, 1024, 1200]) {
+  await page.setViewportSize({ width: w, height: 800 });
+  await page.goto('/show/<seeded-slug>?crew=<seeded-A1>');
+  const container = await page.locator('[data-testid=page-container]').boundingBox;
+  const rightNow = await page.locator('[data-testid=right-now-card]').boundingBox;
+  expect(Math.abs(rightNow!.width - container!.width)).toBeLessThan(0.5);
+  }
   });
 
   test('layout at 1024px is 3 cols, at 1200px is 4 cols (AC-4.4 invariant 2)', async ({ page }) => {
-    for (const [w, expected] of [[1024, 3], [1200, 4]] as const) {
-      await page.setViewportSize({ width: w, height: 800 });
-      await page.goto('/show/<seeded-slug>?crew=<seeded-A1>');
-      const cols = await page.evaluate( => {
-        const g = document.querySelector('[data-testid=tile-grid]')!;
-        return getComputedStyle(g).gridTemplateColumns.split(' ').length;
-      });
-      expect(cols).toBe(expected);
-    }
+  for (const [w, expected] of [[1024, 3], [1200, 4]] as const) {
+  await page.setViewportSize({ width: w, height: 800 });
+  await page.goto('/show/<seeded-slug>?crew=<seeded-A1>');
+  const cols = await page.evaluate( => {
+  const g = document.querySelector('[data-testid=tile-grid]')!;
+  return getComputedStyle(g).gridTemplateColumns.split(' ').length;
+  });
+  expect(cols).toBe(expected);
+  }
   });
 
   test('Tile internal overflow past 240px (AC-4.4 invariant 4)', async ({ page }) => {
-    // Long-content fixture has one tile carrying long content (e.g., NotesTile with 30+ long notes
-    // whose intrinsic content-height > 240px).
-    await page.goto('/show/<long-content-slug>?crew=<seeded-A1>');
-    const longTile = page.locator('[data-testid=notes-tile]');
-    const overflowY = await longTile.evaluate(el => getComputedStyle(el).overflowY);
-    expect(['auto', 'scroll']).toContain(overflowY);
-    // Disclosure visible for overflowing tile
-    await expect(longTile.locator('[data-testid=tile-show-more]')).toBeVisible;
-    // Short-content tile (e.g., VenueTile with name + address only): NO disclosure
-    const shortTile = page.locator('[data-testid=venue-tile]');
-    await expect(shortTile.locator('[data-testid=tile-show-more]')).toHaveCount(0);
+  // Long-content fixture has one tile carrying long content (e.g., NotesTile with 30+ long notes
+  // whose intrinsic content-height > 240px).
+  await page.goto('/show/<long-content-slug>?crew=<seeded-A1>');
+  const longTile = page.locator('[data-testid=notes-tile]');
+  const overflowY = await longTile.evaluate(el => getComputedStyle(el).overflowY);
+  expect(['auto', 'scroll']).toContain(overflowY);
+  // Disclosure visible for overflowing tile
+  await expect(longTile.locator('[data-testid=tile-show-more]')).toBeVisible;
+  // Short-content tile (e.g., VenueTile with name + address only): NO disclosure
+  const shortTile = page.locator('[data-testid=venue-tile]');
+  await expect(shortTile.locator('[data-testid=tile-show-more]')).toHaveCount(0);
   });
 
   test('Footer sticky on short pages, flow on long pages (AC-4.4 invariant 5)', async ({ page }) => {
-    // Short-content fixture: total content < viewport
-    await page.setViewportSize({ width: 390, height: 1200 });
-    await page.goto('/show/<short-content-slug>?crew=<seeded-A1>');
-    const footerShort = await page.locator('[data-testid=page-footer]').boundingBox;
-    expect(Math.abs(footerShort!.y + footerShort!.height - 1200)).toBeLessThan(0.5); // pinned to viewport bottom
+  // Short-content fixture: total content < viewport
+  await page.setViewportSize({ width: 390, height: 1200 });
+  await page.goto('/show/<short-content-slug>?crew=<seeded-A1>');
+  const footerShort = await page.locator('[data-testid=page-footer]').boundingBox;
+  expect(Math.abs(footerShort!.y + footerShort!.height - 1200)).toBeLessThan(0.5); // pinned to viewport bottom
 
-    // Long-content fixture: total content > viewport
-    await page.goto('/show/<long-content-slug>?crew=<seeded-A1>');
-    const footerLongInitial = await page.locator('[data-testid=page-footer]').boundingBox;
-    expect(footerLongInitial!.y + footerLongInitial!.height).toBeGreaterThan(1200 + 100); // below viewport — in flow
-    // Scrolling moves the footer with content, NOT pinned to viewport bottom
-    await page.evaluate( => window.scrollTo(0, 500));
-    const footerLongScrolled = await page.locator('[data-testid=page-footer]').boundingBox;
-    expect(footerLongScrolled!.y).toBeLessThan(footerLongInitial!.y); // moved upward as page scrolled
+  // Long-content fixture: total content > viewport
+  await page.goto('/show/<long-content-slug>?crew=<seeded-A1>');
+  const footerLongInitial = await page.locator('[data-testid=page-footer]').boundingBox;
+  expect(footerLongInitial!.y + footerLongInitial!.height).toBeGreaterThan(1200 + 100); // below viewport — in flow
+  // Scrolling moves the footer with content, NOT pinned to viewport bottom
+  await page.evaluate( => window.scrollTo(0, 500));
+  const footerLongScrolled = await page.locator('[data-testid=page-footer]').boundingBox;
+  expect(footerLongScrolled!.y).toBeLessThan(footerLongInitial!.y); // moved upward as page scrolled
   });
+
   ```
+
+  ```
+
 - [ ] **Step 2: Implement** the layout primitives:
   - `[data-testid=tile-grid]` uses `grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 items-stretch`. Each tile sets `min-h-24` (96px) and `h-full` to ensure it stretches per Tailwind v4's non-default stretch behavior. **Document this in a code comment** referencing the global CLAUDE.md note about Tailwind v4 not defaulting to stretch.
   - `[data-testid=right-now-card]` uses `w-full` (or equivalent fluid full-width) so it spans the container at every breakpoint.
@@ -617,17 +661,18 @@ Per global CLAUDE.md: every component with a fixed-dimension parent containing f
 **Per-field empty-treatment rules.** Earlier draft applied a blanket rule treating `null`, `''`, `'TBD'`, `'N/A'`, `'TBA'` (case-insensitive) as "not filled in" for ALL optional fields. That rule is wrong for `event_details.opening_reel`: spec §10 (line ~1923) explicitly says when the cell is text-only with values like `YES`, `MAYBE`, `N/A` the crew page renders a small text line "Opening reel: <value>". Blanket-hiding `N/A` would erase a documented crew-visible status. The corrected design uses a **per-field empty-treatment table** — different fields hide different sets of sentinel values.
 
 **M4 ships URL-stripped text-only opening reel; inline `<video>` rendering defers to M7 Task 7.6.** Earlier draft of AC-4.5 required this task to render an inline `<video>` for mixed-value cells like `YES - <url>` — but the streaming source `/api/asset/reel/[show]` is created by Task 7.6 in M7. M4 cannot satisfy the inline-video assertion without exposing raw Drive URLs (forbidden by §10 / §7.3). Scope split:
-- **M4 (this task)** renders **URL-stripped** text-only opening-reel status. Every non-empty/non-`TBD` cell renders as `Opening reel: <stripped value>` where the stripper removes ALL `https?://drive.google.com|docs.google.com/...` URL substrings AND orphaned ` - ` connector tokens BEFORE rendering. Mixed `YES - <drive-url>` cells render as `Opening reel: YES`. Pure-URL cells (entire cell value is a Drive URL → empty stripped residue) render NO line — empty residue is treated by the empty-state predicate as hide. Phase-1 enrichment still pins the reel (post-Apply, the `shows.opening_reel_*` columns get populated per §6.11.1) — the view layer just doesn't yet emit a `<video>` element.
+
+- **M4 (this task)** renders **URL-stripped** text-only opening-reel status. Every non-empty/non-`TBD` cell renders as `Opening reel: <stripped value>` where the stripper removes ALL `https?://drive.google.com|docs.google.com/...` URL substrings AND orphaned `-` connector tokens BEFORE rendering. Mixed `YES - <drive-url>` cells render as `Opening reel: YES`. Pure-URL cells (entire cell value is a Drive URL → empty stripped residue) render NO line — empty residue is treated by the empty-state predicate as hide. Phase-1 enrichment still pins the reel (post-Apply, the `shows.opening_reel_*` columns get populated per §6.11.1) — the view layer just doesn't yet emit a `<video>` element.
 - **M7 (Task 7.6 + new AC-7.25)** ADDS the inline `<video src="/api/asset/reel/<show>">` element when the post-Apply pin columns are non-NULL. M7 is purely additive: URL-stripped text status remains; `<video>` appears alongside. Pure-URL cells render ONLY the inline `<video>` at M7.
 
 **Opening-reel render MUST strip all Drive URL substrings.** Earlier draft of this task said "render the cell value verbatim" — but a mixed-value cell like `YES - https://drive.google.com/file/d/<id>/view` would leak the raw Drive URL into crew DOM, violating the §10 proxy-only auth boundary. The corrected design strips URLs at render time. **Crew DOM MUST NEVER contain `https://` or `drive.google.com` substrings** for any opening-reel fixture (M4 baseline AND M7).
 
-| Field | Empty values (hide entirely) | Render-as-text values | Notes |
-|---|---|---|---|
-| `event_details.opening_reel` (URL-stripped text rendering — M4 baseline; inline `<video>` adds in M7 Task 7.6) | `null`, `''`, `'TBD'` (case-insensitive after trim) AND any value whose URL-stripped residue is empty (the cell was a pure Drive URL — entire value matched the URL regex, OR after stripping connector tokens nothing remained). | `'YES'`, `'MAYBE'`, `'N/A'`, `'TBA'`, `'BACKUP ONLY'`, and the URL-stripped residue of mixed cells (e.g., `'YES - <url>'` → `'YES'`, `'LOOP VIDEO - <url>'` → `'LOOP VIDEO'`), and any other free-text value (per §10 / §6.5 free-text fallback). | Spec §10 names `MAYBE`, `YES`, `N/A` as crew-visible status text AND specifies the URL-strip render contract. M4 renders the URL-stripped value. M7 (Task 7.6) ADDS `<video src="/api/asset/reel/<show>">` when post-Apply `shows.opening_reel_*` columns are non-NULL. ONLY `TBD`, bare empty/null, AND pure-URL cells (empty stripped residue) are hidden at every milestone. |
-| Generic optional text fields (e.g., `event_details.power`, `internet`, `keynote_requirements`, `rooms.scenic`, `notes` columns) | `null`, `''`, `'TBD'`, `'N/A'`, `'TBA'` (case-insensitive) | All other free-text values render verbatim. | Original blanket rule applies — these fields are not in spec §10's named-status list. |
-| Required structural fields (e.g., `show.title`, `venue.name`) | n/a — missing required fields render the §8.3 placeholder ("Doug hasn't filled this in yet"), NEVER hidden. | n/a | §8.3 required-field discipline. |
-| Whole tile missing (e.g., no transport assigned) | Tile not rendered. Grid reflows. | n/a | §8.3 / Task 4.7. |
+| Field                                                                                                                           | Empty values (hide entirely)                                                                                                                                                                                                      | Render-as-text values                                                                                                                                                                                                                             | Notes                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `event_details.opening_reel` (URL-stripped text rendering — M4 baseline; inline `<video>` adds in M7 Task 7.6)                  | `null`, `''`, `'TBD'` (case-insensitive after trim) AND any value whose URL-stripped residue is empty (the cell was a pure Drive URL — entire value matched the URL regex, OR after stripping connector tokens nothing remained). | `'YES'`, `'MAYBE'`, `'N/A'`, `'TBA'`, `'BACKUP ONLY'`, and the URL-stripped residue of mixed cells (e.g., `'YES - <url>'` → `'YES'`, `'LOOP VIDEO - <url>'` → `'LOOP VIDEO'`), and any other free-text value (per §10 / §6.5 free-text fallback). | Spec §10 names `MAYBE`, `YES`, `N/A` as crew-visible status text AND specifies the URL-strip render contract. M4 renders the URL-stripped value. M7 (Task 7.6) ADDS `<video src="/api/asset/reel/<show>">` when post-Apply `shows.opening_reel_*` columns are non-NULL. ONLY `TBD`, bare empty/null, AND pure-URL cells (empty stripped residue) are hidden at every milestone. |
+| Generic optional text fields (e.g., `event_details.power`, `internet`, `keynote_requirements`, `rooms.scenic`, `notes` columns) | `null`, `''`, `'TBD'`, `'N/A'`, `'TBA'` (case-insensitive)                                                                                                                                                                        | All other free-text values render verbatim.                                                                                                                                                                                                       | Original blanket rule applies — these fields are not in spec §10's named-status list.                                                                                                                                                                                                                                                                                           |
+| Required structural fields (e.g., `show.title`, `venue.name`)                                                                   | n/a — missing required fields render the §8.3 placeholder ("Doug hasn't filled this in yet"), NEVER hidden.                                                                                                                       | n/a                                                                                                                                                                                                                                               | §8.3 required-field discipline.                                                                                                                                                                                                                                                                                                                                                 |
+| Whole tile missing (e.g., no transport assigned)                                                                                | Tile not rendered. Grid reflows.                                                                                                                                                                                                  | n/a                                                                                                                                                                                                                                               | §8.3 / Task 4.7.                                                                                                                                                                                                                                                                                                                                                                |
 
 The implementation lives in `lib/visibility/emptyState.ts` as a small dispatch table keyed by field name; tile components import the field-specific predicate. NO inline string-list duplication across tiles.
 
@@ -640,6 +685,7 @@ The implementation lives in `lib/visibility/emptyState.ts` as a small dispatch t
   - Synthesize a fixture with `event_details.power = 'N/A'`. Crew page MUST NOT render the power field (generic optional rule applies — power is NOT in spec §10's named-status list).
   - Synthesize a fixture with `event_details.power = 'House power, 20A'`. Crew page MUST render `Power: House power, 20A`.
 - [ ] **Step 2: Implement** per-field empty-state predicates in `lib/visibility/emptyState.ts` AND the URL-stripping helper in `lib/visibility/openingReelText.ts`:
+
   ```ts
   // lib/visibility/openingReelText.ts — single source of truth for §10 URL-strip render contract.
   // Strips all https?://drive.google.com|docs.google.com/.. URL substrings AND orphaned ` - `
@@ -647,19 +693,18 @@ The implementation lives in `lib/visibility/emptyState.ts` as a small dispatch t
   // or `drive.google.com` substrings for any opening_reel fixture — see regression test.
   const DRIVE_URL_RE = /(https?:\/\/)?(drive\.google\.com|docs\.google\.com)\/[^\s]+/g;
   export function stripOpeningReelText(value: string | null): string {
-    if (value == null) return '';
+    if (value == null) return "";
     return value
-      .replace(DRIVE_URL_RE, '')
-      .replace(/\s+-\s+(?=\s*$)/g, '') // trailing connector
-      .replace(/^\s*-\s+/, '') // leading connector
-      .replace(/\s+/g, ' ')
-      .trim;
+      .replace(DRIVE_URL_RE, "")
+      .replace(/\s+-\s+(?=\s*$)/g, "") // trailing connector
+      .replace(/^\s*-\s+/, "") // leading connector
+      .replace(/\s+/g, " ").trim;
   }
 
   // lib/visibility/emptyState.ts — per-field empty rules; see Task 4.14 table.
-  import { stripOpeningReelText } from './openingReelText';
-  const OPENING_REEL_HIDE = new Set(['', 'TBD']); // case-insensitive after trim
-  const GENERIC_OPTIONAL_HIDE = new Set(['', 'TBD', 'N/A', 'TBA']); // case-insensitive
+  import { stripOpeningReelText } from "./openingReelText";
+  const OPENING_REEL_HIDE = new Set(["", "TBD"]); // case-insensitive after trim
+  const GENERIC_OPTIONAL_HIDE = new Set(["", "TBD", "N/A", "TBA"]); // case-insensitive
 
   export function shouldHideOpeningReel(value: string | null): boolean {
     if (value == null) return true;
@@ -672,7 +717,9 @@ The implementation lives in `lib/visibility/emptyState.ts` as a small dispatch t
     return GENERIC_OPTIONAL_HIDE.has(value.trim.toUpperCase);
   }
   ```
+
   Tiles import `stripOpeningReelText` AND `shouldHideOpeningReel`; NO ad-hoc inline render of the raw cell value. Required-field placeholders per §8.3 are rendered at the tile level when the structural field is missing (separate from these predicates).
+
 - [ ] **Step 3: Commit** `feat(crew-page): empty-state discipline + §10 opening-reel URL-strip render contract (§8.3, §10)`.
 
 ### Task 4.16: Crew-page Realtime bridge — Server Component + thin client `<ShowRealtimeBridge>` calling `router.refresh` on a server-owned Broadcast topic
@@ -707,10 +754,12 @@ The implementation lives in `lib/visibility/emptyState.ts` as a small dispatch t
 **JWT renewal on disconnect / auth-failure.** The `POST /api/realtime/subscriber-token` mint signs a JWT with `exp = now+5min` — every page session that stays open longer than 5 minutes WILL eventually see the WebSocket carrying an expired token. Without an explicit renewal flow, any routine WiFi blip past the 5-minute mark drops the subscription silently and the bridge stops delivering invalidations until the user navigates. The bridge MUST listen for both Supabase `system` `disconnected` events AND any channel-level auth-failure error event (`channel.subscribe(status => { if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') .. })`) and on either signal run the renewal sequence: (a) re-`POST /api/realtime/subscriber-token` (returns a fresh JWT — the route enforces idempotency, multiple renewals within the same client session are fine); (b) call `client.realtime.setAuth(newJwt)`; (c) `removeChannel(oldChannel)` and re-create the channel via `subscribeToShow(showId, newJwt, onInvalidate)` with the same topic name `show:<showId>:invalidation`; (d) AFTER the new `subscribe` resolves successfully, run the `/api/show/[slug]/version` catch-up (same flow used post-initial-subscribe) so any invalidations missed during the disconnect window are reconciled; (e) on renewal success, the bridge clears any "stale connection" UI state it surfaced during the disconnect window — the entire flow is transparent to the user (no pop-up, no manual action). On renewal FAILURE (mint returns 401 because the cookie itself expired, OR re-subscribe returns CHANNEL_ERROR three times in a row): log `SHOW_REALTIME_JWT_RENEWED` with `outcome: 'failed'` and fall back to no-op (the next `router.refresh` or navigation hits `getShowForViewer` server-side and self-heals via the 410 → bootstrap path). Successful renewals log `SHOW_REALTIME_JWT_RENEWED` with `outcome: 'success'` so admins can trace renewal cadence; this is admin-log-only with no Doug-facing surface (added to §12.4).
 
 **Renewal single-flight gating (mandatory).** The naive renewal flow re-triggers itself on the channel it intentionally tears down: `removeChannel(oldChannel)` synchronously fires a `'CLOSED'` status callback on the retired channel, which without gating re-enters renewal while the prior renewal is still mid-flight, producing overlapping JWT mints, overlapping `setAuth` calls, and a thrashing channel-create/destroy cycle. The bridge MUST therefore implement renewal as a single-flight state machine using TWO refs:
+
 - `currentChannelGenerationRef = useRef<number>(0)` — monotonically increments on every new `subscribe()` call. Each channel's subscribe-status / system-event callback closure captures the generation number at creation time; the FIRST line of every status / system / disconnect callback is `if (closureGeneration !== currentChannelGenerationRef.current) return;` — straggler events on retired channels are silently dropped.
 - `isRenewingRef = useRef<boolean>(false)` — set to `true` at the START of the renewal sequence (BEFORE any other renewal step) AND reset to `false` ONLY after the new channel reaches `SUBSCRIBED` (renewal-success) OR `SHOW_REALTIME_JWT_RENEWED outcome:'failed'` is logged (renewal-failure). When `true`, every additional disconnect / `'CHANNEL_ERROR'` / `'TIMED_OUT'` / `'CLOSED'` event is dropped at callback entry — the in-flight renewal owns the renewal lock.
 
 **Mandatory ordering inside the renewal sequence:**
+
 1. Guard: if `isRenewingRef.current === true` → return (single-flight).
 2. Set `isRenewingRef.current = true`.
 3. Increment `currentChannelGenerationRef.current` (NEW generation).
@@ -732,11 +781,13 @@ If step 5 fails (mint 401), set `isRenewingRef.current = false` AND log `SHOW_RE
 Every status / system / disconnect / renewal-step callback's FIRST guard is `if (!isMountedRef.current || closureGeneration !== currentChannelGenerationRef.current) return;` — the boolean covers the "component is dying" case; the generation covers the "different channel" case; together they cover every re-entry vector. The mint-then-subscribe sequence inside the renewal flow ALSO checks `isMountedRef.current` after each `await` boundary (after the `fetch` for `/api/realtime/subscriber-token` resolves; after `setAuth` returns; after the new `subscribe` resolves) — if the component unmounted while the renewal `await`ed, the renewal aborts BEFORE creating the new channel, BEFORE running version catch-up, and BEFORE clearing any UI state.
 
 **Required regression tests** (new entries in Step 1):
+
 - **StrictMode dev-cycle unmount**: render `<ShowRealtimeBridge>` under React StrictMode (the dev-mode double-mount/unmount cycle fires the cleanup synchronously between mounts). Assert (a) `removeChannel` was called once during the StrictMode unmount; (b) the synchronous `'CLOSED'` callback that fires from `removeChannel` did NOT trigger a renewal — `fetch('/api/realtime/subscriber-token')` was called EXACTLY ONCE total across both lifecycle halves (the second mount's mint), NOT TWICE (which would prove the unmount's `'CLOSED'` re-entered renewal); (c) `mockSupabase.channel(...)` was called exactly once for the second mount, never for an unmount-spawned renewal.
 - **Ordinary client navigation unmount**: render `<ShowRealtimeBridge>` inside a Next.js test harness; navigate away to a different route. Assert (a) cleanup fires; (b) NO `/api/realtime/subscriber-token` request is sent AFTER the cleanup (instrumented `fetch` mock counts requests, asserts the count after navigation equals the count before); (c) NO `mockSupabase.channel(...)` call after cleanup; (d) NO `router.refresh()` call after cleanup (proves the debounce timer was cancelled in step 3).
 - **Unmount during in-flight renewal**: render the bridge, mint+subscribe successfully, emit `'CHANNEL_ERROR'` to start a renewal, mock the subscriber-token route to delay 200ms, and unmount the component DURING the renewal's mint await. Assert (a) `isMountedRef.current === false` is observed at the post-mint-await check; (b) the renewal aborts WITHOUT calling `subscribeToShow` for the new channel; (c) NO leaked channel; (d) NO `router.refresh()` call; (e) `outcome: 'failed'` is NOT logged (this is a clean unmount, not a renewal failure — the abort path is silent).
 
 **Shared `resolveShowViewer` auth helper.** `/api/realtime/subscriber-token` and `/api/show/[slug]/version` MUST gate on a single helper `lib/auth/resolveShowViewer.ts` mirroring the `/show/<slug>` Server Component's complete auth chain. Ad-hoc per-route `validateLinkSession` / `validateGoogleSession` calls are forbidden because (a) admins authenticated only via `auth.email` allowlist (NOT `app_metadata.role='admin'`) carry no `__Host-fxav_session` cookie, so a crew-only validator chain 401s them; (b) cross-show probes (signed in for show A, requesting `/api/show/B/version`) must distinguish "wrong show" (403) from "no credentials" (401). **The discriminated-union return shape is FIVE-armed**: `resolveShowViewer(req, slug): Promise<{ kind: 'admin' | 'crew_link' | 'crew_google' | 'denied' | 'forbidden', email?: string, show_id?: string, crew_member_id?: string, reason?: string }>`. The helper runs the SAME chain `/show/<slug>` runs, in the same order: (1) resolve `slug → show_id` via `SELECT id FROM shows WHERE slug = $1` using service role; if no row, return `{ kind: 'denied', reason: 'unknown_slug' }` (denied — no credentials apply because no show exists); (2) `isAdminSession(req)` (per `lib/auth/isAdminSession.ts` — `app_metadata.role='admin'` OR canonicalized email is in the allowlist) → on `true` return `{ kind: 'admin', email, show_id }` (admins span all shows; no cross-show check applies); (3) `validateLinkSession(req)` → on `success`: if the validator's resolved `show_id` matches the slug's resolved show, return `{ kind: 'crew_link', show_id, crew_member_id }`; if it succeeds for a DIFFERENT show, return `{ kind: 'forbidden', reason: 'cross_show_link_session', show_id: <validator's-show> }` (validator chain succeeded but for the wrong show — credentials present, just wrong target); on validator non-success fall through to step 4; (4) `validateGoogleSession(req, slug)` → on `success` with show_id matching, return `{ kind: 'crew_google', email, show_id, crew_member_id }`; on `success` for a different show, return `{ kind: 'forbidden', reason: 'cross_show_google_session', email, show_id: <validator's-show> }`; on validator non-success fall through to step 5; (5) all-failed → `{ kind: 'denied', reason: 'no_credentials' }`. The helper does NOT throw; returns the sentinel; caller decides status code. **Caller-side outcome routing**: BOTH routes (`/api/realtime/subscriber-token` AND `/api/show/[slug]/version`) call the helper as their FIRST action and route per:
+
 - `denied` → **401** (no credentials present — `WWW-Authenticate` semantics; subscriber-token uses `SHOW_REALTIME_BROADCAST_AUTH_FAILED`).
 - `forbidden` → **403** (credentials valid, but for a different show — cross-show cookie reuse, cross-show subscriber-token request).
 - `admin` | `crew_link` | `crew_google` → **200** (subscriber-token mints JWT carrying `viewer_kind` + `show_id` claims; version route runs `SELECT viewer_version_token($1)` and returns the composite token).
@@ -785,4 +836,3 @@ The 401-vs-403 distinction is load-bearing for downstream UX (a 401 surface re-p
 - [ ] Commit `chore: M4 demo verified`.
 
 ---
-

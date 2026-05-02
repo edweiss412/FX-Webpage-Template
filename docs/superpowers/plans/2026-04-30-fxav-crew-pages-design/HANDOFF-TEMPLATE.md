@@ -11,8 +11,8 @@ Use this template when starting any milestone, and especially when delegating a 
 ```markdown
 # Handoff — M<n>: <milestone name>
 
-**Handed off:** <YYYY-MM-DD>  by <human-name>
-**Implementer:** <model> / <harness>   (per ROUTING.md)
+**Handed off:** <YYYY-MM-DD> by <human-name>
+**Implementer:** <model> / <harness> (per ROUTING.md)
 **Adversarial reviewer:** <model> / <harness>
 **Plan file:** `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/<file>.md`
 
@@ -117,13 +117,14 @@ After the implementer finishes:
 2. The adversarial reviewer (per ROUTING.md) is invoked via `superpowers:adversarial-review` with the milestone's spec sections, AC list, and the diff as input.
 3. Reviewer iterates with implementer until convergence (no new issues raised in a round) or until ambiguity requires a human decision.
 4. Convergence is logged at the bottom of this handoff file:
-
 ```
+
 ## Convergence log
 
 - Round 1 (<date>): <reviewer> raised <n> issues. <m> resolved, <k> deferred to <where>.
 - Round 2 (<date>): ...
 - Converged at round <r> on <date>.
+
 ```
 
 5. Only after convergence does the milestone move to "completed" status.
@@ -138,5 +139,5 @@ These trip up first-time uses of this template, based on prior plan-execution ex
 - **"Spec sections in scope" is exhaustive, not representative.** If the milestone touches §6.4, §6.6, and §6.8 — list all three. Missing a section here means the implementer never reads it, which means companion behavior gets dropped.
 - **"AC list" uses canonical AC IDs.** Re-read the plan file and pick out every `AC-<n>.<m>` reference. Don't paraphrase ("acceptance criteria for tile rendering") — the IDs are the contract.
 - **"Pre-handoff state" is verified by command, not assertion.** "Tests passing" alone isn't enough; write the test command. The next implementer should be able to copy/paste it.
-- **"Watchpoints" sometimes is the most valuable section.** A surface that broke in adversarial review during the *plan* phase will tend to break again during *implementation* unless the implementer is forewarned. Prior round findings live in the convergence logs of earlier handoffs once you have them; for the first milestone, there's no log yet.
+- **"Watchpoints" sometimes is the most valuable section.** A surface that broke in adversarial review during the _plan_ phase will tend to break again during _implementation_ unless the implementer is forewarned. Prior round findings live in the convergence logs of earlier handoffs once you have them; for the first milestone, there's no log yet.
 - **"Exit criteria" must include the convergence step.** A milestone is not done at "tests pass." It's done at "tests pass AND adversarial review converged."

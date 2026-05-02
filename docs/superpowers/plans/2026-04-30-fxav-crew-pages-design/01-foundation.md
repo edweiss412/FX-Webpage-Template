@@ -2,7 +2,6 @@
 
 > Part of [the FXAV crew pages design plan](README.md).
 
-
 Spec context: §14 (tech stack & directory layout). Not a §15 milestone but required scaffolding.
 
 ### Task 0.1: Initialize Next.js 16 + pnpm + tsconfig
@@ -10,28 +9,35 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 **Files:** Create: `package.json`, `tsconfig.json`, `next.config.mjs`, `pnpm-workspace.yaml` (if needed), `.gitignore` augmentation.
 
 - [ ] **Step 1: Verify pnpm version**
+
   ```bash
   pnpm --version
   ```
+
   Expected: `>= 9.0.0`. Install/upgrade if missing.
 
 - [ ] **Step 2: Initialize Next.js**
+
   ```bash
   pnpm create next-app@latest . --ts --tailwind --eslint --app --src-dir=false --import-alias="@/*" --turbopack --skip-install
   ```
+
   Expected: scaffolded `app/`, `package.json`, `tsconfig.json`. Answer "no" to "would you like to use src directory" (the spec uses `app/` at root).
 
 - [ ] **Step 3: Pin Next.js 16, install dependencies**
-  Edit `package.json` to set `"next": "16.0.0"` exactly. Then:
+      Edit `package.json` to set `"next": "16.0.0"` exactly. Then:
+
   ```bash
   pnpm install
   pnpm add googleapis @octokit/rest @supabase/supabase-js @supabase/ssr jose pdfjs-dist @sentry/nextjs zod
   pnpm add -D vitest @testing-library/react @testing-library/jest-dom @vitest/ui jsdom @playwright/test prettier eslint-config-prettier
   ```
+
   Expected: lockfile written; no peer-dep errors.
 
 - [ ] **Step 4: Add tsconfig strictness**
-  Edit `tsconfig.json` to add:
+      Edit `tsconfig.json` to add:
+
   ```json
   {
     "compilerOptions": {
@@ -45,9 +51,11 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
   ```
 
 - [ ] **Step 5: Verify build runs**
+
   ```bash
   pnpm build
   ```
+
   Expected: builds the Next.js scaffold cleanly.
 
 - [ ] **Step 6: Commit**
@@ -61,7 +69,8 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
 **Files:** Create: `vitest.config.ts`, `tests/setup.ts`, `tests/sample.test.ts`. Modify: `package.json` (test script).
 
 - [ ] **Step 1: Write a sample failing test**
-  Create `tests/sample.test.ts`:
+      Create `tests/sample.test.ts`:
+
   ```ts
   import { describe, it, expect } from 'vitest';
   describe('sample', => {
@@ -70,22 +79,26 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
     });
   });
   ```
+
   And `vitest.config.ts`:
+
   ```ts
-  import { defineConfig } from 'vitest/config';
+  import { defineConfig } from "vitest/config";
   export default defineConfig({
     test: {
-      environment: 'node',
+      environment: "node",
       globals: false,
-      include: ['tests/**/*.test.ts'],
-      setupFiles: ['tests/setup.ts'],
+      include: ["tests/**/*.test.ts"],
+      setupFiles: ["tests/setup.ts"],
     },
-    resolve: { alias: { '@': new URL('./', import.meta.url).pathname } },
+    resolve: { alias: { "@": new URL("./", import.meta.url).pathname } },
   });
   ```
+
   And empty `tests/setup.ts`.
 
 - [ ] **Step 2: Add test script** Edit `package.json`:
+
   ```json
   { "scripts": { "test": "vitest run", "test:watch": "vitest" } }
   ```
@@ -108,24 +121,30 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
   ```
 - [ ] **Step 2: Write `playwright.config.ts`**
   ```ts
-  import { defineConfig, devices } from '@playwright/test';
+  import { defineConfig, devices } from "@playwright/test";
   export default defineConfig({
-    testDir: 'tests/e2e',
+    testDir: "tests/e2e",
     timeout: 30_000,
     fullyParallel: true,
     retries: process.env.CI ? 2 : 0,
     use: {
-      baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000',
-      trace: 'on-first-retry',
+      baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
+      trace: "on-first-retry",
       viewport: { width: 390, height: 844 }, // mobile-primary per §8.4
     },
     projects: [
-      { name: 'mobile-safari', use: { ...devices['iPhone 14'], viewport: { width: 390, height: 844 } } }, // explicit override per §8.4 — the iPhone 14 device descriptor has its own 390×664 viewport that would otherwise mask the top-level setting
-      { name: 'desktop-chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 800 } } },
+      {
+        name: "mobile-safari",
+        use: { ...devices["iPhone 14"], viewport: { width: 390, height: 844 } },
+      }, // explicit override per §8.4 — the iPhone 14 device descriptor has its own 390×664 viewport that would otherwise mask the top-level setting
+      {
+        name: "desktop-chromium",
+        use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 } },
+      },
     ],
     webServer: {
-      command: process.env.CI ? 'pnpm build && pnpm start' : 'pnpm dev',
-      url: 'http://localhost:3000',
+      command: process.env.CI ? "pnpm build && pnpm start" : "pnpm dev",
+      url: "http://localhost:3000",
       reuseExistingServer: !process.env.CI,
       timeout: process.env.CI ? 120_000 : 60_000,
     },
@@ -133,9 +152,9 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
   ```
 - [ ] **Step 3: Sample e2e test** at `tests/e2e/sample.spec.ts`:
   ```ts
-  import { test, expect } from '@playwright/test';
-  test('home page loads', async ({ page }) => {
-    await page.goto('/');
+  import { test, expect } from "@playwright/test";
+  test("home page loads", async ({ page }) => {
+    await page.goto("/");
     await expect(page).toHaveTitle(/.*/);
   });
   ```
@@ -182,7 +201,7 @@ Spec context: §14 (tech stack & directory layout). Not a §15 milestone but req
   DRIVE_WEBHOOK_PUBLIC_URL=
   # NB: WATCHED_DRIVE_FOLDER_ID is NOT an env var — see §14.3 / §4.5.
   ```
-- [x] **Step 3: Add `.env*.local`** to `.gitignore`. *(Pre-satisfied — entries already present at base SHA from earlier commit; no additional change needed in M0.)*
+- [x] **Step 3: Add `.env*.local`** to `.gitignore`. _(Pre-satisfied — entries already present at base SHA from earlier commit; no additional change needed in M0.)_
 - [ ] **Step 4: Verify local Supabase boots**
   ```bash
   pnpm dlx supabase@latest start
@@ -237,7 +256,7 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
 
   ```ts
   export type ParseWarning = {
-    severity: 'info' | 'warn';
+    severity: "info" | "warn";
     code: string;
     message: string;
     blockRef?: { kind: string; index?: number };
@@ -246,12 +265,12 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
   export type ParseError = { code: string; message: string; blockRef?: { kind: string } };
 
   export type DateRestriction =
-    | { kind: 'explicit'; days: string[] }
-    | { kind: 'unknown_asterisk'; days: null }
-    | { kind: 'none' };
+    | { kind: "explicit"; days: string[] }
+    | { kind: "unknown_asterisk"; days: null }
+    | { kind: "none" };
   export type StageRestriction =
-    | { kind: 'explicit'; stages: Array<'Load In' | 'Set' | 'Show' | 'Strike' | 'Load Out'> }
-    | { kind: 'none' };
+    | { kind: "explicit"; stages: Array<"Load In" | "Set" | "Show" | "Strike" | "Load Out"> }
+    | { kind: "none" };
   // canonical role vocabulary derived from the v4 role-master
   // enumeration at fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md:718-743.
   // Compound suffixes like "BO - V1" decompose into multiple flags ['BO','V1'],
@@ -261,17 +280,30 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
   // canonical and NOT emit UNKNOWN_ROLE_TOKEN warnings.
   export type RoleFlag =
     // Capability flags
-    | 'LEAD' | 'A1' | 'A2' | 'V1' | 'L1'
+    | "LEAD"
+    | "A1"
+    | "A2"
+    | "V1"
+    | "L1"
     // Room/scope flags (decomposed from "GS - A1" / "BO - V1" / "BO - LEAD")
-    | 'GS' | 'BO'
+    | "GS"
+    | "BO"
     // Camera/video specialty flags
-    | 'CAM_OP' | 'PTZ' | 'LED' | 'STREAM' | 'GAV'
+    | "CAM_OP"
+    | "PTZ"
+    | "LED"
+    | "STREAM"
+    | "GAV"
     // Floor/runner flags
-    | 'FLOATER' | 'FLOOR'
+    | "FLOATER"
+    | "FLOOR"
     // Production-side roles
-    | 'SHOW_CALLER' | 'GREEN_ROOM' | 'OWNER' | 'CONTENT_CREATION'
+    | "SHOW_CALLER"
+    | "GREEN_ROOM"
+    | "OWNER"
+    | "CONTENT_CREATION"
     // Restriction marker (paired with stage_restriction or unknown_asterisk)
-    | 'ONLY';
+    | "ONLY";
 
   export type CrewMemberRow = {
     name: string;
@@ -296,9 +328,20 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
     title: string;
     client_label: string;
     client_contact: ClientContact | null;
-    template_version: 'v1' | 'v2' | 'v3' | 'v4';
-    venue: { name: string; address: string; loadingDock?: string | null; googleLink?: string | null; notes?: string | null } | null;
-    dates: { travelIn: string | null; set: string | null; showDays: string[]; travelOut: string | null };
+    template_version: "v1" | "v2" | "v3" | "v4";
+    venue: {
+      name: string;
+      address: string;
+      loadingDock?: string | null;
+      googleLink?: string | null;
+      notes?: string | null;
+    } | null;
+    dates: {
+      travelIn: string | null;
+      set: string | null;
+      showDays: string[];
+      travelOut: string | null;
+    };
     // per-day work-phase mapping. Each entry maps a calendar date (ISO 'YYYY-MM-DD')
     // to the set of WorkPhases active on that day. Derived by the parser from shows.dates blocks AND
     // any per-day schedule rows that explicitly mark phase activity. PackListTile (Task 4.9) reads
@@ -311,7 +354,7 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
   };
 
   // canonical work-phase enum used by ShowRow.schedule_phases AND viewer.stage_restriction.
-  export type WorkPhase = 'Load In' | 'Set' | 'Show' | 'Strike' | 'Load Out';
+  export type WorkPhase = "Load In" | "Set" | "Show" | "Strike" | "Load Out";
 
   export type HotelReservationRow = {
     ordinal: number; // 1..4 (cardinality cap §10)
@@ -324,7 +367,7 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
     notes: string | null;
   };
 
-  export type RoomKind = 'gs' | 'breakout' | 'additional';
+  export type RoomKind = "gs" | "breakout" | "additional";
   export type RoomRow = {
     kind: RoomKind;
     name: string;
@@ -368,7 +411,7 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
     notes: string | null;
   };
 
-  export type ContactKind = 'venue' | 'in_house_av';
+  export type ContactKind = "venue" | "in_house_av";
   export type ContactRow = {
     kind: ContactKind;
     name: string | null;
@@ -426,7 +469,7 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
     // 'restage_required' is set when embeddedFingerprint is null AND tells asset_recovery to skip
     // this entry entirely (a fresh sheet edit must mint new sheetsRevisionId + embeddedFingerprint
     // before recovery can attempt this entry again). See Task 7.4 for the recovery-side filter.
-    recovery_disposition: 'normal' | 'restage_required';
+    recovery_disposition: "normal" | "restage_required";
     snapshotPath: null; // populated by sync layer at Apply time, NEVER by the parser
   };
 
@@ -478,11 +521,11 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
   // to `string | null` so PersistedDiagrams can represent both incomplete (null path) AND
   // complete (string path) state without ad-hoc `as any` casts.
 
-  export type PersistedEmbeddedImage = Omit<EmbeddedImageStub, 'snapshotPath'> & {
+  export type PersistedEmbeddedImage = Omit<EmbeddedImageStub, "snapshotPath"> & {
     snapshotPath: string | null; // populated by Apply; null indicates incomplete entry
   };
 
-  export type PersistedLinkedFolderItem = Omit<LinkedFolderItemStub, 'snapshotPath'> & {
+  export type PersistedLinkedFolderItem = Omit<LinkedFolderItemStub, "snapshotPath"> & {
     snapshotPath: string | null;
   };
 
@@ -494,9 +537,9 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
   export type PersistedDiagrams = {
     snapshot_revision_id: string; // fresh UUID per Apply
     snapshot_status:
-      | 'complete' // every entry has a non-null snapshotPath
-      | 'partial_failure' // ≥1 entry is null AND retryable (asset_recovery cron will retry)
-      | 'partial_failure_restage_required'; // ≥1 entry is null AND every remaining null entry has recovery_disposition='restage_required'. Cron's gate.mode logic (Task 6.3) MUST treat this as a SKIP. GC (Task 7.8) MUST suppress orphan deletion in this state, exactly like 'partial_failure'. The show converges only when a fresh sheet edit mints new sheetsRevisionId + embeddedFingerprint via Phase 2.
+      | "complete" // every entry has a non-null snapshotPath
+      | "partial_failure" // ≥1 entry is null AND retryable (asset_recovery cron will retry)
+      | "partial_failure_restage_required"; // ≥1 entry is null AND every remaining null entry has recovery_disposition='restage_required'. Cron's gate.mode logic (Task 6.3) MUST treat this as a SKIP. GC (Task 7.8) MUST suppress orphan deletion in this state, exactly like 'partial_failure'. The show converges only when a fresh sheet edit mints new sheetsRevisionId + embeddedFingerprint via Phase 2.
     linkedFolder: { driveFolderId: string; driveFolderUrl: string } | null; // top-level per spec §4.1
     embeddedImages: PersistedEmbeddedImage[]; // snapshotPath is string when populated; null for incomplete
     linkedFolderItems: PersistedLinkedFolderItem[];
@@ -561,39 +604,75 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
   // technical-failure recovery and does NOT mutate `shows.diagrams` at all — the prior approved
   // snapshot stays live with its existing `snapshot_revision_id`).
   export type TriggeredReviewItem =
-    | { id: string; invariant: 'FIRST_SEEN_REVIEW' | 'ONBOARDING_SCAN_REVIEW' }
-    | { id: string; invariant: 'MI-6' | 'MI-10'; }
-    | { id: string; invariant: 'MI-7'; section: 'hotel_reservations' | 'rooms' | 'contacts' | 'transportation'; prior_count: number; new_count: number }
-    | { id: string; invariant: 'MI-7b'; section: 'hotel_reservations' | 'rooms' | 'contacts'; missingKey: string }
-    | { id: string; invariant: 'MI-8'; field: 'po' | 'proposal' | 'invoice' | 'invoiceNotes' }
-    | { id: string; invariant: 'MI-8b'; prior: string | null; next: string | null }
-    | { id: string; invariant: 'MI-8c'; mode: 'collapse' | 'ambiguous_format' | 'halved' | 'case_dropped'; details?: string }
-    | { id: string; invariant: 'MI-9'; crew_name: string; prior_flags: RoleFlag[]; new_flags: RoleFlag[] }
-    | { id: string; invariant: 'MI-11'; crew_name: string; prior_email: string | null; new_email: string | null }
-    | { id: string; invariant: 'MI-12'; removed_name: string; added_name: string; email: string }
-    | { id: string; invariant: 'MI-13'; removed_name: string; added_name: string }
-    | { id: string; invariant: 'MI-14'; removed_name: string; added_name: string }
-    | { id: string; invariant: 'MI-13-orphan-remove' | 'MI-14-orphan-remove'; removed_name: string; reason?: string }
-    | { id: string; invariant: 'MI-13-orphan-add' | 'MI-14-orphan-add'; added_name: string }
+    | { id: string; invariant: "FIRST_SEEN_REVIEW" | "ONBOARDING_SCAN_REVIEW" }
+    | { id: string; invariant: "MI-6" | "MI-10" }
+    | {
+        id: string;
+        invariant: "MI-7";
+        section: "hotel_reservations" | "rooms" | "contacts" | "transportation";
+        prior_count: number;
+        new_count: number;
+      }
+    | {
+        id: string;
+        invariant: "MI-7b";
+        section: "hotel_reservations" | "rooms" | "contacts";
+        missingKey: string;
+      }
+    | { id: string; invariant: "MI-8"; field: "po" | "proposal" | "invoice" | "invoiceNotes" }
+    | { id: string; invariant: "MI-8b"; prior: string | null; next: string | null }
+    | {
+        id: string;
+        invariant: "MI-8c";
+        mode: "collapse" | "ambiguous_format" | "halved" | "case_dropped";
+        details?: string;
+      }
+    | {
+        id: string;
+        invariant: "MI-9";
+        crew_name: string;
+        prior_flags: RoleFlag[];
+        new_flags: RoleFlag[];
+      }
+    | {
+        id: string;
+        invariant: "MI-11";
+        crew_name: string;
+        prior_email: string | null;
+        new_email: string | null;
+      }
+    | { id: string; invariant: "MI-12"; removed_name: string; added_name: string; email: string }
+    | { id: string; invariant: "MI-13"; removed_name: string; added_name: string }
+    | { id: string; invariant: "MI-14"; removed_name: string; added_name: string }
+    | {
+        id: string;
+        invariant: "MI-13-orphan-remove" | "MI-14-orphan-remove";
+        removed_name: string;
+        reason?: string;
+      }
+    | { id: string; invariant: "MI-13-orphan-add" | "MI-14-orphan-add"; added_name: string }
     // Asset-review items. Each one only ever has a single valid
     // reviewer action of `apply` (the operator confirms they accept the consequence; no
     // rename/independent variants apply). User-facing copy lives in §12.4. Apply contracts differ
     // per variant — see Task 6.11 enumeration and spec §6.11 / §6.8.2 for the per-variant effect.
-    | { id: string; invariant: 'DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE'; spreadsheet_id: string } // Task 7.1: drive.revisions.list returned no usable revision token; technical-failure recovery; Apply does NOT mutate shows.diagrams (prior approved snapshot stays live; same snapshot_revision_id retained)
-    | { id: string; invariant: 'DIAGRAMS_EMBEDDED_NONE_FOUND'; spreadsheet_id: string } // Task 7.1: DIAGRAMS tab resolved but contains zero embedded objects + no linked-folder URL; operator-confirmation that gallery is intentionally empty; Apply DOES mutate shows.diagrams (mints fresh snapshot_revision_id, persists embeddedImages=[], snapshot_status='complete')
-    | { id: string; invariant: 'DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING'; drift_count: number } // Task 7.2/7.3: linked-folder bytes mutated between stage and Apply; existing-show stage path
-    | { id: string; invariant: 'REEL_DRIFT_PENDING'; reel_drive_file_id: string }; // Task 7.7: reel headRevisionId/modtime drifted between stage and Apply; existing-show stage path
+    | { id: string; invariant: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE"; spreadsheet_id: string } // Task 7.1: drive.revisions.list returned no usable revision token; technical-failure recovery; Apply does NOT mutate shows.diagrams (prior approved snapshot stays live; same snapshot_revision_id retained)
+    | { id: string; invariant: "DIAGRAMS_EMBEDDED_NONE_FOUND"; spreadsheet_id: string } // Task 7.1: DIAGRAMS tab resolved but contains zero embedded objects + no linked-folder URL; operator-confirmation that gallery is intentionally empty; Apply DOES mutate shows.diagrams (mints fresh snapshot_revision_id, persists embeddedImages=[], snapshot_status='complete')
+    | { id: string; invariant: "DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING"; drift_count: number } // Task 7.2/7.3: linked-folder bytes mutated between stage and Apply; existing-show stage path
+    | { id: string; invariant: "REEL_DRIFT_PENDING"; reel_drive_file_id: string }; // Task 7.7: reel headRevisionId/modtime drifted between stage and Apply; existing-show stage path
 
   export type InvariantOutcome =
-    | { outcome: 'pass' }
-    | { outcome: 'hard_fail'; failedCodes: string[]; messages: string[] }
-    | { outcome: 'stage'; triggeredItems: TriggeredReviewItem[] };
+    | { outcome: "pass" }
+    | { outcome: "hard_fail"; failedCodes: string[]; messages: string[] }
+    | { outcome: "stage"; triggeredItems: TriggeredReviewItem[] };
   ```
 
 - [ ] **Step 2: typecheck test** — `pnpm typecheck`. Expect: pass.
 - [ ] **Step 3: Commit**: ```bash
-  git add lib/parser/types.ts
-  git commit -m "feat(parser): ParseResult/ParseWarning/ParseError type contract"
+      git add lib/parser/types.ts
+      git commit -m "feat(parser): ParseResult/ParseWarning/ParseError type contract"
+
+  ```
+
   ```
 
 ### Task 1.2: Email canonicalization (§4.1.1, AC-1.6)
@@ -659,21 +738,23 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
 - [ ] **Step 2: Implement** `lib/parser/aliases.ts`:
   ```ts
   export const FIELD_ALIASES: Record<string, string[]> = {
-    'venue.contact_info': ['Hotel Contact Info','Hotal Contact Info','Venue Contact Info'],
-    'details.diagrams': ['DIagrams','Diagrams','DIAGRAMS'],
-    'details.virtual_audience': ['Virtual Audience','Virtaul Audience'],
-    'transport.driver': ['Driver','Equipment Transporter'],
-    'ops.po': ['PO#','PO #'],
+    "venue.contact_info": ["Hotel Contact Info", "Hotal Contact Info", "Venue Contact Info"],
+    "details.diagrams": ["DIagrams", "Diagrams", "DIAGRAMS"],
+    "details.virtual_audience": ["Virtual Audience", "Virtaul Audience"],
+    "transport.driver": ["Driver", "Equipment Transporter"],
+    "ops.po": ["PO#", "PO #"],
     // ...rest of §6.4 aliases
   };
   const REVERSE = Object.entries(FIELD_ALIASES).flatMap(([canonical, aliases]) =>
-    aliases.map(a => [a.toLowerCase, canonical] as const));
+    aliases.map((a) => [a.toLowerCase, canonical] as const),
+  );
   const REVERSE_MAP = new Map(REVERSE);
   export function resolveAlias(label: string): string | null {
     return REVERSE_MAP.get(label.trim.toLowerCase) ?? null;
   }
   ```
 - [ ] **Step 3: Failing test for version detection — fixture-grounded incl. typo-aware v2**
+
   ```ts
   import { detectVersion } from '@/lib/parser/schema';
 
@@ -717,16 +798,31 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
     expect(detectVersion('completely unrecognizable text')).toBeNull;
   });
   ```
-- [ ] **Step 4: Implement** `lib/parser/schema.ts` with the version registry from §6.4 and a typo-aware detector. **** the detector MUST consult `FIELD_ALIASES` (Task 1.3 step 2) to resolve marker labels at detection time — `resolveAlias("Hotal Contact Info")` → `"venue.contact_info"` matches the v2 marker. The version-registry entries express markers as canonical aliases, not literal strings. Concrete shape:
+
+- [ ] **Step 4: Implement** `lib/parser/schema.ts` with the version registry from §6.4 and a typo-aware detector. \*\*\*\* the detector MUST consult `FIELD_ALIASES` (Task 1.3 step 2) to resolve marker labels at detection time — `resolveAlias("Hotal Contact Info")` → `"venue.contact_info"` matches the v2 marker. The version-registry entries express markers as canonical aliases, not literal strings. Concrete shape:
   ```ts
   // Each version entry's `requires` is matched by walking every cell label
   // in the markdown, running it through `resolveAlias`, and checking if the
   // resolved canonical matches.
   const VERSIONS = [
-    { id: 'v4', requires: [{ alias: 'client.contact_office' /* "Contact Office" row */ }, { block: 'MAIN/SECONDARY' }] },
-    { id: 'v3', requires: [{ block: 'GEAR INVENTORY' }] },
-    { id: 'v2', requires: [{ alias: 'venue.contact_info' /* matches "Hotel" OR "Hotal" Contact Info via FIELD_ALIASES */ }] },
-    { id: 'v1', fallback: true },
+    {
+      id: "v4",
+      requires: [
+        { alias: "client.contact_office" /* "Contact Office" row */ },
+        { block: "MAIN/SECONDARY" },
+      ],
+    },
+    { id: "v3", requires: [{ block: "GEAR INVENTORY" }] },
+    {
+      id: "v2",
+      requires: [
+        {
+          alias:
+            "venue.contact_info" /* matches "Hotel" OR "Hotal" Contact Info via FIELD_ALIASES */,
+        },
+      ],
+    },
+    { id: "v1", fallback: true },
   ];
   ```
 - [ ] **Step 5: Run tests, verify pass**.
@@ -778,6 +874,7 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
 This is the highest-stakes parser task — the personalization signals gate authorization downstream. Be explicit.
 
 - [ ] **Step 1: Failing tests for day-restriction extraction (AC-1.3, AC-1.4) — fixture-grounded**
+
   ```ts
   import { parseCrew } from '@/lib/parser/blocks/crew';
 
@@ -867,6 +964,7 @@ This is the highest-stakes parser task — the personalization signals gate auth
     /* asserts edweiss412@gmail.com is lowercased even if sheet had mixed case */
   });
   ```
+
 - [ ] **Step 2: Implement crew extraction** with these rules in order:
   1. Find the CREW header row (regex: `/^\|\s*CREW\s*\|/m` then walk subsequent rows until blank line or new block).
   2. For each row: split cells by `|`, trim, filter empties.
@@ -884,7 +982,7 @@ This is the highest-stakes parser task — the personalization signals gate auth
      - `SHOW CALLER` → `['SHOW_CALLER']`
      - `CONTENT CREATION` → `['CONTENT_CREATION']`
      - `BO - LEAD` → `['BO','LEAD']`
-     Tokens NOT in the canonical RoleFlag union (e.g., a hypothetical future `RIGGER`) emit `UNKNOWN_ROLE_TOKEN` warning AND are dropped from `role_flags`.
+       Tokens NOT in the canonical RoleFlag union (e.g., a hypothetical future `RIGGER`) emit `UNKNOWN_ROLE_TOKEN` warning AND are dropped from `role_flags`.
   6. Apply `***` detection on the role cell — if present and `date_restriction.kind === 'none'`, set to `unknown_asterisk` and emit `UNKNOWN_DAY_RESTRICTION` warning.
   7. Canonicalize email.
 - [ ] **Step 3: Run** all crew tests — expect PASS.
@@ -895,6 +993,7 @@ This is the highest-stakes parser task — the personalization signals gate auth
 **Files:** Create: `lib/parser/blocks/hotels.ts`, `rooms.ts`, `transport.ts`, `contacts.ts`, `event.ts`, `ops.ts`. Test: one test file per block.
 
 For each block, follow the same pattern as Task 1.4:
+
 1. Failing test against the appropriate fixture asserting field-by-field correctness.
 2. Implement extractor that recognizes both pre-2026 layout and 2026 MAIN/SECONDARY split per §2.5–§2.10.
 3. Handle the §2.6 split-hotel case (`2024-10-legal-forum-chro-dc.md` has two hotels for one show).
@@ -917,14 +1016,17 @@ For each block, follow the same pattern as Task 1.4:
 **Files:** Create: `lib/parser/pull-sheet.ts`. Test: `tests/parser/pull-sheet.test.ts`.
 
 ** #3:** the spec §6.10's earlier "pull-sheet has `QTY/CAT/SUB CAT/ITEM` text header" claim was inverted vs. the real corpus. Reality (verified):
+
 - **Pull sheets** at `fixtures/shows/raw/2024-05-east-coast-family-office.md:207-275` and `2025-05-redefining-fixed-income-private-credit.md:360-430` use a POSITIONAL 5-column layout with NO `QTY/CAT/SUB CAT/ITEM` text header. The header row contains the literal `PULL SHEET` repeated as a merged title across all columns.
 - **The GEAR table** at `2025-06-ria-investment-forum.md:366-388` DOES have an explicit `QTY | PULLED | INITAL | CAT | SUB CAT | ITEM | NOTES` text header (7 columns) — this is operations-side data and is NOT a pull sheet.
 
 Detection signature:
+
 - Pull sheet: header row's cells all contain literal text `PULL SHEET` (case-insensitive); subsequent rows are 5-column positional `[packed_flag, qty, item, sub_cat, cat]`.
 - GEAR (excluded): header row contains BOTH `PULLED` AND `INITAL` (note the typo, verbatim in the fixture).
 
 - [ ] **Step 1: Failing tests** — exercise both real pull-sheet fixtures AND the GEAR-not-pull-sheet exclusion:
+
   ```ts
   // Real pull sheet — verified row-shape against fixture
   it('parses 2024-05 pull sheet into per-case rows (positional layout)', => {
@@ -979,6 +1081,7 @@ Detection signature:
     // items rendered as raw snippets, and the warning is emitted.
   });
   ```
+
 - [ ] **Step 2: Implement** per §6.10 detection rules:
   1. Find a markdown table whose header row's cells all contain the literal `PULL SHEET` (case-insensitive).
   2. Skip past the alignment row `| :-: | :-: | .. |`.
@@ -993,7 +1096,7 @@ Detection signature:
 
 **Files:** Create: `lib/parser/diagrams.ts`, `lib/parser/opening-reel.ts`. Test: `tests/parser/diagrams.test.ts`, `tests/parser/opening-reel.test.ts`.
 
-The Phase-1 parser extracts what's *describable from markdown alone*: the linked-folder URL (if any), and a stub for embeddedImages that the Drive API call later populates. Opening reel is parsed from `event_details.opening_reel` cell with substring-anchored URL extraction.
+The Phase-1 parser extracts what's _describable from markdown alone_: the linked-folder URL (if any), and a stub for embeddedImages that the Drive API call later populates. Opening reel is parsed from `event_details.opening_reel` cell with substring-anchored URL extraction.
 
 - [ ] **Step 1: Failing tests for opening-reel substring extraction (AC-7.22, AC-7.23)**
   ```ts
@@ -1120,7 +1223,7 @@ This module is consumed by the sync layer in M6, but the gate is a pure function
 
 **Files:** Create: `lib/parser/slug.ts`. Test: `tests/parser/slug.test.ts`.
 
-** — split contract.** `deriveSlug(parseResult, existingSlugs)` is now a UX-preview helper (used in dev panels and the wizard's slug-derivation preview); the AUTHORITATIVE collision check is the database's `shows.slug` UNIQUE constraint, observed via Postgres `23505` *unique_violation* in the retry-on-unique-violation loop in `applyStaged` (Task 6.11 amendment). The pure helper is still useful for: (a) Step 5W of the wizard rendering "Your show URL will be `<derived-slug>`" before Apply; (b) tests that don't go through Apply; (c) detection of edge cases that need explicit handling (e.g., empty title → fallback). It computes the SAME `<base>`, `<base>-2`, `<base>-3`, … sequence the retry loop walks; the runtime difference is the retry loop catches the database's UNIQUE-violation signal instead of pre-checking `existingSlugs`.
+** — split contract.** `deriveSlug(parseResult, existingSlugs)` is now a UX-preview helper (used in dev panels and the wizard's slug-derivation preview); the AUTHORITATIVE collision check is the database's `shows.slug` UNIQUE constraint, observed via Postgres `23505` _unique_violation_ in the retry-on-unique-violation loop in `applyStaged` (Task 6.11 amendment). The pure helper is still useful for: (a) Step 5W of the wizard rendering "Your show URL will be `<derived-slug>`" before Apply; (b) tests that don't go through Apply; (c) detection of edge cases that need explicit handling (e.g., empty title → fallback). It computes the SAME `<base>`, `<base>-2`, `<base>-3`, … sequence the retry loop walks; the runtime difference is the retry loop catches the database's UNIQUE-violation signal instead of pre-checking `existingSlugs`.
 
 - [ ] **Step 1: Failing tests**
   ```ts
@@ -1156,4 +1259,3 @@ This module is consumed by the sync layer in M6, but the gate is a pure function
 - [ ] **Step 3:** Commit `chore(parser): M1 demo script (test:parser)`.
 
 ---
-

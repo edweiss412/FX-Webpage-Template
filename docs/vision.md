@@ -1,8 +1,8 @@
 # FX Crew Pages — Design Vision
 
-This is the human-readable companion to `PRODUCT.md` (which is the AI-config version of the same content, consumed by the impeccable plugin's design skills). If you're a designer, frontend engineer, or future maintainer trying to understand the *intent* behind visual decisions in this codebase, start here.
+This is the human-readable companion to `PRODUCT.md` (which is the AI-config version of the same content, consumed by the impeccable plugin's design skills). If you're a designer, frontend engineer, or future maintainer trying to understand the _intent_ behind visual decisions in this codebase, start here.
 
-For implementation-level specs (data model, auth chain, sync architecture), see [`docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md`](./superpowers/specs/2026-04-30-fxav-crew-pages-design.md). This document only covers the *visual and experiential* decisions.
+For implementation-level specs (data model, auth chain, sync architecture), see [`docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md`](./superpowers/specs/2026-04-30-fxav-crew-pages-design.md). This document only covers the _visual and experiential_ decisions.
 
 ---
 
@@ -34,15 +34,15 @@ FXAV's logo provides exactly one durable design cue: a saturated warm orange (ro
 
 ### Tone
 
-| Slider | Position | Why |
-|---|---|---|
-| Minimal ↔ Bold | **75% Bold** | Type has presence, key data (call time, room, hotel) is large and confident. The page never reads as anonymous. |
-| Elegant ↔ Utilitarian | **~55% Elegant** | Generous spacing, considered hierarchy — but never decorative for its own sake. Working tool, not portfolio. |
-| Quiet ↔ Expressive | **Balanced** | Most surfaces are restrained; expressive moments reserved for the "Right Now" card, time-sensitive states, and key transitions. |
+| Slider                | Position         | Why                                                                                                                             |
+| --------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Minimal ↔ Bold        | **75% Bold**     | Type has presence, key data (call time, room, hotel) is large and confident. The page never reads as anonymous.                 |
+| Elegant ↔ Utilitarian | **~55% Elegant** | Generous spacing, considered hierarchy — but never decorative for its own sake. Working tool, not portfolio.                    |
+| Quiet ↔ Expressive    | **Balanced**     | Most surfaces are restrained; expressive moments reserved for the "Right Now" card, time-sensitive states, and key transitions. |
 
 ### What this is NOT
 
-- **Not** a printed-paper / run-of-show skeuomorph (cream paper, ruled lines, serif body). The whole point is to *replace* the spreadsheet aesthetic, not echo it.
+- **Not** a printed-paper / run-of-show skeuomorph (cream paper, ruled lines, serif body). The whole point is to _replace_ the spreadsheet aesthetic, not echo it.
 - **Not** "enterprise SaaS dashboard" — no dense sidebar nav, no chart grids, no neutral-gray-on-neutral-gray.
 - **Not** consumer playful — no bouncy mascots, no rounded-everything, no gradient-on-gradient.
 - **Not** "techie" — even though the audience is an AV crew, the surface should feel like good consumer product design, not a developer tool.
@@ -57,7 +57,7 @@ Crew may open the page on a sunlit loading dock at noon (light mode wins) or bac
 ### Color system
 
 - **Neutrals carry the page.** Foreground/background/border/divider are all in the neutral family.
-- **One signature accent — FXAV orange.** Reserved for: the active/live indicator on the "Right Now" card, "today" pins on the schedule, primary CTAs, and the brand mark. Use sparingly so it stays meaningful — when orange appears, it means *this matters now.*
+- **One signature accent — FXAV orange.** Reserved for: the active/live indicator on the "Right Now" card, "today" pins on the schedule, primary CTAs, and the brand mark. Use sparingly so it stays meaningful — when orange appears, it means _this matters now._
 - **No competing accent hue.** No blue, purple, or teal accent. The orange stands alone so it carries the brand.
 - **Avoid red/green as primary semantic colors.** Always pair color with text or icon for state signals (stale sync, COI status, parse warning) — color-blind crew exist.
 

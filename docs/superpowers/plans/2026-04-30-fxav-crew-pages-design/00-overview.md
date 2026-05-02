@@ -7,6 +7,7 @@
 **Architecture:** Next.js 16 App Router on Vercel; Supabase Postgres for data, Auth for crew login, Realtime for push-to-viewer; Drive `files.watch` push + 5-min cron reconciliation; two-phase sync (parse + invariant check, then destructive snapshot replacement under per-show advisory lock); JWT-bearing signed links exchanged for HTTP-only session cookies; LEAD-only fields physically isolated in `shows_internal` with three layers of defense; diagram images snapshotted into Supabase Storage at every Apply with revision-versioned URLs; bug reports go to GitHub Issues via reserve-then-call idempotency.
 
 **Tech Stack:**
+
 - Next.js 16 (App Router, Server Components, Server Actions) on Vercel
 - Supabase (Postgres + Auth + Realtime + Storage)
 - Tailwind v4 + tokens established by the impeccable v3 design-context flow (`PRODUCT.md` strategic + `DESIGN.md` visual)
@@ -22,7 +23,6 @@
 1. **Spec is canonical, with two ratified amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
 
    **Ratified plan amendments to spec:**
-
    1. **§13.2.3 recovery lookup** — the spec specifies eventually-consistent code search via `octokit.rest.search.issuesAndPullRequests({q: '"<idempotency_key>" repo:<repo> in:body'})`. Adversarial-review rounds 6 + 10 demonstrated this is unsafe: GitHub's code-search index can lag tens of seconds, producing false-negative misses that drive `createIssue` and open duplicate issues. **The plan's Tasks 8.3d/8.3e supersede §13.2.3 on this single mechanism.** Revised contract:
       - Recovery uses `octokit.rest.issues.listForRepo({creator: GITHUB_BOT_LOGIN, since: <T-24h>, state: 'all'})` — the list endpoint is immediately consistent with create writes (unlike code search).
       - Body marker `<!-- fxav-report-id: <key> -->` is retained as the per-issue identifier; the plan scans page bodies for the marker client-side.
@@ -31,11 +31,12 @@
    2. **Spec §13.2.3 retention horizon and reaper predicate** — the spec at §13.2.3 specifies the daily reaper deletes rows where `github_issue_url IS NULL AND processing_lease_until < now - interval '24 hours'` (a lease-time predicate). Round 12 surfaced that this misaligns with the `expiredLeaseRetry` row-age horizon (a retry refreshing the lease 23 hours into life would push lease past 24h before reaper sees it). The plan ratifies a 24-hour `reports.created_at` horizon, BUT **the retry path and reaper path use slightly different combined predicates** to fence the boundary safely:
       - **`expiredLeaseRetry`**: rejects rows whose `created_at < now - interval '24 hours'` (returns 410 `REPORT_HORIZON_EXPIRED`, does NOT call `createIssue`). Lease-claim UPDATE additionally requires `created_at >= now - interval '24 hours'` to fence the boundary at the serialized step.
       - **8.3f reaper**: deletes rows where `github_issue_url IS NULL AND created_at < now - interval '24 hours' AND processing_lease_until < now`. The third clause prevents the reaper from removing a row a retry actively holds — race fix. **A row whose `created_at` is past 24h but whose lease is still live is preserved by the reaper**; it becomes reapable only after the lease expires (or is naturally released by a tail UPDATE). With this combined predicate the reaper and the retry path can never both attempt to act on the same row, eliminating the boundary race.
-      Aligning both gates on `reports.created_at` plus the lease-expired check on the reaper side eliminates the contradiction, the lease-vs-creation-time mismatch, AND the in-flight-retry race.
+        Aligning both gates on `reports.created_at` plus the lease-expired check on the reaper side eliminates the contradiction, the lease-vs-creation-time mismatch, AND the in-flight-retry race.
 
    3. **`lease_holder` ownership protocol** — the spec's §13.2.3 shows a bare `UPDATE reports SET github_issue_url = $url WHERE id = $reportId` tail update. Round 8 demonstrated this allows duplicate GitHub issues when a slow original worker completes its `createIssue` after a retry has reclaimed the lease. The plan ratifies an additional `lease_holder uuid` column on `reports`, stamped at reservation, rotated on every lease re-acquisition, and required (`AND lease_holder = $myToken`) on every URL-writing tail UPDATE. A 0-row tail UPDATE triggers orphan cleanup (close GH issue with state_reason `not_planned`, add `fxav-orphan-lost-lease` label, INSERT `admin_alerts` `REPORT_ORPHANED_LOST_LEASE`). If the row has been reaped, the re-SELECT returns null and the route returns 410 `REPORT_HORIZON_EXPIRED`.
 
    **All three amendments are PATCHED INTO THE SPEC FILE** (rounds 24–40 of the convergence loop): `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` §13.2.3 was rewritten with the listForRepo+findIssueByMarker recovery contract, the `created_at`+lease-expired reaper predicate, the lease_holder ownership protocol with case A/B/C/Reaped 0-row tail disambiguation, and the orphan-cleanup atomic single-call. §4.1 reports-table schema declares `lease_holder uuid`, `idempotency_key`, and `processing_lease_until` inline. §14.3 env-var table includes `GITHUB_BOT_LOGIN`. The `LookupInconclusive` discriminator codes (`BOT_LOGIN_MISSING`, `PAGINATION_ERROR`, `PAGINATION_BOUND`, `SHAPE_ERROR`, `DUPLICATE_LIVE_MATCHES`, `OPEN_ISSUE_WITH_ORPHAN_LABEL`) and their per-show vs global admin_alerts mappings are documented in §13.2.3. The reserved-label provenance (`fxav-app:report`) is documented as the recovery scan filter. Task 8.3g is now a **verification-only task**: an implementer runs `scripts/verify-spec-amendment-3.sh` (authored inline in the task) to assert the patched spec satisfies every invariant before M8 begins.
+
 2. **TDD is mandatory.** Every task starts with a failing test, then the minimal implementation, then a passing test, then a commit. Skipping the failing-test step means the test isn't actually covering what it claims.
 3. **Commit per task.** Commit messages take the form `feat(<area>): <one-line summary>` or `test(<area>): ...` — area names are `parser`, `db`, `sync`, `auth`, `crew-page`, `admin`, `report`, `onboarding`, `assets`, `infra`.
 4. **Per-show advisory lock is non-negotiable.** Every code path that mutates `shows`, `crew_members`, `crew_member_auth`, `pending_syncs`, or `pending_ingestions` runs inside `pg_try_advisory_xact_lock(hashtext('show:' || drive_file_id))` (cron path) or `pg_advisory_xact_lock(...)` (admin/blocking path). Tests assert the lock is held.
@@ -183,4 +184,3 @@ next.config.mjs tailwind.config.ts postcss.config.mjs
 ```
 
 ---
-

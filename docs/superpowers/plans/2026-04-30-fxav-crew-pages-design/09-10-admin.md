@@ -2,7 +2,6 @@
 
 > Part of [the FXAV crew pages design plan](README.md).
 
-
 Spec context: §5.4, §8.3, §12, §17.1 milestone 9.
 
 ### Task 9.1: Stale-data footer (§5.4, AC-9.1)
@@ -22,7 +21,7 @@ Spec context: §5.4, §8.3, §12, §17.1 milestone 9.
   - **Any age with `last_sync_status='pending_review'`**: footer renders normally — last-good data is fresh; the re-stage is reviewer-side, not a crew-side warning. NOT promoted to red callout. EXCEPTION: if `last_synced_at` is more than 6h old, additionally flag `SYNC_DELAYED_SEVERE` per the age ladder (something has gone wrong — re-stage has been sitting unreviewed for hours). Test cases: (a) `pending_review` with age <6h → footer behaves exactly like `ok` at same age; (b) `pending_review` with age >6h → renders `SYNC_DELAYED_SEVERE`.
   - **`last_sync_status='pending'` (initial state)**: treat exactly like `ok` — fall through to age tiers. Transient state (next sync flips it).
 - [ ] **Step 2: Implement** with `lib/time/relative.ts` formatter ("12 min ago") and a tier selector. Reads `shows.last_synced_at` AND `shows.last_sync_status` from server. **Status precedence**: switch on `last_sync_status` in this order — `drive_error` → `DRIVE_FETCH_FAILED`; `sheet_unavailable` → `SHEET_UNAVAILABLE`; `parse_error` → `PARSE_ERROR_LAST_GOOD`; `pending_review` → if age >6h render `SYNC_DELAYED_SEVERE`, else fall through to age tiers like `ok`; `ok` and `pending` → fall through to age tiers. All branches resolve to `messageFor(code)` lookups; raw strings only for the time format itself.
-- [ ] **Step 3: Add catalog rows** for `SYNC_DELAYED_MODERATE`, `SYNC_DELAYED_SEVERE` to §12.4. **`DRIVE_FETCH_FAILED` already exists in §12.4 with its canonical copy**. Use whatever the canonical §12.4 row says verbatim via `messageFor('DRIVE_FETCH_FAILED', { time: lastSync })`. **`PARSE_ERROR_LAST_GOOD` is a NEW code introduced in ** — added to spec §12.4 by the Fix 2 spec amendment. Crew-facing canonical copy: "We couldn't read the latest edit to Doug's sheet. Showing what we had at *<time>*." Doug-facing copy: "*<sheet-name>*'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail." **Do NOT redefine canonical copy in plan prose** — any catalog change requires an explicit spec amendment first; the plan only adds NEW codes (which `PARSE_ERROR_LAST_GOOD` qualifies as via the spec amendment).
+- [ ] **Step 3: Add catalog rows** for `SYNC_DELAYED_MODERATE`, `SYNC_DELAYED_SEVERE` to §12.4. **`DRIVE_FETCH_FAILED` already exists in §12.4 with its canonical copy**. Use whatever the canonical §12.4 row says verbatim via `messageFor('DRIVE_FETCH_FAILED', { time: lastSync })`. **`PARSE_ERROR_LAST_GOOD` is a NEW code introduced in ** — added to spec §12.4 by the Fix 2 spec amendment. Crew-facing canonical copy: "We couldn't read the latest edit to Doug's sheet. Showing what we had at _<time>_." Doug-facing copy: "_<sheet-name>_'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail." **Do NOT redefine canonical copy in plan prose** — any catalog change requires an explicit spec amendment first; the plan only adds NEW codes (which `PARSE_ERROR_LAST_GOOD` qualifies as via the spec amendment).
 - [ ] **Step 4: Commit** `feat(crew-page): stale footer status ladder with parse_error + pending_review branches (§5.4, §12.4)`.
 
 ### Task 9.2: Error boundaries per tile (§12.1, AC-9.3) — server vs client split
@@ -70,19 +69,20 @@ export async function TileServerFallback<T>({
 This requires every tile to be split into a data-loader function + a pure view component. **The view component (e.g., `LodgingTileView`) MUST be pure**: it accepts already-loaded data, formats it for display, and returns JSX. It MUST NOT call any throwing async helper, MUST NOT touch the DB or Drive, and MUST NOT do anything that can throw under normal user input. (Synchronous formatting, sorting, computing derived display fields — all safe.) Throwing operations (DB queries, Drive API calls, file reads, JSON.parse on untrusted strings) MUST live in the loader.
 
 **Pure-render compliance test** — to enforce the "view component is pure" contract, add a static-analysis test that walks every tile-view component in `components/tiles/**Tile*View.tsx` and asserts:
+
 - No `await` keyword in the component body (synchronous render only).
 - No imports from `lib/db/**`, `lib/drive/**`, `lib/sync/**`, or any other module known to throw.
 - No calls to functions whose name matches `/^(load|fetch|query|read)/` from outside the component module.
-A failure mode this catches: a developer adds `const data = await fetchExtraData` inside `LodgingTileView` for a "quick" enhancement; the audit flags it before the throw can escape the wrapper at runtime.
+  A failure mode this catches: a developer adds `const data = await fetchExtraData` inside `LodgingTileView` for a "quick" enhancement; the audit flags it before the throw can escape the wrapper at runtime.
 
 The client boundary remains a normal `'use client'` ErrorBoundary that wraps the rendered tile output once it reaches the browser. Each tile composes both layers using the **`load`/pure-`render` split** ( — earlier composition example regressed to `render={async => <TileXxx/>}` which only returned a React element; React invoked `<TileXxx/>` later outside the wrapper's try/catch, so async data-fetch throws still escaped to the route-level error boundary). The corrected composition:
 
 ```tsx
 <TileErrorBoundary>
   <TileServerFallback
-    load={async => loadLodgingTileData(show.id, viewer)} // ALL throwing work happens here
+    load={(async) => loadLodgingTileData(show.id, viewer)} // ALL throwing work happens here
     render={(data) => <LodgingTileView data={data} />} // pure component, no async, no DB calls
-    fallback={<TileErrorFallback message={messageFor('TILE_SERVER_RENDER_FAILED').crewFacing} />}
+    fallback={<TileErrorFallback message={messageFor("TILE_SERVER_RENDER_FAILED").crewFacing} />}
   />
 </TileErrorBoundary>
 ```
@@ -96,7 +96,7 @@ The client boundary is a JSX children wrapper because client ErrorBoundaries DO 
   - **Client descendant render-throw test**: React `componentDidCatch` only catches errors thrown during descendant rendering, lifecycle methods, or constructors — NOT errors from event handlers. The client-throw test MUST trigger a render-time error from a descendant, e.g.:
     ```tsx
     function ExplodingChild({ shouldExplode }: { shouldExplode: boolean }) {
-      if (shouldExplode) throw new Error('synthetic descendant render error');
+      if (shouldExplode) throw new Error("synthetic descendant render error");
       return <div>ok</div>;
     }
     // Test: render <TileErrorBoundary><ExplodingChild shouldExplode /></TileErrorBoundary>;
@@ -132,7 +132,8 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
 
 **Single inline route owner — no separate `/admin/onboarding` page.** Earlier draft of this task had two regressions: (a) the routing predicate gated the wizard solely on `pending_wizard_session_id !== null`, but a fresh install has BOTH columns NULL — that path fell into the dashboard branch instead of the wizard, contradicting AC-10.1 ("First-visit `/admin` shows the wizard"); (b) the wizard was redirected to `/admin/onboarding`, but no Milestone 10 task creates that page (it would 404). The corrected design picks `/admin` as the single inline route owner: the wizard renders inline at `/admin` exactly like the dashboard does. There is no `/admin/onboarding` route, and the `app/admin/onboarding/page.tsx` line in the file-tree map (~§17.3 / Task X.3) is a historical artifact — removed elsewhere in if it still appears.
 
-**Re-run Setup path.** Once the first onboarding succeeded, Doug needs a supported way to start a fresh wizard while the live folder keeps syncing. AC-10.4 ("re-running setup opens wizard with empty pending_*") and AC-10.5 ("mid-wizard abandonment — cron continues using existing watched_folder_id") both require an explicit dashboard/settings affordance:
+**Re-run Setup path.** Once the first onboarding succeeded, Doug needs a supported way to start a fresh wizard while the live folder keeps syncing. AC-10.4 ("re-running setup opens wizard with empty pending\_\*") and AC-10.5 ("mid-wizard abandonment — cron continues using existing watched_folder_id") both require an explicit dashboard/settings affordance:
+
 - A "Re-run Setup" button on `/admin/settings` (admin-gated). Clicking it generates a fresh `wizard_session_id`, writes it to `app_settings.pending_wizard_session_id` AND `pending_wizard_session_at = now` (does NOT touch `watched_folder_id`), then redirects to `/admin` (which renders the wizard inline because `pending_wizard_session_id` is non-null).
 - The `/admin` page checks **both** columns to decide between wizard and dashboard. Both routes coexist via the single `/admin` URL: the live folder keeps cron-syncing while the wizard runs inline.
 
@@ -169,6 +170,7 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
   - **Cleanup abandoned finalize from suppressed state**: re-run the suppressed-by-finalize-gate scenario fresh (200 rows staged, committed, 25h elapsed). Click "Cleanup abandoned finalize". Assert: the 100 `published = FALSE` `shows` rows are GONE; the `wizard_finalize_checkpoints` row for W1 is GONE (cleanup is the operator's explicit-discard path — distinct from Phase D's `final_cas_done` path which PRESERVES the checkpoint for audit; cleanup signals "discard this entire wizard run" so the checkpoint row goes too); `app_settings.pending_wizard_session_id` is now a fresh UUID (W2); all three onboarding surfaces (`pending_syncs`, `pending_ingestions`, `onboarding_scan_manifest`) are EMPTY of W1's rows; the page renders a fresh wizard at step 1. ALL of (a)–(c) commit in a single transaction — partial-failure regression: inject a fault between the manifest cleanup and the checkpoint DELETE; assert the entire cleanup ROLLBACKs and `shows` rows reappear.
   - **Finalize endpoint refuses to start fresh promotion against pending checkpoint**: synthesize a wizard W1 whose checkpoint has `batches_completed = 1` (interim batch committed) but where the `pending_wizard_session_id` was somehow rotated to W2 (defensive — should be impossible if auto-rotate gate works, but the finalize endpoint defends in depth). POST `/api/admin/onboarding/finalize` with `pending_wizard_session_id = W2`. Assert: HTTP 409 `WIZARD_FINALIZE_BATCHES_PENDING` body referencing W1's checkpoint; no Phase B work runs against W2; W1's `shows` rows are unchanged; the operator must "Cleanup abandoned finalize" for W1 first.
 - [ ] **Step 2: Implement** the routing logic in `app/admin/page.tsx` as inline rendering — no `redirect` calls into a non-existent URL:
+
   ```ts
   // auto-rotate decision MUST evaluate on DB time, not app-host time,
   // so app-vs-DB clock skew can't prematurely rotate an active wizard nor preserve a stale one.
@@ -273,7 +275,6 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
   ```
 
   ** — re-entry component contracts.** Each of the four new client components below is rendered server-side as a Server Component (no client state at first paint). Buttons are bare client components that POST to the matching admin route, then `router.refresh` so the page-load loops back through `renderWizardOrFinalizeReentry` for the next state.
-
   - `components/admin/FinalizeInProgress.tsx` — props: `{ sessionId, batchesCompleted, lastProcessedAt }`. Renders: title "Setup is publishing your shows…", a progress bar showing `batches_completed / total_approved_count` where `total_approved_count` is computed server-side via `SELECT count(*) FROM onboarding_scan_manifest WHERE wizard_session_id = $sessionId AND status = 'applied'` PLUS `SELECT count(*) FROM pending_syncs WHERE wizard_session_id = $sessionId AND wizard_approved = TRUE` (the manifest-applied set is already-promoted; the pending_syncs set is the still-to-promote remainder; the sum is total approved at any given moment), and a `<ResumeFinalizeButton sessionId={sessionId} />`. Also renders a "Cleanup abandoned finalize" link (admin-only) — a small secondary action that POSTs to the new cleanup route from finding 1 (only fires the 409-or-success path; the helper's own staleness gate refuses fresh sessions per finding 1's helper guards 3 + 4).
   - `components/admin/ResumeFinalizeButton.tsx` — single button "Resume publishing"; on click POSTs to `/api/admin/onboarding/finalize` (no body). Disables itself + shows a spinner during the request. On `{ status: 'batch_complete' }` response → calls `router.refresh` (the next page-load reads the updated checkpoint and either re-renders FinalizeInProgress with incremented batchesCompleted OR transitions to ReadyToPublish if all_batches_complete). On `{ status: 'all_batches_complete' }` → same `router.refresh` (next page-load lands on ReadyToPublish). On per-row `failed` array non-empty → renders the failed `drive_file_id` list with re-Apply links to **`/admin/onboarding/staged/<wizardSessionId>/<driveFileId>`** — the WIZARD-SCOPED re-apply route created by Task 10.4 amendment (Finding 2 below). The per-row response shape carries `wizard_session_id`, `drive_file_id`, AND a pre-built `re_apply_url: '/admin/onboarding/staged/<sid>/<did>'` so the client renders the link verbatim without composing the URL itself. **DO NOT route to `/admin/show/staged/<stagedId>?firstSeen=true`** — that route is the LIVE first-seen review surface (Task 10.7 / dashboard PendingPanel) which scopes to `WHERE wizard_session_id IS NULL` and would 404 against a wizard-partition row OR (worse) operate on the wrong partition if the same `drive_file_id` happens to coexist with a live row. The failed wizard rows live in `pending_syncs WHERE wizard_session_id = $sessionId AND wizard_approved = FALSE` (the per-row abort transaction reverted `wizard_approved` to FALSE per the race-row re-Apply contract); the wizard-scoped route is the only correct re-apply path.
   - `components/admin/ReadyToPublish.tsx` — props: `{ sessionId }`. Renders: title "Ready to publish — one click to make your shows live.", a brief explainer ("All sheets have been processed. Click Publish to flip them visible to crew and connect your folder for ongoing syncs."), a `<RunFinalCASButton sessionId={sessionId} />`. NO Cleanup affordance here — when the checkpoint is fresh (`last_processed_at > now() - 24h`), the only forward path is Phase D; cleanup at this stage would discard fully-approved shows that are seconds away from publication. Stale `all_batches_complete` checkpoints (>24h since `last_processed_at`) render `<StaleReadyToPublish />` instead — see next bullet.
@@ -294,7 +295,6 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
   - **Resume button surfaces per-row failed list with wizard-scoped re-Apply links (Finding 2)**: stage 5 rows in W1, Apply all. Force a `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE` on the 3rd row by mutating its source sheet between Apply and Resume. Click Resume. Assert: (a) the response carries `per_row` with `[2].code = 'STAGED_PARSE_REVISION_RACE_DURING_FINALIZE'` AND `[2].wizard_session_id = W1` AND `[2].drive_file_id = <the 3rd file's drive id>` AND `[2].re_apply_url = '/admin/onboarding/staged/<W1>/<3rd-driveFileId>'`; (b) the page renders the failed row's `drive_file_id` with a "re-Apply" link whose `href` matches `[2].re_apply_url` exactly; (c) the link is the WIZARD-SCOPED route (`/admin/onboarding/staged/<sessionId>/<driveFileId>`), NOT the live first-seen route (`/admin/show/staged/<stagedId>?firstSeen=true`); (d) the wizard UI does NOT auto-fire `/finalize-cas` (per the Task 10.5 race-row contract). Click the re-Apply link. Assert the wizard-scoped review page (subsection below) renders against the failed `pending_syncs` row, the operator can re-fill reviewer choices, click Apply → `wizard_approved = TRUE` is set with the freshly-captured payload columns → the row re-enters the next /finalize batch's SELECT.
 
   ** — wizard-scoped per-row re-apply route.** Per-row finalize failures (`STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`, `STAGED_PARSE_SOURCE_GONE`, `STAGED_PARSE_SOURCE_OUT_OF_SCOPE`, `STAGED_PARSE_SUPERSEDED`, `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED`, or any unexpected per-row Phase 2 throw) abort THAT row's transaction (ROLLBACK), revert `wizard_approved` to FALSE in a separate follow-up transaction (per the race-row re-Apply contract), demote the manifest row back to `'staged'` (per the manifest-lifecycle rule), and surface the failure in the response body's `per_row` array. Routing re-Apply links to `/admin/show/staged/<stagedId>?firstSeen=true` is rejected — that route is the LIVE first-seen review surface (Task 10.7 / dashboard PendingPanel) which scopes to `WHERE wizard_session_id IS NULL` AND keys lookups on `pending_syncs.staged_id`. Failed wizard rows live in `pending_syncs WHERE wizard_session_id = $sessionId AND wizard_approved = FALSE` — a different partition AND a different lookup key. Routing to the live route would either 404 (the wizard partition has no matching `WHERE wizard_session_id IS NULL` row for that `staged_id`) OR (worse) operate on the wrong partition if the same `drive_file_id` happens to have a coexisting live row from cron during the wizard run — Apply'ing through the live route would mint a `shows` row in the live partition while the wizard partition's row remains stuck at `wizard_approved = FALSE` with no path to promotion, AND would race the next finalize batch's per-show advisory lock against the live cron pass that just minted the row. The design adds a wizard-scoped re-apply surface keyed on `(wizard_session_id, drive_file_id)`:
-
   - `app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx` — Server Component admin-gated review surface for wizard-partition failed rows. SELECTs `pending_syncs WHERE wizard_session_id = $wizardSessionId AND drive_file_id = $driveFileId AND wizard_approved = FALSE` (the predicate `wizard_approved = FALSE` ensures only re-Apply candidates appear; rows that were never Apply'd in the first place are reachable via the normal Step3Review flow at `/admin` wizard-mode and shouldn't be reached by per-row failure links). On a row-not-found result: 404 with the §12.4 `STALE_DISCARD_REJECTED` code (the row may have been re-Applied by a sibling tab and is now `wizard_approved = TRUE`, in which case the operator re-loads `/admin` and clicks Resume). On a row-found result: render the same `<StagedReviewCard mode='wizard_failed_reapply' />` shape Task 10.4 builds for wizard step 3, but with these wizard-failed-reapply specifics: (a) display the per-row failure code from `pending_syncs.last_finalize_failure_code` (NEW column added to `pending_syncs` by Task 10.1 step 2 schema amendment — see "Schema amendment" subsection below) along with its §12.4 doug-facing copy; (b) render `parse_result.show.title` AND `staged_modified_time` so the operator knows which sheet/version they're re-Apply'ing; (c) render the `triggered_review_items[]` with reviewer-choice controls (the operator may need to re-make their choices because the source sheet changed between the original Apply and the failed finalize — that's why the row failed); (d) Apply button wired to `POST /api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply`; (e) Discard button wired to `POST /api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard` (operator decides this re-Apply isn't worth pursuing — the wizard-scoped Discard mirrors the §6.8.1 step-3 Discard semantics: `try_again_next_sync` → DELETE the `pending_syncs` row, no deferral; `defer_until_modified` → DELETE + write `deferred_ingestions` row scoped to `wizard_session_id = $wizardSessionId`; `permanent_ignore` → same with `kind = 'permanent_ignore'`). The §9.2 1–3 informational sub-sections do NOT render — same rationale as the live `/admin/show/staged/[stagedId]` route (no `shows` row exists yet for first-seen failures; existing-show re-applies still observe their `shows` row but the surface is intentionally minimal for the per-row-failure use case).
 
   - `app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts` — POST handler. **Thin front door delegating to the canonical `applyStaged` helper from Task 6.11**, parameterized for the wizard partition (`wizard_session_id = $wizardSessionId`). Steps: (1) `requireAdmin`. (2) Acquire `pg_advisory_xact_lock(hashtext('show:' || $driveFileId))` (same lock key the finalize per-row Phase B uses, so this re-Apply serializes correctly against any in-flight finalize for the same row). (3) Re-SELECT the `pending_syncs` row inside the lock with the `(wizard_session_id, drive_file_id, wizard_approved=FALSE)` predicate; on row-not-found return 409 `STALE_DISCARD_REJECTED`. (4) Run the §6.8.2 reviewer-choices validation against the operator's payload + the row's `triggered_review_items`. (5) Re-fetch Drive head + parents + trashed (mandatory re-verify per §6.8.1 step 3) and re-parse the sheet; on `STAGED_PARSE_*` errors return the §12.4 code (the operator must retry against the latest sheet version OR Discard). (6) UPDATE `pending_syncs SET wizard_approved = TRUE, wizard_approved_by_email = $adminEmail, wizard_approved_at = now(), wizard_reviewer_choices = $payload, wizard_reviewer_choices_version = $currentVersion, parse_result = $freshParseResult, staged_modified_time = $freshHeadModifiedTime, last_finalize_failure_code = NULL WHERE wizard_session_id = $wizardSessionId AND drive_file_id = $driveFileId`. The `last_finalize_failure_code = NULL` clear is part of the same UPDATE so a successful re-Apply removes the failure record; if the operator clicks Apply again from a stale tab, step (3)'s `wizard_approved = FALSE` predicate refuses (row is now TRUE — idempotent). (7) UPDATE the `onboarding_scan_manifest` row back to `'applied'` in the SAME transaction (the manifest row is currently `'staged'` from the per-row failure demotion; re-Apply restores it to `'applied'` so the §9.0 finalize unresolved-set predicate counts it as resolved). (8) Return 200 `{ status: 'reapplied', wizard_session_id, drive_file_id }`. The client redirects to `/admin` so the operator sees `<FinalizeInProgress />` again with the row re-eligible for the next batch.
@@ -306,6 +306,7 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
   ** — finalize per-row response shape amendment.** The finalize endpoint's `per_row` array carries an explicit re-apply URL for failed rows so the client doesn't have to compose the URL itself: `per_row[i] = { drive_file_id, wizard_session_id, code: 'OK' | <§12.4 code>, re_apply_url?: string }`. `re_apply_url` is present iff `code !== 'OK'` AND `code` is one of the re-Apply'able failure codes (`STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`, `STAGED_PARSE_SOURCE_GONE`, `STAGED_PARSE_SOURCE_OUT_OF_SCOPE`, `STAGED_PARSE_SUPERSEDED`, `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED`, or unexpected per-row Phase 2 throws). For non-re-Apply'able failure codes (`LIVE_ROW_CONFLICT` — which surfaces only via the manifest, not via finalize), `re_apply_url` is omitted; the wizard UI surfaces those via different affordances. The URL format is always `/admin/onboarding/staged/<wizard_session_id>/<drive_file_id>` (URL-encoded segments).
 
   Implement `purgeAndRotateOnboardingSession` as the **unconditional** single-transaction server helper (lives in `lib/onboarding/sessionLifecycle.ts`) — used by the "Start over" button and the post-onboarding "Re-run Setup" path, both of which have already decided to rotate:
+
   ```ts
   // shared by "Start over" button and Re-run Setup.
   // Rotates the session id + timestamp AND purges all three onboarding surfaces in one transaction.
@@ -318,13 +319,16 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
               pending_wizard_session_at = now,
               updated_at = now
         WHERE id = 'default'`,
-      [newId]);
+      [newId],
+    );
     await tx.query(`DELETE FROM pending_syncs WHERE wizard_session_id IS NOT NULL`);
     await tx.query(`DELETE FROM pending_ingestions WHERE wizard_session_id IS NOT NULL`);
     await tx.query(`DELETE FROM onboarding_scan_manifest`);
   });
   ```
+
   Implement `purgeAndRotateIfStale` as the **conditional** SQL-gated helper used by the auto-rotate path. The staleness predicate is part of the SQL `WHERE` clause inside the same transaction as the rotate + three DELETEs, so DB `now` drives both the decision and the action atomically. The helper ALSO returns the post-mutation `app_settings` row so the caller (`app/admin/page.tsx`) renders the wizard surface against authoritative state — passing the helper's pre-call `settings` capture into `renderWizardOrFinalizeReentry` would route off a stale (rotated-or-purged) view. The post-mutation read happens inside the same transaction (so partial rollback on error guarantees the returned snapshot matches durable state) and ALWAYS runs, regardless of whether the rotate fired:
+
   ```ts
   // clock-skew-safe auto-rotate. The earlier draft computed staleness
   // in JS (`Date.now - settings.pending_wizard_session_at.getTime > 24 * 3600 * 1000`) and
@@ -556,6 +560,7 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
     });
   }
   ```
+
   ** — `cleanupAbandonedFinalize` route handler.** The helper above is invoked exclusively through `app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts` (admin-gated, listed in X.3 PROTECTED_ROUTES). The route is the audit-trail-bearing wrapper: it writes `sync_audit` rows BEFORE and AFTER the helper runs so every cleanup action is durably attributable to a specific admin email regardless of the helper's commit/abort outcome.
 
   ```ts
@@ -571,21 +576,28 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
     // payload fields are the diagnostic record for "what was the wizard's state when the operator
     // chose to abandon it?" and feed any future post-incident review.
     await withTx(async (tx) => {
-      const cp = await tx.query<{ status: string, batches_completed: number, last_processed_at: string | null }>(
+      const cp = await tx.query<{
+        status: string;
+        batches_completed: number;
+        last_processed_at: string | null;
+      }>(
         `SELECT status, batches_completed, last_processed_at FROM wizard_finalize_checkpoints WHERE wizard_session_id = $1`,
-        [sessionId]);
+        [sessionId],
+      );
       const unpublished = await tx.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM shows
           WHERE published = FALSE
             AND drive_file_id IN (
               SELECT drive_file_id FROM onboarding_scan_manifest
                WHERE wizard_session_id = $1 AND status = 'applied')`,
-        [sessionId]);
+        [sessionId],
+      );
       const unresolved = await tx.query<{ n: number }>(
         `SELECT count(*)::int AS n FROM onboarding_scan_manifest
           WHERE wizard_session_id = $1
             AND status IN ('staged', 'hard_failed', 'discard_retryable', 'live_row_conflict')`,
-        [sessionId]);
+        [sessionId],
+      );
       await tx.query(
         `INSERT INTO sync_audit (kind, payload, actor_email, occurred_at)
               VALUES ('cleanup_abandoned_finalize_started',
@@ -601,17 +613,18 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
           unpublished.rows[0]?.n ?? 0,
           unresolved.rows[0]?.n ?? 0,
           adminSession.email,
-        ]);
+        ],
+      );
     });
 
     // Invoke the helper. Helper's own four guards apply (advisory lock, requireAdmin DiD,
     // session-staleness CAS, checkpoint-recency CAS). Helper may throw HttpError(409,
     // 'CLEANUP_REQUIRES_STALE_SESSION', ...) — surface that to the client unchanged.
-    let result: { status: 'cleaned' | 'already_cleaned' };
+    let result: { status: "cleaned" | "already_cleaned" };
     try {
       result = await cleanupAbandonedFinalize(sessionId);
     } catch (e) {
-      if (e instanceof HttpError && e.code === 'CLEANUP_REQUIRES_STALE_SESSION') {
+      if (e instanceof HttpError && e.code === "CLEANUP_REQUIRES_STALE_SESSION") {
         // The helper refused — record that fact in audit too (returns 409 with the existing payload).
         await withTx(async (tx) => {
           await tx.query(
@@ -619,7 +632,8 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
                   VALUES ('cleanup_abandoned_finalize_refused',
                           jsonb_build_object('wizard_session_id', $1::text, 'reason', $2::text),
                           $3, now)`,
-            [sessionId, (e.body as any)?.reason ?? 'unknown', adminSession.email]);
+            [sessionId, (e.body as any)?.reason ?? "unknown", adminSession.email],
+          );
         });
         return jsonError(e.status, e.code, e.body);
       }
@@ -633,7 +647,8 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
               VALUES ('cleanup_abandoned_finalize_completed',
                       jsonb_build_object('wizard_session_id', $1::text, 'helper_result', $2::text),
                       $3, now)`,
-        [sessionId, result.status, adminSession.email]);
+        [sessionId, result.status, adminSession.email],
+      );
     });
 
     // Idempotent return shape:
@@ -670,6 +685,7 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
   - **Re-run Setup with NO checkpoint → unconditional rotate (regression)**: complete first onboarding so `watched_folder_id` is set, no in-flight wizard. From `/admin/settings`, click Re-run Setup. Assert: (a) `app_settings.pending_wizard_session_id` is now a fresh UUID (W2); (b) `pending_wizard_session_at` is now within 1s of `now()`; (c) `pending_syncs` / `pending_ingestions` / `onboarding_scan_manifest` rows are GONE (the unconditional purge ran because the gate's `in_flight_finalize = FALSE` — no checkpoint exists); (d) NO `sync_log` row coded `WIZARD_FINALIZE_BATCHES_PENDING` was written; (e) the response is a 302 redirect to `/admin` (NOT `/admin?show_finalize=true`); (f) the resulting `/admin` page renders the wizard inline at step 1.
   - **Re-run Setup with checkpoint at `final_cas_done` → unconditional rotate (NOT suppressed)**: synthesize a stale `wizard_finalize_checkpoints` row with `status = 'final_cas_done'` AND `batches_completed = 5` (a fully-published prior session whose checkpoint row survived per the 7-day audit retention sweep) AND `app_settings.pending_wizard_session_id IS NULL` (Phase D cleared it). Click Re-run Setup. Assert: the rotate fires unconditionally — the gate's predicate joins through `app_settings.pending_wizard_session_id` which is NULL, so the EXISTS clause yields FALSE; the suppression does NOT trigger; a fresh wizard mints. Confirms the gate is keyed on the CURRENT pending session, not on any historical checkpoint.
   - **Re-run Setup with stale checkpoint owned by a DIFFERENT session id → unconditional rotate**: synthesize `wizard_finalize_checkpoints` row owned by W1 with `batches_completed = 1` AND `status = 'in_progress'` AND `app_settings.pending_wizard_session_id = W2` (defensive — the auto-rotate gate prevented W1's session from being rotated to W2; this state should be impossible but the gate must be tight). Click Re-run Setup. Assert: gate's `JOIN ON c.wizard_session_id = a.pending_wizard_session_id` requires the checkpoint to match the CURRENT session; a checkpoint owned by W1 with current session W2 yields zero rows; suppression does NOT fire; rotate proceeds to mint W3. The W1 checkpoint row is unaffected (the rotate path only purges `onboarding_scan_manifest`; checkpoints aren't in the purge list per §4.5 prong 1) — operator-initiated cleanup at `/api/admin/onboarding/cleanup-abandoned-finalize/[W1]` remains the path to remove the orphaned W1 checkpoint.
+
 - [ ] **Step 3: Commit** `feat(admin): first-visit wizard routing + Re-run Setup + Start over + 24h auto-rotate`.
 
 ### Task 10.2: Wizard step 1 — share folder (§9.0)
@@ -702,15 +718,16 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
   3. **Purge any prior-session onboarding rows across ALL three onboarding surfaces**: ```sql
      -- pending_syncs (staged parses)
      DELETE FROM pending_syncs
-      WHERE wizard_session_id IS NOT NULL AND wizard_session_id != $newId;
+     WHERE wizard_session_id IS NOT NULL AND wizard_session_id != $newId;
      -- pending_ingestions (hard-failed parses) — must also be purged or W1 hard-fails block W2
      DELETE FROM pending_ingestions
-      WHERE wizard_session_id IS NOT NULL AND wizard_session_id != $newId;
+     WHERE wizard_session_id IS NOT NULL AND wizard_session_id != $newId;
      -- onboarding_scan_manifest — purge prior-session rows entirely
      DELETE FROM onboarding_scan_manifest
-      WHERE wizard_session_id != $newId;
+     WHERE wizard_session_id != $newId;
      ```
      All three DELETEs run in the same transaction as the `app_settings.pending_wizard_session_id` write so a stale W1 scan that was about to UPSERT a prior-session row sees its CAS-gated INSERT no-op (the `app_settings.pending_wizard_session_id = $myWizardSessionId` predicate fails). Earlier draft only purged `pending_syncs`; W1 hard-fail rows in `pending_ingestions` would survive and block W2's finalize even after W2 took over, AND stale manifest rows would corrupt step 3's render.
+     ```
   4. **Call `runOnboardingScan(folderId, wizardSessionId)`** so Phase 1 stages every row with the current session id.
   5. Return the scan summary to the client.
 
@@ -740,9 +757,8 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
 
   If `app_settings.pending_wizard_session_id` no longer matches (W2 took over mid-scan), the WHERE-EXISTS gate makes the INSERT a no-op AND the scan logs `WIZARD_SESSION_SUPERSEDED_DURING_SCAN`, then aborts the rest of the scan loop.
 
-  **Concurrency regression tests**: 1. **Wizard supersession**: spawn W1's scan against a folder of 5 sheets. Mid-scan (between sheet 2 and sheet 3), trigger W2's `app_settings.pending_*` write + purge. Assert: W1's writes for sheets 3-5 become no-ops across ALL THREE surfaces (`pending_syncs`, `pending_ingestions`, `onboarding_scan_manifest`); only W2's freshly-scanned rows survive in each; W1 logs the supersession and exits cleanly.
-  2. **Wizard UPSERT alongside live row → coexistence**: cron-mode `runPhase1` stages a `pending_syncs` row for `drive_file_id = X` with `wizard_session_id = NULL`. Then start wizard W1 and run the verify-folder action against a folder containing X. Assert: BOTH rows now exist for X (one live, one wizard); the live row's contents are byte-for-byte unchanged; the wizard does NOT abort.
-  3. **Live cron writes during wizard run → both rows coexist**: start wizard W1 and stage an onboarding row for `drive_file_id = X`. Then trigger cron-mode `runPhase1` for X. Assert the cron path's UPSERT into the live partial-index slot succeeds; BOTH rows coexist; dashboard panel queries (live-only) and wizard step-3 queries (W1-only) each see only their own row.
+  **Concurrency regression tests**: 1. **Wizard supersession**: spawn W1's scan against a folder of 5 sheets. Mid-scan (between sheet 2 and sheet 3), trigger W2's `app_settings.pending_*` write + purge. Assert: W1's writes for sheets 3-5 become no-ops across ALL THREE surfaces (`pending_syncs`, `pending_ingestions`, `onboarding_scan_manifest`); only W2's freshly-scanned rows survive in each; W1 logs the supersession and exits cleanly. 2. **Wizard UPSERT alongside live row → coexistence**: cron-mode `runPhase1` stages a `pending_syncs` row for `drive_file_id = X` with `wizard_session_id = NULL`. Then start wizard W1 and run the verify-folder action against a folder containing X. Assert: BOTH rows now exist for X (one live, one wizard); the live row's contents are byte-for-byte unchanged; the wizard does NOT abort. 3. **Live cron writes during wizard run → both rows coexist**: start wizard W1 and stage an onboarding row for `drive_file_id = X`. Then trigger cron-mode `runPhase1` for X. Assert the cron path's UPSERT into the live partial-index slot succeeds; BOTH rows coexist; dashboard panel queries (live-only) and wizard step-3 queries (W1-only) each see only their own row.
+
 - [ ] **Step 3: Commit** `feat(admin): wizard step 2 — session-first scan ordering (§9.0)`.
 
 ### Task 10.4: Wizard step 3 — first sheets review (§9.0, AC-10.3, AC-10.6)
@@ -752,6 +768,7 @@ Spec context: §9.0, §4.5, §17.1 milestone 10.
 **Three required surfaces.** Spec §9.0 step 3 requires the wizard list to show **three** statuses: `Parsed and ready`, `Couldn't parse`, and `Skipped (not a Google Sheet)`. Earlier draft only listed `pending_syncs` for the current wizard session. That covers only the first status: hard fails go to `pending_ingestions` (currently has no `wizard_session_id` column), and the scan contract was spreadsheet-only so non-sheet items were never collected. Without all three, finalize cannot prove "every sheet found in the folder is accounted for" — Task 10.5's resolution-completeness gate has no data path.
 
 The fix has two parts:
+
 1. **Scan manifest table** — a new `onboarding_scan_manifest` row per (folder, wizard_session_id) carrying every Drive item the scan saw (sheets + non-sheets), with a status enum `staged | hard_failed | skipped_non_sheet`. This gives the wizard a single per-session source of truth.
 2. **Provenance on `pending_ingestions`** — add `wizard_session_id uuid` and `discovered_during_folder_id text` columns so onboarding hard-fails are scoped to the current wizard run (Task 10.5 references this for the finalize provenance fix). **-2: also add `last_seen_modified_time timestamptz`** so the dashboard discard route (`/api/admin/pending-ingestions/[id]/discard`) can populate `deferred_ingestions.deferred_at_modified_time` from the row at discard time without re-fetching Drive metadata. Every `pending_ingestions` UPSERT site (Phase 1 hard-fail in `runPhase1`, `handleDriveFetchFailure`, `runOnboardingScan` hard-fails, `runManualStageForFirstSeen`, wizard `retrySingleFile`) populates it from the just-fetched `fileMeta.modifiedTime`. The §4.5 CREATE TABLE block carries this column. Task 2.2's introspection matrix MUST validate the column exists.
 
@@ -784,25 +801,27 @@ The fix has two parts:
   - **Finalize gate (Task 10.5) reads from the manifest, NOT from row-absence**: ```sql
     -- Resolved iff status is one of: applied, defer_until_modified, permanent_ignore, skipped_non_sheet.
     -- Unresolved iff status is: staged, hard_failed, discard_retryable, live_row_conflict.
-    SELECT count(*) FROM onboarding_scan_manifest
-     WHERE wizard_session_id = $sessionId
-       AND status IN ('staged', 'hard_failed', 'discard_retryable', 'live_row_conflict');
+    SELECT count(\*) FROM onboarding_scan_manifest
+    WHERE wizard_session_id = $sessionId
+    AND status IN ('staged', 'hard_failed', 'discard_retryable', 'live_row_conflict');
     ```
     If count > 0 → 409 `ONBOARDING_NOT_RESOLVED`.
+    ```
 - [ ] **Step 3: Implement step 3 UI** — query the manifest for `wizard_session_id = current`, render badges by status, group by sheet. Skipped non-sheets render an info-only row with no action button. The "all sheets resolved" check requires every spreadsheet to be either applied OR discarded with `defer_until_modified` OR `permanent_ignore` (the default "try again next sync" Discard does NOT count per §6.8.1). Skipped non-sheets are auto-resolved (they need no action).
 
   **Action endpoints — separate routes for staged vs hard-failed.** Earlier draft said "Each row's Apply/Discard uses the M6 endpoints," but those endpoints are the staged-parse flow targeting `pending_syncs`. They cannot resolve `pending_ingestions` rows (which carry hard-failed parses with no staged data). Without a dedicated path, finalize blocks on pending_ingestions but Doug has no in-wizard way to resolve them — the wizard dead-ends. Required action endpoints:
 
-  | Row source | Action | Endpoint | DB effect |
-  |---|---|---|---|
-  | `pending_syncs` (parsed and ready) | Apply | `POST /api/admin/staged/[fileId]/apply` (Task 6.11) | runs Phase 2 |
-  | `pending_syncs` (parsed and ready) | Discard (any variant) | `POST /api/admin/staged/[fileId]/discard` (Task 6.12) | DELETE pending_syncs + variant-dependent deferred_ingestions write |
-  | `pending_ingestions` (couldn't parse) | **Retry now** | `POST /api/admin/onboarding/pending_ingestions/[id]/retry` (NEW) | calls `retrySingleFile(driveFileId, wizardSessionId)` — a NEW per-file Phase-1 helper introduced for this endpoint (: earlier draft re-triggered folder-wide `runOnboardingScan(folderId, ...)`, which would rescan unrelated staged rows mid-review). The helper runs the same gating + parseSheet + enrichWithDrivePins + Phase 1 chain that `runOnboardingScan`'s per-file inner loop runs, with the same wizard-session CAS gate, scoped to a single `drive_file_id`. On success: DELETE the `pending_ingestions` row + UPSERT `pending_syncs` (with manifest transition to `staged`) OR re-INSERT `pending_ingestions` if the parse hard-fails again (status stays `hard_failed`). |
-  | `pending_ingestions` (couldn't parse) | **Defer until modified** | `POST /api/admin/onboarding/pending_ingestions/[id]/defer_until_modified` (NEW) | INSERT `deferred_ingestions` (kind=defer_until_modified) AND DELETE the pending_ingestions row |
-  | `pending_ingestions` (couldn't parse) | **Permanently ignore** | `POST /api/admin/onboarding/pending_ingestions/[id]/permanent_ignore` (NEW) | INSERT `deferred_ingestions` (kind=permanent_ignore) AND DELETE the pending_ingestions row |
-  | Skipped non-sheet | (no action — informational) | n/a | n/a |
+  | Row source                            | Action                      | Endpoint                                                                        | DB effect                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+  | ------------------------------------- | --------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `pending_syncs` (parsed and ready)    | Apply                       | `POST /api/admin/staged/[fileId]/apply` (Task 6.11)                             | runs Phase 2                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+  | `pending_syncs` (parsed and ready)    | Discard (any variant)       | `POST /api/admin/staged/[fileId]/discard` (Task 6.12)                           | DELETE pending_syncs + variant-dependent deferred_ingestions write                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+  | `pending_ingestions` (couldn't parse) | **Retry now**               | `POST /api/admin/onboarding/pending_ingestions/[id]/retry` (NEW)                | calls `retrySingleFile(driveFileId, wizardSessionId)` — a NEW per-file Phase-1 helper introduced for this endpoint (: earlier draft re-triggered folder-wide `runOnboardingScan(folderId, ...)`, which would rescan unrelated staged rows mid-review). The helper runs the same gating + parseSheet + enrichWithDrivePins + Phase 1 chain that `runOnboardingScan`'s per-file inner loop runs, with the same wizard-session CAS gate, scoped to a single `drive_file_id`. On success: DELETE the `pending_ingestions` row + UPSERT `pending_syncs` (with manifest transition to `staged`) OR re-INSERT `pending_ingestions` if the parse hard-fails again (status stays `hard_failed`). |
+  | `pending_ingestions` (couldn't parse) | **Defer until modified**    | `POST /api/admin/onboarding/pending_ingestions/[id]/defer_until_modified` (NEW) | INSERT `deferred_ingestions` (kind=defer_until_modified) AND DELETE the pending_ingestions row                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+  | `pending_ingestions` (couldn't parse) | **Permanently ignore**      | `POST /api/admin/onboarding/pending_ingestions/[id]/permanent_ignore` (NEW)     | INSERT `deferred_ingestions` (kind=permanent_ignore) AND DELETE the pending_ingestions row                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+  | Skipped non-sheet                     | (no action — informational) | n/a                                                                             | n/a                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
   Each `pending_ingestions` action endpoint runs inside the per-show advisory lock + checks `wizard_session_id` + `discovered_during_folder_id` provenance before mutating. Failing test: a wizard row in `pending_ingestions` from a different folder/wizard cannot be acted on via these endpoints — call returns 409 `WIZARD_SESSION_SUPERSEDED`.
+
 - [ ] **Step 4: Commit** `feat(admin): wizard step 3 + scan manifest + 3-status surface + pending_ingestions action endpoints (§9.0)`.
 
 ### Task 10.5: Wizard exit / atomic folder promotion (§4.5, AC-10.4..10.5)
@@ -816,7 +835,7 @@ The fix has two parts:
   - AC-10.5: mid-wizard abandonment — cron continues using existing `watched_folder_id`. Next "Re-run setup" overwrites pending state. No live-sync blackout.
   - **Resolution-completeness regression (final-validation):** stage two sheets — sheet A passes parse and lands in `pending_syncs` (current `wizard_session_id`); sheet B hard-fails MI-1 and lands in `pending_ingestions`. Apply sheet A. Click Finalize **without resolving sheet B**. Assert: finalize returns 409 `ONBOARDING_NOT_RESOLVED` (new error code, see message catalog). Now Discard sheet B with `permanent_ignore` → click Finalize again → succeeds, promotes the folder. Per the §6.8.1 first-seen Discard semantics, only `defer_until_modified` and `permanent_ignore` count as "resolved"; the default "try again next sync" Discard does NOT.
   - **Stale-tab finalize race:** start wizard W1, stage rows, abandon. Start wizard W2 in another tab. Stale tab clicks Finalize from W1's state. Server's CAS on `pending_wizard_session_id = W1_id` matches 0 rows (W2 has overwritten the pending state). Return 409 `WIZARD_SESSION_SUPERSEDED`.
-  - **Durable wizard-approval payload**: stage two sheets in W1, click Apply on each. After step 5W commits, assert (a) BOTH `pending_syncs` rows have `wizard_approved = TRUE` AND `wizard_approved_by_email IS NOT NULL` AND `wizard_approved_at IS NOT NULL` AND `wizard_reviewer_choices IS NOT NULL` AND `wizard_reviewer_choices_version = 1` (the §4.5 symmetry CHECK forces this — try synthesizing a row with `wizard_approved = TRUE` and any of the FOUR payload columns NULL, assert SQL `23514` *check_violation*); (b) `wizard_approved_by_email` matches `canonicalize_email(admin.email)`; (c) `wizard_reviewer_choices` round-trips through the §6.8.2 validator under version 1. **Reviewer-choice replay regression (canonical §6.8.2 shape — `item_id` field, `apply`/`reject`/`rename`/`independent` actions, NOT `id`/`accept`)**: stage a sheet whose parse triggers MI-13 with two review items (`item_id = 'item-A-uuid'` paired-rename candidate, `item_id = 'item-B-uuid'` paired-rename candidate); the wizard Apply UI submits the canonical §6.8.2 payload `{ choices: [{ item_id: 'item-A-uuid', action: 'rename' }, { item_id: 'item-B-uuid', action: 'independent' }] }`. After Apply, assert `pending_syncs.wizard_reviewer_choices` contains the operator's exact A/B pairing (NOT defaults) AND `wizard_reviewer_choices_version = 1`. Click Finalize; assert the `sync_audit` row's `derived_side_effects` matches the operator-choice variant (item-A `rename` bumps both removed_name + added_name auth floors per §6.8.2 derivation table; item-B `independent` does NOT pair-rename), NOT the triggered-review-items default variant. **Operator-attribution regression**: admin Doug clicks Apply (captured as `wizard_approved_by_email = doug@…`); a different admin Eric clicks Finalize. The `sync_audit` row MUST carry `applied_by = doug@…` (the persisted approval-payload column), NOT `eric@…`. **Version-unsupported replay regression**: synthesize a `pending_syncs` row with `wizard_approved = TRUE` and `wizard_reviewer_choices_version = 99` (a future version not in the supported set). Click Finalize. Assert (a) Phase A aborts with HTTP 409 `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED` referencing the offending `drive_file_id`; (b) the offending row's manifest is demoted to `'staged'` in the post-abort follow-up transaction; (c) Phase B never runs (no `shows` writes, no §4.5 CAS).
+  - **Durable wizard-approval payload**: stage two sheets in W1, click Apply on each. After step 5W commits, assert (a) BOTH `pending_syncs` rows have `wizard_approved = TRUE` AND `wizard_approved_by_email IS NOT NULL` AND `wizard_approved_at IS NOT NULL` AND `wizard_reviewer_choices IS NOT NULL` AND `wizard_reviewer_choices_version = 1` (the §4.5 symmetry CHECK forces this — try synthesizing a row with `wizard_approved = TRUE` and any of the FOUR payload columns NULL, assert SQL `23514` _check_violation_); (b) `wizard_approved_by_email` matches `canonicalize_email(admin.email)`; (c) `wizard_reviewer_choices` round-trips through the §6.8.2 validator under version 1. **Reviewer-choice replay regression (canonical §6.8.2 shape — `item_id` field, `apply`/`reject`/`rename`/`independent` actions, NOT `id`/`accept`)**: stage a sheet whose parse triggers MI-13 with two review items (`item_id = 'item-A-uuid'` paired-rename candidate, `item_id = 'item-B-uuid'` paired-rename candidate); the wizard Apply UI submits the canonical §6.8.2 payload `{ choices: [{ item_id: 'item-A-uuid', action: 'rename' }, { item_id: 'item-B-uuid', action: 'independent' }] }`. After Apply, assert `pending_syncs.wizard_reviewer_choices` contains the operator's exact A/B pairing (NOT defaults) AND `wizard_reviewer_choices_version = 1`. Click Finalize; assert the `sync_audit` row's `derived_side_effects` matches the operator-choice variant (item-A `rename` bumps both removed_name + added_name auth floors per §6.8.2 derivation table; item-B `independent` does NOT pair-rename), NOT the triggered-review-items default variant. **Operator-attribution regression**: admin Doug clicks Apply (captured as `wizard_approved_by_email = doug@…`); a different admin Eric clicks Finalize. The `sync_audit` row MUST carry `applied_by = doug@…` (the persisted approval-payload column), NOT `eric@…`. **Version-unsupported replay regression**: synthesize a `pending_syncs` row with `wizard_approved = TRUE` and `wizard_reviewer_choices_version = 99` (a future version not in the supported set). Click Finalize. Assert (a) Phase A aborts with HTTP 409 `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED` referencing the offending `drive_file_id`; (b) the offending row's manifest is demoted to `'staged'` in the post-abort follow-up transaction; (c) Phase B never runs (no `shows` writes, no §4.5 CAS).
   - **Manifest lifecycle — no transient pre-commit 'applied'**: insert a Phase B abort barrier (e.g., make `runPhase2WithDurablePayload` throw on the second per-row sub-statement). With two approved rows in W1, click Finalize. Assert (a) Phase B aborts → ROLLBACK; (b) the FIRST row's manifest write that was about to commit IS rolled back (no transient `'promoting'` state — the `onboarding_scan_manifest.status` CHECK rejects any non-listed value); (c) the second row's failure triggers the post-rollback follow-up `UPDATE onboarding_scan_manifest SET status = 'staged'` for THAT `drive_file_id` and that update durably commits (re-query in a fresh transaction confirms the demotion); (d) Phase C cleanup runs and the `_finalize-pending/<W1>/` prefix is empty. Re-run finalize against the same W1 — assert it succeeds because both manifest rows are back to a state the unresolved-gate query handles correctly.
   - **Three-phase finalize lock window**: stage 50 rows in W1 each carrying a synthetic embedded image. Time the finalize call. Assert (a) Phase A takes NO per-show advisory locks (the per-show `show:<drive_file_id>` lock is acquired INSIDE Phase B for each row's per-row sub-transaction, NOT during Phase A); Phase A's reads + Drive re-verify + asset upload run inside the request-scoped outer transaction that holds the `finalize:<sessionId>` advisory xact lock — set up a probe that opens `pg_advisory_xact_lock` for the same `show:` key on every row's `drive_file_id` from a separate connection; assert NO `show:<drive_file_id>` lock contention during Phase A (a separate-connection probe acquiring `show:<id>` succeeds immediately while Phase A is mid-flight); ALSO assert that `pg_try_advisory_xact_lock(hashtext('finalize:' || $sessionId))` from a competing /finalize POST returns FALSE during Phase A (the outer `finalize:<sessionId>` lock is held for the entire request lifetime per Step 2's pseudocode); (b) Phase B's per-show locks are acquired in alphabetical order — instrument `pg_advisory_xact_lock('show:' || $drive_file_id)` to record acquire-time and `drive_file_id` per row; assert the recorded sequence is sorted by `drive_file_id`; (c) each per-row Phase B sub-transaction holds its `show:<drive_file_id>` lock for ~200ms (commit-and-release per row) — NOT for the full Phase B duration; (d) total Phase B duration < 5 seconds for 50 rows. Cron locks on the live folder during finalize never block on Phase A's per-show probe (Phase A doesn't hold `show:<drive_file_id>`); cron MAY contend with the OUTER `finalize:<sessionId>` lock only if cron's code path also takes that key, which it does not — so cron is unaffected by Phase A.
   - **100-row batch protocol (server-owned cursor + per-row Phase B + Phase D split):** the `/finalize` endpoint accepts NO `?after=` query parameter. Each call reads `pending_syncs WHERE wizard_session_id = $sessionId AND wizard_approved = TRUE ORDER BY drive_file_id LIMIT 100` authoritatively (server-owned cursor); per-batch progression is recorded in the admin-only `wizard_finalize_checkpoints` table for observability. Phase B runs as N per-row transactions (NOT one batch-wide tx) so the per-show advisory lock is held for ~200ms per row, not ~20s per batch. The §4.5 atomic-promotion CAS + `published = TRUE` flip + clean-slate DELETE all live in a SEPARATE Phase D `/finalize-cas` endpoint (separate request, separate <100ms tx, NO Drive/Storage I/O). **Test cases:** (a) stage-101 first-call test asserts `{ status: 'batch_complete', remaining_count: 1, per_row: [...] }`; 100 `shows` rows `published=false`; 100 `pending_syncs` GONE; 1 remains; checkpoint row exists with `status='in_progress'` AND `batches_completed=100`. (b) stage-101 second-call test asserts `{ status: 'all_batches_complete', per_row: [...] }`; ALL 101 rows still `published=false` (Phase D hasn't run yet); checkpoint `status='all_batches_complete'`; `app_settings.watched_folder_id` UNCHANGED. (c) Phase D promotion: POST `/finalize-cas`. Assert `{ status: 'finalize_complete', watched_folder_id: <new> }`; ALL 101 `shows.published = TRUE`; `app_settings.watched_folder_id = pending_folder_id`; `pending_wizard_session_id IS NULL`; checkpoint `status='final_cas_done'`. (d) Phase D idempotency: POST `/finalize-cas` AGAIN against the same session → 200 `{ status: 'finalize_complete' }` (no extra writes). (e) Phase D early-fire: POST `/finalize-cas` with checkpoint `status='in_progress'` → 409 `WIZARD_FINALIZE_CHECKPOINT_MISSING`. (f) Phase D missing-row: POST `/finalize-cas` with `wizard_approved=TRUE` rows still in `pending_syncs` (synthesize the inconsistent state) → 409 `WIZARD_FINALIZE_CHECKPOINT_MISSING`. (g) Race-row re-Apply: stage 5 rows in W1, Apply all, kick off finalize, force a `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE` on the 3rd row. Assert (i) rows 1, 2, 4, 5 commit `published=false` and manifest `'applied'`; (ii) row 3's manifest is `'staged'` AND its `pending_syncs.wizard_approved = FALSE` AND all four payload columns NULL; (iii) the response status is `'batch_complete'` with `remaining_count=0` and `per_row[2].code = 'STAGED_PARSE_REVISION_RACE_DURING_FINALIZE'`; because `wizard_approved=FALSE` for row 3 means the SELECT count = 0, checkpoint flips to `'all_batches_complete'`. The wizard UI re-fires `/finalize` (gets `{ status: 'all_batches_complete' }` with no rows to process) but does NOT auto-fire `/finalize-cas` because the response also surfaces the failed-row list to the operator UI; the operator must re-Apply row 3 first. After re-Apply (`wizard_approved=TRUE` again), the next `/finalize` call processes row 3 alone, flips checkpoint back to `'all_batches_complete'`, and the wizard UI fires `/finalize-cas` to publish all 5. (h) Per-row Phase B concurrency: stage 50 rows in W1, kick off finalize. From a separate connection, run `runScheduledCronSync` against an UNRELATED live folder/show during the per-row loop. Assert cron's per-show advisory-lock acquire on the unrelated drive_file_id NEVER blocks (the per-row Phase B holds the lock for at most ~200ms before commit-and-release). (i) FINALIZE_OWNED_SHOW guard (covered in Task 6.7 step 2b — cross-reference here): same-show admin Re-sync during finalize returns 409, doesn't write. (j) Per-row mid-batch abort: stage 250, Apply all, kick off batch 1; force row 150's per-row tx to throw. Assert rows 1–100 (batch 1) commit; in batch 2, rows 101–149 + 151–250 commit; row 150 manifest `'staged'`, `wizard_approved = FALSE`, `per_row[49].code` matches the synthesized error; checkpoint `batches_completed = 249`; `remaining_count = 1` (row 150 with `wizard_approved = FALSE` is excluded). (k) Concurrent finalize: TWO parallel POSTs against the same session race on `pg_try_advisory_xact_lock(hashtext('finalize:' || $sessionId))` at Phase B start; loser returns 409 `CONCURRENT_FINALIZE_IN_FLIGHT`. (l) Crew NEVER see any rows that promoted at `published=false` during the multi-batch interruption window — instrument a crew-role SELECT loop across the entire finalize lifecycle and assert zero crew-visible rows for the in-flight session until Phase D commits. The §12.4 catalog rows for `WIZARD_FINALIZE_CHECKPOINT_MISSING`, `FINALIZE_OWNED_SHOW`, `CONCURRENT_FINALIZE_IN_FLIGHT`, `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`, and `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED` are the canonical error codes for this protocol; `WIZARD_FINALIZE_CURSOR_INVALID` and `ONBOARDING_BATCH_TOO_LARGE` are NOT in the catalog (the server-owned protocol has no cursor to invalidate, and `> 100 rows` is the expected steady-state — never a rejection condition).
@@ -825,7 +844,9 @@ The fix has two parts:
 
   - ** (CRITICAL) — Re-run-setup preserves `published=TRUE` for already-live shows throughout finalize**: seed 50 LIVE shows (`published = TRUE`, `wizard_session_id = NULL` on every `pending_syncs` row that ever existed for them; folder F-old). From `/admin/settings`, click "Re-run Setup" (mints fresh wizard W2 against folder F-new which contains 50 brand-new sheets PLUS the same 50 drive_file_ids as F-old — i.e., F-new is a superset). Run the wizard scan, Apply all 100. Click Finalize batch 1 (which processes the alphabetically-first 100 — a mix of update-existing rows and first-seen rows). DURING finalize batch 1's per-row loop, in a parallel session, run `SELECT id, drive_file_id, published FROM shows WHERE drive_file_id IN (<the 50 already-live drive_file_ids>)` repeatedly. Assert: (a) every already-live row's `published` value is `TRUE` continuously throughout finalize — NEVER flips to FALSE; (b) every first-seen row appears in the same SELECT (via JOIN to `pending_syncs` post-commit) with `published = FALSE` until Phase D runs; (c) Phase D's bulk `UPDATE shows SET published = TRUE WHERE drive_file_id IN (<manifest-applied set>)` runs and is a no-op for the 50 already-live rows (but flips the 50 first-seen rows to TRUE); (d) crew can read all 50 already-live rows continuously throughout the multi-batch finalize window — instrument a crew-role SELECT loop and assert zero row-disappearance windows. **Negative regression** (the bug this test catches): a prior implementation that hard-coded `publishVisibility: false` for every wizard finalize per-row commit causes assertion (a) to FAIL — every live row's `published` flips to FALSE inside batch 1's per-row UPDATE branch and stays FALSE until Phase D, making it crew-invisible during the entire multi-batch finalize window. **Lock-time re-SELECT regression** (additional case this test catches): an implementation that captures `existing_show_id` / `existing_published` in Phase A (BEFORE the per-show advisory lock) and threads them into the per-row Phase B `publishVisibility` decision is ALSO incorrect — between Phase A and Phase B, a live cron / push / manual-Apply path can mint a fresh `shows` row for the same `drive_file_id` (re-run-setup wizards run alongside the live folder's cron), so a Phase-A first-seen classification (`existing_show_id IS NULL`) can be wrong by Phase B's lock-acquire moment, and a Phase-A-driven `publishVisibility = false` would demote the now-live row. The correct contract: per-row Phase B re-SELECTs `shows WHERE drive_file_id = $row.drive_file_id FOR UPDATE` INSIDE the per-show advisory lock and sets `publishVisibility = lockedShow.length === 0 ? false : lockedShow[0].published`. To force the lock-time-vs-Phase-A drift case, run a parallel insert-as-live for one of the 50 drive_file_ids between this finalize's Phase A and the per-row Phase B lock-acquire moment; assert that row's lock-time `published = TRUE` is observed and preserved.
   - **Phase B abort during Drive re-verify**: stage 3 rows in W1. Trash row 2's source sheet in Drive UI. Click Finalize. Phase A captures `reverify = 'gone'` for row 2. Phase B opens the transaction; the abort fires before the lock loop because `phaseAResults.find(r => r.reverify !== 'ok')` returns row 2. Assert (a) Phase B never acquires per-show locks for any of the 3 rows; (b) ROLLBACK runs; (c) the post-rollback follow-up demotes row 2's manifest to `'staged'`; (d) `_finalize-pending/<W1>/` is cleaned up; (e) the `STAGED_PARSE_SOURCE_GONE` recovery path from §6.8.1 step-3 fires for row 2; (f) HTTP 409 with `{ code: 'STAGED_PARSE_SOURCE_GONE', drive_file_id: row2.drive_file_id }`.
+
 - [ ] **Step 2: Implement** the finalize endpoint reading **`onboarding_scan_manifest` only**. Task 10.4 introduced the manifest with terminal lifecycle states precisely because row absence in `pending_*` is insufficient — the default `try again next sync` Discard deletes the `pending_syncs` row with NO deferral row, and per §6.8.1 that's an explicitly-NOT-resolved state (`discard_retryable`). Earlier draft of this step regressed back to a UNION over `pending_syncs` + `pending_ingestions` row absence, which would let `discard_retryable` rows pass the gate. The corrected query reads the manifest exclusively:
+
   ```sql
   -- Resolved iff status ∈ { applied, defer_until_modified, permanent_ignore, skipped_non_sheet }.
   -- Unresolved iff status ∈ { staged, hard_failed, discard_retryable, live_row_conflict }.
@@ -834,6 +855,7 @@ The fix has two parts:
    WHERE wizard_session_id = $sessionId
      AND status IN ('staged', 'hard_failed', 'discard_retryable', 'live_row_conflict');
   ```
+
   If row count > 0 → return 409 `ONBOARDING_NOT_RESOLVED` with the list of unresolved `(drive_file_id, status)` pairs in the response body so the client can guide the user to the right action.
   If count = 0 → **four-phase finalize.** Phase A: pre-commit work without locks (Drive re-verify + Storage temp-prefix asset upload). Phase B: SEQUENCE of N **per-row** transactions; each per-row tx acquires the per-show advisory lock, runs the per-row Drive head CAS, runs Phase 2 + sync_audit + DELETE + Storage move + manifest UPDATE, UPDATEs the `wizard_finalize_checkpoints` row's high-water `last_processed_drive_file_id` and increments `batches_completed`, then commits and releases the lock. Phase C: best-effort post-batch temp-prefix cleanup. **Phase D:** SEPARATE final-CAS endpoint that reads the checkpoint, verifies `status = 'all_batches_complete'` AND `pending_syncs WHERE wizard_approved = TRUE` count is 0, then runs §4.5 atomic-promotion CAS + `published = TRUE` flip for ALL session-promoted rows + wizard-deferral clean-slate DELETE in ONE short transaction (NO Drive/Storage I/O — the move from inside the per-row loop to a separate endpoint is what makes this transaction <100ms instead of ~20s). The `published = TRUE` flip from inside the FINAL batch's Phase B (per the prior draft) is REMOVED — it now lives in Phase D, after ALL batches across ALL finalize calls have committed. Reviewer-choices version dispatch still applies (any unsupported version aborts Phase A with `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED`). The cursor protocol is server-owned — the endpoint accepts NO `?after=` query parameter; each batch's row set is derived authoritatively from `pending_syncs WHERE wizard_session_id = $sessionId AND wizard_approved = TRUE ORDER BY drive_file_id LIMIT 100`. Admin write-action guard propagates to all admin write routes via Task 6.7 step 2b's `FINALIZE_OWNED_SHOW` predicate.
 
@@ -871,14 +893,17 @@ The fix has two parts:
   // semantics); `cleanupAbandonedFinalize` takes the BLOCKING `pg_advisory_xact_lock` with the
   // same key (operator-initiated, allowed to wait briefly).
   return await withShowSyncTransaction(async (outerTx) => {
-    const lockOk = (await outerTx.queryOne<{ ok: boolean }>(
-      `SELECT pg_try_advisory_xact_lock(hashtext('finalize:' || $1)) AS ok`, [sessionId]
-    )).ok;
+    const lockOk = (
+      await outerTx.queryOne<{ ok: boolean }>(
+        `SELECT pg_try_advisory_xact_lock(hashtext('finalize:' || $1)) AS ok`,
+        [sessionId],
+      )
+    ).ok;
     if (!lockOk) {
       // Another /finalize / /finalize-cas / cleanupAbandonedFinalize call holds the same
       // `finalize:<sessionId>` lock. Roll back the (still-empty) outer transaction and return
       // 409. NO Phase A work runs; NO Phase B commits run; NO checkpoint mutation.
-      throw new HttpError(409, 'CONCURRENT_FINALIZE_IN_FLIGHT', { wizard_session_id: sessionId });
+      throw new HttpError(409, "CONCURRENT_FINALIZE_IN_FLIGHT", { wizard_session_id: sessionId });
     }
     return await runFinalizeUnderLock(outerTx, sessionId);
   });
@@ -899,11 +924,11 @@ The fix has two parts:
     INSERT INTO wizard_finalize_checkpoints (wizard_session_id) VALUES (${sessionId})
     ON CONFLICT (wizard_session_id) DO UPDATE SET wizard_session_id = EXCLUDED.wizard_session_id
     RETURNING id, status, batches_completed, last_processed_drive_file_id, last_processed_at`;
-  if (checkpoint[0].status === 'final_cas_done') {
-    return jsonOk({ status: 'finalize_complete' });
+  if (checkpoint[0].status === "final_cas_done") {
+    return jsonOk({ status: "finalize_complete" });
   }
-  if (checkpoint[0].status === 'all_batches_complete') {
-    return jsonOk({ status: 'all_batches_complete' }); // wizard UI fires /finalize-cas next
+  if (checkpoint[0].status === "all_batches_complete") {
+    return jsonOk({ status: "all_batches_complete" }); // wizard UI fires /finalize-cas next
   }
 
   // Phase A: pre-commit, NO per-show advisory locks (the per-show `show:<drive_file_id>` lock is
@@ -928,14 +953,15 @@ The fix has two parts:
   // The version-mismatch UPDATE runs in a SEPARATE follow-up transaction (NOT `outerTx`) so the
   // demotion commits durably even though we're returning 409 from `outerTx`. The `outerTx` itself
   // rolls back on the early return (no destructive Phase A.3 / Phase B work has happened yet).
-  const versionMismatch = batchRows.find(r =>
-    r.wizard_reviewer_choices_version === null ||
-    !SUPPORTED_REVIEWER_CHOICES_VERSIONS.has(r.wizard_reviewer_choices_version)
+  const versionMismatch = batchRows.find(
+    (r) =>
+      r.wizard_reviewer_choices_version === null ||
+      !SUPPORTED_REVIEWER_CHOICES_VERSIONS.has(r.wizard_reviewer_choices_version),
   );
   if (versionMismatch) {
     await sql`UPDATE onboarding_scan_manifest SET status = 'staged'
                WHERE wizard_session_id = ${sessionId} AND drive_file_id = ${versionMismatch.drive_file_id}`;
-    return jsonError(409, 'WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED', {
+    return jsonError(409, "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED", {
       drive_file_id: versionMismatch.drive_file_id,
       stored_version: versionMismatch.wizard_reviewer_choices_version,
       supported_versions: [...SUPPORTED_REVIEWER_CHOICES_VERSIONS],
@@ -947,10 +973,10 @@ The fix has two parts:
   // TOCTOU window where a Drive edit between Phase A.2 (re-verify) and Phase B's commit could
   // let stale snapshot bytes promote.
   const phaseAResults: Array<{
-    row,
-    reverify: 'ok' | 'gone' | 'oos' | 'superseded',
-    tempPaths: Map<assetKey, storagePath>,
-    binding: { headRevisionId: string, modifiedTime: string } | null, // null when reverify !== 'ok'
+    row;
+    reverify: "ok" | "gone" | "oos" | "superseded";
+    tempPaths: Map<assetKey, storagePath>;
+    binding: { headRevisionId: string; modifiedTime: string } | null; // null when reverify !== 'ok'
     // (CRITICAL): per-row capture of whether this drive_file_id ALREADY
     // corresponds to a live `shows` row at finalize-start. Re-run-setup wizards run against
     // folders that may already contain LIVE shows (`published = TRUE`); blindly forcing
@@ -963,8 +989,8 @@ The fix has two parts:
     // existing_published (typically TRUE; the row stays crew-visible
     // throughout finalize because the wizard's content updates are
     // applied to the live row without changing its published flag).
-    existing_show_id: string | null,
-    existing_published: boolean | null,
+    existing_show_id: string | null;
+    existing_published: boolean | null;
   }> = [];
   for (const row of batchRows) {
     // lookup is BEFORE re-verify so we have the existing-show binding
@@ -978,16 +1004,22 @@ The fix has two parts:
     const existing_published = existing.length > 0 ? existing[0].published : null;
 
     const reverify = await reverifyStagedSourceForOnboarding(row); // §6.8.1 step 3 (parents pinned to pending_folder_id)
-    if (reverify.outcome !== 'ok') {
-      phaseAResults.push({ row, reverify: reverify.outcome, tempPaths: new Map, binding: null,
-                          existing_show_id, existing_published });
+    if (reverify.outcome !== "ok") {
+      phaseAResults.push({
+        row,
+        reverify: reverify.outcome,
+        tempPaths: new Map(),
+        binding: null,
+        existing_show_id,
+        existing_published,
+      });
       continue;
     }
     const tempPaths = await snapshotAssetsToTempPrefix(row, sessionId);
     // Uploads to: diagram-snapshots/_finalize-pending/<sessionId>/<row.drive_file_id>/<asset_key>
     phaseAResults.push({
       row,
-      reverify: 'ok',
+      reverify: "ok",
       tempPaths,
       binding: { headRevisionId: reverify.headRevisionId, modifiedTime: reverify.modifiedTime },
       existing_show_id,
@@ -1000,9 +1032,20 @@ The fix has two parts:
   // checkpoint UPDATE, and commits. A per-row abort affects ONLY that row; sibling rows
   // already committed remain committed. Interim-batch rows ALWAYS land at `published = false`;
   // the published flip is moved to Phase D (the separate /finalize-cas endpoint).
-  const perRowOutcomes: Array<{ drive_file_id: string, status: 'committed' | 'aborted', code?: string }> = [];
-  for (const { row, tempPaths, binding, reverify, existing_show_id, existing_published } of phaseAResults) {
-    if (reverify !== 'ok') {
+  const perRowOutcomes: Array<{
+    drive_file_id: string;
+    status: "committed" | "aborted";
+    code?: string;
+  }> = [];
+  for (const {
+    row,
+    tempPaths,
+    binding,
+    reverify,
+    existing_show_id,
+    existing_published,
+  } of phaseAResults) {
+    if (reverify !== "ok") {
       // .x: revert wizard_approved to FALSE so the row is excluded from
       // subsequent batches' SELECTs until the operator re-Applies. Manifest stays 'staged'.
       await sql`UPDATE onboarding_scan_manifest SET status = 'staged'
@@ -1013,10 +1056,16 @@ The fix has two parts:
                        wizard_reviewer_choices_version = NULL
                  WHERE wizard_session_id = ${sessionId} AND drive_file_id = ${row.drive_file_id}`;
       await storage.deletePrefix(`_finalize-pending/${sessionId}/${row.drive_file_id}/`);
-      perRowOutcomes.push({ drive_file_id: row.drive_file_id, status: 'aborted',
-        code: reverify === 'gone' ? 'STAGED_PARSE_SOURCE_GONE'
-            : reverify === 'oos' ? 'STAGED_PARSE_SOURCE_OUT_OF_SCOPE'
-            : 'STAGED_PARSE_SUPERSEDED' });
+      perRowOutcomes.push({
+        drive_file_id: row.drive_file_id,
+        status: "aborted",
+        code:
+          reverify === "gone"
+            ? "STAGED_PARSE_SOURCE_GONE"
+            : reverify === "oos"
+              ? "STAGED_PARSE_SOURCE_OUT_OF_SCOPE"
+              : "STAGED_PARSE_SUPERSEDED",
+      });
       continue;
     }
     try {
@@ -1027,19 +1076,22 @@ The fix has two parts:
         // stale snapshot bytes promote. CAS-check live `headRevisionId` against the Phase-A binding.
         const liveHead = await driveClient.files.get({
           fileId: row.drive_file_id,
-          fields: 'headRevisionId,modifiedTime,trashed,parents',
+          fields: "headRevisionId,modifiedTime,trashed,parents",
           supportsAllDrives: true,
         });
         if (liveHead.headRevisionId !== binding!.headRevisionId) {
-          throw new FinalizeRowAbort(row, 'STAGED_PARSE_REVISION_RACE_DURING_FINALIZE', {
-            phase_a: binding!.headRevisionId, phase_b: liveHead.headRevisionId,
+          throw new FinalizeRowAbort(row, "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE", {
+            phase_a: binding!.headRevisionId,
+            phase_b: liveHead.headRevisionId,
           });
         }
         if (liveHead.trashed) {
-          throw new FinalizeRowAbort(row, 'STAGED_PARSE_SOURCE_GONE', { reason: 'trashed' });
+          throw new FinalizeRowAbort(row, "STAGED_PARSE_SOURCE_GONE", { reason: "trashed" });
         }
         if (!liveHead.parents?.includes(pendingFolderId)) {
-          throw new FinalizeRowAbort(row, 'STAGED_PARSE_SOURCE_OUT_OF_SCOPE', { parents: liveHead.parents });
+          throw new FinalizeRowAbort(row, "STAGED_PARSE_SOURCE_OUT_OF_SCOPE", {
+            parents: liveHead.parents,
+          });
         }
         // §6.8.1 step-list 4L → 5L → 6L: insert/update shows, write sync_audit, DELETE pending_syncs.
         // **MANDATORY — re-SELECT the `shows` row UNDER the per-show advisory lock and derive
@@ -1092,8 +1144,7 @@ The fix has two parts:
         // because no live `shows` UPDATE ever fires during Phase B for an already-live show, a
         // simple `DELETE FROM shows_pending_changes WHERE wizard_session_id = $sessionId` in the
         // cleanup helper is sufficient to undo the wizard's effect without ever touching live data.
-        const destination: 'shows' | 'shadow' =
-          lockedShow.length === 0 ? 'shows' : 'shadow';
+        const destination: "shows" | "shadow" = lockedShow.length === 0 ? "shows" : "shadow";
         const newRevisionId = await runPhase2WithDurablePayload(tx, row, {
           choices: row.wizard_reviewer_choices,
           choicesVersion: row.wizard_reviewer_choices_version,
@@ -1126,7 +1177,7 @@ The fix has two parts:
                         batches_completed = batches_completed + 1
                   WHERE wizard_session_id = ${sessionId}`;
       });
-      perRowOutcomes.push({ drive_file_id: row.drive_file_id, status: 'committed' });
+      perRowOutcomes.push({ drive_file_id: row.drive_file_id, status: "committed" });
     } catch (err) {
       // Per-row rollback. Demote manifest, revert wizard_approved,
       // clean up THIS row's temp prefix. Sibling rows already committed are unaffected.
@@ -1139,7 +1190,11 @@ The fix has two parts:
                          wizard_reviewer_choices_version = NULL
                    WHERE wizard_session_id = ${sessionId} AND drive_file_id = ${row.drive_file_id}`;
         await storage.deletePrefix(`_finalize-pending/${sessionId}/${row.drive_file_id}/`);
-        perRowOutcomes.push({ drive_file_id: row.drive_file_id, status: 'aborted', code: err.code });
+        perRowOutcomes.push({
+          drive_file_id: row.drive_file_id,
+          status: "aborted",
+          code: err.code,
+        });
       } else {
         throw err; // unexpected error — caller-facing 500
       }
@@ -1176,10 +1231,10 @@ The fix has two parts:
   if (remaining[0].n === 0 && unresolvedManifest[0].n === 0) {
     await sql`UPDATE wizard_finalize_checkpoints SET status = 'all_batches_complete'
                WHERE wizard_session_id = ${sessionId} AND status = 'in_progress'`;
-    return jsonOk({ status: 'all_batches_complete', per_row: perRowOutcomes });
+    return jsonOk({ status: "all_batches_complete", per_row: perRowOutcomes });
   }
   return jsonOk({
-    status: 'batch_complete',
+    status: "batch_complete",
     remaining_count: remaining[0].n,
     unresolved_manifest_count: unresolvedManifest[0].n,
     per_row: perRowOutcomes,
@@ -1281,6 +1336,7 @@ The fix has two parts:
   // catch (e) { /* Task 7.8 GC backstop */ }
   // return jsonOk({ status: 'finalize_complete', watched_folder_id: folderId });
   ```
+
   **Manifest lifecycle invariant:** the manifest's `'applied'` status is written ONLY in Phase B, in the same per-row sub-statement as the `shows` INSERT/UPDATE. There is NO transient pre-commit `'applied'` state and NO post-commit demotion path that fires inside the rolled-back transaction (which would be a no-op anyway). On Phase B abort, the offending manifest row is demoted back to `'staged'` in a SEPARATE follow-up transaction outside the rolled-back outer one — that follow-up commits independently and durably. The unresolved-gate query continues to treat `'applied'` as resolved AND `'staged'` as unresolved correctly.
   **Storage temp-prefix invariant:** all asset bytes uploaded during Phase A land at `diagram-snapshots/_finalize-pending/<wizard_session_id>/<drive_file_id>/<asset_key>` — a prefix that is OUTSIDE the canonical `shows/<show_id>/<snapshot_revision_id>/<asset_key>` keyspace. The `_finalize-pending/` prefix is reserved by Task 7.8 GC: a backstop sweep deletes any `_finalize-pending/*` blobs older than 24h that finalize cleanup missed (Phase B abort + Phase C failure), so orphan temp blobs cannot accumulate indefinitely. The `/api/asset/diagram/<show>/<rev>/<key>` route REJECTS any `<rev>` whose corresponding storage path includes `_finalize-pending/` — temp blobs are never publicly resolvable.
   **`pending_syncs` and `pending_ingestions` are NOT queried by finalize** — they're internal staging surfaces; the manifest is the authoritative resolution-state source.
@@ -1288,6 +1344,7 @@ The fix has two parts:
   **Regression tests (mandatory):**
   - **Wizard-deferral clean slate**: seed a live `deferred_ingestions` row for `drive_file_id = 'live-X'` with `wizard_session_id = NULL` AND a wizard-scoped row for `drive_file_id = 'wiz-Y'` with `wizard_session_id = $W1`. Run finalize for W1. Assert (a) the wizard-scoped row is GONE post-finalize (`SELECT count(*) FROM deferred_ingestions WHERE wizard_session_id = $W1` is 0); (b) the live row SURVIVES (`SELECT count(*) FROM deferred_ingestions WHERE drive_file_id = 'live-X' AND wizard_session_id IS NULL` is still 1) — clean slate is partition-scoped.
   - **Cross-partition isolation**: seed a live `defer_until_modified` deferral for `drive_file_id = 'shared-X'` (cron's existing suppression) AND construct a wizard candidate folder that ALSO lists `shared-X`. Run `runOnboardingScan` for the wizard. Assert (a) the wizard scan can still see `shared-X` (it does NOT consult `deferred_ingestions` at all per spec §5.2 step 3 "NOT manual or onboarding scan"); (b) a live cron pass for the active folder STILL skips `shared-X` (the live row in `deferred_ingestions_live_drive_file_idx` continues to suppress it). Without partitioning, a wizard-side write would either suppress the live cron OR a live deferral would invisibly disable the wizard scan from surfacing the file — either direction breaks the partition isolation guarantee.
+
 - [ ] **Step 3:** Add `ONBOARDING_NOT_RESOLVED` to the §12.4 message catalog (Doug-facing: "Some sheets in your folder still need review before we can finish setup. Resolve them and try again."). Add `finalize_temp_prefix_cleanup_failed` to the sync_log kind enum (operator-internal log signal; no Doug-facing copy). Add `WIZARD_FINALIZE_BATCHES_PENDING` to the §12.4 catalog as admin-log-only. The finalize protocol is server-owned via `wizard_finalize_checkpoints`: (a) the `/finalize` endpoint signature is `POST /api/admin/onboarding/finalize` (NO query parameter — server-owned cursor); (b) `POST /api/admin/onboarding/finalize-cas` is the Phase D endpoint (separate route handler; see the Phase D pseudo-code in Step 2 above); (c) the response shape carries `{ status: 'batch_complete' | 'all_batches_complete', remaining_count, per_row: [...] }` — no `next_batch_token` field; (d) §12.4 codes added by this milestone — `FINALIZE_OWNED_SHOW`, `WIZARD_FINALIZE_CHECKPOINT_MISSING` (Phase D was called against a session whose checkpoint is `'in_progress'` or absent; Doug-facing: "Setup isn't ready to publish yet. Click 'Promote next batch' until all sheets are processed, then publish."), `CONCURRENT_FINALIZE_IN_FLIGHT`, `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE`, `WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED`. Each code has a full §12.4 catalog row + matching `lib/messages/catalog.ts` entry + matching YAML appendix entry (X.1 three-way parity test). The catalog does NOT contain `WIZARD_FINALIZE_CURSOR_INVALID` or `ONBOARDING_BATCH_TOO_LARGE` — both are inapplicable to the server-owned protocol (no client cursor to invalidate; > 100 rows is the expected steady-state, not a rejection condition). Phase D's `subscribeToWatchedFolder` call runs OUTSIDE the Phase D transaction (after commit), preserving the Phase C semantics that watch-channel registration is non-transactional.
 - [ ] **Step 4: Commit** `feat(admin): wizard finalize — Phase A/B/C/D + per-row Phase B txn + server-owned checkpoint + FINALIZE_OWNED_SHOW guard`.
 
@@ -1314,10 +1371,7 @@ The fix has two parts:
       - Success path test (existing-show retry, auto-apply eligible): a `shows` row already exists. POST retry. Assert: full `runManualSyncForShow_unlocked` runs end-to-end; on auto-apply the show updates and `last_seen_modified_time` advances; on stage the `pending_syncs` row appears with `wizard_session_id IS NULL`.
       - Validation failure: missing or non-existent `id` → 404 `PENDING_INGESTION_NOT_FOUND`. Calling against a wizard-session row (`wizard_session_id IS NOT NULL`) → 409 `LIVE_ROW_REQUIRED` (the dashboard route only operates on live rows; wizard rows go through Task 10.4's wizard endpoint).
       - **Concurrent retry → 409 without blocking**: spawn TWO parallel POST `/retry` calls for the same id. Assert exactly one returns 200 with the sync result; the other returns 409 `CONCURRENT_SYNC_SKIPPED` within ~100ms WITHOUT blocking on the first call's lock. The route uses `pg_try_advisory_xact_lock(hashtext('show:' || drive_file_id))` (NOT the blocking `pg_advisory_xact_lock`) — if try-lock returns `false` the route emits 409 immediately. The inner helper (`runManualStageForFirstSeen` OR `runManualSyncForShow_unlocked`) MUST NOT acquire its own advisory lock — the route owns the single lock acquisition for the entire call. Earlier draft ran the route's blocking `pg_advisory_xact_lock` AND then called the locked outer `runManualSyncForShow` (which itself acquires `pg_try_advisory_xact_lock`), producing a self-conflict where the second call would BLOCK on the route's outer lock instead of returning 409. Fix-3 below extracts the lock-free body of `runManualSyncForShow` into the `_unlocked` variant so the route is the sole lock owner.
-      - **Race regressions — row-state read sequencing**: 1. **Retry-then-discard race (the canonical scenario)**: synthesize a first-seen `pending_ingestions` row whose underlying sheet now parses cleanly. Run two parallel calls: POST `/retry` (call A) and POST `/discard` with `kind='permanent_ignore'` (call B). Use a test-only barrier (e.g., a `pg_advisory_lock` acquired by an external probe just before A's per-show lock) to force A to win the lock first, complete its restage (DELETE the original row + INSERT a fresh `pending_syncs`), then release. Assert: A returns 200 `parsed_pending_review` (or `applied`); B returns 409 `PENDING_INGESTION_TRANSITIONED` (the row is gone after the lock acquires; B's post-lock re-SELECT FOR UPDATE returns 0 rows). NO `deferred_ingestions` row was written by B (its work was correctly aborted before the INSERT).
-        2. **Discard-then-retry race**: same setup. Call A is `/discard kind='defer_until_modified'`; call B is `/retry`. Force A to win first. A inserts `deferred_ingestions` and DELETEs the row. B's lock acquires, post-lock re-SELECT returns 0 rows → 409 `PENDING_INGESTION_TRANSITIONED`. NO restage happened (no `pending_syncs` row exists with this `drive_file_id`).
-        3. **Retry-then-retry race**: TWO parallel `/retry` calls. Force A to win the lock first; A restages and DELETEs. B's lock acquires; post-lock re-SELECT FOR UPDATE returns 0 rows → 409 `PENDING_INGESTION_TRANSITIONED`. The first 409 path (`CONCURRENT_SYNC_SKIPPED` on `try_lock = false`) ALSO covers this scenario when the lock contention is the path that happens first; the test pins both outcomes by gating with the external probe so the second call definitively reaches its post-lock re-SELECT after A committed. (Both outcomes — `CONCURRENT_SYNC_SKIPPED` from try-lock failure AND `PENDING_INGESTION_TRANSITIONED` from post-lock re-SELECT — are valid race signals; the test asserts the response is ONE OF the two codes, never 200, never 500.)
-        4. **Discard-then-discard race**: TWO parallel `/discard` calls (e.g., both `kind='permanent_ignore'`). Same gate. A inserts `deferred_ingestions` and DELETEs. B's lock acquires; post-lock re-SELECT returns 0 rows → 409 `PENDING_INGESTION_TRANSITIONED`. EXACTLY ONE `deferred_ingestions` row exists for this `drive_file_id` (B did NOT write a duplicate).
+      - **Race regressions — row-state read sequencing**: 1. **Retry-then-discard race (the canonical scenario)**: synthesize a first-seen `pending_ingestions` row whose underlying sheet now parses cleanly. Run two parallel calls: POST `/retry` (call A) and POST `/discard` with `kind='permanent_ignore'` (call B). Use a test-only barrier (e.g., a `pg_advisory_lock` acquired by an external probe just before A's per-show lock) to force A to win the lock first, complete its restage (DELETE the original row + INSERT a fresh `pending_syncs`), then release. Assert: A returns 200 `parsed_pending_review` (or `applied`); B returns 409 `PENDING_INGESTION_TRANSITIONED` (the row is gone after the lock acquires; B's post-lock re-SELECT FOR UPDATE returns 0 rows). NO `deferred_ingestions` row was written by B (its work was correctly aborted before the INSERT). 2. **Discard-then-retry race**: same setup. Call A is `/discard kind='defer_until_modified'`; call B is `/retry`. Force A to win first. A inserts `deferred_ingestions` and DELETEs the row. B's lock acquires, post-lock re-SELECT returns 0 rows → 409 `PENDING_INGESTION_TRANSITIONED`. NO restage happened (no `pending_syncs` row exists with this `drive_file_id`). 3. **Retry-then-retry race**: TWO parallel `/retry` calls. Force A to win the lock first; A restages and DELETEs. B's lock acquires; post-lock re-SELECT FOR UPDATE returns 0 rows → 409 `PENDING_INGESTION_TRANSITIONED`. The first 409 path (`CONCURRENT_SYNC_SKIPPED` on `try_lock = false`) ALSO covers this scenario when the lock contention is the path that happens first; the test pins both outcomes by gating with the external probe so the second call definitively reaches its post-lock re-SELECT after A committed. (Both outcomes — `CONCURRENT_SYNC_SKIPPED` from try-lock failure AND `PENDING_INGESTION_TRANSITIONED` from post-lock re-SELECT — are valid race signals; the test asserts the response is ONE OF the two codes, never 200, never 500.) 4. **Discard-then-discard race**: TWO parallel `/discard` calls (e.g., both `kind='permanent_ignore'`). Same gate. A inserts `deferred_ingestions` and DELETEs. B's lock acquires; post-lock re-SELECT returns 0 rows → 409 `PENDING_INGESTION_TRANSITIONED`. EXACTLY ONE `deferred_ingestions` row exists for this `drive_file_id` (B did NOT write a duplicate).
         Common assertion across all four: NO state-mutating effect happens after the loser detects transition. Specifically: (a) no extra `deferred_ingestions` row beyond what the winner wrote; (b) no extra `pending_syncs` row beyond what the winner wrote; (c) no extra `sync_audit` row from the loser; (d) no error log entry coded `LOCK_OWNERSHIP_ASSERTION_FAILED` (that code is reserved for the impossible bootstrap-vs-relock drive_file_id mismatch, NOT the normal transition race).
       - **Bootstrap-vs-post-lock drive_file_id consistency**: synthesize a row, capture its id and drive_file_id. The route's bootstrap read returns `drive_file_id_X`. If by some impossible mechanism the row's `drive_file_id` could change between bootstrap and post-lock re-SELECT (e.g., a buggy migration that alters PKs in flight), the route MUST detect via the post-lock guard `(c) drive_file_id mismatch → 500 LOCK_OWNERSHIP_ASSERTION_FAILED`. Test stub: monkey-patch the bootstrap read to return a fixed value differing from the current row's drive_file_id; assert the route returns 500 with that code. (This test is a defensive sanity check; in normal operation the path is unreachable because `pending_ingestions.drive_file_id` is immutable.)
     - "Discard — permanently ignore" button (the `pending_ingestions` analog of `pending_syncs`'s permanent-ignore Discard) → POST `/api/admin/pending-ingestions/[id]/discard` (NEW route, defined in step 2). Tests: success path INSERTs a `deferred_ingestions` row with `kind = 'permanent_ignore'` AND DELETEs the `pending_ingestions` row. Validation/wizard-row guards as above.
@@ -1330,6 +1384,7 @@ The fix has two parts:
   - **Per-show alert sent to global route is rejected**. Synthesize a per-show alert on Show A. Bypass the banner-renderer client logic and POST directly to `/api/admin/admin-alerts/<alert-id>/resolve`. Assert: response is 400 `ALERT_REQUIRES_SHOW_SCOPED_RESOLVE`; the response body's `redirect_to` field points at `/api/admin/show/<show-A-slug>/alerts/<alert-id>/resolve`; the alert row's `resolved_at` remains NULL. POST against `redirect_to`; assert 200 success and `resolved_at` is now non-null.
   - **Multi-alert ordering**: synthesize 3 unresolved alerts with different `raised_at`. Banner renders the most recent first per §4.6 (`ORDER BY raised_at DESC`).
 - [ ] **Step 2: Implement Dashboard with AdminAlertsBanner mounted at the top.** Banner reads `SELECT * FROM admin_alerts WHERE resolved_at IS NULL ORDER BY raised_at DESC` and renders all of them stacked (or just the topmost with a "+N more" disclosure if count > 3). **Each row uses `messageFor(alert.code, params)` with the params object derived from `alert.show_id` AND `alert.context` JSONB** — earlier draft only used `messageFor(alert.code)` without params. Codes like `TILE_SERVER_RENDER_FAILED` carry `<sheet-name>` placeholders in their §12.4 doug-facing copy; rendering without params would surface raw placeholder text. Concretely:
+
   ```ts
   function deriveBannerParams(alert: AdminAlert): Record<string, string> {
     const params: Record<string, string> = {};
@@ -1344,6 +1399,7 @@ The fix has two parts:
   // …
   <BannerRow message={messageFor(alert.code, deriveBannerParams(alert)).dougFacing} />
   ```
+
   Required test for placeholder-bearing codes: synthesize a `TILE_SERVER_RENDER_FAILED` alert tied to a specific show. Assert the rendered banner text contains the show's actual `title`, NOT the literal `<sheet-name>` placeholder, NOT the literal code.
 
   **Pending-panel action endpoints.** Implement THREE new server actions / route handlers on top of the existing M6 staged routes. Each runs inside `requireAdmin` + the per-show advisory lock + scopes by `wizard_session_id IS NULL` to enforce live-row isolation:
@@ -1352,6 +1408,7 @@ The fix has two parts:
   - `app/api/admin/admin-alerts/[id]/resolve/route.ts` — **Global-only route**. POST handler. Admin-gated. Resolves **strictly global alerts** (rows where `show_id IS NULL`). Used by the AdminAlertsBanner's "Mark resolved" button on global alerts. **The earlier draft phrased this as "resolves any alert by id, regardless of show_id" — that undercut §4.6's per-show resolution model where a per-show alert persists until the operator clicks through to `/admin/show/<slug>?alert_id=<id>` and resolves it from the show context.** A per-show alert silently dismissed via the global route would lose its show-scoped audit trail (the per-show resolve flow records the implicit show context) and would let stale dashboard tabs accidentally close per-show alerts the operator has not actually triaged. Steps: (1) `requireAdmin`. (2) `SELECT id, show_id, resolved_at FROM admin_alerts WHERE id = $1`. If row missing → 404 `ADMIN_ALERT_NOT_FOUND`. **(3) NEW: if the row's `show_id IS NOT NULL` → return 400 `ALERT_REQUIRES_SHOW_SCOPED_RESOLVE` (new code in §12.4) with response body `{ id, show_id, redirect_to: '/api/admin/show/<resolved-slug>/alerts/<id>/resolve' }` so the client knows to retry against the show-scoped route. The handler resolves the slug via `SELECT slug FROM shows WHERE id = $showId` (or omits `redirect_to` if the show was deleted, in which case the response carries `show_id` only and the client surfaces a manual cleanup hint via the §9.0.1 explainer).** (4) If `resolved_at IS NOT NULL` → return 200 with the row as-is (idempotent on already-resolved); do NOT update timestamps. (5) Otherwise `UPDATE admin_alerts SET resolved_at = now, resolved_by = $admin WHERE id = $1 AND resolved_at IS NULL AND show_id IS NULL` (the `show_id IS NULL` predicate enforces the global-only contract at the SQL layer as a belt-and-suspenders against application-layer bugs that bypass step 3) and return 200 with the updated row. Tests: first-call success on a `show_id IS NULL` row writes timestamps; second call against an already-resolved global row returns 200 with the SAME `resolved_at` (idempotent — does NOT write a new timestamp); 404 only on a truly missing id. **NEW negative test**: synthesize a per-show alert on Show A (`show_id = <show-A-id>`). POST `/api/admin/admin-alerts/<alert-id>/resolve`. Assert: response is 400 `ALERT_REQUIRES_SHOW_SCOPED_RESOLVE`; the response body contains `redirect_to` pointing at `/api/admin/show/<show-A-slug>/alerts/<alert-id>/resolve`; the alert row is UNCHANGED (`resolved_at` still NULL). Then POST against the redirect URL → assert 200 success and `resolved_at` is now set. **NEW belt-and-suspenders test**: bypass step 3 by patching the application layer to skip the per-show check and go straight to the UPDATE; assert the SQL `AND show_id IS NULL` predicate matches 0 rows so the per-show alert is STILL not resolved (defensive — guards a future application-layer bug that re-introduces the original hole). **Cross-show forgery is also NOT a concern here** — this route now refuses ALL per-show alerts, so cross-show is by definition impossible to reach via this surface; the show-scoped variant in Task 10.7 owns cross-show forgery rejection for legitimate per-show resolves.
 
   **Pending-panel SELECT scope**: the panel's data-loader runs:
+
   ```sql
   -- Live (NULL-session) hard-fails
   SELECT id, drive_file_id, drive_file_name, last_error_code, last_error_message,
@@ -1368,6 +1425,7 @@ The fix has two parts:
      AND s.id IS NULL -- first-seen only; existing-show stages live in ActiveShowsPanel
    ORDER BY ps.parsed_at ASC;
   ```
+
   Both queries' `WHERE wizard_session_id IS NULL` is the live-row scope; without it, onboarding rows would leak into the dashboard during a Re-run Setup.
 
 - [ ] **Step 3: Commit** `feat(admin): dashboard panels + admin_alerts banner + pending-panel action endpoints (§9.1, §9.1.1, §4.6)`.
@@ -1402,9 +1460,9 @@ The fix has two parts:
 
 ```ts
 type Viewer =
-  | { kind: 'crew'; crewMemberId: string }
-  | { kind: 'admin' }
-  | { kind: 'admin_preview'; crewMemberId: string }; //
+  | { kind: "crew"; crewMemberId: string }
+  | { kind: "admin" }
+  | { kind: "admin_preview"; crewMemberId: string }; //
 
 // Inside getShowForViewer (Task 4.3): for 'admin_preview', the role-derivation lookup is
 // IDENTICAL to 'crew' — bind by `id = $crewMemberId AND show_id = $showId`, fail closed if
@@ -1461,6 +1519,7 @@ The explainer is implemented as a small inline link rendered next to every catal
   - **Settings surface**: `/admin/settings` Re-run Setup action-failure toasts carry the explainer.
   - **Report-flow surfaces**: admin Report modal AND per-page admin Report buttons (§13) carry `<ErrorExplainer>` next to error toasts/inline messages — `REPORT_RATE_LIMITED_ADMIN`, `IDEMPOTENCY_IN_FLIGHT`, `REPORT_HORIZON_EXPIRED`, `REPORT_LOOKUP_INCONCLUSIVE`, `REPORT_LEASE_THRASHING`. Crew Report flow surfaces only crew-facing copy and does NOT carry the explainer (per spec §9.0.1 the explainer is admin-side only).
   - **Generic action-failure toasts (Tasks 6.11/6.12, 10.4)**: explainer inside the toast next to the message text.
+
 - [ ] **Step 4: Extend catalog** — modify `lib/messages/catalog.ts` (Task 9.4) to add a `helpfulContext: string | null` field to every entry. Populate `helpfulContext` for every code whose `dougFacing` is non-null. The `helpfulContext` copy is one paragraph of plain-language explanation written for a non-technical reader (Doug). Examples:
   - `AMBIGUOUS_EMAIL_BINDING` → `helpfulContext`: "When two people on the crew list share the same email address, we can't safely tell who's logging in. The duplicate-email check should normally catch this in the parse step. If you're seeing this code, the safest fix is to look at the most recent edits to your crew block — usually one of the two emails is a typo or a paste mistake. Once you correct the duplicate in your sheet, this alert will clear automatically on the next sync."
   - `DRIVE_FETCH_FAILED` → `helpfulContext`: "Google Drive temporarily blocked or refused our request to read this sheet. The most common cause is a transient network or permissions hiccup; we keep retrying automatically. If this stays for more than an hour, double-check that the folder is still shared with the service account email and that the sheet hasn't been moved out of the watched folder."
@@ -1482,7 +1541,7 @@ The explainer is implemented as a small inline link rendered next to every catal
   - **Page on missing stagedId returns 404**: navigate to `/admin/show/staged/<unknown-stagedId>`. Assert: 404 response with the §12.4 `STALE_DISCARD_REJECTED` code.
   - **Page on EXISTING-show staged_id rejects**: synthesize a `pending_syncs` row whose `drive_file_id` matches an existing `shows` row (a re-stage of an already-live show). Navigate to `/admin/show/staged/<stagedId>`. Assert: the route 302-redirects to `/admin/show/<slug>?review=<stagedId>` (the existing-show review surface owned by Task 10.7); the first-seen route is exclusively for candidates without an existing `shows` row. Without this guard a re-stage could be reviewed twice (once via slug, once via stagedId) and produce inconsistent reviewer-choice audit trails.
   - **Apply success path**: synthesize a first-seen `pending_syncs` row whose `triggered_review_items[]` are all approvable (e.g., a `FIRST_SEEN_REVIEW` invariant where `action='approve'`). POST `/api/admin/show/staged/<stagedId>/apply` with the §6.8.2 reviewer-choices payload. Assert: response is 200 `{ slug: '<derived-slug>' }`; a `shows` row exists with the slug derived from `parse_result.show.title` + dates per §6.9; the original `pending_syncs` row is GONE; both writes happen in the same transaction (verify by injecting a fault between the INSERT and DELETE — both should rollback together). The route then issues a 302 redirect to `/admin/show/<derived-slug>` for client-side navigation, OR the client reads the `{ slug }` body and navigates itself; both behaviors are tested.
-  - **Apply on slug-derivation collision**: synthesize a first-seen candidate whose derived slug would collide with an existing `shows.slug` (e.g., another show with the same title + dates). Assert: §6.9 retry-on-unique-violation loop produces `<slug>-2` (or `-3`, etc.) by catching Postgres `23505` *unique_violation* on the INSERT and advancing the suffix; the loser's INSERT raises `23505`, the loop catches it, retries with the next suffix, and INSERTs successfully. On 100 attempts exhausted (`<base>` + `<base>-2`..`<base>-100` all collided) the route returns 500 with `SLUG_COLLISION_EXHAUSTED` per §12.4 (renamed from `SLUG_COLLISION_LIMIT`).
+  - **Apply on slug-derivation collision**: synthesize a first-seen candidate whose derived slug would collide with an existing `shows.slug` (e.g., another show with the same title + dates). Assert: §6.9 retry-on-unique-violation loop produces `<slug>-2` (or `-3`, etc.) by catching Postgres `23505` _unique_violation_ on the INSERT and advancing the suffix; the loser's INSERT raises `23505`, the loop catches it, retries with the next suffix, and INSERTs successfully. On 100 attempts exhausted (`<base>` + `<base>-2`..`<base>-100` all collided) the route returns 500 with `SLUG_COLLISION_EXHAUSTED` per §12.4 (renamed from `SLUG_COLLISION_LIMIT`).
   - **Concurrent first-seen Applies — slug-derivation race regression**: synthesize TWO first-seen `pending_syncs` rows with DISTINCT `drive_file_id`s (`drive_file_id_A`, `drive_file_id_B`) whose `parse_result.show.title` and dates yield the SAME `<base>` slug (e.g., both titled "RPAS Central 2026" with set date 2026-03-23). POST both `/api/admin/staged/<fileId>/apply` calls in parallel. Assert: exactly one wins with `slug = <base>` and the other wins with `slug = <base>-2`; both `shows` rows exist; both `pending_syncs` rows are GONE; both `sync_audit` rows are written. Without the retry loop, a non-deterministic outcome would result: either both INSERTs see the same empty `existingSlugs`, both pick `<base>`, and one fails with `23505` and surfaces as a 500 to the operator (UX failure mode), OR a pre-check-then-INSERT TOCTOU window allows two `<base>` rows briefly which violates the UNIQUE constraint. The retry loop closes both windows: the database's UNIQUE constraint is the authoritative check, observed via `23505`, and the loser silently advances to `-2`. Repeat the test with THREE concurrent Applies for the same base — assert one `<base>`, one `<base>-2`, one `<base>-3`.
   - **Apply with invalid reviewer choices**: POST with a missing/extra/duplicate/invalid `reviewer_choices` entry. Assert: response is 400 with `MISSING_REVIEWER_CHOICE` / `EXTRA_REVIEWER_CHOICE` / `DUPLICATE_REVIEWER_CHOICE` / `INVALID_REVIEWER_ACTION` per §12.4; the `pending_syncs` row is UNCHANGED; no `shows` row was created.
   - **Apply with stale staged_id (CAS race)**: synthesize a candidate. Then in a sibling transaction, DELETE the `pending_syncs` row (simulating a sibling Discard or a fresh re-stage that DELETED + INSERTed with a new `staged_id`). Now POST `/api/admin/show/staged/<old-stagedId>/apply`. Assert: response is 404 `STALE_DISCARD_REJECTED`; no `shows` row was created.
@@ -1500,7 +1559,7 @@ The explainer is implemented as a small inline link rendered next to every catal
   2. **Bootstrap row read** (lock-key derivation only, no state decisions): `SELECT drive_file_id FROM pending_syncs WHERE staged_id = $1 AND wizard_session_id IS NULL`. If 0 rows → 404 `STALE_DISCARD_REJECTED`.
   3. Parse and validate the request body's `reviewer_choices` payload shape (light JSON-shape check — full per-item validation happens inside `applyStaged`). On JSON-shape failure → 400.
   4. **Delegate to the canonical helper**: call `applyStaged({ stagedId, sourceScope: 'live', reviewerChoices, adminEmail: $admin.email })` (Task 6.11's exported `lib/sync/applyStaged.ts`). The helper enforces ALL of: per-show advisory lock acquisition (`CONCURRENT_SYNC_SKIPPED` on `pg_try_advisory_xact_lock` returning false), source-scoped re-SELECT with `FOR UPDATE` (row missing post-lock → `STALE_DISCARD_REJECTED`), **`staged_id` CAS + `base_modified_time IS NOT DISTINCT FROM` CAS**, **mandatory Drive `files.get(modifiedTime,parents,trashed)` re-verify** with `STAGED_PARSE_OUTDATED` / `STAGED_PARSE_SOURCE_GONE` (recovery UPSERTs `pending_ingestions` with `wizard_session_id IS NULL` per AC-6.27) / `STAGED_PARSE_SOURCE_OUT_OF_SCOPE` (recovery UPSERTs `pending_ingestions` with `wizard_session_id IS NULL` per AC-6.26) — these recovery paths were missing from the inline draft, reviewer-choices validation per §6.8.2, slug derivation per §6.9 with the on-unique-violation loop, Phase 2 INSERT of `shows` row, **`sync_audit` row write** with full attribution, DELETE of the `pending_syncs` row by `staged_id`, and auth side-effects per §6.8.2 (the first-seen branch has no MI-11/12/13/14 — only the universal "bump on add" floor applies). Same helper call shape live Apply uses; the only difference is the helper's first-seen branch INSERTs a fresh `shows` row + derives a slug instead of UPDATE-ing. The route is intentionally a thin shell so first-seen Apply cannot drift away from the canonical gates as Task 6.11 evolves.
-  5. **First-seen branch in `applyStaged`**: when no existing `shows` row matches `drive_file_id`, the helper (a) derives the slug per §6.9 with the on-unique-violation loop (wraps `INSERT INTO shows (slug, ...) VALUES ($candidateSlug, ...)` in a `for (let attempt = 1; attempt <= MAX_SLUG_COLLISION_ATTEMPTS; attempt++)` where **`MAX_SLUG_COLLISION_ATTEMPTS = 100`** is the SINGLE canonical constant exported from `lib/parser/slug.ts` and referenced by every callsite — pseudocode at spec §6.9, the helper here, the deriveSlug `SLUG_COLLISION_EXHAUSTED` test at line 1327, the §12.4 catalog row at spec line 2320, and the catalog-completeness assertion in Task X.1 — all read this same constant, never a hardcoded literal; catches Postgres `23505` *unique_violation* on `shows.slug`, advances to next collision suffix `<base>-<attempt+1>` and retries; on `attempt > MAX_SLUG_COLLISION_ATTEMPTS` throws `SLUG_COLLISION_EXHAUSTED` per §12.4), (b) writes `sync_audit` with `applied_by = $admin.email`, `applied_at = now`, `mode = 'first_seen_apply'`, `source_scope = 'live'`, (c) DELETEs the `pending_syncs` row by `staged_id`, (d) returns `{ status: 'first_seen_applied', slug }`. The route returns 200 with `{ slug }`. The "existing-show guard" from the prior inline draft is now enforced by the helper's pre-existing logic: when `EXISTS(SELECT 1 FROM shows WHERE drive_file_id = $driveFileId)` AND `sourceScope: 'live'`, the helper returns 409 `STAGED_PARSE_SUPERSEDED` with `redirect_to: '/admin/show/<slug>?review=<stagedId>'`. **Observability**: the helper emits a `slug_collision_count` metric per Apply (the final loop iteration count, 1 on first-attempt success); a `sync_log` `SLUG_COLLISION_STORM` entry (admin-log-only) is written when any single Apply records `slug_collision_count > 50` (operational red flag — well below the exhaustion ceiling at 100, but indicative of a parser bug or attack scenario; payload `{ drive_file_id, base_slug, count }`).
+  5. **First-seen branch in `applyStaged`**: when no existing `shows` row matches `drive_file_id`, the helper (a) derives the slug per §6.9 with the on-unique-violation loop (wraps `INSERT INTO shows (slug, ...) VALUES ($candidateSlug, ...)` in a `for (let attempt = 1; attempt <= MAX_SLUG_COLLISION_ATTEMPTS; attempt++)` where **`MAX_SLUG_COLLISION_ATTEMPTS = 100`** is the SINGLE canonical constant exported from `lib/parser/slug.ts` and referenced by every callsite — pseudocode at spec §6.9, the helper here, the deriveSlug `SLUG_COLLISION_EXHAUSTED` test at line 1327, the §12.4 catalog row at spec line 2320, and the catalog-completeness assertion in Task X.1 — all read this same constant, never a hardcoded literal; catches Postgres `23505` _unique_violation_ on `shows.slug`, advances to next collision suffix `<base>-<attempt+1>` and retries; on `attempt > MAX_SLUG_COLLISION_ATTEMPTS` throws `SLUG_COLLISION_EXHAUSTED` per §12.4), (b) writes `sync_audit` with `applied_by = $admin.email`, `applied_at = now`, `mode = 'first_seen_apply'`, `source_scope = 'live'`, (c) DELETEs the `pending_syncs` row by `staged_id`, (d) returns `{ status: 'first_seen_applied', slug }`. The route returns 200 with `{ slug }`. The "existing-show guard" from the prior inline draft is now enforced by the helper's pre-existing logic: when `EXISTS(SELECT 1 FROM shows WHERE drive_file_id = $driveFileId)` AND `sourceScope: 'live'`, the helper returns 409 `STAGED_PARSE_SUPERSEDED` with `redirect_to: '/admin/show/<slug>?review=<stagedId>'`. **Observability**: the helper emits a `slug_collision_count` metric per Apply (the final loop iteration count, 1 on first-attempt success); a `sync_log` `SLUG_COLLISION_STORM` entry (admin-log-only) is written when any single Apply records `slug_collision_count > 50` (operational red flag — well below the exhaustion ceiling at 100, but indicative of a parser bug or attack scenario; payload `{ drive_file_id, base_slug, count }`).
   6. **Regression tests for the delegated gate coverage:** four canonical-gate scenarios. (a) **Stale `base_modified_time`**: synthesize a `pending_syncs` row, then `UPDATE pending_syncs SET base_modified_time = base_modified_time + interval '1 second' WHERE staged_id = $1` in a sibling tx. POST `/apply`. Assert: 409 `STAGED_PARSE_OUTDATED`; no `shows` row; no `sync_audit`. (b) **Drive 404 mid-Apply (`STAGED_PARSE_SOURCE_GONE`)**: mock `drive.files.get` to return 404. POST `/apply`. Assert: 409 `STAGED_PARSE_SOURCE_GONE`; helper UPSERTs `pending_ingestions` with `wizard_session_id IS NULL`; no `shows`; no `sync_audit`. (c) **Drive moved out of scope (`STAGED_PARSE_SOURCE_OUT_OF_SCOPE`)**: mock parents to NOT include `app_settings.watched_folder_id`. POST `/apply`. Assert: 409 `STAGED_PARSE_SOURCE_OUT_OF_SCOPE`; same `pending_ingestions` UPSERT; no `shows`; no `sync_audit`. (d) **Success — sync_audit gate is the canary**: clean staged row, all gates pass. POST `/apply`. Assert: 200 `{ slug }`; new `shows` row with derived slug; `pending_syncs` GONE; **`sync_audit` row written** with `applied_by = $admin.email`, `applied_at` populated, `mode = 'first_seen_apply'`, `source_scope = 'live'`.
 - [ ] **Step 4: Implement** `app/api/admin/show/staged/[stagedId]/discard/route.ts` as a POST handler. Accepts `{ kind: 'try_again_next_sync' | 'defer_until_modified' | 'permanent_ignore' }`. Same lock-first ordering as Apply. INSIDE the lock, DELETE the `pending_syncs` row by `staged_id` AND, for `defer_until_modified` and `permanent_ignore`, INSERT a `deferred_ingestions` row with `wizard_session_id = NULL` (live partition per §4.5), `drive_file_id`, `kind`, and `deferred_at_modified_time = pending_syncs.staged_modified_time` (NULL for `permanent_ignore`). For `try_again_next_sync` only the DELETE happens — the next cron pass will re-stage the candidate.
 - [ ] **Step 5: Update PendingPanel link** (Task 10.6 amendment). The "Review and Apply" link in `components/admin/PendingPanel.tsx` already routes to `/admin/show/staged/[stagedId]?firstSeen=true`. Drop the `?firstSeen=true` query param — the route is now exclusively first-seen by design (the existing-show guard in step 3 above redirects re-stages elsewhere), so the query param is redundant. Update the Task 10.6 test bullet that asserts the link href to expect the bare `/admin/show/staged/<stagedId>` URL.
@@ -1508,4 +1567,3 @@ The explainer is implemented as a small inline link rendered next to every catal
 - [ ] **Step 7: Commit** `feat(admin): first-seen staged review surface`.
 
 ---
-

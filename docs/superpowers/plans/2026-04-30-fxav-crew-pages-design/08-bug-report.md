@@ -2,7 +2,6 @@
 
 > Part of [the FXAV crew pages design plan](README.md).
 
-
 Spec context: §13 entire section, §17.1 milestone 8.
 
 ### Task 8.1: Reports lease-ownership protocol formalization (no new migration)
@@ -62,22 +61,25 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
   - AC-8.9: same `idempotency_key` POSTed twice → same `github_issue_url` returned, no duplicate issue, exactly one `reports` row.
   - **First-submit race test:** spawn two concurrent POSTs with the same brand-new `idempotency_key` against an empty `reports` table. Exactly one `reports` row is INSERTed and exactly one GH issue is created. The "loser" returns `IDEMPOTENCY_IN_FLIGHT` (HTTP 409) while the winner is still mid-call to GitHub OR returns the same URL once the winner finishes. NEITHER request returns 500 with a unique-violation error.
 - [ ] **Step 2: Run** — FAIL.
-**Quota is charged only when an idempotency claim is genuinely won — INSERT first, then quota.** Round 3's draft put quota before INSERT and tried to refund losers via `GREATEST(count - 1, 0)`. The observed that approach still allows a false 429: with `remaining_quota = 1`, two concurrent same-key first submitters both pass the pre-check, both increment quota (one to limit, one to limit+1), and the loser returns 429 at the quota step before reaching the conflict-safe INSERT — even though the request is an idempotent duplicate that should return 200 or 409. The fix: do the INSERT first, and only the actual inserter (the row that returned from `RETURNING`) charges quota inside the same transaction. The loser sees zero rows from the INSERT and falls through to the existing-row dispatch without ever touching the quota counter.
+      **Quota is charged only when an idempotency claim is genuinely won — INSERT first, then quota.** Round 3's draft put quota before INSERT and tried to refund losers via `GREATEST(count - 1, 0)`. The observed that approach still allows a false 429: with `remaining_quota = 1`, two concurrent same-key first submitters both pass the pre-check, both increment quota (one to limit, one to limit+1), and the loser returns 429 at the quota step before reaching the conflict-safe INSERT — even though the request is an idempotent duplicate that should return 200 or 409. The fix: do the INSERT first, and only the actual inserter (the row that returned from `RETURNING`) charges quota inside the same transaction. The loser sees zero rows from the INSERT and falls through to the existing-row dispatch without ever touching the quota counter.
 
 - [ ] **Step 3: Implement** the reserve-then-call flow as INSERT-first, quota-on-claim:
   1. Open transaction.
-  **Server response contract:** every terminal success returns `{ ok: true, status: 'created' | 'duplicate' | 'recovered', github_issue_url?: string }`. Admin path includes `github_issue_url`; crew path omits it (privacy §13.2.3). Failure responses return `{ ok: false, code: <message catalog code> }` with the appropriate non-2xx HTTP status.
+     **Server response contract:** every terminal success returns `{ ok: true, status: 'created' | 'duplicate' | 'recovered', github_issue_url?: string }`. Admin path includes `github_issue_url`; crew path omits it (privacy §13.2.3). Failure responses return `{ ok: false, code: <message catalog code> }` with the appropriate non-2xx HTTP status.
 
   2. **Pre-check for an existing idempotent row** (fast path for completed and in-flight retries):
+
      ```sql
      SELECT id, github_issue_url, processing_lease_until
        FROM reports
       WHERE idempotency_key = $1;
      ```
+
      - `github_issue_url IS NOT NULL` → COMMIT, return HTTP 200 with `{ ok: true, status: 'duplicate', github_issue_url: <url, admin only> }`. **Quota NOT touched** — duplicate completed retry.
      - `github_issue_url IS NULL AND processing_lease_until > now` → COMMIT, return 409 `IDEMPOTENCY_IN_FLIGHT`. **Quota NOT touched** — duplicate concurrent retry.
      - `github_issue_url IS NULL AND processing_lease_until <= now` → existing orphan row. Quota was already charged when the original was created. Hand off to the recovery path in Task 8.3c (re-acquire lease via conditional UPDATE; if that UPDATE matches 0 rows, another retry has the lease, return 409). **Quota NOT touched.**
      - Row not found → genuinely brand-new. Continue to step 3.
+
   3. **Conflict-safe insertion attempt** (the row may have been created by a concurrent first-submitter between step 2's SELECT and now — `ON CONFLICT DO NOTHING` resolves the race atomically). The winner stamps a fresh `lease_holder` UUID — the ownership token. The token is captured in request-local memory and consumed by step 7's tail UPDATE.
      ```sql
      INSERT INTO reports (
@@ -92,6 +94,7 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
      `$8` is `gen_random_uuid` minted in request scope before the INSERT and held in `myLeaseHolder` for the duration of this attempt.
   4. **If `RETURNING` yielded zero rows** (a concurrent winner INSERTed between our step-2 SELECT and our step-3 INSERT) → re-SELECT for the existing row's state and return per the same dispatch as step 2 (200 / 409 / fall-through to 8.3c). **Quota NOT charged** — we lost the claim race. COMMIT and return.
   5. **If `RETURNING` yielded a row** → we are the winner. NOW charge quota inside the same transaction:
+
      ```sql
      INSERT INTO report_rate_limits (kind, identity, hour_bucket, count)
      VALUES ($kind, $identity, date_trunc('hour', now), 1)
@@ -99,10 +102,13 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
        SET count = report_rate_limits.count + 1
      RETURNING count;
      ```
+
      - If returned `count > limit` (10 admin / 3 crew) → ROLLBACK the entire transaction. The INSERT into `reports` is also discarded by ROLLBACK, so the brand-new row never persists. Return 429 with `REPORT_RATE_LIMITED_*`. The user's idempotency_key is now associated with no row anywhere; a future retry with the same key will pass step 2's "row not found" branch and try again — desirable, because the user might wait an hour and retry, in which case the new bucket allows the claim.
      - If `count <= limit` → COMMIT and proceed to step 6.
+
   6. **Winner branch (post-COMMIT):** outside transaction, build the issue body with the `<!-- fxav-report-id: <key> -->` marker; call GitHub create (15s timeout). The `labels` arg uses ONLY the static set per Task 8.3d (`bug-report`, `reporter:admin`/`reporter:crew`, area labels) — no per-key labels.
   7. **On 2xx, conditional tail UPDATE — the lease-ownership guard:**
+
      ```sql
      UPDATE reports
         SET github_issue_url = $1
@@ -111,12 +117,15 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
         AND lease_holder = $3::uuid -- I still own the lease
       RETURNING id;
      ```
+
      `$3` is `myLeaseHolder` from step 3.
      - 1 row → I am still the lease holder. Return 201 with `{ ok: true, status: 'created', github_issue_url }`.
      - 0 rows → my tail UPDATE missed. **The 0-row branch is implemented as a shared helper `handleTailUpdateMiss(key, newIssue, myLeaseHolder, fallbackShowId)`** in `lib/reports/submit.ts`, called by both the original-worker tail (Task 8.3b) and the retry-worker tail (Task 8.3e). The `fallbackShowId` argument is the : it carries the caller's in-memory show id so Case Reaped's alert keys per-show. **The original-worker tail passes `request.body.show_id` (the show id from the report submission, which was just INSERTed on the reservation row in this same request).** The retry-worker tail passes `entryShowId` (captured from the entry-time row read at the top of `expiredLeaseRetry`). Helper signature:
+
        ```ts
        async function handleTailUpdateMiss: Promise<Response>;
        ```
+
        The contract:
        1. **Re-read the row** with `SELECT github_issue_url, show_id FROM reports WHERE idempotency_key = $1` (NULL-safe — the row may be gone).
        2. **Case A:** `row` exists AND `row.github_issue_url === myUrl` → a newer retry's `findIssueByMarker` recovered MY issue and wrote its URL into the row. The issue is live; **DO NOT close it.** Return 200 with that URL.
@@ -133,6 +142,7 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
   - **Race-loser zero-charge:** seed `report_rate_limits` so that the identity has `count = limit - 1` (one slot remaining). Spawn two concurrent POSTs with the same brand-new idempotency_key. Assert exactly one issue is created, exactly one `reports` row exists, `report_rate_limits.count = limit` (NOT `limit + 1`), and **NEITHER call returns 429** — the winner gets 201 (or eventually 201 after GH call), the loser gets 200 with the same URL OR 409 `IDEMPOTENCY_IN_FLIGHT`.
   - **Quota-exhausted-rollback:** seed `count = limit`. POST a brand-new idempotency_key. Assert 429 returned, `reports` table has no new row for that key, `report_rate_limits.count = limit` (the 429 ROLLBACK reverted the optimistic increment).
   - **8.3c retry-after-lease-expiry no-recharge:** simulate the GH 5xx scenario where the original submission charges quota and sets the lease but never sets `github_issue_url`. After the lease expires, retry. Assert `report_rate_limits.count` is unchanged (still 1) — the existing-row branch in step 2 short-circuits before quota.
+
 - [ ] **Step 4: Run** — PASS.
 - [ ] **Step 5: Commit** `feat(reports): conflict-safe reservation + first-submit race protection (AC-8.1..8.5, AC-8.9)`.
 
@@ -145,12 +155,12 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
 - [ ] **Step 1: Failing test (AC-8.11)** — mock GitHub returning 5xx after row reservation. Row stays NULL. First retry within lease window → 409 `IDEMPOTENCY_IN_FLIGHT`. After lease expiry, retry triggers `reconcileBeforeCreate(key)` → `findIssueByMarker` returns null cleanly (no issue exists) → re-call `createIssue` → exactly one issue ever exists; row gets the URL. **Additional regression:** start the original submission's tail `UPDATE` AFTER the retry's lease-expired SELECT — assert the tail update is not blocked (no row lock held by the retry during the lookup) and that the late-success guard in 8.3e fires correctly.
 - [ ] **Step 2: Run** — FAIL.
 - [ ] **Step 3: Implement** the retry branch in `submit` — the canonical algorithm lives in **Task 8.3e's pseudocode** (the `expiredLeaseRetry` function). 8.3c's contribution is the AC-8.11 test coverage and the lock-free transaction-boundary contract; the actual retry implementation must use the `lease_holder` rotation and `AND lease_holder = $myToken` tail-UPDATE fencing as spelled out in 8.3e. **Do not implement an alternative SQL flow here** — both tasks share the single canonical helper at `lib/reports/submit.ts:expiredLeaseRetry`. The contract this task adds:
-
   - **Transaction boundary contract** — the retry path must use only single-statement transactions (Tx2/Tx3/Tx5 in the 8.3e pseudocode). NO `SELECT FOR UPDATE`. NO long-held row lock. GitHub I/O happens between transactions, never inside one.
   - **Lease-ownership contract** — every URL-writing tail UPDATE includes `AND lease_holder = $myToken`. This is the fence; it makes lease theft detectable by both the original worker and any retry.
   - **Recovery contract** — the only function that authorizes `createIssue` is the same `expiredLeaseRetry` helper, after `reconcileBeforeCreate` returns null AND the lease-claim UPDATE returns 1 row.
 
   These contracts are statically asserted by the test suite per the AC-8.11 / AC-8.13 requirements: test cases call `expiredLeaseRetry` and inspect both the SQL log (Postgres `auto_explain` or `pg-mem` query trace) and the GitHub mock invocation log to verify the contract holds.
+
 - [ ] **Step 4: Run** — PASS.
 - [ ] **Step 5: Commit** `feat(reports): 5xx retry — lock-free search-then-recover (AC-8.11)`.
 
@@ -241,6 +251,7 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
 - [ ] **Step 2: Run** — FAIL.
 - [ ] **Step 3: Implement.**
   - Modify `lib/github/issues.ts`:
+
     ```ts
     // createIssue returns a normalized shape so create-path and
     // recovery-path agree on field names everywhere (`htmlUrl`, `labels`,
@@ -471,9 +482,13 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
       );
     }
     ```
+
   - Modify the recovery path in `lib/reports/submit.ts`:
     ```ts
-    async function reconcileBeforeCreate(key: string, cutoffIso: string): Promise<{ htmlUrl: string } | null> {
+    async function reconcileBeforeCreate(
+      key: string,
+      cutoffIso: string,
+    ): Promise<{ htmlUrl: string } | null> {
       // Single authoritative lookup. cutoffIso is DB-derived —
       // computed by the caller via `SELECT (now - interval '24 hours')` so
       // app/DB clock skew cannot misclassify recoverable issues.
@@ -492,16 +507,19 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
         // /18/19 fix: route per-code to dedicated alert codes when the
         // condition is operator-actionable; otherwise generic.
         const alertCode =
-          err.code === 'BOT_LOGIN_MISSING' ? 'GITHUB_BOT_LOGIN_MISSING'
-          : err.code === 'DUPLICATE_LIVE_MATCHES' ? 'REPORT_DUPLICATE_LIVE_MATCHES'
-          : err.code === 'OPEN_ISSUE_WITH_ORPHAN_LABEL' ? 'REPORT_OPEN_ORPHAN_LABEL'
-          : 'REPORT_LOOKUP_INCONCLUSIVE';
+          err.code === "BOT_LOGIN_MISSING"
+            ? "GITHUB_BOT_LOGIN_MISSING"
+            : err.code === "DUPLICATE_LIVE_MATCHES"
+              ? "REPORT_DUPLICATE_LIVE_MATCHES"
+              : err.code === "OPEN_ISSUE_WITH_ORPHAN_LABEL"
+                ? "REPORT_OPEN_ORPHAN_LABEL"
+                : "REPORT_LOOKUP_INCONCLUSIVE";
         // #1: scope per-report alerts to the affected show via
         // reports.show_id, so concurrent incidents on different shows raise
         // distinct rows instead of collapsing under §4.6's partial unique index
         // `(coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL`.
         // BOT_LOGIN_MISSING is the only truly global alert here — show_id stays NULL.
-        const isGlobal = err.code === 'BOT_LOGIN_MISSING';
+        const isGlobal = err.code === "BOT_LOGIN_MISSING";
         const reportRow = isGlobal
           ? null
           : await db.queryMaybeOne(`SELECT show_id FROM reports WHERE idempotency_key = $1`, [key]);
@@ -517,16 +535,22 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
               last_seen_at = now,
               occurrence_count = admin_alerts.occurrence_count + 1,
               context = EXCLUDED.context`,
-          [showIdForAlert, alertCode, JSON.stringify({ idempotency_key: key, reason: err.reason, code: err.code })]
+          [
+            showIdForAlert,
+            alertCode,
+            JSON.stringify({ idempotency_key: key, reason: err.reason, code: err.code }),
+          ],
         );
         // Both paths return the same client-facing 502 code so end users see a
         // consistent retry message; the differentiation matters for the operator
         // alert surface, not the requester.
-        return badGateway502({ code: 'REPORT_LOOKUP_INCONCLUSIVE' });
+        return badGateway502({ code: "REPORT_LOOKUP_INCONCLUSIVE" });
       }
       throw err;
     }
-    if (found) { /* .. */ }
+    if (found) {
+      /* .. */
+    }
     // Lease re-acquisition path follows; see Task 8.3e.
     ```
   - Add `GITHUB_BOT_LOGIN` to `.env.local.example` AND to the env-var table in §14.3 (Task 0.4 created the example file; this task extends it).
@@ -537,6 +561,7 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
     - `REPORT_DUPLICATE_LIVE_MATCHES` — admin-only `admin_alerts` banner: "Multiple live GitHub issues found for one report submission. Recovery has been paused — please review and close any duplicates so the affected report can resolve." Context payload includes both issue URLs and the idempotency_key.
     - `REPORT_OPEN_ORPHAN_LABEL` — admin-only `admin_alerts` banner: "An open GitHub issue carries the orphan-cleanup label. This shouldn't happen — please review and either reclose the issue or remove the label." Context includes the issue URL.
     - `REPORT_LEASE_THRASHING` — admin-only `admin_alerts` banner: "A bug-report retry is repeatedly observing lease churn (>3 immediate-reclaim cycles in one request). Likely indicates a deeper concurrency issue or an adversarial pattern; please investigate." Surfaced when `expiredLeaseRetry` recurses past depth 3. Client receives 503 with this code.
+
 - [ ] **Step 4: Run** — PASS.
 - [ ] **Step 5: Commit** `feat(reports): single-path fail-closed recovery + bot-login env`.
 
@@ -554,7 +579,7 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
     3. Retry-A invokes the recovery path: calls `reconcileBeforeCreate(key)` → `findIssueByMarker` (per Task 8.3d). In this synthesized scenario, the lookup returns null (the test mock simulates the issue not being findable yet — e.g., it's outside the 24h window because the original was minted just over the boundary). Retry-A is about to attempt lease reacquisition.
     4. **Just before** Retry-A's UPDATE, the original submission's tail finally reaches the DB and runs `UPDATE reports SET github_issue_url = $url WHERE id = $row` (its tail finally landed despite the dropped client response). The row now has `github_issue_url` populated.
     5. Retry-A's UPDATE runs. **It MUST NOT match this row** because the URL is now set; otherwise Retry-A would proceed to call `createIssue` and open a duplicate.
-    Assert: exactly one issue exists. Retry-A returns 200 with the URL the original tail wrote (not 201 with a fresh issue).
+       Assert: exactly one issue exists. Retry-A returns 200 with the URL the original tail wrote (not 201 with a fresh issue).
   - **Recovery via list-endpoint marker scan:** simulate the original `createIssue` succeeded with the body marker `<!-- fxav-report-id: <key> -->` (no per-key label) but the response was dropped and the original tail UPDATE never ran. Retry calls `reconcileBeforeCreate(key, dbCutoffIso)` → `findIssueByMarker` lists recent bot-created issues, scans bodies, finds the marker → returns `{ htmlUrl }` → conditional URL UPDATE writes `found.htmlUrl` to `reports.github_issue_url` → 200 with the URL. **`createIssue` is NEVER called from the retry.** Exactly one issue exists.
   - **Single-lookup contract:** the retry path's call site for the recovery lookup MUST be `reconcileBeforeCreate(key)`, which delegates exclusively to `findIssueByMarker`. A static-analysis test asserts `lib/reports/submit.ts` does NOT reference any code-search function (e.g., `octokit.rest.search.issuesAndPullRequests`) anywhere; the entire recovery path goes through the single list-endpoint helper.
   - **Lookup-inconclusive returns 502, never calls createIssue:** mock `findIssueByMarker` to throw `LookupInconclusive`. Retry returns 502; `octokit.rest.issues.create` is NEVER invoked; an `admin_alerts` row coded `REPORT_LOOKUP_INCONCLUSIVE` is INSERTed (or its occurrence_count incremented).
@@ -566,7 +591,7 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
     5. Retry calls `createIssue`. GH creates a SECOND issue. Retry's tail UPDATE checks `AND lease_holder = B` → 1 row → row's URL is set to retry's URL. Retry returns 201.
     6. Original's TCP socket finally un-hangs at T0+150s. Original tries its tail UPDATE with `WHERE lease_holder = A`. Matches 0 rows.
     7. Original detects 0 rows → enters the orphan-cleanup branch: closes the FIRST issue at GitHub via `octokit.issues.update({state: 'closed', state_reason: 'not_planned'})`, adds `fxav-orphan-lost-lease` label, INSERTs `admin_alerts` row coded `REPORT_ORPHANED_LOST_LEASE`. Original returns 200 with the row's now-populated URL (the retry's URL).
-    Assert: GitHub has exactly 2 issues but ONE is closed-as-orphan with the cleanup label; the row's `github_issue_url` points to the retry's open issue; the admin_alerts entry surfaces the orphan to Eric for manual review. **The user-visible state is exactly one open issue per submission.**
+       Assert: GitHub has exactly 2 issues but ONE is closed-as-orphan with the cleanup label; the row's `github_issue_url` points to the retry's open issue; the admin_alerts entry surfaces the orphan to Eric for manual review. **The user-visible state is exactly one open issue per submission.**
   - **Symmetric retry-orphan test:** spawn two consecutive retries (R1 and R2) for the same expired-lease row. R1 claims with `lease_holder = X`, both lookups miss, R1 calls createIssue (succeeds at GH but hangs). R1's lease expires. R2 reclaims with `lease_holder = Y`, lookups miss, R2 creates a fresh issue, R2's tail succeeds. R1 finally un-hangs, tries to write its URL with `WHERE lease_holder = X` → 0 rows → orphan cleanup. Same invariant: one open issue, one closed-orphan, one admin_alerts row.
   - **Near-24h horizon race:** synthesize a `reports` row with `created_at = now - interval '23 hours 59 minutes'` (right before the boundary), `github_issue_url IS NULL`, lease expired. Start `expiredLeaseRetry(key)` — passes the entry-time horizon check. Inject a delay before the lease-claim UPDATE such that wall-clock advances past T+24h before the UPDATE runs. The lease-claim's `AND created_at >= now - interval '24 hours'` matches 0 rows → retry returns 410 `REPORT_HORIZON_EXPIRED` instead of calling createIssue. Assert: `octokit.rest.issues.create` was NEVER called.
   - **Reaper-vs-in-flight retry race:** synthesize a row at `created_at = now - interval '24 hours 5 minutes'`, lease expired. Start `expiredLeaseRetry` and let it pass entry check (since old plan: entry check uses ageRow.created_at which is past horizon — wait, this case wouldn't pass the entry check). Re-frame: synthesize at `created_at = now - interval '23 hours 30 minutes'`, lease expired. Retry passes entry check, claims lease (succeeds — lease-claim's `created_at >= now - 24h` matches), lease set to T+90s (which would push past 24h), createIssue runs (15s). Meanwhile reaper fires at T+5s — its WHERE clause includes `AND processing_lease_until < now` → 0 rows match (live lease). Reaper does NOT delete the row. Retry's tail UPDATE succeeds. Assert: row preserved; reaper's RETURNING list does NOT contain this idempotency_key; one issue created.
@@ -575,7 +600,8 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
   - **Past-horizon-after-claim-fail classification:** synthesize a row at `created_at = now - interval '23 hours 59 minutes'` whose lease IS held by another retry (live lease until T+30s, where T is our claim attempt). Wall-clock crosses T+24h between our entry check and our claim UPDATE. Our claim's `created_at >= now - 24h` clause now rejects us. Re-SELECT finds the row (not reaped — the live lease blocks the reaper) but `created_at` is past horizon. Assert: route returns 410 `REPORT_HORIZON_EXPIRED`, NOT 409. `createIssue` was NEVER called.
   - **Genuine contention classification:** synthesize a row at `created_at = now - interval '1 hour'` whose lease IS live (held by another retry). Our claim fails (lease-expired clause). Re-SELECT returns the row with NULL url and live lease. `created_at` is well within horizon. Assert: route returns 409 `IDEMPOTENCY_IN_FLIGHT`.
 - [ ] **Step 2: Run** — FAIL.
-- [ ] **Step 3: Implement** the lock-free retry flow per Task 8.3c's transaction boundaries, using `reconcileBeforeCreate` as the single recovery entry point. **** before any GitHub call, the retry consults the row's `created_at` and rejects if it falls outside the 24h horizon. Pseudocode (`db.query` is a generic Postgres client method like `pg.Pool.query`; substitute the actual library call at implementation time):
+- [ ] **Step 3: Implement** the lock-free retry flow per Task 8.3c's transaction boundaries, using `reconcileBeforeCreate` as the single recovery entry point. \*\*\*\* before any GitHub call, the retry consults the row's `created_at` and rejects if it falls outside the 24h horizon. Pseudocode (`db.query` is a generic Postgres client method like `pg.Pool.query`; substitute the actual library call at implementation time):
+
   ```ts
   async function expiredLeaseRetry(key: string, depth: number = 0): Promise<Response> {
     // bounded recursion for Case D' (lease expired between our
@@ -594,13 +620,17 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
                 (processing_lease_until > now) AS lease_live,
                 (created_at >= now - interval '24 hours') AS within_horizon
            FROM reports WHERE idempotency_key = $1`,
-        [key]
+        [key],
       );
-      if (!thrashRow || !thrashRow.within_horizon) return gone410({ code: 'REPORT_HORIZON_EXPIRED' });
+      if (!thrashRow || !thrashRow.within_horizon)
+        return gone410({ code: "REPORT_HORIZON_EXPIRED" });
       if (thrashRow.github_issue_url) {
-        return ok200({ status: 'recovered', github_issue_url: includeUrlForViewer(thrashRow.github_issue_url) });
+        return ok200({
+          status: "recovered",
+          github_issue_url: includeUrlForViewer(thrashRow.github_issue_url),
+        });
       }
-      if (thrashRow.lease_live) return conflict409({ code: 'IDEMPOTENCY_IN_FLIGHT' });
+      if (thrashRow.lease_live) return conflict409({ code: "IDEMPOTENCY_IN_FLIGHT" });
 
       // State-gated UPSERT: write the alert only if the row is STILL in the
       // genuinely-stuck state at write time. If the row resolved/reaped/got a
@@ -617,7 +647,7 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
          ON CONFLICT (coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL
          DO UPDATE SET last_seen_at = now, occurrence_count = admin_alerts.occurrence_count + 1, context = EXCLUDED.context
          RETURNING id`,
-        [key, JSON.stringify({ idempotency_key: key, depth })]
+        [key, JSON.stringify({ idempotency_key: key, depth })],
       );
       if (thrashAlert.rowCount === 0) {
         // State flipped between dispatch and UPSERT. Re-dispatch fresh.
@@ -626,11 +656,15 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
                   (processing_lease_until > now) AS lease_live,
                   (created_at >= now - interval '24 hours') AS within_horizon
              FROM reports WHERE idempotency_key = $1`,
-          [key]
+          [key],
         );
-        if (!restate || !restate.within_horizon) return gone410({ code: 'REPORT_HORIZON_EXPIRED' });
-        if (restate.github_issue_url) return ok200({ status: 'recovered', github_issue_url: includeUrlForViewer(restate.github_issue_url) });
-        if (restate.lease_live) return conflict409({ code: 'IDEMPOTENCY_IN_FLIGHT' });
+        if (!restate || !restate.within_horizon) return gone410({ code: "REPORT_HORIZON_EXPIRED" });
+        if (restate.github_issue_url)
+          return ok200({
+            status: "recovered",
+            github_issue_url: includeUrlForViewer(restate.github_issue_url),
+          });
+        if (restate.lease_live) return conflict409({ code: "IDEMPOTENCY_IN_FLIGHT" });
         // row raced back to stuck. We're going to return 503,
         // so write the alert UNCONDITIONALLY now — operators need to see
         // every 503 via admin_alerts. The state-gated UPSERT was the fast
@@ -640,10 +674,13 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
           `INSERT INTO admin_alerts (show_id, code, context) VALUES ($1, 'REPORT_LEASE_THRASHING', $2::jsonb)
             ON CONFLICT (coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL
             DO UPDATE SET last_seen_at = now, occurrence_count = admin_alerts.occurrence_count + 1, context = EXCLUDED.context`,
-          [restate.show_id ?? null, JSON.stringify({ idempotency_key: key, depth, raced_back: true })]
+          [
+            restate.show_id ?? null,
+            JSON.stringify({ idempotency_key: key, depth, raced_back: true }),
+          ],
         );
       }
-      return serviceUnavailable503({ code: 'REPORT_LEASE_THRASHING' });
+      return serviceUnavailable503({ code: "REPORT_LEASE_THRASHING" });
     }
     // capture show_id from the entry-time row read so the alert
     // UPSERT below has a stable per-show key even if the row is reaped during
@@ -664,15 +701,15 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
               to_char((now - interval '24 hours') AT TIME ZONE 'UTC',
                       'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS cutoff_iso
          FROM reports WHERE idempotency_key = $1`,
-      [key]
+      [key],
     );
     if (!ageRow) {
-      return gone410({ code: 'REPORT_HORIZON_EXPIRED' });
+      return gone410({ code: "REPORT_HORIZON_EXPIRED" });
     }
     const entryShowId = ageRow.show_id ?? null;
     const dbCutoffIso: string = ageRow.cutoff_iso; // #3: DB-derived; passed to findIssueByMarker
     if (!ageRow.within_horizon) {
-      return gone410({ code: 'REPORT_HORIZON_EXPIRED' });
+      return gone410({ code: "REPORT_HORIZON_EXPIRED" });
     }
 
     // Step A (lock-free, no transaction): single-path reconciliation lookup.
@@ -687,11 +724,14 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
     } catch (err) {
       if (err instanceof LookupInconclusive) {
         const alertCode =
-          err.code === 'BOT_LOGIN_MISSING' ? 'GITHUB_BOT_LOGIN_MISSING'
-          : err.code === 'DUPLICATE_LIVE_MATCHES' ? 'REPORT_DUPLICATE_LIVE_MATCHES'
-          : err.code === 'OPEN_ISSUE_WITH_ORPHAN_LABEL' ? 'REPORT_OPEN_ORPHAN_LABEL'
-          : 'REPORT_LOOKUP_INCONCLUSIVE';
-        const isGlobal = err.code === 'BOT_LOGIN_MISSING';
+          err.code === "BOT_LOGIN_MISSING"
+            ? "GITHUB_BOT_LOGIN_MISSING"
+            : err.code === "DUPLICATE_LIVE_MATCHES"
+              ? "REPORT_DUPLICATE_LIVE_MATCHES"
+              : err.code === "OPEN_ISSUE_WITH_ORPHAN_LABEL"
+                ? "REPORT_OPEN_ORPHAN_LABEL"
+                : "REPORT_LOOKUP_INCONCLUSIVE";
+        const isGlobal = err.code === "BOT_LOGIN_MISSING";
 
         // BOT_LOGIN_MISSING is an OPERATOR-CONFIG fault that
         // affects EVERY future request — write the global alert UNCONDITIONALLY
@@ -705,7 +745,7 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
             `INSERT INTO admin_alerts (show_id, code, context) VALUES (NULL, 'GITHUB_BOT_LOGIN_MISSING', $1::jsonb)
               ON CONFLICT (coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL
               DO UPDATE SET last_seen_at = now, occurrence_count = admin_alerts.occurrence_count + 1, context = EXCLUDED.context`,
-            [JSON.stringify({ idempotency_key: key, reason: err.reason, code: err.code })]
+            [JSON.stringify({ idempotency_key: key, reason: err.reason, code: err.code })],
           );
         }
 
@@ -719,17 +759,20 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
                   (processing_lease_until > now) AS lease_live,
                   (created_at >= now - interval '24 hours') AS within_horizon
              FROM reports WHERE idempotency_key = $1`,
-          [key]
+          [key],
         );
         // Terminal: row reaped OR past horizon → 410, no alert.
-        if (!state) return gone410({ code: 'REPORT_HORIZON_EXPIRED' });
-        if (!state.within_horizon) return gone410({ code: 'REPORT_HORIZON_EXPIRED' });
+        if (!state) return gone410({ code: "REPORT_HORIZON_EXPIRED" });
+        if (!state.within_horizon) return gone410({ code: "REPORT_HORIZON_EXPIRED" });
         // Resolved by another worker → 200 with their URL, no alert.
         if (state.github_issue_url) {
-          return ok200({ status: 'recovered', github_issue_url: includeUrlForViewer(state.github_issue_url) });
+          return ok200({
+            status: "recovered",
+            github_issue_url: includeUrlForViewer(state.github_issue_url),
+          });
         }
         // Another worker holds a live lease → 409, no alert.
-        if (state.lease_live) return conflict409({ code: 'IDEMPOTENCY_IN_FLIGHT' });
+        if (state.lease_live) return conflict409({ code: "IDEMPOTENCY_IN_FLIGHT" });
 
         // Row is alive, in-horizon, no URL, expired lease — genuinely stuck
         // on this lookup failure. Per-row alert via a state-gated UPSERT
@@ -749,8 +792,11 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
              occurrence_count = admin_alerts.occurrence_count + 1,
              context = EXCLUDED.context
            RETURNING id`,
-          [key, isGlobal ? 'REPORT_LOOKUP_INCONCLUSIVE' : alertCode, // per-row alert is always the generic code
-           JSON.stringify({ idempotency_key: key, reason: err.reason, code: err.code })]
+          [
+            key,
+            isGlobal ? "REPORT_LOOKUP_INCONCLUSIVE" : alertCode, // per-row alert is always the generic code
+            JSON.stringify({ idempotency_key: key, reason: err.reason, code: err.code }),
+          ],
         );
 
         if (perRowResult.rowCount === 0) {
@@ -760,11 +806,16 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
                     (processing_lease_until > now) AS lease_live,
                     (created_at >= now - interval '24 hours') AS within_horizon
                FROM reports WHERE idempotency_key = $1`,
-            [key]
+            [key],
           );
-          if (!restate || !restate.within_horizon) return gone410({ code: 'REPORT_HORIZON_EXPIRED' });
-          if (restate.github_issue_url) return ok200({ status: 'recovered', github_issue_url: includeUrlForViewer(restate.github_issue_url) });
-          if (restate.lease_live) return conflict409({ code: 'IDEMPOTENCY_IN_FLIGHT' });
+          if (!restate || !restate.within_horizon)
+            return gone410({ code: "REPORT_HORIZON_EXPIRED" });
+          if (restate.github_issue_url)
+            return ok200({
+              status: "recovered",
+              github_issue_url: includeUrlForViewer(restate.github_issue_url),
+            });
+          if (restate.lease_live) return conflict409({ code: "IDEMPOTENCY_IN_FLIGHT" });
 
           // row raced back to stuck — try the state-gated UPSERT
           // ONE MORE TIME instead of writing unconditionally. This closes the
@@ -785,8 +836,16 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
              ON CONFLICT (coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL
              DO UPDATE SET last_seen_at = now, occurrence_count = admin_alerts.occurrence_count + 1, context = EXCLUDED.context
              RETURNING id`,
-            [key, isGlobal ? 'REPORT_LOOKUP_INCONCLUSIVE' : alertCode,
-             JSON.stringify({ idempotency_key: key, reason: err.reason, code: err.code, raced_back: true })]
+            [
+              key,
+              isGlobal ? "REPORT_LOOKUP_INCONCLUSIVE" : alertCode,
+              JSON.stringify({
+                idempotency_key: key,
+                reason: err.reason,
+                code: err.code,
+                raced_back: true,
+              }),
+            ],
           );
           if (secondGate.rowCount === 0) {
             // Second gate also missed — re-dispatch ONE more time.
@@ -795,11 +854,16 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
                       (processing_lease_until > now) AS lease_live,
                       (created_at >= now - interval '24 hours') AS within_horizon
                  FROM reports WHERE idempotency_key = $1`,
-              [key]
+              [key],
             );
-            if (!restate2 || !restate2.within_horizon) return gone410({ code: 'REPORT_HORIZON_EXPIRED' });
-            if (restate2.github_issue_url) return ok200({ status: 'recovered', github_issue_url: includeUrlForViewer(restate2.github_issue_url) });
-            if (restate2.lease_live) return conflict409({ code: 'IDEMPOTENCY_IN_FLIGHT' });
+            if (!restate2 || !restate2.within_horizon)
+              return gone410({ code: "REPORT_HORIZON_EXPIRED" });
+            if (restate2.github_issue_url)
+              return ok200({
+                status: "recovered",
+                github_issue_url: includeUrlForViewer(restate2.github_issue_url),
+              });
+            if (restate2.lease_live) return conflict409({ code: "IDEMPOTENCY_IN_FLIGHT" });
             // Two gate attempts both missed AND the row is still stuck on both
             // re-reads. This is pathological lease-churn at the alert-write
             // layer specifically. Write the alert UNCONDITIONALLY now —
@@ -809,15 +873,22 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
               `INSERT INTO admin_alerts (show_id, code, context) VALUES ($1, $2, $3::jsonb)
                 ON CONFLICT (coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL
                 DO UPDATE SET last_seen_at = now, occurrence_count = admin_alerts.occurrence_count + 1, context = EXCLUDED.context`,
-              [restate.show_id ?? entryShowId ?? null,
-               isGlobal ? 'REPORT_LOOKUP_INCONCLUSIVE' : alertCode,
-               JSON.stringify({ idempotency_key: key, reason: err.reason, code: err.code, raced_back_twice: true })]
+              [
+                restate.show_id ?? entryShowId ?? null,
+                isGlobal ? "REPORT_LOOKUP_INCONCLUSIVE" : alertCode,
+                JSON.stringify({
+                  idempotency_key: key,
+                  reason: err.reason,
+                  code: err.code,
+                  raced_back_twice: true,
+                }),
+              ],
             );
           }
         }
 
         //
-        return badGateway502({ code: 'REPORT_LOOKUP_INCONCLUSIVE' });
+        return badGateway502({ code: "REPORT_LOOKUP_INCONCLUSIVE" });
       }
       throw err;
     }
@@ -838,7 +909,7 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
             AND github_issue_url IS NULL
             AND created_at >= now - interval '24 hours'
           RETURNING id`,
-        [found.htmlUrl, key]
+        [found.htmlUrl, key],
       );
       if (recovered.rowCount === 0) {
         // Row was reaped, another retry beat us to writing the URL, OR the
@@ -853,14 +924,18 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
           `SELECT github_issue_url,
                   (created_at >= now - interval '24 hours') AS within_horizon
              FROM reports WHERE idempotency_key = $1`,
-          [key]
+          [key],
         );
-        if (!row) return gone410({ code: 'REPORT_HORIZON_EXPIRED' });
-        if (row.github_issue_url) return ok200({ status: 'recovered', github_issue_url: includeUrlForViewer(row.github_issue_url) });
-        if (!row.within_horizon) return gone410({ code: 'REPORT_HORIZON_EXPIRED' });
-        return conflict409({ code: 'IDEMPOTENCY_IN_FLIGHT' });
+        if (!row) return gone410({ code: "REPORT_HORIZON_EXPIRED" });
+        if (row.github_issue_url)
+          return ok200({
+            status: "recovered",
+            github_issue_url: includeUrlForViewer(row.github_issue_url),
+          });
+        if (!row.within_horizon) return gone410({ code: "REPORT_HORIZON_EXPIRED" });
+        return conflict409({ code: "IDEMPOTENCY_IN_FLIGHT" });
       }
-      return ok200({ status: 'recovered', github_issue_url: includeUrlForViewer(found.htmlUrl) });
+      return ok200({ status: "recovered", github_issue_url: includeUrlForViewer(found.htmlUrl) });
     }
 
     // Lease re-acquisition — single-statement Tx; the only serialized step.
@@ -884,7 +959,7 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
           AND github_issue_url IS NULL
           AND created_at >= now - interval '24 hours'
         RETURNING id, lease_holder`,
-      [key, myRetryLeaseHolder]
+      [key, myRetryLeaseHolder],
     );
     if (claim.rowCount === 0) {
       // The lease-claim UPDATE failed. Four possible causes — disambiguate
@@ -898,20 +973,23 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
                 (processing_lease_until > now) AS lease_live,
                 (created_at >= now - interval '24 hours') AS within_horizon
            FROM reports WHERE idempotency_key = $1`,
-        [key]
+        [key],
       );
       // Case A: row was reaped between our entry-time check and the claim UPDATE.
-      if (!row) return gone410({ code: 'REPORT_HORIZON_EXPIRED' });
+      if (!row) return gone410({ code: "REPORT_HORIZON_EXPIRED" });
       // Case B: URL was populated since our reconcile (late completion of the
       // original or another retry). Terminal duplicate — return 200.
       if (row.github_issue_url) {
-        return ok200({ status: 'recovered', github_issue_url: includeUrlForViewer(row.github_issue_url) });
+        return ok200({
+          status: "recovered",
+          github_issue_url: includeUrlForViewer(row.github_issue_url),
+        });
       }
       // Case C: row crossed the 24h horizon — DB-time predicate.
-      if (!row.within_horizon) return gone410({ code: 'REPORT_HORIZON_EXPIRED' });
+      if (!row.within_horizon) return gone410({ code: "REPORT_HORIZON_EXPIRED" });
       // Case D: another worker actually holds a LIVE lease — genuine in-flight
       // contention. Return 409 only when lease_live is true.
-      if (row.lease_live) return conflict409({ code: 'IDEMPOTENCY_IN_FLIGHT' });
+      if (row.lease_live) return conflict409({ code: "IDEMPOTENCY_IN_FLIGHT" });
       // Case D': the lease expired between our failed claim UPDATE and this
       // SELECT (or the worker holding it died right at expiry). The row is
       // immediately reclaimable — recurse once into expiredLeaseRetry rather
@@ -927,7 +1005,9 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
 
     // We hold a fresh lease (lease_holder = myRetryLeaseHolder). Reconcile MISSED
     // both lookups; only now is it safe to call createIssue. Outside any transaction.
-    const newIssue = await createIssue({ /* static labels only; body carries the marker per 8.3d */ });
+    const newIssue = await createIssue({
+      /* static labels only; body carries the marker per 8.3d */
+    });
     // Tail UPDATE — lease-ownership guard. If the original raced ahead
     // of us (its lease was stolen but its connection finally completed), it
     // cannot succeed because lease_holder won't match its token. Symmetrically,
@@ -941,7 +1021,7 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
           AND github_issue_url IS NULL
           AND lease_holder = $3::uuid
         RETURNING id`,
-      [newIssue.htmlUrl, key, myRetryLeaseHolder]
+      [newIssue.htmlUrl, key, myRetryLeaseHolder],
     );
     if (tail.rowCount === 0) {
       // do the SAME Case A/B/C disambiguation the spec requires
@@ -951,13 +1031,16 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
       // Closing the issue in that case would corrupt a live recovered binding.
       const row = await db.queryMaybeOne(
         `SELECT github_issue_url, show_id FROM reports WHERE idempotency_key = $1`,
-        [key]
+        [key],
       );
       // Case A: stored URL equals MY URL — a newer retry's findIssueByMarker
       // recovered MY issue. The issue is live and is the row's authoritative
       // URL. DO NOT close it. Return 200 with the same URL.
       if (row && row.github_issue_url === newIssue.htmlUrl) {
-        return ok200({ status: 'recovered', github_issue_url: includeUrlForViewer(newIssue.htmlUrl) });
+        return ok200({
+          status: "recovered",
+          github_issue_url: includeUrlForViewer(newIssue.htmlUrl),
+        });
       }
       // the row may have been reaped (row === null). MY issue
       // still exists at GitHub regardless — it must be closed to prevent a
@@ -987,23 +1070,39 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
            last_seen_at = now,
            occurrence_count = admin_alerts.occurrence_count + 1,
            context = EXCLUDED.context`,
-        [orphanShowId,
-         JSON.stringify({ idempotency_key: key, orphan_url: newIssue.htmlUrl, lease_holder: myRetryLeaseHolder, row_reaped: row === null })]
+        [
+          orphanShowId,
+          JSON.stringify({
+            idempotency_key: key,
+            orphan_url: newIssue.htmlUrl,
+            lease_holder: myRetryLeaseHolder,
+            row_reaped: row === null,
+          }),
+        ],
       );
       // Dispatch using the row we already re-read at the top of this branch.
       // Case Reaped: row is gone — return 410. The orphan was closed above.
-      if (!row) return gone410({ code: 'REPORT_HORIZON_EXPIRED' });
+      if (!row) return gone410({ code: "REPORT_HORIZON_EXPIRED" });
       // Case B: the row's URL differs from MY URL — return that URL as the
       // authoritative recovery for the user.
       // Case C: row.github_issue_url IS NULL — another retry holds the lease
       // but hasn't finished writing its URL.
-      if (row.github_issue_url) return ok200({ status: 'recovered', github_issue_url: includeUrlForViewer(row.github_issue_url) });
-      return conflict409({ code: 'IDEMPOTENCY_IN_FLIGHT' });
+      if (row.github_issue_url)
+        return ok200({
+          status: "recovered",
+          github_issue_url: includeUrlForViewer(row.github_issue_url),
+        });
+      return conflict409({ code: "IDEMPOTENCY_IN_FLIGHT" });
     }
-    return created201({ status: 'created', github_issue_url: includeUrlForViewer(newIssue.htmlUrl) });
+    return created201({
+      status: "created",
+      github_issue_url: includeUrlForViewer(newIssue.htmlUrl),
+    });
   }
   ```
+
   **There is no body-search fallback**. The single recovery path is `findIssueByMarker` against the immediately-consistent list endpoint, with fail-closed semantics on inconclusive results. That single contract closes AC-8.12 — eventually-consistent code search is no longer part of the design.
+
 - [ ] **Step 4: Run** — PASS.
 - [ ] **Step 5: Commit** `feat(reports): concurrent-retry race + late-success guard via unified reconcile (AC-8.13)`.
 
@@ -1020,6 +1119,7 @@ The reaper uses **`reports.created_at`** as the horizon, NOT `processing_lease_u
   - **Boundary checks (created_at side):** `created_at = now - interval '23 hours 30 minutes'` AND lease expired → row preserved. `created_at = now - interval '24 hours 1 minute'` AND lease expired → row deleted. The boundary is `now - interval '24 hours'` (strictly less than).
   - **Reaper / retry consistency:** for any row that's BOTH past-horizon AND lease-expired-and-unresolved, `expiredLeaseRetry` returns 410 `REPORT_HORIZON_EXPIRED` AND the reaper's predicate matches it on the same UTC timestamp. For any row that's past-horizon BUT lease-live, `expiredLeaseRetry` would also return 410 (entry-time `created_at` check) but the reaper does NOT match (live lease) — the divergence is intentional: the retry can't make progress and the reaper waits for the worker to release the row.
 - [ ] **Step 2: Implement** the daily cron (e.g. `0 6 * * *`) calling:
+
   ```sql
   DELETE FROM reports
    WHERE github_issue_url IS NULL
@@ -1027,9 +1127,11 @@ The reaper uses **`reports.created_at`** as the horizon, NOT `processing_lease_u
      AND processing_lease_until < now -- : never reap a row a retry actively holds
    RETURNING id, idempotency_key, created_at, lease_holder;
   ```
+
   The `AND processing_lease_until < now` clause is the race fix: it prevents the reaper from deleting a row whose lease is still held by an in-flight retry. Combined with `expiredLeaseRetry`'s lease-claim predicate (`AND created_at >= now - interval '24 hours'`), the horizon is enforced atomically at both ends — neither side can act on a row the other side is using.
 
   For each returned row, INSERT a structured audit log entry (e.g., a row in `sync_log` with `status = 'STALE_ORPHAN_REPORT'`, or a dedicated `admin_alerts` row coded `STALE_ORPHAN_REPORT` if Eric should be paged on this).
+
 - [ ] **Step 3: Run** — PASS.
 - [ ] **Step 4: Commit** `feat(reports): daily orphan reaper on created_at horizon`.
 
@@ -1190,6 +1292,7 @@ The plan ratifies **three** amendments to §13.2.3. All three must land together
 **Idempotency-key lifecycle: one key per report attempt, reused across every retry — including cancel.** The modal must NOT regenerate the key on network retry, response timeout, 502/503 from the server, OR user-initiated dismiss/cancel. The threat model: an "unknown outcome" attempt may have already reserved the `reports` row OR even created the GH issue before the client lost the response. Because server-side dedupe is keyed only by `idempotency_key`, dismissing and later resubmitting with a new key can create a second `reports` row, charge quota again, and open a duplicate GH issue. Therefore cancel CANNOT rotate the key without an explicit user opt-in.
 
 The key only rotates when:
+
 1. The submission succeeds **terminally** — defined as **any 2xx response from `/api/report` whose body shape proves the report exists**: HTTP 201 (brand-new winner, freshly-created issue) OR HTTP 200 (idempotent retry that found an existing report — completed duplicate or recovery). Both forms are returned by the server's flow (Tasks 8.3b/c/d) when the report's `github_issue_url` is set or has just been resolved. **The earlier 201-only definition is wrong**: it would leave the modal stuck in `failed-retryable` state after a successful 200 retry/recovery, keeping the `sessionStorage` "Resume previous report" UI alive and dedup-collapsing the user's next distinct report onto the same key. The HTTP-status-based definition the modal applies is **`response.status >= 200 AND response.status < 300 AND body.ok === true`** — the server returns `{ ok: true, status: 'created' | 'duplicate' | 'recovered', github_issue_url?: string }` for every terminal success; the modal doesn't inspect the URL, only `body.ok` plus the status code, OR
 2. The user clicks an explicit **"Start a new report anyway"** affordance that surfaces only after at least one nonterminal attempt has been made. The affordance carries a warning copy: "Your previous attempt may have already gone through. Starting fresh could create a duplicate." This is the only escape hatch for the user who genuinely wants to abandon dedup.
 
@@ -1220,8 +1323,8 @@ In every other case — network error, 502 from `/api/report`, 409 `IDEMPOTENCY_
   type ModalState = {
     idempotencyKey: string; // one per attempt; sticky across retries
     draft: string; // current message text — the SOLE source of truth for hydration
-                                          //
-    status: 'composing' | 'submitting' | 'failed-retryable' | 'succeeded';
+    //
+    status: "composing" | "submitting" | "failed-retryable" | "succeeded";
     surfaceId: string; // identifies which surface produced the attempt
   };
   // Persisted to sessionStorage at every status transition AND every draft keystroke.
@@ -1236,7 +1339,7 @@ In every other case — network error, 502 from `/api/report`, 409 `IDEMPOTENCY_
   }
   function nextKey(state: ModalState, userClickedStartAnyway: boolean): string {
     // Terminal success (HTTP 2xx + body.ok=true; covers 201 created and 200 duplicate/recovered) → fresh key on next attempt
-    if (state.status === 'succeeded') return crypto.randomUUID;
+    if (state.status === "succeeded") return crypto.randomUUID;
     // Explicit user opt-in to abandon dedup — the only other rotation path
     if (userClickedStartAnyway) return crypto.randomUUID;
     // Every other path — including draft edits after a nonterminal attempt,
@@ -1258,4 +1361,3 @@ In every other case — network error, 502 from `/api/report`, 409 `IDEMPOTENCY_
 - [ ] **Step 3: Commit** `test(messages): error-code catalog coverage (AC-8.8)`.
 
 ---
-
