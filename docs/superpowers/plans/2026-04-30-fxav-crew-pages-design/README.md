@@ -12,6 +12,8 @@ This plan has been split from a single 9,719-line monolithic file into a per-mil
 
 | File | Contents | Lines |
 | --- | --- | --- |
+| [ROUTING.md](ROUTING.md) | Per-milestone implementer + reviewer assignment (Opus / Claude Code vs GPT-5.5 / Codex), rationale, override protocol | — |
+| [HANDOFF-TEMPLATE.md](HANDOFF-TEMPLATE.md) | Template for the per-milestone handoff doc — spec sections, AC list, amendments in scope, test cmds, convergence log | — |
 | [00-overview.md](00-overview.md) | Goal, architecture, tech stack, "How to use this plan", file structure, ratified spec amendments | 186 |
 | [01-foundation.md](01-foundation.md) | **Milestone 0** — Repository bootstrap, tooling, env (Tasks 0.1–0.6); **Milestone 1** — Parser standalone (Tasks 1.1–1.14, AC-1.1..1.10) | 1,163 |
 | [02-schema-rls.md](02-schema-rls.md) | **Milestone 2** — Schema, RLS, migrations, seed (Tasks 2.1–2.5, AC-2.1..2.7) | 1,537 |
