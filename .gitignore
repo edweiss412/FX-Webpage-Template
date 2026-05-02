@@ -41,6 +41,7 @@ blob-report/
 playwright/.cache/
 
 # Misc
+next-env.d.ts
 *.tsbuildinfo
 .turbo/
 .vercel
