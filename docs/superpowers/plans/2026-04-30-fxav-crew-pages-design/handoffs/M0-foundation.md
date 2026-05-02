@@ -75,7 +75,7 @@ M0 is the first executed milestone, so there is no prior convergence-log evidenc
 
 - [x] All M0 task steps in `01-foundation.md` Tasks 0.1–0.6 checked off (verified by reading the file post-flip).
 - [ ] All AC IDs from §2 above have at least one test asserting them — **N/A — M0 has no AC IDs.**
-- [ ] Adversarial review (per `superpowers:adversarial-review`) ran to convergence — round-2 fix in progress; convergence pending round-3 confirmation.
+- [x] Adversarial review (per `superpowers:adversarial-review`) ran to convergence — converged round 4 (2026-05-02) with `verdict: approve`. See "Convergence log" at the bottom of this file.
 - [x] All commits follow conventional-commits style per AGENTS.md §1.6 (now updated to formalize the short `<scope>:` form). For the authoritative commit count at any point in M0's lifetime, run `git rev-list --count dcfd2cd..HEAD`. The composition is documented in §5 above.
 - [x] `pnpm lint && pnpm typecheck && pnpm test` clean.
 - [x] `pnpm build` clean.
@@ -111,4 +111,7 @@ After all six M0 tasks are committed:
 
 ## Convergence log
 
-_(populated after adversarial review)_
+- **Round 1 (2026-05-02):** Codex/GPT-5.5 returned `needs-attention` with 3 findings — (1.high) `.env.local.example` missing spec §14.3 `SUPABASE_URL`; (2.high) `pnpm typecheck` not self-sufficient from cold clone (`next-env.d.ts` was gitignored); (3.medium) handoff completion criteria didn't match reality (claimed 6 commits, actual 21; per-task checkboxes in `01-foundation.md` still unchecked). All 3 addressed in commits `412db12`, `3a9ede5`, `1861a7b`.
+- **Round 2 (2026-05-02):** Codex returned `needs-attention` with 1 finding — (high) handoff §5 commit-policy bullet conflicted with AGENTS.md §1.6's strict `feat(<area>):` / `test(<area>):` rule; actual M0 commits (and pre-M0 user-authored commits) used the simpler short form. Addressed by amending AGENTS.md §1.6 to formalize the actual conventional-commits-with-short-form practice (commit `5e6eb61`) and reconciling the handoff §8 exit criteria to verified-clean state (commit `4fc6adf`).
+- **Round 3 (2026-05-02):** Codex returned `needs-attention` with 2 findings — (1.high) handoff §5 wording "applies as a target, not a hard contract" weakened AGENTS.md's non-negotiable invariant; round-2 contribution count was misstated (3 vs actual 2); (2.medium) `next-env.d.ts` was dirty in working tree (dev-mode flap from Codex's own `pnpm test:e2e` invocation). User authorized one round of overtime to address both. Addressed in commits `ff441ff` (preserve invariant; add clean-tree exit criterion; enumerate 6 per-task SHAs) and `000fb55` (forward-resilient count text — cite `git rev-list` rather than hardcode an integer).
+- **Round 4 (2026-05-02, overtime by user authorization):** Codex returned `verdict: approve`. No material findings. **Convergence reached.**
