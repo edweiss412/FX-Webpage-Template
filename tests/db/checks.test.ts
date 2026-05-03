@@ -200,21 +200,39 @@ describe("Task 2.5 runtime CHECK and uniqueness enforcement", () => {
   test("no global sync cursor identifier appears in source or tests", () => {
     const forbidden = "last" + "PollAt";
 
-    try {
-      const matches = execFileSync("rg", ["-n", forbidden, "lib", "app", "supabase", "tests"], {
-        cwd: process.cwd(),
-        encoding: "utf8",
-        stdio: "pipe",
-      }).trim();
+    // Try `rg` first; fall back to system `grep -rn` so the test runs in
+    // environments where ripgrep is shadowed by a shell function (e.g. Claude
+    // Code's MCP wrapper) and not present as a binary on PATH.
+    const tools: Array<{ cmd: string; args: string[] }> = [
+      { cmd: "rg", args: ["-n", forbidden, "lib", "app", "supabase", "tests"] },
+      { cmd: "grep", args: ["-rn", forbidden, "lib", "app", "supabase", "tests"] },
+    ];
 
-      expect(matches).toBe("");
-    } catch (error) {
-      const status = (error as { status?: number }).status;
-      if (status === 1) {
-        expect(true).toBe(true);
+    for (const tool of tools) {
+      try {
+        const matches = execFileSync(tool.cmd, tool.args, {
+          cwd: process.cwd(),
+          encoding: "utf8",
+          stdio: "pipe",
+        }).trim();
+        expect(matches).toBe("");
         return;
+      } catch (error) {
+        const status = (error as { status?: number }).status;
+        const code = (error as { code?: string }).code;
+        // Exit status 1 from both rg and grep means "no matches" — invariant holds.
+        if (status === 1) {
+          expect(true).toBe(true);
+          return;
+        }
+        // ENOENT — try the next tool.
+        if (code === "ENOENT") {
+          continue;
+        }
+        throw error;
       }
-      throw error;
     }
+
+    throw new Error("Neither `rg` nor `grep` is available on PATH; cannot verify invariant.");
   });
 });
