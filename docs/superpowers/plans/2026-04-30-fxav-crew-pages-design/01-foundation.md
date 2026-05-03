@@ -1017,7 +1017,12 @@ For each block, follow the same pattern as Task 1.4:
 
 Detection signature:
 
-- Pull sheet: header row's cells all contain literal text `PULL SHEET` (case-insensitive); subsequent rows are 5-column positional `[packed_flag, qty, item, sub_cat, cat]`.
+- Pull sheet: header row's cells all contain literal text `PULL SHEET` (case-insensitive); subsequent rows are 5-column positional. **Two corpus variants observed**:
+  - **Variant A** (verified `2024-05-east-coast-family-office.md:209+`): `[packed_flag, qty, item, sub_cat, cat]` — packed_flag in col[0].
+  - **Variant B** (verified `2025-05-redefining-fixed-income-private-credit.md:362+`): `[qty, item, sub_cat, cat, packed_flag]` — packed_flag in col[4].
+
+  Detection: scan data rows for the column index where `cell.toUpperCase() === 'TRUE' | 'FALSE'`; that index is `packed_flag`. Other columns are positional relative to packed_flag's location.
+
 - GEAR (excluded): header row contains BOTH `PULLED` AND `INITAL` (note the typo, verbatim in the fixture).
 
 - [ ] **Step 1: Failing tests** — exercise both real pull-sheet fixtures AND the GEAR-not-pull-sheet exclusion:
