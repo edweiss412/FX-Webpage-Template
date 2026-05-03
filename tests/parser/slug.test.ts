@@ -140,7 +140,7 @@ describe("deriveSlug", () => {
     const pass2: string[] = [];
 
     for (const f of files) {
-      const parsed = parseSheet(readFileSync(`${dir}/${f}`, "utf8"));
+      const parsed = parseSheet(readFileSync(`${dir}/${f}`, "utf8"), f);
       pass1.push(deriveSlug(parsed, []));
       pass2.push(deriveSlug(parsed, []));
     }

@@ -99,7 +99,11 @@ function isKnownNonTitle(candidate: string): boolean {
   return KNOWN_NON_TITLES.has(candidate.toLowerCase().trim());
 }
 
-function extractTitleFromMarkdown(md: string, eventDetails: Record<string, string>): string {
+function extractTitleFromMarkdown(
+  md: string,
+  eventDetails: Record<string, string>,
+  filename?: string,
+): string {
   const lines = md.split("\n");
 
   // 1. Scan raw markdown for "Event Name:" label row (v4/v2 newer fixtures).
@@ -199,6 +203,16 @@ function extractTitleFromMarkdown(md: string, eventDetails: Record<string, strin
     }
   }
 
+  // 7. Final fallback: derive from filename if provided.
+  //    Strip the .md extension and the leading YYYY-MM- date prefix, then
+  //    convert dashes to spaces. E.g. "2025-03-dci-rpas-central.md" → "dci rpas central".
+  if (filename) {
+    const base = filename.replace(/\.md$/i, "").replace(/^\d{4}-\d{2}-/, "");
+    if (base.length > 0) {
+      return base.replace(/-/g, " ").trim();
+    }
+  }
+
   return "";
 }
 
@@ -231,7 +245,7 @@ function deriveSchedulePhases(
 
 // ── Main orchestrator ─────────────────────────────────────────────────────────
 
-export function parseSheet(markdown: string): ParsedSheet {
+export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   const hardErrors: ParseError[] = [];
 
   // Step 1: Detect version. Hard-error gate per spec §6.8.
@@ -302,7 +316,7 @@ export function parseSheet(markdown: string): ParsedSheet {
   const openingReel = extractOpeningReel(eventDetails["opening_reel"] ?? null);
 
   // Step 4: Compose show title.
-  const title = extractTitleFromMarkdown(markdown, eventDetails);
+  const title = extractTitleFromMarkdown(markdown, eventDetails, filename);
 
   // Step 5: Compose ShowRow.
   const show: ShowRow = {
