@@ -56,7 +56,21 @@ export type ParseAndStageResult = {
 const FIXTURE_DIR = join(process.cwd(), "fixtures/shows/raw");
 const FIXTURE_NAME_RE = /^[a-zA-Z0-9._-]+\.md$/;
 
-export async function parseAndStage(filename: string): Promise<ParseAndStageResult> {
+export async function parseAndStage(
+  filename: string,
+  /**
+   * Optional synthetic `prior` ParseResult. Production callers pass nothing
+   * (defaults to null) — Phase-1 first-seen runs in the dev panel have no
+   * prior because the dev Apply path doesn't exist yet (the M3 dev panel does
+   * not load `prior` from dev.shows; see the comment below at the
+   * runInvariants call site). This parameter exists solely so the AC-3.2
+   * verification test in tests/sync/dev-routing.test.ts can exercise MI-7
+   * SECTION_SHRINKAGE without standing up an Apply path — the test passes a
+   * synthetic prior with N hotels to drive runInvariants's comparison branch.
+   * M6 will replace this default with a real load-prior-from-dev.shows lookup.
+   */
+  prior: ParseResult | null = null,
+): Promise<ParseAndStageResult> {
   await requireAdmin();
 
   // Filename allowlist gate — never read outside fixtures/shows/raw and never
@@ -89,8 +103,10 @@ export async function parseAndStage(filename: string): Promise<ParseAndStageResu
   // dev-Apply created a row; for first-seen runs this is null. For M3 the dev
   // panel does not load `prior` from dev.shows yet (no Apply path in M3) — null
   // is correct because the dev shows table is reset between Playwright tests
-  // and remains empty.
-  const invariants: InvariantOutcome = runInvariants(null, parseResult);
+  // and remains empty. The optional `prior` parameter on parseAndStage allows
+  // verification tests (AC-3.2) to inject a synthetic prior to exercise
+  // MI-6..MI-14 comparison branches without an Apply path.
+  const invariants: InvariantOutcome = runInvariants(prior, parseResult);
 
   // Step 4: route via Phase-1 RPC.
   const supabase = createSupabaseServiceRoleClient();
