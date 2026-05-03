@@ -201,7 +201,11 @@ function parseDataRows(
     return { caseLabel, items };
   }
 
-  // Detect column variant from first non-empty row
+  // Detect column variant by scanning ALL data rows until one disambiguates.
+  // Assumption: real data rows always have a populated packed_flag cell that
+  // matches /^(TRUE|FALSE)$/i in either col[0] (Variant A) or col[4] (Variant B).
+  // If NO row matches across the entire case, we default to Variant A (best-effort)
+  // and emit a warning so the caller can investigate.
   let variant: ColumnVariant = "unknown";
   for (const row of dataRows) {
     const cells = splitRow(row);
@@ -213,6 +217,16 @@ function parseDataRows(
   }
   if (variant === "unknown") {
     variant = "A";
+    if (dataRows.length > 0) {
+      warnings.push({
+        severity: "warn",
+        code: "PULL_SHEET_UNKNOWN_VARIANT",
+        message:
+          `Pull sheet case "${caseLabel}" has data rows but no row with a recognisable ` +
+          `packed_flag cell (TRUE/FALSE in col[0] or col[4]). Defaulting to Variant A.`,
+        blockRef: { kind: "pull_sheet" },
+      });
+    }
   }
 
   let emittedPartialWarning = false;

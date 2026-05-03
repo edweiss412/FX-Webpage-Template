@@ -194,9 +194,11 @@ describe("parsePullSheet — ambiguous format (synthetic fixture)", () => {
     expect(result.pullSheet).not.toBeNull();
   });
 
-  it("case label is 'Unparsed pull sheet' or similar fallback label", () => {
-    // When ambiguous, the caseLabel should indicate the raw/unparsed state
-    expect(result.pullSheet![0]!.caseLabel).toMatch(/Test|Unparsed/i);
+  it("case label is 'Test' (ambiguous format does NOT replace the caseLabel)", () => {
+    // Ambiguous format falls back to raw-snippet rendering but preserves
+    // the original caseLabel extracted from the header — it does NOT replace
+    // it with a generic "Unparsed" string.
+    expect(result.pullSheet![0]!.caseLabel).toBe("Test");
   });
 
   it("items rendered as raw snippets (all have rawSnippet)", () => {
@@ -215,5 +217,31 @@ describe("parsePullSheet — ambiguous format (synthetic fixture)", () => {
   it("PULL_SHEET_AMBIGUOUS_FORMAT warning has severity 'warn'", () => {
     const warning = result.warnings.find((w) => w.code === "PULL_SHEET_AMBIGUOUS_FORMAT");
     expect(warning!.severity).toBe("warn");
+  });
+});
+
+// ── Test 7: multi-sub-tab — two PULL SHEET headers produce two PullSheetCases ─
+describe("parsePullSheet — multi-sub-tab (synthetic fixture)", () => {
+  it("emits one PullSheetCase per sub-tab when multiple PULL SHEET headers present (synthetic)", () => {
+    // Synthetic two-table fixture: header A then header B, back to back.
+    const md = [
+      "| PULL SHEET/Case A | PULL SHEET/Case A | PULL SHEET/Case A | PULL SHEET/Case A | PULL SHEET/Case A |",
+      "| :---: | :---: | :---: | :---: | :---: |",
+      "| FALSE | 1 | Item A1 | | CAT_A |",
+      "",
+      "| PULL SHEET/Case B | PULL SHEET/Case B | PULL SHEET/Case B | PULL SHEET/Case B | PULL SHEET/Case B |",
+      "| :---: | :---: | :---: | :---: | :---: |",
+      "| FALSE | 2 | Item B1 | SUB_B | CAT_B |",
+    ].join("\n");
+    const { pullSheet, warnings } = parsePullSheet(md);
+    expect(pullSheet).not.toBeNull();
+    expect(pullSheet).toHaveLength(2);
+    expect(pullSheet![0]!.caseLabel).toBe("Case A");
+    expect(pullSheet![1]!.caseLabel).toBe("Case B");
+    expect(pullSheet![0]!.items).toHaveLength(1);
+    expect(pullSheet![1]!.items).toHaveLength(1);
+    expect(pullSheet![0]!.items[0]!.item).toBe("Item A1");
+    expect(pullSheet![1]!.items[0]!.item).toBe("Item B1");
+    expect(warnings).toHaveLength(0);
   });
 });
