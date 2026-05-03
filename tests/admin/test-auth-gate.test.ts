@@ -301,6 +301,46 @@ describe("Layer 1 — direct route-handler import (deterministic gate-rejection 
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("create_user_failed");
   });
+
+  // ---------------------------------------------------------------------------
+  // Email canonicalization at the auth boundary (Round 3 Finding 2)
+  //
+  // AGENTS.md §1.3: lib/email/canonicalize.ts is the ONLY function that
+  // touches raw emails before they enter the system. The route MUST route
+  // body.email through canonicalize() — not an inline trim().toLowerCase()
+  // — so that whitespace + case variants are admitted by the allowlist
+  // (which stores the canonical form). This test pins the boundary to the
+  // canonical helper: if `canonicalize` ever changes its semantics OR if a
+  // future refactor reverts to inline normalization that drifts, this test
+  // breaks.
+  // ---------------------------------------------------------------------------
+  test("Boundary: '  EDWeiss412@GMAIL.COM  ' (whitespace + uppercase) → 200, admin (canonicalize at boundary per AGENTS.md §1.3)", async () => {
+    supabaseMock.state.createUserMode = "ok";
+    const res = await POST(
+      makeRequest({ body: { email: "  EDWeiss412@GMAIL.COM  " } }),
+    );
+    expect(
+      res.status,
+      "raw whitespace + uppercase email must be canonicalized before allowlist lookup; if 400 here, the boundary is bypassing lib/email/canonicalize",
+    ).toBe(200);
+    const body = (await res.json()) as { ok: boolean; email: string; isAdmin: boolean };
+    expect(body.ok).toBe(true);
+    // The response email must be the canonical form, not the raw input —
+    // proves the route uses the canonicalize() result downstream.
+    expect(body.email).toBe("edweiss412@gmail.com");
+    expect(body.isAdmin).toBe(true);
+  });
+
+  test("Boundary: '\\n\\tcrew-non-admin@FXAV.test\\n' → 200, isAdmin=false (allowlist matches canonical, not raw)", async () => {
+    supabaseMock.state.createUserMode = "ok";
+    const res = await POST(
+      makeRequest({ body: { email: "\n\tcrew-non-admin@FXAV.test\n" } }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { email: string; isAdmin: boolean };
+    expect(body.email).toBe("crew-non-admin@fxav.test");
+    expect(body.isAdmin).toBe(false);
+  });
 });
 
 // =============================================================================

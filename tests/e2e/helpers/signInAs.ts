@@ -22,6 +22,7 @@ import type { Page } from "@playwright/test";
 import type { TestAuthFixture } from "./fixtures";
 import { TEST_AUTH_SECRET } from "./testAuthConfig";
 import { admin } from "./supabaseAdmin";
+import { canonicalize } from "@/lib/email/canonicalize";
 
 export async function signInAs(page: Page, fixture: TestAuthFixture): Promise<void> {
   // The endpoint enforces create-only semantics: a second sign-in for the
@@ -62,14 +63,18 @@ export async function signOut(page: Page): Promise<void> {
  * idempotent across test runs. Safe to call when the user does not exist.
  */
 export async function deleteFixtureUserByEmail(email: string): Promise<void> {
-  const lowered = email.trim().toLowerCase();
+  // Canonicalize per AGENTS.md §1.3 — lib/email/canonicalize.ts is the
+  // ONLY function that touches raw emails before they enter the system.
+  // Inline trim().toLowerCase() would be a duplicate implementation.
+  const lowered = canonicalize(email);
+  if (!lowered) return; // empty/null email → nothing to delete
   // listUsers paginates; perPage:200 covers our fixture set with room.
   const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
   if (error) {
     throw new Error(`deleteFixtureUserByEmail.listUsers failed: ${error.message}`);
   }
   for (const u of data?.users ?? []) {
-    if ((u.email ?? "").toLowerCase() === lowered) {
+    if (canonicalize(u.email ?? null) === lowered) {
       const { error: deleteErr } = await admin.auth.admin.deleteUser(u.id);
       if (deleteErr) {
         // Tolerate races: another concurrent test (across Playwright projects

@@ -43,6 +43,7 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { canonicalize } from "@/lib/email/canonicalize";
 
 // A long, well-known password used by all fixture sign-ins. The test-auth
 // endpoint is gated on ENABLE_TEST_AUTH + TEST_AUTH_SECRET + host allowlist
@@ -130,15 +131,22 @@ export async function POST(request: Request): Promise<Response> {
     return reject(400, "invalid_json");
   }
 
-  const rawEmail = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-  if (!rawEmail) {
+  // Email canonicalization at the auth boundary per AGENTS.md §1.3:
+  // lib/email/canonicalize.ts is the ONLY function that touches raw emails
+  // before they enter the system. Inline trim().toLowerCase() would be a
+  // duplicate implementation that can drift from the canonical helper.
+  // The canonicalized form is used for BOTH the allowlist lookup AND the
+  // downstream auth.admin.createUser call so the system-wide convention
+  // holds end-to-end (Round 3 Finding 2).
+  const email = canonicalize(typeof body.email === "string" ? body.email : null);
+  if (!email) {
     return reject(400, "email_required");
   }
 
   // Gate 4: email must be in the allowlist. isAdmin is DERIVED from the
   // allowlist entry — any client-supplied isAdmin field in the body is
   // silently ignored.
-  const allowEntry = FIXTURE_ALLOWLIST[rawEmail];
+  const allowEntry = FIXTURE_ALLOWLIST[email];
   if (!allowEntry) {
     return reject(400, "email_not_allowlisted");
   }
@@ -163,7 +171,7 @@ export async function POST(request: Request): Promise<Response> {
   // before re-creating — the Playwright + Vitest setup hooks do this with
   // adminClient.auth.admin.deleteUser before each test.
   const { data: created, error: createErr } = await adminClient.auth.admin.createUser({
-    email: rawEmail,
+    email,
     password: TEST_FIXTURE_PASSWORD,
     email_confirm: true,
     app_metadata: isAdmin ? { role: "admin" } : {},
@@ -196,14 +204,14 @@ export async function POST(request: Request): Promise<Response> {
   });
 
   const { error: signInErr } = await ssrClient.auth.signInWithPassword({
-    email: rawEmail,
+    email,
     password: TEST_FIXTURE_PASSWORD,
   });
   if (signInErr) {
     return reject(500, "sign_in_failed", signInErr.message);
   }
 
-  return NextResponse.json({ ok: true, email: rawEmail, isAdmin });
+  return NextResponse.json({ ok: true, email, isAdmin });
 }
 
 export async function GET(request: Request): Promise<Response> {
