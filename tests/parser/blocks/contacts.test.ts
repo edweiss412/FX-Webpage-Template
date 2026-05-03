@@ -181,6 +181,64 @@ describe("parseContacts — exact name extraction (Codex round-2 findings)", () 
   });
 });
 
+// ── Codex round-3 regression tests ───────────────────────────────────────────
+
+describe("parseContacts — phantom contact rejection (Codex round-3 finding 1)", () => {
+  it("rejects phantom 'FALSE' value from form-table row in 2025-03-dci-rpas-central", () => {
+    // Line ~537: | Hotel Contact Info | FALSE | — value has no email/phone/name → must be skipped
+    const md = readFileSync("fixtures/shows/raw/2025-03-dci-rpas-central.md", "utf8");
+    const contacts = parseContacts(md, "v2");
+    const phantomFalse = contacts.find((c) => c.notes === "FALSE");
+    expect(phantomFalse).toBeUndefined();
+  });
+
+  it("rejects phantom 'FALSE' value from form-table row in 2025-04-asset-mgmt-cfo-coo", () => {
+    // Line ~430: | Hotel Contact Info | FALSE | — same pattern as above
+    const md = readFileSync("fixtures/shows/raw/2025-04-asset-mgmt-cfo-coo.md", "utf8");
+    const contacts = parseContacts(md, "v2");
+    const phantomFalse = contacts.find((c) => c.notes === "FALSE");
+    expect(phantomFalse).toBeUndefined();
+  });
+
+  it("does not emit duplicate venue contact from later reference row in 2025-10", () => {
+    // Real row (line 56): 'Hotel Contact Info | Kurt Ashcraft … kurt.ashcraft@hyatt.com'
+    // Reference row (line 244): 'Hotel Contact Information | Kurt.Ashcraft@hyatt.com'
+    // Both canonicalize to kurt.ashcraft@hyatt.com — should keep exactly 1 Kurt row
+    const md = readFileSync("fixtures/shows/raw/2025-10-fixed-income-trading-summit.md", "utf8");
+    const venue = parseContacts(md, "v2").filter((c) => c.kind === "venue");
+    const kurtRows = venue.filter((c) =>
+      /Kurt|kurt\.ashcraft/i.test(`${c.name ?? ""} ${c.email ?? ""}`),
+    );
+    expect(kurtRows).toHaveLength(1);
+    expect(kurtRows[0]!.name).toBe("Kurt Ashcraft");
+  });
+});
+
+describe("parseContacts — per-person segmentation no bleed (Codex round-3 finding 3)", () => {
+  it("Angela Kongabel does NOT inherit Cesar Salazar's phone (2026-03)", () => {
+    // In House AV cell: "Cesar Salazar cesar.salazar@encoreglobal.com 309-532-5534 Angela Kongabel angela.kongabel@encoreglobal.com"
+    // Pre-fix: Angela's pre-segment contained "309-532-5534" → phoneInPre grabbed Cesar's phone.
+    // Post-fix: phoneInPre is suppressed for i > 0 → Angela has no phone.
+    const md = readFileSync("fixtures/shows/raw/2026-03-rpas-central-four-seasons.md", "utf8");
+    const contacts = parseContacts(md, "v4");
+    const angela = contacts.find((c) => /Angela Kongabel/i.test(c.name ?? ""));
+    expect(angela).toBeDefined();
+    expect(angela!.phone).not.toBe("309-532-5534"); // must not be Cesar's phone
+  });
+
+  it("first venue contact in 2025-04 does NOT have Amanda Mattson's name in notes", () => {
+    // This fixture is v2 but 2026-03 is the main multi-person bleed fixture.
+    // In 2025-04 the venue cell is single-person (Jenaé Denne) — notes must not bleed Amanda.
+    // Amanda Mattson appears in the venue contact info only via the reference table (2026-03 pattern).
+    // For 2025-04: confirm the first venue contact notes don't contain 'Amanda Mattson'.
+    const md = readFileSync("fixtures/shows/raw/2025-04-asset-mgmt-cfo-coo.md", "utf8");
+    const venue = parseContacts(md, "v2").filter((c) => c.kind === "venue");
+    if (venue[0]) {
+      expect(venue[0].notes ?? "").not.toContain("Amanda Mattson");
+    }
+  });
+});
+
 // ── Corpus-coverage test ──────────────────────────────────────────────────────
 describe("parseContacts — corpus coverage", () => {
   for (const path of ALL_FIXTURES) {

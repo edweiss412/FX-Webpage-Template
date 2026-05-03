@@ -40,6 +40,27 @@ const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/i;
 const PHONE_RE =
   /\+?1?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\d{3}[-.\s]\d{3}[-.\s]\d{4}|\d{3,4}-\d{3,4}-\d{4}/;
 
+// Minimum length for a cell value to be considered a real contact signal.
+// Values shorter than this (e.g. "FALSE", "N/A") are rejected as form-table noise.
+const MIN_CONTACT_CELL_LENGTH = 5;
+
+/**
+ * Returns true when the cell text contains at least one real contact signal:
+ * an email address, a phone number, or a capitalized 2-word name pattern.
+ *
+ * This guards against phantom contacts emitted from later form/reference
+ * table rows where the value is a placeholder like "FALSE" or "N/A"
+ * (Codex round-3 finding 1).
+ */
+function hasContactSignal(text: string): boolean {
+  if (text.length < MIN_CONTACT_CELL_LENGTH) return false;
+  if (EMAIL_RE.test(text)) return true;
+  if (PHONE_RE.test(text)) return true;
+  // At least two consecutive capitalized words (basic name pattern)
+  if (/\p{Lu}\p{Ll}+\s+\p{Lu}\p{Ll}+/u.test(text)) return true;
+  return false;
+}
+
 export function parseContacts(
   markdown: string,
   _version: "v1" | "v2" | "v4",
@@ -83,6 +104,12 @@ export function parseContacts(
 
     if (!rawValue) continue;
 
+    // Fix 1a (Codex round-3): reject rows with no real contact signal.
+    // Form/reference tables often contain rows like "Hotel Contact Info | FALSE"
+    // where the value is a placeholder. Only proceed when the cell contains
+    // at least an email, phone, or capitalized 2-word name.
+    if (!hasContactSignal(rawValue)) continue;
+
     const rowKey = `${kind}::${rawValue}`;
     if (seenRowKeys.has(rowKey)) continue;
     seenRowKeys.add(rowKey);
@@ -92,7 +119,23 @@ export function parseContacts(
     contacts.push(...parsed);
   }
 
-  return contacts;
+  // Fix 1b (Codex round-3): deduplicate contacts by canonicalized email within
+  // the same kind. Later reference rows (e.g. "Hotel Contact Information |
+  // Kurt.Ashcraft@hyatt.com") produce a ContactRow whose email canonicalizes
+  // to the same address as the earlier, more complete row. Keep the first
+  // occurrence (the real contacts block appears before reference tables).
+  const seenEmailKeys = new Set<string>();
+  const deduped: ContactRow[] = [];
+  for (const c of contacts) {
+    if (c.email) {
+      const emailKey = `${c.kind}::${c.email.toLowerCase().trim()}`;
+      if (seenEmailKeys.has(emailKey)) continue;
+      seenEmailKeys.add(emailKey);
+    }
+    deduped.push(c);
+  }
+
+  return deduped;
 }
 
 /**
@@ -161,9 +204,15 @@ function parseContactCell(raw: string, kind: ContactKind): ContactRow[] {
     // Extract name from the pre segment
     const name = extractName(pre);
 
-    // Extract phone from pre or post (prefer post for "Cell: XXX" pattern)
+    // Extract phone from pre or post.
+    //
+    // Fix 3 (Codex round-3): for person[i > 0] the `pre` segment is the
+    // inter-email gap between person[i-1]'s email and person[i]'s email.
+    // That gap contains person[i-1]'s trailing phone, not person[i]'s.
+    // Only use phoneInPre for the first person (i === 0); for subsequent
+    // persons restrict to phoneInPost (the text after their own email).
     const phoneInPost = PHONE_RE.exec(post);
-    const phoneInPre = PHONE_RE.exec(pre);
+    const phoneInPre = i === 0 ? PHONE_RE.exec(pre) : null;
     const phoneMatch = phoneInPost ?? phoneInPre;
     const phone = phoneMatch ? presence(phoneMatch[0]) : null;
 
