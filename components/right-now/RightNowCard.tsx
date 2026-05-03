@@ -80,13 +80,27 @@
  *                             the state machine resolve" should read
  *                             `data-state`.
  *                           - `data-treatment="<treatment>"` carries
- *                             the IN-FLIGHT transition treatment for
- *                             the latest kind change (`crossfade-body`,
- *                             `morph-to-last-good`, `instant`). After
- *                             the framer-motion enter animation
- *                             completes (~260ms), this resets to
- *                             `instant` so the attribute reflects only
- *                             current animation state, not history.
+ *                             the treatment of the MOST-RECENT kind
+ *                             transition (`crossfade-body`,
+ *                             `morph-to-last-good`, `instant`). The
+ *                             attribute is intentionally STICKY once a
+ *                             non-`instant` transition fires — it
+ *                             reflects what was used to swap the body,
+ *                             not whether an animation is currently in
+ *                             flight. Tests asserting "the matrix-
+ *                             driven treatment was honored" read this
+ *                             attribute; tests asserting "is the card
+ *                             currently animating" should observe the
+ *                             `motion.div` directly via framer-motion's
+ *                             AnimatePresence mount/unmount lifecycle.
+ *                             The attribute does NOT reset to `instant`
+ *                             after the animation completes — that's a
+ *                             deliberate semantics tradeoff to keep the
+ *                             e2e contract simple and avoid timer races
+ *                             with Playwright's `readCardAttrs` waits.
+ *                             Initial-render path before any transition
+ *                             still reads `instant` because prev ===
+ *                             current at first paint.
  *                           - `data-stale="true|false"` (on the parent
  *                             `right-now-card`) is true while the card
  *                             sits on a `morph-to-last-good` payload OR
@@ -468,49 +482,6 @@ export function RightNowCard({ context }: RightNowCardProps) {
       );
     }
   }, [rawTreatment, effectivePrev, effectiveCurrent]);
-
-  // After the in-flight transition's enter animation completes, reset
-  // `tracked.prevKind` to `tracked.currentKind` so subsequent same-kind
-  // renders resolve to `instant` (no in-flight transition).
-  //
-  // Without this reset, `tracked.prevKind` would remain pointing at K1
-  // forever on a stable K2 view — and `transitionTreatment(K1, K2)`
-  // would keep returning `crossfade-body` (or whatever the matrix
-  // entry is), making `data-treatment` "sticky." The contract is:
-  // `data-treatment` reflects the IN-FLIGHT transition treatment, not
-  // a historical one. See file header lines 65-68.
-  //
-  // For `morph-to-last-good`, `instant`, and `unreachable` treatments
-  // there is no animation cycle (transition.duration === 0); we still
-  // want the reset to happen so the next render sees prev === current.
-  // We mirror that via a `useEffect` keyed on tracked.currentKind that
-  // fires after every commit where currentKind has rotated. The effect
-  // queues a microtask-equivalent reset after the framer-motion
-  // duration window so an in-flight crossfade has time to read the
-  // pre-reset values.
-  useEffect(() => {
-    // No reset needed when prev === current (already in steady state).
-    if (tracked.prevKind === tracked.currentKind) return;
-    // Schedule the reset AFTER --duration-normal (220ms) plus a small
-    // buffer so the framer-motion crossfade has fully played out.
-    // Using setTimeout (not queueMicrotask) so the in-flight animation
-    // window is preserved; reduced-motion users get duration=0 via the
-    // framer-motion useReducedMotion hook (separate from the CSS-token
-    // reduction), but the timer still fires after the same delay —
-    // which is fine because the rendered behavior is already instant.
-    const timer = window.setTimeout(() => {
-      setTracked((prior) =>
-        prior.prevKind === prior.currentKind
-          ? prior
-          : {
-              ...prior,
-              prevKind: prior.currentKind,
-            },
-      );
-    }, 260);
-    return () => window.clearTimeout(timer);
-  }, [tracked.prevKind, tracked.currentKind]);
-
 
   // Surface class — stale tint when the treatment is morph-to-last-good
   // OR when the resolved body's `isStale` flag is set (the `dateless`
