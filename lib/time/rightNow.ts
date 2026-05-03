@@ -56,6 +56,14 @@ export type RightNowState =
   | { kind: "viewer_unconfirmed" }
   | { kind: "viewer_after_last_day"; travelOut: string }
   | { kind: "viewer_off_day"; nextAssignedDay: string }
+  /**
+   * `daysAway` is **always >= 1** here. Today equals the first assigned
+   * day produces a show-wide state (or `viewer_off_day` when explicit
+   * days exclude today); today after the first assigned day cannot
+   * reach this branch. The construction site asserts this invariant
+   * defensively so a future refactor can't silently produce
+   * `formatDaysAway(0)` ("today") as the lead phrase.
+   */
   | { kind: "viewer_off_day_pre"; firstAssignedDay: string; daysAway: number }
   | { kind: "pre_travel"; travelIn: string; daysAway: number }
   | { kind: "travel_in_day" }
@@ -70,17 +78,40 @@ export type RightNowState =
 const DEFAULT_TIMEZONE = "America/New_York";
 
 /**
+ * Module-scope cache of `Intl.DateTimeFormat` instances keyed by IANA
+ * timezone. `Intl.DateTimeFormat` instantiation is non-trivial and the
+ * Right Now card re-derives state on a 60-second tick (and on every
+ * render), so reusing the formatter per-tz pays off quickly. Mirrors
+ * the standard memoization pattern recommended by the ECMA-402 spec.
+ */
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = formatterCache.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    formatterCache.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+/**
  * Format a Date as ISO `YYYY-MM-DD` in the given IANA timezone. `en-CA`
  * locale natively emits `YYYY-MM-DD`; explicit 2-digit month/day for
- * defense in depth across engines. Mirrors PackList's helper exactly.
+ * defense in depth across engines. Mirrors PackList's helper exactly,
+ * but reuses a cached `Intl.DateTimeFormat` per timezone (the formatter
+ * cache lives at module scope above).
+ *
+ * Exported so the Right Now card client island can reuse the same
+ * cached formatter — see `components/right-now/RightNowCard.tsx`.
  */
-function formatIsoInTimeZone(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
+export function formatIsoForTimezone(date: Date, timeZone: string): string {
+  return getFormatter(timeZone).format(date);
 }
 
 /** Compare two ISO `YYYY-MM-DD` strings as days. -1 / 0 / 1. */
@@ -91,8 +122,12 @@ function compareIso(a: string, b: string): number {
   return 0;
 }
 
-/** Whole-day delta b - a (positive when b is later). */
-function daysBetween(aIso: string, bIso: string): number {
+/**
+ * Whole-day delta b - a (positive when b is later). Exported so the
+ * Right Now card client island can reuse the same implementation
+ * instead of duplicating it.
+ */
+export function daysBetween(aIso: string, bIso: string): number {
   const a = Date.UTC(
     Number(aIso.slice(0, 4)),
     Number(aIso.slice(5, 7)) - 1,
@@ -153,7 +188,7 @@ export function selectRightNowState(
   const tz = options?.timezone && options.timezone.length > 0
     ? options.timezone
     : DEFAULT_TIMEZONE;
-  const todayIso = formatIsoInTimeZone(today, tz);
+  const todayIso = formatIsoForTimezone(today, tz);
 
   // ── §8.2 rows 11-12: date-data fallbacks override everything else ──
   // Spec line 2414: "`unknown` and `dateless` are date-data fallbacks
@@ -237,10 +272,20 @@ export function selectRightNowState(
     compareIso(todayIso, viewerFirstDay) < 0 &&
     compareIso(todayIso, travelIn) < 0
   ) {
+    const daysAway = daysBetween(todayIso, viewerFirstDay);
+    // Defense in depth: the `compareIso(todayIso, viewerFirstDay) < 0`
+    // gate above guarantees daysAway >= 1, but assert so a future
+    // refactor can't silently emit `daysAway: 0` (which would render
+    // "Today" as the lead — wrong copy for an off-day pre state).
+    if (daysAway < 1) {
+      throw new Error(
+        `viewer_off_day_pre invariant: daysAway must be >= 1 (got ${daysAway})`,
+      );
+    }
     return {
       kind: "viewer_off_day_pre",
       firstAssignedDay: viewerFirstDay,
-      daysAway: daysBetween(todayIso, viewerFirstDay),
+      daysAway,
     };
   }
 

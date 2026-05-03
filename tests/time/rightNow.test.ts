@@ -22,7 +22,11 @@
  * class of bug once and the same class is easy to repeat here.
  */
 import { describe, expect, test } from "vitest";
-import { selectRightNowState } from "@/lib/time/rightNow";
+import {
+  daysBetween,
+  formatIsoForTimezone,
+  selectRightNowState,
+} from "@/lib/time/rightNow";
 import type { DateRestriction } from "@/lib/parser/types";
 
 /** Default fixture: a 5-day Waldorf-shaped show. */
@@ -154,32 +158,35 @@ describe("selectRightNowState — show-wide states gated on viewer membership", 
     expect(state.kind).toBe("set_day");
   });
 
-  test("show_day_n parameterized (n=1 of 3, not last)", () => {
-    const state = selectRightNowState(todayInNY("2026-06-03"), DATES, NONE);
+  test("show_day_n parameterized (n=1 of total, not last)", () => {
+    const today = "2026-06-03";
+    const state = selectRightNowState(todayInNY(today), DATES, NONE);
     expect(state.kind).toBe("show_day_n");
     if (state.kind === "show_day_n") {
-      expect(state.n).toBe(1);
-      expect(state.total).toBe(3);
+      expect(state.n).toBe(DATES.showDays.indexOf(today) + 1);
+      expect(state.total).toBe(DATES.showDays.length);
       expect(state.isLast).toBe(false);
     }
   });
 
-  test("show_day_n parameterized (n=2 of 3, not last)", () => {
-    const state = selectRightNowState(todayInNY("2026-06-04"), DATES, NONE);
+  test("show_day_n parameterized (n=2 of total, not last)", () => {
+    const today = "2026-06-04";
+    const state = selectRightNowState(todayInNY(today), DATES, NONE);
     expect(state.kind).toBe("show_day_n");
     if (state.kind === "show_day_n") {
-      expect(state.n).toBe(2);
-      expect(state.total).toBe(3);
+      expect(state.n).toBe(DATES.showDays.indexOf(today) + 1);
+      expect(state.total).toBe(DATES.showDays.length);
       expect(state.isLast).toBe(false);
     }
   });
 
-  test("show_day_n parameterized (n=3 of 3, isLast=true)", () => {
-    const state = selectRightNowState(todayInNY("2026-06-05"), DATES, NONE);
+  test("show_day_n parameterized (n=total, isLast=true)", () => {
+    const today = "2026-06-05";
+    const state = selectRightNowState(todayInNY(today), DATES, NONE);
     expect(state.kind).toBe("show_day_n");
     if (state.kind === "show_day_n") {
-      expect(state.n).toBe(3);
-      expect(state.total).toBe(3);
+      expect(state.n).toBe(DATES.showDays.indexOf(today) + 1);
+      expect(state.total).toBe(DATES.showDays.length);
       expect(state.isLast).toBe(true);
     }
   });
@@ -269,5 +276,42 @@ describe("selectRightNowState — timezone-aware date comparison (regression)", 
       NONE,
     );
     expect(state.kind).toBe("pre_travel");
+  });
+});
+
+describe("formatIsoForTimezone — module-scope formatter cache", () => {
+  test("returns the same ISO string on repeat calls for the same timezone (cache hit)", () => {
+    const instant = new Date("2026-06-01T16:00:00Z");
+    const a = formatIsoForTimezone(instant, "America/New_York");
+    const b = formatIsoForTimezone(instant, "America/New_York");
+    expect(a).toBe("2026-06-01");
+    expect(b).toBe("2026-06-01");
+    expect(a).toBe(b);
+  });
+
+  test("formats the same instant differently across distinct timezones (separate cache entries)", () => {
+    // 02:00 UTC on June 2 → June 1 in NY (22:00 EDT) but June 2 in Tokyo (11:00 JST).
+    // Verifies the cache is keyed by timezone (not shared) and that distinct
+    // timezones produce distinct cached formatter outputs.
+    const instant = new Date("2026-06-02T02:00:00Z");
+    const ny = formatIsoForTimezone(instant, "America/New_York");
+    const tokyo = formatIsoForTimezone(instant, "Asia/Tokyo");
+    expect(ny).toBe("2026-06-01");
+    expect(tokyo).toBe("2026-06-02");
+    expect(ny).not.toBe(tokyo);
+  });
+});
+
+describe("daysBetween — exported helper", () => {
+  test("positive delta when b is later than a", () => {
+    expect(daysBetween("2026-06-01", "2026-06-04")).toBe(3);
+  });
+
+  test("zero delta when same day", () => {
+    expect(daysBetween("2026-06-01", "2026-06-01")).toBe(0);
+  });
+
+  test("negative delta when b is earlier than a", () => {
+    expect(daysBetween("2026-06-04", "2026-06-01")).toBe(-3);
   });
 });

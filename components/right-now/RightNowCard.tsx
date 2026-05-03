@@ -41,8 +41,10 @@
  */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
+  daysBetween,
+  formatIsoForTimezone,
   selectRightNowState,
   type RightNowState,
 } from "@/lib/time/rightNow";
@@ -72,40 +74,21 @@ function formatDaysAgo(daysAgo: number): string {
   return `${daysAgo} days ago`;
 }
 
-/** Whole-day delta b - a (positive when b is later). */
-function daysBetween(aIso: string, bIso: string): number {
-  const a = Date.UTC(
-    Number(aIso.slice(0, 4)),
-    Number(aIso.slice(5, 7)) - 1,
-    Number(aIso.slice(8, 10)),
-  );
-  const b = Date.UTC(
-    Number(bIso.slice(0, 4)),
-    Number(bIso.slice(5, 7)) - 1,
-    Number(bIso.slice(8, 10)),
-  );
-  return Math.round((b - a) / 86_400_000);
-}
-
-/** Format the show's wall-clock day in the configured timezone. */
-function isoToday(now: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
-}
-
 type StateBody = {
   lead: string;
-  detail: string | null;
+  detail: ReactNode;
   isStale: boolean;
 };
 
 /**
  * Render the §8.2 body text for the resolved state. Pure mapping from
- * RightNowState + context to display strings — keeps the JSX simple.
+ * RightNowState + context to display content — keeps the JSX simple.
+ *
+ * Date semantics: every ISO date that surfaces in `detail` is wrapped
+ * in `<time dateTime={iso}>{formatIsoDate(iso, mode)}</time>` matching
+ * the project's ScheduleTile / TransportTile / LodgingTile convention.
+ * The `<time>` element gives screen readers and search engines the
+ * machine-readable ISO date alongside the human-formatted weekday.
  */
 function renderBody(
   state: RightNowState,
@@ -122,30 +105,54 @@ function renderBody(
     case "viewer_after_last_day":
       return {
         lead: "Your assignment is complete",
-        detail: `Show wraps ${formatIsoDate(state.travelOut, "weekday-short")}.`,
+        detail: (
+          <>
+            Show wraps{" "}
+            <time dateTime={state.travelOut}>
+              {formatIsoDate(state.travelOut, "weekday-short")}
+            </time>
+            .
+          </>
+        ),
         isStale: false,
       };
     case "viewer_off_day": {
-      const todayIso = isoToday(now, ctx.timezone);
+      const todayIso = formatIsoForTimezone(now, ctx.timezone);
       const daysAway = daysBetween(todayIso, state.nextAssignedDay);
       return {
         lead: "Not scheduled today",
-        detail: `Your next assigned day: ${formatIsoDate(state.nextAssignedDay, "weekday-short")} (${formatDaysAway(daysAway)}).`,
+        detail: (
+          <>
+            Your next assigned day:{" "}
+            <time dateTime={state.nextAssignedDay}>
+              {formatIsoDate(state.nextAssignedDay, "weekday-short")}
+            </time>{" "}
+            ({formatDaysAway(daysAway)}).
+          </>
+        ),
         isStale: false,
       };
     }
     case "viewer_off_day_pre":
       return {
         lead: `${formatDaysAway(state.daysAway).replace(/^./, (c) => c.toUpperCase())}`,
-        detail: `Your first day: ${formatIsoDate(state.firstAssignedDay, "weekday-short")}.`,
+        detail: (
+          <>
+            Your first day:{" "}
+            <time dateTime={state.firstAssignedDay}>
+              {formatIsoDate(state.firstAssignedDay, "weekday-short")}
+            </time>
+            .
+          </>
+        ),
         isStale: false,
       };
     case "pre_travel":
       return {
         lead: `${formatDaysAway(state.daysAway).replace(/^./, (c) => c.toUpperCase())} until travel in`,
         detail: ctx.hotelName ? `Hotel: ${ctx.hotelName}` : null,
-      isStale: false,
-    };
+        isStale: false,
+      };
     case "travel_in_day":
       return {
         lead: "Today: Travel in",
@@ -194,7 +201,7 @@ function renderBody(
         isStale: false,
       };
     case "post_show": {
-      const todayIso = isoToday(now, ctx.timezone);
+      const todayIso = formatIsoForTimezone(now, ctx.timezone);
       const daysAgo = daysBetween(state.wrappedAt, todayIso);
       return {
         lead: `Wrapped ${formatDaysAgo(daysAgo)}`,
@@ -203,15 +210,30 @@ function renderBody(
       };
     }
     case "unknown": {
-      const ti = ctx.dates.travelIn
-        ? formatIsoDate(ctx.dates.travelIn, "weekday-short")
-        : "—";
-      const to = ctx.dates.travelOut
-        ? formatIsoDate(ctx.dates.travelOut, "weekday-short")
-        : "—";
+      const travelIn = ctx.dates.travelIn;
+      const travelOut = ctx.dates.travelOut;
       return {
         lead: ctx.showTitle,
-        detail: `Show details: ${ti} to ${to}`,
+        detail: (
+          <>
+            Show details:{" "}
+            {travelIn ? (
+              <time dateTime={travelIn}>
+                {formatIsoDate(travelIn, "weekday-short")}
+              </time>
+            ) : (
+              "—"
+            )}{" "}
+            to{" "}
+            {travelOut ? (
+              <time dateTime={travelOut}>
+                {formatIsoDate(travelOut, "weekday-short")}
+              </time>
+            ) : (
+              "—"
+            )}
+          </>
+        ),
         isStale: false,
       };
     }
