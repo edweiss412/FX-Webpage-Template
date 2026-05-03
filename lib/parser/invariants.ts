@@ -351,29 +351,23 @@ export function runInvariants(prior: ParseResult | null, next: ParseResult): Inv
     }
   }
 
-  // Contacts — keyed name-first with email fallback (Codex round-4 fix).
+  // Contacts — composite keying (Codex round-5 fix).
   //
-  // Round-2 used email-first keying. Round-4 identified the regression: when
-  // prior has {name:'Kurt Ashcraft', email:X} and next has {name:null, email:X}
-  // (parser regression collapsing named row to email-only), both rows hashed to
-  // the same email key → MI-7b returned 'pass' and missed the degradation.
+  // Keying history:
+  //   Round-2: email-first → missed named→email-only degradation.
+  //   Round-4: name-first → missed same-name email change
+  //            ({name:'Kurt', email:A}→{name:'Kurt', email:B}).
+  //   Round-5: composite key when both name and email present — handles all
+  //            three cases:
+  //     1. Title-only change (round-2 stability): same name+email → same
+  //        composite key → MI-7b does NOT fire.
+  //     2. Named→email-only degradation (round-4 detection): name disappears
+  //        → key changes → MI-7b fires.
+  //     3. Same-name email change (round-5 detection): email differs → key
+  //        changes → MI-7b fires.
   //
-  // Name-first keying assigns different keys to the two shapes:
-  //   {name:'Kurt Ashcraft', email:X} → 'venue::name::kurt ashcraft'
-  //   {name:null, email:X}            → 'venue::email::X'
-  // So the named→email-only degradation correctly fires MI-7b.
-  //
-  // The round-2 concern (title edits producing spurious fires) is already
-  // mitigated by Task 1.6's NAME_STOP_TOKENS: the parser now consistently
-  // produces name:'Kurt Ashcraft' regardless of title text in the cell.
-  //
-  // Email change with same name ({name:'Kurt', email:A}→{name:'Kurt', email:B})
-  // is detected by MI-11 (email change), not MI-7b.
-  //
-  // Fix (Codex round-3 finding 2): use a count-aware multiset (Map<string,number>)
-  // instead of a Set<string>. When prior has 2 rows with the same key and next
-  // has only 1, the Set-based check would see the key as "present" and miss the
-  // partial deletion. The count-aware comparison fires MI-7b for any drop in count.
+  // Fix (Codex round-3 finding 2): count-aware multiset (Map<string,number>)
+  // catches partial deletions that the old Set-based approach missed.
   {
     const contactKey = (c: {
       kind: string;
@@ -381,14 +375,20 @@ export function runInvariants(prior: ParseResult | null, next: ParseResult): Inv
       name: string | null;
       phone: string | null;
     }): string => {
-      // Name-first: stable key based on parsed name when present.
-      // Task 1.6 NAME_STOP_TOKENS ensures consistent name extraction across title edits.
-      if (c.name) return `${c.kind}::name::${c.name.toLowerCase().trim()}`;
-      // Email fallback for name-less reference rows.
-      if (c.email) return `${c.kind}::email::${c.email.toLowerCase().trim()}`;
-      // Phone fallback when neither name nor email.
-      if (c.phone) return `${c.kind}::phone::${c.phone}`;
-      // Last resort.
+      const name = c.name?.toLowerCase().trim() ?? "";
+      const email = c.email?.toLowerCase().trim() ?? "";
+      const phone = c.phone?.trim() ?? "";
+
+      // Composite when both name and email present — handles all three cases:
+      // - title-only changes (same name+email → same key, no MI-7b)
+      // - named→email-only degradation (name disappears → different key, MI-7b fires)
+      // - same-name email change (email differs → different key, MI-7b fires)
+      if (name && email) return `${c.kind}::name=${name}::email=${email}`;
+
+      // Single-component fallbacks for partial data:
+      if (name) return `${c.kind}::name=${name}`;
+      if (email) return `${c.kind}::email=${email}`;
+      if (phone) return `${c.kind}::phone=${phone}`;
       return `${c.kind}::?`;
     };
 

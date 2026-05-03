@@ -1400,3 +1400,81 @@ describe("MI-7b — name-first keying (Codex round-4 finding 1)", () => {
     expect(mi7b).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Codex round-5 regression tests
+// ---------------------------------------------------------------------------
+
+describe("MI-7b — composite contact keying (Codex round-5 finding)", () => {
+  it("MI-7b detects same-name contact email change (Codex round-5 finding)", () => {
+    // Composite keying: name same but email differs → different key → MI-7b fires.
+    const prior = synthParseResult({
+      contacts: [
+        { kind: "venue", name: "Kurt Ashcraft", email: "a@example.com", phone: null, notes: "" },
+      ],
+    });
+    const next = synthParseResult({
+      contacts: [
+        { kind: "venue", name: "Kurt Ashcraft", email: "b@example.com", phone: null, notes: "" },
+      ],
+    });
+    const r = runInvariants(prior, next);
+    expect(r.outcome).toBe("stage");
+    if (r.outcome !== "stage") return;
+    const mi7b = r.triggeredItems.filter((t) => t.invariant === "MI-7b");
+    expect(mi7b.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("composite keying: round-2 stability — title-only change does NOT fire MI-7b", () => {
+    // Same name + email → same composite key → no MI-7b
+    const prior = synthParseResult({
+      contacts: [
+        {
+          kind: "venue",
+          name: "Kurt Ashcraft",
+          email: "kurt@hyatt.com",
+          phone: null,
+          notes: "Senior Manager",
+        },
+      ],
+    });
+    const next = synthParseResult({
+      contacts: [
+        {
+          kind: "venue",
+          name: "Kurt Ashcraft",
+          email: "kurt@hyatt.com",
+          phone: null,
+          notes: "Director",
+        },
+      ],
+    });
+    const r = runInvariants(prior, next);
+    const mi7b =
+      r.outcome === "stage" ? r.triggeredItems.filter((t) => t.invariant === "MI-7b") : [];
+    expect(mi7b).toHaveLength(0);
+  });
+
+  it("composite keying: round-4 detection — named→email-only fires MI-7b", () => {
+    // {name:'Kurt', email:X} composite key differs from {name:null, email:X} email-only key
+    const prior = synthParseResult({
+      contacts: [
+        {
+          kind: "venue",
+          name: "Kurt Ashcraft",
+          email: "kurt@hyatt.com",
+          phone: null,
+          notes: "",
+        },
+      ],
+    });
+    const next = synthParseResult({
+      contacts: [{ kind: "venue", name: null, email: "kurt@hyatt.com", phone: null, notes: "" }],
+    });
+    const r = runInvariants(prior, next);
+    expect(r.outcome).toBe("stage");
+    if (r.outcome !== "stage") return;
+    const mi7b = r.triggeredItems.filter((t) => t.invariant === "MI-7b");
+    expect(mi7b.length).toBeGreaterThanOrEqual(1);
+  });
+});
