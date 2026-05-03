@@ -43,7 +43,7 @@
  * direct-import tests for the two missing gates AND moves all gate-
  * rejection coverage into the always-deterministic layer.
  */
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { admin } from "../e2e/helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET, TEST_AUTH_BASE_URL } from "../e2e/helpers/testAuthConfig";
 
@@ -56,6 +56,69 @@ import { TEST_AUTH_SECRET, TEST_AUTH_BASE_URL } from "../e2e/helpers/testAuthCon
 // flip the specific gate they're testing into the rejection branch.
 process.env.ENABLE_TEST_AUTH ??= "true";
 process.env.TEST_AUTH_SECRET ??= TEST_AUTH_SECRET;
+
+// Hoisted controls for the Supabase mock. Tests flip
+// `__mockCreateUserMode` to drive the route's create-only branch (Gate 5)
+// without needing a live server. Default is "ok" — the mock returns a
+// successful create — so tests that don't care about Gate 5 still get a
+// neutral mock that doesn't accidentally trip 410.
+const supabaseMock = vi.hoisted(() => {
+  const state = {
+    createUserMode: "ok" as "ok" | "already_registered" | "other_error",
+  };
+  return { state };
+});
+
+vi.mock("@supabase/supabase-js", () => {
+  return {
+    createClient: () => ({
+      auth: {
+        admin: {
+          createUser: async () => {
+            if (supabaseMock.state.createUserMode === "already_registered") {
+              return {
+                data: { user: null },
+                error: { message: "User already registered" },
+              };
+            }
+            if (supabaseMock.state.createUserMode === "other_error") {
+              return {
+                data: { user: null },
+                error: { message: "synthetic_other_error_for_test" },
+              };
+            }
+            return {
+              data: { user: { id: "test-mock-user-id" } },
+              error: null,
+            };
+          },
+          deleteUser: async () => ({ error: null }),
+          listUsers: async () => ({ data: { users: [] }, error: null }),
+        },
+      },
+    }),
+  };
+});
+
+// Mock @supabase/ssr too — the route's signInWithPassword path is reached
+// only after Gate 5 passes, and Layer 2 covers that end-to-end. For Layer 1
+// we just need the SSR client to no-op so the POST handler can return.
+vi.mock("@supabase/ssr", () => ({
+  createServerClient: () => ({
+    auth: {
+      signInWithPassword: async () => ({ data: {}, error: null }),
+    },
+  }),
+}));
+
+// next/headers' cookies() needs to return a usable cookie store. Mock it
+// to a no-op shape since Gate 5 is reached before any cookie write.
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    getAll: () => [],
+    set: () => {},
+  }),
+}));
 
 const { POST } = await import("@/app/api/test-auth/set-session/route");
 
@@ -194,6 +257,49 @@ describe("Layer 1 — direct route-handler import (deterministic gate-rejection 
       }),
     );
     expect(res.status, "Gate 1 must reject before Gate 2/3/4 even evaluates").toBe(404);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Gate 5 — create-only (Round 3 Finding 1)
+  //
+  // The Supabase admin createUser is mocked at module level (vi.mock above);
+  // these tests flip supabaseMock.state.createUserMode to drive the route
+  // into its already-registered branch without touching a live server. This
+  // gives Layer 1 deterministic coverage of all FIVE hardening gates — Round
+  // 2 left create-only in the skip-tolerant Layer 2, Round 3 closes that gap.
+  // ---------------------------------------------------------------------------
+
+  beforeEach(() => {
+    // Reset the Supabase mock to its neutral state so previous tests don't
+    // leak the already_registered mode into unrelated cases.
+    supabaseMock.state.createUserMode = "ok";
+  });
+
+  test("Gate 5: createUser → 'User already registered' → 410 Gone (create-only)", async () => {
+    supabaseMock.state.createUserMode = "already_registered";
+    const res = await POST(
+      makeRequest({ body: { email: "edweiss412@gmail.com" } }),
+    );
+    expect(
+      res.status,
+      "create-only must reject mutations of existing users (Gate 5)",
+    ).toBe(410);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("user_exists_create_only");
+  });
+
+  test("Gate 5: createUser → other unrelated error → 500 (NOT 410)", async () => {
+    // Distinguishes the Gate 5 "already-registered" branch from a generic
+    // create failure — both must NOT silently mutate, but the response
+    // codes differ. If a future regression treats every error as
+    // already-registered, this test catches it.
+    supabaseMock.state.createUserMode = "other_error";
+    const res = await POST(
+      makeRequest({ body: { email: "edweiss412@gmail.com" } }),
+    );
+    expect(res.status, "non-already-registered errors must surface as 500").toBe(500);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("create_user_failed");
   });
 });
 
