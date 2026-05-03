@@ -135,6 +135,21 @@ Run mid-milestone at user request to surface foundation defects before high-stak
 
 158 parser tests passing across 7 test files at convergence. Lint, typecheck, format:check, build all green. No phantom `'v3'` references. Email canonicalization invariant holds (zero direct email-pattern handling outside `canonicalize` call). Foundation tasks 1.1–1.5 cleared for Task 1.6 (crew block + role-flag decomposition) to proceed.
 
-### Final-milestone review — Tasks 1.1–1.14
+### Final-milestone review — Tasks 1.1–1.14 (2026-05-02)
 
-_(populated after Task 1.14 completion + final adversarial review)_
+Run after Task 1.14 commit `0fad113`. M1 base `4daec4b`, full M1 HEAD at convergence `c189205`. 50 commits total (1.1–1.14 implementation + ongoing adversarial-review fix loops).
+
+User authorized "continue until convergence" after the round-3 cap, which extended the review to 8 rounds total. Each round found progressively narrower defects:
+
+- **Round 1:** 3 high — agenda_links + schedule_phases stubbed (data loss); contacts collapsed multi-person rows. Fixed in `62f0bab` + `870e626`.
+- **Round 2:** 2 high — schedule_phases set-day always wrote ['Load In','Set'] even when travelIn was a separate day; contact-name heuristic was ASCII-only and absorbed titles. Fixed in `f8b8e80` + `3590ade`.
+- **Round 3:** 3 high (deeper inspection) — phantom contacts from form/reference tables (`{notes: "FALSE"}`); MI-7b lost multiplicity from Set-based keying; per-person segmentation bled neighbor metadata. Fixed in `d5c76d5` + `c8a41ab`.
+- **Round 4:** 2 high — round-2's email-first MI-7b keying missed named→email-only degradation; contact notes contaminated by adjacent cells + neighboring person tokens. Fixed in `36b2bc1` + `419cc51`.
+- **Round 5:** 1 high — round-4's name-first MI-7b keying missed same-name email changes (oscillation between email-first and name-first). Resolved with composite keying in `2554ff2`: `(name && email)` → composite key, single-component fallbacks otherwise. Handles all 3 transitions: title-only changes (no fire), named→email-only (fires), same-name email change (fires).
+- **Round 6:** 1 high — v4 transport parser pushed COI / Proposal / Venue Contact Info / In House AV / EVENT DETAILS rows into `transportation.schedule[*].stage` because the loop scanned past the transport block. Fixed in `ec97dcb` with `TRANSPORT_BLOCK_TERMINATORS` set + `isTransportStage()` allowlist (defense-in-depth).
+- **Round 7:** 1 high — same class as round 3's phantom contacts: `parseOps` accepted later admin-table `PO # | FALSE` rows when the real ops row had a blank value. Fixed in `c189205` with first-match-wins + `ADMIN_PLACEHOLDER_VALUES` rejection (FALSE/TRUE/N/A/TBD/—/-/?).
+- **Round 8:** Codex returned `verdict: approve`. **Convergence reached.**
+
+689 parser/invariant tests passing across 22 test files at convergence. Lint, typecheck, build all clean. Working tree clean. The recurring `format:check` flag on the spec docs file is a Prettier whitespace artifact triggered by Codex's read commands; the actual code is Prettier-clean and the spec edit is discarded post-review.
+
+**M1 closed.** Foundation parser ready for M2 (schema + RLS + DB migrations) and M3 (admin upload-test). Tasks 1.6–1.14 spec amendments + ratifications all internally consistent at convergence.
