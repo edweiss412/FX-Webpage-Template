@@ -701,7 +701,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
 
 **Files:** Create: `supabase/seed.ts`. Modify: `package.json` (add `db:seed` script).
 
-- [ ] **Step 1: Failing test** `tests/db/seed.test.ts` asserts AC-2.7 against the **persisted shape from §4.1 + + s** — the test must validate every field the production pipeline writes, including `drive_file_id`, `last_seen_modified_time`, and the full reel pin **quadruple**, AND the structured `diagrams` JSONB shape (`{ snapshot_revision_id, snapshot_status, embeddedImages[], linkedFolderItems[] }`):
+- [x] **Step 1: Failing test** `tests/db/seed.test.ts` asserts AC-2.7 against the **persisted shape from §4.1 + + s** — the test must validate every field the production pipeline writes, including `drive_file_id`, `last_seen_modified_time`, and the full reel pin **quadruple**, AND the structured `diagrams` JSONB shape (`{ snapshot_revision_id, snapshot_status, embeddedImages[], linkedFolderItems[] }`):
 
   ```ts
   it("AC-2.7 seed loads 10 fixtures via production pipeline with full persisted-shape integrity", (async) => {
@@ -849,7 +849,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   });
   ```
 
-- [ ] **Step 2: Implement** seed using **the exact production pipeline from the type split — including the first-seen Apply gate**. On a fresh database every fixture is first-seen, and §5.2/§9.0 require first-seen sheets to STAGE with a `FIRST_SEEN_REVIEW` review item before any `shows` row exists. A seed that calls `applyParseResult` directly bypasses that gate and produces show rows that production could never produce. The corrected design: seed runs the same `parseSheet → enrichWithDrivePins → runInvariants → phase1` chain as production, then dispatches a **synthetic Apply** that supplies pre-approved reviewer choices for the `FIRST_SEEN_REVIEW` item AND any other invariants the fixture trips:
+- [x] **Step 2: Implement** seed using **the exact production pipeline from the type split — including the first-seen Apply gate**. On a fresh database every fixture is first-seen, and §5.2/§9.0 require first-seen sheets to STAGE with a `FIRST_SEEN_REVIEW` review item before any `shows` row exists. A seed that calls `applyParseResult` directly bypasses that gate and produces show rows that production could never produce. The corrected design: seed runs the same `parseSheet → enrichWithDrivePins → runInvariants → phase1` chain as production, then dispatches a **synthetic Apply** that supplies pre-approved reviewer choices for the `FIRST_SEEN_REVIEW` item AND any other invariants the fixture trips:
 
   ```ts
   // supabase/seed.ts — same path production uses, plus a synthetic-reviewer wrapper.
@@ -901,8 +901,10 @@ Spec context: §4 entire data model, §17.1 milestone 2.
 
   Task 6.5 (M6) formalizes the `applyParseResult` low-level helper that `applyStaged` invokes internally. **`applyParseResult` is NEVER called directly by the seed.** The seed always goes through `applyStaged` so the path is byte-identical to production Apply.
 
-- [ ] **Step 3: Run** `pnpm db:seed`. Expect 10 shows inserted, no errors.
-- [ ] **Step 4: Commit** `feat(db): seed script for fixture corpus (AC-2.7)`.
+  Task 2.4 implementation note: M6 `runPhase1Standalone` / `applyStaged` code is not present in M2, so `supabase/seed.ts` implements the narrow seed-mode equivalent locally while preserving the required persisted shape, synthetic `FIRST_SEEN_REVIEW` audit artifact, crew auth side effects, and clean pending tables.
+
+- [x] **Step 3: Run** `pnpm db:seed`. Expect 10 shows inserted, no errors.
+- [x] **Step 4: Commit** `feat(db): seed script for fixture corpus (AC-2.7)`.
 
 ### Task 2.5: CHECK constraint + FK/cascade introspection test coverage
 
