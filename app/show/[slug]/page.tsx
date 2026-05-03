@@ -34,11 +34,14 @@ import { notFound } from "next/navigation";
 
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
+import { AudioScopeTile } from "@/components/tiles/AudioScopeTile";
 import { ContactsTile } from "@/components/tiles/ContactsTile";
 import { CrewTile } from "@/components/tiles/CrewTile";
+import { LightingScopeTile } from "@/components/tiles/LightingScopeTile";
 import { LodgingTile } from "@/components/tiles/LodgingTile";
 import { ScheduleTile } from "@/components/tiles/ScheduleTile";
 import { VenueTile } from "@/components/tiles/VenueTile";
+import { VideoScopeTile } from "@/components/tiles/VideoScopeTile";
 import {
   getShowForViewer,
   type Viewer,
@@ -198,10 +201,13 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
           <CrewTile crewMembers={data.crewMembers} />
           <ContactsTile contacts={data.contacts} />
           {/*
-            ScheduleTile (Task 4.5) — viewer's per-day schedule. Reads
-            the viewer's own dateRestriction off their crew row. For the
-            admin viewer (no specific crew row) we treat the restriction
-            as `kind: 'none'` so admins see every show day.
+            ScheduleTile (Task 4.5), Audio/Video/Lighting scope tiles
+            (Task 4.6) — viewer-specific tiles whose visibility is
+            decided by the freshly-derived role_flags on the viewer's
+            crew row. For the admin viewer (no specific crew row) we
+            synthesize an "all flags" array so admins see every scope
+            tile (admins are super-LEADs per §4.4); ScheduleTile falls
+            back to `kind: 'none'` so admins see every show day.
           */}
           {(() => {
             const viewerCrew =
@@ -211,11 +217,31 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
             const dateRestriction = viewerCrew
               ? viewerCrew.dateRestriction
               : { kind: "none" as const };
+            // For the bare admin viewer (no crew row), synthesize an
+            // effective flags array that unlocks every scope tile. The
+            // canonical predicates already accept this — A1 unlocks
+            // audio, V1 unlocks video, L1 unlocks lighting; LEAD adds
+            // a defense-in-depth marker for any future predicate that
+            // gates on it.
+            const adminAllFlags = ["LEAD", "A1", "V1", "L1"] as const;
+            const viewerFlags = viewerCrew
+              ? viewerCrew.roleFlags
+              : viewer.kind === "admin"
+                ? [...adminAllFlags]
+                : [];
             return (
-              <ScheduleTile
-                show={data.show}
-                dateRestriction={dateRestriction}
-              />
+              <>
+                <ScheduleTile
+                  show={data.show}
+                  dateRestriction={dateRestriction}
+                />
+                <AudioScopeTile rooms={data.rooms} viewerFlags={viewerFlags} />
+                <VideoScopeTile rooms={data.rooms} viewerFlags={viewerFlags} />
+                <LightingScopeTile
+                  rooms={data.rooms}
+                  viewerFlags={viewerFlags}
+                />
+              </>
             );
           })()}
         </section>
