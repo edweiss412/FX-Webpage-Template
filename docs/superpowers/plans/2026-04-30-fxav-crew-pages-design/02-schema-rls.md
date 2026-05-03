@@ -910,7 +910,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
 
 **Files:** Test: `tests/db/checks.test.ts`, `tests/db/schema-introspection.test.ts`.
 
-- [ ] **Step 1: Failing tests** — try inserts that should be rejected:
+- [x] **Step 1: Failing tests** — try inserts that should be rejected:
   ```ts
   it("crew_members_email_canonical rejects mixed-case (AC-2.3)", (async) => {
     /* assert INSERT with email='Alice@FXAV.NET' raises check_violation */
@@ -922,8 +922,8 @@ Spec context: §4 entire data model, §17.1 milestone 2.
     /* .. */
   });
   ```
-- [ ] **Step 2: Run; iterate until pass.**
-- [ ] **Step 3: Schema introspection matrix — exact-definition matching.** Name-based presence checks ("constraint with name X exists") are too shallow: a wrong CHECK expression, wrong indexed columns, or weakened partial predicate would still pass while the schema silently drifted from spec. The corrected design asserts the FULL definition via `pg_get_constraintdef` and `pg_get_indexdef` against expected normalized strings. Plan also catches the index-name drift (the earlier draft had `pending_syncs_wizard_session_id_idx`; spec uses `pending_syncs_wizard_session_idx` — implementation must align AND the introspection test uses the canonical name from spec, not the draft name).
+- [x] **Step 2: Run; iterate until pass.**
+- [x] **Step 3: Schema introspection matrix — exact-definition matching.** Name-based presence checks ("constraint with name X exists") are too shallow: a wrong CHECK expression, wrong indexed columns, or weakened partial predicate would still pass while the schema silently drifted from spec. The corrected design asserts the FULL definition via `pg_get_constraintdef` and `pg_get_indexdef` against expected normalized strings. Plan also catches the index-name drift (the earlier draft had `pending_syncs_wizard_session_id_idx`; spec uses `pending_syncs_wizard_session_idx` — implementation must align AND the introspection test uses the canonical name from spec, not the draft name).
 
   Add `tests/db/schema-introspection.test.ts`:
 
@@ -1829,6 +1829,6 @@ Spec context: §4 entire data model, §17.1 milestone 2.
   });
   ```
 
-- [ ] **Step 4: Commit** `test(db): exact-def CHECK + FK + partial-index introspection + negative assertions`.
+- [x] **Step 4: Commit** `test(db): exact-def CHECK + FK + partial-index introspection + negative assertions`.
 
 ---
