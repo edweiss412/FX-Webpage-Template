@@ -31,6 +31,7 @@
  */
 
 import { clean, presence, splitRow } from "./_helpers";
+import type { ParseAggregator } from "@/lib/parser/warnings";
 
 // The EVENT DETAILS block header labels (all variants found in corpus)
 const EVENT_DETAILS_HEADER_RE =
@@ -87,6 +88,8 @@ const CANONICAL_KEY_MAP: Record<string, string> = {
 export function parseEventDetails(
   markdown: string,
   _version: "v1" | "v2" | "v4",
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _agg?: ParseAggregator,
 ): Record<string, string> {
   const result: Record<string, string> = {};
 

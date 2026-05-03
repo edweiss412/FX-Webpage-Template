@@ -26,6 +26,7 @@
  */
 
 import type { TransportationRow, TransportScheduleEntry, CrewMemberRow } from "../types";
+import type { ParseAggregator } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, splitRow } from "./_helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
 
@@ -64,6 +65,8 @@ export function parseTransportation(
   markdown: string,
   _version: "v1" | "v2" | "v4",
   crewMembers?: CrewMemberRow[],
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _agg?: ParseAggregator,
 ): TransportationRow | null {
   // Try v4 header first (TRANSPORTATION/Equipment Transporter style)
   const v4 = parseV4Transport(markdown, crewMembers);

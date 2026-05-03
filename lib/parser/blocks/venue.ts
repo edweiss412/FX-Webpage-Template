@@ -1,5 +1,6 @@
 import type { ShowRow } from "@/lib/parser/types";
-import { resolveAlias } from "@/lib/parser/aliases";
+import { resolveAlias, resolveAliasFull } from "@/lib/parser/aliases";
+import type { ParseAggregator } from "@/lib/parser/warnings";
 import { presence, parseTableRows } from "./_helpers";
 
 // ── VENUE block shapes across corpus ─────────────────────────────────────────
@@ -50,7 +51,11 @@ type VenueFields = NonNullable<ShowRow["venue"]>;
  *                   the parameter is not read internally.
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowRow["venue"] {
+export function parseVenue(
+  markdown: string,
+  version: "v1" | "v2" | "v4",
+  agg?: ParseAggregator,
+): ShowRow["venue"] {
   const rows = parseTableRows(markdown);
 
   let name: string | null = null;
@@ -63,10 +68,63 @@ export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowR
   // so blank-col0 continuation rows (| | VENUE ADDRESS | ... |) are attributed correctly.
   let inV2VenueBlock = false;
 
+  // UNKNOWN_FIELD scope guard: true once we've resolved the first venue field;
+  // set to false when we encounter a known block-terminator header row so we
+  // don't false-positive on other blocks' rows that appear later in the document.
+  let inVenueFieldScope = false;
+
+  // Block headers that signal we've left the venue block entirely.
+  // These are strong v4/v2/v1 block-opener labels (all-caps or well-known names).
+  const VENUE_BLOCK_TERMINATORS = new Set([
+    "CREW",
+    "TECH",
+    "DATES",
+    "TRANSPORTATION",
+    "HOTEL",
+    "HOTELS",
+    "ROOMS",
+    "CONTACTS",
+    "DETAILS",
+    "EVENT DETAILS",
+    "GS DETAILS",
+    "PULL SHEET",
+    "PULL",
+    "DIAGRAMS",
+    "CLIENT",
+    "SCHEDULE",
+  ]);
+
   for (const row of rows) {
     const col0 = row[0] ?? "";
     const col0Upper = col0.toUpperCase().trim();
-    const col0Canon = resolveAlias(col0);
+    const col0Full = resolveAliasFull(col0);
+    const col0Canon = col0Full?.canonical ?? null;
+
+    // Check for block terminators — if we see a strong block-opener label, leave
+    // the venue field scope so UNKNOWN_FIELD stops firing for other blocks' rows.
+    // Use prefix matching since some headers include slashes (e.g. "TRANSPORTATION/Equipment Transporter").
+    if (col0 !== "" && inVenueFieldScope) {
+      const upperTrimmed = col0Upper;
+      const isTerminator =
+        VENUE_BLOCK_TERMINATORS.has(upperTrimmed) ||
+        [...VENUE_BLOCK_TERMINATORS].some(
+          (t) => upperTrimmed.startsWith(t + "/") || upperTrimmed.startsWith(t + " "),
+        );
+      if (isTerminator) {
+        inVenueFieldScope = false;
+      }
+    }
+
+    // Emit TYPO_NORMALIZED if col0 matched a known-typo alias (only within venue scope)
+    if (col0Full?.isTypo && agg && inVenueFieldScope) {
+      agg.warnings.push({
+        severity: "info",
+        code: "TYPO_NORMALIZED",
+        message: `Typo alias '${col0.trim()}' normalized to canonical '${col0Full.canonical}'`,
+        blockRef: { kind: "venue" },
+        rawSnippet: col0.trim(),
+      });
+    }
 
     // ── v2/v1 3-column scope block ──────────────────────────────────────────
     // Shape:  | VENUE |  VENUE NAME   | <value> |
@@ -82,10 +140,13 @@ export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowR
         const val = presence(row[2] ?? "");
         if (subCanon === "venue.name" && val && name === null) {
           name = val;
+          inVenueFieldScope = true;
         } else if (subCanon === "venue.address" && val && address === null) {
           address = val;
+          inVenueFieldScope = true;
         } else if (subCanon === "venue.loading_dock" && val && loadingDock === null) {
           loadingDock = val;
+          inVenueFieldScope = true;
         } else if (subCanon === null && presence(subLabel) !== null && name === null) {
           // col1 doesn't resolve to a field label but is non-empty.
           // Special case: "VENUE NAME/VENUE ADDRESS" combined label — split value on first '/'.
@@ -122,12 +183,16 @@ export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowR
       const val = presence(row[2] ?? "");
       if (subCanon === "venue.address" && val && address === null) {
         address = val;
+        inVenueFieldScope = true;
       } else if (subCanon === "venue.loading_dock" && val && loadingDock === null) {
         loadingDock = val;
+        inVenueFieldScope = true;
       } else if (subCanon === "venue.google_link" && val && googleLink === null) {
         googleLink = val;
+        inVenueFieldScope = true;
       } else if (subCanon === "venue.notes" && val && notes === null) {
         notes = val;
+        inVenueFieldScope = true;
       }
       continue;
     }
@@ -152,6 +217,7 @@ export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowR
       const valCanon = val !== null ? resolveAlias(val) : null;
       if (val && valCanon === null && name === null) {
         name = val;
+        inVenueFieldScope = true;
       }
       continue;
     }
@@ -162,6 +228,7 @@ export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowR
       // protects against reference-table header rows. No ordering requirement.
       if (val && valCanon === null && address === null) {
         address = val;
+        inVenueFieldScope = true;
       }
       continue;
     }
@@ -170,6 +237,7 @@ export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowR
       // Fix 4: anyVenueFieldSet guard removed — no ordering requirement.
       if (val && loadingDock === null) {
         loadingDock = val;
+        inVenueFieldScope = true;
       }
       continue;
     }
@@ -180,6 +248,7 @@ export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowR
       // Fix 4: anyVenueFieldSet guard removed — no ordering requirement.
       if (val && googleLink === null) {
         googleLink = val;
+        inVenueFieldScope = true;
       }
       continue;
     }
@@ -190,8 +259,29 @@ export function parseVenue(markdown: string, version: "v1" | "v2" | "v4"): ShowR
       // Fix 4: anyVenueFieldSet guard removed — no ordering requirement.
       if (val && notes === null) {
         notes = val;
+        inVenueFieldScope = true;
       }
       continue;
+    }
+
+    // UNKNOWN_FIELD: col0 is non-empty, not a scope marker ("VENUE"), not a
+    // blank-continuation row, resolves to no canonical, AND we are inside the
+    // active venue field scope (at least one venue field seen, block not yet
+    // terminated by a known block-opener).
+    if (agg && inVenueFieldScope && col0 !== "" && col0Upper !== "VENUE" && col0Canon === null) {
+      const rawVal = presence(row[1] ?? "") ?? "";
+      agg.warnings.push({
+        severity: "warn",
+        code: "UNKNOWN_FIELD",
+        message: `Unrecognized venue row label: '${col0.trim()}'`,
+        blockRef: { kind: "venue" },
+        rawSnippet: `${col0.trim()} | ${rawVal}`,
+      });
+      agg.rawUnrecognized.push({
+        block: "venue",
+        key: col0.trim(),
+        value: rawVal,
+      });
     }
   }
 

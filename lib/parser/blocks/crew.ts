@@ -12,6 +12,7 @@
  */
 
 import type { CrewMemberRow, ParseWarning } from "../types";
+import type { ParseAggregator } from "@/lib/parser/warnings";
 import { clean, presence } from "./_helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
 import {
@@ -50,14 +51,15 @@ export function parseCrew(
   // version-specific column-shape handling. Detection is currently content-based.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _version: "v1" | "v2" | "v4",
+  agg?: ParseAggregator,
 ): CrewMemberRow[] {
   const techMatch = TECH_HEADER_RE.exec(markdown);
   if (techMatch && !CREW_HEADER_RE.test(markdown)) {
-    return parseTechBlock(markdown, techMatch.index);
+    return parseTechBlock(markdown, techMatch.index, agg);
   }
   const crewMatch = CREW_HEADER_RE.exec(markdown);
   if (!crewMatch) return [];
-  return parseCrewBlock(markdown, crewMatch.index);
+  return parseCrewBlock(markdown, crewMatch.index, agg);
 }
 
 type ColMap = { name: number; role: number; phone: number; email: number; flight: number };
@@ -87,10 +89,14 @@ function isSeparatorRow(line: string): boolean {
   return segs.every((s) => /^[\s:|*-]*$/.test(s));
 }
 
-function parseCrewBlock(markdown: string, headerOffset: number): CrewMemberRow[] {
+function parseCrewBlock(
+  markdown: string,
+  headerOffset: number,
+  agg?: ParseAggregator,
+): CrewMemberRow[] {
   const lines = markdown.slice(headerOffset).split("\n");
   const members: CrewMemberRow[] = [];
-  const warnings: ParseWarning[] = [];
+  const localWarnings: ParseWarning[] = [];
   const headerLine = lines[0] ?? "";
   const colMap = detectColumns(headerLine);
   let inCrewSection = false;
@@ -125,13 +131,27 @@ function parseCrewBlock(markdown: string, headerOffset: number): CrewMemberRow[]
     if (!nameRaw) continue;
     inCrewSection = true;
 
-    members.push(buildCrewMember({ nameRaw, roleRaw, phoneRaw, emailRaw, flightRaw, warnings }));
+    members.push(
+      buildCrewMember({
+        nameRaw,
+        roleRaw,
+        phoneRaw,
+        emailRaw,
+        flightRaw,
+        warnings: localWarnings,
+        ...(agg !== undefined ? { agg } : {}),
+      }),
+    );
   }
 
   return members;
 }
 
-function parseTechBlock(markdown: string, headerOffset: number): CrewMemberRow[] {
+function parseTechBlock(
+  markdown: string,
+  headerOffset: number,
+  agg?: ParseAggregator,
+): CrewMemberRow[] {
   const lines = markdown.slice(headerOffset).split("\n");
   const members: CrewMemberRow[] = [];
 
@@ -158,7 +178,7 @@ function parseTechBlock(markdown: string, headerOffset: number): CrewMemberRow[]
     const flightParts = [arrivalRaw, departureRaw].filter(Boolean);
     const flightRaw = flightParts.length > 0 ? flightParts.join(" | ") : null;
 
-    const warnings: ParseWarning[] = [];
+    const localWarnings: ParseWarning[] = [];
     members.push(
       buildCrewMember({
         nameRaw: name,
@@ -166,7 +186,8 @@ function parseTechBlock(markdown: string, headerOffset: number): CrewMemberRow[]
         phoneRaw,
         emailRaw: "",
         flightRaw,
-        warnings,
+        warnings: localWarnings,
+        ...(agg !== undefined ? { agg } : {}),
       }),
     );
   }
@@ -181,11 +202,13 @@ function buildCrewMember(params: {
   emailRaw: string;
   flightRaw: string | null;
   warnings: ParseWarning[];
+  agg?: ParseAggregator;
 }): CrewMemberRow {
-  const { phoneRaw, emailRaw, flightRaw, warnings } = params;
+  const { phoneRaw, emailRaw, flightRaw, warnings, agg } = params;
 
   const dayResult = extractDayRestriction({ nameCell: params.nameRaw, roleCell: params.roleRaw });
   warnings.push(...dayResult.warnings);
+  if (agg) agg.warnings.push(...dayResult.warnings);
 
   const displayName = dayResult.cleanedNameCell.trim();
   const cleanedRole = dayResult.cleanedRoleCell.trim();
@@ -193,16 +216,19 @@ function buildCrewMember(params: {
   const stageRestriction = extractStageRestriction(cleanedRole);
   const roleFlagResult = extractRoleFlags(cleanedRole);
   warnings.push(...roleFlagResult.warnings);
+  if (agg) agg.warnings.push(...roleFlagResult.warnings);
 
   let dateRestriction = dayResult.restriction;
   if (hasTripleAsterisk(params.roleRaw) && dateRestriction.kind === "none") {
     dateRestriction = { kind: "unknown_asterisk", days: null };
-    warnings.push({
-      severity: "warn",
+    const tripleAsteriskWarning = {
+      severity: "warn" as const,
       code: "UNKNOWN_DAY_RESTRICTION",
       message: `Role cell contains *** but no explicit day dates found: '${params.roleRaw}'`,
       rawSnippet: params.roleRaw,
-    });
+    };
+    warnings.push(tripleAsteriskWarning);
+    if (agg) agg.warnings.push(tripleAsteriskWarning);
   }
 
   const email = canonicalize(emailRaw);

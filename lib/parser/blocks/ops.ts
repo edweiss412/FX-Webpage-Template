@@ -17,6 +17,7 @@
  */
 
 import type { ShowRow } from "../types";
+import type { ParseAggregator } from "@/lib/parser/warnings";
 import { clean, presence, splitRow } from "./_helpers";
 
 export type OpsResult = Pick<
@@ -31,7 +32,12 @@ const PO_RE = /^\s*PO[\\#\s]*#?\s*$/i;
 const INVOICE_RE = /^\s*Invoice\s*$/i;
 const INVOICE_NOTES_RE = /^\s*Invoice\s+Notes?\s*$/i;
 
-export function parseOps(markdown: string, _version: "v1" | "v2" | "v4"): OpsResult {
+export function parseOps(
+  markdown: string,
+  _version: "v1" | "v2" | "v4",
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _agg?: ParseAggregator,
+): OpsResult {
   let po: string | null = null;
   let proposal: string | null = null;
   let invoice: string | null = null;

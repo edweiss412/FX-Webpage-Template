@@ -17,6 +17,7 @@
 
 import { parseTableRows, clean, presence, normalizeDate } from "./_helpers";
 import type { ShowRow } from "@/lib/parser/types";
+import type { ParseAggregator } from "@/lib/parser/warnings";
 
 // ── Label classification ──────────────────────────────────────────────────────
 
@@ -44,7 +45,12 @@ function classifyLabel(label: string): DateRowKind {
 
 // ── Main parser ───────────────────────────────────────────────────────────────
 
-export function parseDates(markdown: string, version: "v1" | "v2" | "v4"): ShowRow["dates"] {
+export function parseDates(
+  markdown: string,
+  version: "v1" | "v2" | "v4",
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _agg?: ParseAggregator,
+): ShowRow["dates"] {
   const result: ShowRow["dates"] = {
     travelIn: null,
     set: null,

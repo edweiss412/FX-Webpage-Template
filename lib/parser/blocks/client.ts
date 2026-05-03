@@ -1,4 +1,5 @@
 import type { ShowRow, ClientContact, ClientContactPerson } from "@/lib/parser/types";
+import type { ParseAggregator } from "@/lib/parser/warnings";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { clean, presence, parseTableRows } from "./_helpers";
 
@@ -228,6 +229,8 @@ function parseClientV2orV1(rows: string[][]): Pick<ShowRow, "client_label" | "cl
 export function parseClient(
   markdown: string,
   version: "v1" | "v2" | "v4",
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _agg?: ParseAggregator,
 ): Pick<ShowRow, "client_label" | "client_contact"> {
   const rows = parseTableRows(markdown);
 

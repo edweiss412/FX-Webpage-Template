@@ -24,9 +24,15 @@
  */
 
 import type { RoomRow, RoomKind } from "../types";
+import type { ParseAggregator } from "@/lib/parser/warnings";
 import { clean, presence, splitRow } from "./_helpers";
 
-export function parseRooms(markdown: string, _version: "v1" | "v2" | "v4"): RoomRow[] {
+export function parseRooms(
+  markdown: string,
+  _version: "v1" | "v2" | "v4",
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _agg?: ParseAggregator,
+): RoomRow[] {
   // Try v4 structured block first. A v4 room block uses all-caps GENERAL SESSION /
   // BREAKOUT headers as standalone rows. If any are found, treat as v4 and skip v2/v1 parsers.
   const v4Rooms = parseV4Rooms(markdown);

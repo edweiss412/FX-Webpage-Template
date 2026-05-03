@@ -18,6 +18,7 @@
  */
 
 import type { ContactRow, ContactKind } from "../types";
+import type { ParseAggregator } from "@/lib/parser/warnings";
 import { clean, presence, splitRow } from "./_helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
 
@@ -27,7 +28,12 @@ const VENUE_LABEL_RE = /^\s*(?:venue|hotel|hotal)\s+contact\s+(?:info(?:rmation)
 // Labels that map to 'in_house_av' kind
 const IN_HOUSE_AV_LABEL_RE = /^\s*in\s+house\s+av\s*$/i;
 
-export function parseContacts(markdown: string, _version: "v1" | "v2" | "v4"): ContactRow[] {
+export function parseContacts(
+  markdown: string,
+  _version: "v1" | "v2" | "v4",
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _agg?: ParseAggregator,
+): ContactRow[] {
   const contacts: ContactRow[] = [];
 
   // Scan all table rows for matching labels

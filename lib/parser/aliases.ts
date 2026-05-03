@@ -128,6 +128,21 @@ export const FIELD_ALIASES: Record<string, string[]> = {
 };
 
 /**
+ * Intentional-typo alias spellings. When resolveAliasFull matches one of
+ * these, it sets isTypo = true so callers can emit TYPO_NORMALIZED warnings.
+ *
+ * Only includes true misspellings (not capitalization variants like "DIagrams"
+ * which is a corpus capitalization oddity but not a user typo — however per
+ * spec §1.10, the canonical typo list is: Hotal, DIagrams, Virtaul, Goosneck).
+ */
+export const TYPO_ALIASES = new Set([
+  "hotal contact info", // typo of "Hotel Contact Info"
+  "diagrams", // "DIagrams" capitalisation variant → canonical alias for details.diagrams
+  "virtaul audience", // typo of "Virtual Audience"
+  "goosneck", // typo of "Gooseneck"
+]);
+
+/**
  * Reverse lookup map: lowercased alias → canonical key.
  * Built once at module load time.
  */
@@ -146,4 +161,18 @@ const REVERSE_MAP: Map<string, string> = new Map(
  */
 export function resolveAlias(label: string): string | null {
   return REVERSE_MAP.get(label.trim().toLowerCase()) ?? null;
+}
+
+/**
+ * Resolve a cell label to its canonical key AND whether the matched spelling
+ * is a known typo (per TYPO_ALIASES).
+ *
+ * Returns `{ canonical, isTypo }` or `null` if the label is not recognised.
+ * Use this in block parsers that want to emit TYPO_NORMALIZED warnings.
+ */
+export function resolveAliasFull(label: string): { canonical: string; isTypo: boolean } | null {
+  const lower = label.trim().toLowerCase();
+  const canonical = REVERSE_MAP.get(lower);
+  if (canonical === undefined) return null;
+  return { canonical, isTypo: TYPO_ALIASES.has(lower) };
 }
