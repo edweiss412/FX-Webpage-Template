@@ -202,3 +202,34 @@ test.describe("crew page — VenueTile (Task 4.4)", () => {
     await expect(venue).toContainText(/11 E Walton St/i);
   });
 });
+
+test.describe("crew page — CrewTile (Task 4.4)", () => {
+  test("renders CrewTile with every crew member + tap-to-call/email anchors", async ({
+    page,
+  }) => {
+    const { slug, leadCrewId } = await lookupSeededShow();
+    const response = await page.goto(`/show/${slug}?crew=${leadCrewId}`);
+    expect(response?.status()).toBe(200);
+
+    const crew = page.getByTestId("crew-tile");
+    await expect(crew).toBeVisible();
+
+    // Waldorf fixture (lines 50-52 of the markdown) seeds three crew rows:
+    // John Carleo, Eric Weiss, Calvin Saller. The viewer (LEAD) MUST see
+    // all three including themselves — see plan §4.4 "Do NOT filter the
+    // viewer themselves out".
+    await expect(crew.getByTestId("crew-row")).toHaveCount(3);
+    await expect(crew).toContainText(/John Carleo/i);
+    await expect(crew).toContainText(/Eric Weiss/i);
+    await expect(crew).toContainText(/Calvin Saller/i);
+
+    // Tap-to-call: Calvin Saller's phone is "480-330-1848"; the tel:
+    // href digits-strips the formatting.
+    await expect(crew.locator('a[href="tel:4803301848"]')).toBeVisible();
+
+    // Tap-to-email: Eric Weiss's email is "edweiss412@gmail.com".
+    await expect(
+      crew.locator('a[href="mailto:edweiss412@gmail.com"]'),
+    ).toBeVisible();
+  });
+});

@@ -34,6 +34,7 @@ import { notFound } from "next/navigation";
 
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
+import { CrewTile } from "@/components/tiles/CrewTile";
 import { LodgingTile } from "@/components/tiles/LodgingTile";
 import { VenueTile } from "@/components/tiles/VenueTile";
 import {
@@ -192,20 +193,19 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
           */}
           <LodgingTile hotelReservations={data.hotelReservations} />
           <VenueTile venue={data.show.venue} />
-          {(["Crew", "Schedule"] as const).map((label) => (
-            <article
-              key={label}
-              data-testid={`tile-placeholder-${label.toLowerCase()}`}
-              className="flex h-full min-h-(--spacing-tile-min-h) flex-col rounded-md border border-border bg-surface p-(--spacing-tile-pad)"
-            >
-              <p className="text-xs font-medium uppercase tracking-[0.14em] text-text-faint">
-                {label}
-              </p>
-              <p className="mt-2 text-sm text-text-subtle">
-                Tile loads in Task 4.{label === "Crew" ? "4" : "5"}.
-              </p>
-            </article>
-          ))}
+          <CrewTile crewMembers={data.crewMembers} />
+          <article
+            key="Schedule"
+            data-testid="tile-placeholder-schedule"
+            className="flex h-full min-h-(--spacing-tile-min-h) flex-col rounded-md border border-border bg-surface p-(--spacing-tile-pad)"
+          >
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-text-faint">
+              Schedule
+            </p>
+            <p className="mt-2 text-sm text-text-subtle">
+              Tile loads in Task 4.5.
+            </p>
+          </article>
         </section>
       </main>
       <Footer asOf={null} />
