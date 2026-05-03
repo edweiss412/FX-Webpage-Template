@@ -56,11 +56,13 @@ export { detectVersion } from "./schema";
 //
 //   1. v4/v2 newer (2025-10+):  "Event Name:" label row ->
 //      | Event Name: | SHOW TITLE | ... |
-//      Produces canonical key "event_name" from toCanonicalKey.
+//      The label cell is exactly "Event Name:" (case-insensitive).
+//      This row lives in the CLIENT block, NOT the EVENT DETAILS block, so
+//      parseEventDetails never captures it. We scan raw markdown directly.
 //
-//   2. v2 "Title of Event" in EVENT DETAILS block ->
+//   2. v2 "Title of Event" row in venue-reference form ->
 //      | Title of Event | SHOW TITLE |
-//      Produces canonical key "title_of_event".
+//      Value cell must be non-empty (some fixtures have empty value cells).
 //
 //   3. v2 with NO_HEADER first row (2025-06-ria-investment-forum):
 //      First row of the markdown is a table row whose col0 is "NO_HEADER"
@@ -69,28 +71,89 @@ export { detectVersion } from "./schema";
 //   4. v1 (2024-05-east-coast): First table row, first non-empty cell
 //      (the title is repeated in both col0 and col1).
 //
-// Priority: event_name > title_of_event > NO_HEADER > first-row cell.
+// Priority: Event Name: > Title of Event > NO_HEADER > first-row cell.
+//
+// KNOWN_NON_TITLES: values that look like show titles but are actually column
+// headers or block labels. Any candidate that matches (case-insensitively) is
+// rejected and the next candidate is tried.
+
+const KNOWN_NON_TITLES = new Set([
+  "main",
+  "secondary",
+  "name",
+  "details",
+  "setup",
+  "bo setup",
+  "gs setup",
+  "event details",
+  "event name",
+  "event name:",
+  "title of event",
+  "no_header",
+]);
 
 const TABLE_ROW_RE = /^\|\s*(.+?)\s*\|/;
 const CELL_SPLIT_RE = /\s*\|\s*/;
 
+function isKnownNonTitle(candidate: string): boolean {
+  return KNOWN_NON_TITLES.has(candidate.toLowerCase().trim());
+}
+
 function extractTitleFromMarkdown(md: string, eventDetails: Record<string, string>): string {
-  // 1. "Event Name:" row directly in markdown (v4/v2 newer)
-  //    toCanonicalKey("Event Name:") -> "event_name" (trailing colon stripped by [^a-z0-9_] filter)
+  const lines = md.split("\n");
+
+  // 1. Scan raw markdown for "Event Name:" label row (v4/v2 newer fixtures).
+  //    This row lives in the CLIENT block, so parseEventDetails never captures it.
+  //    Format: | Event Name: | <TITLE> | ... |
+  for (const line of lines) {
+    if (!line.trim().startsWith("|")) continue;
+    const cells = line
+      .split(CELL_SPLIT_RE)
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0);
+    if (cells[0]?.toLowerCase() === "event name:" && cells[1] && cells[1].length > 0) {
+      const candidate = cells[1].trim();
+      if (candidate.length > 0 && !isKnownNonTitle(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  // 2. Scan raw markdown for "Title of Event" row with non-empty value cell.
+  //    Format: | Title of Event | <TITLE> |
+  for (const line of lines) {
+    if (!line.trim().startsWith("|")) continue;
+    const cells = line
+      .split(CELL_SPLIT_RE)
+      .map((c) => c.trim())
+      .filter((c) => c.length > 0);
+    if (cells[0]?.toLowerCase() === "title of event" && cells[1] && cells[1].length > 0) {
+      const candidate = cells[1].trim();
+      if (candidate.length > 0 && !isKnownNonTitle(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  // 3. event_name from parseEventDetails output (overlaps with #1 but kept as
+  //    a safety net in case a future fixture puts Event Name in the details block).
   const fromEventName = eventDetails["event_name"];
-  if (fromEventName && fromEventName.trim().length > 0) {
+  if (fromEventName && fromEventName.trim().length > 0 && !isKnownNonTitle(fromEventName)) {
     return fromEventName.trim();
   }
 
-  // 2. "Title of Event" in event details block
+  // 4. title_of_event from parseEventDetails output (safety net).
   const fromTitleOfEvent = eventDetails["title_of_event"];
-  if (fromTitleOfEvent && fromTitleOfEvent.trim().length > 0) {
+  if (
+    fromTitleOfEvent &&
+    fromTitleOfEvent.trim().length > 0 &&
+    !isKnownNonTitle(fromTitleOfEvent)
+  ) {
     return fromTitleOfEvent.trim();
   }
 
-  // 3. NO_HEADER first-row pattern (v2 RIA style):
+  // 5. NO_HEADER first-row pattern (v2 RIA style):
   //    | NO_HEADER | <show title> | ...
-  const lines = md.split("\n");
   for (const line of lines) {
     if (!line.trim().startsWith("|")) continue;
     const cells = line
@@ -98,16 +161,25 @@ function extractTitleFromMarkdown(md: string, eventDetails: Record<string, strin
       .map((c) => c.trim())
       .filter((c) => c.length > 0);
     if (cells[0]?.toUpperCase() === "NO_HEADER" && cells[1] && cells[1] !== "NO_HEADER") {
-      return cells[1];
+      const candidate = cells[1].trim();
+      if (candidate.length > 0 && !isKnownNonTitle(candidate)) {
+        return candidate;
+      }
     }
     // Found first non-separator table row that doesn't match NO_HEADER -- stop
     if (cells.some((c) => !/^[\s:|*-]*$/.test(c))) break;
   }
 
-  // 4. v1 fallback: first non-empty, non-separator table cell in the document
+  // 6. v1 fallback: first non-empty, non-separator table cell in the FIRST table
+  //    only (stops at first blank line after table starts, to avoid scanning
+  //    crew/contact tables that follow the title table in v1 fixtures).
+  let inFirstTable = false;
   for (const line of lines) {
     const trimmed = line.trim();
+    // Once we have entered a table and hit a blank line, stop scanning
+    if (inFirstTable && trimmed === "") break;
     if (!trimmed.startsWith("|")) continue;
+    inFirstTable = true;
     // Skip separator rows
     if (/^\|\s*[:|-]+\s*\|/.test(trimmed)) continue;
     const match = TABLE_ROW_RE.exec(trimmed);
@@ -116,6 +188,7 @@ function extractTitleFromMarkdown(md: string, eventDetails: Record<string, strin
       // Skip obvious label cells and empty/escape sequences
       if (
         cell.length > 0 &&
+        !isKnownNonTitle(cell) &&
         !cell.toUpperCase().startsWith("CLIENT") &&
         !cell.toUpperCase().startsWith("NO_HEADER") &&
         cell !== "\\#NUM\\!" &&
