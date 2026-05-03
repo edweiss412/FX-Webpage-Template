@@ -33,11 +33,43 @@ type SeedSummary = {
     opening_reel_drive_modified_time: string | null;
     opening_reel_head_revision_id: string | null;
     opening_reel_mime_type: string | null;
-    diagrams: any;
+    diagrams: SeedDiagrams;
     crew_count: number;
     auth_count: number;
   }>;
 };
+
+type SeedEmbeddedImage = {
+  objectId: string;
+  sheetTab: string;
+  mimeType: string;
+  snapshotPath: string | null;
+  sourceFolder: "embedded";
+  sheetsRevisionId: string;
+  embeddedFingerprint: string | null;
+  recovery_disposition: "normal" | "restage_required";
+};
+
+type SeedLinkedFolderItem = {
+  driveFileId: string;
+  mimeType: string;
+  drive_modified_time: string;
+  headRevisionId: string;
+  md5Checksum: string;
+  snapshotPath: string | null;
+  sourceFolder: "linked";
+  recovery_disposition: "normal" | "restage_required";
+};
+
+type SeedDiagrams = {
+  snapshot_revision_id: string;
+  snapshot_status: "complete" | "partial_failure" | "partial_failure_restage_required";
+  linkedFolder: { driveFolderId: string; driveFolderUrl: string } | null;
+  embeddedImages: SeedEmbeddedImage[];
+  linkedFolderItems: SeedLinkedFolderItem[];
+};
+
+type SeedShow = SeedSummary["shows"][number] & { diagrams: SeedDiagrams };
 
 function loadSeedSummary(): SeedSummary {
   const output = runPsql(`
@@ -176,11 +208,14 @@ describe("seed script", () => {
       }
     }
 
-    const restageEntry = restageShows
+    const restageEntry = (restageShows as SeedShow[])
       .flatMap((show) => show.diagrams.embeddedImages)
-      .find((embedded: any) => embedded.recovery_disposition === "restage_required");
+      .find((embedded) => embedded.recovery_disposition === "restage_required");
 
     expect(restageEntry).toBeDefined();
+    if (!restageEntry) {
+      throw new Error("Expected at least one restage-required embedded image");
+    }
     expect(restageEntry.embeddedFingerprint).toBeNull();
     expect(restageEntry.sourceFolder).toBe("embedded");
     expect(restageEntry.snapshotPath).toBeNull();

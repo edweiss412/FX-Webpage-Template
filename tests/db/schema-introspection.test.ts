@@ -247,29 +247,39 @@ type FkExpectation = {
   onUpdate: "NO ACTION";
 };
 
+function fk(
+  table: string,
+  column: string,
+  refTable: string,
+  refColumn: string,
+  onDelete: FkExpectation["onDelete"],
+): FkExpectation {
+  return {
+    table,
+    column,
+    refTable,
+    refColumn,
+    onDelete,
+    onUpdate: "NO ACTION",
+  };
+}
+
 const requiredFks: FkExpectation[] = [
-  ["shows_internal", "show_id", "shows", "id", "CASCADE"],
-  ["crew_members", "show_id", "shows", "id", "CASCADE"],
-  ["hotel_reservations", "show_id", "shows", "id", "CASCADE"],
-  ["rooms", "show_id", "shows", "id", "CASCADE"],
-  ["transportation", "show_id", "shows", "id", "CASCADE"],
-  ["contacts", "show_id", "shows", "id", "CASCADE"],
-  ["crew_member_auth", "show_id", "shows", "id", "CASCADE"],
-  ["link_sessions", "crew_member_id", "crew_members", "id", "SET NULL"],
-  ["link_sessions", "show_id", "shows", "id", "CASCADE"],
-  ["bootstrap_nonces", "show_id", "shows", "id", "CASCADE"],
-  ["reports", "show_id", "shows", "id", "NO ACTION"],
-  ["pending_snapshot_uploads", "show_id", "shows", "id", "CASCADE"],
-  ["admin_alerts", "show_id", "shows", "id", "CASCADE"],
-  ["shows_pending_changes", "show_id", "shows", "id", "CASCADE"],
-].map(([table, column, refTable, refColumn, onDelete]) => ({
-  table,
-  column,
-  refTable,
-  refColumn,
-  onDelete: onDelete as FkExpectation["onDelete"],
-  onUpdate: "NO ACTION" as const,
-}));
+  fk("shows_internal", "show_id", "shows", "id", "CASCADE"),
+  fk("crew_members", "show_id", "shows", "id", "CASCADE"),
+  fk("hotel_reservations", "show_id", "shows", "id", "CASCADE"),
+  fk("rooms", "show_id", "shows", "id", "CASCADE"),
+  fk("transportation", "show_id", "shows", "id", "CASCADE"),
+  fk("contacts", "show_id", "shows", "id", "CASCADE"),
+  fk("crew_member_auth", "show_id", "shows", "id", "CASCADE"),
+  fk("link_sessions", "crew_member_id", "crew_members", "id", "SET NULL"),
+  fk("link_sessions", "show_id", "shows", "id", "CASCADE"),
+  fk("bootstrap_nonces", "show_id", "shows", "id", "CASCADE"),
+  fk("reports", "show_id", "shows", "id", "NO ACTION"),
+  fk("pending_snapshot_uploads", "show_id", "shows", "id", "CASCADE"),
+  fk("admin_alerts", "show_id", "shows", "id", "CASCADE"),
+  fk("shows_pending_changes", "show_id", "shows", "id", "CASCADE"),
+];
 
 type ColumnExpectation = {
   table: string;
@@ -279,47 +289,57 @@ type ColumnExpectation = {
   columnDefault: string | null;
 };
 
+function col(
+  table: string,
+  column: string,
+  dataType: string,
+  isNullable: ColumnExpectation["isNullable"],
+  columnDefault: string | null,
+): ColumnExpectation {
+  return {
+    table,
+    column,
+    dataType,
+    isNullable,
+    columnDefault,
+  };
+}
+
 const requiredColumns: ColumnExpectation[] = [
-  ["shows", "opening_reel_drive_file_id", "text", "YES", null],
-  ["shows", "opening_reel_drive_modified_time", "timestamp with time zone", "YES", null],
-  ["shows", "opening_reel_head_revision_id", "text", "YES", null],
-  ["shows", "opening_reel_mime_type", "text", "YES", null],
-  ["shows", "last_seen_modified_time", "timestamp with time zone", "YES", null],
-  ["crew_members", "last_changed_at", "timestamp with time zone", "NO", "now()"],
-  ["crew_member_auth", "last_changed_at", "timestamp with time zone", "NO", "now()"],
-  ["reports", "idempotency_key", "uuid", "NO", "gen_random_uuid()"],
-  ["reports", "processing_lease_until", "timestamp with time zone", "YES", null],
-  ["reports", "lease_holder", "uuid", "YES", null],
-  ["app_settings", "active_signing_key_id", "text", "NO", "'k1'::text"],
-  ["link_sessions", "signing_key_id", "text", "NO", null],
-  ["pending_snapshot_uploads", "id", "uuid", "NO", "gen_random_uuid()"],
-  ["pending_snapshot_uploads", "show_id", "uuid", "NO", null],
-  ["pending_snapshot_uploads", "drive_file_id", "text", "NO", null],
-  ["pending_snapshot_uploads", "temp_prefix", "text", "NO", null],
-  ["pending_snapshot_uploads", "snapshot_revision_id", "uuid", "NO", null],
-  ["pending_snapshot_uploads", "asset_count", "integer", "NO", null],
-  ["pending_snapshot_uploads", "uploaded_at", "timestamp with time zone", "NO", "now()"],
-  ["pending_snapshot_uploads", "promoted_at", "timestamp with time zone", "YES", null],
-  ["pending_snapshot_uploads", "claim_token", "uuid", "YES", null],
-  ["pending_snapshot_uploads", "claimed_at", "timestamp with time zone", "YES", null],
-  ["pending_snapshot_uploads", "claim_expires_at", "timestamp with time zone", "YES", null],
-  ["pending_snapshot_uploads", "delete_started_at", "timestamp with time zone", "YES", null],
-  ["pending_snapshot_uploads", "promote_started_at", "timestamp with time zone", "YES", null],
-  ["revision_race_cooldowns", "drive_file_id", "text", "NO", null],
-  ["revision_race_cooldowns", "raced_head_revision_id", "text", "NO", null],
-  ["revision_race_cooldowns", "last_race_at", "timestamp with time zone", "NO", "now()"],
-  ["revision_race_cooldowns", "retry_count", "integer", "NO", "0"],
-  ["recovery_drift_cooldowns", "show_id", "uuid", "NO", null],
-  ["recovery_drift_cooldowns", "preview_revision_id", "uuid", "NO", null],
-  ["recovery_drift_cooldowns", "last_drift_at", "timestamp with time zone", "NO", "now()"],
-  ["recovery_drift_cooldowns", "retry_count", "integer", "NO", "0"],
-].map(([table, column, dataType, isNullable, columnDefault]) => ({
-  table,
-  column,
-  dataType,
-  isNullable: isNullable as ColumnExpectation["isNullable"],
-  columnDefault,
-}));
+  col("shows", "opening_reel_drive_file_id", "text", "YES", null),
+  col("shows", "opening_reel_drive_modified_time", "timestamp with time zone", "YES", null),
+  col("shows", "opening_reel_head_revision_id", "text", "YES", null),
+  col("shows", "opening_reel_mime_type", "text", "YES", null),
+  col("shows", "last_seen_modified_time", "timestamp with time zone", "YES", null),
+  col("crew_members", "last_changed_at", "timestamp with time zone", "NO", "now()"),
+  col("crew_member_auth", "last_changed_at", "timestamp with time zone", "NO", "now()"),
+  col("reports", "idempotency_key", "uuid", "NO", "gen_random_uuid()"),
+  col("reports", "processing_lease_until", "timestamp with time zone", "YES", null),
+  col("reports", "lease_holder", "uuid", "YES", null),
+  col("app_settings", "active_signing_key_id", "text", "NO", "'k1'::text"),
+  col("link_sessions", "signing_key_id", "text", "NO", null),
+  col("pending_snapshot_uploads", "id", "uuid", "NO", "gen_random_uuid()"),
+  col("pending_snapshot_uploads", "show_id", "uuid", "NO", null),
+  col("pending_snapshot_uploads", "drive_file_id", "text", "NO", null),
+  col("pending_snapshot_uploads", "temp_prefix", "text", "NO", null),
+  col("pending_snapshot_uploads", "snapshot_revision_id", "uuid", "NO", null),
+  col("pending_snapshot_uploads", "asset_count", "integer", "NO", null),
+  col("pending_snapshot_uploads", "uploaded_at", "timestamp with time zone", "NO", "now()"),
+  col("pending_snapshot_uploads", "promoted_at", "timestamp with time zone", "YES", null),
+  col("pending_snapshot_uploads", "claim_token", "uuid", "YES", null),
+  col("pending_snapshot_uploads", "claimed_at", "timestamp with time zone", "YES", null),
+  col("pending_snapshot_uploads", "claim_expires_at", "timestamp with time zone", "YES", null),
+  col("pending_snapshot_uploads", "delete_started_at", "timestamp with time zone", "YES", null),
+  col("pending_snapshot_uploads", "promote_started_at", "timestamp with time zone", "YES", null),
+  col("revision_race_cooldowns", "drive_file_id", "text", "NO", null),
+  col("revision_race_cooldowns", "raced_head_revision_id", "text", "NO", null),
+  col("revision_race_cooldowns", "last_race_at", "timestamp with time zone", "NO", "now()"),
+  col("revision_race_cooldowns", "retry_count", "integer", "NO", "0"),
+  col("recovery_drift_cooldowns", "show_id", "uuid", "NO", null),
+  col("recovery_drift_cooldowns", "preview_revision_id", "uuid", "NO", null),
+  col("recovery_drift_cooldowns", "last_drift_at", "timestamp with time zone", "NO", "now()"),
+  col("recovery_drift_cooldowns", "retry_count", "integer", "NO", "0"),
+];
 
 type FunctionExpectation = {
   name: string;
