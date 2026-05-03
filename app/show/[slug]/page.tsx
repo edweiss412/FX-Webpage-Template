@@ -157,7 +157,7 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
         <section
           data-testid="right-now-card"
           aria-label="Right now"
-          className="rounded-md border border-border bg-surface p-6 shadow-[0_1px_2px_rgba(20,18,12,0.04)]"
+          className="rounded-md border border-border bg-surface p-6 shadow-(--shadow-tile)"
         >
           <p className="text-xs font-medium uppercase tracking-[0.16em] text-accent-on-bg">
             <span
