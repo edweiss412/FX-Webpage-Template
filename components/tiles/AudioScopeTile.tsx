@@ -60,7 +60,7 @@ export function AudioScopeTile({ rooms, viewerFlags }: AudioScopeTileProps) {
         ariaLabel="Audio scope"
         bodyAs="div"
       >
-        <EmptyState variant="required-field" />
+        <EmptyState />
       </Section>
     );
   }

@@ -80,7 +80,7 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
         ariaLabel="Transport"
         bodyAs="div"
       >
-        <EmptyState variant="required-field" />
+        <EmptyState />
       </Section>
     );
   }

@@ -47,7 +47,7 @@ export function VenueTile({ venue }: VenueTileProps) {
         ariaLabel="Venue"
         bodyAs="div"
       >
-        <EmptyState variant="required-field" />
+        <EmptyState />
       </Section>
     );
   }

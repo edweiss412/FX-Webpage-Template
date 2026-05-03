@@ -4,10 +4,10 @@
  *
  * Empty-state discipline (spec §8.3, AGENTS.md §1.5):
  *
- *   • required-field missing inside a rendered tile → this atom, with
- *     `variant="required-field"`. The placeholder reads italic + faint
- *     on a `--color-surface-sunken` plate so it reads as "this is
- *     missing" at a glance, never confused for real content.
+ *   • required-field missing inside a rendered tile → this atom. The
+ *     placeholder reads italic + faint on a `--color-surface-sunken`
+ *     plate so it reads as "this is missing" at a glance, never
+ *     confused for real content.
  *
  *   • optional-field missing → tiles omit the field entirely. NOT
  *     this atom — there's nothing to render at all.
@@ -23,20 +23,14 @@
  * file. Tiles MUST NOT inline the literal — always go through this
  * atom.
  *
+ * Variant discriminant removed when the second variant didn't ship;
+ * re-add when needed (review 2026-05-03).
+ *
  * Server Component (no `'use client'`).
  */
 import type { ReactNode } from "react";
 
 type EmptyStateProps = {
-  /**
-   * Discriminant per §8.3. Today only `'required-field'` is supported;
-   * the discriminant is a forward-compat anchor for variants like
-   * `'optional-field'` (used inside tile bodies for sub-sections that
-   * are optional but present-but-empty in the source data) without
-   * forcing a callsite refactor when they land.
-   */
-  variant: "required-field";
-
   /**
    * Optional override for the canonical "Doug hasn't filled this in
    * yet" copy. Pass a more specific message when the missing piece
@@ -52,12 +46,7 @@ type EmptyStateProps = {
 
 const DEFAULT_COPY = "Doug hasn't filled this in yet";
 
-export function EmptyState({ variant, label, children }: EmptyStateProps) {
-  // The discriminant exists for forward-compat; today every code path
-  // resolves the same way, but the type makes future variants
-  // explicit at every callsite.
-  void variant;
-
+export function EmptyState({ label, children }: EmptyStateProps) {
   return (
     <div
       data-testid="empty-state"

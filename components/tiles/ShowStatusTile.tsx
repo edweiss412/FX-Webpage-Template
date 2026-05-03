@@ -73,7 +73,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
       bodyAs="dl"
     >
       {allEmpty ? (
-        <EmptyState variant="required-field" />
+        <EmptyState />
       ) : (
         <>
           {/*

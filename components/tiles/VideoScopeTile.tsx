@@ -36,7 +36,7 @@ export function VideoScopeTile({ rooms, viewerFlags }: VideoScopeTileProps) {
         ariaLabel="Video scope"
         bodyAs="div"
       >
-        <EmptyState variant="required-field" />
+        <EmptyState />
       </Section>
     );
   }

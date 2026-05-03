@@ -156,7 +156,7 @@ export function ScheduleTile({ show, dateRestriction }: ScheduleTileProps) {
         ariaLabel="My schedule"
         bodyAs="div"
       >
-        <EmptyState variant="required-field" />
+        <EmptyState />
       </Section>
     );
   }

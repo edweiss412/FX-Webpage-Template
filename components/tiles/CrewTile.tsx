@@ -53,7 +53,7 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
         ariaLabel="Crew"
         bodyAs="div"
       >
-        <EmptyState variant="required-field" />
+        <EmptyState />
       </Section>
     );
   }

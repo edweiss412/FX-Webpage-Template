@@ -20,22 +20,22 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { EmptyState } from "@/components/atoms/EmptyState";
 
 describe("EmptyState atom", () => {
-  test("variant='required-field' renders the canonical 'Doug' placeholder", () => {
-    const html = renderToStaticMarkup(<EmptyState variant="required-field" />);
+  test("renders the canonical 'Doug' placeholder", () => {
+    const html = renderToStaticMarkup(<EmptyState />);
     // Apostrophe is HTML-encoded by renderToStaticMarkup.
     expect(html).toContain("Doug hasn&#x27;t filled this in yet");
   });
 
-  test("variant='required-field' uses the surface-sunken background per DESIGN.md §1.1", () => {
-    const html = renderToStaticMarkup(<EmptyState variant="required-field" />);
+  test("uses the surface-sunken background per DESIGN.md §1.1", () => {
+    const html = renderToStaticMarkup(<EmptyState />);
     // The "Doug hasn't…" plate is visually distinct from real content.
     // §1.1 names `--color-surface-sunken` as the empty-state backdrop;
     // we apply via Tailwind's `bg-surface-sunken` utility.
     expect(html).toMatch(/bg-surface-sunken/);
   });
 
-  test("variant='required-field' carries an italic + faint visual weight (distinct from real values)", () => {
-    const html = renderToStaticMarkup(<EmptyState variant="required-field" />);
+  test("carries an italic + faint visual weight (distinct from real values)", () => {
+    const html = renderToStaticMarkup(<EmptyState />);
     // The placeholder text MUST read as 'this is missing' at a glance.
     // The atom uses `italic` + `text-text-faint` to do that.
     expect(html).toMatch(/italic/);
@@ -48,7 +48,7 @@ describe("EmptyState atom", () => {
     // tailor the message — but the default ('Doug hasn't…') is the
     // canonical M4 baseline.
     const html = renderToStaticMarkup(
-      <EmptyState variant="required-field" label="Doug hasn't added a venue address yet" />,
+      <EmptyState label="Doug hasn't added a venue address yet" />,
     );
     expect(html).toContain("Doug hasn&#x27;t added a venue address yet");
   });

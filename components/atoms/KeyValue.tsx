@@ -102,7 +102,6 @@ export function KeyValue({
         </dt>
         <dd>
           <EmptyState
-            variant="required-field"
             {...(emptyLabel !== undefined ? { label: emptyLabel } : {})}
           />
         </dd>

@@ -44,7 +44,7 @@ export function LightingScopeTile({
         ariaLabel="Lighting scope"
         bodyAs="div"
       >
-        <EmptyState variant="required-field" />
+        <EmptyState />
       </Section>
     );
   }

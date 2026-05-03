@@ -75,7 +75,7 @@ export function FinancialsTile({
         ariaLabel="Financials"
         bodyAs="div"
       >
-        <EmptyState variant="required-field" />
+        <EmptyState />
       </Section>
     );
   }
