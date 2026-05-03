@@ -31,7 +31,7 @@
  *
  * Cardinality cap:
  *   - 8 sources rendered inline. Beyond that, render a "+N more notes"
- *     stub (data-testid="notes-show-more"). Same M4-static pattern as
+ *     stub (data-testid="notes-overflow-stub"). Same M4-static pattern as
  *     PackListTile; M9 polish may upgrade to a client expand.
  *
  * Tap-to-expand:
@@ -40,7 +40,7 @@
  *     toggling natively.
  *
  * data-testid markers:
- *   - notes-tile, notes-item, notes-item-truncated, notes-show-more.
+ *   - notes-tile, notes-item, notes-item-truncated, notes-overflow-stub.
  *
  * Server Component (no `'use client'`).
  */
@@ -263,7 +263,7 @@ export function NotesTile({
 
       {overflowCount > 0 ? (
         <div
-          data-testid="notes-show-more"
+          data-testid="notes-overflow-stub"
           className="rounded-sm bg-surface-sunken px-3 py-2 text-sm text-text-subtle"
         >
           <span className="tabular-nums">+{overflowCount}</span>{" "}

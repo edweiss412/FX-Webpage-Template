@@ -90,11 +90,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
               data-testid="coi-status"
               className="text-sm font-semibold tabular-nums text-text-strong"
             >
-              {coi ?? (
-                <span className="font-normal italic text-text-faint">
-                  Doug hasn&apos;t filled this in yet
-                </span>
-              )}
+              {coi ?? <EmptyState />}
             </dd>
           </div>
 

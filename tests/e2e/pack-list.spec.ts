@@ -43,7 +43,7 @@
  *    item count.
  *
  * 7. **Cardinality cap** — synthesize 15 cases; assert exactly 12
- *    `pack-list-case` testids render + a `pack-list-show-more` element
+ *    `pack-list-case` testids render + a `pack-list-overflow-stub` element
  *    with text matching `+3 more cases`.
  *
  * Restoration: every mutation is snapshot-and-restored. Single-worker
@@ -562,7 +562,7 @@ test.describe("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => {
     const tile = page.getByTestId("pack-list-tile");
     await expect(tile).toBeVisible();
     await expect(tile.getByTestId("pack-list-case")).toHaveCount(12);
-    const showMore = tile.getByTestId("pack-list-show-more");
+    const showMore = tile.getByTestId("pack-list-overflow-stub");
     await expect(showMore).toHaveCount(1);
     await expect(showMore).toContainText(/\+3 more cases/);
   });
@@ -589,6 +589,6 @@ test.describe("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => {
     const tile = page.getByTestId("pack-list-tile");
     await expect(tile).toBeVisible();
     await expect(tile.getByTestId("pack-list-case")).toHaveCount(12);
-    await expect(tile.getByTestId("pack-list-show-more")).toHaveCount(0);
+    await expect(tile.getByTestId("pack-list-overflow-stub")).toHaveCount(0);
   });
 });

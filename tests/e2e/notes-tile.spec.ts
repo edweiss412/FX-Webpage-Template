@@ -345,7 +345,7 @@ test.describe("crew page — NotesTile (Task 4.10, §8.1)", () => {
     const tile = page.getByTestId("notes-tile");
     await expect(tile).toBeVisible();
     await expect(tile.getByTestId("notes-item")).toHaveCount(8);
-    const showMore = tile.getByTestId("notes-show-more");
+    const showMore = tile.getByTestId("notes-overflow-stub");
     await expect(showMore).toHaveCount(1);
     await expect(showMore).toContainText(/\+2 more notes/);
   });

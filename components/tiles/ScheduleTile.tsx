@@ -54,6 +54,7 @@
 import type { DateRestriction, ShowRow } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
 import { EmptyState } from "@/components/atoms/EmptyState";
+import { formatIsoDate } from "@/lib/format/date";
 
 type SchedulePhase = "Travel In" | "Set" | "Show" | "Travel Out";
 
@@ -92,18 +93,6 @@ function aggregateDays(dates: ShowRow["dates"]): ScheduleDay[] {
   return [...seen.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, phase]) => ({ date, phase }));
-}
-
-/** Render an ISO date as "Wed, Apr 15". Defensive on bad input. */
-function formatDayLabel(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", {
-    timeZone: "UTC",
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
 }
 
 export function ScheduleTile({ show, dateRestriction }: ScheduleTileProps) {
@@ -186,7 +175,7 @@ export function ScheduleTile({ show, dateRestriction }: ScheduleTileProps) {
               dateTime={day.date}
               className="text-sm font-semibold text-text-strong"
             >
-              {formatDayLabel(day.date)}
+              {formatIsoDate(day.date, "weekday-short")}
             </time>
             <span className="text-xs uppercase tracking-[0.12em] text-text-faint">
               {day.phase}

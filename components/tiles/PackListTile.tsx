@@ -20,7 +20,7 @@
  * Cardinality cap (dispatch instructions):
  *   - Up to 12 cases render inline as <details> blocks.
  *   - When pullSheet.length > 12, the first 12 render and a "+N more
- *     cases" stub (`data-testid="pack-list-show-more"`) renders below
+ *     cases" stub (`data-testid="pack-list-overflow-stub"`) renders below
  *     them. M4 ships a static stub (no client-island toggle) — the user
  *     can still scroll the tile body (§8.4 invariant 4: >240px content
  *     enters internal scroll). M9 polish may add the client-side expand.
@@ -51,7 +51,7 @@
  *   - `pack-list-tile`            — outer wrapper.
  *   - `pack-list-case`            — one per rendered case (so e2e tests
  *                                    can `.toHaveCount(N)`).
- *   - `pack-list-show-more`       — disclosure stub when N > 12.
+ *   - `pack-list-overflow-stub`   — disclosure stub when N > 12.
  *   - `pack-list-item-raw-snippet`— per-row partial-parse snippet.
  *
  * Server Component (no `'use client'`). Uses the native <details>/<summary>
@@ -247,7 +247,7 @@ export function PackListTile({
       */}
       {overflowCount > 0 ? (
         <div
-          data-testid="pack-list-show-more"
+          data-testid="pack-list-overflow-stub"
           className={[
             "rounded-sm bg-surface-sunken px-3 py-2",
             "text-sm text-text-subtle",

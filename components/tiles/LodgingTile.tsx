@@ -33,21 +33,11 @@
 import type { HotelReservationRow } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
+import { formatIsoDate } from "@/lib/format/date";
 
 type LodgingTileProps = {
   hotelReservations: HotelReservationRow[];
 };
-
-/** Render an ISO date as "Mon D" — e.g. "Apr 19". Defensive on bad input. */
-function formatShortDate(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", {
-    timeZone: "UTC",
-    month: "short",
-    day: "numeric",
-  });
-}
 
 export function LodgingTile({ hotelReservations }: LodgingTileProps) {
   // Whole-tile-missing per §8.3: return null. Grid reflows.
@@ -66,7 +56,7 @@ export function LodgingTile({ hotelReservations }: LodgingTileProps) {
       <div className="flex flex-1 flex-col gap-4">
         {hotelReservations.map((res, idx) => (
           <div
-            key={`${res.ordinal}-${idx}`}
+            key={res.ordinal}
             className={[
               "flex flex-col gap-3",
               // Hairline between stacked reservations (DESIGN.md §1 —
@@ -109,7 +99,7 @@ export function LodgingTile({ hotelReservations }: LodgingTileProps) {
                   value={
                     res.check_in ? (
                       <time dateTime={res.check_in}>
-                        {formatShortDate(res.check_in)}
+                        {formatIsoDate(res.check_in, "short")}
                       </time>
                     ) : null
                   }
@@ -119,7 +109,7 @@ export function LodgingTile({ hotelReservations }: LodgingTileProps) {
                   value={
                     res.check_out ? (
                       <time dateTime={res.check_out}>
-                        {formatShortDate(res.check_out)}
+                        {formatIsoDate(res.check_out, "short")}
                       </time>
                     ) : null
                   }

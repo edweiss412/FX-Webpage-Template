@@ -34,6 +34,7 @@ import type { TransportationRow } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
 import { EmptyState } from "@/components/atoms/EmptyState";
+import { formatIsoDate } from "@/lib/format/date";
 
 type TransportTileProps = {
   transportation: TransportationRow | null;
@@ -43,18 +44,6 @@ type TransportTileProps = {
    */
   visible: boolean;
 };
-
-/** Render an ISO date as "Mon, Jun 1". */
-function formatDate(iso: string): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("en-US", {
-    timeZone: "UTC",
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
 
 export function TransportTile({ transportation, visible }: TransportTileProps) {
   if (!visible || !transportation) return null;
@@ -180,7 +169,7 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
                       dateTime={leg.date}
                       className="font-semibold text-text-strong"
                     >
-                      {formatDate(leg.date)}
+                      {formatIsoDate(leg.date, "weekday-short")}
                     </time>
                   ) : null}
                   {leg.date && leg.time ? (
@@ -193,12 +182,9 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
                 {leg.assigned_names.length > 0 ? (
                   <p className="text-sm text-text-subtle">
                     With:{" "}
-                    {leg.assigned_names.map((name, i) => (
-                      <span key={`${name}-${i}`}>
-                        {i > 0 ? ", " : ""}
-                        <span className="text-text">{name}</span>
-                      </span>
-                    ))}
+                    <span className="text-text">
+                      {leg.assigned_names.join(", ")}
+                    </span>
                   </p>
                 ) : null}
               </li>
