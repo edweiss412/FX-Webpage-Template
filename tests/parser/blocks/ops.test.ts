@@ -146,6 +146,63 @@ describe("parseOps — coi_status verbatim preservation", () => {
   });
 });
 
+// ── Codex round-7: first-match-wins + placeholder rejection ──────────────────
+describe("parseOps — Codex round-7 regression", () => {
+  it("blank PO# in real ops block is preserved as null even when later admin table has PO # | FALSE", () => {
+    // 2025-03-dci-rpas-central.md line 234: blank | PO# | | (real ops row)
+    // line 541: | PO # | FALSE | (admin/reference table)
+    // Expected: po === null, NOT po === "FALSE"
+    const md = readFileSync("fixtures/shows/raw/2025-03-dci-rpas-central.md", "utf8");
+    const ops = parseOps(md, "v2");
+    expect(ops.po).toBeNull();
+  });
+
+  it("rejects FALSE/TRUE/N/A/TBD/— placeholders for any ops field", () => {
+    const md = [
+      "| PO#           | FALSE |",
+      "| Proposal      | TRUE |",
+      "| Invoice       | N/A |",
+      "| Invoice Notes | TBD |",
+      "| COI           | — |",
+    ].join("\n");
+    const ops = parseOps(md, "v2");
+    expect(ops.po).toBeNull();
+    expect(ops.proposal).toBeNull();
+    expect(ops.invoice).toBeNull();
+    expect(ops.invoice_notes).toBeNull();
+    expect(ops.coi_status).toBeNull();
+  });
+
+  it("real ops field values still pass through — no false rejections", () => {
+    const md = [
+      "| PO#       | PO-12345 |",
+      "| Proposal  | proposal-abc |",
+      "| COI       | Sent |",
+      "| Invoice   | SENT |",
+      "| Invoice Notes | Add parking receipts |",
+    ].join("\n");
+    const ops = parseOps(md, "v2");
+    expect(ops.po).toBe("PO-12345");
+    expect(ops.proposal).toBe("proposal-abc");
+    expect(ops.coi_status).toBe("Sent");
+    expect(ops.invoice).toBe("SENT");
+    expect(ops.invoice_notes).toBe("Add parking receipts");
+  });
+
+  it("first-match-wins: real blank value locks the field; subsequent non-placeholder row is ignored", () => {
+    // First PO# row is blank → po stays null; second row with real value is ignored
+    const md = ["| PO# |  |", "| PO# | PO-SHOULD-NOT-APPEAR |"].join("\n");
+    const ops = parseOps(md, "v2");
+    expect(ops.po).toBeNull();
+  });
+
+  it("first-match-wins: real blank value locks field even when second row is a placeholder", () => {
+    const md = ["| PO# |  |", "| PO # | FALSE |"].join("\n");
+    const ops = parseOps(md, "v2");
+    expect(ops.po).toBeNull();
+  });
+});
+
 // ── Corpus-coverage test ──────────────────────────────────────────────────────
 describe("parseOps — corpus coverage", () => {
   for (const path of ALL_FIXTURES) {

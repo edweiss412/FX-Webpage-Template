@@ -32,6 +32,13 @@ const PO_RE = /^\s*PO[\\#\s]*#?\s*$/i;
 const INVOICE_RE = /^\s*Invoice\s*$/i;
 const INVOICE_NOTES_RE = /^\s*Invoice\s+Notes?\s*$/i;
 
+/**
+ * Admin-table placeholder values that should be treated as absent.
+ * Matched case-insensitively against the trimmed cell value.
+ * These appear in reference/admin tables and must not overwrite real ops data.
+ */
+const ADMIN_PLACEHOLDER_VALUES = new Set(["FALSE", "TRUE", "N/A", "TBD", "—", "-", "?"]);
+
 export function parseOps(
   markdown: string,
   _version: "v1" | "v2" | "v4",
@@ -43,6 +50,11 @@ export function parseOps(
   let invoice: string | null = null;
   let invoice_notes: string | null = null;
   let coi_status: string | null = null;
+
+  // First-match-wins: track which fields have been seen (even if blank).
+  // Without this, a blank first match leaves the field null, and a later
+  // admin-table row (e.g. "PO # | FALSE") would backfill it with garbage.
+  const seen = new Set<string>();
 
   for (const line of markdown.split("\n")) {
     const trimmed = line.trim();
@@ -58,19 +70,39 @@ export function parseOps(
     if (!col0) continue;
 
     // Extract value from first non-empty cell after col0
-    const val = col1 || clean(cells[2] ?? "") || null;
+    const rawVal = col1 || clean(cells[2] ?? "") || null;
+
+    // Reject admin-table placeholders — treat them as blank
+    const isPlaceholder =
+      rawVal !== null && ADMIN_PLACEHOLDER_VALUES.has(rawVal.trim().toUpperCase());
+    const val = isPlaceholder ? null : rawVal;
 
     if (COI_RE.test(col0)) {
-      // coi_status is verbatim — no normalization
-      if (coi_status === null) coi_status = presence(val ?? "");
+      if (!seen.has("coi_status")) {
+        seen.add("coi_status");
+        // coi_status is verbatim — no normalization
+        coi_status = presence(val ?? "");
+      }
     } else if (PROPOSAL_RE.test(col0)) {
-      if (proposal === null) proposal = presence(val ?? "");
+      if (!seen.has("proposal")) {
+        seen.add("proposal");
+        proposal = presence(val ?? "");
+      }
     } else if (PO_RE.test(col0)) {
-      if (po === null) po = presence(val ?? "");
+      if (!seen.has("po")) {
+        seen.add("po");
+        po = presence(val ?? "");
+      }
     } else if (INVOICE_NOTES_RE.test(col0)) {
-      if (invoice_notes === null) invoice_notes = presence(val ?? "");
+      if (!seen.has("invoice_notes")) {
+        seen.add("invoice_notes");
+        invoice_notes = presence(val ?? "");
+      }
     } else if (INVOICE_RE.test(col0)) {
-      if (invoice === null) invoice = presence(val ?? "");
+      if (!seen.has("invoice")) {
+        seen.add("invoice");
+        invoice = presence(val ?? "");
+      }
     }
   }
 
