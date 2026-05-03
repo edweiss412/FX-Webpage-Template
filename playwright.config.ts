@@ -28,8 +28,12 @@ export default defineConfig({
   },
   projects: [
     {
+      // Mobile-primary project. Covers M0 baseline (sample.spec.ts) AND the
+      // M4 crew-page layout shell (crew-page.spec.ts) — both run against the
+      // generic dev server on port 3000 because the public /show/[slug]
+      // route doesn't depend on any of the dev-build / prod-build env gates.
       name: "mobile-safari",
-      testMatch: /sample\.spec\.ts/,
+      testMatch: /(sample|crew-page)\.spec\.ts/,
       use: {
         ...devices["iPhone 14"],
         viewport: { width: 390, height: 844 },
@@ -38,7 +42,7 @@ export default defineConfig({
     },
     {
       name: "desktop-chromium",
-      testMatch: /sample\.spec\.ts/,
+      testMatch: /(sample|crew-page)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },
