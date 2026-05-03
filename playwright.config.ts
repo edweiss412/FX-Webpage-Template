@@ -75,10 +75,17 @@ export default defineConfig({
     {
       // dev-build artifact (port 3001) — built with ADMIN_DEV_PANEL_ENABLED=true.
       // NEXT_DIST_DIR keeps the artifact separate from the prod-build .next.
+      // TEST_AUTH_SECRET (Round 1 Finding 3 hardening) is required by the
+      // test-auth endpoint as a per-run secret; signInAs sends it via
+      // Authorization: Bearer header on every POST.
       command:
-        "ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true NEXT_DIST_DIR=.next-dev " +
+        "ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true " +
+        "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
+        "NEXT_DIST_DIR=.next-dev " +
         "pnpm exec next build && " +
-        "ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true NEXT_DIST_DIR=.next-dev " +
+        "ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true " +
+        "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
+        "NEXT_DIST_DIR=.next-dev " +
         "pnpm exec next start --port 3001",
       url: "http://localhost:3001",
       reuseExistingServer: !process.env.CI,
@@ -86,13 +93,18 @@ export default defineConfig({
     },
     {
       // prod-build artifact (port 3002) — built with ADMIN_DEV_PANEL_ENABLED unset.
-      // ENABLE_TEST_AUTH=true so /api/test-auth/set-session works for
-      // signInAs(ADMIN_FIXTURE); the build-time gate keeps /admin/dev itself
-      // permanently 404 (proves the build artifact, not just runtime state).
+      // ENABLE_TEST_AUTH=true + TEST_AUTH_SECRET so /api/test-auth/set-session
+      // works for signInAs(ADMIN_FIXTURE); the build-time gate keeps
+      // /admin/dev itself permanently 404 (proves the build artifact, not
+      // just runtime state).
       command:
-        "ENABLE_TEST_AUTH=true NEXT_DIST_DIR=.next-prod " +
+        "ENABLE_TEST_AUTH=true " +
+        "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
+        "NEXT_DIST_DIR=.next-prod " +
         "pnpm exec next build && " +
-        "ENABLE_TEST_AUTH=true NEXT_DIST_DIR=.next-prod " +
+        "ENABLE_TEST_AUTH=true " +
+        "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
+        "NEXT_DIST_DIR=.next-prod " +
         "pnpm exec next start --port 3002",
       url: "http://localhost:3002",
       reuseExistingServer: !process.env.CI,
