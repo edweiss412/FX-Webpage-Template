@@ -6,13 +6,20 @@
  * context can be authenticated for subsequent /admin/dev requests.
  *
  * GATING (defense in depth):
- *   - process.env.NODE_ENV must be 'test'
+ *   - process.env.ENABLE_TEST_AUTH must be the literal string 'true'
  *   - The handler returns 404 in any other environment
  *
+ * NODE_ENV is NOT used as the gate — `next start` forces NODE_ENV=production
+ * regardless of the ambient environment, so a NODE_ENV check would never
+ * match in either Playwright webServer build. ENABLE_TEST_AUTH is a
+ * dedicated server-only env var (no NEXT_PUBLIC_ prefix) set inline by both
+ * Playwright webServer commands and NEVER set in real production builds.
+ *
  * The endpoint is intentionally NOT gated on ADMIN_DEV_PANEL_ENABLED — the
- * prod-build Playwright project sets NODE_ENV=test (so we can sign in admin
- * to prove /admin/dev still returns 404), but does NOT set the dev-panel
- * flag. M5 replaces this with the real OAuth flow.
+ * prod-build Playwright project sets ENABLE_TEST_AUTH=true (so we can sign
+ * in admin to prove /admin/dev still returns 404 even with admin auth),
+ * but does NOT set the dev-panel flag. M5 replaces this with the real OAuth
+ * flow; ENABLE_TEST_AUTH stays as the test-only escape hatch.
  *
  * Flow:
  *   1. Service-role client: auth.admin.createUser (idempotent — ignore "already exists")
@@ -27,11 +34,16 @@ import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 // A long, well-known password used by all fixture sign-ins. The test-auth
-// endpoint is gated on NODE_ENV=test so this never reaches production.
+// endpoint is gated on ENABLE_TEST_AUTH so this never reaches production.
 const TEST_FIXTURE_PASSWORD = "fxav-test-fixture-password-2026";
 
 export async function POST(request: Request): Promise<Response> {
-  if (process.env.NODE_ENV !== "test") {
+  // Gate: ENABLE_TEST_AUTH must be set explicitly. NODE_ENV is unreliable
+  // because `next start` forces NODE_ENV=production regardless of the
+  // ambient environment, so we use a dedicated server-only env var instead.
+  // Production builds NEVER set ENABLE_TEST_AUTH; both Playwright webServer
+  // commands set it inline so the helper is reachable in both build artifacts.
+  if (process.env.ENABLE_TEST_AUTH !== "true") {
     return new NextResponse("Not Found", { status: 404 });
   }
 
@@ -51,11 +63,11 @@ export async function POST(request: Request): Promise<Response> {
   const supabaseUrl = process.env.SUPABASE_URL ?? "http://127.0.0.1:54321";
   const serviceKey =
     process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UtZGVtbyIsImlhdCI6MTY0MTc2OTIwMCwiZXhwIjoxNzk5NTM1NjAwfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q";
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
   const anonKey =
     process.env.SUPABASE_ANON_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlLWRlbW8iLCJpYXQiOjE2NDE3NjkyMDAsImV4cCI6MTc5OTUzNTYwMH0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE";
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
 
   const adminClient = createClient(supabaseUrl, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -142,8 +154,13 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 export async function GET(): Promise<Response> {
-  if (process.env.NODE_ENV !== "test") {
+  // Gate: ENABLE_TEST_AUTH must be set explicitly. NODE_ENV is unreliable
+  // because `next start` forces NODE_ENV=production regardless of the
+  // ambient environment, so we use a dedicated server-only env var instead.
+  // Production builds NEVER set ENABLE_TEST_AUTH; both Playwright webServer
+  // commands set it inline so the helper is reachable in both build artifacts.
+  if (process.env.ENABLE_TEST_AUTH !== "true") {
     return new NextResponse("Not Found", { status: 404 });
   }
-  return NextResponse.json({ ok: true, gate: "NODE_ENV=test" });
+  return NextResponse.json({ ok: true, gate: "ENABLE_TEST_AUTH=true" });
 }

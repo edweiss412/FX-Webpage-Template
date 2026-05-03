@@ -12,7 +12,7 @@ const url = process.env.SUPABASE_URL ?? "http://127.0.0.1:54321";
 const serviceRoleKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ??
   // Default service role key shipped with `supabase start`.
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UtZGVtbyIsImlhdCI6MTY0MTc2OTIwMCwiZXhwIjoxNzk5NTM1NjAwfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q";
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
 
 export const admin = createClient(url, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -43,20 +43,6 @@ export type PublicSchemaSnapshot = {
   syncLogCount: number;
   syncAuditCount: number;
 };
-
-async function executeRest<T>(table: string, query: string): Promise<T> {
-  const response = await fetch(`${url}/rest/v1/${table}?${query}`, {
-    headers: {
-      apikey: serviceRoleKey,
-      Authorization: `Bearer ${serviceRoleKey}`,
-      Prefer: "count=exact",
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`REST query failed: ${table}?${query} -> ${response.status}`);
-  }
-  return (await response.json()) as T;
-}
 
 export async function snapshotPublicSchema(): Promise<PublicSchemaSnapshot> {
   // Use service-role client so RLS doesn't shadow rows. Each select uses count:'exact'

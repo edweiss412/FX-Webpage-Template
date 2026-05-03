@@ -3,9 +3,10 @@
  * POSTing to the test-only `/api/test-auth/set-session` endpoint, which mints
  * Supabase auth cookies for the requested email and returns them via Set-Cookie.
  *
- * Gated server-side by NODE_ENV === 'test' AND ADMIN_DEV_PANEL_ENABLED === 'true';
- * the endpoint returns 404 in any other build configuration so it cannot reach
- * production. See app/api/test-auth/set-session/route.ts.
+ * Gated server-side by ENABLE_TEST_AUTH === 'true' (NOT NEXT_PUBLIC_); the
+ * endpoint returns 404 in any build that does not set the flag, so it cannot
+ * reach production. Both Playwright projects (dev-build, prod-build) set the
+ * flag inline at build/start time so signInAs() works in both surfaces. See app/api/test-auth/set-session/route.ts.
  *
  * M5 replaces the implementation when the real OAuth sign-in lands; the
  * exported `signInAs(page, fixture)` signature stays stable so test code does

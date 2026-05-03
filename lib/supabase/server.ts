@@ -10,6 +10,7 @@
  * exported function name `createSupabaseServerClient()` stays stable.
  */
 import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
 export async function createSupabaseServerClient() {
@@ -50,11 +51,10 @@ export async function createSupabaseServerClient() {
  * extra env config.
  */
 export function createSupabaseServiceRoleClient() {
-  const { createClient } = require("@supabase/supabase-js") as typeof import("@supabase/supabase-js");
   const url = process.env.SUPABASE_URL ?? "http://127.0.0.1:54321";
   const serviceKey =
     process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UtZGVtbyIsImlhdCI6MTY0MTc2OTIwMCwiZXhwIjoxNzk5NTM1NjAwfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q";
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
   return createClient(url, serviceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
