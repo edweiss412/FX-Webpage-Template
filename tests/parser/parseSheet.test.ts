@@ -87,11 +87,31 @@ describe("parseSheet — schedule_phases derivation from dates (M1 baseline)", (
     const md = readFileSync("fixtures/shows/raw/2026-03-rpas-central-four-seasons.md", "utf8");
     const r = parseSheet(md, "2026-03-rpas-central-four-seasons.md");
     const phases = r.show.schedule_phases;
-    // Per Task 1.5 fixture-grounded: set=2026-03-23, showDays=['2026-03-24','2026-03-25'], travelOut=2026-03-26
-    expect(phases["2026-03-23"]).toEqual(["Load In", "Set"]);
+    // Per Task 1.5 fixture-grounded: travelIn=2026-03-22, set=2026-03-23 (separate days)
+    // Codex round-2 fix: set day is ['Set'] only — Load In is NOT added when travelIn is a
+    // different calendar day from set.
+    expect(phases["2026-03-23"]).toEqual(["Set"]);
+    // travelIn=2026-03-22 is travel-only — no WorkPhase entry expected
+    expect(phases["2026-03-22"]).toBeUndefined();
     expect(phases["2026-03-24"]).toEqual(["Show"]);
     expect(phases["2026-03-25"]).toEqual(["Show", "Strike"]); // last show day → compound
     expect(phases["2026-03-26"]).toEqual(["Load Out"]);
+  });
+
+  it("schedule_phases compounds Load In + Set when travelIn === set (synthetic)", () => {
+    // Synthesize minimal markdown with travelIn === set (same-day crew pattern).
+    // The 2026-03 fixture DATES block row for TRAVEL IN is:
+    //   |       | TRAVEL IN  |  Sunday   | 3/22/26 |  ...
+    // Patching col[3] from 3/22/26 → 3/23/26 makes travelIn === set (2026-03-23).
+    const md = readFileSync("fixtures/shows/raw/2026-03-rpas-central-four-seasons.md", "utf8");
+    const patched = md.replace(
+      /(\|\s*\|\s*TRAVEL IN\s*\|[^|]*\|)\s*3\/22\/26\s*(\|)/,
+      "$1 3/23/26 $2",
+    );
+    const r = parseSheet(patched, "synthetic-same-day-load-in.md");
+    const phases = r.show.schedule_phases;
+    // When travelIn === set (both 2026-03-23), Load In should be co-located on set day.
+    expect(phases["2026-03-23"]).toEqual(["Set", "Load In"]);
   });
 
   it("schedule_phases is non-empty for every fixture with dates", () => {

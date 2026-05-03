@@ -250,7 +250,15 @@ function parseAgendaLinks(markdown: string): ShowRow["agenda_links"] {
 
 // ── schedule_phases ───────────────────────────────────────────────────────────
 // M1 baseline: derives work phases from the dates block only.
-//   dates.set        → ['Load In', 'Set']
+//
+//   dates.set        → ['Set'] always.
+//                      'Load In' is added on set day ONLY when travelIn is
+//                      absent or travelIn === set (same-day fly-out/drive-in
+//                      crew pattern). When travelIn is a separate calendar day,
+//                      Load In is NOT automatically placed on set day — the
+//                      dates-only baseline does not know which day crew actually
+//                      loads in, so the safer default is to omit it rather than
+//                      misrepresent the schedule (Codex round-2 finding).
 //   showDays[0..n-2] → ['Show']
 //   showDays[n-1]    → ['Show', 'Strike']  (last show day is always compound)
 //   dates.travelOut  → ['Load Out']
@@ -263,15 +271,38 @@ function parseAgendaLinks(markdown: string): ShowRow["agenda_links"] {
 // PackListTile reads this map via todayWorkPhases(show, today).
 function deriveSchedulePhases(dates: ShowRow["dates"]): ShowRow["schedule_phases"] {
   const phases: Record<string, WorkPhase[]> = {};
-  if (dates.set) phases[dates.set] = ["Load In", "Set"];
+
+  // Helper: append a phase to a date's list (de-duplicated, ordered).
+  const addPhase = (date: string | null | undefined, phase: WorkPhase) => {
+    if (!date) return;
+    const existing = phases[date] ?? [];
+    if (!existing.includes(phase)) {
+      phases[date] = [...existing, phase];
+    }
+  };
+
+  if (dates.set) {
+    addPhase(dates.set, "Set");
+    // Load In on set day only when travel-in is absent or on the same day.
+    // When travelIn is a separate calendar day, skip Load In — the M1
+    // dates-only baseline cannot determine which day crew loads in.
+    if (!dates.travelIn || dates.travelIn === dates.set) {
+      addPhase(dates.set, "Load In");
+    }
+  }
+
   const days = dates.showDays;
   for (let i = 0; i < days.length; i++) {
     const day = days[i];
     if (!day) continue;
-    const isLast = i === days.length - 1;
-    phases[day] = isLast ? ["Show", "Strike"] : ["Show"];
+    addPhase(day, "Show");
+    if (i === days.length - 1) {
+      addPhase(day, "Strike"); // last show day is compound Show+Strike
+    }
   }
-  if (dates.travelOut) phases[dates.travelOut] = ["Load Out"];
+
+  if (dates.travelOut) addPhase(dates.travelOut, "Load Out");
+
   return phases;
 }
 
