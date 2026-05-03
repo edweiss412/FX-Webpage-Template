@@ -44,12 +44,17 @@
     ".next-dev/types/**/*.ts",
     ".next-dev/dev/types/**/*.ts",
     ".next-prod-flip/types/**/*.ts",
-    ".next-prod-flip/dev/types/**/*.ts"
+    ".next-prod-flip/dev/types/**/*.ts",
+    "/Users/ericweiss/FX-Webpage-Template/.next-build-artifact-gate-test/types/**/*.ts",
+    "/Users/ericweiss/FX-Webpage-Template/.next-build-artifact-gate-test/dev/types/**/*.ts",
+    ".next-build-artifact-gate-test/types/**/*.ts",
+    ".next-build-artifact-gate-test/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
     ".next-dev",
     ".next-prod",
-    ".next-prod-flip"
+    ".next-prod-flip",
+    ".next-build-artifact-gate-test"
   ]
 }

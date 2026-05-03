@@ -96,19 +96,19 @@ export default defineConfig({
       timeout: process.env.CI ? 120_000 : 60_000,
     },
     {
-      // dev-build artifact (port 3001) — built with ADMIN_DEV_PANEL_ENABLED=true.
-      // NEXT_DIST_DIR keeps the artifact separate from the prod-build .next.
-      // TEST_AUTH_SECRET (Round 1 Finding 3 hardening) is required by the
-      // test-auth endpoint as a per-run secret; signInAs sends it via
-      // Authorization: Bearer header on every POST.
-      // The with-admin-dev-flag wrapper is a no-op when ADMIN_DEV_PANEL_ENABLED=true
-      // (the page.tsx / actions.ts files stay in place); we still wrap for
-      // symmetry across projects and to surface any wrapper bugs early.
+      // dev-build artifact (port 3001) — built with ADMIN_DEV_PANEL_ENABLED=true
+      // via the canonical `pnpm build` script (which routes through
+      // scripts/with-admin-dev-flag.mjs per Round 2 Finding 1). NEXT_DIST_DIR
+      // keeps the artifact separate from the prod-build .next. TEST_AUTH_SECRET
+      // (Round 1 Finding 3 hardening) is required by the test-auth endpoint
+      // as a per-run secret; signInAs sends it via Authorization: Bearer
+      // header on every POST. The wrapper is a no-op when
+      // ADMIN_DEV_PANEL_ENABLED=true (files stay in place).
       command:
         "ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true " +
         "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
         "NEXT_DIST_DIR=.next-dev " +
-        "node scripts/with-admin-dev-flag.mjs pnpm exec next build && " +
+        "pnpm build && " +
         "ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true " +
         "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
         "NEXT_DIST_DIR=.next-dev " +
@@ -118,18 +118,20 @@ export default defineConfig({
       timeout: 300_000,
     },
     {
-      // prod-build artifact (port 3002) — built with ADMIN_DEV_PANEL_ENABLED unset
-      // and run through with-admin-dev-flag.mjs so the page.tsx / actions.ts
-      // files are physically renamed away before `next build` reads them. The
-      // .next-prod artifact will literally NOT contain app/admin/dev/* — the
-      // gate is a true build-artifact decision per Round 1 Finding 1.
+      // prod-build artifact (port 3002) — built via the canonical `pnpm build`
+      // script with ADMIN_DEV_PANEL_ENABLED unset. The build script
+      // (package.json) routes through scripts/with-admin-dev-flag.mjs so the
+      // page.tsx / actions.ts files are physically renamed away before
+      // `next build` reads them. The .next-prod artifact will literally NOT
+      // contain app/admin/dev/* — proving the gate via the SAME canonical
+      // command CI / Vercel / local would use (Round 2 Finding 1).
       // ENABLE_TEST_AUTH=true + TEST_AUTH_SECRET so signInAs(ADMIN_FIXTURE)
       // still works (signin proves the 404 holds even WITH admin auth).
       command:
         "ENABLE_TEST_AUTH=true " +
         "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
         "NEXT_DIST_DIR=.next-prod " +
-        "node scripts/with-admin-dev-flag.mjs pnpm exec next build && " +
+        "pnpm build && " +
         "ENABLE_TEST_AUTH=true " +
         "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
         "NEXT_DIST_DIR=.next-prod " +
@@ -139,19 +141,20 @@ export default defineConfig({
       timeout: 300_000,
     },
     {
-      // prod-runtime-flip artifact (port 3003) — Round 1 Finding 1 regression.
-      // Build with ADMIN_DEV_PANEL_ENABLED UNSET (production posture) THROUGH
-      // the with-admin-dev-flag wrapper, so the build artifact omits
-      // app/admin/dev. Then START with ADMIN_DEV_PANEL_ENABLED=true at runtime,
-      // simulating an operator misconfiguring a real prod deployment with the
-      // flag turned on. The Playwright test asserts /admin/dev is STILL 404 —
-      // proving the gate is a true build-artifact decision and cannot be
-      // flipped via runtime env-var alone.
+      // prod-runtime-flip artifact (port 3003) — Round 1 Finding 1 + Round 2
+      // Finding 1 regression. Built via the canonical `pnpm build` script
+      // (same command CI / Vercel / local use) with ADMIN_DEV_PANEL_ENABLED
+      // UNSET — the production posture. Then STARTED with
+      // ADMIN_DEV_PANEL_ENABLED=true at runtime, simulating an operator
+      // misconfiguring a real prod deployment with the flag turned on. The
+      // Playwright test asserts /admin/dev is STILL 404, proving the
+      // canonical build path produces a safe artifact and the gate cannot
+      // be flipped via runtime env-var alone.
       command:
         "ENABLE_TEST_AUTH=true " +
         "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
         "NEXT_DIST_DIR=.next-prod-flip " +
-        "node scripts/with-admin-dev-flag.mjs pnpm exec next build && " +
+        "pnpm build && " +
         "ADMIN_DEV_PANEL_ENABLED=true " +
         "ENABLE_TEST_AUTH=true " +
         "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
