@@ -215,5 +215,10 @@ export async function resetDevSchema(): Promise<{ ok: true }> {
 export async function listFixtures(): Promise<string[]> {
   await requireAdmin();
   const entries = await readdir(FIXTURE_DIR);
-  return entries.filter((n) => n.endsWith(".md")).sort();
+  // '_'-prefix is the test-fixture convention; see
+  // tests/sync/dev-routing.test.ts beforeAll for the AC-3.3 temp-fixture write
+  // (`_temp-mi1-no-version.md`). Hiding underscore-prefixed names from the
+  // dev-panel dropdown prevents an operator running `pnpm test tests/sync/`
+  // in one terminal from seeing test-only fixtures in the panel UI in another.
+  return entries.filter((n) => n.endsWith(".md") && !n.startsWith("_")).sort();
 }

@@ -238,13 +238,10 @@ describe("AC-3.3: MI-1_VERSION_DETECTION_FAILED routes to dev.pending_ingestions
     // dev.pending_ingestions with the canonical MI-1 code.
     const result = await parseAndStage(TEMP_FIXTURE_NAME);
 
-    expect(result.outcome).toBe("hard_fail");
-    expect(result.staging?.kind).toBe("pending_ingestion");
-    expect(result.hardFailCodes).toContain("MI-1_VERSION_DETECTION_FAILED");
-
-    // Anti-tautology assertion: read back from dev.pending_ingestions and
-    // verify last_error_code is what parseSheet's version-detection branch
-    // produced — NOT a value we inserted directly.
+    // PRIMARY anti-tautology assertion: read back from dev.pending_ingestions
+    // and verify last_error_code is what parseSheet's version-detection branch
+    // produced — NOT a value we inserted directly. This is the canonical
+    // AC-3.3 check: the row landed in the right table with the right code.
     const piRead = await admin
       .schema("dev")
       .from("pending_ingestions")
@@ -272,5 +269,13 @@ describe("AC-3.3: MI-1_VERSION_DETECTION_FAILED routes to dev.pending_ingestions
       .eq("drive_file_id", result.driveFileId);
     expect(psRead.error).toBeNull();
     expect(psRead.count ?? 0).toBe(0);
+
+    // Defense-in-depth: the in-memory action result must agree with the DB
+    // readback. If these diverge, parseAndStage's return value lies about
+    // what it stored — a class of bug the DB-only assertion above would not
+    // catch on its own.
+    expect(result.outcome).toBe("hard_fail");
+    expect(result.staging?.kind).toBe("pending_ingestion");
+    expect(result.hardFailCodes).toContain("MI-1_VERSION_DETECTION_FAILED");
   });
 });
