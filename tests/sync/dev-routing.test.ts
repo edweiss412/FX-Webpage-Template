@@ -524,6 +524,20 @@ describe("Round 6 Finding 1 — dev_phase1_stage holds the per-show advisory loc
     // dollar-quote conflict with the outer expression). The drive_file_id
     // is interpolated via JS template — safe because the value is a known
     // constant defined above (no untrusted input).
+    // Round 7 Finding 1 (Codex): the prior filter only matched objid (low
+    // 32 bits), so a refactor to the two-arg variant
+    // pg_advisory_xact_lock(0, hashtext(...)) would still pass — same low
+    // bits, but classid=0 instead of the high bits of the bigint, AND
+    // objsubid=2 instead of 1. Tighten to the full (classid, objid,
+    // objsubid) tuple, derived in SQL from the same hashtext expression
+    // so client-side bit-math is avoided.
+    //
+    // Postgres pg_locks representation for one-arg bigint advisory lock
+    // (verified via probe — see commit message):
+    //   classid  = HIGH 32 bits of the bigint key (as oid, sign-extended
+    //              for negative hashtext outputs → 4294967295 = 0xFFFFFFFF)
+    //   objid    = LOW  32 bits of the bigint key (as oid)
+    //   objsubid = 1 (one-arg variant); two-arg variant is 2
     const sql = String.raw`
       begin;
       select dev_phase1_stage(
@@ -539,12 +553,22 @@ describe("Round 6 Finding 1 — dev_phase1_stage holds the per-show advisory loc
         now()                       -- p_staged_modified_time
       );
       select '---LOCKS---';
-      select count(*) from pg_locks
+      with k as (
+        select hashtext('show:' || '${driveFileId}')::bigint as kb
+      ),
+      expected as (
+        select ((kb >> 32) & x'FFFFFFFF'::bigint)::oid as expected_classid,
+               (kb & x'FFFFFFFF'::bigint)::oid         as expected_objid
+          from k
+      )
+      select count(*) from pg_locks, expected
         where pid = pg_backend_pid()
           and locktype = 'advisory'
           and mode = 'ExclusiveLock'
           and granted = true
-          and objid = (hashtext('show:' || '${driveFileId}'))::bigint::oid;
+          and classid = expected.expected_classid     -- HIGH 32 bits
+          and objid   = expected.expected_objid       -- LOW  32 bits
+          and objsubid = 1;                            -- one-arg variant
       select '---ANY_ADVISORY---';
       select count(*) from pg_locks
         where pid = pg_backend_pid()
@@ -574,8 +598,12 @@ describe("Round 6 Finding 1 — dev_phase1_stage holds the per-show advisory loc
     // assertion fails with the count being 0.
     expect(
       expectedLockCount,
-      "AGENTS.md §1.2: dev_phase1_stage MUST hold pg_advisory_xact_lock(hashtext('show:'||drive_file_id)) during the transaction. " +
-        `Got 0 — the lock call may have been removed from supabase/migrations/20260502000000_dev_schema_clone.sql.`,
+      "AGENTS.md §1.2: dev_phase1_stage MUST hold pg_advisory_xact_lock(hashtext('show:'||drive_file_id)) " +
+        "with the EXACT (classid=high32, objid=low32, objsubid=1) tuple of the one-arg-bigint variant. " +
+        "Got 0 matching locks. Possible causes (any one breaks AGENTS.md §1.2): (a) the lock call was removed " +
+        "from supabase/migrations/20260502000000_dev_schema_clone.sql; (b) the call switched to the two-arg " +
+        "variant pg_advisory_xact_lock(c, k) — that lock has objsubid=2 and a different classid; " +
+        "(c) the key composition changed (e.g., dropped the 'show:' prefix or used a different column).",
     ).toBe(1);
 
     // Diagnostic: confirm there are no UNEXPECTED advisory locks the test
@@ -589,13 +617,16 @@ describe("Round 6 Finding 1 — dev_phase1_stage holds the per-show advisory loc
     ).toBe(expectedLockCount);
   });
 
-  test("different drive_file_ids produce different lock keys (no collision)", () => {
+  test("different drive_file_ids produce different lock keys (full-tuple membership, no collision)", () => {
     // Defense-in-depth: confirms the lock key actually depends on
     // drive_file_id. If the RPC accidentally locked on a constant or on
-    // the wrong column, both calls would acquire the same key and only
-    // one advisory lock would appear. Observing TWO distinct advisory
-    // locks (one per drive_file_id) is the strongest single-transaction
-    // proof of "per-show" lock granularity.
+    // the wrong column, both calls would acquire the same key.
+    //
+    // Round 7 Finding 1 tightening: instead of `count(distinct objid)`
+    // (which would still pass for a refactor to two-arg variant whose
+    // low bits collide), build the EXACT expected (classid, objid,
+    // objsubid) tuple set for both drive_file_ids and assert pg_locks
+    // contains BOTH tuples granted to the current backend.
     const sql = String.raw`
       begin;
       select dev_phase1_stage(
@@ -606,21 +637,36 @@ describe("Round 6 Finding 1 — dev_phase1_stage holds the per-show advisory loc
         'dev:assert-lock:show-B', 'probe-B.md', '{}'::jsonb, 'pass',
         '[]'::jsonb, null, null, '[]'::jsonb, 'probe', now()
       );
-      select '---DISTINCT---';
-      select count(distinct objid) from pg_locks
-        where pid = pg_backend_pid()
-          and locktype = 'advisory'
-          and mode = 'ExclusiveLock'
-          and granted = true;
+      select '---MATCHED---';
+      with expected as (
+        select ((kb >> 32) & x'FFFFFFFF'::bigint)::oid as classid,
+               (kb & x'FFFFFFFF'::bigint)::oid         as objid,
+               1::int                                  as objsubid
+          from (values
+            (hashtext('show:dev:assert-lock:show-A')::bigint),
+            (hashtext('show:dev:assert-lock:show-B')::bigint)
+          ) as v(kb)
+      )
+      select count(*) from pg_locks l
+        join expected e
+          on l.classid = e.classid
+         and l.objid = e.objid
+         and l.objsubid = e.objsubid
+        where l.pid = pg_backend_pid()
+          and l.locktype = 'advisory'
+          and l.mode = 'ExclusiveLock'
+          and l.granted = true;
       rollback;
     `;
     const out = runPsqlAt(sql);
     const lines = out.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
-    const distinctIdx = lines.indexOf("---DISTINCT---");
-    const distinctCount = Number(lines[distinctIdx + 1] ?? "0");
+    const matchedIdx = lines.indexOf("---MATCHED---");
+    const matchedCount = Number(lines[matchedIdx + 1] ?? "0");
     expect(
-      distinctCount,
-      "AGENTS.md §1.2 specifies PER-SHOW lock granularity. Two distinct drive_file_ids must produce two distinct lock keys.",
+      matchedCount,
+      "AGENTS.md §1.2 specifies PER-SHOW lock granularity with the one-arg-bigint advisory lock variant. " +
+        "Both expected (classid, objid, objsubid=1) tuples for show-A and show-B must be present in pg_locks. " +
+        "If the RPC switched to the two-arg variant or a fixed key, this count would be 0 or 1.",
     ).toBe(2);
   });
 });
