@@ -147,6 +147,40 @@ describe("parseContacts — v1 (2024-05-east-coast-family-office)", () => {
   });
 });
 
+// ── Codex round-2: exact-name regression tests ───────────────────────────────
+
+describe("parseContacts — exact name extraction (Codex round-2 findings)", () => {
+  it("extracts 'Jenaé Denne' (accented) as venue contact name (2025-04)", () => {
+    // Fixture line 125: | Hotal Contact Info | Jenaé Denne 312-649-2319 <jenae.denne@fourseasons.com> |
+    const md = readFileSync("fixtures/shows/raw/2025-04-asset-mgmt-cfo-coo.md", "utf8");
+    const contacts = parseContacts(md, "v2");
+    const venue = contacts.filter((c) => c.kind === "venue");
+    const denne = venue.find((c) => /Jenaé Denne|Jenae Denne/i.test(c.name ?? ""));
+    expect(denne).toBeDefined();
+    expect(denne!.name).toBe("Jenaé Denne");
+  });
+
+  it("extracts 'Kurt Ashcraft' without absorbing 'Senior Event Planning Manager' (2025-10)", () => {
+    // Fixture line 56: | Hotel Contact Info | Kurt Ashcraft Senior Event Planning Manager 312 239 4217 kurt.ashcraft@hyatt.com |
+    const md = readFileSync("fixtures/shows/raw/2025-10-fixed-income-trading-summit.md", "utf8");
+    const contacts = parseContacts(md, "v2");
+    const venue = contacts.filter((c) => c.kind === "venue");
+    const kurt = venue.find((c) => /Kurt Ashcraft/.test(c.name ?? ""));
+    expect(kurt).toBeDefined();
+    expect(kurt!.name).toBe("Kurt Ashcraft");
+  });
+
+  it("extracts 'Aaron Paul' without absorbing 'Director of Event Technology' (2026-05)", () => {
+    // Fixture line 48: | In House AV | Aaron Paul Director of Event Technology aaron.paul2@encoreglobal.com ... |
+    const md = readFileSync("fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md", "utf8");
+    const contacts = parseContacts(md, "v2");
+    const inHouse = contacts.filter((c) => c.kind === "in_house_av");
+    const aaron = inHouse.find((c) => /Aaron Paul/.test(c.name ?? ""));
+    expect(aaron).toBeDefined();
+    expect(aaron!.name).toBe("Aaron Paul");
+  });
+});
+
 // ── Corpus-coverage test ──────────────────────────────────────────────────────
 describe("parseContacts — corpus coverage", () => {
   for (const path of ALL_FIXTURES) {

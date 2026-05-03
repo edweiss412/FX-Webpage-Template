@@ -40,9 +40,6 @@ const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/i;
 const PHONE_RE =
   /\+?1?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\d{3}[-.\s]\d{3}[-.\s]\d{4}|\d{3,4}-\d{3,4}-\d{4}/;
 
-// A person name: two or more tokens each starting with a capital letter (or being an initial "J.")
-const NAME_START_RE = /^[A-Z][a-zA-Z.'-]+(?:\s+[A-Z][a-zA-Z.'-]+)+$/;
-
 export function parseContacts(
   markdown: string,
   _version: "v1" | "v2" | "v4",
@@ -186,12 +183,90 @@ function parseContactCell(raw: string, kind: ContactKind): ContactRow[] {
 }
 
 /**
+ * Title/role tokens that terminate name capture (Codex round-2 finding).
+ *
+ * When the name-extraction loop encounters one of these tokens, it stops
+ * accumulating — the token and everything after it is a job title, not a
+ * person name. The set is intentionally broad to cover common hospitality and
+ * AV industry titles. Heuristic: prefer false-negative (shorter name) over
+ * false-positive (name absorbs title).
+ */
+const NAME_STOP_TOKENS = new Set([
+  // Seniority / level
+  "Senior",
+  "Junior",
+  "Lead",
+  "Associate",
+  "Assistant",
+  "Executive",
+  "Vice",
+  "Chief",
+  // Job title nouns
+  "Director",
+  "Manager",
+  "Coordinator",
+  "Specialist",
+  "Supervisor",
+  "Administrator",
+  "President",
+  "Officer",
+  "Head",
+  // Domain descriptors (often part of multi-word titles)
+  "Event",
+  "Events",
+  "Technology",
+  "Sales",
+  "Marketing",
+  "Operations",
+  "Engineering",
+  "Audio",
+  "Video",
+  "Lighting",
+  "Production",
+  "Conference",
+  "Account",
+  "Hospitality",
+  "Service",
+  "Services",
+  "Planning",
+  // Suffix / credentials
+  "Jr.",
+  "Sr.",
+  "II",
+  "III",
+  "IV",
+  "PhD",
+  "MD",
+  // Common prepositions/articles in compound titles ("Director Of …")
+  "Of",
+  "And",
+  "The",
+  "For",
+  "With",
+]);
+
+/**
  * Heuristically extract a person name from a token string.
  *
- * Looks for a run of 2+ tokens each starting with a capital letter
- * (handles "J." initials, hyphenated names like "DeTone").
- * Phone-number-like substrings are stripped before tokenizing.
- * Returns null if no clear 2+ token name is found.
+ * Algorithm (Codex round-2 update):
+ *   1. Strip phone-number-like substrings.
+ *   2. Tokenize on whitespace.
+ *   3. Walk all tokens accumulating consecutive capitalized name words.
+ *      A token is a valid name word when:
+ *      a. It matches Unicode-aware capitalized pattern (handles "Jenaé",
+ *         "François", initials like "J."), AND
+ *      b. It is NOT in NAME_STOP_TOKENS (title/role keywords).
+ *   4. When a stop-token or non-name token is hit, commit any run of 2+
+ *      tokens as a candidate and reset — then keep scanning (so "Cell: 1-404
+ *      Aaron Shapiro Director" still finds "Aaron Shapiro" after the reset).
+ *   5. The last committed candidate wins (latest name run in the pre-email
+ *      segment is usually the person whose email follows).
+ *   6. Cap each run at 3 tokens (First Middle Last).
+ *
+ * Unicode-aware regex (\p{Lu}, \p{Ll} with the `u` flag) handles accented
+ * characters such as "Jenaé" or "François" (Codex round-2 finding).
+ *
+ * Returns null if no run of 2+ name tokens is found.
  */
 function extractName(text: string): string | null {
   if (!text) return null;
@@ -201,32 +276,38 @@ function extractName(text: string): string | null {
   if (!cleaned) return null;
 
   const tokens = cleaned.split(/\s+/);
-
-  let nameTokens: string[] = [];
+  let run: string[] = [];
   let bestName: string | null = null;
 
-  for (const token of tokens) {
-    if (/^[A-Z][a-zA-Z.'-]*$/.test(token)) {
-      nameTokens.push(token);
+  const commitRun = () => {
+    if (run.length >= 2) bestName = run.join(" ");
+    run = [];
+  };
+
+  for (const tok of tokens) {
+    // Trim trailing punctuation (comma, semicolon — preserve "J.")
+    const t = tok.replace(/[,;]+$/, "");
+    if (!t) {
+      commitRun();
+      continue;
+    }
+
+    // Stop-token: commit current run and reset (keep scanning for more names)
+    if (NAME_STOP_TOKENS.has(t)) {
+      commitRun();
+      continue;
+    }
+
+    // Valid capitalized name word? (Unicode-aware — handles Jenaé, J., DeTone)
+    if (/^\p{Lu}[\p{Ll}\p{Lu}'.\-]*$/u.test(t)) {
+      run.push(t);
+      if (run.length >= 3) commitRun(); // cap at 3 tokens then start fresh
     } else {
-      // Non-name token: commit any accumulated run of 2+ tokens as a candidate
-      if (nameTokens.length >= 2) {
-        bestName = nameTokens.join(" ");
-      }
-      // Reset run unless token is a lowercase connector ("of", "the", etc.)
-      if (!/^[a-z]/.test(token)) {
-        nameTokens = [];
-      }
+      commitRun(); // non-name token: commit and reset
     }
   }
   // Commit any trailing run
-  if (nameTokens.length >= 2) {
-    bestName = nameTokens.join(" ");
-  }
+  commitRun();
 
-  // Validate: must be 2+ capitalized tokens
-  if (bestName && NAME_START_RE.test(bestName)) {
-    return bestName;
-  }
-  return null;
+  return bestName;
 }

@@ -351,16 +351,25 @@ export function runInvariants(prior: ParseResult | null, next: ParseResult): Inv
     }
   }
 
-  // Contacts — keyed on (kind, name) or (kind, email) if name absent
+  // Contacts — keyed preferring email (stable across title/role edits per Codex round-2)
   {
-    const nextContactKeys = new Set(
-      next.contacts.map((c) =>
-        c.name != null ? `${c.kind}::name::${c.name}` : `${c.kind}::email::${c.email ?? ""}`,
-      ),
-    );
+    const contactKey = (c: {
+      kind: string;
+      email: string | null;
+      name: string | null;
+      phone: string | null;
+    }): string => {
+      // Prefer canonicalized email: stable even when a contact's title changes.
+      if (c.email) return `${c.kind}::email::${c.email.toLowerCase().trim()}`;
+      // Fall back to name when no email.
+      if (c.name) return `${c.kind}::name::${c.name.toLowerCase().trim()}`;
+      // Last resort: phone.
+      if (c.phone) return `${c.kind}::phone::${c.phone}`;
+      return `${c.kind}::?`;
+    };
+    const nextContactKeys = new Set(next.contacts.map(contactKey));
     for (const pc of prior.contacts) {
-      const key =
-        pc.name != null ? `${pc.kind}::name::${pc.name}` : `${pc.kind}::email::${pc.email ?? ""}`;
+      const key = contactKey(pc);
       if (!nextContactKeys.has(key)) {
         triggeredItems.push({
           id: randomUUID(),
