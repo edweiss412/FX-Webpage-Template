@@ -210,21 +210,27 @@ test.describe("RightNow §8.2 — 66-pair pairwise transition audit", () => {
         expect(after.state).toBe(entry.to);
         expect(after.treatment).toBe(entry.treatment);
 
-        // crossfade-body: container preserves height to within 0.5px
-        // (the §8.4 + §8.2 invariant). morph-to-last-good: card stays
-        // mounted on prior payload, height should be unchanged. The
-        // min-h token sets a floor — actual card height may exceed it
-        // for taller bodies but must not collapse below.
+        // crossfade-body: container preserves height to within ±0.5px
+        // (the §8.4 + §8.2 dimensional invariant). morph-to-last-good:
+        // card stays mounted on prior payload, height should be
+        // unchanged. The `min-h-(--spacing-right-now-min-h)` token
+        // (176px) is sized to the tallest body (`unknown` two-line
+        // detail) at the 390px mobile viewport, so every TICK_DRIVABLE
+        // state body fits within the floor — no growth-above-min-h is
+        // expected, and the height delta should be 0px modulo subpixel
+        // rounding.
         const heightAfter = await cardHeight(page);
         const delta = Math.abs(heightAfter - heightBefore);
-        // The min-h token is 176px. We assert the card is at least
-        // that tall in both states AND that the delta is within a
-        // reasonable bound: 24px allows for one extra detail line on
-        // states with a taller body, which is acceptable per spec
-        // (the invariant is "no collapse," not "absolute fixed").
+        // Both endpoints clear the min-h floor.
         expect(heightBefore).toBeGreaterThanOrEqual(175.5);
         expect(heightAfter).toBeGreaterThanOrEqual(175.5);
-        expect(delta).toBeLessThanOrEqual(48);
+        // The §8.2 / §8.4 invariant: card height delta during a
+        // tick-driven transition is 0px. We allow 0.5px slack for
+        // subpixel rounding on devicePixelRatio-2 viewports, which
+        // matches the spec invariant verbatim. A loose tolerance here
+        // (e.g., 48px) would let a real layout collapse pass — see
+        // review Minor 8.
+        expect(delta).toBeLessThanOrEqual(0.5);
 
         if (entry.treatment === "morph-to-last-good") {
           expect(after.stale).toBe("true");
@@ -482,6 +488,68 @@ test.describe("RightNow §8.2 — 6 compound transition audits (plan Step 3)", (
     expect(after.state).toBe("show_day_n");
     // Same-kind tick: prev kind ref equals current kind, treatment
     // resolves to "instant" (no AnimatePresence crossfade fires).
+    expect(after.treatment).toBe("instant");
+    expect(after.stale).toBe("false");
+  });
+
+  /**
+   * Compound 7 — `data-treatment` MUST reset to `instant` after a
+   * crossfade-body transition completes (regression test for the
+   * sticky-attribute bug).
+   *
+   * The §8.2 contract (RightNowCard.tsx file header lines 65-68) says
+   * `data-treatment` reflects the IN-FLIGHT transition treatment. A
+   * stable post-transition view MUST report `instant` — otherwise the
+   * audit suite cannot distinguish a fresh transition from a stale
+   * historical one, and downstream consumers (M5/M6 Realtime push
+   * handlers, Task 4.16) would mis-classify the card's animation state.
+   *
+   * Concrete failure mode caught: prior to the fix in
+   * `useEffect([tracked.prevKind, tracked.currentKind])` that resets
+   * `prevKind = currentKind` after the animation window, the matrix
+   * lookup `transitionTreatment(K1, K2)` kept returning the original
+   * crossfade-body treatment forever on a stable K2 view.
+   */
+  test("compound 7: data-treatment returns to 'instant' after crossfade completes", async ({
+    page,
+  }) => {
+    // Drive set_day (FROM). Initial render: prev === current → instant.
+    await driveToState(page, s, "set_day");
+    const before = await readCardAttrs(page, "set_day");
+    expect(before.state).toBe("set_day");
+    expect(before.treatment).toBe("instant");
+
+    // Tick into show_day_n (TO). The matrix entry set_day → show_day_n
+    // is `crossfade-body`. The IN-FLIGHT treatment is observable
+    // because we sample immediately after the tick fires.
+    await setSystemTime(page, STATE_DRIVERS.show_day_n!.clockDate);
+    await advanceClock(page);
+    const inFlight = await readCardAttrs(page, "show_day_n");
+    expect(inFlight.state).toBe("show_day_n");
+    expect(inFlight.treatment).toBe("crossfade-body");
+
+    // Advance the page's wall clock past --duration-normal (220ms) plus
+    // the buffer in the prevKind reset effect (260ms total). We use 500ms
+    // to leave headroom against scheduler jitter and any framer-motion
+    // exit-then-enter chaining. Then advance one more 70-second tick
+    // (same-kind: still show_day_n, no kind change) and assert the
+    // treatment is now `instant` — the prevKind reset has fired and
+    // the matrix lookup resolves to a same-kind entry (which the impl
+    // coerces to `instant`).
+    //
+    // Why two clock advances? `runFor(500)` lets the queued setTimeout
+    // (in the prevKind reset effect) and the AnimatePresence enter
+    // animation both play out; `runFor(70_000)` then triggers the next
+    // 60-second card tick so we sample a render that committed AFTER
+    // the reset.
+    await page.clock.runFor(500);
+    await advanceClock(page, 70);
+
+    const after = await readCardAttrs(page, "show_day_n");
+    expect(after.state).toBe("show_day_n");
+    // The regression: before the fix, `after.treatment` was still
+    // "crossfade-body" because tracked.prevKind kept pointing at
+    // "set_day" indefinitely.
     expect(after.treatment).toBe("instant");
     expect(after.stale).toBe("false");
   });

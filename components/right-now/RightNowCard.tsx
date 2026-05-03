@@ -61,19 +61,48 @@
  *
  * data-testid contract (e2e-stable):
  *   • right-now-card    — outer card wrapper.
- *   • right-now-state   — current state.kind via `data-state="<kind>"`,
- *                         lets tests assert state without parsing copy.
- *                         Also carries `data-treatment="<treatment>"`
- *                         for the in-flight transition treatment, and
- *                         `data-stale="true|false"` while the card sits
- *                         on a `morph-to-last-good` payload.
+ *   • right-now-state   — carries the resolved-state attributes:
+ *                           - `data-state="<kind>"` is the kind that the
+ *                             state machine resolved to from the latest
+ *                             clock tick + viewer inputs. This is the
+ *                             AUTHORITATIVE state and may be `unknown`
+ *                             or `dateless` even when the body shows
+ *                             prior-payload copy.
+ *                           - `data-rendered-state="<kind>"` is the kind
+ *                             whose body is actually painted. Differs
+ *                             from `data-state` ONLY during the
+ *                             `morph-to-last-good` treatment, where the
+ *                             card keeps rendering the last-good payload
+ *                             while `state.kind` flips to `unknown` or
+ *                             `dateless`. Test code asserting "what is
+ *                             the user looking at" should read this
+ *                             attribute; test code asserting "what did
+ *                             the state machine resolve" should read
+ *                             `data-state`.
+ *                           - `data-treatment="<treatment>"` carries
+ *                             the IN-FLIGHT transition treatment for
+ *                             the latest kind change (`crossfade-body`,
+ *                             `morph-to-last-good`, `instant`). After
+ *                             the framer-motion enter animation
+ *                             completes (~260ms), this resets to
+ *                             `instant` so the attribute reflects only
+ *                             current animation state, not history.
+ *                           - `data-stale="true|false"` (on the parent
+ *                             `right-now-card`) is true while the card
+ *                             sits on a `morph-to-last-good` payload OR
+ *                             the resolved body's `isStale` is set
+ *                             (the `dateless` state).
  *   • right-now-lead    — primary-line element (e.g., "Today: Show
  *                         day 1 of 3"). The §8.2 spec right column
  *                         calls this the "lead phrase."
  *   • right-now-detail  — secondary-line element. May be absent when
  *                         the §8.2 row has no body line beyond the lead.
  *   • right-now-body    — wraps the lead+detail under AnimatePresence;
- *                         keyed by state.kind so React rebuilds on swap.
+ *                         keyed by renderState.kind so React rebuilds
+ *                         on swap (NOT `state.kind` — during morph-to-
+ *                         last-good, renderState.kind === lastGoodKind
+ *                         so the body does not unmount on the kind flip
+ *                         to `unknown`/`dateless`).
  */
 "use client";
 
@@ -440,6 +469,48 @@ export function RightNowCard({ context }: RightNowCardProps) {
     }
   }, [rawTreatment, effectivePrev, effectiveCurrent]);
 
+  // After the in-flight transition's enter animation completes, reset
+  // `tracked.prevKind` to `tracked.currentKind` so subsequent same-kind
+  // renders resolve to `instant` (no in-flight transition).
+  //
+  // Without this reset, `tracked.prevKind` would remain pointing at K1
+  // forever on a stable K2 view — and `transitionTreatment(K1, K2)`
+  // would keep returning `crossfade-body` (or whatever the matrix
+  // entry is), making `data-treatment` "sticky." The contract is:
+  // `data-treatment` reflects the IN-FLIGHT transition treatment, not
+  // a historical one. See file header lines 65-68.
+  //
+  // For `morph-to-last-good`, `instant`, and `unreachable` treatments
+  // there is no animation cycle (transition.duration === 0); we still
+  // want the reset to happen so the next render sees prev === current.
+  // We mirror that via a `useEffect` keyed on tracked.currentKind that
+  // fires after every commit where currentKind has rotated. The effect
+  // queues a microtask-equivalent reset after the framer-motion
+  // duration window so an in-flight crossfade has time to read the
+  // pre-reset values.
+  useEffect(() => {
+    // No reset needed when prev === current (already in steady state).
+    if (tracked.prevKind === tracked.currentKind) return;
+    // Schedule the reset AFTER --duration-normal (220ms) plus a small
+    // buffer so the framer-motion crossfade has fully played out.
+    // Using setTimeout (not queueMicrotask) so the in-flight animation
+    // window is preserved; reduced-motion users get duration=0 via the
+    // framer-motion useReducedMotion hook (separate from the CSS-token
+    // reduction), but the timer still fires after the same delay —
+    // which is fine because the rendered behavior is already instant.
+    const timer = window.setTimeout(() => {
+      setTracked((prior) =>
+        prior.prevKind === prior.currentKind
+          ? prior
+          : {
+              ...prior,
+              prevKind: prior.currentKind,
+            },
+      );
+    }, 260);
+    return () => window.clearTimeout(timer);
+  }, [tracked.prevKind, tracked.currentKind]);
+
 
   // Surface class — stale tint when the treatment is morph-to-last-good
   // OR when the resolved body's `isStale` flag is set (the `dateless`
@@ -519,7 +590,8 @@ export function RightNowCard({ context }: RightNowCardProps) {
           on light bg. */}
       <p
         data-testid="right-now-state"
-        data-state={renderState.kind}
+        data-state={state.kind}
+        data-rendered-state={renderState.kind}
         data-treatment={treatment}
         className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-accent-on-bg"
       >
