@@ -292,7 +292,7 @@ test.describe("RightNow §8.2 — 6 compound transition audits (plan Step 3)", (
    * non-interrupted path here AND that the card never enters a
    * stale-tinted state during a normal time-driven crossfade.
    */
-  test.fixme("compound 1: pre_travel → travel_in_day crossfade (unknown-interrupt path deferred to M6)", async ({
+  test("compound 1: pre_travel → travel_in_day crossfade (unknown-interrupt path deferred to M6)", async ({
     page,
   }) => {
     await driveToState(page, s, "pre_travel");
@@ -325,7 +325,7 @@ test.describe("RightNow §8.2 — 6 compound transition audits (plan Step 3)", (
    * Realtime (M6). For this test, we set the restriction BEFORE the
    * page load, so the clock tick alone drives the transition.
    */
-  test.fixme("compound 2: viewer_off_day → show_day_n via showDay rollover", async ({
+  test("compound 2: viewer_off_day → show_day_n via showDay rollover", async ({
     page,
   }) => {
     // Set restriction so viewer is off-day on showDay1 but on-day on
@@ -359,7 +359,7 @@ test.describe("RightNow §8.2 — 6 compound transition audits (plan Step 3)", (
    * approximation: each endpoint via fresh navigation, asserting the
    * §8.2 precedence ladder is correctly applied at each.
    */
-  test.fixme("compound 3: viewer_unconfirmed → viewer_off_day via navigation (mid-session Realtime path deferred to M6)", async ({
+  test("compound 3: viewer_unconfirmed → viewer_off_day via navigation (mid-session Realtime path deferred to M6)", async ({
     page,
   }) => {
     // FROM: viewer_unconfirmed.
@@ -401,7 +401,7 @@ test.describe("RightNow §8.2 — 6 compound transition audits (plan Step 3)", (
    * `data-treatment="instant"` on initial render (no animation
    * flicker on hydration).
    */
-  test.fixme("compound 4: show_day_n initial render → no hydration flicker (sync-recovery path deferred to M6)", async ({
+  test("compound 4: show_day_n initial render → no hydration flicker (sync-recovery path deferred to M6)", async ({
     page,
   }) => {
     await driveToState(page, s, "show_day_n");
@@ -426,7 +426,7 @@ test.describe("RightNow §8.2 — 6 compound transition audits (plan Step 3)", (
    * same goto() call, assert the resolved kind reflects ALL three
    * inputs as a coherent unit (no half-applied state).
    */
-  test.fixme("compound 5: same-cycle clock + restriction change → coherent resolved kind", async ({
+  test("compound 5: same-cycle clock + restriction change → coherent resolved kind", async ({
     page,
   }) => {
     // First navigation: pre_travel + LEAD (no restriction).
@@ -466,7 +466,7 @@ test.describe("RightNow §8.2 — 6 compound transition audits (plan Step 3)", (
    * but stays inside the show_day_n window) and asserting
    * data-treatment stays "instant" / no kind change.
    */
-  test.fixme("compound 6: same-kind tick does not trigger card-level crossfade", async ({
+  test("compound 6: same-kind tick does not trigger card-level crossfade", async ({
     page,
   }) => {
     await driveToState(page, s, "show_day_n");
