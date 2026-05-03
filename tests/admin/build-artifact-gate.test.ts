@@ -25,7 +25,7 @@
  * artifact-introspection proof.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -151,7 +151,6 @@ describe.skipIf(!RUN)(
       const exists = existsSync(compiledRouteDir);
       let serverAppListing = "(missing)";
       if (existsSync(serverAppDir)) {
-        const { readdirSync } = require("node:fs") as typeof import("node:fs");
         serverAppListing = readdirSync(serverAppDir).join(", ");
       }
       expect(
@@ -165,7 +164,6 @@ describe.skipIf(!RUN)(
 );
 
 if (!RUN) {
-  // eslint-disable-next-line no-console
   console.log(
     "[build-artifact-gate.test.ts] skipped — set RUN_BUILD_ARTIFACT_GATE_TEST=1 to opt in (~60-90s).",
   );

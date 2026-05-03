@@ -1,47 +1,210 @@
 /**
- * tests/admin/test-auth-gate.test.ts (M3 adversarial Round 1 Finding 3)
+ * tests/admin/test-auth-gate.test.ts (M3 adversarial Round 1 Finding 3
+ * + Round 2 Finding 2)
  *
- * Regression suite for the test-auth endpoint hardening. Codex Round 1
- * Finding 3 (HIGH): once ENABLE_TEST_AUTH=true was set, an unauthenticated
- * POST to /api/test-auth/set-session could choose any email plus
- * isAdmin=true, and the handler would mint a fully-authenticated admin
- * session via the service-role key. A single env-var misconfig in a
- * production deploy would have been a complete admin-auth bypass.
+ * Regression suite for the test-auth endpoint hardening. Two layers:
  *
- * Layered defenses applied (each tested below):
+ *   1. Direct route-handler import suite (DETERMINISTIC — always runs).
+ *      Imports POST from app/api/test-auth/set-session/route.ts and invokes
+ *      it directly with mocked process.env + Request objects. Covers the
+ *      gate-rejection failure modes that DO NOT need a running server +
+ *      Supabase auth.users round-trip:
+ *        - Gate 1: ENABLE_TEST_AUTH != 'true' (Round 2 Finding 2 #1)
+ *        - Gate 2a: missing Authorization Bearer
+ *        - Gate 2b: wrong Authorization Bearer
+ *        - Gate 3:  non-local Host header (Round 2 Finding 2 #2)
+ *        - Gate 4:  non-allowlisted email
+ *      These tests run on EVERY `pnpm test` invocation; no
+ *      server-reachability skip. Codex Round 2 Finding 2: opportunistic
+ *      skip is the wrong default for security tests; this layer is the
+ *      always-deterministic safety net.
  *
- *   1. ENABLE_TEST_AUTH=true is necessary but no longer sufficient.
- *   2. Per-run TEST_AUTH_SECRET via Authorization: Bearer header is required.
- *      Single env var typo no longer enough.
- *   3. Allowlist of fixture emails: only ['edweiss412@gmail.com',
- *      'crew-non-admin@fxav.test'] (admin + non-admin) are accepted.
- *      isAdmin is DERIVED from the email, never client-controlled.
- *   4. Host allowlist: requests must originate from localhost / 127.0.0.1.
- *      Defense-in-depth against accidental prod exposure where the secret
- *      somehow leaks but the host header still betrays origin.
- *   5. Create-only: pre-existing users are not mutated. If an email already
- *      exists in auth.users, the endpoint returns 410 Gone.
+ *   2. HTTP-based positive-path suite (SKIPS WHEN SERVER UNREACHABLE).
+ *      Hits the live dev-build server (port 3001) to exercise the full
+ *      auth.admin.createUser → signInWithPassword chain. Covers:
+ *        - Server-derived isAdmin=true for admin email (client field ignored)
+ *        - Server-derived isAdmin=false for non-admin email (client claim ignored)
+ *        - Create-only: second call for same email → 410 Gone
+ *      These need a running server + Supabase reachable, so they skip with
+ *      a clear log line when prerequisites are missing. The Playwright
+ *      webServer config sets ENABLE_TEST_AUTH=true and TEST_AUTH_SECRET so
+ *      this suite runs on every CI Playwright invocation.
  *
- * The combination means: a single env-var misconfig is no longer enough.
- * Multiple things must go wrong simultaneously for the bypass to fire.
+ * Codex Round 1 Finding 3 (HIGH): once ENABLE_TEST_AUTH=true was set, an
+ * unauthenticated POST could choose any email plus isAdmin=true and the
+ * handler would mint a fully-authenticated admin session via the
+ * service-role key. A single env-var misconfig in production was a
+ * complete admin-auth bypass. Five layered defenses now apply.
  *
- * These tests run via Vitest against the Playwright dev-build server (port
- * 3001) where ENABLE_TEST_AUTH=true and TEST_AUTH_SECRET are set. If the
- * dev-build server is not running, the suite skips. The Playwright
- * webServer config sets both env vars so this suite runs in CI.
+ * Codex Round 2 Finding 2: prior version of this suite covered 4 of the 5
+ * defenses but missed (a) ENABLE_TEST_AUTH=false rejection and (b) non-
+ * local host header rejection — and the entire suite could opportunistically
+ * skip when the dev-build server was not reachable. This rewrite adds
+ * direct-import tests for the two missing gates AND moves all gate-
+ * rejection coverage into the always-deterministic layer.
  */
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { admin } from "../e2e/helpers/supabaseAdmin";
 import { TEST_AUTH_SECRET, TEST_AUTH_BASE_URL } from "../e2e/helpers/testAuthConfig";
 
-// Skip the entire suite if the dev-build server isn't reachable. Vitest
-// `test.skipIf` evaluates the predicate per-test; we evaluate once per suite.
+// =============================================================================
+// Layer 1 — Direct route-handler import (DETERMINISTIC, ALWAYS RUNS)
+// =============================================================================
+//
+// Set the gate env to ALL-ON before importing the route module so the gate
+// internals can be exercised. Individual tests then mutate process.env to
+// flip the specific gate they're testing into the rejection branch.
+process.env.ENABLE_TEST_AUTH ??= "true";
+process.env.TEST_AUTH_SECRET ??= TEST_AUTH_SECRET;
+
+const { POST } = await import("@/app/api/test-auth/set-session/route");
+
+/** Build a Request mock with sensible defaults; per-test overrides via opts. */
+function makeRequest(
+  opts: {
+    body?: unknown;
+    bearer?: string | null;
+    host?: string;
+  } = {},
+): Request {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Host: opts.host ?? "localhost:3001",
+  };
+  if (opts.bearer !== null) {
+    headers.Authorization = `Bearer ${opts.bearer ?? TEST_AUTH_SECRET}`;
+  }
+  const init: RequestInit = { method: "POST", headers };
+  if (opts.body !== undefined) {
+    init.body = JSON.stringify(opts.body);
+  }
+  return new Request("http://localhost:3001/api/test-auth/set-session", init);
+}
+
+describe("Layer 1 — direct route-handler import (deterministic gate-rejection coverage)", () => {
+  // Snapshot env state so tests that mutate it don't leak.
+  const savedEnableTestAuth = process.env.ENABLE_TEST_AUTH;
+  const savedSecret = process.env.TEST_AUTH_SECRET;
+  beforeEach(() => {
+    process.env.ENABLE_TEST_AUTH = savedEnableTestAuth;
+    process.env.TEST_AUTH_SECRET = savedSecret;
+  });
+  afterEach(() => {
+    process.env.ENABLE_TEST_AUTH = savedEnableTestAuth;
+    process.env.TEST_AUTH_SECRET = savedSecret;
+  });
+
+  test("Gate 1: ENABLE_TEST_AUTH != 'true' → 404 (Round 2 Finding 2 #1)", async () => {
+    delete process.env.ENABLE_TEST_AUTH;
+    const res = await POST(
+      makeRequest({ body: { email: "edweiss412@gmail.com" } }),
+    );
+    expect(res.status, "ENABLE_TEST_AUTH unset must produce 404").toBe(404);
+  });
+
+  test("Gate 1: ENABLE_TEST_AUTH = 'false' → 404", async () => {
+    process.env.ENABLE_TEST_AUTH = "false";
+    const res = await POST(
+      makeRequest({ body: { email: "edweiss412@gmail.com" } }),
+    );
+    expect(res.status, "ENABLE_TEST_AUTH='false' must produce 404").toBe(404);
+  });
+
+  test("Gate 2a: missing Authorization Bearer → 401", async () => {
+    const res = await POST(
+      makeRequest({ body: { email: "edweiss412@gmail.com" }, bearer: null }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  test("Gate 2b: wrong Authorization Bearer → 401", async () => {
+    const res = await POST(
+      makeRequest({
+        body: { email: "edweiss412@gmail.com" },
+        bearer: "wrong-secret-not-the-real-one-here",
+      }),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  test("Gate 2c: TEST_AUTH_SECRET unset on server → 503 (misconfigured server, even with right header)", async () => {
+    delete process.env.TEST_AUTH_SECRET;
+    const res = await POST(
+      makeRequest({
+        body: { email: "edweiss412@gmail.com" },
+        bearer: TEST_AUTH_SECRET,
+      }),
+    );
+    expect(res.status, "missing server-side secret must produce 503").toBe(503);
+  });
+
+  test("Gate 3: non-local Host header (example.com) → 403 (Round 2 Finding 2 #2)", async () => {
+    const res = await POST(
+      makeRequest({ body: { email: "edweiss412@gmail.com" }, host: "example.com" }),
+    );
+    expect(res.status, "non-local Host must reject").toBe(403);
+  });
+
+  test("Gate 3: Host header www.attacker.test → 403", async () => {
+    const res = await POST(
+      makeRequest({
+        body: { email: "edweiss412@gmail.com" },
+        host: "www.attacker.test",
+      }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  test("Gate 3: Host header 10.0.0.1 (LAN, not localhost/127.0.0.1) → 403", async () => {
+    const res = await POST(
+      makeRequest({ body: { email: "edweiss412@gmail.com" }, host: "10.0.0.1:3001" }),
+    );
+    expect(res.status, "non-allowlist LAN address must reject").toBe(403);
+  });
+
+  test("Gate 4: non-allowlisted email → 400", async () => {
+    const res = await POST(
+      makeRequest({ body: { email: "attacker@malicious.test" } }),
+    );
+    expect(res.status, "non-allowlisted email must reject").toBe(400);
+  });
+
+  test("Gate 4: empty email → 400", async () => {
+    const res = await POST(makeRequest({ body: { email: "" } }));
+    expect(res.status).toBe(400);
+  });
+
+  test("Gate 4: missing email field → 400", async () => {
+    const res = await POST(makeRequest({ body: {} }));
+    expect(res.status).toBe(400);
+  });
+
+  test("Gate 4: non-string email type → 400 (silently coerces to invalid)", async () => {
+    const res = await POST(makeRequest({ body: { email: 12345 } }));
+    expect(res.status).toBe(400);
+  });
+
+  test("Gate 1 takes precedence over Gate 2 (cheapest check first)", async () => {
+    delete process.env.ENABLE_TEST_AUTH;
+    // Even with valid secret + body, ENABLE_TEST_AUTH gate fires first → 404.
+    const res = await POST(
+      makeRequest({
+        body: { email: "edweiss412@gmail.com" },
+        bearer: TEST_AUTH_SECRET,
+      }),
+    );
+    expect(res.status, "Gate 1 must reject before Gate 2/3/4 even evaluates").toBe(404);
+  });
+});
+
+// =============================================================================
+// Layer 2 — HTTP-based positive-path coverage (SKIPS WHEN SERVER UNREACHABLE)
+// =============================================================================
+
 async function devBuildReachable(): Promise<boolean> {
   try {
     const res = await fetch(`${TEST_AUTH_BASE_URL}/api/test-auth/set-session`, {
       method: "GET",
-      // Do NOT send the secret on the probe — the GET handler should respond
-      // 200 even without it (only POST mutates state).
       signal: AbortSignal.timeout(2000),
     });
     return res.status === 200 || res.status === 401 || res.status === 404;
@@ -52,46 +215,19 @@ async function devBuildReachable(): Promise<boolean> {
 
 const isReachable = await devBuildReachable();
 
+if (!isReachable) {
+  console.log(
+    "[test-auth-gate.test.ts] Layer 2 (HTTP positive-path) skipped — dev-build server unreachable at " +
+      `${TEST_AUTH_BASE_URL}. Layer 1 (deterministic gate-rejection) still ran.`,
+  );
+}
+
 describe.skipIf(!isReachable)(
-  "Round 1 Finding 3 — test-auth endpoint hardening regression",
+  "Layer 2 — HTTP positive-path (server-derived isAdmin + create-only)",
   () => {
-    test("POST without Authorization Bearer secret → 401", async () => {
-      const res = await fetch(`${TEST_AUTH_BASE_URL}/api/test-auth/set-session`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: "edweiss412@gmail.com" }),
-      });
-      expect(res.status, "missing TEST_AUTH_SECRET must reject").toBe(401);
-    });
-
-    test("POST with wrong Authorization Bearer secret → 401", async () => {
-      const res = await fetch(`${TEST_AUTH_BASE_URL}/api/test-auth/set-session`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer wrong-secret-not-the-real-one",
-        },
-        body: JSON.stringify({ email: "edweiss412@gmail.com" }),
-      });
-      expect(res.status, "wrong TEST_AUTH_SECRET must reject").toBe(401);
-    });
-
-    test("POST with valid secret + non-allowlisted email → 400", async () => {
-      const res = await fetch(`${TEST_AUTH_BASE_URL}/api/test-auth/set-session`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${TEST_AUTH_SECRET}`,
-        },
-        body: JSON.stringify({ email: "attacker@malicious.test" }),
-      });
-      expect(res.status, "non-allowlisted email must reject").toBe(400);
-    });
-
-    test("POST with valid secret + allowlisted email → 200 + isAdmin derived from allowlist (NOT client-controlled)", async () => {
-      // Pre-clean: drop any existing test-fixture users so the create-only
-      // gate doesn't trip on residue from prior runs. We use service-role
-      // (admin client) directly.
+    test("POST with valid secret + admin email + client isAdmin=false → 200, server derives isAdmin=true", async () => {
+      // Pre-clean: drop any existing test-fixture user so create-only
+      // doesn't trip on residue from prior runs.
       const adminEmail = "edweiss412@gmail.com";
       const allUsers = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
       for (const u of allUsers.data?.users ?? []) {
@@ -101,8 +237,7 @@ describe.skipIf(!isReachable)(
       }
 
       // Submit isAdmin=false in the body — the server MUST ignore this
-      // client-controlled value and DERIVE isAdmin from the email allowlist
-      // (admin@... → isAdmin: true).
+      // client-controlled value and DERIVE isAdmin from the email allowlist.
       const res = await fetch(`${TEST_AUTH_BASE_URL}/api/test-auth/set-session`, {
         method: "POST",
         headers: {
@@ -117,12 +252,11 @@ describe.skipIf(!isReachable)(
       expect(body.email).toBe(adminEmail);
       expect(
         body.isAdmin,
-        "isAdmin MUST be derived from the email allowlist, not the client-supplied field",
+        "isAdmin MUST be derived from the email allowlist, not the client field",
       ).toBe(true);
     });
 
-    test("POST with valid secret + allowlisted non-admin email → 200 + isAdmin: false (even if client claims true)", async () => {
-      // Pre-clean.
+    test("POST with valid secret + non-admin email + client isAdmin=true → 200, server derives isAdmin=false", async () => {
       const crewEmail = "crew-non-admin@fxav.test";
       const allUsers = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
       for (const u of allUsers.data?.users ?? []) {
@@ -149,9 +283,7 @@ describe.skipIf(!isReachable)(
 
     test("POST a second time for the same already-existing user → 410 Gone (create-only)", async () => {
       // The previous test created edweiss412@gmail.com. A repeat call MUST
-      // refuse to mutate (create-only semantics). The Playwright fixture-cleanup
-      // beforeEach hook handles delete-then-recreate; this endpoint does NOT
-      // silently update existing rows.
+      // refuse to mutate (create-only semantics).
       const res = await fetch(`${TEST_AUTH_BASE_URL}/api/test-auth/set-session`, {
         method: "POST",
         headers: {
