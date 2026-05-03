@@ -57,14 +57,17 @@ import { TEST_AUTH_SECRET, TEST_AUTH_BASE_URL } from "../e2e/helpers/testAuthCon
 process.env.ENABLE_TEST_AUTH ??= "true";
 process.env.TEST_AUTH_SECRET ??= TEST_AUTH_SECRET;
 
-// Hoisted controls for the Supabase mock. Tests flip
-// `__mockCreateUserMode` to drive the route's create-only branch (Gate 5)
-// without needing a live server. Default is "ok" — the mock returns a
-// successful create — so tests that don't care about Gate 5 still get a
-// neutral mock that doesn't accidentally trip 410.
+// Hoisted controls for the Supabase + ssr mocks. Tests flip
+// `state.createUserMode` to drive the route's create-only branch (Gate 5)
+// without needing a live server. The `createUserCalls` and
+// `signInWithPasswordCalls` arrays capture the args each mock receives so
+// Round 4 Finding 1 dependency-pinning tests can assert the route passed
+// the CANONICAL email form (not the raw input) to Supabase.
 const supabaseMock = vi.hoisted(() => {
   const state = {
     createUserMode: "ok" as "ok" | "already_registered" | "other_error",
+    createUserCalls: [] as Array<{ email: unknown; password: unknown; app_metadata: unknown }>,
+    signInWithPasswordCalls: [] as Array<{ email: unknown; password: unknown }>,
   };
   return { state };
 });
@@ -74,7 +77,14 @@ vi.mock("@supabase/supabase-js", () => {
     createClient: () => ({
       auth: {
         admin: {
-          createUser: async () => {
+          createUser: async (args: { email: unknown; password: unknown; app_metadata: unknown }) => {
+            // Capture args so Round 4 Finding 1 tests can assert the route
+            // passed the canonicalized email (not the raw client input).
+            supabaseMock.state.createUserCalls.push({
+              email: args.email,
+              password: args.password,
+              app_metadata: args.app_metadata,
+            });
             if (supabaseMock.state.createUserMode === "already_registered") {
               return {
                 data: { user: null },
@@ -103,13 +113,35 @@ vi.mock("@supabase/supabase-js", () => {
 // Mock @supabase/ssr too — the route's signInWithPassword path is reached
 // only after Gate 5 passes, and Layer 2 covers that end-to-end. For Layer 1
 // we just need the SSR client to no-op so the POST handler can return.
+// We ALSO capture the email arg here so Round 4 Finding 1 can assert the
+// canonical form is what reaches the auth boundary.
 vi.mock("@supabase/ssr", () => ({
   createServerClient: () => ({
     auth: {
-      signInWithPassword: async () => ({ data: {}, error: null }),
+      signInWithPassword: async (args: { email: unknown; password: unknown }) => {
+        supabaseMock.state.signInWithPasswordCalls.push({
+          email: args.email,
+          password: args.password,
+        });
+        return { data: {}, error: null };
+      },
     },
   }),
 }));
+
+// Spy-mode mock on lib/email/canonicalize per Round 4 Finding 1: the real
+// implementation runs (so the route's behavior is unchanged) but each call
+// is recorded by Vitest so dependency-pinning tests can assert the route
+// invoked canonicalize() with the raw client input. This is the executable
+// AGENTS.md §1.3 invariant — semantics-equivalence assertions alone don't
+// pin the dependency (a refactor back to inline trim/lowercase would still
+// satisfy them as long as semantics match).
+vi.mock("@/lib/email/canonicalize", { spy: true });
+
+// Import the spied canonicalize so dependency-pinning tests can assert
+// it was called with the raw client input. Importing AFTER vi.mock above
+// ensures the spy wrapping is in place.
+const { canonicalize: canonicalizeSpy } = await import("@/lib/email/canonicalize");
 
 // next/headers' cookies() needs to return a usable cookie store. Mock it
 // to a no-op shape since Gate 5 is reached before any cookie write.
@@ -271,8 +303,13 @@ describe("Layer 1 — direct route-handler import (deterministic gate-rejection 
 
   beforeEach(() => {
     // Reset the Supabase mock to its neutral state so previous tests don't
-    // leak the already_registered mode into unrelated cases.
+    // leak the already_registered mode into unrelated cases. Also clear the
+    // arg-capture arrays AND the canonicalize spy's call history so Round 4
+    // dependency-pinning tests start from a clean slate.
     supabaseMock.state.createUserMode = "ok";
+    supabaseMock.state.createUserCalls.length = 0;
+    supabaseMock.state.signInWithPasswordCalls.length = 0;
+    vi.mocked(canonicalizeSpy).mockClear();
   });
 
   test("Gate 5: createUser → 'User already registered' → 410 Gone (create-only)", async () => {
@@ -303,43 +340,115 @@ describe("Layer 1 — direct route-handler import (deterministic gate-rejection 
   });
 
   // ---------------------------------------------------------------------------
-  // Email canonicalization at the auth boundary (Round 3 Finding 2)
+  // Email canonicalization at the auth boundary (Round 3 Finding 2 +
+  // Round 4 Finding 1 dependency-pinning).
   //
   // AGENTS.md §1.3: lib/email/canonicalize.ts is the ONLY function that
   // touches raw emails before they enter the system. The route MUST route
   // body.email through canonicalize() — not an inline trim().toLowerCase()
-  // — so that whitespace + case variants are admitted by the allowlist
-  // (which stores the canonical form). This test pins the boundary to the
-  // canonical helper: if `canonicalize` ever changes its semantics OR if a
-  // future refactor reverts to inline normalization that drifts, this test
-  // breaks.
+  // — and the canonicalized form MUST flow into BOTH the allowlist lookup
+  // AND the downstream Supabase auth.admin.createUser + signInWithPassword
+  // calls.
+  //
+  // Round 3 introduced two semantics-equivalence tests that asserted the
+  // canonical email appeared in the response body. Codex Round 4 Finding 1
+  // correctly pointed out that semantics-equivalence does not pin the
+  // dependency: replace the route with inline trim().toLowerCase() and
+  // those tests stay green because canonicalize() and the inline form
+  // currently produce the same output. The tests below upgrade those
+  // assertions to PROVENANCE-pinning via two mechanisms:
+  //   - vi.mock("@/lib/email/canonicalize", { spy: true }) records every
+  //     call so we can assert canonicalize() was invoked with the RAW
+  //     client input (not a pre-trimmed string from inline normalization).
+  //   - Hoisted supabaseMock.state.createUserCalls / signInWithPasswordCalls
+  //     capture the email arg the route passes to Supabase, so we can
+  //     assert the CANONICAL form reached the boundary (catching the
+  //     "canonicalize for allowlist but pass raw to Supabase" regression).
   // ---------------------------------------------------------------------------
   test("Boundary: '  EDWeiss412@GMAIL.COM  ' (whitespace + uppercase) → 200, admin (canonicalize at boundary per AGENTS.md §1.3)", async () => {
     supabaseMock.state.createUserMode = "ok";
-    const res = await POST(
-      makeRequest({ body: { email: "  EDWeiss412@GMAIL.COM  " } }),
-    );
+    const rawInput = "  EDWeiss412@GMAIL.COM  ";
+    const canonicalForm = "edweiss412@gmail.com";
+    const res = await POST(makeRequest({ body: { email: rawInput } }));
     expect(
       res.status,
       "raw whitespace + uppercase email must be canonicalized before allowlist lookup; if 400 here, the boundary is bypassing lib/email/canonicalize",
     ).toBe(200);
     const body = (await res.json()) as { ok: boolean; email: string; isAdmin: boolean };
     expect(body.ok).toBe(true);
-    // The response email must be the canonical form, not the raw input —
-    // proves the route uses the canonicalize() result downstream.
-    expect(body.email).toBe("edweiss412@gmail.com");
+    expect(body.email).toBe(canonicalForm);
     expect(body.isAdmin).toBe(true);
+
+    // PROVENANCE: canonicalize MUST have been called with the raw client
+    // input. If a refactor reverts to inline trim/lowercase, the spy
+    // never sees this call and the assertion breaks.
+    expect(
+      canonicalizeSpy,
+      "lib/email/canonicalize MUST be invoked with the raw client input per AGENTS.md §1.3",
+    ).toHaveBeenCalledWith(rawInput);
   });
 
   test("Boundary: '\\n\\tcrew-non-admin@FXAV.test\\n' → 200, isAdmin=false (allowlist matches canonical, not raw)", async () => {
     supabaseMock.state.createUserMode = "ok";
-    const res = await POST(
-      makeRequest({ body: { email: "\n\tcrew-non-admin@FXAV.test\n" } }),
-    );
+    const rawInput = "\n\tcrew-non-admin@FXAV.test\n";
+    const canonicalForm = "crew-non-admin@fxav.test";
+    const res = await POST(makeRequest({ body: { email: rawInput } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { email: string; isAdmin: boolean };
-    expect(body.email).toBe("crew-non-admin@fxav.test");
+    expect(body.email).toBe(canonicalForm);
     expect(body.isAdmin).toBe(false);
+
+    // PROVENANCE: canonicalize MUST have been called with the raw client
+    // input (newlines + tabs preserved).
+    expect(canonicalizeSpy).toHaveBeenCalledWith(rawInput);
+  });
+
+  test("Round 4 Finding 1 — full provenance chain: canonicalize spy + Supabase admin args + response", async () => {
+    // Combined property test that closes Codex Round 4 Finding 1's three
+    // failure modes simultaneously:
+    //   (a) Refactor back to inline normalization → canonicalize spy never
+    //       called → toHaveBeenCalledWith fails.
+    //   (b) Canonicalize for allowlist but pass raw to Supabase →
+    //       createUserCalls[0].email is raw → assertion fails.
+    //   (c) Canonicalize for createUser but raw to signInWithPassword →
+    //       signInWithPasswordCalls[0].email is raw → assertion fails.
+    // Plus the existing semantics-equivalence assertion on the response
+    // body. A future refactor would have to defeat ALL FOUR independently.
+    supabaseMock.state.createUserMode = "ok";
+    const rawInput = "  EDWeiss412@GMAIL.COM  ";
+    const canonicalForm = "edweiss412@gmail.com";
+
+    const res = await POST(makeRequest({ body: { email: rawInput } }));
+    expect(res.status).toBe(200);
+
+    // (a) Spy on lib/email/canonicalize captured the raw client input.
+    expect(canonicalizeSpy, "canonicalize must be invoked").toHaveBeenCalled();
+    expect(
+      canonicalizeSpy,
+      "canonicalize must be invoked with the RAW client input — proving the route did NOT inline-normalize",
+    ).toHaveBeenCalledWith(rawInput);
+
+    // (b) auth.admin.createUser received the CANONICAL email, not raw.
+    expect(supabaseMock.state.createUserCalls.length, "createUser must run").toBe(1);
+    expect(
+      supabaseMock.state.createUserCalls[0]?.email,
+      "Supabase auth.admin.createUser MUST receive the canonical email, NOT the raw input. If raw, the route canonicalized for the allowlist but passed raw downstream — exactly the regression Round 4 Finding 1 targets.",
+    ).toBe(canonicalForm);
+
+    // (c) ssr signInWithPassword received the CANONICAL email, not raw.
+    expect(
+      supabaseMock.state.signInWithPasswordCalls.length,
+      "signInWithPassword must run",
+    ).toBe(1);
+    expect(
+      supabaseMock.state.signInWithPasswordCalls[0]?.email,
+      "Supabase ssr signInWithPassword MUST receive the canonical email, NOT the raw input.",
+    ).toBe(canonicalForm);
+
+    // Response body still reflects the canonical form (semantics fence).
+    const body = (await res.json()) as { email: string; isAdmin: boolean };
+    expect(body.email).toBe(canonicalForm);
+    expect(body.isAdmin).toBe(true);
   });
 });
 
