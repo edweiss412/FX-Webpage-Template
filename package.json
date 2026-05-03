@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:parser": "vitest run tests/parser tests/invariants",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui"
   },
