@@ -47,15 +47,13 @@ import { ShowStatusTile } from "@/components/tiles/ShowStatusTile";
 import { TransportTile } from "@/components/tiles/TransportTile";
 import { VenueTile } from "@/components/tiles/VenueTile";
 import { VideoScopeTile } from "@/components/tiles/VideoScopeTile";
-import {
-  transportTileVisible,
-  SCOPE_TILE_UNLOCKING_FLAGS,
-} from "@/lib/visibility/scopeTiles";
+import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import {
   getShowForViewer,
   type Viewer,
   type ShowForViewer,
 } from "@/lib/data/getShowForViewer";
+import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 // Identity-only searchParams shape. NOTE: `role` is intentionally absent
@@ -219,55 +217,37 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
             back to `kind: 'none'` so admins see every show day.
           */}
           {(() => {
-            const viewerCrew =
-              viewer.kind === "crew" || viewer.kind === "admin_preview"
-                ? data.crewMembers.find((c) => c.id === viewer.crewMemberId)
-                : null;
-            const dateRestriction = viewerCrew
-              ? viewerCrew.dateRestriction
-              : { kind: "none" as const };
-            // PackListTile (Task 4.9) reads the viewer's stage_restriction
-            // (§6.6 discriminated union). Admins / no-crew-row viewers
-            // default to `{ kind: 'none' }` so the tile applies only the
-            // global PACK_LIST_VISIBLE_PHASES gate.
-            const stageRestriction = viewerCrew
-              ? viewerCrew.stageRestriction
-              : ({ kind: "none" } as const);
+            // Per-viewer context (Important 2): pure helper computes
+            // viewerCrew + restrictions + synthesized flags + isAdmin
+            // so the tile list below is a flat data-binding mapping,
+            // not a 100-line inline IIFE.
+            const ctx = resolveViewerContext(viewer, data);
             // "Today" is wired here once and threaded into the tile —
             // pure-function shape lets the predicate be unit-tested in
             // vitest without a render harness.
             const today = new Date();
-            // For the bare admin viewer (no crew row), synthesize an
-            // effective flags array that unlocks every scope tile. The
-            // canonical predicates already accept this — A1 unlocks
-            // audio, V1 unlocks video, L1 unlocks lighting; LEAD adds
-            // a defense-in-depth marker for any future predicate that
-            // gates on it. The constant lives at
-            // lib/visibility/scopeTiles.ts so a future scope-tile
-            // addition only needs to widen the constant, not edit
-            // page.tsx.
-            const viewerFlags = viewerCrew
-              ? viewerCrew.roleFlags
-              : viewer.kind === "admin"
-                ? [...SCOPE_TILE_UNLOCKING_FLAGS]
-                : [];
-            const isAdmin = viewer.kind === "admin";
             const transportVisible = transportTileVisible({
               transportation: data.transportation,
               viewerName: data.viewerName,
-              isAdmin,
+              isAdmin: ctx.isAdmin,
             });
             return (
               <>
                 <ScheduleTile
                   show={data.show}
-                  dateRestriction={dateRestriction}
+                  dateRestriction={ctx.dateRestriction}
                 />
-                <AudioScopeTile rooms={data.rooms} viewerFlags={viewerFlags} />
-                <VideoScopeTile rooms={data.rooms} viewerFlags={viewerFlags} />
+                <AudioScopeTile
+                  rooms={data.rooms}
+                  viewerFlags={ctx.viewerFlags}
+                />
+                <VideoScopeTile
+                  rooms={data.rooms}
+                  viewerFlags={ctx.viewerFlags}
+                />
                 <LightingScopeTile
                   rooms={data.rooms}
-                  viewerFlags={viewerFlags}
+                  viewerFlags={ctx.viewerFlags}
                 />
                 <TransportTile
                   transportation={data.transportation}
@@ -286,8 +266,8 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
                 */}
                 <FinancialsTile
                   financials={data.financials}
-                  viewerFlags={viewerFlags}
-                  isAdmin={isAdmin}
+                  viewerFlags={ctx.viewerFlags}
+                  isAdmin={ctx.isAdmin}
                 />
                 {/*
                   PackListTile (Task 4.9, AC-4.7..4.12) — visibility
@@ -300,7 +280,7 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
                 <PackListTile
                   pullSheet={data.pullSheet}
                   show={data.show}
-                  stageRestriction={stageRestriction}
+                  stageRestriction={ctx.stageRestriction}
                   today={today}
                 />
                 {/*
