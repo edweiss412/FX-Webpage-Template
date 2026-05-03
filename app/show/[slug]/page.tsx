@@ -34,6 +34,7 @@ import { notFound } from "next/navigation";
 
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
+import { LodgingTile } from "@/components/tiles/LodgingTile";
 import {
   getShowForViewer,
   type Viewer,
@@ -182,13 +183,14 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
           className="grid grid-cols-2 items-stretch gap-(--spacing-tile-gap) sm:grid-cols-3 lg:grid-cols-4"
         >
           {/*
-            Two visible placeholder tiles so the grid actually has content
-            at this milestone. Real tile components land in Tasks 4.4+
-            (Lodging, Venue, Crew, Contacts, Schedule, Pull, etc.). The
-            placeholder consumes h-full so the §8.4 row-stretch invariant
-            is exercised even before real tiles exist.
+            Tile mounts. Real tiles per Task 4.4 (Lodging) land progressively;
+            remaining placeholders cover the §8.4 row-stretch invariant
+            until Tasks 4.4+ ship the rest. LodgingTile may return null
+            (whole-tile-missing reflow per §8.3) — that's intentional and
+            verified by the e2e suite.
           */}
-          {(["Lodging", "Venue", "Crew", "Schedule"] as const).map((label) => (
+          <LodgingTile hotelReservations={data.hotelReservations} />
+          {(["Venue", "Crew", "Schedule"] as const).map((label) => (
             <article
               key={label}
               data-testid={`tile-placeholder-${label.toLowerCase()}`}
@@ -198,7 +200,7 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
                 {label}
               </p>
               <p className="mt-2 text-sm text-text-subtle">
-                Tile loads in Task 4.{label === "Lodging" ? "4" : label === "Venue" ? "5" : label === "Crew" ? "6" : "7"}.
+                Tile loads in Task 4.{label === "Venue" ? "4" : label === "Crew" ? "4" : "5"}.
               </p>
             </article>
           ))}
