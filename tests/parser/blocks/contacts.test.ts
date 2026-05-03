@@ -239,6 +239,56 @@ describe("parseContacts — per-person segmentation no bleed (Codex round-3 find
   });
 });
 
+// ── Codex round-4 regression tests: notes contamination ──────────────────────
+
+describe("parseContacts — notes contamination fixes (Codex round-4 finding 2)", () => {
+  it("2025-03 venue notes do NOT contain stray numeric '3620.45'", () => {
+    // Fixture line 236: | Hotal Contact Info | <contact cell> | ... | 3620.45 |
+    // Fix 2a: only use cells[1] (the value cell), not all remaining cells.
+    const md = readFileSync("fixtures/shows/raw/2025-03-dci-rpas-central.md", "utf8");
+    const contacts = parseContacts(md, "v2");
+    const venue = contacts.filter((c) => c.kind === "venue");
+    for (const v of venue) {
+      expect(v.notes ?? "").not.toContain("3620.45");
+    }
+  });
+
+  it("Jenae Denne's notes do NOT contain Amanda Mattson (2026-03 — Codex round-4 finding 2)", () => {
+    // Fixture line 74: Venue Contact Info cell has both Jenae and Amanda.
+    // Fix 2b: clip Jenae's post segment before Amanda's name starts.
+    const md = readFileSync("fixtures/shows/raw/2026-03-rpas-central-four-seasons.md", "utf8");
+    const contacts = parseContacts(md, "v4");
+    const jenae = contacts.find((c) => /Jenae/i.test(c.name ?? ""));
+    if (jenae) {
+      expect(jenae.notes ?? "").not.toContain("Amanda Mattson");
+      expect(jenae.notes ?? "").not.toContain("Amanda");
+    }
+  });
+
+  it("Cecilia's notes do NOT contain Aaron Shapiro (2026-04 — Codex round-4 finding 2)", () => {
+    // Fixture line 32: In House AV cell has both Cecilia and Aaron.
+    // Fix 2b: clip Cecilia's post segment before Aaron's name starts.
+    const md = readFileSync("fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md", "utf8");
+    const contacts = parseContacts(md, "v4");
+    const cecilia = contacts.find((c) => /Cecilia/i.test(c.name ?? ""));
+    expect(cecilia).toBeDefined();
+    expect(cecilia!.notes ?? "").not.toContain("Aaron");
+    expect(cecilia!.notes ?? "").not.toContain("Shapiro");
+  });
+
+  it("Angela Kongabel's notes do NOT contain Cesar's phone (2026-03 — phone-attribution)", () => {
+    // Fixture line 75: In House AV cell: Cesar ... 309-532-5534 Angela ...
+    // Fix 2b: Angela's post segment has no phone; fix ensures clipping doesn't
+    // re-introduce phone from inter-person gap. Also validates round-3 phone fix.
+    const md = readFileSync("fixtures/shows/raw/2026-03-rpas-central-four-seasons.md", "utf8");
+    const contacts = parseContacts(md, "v4");
+    const angela = contacts.find((c) => /Angela Kongabel/i.test(c.name ?? ""));
+    if (angela) {
+      expect(angela.notes ?? "").not.toContain("309-532-5534"); // Cesar's phone
+    }
+  });
+});
+
 // ── Corpus-coverage test ──────────────────────────────────────────────────────
 describe("parseContacts — corpus coverage", () => {
   for (const path of ALL_FIXTURES) {

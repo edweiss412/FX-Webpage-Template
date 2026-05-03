@@ -95,12 +95,14 @@ export function parseContacts(
 
     if (!kind) continue;
 
-    // Combine all remaining cells as the raw value (in case content spans multiple columns)
-    const rawValue = cells
-      .slice(1)
-      .map((c) => clean(c))
-      .filter(Boolean)
-      .join(" ");
+    // Use only the immediately-following value cell (cells[1]) as the raw value.
+    //
+    // Fix 2a (Codex round-4 finding 2): the previous approach joined ALL cells
+    // after the label, causing extraneous cells (e.g. a cost figure "3620.45" in
+    // a later column of the same row) to be folded into notes. Contact data lives
+    // in the single value cell directly after the label — later columns are
+    // unrelated table data (e.g. budget figures, status flags).
+    const rawValue = clean(cells[1] ?? "");
 
     if (!rawValue) continue;
 
@@ -158,6 +160,11 @@ export function parseContacts(
  *   "Cecilia J. Cole Event Sales Manager cecilia.cole@encoreglobal.com Cell: 1-404-723-2159
  *    Aaron Shapiro Director of Event Technology aaron.shapiro@encoreglobal.com Cell: 847.414.9205"
  */
+/** Escapes special regex characters in a literal string for use in RegExp(). */
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function parseContactCell(raw: string, kind: ContactKind): ContactRow[] {
   // Normalize: strip angle brackets, HTML entities, extra whitespace
   const text = raw
@@ -198,11 +205,56 @@ function parseContactCell(raw: string, kind: ContactKind): ContactRow[] {
 
     // Pre-email text: between previous email's end and this email's start
     const pre = text.slice(prevEmailEnd, emailStart).trim();
-    // Post-email text: between this email's end and next email's start
-    const post = text.slice(emailEnd, nextEmailStart).trim();
+    // Post-email text: between this email's end and next email's start (raw, unclipped)
+    const postRaw = text.slice(emailEnd, nextEmailStart).trim();
+
+    // Fix 2b (Codex round-4 finding 2): clip post before person[i+1]'s name begins.
+    //
+    // For multi-person cells the raw post segment for person[i] is exactly the
+    // pre-email segment for person[i+1]. That segment contains person[i+1]'s
+    // name, title, and phone — none of which belong in person[i]'s notes.
+    //
+    // Algorithm:
+    //   1. Extract person[i+1]'s name from postRaw using the same extractName().
+    //   2. If a name is found, find its first occurrence in postRaw and clip there.
+    //   3. If no name is found (email-only next person), clip at the raw post end
+    //      so phone/title text still comes through for person[i].
+    //
+    // For the last person (no next person) postRaw is used in full.
+    let post: string;
+    if (i < emailMatches.length - 1) {
+      const nextPersonName = extractName(postRaw);
+      if (nextPersonName) {
+        // Find the position of the next person's first name token in postRaw.
+        // Use case-insensitive search on the first token for robustness.
+        const firstToken = nextPersonName.split(" ")[0]!;
+        const clipIdx = postRaw.search(new RegExp(`\\b${escapeRegex(firstToken)}\\b`));
+        post = clipIdx > 0 ? postRaw.slice(0, clipIdx).trim() : "";
+      } else {
+        // No name extracted → no clipping needed (next person is email-only).
+        post = postRaw;
+      }
+    } else {
+      post = postRaw;
+    }
 
     // Extract name from the pre segment
     const name = extractName(pre);
+
+    // Fix 2b continued (Codex round-4): for person[i > 0], the `pre` segment
+    // spans from the previous person's email end to this person's email start.
+    // It contains this person's name but is prefixed by the previous person's
+    // trailing phone/title text. Clip `pre` to start at this person's name so
+    // that preceding phone numbers don't bleed into this person's notes.
+    // For person[0], `pre` only contains their own tokens — no clipping needed.
+    let preForNotes = pre;
+    if (i > 0 && name) {
+      const firstToken = name.split(" ")[0]!;
+      const nameIdx = pre.search(new RegExp(`\\b${escapeRegex(firstToken)}\\b`));
+      if (nameIdx > 0) {
+        preForNotes = pre.slice(nameIdx).trim();
+      }
+    }
 
     // Extract phone from pre or post.
     //
@@ -216,8 +268,8 @@ function parseContactCell(raw: string, kind: ContactKind): ContactRow[] {
     const phoneMatch = phoneInPost ?? phoneInPre;
     const phone = phoneMatch ? presence(phoneMatch[0]) : null;
 
-    // Notes: full per-person segment text
-    const segmentText = [pre, emailRaw, post].filter(Boolean).join(" ").trim();
+    // Notes: per-person segment (clipped pre + clipped post — no bleed in either direction)
+    const segmentText = [preForNotes, emailRaw, post].filter(Boolean).join(" ").trim();
 
     rows.push({
       kind,
