@@ -34,6 +34,8 @@ import { notFound } from "next/navigation";
 
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
+import { RightNowCard } from "@/components/right-now/RightNowCard";
+import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import { AudioScopeTile } from "@/components/tiles/AudioScopeTile";
 import { ContactsTile } from "@/components/tiles/ContactsTile";
 import { CrewTile } from "@/components/tiles/CrewTile";
@@ -135,6 +137,19 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
     notFound();
   }
 
+  // Per-viewer context computed once and threaded into the hero card
+  // and the tile grid below. The IIFE inside the tile grid used to
+  // re-compute this; now that Task 4.11 also needs dateRestriction
+  // (for the RightNowCard state machine), we hoist the call so the
+  // page makes ONE pass over the projection.
+  const ctx = resolveViewerContext(viewer, data);
+  const rightNowCtx = buildRightNowContext({
+    show: data.show,
+    dateRestriction: ctx.dateRestriction,
+    hotelReservations: data.hotelReservations,
+    contacts: data.contacts,
+  });
+
   return (
     <>
       <Header show={data.show} />
@@ -143,37 +158,23 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
         className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col gap-(--spacing-section-gap) px-4 py-6 sm:px-8 sm:py-8"
       >
         {/*
-          RightNowCard slot — placeholder for Task 4.11. The real component
-          will render the live state ("Today: Show day 2 of 3") with a
-          crossfade between work-phase modes (DESIGN.md §5.1 --duration-slow,
-          spec §8.2). At this milestone the slot exists so AC-4.4 (Task 4.13)
-          can assert the card width === page-container width to within 0.5px,
-          and so the mobile layout has its primary moment occupy real
-          vertical space rather than collapsing.
+          RightNowCard (Task 4.11, §8.2, AC-4.3) — the page's hero
+          element. Time-aware AND viewer-aware: state machine in
+          lib/time/rightNow.ts resolves one of 12 §8.2 states from
+          (today, show.dates, viewerCrew.dateRestriction); the card is
+          the only `'use client'` component in M4 so it can re-derive
+          on a 60-second tick (day-rollover) AND so Playwright can pin
+          Date.now() via page.addInitScript at test time. Animations
+          (crossfade between states, 66-pair compound transitions) are
+          Task 4.12's job.
 
-          Layout note: padded one step above tile padding (§3.1 cascade —
-          24px > 20px tile pad > 16px tile gap) so it reads as the page's
-          primary moment, not just another tile.
+          Layout note: padded one step above tile padding (§3.1
+          cascade — 24px > 20px tile pad > 16px tile gap) so it reads
+          as the page's primary moment, not just another tile. Width
+          === page-container width (Task 4.13 layout-dimensions
+          assertion).
         */}
-        <section
-          data-testid="right-now-card"
-          aria-label="Right now"
-          className="rounded-md border border-border bg-surface p-6 shadow-(--shadow-tile)"
-        >
-          <p className="text-xs font-medium uppercase tracking-[0.16em] text-accent-on-bg">
-            <span
-              aria-hidden="true"
-              className="mr-2 inline-block size-1.5 -translate-y-[1px] rounded-pill bg-accent align-middle"
-            />
-            Right now
-          </p>
-          <p className="mt-3 text-xl font-semibold text-text-strong sm:text-2xl">
-            {data.show.title}
-          </p>
-          <p className="mt-1 text-sm text-text-subtle">
-            Live tile loads in Task 4.11. Layout shell is in place.
-          </p>
-        </section>
+        <RightNowCard context={rightNowCtx} />
 
         {/*
           Tile grid — responsive columns per §8.4 grid contract:
@@ -217,14 +218,11 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
             back to `kind: 'none'` so admins see every show day.
           */}
           {(() => {
-            // Per-viewer context (Important 2): pure helper computes
-            // viewerCrew + restrictions + synthesized flags + isAdmin
-            // so the tile list below is a flat data-binding mapping,
-            // not a 100-line inline IIFE.
-            const ctx = resolveViewerContext(viewer, data);
-            // "Today" is wired here once and threaded into the tile —
-            // pure-function shape lets the predicate be unit-tested in
-            // vitest without a render harness.
+            // `ctx` is hoisted above (Task 4.11 also needs it for the
+            // RightNowCard state machine). "Today" is wired here once
+            // and threaded into PackListTile — pure-function shape lets
+            // the predicate be unit-tested in vitest without a render
+            // harness.
             const today = new Date();
             const transportVisible = transportTileVisible({
               transportation: data.transportation,
