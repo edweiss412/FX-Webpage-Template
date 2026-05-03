@@ -24,7 +24,7 @@ import { parseOps } from "./blocks/ops";
 import { parsePullSheet } from "./pull-sheet";
 import { parseDiagrams } from "./diagrams";
 import { extractOpeningReel } from "./opening-reel";
-import type { ParsedSheet, ParseError, ShowRow } from "./types";
+import type { ParsedSheet, ParseError, ShowRow, WorkPhase } from "./types";
 
 export type { ParsedSheet, ParseResult, ParseWarning, ParseError } from "./types";
 export type {
@@ -217,30 +217,62 @@ function extractTitleFromMarkdown(
 }
 
 // ── Agenda link extraction ────────────────────────────────────────────────────
-// Deferred: agenda_links population is deferred to Task 1.13 / M4 when the
-// Drive integration layer is available to resolve file IDs. For now, emit
-// an empty array. The event_details map already preserves any agenda-related
-// values verbatim under their canonical keys.
-function extractAgendaLinks(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _eventDetails: Record<string, string>,
-): ShowRow["agenda_links"] {
-  // TODO(Task 1.13 / M4): parse agenda_link keys from eventDetails into
-  // { label, fileId?, url? } entries once Drive URL pattern is confirmed.
-  return [];
+// Scans the raw markdown for rows matching:
+//   | AGENDA LINK <SUFFIX> | <filename or URL> |
+// These rows appear OUTSIDE the EVENT DETAILS block (corpus-verified:
+// 2025-03-dci-rpas-central.md:239-241 and
+// 2025-05-redefining-fixed-income-private-credit.md:87-89).
+// If the value is a Drive URL, extracts the fileId from the /d/<id> segment.
+// If the value is a plain URL (https://...), stores it as `url`.
+// Otherwise (filename or plain text) stores the value as `url` (the only
+// string-valued carry field in the type).
+// Drive file resolution (for fileId → real download) is deferred to M4/Task 1.13.
+function parseAgendaLinks(markdown: string): ShowRow["agenda_links"] {
+  const links: { label: string; fileId?: string; url?: string }[] = [];
+  for (const line of markdown.split("\n")) {
+    const m = line.match(/^\s*\|\s*(AGENDA LINK[^|]*?)\s*\|\s*([^|]+?)\s*\|/i);
+    if (!m) continue;
+    const label = m[1]?.trim();
+    const value = m[2]?.trim();
+    if (!label || !value) continue;
+    const driveFileMatch = value.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (driveFileMatch?.[1]) {
+      links.push({ label, fileId: driveFileMatch[1] });
+    } else if (/^https?:\/\//.test(value)) {
+      links.push({ label, url: value });
+    } else if (value.length > 0) {
+      // Plain filename or descriptive text — preserve as `url` (label-only carry)
+      links.push({ label, url: value });
+    }
+  }
+  return links;
 }
 
 // ── schedule_phases ───────────────────────────────────────────────────────────
-// Deferred: schedule_phases derivation is deferred to Task 1.13 / M4.
-// PackListTile reads this map via todayWorkPhases(show, today). For now,
-// emit an empty Record; the dates block already populates travelIn/set/showDays.
-function deriveSchedulePhases(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _dates: ShowRow["dates"],
-): ShowRow["schedule_phases"] {
-  // TODO(Task 1.13 / M4): map each date in dates.travelIn / dates.set /
-  // dates.showDays / dates.travelOut to the appropriate WorkPhase[] entry.
-  return {};
+// M1 baseline: derives work phases from the dates block only.
+//   dates.set        → ['Load In', 'Set']
+//   showDays[0..n-2] → ['Show']
+//   showDays[n-1]    → ['Show', 'Strike']  (last show day is always compound)
+//   dates.travelOut  → ['Load Out']
+//
+// travelIn is a travel-only day and does not map to a WorkPhase entry.
+//
+// A richer per-day derivation (parsing the SCHEDULE block for explicit phase
+// rows) is deferred — the spec notes "RightNowState alone is too coarse" for
+// compound days; this dates-only mapping is the agreed M1 baseline.
+// PackListTile reads this map via todayWorkPhases(show, today).
+function deriveSchedulePhases(dates: ShowRow["dates"]): ShowRow["schedule_phases"] {
+  const phases: Record<string, WorkPhase[]> = {};
+  if (dates.set) phases[dates.set] = ["Load In", "Set"];
+  const days = dates.showDays;
+  for (let i = 0; i < days.length; i++) {
+    const day = days[i];
+    if (!day) continue;
+    const isLast = i === days.length - 1;
+    phases[day] = isLast ? ["Show", "Strike"] : ["Show"];
+  }
+  if (dates.travelOut) phases[dates.travelOut] = ["Load Out"];
+  return phases;
 }
 
 // ── Main orchestrator ─────────────────────────────────────────────────────────
@@ -328,7 +360,7 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
     dates,
     schedule_phases: deriveSchedulePhases(dates),
     event_details: eventDetails,
-    agenda_links: extractAgendaLinks(eventDetails),
+    agenda_links: parseAgendaLinks(markdown),
     coi_status: ops.coi_status,
     po: ops.po,
     proposal: ops.proposal,
