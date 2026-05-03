@@ -28,8 +28,9 @@ import {
   videoScopeVisible,
   lightingScopeVisible,
   financialsVisible,
+  transportTileVisible,
 } from "@/lib/visibility/scopeTiles";
-import type { RoleFlag } from "@/lib/parser/types";
+import type { RoleFlag, TransportationRow } from "@/lib/parser/types";
 
 describe("scope-tile visibility predicates (Task 4.6)", () => {
   test("['A1'] viewer → Audio visible; Video and Lighting hidden", () => {
@@ -114,6 +115,87 @@ describe("financialsVisible predicate (Task 4.6, supporting Task 4.8)", () => {
 
   test("empty flags + non-admin → no financials", () => {
     expect(financialsVisible([], false)).toBe(false);
+  });
+});
+
+describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
+  const baseTransport: TransportationRow = {
+    driver_name: "Cara",
+    driver_phone: null,
+    driver_email: null,
+    vehicle: null,
+    license_plate: null,
+    color: null,
+    parking: null,
+    schedule: [
+      {
+        stage: "Travel In",
+        date: "2026-06-01",
+        time: "09:00",
+        assigned_names: ["Alice"],
+      },
+    ],
+    notes: null,
+  };
+
+  test("null transportation → predicate false (nothing to render)", () => {
+    expect(
+      transportTileVisible({
+        transportation: null,
+        viewerName: "Alice",
+        isAdmin: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("admin viewer + transportation present → predicate true (admin sees all)", () => {
+    expect(
+      transportTileVisible({
+        transportation: baseTransport,
+        viewerName: null,
+        isAdmin: true,
+      }),
+    ).toBe(true);
+  });
+
+  test("branch 1: viewerName === driver_name → predicate true", () => {
+    expect(
+      transportTileVisible({
+        transportation: baseTransport,
+        viewerName: "Cara",
+        isAdmin: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("branch 2: viewerName in schedule[*].assigned_names (driver mismatch) → predicate true", () => {
+    expect(
+      transportTileVisible({
+        transportation: baseTransport,
+        viewerName: "Alice",
+        isAdmin: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("neither branch matches → predicate false", () => {
+    expect(
+      transportTileVisible({
+        transportation: baseTransport,
+        viewerName: "Bob",
+        isAdmin: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("null viewerName + non-admin → predicate false (defense in depth)", () => {
+    expect(
+      transportTileVisible({
+        transportation: baseTransport,
+        viewerName: null,
+        isAdmin: false,
+      }),
+    ).toBe(false);
   });
 });
 

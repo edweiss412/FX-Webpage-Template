@@ -40,8 +40,10 @@ import { CrewTile } from "@/components/tiles/CrewTile";
 import { LightingScopeTile } from "@/components/tiles/LightingScopeTile";
 import { LodgingTile } from "@/components/tiles/LodgingTile";
 import { ScheduleTile } from "@/components/tiles/ScheduleTile";
+import { TransportTile } from "@/components/tiles/TransportTile";
 import { VenueTile } from "@/components/tiles/VenueTile";
 import { VideoScopeTile } from "@/components/tiles/VideoScopeTile";
+import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import {
   getShowForViewer,
   type Viewer,
@@ -229,6 +231,12 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
               : viewer.kind === "admin"
                 ? [...adminAllFlags]
                 : [];
+            const isAdmin = viewer.kind === "admin";
+            const transportVisible = transportTileVisible({
+              transportation: data.transportation,
+              viewerName: data.viewerName,
+              isAdmin,
+            });
             return (
               <>
                 <ScheduleTile
@@ -240,6 +248,10 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
                 <LightingScopeTile
                   rooms={data.rooms}
                   viewerFlags={viewerFlags}
+                />
+                <TransportTile
+                  transportation={data.transportation}
+                  visible={transportVisible}
                 />
               </>
             );

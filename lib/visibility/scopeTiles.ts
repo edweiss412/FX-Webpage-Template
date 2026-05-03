@@ -42,7 +42,7 @@
  *
  * Server-safe (pure functions; no environment reads, no side effects).
  */
-import type { RoleFlag } from "@/lib/parser/types";
+import type { RoleFlag, TransportationRow } from "@/lib/parser/types";
 
 /**
  * Audio scope tile visibility (§8.1).
@@ -113,4 +113,54 @@ export function financialsVisible(
   isAdmin: boolean,
 ): boolean {
   return isAdmin || flags.includes("LEAD");
+}
+
+/**
+ * Transport tile visibility (§8.1, Task 4.7).
+ *
+ * Two OR'd branches per spec §8.1:
+ *   1. `transportation.driver_name === viewerName` — the assigned driver
+ *      sees their own ride card.
+ *   2. The viewer's name appears in any per-day schedule entry's
+ *      `assigned_names[]` — passengers + co-drivers tagged on a leg
+ *      see the tile so they know which vehicle / driver / parking
+ *      spot they're paired with.
+ *
+ * Branch 3 (admin): admins see the tile UNCONDITIONALLY when any
+ * transportation row exists for the show. This matches the admin
+ * "see-everything" posture per §4.4 and aligns with how
+ * `getShowForViewer` returns the full transportation row to admins
+ * regardless of name match.
+ *
+ * The viewer-name match is exact-equal (case-sensitive, trimmed by the
+ * parser before persistence). String-includes / case-insensitive /
+ * fuzzy match is INTENTIONALLY rejected here — fuzzy match is what the
+ * `assigned_names` parser does upstream (Task 1.6's tagging logic);
+ * this predicate trusts the parser's output.
+ *
+ * Returns false when transportation is null (no row seeded for the
+ * show) — there's literally nothing to render. Page is responsible for
+ * either rendering the tile or omitting it; this predicate is the
+ * single source of truth for the decision.
+ */
+export function transportTileVisible(opts: {
+  transportation: TransportationRow | null;
+  viewerName: string | null;
+  isAdmin: boolean;
+}): boolean {
+  const { transportation, viewerName, isAdmin } = opts;
+  if (!transportation) return false;
+  // Branch 3 — admin sees the tile when transportation exists.
+  if (isAdmin) return true;
+  if (!viewerName) return false;
+  // Branch 1 — assigned driver.
+  if (transportation.driver_name === viewerName) return true;
+  // Branch 2 — viewer is tagged on at least one schedule leg's
+  // assigned_names. The end-to-end contract for `assigned_names` lives
+  // at lib/parser/types.ts:147-152 — preserved verbatim across
+  // parser → seed → persistence → projection (regression test #7 in
+  // tests/data/getShowForViewer.test.ts).
+  return transportation.schedule.some((s) =>
+    s.assigned_names.includes(viewerName),
+  );
 }
