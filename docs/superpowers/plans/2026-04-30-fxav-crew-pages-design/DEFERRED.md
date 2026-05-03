@@ -53,6 +53,13 @@ When picking up a deferred item:
 **Why deferred:** Defensible separation of concerns — testing "the lock is held" requires a code path that holds it, which doesn't exist until M5/M6.
 **Suggested home:** M5 handoff §6 (watchpoints) — explicitly call out that M5's auth-side mutations need the helper authored. M6 handoff §6 — same for sync. The helper itself probably belongs in `lib/db/advisoryLock.ts`.
 
+### M4-D1 — ShowStatusTile event_details key probing should route through parser canonical-key authority
+
+**Source:** M4 catch-up code-quality review, 2026-05-03 Important Minor 2
+**Description:** `components/tiles/ShowStatusTile.tsx` probes for the dress-code value across stringly-typed key candidates `["dress_code", "dress code", "dress", "attire"]`. Tile should consume the canonical key only; parser should expose a `CANONICAL_KEY_MAP` (or similar) that decides the variant collapse upstream.
+**Why deferred:** Crosses into M1-parser territory. Out of M4 catch-up scope; the tile-side variant-tolerant probe is acceptable until the parser exposes canonical keys.
+**Suggested home:** M1 follow-up touch OR a cross-cutting key-canonicalization task. When picked up, simplify the tile to read `event_details.dress_code` only, parser-side guarantees the canonical form.
+
 ---
 
 ## Resolved
