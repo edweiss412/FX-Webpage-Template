@@ -34,6 +34,7 @@ import { notFound } from "next/navigation";
 
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
+import { ContactsTile } from "@/components/tiles/ContactsTile";
 import { CrewTile } from "@/components/tiles/CrewTile";
 import { LodgingTile } from "@/components/tiles/LodgingTile";
 import { VenueTile } from "@/components/tiles/VenueTile";
@@ -194,6 +195,7 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
           <LodgingTile hotelReservations={data.hotelReservations} />
           <VenueTile venue={data.show.venue} />
           <CrewTile crewMembers={data.crewMembers} />
+          <ContactsTile contacts={data.contacts} />
           <article
             key="Schedule"
             data-testid="tile-placeholder-schedule"

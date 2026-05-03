@@ -233,3 +233,47 @@ test.describe("crew page — CrewTile (Task 4.4)", () => {
     ).toBeVisible();
   });
 });
+
+test.describe("crew page — ContactsTile (Task 4.4)", () => {
+  test("renders ContactsTile with at least one contact when seeded", async ({
+    page,
+  }) => {
+    const { slug, leadCrewId, showId } = await lookupSeededShow();
+
+    // Pre-flight: assert the seed corpus has at least one contact for this
+    // show. The Waldorf fixture seeds the venue contact "Isabella Vizzini"
+    // (line 31 of the markdown). If this assertion fails, the seed has
+    // drifted — either re-seed or update the fixture-name expectation
+    // below.
+    const contactsRes = await admin
+      .from("contacts")
+      .select("name, email, phone")
+      .eq("show_id", showId);
+    expect(contactsRes.error, "contacts fetch must succeed").toBeNull();
+    expect(
+      (contactsRes.data ?? []).length,
+      "Waldorf fixture must seed at least one contact",
+    ).toBeGreaterThan(0);
+
+    const response = await page.goto(`/show/${slug}?crew=${leadCrewId}`);
+    expect(response?.status()).toBe(200);
+
+    const contacts = page.getByTestId("contacts-tile");
+    await expect(contacts).toBeVisible();
+
+    // Assert the seeded contact name appears (Isabella Vizzini per
+    // Waldorf fixture). We match on the first row's name from the live
+    // seed result rather than hard-coding so a fixture rename doesn't
+    // break the test silently.
+    const firstName = (contactsRes.data?.[0]?.name as string | null) ?? null;
+    if (firstName) {
+      // Match the first non-empty token of the first contact name to
+      // avoid coupling to formatting (whitespace, &#13; carriage-return
+      // entities in upstream sources, etc.).
+      const firstToken = firstName.trim().split(/\s+/)[0];
+      if (firstToken) {
+        await expect(contacts).toContainText(firstToken);
+      }
+    }
+  });
+});
