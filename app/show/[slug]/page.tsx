@@ -37,9 +37,11 @@ import { Header } from "@/components/layout/Header";
 import { AudioScopeTile } from "@/components/tiles/AudioScopeTile";
 import { ContactsTile } from "@/components/tiles/ContactsTile";
 import { CrewTile } from "@/components/tiles/CrewTile";
+import { FinancialsTile } from "@/components/tiles/FinancialsTile";
 import { LightingScopeTile } from "@/components/tiles/LightingScopeTile";
 import { LodgingTile } from "@/components/tiles/LodgingTile";
 import { ScheduleTile } from "@/components/tiles/ScheduleTile";
+import { ShowStatusTile } from "@/components/tiles/ShowStatusTile";
 import { TransportTile } from "@/components/tiles/TransportTile";
 import { VenueTile } from "@/components/tiles/VenueTile";
 import { VideoScopeTile } from "@/components/tiles/VideoScopeTile";
@@ -252,6 +254,22 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
                 <TransportTile
                   transportation={data.transportation}
                   visible={transportVisible}
+                />
+                {/*
+                  ShowStatusTile (Task 4.8 / AC-4.1) — public, every-crew
+                  surface. Renders coi_status + dress code + venue notes.
+                */}
+                <ShowStatusTile show={data.show} />
+                {/*
+                  FinancialsTile (Task 4.8 / AC-4.2) — LEAD/admin only.
+                  Defense in depth: the projection already gates by
+                  isLead, AND the tile re-checks the canonical
+                  financialsVisible predicate.
+                */}
+                <FinancialsTile
+                  financials={data.financials}
+                  viewerFlags={viewerFlags}
+                  isAdmin={isAdmin}
                 />
               </>
             );

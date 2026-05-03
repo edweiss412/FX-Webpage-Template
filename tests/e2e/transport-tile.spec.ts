@@ -90,6 +90,10 @@ async function snapshotAndPrepare(): Promise<SeededRefs> {
   if (!c1 || !c2 || !c3) {
     throw new Error("transport-tile.spec: destructure invariant broken");
   }
+  // Note: this suite renames + temporarily strips LEAD from these three
+  // crew rows; restoreState() in afterAll restores both name AND
+  // role_flags. Single-worker serialization (playwright.config.ts
+  // workers: 1) ensures other suites don't see the half-restored state.
 
   // Snapshot existing transportation row (if any).
   const transRes = await admin

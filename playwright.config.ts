@@ -20,6 +20,13 @@ export default defineConfig({
   testDir: "tests/e2e",
   timeout: 60_000,
   fullyParallel: false, // multiple webServer ports + shared dev.* state requires serialization
+  // Single-worker run. The M4 tile suites mutate shared crew_members /
+  // rooms / transportation rows between cases (the Waldorf seed is the
+  // single fixture all M4 tests share). Two workers running file-level
+  // parallel would race those mutations — e.g., scope-tiles.spec
+  // strips a viewer's role_flags while role-spoof.spec is asserting
+  // FinancialsTile visibility for the same identity. Serialize.
+  workers: 1,
   retries: process.env.CI ? 2 : 0,
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000",
