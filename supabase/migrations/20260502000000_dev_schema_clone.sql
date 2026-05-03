@@ -356,3 +356,125 @@ grant all privileges on all tables in schema dev to service_role;
 grant all privileges on all sequences in schema dev to service_role;
 alter default privileges in schema dev grant all on tables to service_role;
 alter default privileges in schema dev grant all on sequences to service_role;
+
+-- ============================================================================
+-- dev_phase1_stage() — server-action entrypoint for /admin/dev parseAndStage.
+-- ============================================================================
+--
+-- Routes a parse_result + invariant outcome into the dev.* schema following
+-- the §5.2 Phase-1 contract:
+--
+--   * outcome 'hard_fail'  → upsert into dev.pending_ingestions
+--   * outcome 'stage'      → upsert into dev.pending_syncs with triggered items
+--   * outcome 'pass'       → upsert into dev.pending_syncs with [] triggered items
+--   * existing dev.shows row → status-only update (last_sync_status etc.)
+--   * NEVER inserts new dev.shows rows directly (Phase-2/Apply responsibility,
+--     per plan 03-04-tiles.md:159).
+--
+-- Wraps the entire write in pg_advisory_xact_lock(hashtext('show:'||drive_file_id))
+-- per AGENTS.md §1.2. The /admin/dev path is the operator-driven blocking
+-- variant (NOT the cron try_lock variant) so we use the unconditional
+-- pg_advisory_xact_lock.
+--
+-- SECURITY DEFINER + restricted to service_role so the application-layer
+-- requireAdmin() gate is the sole access control.
+
+create or replace function public.dev_phase1_stage(
+  p_drive_file_id text,
+  p_drive_file_name text,
+  p_parse_result jsonb,
+  p_outcome text,
+  p_triggered_items jsonb,
+  p_hard_error_code text,
+  p_hard_error_message text,
+  p_warnings jsonb,
+  p_warning_summary text,
+  p_staged_modified_time timestamptz
+)
+  returns jsonb
+  language plpgsql
+  security definer
+  set search_path = public, pg_temp
+as $$
+declare
+  v_existing_show_id uuid;
+  v_pending_sync_id uuid;
+  v_pending_ing_id uuid;
+begin
+  -- Per-show advisory lock. Operator-blocking variant (NOT try_lock).
+  perform pg_advisory_xact_lock(hashtext('show:' || p_drive_file_id));
+
+  -- Look up an existing dev.shows row for status-only updates. NULL is fine —
+  -- Phase-1 never INSERTs into dev.shows; that's Apply's job.
+  select id into v_existing_show_id from dev.shows where drive_file_id = p_drive_file_id;
+
+  if p_outcome = 'hard_fail' then
+    -- Upsert dev.pending_ingestions. The partial unique index on
+    -- (drive_file_id) where wizard_session_id is null gives us the live-row
+    -- conflict target.
+    insert into dev.pending_ingestions (
+      drive_file_id, drive_file_name, last_error_code, last_error_message,
+      last_warnings, last_seen_modified_time
+    )
+    values (
+      p_drive_file_id, p_drive_file_name, p_hard_error_code, p_hard_error_message,
+      p_warnings, p_staged_modified_time
+    )
+    on conflict (drive_file_id) where wizard_session_id is null
+      do update set
+        last_attempt_at = now(),
+        attempt_count = dev.pending_ingestions.attempt_count + 1,
+        last_error_code = excluded.last_error_code,
+        last_error_message = excluded.last_error_message,
+        last_warnings = excluded.last_warnings,
+        last_seen_modified_time = excluded.last_seen_modified_time
+      returning id into v_pending_ing_id;
+
+    if v_existing_show_id is not null then
+      update dev.shows
+         set last_sync_status = 'hard_fail',
+             last_sync_error = p_hard_error_code
+       where id = v_existing_show_id;
+    end if;
+
+    return jsonb_build_object(
+      'kind', 'pending_ingestion',
+      'id', v_pending_ing_id,
+      'show_id', v_existing_show_id
+    );
+  else
+    -- 'stage' OR 'pass' both land in dev.pending_syncs (pass = empty triggered list).
+    insert into dev.pending_syncs (
+      drive_file_id, base_modified_time, staged_modified_time,
+      parse_result, triggered_review_items, source_kind, warning_summary
+    )
+    values (
+      p_drive_file_id, null, p_staged_modified_time,
+      p_parse_result, coalesce(p_triggered_items, '[]'::jsonb), 'manual', p_warning_summary
+    )
+    on conflict (drive_file_id) where wizard_session_id is null
+      do update set
+        parsed_at = now(),
+        staged_modified_time = excluded.staged_modified_time,
+        parse_result = excluded.parse_result,
+        triggered_review_items = excluded.triggered_review_items,
+        warning_summary = excluded.warning_summary
+      returning id into v_pending_sync_id;
+
+    if v_existing_show_id is not null then
+      update dev.shows
+         set last_sync_status = case when p_outcome = 'stage' then 'staged' else 'pass' end,
+             last_sync_error = null
+       where id = v_existing_show_id;
+    end if;
+
+    return jsonb_build_object(
+      'kind', 'pending_sync',
+      'id', v_pending_sync_id,
+      'show_id', v_existing_show_id
+    );
+  end if;
+end;
+$$;
+revoke all on function public.dev_phase1_stage(text, text, jsonb, text, jsonb, text, text, jsonb, text, timestamptz) from public;
+grant execute on function public.dev_phase1_stage(text, text, jsonb, text, jsonb, text, text, jsonb, text, timestamptz) to service_role;
