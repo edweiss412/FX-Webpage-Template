@@ -83,7 +83,6 @@ export async function parseAndStage(filename: string): Promise<ParseAndStageResu
       mimeType: "application/vnd.google-apps.spreadsheet",
       modifiedTime: new Date().toISOString(),
     },
-    mockMarker: MOCK_MARKER,
   });
 
   // Step 3: invariants. `prior` is the previously persisted dev state if any

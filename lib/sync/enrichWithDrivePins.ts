@@ -67,9 +67,6 @@ export type EnrichContext = {
   /** Pre-fetched metadata for the show sheet (typically the cron loop already
    *  fetched this before calling parseSheet, so we pass it through). */
   fileMeta: DriveFileMeta;
-  /** Marker the dev panel surfaces in its enrichment-summary so the
-   *  pipeline-parity test can assert the mock client actually ran (anti-tautology). */
-  mockMarker?: string;
 };
 
 /**
