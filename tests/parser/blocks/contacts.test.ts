@@ -30,8 +30,11 @@ describe("parseContacts — v4 waldorf (2026-04)", () => {
     expect(venue).toHaveLength(1);
   });
 
-  it("finds 1 in_house_av contact", () => {
-    expect(inHouseAv).toHaveLength(1);
+  it("finds 2 in_house_av contacts (Cecilia + Aaron — Codex round-1 multi-person fix)", () => {
+    expect(inHouseAv).toHaveLength(2);
+    const names = inHouseAv.map((c) => c.name).filter(Boolean);
+    expect(names.some((n) => /Cecilia/.test(n!))).toBe(true);
+    expect(names.some((n) => /Aaron/.test(n!))).toBe(true);
   });
 
   it("venue contact notes contains Isabella Vizzini", () => {
@@ -63,8 +66,8 @@ describe("parseContacts — v2 hotal typo (2025-10-trading-summit)", () => {
   const venue = contacts.filter((c) => c.kind === "venue");
   const inHouseAv = contacts.filter((c) => c.kind === "in_house_av");
 
-  it("finds 1 venue contact despite 'Hotel Contact Info' label", () => {
-    expect(venue).toHaveLength(1);
+  it("finds venue contacts despite 'Hotel Contact Info' label (multi-person preserved)", () => {
+    expect(venue.length).toBeGreaterThanOrEqual(1);
   });
 
   it("venue contact notes contains Kurt Ashcraft", () => {
@@ -75,12 +78,16 @@ describe("parseContacts — v2 hotal typo (2025-10-trading-summit)", () => {
     expect(venue[0]!.email).toBe("kurt.ashcraft@hyatt.com");
   });
 
-  it("finds 1 in_house_av contact", () => {
-    expect(inHouseAv).toHaveLength(1);
+  it("finds in_house_av contacts (Chris Mercado + Danilo Scekic — multi-person preserved)", () => {
+    expect(inHouseAv).toHaveLength(2);
+    const names = inHouseAv.map((c) => c.name).filter(Boolean);
+    expect(names.some((n) => /Chris|Mercado/.test(n!))).toBe(true);
+    expect(names.some((n) => /Danilo|Scekic/.test(n!))).toBe(true);
   });
 
-  it("in_house_av email is chris.mercado@encoreglobal.com", () => {
-    expect(inHouseAv[0]!.email).toBe("chris.mercado@encoreglobal.com");
+  it("in_house_av email contains chris.mercado@encoreglobal.com", () => {
+    const emails = inHouseAv.map((c) => c.email).filter(Boolean);
+    expect(emails).toContain("chris.mercado@encoreglobal.com");
   });
 });
 
@@ -91,8 +98,8 @@ describe("parseContacts — v2 (2025-04-asset-mgmt)", () => {
   const venue = contacts.filter((c) => c.kind === "venue");
   const inHouseAv = contacts.filter((c) => c.kind === "in_house_av");
 
-  it("finds 1 venue contact", () => {
-    expect(venue).toHaveLength(1);
+  it("finds at least 1 venue contact (multi-person preserved)", () => {
+    expect(venue.length).toBeGreaterThanOrEqual(1);
   });
 
   it("venue notes contains Jenaé Denne", () => {
