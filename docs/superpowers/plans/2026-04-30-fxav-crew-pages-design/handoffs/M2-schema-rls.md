@@ -105,3 +105,15 @@ After the implementer finishes:
 4. Convergence is logged below.
 
 ## Convergence log
+
+### Round 1 — 2026-05-02
+
+**Reviewer:** Opus 4.7 / Claude Code via `claude -p` with read-only `Read,Grep,Glob` tools.
+
+**Status:** APPROVED.
+
+**Blocking issues:** None.
+
+**User questions:** None.
+
+**Advisory notes:** Reviewer noted non-blocking follow-ups around hardcoded admin allow-list rotation, static-vs-runtime breadth for the 21 admin-table RLS matrix, the single-row `transportation.show_id` uniqueness model, missing introspection pin for `crew_members_show_id_name_key`, the seed's hardcoded restage fixture filename, and deferring app-side advisory-lock helper shape to later milestones.
