@@ -40,6 +40,7 @@ import { CrewTile } from "@/components/tiles/CrewTile";
 import { FinancialsTile } from "@/components/tiles/FinancialsTile";
 import { LightingScopeTile } from "@/components/tiles/LightingScopeTile";
 import { LodgingTile } from "@/components/tiles/LodgingTile";
+import { NotesTile } from "@/components/tiles/NotesTile";
 import { PackListTile } from "@/components/tiles/PackListTile";
 import { ScheduleTile } from "@/components/tiles/ScheduleTile";
 import { ShowStatusTile } from "@/components/tiles/ShowStatusTile";
@@ -296,6 +297,19 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
                   show={data.show}
                   stageRestriction={stageRestriction}
                   today={today}
+                />
+                {/*
+                  NotesTile (Task 4.10, §8.1) — aggregates every block-
+                  level `notes` field (venue / hotel / room / transport /
+                  contact) into a single "Things to know" tile. Returns
+                  null when no source has a notes value.
+                */}
+                <NotesTile
+                  show={data.show}
+                  hotelReservations={data.hotelReservations}
+                  rooms={data.rooms}
+                  transportation={data.transportation}
+                  contacts={data.contacts}
                 />
               </>
             );
