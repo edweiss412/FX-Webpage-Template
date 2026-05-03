@@ -18,7 +18,7 @@
  */
 
 import type { ContactRow, ContactKind } from "../types";
-import { clean, presence } from "./_helpers";
+import { clean, presence, splitRow } from "./_helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
 
 // Labels that map to 'venue' kind (covers typos like "Hotal" and variants "Info"/"Information")
@@ -104,9 +104,4 @@ function parseContactValue(raw: string, kind: ContactKind): ContactRow {
     phone,
     notes: presence(text),
   };
-}
-
-function splitRow(line: string): string[] {
-  const parts = line.split("|");
-  return parts.slice(1, parts.length - 1).map((s) => s.trim());
 }

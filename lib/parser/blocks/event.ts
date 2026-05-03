@@ -30,7 +30,7 @@
  * The original-case label is also stored for round-trip fidelity where needed.
  */
 
-import { clean, presence } from "./_helpers";
+import { clean, presence, splitRow } from "./_helpers";
 
 // The EVENT DETAILS block header labels (all variants found in corpus)
 const EVENT_DETAILS_HEADER_RE =
@@ -146,9 +146,4 @@ function toCanonicalKey(label: string): string {
   if (CANONICAL_KEY_MAP[lower]) return CANONICAL_KEY_MAP[lower]!;
   // Fallback: lowercase + underscores
   return lower.replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
-}
-
-function splitRow(line: string): string[] {
-  const parts = line.split("|");
-  return parts.slice(1, parts.length - 1).map((s) => s.trim());
 }

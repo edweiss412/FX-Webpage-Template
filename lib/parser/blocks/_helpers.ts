@@ -35,6 +35,12 @@ export function parseTableRows(markdown: string): string[][] {
   return rows;
 }
 
+/** Split a markdown table row line into trimmed cells. Drops the leading/trailing empty cells from `|cell|cell|`. */
+export function splitRow(line: string): string[] {
+  const parts = line.split("|");
+  return parts.slice(1, parts.length - 1).map((s) => s.trim());
+}
+
 /** Normalize whitespace and strip markdown escape backslashes. */
 export function clean(s: string): string {
   return s.replace(/\\(.)/g, "$1").trim();

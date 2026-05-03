@@ -26,7 +26,7 @@
  */
 
 import type { TransportationRow, TransportScheduleEntry, CrewMemberRow } from "../types";
-import { clean, presence, normalizeDate } from "./_helpers";
+import { clean, presence, normalizeDate, splitRow } from "./_helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
 
 // Stage labels that indicate schedule rows (not metadata rows)
@@ -469,9 +469,4 @@ function parseV2DateTime(raw: string): { date: string | null; time: string | nul
   // Date only (no time)
   const date = normalizeDate(raw + "/25");
   return { date, time: null };
-}
-
-function splitRow(line: string): string[] {
-  const parts = line.split("|");
-  return parts.slice(1, parts.length - 1).map((s) => s.trim());
 }

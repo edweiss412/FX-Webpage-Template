@@ -24,7 +24,7 @@
  */
 
 import type { RoomRow, RoomKind } from "../types";
-import { clean, presence } from "./_helpers";
+import { clean, presence, splitRow } from "./_helpers";
 
 export function parseRooms(markdown: string, _version: "v1" | "v2" | "v4"): RoomRow[] {
   // Try v4 structured block first. A v4 room block uses all-caps GENERAL SESSION /
@@ -358,9 +358,4 @@ function buildEmptyRoom(kind: RoomKind, name: string): RoomRowInternal {
     other: null,
     notes: null,
   };
-}
-
-function splitRow(line: string): string[] {
-  const parts = line.split("|");
-  return parts.slice(1, parts.length - 1).map((s) => s.trim());
 }
