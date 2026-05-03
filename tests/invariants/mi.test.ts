@@ -1334,3 +1334,69 @@ describe("MI-7b — count-aware contact multiset (Codex round-3 finding 2)", () 
     expect(r.outcome).toBe("pass");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Codex round-4 regression tests
+// ---------------------------------------------------------------------------
+
+describe("MI-7b — name-first keying (Codex round-4 finding 1)", () => {
+  it("MI-7b detects named→email-only degradation when same email persists (Codex round-4)", () => {
+    // Prior: named contact with email
+    // Next: same email but name became null (parser regression collapsed the named row)
+    // With name-first keying: prior key='venue::name::kurt ashcraft', next key='venue::email::kurt.ashcraft@hyatt.com'
+    // These are DIFFERENT keys → prior key drops to 0 → MI-7b fires.
+    const prior = synthParseResult({
+      contacts: [
+        {
+          kind: "venue",
+          name: "Kurt Ashcraft",
+          email: "kurt.ashcraft@hyatt.com",
+          phone: null,
+          notes: "",
+        },
+      ],
+    });
+    const next = synthParseResult({
+      contacts: [
+        { kind: "venue", name: null, email: "kurt.ashcraft@hyatt.com", phone: null, notes: "" },
+      ],
+    });
+    const r = runInvariants(prior, next);
+    expect(r.outcome).toBe("stage");
+    if (r.outcome !== "stage") return;
+    const mi7b = r.triggeredItems.filter((t) => t.invariant === "MI-7b");
+    expect(mi7b.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("MI-7b does NOT fire when name is preserved across title text change (Codex round-2 stability)", () => {
+    // Prior: 'Kurt Ashcraft' with title text in notes (parser absorbs title into notes, not name)
+    // Next: 'Kurt Ashcraft' with different title text — same canonical name → same key → no MI-7b.
+    const prior = synthParseResult({
+      contacts: [
+        {
+          kind: "venue",
+          name: "Kurt Ashcraft",
+          email: "kurt.ashcraft@hyatt.com",
+          phone: null,
+          notes: "Senior Event Planning Manager",
+        },
+      ],
+    });
+    const next = synthParseResult({
+      contacts: [
+        {
+          kind: "venue",
+          name: "Kurt Ashcraft",
+          email: "kurt.ashcraft@hyatt.com",
+          phone: null,
+          notes: "Director of Event Planning",
+        },
+      ],
+    });
+    const r = runInvariants(prior, next);
+    // Both rows hash to 'venue::name::kurt ashcraft' → counts equal → MI-7b must NOT fire.
+    const mi7b =
+      r.outcome === "stage" ? r.triggeredItems.filter((t) => t.invariant === "MI-7b") : [];
+    expect(mi7b).toHaveLength(0);
+  });
+});
