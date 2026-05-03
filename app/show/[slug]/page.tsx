@@ -37,6 +37,7 @@ import { Header } from "@/components/layout/Header";
 import { ContactsTile } from "@/components/tiles/ContactsTile";
 import { CrewTile } from "@/components/tiles/CrewTile";
 import { LodgingTile } from "@/components/tiles/LodgingTile";
+import { ScheduleTile } from "@/components/tiles/ScheduleTile";
 import { VenueTile } from "@/components/tiles/VenueTile";
 import {
   getShowForViewer,
@@ -196,18 +197,27 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
           <VenueTile venue={data.show.venue} />
           <CrewTile crewMembers={data.crewMembers} />
           <ContactsTile contacts={data.contacts} />
-          <article
-            key="Schedule"
-            data-testid="tile-placeholder-schedule"
-            className="flex h-full min-h-(--spacing-tile-min-h) flex-col rounded-md border border-border bg-surface p-(--spacing-tile-pad)"
-          >
-            <p className="text-xs font-medium uppercase tracking-[0.14em] text-text-faint">
-              Schedule
-            </p>
-            <p className="mt-2 text-sm text-text-subtle">
-              Tile loads in Task 4.5.
-            </p>
-          </article>
+          {/*
+            ScheduleTile (Task 4.5) — viewer's per-day schedule. Reads
+            the viewer's own dateRestriction off their crew row. For the
+            admin viewer (no specific crew row) we treat the restriction
+            as `kind: 'none'` so admins see every show day.
+          */}
+          {(() => {
+            const viewerCrew =
+              viewer.kind === "crew" || viewer.kind === "admin_preview"
+                ? data.crewMembers.find((c) => c.id === viewer.crewMemberId)
+                : null;
+            const dateRestriction = viewerCrew
+              ? viewerCrew.dateRestriction
+              : { kind: "none" as const };
+            return (
+              <ScheduleTile
+                show={data.show}
+                dateRestriction={dateRestriction}
+              />
+            );
+          })()}
         </section>
       </main>
       <Footer asOf={null} />

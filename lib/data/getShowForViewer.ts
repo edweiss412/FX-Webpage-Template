@@ -45,11 +45,13 @@
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import type {
   ContactRow,
+  DateRestriction,
   HotelReservationRow,
   PullSheetCase,
   RoleFlag,
   RoomRow,
   ShowRow,
+  StageRestriction,
   TransportationRow,
 } from "@/lib/parser/types";
 
@@ -99,6 +101,15 @@ export type ShowForViewer = {
     // contract crisp we name this field `roleFlags`, camelCase, away from
     // both forbidden patterns).
     roleFlags: RoleFlag[];
+    // Per-crew restrictions, projected verbatim from the JSONB columns
+    // crew_members.date_restriction / .stage_restriction. ScheduleTile
+    // (Task 4.5) reads `date_restriction` to decide which day rows to
+    // render for the viewer; PackListTile (Task 4.9) will read
+    // `stage_restriction` for the same purpose. The projection populates
+    // both at this milestone so subsequent tile tasks can rely on the
+    // shape without churning the helper signature again.
+    dateRestriction: DateRestriction;
+    stageRestriction: StageRestriction;
   }>;
   hotelReservations: HotelReservationRow[];
   rooms: RoomRow[];
@@ -106,6 +117,15 @@ export type ShowForViewer = {
   contacts: ContactRow[];
   pullSheet: PullSheetCase[] | null;
   financials?: FinancialsRow;
+  /**
+   * Resolved viewer name for the active crew / admin_preview viewer, or
+   * null when the viewer is `kind: 'admin'` (admin has no specific crew
+   * row — they see every reservation, every transport entry, etc.).
+   * TransportTile (Task 4.7) uses this to evaluate the
+   * driver_name === viewerName branch and to scan
+   * transportation.schedule[*].assigned_names for the viewer's name.
+   */
+  viewerName: string | null;
 };
 
 export async function getShowForViewer(
@@ -177,9 +197,14 @@ export async function getShowForViewer(
   };
 
   // === Crew members (always loaded; tile-visibility predicates need flags) ===
+  // Schema columns: see supabase/migrations/20260501000000_initial_public_schema.sql:39-40
+  // (date_restriction jsonb, stage_restriction jsonb). Both are JSONB
+  // discriminated unions per lib/parser/types.ts:10-16. Fall back to
+  // `{ kind: 'none' }` when DB row is null so consumers don't need to
+  // distinguish "no restriction set" from "restriction = none".
   const crewRes = await supabase
     .from("crew_members")
-    .select("id, name, email, phone, role, role_flags")
+    .select("id, name, email, phone, role, role_flags, date_restriction, stage_restriction")
     .eq("show_id", showId);
   if (crewRes.error) {
     throw new Error(`getShowForViewer: crew fetch failed: ${crewRes.error.message}`);
@@ -191,6 +216,10 @@ export async function getShowForViewer(
     phone: (row.phone as string | null) ?? null,
     role: row.role as string,
     roleFlags: ((row.role_flags as string[]) ?? []) as RoleFlag[],
+    dateRestriction:
+      ((row.date_restriction as DateRestriction | null) ?? { kind: "none" }),
+    stageRestriction:
+      ((row.stage_restriction as StageRestriction | null) ?? { kind: "none" }),
   }));
 
   // === Hotel reservations ===
@@ -339,6 +368,7 @@ export async function getShowForViewer(
     transportation,
     contacts,
     pullSheet,
+    viewerName,
     ...(financials ? { financials } : {}),
   };
 }
