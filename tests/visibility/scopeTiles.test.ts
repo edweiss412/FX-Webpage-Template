@@ -29,8 +29,34 @@ import {
   lightingScopeVisible,
   financialsVisible,
   transportTileVisible,
+  SCOPE_TILE_UNLOCKING_FLAGS,
 } from "@/lib/visibility/scopeTiles";
 import type { RoleFlag, TransportationRow } from "@/lib/parser/types";
+
+// Valid RoleFlag values per lib/parser/types.ts:36-59. Kept in sync via
+// the SCOPE_TILE_UNLOCKING_FLAGS test below — the `satisfies RoleFlag[]`
+// in the source carries most of the contract; this list is the runtime
+// backstop in case the type goes out of date.
+const VALID_ROLE_FLAGS: RoleFlag[] = [
+  "LEAD",
+  "A1",
+  "A2",
+  "V1",
+  "L1",
+  "GS",
+  "BO",
+  "CAM_OP",
+  "PTZ",
+  "LED",
+  "STREAM",
+  "GAV",
+  "FLOATER",
+  "FLOOR",
+  "SHOW_CALLER",
+  "GREEN_ROOM",
+  "OWNER",
+  "CONTENT_CREATION",
+];
 
 describe("scope-tile visibility predicates (Task 4.6)", () => {
   test("['A1'] viewer → Audio visible; Video and Lighting hidden", () => {
@@ -213,5 +239,21 @@ describe("static-analysis: scopeTiles.ts documents the role-flag origin contract
     // the documentation block at the top of the file.
     expect(src).toMatch(/freshly/i);
     expect(src).toMatch(/role_flags/);
+  });
+});
+
+describe("SCOPE_TILE_UNLOCKING_FLAGS (admin all-flags synthesis constant)", () => {
+  // The constant is the canonical "what flags does a bare admin viewer
+  // get synthesized so every scope tile unlocks" set. It was magic-string
+  // inline at app/show/[slug]/page.tsx:243 before the M4 catch-up review
+  // (Important 3); future RoleFlag additions silently skipped admin
+  // tiles. Now the value lives here, type-checked via `satisfies
+  // RoleFlag[]`. The runtime test below is the backstop in case the
+  // type-level satisfies guard is bypassed (e.g., a string cast).
+  test("is non-empty and every value is a valid RoleFlag", () => {
+    expect(SCOPE_TILE_UNLOCKING_FLAGS.length).toBeGreaterThan(0);
+    for (const flag of SCOPE_TILE_UNLOCKING_FLAGS) {
+      expect(VALID_ROLE_FLAGS).toContain(flag);
+    }
   });
 });

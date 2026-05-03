@@ -47,7 +47,10 @@ import { ShowStatusTile } from "@/components/tiles/ShowStatusTile";
 import { TransportTile } from "@/components/tiles/TransportTile";
 import { VenueTile } from "@/components/tiles/VenueTile";
 import { VideoScopeTile } from "@/components/tiles/VideoScopeTile";
-import { transportTileVisible } from "@/lib/visibility/scopeTiles";
+import {
+  transportTileVisible,
+  SCOPE_TILE_UNLOCKING_FLAGS,
+} from "@/lib/visibility/scopeTiles";
 import {
   getShowForViewer,
   type Viewer,
@@ -239,12 +242,14 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
             // canonical predicates already accept this — A1 unlocks
             // audio, V1 unlocks video, L1 unlocks lighting; LEAD adds
             // a defense-in-depth marker for any future predicate that
-            // gates on it.
-            const adminAllFlags = ["LEAD", "A1", "V1", "L1"] as const;
+            // gates on it. The constant lives at
+            // lib/visibility/scopeTiles.ts so a future scope-tile
+            // addition only needs to widen the constant, not edit
+            // page.tsx.
             const viewerFlags = viewerCrew
               ? viewerCrew.roleFlags
               : viewer.kind === "admin"
-                ? [...adminAllFlags]
+                ? [...SCOPE_TILE_UNLOCKING_FLAGS]
                 : [];
             const isAdmin = viewer.kind === "admin";
             const transportVisible = transportTileVisible({

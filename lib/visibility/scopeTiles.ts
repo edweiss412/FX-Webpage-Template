@@ -45,6 +45,29 @@
 import type { RoleFlag, TransportationRow } from "@/lib/parser/types";
 
 /**
+ * Canonical "all-flags" set for the bare admin viewer's tile-grid
+ * synthesis (M4 catch-up review, Important 3).
+ *
+ * The page mounts every scope tile for an admin viewer (kind: 'admin'
+ * has no specific crew row, so admins are super-LEADs per §4.4). The
+ * scope-tile predicates already accept this — A1 unlocks audio, V1
+ * unlocks video, L1 unlocks lighting, LEAD adds defense-in-depth for
+ * any future predicate that gates on it. Centralizing the array here
+ * (instead of an inline magic-string literal in `page.tsx`) means a
+ * future scope-tile addition only needs to add its unlocking flag here.
+ *
+ * The `satisfies RoleFlag[]` guard means a typo or a non-flag string
+ * fails type-checking at this declaration AND the array remains a
+ * narrow `readonly RoleFlag[]` literal at every callsite.
+ */
+export const SCOPE_TILE_UNLOCKING_FLAGS = [
+  "LEAD",
+  "A1",
+  "V1",
+  "L1",
+] as const satisfies readonly RoleFlag[];
+
+/**
  * Audio scope tile visibility (§8.1).
  *
  * The viewer sees the Audio scope tile when their freshly-derived
