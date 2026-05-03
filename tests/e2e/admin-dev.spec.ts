@@ -176,6 +176,46 @@ test.describe("dev-build only — admin-dev page behaves under ADMIN_DEV_PANEL_E
     expect(count).toBe(1); // reset blocked — the row we inserted is still there
   });
 
+  test("admin/dev: GET ?fixture=... is selection-only and does NOT mutate dev.* (Round 1 Finding 2)", async ({
+    page,
+  }) => {
+    // Codex Round 1 Finding 2: GET /admin/dev?fixture=... must be safe per
+    // HTTP semantics. The previous design called parseAndStage during Server
+    // Component render based on the query param, turning admin browser
+    // navigation/prefetch/reload into a real Phase-1 write. The fix: POST
+    // Server Action submission only; GET ?fixture= reads previously-staged
+    // state via a SELECT, never invokes the parsing pipeline.
+    //
+    // Failure mode this test catches: any future refactor that puts
+    // parseAndStage back into the Server Component render path.
+    await signInAs(page, ADMIN_FIXTURE);
+
+    // Baseline: dev.* is empty (beforeEach calls resetDevSchema).
+    const baseline = await admin
+      .schema("dev")
+      .from("pending_syncs")
+      .select("*", { count: "exact", head: true });
+    expect(baseline.error).toBeNull();
+    expect(baseline.count).toBe(0);
+
+    // Navigate to /admin/dev?fixture=... via raw GET — the most-prefetched
+    // shape (browsers may prefetch query-param URLs aggressively).
+    const response = await page.goto(
+      `/admin/dev?fixture=${encodeURIComponent(FIXTURE_HAPPY)}`,
+    );
+    expect(response?.status()).toBe(200);
+
+    // dev.pending_syncs MUST still be empty — GET did not parse.
+    const after = await admin
+      .schema("dev")
+      .from("pending_syncs")
+      .select("*", { count: "exact", head: true });
+    expect(after.error).toBeNull();
+    expect(after.count, "GET /admin/dev?fixture=... must NOT trigger parseAndStage").toBe(
+      0,
+    );
+  });
+
   test("admin/dev runs the FULL parseSheet → enrichWithDrivePins → invariants → phase1 chain", async ({
     page,
   }) => {

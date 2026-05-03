@@ -3,13 +3,39 @@
  * app/admin/dev/actions.ts (M3 Task 3.1)
  *
  * Server actions for the /admin/dev panel:
- *   - parseAndStage(filename): runs the FULL Phase-1 pipeline against the
- *     selected fixture and writes through to dev.* via dev_phase1_stage RPC.
- *   - resetDevSchema(): truncates every dev.* table via the dev_truncate_all RPC.
  *
- * EVERY action calls requireAdmin() as its first line per AGENTS.md §1.6 and
- * spec §7.3. The build-time flag gate inside requireAdmin() ALSO blocks the
- * actions from executing in a prod-build, even via a fictitious caller.
+ *   parseAndStage(filename, prior?)        — the result-returning callable.
+ *     Runs the FULL Phase-1 pipeline against the selected fixture and writes
+ *     through to dev.* via dev_phase1_stage RPC. Returns a ParseAndStageResult.
+ *     Used by Vitest test suites (tests/admin/parseAndStage-auth.test.ts +
+ *     tests/sync/dev-routing.test.ts) for direct programmatic invocation.
+ *
+ *   parseAndStageFormAction(formData)      — the form-submission wrapper.
+ *     Reads `fixture` from FormData, calls parseAndStage, then redirects to
+ *     /admin/dev?fixture=<filename>. THIS is what app/admin/dev/page.tsx wires
+ *     into <form action={parseAndStageFormAction}>; it is the only POST entry
+ *     point for the parsing pipeline. The redirect lets the resulting page
+ *     URL identify the parsed fixture without re-triggering the pipeline.
+ *
+ *   getStagedResult(filename)              — read-only SELECT.
+ *     Loads the most-recent dev.pending_syncs OR dev.pending_ingestions row
+ *     for the given filename and returns a ParseAndStageResult-shaped view
+ *     for the page to render. NEVER invokes parseSheet / enrichWithDrivePins
+ *     / dev_phase1_stage. This is what the page calls on render — converting
+ *     GET /admin/dev?fixture=... from "trigger a write" (the Round-1 Finding 2
+ *     bug) to "read the previously-staged state". GET is now safe.
+ *
+ *   resetDevSchema()                       — TRUNCATE dev.* CASCADE via
+ *     dev_truncate_all RPC. Form-action wrapper uses void return; the
+ *     callable form returns { ok: true } for tests.
+ *
+ *   listFixtures()                         — enumerate fixtures/shows/raw/*.md
+ *     for the picker. Filters out underscore-prefixed names (test temp files).
+ *
+ * EVERY exported action calls requireAdmin() as its first line per
+ * AGENTS.md §1.6 and spec §7.3. The build-time flag gate inside requireAdmin()
+ * ALSO blocks the actions from executing in a prod-build, even via a
+ * fictitious caller.
  *
  * Pipeline contract (per plan 03-04-tiles.md:23):
  *   parseSheet → enrichWithDrivePins(parsed, mockDriveClient)
@@ -18,9 +44,20 @@
  * Phase-1 strictness: parseAndStage NEVER inserts into dev.shows directly;
  * status-only updates on existing dev.shows rows are the only modifications
  * that path makes. Inserting new dev.shows is Phase-2/Apply (M6's job).
+ *
+ * Round 1 Finding 2 (Codex adversarial review) — GET safety:
+ *   The previous page design called parseAndStage during Server Component
+ *   render based on `?fixture=` in the URL. That made GET /admin/dev?fixture=...
+ *   a state-mutating request, violating HTTP safe-method semantics. A browser
+ *   prefetch, reload, or cross-site link could trigger Phase-1 writes. The
+ *   refactor splits parseAndStage into (a) the result-returning callable
+ *   above (kept for test invocation) and (b) parseAndStageFormAction, the
+ *   POST-only wrapper the page form invokes. The page reads ?fixture= via
+ *   getStagedResult (SELECT only, no pipeline). GET is now safe.
  */
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { parseSheet } from "@/lib/parser";
@@ -198,8 +235,156 @@ export async function parseAndStage(
 }
 
 /**
+ * Form-action wrapper around parseAndStage. Reads `fixture` from the submitted
+ * FormData, runs the pipeline, then redirects to /admin/dev?fixture=<filename>
+ * so the URL identifies the parsed fixture without re-triggering the pipeline
+ * on a refresh (the page render path uses getStagedResult, a SELECT, not the
+ * pipeline). This is the ONLY POST entry point wired into the page's
+ * <form action={...}> — the parsing pipeline cannot be reached via GET.
+ *
+ * Note: redirect() throws NEXT_REDIRECT internally, which terminates the
+ * action. Callers do not see a return value.
+ */
+export async function parseAndStageFormAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const filename = String(formData.get("fixture") ?? "").trim();
+  if (!filename) {
+    // Empty selection — bounce back to the picker without parsing.
+    redirect("/admin/dev");
+  }
+  // parseAndStage validates the filename with FIXTURE_NAME_RE and throws if
+  // invalid. We don't pre-validate here because parseAndStage's gate is the
+  // canonical one (single source of truth).
+  await parseAndStage(filename);
+  // Redirect via filename in the URL so the resulting page render is
+  // refresh-friendly. The page's getStagedResult re-reads the row by filename.
+  redirect(`/admin/dev?fixture=${encodeURIComponent(filename)}`);
+}
+
+/**
+ * Read-only SELECT that loads the most-recent dev.pending_syncs OR
+ * dev.pending_ingestions row for the given filename and returns a
+ * ParseAndStageResult-shaped view for the page to render. NEVER invokes
+ * parseSheet / enrichWithDrivePins / dev_phase1_stage — this is the read
+ * side of Round 1 Finding 2's GET-safety refactor.
+ *
+ * Returns null when no row is found (e.g. the dev schema was just reset).
+ */
+export async function getStagedResult(
+  filename: string,
+): Promise<ParseAndStageResult | null> {
+  await requireAdmin();
+  if (!FIXTURE_NAME_RE.test(filename)) {
+    // Don't leak which filenames are/aren't allowed; treat invalid names as
+    // "no result" so the page renders the empty-result branch.
+    return null;
+  }
+
+  const supabase = createSupabaseServiceRoleClient();
+  const fixtureFileId = `dev:fixture:${filename}`;
+
+  // Look in pending_ingestions first (hard-fail outcome) then pending_syncs
+  // (stage / pass outcome). The two tables are mutually exclusive per the
+  // dev_phase1_stage RPC contract — only one will have a row for a given
+  // drive_file_id.
+  const ingestionsRes = await supabase
+    .schema("dev")
+    .from("pending_ingestions")
+    .select(
+      "id, drive_file_id, drive_file_name, last_error_code, last_error_message, last_warnings",
+    )
+    .eq("drive_file_id", fixtureFileId)
+    .is("wizard_session_id", null)
+    .maybeSingle();
+  if (ingestionsRes.error) {
+    throw new Error(`getStagedResult ingestions read failed: ${ingestionsRes.error.message}`);
+  }
+  if (ingestionsRes.data) {
+    const row = ingestionsRes.data as {
+      id: string;
+      drive_file_name: string;
+      last_error_code: string;
+      last_error_message: string;
+      last_warnings: ParseWarning[] | null;
+    };
+    return {
+      filename: row.drive_file_name,
+      driveFileId: fixtureFileId,
+      outcome: "hard_fail",
+      triggeredItems: [],
+      hardFailCodes: [row.last_error_code],
+      parseWarnings: row.last_warnings ?? [],
+      rawUnrecognized: [],
+      mockMarker: MOCK_MARKER,
+      enrichment: {
+        reelPin: null,
+        linkedFolderItemCount: 0,
+        embeddedImageCount: 0,
+      },
+      staging: {
+        kind: "pending_ingestion",
+        id: row.id,
+        show_id: null,
+      },
+    };
+  }
+
+  const syncsRes = await supabase
+    .schema("dev")
+    .from("pending_syncs")
+    .select(
+      "id, drive_file_id, parse_result, triggered_review_items, warning_summary",
+    )
+    .eq("drive_file_id", fixtureFileId)
+    .is("wizard_session_id", null)
+    .maybeSingle();
+  if (syncsRes.error) {
+    throw new Error(`getStagedResult syncs read failed: ${syncsRes.error.message}`);
+  }
+  if (!syncsRes.data) return null;
+
+  const row = syncsRes.data as {
+    id: string;
+    parse_result: ParseResult;
+    triggered_review_items: Array<{ id: string; invariant: string } & Record<string, unknown>>;
+  };
+  const parseResult = row.parse_result;
+  const outcome: InvariantOutcome["outcome"] =
+    row.triggered_review_items.length > 0 ? "stage" : "pass";
+
+  return {
+    filename,
+    driveFileId: fixtureFileId,
+    outcome,
+    triggeredItems: row.triggered_review_items.map((t) => {
+      const { id, invariant, ...rest } = t;
+      return { id, invariant, details: rest };
+    }),
+    hardFailCodes: [],
+    parseWarnings: parseResult.warnings ?? [],
+    rawUnrecognized: parseResult.raw_unrecognized ?? [],
+    mockMarker: MOCK_MARKER,
+    enrichment: {
+      reelPin: parseResult.openingReel ?? null,
+      linkedFolderItemCount: parseResult.diagrams?.linkedFolderItems?.length ?? 0,
+      embeddedImageCount: parseResult.diagrams?.embeddedImages?.length ?? 0,
+    },
+    staging: {
+      kind: "pending_sync",
+      id: row.id,
+      show_id: null,
+    },
+  };
+}
+
+/**
  * resetDevSchema — TRUNCATE dev.* CASCADE for the dev panel's reset button.
  * Admin-gated; mirrors the auto-truncate Playwright setup hook.
+ *
+ * Both forms are exported:
+ *   - resetDevSchema() returns { ok: true } and is what tests call.
+ *   - resetDevSchemaFormAction() is the form-action wrapper that the page
+ *     wires into <form action={...}>; it returns void after redirecting.
  */
 export async function resetDevSchema(): Promise<{ ok: true }> {
   await requireAdmin();
@@ -209,6 +394,13 @@ export async function resetDevSchema(): Promise<{ ok: true }> {
     throw new Error(`dev_truncate_all failed: ${error.message}`);
   }
   return { ok: true };
+}
+
+export async function resetDevSchemaFormAction(): Promise<void> {
+  await resetDevSchema();
+  // Redirect to a clean /admin/dev so the now-stale ?fixture= query param
+  // (if any) doesn't try to re-render a result that was just truncated.
+  redirect("/admin/dev");
 }
 
 /** Helper used by the page to enumerate fixture choices. */

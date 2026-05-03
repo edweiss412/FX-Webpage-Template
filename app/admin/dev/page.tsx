@@ -21,29 +21,35 @@
  *
  * PERF: a `?fixture=...` page load triggers public.is_admin() three times —
  * once at page render (requireAdmin call below), once inside listFixtures()
- * (its requireAdmin call), and once inside parseAndStage() (its requireAdmin
- * call). Accepted as defense-in-depth per AGENTS.md §1.6: every Server
- * Action MUST gate independently of its caller, since X.3's chain audit
- * catches missing gates as a CI failure. Acceptable cost on a low-volume
- * admin surface; M5 can revisit (e.g. a request-scoped admin cache or a
- * cookie-bound server-context value) when admin volume grows.
+ * (its requireAdmin call), and once inside getStagedResult() (its requireAdmin
+ * call). The form-submission POST adds one more (parseAndStageFormAction's
+ * gate, plus the inner parseAndStage's gate = 2 per submit). Accepted as
+ * defense-in-depth per AGENTS.md §1.6: every Server Action MUST gate
+ * independently of its caller, since X.3's chain audit catches missing gates
+ * as a CI failure. Acceptable cost on a low-volume admin surface; M5 can
+ * revisit (e.g. a request-scoped admin cache or a cookie-bound server-context
+ * value) when admin volume grows.
  */
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import {
+  getStagedResult,
   listFixtures,
-  parseAndStage,
-  resetDevSchema,
+  parseAndStageFormAction,
+  resetDevSchemaFormAction,
   type ParseAndStageResult,
 } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Page accepts an optional ?fixture= query param so the form submission is
- * idempotent and the result can be re-rendered after the action runs. The
- * server action returns the result, but Server Components and Server Actions
- * communicate the result via re-render. We use the simpler pattern of
- * dispatching the action server-side from the page when ?fixture= is present.
+ * Page reads `?fixture=` and renders the previously-staged result for that
+ * fixture from dev.pending_syncs / dev.pending_ingestions via getStagedResult
+ * (a SELECT). The page NEVER invokes parseAndStage from the render path —
+ * the parsing pipeline only fires from the POST Server Action submitted by
+ * <form action={parseAndStageFormAction}>. This makes GET /admin/dev?fixture=...
+ * a safe, side-effect-free request per HTTP semantics, fixing Codex Round 1
+ * Finding 2 (browser prefetch / reload / cross-site link could otherwise
+ * trigger Phase-1 writes).
  */
 export default async function AdminDevPage({
   searchParams,
@@ -57,13 +63,16 @@ export default async function AdminDevPage({
   const fixtures = await listFixtures();
   const selected = params.fixture ?? "";
 
+  // Read-only SELECT — never invokes the parse pipeline. If the user just
+  // submitted the form, parseAndStageFormAction has already redirected here
+  // with ?fixture=<filename>; getStagedResult reads the row that just landed.
   let result: ParseAndStageResult | null = null;
-  let actionError: string | null = null;
+  let lookupError: string | null = null;
   if (selected) {
     try {
-      result = await parseAndStage(selected);
+      result = await getStagedResult(selected);
     } catch (err) {
-      actionError = err instanceof Error ? err.message : String(err);
+      lookupError = err instanceof Error ? err.message : String(err);
     }
   }
 
@@ -80,10 +89,22 @@ export default async function AdminDevPage({
       <FixturePickerForm fixtures={fixtures} selected={selected} />
       <ResetForm />
 
-      {actionError ? (
+      {lookupError ? (
         <section className="mt-6 border-2 border-red-500 p-3" data-testid="action-error">
-          <h2 className="font-bold text-red-700">parseAndStage error</h2>
-          <pre className="whitespace-pre-wrap">{actionError}</pre>
+          <h2 className="font-bold text-red-700">getStagedResult error</h2>
+          <pre className="whitespace-pre-wrap">{lookupError}</pre>
+        </section>
+      ) : null}
+
+      {selected && !result && !lookupError ? (
+        <section
+          className="mt-6 border border-yellow-500 p-3"
+          data-testid="no-staged-result"
+        >
+          <p>
+            No staged result for <code>{selected}</code> in <code>dev.*</code>.
+            Submit the form above to parse and stage it.
+          </p>
         </section>
       ) : null}
 
@@ -99,8 +120,12 @@ function FixturePickerForm({
   fixtures: string[];
   selected: string;
 }) {
+  // POST-only Server Action submission. The form has no method=... attribute
+  // because Next.js's <form action={ServerAction}> always submits as POST.
+  // GET requests to /admin/dev?fixture=... are now safe (read-only via
+  // getStagedResult); the parsing pipeline can only fire from this form.
   return (
-    <form method="get" className="flex gap-3 items-end mb-3">
+    <form action={parseAndStageFormAction} className="flex gap-3 items-end mb-3">
       <label className="flex flex-col">
         <span className="text-xs text-gray-600 mb-1">Fixture</span>
         <select
@@ -129,12 +154,8 @@ function FixturePickerForm({
 }
 
 function ResetForm() {
-  async function reset(): Promise<void> {
-    "use server";
-    await resetDevSchema();
-  }
   return (
-    <form action={reset} className="mb-6">
+    <form action={resetDevSchemaFormAction} className="mb-6">
       <button
         type="submit"
         data-testid="reset-dev-schema"
