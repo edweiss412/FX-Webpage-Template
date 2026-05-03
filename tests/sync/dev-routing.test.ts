@@ -34,7 +34,7 @@
  *     these tests inherit that protection.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { admin } from "../e2e/helpers/supabaseAdmin";
 import { parseSheet } from "@/lib/parser";
@@ -277,5 +277,185 @@ describe("AC-3.3: MI-1_VERSION_DETECTION_FAILED routes to dev.pending_ingestions
     expect(result.outcome).toBe("hard_fail");
     expect(result.staging?.kind).toBe("pending_ingestion");
     expect(result.hardFailCodes).toContain("MI-1_VERSION_DETECTION_FAILED");
+  });
+});
+
+// ============================================================================
+// Round 5 Finding 1 — outcome-flip mutual-exclusion regression
+// ============================================================================
+//
+// dev_phase1_stage MUST clear the opposite-table live row when an outcome
+// flips between hard_fail and pass/stage for the same drive_file_id. Prior
+// to the fix, a hard_fail then a pass left a stale dev.pending_ingestions
+// row; getStagedResult (which checks pending_ingestions first) reported the
+// stale failure even though the latest run succeeded. Reverse direction
+// left a stale dev.pending_syncs row.
+//
+// Both flip directions must use the SAME synthetic drive_file_id across
+// the two parseAndStage calls so the conflict path is exercised. The
+// fixture file is rewritten between calls — same filename → same
+// drive_file_id (`dev:fixture:<filename>`) → same advisory-lock key → same
+// conflict target on the partial unique index.
+//
+// Cross-check: getStagedResult is the consumer that depends on the mutual-
+// exclusion invariant (app/admin/dev/actions.ts:286-289 reads pending_
+// ingestions first, then pending_syncs, and assumes only one will hit).
+// The tests below assert each direction's post-state via DIRECT db reads
+// AND via getStagedResult, so a regression in either the RPC's DELETE
+// statements OR the consumer's ordering would surface.
+const FLIP_FIXTURE_NAME = "_temp-flip-test.md";
+const FLIP_DRIVE_FILE_ID = `dev:fixture:${FLIP_FIXTURE_NAME}`;
+
+// Corpus-derived "valid" markdown for the pass branch of the flip tests.
+// Synthesizing a fully-passing v4 markdown by hand is brittle (the parser
+// expects very specific CREW/DATES block structures); copying a real
+// fixture's bytes is the honest path. We use 2026-03-rpas-central-four-
+// seasons.md because it's a known-clean v4 fixture with crew, rooms,
+// dates, and zero hardErrors (verified by the parser-corpus probe).
+async function readValidV4(): Promise<string> {
+  return await readFile(
+    join(FIXTURE_DIR, "2026-03-rpas-central-four-seasons.md"),
+    "utf8",
+  );
+}
+
+const NO_VERSION_MARKDOWN =
+  "# Some Document Title\n\nThis markdown blob contains no FXAV sheet template markers.\n";
+
+describe("Round 5 Finding 1 — dev_phase1_stage clears opposite-table live row on outcome flip", () => {
+  beforeEach(async () => {
+    await rm(join(FIXTURE_DIR, FLIP_FIXTURE_NAME), { force: true });
+  });
+  afterAll(async () => {
+    await rm(join(FIXTURE_DIR, FLIP_FIXTURE_NAME), { force: true });
+  });
+
+  test("hard_fail → pass: stale pending_ingestions row is cleared, getStagedResult returns pass", async () => {
+    // Step 1: stage with no-version markdown → hard_fail → pending_ingestions.
+    await writeFile(join(FIXTURE_DIR, FLIP_FIXTURE_NAME), NO_VERSION_MARKDOWN, "utf8");
+    const r1 = await parseAndStage(FLIP_FIXTURE_NAME);
+    expect(r1.outcome, "step 1 must hard-fail (no version markers)").toBe("hard_fail");
+    expect(r1.staging?.kind).toBe("pending_ingestion");
+
+    // Sanity: pending_ingestions has a live row, pending_syncs does not.
+    const ing1 = await admin
+      .schema("dev")
+      .from("pending_ingestions")
+      .select("id", { count: "exact", head: true })
+      .eq("drive_file_id", FLIP_DRIVE_FILE_ID)
+      .is("wizard_session_id", null);
+    expect(ing1.count).toBe(1);
+    const syn1 = await admin
+      .schema("dev")
+      .from("pending_syncs")
+      .select("id", { count: "exact", head: true })
+      .eq("drive_file_id", FLIP_DRIVE_FILE_ID)
+      .is("wizard_session_id", null);
+    expect(syn1.count).toBe(0);
+
+    // Step 2: rewrite same fixture as valid v4 → pass → pending_syncs.
+    // The fix-under-test: dev_phase1_stage's pass branch must DELETE the
+    // stale pending_ingestions row before the new pending_syncs upsert.
+    await writeFile(join(FIXTURE_DIR, FLIP_FIXTURE_NAME), await readValidV4(), "utf8");
+    const r2 = await parseAndStage(FLIP_FIXTURE_NAME);
+    expect(
+      r2.outcome,
+      "step 2 must NOT be hard_fail — valid v4 markdown should pass",
+    ).not.toBe("hard_fail");
+    expect(r2.staging?.kind).toBe("pending_sync");
+
+    // Mutual-exclusion invariant: pending_ingestions must be EMPTY.
+    const ing2 = await admin
+      .schema("dev")
+      .from("pending_ingestions")
+      .select("id", { count: "exact", head: true })
+      .eq("drive_file_id", FLIP_DRIVE_FILE_ID)
+      .is("wizard_session_id", null);
+    expect(
+      ing2.count,
+      "stale pending_ingestions row must be cleared on outcome flip (Round 5 Finding 1)",
+    ).toBe(0);
+    const syn2 = await admin
+      .schema("dev")
+      .from("pending_syncs")
+      .select("id", { count: "exact", head: true })
+      .eq("drive_file_id", FLIP_DRIVE_FILE_ID)
+      .is("wizard_session_id", null);
+    expect(syn2.count).toBe(1);
+
+    // Consumer-level cross-check: getStagedResult must return the FRESH
+    // pass outcome, not the stale hard_fail. A bug in the RPC's DELETE
+    // would still leave the stale pending_ingestions row, and
+    // getStagedResult (which reads ingestions first) would incorrectly
+    // report hard_fail.
+    const { getStagedResult } = await import("@/app/admin/dev/actions");
+    const consumed = await getStagedResult(FLIP_FIXTURE_NAME);
+    expect(consumed, "getStagedResult must return a row").not.toBeNull();
+    expect(
+      consumed?.outcome,
+      "getStagedResult must reflect the LATEST (pass) outcome, not the stale hard_fail",
+    ).not.toBe("hard_fail");
+    expect(consumed?.staging?.kind).toBe("pending_sync");
+  });
+
+  test("pass → hard_fail: stale pending_syncs row is cleared, getStagedResult returns hard_fail", async () => {
+    // Step 1: valid v4 → pass → pending_syncs.
+    await writeFile(join(FIXTURE_DIR, FLIP_FIXTURE_NAME), await readValidV4(), "utf8");
+    const r1 = await parseAndStage(FLIP_FIXTURE_NAME);
+    expect(r1.outcome, "step 1 must NOT be hard_fail").not.toBe("hard_fail");
+    expect(r1.staging?.kind).toBe("pending_sync");
+
+    const syn1 = await admin
+      .schema("dev")
+      .from("pending_syncs")
+      .select("id", { count: "exact", head: true })
+      .eq("drive_file_id", FLIP_DRIVE_FILE_ID)
+      .is("wizard_session_id", null);
+    expect(syn1.count).toBe(1);
+    const ing1 = await admin
+      .schema("dev")
+      .from("pending_ingestions")
+      .select("id", { count: "exact", head: true })
+      .eq("drive_file_id", FLIP_DRIVE_FILE_ID)
+      .is("wizard_session_id", null);
+    expect(ing1.count).toBe(0);
+
+    // Step 2: rewrite same fixture as no-version → hard_fail → pending_ingestions.
+    // The fix-under-test: dev_phase1_stage's hard_fail branch must DELETE
+    // the stale pending_syncs row before the new pending_ingestions upsert.
+    await writeFile(join(FIXTURE_DIR, FLIP_FIXTURE_NAME), NO_VERSION_MARKDOWN, "utf8");
+    const r2 = await parseAndStage(FLIP_FIXTURE_NAME);
+    expect(r2.outcome, "step 2 must hard_fail").toBe("hard_fail");
+    expect(r2.staging?.kind).toBe("pending_ingestion");
+
+    // Mutual-exclusion invariant: pending_syncs must be EMPTY.
+    const syn2 = await admin
+      .schema("dev")
+      .from("pending_syncs")
+      .select("id", { count: "exact", head: true })
+      .eq("drive_file_id", FLIP_DRIVE_FILE_ID)
+      .is("wizard_session_id", null);
+    expect(
+      syn2.count,
+      "stale pending_syncs row must be cleared on outcome flip (Round 5 Finding 1)",
+    ).toBe(0);
+    const ing2 = await admin
+      .schema("dev")
+      .from("pending_ingestions")
+      .select("id", { count: "exact", head: true })
+      .eq("drive_file_id", FLIP_DRIVE_FILE_ID)
+      .is("wizard_session_id", null);
+    expect(ing2.count).toBe(1);
+
+    // Consumer-level cross-check: getStagedResult must return the FRESH
+    // hard_fail outcome, not the stale pass.
+    const { getStagedResult } = await import("@/app/admin/dev/actions");
+    const consumed = await getStagedResult(FLIP_FIXTURE_NAME);
+    expect(consumed, "getStagedResult must return a row").not.toBeNull();
+    expect(
+      consumed?.outcome,
+      "getStagedResult must reflect the LATEST (hard_fail) outcome, not the stale pass",
+    ).toBe("hard_fail");
+    expect(consumed?.staging?.kind).toBe("pending_ingestion");
   });
 });

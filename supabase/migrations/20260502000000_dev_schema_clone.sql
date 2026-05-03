@@ -409,6 +409,17 @@ begin
   select id into v_existing_show_id from dev.shows where drive_file_id = p_drive_file_id;
 
   if p_outcome = 'hard_fail' then
+    -- Mutual-exclusion invariant (Round 5 Finding 1): for any drive_file_id,
+    -- the live (wizard_session_id IS NULL) rows in dev.pending_syncs and
+    -- dev.pending_ingestions are mutually exclusive. Outcome flips
+    -- (pass/stage → hard_fail) MUST clear the opposite-table live row,
+    -- otherwise consumers like getStagedResult (app/admin/dev/actions.ts)
+    -- read a stale outcome. The wizard_session_id IS NULL filter preserves
+    -- any in-flight wizard staging rows that M10 onboarding may add later.
+    delete from dev.pending_syncs
+     where drive_file_id = p_drive_file_id
+       and wizard_session_id is null;
+
     -- Upsert dev.pending_ingestions. The partial unique index on
     -- (drive_file_id) where wizard_session_id is null gives us the live-row
     -- conflict target.
@@ -443,6 +454,14 @@ begin
       'show_id', v_existing_show_id
     );
   else
+    -- Mutual-exclusion invariant (Round 5 Finding 1): symmetric DELETE for
+    -- the hard_fail → pass/stage flip direction. Clears any stale live
+    -- pending_ingestions row left from a prior failed parse so consumers
+    -- see only the latest outcome.
+    delete from dev.pending_ingestions
+     where drive_file_id = p_drive_file_id
+       and wizard_session_id is null;
+
     -- 'stage' OR 'pass' both land in dev.pending_syncs (pass = empty triggered list).
     insert into dev.pending_syncs (
       drive_file_id, base_modified_time, staged_modified_time,
