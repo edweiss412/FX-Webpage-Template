@@ -597,5 +597,11 @@ export function transitionTreatment(
   to: RightNowStateKind,
 ): TransitionTreatment | null {
   if (from === to) return null;
+  // Map.get returns undefined if either kind is unknown (caller bypassed
+  // types via `as` / `as any`); coerce to null for the helper's typed
+  // nullable return. Do NOT simplify — runtime defense against a
+  // type-bypass is intentional and pinned by the
+  // "returns null for unknown kinds" test in
+  // tests/time/rightNowTransitions.test.ts.
   return TREATMENT_LOOKUP.get(pairKey(from, to)) ?? null;
 }

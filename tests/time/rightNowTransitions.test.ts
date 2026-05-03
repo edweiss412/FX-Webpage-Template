@@ -11,6 +11,8 @@
  * (size, duplicates, unreachable cells without rationale, asymmetric
  * lookup) fails here, NOT downstream in the Playwright surface.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import type { RightNowState } from "@/lib/time/rightNow";
 import {
@@ -30,7 +32,13 @@ import {
  * documentation purposes only — the matrix is symmetric, so test
  * iteration order does not affect outcomes.
  */
-const ALL_KINDS: ReadonlyArray<RightNowStateKind> = [
+// `as const` preserves the literal tuple type so
+// `(typeof ALL_KINDS)[number]` resolves to the union of the actual
+// strings in this array, NOT a widened `RightNowStateKind`. Without
+// `as const`, the exhaustiveness mapped type below would always
+// evaluate to `never` (since the annotated element type already covers
+// every kind by construction) — masking missing-kind bugs.
+const ALL_KINDS = [
   "viewer_unconfirmed",
   "viewer_after_last_day",
   "viewer_off_day",
@@ -43,14 +51,36 @@ const ALL_KINDS: ReadonlyArray<RightNowStateKind> = [
   "post_show",
   "unknown",
   "dateless",
-];
+] as const;
 
-// Compile-time guard: the array literally is `RightNowState["kind"]`s,
-// nothing more, nothing less. If a state is added/removed in
-// `lib/time/rightNow.ts`, this assignment fails to typecheck and the
-// dev is forced to update ALL_KINDS to match.
+// Compile-time guards (BOTH directions are required — see below):
+//
+// 1) "ALL_KINDS contains only valid kinds." The assignment below to
+//    `ReadonlyArray<RightNowState["kind"]>` fails to typecheck if
+//    ALL_KINDS contains a string that is NOT a member of
+//    `RightNowState["kind"]` (e.g., a typo).
 const _typeCheck: ReadonlyArray<RightNowState["kind"]> = ALL_KINDS;
 void _typeCheck;
+
+// 2) "ALL_KINDS contains EVERY valid kind." The mapped type below
+//    evaluates to `true` only when every member of
+//    `RightNowState["kind"]` is also a member of the literal-tuple
+//    union `(typeof ALL_KINDS)[number]`. If a 13th kind is added to
+//    `RightNowState` without being added here, `Exclude<...>` resolves
+//    to that new kind (≠ never), forcing the conditional to `false`,
+//    and the `: _Exhaustive = true` assignment fails to compile.
+//    Without this, a missing kind only surfaces indirectly via the
+//    "matrix has 66 entries" runtime test — and the intuitive fix to
+//    that failure (relax the count) silently masks the real bug. Keep
+//    BOTH directions.
+type _Exhaustive = Exclude<
+  RightNowState["kind"],
+  (typeof ALL_KINDS)[number]
+> extends never
+  ? true
+  : false;
+const _exhaustive: _Exhaustive = true;
+void _exhaustive;
 
 const VALID_TREATMENTS: ReadonlyArray<TransitionTreatment> = [
   "crossfade-body",
@@ -59,7 +89,18 @@ const VALID_TREATMENTS: ReadonlyArray<TransitionTreatment> = [
   "unreachable",
 ];
 
-/** Sorted lexicographic pair key — same definition the helper uses. */
+/**
+ * Sorted lexicographic pair key — same definition the helper uses.
+ *
+ * Intentionally duplicated from `lib/time/rightNowTransitions.ts:pairKey`
+ * (NOT imported): tests for the matrix shouldn't import the helper they
+ * are partly checking — a buggy `pairKey` in the helper would otherwise
+ * pass tests against itself (e.g., a non-symmetric implementation would
+ * still satisfy "f(a, b) === f(b, a)" because both call sites read from
+ * the same broken function). Keep these two implementations in sync
+ * manually OR fold the test into a separate helper module the matrix
+ * does not depend on.
+ */
 function pairKey(a: RightNowStateKind, b: RightNowStateKind): string {
   return a < b ? `${a}:${b}` : `${b}:${a}`;
 }
@@ -261,5 +302,221 @@ describe("RIGHT_NOW_TRANSITION_MATRIX — full enumeration cross-check", () => {
     const extra = [...actualKeys].filter((k) => !expectedKeys.has(k));
     expect(missing).toEqual([]);
     expect(extra).toEqual([]);
+  });
+});
+
+/**
+ * Markdown grid sentinel — guards against doc-vs-code drift in
+ * `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/right-now-transition-matrix.md`.
+ *
+ * Why this exists: the markdown grid is a human-readable rendering of
+ * `RIGHT_NOW_TRANSITION_MATRIX`. If a future PR flips a `crossfade-body`
+ * to `morph-to-last-good` in the TS source, the runtime tests above
+ * still pass and the markdown silently lies. The doc itself flags this
+ * risk ("Any drift between this file and the TypeScript constant is a
+ * bug in this file") but nothing enforces it. This block does.
+ *
+ * Parsing approach (regex form, no doc churn required):
+ *
+ *   1. Read the markdown via `readFileSync` from `process.cwd()` (same
+ *      pattern as `tests/admin/no-inline-email-normalization.test.ts`).
+ *   2. Map the column-header abbreviations (`pre_t`, `tr_in`, `set`,
+ *      `show_n`, `tr_out`, `post`, `v_off`, `v_off_pre`, `v_unconf`,
+ *      `v_after`, `datel`, `unkn`) to full kind names. The doc uses
+ *      these short forms in the column header for table-width reasons;
+ *      the row headers use the full kind name in `**...**` markers.
+ *   3. For every line starting with `| **` extract:
+ *        - the row kind (between the `**...**` markers), and
+ *        - the 12 cell values (split on `|`, trimmed).
+ *   4. For each cell `(rowKind, colIndex, letter)`:
+ *        - colKind = COL_HEADERS[colIndex] mapped through KIND_BY_ABBR
+ *        - if rowKind === colKind, the cell must be `—` (diagonal).
+ *        - if colIndex < rowIndex (lower triangle), cell must be `—`.
+ *        - otherwise the letter must map to the same treatment as
+ *          `transitionTreatment(rowKind, colKind)` via LETTER_BY_TREATMENT.
+ *
+ * Choosing regex parse over doc reformat: the existing markdown legend
+ * (`C` / `M` / `U` / `—`) is already deterministic and parser-friendly,
+ * so we use a regex tolerant of the existing form rather than churning
+ * the doc. Letter `I` (instant) is included in the legend mapping for
+ * future-proofing even though no current entry uses `instant`.
+ */
+describe("right-now-transition-matrix.md — markdown grid sentinel", () => {
+  const MARKDOWN_PATH = join(
+    process.cwd(),
+    "docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/right-now-transition-matrix.md",
+  );
+
+  /** Map column-header abbreviations (used for table-width) to full kinds. */
+  const KIND_BY_ABBR: Readonly<Record<string, RightNowStateKind>> = {
+    pre_t: "pre_travel",
+    tr_in: "travel_in_day",
+    set: "set_day",
+    show_n: "show_day_n",
+    tr_out: "travel_out_day",
+    post: "post_show",
+    v_off: "viewer_off_day",
+    v_off_pre: "viewer_off_day_pre",
+    v_unconf: "viewer_unconfirmed",
+    v_after: "viewer_after_last_day",
+    datel: "dateless",
+    unkn: "unknown",
+  };
+
+  /**
+   * Letter ↔ treatment legend (per the markdown's "Pairwise grid"
+   * section). `I` is reserved for `instant`; no current entry uses it
+   * but we accept it so a future addition does not require the test
+   * to grow simultaneously.
+   */
+  const LETTER_BY_TREATMENT: Readonly<Record<TransitionTreatment, string>> = {
+    "crossfade-body": "C",
+    "morph-to-last-good": "M",
+    instant: "I",
+    unreachable: "U",
+  };
+
+  /** Reverse lookup: a parsed letter → expected TransitionTreatment. */
+  const TREATMENT_BY_LETTER: Readonly<Record<string, TransitionTreatment>> = {
+    C: "crossfade-body",
+    M: "morph-to-last-good",
+    I: "instant",
+    U: "unreachable",
+  };
+
+  test("legend mapping is exhaustive over TransitionTreatment", () => {
+    // If a 5th treatment is added to the type, `LETTER_BY_TREATMENT`
+    // missing it would surface as a TS error here; keep this assertion
+    // even though it overlaps with the type system to make the
+    // dependency explicit.
+    const treatments = Object.keys(LETTER_BY_TREATMENT) as TransitionTreatment[];
+    expect(treatments).toHaveLength(4);
+    for (const t of treatments) {
+      expect(LETTER_BY_TREATMENT[t]).toBeDefined();
+    }
+  });
+
+  test("markdown contains all 12 row headers", () => {
+    const md = readFileSync(MARKDOWN_PATH, "utf8");
+    for (const kind of ALL_KINDS) {
+      // Row headers appear as `| **<kind>**` (with optional padding).
+      const re = new RegExp(`\\|\\s*\\*\\*${kind}\\*\\*`);
+      expect(re.test(md), `missing row header for ${kind}`).toBe(true);
+    }
+  });
+
+  test("markdown column header has all 12 abbreviated kinds in order", () => {
+    const md = readFileSync(MARKDOWN_PATH, "utf8");
+    const lines = md.split("\n");
+    // The column header line is the one starting with `|` whose first
+    // cell is empty AND which lists `pre_t` as its first non-empty cell.
+    const headerLine = lines.find(
+      (line) => /^\|\s+\|\s*pre_t\s*\|/.test(line),
+    );
+    expect(headerLine, "column-header row not found in markdown").toBeDefined();
+    const cells = headerLine!
+      .split("|")
+      .slice(1, -1) // drop empty leading + trailing splits
+      .map((c) => c.trim());
+    // First cell is the row-header column (empty); next 12 are kinds.
+    expect(cells[0]).toBe("");
+    const colAbbrs = cells.slice(1);
+    expect(colAbbrs).toHaveLength(12);
+    for (const abbr of colAbbrs) {
+      expect(
+        KIND_BY_ABBR[abbr],
+        `unknown column abbr "${abbr}" — update KIND_BY_ABBR or fix markdown`,
+      ).toBeDefined();
+    }
+  });
+
+  test("every grid cell matches transitionTreatment(row, col)", () => {
+    const md = readFileSync(MARKDOWN_PATH, "utf8");
+    const lines = md.split("\n");
+
+    // Find the column-header line so we can parse the column order
+    // (the markdown happens to use precedence-table order; pin it
+    // explicitly rather than assuming).
+    const headerLineIndex = lines.findIndex(
+      (line) => /^\|\s+\|\s*pre_t\s*\|/.test(line),
+    );
+    expect(headerLineIndex).toBeGreaterThanOrEqual(0);
+    const colAbbrs = lines[headerLineIndex]!
+      .split("|")
+      .slice(1, -1)
+      .map((c) => c.trim())
+      .slice(1);
+    const colKinds = colAbbrs.map((abbr) => {
+      const kind = KIND_BY_ABBR[abbr];
+      if (!kind) throw new Error(`unknown column abbr ${abbr}`);
+      return kind;
+    });
+
+    // Walk every row line: starts with `| **` followed by a known kind.
+    const rowRe = /^\|\s+\*\*([a-z_]+)\*\*\s*\|(.*)\|\s*$/;
+    const seenRows: RightNowStateKind[] = [];
+    const drift: string[] = [];
+
+    for (const line of lines) {
+      const match = line.match(rowRe);
+      if (!match) continue;
+      const rowKind = match[1] as RightNowStateKind;
+      // Skip any `| **...**` line whose row label isn't a known kind
+      // (defensive — there are none today, but accidental matches in
+      // unrelated tables shouldn't crash the test).
+      if (!ALL_KINDS.includes(rowKind)) continue;
+      seenRows.push(rowKind);
+
+      const cells = match[2]!.split("|").map((c) => c.trim());
+      expect(
+        cells.length,
+        `row ${rowKind} has ${cells.length} cells; expected 12`,
+      ).toBe(12);
+
+      const rowIndex = colKinds.indexOf(rowKind);
+      // rowIndex is the column position where the diagonal sits; every
+      // col with index < rowIndex is lower-triangle and must be `—`.
+
+      for (let colIndex = 0; colIndex < 12; colIndex += 1) {
+        const colKind = colKinds[colIndex]!;
+        const cell = cells[colIndex]!;
+
+        if (colIndex < rowIndex || colKind === rowKind) {
+          if (cell !== "—") {
+            drift.push(
+              `${rowKind} × ${colKind} (col ${colIndex}): expected "—" (lower-triangle/diagonal), got "${cell}"`,
+            );
+          }
+          continue;
+        }
+
+        // Upper triangle: cell letter must map to a treatment, and that
+        // treatment must equal what the helper returns.
+        const expectedTreatment = transitionTreatment(rowKind, colKind);
+        if (expectedTreatment === null) {
+          drift.push(
+            `${rowKind} × ${colKind}: helper returned null but markdown shows "${cell}" (helper bug?)`,
+          );
+          continue;
+        }
+        const actualTreatment = TREATMENT_BY_LETTER[cell];
+        if (!actualTreatment) {
+          drift.push(
+            `${rowKind} × ${colKind} (col ${colIndex}): unrecognized cell letter "${cell}"`,
+          );
+          continue;
+        }
+        if (actualTreatment !== expectedTreatment) {
+          const expectedLetter = LETTER_BY_TREATMENT[expectedTreatment];
+          drift.push(
+            `${rowKind} × ${colKind}: markdown shows "${cell}" (${actualTreatment}), helper returns "${expectedTreatment}" (expected letter "${expectedLetter}")`,
+          );
+        }
+      }
+    }
+
+    expect(drift, drift.join("\n")).toEqual([]);
+    // Every kind must appear exactly once as a row.
+    expect(seenRows.sort()).toEqual([...ALL_KINDS].sort());
   });
 });
