@@ -10,6 +10,10 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    // Build artifacts produced by the dual-build Playwright projects
+    // (configured in playwright.config.ts via NEXT_DIST_DIR).
+    ".next-dev/**",
+    ".next-prod/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

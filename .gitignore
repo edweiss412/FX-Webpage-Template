@@ -8,6 +8,8 @@ dist/
 build/
 out/
 .next/
+.next-dev/
+.next-prod/
 .nuxt/
 .cache/
 .parcel-cache/

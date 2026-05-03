@@ -76,9 +76,9 @@ export default defineConfig({
       // dev-build artifact (port 3001) — built with ADMIN_DEV_PANEL_ENABLED=true.
       // NEXT_DIST_DIR keeps the artifact separate from the prod-build .next.
       command:
-        "ADMIN_DEV_PANEL_ENABLED=true NODE_ENV=test NEXT_DIST_DIR=.next-dev " +
+        "ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true NEXT_DIST_DIR=.next-dev " +
         "pnpm exec next build && " +
-        "ADMIN_DEV_PANEL_ENABLED=true NODE_ENV=test NEXT_DIST_DIR=.next-dev " +
+        "ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true NEXT_DIST_DIR=.next-dev " +
         "pnpm exec next start --port 3001",
       url: "http://localhost:3001",
       reuseExistingServer: !process.env.CI,
@@ -86,12 +86,13 @@ export default defineConfig({
     },
     {
       // prod-build artifact (port 3002) — built with ADMIN_DEV_PANEL_ENABLED unset.
-      // NODE_ENV=test so /api/test-auth/set-session works for signInAs(ADMIN_FIXTURE);
-      // the build-time gate keeps /admin/dev itself permanently 404.
+      // ENABLE_TEST_AUTH=true so /api/test-auth/set-session works for
+      // signInAs(ADMIN_FIXTURE); the build-time gate keeps /admin/dev itself
+      // permanently 404 (proves the build artifact, not just runtime state).
       command:
-        "NODE_ENV=test NEXT_DIST_DIR=.next-prod " +
+        "ENABLE_TEST_AUTH=true NEXT_DIST_DIR=.next-prod " +
         "pnpm exec next build && " +
-        "NODE_ENV=test NEXT_DIST_DIR=.next-prod " +
+        "ENABLE_TEST_AUTH=true NEXT_DIST_DIR=.next-prod " +
         "pnpm exec next start --port 3002",
       url: "http://localhost:3002",
       reuseExistingServer: !process.env.CI,
