@@ -34,6 +34,7 @@
  *     these tests inherit that protection.
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { execFileSync } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { admin } from "../e2e/helpers/supabaseAdmin";
@@ -457,5 +458,169 @@ describe("Round 5 Finding 1 — dev_phase1_stage clears opposite-table live row 
       "getStagedResult must reflect the LATEST (hard_fail) outcome, not the stale pass",
     ).toBe("hard_fail");
     expect(consumed?.staging?.kind).toBe("pending_ingestion");
+  });
+});
+
+// ============================================================================
+// Round 6 Finding 1 — per-show advisory lock IS held during dev_phase1_stage
+// ============================================================================
+//
+// AGENTS.md §1.2 (non-negotiable): every code path that mutates pending_*
+// rows runs inside `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))`,
+// AND tests assert the lock is held. Prior to this test, the suite only
+// commented that the lock was acquired; if a future refactor deleted the
+// `perform pg_advisory_xact_lock(...)` line at
+// supabase/migrations/20260502000000_dev_schema_clone.sql:405, every existing
+// test would still pass because none observed pg_locks.
+//
+// Approach (Codex Round 6 option (b) — pg_locks query):
+//   1. BEGIN a transaction.
+//   2. SELECT dev_phase1_stage(...) — the function acquires
+//      pg_advisory_xact_lock; because it's xact-scoped the lock stays held
+//      until COMMIT/ROLLBACK.
+//   3. Query pg_locks within the SAME transaction (filtered to this
+//      backend's pid + locktype='advisory') and confirm exactly one
+//      Exclusive advisory lock granted, with objid matching
+//      `hashtext('show:' || drive_file_id)::oid`.
+//   4. ROLLBACK so no dev.* rows persist.
+// Negative-control: comment out the perform pg_advisory_xact_lock line in
+// the RPC and re-run; this test fails with a message naming AGENTS.md §1.2.
+//
+// Implementation note: supabase-js doesn't expose multi-statement
+// transactions cleanly, so this test uses psql via execFileSync — same
+// pattern as tests/db/checks.test.ts. No new dependency.
+
+const databaseUrl =
+  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+
+function runPsqlAt(sql: string): string {
+  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"], {
+    input: sql,
+    encoding: "utf8",
+  }).trim();
+}
+
+describe("Round 6 Finding 1 — dev_phase1_stage holds the per-show advisory lock (AGENTS.md §1.2)", () => {
+  test("calling dev_phase1_stage acquires pg_advisory_xact_lock with objid = hashtext('show:'||drive_file_id)", () => {
+    // Arbitrary but recognizable drive_file_id for this assertion. Keeping
+    // it under a `dev:assert-lock:` prefix so it's distinct from real
+    // fixture-derived IDs and easy to find in pg_locks if a debugger needs
+    // to inspect.
+    const driveFileId = "dev:assert-lock:round6-finding1";
+
+    // Single SQL transaction:
+    //   - SELECT dev_phase1_stage(...) — acquires the advisory lock under
+    //     this session's xact.
+    //   - SELECT classid, objid::bigint, mode, granted FROM pg_locks
+    //     WHERE pid = pg_backend_pid() AND locktype = 'advisory' — observe
+    //     the lock(s) held by THIS backend right now.
+    //   - SELECT hashtext('show:' || $1)::int::bigint — the expected key.
+    //   - All wrapped in a single ROLLBACK so no dev.* state leaks.
+    //
+    // psql -At with FORMAT json gives one row per query; we delimit with a
+    // SELECT '---' marker for easy splitting in JS.
+    // Build the SQL via String.raw so JS doesn't interpret backslashes in
+    // the template literal. JSON literals use single-quoted strings (no
+    // dollar-quote conflict with the outer expression). The drive_file_id
+    // is interpolated via JS template — safe because the value is a known
+    // constant defined above (no untrusted input).
+    const sql = String.raw`
+      begin;
+      select dev_phase1_stage(
+        '${driveFileId}',           -- p_drive_file_id
+        'lock-probe.md',            -- p_drive_file_name
+        '{}'::jsonb,                -- p_parse_result (empty object)
+        'pass',                     -- p_outcome
+        '[]'::jsonb,                -- p_triggered_items
+        null,                       -- p_hard_error_code
+        null,                       -- p_hard_error_message
+        '[]'::jsonb,                -- p_warnings
+        'lock probe',               -- p_warning_summary
+        now()                       -- p_staged_modified_time
+      );
+      select '---LOCKS---';
+      select count(*) from pg_locks
+        where pid = pg_backend_pid()
+          and locktype = 'advisory'
+          and mode = 'ExclusiveLock'
+          and granted = true
+          and objid = (hashtext('show:' || '${driveFileId}'))::bigint::oid;
+      select '---ANY_ADVISORY---';
+      select count(*) from pg_locks
+        where pid = pg_backend_pid()
+          and locktype = 'advisory';
+      rollback;
+    `;
+    const out = runPsqlAt(sql);
+
+    // Parse: split on the marker labels. psql -At returns one value per
+    // line, with an empty line between SELECT statements is NOT emitted —
+    // values come back contiguous; markers tell us which is which.
+    const lines = out.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+    const lockMarkerIdx = lines.indexOf("---LOCKS---");
+    const anyMarkerIdx = lines.indexOf("---ANY_ADVISORY---");
+    expect(lockMarkerIdx, "psql output must contain ---LOCKS--- marker").toBeGreaterThan(-1);
+    expect(anyMarkerIdx, "psql output must contain ---ANY_ADVISORY--- marker").toBeGreaterThan(
+      lockMarkerIdx,
+    );
+
+    const expectedLockCount = Number(lines[lockMarkerIdx + 1] ?? "0");
+    const totalAdvisoryCount = Number(lines[anyMarkerIdx + 1] ?? "0");
+
+    // CORE assertion: exactly one ExclusiveLock advisory lock granted with
+    // objid = hashtext('show:' || drive_file_id). If a future refactor
+    // removes the `perform pg_advisory_xact_lock(...)` line at
+    // supabase/migrations/20260502000000_dev_schema_clone.sql:405, this
+    // assertion fails with the count being 0.
+    expect(
+      expectedLockCount,
+      "AGENTS.md §1.2: dev_phase1_stage MUST hold pg_advisory_xact_lock(hashtext('show:'||drive_file_id)) during the transaction. " +
+        `Got 0 — the lock call may have been removed from supabase/migrations/20260502000000_dev_schema_clone.sql.`,
+    ).toBe(1);
+
+    // Diagnostic: confirm there are no UNEXPECTED advisory locks the test
+    // missed. If totalAdvisoryCount > expectedLockCount, the RPC may be
+    // taking additional locks the assertion doesn't account for — the
+    // test would still pass on the core assertion but the diagnostic
+    // prompts review.
+    expect(
+      totalAdvisoryCount,
+      "diagnostic: total advisory locks held by this backend should match the keyed lock count exactly",
+    ).toBe(expectedLockCount);
+  });
+
+  test("different drive_file_ids produce different lock keys (no collision)", () => {
+    // Defense-in-depth: confirms the lock key actually depends on
+    // drive_file_id. If the RPC accidentally locked on a constant or on
+    // the wrong column, both calls would acquire the same key and only
+    // one advisory lock would appear. Observing TWO distinct advisory
+    // locks (one per drive_file_id) is the strongest single-transaction
+    // proof of "per-show" lock granularity.
+    const sql = String.raw`
+      begin;
+      select dev_phase1_stage(
+        'dev:assert-lock:show-A', 'probe-A.md', '{}'::jsonb, 'pass',
+        '[]'::jsonb, null, null, '[]'::jsonb, 'probe', now()
+      );
+      select dev_phase1_stage(
+        'dev:assert-lock:show-B', 'probe-B.md', '{}'::jsonb, 'pass',
+        '[]'::jsonb, null, null, '[]'::jsonb, 'probe', now()
+      );
+      select '---DISTINCT---';
+      select count(distinct objid) from pg_locks
+        where pid = pg_backend_pid()
+          and locktype = 'advisory'
+          and mode = 'ExclusiveLock'
+          and granted = true;
+      rollback;
+    `;
+    const out = runPsqlAt(sql);
+    const lines = out.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+    const distinctIdx = lines.indexOf("---DISTINCT---");
+    const distinctCount = Number(lines[distinctIdx + 1] ?? "0");
+    expect(
+      distinctCount,
+      "AGENTS.md §1.2 specifies PER-SHOW lock granularity. Two distinct drive_file_ids must produce two distinct lock keys.",
+    ).toBe(2);
   });
 });
