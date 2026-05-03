@@ -40,6 +40,7 @@ import { CrewTile } from "@/components/tiles/CrewTile";
 import { FinancialsTile } from "@/components/tiles/FinancialsTile";
 import { LightingScopeTile } from "@/components/tiles/LightingScopeTile";
 import { LodgingTile } from "@/components/tiles/LodgingTile";
+import { PackListTile } from "@/components/tiles/PackListTile";
 import { ScheduleTile } from "@/components/tiles/ScheduleTile";
 import { ShowStatusTile } from "@/components/tiles/ShowStatusTile";
 import { TransportTile } from "@/components/tiles/TransportTile";
@@ -221,6 +222,17 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
             const dateRestriction = viewerCrew
               ? viewerCrew.dateRestriction
               : { kind: "none" as const };
+            // PackListTile (Task 4.9) reads the viewer's stage_restriction
+            // (§6.6 discriminated union). Admins / no-crew-row viewers
+            // default to `{ kind: 'none' }` so the tile applies only the
+            // global PACK_LIST_VISIBLE_PHASES gate.
+            const stageRestriction = viewerCrew
+              ? viewerCrew.stageRestriction
+              : ({ kind: "none" } as const);
+            // "Today" is wired here once and threaded into the tile —
+            // pure-function shape lets the predicate be unit-tested in
+            // vitest without a render harness.
+            const today = new Date();
             // For the bare admin viewer (no crew row), synthesize an
             // effective flags array that unlocks every scope tile. The
             // canonical predicates already accept this — A1 unlocks
@@ -270,6 +282,20 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
                   financials={data.financials}
                   viewerFlags={viewerFlags}
                   isAdmin={isAdmin}
+                />
+                {/*
+                  PackListTile (Task 4.9, AC-4.7..4.12) — visibility
+                  decided by lib/visibility/packList.ts predicate. The
+                  tile returns null when (a) pull_sheet is absent, (b)
+                  today is not Set/Strike/Load Out, (c) stage_restriction
+                  excludes today's phases. Page tile-grid reflows when
+                  the tile is null per §8.4.
+                */}
+                <PackListTile
+                  pullSheet={data.pullSheet}
+                  show={data.show}
+                  stageRestriction={stageRestriction}
+                  today={today}
                 />
               </>
             );
