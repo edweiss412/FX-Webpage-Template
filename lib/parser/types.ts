@@ -104,6 +104,10 @@ export type ShowRow = {
   event_details: Record<string, string>;
   agenda_links: { label: string; fileId?: string; url?: string }[];
   coi_status: string | null;
+  po: string | null;
+  proposal: string | null;
+  invoice: string | null;
+  invoice_notes: string | null;
 };
 
 // canonical work-phase enum used by ShowRow.schedule_phases AND viewer.stage_restriction.

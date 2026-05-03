@@ -16,15 +16,13 @@
  * Field aliases are used for label-to-canonical resolution via FIELD_ALIASES.
  */
 
-import { clean, presence } from "./_helpers";
+import type { ShowRow } from "../types";
+import { clean, presence, splitRow } from "./_helpers";
 
-export type OpsResult = {
-  po: string | null;
-  proposal: string | null;
-  invoice: string | null;
-  invoiceNotes: string | null;
-  coi_status: string | null;
-};
+export type OpsResult = Pick<
+  ShowRow,
+  "po" | "proposal" | "invoice" | "invoice_notes" | "coi_status"
+>;
 
 // Label patterns that map to ops fields
 const COI_RE = /^\s*COI\s*$/i;
@@ -37,7 +35,7 @@ export function parseOps(markdown: string, _version: "v1" | "v2" | "v4"): OpsRes
   let po: string | null = null;
   let proposal: string | null = null;
   let invoice: string | null = null;
-  let invoiceNotes: string | null = null;
+  let invoice_notes: string | null = null;
   let coi_status: string | null = null;
 
   for (const line of markdown.split("\n")) {
@@ -64,16 +62,11 @@ export function parseOps(markdown: string, _version: "v1" | "v2" | "v4"): OpsRes
     } else if (PO_RE.test(col0)) {
       if (po === null) po = presence(val ?? "");
     } else if (INVOICE_NOTES_RE.test(col0)) {
-      if (invoiceNotes === null) invoiceNotes = presence(val ?? "");
+      if (invoice_notes === null) invoice_notes = presence(val ?? "");
     } else if (INVOICE_RE.test(col0)) {
       if (invoice === null) invoice = presence(val ?? "");
     }
   }
 
-  return { po, proposal, invoice, invoiceNotes, coi_status };
-}
-
-function splitRow(line: string): string[] {
-  const parts = line.split("|");
-  return parts.slice(1, parts.length - 1).map((s) => s.trim());
+  return { po, proposal, invoice, invoice_notes, coi_status };
 }

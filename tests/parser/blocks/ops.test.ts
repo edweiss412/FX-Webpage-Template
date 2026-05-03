@@ -44,8 +44,8 @@ describe("parseOps — v4 waldorf (2026-04)", () => {
     expect(ops.invoice).toBe("SENT");
   });
 
-  it("invoiceNotes is 'Add parking receipts and Zoom'", () => {
-    expect(ops.invoiceNotes).toBe("Add parking receipts and Zoom");
+  it("invoice_notes is 'Add parking receipts and Zoom'", () => {
+    expect(ops.invoice_notes).toBe("Add parking receipts and Zoom");
   });
 });
 
@@ -158,7 +158,7 @@ describe("parseOps — corpus coverage", () => {
       expect(typeof ops.proposal === "string" || ops.proposal === null).toBe(true);
       expect(typeof ops.po === "string" || ops.po === null).toBe(true);
       expect(typeof ops.invoice === "string" || ops.invoice === null).toBe(true);
-      expect(typeof ops.invoiceNotes === "string" || ops.invoiceNotes === null).toBe(true);
+      expect(typeof ops.invoice_notes === "string" || ops.invoice_notes === null).toBe(true);
     });
   }
 });
