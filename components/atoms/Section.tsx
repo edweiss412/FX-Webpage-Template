@@ -20,7 +20,16 @@
  *                      the heading itself (e.g., venue name).
  *   • body           : `<dl>` when the section is mostly KeyValue
  *                      pairs; `<div>` when free-form. The atom defaults
- *                      to <dl>; pass `bodyAs="div"` to override.
+ *                      to <dl>; pass `bodyAs="div"` to override. The
+ *                      body wrapper ALSO carries `max-h-(--spacing-tile-
+ *                      overflow) overflow-y-auto` so any tile whose
+ *                      intrinsic content height exceeds the §8.4
+ *                      240px ceiling keeps its overflow internal — the
+ *                      tile itself never grows past the row, the body
+ *                      scrolls. This is THE single source of truth for
+ *                      the §8.4 invariant 4 contract; tiles do NOT
+ *                      restate it. Verified end-to-end by
+ *                      tests/e2e/layout-dimensions.spec.ts.
  *
  * Why <h2> and not <h3>: page hierarchy is <h1>=show title (Header) →
  * <h2>=tile heading. The Right Now card uses its own <h2> at the same
@@ -118,7 +127,18 @@ export function Section({
           <div className="text-sm text-text-subtle">{subheading}</div>
         ) : null}
       </header>
-      <Body className="flex flex-1 flex-col gap-3">{children}</Body>
+      {/*
+        §8.4 invariant 4 (internal-overflow rule). Tailwind v4 token map:
+        `max-h-(--spacing-tile-overflow)` resolves to 240px and
+        `overflow-y-auto` triggers the scroll container when intrinsic
+        content height exceeds it. Tiles whose body fits inside 240px
+        never see scroll because content < container; tiles that overflow
+        keep the excess internal, never blowing past their row track.
+        Verified by tests/e2e/layout-dimensions.spec.ts (AC-4.4).
+      */}
+      <Body className="flex flex-1 flex-col gap-3 overflow-y-auto max-h-(--spacing-tile-overflow)">
+        {children}
+      </Body>
     </article>
   );
 }
