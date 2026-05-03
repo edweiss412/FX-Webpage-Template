@@ -66,6 +66,58 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   "transport.drop_off_venue": ["Drop Off Venue"],
   "transport.pick_up_venue": ["Pick Up Venue"],
   "transport.drop_off_warehouse": ["Drop Off Warehouse"],
+  "transport.load_in_at_venue": ["Load In at Venue"],
+  "transport.unload_at_warehouse": ["Unload at Warehouse"],
+  "transport.load_at_warehouse": ["Load at Warehouse"],
+  "transport.rental_pickup": ["Rental Pickup"],
+  "transport.rental_return": ["Rental Return"],
+  "transport.license_plate": ["License Plate"],
+  "transport.color": ["Color"],
+
+  // ── Hotels ────────────────────────────────────────────────────────────────
+  "hotels.name": ["Hotel Name / Address", "Hotel Name/Address"],
+  "hotels.confirmation_no": ["Confirmation #", "Confirmation No"],
+  "hotels.check_in": ["Check In Date", "Check In"],
+  "hotels.check_out": ["Check Out Date", "Check Out"],
+  "hotels.names_on_reservation": ["Names on Reservation"],
+
+  // ── Rooms ─────────────────────────────────────────────────────────────────
+  "rooms.gs": ["GENERAL SESSION", "GS"],
+  "rooms.breakout": ["BREAKOUT"],
+  "rooms.additional": ["ADDITIONAL ROOM"],
+  "rooms.setup": ["GS Setup", "BO Setup", "Setup"],
+  "rooms.set_time": ["GS Set Time", "BO Set Time", "Set Time"],
+  "rooms.show_time": ["GS Show Time", "BO Show Time", "Show Time"],
+  "rooms.strike_time": ["GS Strike Time", "BO Strike Time", "Strike Time"],
+  "rooms.audio": ["GS Audio", "BO Audio", "Audio"],
+  "rooms.video": ["GS Video", "BO Video", "Video"],
+  "rooms.lighting": ["GS Lighting", "BO Lighting", "Lighting", "GS LED", "BO LED"],
+  "rooms.scenic": ["GS Scenic", "BO Scenic", "Scenic", "Backdrop / Scenic"],
+  "rooms.power": ["GS Power", "BO Power"],
+  "rooms.digital_signage": ["Digital Signage"],
+
+  // ── Contacts ─────────────────────────────────────────────────────────────
+  "contacts.venue": ["Venue Contact Info", "Hotel Contact Info", "Hotal Contact Info", "Hotel Contact Information"],
+  "contacts.in_house_av": ["In House AV"],
+
+  // ── Event details ─────────────────────────────────────────────────────────
+  "event.gooseneck": ["Gooseneck", "Goosneck", "Goosenecks"],
+  "event.power": ["Power"],
+  "event.internet": ["Internet"],
+  "event.keynote_requirements": ["Keynote Requirements"],
+  "event.opening_reel": ["Opening Reel"],
+  "event.virtual_audience": ["Virtual Audience", "Virtaul Audience"],
+  "event.virtual_speaker": ["Virtual Speaker"],
+  "event.stage_size": ["Stage Size"],
+  "event.podium_type": ["GS Podium Type", "Podium Type"],
+  "event.record": ["Record"],
+  "event.polling": ["Polling"],
+  "event.equipment_storage": ["Equipment Storage"],
+  "event.staff_office_room": ["Staff Office Room"],
+  "event.test_pattern": ["Test Pattern"],
+  "event.fonts": ["Fonts", "Fonts (II ONLY)"],
+  "event.scenic": ["Backdrop / Scenic", "Backdrop/Scenic"],
+  "event.led": ["LED"],
 };
 
 /**
