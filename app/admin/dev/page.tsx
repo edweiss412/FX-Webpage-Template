@@ -18,6 +18,15 @@
  *
  * UI is functional, not styled — M4 owns DESIGN.md and tile chrome. The
  * panel uses semantic HTML + minimal Tailwind utility classes for layout.
+ *
+ * PERF: a `?fixture=...` page load triggers public.is_admin() three times —
+ * once at page render (requireAdmin call below), once inside listFixtures()
+ * (its requireAdmin call), and once inside parseAndStage() (its requireAdmin
+ * call). Accepted as defense-in-depth per AGENTS.md §1.6: every Server
+ * Action MUST gate independently of its caller, since X.3's chain audit
+ * catches missing gates as a CI failure. Acceptable cost on a low-volume
+ * admin surface; M5 can revisit (e.g. a request-scoped admin cache or a
+ * cookie-bound server-context value) when admin volume grows.
  */
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import {
@@ -26,7 +35,6 @@ import {
   resetDevSchema,
   type ParseAndStageResult,
 } from "./actions";
-import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
@@ -58,10 +66,6 @@ export default async function AdminDevPage({
       actionError = err instanceof Error ? err.message : String(err);
     }
   }
-
-  // Touch headers() so this page is always treated as dynamic — the auth
-  // gate must re-evaluate on every request, never be cached.
-  await headers();
 
   return (
     <main className="mx-auto max-w-4xl p-6 font-mono text-sm">

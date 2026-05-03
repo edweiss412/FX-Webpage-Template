@@ -111,23 +111,22 @@ test.describe("dev-build only — admin-dev page behaves under ADMIN_DEV_PANEL_E
     expect(count).toBe(0); // no fixture-derived rows landed
   });
 
-  test("admin/dev: parseAndStage server action rejects non-admin via Server Action POST (defense in depth)", async ({
+  test("admin/dev: page-level gate also blocks ?fixture= URL traversal for non-admin", async ({
     page,
   }) => {
-    // Defense in depth: prove requireAdmin() fires as the action's first line
-    // even when invoked through Next.js's Server Action RSC endpoint (NOT just
-    // through the page render). Since the page render and server action share
-    // the same requireAdmin() chokepoint, signing in non-admin and POSTing the
-    // form proves the action's gate fires independently of the page render
-    // gate (page returns 403; action would also return 403 if reached).
+    // This test exercises ONLY the page-level requireAdmin gate via a
+    // ?fixture= query param. It is NOT independent action-level coverage —
+    // tests/admin/parseAndStage-auth.test.ts is the actual independent
+    // proof that requireAdmin() runs as the first line of the parseAndStage
+    // server action (Vitest's ESM loader handles "use server" modules
+    // natively; Playwright's CJS runner does not, which is why the
+    // independent gate test lives in Vitest).
     //
-    // Direct ES-module import of the server action from this CJS Playwright
-    // test runner is not workable (Cannot use import statement outside a
-    // module); the through-HTTP variant covers the same defense. M5 may
-    // re-add a Vitest-side defense-in-depth test under a proper module-aware
-    // runner once the auth scaffolding is fully in place.
+    // What this asserts: a non-admin GET with ?fixture=... cannot smuggle a
+    // fixture-parse through the URL — the page render gate rejects before
+    // the server-side parseAndStage call dispatches. dev.pending_syncs
+    // stays empty, proving no fixture-derived row landed.
     await signInAs(page, NON_ADMIN_CREW_FIXTURE);
-    // Submit the form via GET ?fixture= (matches the page's form method).
     const response = await page.goto(
       `/admin/dev?fixture=${encodeURIComponent(FIXTURE_HAPPY)}`,
     );
@@ -142,11 +141,19 @@ test.describe("dev-build only — admin-dev page behaves under ADMIN_DEV_PANEL_E
     expect(count).toBe(0);
   });
 
-  test("admin/dev: reset action rejects non-admin via Server Action POST (defense in depth)", async ({
+  test("admin/dev: page-level gate prevents non-admin from reaching the reset form (existing dev.shows row survives)", async ({
     page,
   }) => {
-    // Pre-populate one row in dev.shows via service role (bypasses RLS,
-    // simulates a prior dev-Apply having created a row).
+    // This test exercises ONLY the page-level requireAdmin gate. It is NOT
+    // independent action-level coverage of resetDevSchema —
+    // tests/admin/parseAndStage-auth.test.ts is the actual independent
+    // proof that requireAdmin() runs as the first line of resetDevSchema.
+    //
+    // What this asserts: a non-admin who lands on /admin/dev cannot reach
+    // the "Reset dev schema" form because the page itself returns 403, so
+    // the reset action is never even rendered as a target. A pre-seeded
+    // dev.shows row survives — proving no truncate happened during the
+    // rejected page load.
     const { error: insertError } = await admin.schema("dev").from("shows").insert({
       drive_file_id: "dev:fixture:reset-blocked-test",
       slug: "reset-blocked-test",
@@ -156,10 +163,6 @@ test.describe("dev-build only — admin-dev page behaves under ADMIN_DEV_PANEL_E
     });
     expect(insertError).toBeNull();
 
-    // Sign in non-admin and try to render the page (and thus reach the reset
-    // form). Page render itself rejects with 403 — proving the reset action's
-    // requireAdmin() gate would also fire if the page were bypassed (both call
-    // the same chokepoint as their first line).
     await signInAs(page, NON_ADMIN_CREW_FIXTURE);
     const response = await page.goto("/admin/dev");
     expect(response?.status()).toBe(403);

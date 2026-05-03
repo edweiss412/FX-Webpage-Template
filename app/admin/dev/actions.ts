@@ -19,7 +19,7 @@
  * status-only updates on existing dev.shows rows are the only modifications
  * that path makes. Inserting new dev.shows is Phase-2/Apply (M6's job).
  */
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -97,25 +97,35 @@ export async function parseAndStage(filename: string): Promise<ParseAndStageResu
 
   const triggeredJson =
     invariants.outcome === "stage" ? invariants.triggeredItems : [];
-  const hardFailCode =
-    invariants.outcome === "hard_fail" ? invariants.failedCodes[0] ?? "MI_UNKNOWN" : null;
-  const hardFailMessage =
-    invariants.outcome === "hard_fail" ? invariants.messages.join(" | ") : null;
-
-  // Hard-fail: also use the parser's hardErrors[] when present. MI-1 lives there.
-  const finalHardCode =
-    invariants.outcome === "hard_fail"
-      ? hardFailCode ?? parsed.hardErrors[0]?.code ?? "MI_UNKNOWN"
-      : parsed.hardErrors[0]?.code ?? null;
-  const finalHardMessage =
-    invariants.outcome === "hard_fail"
-      ? hardFailMessage ?? parsed.hardErrors.map((e) => e.message).join(" | ")
-      : parsed.hardErrors.map((e) => e.message).join(" | ") || null;
 
   // If parser hardErrors fired but invariants returned 'pass'/'stage', still
   // route to pending_ingestions. parseSheet's MI-1 path returns hardErrors+pass.
   const effectiveOutcome: InvariantOutcome["outcome"] =
     parsed.hardErrors.length > 0 ? "hard_fail" : invariants.outcome;
+
+  // Single-pass hard-fail summary. Priority for the canonical code reported
+  // to dev.pending_ingestions:
+  //   1. parsed.hardErrors[0]?.code  — MI-1_VERSION_DETECTION_FAILED lives
+  //      here; the parser short-circuits at version detection so this is
+  //      the authoritative source when it's set (per parseSheet's contract
+  //      at lib/parser/index.ts:317).
+  //   2. invariants.failedCodes[0]   — MI-2..MI-5b come from the invariants
+  //      pass when no parser hardError fired but invariants then rejected.
+  //   3. 'MI_UNKNOWN'                — defensive sentinel; cannot reach
+  //      under current code paths but keeps the column non-null.
+  const failedCodes =
+    invariants.outcome === "hard_fail" ? invariants.failedCodes : [];
+  const invariantMessages =
+    invariants.outcome === "hard_fail" ? invariants.messages : [];
+  const finalHardCode =
+    effectiveOutcome === "hard_fail"
+      ? (parsed.hardErrors[0]?.code ?? failedCodes[0] ?? "MI_UNKNOWN")
+      : null;
+  const finalHardMessage =
+    effectiveOutcome === "hard_fail"
+      ? [...parsed.hardErrors.map((e) => e.message), ...invariantMessages].join(" | ") ||
+        null
+      : null;
 
   const warningSummary =
     parseResult.warnings.length === 0
@@ -157,10 +167,7 @@ export async function parseAndStage(filename: string): Promise<ParseAndStageResu
         : [],
     hardFailCodes:
       effectiveOutcome === "hard_fail"
-        ? [
-            ...(invariants.outcome === "hard_fail" ? invariants.failedCodes : []),
-            ...parsed.hardErrors.map((e) => e.code),
-          ]
+        ? [...parsed.hardErrors.map((e) => e.code), ...failedCodes]
         : [],
     parseWarnings: parseResult.warnings,
     rawUnrecognized: parseResult.raw_unrecognized,
@@ -191,7 +198,6 @@ export async function resetDevSchema(): Promise<{ ok: true }> {
 /** Helper used by the page to enumerate fixture choices. */
 export async function listFixtures(): Promise<string[]> {
   await requireAdmin();
-  const { readdir } = await import("node:fs/promises");
   const entries = await readdir(FIXTURE_DIR);
   return entries.filter((n) => n.endsWith(".md")).sort();
 }
