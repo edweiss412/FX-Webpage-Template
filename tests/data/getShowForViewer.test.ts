@@ -215,3 +215,137 @@ describe("getShowForViewer (§7.4)", () => {
     expect(r.transportation?.schedule[1]?.assigned_names).toEqual(["Alice", "Bob"]);
   });
 });
+
+/**
+ * Schedule_phases projection (Task 4.9 prerequisite).
+ *
+ * `getShowForViewer` returns `show.schedule_phases` populated either from
+ * the persisted `event_details.schedule_phases` (preferred path; future
+ * sync-side write) OR derived inline from `dates` (M4 baseline — the
+ * current seed writes only the parser's `event_details` Record without
+ * merging schedule_phases). PackListTile (Task 4.9) reads the projection
+ * and MUST receive a non-empty map for shows that have any of
+ * travelIn/set/showDays/travelOut.
+ */
+describe("getShowForViewer — schedule_phases projection (Task 4.9 prerequisite)", () => {
+  afterEach(async () => {
+    await cleanupTestShows();
+  });
+
+  async function seedShowWithDates(opts: {
+    title: string;
+    dates: {
+      travelIn: string | null;
+      set: string | null;
+      showDays: string[];
+      travelOut: string | null;
+    };
+    eventDetails?: Record<string, unknown>;
+  }): Promise<string> {
+    const driveFileId = `${TEST_PREFIX}${crypto.randomUUID()}`;
+    const slug = `gsfv-${crypto.randomUUID().slice(0, 12)}`;
+    const { data, error } = await admin
+      .from("shows")
+      .insert({
+        drive_file_id: driveFileId,
+        slug,
+        title: opts.title,
+        client_label: "Test Client",
+        template_version: "v4",
+        dates: opts.dates,
+        event_details: opts.eventDetails ?? {},
+      })
+      .select("id")
+      .single();
+    if (error || !data) throw new Error(`seedShowWithDates failed: ${error?.message}`);
+    return data.id as string;
+  }
+
+  test("populates schedule_phases by deriving from dates when event_details.schedule_phases is absent", async () => {
+    // Travel In separate from Set → Set day gets ['Set'] only (per M1
+    // deriveSchedulePhases logic; Load In is added only when travelIn===set).
+    const showId = await seedShowWithDates({
+      title: "PackList — derived phases",
+      dates: {
+        travelIn: "2026-04-14",
+        set: "2026-04-15",
+        showDays: ["2026-04-16", "2026-04-17"],
+        travelOut: "2026-04-18",
+      },
+    });
+    const crewId = await seedCrew({
+      showId,
+      name: "PL Crew",
+      roleFlags: ["A1"],
+    });
+
+    const r = await getShowForViewer(showId, {
+      kind: "crew",
+      crewMemberId: crewId,
+    });
+
+    // Set day → ['Set']; last show day compounds Show + Strike;
+    // travelOut → ['Load Out']. travelIn maps to nothing (travel-only).
+    expect(r.show.schedule_phases["2026-04-15"]).toEqual(["Set"]);
+    expect(r.show.schedule_phases["2026-04-16"]).toEqual(["Show"]);
+    expect(r.show.schedule_phases["2026-04-17"]).toEqual(["Show", "Strike"]);
+    expect(r.show.schedule_phases["2026-04-18"]).toEqual(["Load Out"]);
+    expect(r.show.schedule_phases["2026-04-14"]).toBeUndefined();
+  });
+
+  test("prefers event_details.schedule_phases when present (forward-compat with future sync writes)", async () => {
+    // Future sync layer (M6/M7) may write schedule_phases directly into
+    // event_details. The projection MUST honor the persisted value over
+    // the derived fallback so a richer (e.g., per-day SCHEDULE block)
+    // derivation is not silently overwritten.
+    const persistedPhases = {
+      "2026-04-15": ["Load In", "Set"],
+      "2026-04-16": ["Show"],
+      "2026-04-17": ["Show", "Strike"],
+    };
+    const showId = await seedShowWithDates({
+      title: "PackList — persisted phases",
+      dates: {
+        travelIn: null,
+        set: "2026-04-15",
+        showDays: ["2026-04-16", "2026-04-17"],
+        travelOut: "2026-04-18",
+      },
+      eventDetails: { schedule_phases: persistedPhases },
+    });
+    const crewId = await seedCrew({
+      showId,
+      name: "PL Crew",
+      roleFlags: ["A1"],
+    });
+
+    const r = await getShowForViewer(showId, {
+      kind: "crew",
+      crewMemberId: crewId,
+    });
+
+    // Persisted map round-trips verbatim — note the absence of
+    // 2026-04-18, which the dates-derivation would have populated. The
+    // projection must NOT mix derived and persisted entries.
+    expect(r.show.schedule_phases).toEqual(persistedPhases);
+  });
+
+  test("returns empty schedule_phases when both dates and event_details are empty (degenerate)", async () => {
+    const showId = await seedShowWithDates({
+      title: "PackList — no dates",
+      dates: { travelIn: null, set: null, showDays: [], travelOut: null },
+    });
+    const crewId = await seedCrew({
+      showId,
+      name: "PL Crew",
+      roleFlags: ["A1"],
+    });
+
+    const r = await getShowForViewer(showId, {
+      kind: "crew",
+      crewMemberId: crewId,
+    });
+
+    expect(r.show.schedule_phases).toEqual({});
+  });
+});

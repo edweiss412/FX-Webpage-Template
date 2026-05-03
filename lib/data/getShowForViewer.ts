@@ -43,6 +43,7 @@
  * bound client can't read `shows_internal` under RLS for them.
  */
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { deriveSchedulePhases } from "@/lib/parser";
 import type {
   ContactRow,
   DateRestriction,
@@ -178,14 +179,36 @@ export async function getShowForViewer(
     throw new Error("LINK_NO_CREW_MATCH");
   }
   const showRowDb = showRes.data;
+  const datesValue: ShowRow["dates"] = showRowDb.dates ?? {
+    travelIn: null,
+    set: null,
+    showDays: [],
+    travelOut: null,
+  };
+  // schedule_phases projection (Task 4.9 prerequisite, spec §6.10):
+  //   - Prefer the persisted value at `event_details.schedule_phases` when
+  //     present (forward-compat with future M6/M7 sync writes that may emit
+  //     a richer per-day map than dates-derivation alone can produce).
+  //   - Otherwise derive inline from `dates` via the canonical M1
+  //     deriveSchedulePhases helper. The current seed (supabase/seed.ts)
+  //     writes only the parser's `event_details` Record without merging
+  //     schedule_phases, so this fallback keeps PackListTile (Task 4.9)
+  //     working end-to-end at the M4 ship boundary.
+  const persistedPhases = showRowDb.event_details?.schedule_phases as
+    | ShowRow["schedule_phases"]
+    | undefined;
+  const schedulePhases: ShowRow["schedule_phases"] =
+    persistedPhases && typeof persistedPhases === "object"
+      ? persistedPhases
+      : deriveSchedulePhases(datesValue);
   const show: ShowRow = {
     title: showRowDb.title,
     client_label: showRowDb.client_label,
     client_contact: showRowDb.client_contact ?? null,
     template_version: showRowDb.template_version,
     venue: showRowDb.venue ?? null,
-    dates: showRowDb.dates ?? { travelIn: null, set: null, showDays: [], travelOut: null },
-    schedule_phases: showRowDb.event_details?.schedule_phases ?? {},
+    dates: datesValue,
+    schedule_phases: schedulePhases,
     event_details: showRowDb.event_details ?? {},
     agenda_links: showRowDb.agenda_links ?? [],
     coi_status: showRowDb.coi_status ?? null,

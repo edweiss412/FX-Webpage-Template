@@ -269,7 +269,9 @@ function parseAgendaLinks(markdown: string): ShowRow["agenda_links"] {
 // rows) is deferred — the spec notes "RightNowState alone is too coarse" for
 // compound days; this dates-only mapping is the agreed M1 baseline.
 // PackListTile reads this map via todayWorkPhases(show, today).
-function deriveSchedulePhases(dates: ShowRow["dates"]): ShowRow["schedule_phases"] {
+export function deriveSchedulePhases(
+  dates: ShowRow["dates"],
+): ShowRow["schedule_phases"] {
   const phases: Record<string, WorkPhase[]> = {};
 
   // Helper: append a phase to a date's list (de-duplicated, ordered).
