@@ -35,6 +35,7 @@ import { notFound } from "next/navigation";
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { LodgingTile } from "@/components/tiles/LodgingTile";
+import { VenueTile } from "@/components/tiles/VenueTile";
 import {
   getShowForViewer,
   type Viewer,
@@ -190,7 +191,8 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
             verified by the e2e suite.
           */}
           <LodgingTile hotelReservations={data.hotelReservations} />
-          {(["Venue", "Crew", "Schedule"] as const).map((label) => (
+          <VenueTile venue={data.show.venue} />
+          {(["Crew", "Schedule"] as const).map((label) => (
             <article
               key={label}
               data-testid={`tile-placeholder-${label.toLowerCase()}`}
@@ -200,7 +202,7 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
                 {label}
               </p>
               <p className="mt-2 text-sm text-text-subtle">
-                Tile loads in Task 4.{label === "Venue" ? "4" : label === "Crew" ? "4" : "5"}.
+                Tile loads in Task 4.{label === "Crew" ? "4" : "5"}.
               </p>
             </article>
           ))}

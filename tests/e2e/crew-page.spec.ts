@@ -185,3 +185,20 @@ test.describe("crew page — LodgingTile (Task 4.4)", () => {
     await expect(page.getByTestId("lodging-tile")).toHaveCount(0);
   });
 });
+
+test.describe("crew page — VenueTile (Task 4.4)", () => {
+  test("renders VenueTile with the venue name + address from a complete fixture", async ({
+    page,
+  }) => {
+    const { slug, leadCrewId } = await lookupSeededShow();
+    const response = await page.goto(`/show/${slug}?crew=${leadCrewId}`);
+    expect(response?.status()).toBe(200);
+
+    const venue = page.getByTestId("venue-tile");
+    await expect(venue).toBeVisible();
+    // Waldorf fixture (line 75-76 of the markdown): venue name is
+    // "Waldorf Astoria Chicago"; address is "11 E Walton St Chicago, IL 60611".
+    await expect(venue).toContainText(/Waldorf Astoria Chicago/i);
+    await expect(venue).toContainText(/11 E Walton St/i);
+  });
+});
