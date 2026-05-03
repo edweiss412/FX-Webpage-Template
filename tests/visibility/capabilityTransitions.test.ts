@@ -13,7 +13,15 @@ import {
   CAPABILITY_TRANSITION_MATRIX,
   affectedTilesOnFlip,
   type CapabilityPredicate,
+  type GatedTile,
 } from "@/lib/visibility/capabilityTransitions";
+import {
+  audioScopeVisible,
+  videoScopeVisible,
+  lightingScopeVisible,
+  financialsVisible,
+} from "@/lib/visibility/scopeTiles";
+import type { RoleFlag } from "@/lib/parser/types";
 
 const ALL_PREDICATES = [
   "hasLead",
@@ -80,15 +88,33 @@ describe("CAPABILITY_TRANSITION_MATRIX — structural invariants", () => {
 });
 
 describe("affectedTilesOnFlip(flipped, held, direction) — symmetric lookup", () => {
-  test("symmetric in (flipped, held): reading flip(a, b) returns a's delta; flip(b, a) returns same a-delta when looked up by `flipped=a`", () => {
+  test("matrix lookup is order-insensitive on the {flipped, held} pair: flip(a, b) and flip(a, b) (order swapped on the lookup key) resolve to the SAME entry, with the per-flip delta selected by which predicate is `flipped`", () => {
+    // Concrete failure mode caught: a `pairKey` regression that
+    // produced different keys for `(a, b)` vs `(b, a)` would cause
+    // ENTRY_LOOKUP misses on one ordering but not the other. The test
+    // below proves: for every matrix entry, looking up `flipped=a,
+    // held=b` returns the entry's aFlipDelta AND looking up
+    // `flipped=b, held=a` (note: ARG ORDER REVERSED) returns the
+    // entry's bFlipDelta. Same entry, two different per-predicate
+    // deltas, each correctly attributed to the flipped predicate.
     for (const entry of CAPABILITY_TRANSITION_MATRIX) {
-      // Looking up flipped=a, held=b reads the entry's aFlipDelta.
-      const ab = affectedTilesOnFlip(entry.a, entry.b, "false_to_true");
-      const ba = affectedTilesOnFlip(entry.a, entry.b, "false_to_true");
-      expect(ab).toEqual(ba);
-      // The B-direction:
-      const bWithA = affectedTilesOnFlip(entry.b, entry.a, "false_to_true");
-      expect(bWithA).toEqual(entry.bFlipDelta);
+      // Forward lookup: flipped=a, held=b → aFlipDelta.
+      const aFlippedWithBHeld = affectedTilesOnFlip(
+        entry.a,
+        entry.b,
+        "false_to_true",
+      );
+      expect(aFlippedWithBHeld).toEqual(entry.aFlipDelta);
+      // Reverse-arg-order lookup: flipped=b, held=a (note: arguments
+      // physically swapped). pairKey must produce the SAME key, so
+      // ENTRY_LOOKUP hits the same entry; the helper then selects
+      // bFlipDelta because `flipped === entry.b`.
+      const bFlippedWithAHeld = affectedTilesOnFlip(
+        entry.b,
+        entry.a,
+        "false_to_true",
+      );
+      expect(bFlippedWithAHeld).toEqual(entry.bFlipDelta);
     }
   });
 
@@ -183,5 +209,76 @@ describe("Plan Step 4 worked examples — three compound cases", () => {
       appears: ["VideoScopeTile"],
       disappears: [],
     });
+  });
+
+  /**
+   * Compound visibility delta for `['LEAD','A1'] → ['V1']` (review
+   * Important 5). The single-flip lookups above record per-predicate
+   * deltas; this test composes the §8.1 visibility predicates against
+   * the BEFORE and AFTER role_flags arrays directly, computes the net
+   * delta, and asserts the no-flicker invariant: VideoScopeTile is
+   * present in BOTH visibility sets — its REASON for being visible
+   * shifts from the LEAD branch (videoScopeVisible: V1 || LEAD) to the
+   * V1 branch, but the tile itself never unmounts.
+   *
+   * Concrete failure mode caught: a future spec drift where, for
+   * example, LEAD is removed from `videoScopeVisible` would silently
+   * make this case a flicker — the tile would unmount on the LEAD drop
+   * and re-mount on the V1 raise. The test fails immediately because
+   * VideoScopeTile leaves the BEFORE set.
+   *
+   * The DOM-level no-flicker continuity (AnimatePresence keeping the
+   * tile mounted across the same render cycle) is exercised at the
+   * e2e level — that part requires Realtime push (M6) and is deferred.
+   * What we lock down HERE is the pure-data contract the M5/M6 layer
+   * depends on.
+   */
+  test("['LEAD','A1'] → ['V1']: compound visibility delta — Financials + Audio disappear, Video stays", () => {
+    /**
+     * Compute the visible gated-tile set for a viewer given their
+     * role_flags (non-admin viewer). Ordering of the returned set
+     * matches the §8.1 grid ordering used by FinancialsTile,
+     * AudioScopeTile, VideoScopeTile, LightingScopeTile.
+     */
+    function visibleGatedTiles(flags: RoleFlag[]): GatedTile[] {
+      const visible: GatedTile[] = [];
+      if (financialsVisible(flags, /* isAdmin */ false))
+        visible.push("FinancialsTile");
+      if (audioScopeVisible(flags)) visible.push("AudioScopeTile");
+      if (videoScopeVisible(flags)) visible.push("VideoScopeTile");
+      if (lightingScopeVisible(flags)) visible.push("LightingScopeTile");
+      return visible;
+    }
+
+    const before = visibleGatedTiles(["LEAD", "A1"]);
+    const after = visibleGatedTiles(["V1"]);
+
+    // BEFORE: LEAD unlocks Financials + Audio (LEAD branch) + Video
+    // (LEAD branch). A1 also unlocks Audio (already unlocked). L1 not
+    // present → no Lighting.
+    expect(before).toEqual([
+      "FinancialsTile",
+      "AudioScopeTile",
+      "VideoScopeTile",
+    ]);
+    // AFTER: V1 unlocks Video only. No LEAD → no Financials, no Audio.
+    // No L1 → no Lighting.
+    expect(after).toEqual(["VideoScopeTile"]);
+
+    // Compute the net delta: which tiles appear / disappear net.
+    const beforeSet = new Set<GatedTile>(before);
+    const afterSet = new Set<GatedTile>(after);
+    const appears: GatedTile[] = after.filter((t) => !beforeSet.has(t));
+    const disappears: GatedTile[] = before.filter((t) => !afterSet.has(t));
+    expect(appears).toEqual([]);
+    expect(disappears).toEqual(["FinancialsTile", "AudioScopeTile"]);
+
+    // No-flicker invariant: VideoScopeTile is in BOTH sets. Its REASON
+    // for being visible shifted (LEAD branch → V1 branch) but its
+    // visibility never went false. The DOM-level continuity (no
+    // AnimatePresence unmount/remount across this transition) is
+    // exercised at e2e level once Realtime push lands in M6.
+    expect(beforeSet.has("VideoScopeTile")).toBe(true);
+    expect(afterSet.has("VideoScopeTile")).toBe(true);
   });
 });
