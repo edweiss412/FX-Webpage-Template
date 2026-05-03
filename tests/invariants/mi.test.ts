@@ -1285,3 +1285,52 @@ describe("Stage-for-approval invariants (MI-6..MI-14)", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Codex round-3 regression tests
+// ---------------------------------------------------------------------------
+
+describe("MI-7b — count-aware contact multiset (Codex round-3 finding 2)", () => {
+  it("detects single-row deletion even when same-email duplicate persists", () => {
+    // Prior: 2 contacts both with email kurt.ashcraft@hyatt.com
+    // (one named row, one email-only reference row)
+    // Next: 1 contact — the named row deleted, email-only row persists.
+    // Pre-fix (Set-based): key collapsed to 1 presence bit → no MI-7b fired.
+    // Post-fix (count-aware): 2→1 drop → MI-7b fires.
+    const sharedEmail = "kurt.ashcraft@hyatt.com";
+    const prior = synthParseResult({
+      contacts: [
+        { kind: "venue", name: "Kurt Ashcraft", email: sharedEmail, phone: null, notes: "" },
+        { kind: "venue", name: null, email: sharedEmail, phone: null, notes: "reference row" },
+      ],
+    });
+    const next = synthParseResult({
+      contacts: [
+        // Named Kurt deleted; email-only reference row persists
+        { kind: "venue", name: null, email: sharedEmail, phone: null, notes: "reference row" },
+      ],
+    });
+    const r = runInvariants(prior, next);
+    expect(r.outcome).toBe("stage");
+    if (r.outcome !== "stage") return; // TypeScript narrowing guard
+    const mi7b = r.triggeredItems.filter((t) => t.invariant === "MI-7b");
+    expect(mi7b.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("does not fire MI-7b when contact count is preserved", () => {
+    const sharedEmail = "someone@example.com";
+    const prior = synthParseResult({
+      contacts: [
+        { kind: "venue", name: "Someone Real", email: sharedEmail, phone: null, notes: "" },
+      ],
+    });
+    const next = synthParseResult({
+      contacts: [
+        { kind: "venue", name: "Someone Real", email: sharedEmail, phone: null, notes: "" },
+      ],
+    });
+    const r = runInvariants(prior, next);
+    // outcome is 'pass' → no triggeredItems property; no MI-7b can have fired
+    expect(r.outcome).toBe("pass");
+  });
+});

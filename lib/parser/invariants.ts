@@ -352,6 +352,11 @@ export function runInvariants(prior: ParseResult | null, next: ParseResult): Inv
   }
 
   // Contacts — keyed preferring email (stable across title/role edits per Codex round-2)
+  //
+  // Fix (Codex round-3 finding 2): use a count-aware multiset (Map<string,number>)
+  // instead of a Set<string>. When prior has 2 rows with the same key and next
+  // has only 1, the Set-based check would see the key as "present" and miss the
+  // partial deletion. The count-aware comparison fires MI-7b for any drop in count.
   {
     const contactKey = (c: {
       kind: string;
@@ -367,10 +372,23 @@ export function runInvariants(prior: ParseResult | null, next: ParseResult): Inv
       if (c.phone) return `${c.kind}::phone::${c.phone}`;
       return `${c.kind}::?`;
     };
-    const nextContactKeys = new Set(next.contacts.map(contactKey));
-    for (const pc of prior.contacts) {
-      const key = contactKey(pc);
-      if (!nextContactKeys.has(key)) {
+
+    const makeContactCounts = (
+      contacts: { kind: string; email: string | null; name: string | null; phone: string | null }[],
+    ): Map<string, number> => {
+      const counts = new Map<string, number>();
+      for (const c of contacts) {
+        const key = contactKey(c);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+      return counts;
+    };
+
+    const priorCounts = makeContactCounts(prior.contacts);
+    const nextCounts = makeContactCounts(next.contacts);
+    for (const [key, priorCount] of priorCounts) {
+      const nextCount = nextCounts.get(key) ?? 0;
+      if (nextCount < priorCount) {
         triggeredItems.push({
           id: randomUUID(),
           invariant: "MI-7b",
