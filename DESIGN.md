@@ -115,15 +115,17 @@ Tailwind v4's default 4px-step scale (1 = 4px, 2 = 8px, 3 = 12px, 4 = 16px, 6 = 
 
 | Token                      | Value | Use                                                                                                        |
 | -------------------------- | ----- | ---------------------------------------------------------------------------------------------------------- |
-| `--space-tap-min`          | 44px  | Minimum tap-target dimension. Every interactive element (button, link, toggle, accordion handle) ≥44×44px. |
-| `--space-tile-pad`         | 20px  | Internal padding on a tile. Comfortable, not cramped (per `PRODUCT.md`).                                   |
-| `--space-tile-gap`         | 16px  | Grid gap between tiles. Visual rhythm, not crowded.                                                        |
-| `--space-section-gap`      | 32px  | Gap between major page sections (Right Now card → tile grid → footer).                                     |
-| `--space-tile-min-h`       | 96px  | Tile minimum height (per spec §8.4 — `min-h-24` in Tailwind units).                                        |
-| `--space-tile-overflow`    | 240px | Tile body max before "see more" disclosure (per spec §8.4 — `max-h-60`).                                   |
-| `--space-right-now-min-h`  | 176px | Right Now card minimum height. Holds the container fixed during the §8.2 AnimatePresence crossfade so body content swaps without the card resizing. Sized to the tallest state body (`unknown`, two-line detail) at the 390px mobile viewport. |
-| `--space-page-pad-mobile`  | 16px  | Page-level horizontal padding on mobile (<640px).                                                          |
-| `--space-page-pad-desktop` | 32px  | Page-level horizontal padding on desktop (≥1024px).                                                        |
+| `--spacing-tap-min`          | 44px  | Minimum tap-target dimension. Every interactive element (button, link, toggle, accordion handle) ≥44×44px. |
+| `--spacing-tile-pad`         | 20px  | Internal padding on a tile. Comfortable, not cramped (per `PRODUCT.md`).                                   |
+| `--spacing-tile-gap`         | 16px  | Grid gap between tiles. Visual rhythm, not crowded.                                                        |
+| `--spacing-section-gap`      | 32px  | Gap between major page sections (Right Now card → tile grid → footer).                                     |
+| `--spacing-tile-min-h`       | 96px  | Tile minimum height (per spec §8.4 — `min-h-24` in Tailwind units).                                        |
+| `--spacing-tile-overflow`    | 240px | Tile body max before "see more" disclosure (per spec §8.4 — `max-h-60`).                                   |
+| `--spacing-right-now-min-h`  | 176px | Right Now card minimum height. Holds the container fixed during the §8.2 AnimatePresence crossfade so body content swaps without the card resizing. Sized to the tallest state body (`unknown`, two-line detail) at the 390px mobile viewport. |
+| `--spacing-page-pad-mobile`  | 16px  | Page-level horizontal padding on mobile (<640px).                                                          |
+| `--spacing-page-pad-desktop` | 32px  | Page-level horizontal padding on desktop (≥1024px).                                                        |
+
+> **Tailwind v4 naming note:** the `--spacing-*` prefix is non-arbitrary — Tailwind v4's arbitrary-value `min-h-(--name)` / `p-(--name)` arrows resolve ONLY tokens declared in the `--spacing-*` namespace (declared in `app/globals.css` `@theme`). Renaming any of these to `--space-*` would silently break the Tailwind-utility consumption sites (e.g., `min-h-(--spacing-right-now-min-h)` in `components/right-now/RightNowCard.tsx`).
 
 ### 3.1 Spacing rhythm
 
