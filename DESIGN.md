@@ -121,6 +121,7 @@ Tailwind v4's default 4px-step scale (1 = 4px, 2 = 8px, 3 = 12px, 4 = 16px, 6 = 
 | `--space-section-gap`      | 32px  | Gap between major page sections (Right Now card → tile grid → footer).                                     |
 | `--space-tile-min-h`       | 96px  | Tile minimum height (per spec §8.4 — `min-h-24` in Tailwind units).                                        |
 | `--space-tile-overflow`    | 240px | Tile body max before "see more" disclosure (per spec §8.4 — `max-h-60`).                                   |
+| `--space-right-now-min-h`  | 176px | Right Now card minimum height. Holds the container fixed during the §8.2 AnimatePresence crossfade so body content swaps without the card resizing. Sized to the tallest state body (`unknown`, two-line detail) at the 390px mobile viewport. |
 | `--space-page-pad-mobile`  | 16px  | Page-level horizontal padding on mobile (<640px).                                                          |
 | `--space-page-pad-desktop` | 32px  | Page-level horizontal padding on desktop (≥1024px).                                                        |
 

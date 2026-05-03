@@ -78,6 +78,19 @@
   --spacing-section-gap: 32px;
   --spacing-tile-min-h: 96px;
   --spacing-tile-overflow: 240px;
+  /*
+   * Right Now card minimum height. Sized to the tallest §8.2 state body
+   * — the `unknown` row, which renders a two-line "Show details: <date>
+   * to <date>" detail block beneath the lead phrase — at the 390px
+   * mobile viewport. Holds the card height fixed during AnimatePresence
+   * crossfade transitions (Task 4.12 §8.2 invariant: card body
+   * crossfades but container height stays within ±0.5px of the pre-
+   * transition height; spec lines 2420-2421). Components MUST consume
+   * this via `min-h-(--spacing-right-now-min-h)` (Tailwind v4
+   * arbitrary-CSS-var arrow form) — NEVER inline a `min-h-[176px]`
+   * literal.
+   */
+  --spacing-right-now-min-h: 176px;
   --spacing-page-pad-mobile: 16px;
   --spacing-page-pad-desktop: 32px;
 

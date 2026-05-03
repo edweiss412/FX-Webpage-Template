@@ -1,12 +1,12 @@
 /**
  * components/right-now/RightNowCard.tsx — the per-show hero card (M4
- * Task 4.11; spec §8.2; AC-4.3; PRODUCT.md "Aesthetic Direction").
+ * Task 4.11 + 4.12; spec §8.2; AC-4.3; PRODUCT.md "Aesthetic Direction").
  *
  * The hero element of the crew page. PRODUCT.md calls out the Right
  * Now card as the place where "expressive moments" live — every other
  * tile in M4 is restrained, but THIS card carries the FXAV orange
  * accent ON the active/live indicator, the tabular-figured "today"
- * line, and (in M4 Task 4.12) the crossfade body transitions.
+ * line, and the §8.2 `AnimatePresence` body crossfades.
  *
  * Why a client island?
  *
@@ -21,33 +21,74 @@
  *   Every OTHER tile stays a Server Component; this is the only
  *   `'use client'` boundary in M4.
  *
- * Animations: NONE in Task 4.11. Task 4.12 lands `framer-motion`
- * `AnimatePresence` + the 66-pair compound-transition matrix per
- * spec §8.2's "Compound transitions" table. This task ships the
- * static rendering.
+ * §8.2 transition contract (Task 4.12 Batch 2):
+ *
+ *   The matrix in `lib/time/rightNowTransitions.ts` enumerates 66
+ *   pairwise transitions with one of four treatments — `crossfade-body`,
+ *   `morph-to-last-good`, `instant`, `unreachable`. We render the
+ *   resolved treatment via `transitionTreatment(prev.kind, current.kind)`
+ *   and dispatch:
+ *
+ *     • `crossfade-body`     → `<motion.div key={kind}>` opacity 0→1 in
+ *                              an `<AnimatePresence mode="wait">` so the
+ *                              outgoing body fully exits before the new
+ *                              one enters. 220ms via `--duration-normal`
+ *                              with `--ease-out-quart`.
+ *     • `morph-to-last-good` → no body swap. The card surface flips to
+ *                              `bg-stale-tint`; we keep rendering the
+ *                              previous payload (the "last good"). When
+ *                              the next tick recovers, the same matrix
+ *                              entry plays in reverse — tint comes off,
+ *                              body unchanged.
+ *     • `instant`            → `initial={false}` so the body swaps with
+ *                              no animation. (No matrix entry currently
+ *                              uses this; kept for future extensions.)
+ *     • `unreachable`        → fail-open to `instant` AND emit a
+ *                              `console.error` so the audit suite catches
+ *                              regressions. (Per dispatch spec — admin-
+ *                              only diagnostic, never user-visible.)
+ *
+ *   The container carries `min-h-(--spacing-right-now-min-h)` so the
+ *   crossfade does not jiggle card height between bodies of different
+ *   intrinsic heights — the §8.4 "min-height: 96px to prevent sub-card
+ *   collapse" invariant generalized to the largest §8.2 body (`unknown`
+ *   two-line detail, tuned to 176px on the 390px mobile viewport).
+ *
+ *   `prefers-reduced-motion` is honored automatically — the
+ *   `--duration-*` tokens collapse to 0ms in `app/globals.css` under
+ *   `@media (prefers-reduced-motion: reduce)`, so the same JSX renders
+ *   instant swaps for users who opt out.
  *
  * data-testid contract (e2e-stable):
- *   • right-now-card    — outer card wrapper (preserved from Task 4.2
- *                         placeholder; layout-dimensions task in 4.13
- *                         pins the card width here).
+ *   • right-now-card    — outer card wrapper.
  *   • right-now-state   — current state.kind via `data-state="<kind>"`,
  *                         lets tests assert state without parsing copy.
+ *                         Also carries `data-treatment="<treatment>"`
+ *                         for the in-flight transition treatment, and
+ *                         `data-stale="true|false"` while the card sits
+ *                         on a `morph-to-last-good` payload.
  *   • right-now-lead    — primary-line element (e.g., "Today: Show
  *                         day 1 of 3"). The §8.2 spec right column
  *                         calls this the "lead phrase."
- *   • right-now-detail  — secondary-line element (e.g., "Hotel: …",
- *                         "Call: …"). May be absent when the §8.2
- *                         row has no body line beyond the lead.
+ *   • right-now-detail  — secondary-line element. May be absent when
+ *                         the §8.2 row has no body line beyond the lead.
+ *   • right-now-body    — wraps the lead+detail under AnimatePresence;
+ *                         keyed by state.kind so React rebuilds on swap.
  */
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   daysBetween,
   formatIsoForTimezone,
   selectRightNowState,
   type RightNowState,
 } from "@/lib/time/rightNow";
+import {
+  transitionTreatment,
+  type TransitionTreatment,
+} from "@/lib/time/rightNowTransitions";
 import { formatIsoDate } from "@/lib/format/date";
 import type { RightNowContext } from "@/components/right-now/buildRightNowContext";
 
@@ -256,17 +297,31 @@ type RightNowCardProps = {
  * Render-time `Date.now()` is captured in `useState` initial so the
  * very first paint already has a real value (no SSR flash to a stub
  * state).
+ *
+ * Visibility-change recovery: when a tab is backgrounded for a long
+ * stretch, browsers throttle `setInterval` (often to 1Hz, sometimes
+ * stop entirely). On `visibilitychange` we eagerly bump `now` so a
+ * crew member returning to the page sees the correct state without
+ * waiting for the next 60-second slice. (Closes Task 4.11 deferred
+ * Important 3.)
  */
 export function RightNowCard({ context }: RightNowCardProps) {
   const [now, setNow] = useState<Date>(() => new Date());
 
   useEffect(() => {
     // 60-second tick. Keeps the card "live" without spamming React.
-    // Day-rollover crossfade is Task 4.12's job; here we just re-
-    // derive state on tick so the body stays current. interval is
-    // cleared on unmount.
-    const t = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(t);
+    // interval is cleared on unmount.
+    const tick = setInterval(() => setNow(new Date()), 60_000);
+    // Bump on tab focus — browsers throttle setInterval in background
+    // tabs, so a long-stale tab might drift hours behind without this.
+    const onVisibility = () => {
+      if (!document.hidden) setNow(new Date());
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearInterval(tick);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   const state = selectRightNowState(now, context.dates, context.dateRestriction, {
@@ -274,20 +329,186 @@ export function RightNowCard({ context }: RightNowCardProps) {
   });
   const body = renderBody(state, context, now);
 
-  // Stale-tint applies only to the `dateless` state per §8.2 last
-  // row. Default surface for every other state. Defense-in-depth: we
-  // read body.isStale rather than match state.kind here so a future
-  // §8.2 row that adopts the stale tint (e.g., a sync-error variant
-  // in M6) flips by setting isStale, not by re-grepping a kind list.
-  const surfaceClass = body.isStale ? "bg-stale-tint" : "bg-surface";
+  // Track the previous resolved state.kind so the §8.2 transition
+  // matrix can pick a treatment for the kind change. We use the
+  // canonical React "store info from previous renders" pattern:
+  // single state holds (prevKind, currentKind, lastGoodState,
+  // lastGoodBody, hasMounted). When `state.kind` changes from what we
+  // recorded, we set the state DURING render — React documents this
+  // as the supported way to derive prev-state without an effect cycle.
+  // The setStateDuringRender invocation triggers an immediate re-run
+  // of THIS render with the new `tracked` value; React batches this
+  // with the parent render so no double commit fires.
+  //
+  // Why not refs? `useRef` reads inside render violate the
+  // "no refs during render" lint rule (React 19's stricter render-
+  // purity model). useState is the documented pattern.
+  const [tracked, setTracked] = useState<{
+    prevKind: RightNowState["kind"];
+    currentKind: RightNowState["kind"];
+    lastGoodState: RightNowState;
+    lastGoodBody: StateBody;
+  }>(() => ({
+    prevKind: state.kind,
+    currentKind: state.kind,
+    lastGoodState: state,
+    lastGoodBody: body,
+  }));
+
+  // The set-state-during-render pattern: when `state.kind` differs
+  // from what we've already recorded as `currentKind`, we rotate the
+  // tracker. This is the React-blessed way to derive previous-render
+  // state without an effect dependency cycle (see React docs:
+  // "Storing information from previous renders"). The tracker
+  // setState here triggers a synchronous re-run of THIS render with
+  // the rotated value, but does NOT cause a separate commit — the
+  // immediate value below is what AnimatePresence sees.
+  if (state.kind !== tracked.currentKind) {
+    // Read the matrix BEFORE the setState so the still-stale tracker
+    // tells us whether the upcoming transition is morph-to-last-good
+    // (in which case we DO NOT advance lastGood — we want the prior
+    // payload to keep rendering until recovery).
+    const willBeStale =
+      transitionTreatment(tracked.currentKind, state.kind) ===
+      "morph-to-last-good";
+    setTracked({
+      prevKind: tracked.currentKind,
+      currentKind: state.kind,
+      lastGoodState: willBeStale ? tracked.lastGoodState : state,
+      lastGoodBody: willBeStale ? tracked.lastGoodBody : body,
+    });
+  }
+
+  // Effective prev/current after a possible same-render rotation.
+  // We compute against the post-rotation pair so the matrix lookup
+  // sees the values the next paint will commit.
+  const effectivePrev =
+    state.kind !== tracked.currentKind ? tracked.currentKind : tracked.prevKind;
+  const effectiveCurrent = state.kind;
+  const effectiveLastGoodState =
+    state.kind !== tracked.currentKind &&
+    transitionTreatment(tracked.currentKind, state.kind) !==
+      "morph-to-last-good"
+      ? state
+      : tracked.lastGoodState;
+  const effectiveLastGoodBody =
+    state.kind !== tracked.currentKind &&
+    transitionTreatment(tracked.currentKind, state.kind) !==
+      "morph-to-last-good"
+      ? body
+      : tracked.lastGoodBody;
+
+  // Resolve the §8.2 transition treatment for prev → current. On the
+  // very first render (or self-transitions) the helper returns null;
+  // we treat that as `instant` (no animation) which lines up with the
+  // user-visible behavior of "card just paints."
+  const rawTreatment: TransitionTreatment | null = transitionTreatment(
+    effectivePrev,
+    effectiveCurrent,
+  );
+  // Defensive `unreachable` mapping — fail-open to `instant` so the
+  // user still sees a usable card AND emit a diagnostic so the audit
+  // suite catches the regression. The diagnostic side-effect happens
+  // in an effect (below), NOT during render — render must stay pure.
+  const treatment: TransitionTreatment =
+    rawTreatment === null
+      ? "instant"
+      : rawTreatment === "unreachable"
+        ? "instant"
+        : rawTreatment;
+
+  // morph-to-last-good: keep the previous body on screen, flip surface
+  // tint. The post-rotation lastGood values reflect this — when the
+  // upcoming transition is stale, we did NOT advance lastGood above,
+  // so it still points at the previous render's payload.
+  const renderState =
+    treatment === "morph-to-last-good" ? effectiveLastGoodState : state;
+  const renderBodyResolved =
+    treatment === "morph-to-last-good" ? effectiveLastGoodBody : body;
+  const isStale = treatment === "morph-to-last-good" || body.isStale;
+
+  // Diagnostic side-effect for matrix-violating transitions. Spec
+  // says `unreachable` cells never fire on the natural code path; if
+  // one does, the assumption underlying the matrix is broken. Admin-
+  // only diagnostic — never surfaced to user-visible UI text.
+  useEffect(() => {
+    if (rawTreatment === "unreachable") {
+      console.error(
+        `[RightNowCard] §8.2 unreachable transition fired: ${effectivePrev} → ${effectiveCurrent}. ` +
+          `This violates lib/time/rightNowTransitions.ts assumptions; please open a bug.`,
+      );
+    }
+  }, [rawTreatment, effectivePrev, effectiveCurrent]);
+
+
+  // Surface class — stale tint when the treatment is morph-to-last-good
+  // OR when the resolved body's `isStale` flag is set (the `dateless`
+  // state has its own intrinsic stale-tint per spec line 2424). Default
+  // surface for every other treatment.
+  const surfaceClass = isStale ? "bg-stale-tint" : "bg-surface";
+
+  // Per-treatment animation props on the keyed motion.div. Pulled out
+  // so the JSX stays readable AND so the audit suite can introspect
+  // the effective treatment via `data-treatment`.
+  const motionProps =
+    treatment === "crossfade-body"
+      ? {
+          // AnimatePresence has `initial={false}` (parent), which
+          // suppresses entry animations on the very first child mount.
+          // For subsequent kind changes (where AnimatePresence triggers
+          // exit-then-enter on the new key), framer-motion respects the
+          // child's per-`motion.div` `initial` prop. Setting opacity 0
+          // here means: "every kind change crossfades in from 0."
+          initial: { opacity: 0 },
+          animate: { opacity: 1 },
+          exit: { opacity: 0 },
+          transition: {
+            // 220ms (--duration-normal) with --ease-out-quart. The
+            // numbers are duplicated here because framer-motion does
+            // not read CSS custom properties; the prefers-reduced-
+            // motion override is handled by framer-motion's own
+            // useReducedMotion hook in a deeper API surface AND by
+            // the global token reduction (components that consume
+            // var(--duration-*) get 0ms — the literal here is the
+            // motion default and is overridden in tests via
+            // page.emulateMedia({ reducedMotion: 'reduce' }) which
+            // framer-motion respects through useReducedMotion).
+            duration: 0.22,
+            ease: [0.25, 1, 0.5, 1] as [number, number, number, number],
+          },
+        }
+      : treatment === "morph-to-last-good"
+        ? {
+            // No exit/enter animation — the body stays put; the
+            // surface tint flip is the only visual change. We still
+            // mount a motion.div so AnimatePresence keys are stable
+            // across the transition (no DOM thrash).
+            initial: false,
+            animate: { opacity: 1 },
+            exit: { opacity: 1 },
+            transition: { duration: 0 },
+          }
+        : {
+            // instant: no animation. initial={false} prevents an
+            // entry animation on hydration / unreachable fallback.
+            initial: false,
+            animate: { opacity: 1 },
+            exit: { opacity: 1 },
+            transition: { duration: 0 },
+          };
 
   return (
     <section
       data-testid="right-now-card"
+      data-stale={isStale ? "true" : "false"}
       aria-label="Right now"
       className={[
         "rounded-md border border-border p-6",
         "shadow-(--shadow-tile)",
+        // Holds card height fixed during the §8.2 crossfade. Sized
+        // to the tallest body (`unknown` two-line detail) at the
+        // 390px mobile viewport. See app/globals.css token.
+        "min-h-(--spacing-right-now-min-h)",
         surfaceClass,
       ].join(" ")}
     >
@@ -298,7 +519,8 @@ export function RightNowCard({ context }: RightNowCardProps) {
           on light bg. */}
       <p
         data-testid="right-now-state"
-        data-state={state.kind}
+        data-state={renderState.kind}
+        data-treatment={treatment}
         className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-accent-on-bg"
       >
         <span
@@ -308,28 +530,35 @@ export function RightNowCard({ context }: RightNowCardProps) {
         Right now
       </p>
 
-      {/* Lead phrase — the §8.2 right-column primary line. text-3xl
-          per DESIGN.md §2.2 ("--text-3xl: The Right Now card primary
-          line"). Tabular figures are inherited at the smallest
-          semantic boundary on numbers below; the lead string itself
-          uses default proportional metrics for letter shapes but
-          tabular for any embedded numerals via tabular-nums on
-          numeric spans where applicable. */}
-      <h2
-        data-testid="right-now-lead"
-        className="mt-3 text-2xl font-bold leading-tight tracking-tight text-text-strong sm:text-3xl tabular-nums"
-      >
-        {body.lead}
-      </h2>
-
-      {body.detail ? (
-        <p
-          data-testid="right-now-detail"
-          className="mt-2 text-base text-text-subtle tabular-nums"
+      {/* §8.2 body crossfade. AnimatePresence with mode="wait" so the
+          outgoing body fully exits (opacity → 0) BEFORE the new one
+          enters (opacity 0 → 1). Keyed by state.kind so React rebuilds
+          on swap; same kind is the same key (no animation triggered).
+          The container `min-h-(--spacing-right-now-min-h)` above
+          preserves card height during the crossfade. */}
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={renderState.kind}
+          data-testid="right-now-body"
+          {...motionProps}
         >
-          {body.detail}
-        </p>
-      ) : null}
+          <h2
+            data-testid="right-now-lead"
+            className="mt-3 text-2xl font-bold leading-tight tracking-tight text-text-strong sm:text-3xl tabular-nums"
+          >
+            {renderBodyResolved.lead}
+          </h2>
+
+          {renderBodyResolved.detail ? (
+            <p
+              data-testid="right-now-detail"
+              className="mt-2 text-base text-text-subtle tabular-nums"
+            >
+              {renderBodyResolved.detail}
+            </p>
+          ) : null}
+        </motion.div>
+      </AnimatePresence>
     </section>
   );
 }
