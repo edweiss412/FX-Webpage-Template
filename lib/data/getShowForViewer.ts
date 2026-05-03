@@ -1,0 +1,344 @@
+/**
+ * lib/data/getShowForViewer.ts (Task 4.3, spec §7.4)
+ *
+ * The data spine for every per-show crew page. Carries TWO load-bearing invariants:
+ *
+ * 1. **Internal role re-derivation** (§4.4 / §7.4). Role IS NOT supplied by the
+ *    caller. The helper accepts only viewer IDENTITY (`{ kind: 'crew',
+ *    crewMemberId }`, `{ kind: 'admin' }`, or `{ kind: 'admin_preview',
+ *    crewMemberId }`) and reads `crew_members.role_flags` itself on every
+ *    call. This blocks three classes of stale-role bug:
+ *
+ *      a. A redeemed-link cookie that pre-dates a sync-time demote.
+ *      b. A `?role=lead` preview param trying to widen authority.
+ *      c. An accidental role-bearing parameter introduced by a refactor
+ *         that the type system would otherwise tolerate.
+ *
+ *    The contract is enforced by a static-analysis test that greps this file
+ *    for the role-flags-colon and viewer-role-colon signature patterns. If
+ *    you add a type annotation that uses either name, the test will fail —
+ *    that's the intended behavior, NOT a regex bug to game around.
+ *
+ * 2. **Cross-show fail-closed** (§7.2.2 step 5). The crew_members lookup is
+ *    bound to BOTH `id` AND `show_id`. A caller with a wrong `crewMemberId`
+ *    from a DIFFERENT show fails closed with `LINK_NO_CREW_MATCH`; the helper
+ *    does NOT silently fall through and return the requested show with the
+ *    foreign crew row's flags applied.
+ *
+ * Defense in depth (§4.4):
+ *   - Application gate: `isLead` derivation here decides whether to JOIN
+ *     `shows_internal` at all. When non-LEAD, the JSONB column is never
+ *     queried.
+ *   - RLS: `shows_internal` is admin-only via `is_admin()`. M5 will widen
+ *     this to LEAD-aware for cookie-bound viewers; for now, we use the
+ *     service-role client to bypass RLS on the LEAD branch (RLS catches
+ *     what the app misses on the non-LEAD branch — the helper just doesn't
+ *     query at all).
+ *   - Physical separation: financials live in `shows_internal`, NOT `shows`.
+ *     A `select * from shows` cannot leak them.
+ *
+ * Per spec §7.4 (line 2315 of the spec), the crew page is a Server Component
+ * that calls this helper directly, server-side, via the service role —
+ * redeemed-link viewers don't carry a Supabase Auth session, so a cookie-
+ * bound client can't read `shows_internal` under RLS for them.
+ */
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import type {
+  ContactRow,
+  HotelReservationRow,
+  PullSheetCase,
+  RoleFlag,
+  RoomRow,
+  ShowRow,
+  TransportationRow,
+} from "@/lib/parser/types";
+
+// LEAD-only financials JSONB shape (matches `shows_internal.financials` and
+// the seed writer at supabase/seed.ts:233-238 — `invoice_notes` snake_case
+// because that's how it's persisted).
+export type FinancialsRow = {
+  po: string | null;
+  proposal: string | null;
+  invoice: string | null;
+  invoice_notes: string | null;
+};
+
+// Identity-only viewer discriminated union. Carries NO role-bearing field —
+// see file-header comment #1 above and the static-analysis test in
+// tests/data/getShowForViewer.test.ts. `admin_preview` resolves identically
+// to `crew` inside this helper (binds id+show_id, fresh role flags from DB,
+// fails closed cross-show); the surface-level difference (requireAdmin gate
+// + sticky preview banner) is Task 10.8's responsibility.
+export type Viewer =
+  | { kind: "crew"; crewMemberId: string }
+  | { kind: "admin" }
+  | { kind: "admin_preview"; crewMemberId: string };
+
+// Crew-page-shaped projection of a show. Mirrors `ParsedSheet` from
+// lib/parser/types.ts:311 with three crew-page-specific differences:
+//   - `financials?: FinancialsRow` is OPTIONAL — present only when the
+//     viewer is admin OR the freshly-derived role flags include LEAD.
+//   - `hotelReservations` is filtered by viewer name for crew /
+//     admin_preview (the projection does the filter so the LodgingTile
+//     doesn't have to). Admin viewers see ALL reservations.
+//   - `transportation.schedule[*].assigned_names` is preserved verbatim
+//     (regression test #7).
+export type ShowForViewer = {
+  show: ShowRow;
+  crewMembers: Array<{
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    role: string;
+    // Atomic capability flags freshly read from DB — kept on the row so
+    // tile-visibility predicates downstream don't re-fetch. Note the field
+    // name on this PROJECTION row is a property access on the DB result,
+    // NOT a function-parameter type declaration (the static-analysis test
+    // on Task 4.3 enforces the latter, not the former — but to keep the
+    // contract crisp we name this field `roleFlags`, camelCase, away from
+    // both forbidden patterns).
+    roleFlags: RoleFlag[];
+  }>;
+  hotelReservations: HotelReservationRow[];
+  rooms: RoomRow[];
+  transportation: TransportationRow | null;
+  contacts: ContactRow[];
+  pullSheet: PullSheetCase[] | null;
+  financials?: FinancialsRow;
+};
+
+export async function getShowForViewer(
+  showId: string,
+  viewer: Viewer,
+): Promise<ShowForViewer> {
+  const supabase = createSupabaseServiceRoleClient();
+
+  const isAdmin = viewer.kind === "admin";
+  const needsCrewLookup = viewer.kind === "crew" || viewer.kind === "admin_preview";
+
+  // Freshly-derived flags. Empty array on the admin branch (admin authority
+  // comes from `isAdmin`, NOT from a crew row — admins may have no crew row
+  // for this show at all).
+  let derivedFlags: RoleFlag[] = [];
+  let viewerName: string | null = null;
+
+  if (needsCrewLookup) {
+    // Bind lookup to BOTH id AND show_id. The dual constraint is the
+    // cross-show fail-closed (§7.2.2 step 5). A crew row with the right
+    // id but the wrong show_id returns `data === null` here, which
+    // becomes `LINK_NO_CREW_MATCH` below — the row's flags are NEVER
+    // applied to the requested show.
+    const lookup = await supabase
+      .from("crew_members")
+      .select("role_flags, name")
+      .eq("id", viewer.crewMemberId)
+      .eq("show_id", showId)
+      .maybeSingle();
+    if (lookup.error) {
+      throw new Error(`getShowForViewer: crew lookup failed: ${lookup.error.message}`);
+    }
+    if (!lookup.data) {
+      // §7.2.2 step 5; §12.4. Operator-facing canonical code; UI surfaces
+      // route through lib/messages/lookup.ts (Task 4.14) for crew copy.
+      throw new Error("LINK_NO_CREW_MATCH");
+    }
+    derivedFlags = (lookup.data.role_flags as RoleFlag[]) ?? [];
+    viewerName = (lookup.data.name as string) ?? null;
+  }
+
+  const isLead = isAdmin || derivedFlags.includes("LEAD");
+
+  // === Show row (always loaded) ===
+  const showRes = await supabase.from("shows").select("*").eq("id", showId).maybeSingle();
+  if (showRes.error) {
+    throw new Error(`getShowForViewer: show fetch failed: ${showRes.error.message}`);
+  }
+  if (!showRes.data) {
+    throw new Error("LINK_NO_CREW_MATCH");
+  }
+  const showRowDb = showRes.data;
+  const show: ShowRow = {
+    title: showRowDb.title,
+    client_label: showRowDb.client_label,
+    client_contact: showRowDb.client_contact ?? null,
+    template_version: showRowDb.template_version,
+    venue: showRowDb.venue ?? null,
+    dates: showRowDb.dates ?? { travelIn: null, set: null, showDays: [], travelOut: null },
+    schedule_phases: showRowDb.event_details?.schedule_phases ?? {},
+    event_details: showRowDb.event_details ?? {},
+    agenda_links: showRowDb.agenda_links ?? [],
+    coi_status: showRowDb.coi_status ?? null,
+    po: null, // public ShowRow.po/proposal/invoice/invoice_notes were on the
+    proposal: null, // pre-§4.4 single-table schema. Now financials lives ONLY
+    invoice: null, // in shows_internal; we never expose them via the public
+    invoice_notes: null, // ShowRow projection. The optional `financials` field
+    // on ShowForViewer is the LEAD-gated channel.
+  };
+
+  // === Crew members (always loaded; tile-visibility predicates need flags) ===
+  const crewRes = await supabase
+    .from("crew_members")
+    .select("id, name, email, phone, role, role_flags")
+    .eq("show_id", showId);
+  if (crewRes.error) {
+    throw new Error(`getShowForViewer: crew fetch failed: ${crewRes.error.message}`);
+  }
+  const crewMembers = (crewRes.data ?? []).map((row) => ({
+    id: row.id as string,
+    name: row.name as string,
+    email: (row.email as string | null) ?? null,
+    phone: (row.phone as string | null) ?? null,
+    role: row.role as string,
+    roleFlags: ((row.role_flags as string[]) ?? []) as RoleFlag[],
+  }));
+
+  // === Hotel reservations ===
+  // For crew / admin_preview viewers, filter to those that name the viewer.
+  // Admin viewers see ALL reservations.
+  const hotelRes = await supabase
+    .from("hotel_reservations")
+    .select("ordinal, hotel_name, hotel_address, names, confirmation_no, check_in, check_out, notes")
+    .eq("show_id", showId)
+    .order("ordinal", { ascending: true });
+  if (hotelRes.error) {
+    throw new Error(`getShowForViewer: hotel fetch failed: ${hotelRes.error.message}`);
+  }
+  const allHotels: HotelReservationRow[] = (hotelRes.data ?? []).map((row) => ({
+    ordinal: row.ordinal as number,
+    hotel_name: (row.hotel_name as string | null) ?? null,
+    hotel_address: (row.hotel_address as string | null) ?? null,
+    names: ((row.names as string[]) ?? []) as string[],
+    confirmation_no: (row.confirmation_no as string | null) ?? null,
+    check_in: (row.check_in as string | null) ?? null,
+    check_out: (row.check_out as string | null) ?? null,
+    notes: (row.notes as string | null) ?? null,
+  }));
+  const hotelReservations: HotelReservationRow[] =
+    isAdmin || viewerName === null
+      ? allHotels
+      : allHotels.filter((res) =>
+          res.names.some((n) =>
+            n.toLowerCase().includes((viewerName as string).toLowerCase()),
+          ),
+        );
+
+  // === Rooms ===
+  const roomRes = await supabase.from("rooms").select("*").eq("show_id", showId);
+  if (roomRes.error) {
+    throw new Error(`getShowForViewer: rooms fetch failed: ${roomRes.error.message}`);
+  }
+  const rooms: RoomRow[] = (roomRes.data ?? []).map((row) => ({
+    kind: row.kind as RoomRow["kind"],
+    name: row.name as string,
+    dimensions: (row.dimensions as string | null) ?? null,
+    floor: (row.floor as string | null) ?? null,
+    setup: (row.setup as string | null) ?? null,
+    set_time: (row.set_time as string | null) ?? null,
+    show_time: (row.show_time as string | null) ?? null,
+    strike_time: (row.strike_time as string | null) ?? null,
+    audio: (row.audio as string | null) ?? null,
+    video: (row.video as string | null) ?? null,
+    lighting: (row.lighting as string | null) ?? null,
+    scenic: (row.scenic as string | null) ?? null,
+    power: (row.power as string | null) ?? null,
+    digital_signage: (row.digital_signage as string | null) ?? null,
+    other: (row.other as string | null) ?? null,
+    notes: (row.notes as string | null) ?? null,
+  }));
+
+  // === Transportation (1:1 with show; null when no row) ===
+  const transRes = await supabase
+    .from("transportation")
+    .select("*")
+    .eq("show_id", showId)
+    .maybeSingle();
+  if (transRes.error) {
+    throw new Error(`getShowForViewer: transportation fetch failed: ${transRes.error.message}`);
+  }
+  const transportation: TransportationRow | null = transRes.data
+    ? {
+        driver_name: (transRes.data.driver_name as string | null) ?? null,
+        driver_phone: (transRes.data.driver_phone as string | null) ?? null,
+        driver_email: (transRes.data.driver_email as string | null) ?? null,
+        vehicle: (transRes.data.vehicle as string | null) ?? null,
+        license_plate: (transRes.data.license_plate as string | null) ?? null,
+        color: (transRes.data.color as string | null) ?? null,
+        parking: (transRes.data.parking as string | null) ?? null,
+        // schedule is JSONB. Supabase preserves nested fields verbatim — but
+        // we explicitly project each entry to make the contract obvious AND
+        // to defend against a future projector dropping `assigned_names`
+        // (regression test #7 enforces this).
+        schedule: (
+          (transRes.data.schedule as Array<{
+            stage: string;
+            date: string | null;
+            time: string | null;
+            assigned_names: string[];
+          }>) ?? []
+        ).map((entry) => ({
+          stage: entry.stage,
+          date: entry.date ?? null,
+          time: entry.time ?? null,
+          assigned_names: Array.isArray(entry.assigned_names) ? entry.assigned_names : [],
+        })),
+        notes: (transRes.data.notes as string | null) ?? null,
+      }
+    : null;
+
+  // === Contacts ===
+  const contactsRes = await supabase.from("contacts").select("*").eq("show_id", showId);
+  if (contactsRes.error) {
+    throw new Error(`getShowForViewer: contacts fetch failed: ${contactsRes.error.message}`);
+  }
+  const contacts: ContactRow[] = (contactsRes.data ?? []).map((row) => ({
+    kind: row.kind as ContactRow["kind"],
+    name: (row.name as string | null) ?? null,
+    email: (row.email as string | null) ?? null,
+    phone: (row.phone as string | null) ?? null,
+    notes: (row.notes as string | null) ?? null,
+  }));
+
+  // === Pull sheet (JSONB on shows) ===
+  const pullSheet: PullSheetCase[] | null =
+    (showRowDb.pull_sheet as PullSheetCase[] | null) ?? null;
+
+  // === Financials — JOIN shows_internal ONLY when authorized ===
+  // The first-line-of-defense gate: when not LEAD, this branch is never
+  // taken, so the JSONB column isn't even queried. RLS on shows_internal
+  // (admin-only via is_admin()) is the second line; physical separation
+  // (financials NOT on `shows`) is the third.
+  let financials: FinancialsRow | undefined;
+  if (isLead) {
+    const internalRes = await supabase
+      .from("shows_internal")
+      .select("financials")
+      .eq("show_id", showId)
+      .maybeSingle();
+    if (internalRes.error) {
+      throw new Error(
+        `getShowForViewer: shows_internal fetch failed: ${internalRes.error.message}`,
+      );
+    }
+    if (internalRes.data?.financials) {
+      const f = internalRes.data.financials as FinancialsRow;
+      financials = {
+        po: f.po ?? null,
+        proposal: f.proposal ?? null,
+        invoice: f.invoice ?? null,
+        invoice_notes: f.invoice_notes ?? null,
+      };
+    }
+  }
+
+  return {
+    show,
+    crewMembers,
+    hotelReservations,
+    rooms,
+    transportation,
+    contacts,
+    pullSheet,
+    ...(financials ? { financials } : {}),
+  };
+}
