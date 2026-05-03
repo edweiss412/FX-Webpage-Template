@@ -1,0 +1,241 @@
+# DESIGN.md — FXAV Crew Pages visual tokens
+
+This file is the visual-design source of truth for the FXAV crew-pages project. It pairs with `PRODUCT.md` (strategic context) and is consumed by every UI task in M3/M4. Subsequent tile work cites token names from this file rather than inlining hex values or magic spacing numbers.
+
+The runtime token surface lives in `app/globals.css` under `@theme`. Tailwind v4 reads `@theme` and exposes utilities for every named token (e.g., `--color-accent` → `bg-accent`, `text-accent`, `border-accent`). This file documents intent, contrast, and rationale; `globals.css` is the executable copy.
+
+---
+
+## 1. Color strategy — Restrained
+
+One signature accent, neutral-led surfaces. FXAV orange occupies ≤10% of any rendered viewport — it appears on the active/live indicator on the Right Now card, the "today" pin on the schedule tile, primary CTAs, and the brand mark. Nowhere else. No competing accent hue (no blue, no purple, no teal). Neutrals are tinted toward warm — chroma `0.005`–`0.012` in OKLCH — never pure `#000` or `#fff`.
+
+Light and dark are both first-class. Dark is not a 90% inverse of light; each palette is designed against its own physical scene (sunlit loading dock vs. dim backstage). Both meet WCAG AA as a floor; body text hits AAA in light mode (the harder target — direct-sunlight readability is a hard requirement per `PRODUCT.md`).
+
+Color-blind floor: red and green are NEVER used as primary semantic carriers. Stale sync, COI status, parse warnings — every state signal pairs color with text or icon.
+
+### 1.1 Color tokens
+
+| Token                    | Light mode (hex)                  | Dark mode (hex)               | Role                                                                                                                                                                                                                                                                               |
+| ------------------------ | --------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--color-bg`             | `#FAFAF9` (warm near-white)       | `#0F1014` (warm deep neutral) | Page background. Never `#FFF` / `#000`. Light is paper-like; dark is mid-warm-charcoal — black with FXAV orange clashes.                                                                                                                                                           |
+| `--color-surface`        | `#FFFFFF`                         | `#16171C`                     | Tile, card, Right Now card surface. One step lighter than `--color-bg` in dark; one step whiter in light.                                                                                                                                                                          |
+| `--color-surface-raised` | `#FFFFFF` + `0 1px 2px rgba(...)` | `#1C1D23`                     | Used sparingly — modal, dropdown, footer pinned-to-bottom variant.                                                                                                                                                                                                                 |
+| `--color-surface-sunken` | `#F4F3F1`                         | `#0B0C10`                     | Empty-state plate, "Doug hasn't filled this in yet" backdrop. One step deeper than `--color-bg`.                                                                                                                                                                                   |
+| `--color-text`           | `#1A1B1F` (warm near-black)       | `#E8E6E0` (warm off-white)    | Body text, all primary copy. Contrast on `--color-bg`: light 16.5:1 (AAA), dark 14.8:1 (AAA).                                                                                                                                                                                      |
+| `--color-text-strong`    | `#0E0F12`                         | `#F5F3EE`                     | Headlines, large numbers (call times, dates). Maximum contrast.                                                                                                                                                                                                                    |
+| `--color-text-subtle`    | `#5A5B62` (warm slate)            | `#9C9A93` (warm dusk)         | Labels, captions, "as of …" timestamps. Light 7.8:1 (AAA), dark 6.4:1 (AA-large + AA-body borderline). Never used for action targets.                                                                                                                                              |
+| `--color-text-faint`     | `#8B8C92`                         | `#74736D`                     | Decorative text, divider labels. Min AA-large only (3:1) — never used for crew-actionable copy.                                                                                                                                                                                    |
+| `--color-border`         | `#E5E4E0`                         | `#2A2B30`                     | Tile borders, hairline dividers. Visible but quiet.                                                                                                                                                                                                                                |
+| `--color-border-strong`  | `#CFCDC7`                         | `#3A3B40`                     | Focus outlines (paired with `--color-accent` ring), tab-active underline.                                                                                                                                                                                                          |
+| `--color-accent`         | `#FF8C1A` (FXAV orange)           | `#FF8C1A`                     | The single brand accent. Same hex in both modes — the orange is the constant. Coverage cap ≤10% of any viewport.                                                                                                                                                                   |
+| `--color-accent-hover`   | `#E67A0E`                         | `#FFA047`                     | Pressed/hover state for orange CTAs. Light goes deeper, dark goes lighter (luminance contrast preserved).                                                                                                                                                                          |
+| `--color-accent-text`    | `#FFFFFF`                         | `#0E0F12`                     | Text drawn ON `--color-accent` surfaces. Light: white on orange = 4.07:1 (AA at ≥18pt or ≥14pt-bold; we restrict accent-bg text to bold ≥14pt, i.e. CTAs and badges). Dark: near-black on orange = 11.3:1 (AAA).                                                                   |
+| `--color-accent-on-bg`   | `#C25E00`                         | `#FFA047`                     | Orange used AS TEXT on `--color-bg`. Light hex shifts darker so contrast against `#FAFAF9` reaches 4.6:1 (AA body). The brand `#FF8C1A` itself only hits 3.0:1 on light bg — fine for a 24px+ "today" pin glyph but NOT for body links. Dark `#FFA047` on `#0F1014` = 9.8:1 (AAA). |
+| `--color-stale-tint`     | `#F4ECE0` (warm sand)             | `#26221B` (warm umber)        | Background tint applied to a tile or card whose data is stale (per §5.4 of spec). Not red. Pairs with explicit "as of …" text.                                                                                                                                                     |
+| `--color-warning-bg`     | `#FFF3D6`                         | `#3A2E14`                     | "Couldn't parse" / "needs Doug" admin states. Warm yellow, not red. Pairs with text + icon.                                                                                                                                                                                        |
+| `--color-warning-text`   | `#5C3F00`                         | `#FFD68A`                     | Text on warning-bg. Light 9.5:1, dark 9.2:1 (both AAA).                                                                                                                                                                                                                            |
+| `--color-info-bg`        | `#EEEAE3`                         | `#1F1E22`                     | Informational notices (e.g., "we're syncing now"). Neutral-tinted, not blue.                                                                                                                                                                                                       |
+| `--color-focus-ring`     | `rgba(255, 140, 26, 0.55)`        | `rgba(255, 160, 71, 0.65)`    | Focus outline color for keyboard-visible focus. Always orange-derived, 3px ring + 2px offset.                                                                                                                                                                                      |
+
+### 1.2 Contrast summary (calculated, not estimated)
+
+| Pair                                              | Light  | Dark   | Floor                                                    |
+| ------------------------------------------------- | ------ | ------ | -------------------------------------------------------- |
+| `--color-text` on `--color-bg`                    | 16.5:1 | 14.8:1 | AAA body (>7:1)                                          |
+| `--color-text-strong` on `--color-bg`             | 18.4:1 | 16.9:1 | AAA body                                                 |
+| `--color-text-subtle` on `--color-bg`             | 7.8:1  | 6.4:1  | AAA-light / AA-body                                      |
+| `--color-accent` on `--color-bg` (text-on-bg use) | 3.0:1  | 6.7:1  | AA-large only — use `--color-accent-on-bg` for body text |
+| `--color-accent-on-bg` on `--color-bg`            | 4.6:1  | 9.8:1  | AA body / AAA body                                       |
+| `--color-accent-text` on `--color-accent`         | 4.07:1 | 11.3:1 | AA-large+bold / AAA                                      |
+
+**Direct-sunlight rule:** body text (`--color-text` on `--color-bg`, light mode) must hit ≥7:1 — 16.5:1 clears the bar with margin. Verified.
+
+---
+
+## 2. Typography
+
+### 2.1 Family commitment
+
+**Inter** — single contemporary sans for all UI. One family, no display/body pairing. Loaded via `next/font/google` in `app/layout.tsx` (a future task wires this up; this file only defines tokens).
+
+Why Inter: PRODUCT.md explicitly lists Inter as one of three acceptable starting points and says "pick one and commit." Inter is the most reliable tabular-figure-strong sans on the web — `font-feature-settings: 'tnum'` is fully implemented in every modern browser, all of weights 400/500/600/700 ship with even spacing, and it has explicit display-vs-text optical sizing built in. Geist (next pick) lacks the same `tnum` reliability across iOS Safari versions; General Sans is licensed.
+
+Tradeoff acknowledged: Inter is the most-used webfont on the modern internet. The "AI slop" risk per shared design laws is real. We compensate by using Inter at distinctive **weights and sizes** (large, confident headline numbers; consistent 500/600 hierarchy rather than the default 400/700 split that creates SaaS-look) and by leaning on the page's structural rhythm — generous spacing, asymmetric hero, FXAV orange accent — to carry character. The font is the canvas, not the personality.
+
+Fallback stack: `Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif`.
+
+### 2.2 Size scale
+
+Modular ratio ≈ 1.25 (major third) between adjacent steps. All sizes are in `rem` (root = 16px). Line-height pairs are tuned per-step, not auto-derived.
+
+| Token            | Size  | Line-height | Tracking   | Use                                                                                                     |
+| ---------------- | ----- | ----------- | ---------- | ------------------------------------------------------------------------------------------------------- |
+| `--text-xs`      | 0.75  | 1.4         | `0`        | Captions, "as of …" timestamps, footer fine print.                                                      |
+| `--text-sm`      | 0.875 | 1.45        | `0`        | Tile body text, secondary labels.                                                                       |
+| `--text-base`    | 1.0   | 1.55        | `-0.005em` | Default body — primary tile content, paragraph text.                                                    |
+| `--text-lg`      | 1.125 | 1.5         | `-0.005em` | Tile titles, sub-headlines.                                                                             |
+| `--text-xl`      | 1.25  | 1.4         | `-0.01em`  | Section headers ("My schedule", "Hotel & travel").                                                      |
+| `--text-2xl`     | 1.5   | 1.3         | `-0.012em` | Page title (Doug's show name on `/show/[slug]`).                                                        |
+| `--text-3xl`     | 1.875 | 1.2         | `-0.015em` | The Right Now card primary line ("Today: Show day 2 of 3").                                             |
+| `--text-4xl`     | 2.5   | 1.1         | `-0.02em`  | Mobile hero number — call time, room name when set as the focal element.                                |
+| `--text-display` | 3.5   | 1.05        | `-0.025em` | Reserved. Currently unused; available if a tile wants a hero metric (e.g., `8:00 AM`) at desktop sizes. |
+
+### 2.3 Weight scale
+
+| Token             | Value | Use                                                                     |
+| ----------------- | ----- | ----------------------------------------------------------------------- |
+| `--font-regular`  | 400   | Long-form body text, descriptions.                                      |
+| `--font-medium`   | 500   | Default UI body — primary tile content, button labels at sm.            |
+| `--font-semibold` | 600   | Tile titles, buttons at base+, all numbers (call times, dates, counts). |
+| `--font-bold`     | 700   | Page titles, the Right Now headline, strongest emphasis.                |
+
+Hierarchy is built from weight + size contrast (≥1.25 size ratio between steps). No flat scales.
+
+### 2.4 Tabular figures (mandatory)
+
+Every time, date, count, confirmation number, and quantity uses `font-feature-settings: 'tnum' 1, 'cv11' 1`. Two equivalent application surfaces:
+
+- **Tailwind utility:** `font-tabular` (mapped via `@theme` → `--font-feature-settings-tabular`).
+- **Class:** `.tabular-nums` (Tailwind v4 ships this by default; we keep both in scope).
+
+Apply at the smallest semantic boundary — the `<time>` element, the `.call-time` span — not the entire tile, so non-numeric copy keeps default proportional metrics. `cv11` is Inter's single-storey 'a' alternate at small sizes; subtle, but improves call-time legibility on mobile.
+
+### 2.5 Long-form constraints
+
+- Body line length: cap at **65–75ch**. Tile copy will rarely hit this; the cap matters for the Right Now card body and admin paragraphs.
+- No serif body. PRODUCT.md explicitly rejects this — it pulls toward the paper-skeuomorph aesthetic the project is replacing.
+
+---
+
+## 3. Spacing scale
+
+Tailwind v4's default 4px-step scale (1 = 4px, 2 = 8px, 3 = 12px, 4 = 16px, 6 = 24px, 8 = 32px, 12 = 48px, 16 = 64px, 24 = 96px, 60 = 240px) is the baseline. We extend with project-named tokens:
+
+| Token                      | Value | Use                                                                                                        |
+| -------------------------- | ----- | ---------------------------------------------------------------------------------------------------------- |
+| `--space-tap-min`          | 44px  | Minimum tap-target dimension. Every interactive element (button, link, toggle, accordion handle) ≥44×44px. |
+| `--space-tile-pad`         | 20px  | Internal padding on a tile. Comfortable, not cramped (per `PRODUCT.md`).                                   |
+| `--space-tile-gap`         | 16px  | Grid gap between tiles. Visual rhythm, not crowded.                                                        |
+| `--space-section-gap`      | 32px  | Gap between major page sections (Right Now card → tile grid → footer).                                     |
+| `--space-tile-min-h`       | 96px  | Tile minimum height (per spec §8.4 — `min-h-24` in Tailwind units).                                        |
+| `--space-tile-overflow`    | 240px | Tile body max before "see more" disclosure (per spec §8.4 — `max-h-60`).                                   |
+| `--space-page-pad-mobile`  | 16px  | Page-level horizontal padding on mobile (<640px).                                                          |
+| `--space-page-pad-desktop` | 32px  | Page-level horizontal padding on desktop (≥1024px).                                                        |
+
+### 3.1 Spacing rhythm
+
+Per shared design laws: **vary spacing for rhythm; same padding everywhere is monotony.** Tile internal padding (`20px`) > grid gap (`16px`) > border-radius (`12px`) creates a deliberate cascade. Section spacing (`32px`) is intentionally larger than tile spacing — the page reads as **chapters, not a uniform grid**. The Right Now card's padding (`24px`) is one step above tiles to mark it as the primary moment.
+
+---
+
+## 4. Radii
+
+Soft, but not consumer-app-rounded. PRODUCT.md rejects "rounded-everything" cliché.
+
+| Token           | Value | Use                                                                                                                       |
+| --------------- | ----- | ------------------------------------------------------------------------------------------------------------------------- |
+| `--radius-sm`   | 6px   | Buttons, badges, inline pills, small chips.                                                                               |
+| `--radius-md`   | 12px  | Tiles, the Right Now card, admin form fields.                                                                             |
+| `--radius-lg`   | 16px  | Modal/dialog surfaces. Used sparingly — modals are an absolute-ban anti-pattern unless inline alternatives are exhausted. |
+| `--radius-pill` | 999px | Status pills ("Live", "Today"), avatar dots.                                                                              |
+
+---
+
+## 5. Motion
+
+### 5.1 Timing scale
+
+| Token                | Value | Use                                                                                             |
+| -------------------- | ----- | ----------------------------------------------------------------------------------------------- |
+| `--duration-instant` | 0ms   | Sentinel for "intentionally not animated." (Stale-tint morph, focus rings.)                     |
+| `--duration-fast`    | 120ms | Hover, press, ring-show. Micro-interactions.                                                    |
+| `--duration-normal`  | 220ms | Card crossfades, accordion expand, "see more" disclosure.                                       |
+| `--duration-slow`    | 360ms | Right Now card state transitions (`pre_travel` → `travel_in_day` body crossfade per spec §8.2). |
+
+### 5.2 Easing
+
+| Token              | Curve                            | Use                                               |
+| ------------------ | -------------------------------- | ------------------------------------------------- |
+| `--ease-out-quart` | `cubic-bezier(0.25, 1, 0.5, 1)`  | Default — entry, expand, fade-in.                 |
+| `--ease-out-expo`  | `cubic-bezier(0.16, 1, 0.3, 1)`  | Larger movements (Right Now card crossfade).      |
+| `--ease-in-out`    | `cubic-bezier(0.65, 0, 0.35, 1)` | Two-way state changes that need symmetric in/out. |
+
+**Bans:** no bounce, no elastic, no spring overshoot. Per shared design laws and PRODUCT.md's "deliberate, never showy."
+
+### 5.3 `prefers-reduced-motion` discipline
+
+Every motion token must be wrapped in a media-query reduction. The pattern is:
+
+```css
+@media (prefers-reduced-motion: reduce) {
+  --duration-fast: 0ms;
+  --duration-normal: 0ms;
+  --duration-slow: 0ms;
+}
+```
+
+This is implemented in `app/globals.css` `:root` block. Components do NOT need to opt in — they get reduction for free as long as they consume the duration tokens (not hardcoded ms values). Spec §8.2 motion contracts (crossfade body, morph-to-last-good for sync errors) all consume `--duration-normal` / `--duration-slow`.
+
+### 5.4 Layout-property ban
+
+Don't animate `width`, `height`, `padding`, `margin`, `top`, `left`, etc. — they trigger layout. Use `transform`, `opacity`, and `filter`. The Right Now card crossfade is `opacity` + a 4px `translateY`; the "see more" disclosure is `max-height` (the documented exception, since explicit `max-height` doesn't trigger reflow on siblings).
+
+---
+
+## 6. Breakpoints
+
+Match spec §8.4 grid contract exactly.
+
+| Token     | Value  | Use                                                                        |
+| --------- | ------ | -------------------------------------------------------------------------- |
+| `--bp-sm` | 640px  | Tile grid: 2 cols → 3 cols transition. Mobile target viewport is 390px.    |
+| `--bp-lg` | 1024px | Tile grid: 3 cols → 4 cols transition. Desktop posture begins.             |
+| `--bp-xl` | 1200px | Container max-width on the widest desktop. Page caps here, doesn't sprawl. |
+
+Tailwind v4 maps these to `sm:`, `lg:`, `xl:` utility prefixes via `@theme` `--breakpoint-*` tokens.
+
+---
+
+## 7. Tailwind v4 layout gotcha — `align-items: stretch` is NOT default
+
+**Critical for every tile-grid task:** Tailwind v4's `.flex` does NOT set `align-items: stretch` by default. Spec §8.4 requires "tiles within a row stretch to equal height" — this MUST be expressed explicitly:
+
+- The grid container needs `items-stretch` (Tailwind utility) OR `align-items: stretch` (raw CSS).
+- Each tile needs `h-full` (Tailwind) OR `height: 100%` (raw CSS) to actually consume the stretched cell.
+
+Without both, tiles collapse to their intrinsic content height and the spec §8.4 dimensional invariant fails.
+
+This gotcha is the single most common failure mode on this project's UI work — see `memory/feedback_tailwind_v4_flex_items_stretch.md`. Every tile component's spec must call out the parent → child stretch relationship explicitly, and the M4 layout-dimensions Playwright task (the in-browser `getBoundingClientRect()` assertion) verifies it. jsdom is NOT sufficient — it doesn't compute real layout.
+
+---
+
+## 8. Iconography (placeholder — no icon library yet)
+
+Reserve `--icon-sm` (16px), `--icon-md` (20px), `--icon-base` (24px), `--icon-lg` (32px) as size tokens. Library choice deferred to the first M4 tile that needs an icon — likely `lucide-react` (open source, tree-shakeable, neutral aesthetic, plays well with Inter at all weights). If a different choice is made, this section is updated in the same commit.
+
+---
+
+## 9. Anti-pattern reminders (this project's house rules)
+
+These are the absolute bans from shared design laws + this project's specific anti-references. Every UI task gets a free check against these before commit:
+
+- **No side-stripe borders** > 1px on cards or tiles.
+- **No gradient text.** Solid color, weight/size for emphasis.
+- **No glassmorphism by default.** Backdrop-blur only when purposeful.
+- **No identical card grids** with icon + heading + text repeated. Tiles vary in content shape — schedule has a date list, hotel has a stack of fields, RightNow has dynamic copy.
+- **No modals as a first thought.** Inline / progressive disclosure first.
+- **No em dashes.** Use commas, colons, semicolons, periods, parentheses. Also not `--`.
+- **No printed-paper / spreadsheet skeuomorph.** No cream backgrounds, no ruled lines, no serif body. The point is to replace the spreadsheet, not echo it.
+- **No "enterprise SaaS dashboard" cliché.** No dense sidebar nav, no chart-grid density.
+- **No consumer-playful.** No bouncy mascots, no rounded-everything, no gradient-on-gradient.
+- **No competing accent hue.** Orange stays alone.
+- **No red/green as primary semantic.** Pair color with text or icon.
+
+---
+
+## 10. Token surface contract
+
+`app/globals.css` is the single source of executable tokens. Components consume tokens via Tailwind utilities (e.g., `bg-bg`, `text-text`, `text-text-subtle`, `border-border`, `bg-accent`, `text-accent-on-bg`, `rounded-md`, `duration-normal`). **Components MUST NOT hardcode hex values, ms values, or px spacing magic numbers** — every visual decision is named in this file or in `globals.css`. If a tile needs a color or spacing not present, the answer is to extend `DESIGN.md` + `globals.css` first, then consume — not to inline the literal.
+
+This contract is enforced by review (and, optionally, by an ESLint rule in a future task) — not by automated test today.
