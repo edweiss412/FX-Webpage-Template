@@ -224,7 +224,7 @@ describe("parseHotels — corpus coverage (every fixture returns array)", () => 
     it(`${path} yields array (possibly empty)`, () => {
       const md = readFileSync(path, "utf8");
       const version = detectVersion(md);
-      const hotels = parseHotels(md, version);
+      const hotels = parseHotels(md, version ?? "v2");
       expect(Array.isArray(hotels)).toBe(true);
       // every returned hotel must have ordinal 1..4
       for (const h of hotels) {

@@ -152,7 +152,7 @@ describe("parseOps — corpus coverage", () => {
     it(`${path} returns valid ops shape`, () => {
       const md = readFileSync(path, "utf8");
       const version = detectVersion(md);
-      const ops = parseOps(md, version);
+      const ops = parseOps(md, version ?? "v2");
       // All fields must be string | null
       expect(typeof ops.coi_status === "string" || ops.coi_status === null).toBe(true);
       expect(typeof ops.proposal === "string" || ops.proposal === null).toBe(true);

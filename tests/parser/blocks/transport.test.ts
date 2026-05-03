@@ -58,16 +58,12 @@ describe("parseTransportation — v4 (2026-04-waldorf)", () => {
   });
 
   it("schedule has a Pick Up Warehouse entry", () => {
-    const pickUp = t!.schedule.find((s) =>
-      /pick\s*up\s*warehouse/i.test(s.stage)
-    );
+    const pickUp = t!.schedule.find((s) => /pick\s*up\s*warehouse/i.test(s.stage));
     expect(pickUp).toBeDefined();
   });
 
   it("schedule pick-up venue date is 2026-04-22", () => {
-    const pickUpVenue = t!.schedule.find((s) =>
-      /pick\s*up\s*venue/i.test(s.stage)
-    );
+    const pickUpVenue = t!.schedule.find((s) => /pick\s*up\s*venue/i.test(s.stage));
     expect(pickUpVenue?.date).toBe("2026-04-22");
   });
 
@@ -256,7 +252,7 @@ describe("parseTransportation — corpus coverage", () => {
     it(`${path} returns TransportationRow|null, schedule entries have assigned_names[]`, () => {
       const md = readFileSync(path, "utf8");
       const version = detectVersion(md);
-      const t = parseTransportation(md, version);
+      const t = parseTransportation(md, version ?? "v2");
       if (t !== null) {
         expect(typeof t.driver_name === "string" || t.driver_name === null).toBe(true);
         expect(Array.isArray(t.schedule)).toBe(true);

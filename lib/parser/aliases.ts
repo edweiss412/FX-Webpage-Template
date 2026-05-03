@@ -97,16 +97,23 @@ export const FIELD_ALIASES: Record<string, string[]> = {
   "rooms.digital_signage": ["Digital Signage"],
 
   // ── Contacts ─────────────────────────────────────────────────────────────
-  "contacts.venue": ["Venue Contact Info", "Hotel Contact Info", "Hotal Contact Info", "Hotel Contact Information"],
-  "contacts.in_house_av": ["In House AV"],
+  // NOTE: "Venue Contact Info", "Hotel Contact Info", "Hotal Contact Info" already mapped to
+  // venue.contact_info above. contacts.venue is resolved programmatically in parseContacts via regex.
+  // Adding a unique alias here just so the key exists in FIELD_ALIASES for documentation purposes.
+  "contacts.venue": ["Hotel Contact Information"],
+  // "In House AV" already maps to venue.in_house_av above; contacts.in_house_av resolved via regex.
+  "contacts.in_house_av": ["In-House AV"],
 
   // ── Event details ─────────────────────────────────────────────────────────
-  "event.gooseneck": ["Gooseneck", "Goosneck", "Goosenecks"],
+  // NOTE: "Gooseneck", "Goosneck", "Goosenecks" already map to details.gooseneck above.
+  // "Virtual Audience", "Virtaul Audience" already map to details.virtual_audience above.
+  // event.* parsers use their own CANONICAL_KEY_MAP — these aliases are for cross-block lookup.
+  "event.gooseneck": ["Gooseneck (Event)"],
   "event.power": ["Power"],
   "event.internet": ["Internet"],
   "event.keynote_requirements": ["Keynote Requirements"],
   "event.opening_reel": ["Opening Reel"],
-  "event.virtual_audience": ["Virtual Audience", "Virtaul Audience"],
+  "event.virtual_audience": ["Virtual Audience (Event)"],
   "event.virtual_speaker": ["Virtual Speaker"],
   "event.stage_size": ["Stage Size"],
   "event.podium_type": ["GS Podium Type", "Podium Type"],

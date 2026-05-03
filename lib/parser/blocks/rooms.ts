@@ -26,10 +26,7 @@
 import type { RoomRow, RoomKind } from "../types";
 import { clean, presence } from "./_helpers";
 
-export function parseRooms(
-  markdown: string,
-  _version: "v1" | "v2" | "v4",
-): RoomRow[] {
+export function parseRooms(markdown: string, _version: "v1" | "v2" | "v4"): RoomRow[] {
   // Try v4 structured block first. A v4 room block uses all-caps GENERAL SESSION /
   // BREAKOUT headers as standalone rows. If any are found, treat as v4 and skip v2/v1 parsers.
   const v4Rooms = parseV4Rooms(markdown);
@@ -138,7 +135,8 @@ function parseV4RoomBlock(
     else if (label === "scenic" || label === "backdrop / scenic") room.scenic = presence(col1);
     else if (label === "power") room.power = presence(col1);
     else if (label === "digital signage") room.digital_signage = presence(col1);
-    else if (label === "other" || label === "gs other" || label === "bo other") room.other = presence(col1);
+    else if (label === "other" || label === "gs other" || label === "bo other")
+      room.other = presence(col1);
     else if (label === "notes") room.notes = presence(col1);
   }
 
@@ -290,7 +288,8 @@ function applyBoFields(room: RoomRow, blockText: string): void {
   }
 
   // Non-prefixed fields (v4 breakouts, ADDITIONAL ROOM, LUNCH ROOM)
-  const plainFieldRe = /^\|\s*(Setup|Set Time|Show Time|Strike Time|Audio|Video|Lighting|Scenic|Power|Digital Signage|Other|Notes)\s*\|([^|]*)/gim;
+  const plainFieldRe =
+    /^\|\s*(Setup|Set Time|Show Time|Strike Time|Audio|Video|Lighting|Scenic|Power|Digital Signage|Other|Notes)\s*\|([^|]*)/gim;
   while ((m = plainFieldRe.exec(blockText)) !== null) {
     const label = m[1]!.trim().toLowerCase();
     const val = presence(clean(m[2]!));

@@ -146,7 +146,7 @@ describe("parseContacts — corpus coverage", () => {
     it(`${path} yields valid ContactRow[]`, () => {
       const md = readFileSync(path, "utf8");
       const version = detectVersion(md);
-      const contacts = parseContacts(md, version);
+      const contacts = parseContacts(md, version ?? "v2");
       expect(Array.isArray(contacts)).toBe(true);
       for (const c of contacts) {
         expect(["venue", "in_house_av"]).toContain(c.kind);

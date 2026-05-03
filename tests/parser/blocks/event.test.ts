@@ -134,7 +134,7 @@ describe("parseEventDetails — corpus coverage", () => {
     it(`${path} returns Record<string,string>`, () => {
       const md = readFileSync(path, "utf8");
       const version = detectVersion(md);
-      const ed = parseEventDetails(md, version);
+      const ed = parseEventDetails(md, version ?? "v2");
       expect(typeof ed).toBe("object");
       expect(ed).not.toBeNull();
       for (const [k, v] of Object.entries(ed)) {

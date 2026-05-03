@@ -33,10 +33,7 @@ function warn(msg: string): void {
   console.warn(`[hotels] ${msg}`);
 }
 
-export function parseHotels(
-  markdown: string,
-  _version: "v1" | "v2" | "v4",
-): HotelReservationRow[] {
+export function parseHotels(markdown: string, _version: "v1" | "v2" | "v4"): HotelReservationRow[] {
   // Try the structured HOTEL table first (v4 + v2 newer layouts)
   const fromTable = parseHotelTable(markdown);
   if (fromTable.length > 0) return cap(fromTable);
@@ -54,9 +51,7 @@ export function parseHotels(
 
 function cap(hotels: HotelReservationRow[]): HotelReservationRow[] {
   if (hotels.length > MAX_HOTELS) {
-    warn(
-      `HOTEL_CARDINALITY_EXCEEDED: found ${hotels.length} hotels; truncating to ${MAX_HOTELS}.`,
-    );
+    warn(`HOTEL_CARDINALITY_EXCEEDED: found ${hotels.length} hotels; truncating to ${MAX_HOTELS}.`);
     return hotels.slice(0, MAX_HOTELS);
   }
   return hotels;
@@ -142,10 +137,22 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
       rowState = "idle";
 
       if (leftNum > 0 && !slots.has(leftNum)) {
-        slots.set(leftNum, { ordinal: leftNum, hotel_address: null, names: [], confirmation_no: null, notes: null });
+        slots.set(leftNum, {
+          ordinal: leftNum,
+          hotel_address: null,
+          names: [],
+          confirmation_no: null,
+          notes: null,
+        });
       }
       if (rightNum > 0 && !slots.has(rightNum)) {
-        slots.set(rightNum, { ordinal: rightNum, hotel_address: null, names: [], confirmation_no: null, notes: null });
+        slots.set(rightNum, {
+          ordinal: rightNum,
+          hotel_address: null,
+          names: [],
+          confirmation_no: null,
+          notes: null,
+        });
       }
       continue;
     }

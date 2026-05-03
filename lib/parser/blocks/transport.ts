@@ -82,9 +82,13 @@ export function parseTransportation(
 
 // ── v4 parser ─────────────────────────────────────────────────────────────────
 
-function parseV4Transport(markdown: string, crewMembers?: CrewMemberRow[]): TransportationRow | null {
+function parseV4Transport(
+  markdown: string,
+  crewMembers?: CrewMemberRow[],
+): TransportationRow | null {
   // Match: | TRANSPORTATION/Equipment Transporter | TRANSPORTATION/<name> | PHONE/<phone> | EMAIL/<email> |
-  const headerRe = /^\|\s*TRANSPORTATION\/[^|]+\|\s*TRANSPORTATION\/([^|]+?)\s*\|\s*PHONE\/([^|]*?)\s*\|\s*EMAIL\/([^|]*?)\s*\|/im;
+  const headerRe =
+    /^\|\s*TRANSPORTATION\/[^|]+\|\s*TRANSPORTATION\/([^|]+?)\s*\|\s*PHONE\/([^|]*?)\s*\|\s*EMAIL\/([^|]*?)\s*\|/im;
   const hm = headerRe.exec(markdown);
   if (!hm) return null;
 
@@ -104,7 +108,10 @@ function parseV4Transport(markdown: string, crewMembers?: CrewMemberRow[]): Tran
 
   // Detect column positions from the header row itself
   // Header: | TRANSPORTATION/... | TRANSPORTATION/Name | PHONE/xxx | EMAIL/xxx | LICENSE |
-  const headerParts = tableLines[0]!.split("|").slice(1, -1).map((s) => s.trim());
+  const headerParts = tableLines[0]!
+    .split("|")
+    .slice(1, -1)
+    .map((s) => s.trim());
   const dateColIdx = detectDateColIdx(tableLines);
   const timeColIdx = dateColIdx + 1;
   const passengersColIdx = detectPassengersColIdx(tableLines);
@@ -137,11 +144,26 @@ function parseV4Transport(markdown: string, crewMembers?: CrewMemberRow[]): Tran
     const label = col0.toLowerCase();
 
     // Metadata rows
-    if (label === "vehicle") { vehicle = presence(col1); continue; }
-    if (label === "license plate") { licensePlate = presence(col1); continue; }
-    if (label === "color") { color = presence(col1); continue; }
-    if (label === "parking") { parking = presence(col1); continue; }
-    if (label === "notes") { notes = presence(col1); continue; }
+    if (label === "vehicle") {
+      vehicle = presence(col1);
+      continue;
+    }
+    if (label === "license plate") {
+      licensePlate = presence(col1);
+      continue;
+    }
+    if (label === "color") {
+      color = presence(col1);
+      continue;
+    }
+    if (label === "parking") {
+      parking = presence(col1);
+      continue;
+    }
+    if (label === "notes") {
+      notes = presence(col1);
+      continue;
+    }
 
     // Skip load-out secondary driver row (col0 like "Load Out:")
     if (/^load\s+out\s*:/i.test(col0)) continue;
@@ -183,7 +205,10 @@ function parseV4Transport(markdown: string, crewMembers?: CrewMemberRow[]): Tran
 
 // ── v2 parser ─────────────────────────────────────────────────────────────────
 
-function parseV2Transport(markdown: string, crewMembers?: CrewMemberRow[]): TransportationRow | null {
+function parseV2Transport(
+  markdown: string,
+  crewMembers?: CrewMemberRow[],
+): TransportationRow | null {
   // Match: | TRANSPORTATION | NAME | PHONE |
   const headerRe = /^\|\s*TRANSPORTATION\s*\|\s*NAME\s*\|\s*PHONE\s*\|/im;
   const hm = headerRe.exec(markdown);
@@ -219,9 +244,18 @@ function parseV2Transport(markdown: string, crewMembers?: CrewMemberRow[]): Tran
       if (!driverPhone && col2) driverPhone = presence(col2);
       continue;
     }
-    if (label === "vehicle") { vehicle = presence(col1); continue; }
-    if (label === "parking") { parking = presence(col1); continue; }
-    if (label === "notes") { notes = presence(col1); continue; }
+    if (label === "vehicle") {
+      vehicle = presence(col1);
+      continue;
+    }
+    if (label === "parking") {
+      parking = presence(col1);
+      continue;
+    }
+    if (label === "notes") {
+      notes = presence(col1);
+      continue;
+    }
 
     if (V2_SCHEDULE_LABELS.has(label)) {
       // v2 format: col1 = "date @ time" or just a date
@@ -250,7 +284,10 @@ function parseV2Transport(markdown: string, crewMembers?: CrewMemberRow[]): Tran
 
 // ── v1 parser ─────────────────────────────────────────────────────────────────
 
-function parseV1Transport(markdown: string, crewMembers?: CrewMemberRow[]): TransportationRow | null {
+function parseV1Transport(
+  markdown: string,
+  crewMembers?: CrewMemberRow[],
+): TransportationRow | null {
   // Match: | Driver | <name> | <phone> |  (v1 has no TRANSPORTATION header)
   const headerRe = /^\|\s*Driver\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/im;
   const hm = headerRe.exec(markdown);
@@ -280,8 +317,14 @@ function parseV1Transport(markdown: string, crewMembers?: CrewMemberRow[]): Tran
     const col1 = clean(cells[1] ?? "");
     const label = col0.toLowerCase();
 
-    if (label === "parking") { parking = presence(col1); continue; }
-    if (label === "notes") { notes = presence(col1); continue; }
+    if (label === "parking") {
+      parking = presence(col1);
+      continue;
+    }
+    if (label === "notes") {
+      notes = presence(col1);
+      continue;
+    }
     // Hotel Stays is a different block; stop if we hit it
     if (label === "hotel stays" || label === "hotel reservations" || label === "coi") break;
 

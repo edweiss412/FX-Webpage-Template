@@ -22,16 +22,12 @@ import { clean, presence } from "./_helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
 
 // Labels that map to 'venue' kind (covers typos like "Hotal" and variants "Info"/"Information")
-const VENUE_LABEL_RE =
-  /^\s*(?:venue|hotel|hotal)\s+contact\s+(?:info(?:rmation)?|details?)\s*$/i;
+const VENUE_LABEL_RE = /^\s*(?:venue|hotel|hotal)\s+contact\s+(?:info(?:rmation)?|details?)\s*$/i;
 
 // Labels that map to 'in_house_av' kind
 const IN_HOUSE_AV_LABEL_RE = /^\s*in\s+house\s+av\s*$/i;
 
-export function parseContacts(
-  markdown: string,
-  _version: "v1" | "v2" | "v4",
-): ContactRow[] {
+export function parseContacts(markdown: string, _version: "v1" | "v2" | "v4"): ContactRow[] {
   const contacts: ContactRow[] = [];
 
   // Scan all table rows for matching labels
@@ -87,11 +83,7 @@ export function parseContacts(
  */
 function parseContactValue(raw: string, kind: ContactKind): ContactRow {
   // Normalize: remove angle brackets around emails, normalize whitespace
-  const text = raw
-    .replace(/[<>]/g, " ")
-    .replace(/&#10;/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const text = raw.replace(/[<>]/g, " ").replace(/&#10;/g, " ").replace(/\s+/g, " ").trim();
 
   // Extract the first email address found
   const emailMatch = /([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/i.exec(text);

@@ -175,7 +175,7 @@ describe("parseRooms — corpus coverage", () => {
     it(`${path} yields array, all kinds valid`, () => {
       const md = readFileSync(path, "utf8");
       const version = detectVersion(md);
-      const rooms = parseRooms(md, version);
+      const rooms = parseRooms(md, version ?? "v2");
       expect(Array.isArray(rooms)).toBe(true);
       for (const r of rooms) {
         expect(["gs", "breakout", "additional"]).toContain(r.kind);
