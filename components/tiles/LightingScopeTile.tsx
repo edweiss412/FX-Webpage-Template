@@ -18,17 +18,12 @@ import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { lightingScopeVisible } from "@/lib/visibility/scopeTiles";
+import { roomLabel } from "@/lib/visibility/roomLabel";
 
 type LightingScopeTileProps = {
   rooms: RoomRow[];
   viewerFlags: RoleFlag[];
 };
-
-function roomLabel(room: RoomRow): string {
-  if (room.kind === "gs") return room.name || "General Session";
-  if (room.kind === "breakout") return room.name || "Breakout";
-  return room.name || "Additional";
-}
 
 export function LightingScopeTile({
   rooms,

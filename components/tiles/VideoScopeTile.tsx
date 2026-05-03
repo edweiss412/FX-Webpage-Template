@@ -13,17 +13,12 @@ import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { videoScopeVisible } from "@/lib/visibility/scopeTiles";
+import { roomLabel } from "@/lib/visibility/roomLabel";
 
 type VideoScopeTileProps = {
   rooms: RoomRow[];
   viewerFlags: RoleFlag[];
 };
-
-function roomLabel(room: RoomRow): string {
-  if (room.kind === "gs") return room.name || "General Session";
-  if (room.kind === "breakout") return room.name || "Breakout";
-  return room.name || "Additional";
-}
 
 export function VideoScopeTile({ rooms, viewerFlags }: VideoScopeTileProps) {
   if (!videoScopeVisible(viewerFlags)) return null;

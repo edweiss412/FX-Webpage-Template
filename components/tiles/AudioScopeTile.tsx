@@ -28,6 +28,7 @@ import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { audioScopeVisible } from "@/lib/visibility/scopeTiles";
+import { roomLabel } from "@/lib/visibility/roomLabel";
 
 type AudioScopeTileProps = {
   rooms: RoomRow[];
@@ -39,13 +40,6 @@ type AudioScopeTileProps = {
    */
   viewerFlags: RoleFlag[];
 };
-
-/** Display label for a RoomRow.kind value. */
-function roomLabel(room: RoomRow): string {
-  if (room.kind === "gs") return room.name || "General Session";
-  if (room.kind === "breakout") return room.name || "Breakout";
-  return room.name || "Additional";
-}
 
 export function AudioScopeTile({ rooms, viewerFlags }: AudioScopeTileProps) {
   // Defense-in-depth predicate gate — if the page mistakenly mounts the
