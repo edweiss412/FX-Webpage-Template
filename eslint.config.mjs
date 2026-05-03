@@ -14,6 +14,7 @@ const eslintConfig = defineConfig([
     // (configured in playwright.config.ts via NEXT_DIST_DIR).
     ".next-dev/**",
     ".next-prod/**",
+    ".next-prod-flip/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

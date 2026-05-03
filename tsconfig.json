@@ -39,12 +39,17 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts",
+    ".next-prod/types/**/*.ts",
+    ".next-prod/dev/types/**/*.ts",
     ".next-dev/types/**/*.ts",
     ".next-dev/dev/types/**/*.ts",
-    ".next-prod/types/**/*.ts",
-    ".next-prod/dev/types/**/*.ts"
+    ".next-prod-flip/types/**/*.ts",
+    ".next-prod-flip/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next-dev",
+    ".next-prod",
+    ".next-prod-flip"
   ]
 }

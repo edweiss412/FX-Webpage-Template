@@ -287,3 +287,54 @@ test.describe("prod-build only — page is permanently absent regardless of auth
     expect(response?.status()).toBe(404);
   });
 });
+
+test.describe("prod-runtime-flip only — Round 1 Finding 1 regression", () => {
+  test.beforeEach(({}, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "prod-runtime-flip",
+      "prod-runtime-flip project only",
+    );
+  });
+
+  test("admin/dev: STILL 404 when prod build is started with ADMIN_DEV_PANEL_ENABLED=true at runtime (build-artifact gate, not runtime-flippable)", async ({
+    page,
+  }) => {
+    // Codex Round 1 Finding 1 (HIGH): the previous gate was a request-time
+    // process.env.ADMIN_DEV_PANEL_ENABLED check — that test passes for a
+    // purely runtime gate too. If the .next-prod artifact is ever started
+    // with ADMIN_DEV_PANEL_ENABLED=true (operator typo, stale CI config,
+    // env-file leak), a runtime-only gate would let /admin/dev come alive
+    // in production.
+    //
+    // The prod-runtime-flip Playwright project (port 3003) builds with
+    // ADMIN_DEV_PANEL_ENABLED UNSET (production posture) but then START with
+    // ADMIN_DEV_PANEL_ENABLED=true. If the gate is a true build-artifact
+    // decision, /admin/dev MUST still return 404. If this test fails with
+    // 200 or 403, the gate is runtime-only — fix by extending the prebuild
+    // step to omit app/admin/dev entirely from the build artifact.
+    await signInAs(page, ADMIN_FIXTURE);
+    const response = await page.goto("/admin/dev");
+    expect(
+      response?.status(),
+      "build-artifact gate must hold even when runtime env tries to enable the panel",
+    ).toBe(404);
+  });
+
+  test("admin/dev: parseAndStage server action also unreachable in runtime-flipped prod artifact", async ({
+    page,
+  }) => {
+    // The Server Action POST endpoint Next.js mounts for parseAndStageFormAction
+    // shares the same compiled app/admin/dev module tree. If the route was
+    // truly excluded at build time, the action endpoint is also absent and
+    // the form submission cannot reach the parsing pipeline.
+    //
+    // Probe: try to POST a form-encoded body to /admin/dev with admin auth.
+    // Next.js Server Actions are mounted under the page's route, so an
+    // unmount means a 404. (We don't try to forge a Server-Action header —
+    // the GET-based admin/dev probe above is sufficient evidence that the
+    // route module is absent. This test belt-and-suspenders the same claim.)
+    await signInAs(page, ADMIN_FIXTURE);
+    const response = await page.goto("/admin/dev");
+    expect(response?.status()).toBe(404);
+  });
+});

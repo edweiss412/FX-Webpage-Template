@@ -57,10 +57,33 @@ export default defineConfig({
     {
       name: "prod-build",
       testMatch: /admin-dev\.spec\.ts/,
+      // Run after dev-build so the shared admin fixture user is not racing
+      // multiple webServers' signInAs paths concurrently. Playwright's
+      // `dependencies` field enforces project-level serialization.
+      dependencies: ["dev-build"],
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },
         baseURL: "http://localhost:3002",
+      },
+    },
+    {
+      // Round 1 Finding 1 regression project. Built with
+      // ADMIN_DEV_PANEL_ENABLED UNSET (production posture) but STARTED with
+      // ADMIN_DEV_PANEL_ENABLED=true at runtime. Tests verify /admin/dev is
+      // STILL 404 — proving the gate is a true build-artifact decision, not
+      // just a runtime env-var check that an attacker / operator typo could
+      // flip live.
+      name: "prod-runtime-flip",
+      testMatch: /admin-dev\.spec\.ts/,
+      // Run after prod-build (which runs after dev-build) for the same
+      // serialization reason: the admin fixture user is shared across
+      // projects via the auth.users table.
+      dependencies: ["prod-build"],
+      use: {
+        ...devices["Desktop Chrome"],
+        viewport: { width: 1280, height: 800 },
+        baseURL: "http://localhost:3003",
       },
     },
   ],
@@ -78,11 +101,14 @@ export default defineConfig({
       // TEST_AUTH_SECRET (Round 1 Finding 3 hardening) is required by the
       // test-auth endpoint as a per-run secret; signInAs sends it via
       // Authorization: Bearer header on every POST.
+      // The with-admin-dev-flag wrapper is a no-op when ADMIN_DEV_PANEL_ENABLED=true
+      // (the page.tsx / actions.ts files stay in place); we still wrap for
+      // symmetry across projects and to surface any wrapper bugs early.
       command:
         "ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true " +
         "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
         "NEXT_DIST_DIR=.next-dev " +
-        "pnpm exec next build && " +
+        "node scripts/with-admin-dev-flag.mjs pnpm exec next build && " +
         "ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true " +
         "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
         "NEXT_DIST_DIR=.next-dev " +
@@ -92,21 +118,46 @@ export default defineConfig({
       timeout: 300_000,
     },
     {
-      // prod-build artifact (port 3002) — built with ADMIN_DEV_PANEL_ENABLED unset.
-      // ENABLE_TEST_AUTH=true + TEST_AUTH_SECRET so /api/test-auth/set-session
-      // works for signInAs(ADMIN_FIXTURE); the build-time gate keeps
-      // /admin/dev itself permanently 404 (proves the build artifact, not
-      // just runtime state).
+      // prod-build artifact (port 3002) — built with ADMIN_DEV_PANEL_ENABLED unset
+      // and run through with-admin-dev-flag.mjs so the page.tsx / actions.ts
+      // files are physically renamed away before `next build` reads them. The
+      // .next-prod artifact will literally NOT contain app/admin/dev/* — the
+      // gate is a true build-artifact decision per Round 1 Finding 1.
+      // ENABLE_TEST_AUTH=true + TEST_AUTH_SECRET so signInAs(ADMIN_FIXTURE)
+      // still works (signin proves the 404 holds even WITH admin auth).
       command:
         "ENABLE_TEST_AUTH=true " +
         "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
         "NEXT_DIST_DIR=.next-prod " +
-        "pnpm exec next build && " +
+        "node scripts/with-admin-dev-flag.mjs pnpm exec next build && " +
         "ENABLE_TEST_AUTH=true " +
         "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
         "NEXT_DIST_DIR=.next-prod " +
         "pnpm exec next start --port 3002",
       url: "http://localhost:3002",
+      reuseExistingServer: !process.env.CI,
+      timeout: 300_000,
+    },
+    {
+      // prod-runtime-flip artifact (port 3003) — Round 1 Finding 1 regression.
+      // Build with ADMIN_DEV_PANEL_ENABLED UNSET (production posture) THROUGH
+      // the with-admin-dev-flag wrapper, so the build artifact omits
+      // app/admin/dev. Then START with ADMIN_DEV_PANEL_ENABLED=true at runtime,
+      // simulating an operator misconfiguring a real prod deployment with the
+      // flag turned on. The Playwright test asserts /admin/dev is STILL 404 —
+      // proving the gate is a true build-artifact decision and cannot be
+      // flipped via runtime env-var alone.
+      command:
+        "ENABLE_TEST_AUTH=true " +
+        "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
+        "NEXT_DIST_DIR=.next-prod-flip " +
+        "node scripts/with-admin-dev-flag.mjs pnpm exec next build && " +
+        "ADMIN_DEV_PANEL_ENABLED=true " +
+        "ENABLE_TEST_AUTH=true " +
+        "TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP " +
+        "NEXT_DIST_DIR=.next-prod-flip " +
+        "pnpm exec next start --port 3003",
+      url: "http://localhost:3003",
       reuseExistingServer: !process.env.CI,
       timeout: 300_000,
     },

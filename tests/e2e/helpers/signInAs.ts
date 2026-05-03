@@ -72,6 +72,12 @@ export async function deleteFixtureUserByEmail(email: string): Promise<void> {
     if ((u.email ?? "").toLowerCase() === lowered) {
       const { error: deleteErr } = await admin.auth.admin.deleteUser(u.id);
       if (deleteErr) {
+        // Tolerate races: another concurrent test (across Playwright projects
+        // or workers) may have just deleted the same fixture user. The desired
+        // post-condition (user absent) holds either way.
+        if (/not[_ ]found|user.*not.*exist/i.test(deleteErr.message)) {
+          continue;
+        }
         throw new Error(`deleteFixtureUserByEmail.deleteUser failed: ${deleteErr.message}`);
       }
     }
