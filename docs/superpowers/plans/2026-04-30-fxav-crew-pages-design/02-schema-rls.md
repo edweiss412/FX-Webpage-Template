@@ -6,20 +6,22 @@ Spec context: §4 entire data model, §17.1 milestone 2.
 
 ### Task 2.1: Initial schema migration — public tables
 
-**Files:** Create: `supabase/migrations/20260501T0000_initial_public_schema.sql`.
+**Files:** Create: `supabase/migrations/20260501000000_initial_public_schema.sql`.
 
-- [ ] **Step 1: Author the migration** — copy SQL verbatim from §4.1 for the **public** tables (`shows`, `crew_members`, `hotel_reservations`, `rooms`, `transportation`, `contacts`). Drop the comments that reference other tables; defer those to subsequent migrations. Include:
+> Filename correction (2026-05-02): the earlier `20260501T0000_...` form is not applied by `supabase db reset`; Supabase CLI requires `<timestamp>_name.sql` with a numeric timestamp. M2 migrations therefore use `YYYYMMDDHHMMSS_name.sql`.
+
+- [x] **Step 1: Author the migration** — copy SQL verbatim from §4.1 for the **public** tables (`shows`, `crew_members`, `hotel_reservations`, `rooms`, `transportation`, `contacts`). Drop the comments that reference other tables; defer those to subsequent migrations. Include:
   - Every column from spec §4.1. : the migration's column list MUST include all FOUR reel pin columns; an earlier draft enumerated only two of them — a 4-tuple regression.
   - The partial unique index `crew_members_show_email_unique`.
   - The CHECK `crew_members_email_canonical` per §4.1.1.
   - All other email-bearing columns also get the canonical CHECK (transportation.driver_email, contacts.email, etc.).
   - The `last_sync_status` column has no CHECK in v1 (it's a free-text status; values listed in §4.1 comment).
-- [ ] **Step 2: Apply locally** `pnpm dlx supabase db reset` and confirm migration applies cleanly.
-- [ ] **Step 3: Commit** `feat(db): initial public schema (§4.1)`.
+- [x] **Step 2: Apply locally** `pnpm dlx supabase db reset` and confirm migration applies cleanly.
+- [x] **Step 3: Commit** `feat(db): initial public schema (§4.1)`.
 
 ### Task 2.2: shows_internal + admin-only tables migration
 
-**Files:** Create: `supabase/migrations/20260501T0010_internal_and_admin.sql`.
+**Files:** Create: `supabase/migrations/20260501001000_internal_and_admin.sql`.
 
 - [ ] **Step 1: Author the canonical fresh-schema DDL — ONE source per table.** Earlier draft said "copy verbatim from §4 + §5.5.1 + §6.8.1 + §13.2.3" — but those sections contain overlapping additive DDL: §4.1 `CREATE TABLE drive_watch_channels` already defines `status`, then §5.5.1 `ALTER TABLE drive_watch_channels ADD COLUMN IF NOT EXISTS status` repeats it. §4.1 has `reports.idempotency_key .. unique`, §13.2.3 then adds an incremental unique index with a different name. Replaying both would either duplicate constraints or have `IF NOT EXISTS` mask drift that Task 2.5's exact-def matching is supposed to catch. The corrected design pins ONE authoritative source per table:
 
@@ -187,7 +189,7 @@ Spec context: §4 entire data model, §17.1 milestone 2.
 
 ### Task 2.3: RLS policies (AC-2.5, AC-2.6)
 
-**Files:** Create: `supabase/migrations/20260501T0020_rls_policies.sql`.
+**Files:** Create: `supabase/migrations/20260501002000_rls_policies.sql`.
 
 - [ ] **Step 1: Author** RLS per §4.3. For each table:
   - **Admin-only tables** (full list in §4.3): `ENABLE RLS` + a single policy `admin_only` granting select/insert/update/delete to roles where the zero-arg SQL helper `is_admin()` returns TRUE. `is_admin()` returns BOOLEAN and is TRUE iff `auth.jwt() -> 'app_metadata' ->> 'role' = 'admin'` OR `canonicalize_email(auth.email())` matches a configured admin allowlist email. AC-2.5 covers EVERY table in §4.3's admin-only list across ALL FOUR verbs (SELECT/INSERT/UPDATE/DELETE) — the `ADMIN_TABLES` registry in the AC-2.5 test (Step 4 below) is the single source of truth and MUST contain entries for the complete **21-table** §4.3 list: `shows_internal`, `sync_log`, `reports`, `pending_syncs`, `pending_ingestions`, `crew_member_auth`, `revoked_links`, `link_sessions`, `bootstrap_nonces`, `app_settings`, `deferred_ingestions`, `admin_alerts`, `sync_audit`, `drive_watch_channels`, `report_rate_limits`, `onboarding_scan_manifest`, `pending_snapshot_uploads`, `revision_race_cooldowns` (per-`(drive_file_id, raced_head_revision_id)` cooldown ledger that bounds revision-race retry storms; admin-only by construction since cron/push are the only writers), `wizard_finalize_checkpoints`, `shows_pending_changes` (wizard-scoped shadow surface for re-run-setup updates to ALREADY-LIVE shows; admin-only by construction since /finalize, /finalize-cas, and cleanupAbandonedFinalize are the sole writers), `recovery_drift_cooldowns` (per-`(show_id, preview_revision_id)` cooldown ledger that bounds asset_recovery revision-drift retry storms; admin-only by construction since cron is the sole writer). The test exercises every (table × verb) cell; missing any cell fails AC-2.5. The `__test_singleton_rls_probe` SECURITY-INVOKER helper handles the singleton tables (`app_settings`); the standard 4-test harness handles all others. **Build-time invariant (X.6 audit)**: the `ADMIN_TABLES` registry's count and identity MUST agree with the spec §4.3 admin-only list at build time; CI fails if they drift. Task X.6 owns the cross-cutting §4.3 ↔ AC-2.5 parity assertion (see Task X.6 Step 2).

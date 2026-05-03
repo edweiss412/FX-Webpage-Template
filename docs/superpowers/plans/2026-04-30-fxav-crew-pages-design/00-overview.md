@@ -178,8 +178,8 @@ lib/
 
 supabase/
   migrations/
-    20260501T0000_initial_schema.sql
-    20260501T0100_rls_policies.sql
+    20260501000000_initial_schema.sql
+    20260501010000_rls_policies.sql
     .. # one migration per logical schema bump
   seed.ts # loads fixtures into local DB
 

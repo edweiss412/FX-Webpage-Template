@@ -78,9 +78,9 @@ If any required pre-flight command fails, do NOT start Task 2.1. Stop and report
 
 - [ ] All Tasks 2.1 through 2.5 in `02-schema-rls.md` are checked off.
 - [ ] AC-2.1 through AC-2.7 each have at least one passing assertion.
-- [ ] Task 2.1 creates and verifies `supabase/migrations/20260501T0000_initial_public_schema.sql` from §4.1 public tables.
-- [ ] Task 2.2 creates and verifies `supabase/migrations/20260501T0010_internal_and_admin.sql` using the canonical-source matrix, including `app_settings` singleton bootstrap and inline `reports.lease_holder`.
-- [ ] Task 2.3 creates and verifies `supabase/migrations/20260501T0020_rls_policies.sql` with helper functions, admin-only policies, and crew-readable published-show policies.
+- [ ] Task 2.1 creates and verifies `supabase/migrations/20260501000000_initial_public_schema.sql` from §4.1 public tables.
+- [ ] Task 2.2 creates and verifies `supabase/migrations/20260501001000_internal_and_admin.sql` using the canonical-source matrix, including `app_settings` singleton bootstrap and inline `reports.lease_holder`.
+- [ ] Task 2.3 creates and verifies `supabase/migrations/20260501002000_rls_policies.sql` with helper functions, admin-only policies, and crew-readable published-show policies.
 - [ ] Task 2.4 creates and verifies `supabase/seed.ts` for the 10-fixture corpus.
 - [ ] Task 2.5 creates and verifies CHECK/FK/index/helper introspection coverage.
 - [ ] No files under `app/` outside `app/api/`, `components/`, `app/globals.css`, `tailwind.config.ts`, `postcss.config.mjs`, or `DESIGN.md` are touched.

@@ -1462,7 +1462,7 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
 
 **Semantic layer**: every code path that participates in sync gating decisions (Phase 1's invariant gate, Phase 2's monotonic guard, perFileProcessor's watermark check) MUST read its watermark from a per-show or per-row source. The audit walks the call graph from `runScheduledCronSync`, `runManualSyncForShow`, `runPushSyncForShow`, `runOnboardingScan`, and `assetRecovery`; for every comparison against a `modifiedTime`-shape value, asserts the comparison's right-hand operand resolves (transitively) to a column on `shows`, `pending_syncs`, `deferred_ingestions`, or another per-row table on the Step-1 allowlist. A comparison whose right-hand operand resolves to a singleton table or a constant fails the audit regardless of naming.
 
-**Files:** Test: `tests/cross-cutting/no-global-cursor.test.ts`. Migration: `supabase/migrations/20260501T0040_no_global_cursor_event_trigger.sql`.
+**Files:** Test: `tests/cross-cutting/no-global-cursor.test.ts`. Migration: `supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql`.
 
 - [ ] **Step 1: Authored allowlist** — enumerate the only watermark-shaped fields that may participate in sync decisions. ** Fix 3 amendment**: the allowlist is now SPLIT into two named sets so the semantic layer (Step 2 layer 3) can fail the audit when a sync-decision comparison reads a display-only value:
 
