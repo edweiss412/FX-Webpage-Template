@@ -246,6 +246,70 @@ describe("parseTransportation — assigned_names synthetic fixture", () => {
   });
 });
 
+// ── v4 transport block scoping (Codex round-6 finding) ───────────────────────
+describe("parseTransportation — v4 block scoping (Codex round-6)", () => {
+  it("2026-04 transport schedule does not contain COI/contacts/event-details rows", () => {
+    const md = readFileSync("fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md", "utf8");
+    const t = parseTransportation(md, "v4");
+    expect(t).not.toBeNull();
+    const stages = t!.schedule.map((s) => s.stage);
+    expect(stages).not.toContain("COI");
+    expect(stages).not.toContain("Proposal");
+    expect(stages).not.toContain("Venue Contact Info");
+    expect(stages).not.toContain("In House AV");
+    expect(stages).not.toContain("EVENT DETAILS");
+    expect(stages).not.toContain("Invoice");
+    expect(stages).not.toContain("Invoice Notes");
+    // Every remaining stage must look transport-y
+    for (const s of stages) {
+      expect(s).toMatch(/pick|drop|transport|travel|load|unload|rental|set|show|strike|day/i);
+    }
+  });
+
+  it("2026-05 transport schedule does not contain non-transport rows", () => {
+    const md = readFileSync("fixtures/shows/raw/2026-05-fintech-forum-cto-summit.md", "utf8");
+    const t = parseTransportation(md, "v4");
+    expect(t).not.toBeNull();
+    const stages = t!.schedule.map((s) => s.stage);
+    const blacklist = [
+      "COI",
+      "Proposal",
+      "Venue Contact Info",
+      "In House AV",
+      "EVENT DETAILS",
+      "Event Name:",
+    ];
+    for (const bad of blacklist) {
+      expect(stages, `${bad} should not appear as a transport stage`).not.toContain(bad);
+    }
+    // Every remaining stage must look transport-y
+    for (const s of stages) {
+      expect(s).toMatch(/pick|drop|transport|travel|load|unload|rental|set|show|strike|day/i);
+    }
+  });
+
+  it("synthetic fixture: terminator label stops schedule collection", () => {
+    const md = `| TRANSPORTATION/Equipment Transporter | TRANSPORTATION/Test Driver | PHONE/555-000-1234 | EMAIL/driver@test.com | LICENSE |
+| :---: | :---: | :---: | :---: | :---: |
+| Vehicle | Test Van | | | |
+| | DATE | TIME | | |
+| Pick Up Warehouse | 1/15/26 | 8:00 AM | | |
+| Drop Off Venue | 1/16/26 | 5:00 PM | | |
+| COI | SENT | | | |
+| Proposal | SENT | | | |
+| Venue Contact Info | Some Contact | | | |
+`;
+    const t = parseTransportation(md, "v4");
+    expect(t).not.toBeNull();
+    const stages = t!.schedule.map((s) => s.stage);
+    expect(stages).toContain("Pick Up Warehouse");
+    expect(stages).toContain("Drop Off Venue");
+    expect(stages).not.toContain("COI");
+    expect(stages).not.toContain("Proposal");
+    expect(stages).not.toContain("Venue Contact Info");
+  });
+});
+
 // ── Corpus-coverage test ──────────────────────────────────────────────────────
 describe("parseTransportation — corpus coverage", () => {
   for (const path of ALL_FIXTURES) {

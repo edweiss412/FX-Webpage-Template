@@ -48,6 +48,65 @@ const SCHEDULE_STAGE_LABELS = new Set([
   "drop off warehouse",
 ]);
 
+/**
+ * Non-transport block labels that signal the transport schedule has ended.
+ * When the v4 parser encounters a row whose first cell matches one of these
+ * (case-insensitive), it stops appending to schedule.
+ */
+const TRANSPORT_BLOCK_TERMINATORS = new Set([
+  "coi",
+  "proposal",
+  "invoice",
+  "invoice notes",
+  "po#",
+  "po #",
+  "venue contact info",
+  "hotel contact info",
+  "hotal contact info",
+  "in house av",
+  "event details",
+  "event name:",
+  "title of event",
+  "additional event names if applicable",
+  "main",
+  "secondary",
+  "equipment",
+  "agenda link",
+  "diagrams",
+  "diagram",
+  "opening reel",
+  "virtual audience",
+  "gooseneck",
+  "led",
+  "backdrop / scenic",
+  "backdrop/scenic",
+  "stage size",
+  "venue notes",
+]);
+
+/**
+ * Regex patterns that a valid transport schedule stage must match.
+ * Rows that pass terminator detection but don't match any of these are skipped.
+ */
+const TRANSPORT_STAGE_PATTERNS = [
+  /pick\s*up/i,
+  /drop\s*off/i,
+  /transport/i,
+  /travel/i,
+  /load\s*(in|out|at)?/i,
+  /unload/i,
+  /\bset\b/i,
+  /\bshow\b/i,
+  /\bstrike\b/i,
+  /rental\s*(pickup|return)/i,
+  /day\s*\d+/i,
+  /\b\d{1,2}\/\d{1,2}/, // date-like stage
+];
+
+function isTransportStage(stage: string): boolean {
+  return TRANSPORT_STAGE_PATTERNS.some((re) => re.test(stage));
+}
+
 // v2/v1 combined date+time schedule labels
 const V2_SCHEDULE_LABELS = new Set([
   "rental pickup",
@@ -177,8 +236,14 @@ function parseV4Transport(
     // Skip the header itself
     if (/^TRANSPORTATION\//i.test(col0)) continue;
 
+    // Block-boundary detection: stop when we hit a known non-transport section label
+    if (seenDateHeader && TRANSPORT_BLOCK_TERMINATORS.has(col0.toLowerCase())) break;
+
     // Schedule rows: after seeing DATE header, or when col0 matches known stage labels
     if (seenDateHeader || V2_SCHEDULE_LABELS.has(label)) {
+      // Skip rows that don't look like transport stages (allowlist guard)
+      if (seenDateHeader && col0 && !isTransportStage(col0)) continue;
+
       const dateVal = cells[dateColIdx] !== undefined ? clean(cells[dateColIdx]!) : col1;
       const timeVal = cells[timeColIdx] !== undefined ? clean(cells[timeColIdx]!) : "";
 
