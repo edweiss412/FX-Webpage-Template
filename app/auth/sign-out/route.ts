@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { clearBootstrapCookie, clearSessionCookie } from "@/lib/auth/cookies";
+import {
+  clearBootstrapCookie,
+  clearSessionCookie,
+  decodeSessionCookieValue,
+  SESSION_COOKIE_NAME,
+} from "@/lib/auth/cookies";
+import { deleteSession } from "@/lib/auth/validateLinkSession";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 function clearSupabaseAuthCookies(request: NextRequest, response: NextResponse): void {
@@ -16,8 +22,26 @@ function clearSupabaseAuthCookies(request: NextRequest, response: NextResponse):
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
-  const supabase = await createSupabaseServerClient();
-  await supabase.auth.signOut();
+  const envelope = decodeSessionCookieValue(
+    request.cookies.get(SESSION_COOKIE_NAME)?.value,
+  );
+  if (envelope) {
+    try {
+      await deleteSession(envelope.token);
+    } catch (error) {
+      console.error("signOut: link session delete failed", error);
+    }
+  }
+
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error("signOut: Supabase signOut failed", error);
+    }
+  } catch (error) {
+    console.error("signOut: Supabase signOut failed", error);
+  }
 
   const response = NextResponse.redirect(new URL("/auth/sign-in", request.url), { status: 303 });
   response.headers.append("Set-Cookie", clearSessionCookie());

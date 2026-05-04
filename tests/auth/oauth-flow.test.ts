@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
+import { encodeSessionCookieValue } from "@/lib/auth/cookies";
+
 const server = vi.hoisted(() => ({
   client: {
     auth: {
@@ -10,11 +12,30 @@ const server = vi.hoisted(() => ({
     },
     rpc: vi.fn(),
   },
+  service: {
+    deletedTokens: [] as string[],
+    deleteError: null as { message: string } | null,
+  },
   createSupabaseServerClient: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: server.createSupabaseServerClient,
+  createSupabaseServiceRoleClient: () => ({
+    from(table: string) {
+      if (table !== "link_sessions") {
+        throw new Error(`unexpected table ${table}`);
+      }
+      return {
+        delete: () => ({
+          eq: (_column: string, token: string) => {
+            server.service.deletedTokens.push(token);
+            return Promise.resolve({ error: server.service.deleteError });
+          },
+        }),
+      };
+    },
+  }),
 }));
 
 function locationOf(response: Response): string {
@@ -147,12 +168,17 @@ describe("OAuth callback route", () => {
 });
 
 describe("OAuth sign-out route", () => {
+  const sessionToken = "11111111-1111-4111-8111-111111111111";
+  const showId = "22222222-2222-4222-8222-222222222222";
+
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
     process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.test";
     server.createSupabaseServerClient.mockResolvedValue(server.client);
     server.client.auth.signOut.mockResolvedValue({ error: null });
+    server.service.deletedTokens = [];
+    server.service.deleteError = null;
   });
 
   test("POST clears Supabase Auth plus FXAV session and bootstrap cookies atomically", async () => {
@@ -180,6 +206,105 @@ describe("OAuth sign-out route", () => {
     expect(setCookies).toContain(
       "sb-test-auth-token-code-verifier=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
     );
+  });
+
+  test("POST with a valid FXAV session cookie deletes the link_sessions row and clears cookies", async () => {
+    const { POST } = await import("@/app/auth/sign-out/route");
+
+    const response = await POST(
+      new NextRequest("https://crew.fxav.test/auth/sign-out", {
+        method: "POST",
+        headers: {
+          cookie: `__Host-fxav_session=${encodeSessionCookieValue({
+            token: sessionToken,
+            show_id: showId,
+          })}; __Host-fxav_bootstrap_v=bootstrap; sb-test-auth-token=auth`,
+        },
+      }),
+    );
+
+    expect(response.status).toBe(303);
+    expect(server.service.deletedTokens).toEqual([sessionToken]);
+    const setCookies = setCookieLines(response).join("\n");
+    expect(setCookies).toContain("__Host-fxav_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+    expect(setCookies).toContain(
+      "__Host-fxav_bootstrap_v=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
+    expect(setCookies).toContain("sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+  });
+
+  test("POST without an FXAV session cookie skips DB delete and still clears cookies", async () => {
+    const { POST } = await import("@/app/auth/sign-out/route");
+
+    const response = await POST(
+      new NextRequest("https://crew.fxav.test/auth/sign-out", {
+        method: "POST",
+        headers: {
+          cookie: "__Host-fxav_bootstrap_v=bootstrap; sb-test-auth-token=auth",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(303);
+    expect(server.service.deletedTokens).toEqual([]);
+    const setCookies = setCookieLines(response).join("\n");
+    expect(setCookies).toContain("__Host-fxav_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+    expect(setCookies).toContain(
+      "__Host-fxav_bootstrap_v=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
+    expect(setCookies).toContain("sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+  });
+
+  test("POST with malformed FXAV session cookie skips DB delete and still clears cookies", async () => {
+    const { POST } = await import("@/app/auth/sign-out/route");
+
+    const response = await POST(
+      new NextRequest("https://crew.fxav.test/auth/sign-out", {
+        method: "POST",
+        headers: {
+          cookie: "__Host-fxav_session=%xy; __Host-fxav_bootstrap_v=bootstrap; sb-test-auth-token=auth",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(303);
+    expect(server.service.deletedTokens).toEqual([]);
+    const setCookies = setCookieLines(response).join("\n");
+    expect(setCookies).toContain("__Host-fxav_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+    expect(setCookies).toContain(
+      "__Host-fxav_bootstrap_v=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
+    expect(setCookies).toContain("sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+  });
+
+  test("POST logs link-session delete errors but still redirects with cookies cleared", async () => {
+    server.service.deleteError = { message: "fake DB outage" };
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { POST } = await import("@/app/auth/sign-out/route");
+
+    const response = await POST(
+      new NextRequest("https://crew.fxav.test/auth/sign-out", {
+        method: "POST",
+        headers: {
+          cookie: `__Host-fxav_session=${encodeSessionCookieValue({
+            token: sessionToken,
+            show_id: showId,
+          })}; __Host-fxav_bootstrap_v=bootstrap; sb-test-auth-token=auth`,
+        },
+      }),
+    );
+
+    expect(response.status).toBe(303);
+    expect(server.service.deletedTokens).toEqual([sessionToken]);
+    expect(errorSpy).toHaveBeenCalled();
+    const setCookies = setCookieLines(response).join("\n");
+    expect(setCookies).toContain("__Host-fxav_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+    expect(setCookies).toContain(
+      "__Host-fxav_bootstrap_v=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
+    expect(setCookies).toContain("sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+
+    errorSpy.mockRestore();
   });
 
   test("GET returns 405", async () => {
