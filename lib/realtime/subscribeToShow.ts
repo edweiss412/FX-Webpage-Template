@@ -58,6 +58,25 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type ShowInvalidationChannel = ReturnType<SupabaseClient["channel"]>;
 
+/**
+ * Shape of the `invalidate` broadcast payload emitted by both server-side
+ * publishers (the statement triggers in
+ * supabase/migrations/20260501001000_internal_and_admin.sql:58-104 and the
+ * explicit helper in 20260503000000_publish_show_invalidation_helper.sql).
+ *
+ * Exported so test fakes (and any future consumer that needs to construct or
+ * narrow these payloads) can import a single type rather than redeclaring
+ * the same literal — the inline redeclaration was a Minor finding from the
+ * Task 4.16 Checkpoint A code-quality review.
+ *
+ * `show_id` is optional in the type because the runtime guard at line ~92
+ * defends against payloads that omit it (a misrouted broadcast or a future
+ * publisher bug); narrowing here would defeat the negative-control test
+ * that fires `{ payload: { version_token } }` (no show_id) and asserts the
+ * handler ignores it.
+ */
+export type InvalidatePayload = { show_id?: string; version_token: string };
+
 export function subscribeToShow(
   supabase: SupabaseClient,
   showId: string,
@@ -85,10 +104,7 @@ export function subscribeToShow(
     .on(
       "broadcast",
       { event: "invalidate" },
-      (msg: {
-        event: string;
-        payload: { show_id?: string; version_token: string };
-      }) => {
+      (msg: { event: string; payload: InvalidatePayload }) => {
         if (msg.payload?.show_id !== showId) {
           return;
         }

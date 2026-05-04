@@ -16,7 +16,10 @@
  *   - Returns the channel handle for later removeChannel cleanup.
  */
 import { describe, expect, test } from "vitest";
-import { subscribeToShow } from "@/lib/realtime/subscribeToShow";
+import {
+  subscribeToShow,
+  type InvalidatePayload,
+} from "@/lib/realtime/subscribeToShow";
 
 function makeFakeSupabase() {
   const setAuthCalls: string[] = [];
@@ -26,10 +29,7 @@ function makeFakeSupabase() {
     config: { event: string };
   }> = [];
   let registeredHandler:
-    | ((msg: {
-        event: string;
-        payload: { show_id?: string; version_token: string };
-      }) => void)
+    | ((msg: { event: string; payload: InvalidatePayload }) => void)
     | null = null;
   let subscribed = false;
 
@@ -37,10 +37,7 @@ function makeFakeSupabase() {
     on(
       event: string,
       config: { event: string },
-      handler: (msg: {
-        event: string;
-        payload: { show_id?: string; version_token: string };
-      }) => void,
+      handler: (msg: { event: string; payload: InvalidatePayload }) => void,
     ) {
       onCalls.push({ event, config });
       registeredHandler = handler;
@@ -67,10 +64,7 @@ function makeFakeSupabase() {
   return {
     supabase,
     state: { setAuthCalls, channelCalls, onCalls },
-    fire: (msg: {
-      event: string;
-      payload: { show_id?: string; version_token: string };
-    }) => {
+    fire: (msg: { event: string; payload: InvalidatePayload }) => {
       if (!registeredHandler) throw new Error("no handler registered");
       registeredHandler(msg);
     },

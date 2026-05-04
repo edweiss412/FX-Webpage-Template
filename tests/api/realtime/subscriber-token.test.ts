@@ -16,6 +16,12 @@
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
+import type { ShowViewerFixture } from "@/tests/_helpers/showViewerFixtures";
+import {
+  mockAdminViewer,
+  mockCrewGoogleViewer,
+  mockCrewLinkViewer,
+} from "@/tests/_helpers/showViewerFixtures";
 
 const TEST_JWT_SECRET = "test-secret-32-bytes-long-pad-pad-pad-pad-pad";
 const TEST_REALTIME_ISS = "supabase-realtime-test";
@@ -26,22 +32,10 @@ process.env.SUPABASE_REALTIME_ISS = TEST_REALTIME_ISS;
 const resolveMock = vi.hoisted(() => {
   return {
     state: {
-      result: { kind: "denied", reason: "no_credentials" } as
-        | { kind: "admin"; email: string; show_id: string }
-        | { kind: "crew_link"; show_id: string; crew_member_id: string }
-        | {
-            kind: "crew_google";
-            email: string;
-            show_id: string;
-            crew_member_id: string;
-          }
-        | { kind: "denied"; reason: string }
-        | {
-            kind: "forbidden";
-            reason: string;
-            show_id: string;
-            email?: string;
-          },
+      result: {
+        kind: "denied",
+        reason: "no_credentials",
+      } as ShowViewerFixture,
     },
   };
 });
@@ -86,11 +80,7 @@ describe("POST /api/realtime/subscriber-token", () => {
   });
 
   test("admin → 200 + { jwt, exp }; JWT verifies + claim shape exact", async () => {
-    resolveMock.state.result = {
-      kind: "admin",
-      email: "edweiss412@gmail.com",
-      show_id: "show-uuid-1",
-    };
+    resolveMock.state.result = mockAdminViewer("show-uuid-1");
     const res = await POST(makeReq({ slug: "test-show" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { jwt: string; exp: number };
@@ -119,11 +109,7 @@ describe("POST /api/realtime/subscriber-token", () => {
   });
 
   test("crew_link → 200, viewer_kind=crew_link, sub=crew_member_id", async () => {
-    resolveMock.state.result = {
-      kind: "crew_link",
-      show_id: "show-uuid-1",
-      crew_member_id: "crew-99",
-    };
+    resolveMock.state.result = mockCrewLinkViewer("show-uuid-1", "crew-99");
     const res = await POST(makeReq({ slug: "test-show" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { jwt: string };
@@ -137,12 +123,7 @@ describe("POST /api/realtime/subscriber-token", () => {
   });
 
   test("crew_google → 200, viewer_kind=crew_google, sub=crew_member_id", async () => {
-    resolveMock.state.result = {
-      kind: "crew_google",
-      email: "alice@fxav.test",
-      show_id: "show-uuid-1",
-      crew_member_id: "crew-77",
-    };
+    resolveMock.state.result = mockCrewGoogleViewer("show-uuid-1", "crew-77");
     const res = await POST(makeReq({ slug: "test-show" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { jwt: string };
@@ -155,11 +136,7 @@ describe("POST /api/realtime/subscriber-token", () => {
   });
 
   test("missing slug in body → 400", async () => {
-    resolveMock.state.result = {
-      kind: "admin",
-      email: "edweiss412@gmail.com",
-      show_id: "show-uuid-1",
-    };
+    resolveMock.state.result = mockAdminViewer("show-uuid-1");
     const res = await POST(makeReq({}));
     expect(res.status).toBe(400);
   });
@@ -185,5 +162,61 @@ describe("POST /api/realtime/subscriber-token", () => {
     const forbidden = await POST(makeReq({ slug: "test-show" }));
     expect(denied.status).toBe(401);
     expect(forbidden.status).toBe(403);
+  });
+
+  test("SUPABASE_JWT_SECRET shorter than 32 bytes → 500 SHOW_REALTIME_TOKEN_MISCONFIGURED (HS256 RFC 7518 §3.2)", async () => {
+    // HS256 requires the HMAC key be ≥32 bytes / 256 bits. A shorter secret
+    // signs successfully but verifies weakly. The route must refuse to mint
+    // rather than emit a structurally-correct JWT against an under-strength
+    // key. Per Task 4.16 Checkpoint A code-quality review (Important 4).
+    //
+    // Failure mode this test catches: a deployment with a misconfigured
+    // (too-short) SUPABASE_JWT_SECRET would otherwise mint signed JWTs the
+    // attacker could brute-force; this 500 fails fast and surfaces the
+    // misconfiguration in logs.
+    const original = process.env.SUPABASE_JWT_SECRET;
+    process.env.SUPABASE_JWT_SECRET = "short-secret"; // 12 bytes
+    // Use a viewer arm that would otherwise mint successfully so the 500
+    // is provably from the secret-length check, not from auth.
+    resolveMock.state.result = mockAdminViewer("show-uuid-1");
+    // Silence the expected console.error so the test output stays clean.
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const res = await POST(makeReq({ slug: "test-show" }));
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { error?: string };
+      expect(body.error).toBe("SHOW_REALTIME_TOKEN_MISCONFIGURED");
+      // Internal log fired (operators see the misconfiguration); the secret
+      // itself MUST NOT appear in the log message.
+      expect(errorSpy).toHaveBeenCalled();
+      const logged = errorSpy.mock.calls.flat().join(" ");
+      expect(logged).not.toContain("short-secret");
+    } finally {
+      errorSpy.mockRestore();
+      if (original === undefined) {
+        delete process.env.SUPABASE_JWT_SECRET;
+      } else {
+        process.env.SUPABASE_JWT_SECRET = original;
+      }
+    }
+  });
+
+  test("SUPABASE_JWT_SECRET exactly 32 bytes → 200 (boundary, accepted)", async () => {
+    // Boundary check: a 32-byte secret is the minimum acceptable HS256 key.
+    // This test pins the boundary so a future regression that uses `>` instead
+    // of `>=` would fail.
+    const original = process.env.SUPABASE_JWT_SECRET;
+    process.env.SUPABASE_JWT_SECRET = "x".repeat(32); // exactly 32 bytes
+    resolveMock.state.result = mockAdminViewer("show-uuid-1");
+    try {
+      const res = await POST(makeReq({ slug: "test-show" }));
+      expect(res.status).toBe(200);
+    } finally {
+      if (original === undefined) {
+        delete process.env.SUPABASE_JWT_SECRET;
+      } else {
+        process.env.SUPABASE_JWT_SECRET = original;
+      }
+    }
   });
 });

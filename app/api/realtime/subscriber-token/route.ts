@@ -36,6 +36,14 @@ import { resolveShowViewer } from "@/lib/auth/resolveShowViewer";
 
 const TOKEN_TTL_SECONDS = 5 * 60;
 
+// HS256 (RFC 7518 §3.2) requires the HMAC key be at least as long as the
+// hash output — 32 bytes / 256 bits. A shorter secret signs successfully but
+// verifies weakly; we refuse to mint rather than emit a structurally-correct
+// JWT against an under-strength key. The check is on UTF-8 byte length, not
+// character length, since the secret is encoded as bytes via TextEncoder
+// when handed to `jose`.
+const MIN_HS256_SECRET_BYTES = 32;
+
 export async function POST(request: NextRequest): Promise<Response> {
   let body: { slug?: unknown };
   try {
@@ -72,10 +80,53 @@ export async function POST(request: NextRequest): Promise<Response> {
       { status: 500 },
     );
   }
+  if (Buffer.byteLength(secret, "utf8") < MIN_HS256_SECRET_BYTES) {
+    // HS256 requires ≥32 bytes / 256 bits of secret material per RFC 7518
+    // §3.2. A shorter SUPABASE_JWT_SECRET produces a weakly-verifiable JWT.
+    // Log an internal error WITHOUT echoing the secret itself, then refuse
+    // to mint with the same misconfiguration code (the client cannot
+    // distinguish missing-env from short-secret — that's intentional;
+    // operators see the full picture in logs).
+    console.error(
+      "[/api/realtime/subscriber-token] SUPABASE_JWT_SECRET is shorter than 32 bytes; refusing to mint HS256 JWT",
+    );
+    return NextResponse.json(
+      { error: "SHOW_REALTIME_TOKEN_MISCONFIGURED" },
+      { status: 500 },
+    );
+  }
 
   const showId = viewer.show_id;
-  const sub = viewer.kind === "admin" ? "<admin>" : viewer.crew_member_id;
-  const viewerKind = viewer.kind; // 'admin' | 'crew_link' | 'crew_google'
+
+  // Exhaustive switch over the success arms. Adding a 6th `ShowViewer` arm
+  // would fail to assign the new variant to `_exhaustive: never` and break
+  // the typecheck — preventing a silent regression where the new arm
+  // either falls through to the 500 branch or, worse, gets handled by an
+  // unrelated success arm via structural coincidence. Per Task 4.16
+  // Checkpoint A code-quality review (Important 2).
+  let sub: string;
+  let viewerKind: "admin" | "crew_link" | "crew_google";
+  switch (viewer.kind) {
+    case "admin":
+      sub = "<admin>";
+      viewerKind = "admin";
+      break;
+    case "crew_link":
+      sub = viewer.crew_member_id;
+      viewerKind = "crew_link";
+      break;
+    case "crew_google":
+      sub = viewer.crew_member_id;
+      viewerKind = "crew_google";
+      break;
+    default: {
+      const _exhaustive: never = viewer;
+      void _exhaustive;
+      return new Response("Unreachable subscriber-token viewer kind", {
+        status: 500,
+      });
+    }
+  }
 
   const exp = Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS;
 

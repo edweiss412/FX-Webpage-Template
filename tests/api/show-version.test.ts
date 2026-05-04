@@ -12,26 +12,20 @@
  */
 import { describe, expect, test, vi, beforeEach } from "vitest";
 import type { NextRequest } from "next/server";
+import type { ShowViewerFixture } from "@/tests/_helpers/showViewerFixtures";
+import {
+  mockAdminViewer,
+  mockCrewGoogleViewer,
+  mockCrewLinkViewer,
+} from "@/tests/_helpers/showViewerFixtures";
 
 const resolveMock = vi.hoisted(() => {
   return {
     state: {
-      result: { kind: "denied", reason: "no_credentials" } as
-        | { kind: "admin"; email: string; show_id: string }
-        | { kind: "crew_link"; show_id: string; crew_member_id: string }
-        | {
-            kind: "crew_google";
-            email: string;
-            show_id: string;
-            crew_member_id: string;
-          }
-        | { kind: "denied"; reason: string }
-        | {
-            kind: "forbidden";
-            reason: string;
-            show_id: string;
-            email?: string;
-          },
+      result: {
+        kind: "denied",
+        reason: "no_credentials",
+      } as ShowViewerFixture,
       lastSlug: null as null | string,
     },
   };
@@ -121,11 +115,7 @@ describe("GET /api/show/[slug]/version", () => {
   });
 
   test("admin → 200 + version_token (calls viewer_version_token RPC)", async () => {
-    resolveMock.state.result = {
-      kind: "admin",
-      email: "edweiss412@gmail.com",
-      show_id: "show-uuid-1",
-    };
+    resolveMock.state.result = mockAdminViewer("show-uuid-1");
     supaMock.state.versionToken = "1234567890";
     const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
     expect(res.status).toBe(200);
@@ -137,32 +127,19 @@ describe("GET /api/show/[slug]/version", () => {
   });
 
   test("crew_link → 200 + version_token", async () => {
-    resolveMock.state.result = {
-      kind: "crew_link",
-      show_id: "show-uuid-1",
-      crew_member_id: "crew-1",
-    };
+    resolveMock.state.result = mockCrewLinkViewer("show-uuid-1", "crew-1");
     const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
     expect(res.status).toBe(200);
   });
 
   test("crew_google → 200 + version_token", async () => {
-    resolveMock.state.result = {
-      kind: "crew_google",
-      email: "alice@fxav.test",
-      show_id: "show-uuid-1",
-      crew_member_id: "crew-1",
-    };
+    resolveMock.state.result = mockCrewGoogleViewer("show-uuid-1", "crew-1");
     const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
     expect(res.status).toBe(200);
   });
 
   test("RPC error after auth pass → 500 (does NOT leak as 200)", async () => {
-    resolveMock.state.result = {
-      kind: "admin",
-      email: "edweiss412@gmail.com",
-      show_id: "show-uuid-1",
-    };
+    resolveMock.state.result = mockAdminViewer("show-uuid-1");
     supaMock.state.rpcError = { message: "synthetic db error" };
     const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
     expect(res.status).toBe(500);

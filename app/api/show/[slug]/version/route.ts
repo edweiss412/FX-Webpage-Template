@@ -54,7 +54,27 @@ export async function GET(
   }
 
   // viewer is now admin | crew_link | crew_google — all carry show_id.
-  const showId = viewer.show_id;
+  // Exhaustive switch fence: adding a 6th `ShowViewer` arm would fail to
+  // assign the new variant to `_exhaustive: never` and break the typecheck,
+  // preventing a silent regression where the new arm either falls through
+  // to the 500 branch or gets read as one of the existing arms via
+  // structural coincidence. Per Task 4.16 Checkpoint A code-quality review
+  // (Important 2).
+  let showId: string;
+  switch (viewer.kind) {
+    case "admin":
+    case "crew_link":
+    case "crew_google":
+      showId = viewer.show_id;
+      break;
+    default: {
+      const _exhaustive: never = viewer;
+      void _exhaustive;
+      return new Response("Unreachable show-version viewer kind", {
+        status: 500,
+      });
+    }
+  }
 
   const svc = createSupabaseServiceRoleClient();
   const { data, error } = await svc.rpc("viewer_version_token", {
