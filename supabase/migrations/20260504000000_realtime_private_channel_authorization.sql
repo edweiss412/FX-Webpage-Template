@@ -69,7 +69,10 @@ begin
   return null;
 end;
 $$;
-revoke all on function public.publish_show_invalidation_after_statement() from public;
+-- Trigger-only helper, not intended as a REST RPC. Revoke anon/authenticated
+-- explicitly anyway because SECURITY DEFINER public-schema functions are
+-- exposed by Supabase unless locked down.
+revoke all on function public.publish_show_invalidation_after_statement() from public, anon, authenticated;
 
 -- ============================================================================
 -- (b) Replace publish_show_invalidation(uuid) helper to use realtime.send()
@@ -97,7 +100,7 @@ begin
   );
 end;
 $$;
-revoke all on function public.publish_show_invalidation(uuid) from public;
+revoke all on function public.publish_show_invalidation(uuid) from public, anon, authenticated;
 grant execute on function public.publish_show_invalidation(uuid) to service_role;
 
 -- ============================================================================
