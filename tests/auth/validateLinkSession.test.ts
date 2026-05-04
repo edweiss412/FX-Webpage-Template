@@ -27,6 +27,7 @@ const mockDb = vi.hoisted(() => ({
   crewMembers: new Map<string, CrewRow>(),
   crewAuth: new Map<string, AuthRow>(),
   revokedLinks: new Set<string>(),
+  errors: new Map<string, { message: string }>(),
   deletedTokens: [] as string[],
   touchedTokens: [] as string[],
 }));
@@ -66,7 +67,7 @@ function tableClient(table: string) {
         eq: (_column: string, value: string) => ({
           maybeSingle: async () => ({
             data: mockDb.linkSessions.get(value) ?? null,
-            error: null,
+            error: mockDb.errors.get("link_sessions:select") ?? null,
           }),
         }),
       }),
@@ -93,7 +94,7 @@ function tableClient(table: string) {
         eq: (_column: string, value: string) => ({
           maybeSingle: async () => ({
             data: mockDb.crewMembers.get(value) ?? null,
-            error: null,
+            error: mockDb.errors.get("crew_members:select") ?? null,
           }),
         }),
       }),
@@ -106,7 +107,7 @@ function tableClient(table: string) {
           eq: (_column2: string, crewName: string) => ({
             maybeSingle: async () => ({
               data: mockDb.crewAuth.get(authKey(showId, crewName)) ?? null,
-              error: null,
+              error: mockDb.errors.get("crew_member_auth:select") ?? null,
             }),
           }),
         }),
@@ -125,7 +126,7 @@ function tableClient(table: string) {
                 )
                   ? { token_version: tokenVersion }
                   : null,
-                error: null,
+                error: mockDb.errors.get("revoked_links:select") ?? null,
               }),
             }),
           }),
@@ -184,6 +185,7 @@ beforeEach(() => {
   mockDb.crewMembers.clear();
   mockDb.crewAuth.clear();
   mockDb.revokedLinks.clear();
+  mockDb.errors.clear();
   mockDb.deletedTokens = [];
   mockDb.touchedTokens = [];
 });
@@ -298,4 +300,27 @@ describe("validateLinkSession", () => {
     });
     expect(mockDb.linkSessions.has(sessionToken)).toBe(false);
   });
+
+  test.each([
+    "link_sessions:select",
+    "crew_members:select",
+    "crew_member_auth:select",
+    "revoked_links:select",
+  ])(
+    "%s errors return terminal failure without deleting the session",
+    async (errorKey) => {
+      seedValidSession();
+      mockDb.errors.set(errorKey, { message: "fake DB outage" });
+
+      const result = await validateLinkSession(makeReq(cookieFor()), { showId });
+
+      expect(result).toEqual({
+        kind: "terminal_failure",
+        status: 500,
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+      });
+      expect(mockDb.deletedTokens).toEqual([]);
+      expect(mockDb.linkSessions.has(sessionToken)).toBe(true);
+    },
+  );
 });

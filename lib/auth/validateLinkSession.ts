@@ -70,6 +70,14 @@ function recoverable(
   return { kind: "continue", clearCookie: true, priorFailure: { status, code } };
 }
 
+function lookupFailure(): LinkSessionValidationResult {
+  return {
+    kind: "terminal_failure",
+    status: 500,
+    code: "ADMIN_SESSION_LOOKUP_FAILED",
+  };
+}
+
 async function deleteSession(token: string): Promise<void> {
   const supabase = createSupabaseServiceRoleClient();
   await supabase.from("link_sessions").delete().eq("token", token);
@@ -103,7 +111,7 @@ export async function validateLinkSession(
   }
 
   const supabase = createSupabaseServiceRoleClient();
-  const { data: session } = (await supabase
+  const { data: session, error: sessionError } = (await supabase
     .from("link_sessions")
     .select(
       "token,show_id,crew_member_id,jwt_token_version,signing_key_id,expires_at,last_active_at",
@@ -111,6 +119,9 @@ export async function validateLinkSession(
     .eq("token", envelope.token)
     .maybeSingle()) as { data: LinkSessionRow | null; error: unknown };
 
+  if (sessionError) {
+    return lookupFailure();
+  }
   if (!session) {
     return recoverable(401, "SESSION_NOT_FOUND");
   }
@@ -131,11 +142,7 @@ export async function validateLinkSession(
   try {
     activeSigningKeyId = await readActiveSigningKeyId();
   } catch {
-    return {
-      kind: "terminal_failure",
-      status: 500,
-      code: "ADMIN_SESSION_LOOKUP_FAILED",
-    };
+    return lookupFailure();
   }
   if (session.signing_key_id !== activeSigningKeyId) {
     await deleteSession(session.token);
@@ -156,23 +163,29 @@ export async function validateLinkSession(
     return deleteAndRecover(410, "LINK_NO_CREW_MATCH");
   }
 
-  const { data: crew } = (await supabase
+  const { data: crew, error: crewError } = (await supabase
     .from("crew_members")
     .select("id,show_id,name")
     .eq("id", session.crew_member_id)
     .maybeSingle()) as { data: CrewMemberRow | null; error: unknown };
 
+  if (crewError) {
+    return lookupFailure();
+  }
   if (!crew || crew.show_id !== context.showId) {
     return deleteAndRecover(410, "LINK_NO_CREW_MATCH");
   }
 
-  const { data: authRow } = (await supabase
+  const { data: authRow, error: authError } = (await supabase
     .from("crew_member_auth")
     .select("current_token_version,revoked_below_version")
     .eq("show_id", context.showId)
     .eq("crew_name", crew.name)
     .maybeSingle()) as { data: CrewMemberAuthRow | null; error: unknown };
 
+  if (authError) {
+    return lookupFailure();
+  }
   if (!authRow || session.jwt_token_version !== authRow.current_token_version) {
     return deleteAndRecover(410, "LINK_VERSION_MISMATCH");
   }
@@ -181,7 +194,7 @@ export async function validateLinkSession(
     return deleteAndRecover(410, "LINK_REVOKED_FLOOR");
   }
 
-  const { data: revoked } = (await supabase
+  const { data: revoked, error: revokedError } = (await supabase
     .from("revoked_links")
     .select("token_version")
     .eq("show_id", context.showId)
@@ -189,6 +202,9 @@ export async function validateLinkSession(
     .eq("token_version", session.jwt_token_version)
     .maybeSingle()) as { data: { token_version: number } | null; error: unknown };
 
+  if (revokedError) {
+    return lookupFailure();
+  }
   if (revoked) {
     return deleteAndRecover(410, "LINK_REVOKED_SURGICAL");
   }
@@ -198,10 +214,11 @@ export async function validateLinkSession(
     return deleteAndRecover(401, "SESSION_IDLE_TIMEOUT");
   }
 
-  await supabase
+  const { error: touchError } = await supabase
     .from("link_sessions")
     .update({ last_active_at: new Date().toISOString() })
     .eq("token", session.token);
+  void touchError;
 
   return {
     kind: "success",
