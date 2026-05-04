@@ -60,7 +60,20 @@ export async function validateGoogleSession(
   void req;
   const supabase = await createSupabaseServerClient();
   const { data: userResult, error: userError } = await supabase.auth.getUser();
-  if (userError || !userResult.user) {
+  if (userError) {
+    // R16 #1 (round-15 §A HIGH): pre-R16 the route collapsed any
+    // getUser() error into "continue", so a transient Supabase Auth
+    // outage looked identical to "no Google credentials." Through
+    // resolveShowViewer that fell to denied/no_credentials → 401,
+    // recreating the exact infra-as-auth masking class R15 was meant
+    // to eliminate. Surface as terminal_failure 500.
+    return {
+      kind: "terminal_failure",
+      status: 500,
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    };
+  }
+  if (!userResult.user) {
     return { kind: "continue" };
   }
 
