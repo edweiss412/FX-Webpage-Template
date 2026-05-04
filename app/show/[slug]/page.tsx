@@ -124,11 +124,14 @@ async function resolveShowIdFromSlug(slug: string): Promise<string | null> {
 
 /**
  * Build a synthetic Request whose `headers.cookie` carries the live cookie
- * store. The §A validators (`validateLinkSession`, `validateGoogleSession`,
- * `isAdminSession`) accept `req: Request` and only inspect
- * `req.headers.get('cookie')`; building a synthetic Request lets the chain
- * adapter consume their existing tri-state contract unchanged from the RSC
- * boundary.
+ * store. The synthetic Request is currently consumed only by
+ * `validateLinkSession`; `validateGoogleSession` and `isAdminSession`
+ * ignore their `req` parameter (`void req;` at the top of each) and read
+ * from `cookies()` / `headers()` from `next/headers` directly via their
+ * Supabase server-client helpers. The synthetic Request is still wired
+ * through every validator for forward-compatibility — if §A migrates
+ * those two validators to honor `req.headers.get('cookie')`, no chain
+ * adapter changes are needed. Tracked as carry-forward CF2.
  */
 async function buildRequestForChain(): Promise<Request> {
   const h = await headers();
@@ -172,12 +175,26 @@ async function tryRequireAdmin(): Promise<boolean> {
   try {
     await requireAdmin();
     return true;
-  } catch {
-    // Build-time gate (404) or auth-gate (403) raised. Drift between
-    // isAdminSession (predicate) and requireAdmin (chokepoint) — fall
-    // through. Intentionally swallow — the chain's later steps handle
-    // the not-admin outcome.
-    return false;
+  } catch (e) {
+    // requireAdmin raises via `notFound()` / `forbidden()`. Both produce
+    // an Error whose `digest` is `NEXT_HTTP_ERROR_FALLBACK;<status>` per
+    // node_modules/next/dist/client/components/http-access-fallback/
+    // http-access-fallback.js (HTTP_ERROR_FALLBACK_ERROR_CODE +
+    // HTTPAccessErrorStatus = {NOT_FOUND: 404, FORBIDDEN: 403,
+    // UNAUTHORIZED: 401}). Only swallow those navigation-control throws
+    // — they signal the EXPECTED drift between `isAdminSession`
+    // (predicate) and `requireAdmin` (chokepoint). Any other throw
+    // (DB outage, Supabase service down, JWT signing-key fetch failure,
+    // etc.) MUST propagate so it surfaces in Next's error boundary
+    // rather than silently degrading the admin path to "not authed".
+    const digest = (e as { digest?: unknown })?.digest;
+    if (
+      typeof digest === "string" &&
+      digest.startsWith("NEXT_HTTP_ERROR_FALLBACK;")
+    ) {
+      return false;
+    }
+    throw e;
   }
 }
 
@@ -268,11 +285,26 @@ async function resolveViewer(
         crewMemberId: google.viewer.crewMemberId,
       };
     } else if (google.kind === "terminal_failure") {
-      return {
-        viewer: null,
-        clearCookie,
-        terminalFailure: { status: google.status, code: google.code },
-      };
+      // §B workaround for §A contract bug (carry-forward CF4):
+      // `validateGoogleSession` returns `terminal_failure` with status 403
+      // and code `GOOGLE_NO_CREW_MATCH` when an authenticated Google user
+      // has no crew row on this show. Semantically that's "no match, fall
+      // through" — NOT an infrastructure failure. The `requireAdmin()`
+      // step 4 fallback must still get a chance to resolve env-allowlisted
+      // admins whose `isAdminSession` predicate missed in step 1 (e.g.,
+      // app_metadata.role='admin' shapes that the predicate didn't pick
+      // up). Until §A switches `GOOGLE_NO_CREW_MATCH` to `continue`, we
+      // treat status-403 terminal_failures from this step as continue.
+      // Status-500 (AMBIGUOUS_EMAIL_BINDING, ADMIN_SESSION_LOOKUP_FAILED)
+      // remains a real terminal_failure — we still stop the chain there.
+      if (google.status !== 403) {
+        return {
+          viewer: null,
+          clearCookie,
+          terminalFailure: { status: google.status, code: google.code },
+        };
+      }
+      // Fall through (status 403 — treat as continue).
     }
     // continue: nothing to OR (validateGoogleSession's continue arm has
     // no clearCookie flag).

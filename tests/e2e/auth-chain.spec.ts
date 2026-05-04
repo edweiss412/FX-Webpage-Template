@@ -344,11 +344,10 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     // validateLinkSession's revoke check fires (continue + clearCookie).
     // With a valid Google session for the same show's crew (googleCrew),
     // the chain falls through link → google → success.
-    const { token, cookieValue } = await seedLinkSession({
+    const { cookieValue } = await seedLinkSession({
       showId,
       crewMemberId: googleCrewId,
     });
-    void token;
     // Surgical revoke at the matching version.
     const revoke = await admin.from("revoked_links").insert({
       show_id: showId,
@@ -788,7 +787,6 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
 
   // ─── Test 12 (NEW): A→B→A burn pattern ────────────────────────────────
   test("Test 12: A→B→A burn — link cookie for show A, navigate to show B, then back to A; cookie burned and link_session DELETEd", async ({
-    page,
     request,
   }) => {
     // Stage: redeemed cookie for show A (showId).
@@ -879,12 +877,148 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
       `/show/${slug}`,
     );
 
-    // Sanity browser-driven: with the burned link cookie still in the
-    // browser context (it was set by addCookies before the first nav, but
-    // the clear-session hop wasn't followed in the request flow above), a
-    // browser-driven goto follows redirects naturally and lands on the
-    // sign-in page after the cookie is cleared.
-    void page;
+    // Note: a browser-driven sanity follow-up was originally written here
+    // but proved redundant — the request-mode flow above already proves
+    // (a) the page-redirect → clear-session → sign-in chain emits the
+    // canonical clear-cookie marker (assertHostFxavSessionClear) and
+    // (b) the link_sessions row was DELETEd by validateLinkSession's
+    // wrong-show side effect. Re-running the same flow through the
+    // browser fixture exercises no additional contract. Removed to drop
+    // the unused `page` fixture (M5 §B Task 5.7 M2 fix).
+  });
+
+  // ─── Test 13 (NEW, C1 regression): Google user not on this show's crew
+  //     does NOT halt the chain on step 3 — falls through to step 4,
+  //     and (when step 4 also fails) lands on /auth/sign-in. ────────────
+  test("Test 13a (C1): Google user whose email has no crew row on this show falls through step 3 (NOT a terminal_failure) and reaches /auth/sign-in", async ({
+    page,
+    request,
+  }) => {
+    // C1 contract: validateGoogleSession returns
+    //   { kind: 'terminal_failure', status: 403, code: 'GOOGLE_NO_CREW_MATCH' }
+    // when an authenticated Google user has no crew row on the requested
+    // show. Pre-fix, the chain adapter treated ALL terminal_failures
+    // identically: `notFound()` (the catch-all 404 page). That swallowed
+    // the rare-but-real case where a non-admin Google user lands on a
+    // show they're not part of — they got 404 instead of being redirected
+    // to /auth/sign-in. Post-fix, status-403 terminal_failure from step
+    // 3 is treated as `continue`; the chain proceeds to step 4
+    // (requireAdmin), and when THAT also fails to resolve, the page
+    // handler's "no viewer" branch redirects to /auth/sign-in.
+    //
+    // Setup: NON_ADMIN_CREW_FIXTURE has a crew row on the auth-chain
+    // show (`googleCrewId`) so by default validateGoogleSession resolves
+    // a viewer for it. To exercise GOOGLE_NO_CREW_MATCH we DELETE that
+    // crew row for the duration of the test, then restore it inline.
+    const beforeDelete = await admin
+      .from("crew_members")
+      .delete()
+      .eq("id", googleCrewId);
+    if (beforeDelete.error) throw new Error(beforeDelete.error.message);
+
+    try {
+      await signInAs(page, NON_ADMIN_CREW_FIXTURE, { baseUrl: TEST_BASE_URL });
+      const cookies = await page.context().cookies("http://127.0.0.1:3000");
+      const cookieHeader = cookies
+        .map((c) => `${c.name}=${c.value}`)
+        .join("; ");
+
+      const response = await request.get(
+        `http://127.0.0.1:3000/show/${slug}`,
+        { maxRedirects: 0, headers: { cookie: cookieHeader } },
+      );
+      // The C1 contract: NOT a 404 (terminal_failure → notFound) and
+      // NOT a 200 (no viewer should resolve). MUST be a redirect to
+      // /auth/sign-in (no-viewer branch in the page handler).
+      expect(
+        response.status(),
+        "GOOGLE_NO_CREW_MATCH must NOT be treated as a terminal failure (would 404)",
+      ).not.toBe(404);
+      expect([302, 303, 307, 308]).toContain(response.status());
+      const location = response.headers()["location"];
+      expect(location).toBeTruthy();
+      const url = new URL(location ?? "", "http://127.0.0.1:3000");
+      expect(url.pathname).toBe("/auth/sign-in");
+      expect(decodeURIComponent(url.searchParams.get("next") ?? "")).toBe(
+        `/show/${slug}`,
+      );
+    } finally {
+      // Restore the googleCrew row so subsequent tests in this file (and
+      // beforeEach reset assumptions) see it.
+      const restore = await admin.from("crew_members").insert({
+        id: googleCrewId,
+        show_id: showId,
+        name: googleCrewName,
+        email: NON_ADMIN_CREW_FIXTURE.email,
+        role: "A1",
+        role_flags: ["A1"],
+      });
+      if (restore.error) throw new Error(restore.error.message);
+    }
+  });
+
+  // ─── Test 13b (SKIP, C1 admin-fallback exact path): drift between
+  //     isAdminSession and requireAdmin where Google step short-circuits
+  //     before admin step gets a chance — fixture gap. ─────────────────
+  test.skip("Test 13b (C1, FIXTURE GAP): Google user not on crew + admin-allowlisted email triggers requireAdmin fallback after step-3 fall-through", () => {
+    // TODO(test-fixture-gap): the §B prompt's exact scenario requires
+    // a Google identity for which:
+    //   (a) the email has no crew row on this show (forces step 3
+    //       GOOGLE_NO_CREW_MATCH), AND
+    //   (b) `isAdminSession` returns FALSE but `requireAdmin` returns
+    //       success (i.e., the rare drift between the predicate and the
+    //       chokepoint).
+    //
+    // Today's harness has no such fixture: both `isAdminSession` and
+    // `requireAdmin` consult the SAME `public.is_admin()` RPC + the
+    // same email allowlist + JWT `app_metadata.role='admin'` shape.
+    // There is no implementation-level divergence to exploit. To pin
+    // the exact drift path the C1 prompt names, we'd need either:
+    //   - a third sign-in fixture with `app_metadata.role='admin'` that
+    //     is ALSO not in the email allowlist AND somehow not seen by
+    //     `isAdminSession` (would require diverging the two helpers'
+    //     getUser() calls), OR
+    //   - a DB-level mock (e.g., a temporarily wedged `is_admin()`
+    //     return) that returns false for the predicate's call but true
+    //     for the chokepoint's — out of scope for §B.
+    //
+    // Test 13a above proves the SUBSTANTIVE C1 contract (no terminal
+    // failure on GOOGLE_NO_CREW_MATCH; chain reaches step 4 + the
+    // no-viewer redirect tail). Test 13b would prove the symmetrical
+    // case where step 4 RESOLVES — which is dead code in this harness.
+    // Tracked as test-fixture-gap; defer until §A introduces a real
+    // drift path or fixture.
+  });
+
+  // ─── Test 14 (NEW, C2 regression): runtime errors from requireAdmin
+  //     propagate; chain does NOT silently degrade to "not authed". ────
+  test.skip("Test 14 (C2, PLUMBING GAP): requireAdmin runtime fault propagates to Next's error boundary instead of silent fall-through", () => {
+    // TODO(test-plumbing-gap): the C2 fix in tryRequireAdmin inspects
+    // the caught error's `digest` field and only swallows
+    // `NEXT_HTTP_ERROR_FALLBACK;<status>` (the navigation-control shape
+    // produced by `notFound()` / `forbidden()` / `unauthorized()` per
+    // node_modules/next/dist/client/components/http-access-fallback/
+    // http-access-fallback.js). Any other throw — DB outage, Supabase
+    // service down, JWT signing-key fetch failure, etc. — re-throws
+    // and surfaces in Next's error boundary as a 500-class response.
+    //
+    // To exercise this end-to-end we'd need to inject a synthetic
+    // failure into the cookie-bound Supabase client used inside
+    // `requireAdmin()` (lib/auth/requireAdmin.ts:38-55) — either by
+    // mocking `createSupabaseServerClient` (unavailable in Playwright
+    // without a per-test process restart) or wedging the underlying
+    // network/DB so `is_admin` RPC throws a connection error (would
+    // affect every other test running concurrently against the same
+    // shared dev server).
+    //
+    // The unit-test layer is the right surface for this: a Vitest
+    // suite that mocks `requireAdmin` to throw a fresh
+    // `Error('synthetic db down')` and asserts `tryRequireAdmin`
+    // re-throws (vs. swallowing). Out of scope for the e2e suite.
+    //
+    // Tracked as test-plumbing-gap; the C2 fix in app/show/[slug]/page.tsx
+    // (only swallow NEXT_HTTP_ERROR_FALLBACK; digests, re-throw the
+    // rest) is the semantic guarantee, even without an e2e probe.
   });
 
   // ─── Orphan-token (existing): cleared and redirected to sign-in ──────

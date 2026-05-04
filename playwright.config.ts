@@ -44,7 +44,11 @@ export default defineConfig({
       use: {
         ...devices["iPhone 14"],
         viewport: { width: 390, height: 844 },
-        baseURL: "http://localhost:3000",
+        // M5 §B Task 5.7 I2: 127.0.0.1 (NOT localhost) — matches the
+        // explicit `-H 127.0.0.1` binding on the port-3000 webServer
+        // and the auth-chain spec's TEST_BASE_URL. Avoids dual-stack
+        // ::1 vs 127.0.0.1 mismatch on macOS / Linux.
+        baseURL: "http://127.0.0.1:3000",
       },
     },
     {
@@ -53,7 +57,8 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },
-        baseURL: "http://localhost:3000",
+        // M5 §B Task 5.7 I2: see mobile-safari baseURL comment.
+        baseURL: "http://127.0.0.1:3000",
       },
     },
     {
@@ -100,14 +105,25 @@ export default defineConfig({
   ],
   webServer: [
     {
-      // M0 baseline server (port 3000) — covers the existing sample.spec.ts
-      // AND the M5 §B Task 5.7 auth-chain spec. The latter exercises
-      // signInAs(ADMIN_FIXTURE) / signInAs(NON_ADMIN_CREW_FIXTURE) which
-      // POST /api/test-auth/set-session — so this baseline server needs
+      // M0 baseline server — widened in M5 §B to support the auth-chain
+      // spec (signInAs(ADMIN_FIXTURE) / signInAs(NON_ADMIN_CREW_FIXTURE)
+      // POSTs /api/test-auth/set-session, so the baseline server needs
       // the same ENABLE_TEST_AUTH+TEST_AUTH_SECRET pair the dev-build /
-      // prod-build webServers carry. The endpoint's gates (host allowlist,
-      // email allowlist, create-only) keep the surface bounded; the secret
-      // is the same per-run constant the other servers use.
+      // prod-build webServers carry). The endpoint's gates (host
+      // allowlist, email allowlist, create-only) keep the surface
+      // bounded; the secret is the same per-run constant the other
+      // servers use.
+      //
+      // Hostname binding (M5 §B Task 5.7 I2 fix): the auth-chain spec
+      // uses 127.0.0.1 as TEST_BASE_URL because Playwright's addCookies
+      // rejects "localhost" as a domain attribute. On dual-stack systems
+      // where `localhost` resolves to `::1`, a server bound to "localhost"
+      // alone may not be reachable via 127.0.0.1. We bind explicitly to
+      // 127.0.0.1 via Next.js's `-H` flag (dev) / `--hostname` (start)
+      // and continue to use `url: http://127.0.0.1:3000` so Playwright's
+      // readiness probe targets the same address tests do. Other server
+      // entries (3001/3002/3003) only exercise admin-dev specs which
+      // don't use addCookies and aren't affected.
       //
       // ADMIN_DEV_PANEL_ENABLED=true is also set so the chain-adapter's
       // requireAdmin() call (after isAdminSession success — controller
@@ -116,9 +132,9 @@ export default defineConfig({
       // admin-dev project hits it), so the wider gate doesn't affect any
       // other test surface.
       command: process.env.CI
-        ? "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm build && JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm start"
-        : "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm dev",
-      url: "http://localhost:3000",
+        ? "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm build && JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm start -H 127.0.0.1"
+        : "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm dev -H 127.0.0.1",
+      url: "http://127.0.0.1:3000",
       reuseExistingServer: !process.env.CI,
       timeout: process.env.CI ? 120_000 : 60_000,
     },
