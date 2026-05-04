@@ -69,6 +69,11 @@ const mockState = vi.hoisted(() => ({
   }>,
   // Failure mode toggles — when set, the next insert returns this error.
   insertError: null as null | { message: string },
+  // R12 #3: defense-in-depth published-show gate inside bootstrapMint.
+  // Default true; tests that exercise the unpublished-show rejection
+  // path flip this to false.
+  showPublished: true as boolean,
+  showLookupError: null as null | { message: string },
   // Programmable cookie store. Tests pre-seed entries to exercise cap +
   // append behavior.
   cookieJar: new Map<
@@ -150,6 +155,23 @@ vi.mock("@/lib/supabase/server", () => ({
           }),
         };
       }
+      if (table === "shows") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => {
+                if (mockState.showLookupError) {
+                  return { data: null, error: mockState.showLookupError };
+                }
+                return {
+                  data: { published: mockState.showPublished },
+                  error: null,
+                };
+              },
+            }),
+          }),
+        };
+      }
       if (table === "bootstrap_nonces") {
         return {
           insert: async (row: {
@@ -198,6 +220,8 @@ function resetState() {
   mockState.signingKeyIdSequence = [];
   mockState.insertedNonces = [];
   mockState.insertError = null;
+  mockState.showPublished = true;
+  mockState.showLookupError = null;
   mockState.cookieJar.clear();
   mockState.setSpy.mockClear();
   mockState.withLockSpy.mockClear();
@@ -480,5 +504,39 @@ describe("bootstrapMint", () => {
     const arr = readCookieArray();
     expect(arr).toHaveLength(1);
     expect(arr[0]!.nonce_hash).toBe(await sha256Hex(r.nonce));
+  });
+
+  test("R12 #3: refuses unpublished shows; no row inserted; no cookie set", async () => {
+    // Round-11 §B HIGH: bootstrapMint had no defense-in-depth check
+    // for shows.published. The page-level gate at /show/[slug]/p
+    // (R11 #2) stops normal flow, but Server Actions have their own
+    // dispatch path; a direct caller could still mint a nonce and
+    // cookie entry against an unpublished show. Now bootstrapMint
+    // looks up shows.published inside the lock and throws if not
+    // published — no DB row, no cookie mutation, no signing-key read.
+    mockState.showPublished = false;
+    mockState.signingKeyIdSequence.push("k1");
+
+    await expect(bootstrapMint(VALID_SHOW_ID)).rejects.toThrow(
+      /show not available/,
+    );
+
+    expect(mockState.insertedNonces).toEqual([]);
+    expect(mockState.setSpy).not.toHaveBeenCalled();
+    // Signing-key sequence unconsumed — the published gate ran before
+    // the app_settings read.
+    expect(mockState.signingKeyIdSequence).toEqual(["k1"]);
+  });
+
+  test("R12 #3: shows.published lookup error throws before any mutation", async () => {
+    mockState.showLookupError = { message: "fake DB outage" };
+    mockState.signingKeyIdSequence.push("k1");
+
+    await expect(bootstrapMint(VALID_SHOW_ID)).rejects.toThrow(
+      /shows\.published lookup failed/,
+    );
+
+    expect(mockState.insertedNonces).toEqual([]);
+    expect(mockState.setSpy).not.toHaveBeenCalled();
   });
 });

@@ -174,6 +174,29 @@ export async function bootstrapMint(
   const result = await withShowAdvisoryLock(showId, "try", async () => {
     const supabase = createSupabaseServiceRoleClient();
 
+    // R12 #3 (round-11 §B HIGH): defense-in-depth published gate. R11
+    // #2 added the page-level gate at /show/[slug]/p/page.tsx, but
+    // Server Actions have their own dispatch path; an attacker who
+    // skips the page render and POSTs directly to this Server Action
+    // with an unpublished show UUID could still trigger DB/cookie
+    // mutation. Refuse unpublished shows here too — under the show
+    // advisory lock so the check + INSERT pair is consistent.
+    const visibility = await supabase
+      .from("shows")
+      .select("published")
+      .eq("id", showId)
+      .maybeSingle();
+    if (visibility.error) {
+      throw new Error(
+        `bootstrapMint: shows.published lookup failed: ${visibility.error.message}`,
+      );
+    }
+    if (!visibility.data || !visibility.data.published) {
+      // Throw the same shape as malformed-input — clients see a
+      // generic Server Action failure, not a published-state oracle.
+      throw new Error("bootstrapMint: show not available");
+    }
+
     // (1) Read active signing key id INSIDE the lock so concurrent
     // §7.2.3 rotation can't slip between this SELECT and the INSERT
     // below. The captured value is then used as the SAME source-of-truth
