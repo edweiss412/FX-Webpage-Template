@@ -72,6 +72,7 @@ export function FinancialsTile({
         testId="financials-tile"
         heading="Financials"
         headingTone="eyebrow"
+        variant="reference"
         ariaLabel="Financials"
         bodyAs="div"
       >
@@ -85,6 +86,7 @@ export function FinancialsTile({
       testId="financials-tile"
       heading="Financials"
       headingTone="eyebrow"
+      variant="reference"
       ariaLabel="Financials"
       bodyAs="dl"
     >

@@ -50,6 +50,7 @@ export function LodgingTile({ hotelReservations }: LodgingTileProps) {
       testId="lodging-tile"
       heading="Lodging"
       headingTone="eyebrow"
+      variant="reference"
       ariaLabel="Lodging"
       bodyAs="div"
     >

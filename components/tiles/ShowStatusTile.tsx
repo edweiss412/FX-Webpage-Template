@@ -69,6 +69,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
       testId="show-status-tile"
       heading="Show status"
       headingTone="eyebrow"
+      variant="reference"
       ariaLabel="Show status"
       bodyAs="dl"
     >

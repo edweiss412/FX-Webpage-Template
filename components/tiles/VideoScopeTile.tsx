@@ -34,6 +34,7 @@ export function VideoScopeTile({ rooms, viewerFlags }: VideoScopeTileProps) {
         testId="video-scope-tile"
         heading="Video"
         headingTone="eyebrow"
+        variant="reference"
         headingIcon={<Video size={14} strokeWidth={2} />}
         ariaLabel="Video scope"
         bodyAs="div"
@@ -48,6 +49,7 @@ export function VideoScopeTile({ rooms, viewerFlags }: VideoScopeTileProps) {
       testId="video-scope-tile"
       heading="Video"
       headingTone="eyebrow"
+      variant="reference"
       headingIcon={<Video size={14} strokeWidth={2} />}
       ariaLabel="Video scope"
       bodyAs="dl"

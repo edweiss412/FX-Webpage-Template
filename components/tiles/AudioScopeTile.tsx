@@ -65,6 +65,7 @@ export function AudioScopeTile({ rooms, viewerFlags }: AudioScopeTileProps) {
         testId="audio-scope-tile"
         heading="Audio"
         headingTone="eyebrow"
+        variant="reference"
         headingIcon={<Volume2 size={14} strokeWidth={2} />}
         ariaLabel="Audio scope"
         bodyAs="div"
@@ -79,6 +80,7 @@ export function AudioScopeTile({ rooms, viewerFlags }: AudioScopeTileProps) {
       testId="audio-scope-tile"
       heading="Audio"
       headingTone="eyebrow"
+      variant="reference"
       headingIcon={<Volume2 size={14} strokeWidth={2} />}
       ariaLabel="Audio scope"
       bodyAs="dl"

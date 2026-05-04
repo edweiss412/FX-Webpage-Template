@@ -42,6 +42,7 @@ export function LightingScopeTile({
         testId="lighting-scope-tile"
         heading="Lighting"
         headingTone="eyebrow"
+        variant="reference"
         headingIcon={<Lightbulb size={14} strokeWidth={2} />}
         ariaLabel="Lighting scope"
         bodyAs="div"
@@ -56,6 +57,7 @@ export function LightingScopeTile({
       testId="lighting-scope-tile"
       heading="Lighting"
       headingTone="eyebrow"
+      variant="reference"
       headingIcon={<Lightbulb size={14} strokeWidth={2} />}
       ariaLabel="Lighting scope"
       bodyAs="dl"

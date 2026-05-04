@@ -189,6 +189,7 @@ export function NotesTile({
       testId="notes-tile"
       heading="Things to know"
       headingTone="eyebrow"
+      variant="reference"
       ariaLabel="Things to know"
       bodyAs="div"
     >

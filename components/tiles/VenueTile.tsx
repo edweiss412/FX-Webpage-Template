@@ -44,6 +44,7 @@ export function VenueTile({ venue }: VenueTileProps) {
         testId="venue-tile"
         heading="Venue"
         headingTone="eyebrow"
+        variant="reference"
         ariaLabel="Venue"
         bodyAs="div"
       >
@@ -65,6 +66,7 @@ export function VenueTile({ venue }: VenueTileProps) {
       testId="venue-tile"
       heading={venue.name}
       headingTone="prominent"
+      variant="reference"
       ariaLabel="Venue"
       subheading={subheading}
       bodyAs="dl"

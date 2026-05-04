@@ -66,6 +66,7 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
         testId="transport-tile"
         heading="Transport"
         headingTone="eyebrow"
+        variant="reference"
         ariaLabel="Transport"
         bodyAs="div"
       >
@@ -79,6 +80,7 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
       testId="transport-tile"
       heading="Transport"
       headingTone="eyebrow"
+      variant="reference"
       ariaLabel="Transport"
       bodyAs="div"
     >
