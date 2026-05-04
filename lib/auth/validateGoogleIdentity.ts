@@ -14,7 +14,18 @@ export type GoogleIdentityViewer = {
 
 export type GoogleIdentityValidationResult =
   | { kind: "success"; viewer: GoogleIdentityViewer }
-  | { kind: "continue" };
+  | { kind: "continue" }
+  /**
+   * R15 #4 (round-14 §B-class sweep): infrastructure-fault arm. The
+   * caller chain previously collapsed getUser() failures and
+   * createSupabaseServerClient() throws into "continue" — which the
+   * /me page interprets as "no Google identity, render signed-out
+   * empty state." A signed-in Google user during a transient infra
+   * outage saw a logged-out experience instead of a server error.
+   * Surface infra failures distinctly so callers can render a
+   * cataloged error path.
+   */
+  | { kind: "terminal_failure"; status: 500; code: string };
 
 /**
  * Deliberately separate from validateGoogleSession. `/me` has no show id,
@@ -29,7 +40,17 @@ export async function validateGoogleIdentity(
   try {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) {
+    if (error) {
+      // Infra fault — getUser() failed on the wire. Don't masquerade
+      // as "no user."
+      return {
+        kind: "terminal_failure",
+        status: 500,
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+      };
+    }
+    if (!data.user) {
+      // No authenticated user — auth-level signal, chain falls through.
       return { kind: "continue" };
     }
 
@@ -47,6 +68,13 @@ export async function validateGoogleIdentity(
       },
     };
   } catch {
-    return { kind: "continue" };
+    // createSupabaseServerClient() throws when SUPABASE_URL / ANON_KEY
+    // are missing or the cookie store is unavailable — infra config
+    // failure, not an auth signal.
+    return {
+      kind: "terminal_failure",
+      status: 500,
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    };
   }
 }

@@ -42,10 +42,11 @@
  */
 import { cookies, headers } from "next/headers";
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { validateGoogleIdentity } from "@/lib/auth/validateGoogleIdentity";
 import { listShowsForCrew, type CrewShowSummary } from "@/lib/data/listShowsForCrew";
+import { messageFor } from "@/lib/messages/lookup";
 
 /** Pluck the most useful "when" string from the JSONB dates blob. */
 function pickShowDate(dates: unknown): string | null {
@@ -99,6 +100,15 @@ export default async function MePage() {
   if (result.kind === "continue") {
     redirect("/auth/sign-in?next=/me");
   }
+  if (result.kind === "terminal_failure") {
+    // R15 #4: validator infra fault. Pre-fix every getUser/server-
+    // client failure was downgraded to "continue" → redirect to
+    // sign-in, masquerading as "you're not signed in." Now we
+    // surface a server-error response so the user sees a real
+    // failure state and operators get a 500-class signal.
+    void messageFor(result.code as never);
+    notFound();
+  }
 
   const viewer = result.viewer;
   const shows = await listShowsForCrew(viewer);
@@ -133,12 +143,17 @@ export default async function MePage() {
       </header>
 
       {shows.length === 0 ? (
-        <p
+        <div
           data-testid="me-empty-state"
           className="py-12 text-center text-base text-text-subtle"
         >
-          You&rsquo;re not on any shows yet. Ask Doug to add you.
-        </p>
+          <p>You&rsquo;re not on any shows under this Google account.</p>
+          <p className="mt-2">
+            If you signed in with the wrong account, sign out and try again
+            with the address Doug used for your crew sheet. Otherwise, ask
+            Doug to add you.
+          </p>
+        </div>
       ) : (
         <ul
           data-testid="me-card-grid"
