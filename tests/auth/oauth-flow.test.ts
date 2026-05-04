@@ -86,6 +86,28 @@ describe("OAuth callback route", () => {
     expect(locationOf(response)).toBe("https://crew.fxav.test/me");
   });
 
+  test("crew-only successful callback with explicit /admin/dev redirects to /me", async () => {
+    const { GET } = await import("@/app/auth/callback/route");
+
+    const response = await GET(
+      new NextRequest("https://crew.fxav.test/auth/callback?code=abc&next=/admin/dev"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(locationOf(response)).toBe("https://crew.fxav.test/me");
+  });
+
+  test("crew-only successful callback with explicit /admin/anything redirects to /me", async () => {
+    const { GET } = await import("@/app/auth/callback/route");
+
+    const response = await GET(
+      new NextRequest("https://crew.fxav.test/auth/callback?code=abc&next=/admin/anything"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(locationOf(response)).toBe("https://crew.fxav.test/me");
+  });
+
   test("admin successful callback with no next keeps the /admin fallback", async () => {
     server.client.auth.getUser.mockResolvedValue({
       data: { user: { email: "admin@fxav.test" } },

@@ -72,6 +72,12 @@ describe("sign-in page already-authenticated redirect fallback", () => {
     await expect(expectSignInRedirect({ next: "/me" })).resolves.toBe("/me");
   });
 
+  test("crew already signed in with explicit /admin/users next redirects to /me", async () => {
+    await expect(expectSignInRedirect({ next: "/admin/users" })).resolves.toBe(
+      "/me",
+    );
+  });
+
   test("admin already signed in with missing next redirects to /admin", async () => {
     authState.userEmail = "admin@fxav.test";
     authState.isAdmin = true;
@@ -85,6 +91,15 @@ describe("sign-in page already-authenticated redirect fallback", () => {
 
     await expect(expectSignInRedirect({ next: "/admin/dev" })).resolves.toBe(
       "/admin/dev",
+    );
+  });
+
+  test("admin already signed in with explicit /admin/users next keeps /admin/users", async () => {
+    authState.userEmail = "admin@fxav.test";
+    authState.isAdmin = true;
+
+    await expect(expectSignInRedirect({ next: "/admin/users" })).resolves.toBe(
+      "/admin/users",
     );
   });
 });

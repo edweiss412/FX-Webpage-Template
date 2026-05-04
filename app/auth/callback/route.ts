@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import {
-  DEFAULT_AUTH_NEXT_PATH,
   validateNextParamDetailed,
 } from "@/lib/auth/validateNextParam";
 
@@ -11,6 +10,10 @@ type OAuthRedirectCode = "OAUTH_STATE_INVALID" | "OAUTH_REDIRECT_INVALID";
 
 function redirectTo(request: NextRequest, path: string, status = 302): NextResponse {
   return NextResponse.redirect(new URL(path, request.url), { status });
+}
+
+function isAdminPath(path: string): boolean {
+  return /^\/admin(?:\/|$)/.test(path);
 }
 
 function signInRedirect(request: NextRequest, code: OAuthRedirectCode, nextPath: string): NextResponse {
@@ -57,7 +60,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   }
 
   let redirectPath = nextOutcome.path;
-  if (redirectPath === DEFAULT_AUTH_NEXT_PATH) {
+  if (isAdminPath(redirectPath)) {
     const admin = await isAdminSession(request);
     if (!admin.ok) {
       redirectPath = "/me";

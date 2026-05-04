@@ -37,10 +37,7 @@ import { redirect } from "next/navigation";
 
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import {
-  DEFAULT_AUTH_NEXT_PATH,
-  validateNextParam,
-} from "@/lib/auth/validateNextParam";
+import { validateNextParam } from "@/lib/auth/validateNextParam";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 
 import { SignInButton } from "./SignInButton";
@@ -56,6 +53,10 @@ type SignInPageSearchParams = {
 function firstScalar(value: string | string[] | undefined): string | undefined {
   if (Array.isArray(value)) return value[0];
   return value;
+}
+
+function isAdminPath(path: string): boolean {
+  return /^\/admin(?:\/|$)/.test(path);
 }
 
 export default async function SignInPage({
@@ -86,7 +87,7 @@ export default async function SignInPage({
   const { data, error } = await supabase.auth.getUser();
   if (!error && data?.user) {
     let redirectPath = validatedNext;
-    if (redirectPath === DEFAULT_AUTH_NEXT_PATH) {
+    if (isAdminPath(redirectPath)) {
       const admin = await isAdminSession(new Request("https://crew.fxav.show"));
       if (!admin.ok) {
         redirectPath = "/me";
