@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   consumeAttempts: 0,
   readErrors: new Map<string, { message: string }>(),
   crewExists: true,
+  appSettingsError: null as { message: string } | null,
 }));
 
 vi.mock("@/lib/db/advisoryLock", () => ({
@@ -80,8 +81,8 @@ function builder(table: string) {
     },
     single() {
       return Promise.resolve({
-        data: { active_signing_key_id: "k1" },
-        error: null,
+        data: state.appSettingsError ? null : { active_signing_key_id: "k1" },
+        error: state.appSettingsError,
       });
     },
     maybeSingle() {
@@ -156,6 +157,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
     state.consumeAttempts = 0;
     state.readErrors.clear();
     state.crewExists = true;
+    state.appSettingsError = null;
   });
 
   function requestFor(options: {
@@ -224,6 +226,21 @@ describe("/api/auth/redeem-link advisory lock", () => {
     await expect(response.json()).resolves.toEqual({ code: "CSRF_DENIED" });
     expect(state.consumeAttempts).toBe(0);
     expect(state.consumedAt).toBeNull();
+  });
+
+  test("app_settings active signing key lookup errors return ADMIN_SESSION_LOOKUP_FAILED", async () => {
+    state.appSettingsError = { message: "fake DB outage" };
+
+    const response = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
   });
 
   test("bootstrap cookie mismatch returns CSRF_DENIED without consuming nonce", async () => {

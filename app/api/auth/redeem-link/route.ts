@@ -163,7 +163,12 @@ export async function POST(request: NextRequest): Promise<Response> {
       return jsonError(403, "CSRF_DENIED");
     }
 
-    const activeSigningKeyId = await readActiveSigningKeyId();
+    let activeSigningKeyId: string;
+    try {
+      activeSigningKeyId = await readActiveSigningKeyId();
+    } catch {
+      return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
+    }
     if (
       cookieEntry.signing_key_id !== activeSigningKeyId &&
       cookieEntry.signing_key_id === nonceRow.signing_key_id
