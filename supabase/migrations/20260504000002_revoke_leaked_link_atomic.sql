@@ -54,10 +54,18 @@ begin
   elsif p_token_version < auth_row.current_token_version then
     effective_branch := 'surgical';
   else
+    -- R14 #1 (round-13 §A HIGH): future-version leak path must NOT
+    -- regress max_issued_version. Pre-R14 the branch overwrote max
+    -- with p_token_version, which decreased max from any prior state
+    -- where max > current (e.g. current=7/max=9/floor=4 + leaked=8 →
+    -- max=8, regressing). Next Issue-New-Link would reissue version
+    -- 9 — possibly resurrecting a previously-issued higher-version
+    -- JWT. Use greatest() so max is monotonic non-decreasing across
+    -- this branch.
     effective_branch := 'floor_bump';
     update public.crew_member_auth
        set current_token_version = p_token_version,
-           max_issued_version = p_token_version,
+           max_issued_version = greatest(auth_row.max_issued_version, p_token_version),
            revoked_below_version = p_token_version
      where show_id = p_show_id
        and crew_name = p_crew_name;
