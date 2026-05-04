@@ -1,10 +1,11 @@
 import {
+  BOOTSTRAP_COOKIE_NAME,
   SESSION_COOKIE_MAX_AGE_SEC,
   SESSION_COOKIE_NAME,
   UUID_RE,
 } from "@/lib/auth/constants";
 
-export { SESSION_COOKIE_MAX_AGE_SEC, SESSION_COOKIE_NAME };
+export { BOOTSTRAP_COOKIE_NAME, SESSION_COOKIE_MAX_AGE_SEC, SESSION_COOKIE_NAME };
 
 export type SessionCookieEnvelope = {
   token: string;
@@ -20,6 +21,10 @@ export function setSessionCookie(
 
 export function clearSessionCookie(): string {
   return `${SESSION_COOKIE_NAME}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0`;
+}
+
+export function clearBootstrapCookie(): string {
+  return `${BOOTSTRAP_COOKIE_NAME}=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0`;
 }
 
 export function encodeSessionCookieValue(input: SessionCookieEnvelope): string {
