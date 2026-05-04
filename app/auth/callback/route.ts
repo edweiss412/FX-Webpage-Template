@@ -51,9 +51,38 @@ export async function GET(request: NextRequest): Promise<Response> {
     return response;
   }
 
-  const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
-  if (error) {
+  // R18 #3 (round-17 §A MEDIUM): wrap client construction +
+  // exchangeCodeForSession to distinguish Supabase Auth infrastructure
+  // failures (network, 5xx, missing env) from invalid OAuth state
+  // (bad/replayed code). Pre-fix every error mapped to
+  // OAUTH_STATE_INVALID — an Auth service outage looked like a
+  // user-facing "your session is invalid" instead of an operator-
+  // visible 500. Treat THROWS as infra (network / config), treat
+  // RETURNED errors as OAuth-state invalid (the SDK's API error path
+  // typically signals bad-code/replayed-code/expired-state).
+  let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  try {
+    supabase = await createSupabaseServerClient();
+  } catch {
+    const url = new URL("/auth/sign-in", request.url);
+    url.searchParams.set("code", "ADMIN_SESSION_LOOKUP_FAILED");
+    url.searchParams.set("next", nextOutcome.path);
+    const infraResponse = NextResponse.redirect(url, { status: 302 });
+    clearPkceVerifierCookies(request, infraResponse);
+    return infraResponse;
+  }
+  let exchangeResult: Awaited<ReturnType<typeof supabase.auth.exchangeCodeForSession>>;
+  try {
+    exchangeResult = await supabase.auth.exchangeCodeForSession(code);
+  } catch {
+    const url = new URL("/auth/sign-in", request.url);
+    url.searchParams.set("code", "ADMIN_SESSION_LOOKUP_FAILED");
+    url.searchParams.set("next", nextOutcome.path);
+    const infraResponse = NextResponse.redirect(url, { status: 302 });
+    clearPkceVerifierCookies(request, infraResponse);
+    return infraResponse;
+  }
+  if (exchangeResult.error) {
     const response = signInRedirect(request, "OAUTH_STATE_INVALID", nextOutcome.path);
     clearPkceVerifierCookies(request, response);
     return response;
