@@ -218,7 +218,9 @@ export async function validateLinkSession(
     .from("link_sessions")
     .update({ last_active_at: new Date().toISOString() })
     .eq("token", session.token);
-  void touchError;
+  if (touchError) {
+    return lookupFailure();
+  }
 
   return {
     kind: "success",

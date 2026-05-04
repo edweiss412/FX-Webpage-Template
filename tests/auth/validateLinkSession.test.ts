@@ -83,7 +83,9 @@ function tableClient(table: string) {
           mockDb.touchedTokens.push(value);
           const row = mockDb.linkSessions.get(value);
           if (row) row.last_active_at = new Date().toISOString();
-          return Promise.resolve({ error: null });
+          return Promise.resolve({
+            error: mockDb.errors.get("link_sessions:update") ?? null,
+          });
         },
       }),
     };
@@ -209,6 +211,21 @@ describe("validateLinkSession", () => {
       viewer: { kind: "crew", showId, crewMemberId },
     });
     expect(mockDb.touchedTokens).toEqual([sessionToken]);
+    expect(mockDb.linkSessions.has(sessionToken)).toBe(true);
+  });
+
+  test("last_active_at update error returns terminal failure without deleting the session", async () => {
+    seedValidSession();
+    mockDb.errors.set("link_sessions:update", { message: "fake DB outage" });
+
+    const result = await validateLinkSession(makeReq(cookieFor()), { showId });
+
+    expect(result).toEqual({
+      kind: "terminal_failure",
+      status: 500,
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
+    expect(mockDb.deletedTokens).toEqual([]);
     expect(mockDb.linkSessions.has(sessionToken)).toBe(true);
   });
 
