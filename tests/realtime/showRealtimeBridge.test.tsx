@@ -1160,10 +1160,11 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
 
   // Test B — Renewal status-failure: existing channel disconnects → renewal
   // fires → new channel's first status is TIMED_OUT. The bridge MUST NOT
-  // log renewal as successful, MUST NOT run catch-up, and the
-  // single-flight lock MUST release so a subsequent disconnect can drive
-  // another renewal cleanly.
-  test("HIGH (round 2) Test B — renewal new-channel first-status TIMED_OUT: no success log, no catch-up, lock released for retry", async () => {
+  // log renewal as successful, MUST NOT run catch-up, and (Codex round 3
+  // HIGH) the bridge MUST automatically schedule a follow-on renewal
+  // attempt via the pendingRenewalRef path — without requiring an
+  // artificial second disconnect.
+  test("HIGH (round 2) Test B — renewal new-channel first-status TIMED_OUT: no success log, no catch-up, follow-on retry fires automatically (round 3 pendingRenewalRef path)", async () => {
     let mintCount = 0;
     pushFetchHandler(
       (url) => url.includes("/api/realtime/subscriber-token"),
@@ -1234,29 +1235,21 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     );
     expect(loggedFailedReadiness).toBe(true);
 
-    // The single-flight lock was released by the renewal's `finally`
-    // block. Fire ANOTHER disconnect AFTER the readiness rejection has
-    // unwound — note that the synchronous TIMED_OUT-driven
-    // renewSubscription call was dropped because the lock was still
-    // held during the in-flight renewal's `await newSubscribed` (the
-    // status callback fired BEFORE the readiness Promise rejected).
-    // The post-failure disconnect proves the lock has actually
-    // released.
-    const subscribeCountAfterFailure =
-      subscribeMock.state.subscribeCalls.length;
-    expect(subscribeCountAfterFailure).toBe(initialSubscribeCount + 1);
-
-    // The renewal channel is the current channel; fire disconnect on it
-    // to drive the next renewal. (Production parity: a flaky network
-    // delivers a fresh disconnect after the failure.)
+    // Codex round 3 HIGH — the failed channel was torn down (no
+    // stranded `currentChannelRef`), the pendingRenewalRef path queued
+    // a backoff retry, and that retry fires AUTOMATICALLY within the
+    // first backoff bucket (250ms). No artificial second disconnect
+    // required.
+    expect(renewalChannel.removed).toBe(true);
     await act(async () => {
-      renewalChannel.fireSystem({ event: "disconnected" });
+      vi.advanceTimersByTime(300);
     });
     for (let i = 0; i < 10; i += 1) {
       await flushPromises();
     }
-    // A NEW subscribe was attempted — proves the lock was released and
-    // the next renewal proceeded.
+    // A NEW subscribe was attempted automatically — proves the
+    // pendingRenewalRef path drove follow-on recovery without a fresh
+    // natural event.
     expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThanOrEqual(
       initialSubscribeCount + 2,
     );
@@ -1271,14 +1264,218 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     consoleWarnSpy.mockRestore();
   });
 
-  // Test C is DOCUMENTED AS OUT OF SCOPE: Supabase Realtime never delivers
-  // SUBSCRIBED after CHANNEL_ERROR on the same channel handle. The bridge's
-  // recovery model is to tear down the failed channel and create a fresh
-  // one via renewSubscription. The lib-level test
-  // "subscribed Promise settles at most once: CHANNEL_ERROR then SUBSCRIBED
-  // stays REJECTED" pins the no-recovery-on-same-handle property at the
-  // helper layer; an additional bridge-level test would only re-prove the
-  // same invariant.
+  // === Codex round 3 HIGH — pendingRenewalRef-driven retry ===
+  // Without this flag, when a renewed channel's first status is a
+  // failure (TIMED_OUT / CHANNEL_ERROR / CLOSED), the synchronous
+  // status callback's renewSubscription invocation returns at the
+  // single-flight lock (lock is still held during `await newSubscribed`).
+  // The catch path logs and returns; finally releases the lock AFTER
+  // the failure status was already discarded. If no further natural
+  // event arrives, currentChannelRef stays pointed at the failed
+  // channel and the page is stranded.
+
+  // Test C — TIMED_OUT is the LAST event: no subsequent natural status
+  // event fires, but the bridge still triggers another renewal via the
+  // pendingRenewalRef path within the bounded backoff window. The
+  // failed channel is also torn down (currentChannelRef does not point
+  // at it).
+  test("HIGH (round 3) Test C — renewal TIMED_OUT as the LAST event: bridge auto-retries via pendingRenewalRef within backoff window; failed channel torn down", async () => {
+    let mintCount = 0;
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () => {
+        mintCount += 1;
+        return new Response(
+          JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+
+    await mountBridgeAndAwaitSubscribe();
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+    const initialSubscribeCount = subscribeMock.state.subscribeCalls.length;
+
+    // Trigger renewal via system.disconnected.
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+    expect(subscribeMock.state.subscribeCalls.length).toBe(
+      initialSubscribeCount + 1,
+    );
+    const renewalChannel = subscribeMock.state.currentChannel;
+    if (!renewalChannel) throw new Error("renewal channel not registered");
+
+    // Fire TIMED_OUT as the FIRST and LAST status — no further natural
+    // event ever arrives.
+    await act(async () => {
+      renewalChannel.fireStatus("TIMED_OUT");
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+
+    // Failed channel was torn down — currentChannelRef does NOT
+    // reference it. (We can't read the ref directly, but if it stayed
+    // pointed at the renewalChannel, the next retry would not open a
+    // fresh handle. The downstream auto-retry assertion below proves
+    // the new attempt happens.)
+    expect(renewalChannel.removed).toBe(true);
+
+    // Within the bounded backoff window (250ms first step, with
+    // generous tolerance), the bridge AUTO-fires a follow-on
+    // renewSubscription via the pendingRenewalRef path.
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+    expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThanOrEqual(
+      initialSubscribeCount + 2,
+    );
+  });
+
+  // Test D — Bounded retry: 5 consecutive renewal failures all surface
+  // as TIMED_OUT first-statuses. Each failure schedules a backoff retry
+  // that is monotonically non-decreasing, capped at 5s. We assert the
+  // exponential schedule (250 / 500 / 1000 / 2000 / 5000ms) is observed:
+  // an early advance of the timers (e.g., 100ms) does NOT trigger the
+  // next retry.
+  test("HIGH (round 3) Test D — exponential backoff: 5 consecutive failures observe 250 → 500 → 1000 → 2000 → 5000ms schedule (no tight-loop)", async () => {
+    let mintCount = 0;
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () => {
+        mintCount += 1;
+        return new Response(
+          JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+
+    await mountBridgeAndAwaitSubscribe();
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+    const initialSubscribeCount = subscribeMock.state.subscribeCalls.length;
+
+    // Kick off the first renewal sequence.
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+
+    const expectedDelays = [250, 500, 1000, 2000, 5000];
+    let cumulativeNew = 0;
+    for (let step = 0; step < expectedDelays.length; step += 1) {
+      // Fire TIMED_OUT on the latest channel — readiness rejects.
+      const ch = subscribeMock.state.currentChannel;
+      if (!ch) throw new Error("expected current channel");
+      await act(async () => {
+        ch.fireStatus("TIMED_OUT");
+      });
+      for (let i = 0; i < 10; i += 1) {
+        await flushPromises();
+      }
+
+      const before = subscribeMock.state.subscribeCalls.length;
+
+      // Tight-loop guard: advancing by less than the expected delay
+      // must NOT fire the retry.
+      const earlyDelay = Math.max(1, expectedDelays[step]! - 50);
+      await act(async () => {
+        vi.advanceTimersByTime(earlyDelay);
+      });
+      for (let i = 0; i < 5; i += 1) {
+        await flushPromises();
+      }
+      expect(subscribeMock.state.subscribeCalls.length).toBe(before);
+
+      // Now advance past the expected delay — retry fires.
+      await act(async () => {
+        vi.advanceTimersByTime(100);
+      });
+      for (let i = 0; i < 10; i += 1) {
+        await flushPromises();
+      }
+      expect(subscribeMock.state.subscribeCalls.length).toBe(before + 1);
+      cumulativeNew += 1;
+    }
+
+    // Five renewal attempts after the initial subscribe + initial
+    // disconnect-driven renewal (= initialSubscribeCount + 1 new
+    // channel, then 5 retries).
+    expect(
+      subscribeMock.state.subscribeCalls.length - initialSubscribeCount,
+    ).toBe(1 + cumulativeNew);
+  });
+
+  // Test E — Cleanup cancels pending retry: renewal failure scheduled a
+  // backoff retry; unmount BEFORE the timeout fires. The retry must NOT
+  // call renewSubscription post-unmount (no new mint, no new subscribe).
+  test("HIGH (round 3) Test E — unmount during pending backoff retry cancels the retry (no post-unmount renewSubscription)", async () => {
+    let mintCount = 0;
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () => {
+        mintCount += 1;
+        return new Response(
+          JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+
+    const utils = await mountBridgeAndAwaitSubscribe();
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+
+    // Trigger renewal.
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+    const renewalChannel = subscribeMock.state.currentChannel;
+    if (!renewalChannel) throw new Error("renewal channel not registered");
+    const subscribeCountBeforeFailure =
+      subscribeMock.state.subscribeCalls.length;
+    const mintCountBeforeFailure = mintCount;
+
+    // Renewal channel's first status is TIMED_OUT → readiness rejects,
+    // pendingRenewalRef set, retry scheduled with 250ms first delay.
+    await act(async () => {
+      renewalChannel.fireStatus("TIMED_OUT");
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+
+    // Unmount BEFORE the 250ms backoff timer would have fired.
+    utils.unmount();
+
+    // Advance well past the backoff delay — no retry should fire.
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+
+    // No new subscribe and no new mint after unmount.
+    expect(subscribeMock.state.subscribeCalls.length).toBe(
+      subscribeCountBeforeFailure,
+    );
+    expect(mintCount).toBe(mintCountBeforeFailure);
+  });
 
   // === Important 3 (default-branch warn for unknown system events) ===
   test("unknown system event hits the default branch and warns without crashing", async () => {

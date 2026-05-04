@@ -165,6 +165,30 @@ export function ShowRealtimeBridge({
   // await) and cleared in a finally block on every exit path so a mint
   // failure releases the lock and a subsequent disconnect can retry.
   const isRenewingRef = useRef<boolean>(false);
+  // Codex round 3 HIGH — renewal-failure retry trigger. Set inside the
+  // renewal `catch` when `await newSubscribed` rejects (the readiness
+  // Promise rejects on CHANNEL_ERROR / TIMED_OUT / CLOSED). The status
+  // callback that triggered the rejection ALSO calls renewSubscription,
+  // but it returns at the single-flight lock because `isRenewingRef` is
+  // still true; the lock releases AFTER the status that proved the
+  // channel failed has already been discarded. Without this flag, a
+  // terminal failure status leaves `currentChannelRef` pointed at the
+  // failed channel and the page receives no realtime invalidations until
+  // a separate later event or a manual reload. The flag is read AFTER
+  // the lock-releasing `finally` and triggers a bounded exponential-
+  // backoff retry.
+  const pendingRenewalRef = useRef<boolean>(false);
+  // Exponential-backoff state for the pendingRenewalRef-driven retry.
+  // The delay sequence is 250ms → 500ms → 1s → 2s → 5s (capped). Reset
+  // to 0 on the first SUBSCRIBED status of a fresh channel so recovery
+  // from a transient blip doesn't punish a healthy reconnect later.
+  const renewalBackoffStepRef = useRef<number>(0);
+  // Pending setTimeout handle for the backoff retry. Cleared in cleanup
+  // step 3 so an unmount that happens during the backoff window doesn't
+  // leak a renewSubscription call against a torn-down bridge.
+  const pendingRenewalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   // Latest SSR'd renderVersion token. Updated on every render via the
   // render-time effect below — reconnect catch-up handlers MUST read this
   // ref, NOT the closure-captured prop, or the comparison silently uses
@@ -342,10 +366,14 @@ export function ShowRealtimeBridge({
         // (e) AFTER the underlying socket reports SUBSCRIBED, run the
         // version catch-up. Codex round 2 HIGH: the readiness Promise
         // now REJECTS on CHANNEL_ERROR / TIMED_OUT / CLOSED. On
-        // rejection, do NOT log success and do NOT run catch-up — the
-        // single-flight lock releases via the outer `finally`, and the
-        // status callback that triggered the rejection (or a subsequent
-        // disconnect) will drive a fresh renewal once the lock is free.
+        // rejection, do NOT log success and do NOT run catch-up.
+        // Codex round 3 HIGH: also set `pendingRenewalRef` and tear
+        // down the failed channel here. The synchronous status
+        // callback for the same failure already tried to call
+        // renewSubscription and returned at the single-flight lock;
+        // without `pendingRenewalRef` the failed channel would be
+        // stranded as `currentChannelRef` and the page would receive
+        // no realtime invalidations until a later natural event.
         let readinessOk = false;
         try {
           await newSubscribed;
@@ -355,6 +383,21 @@ export function ShowRealtimeBridge({
             "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
             { reason: "readiness_failed", err },
           );
+          // Tear down the failed channel: a future renewal must create
+          // a fresh handle, not reuse this one. Generation was already
+          // advanced when we opened this channel, so the synchronous
+          // CLOSED that removeChannel may emit short-circuits.
+          const failedChannel = currentChannelRef.current;
+          currentChannelRef.current = null;
+          if (failedChannel !== null) {
+            try {
+              await removeChannel(supabase, failedChannel);
+            } catch (teardownErr) {
+              // Teardown errors are not actionable client-side.
+              void teardownErr;
+            }
+          }
+          pendingRenewalRef.current = true;
         }
         if (!isMountedRef.current) return;
         if (newClosureGen !== currentChannelGenerationRef.current) return;
@@ -367,12 +410,45 @@ export function ShowRealtimeBridge({
         console.info(
           "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: success",
         );
+        // Reset backoff on a clean subscribe so a transient blip
+        // doesn't poison the next legitimate failure-recovery sequence.
+        renewalBackoffStepRef.current = 0;
       } finally {
         // Codex HIGH 3 — release the single-flight lock on EVERY exit
         // path (success AND every failure branch above that returned
         // early). A failed mint must release the lock so a subsequent
         // disconnect can trigger another renewal attempt.
         isRenewingRef.current = false;
+        // Codex round 3 HIGH — drain the renewal-pending flag now that
+        // the lock has been released. If the catch path above (or any
+        // earlier failure branch) flagged a retry-needed state, schedule
+        // a bounded exponential-backoff renewal: 250ms → 500ms → 1s →
+        // 2s → 5s (capped). The retry honors isMountedRef and the
+        // current generation, and its setTimeout handle is tracked so
+        // unmount cleanup can clear it.
+        if (pendingRenewalRef.current && isMountedRef.current) {
+          pendingRenewalRef.current = false;
+          const step = renewalBackoffStepRef.current;
+          // Capped exponential backoff. Step 0..4 → 250/500/1000/2000/5000ms;
+          // step >= 4 stays at 5s.
+          const backoffSchedule = [250, 500, 1000, 2000, 5000];
+          const delay =
+            backoffSchedule[Math.min(step, backoffSchedule.length - 1)];
+          renewalBackoffStepRef.current = step + 1;
+          // Capture the live generation at schedule time so a cleanup or
+          // a concurrent renewal that advances the generation invalidates
+          // this retry at fire time.
+          const retryGen = currentChannelGenerationRef.current;
+          if (pendingRenewalTimerRef.current !== null) {
+            clearTimeout(pendingRenewalTimerRef.current);
+          }
+          pendingRenewalTimerRef.current = setTimeout(() => {
+            pendingRenewalTimerRef.current = null;
+            if (!isMountedRef.current) return;
+            if (retryGen !== currentChannelGenerationRef.current) return;
+            void renewSubscription(retryGen);
+          }, delay);
+        }
       }
     };
 
@@ -498,6 +574,10 @@ export function ShowRealtimeBridge({
       if (!isMountedRef.current || initialAborted) return;
       if (closureGen !== currentChannelGenerationRef.current) return;
       if (!readinessOk) return;
+      // Reset the renewal backoff once the initial subscribe reaches
+      // SUBSCRIBED — the channel is healthy, so any future failure
+      // should retry from the smallest delay.
+      renewalBackoffStepRef.current = 0;
       await refreshSyncIfMismatch(closureGen);
     })();
 
@@ -509,11 +589,21 @@ export function ShowRealtimeBridge({
       // 2. Advance generation BEFORE removeChannel so a synchronous
       //    CLOSED callback inside step 4 captures a stale gen.
       currentChannelGenerationRef.current += 1;
-      // 3. Cancel any pending debounced refresh.
+      // 3. Cancel any pending debounced refresh AND any pending
+      //    renewal-backoff retry (Codex round 3 HIGH). Clearing the
+      //    renewal timer here ensures an unmount during the backoff
+      //    window doesn't fire renewSubscription against a torn-down
+      //    bridge. We also drop the pendingRenewalRef flag so a late
+      //    finally that races cleanup can't requeue another retry.
       if (pendingRefreshTimer.current !== null) {
         clearTimeout(pendingRefreshTimer.current);
         pendingRefreshTimer.current = null;
       }
+      if (pendingRenewalTimerRef.current !== null) {
+        clearTimeout(pendingRenewalTimerRef.current);
+        pendingRenewalTimerRef.current = null;
+      }
+      pendingRenewalRef.current = false;
       // 4. Tear down the channel.
       const channel = currentChannelRef.current;
       currentChannelRef.current = null;
