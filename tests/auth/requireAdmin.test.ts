@@ -38,14 +38,15 @@ describe("requireAdmin", () => {
     server.client.rpc.mockResolvedValue({ data: true, error: null });
   });
 
-  test("keeps the build flag as the first gate", async () => {
+  test("does not gate the production admin body on ADMIN_DEV_PANEL_ENABLED", async () => {
     process.env.ADMIN_DEV_PANEL_ENABLED = "false";
     const { requireAdmin } = await import("@/lib/auth/requireAdmin");
 
-    await expect(requireAdmin()).rejects.toThrow("notFound()");
+    await expect(requireAdmin()).resolves.toBeUndefined();
 
-    expect(nav.notFound).toHaveBeenCalledTimes(1);
-    expect(server.createSupabaseServerClient).not.toHaveBeenCalled();
+    expect(nav.notFound).not.toHaveBeenCalled();
+    expect(server.createSupabaseServerClient).toHaveBeenCalledTimes(1);
+    expect(server.client.rpc).toHaveBeenCalledWith("is_admin");
   });
 
   test("reads the Supabase Auth user before asking public.is_admin()", async () => {
