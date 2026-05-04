@@ -24,6 +24,7 @@
 import type { ContactRow } from "@/lib/parser/types";
 import { Avatar } from "@/components/atoms/Avatar";
 import { Section } from "@/components/atoms/Section";
+import { digitsOnly } from "@/lib/format/phone";
 
 type ContactsTileProps = {
   contacts: ContactRow[];
@@ -39,11 +40,6 @@ function kindLabel(kind: ContactRow["kind"]): string {
     default:
       return "Contact";
   }
-}
-
-/** Strip non-digit characters for the tel: href. */
-function digitsOnly(s: string): string {
-  return s.replace(/\D+/g, "");
 }
 
 export function ContactsTile({ contacts }: ContactsTileProps) {

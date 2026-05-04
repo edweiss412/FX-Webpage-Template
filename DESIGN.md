@@ -214,9 +214,13 @@ This gotcha is the single most common failure mode on this project's UI work —
 
 ---
 
-## 8. Iconography (placeholder — no icon library yet)
+## 8. Iconography
 
-Reserve `--icon-sm` (16px), `--icon-md` (20px), `--icon-base` (24px), `--icon-lg` (32px) as size tokens. Library choice deferred to the first M4 tile that needs an icon — likely `lucide-react` (open source, tree-shakeable, neutral aesthetic, plays well with Inter at all weights). If a different choice is made, this section is updated in the same commit.
+Size tokens: `--icon-sm` (16px), `--icon-md` (20px), `--icon-base` (24px), `--icon-lg` (32px).
+
+**Library: `lucide-react`** (ratified at M4 Task 4.12 follow-up — scope-tile differentiation, critique Finding 8). Open source, tree-shakeable, neutral aesthetic, plays well with Inter at all weights.
+
+**Versioning note:** the canonical `lucide-react` package shipped 0.x for several years and bumped to 1.x in early 2026 (post-1.0 stable). The currently-pinned `^1.14.0` IS the canonical maintainer line — homepage `lucide.dev`, repo `github.com/lucide-icons/lucide`, maintainer Eric Fennis. A reviewer with a stale "lucide-react is on 0.x" mental model may flag the version as suspicious; this note is the paper trail confirming the 1.x line is current. If the maintainer's release cadence shifts again, update the cited version range here in the same commit that bumps the dep.
 
 ---
 

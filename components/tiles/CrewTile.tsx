@@ -38,15 +38,11 @@ import type { ShowForViewer } from "@/lib/data/getShowForViewer";
 import { Avatar } from "@/components/atoms/Avatar";
 import { Section } from "@/components/atoms/Section";
 import { EmptyState } from "@/components/atoms/EmptyState";
+import { digitsOnly } from "@/lib/format/phone";
 
 type CrewTileProps = {
   crewMembers: ShowForViewer["crewMembers"];
 };
-
-/** Strip non-digit characters for the tel: href. */
-function digitsOnly(s: string): string {
-  return s.replace(/\D+/g, "");
-}
 
 export function CrewTile({ crewMembers }: CrewTileProps) {
   if (!crewMembers || crewMembers.length === 0) {
