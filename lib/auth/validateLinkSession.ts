@@ -103,6 +103,27 @@ export async function validateLinkSession(
   req: Request,
   context: LinkSessionValidationContext,
 ): Promise<LinkSessionValidationResult> {
+  try {
+    return await validateLinkSessionInner(req, context);
+  } catch {
+    // R18 #1 (round-17 §A+§B HIGH): wrap the entire validator body in
+    // a top-level try/catch so service-role client construction +
+    // every awaited Supabase operation surfaces thrown infra failures
+    // as terminal_failure 500. Pre-fix the helper only checked
+    // `{ error }` results — a thrown fetch/RPC error bypassed the
+    // discriminated union entirely and callers (resolveShowViewer,
+    // show-page chain) got an uncataloged framework error instead of
+    // the cataloged ADMIN_SESSION_LOOKUP_FAILED path. Same shape as
+    // R15 #4 / R17 #4's wrap of validateGoogleIdentity /
+    // validateGoogleSession.
+    return lookupFailure();
+  }
+}
+
+async function validateLinkSessionInner(
+  req: Request,
+  context: LinkSessionValidationContext,
+): Promise<LinkSessionValidationResult> {
   const rawCookie = readCookie(req, SESSION_COOKIE_NAME);
   if (rawCookie === undefined) {
     return { kind: "continue" };
