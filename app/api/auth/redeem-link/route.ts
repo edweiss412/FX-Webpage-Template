@@ -163,18 +163,6 @@ export async function POST(request: NextRequest): Promise<Response> {
       return jsonError(403, "CSRF_DENIED");
     }
 
-    const consume = await supabase
-      .from("bootstrap_nonces")
-      .update({ consumed_at: new Date().toISOString() })
-      .eq("nonce_hash", hash)
-      .eq("show_id", showId)
-      .is("consumed_at", null)
-      .select("nonce_hash")
-      .maybeSingle();
-    if (consume.error || !consume.data) {
-      return jsonError(403, "CSRF_DENIED");
-    }
-
     const activeSigningKeyId = await readActiveSigningKeyId();
     if (
       cookieEntry.signing_key_id !== activeSigningKeyId &&
@@ -243,6 +231,18 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     if (revoked) {
       return jsonError(410, "LINK_REVOKED_SURGICAL");
+    }
+
+    const consume = await supabase
+      .from("bootstrap_nonces")
+      .update({ consumed_at: new Date().toISOString() })
+      .eq("nonce_hash", hash)
+      .eq("show_id", showId)
+      .is("consumed_at", null)
+      .select("nonce_hash")
+      .maybeSingle();
+    if (consume.error || !consume.data) {
+      return jsonError(403, "CSRF_DENIED");
     }
 
     const opaqueToken = randomUUID();

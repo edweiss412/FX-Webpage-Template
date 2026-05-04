@@ -247,6 +247,50 @@ describe("/api/auth/redeem-link advisory lock", () => {
     expect(state.consumedAt).toEqual(expect.any(String));
   });
 
+  test("revoked-links read error returns 500 without consuming nonce so retry can succeed", async () => {
+    state.readErrors.set("revoked_links:select", { message: "fake DB outage" });
+
+    const failedResponse = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(failedResponse.status).toBe(500);
+    await expect(failedResponse.json()).resolves.toEqual({
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
+    expect(state.consumedAt).toBeNull();
+
+    state.readErrors.clear();
+    const retryResponse = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(retryResponse.status).toBe(200);
+    expect(state.consumedAt).toEqual(expect.any(String));
+  });
+
+  test("replaying a consumed bootstrap nonce returns CSRF_DENIED", async () => {
+    const firstResponse = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+    expect(firstResponse.status).toBe(200);
+
+    const replayResponse = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(replayResponse.status).toBe(403);
+    await expect(replayResponse.json()).resolves.toEqual({ code: "CSRF_DENIED" });
+  });
+
   test("expired nonce with matching cookie returns CSRF_NONCE_EXPIRED", async () => {
     state.issuedAt = new Date(
       Date.now() - (BOOTSTRAP_NONCE_MAX_AGE_SEC + 1) * 1000,
