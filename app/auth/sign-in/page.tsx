@@ -35,8 +35,12 @@
  */
 import { redirect } from "next/navigation";
 
+import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { validateNextParam } from "@/lib/auth/validateNextParam";
+import {
+  DEFAULT_AUTH_NEXT_PATH,
+  validateNextParam,
+} from "@/lib/auth/validateNextParam";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 
 import { SignInButton } from "./SignInButton";
@@ -81,7 +85,14 @@ export default async function SignInPage({
   // (graceful degradation — the user can retry OAuth from the rendered page).
   const { data, error } = await supabase.auth.getUser();
   if (!error && data?.user) {
-    redirect(validatedNext);
+    let redirectPath = validatedNext;
+    if (redirectPath === DEFAULT_AUTH_NEXT_PATH) {
+      const admin = await isAdminSession(new Request("https://crew.fxav.show"));
+      if (!admin.ok) {
+        redirectPath = "/me";
+      }
+    }
+    redirect(redirectPath);
   }
 
   // ── Error code allowlist ─────────────────────────────────────────
