@@ -490,14 +490,40 @@ export default async function ShowPage({ params }: PageProps) {
   try {
     data = await getShowForViewer(showId, viewer);
   } catch (err) {
-    // LINK_NO_CREW_MATCH (cross-show fail-closed §7.2.2 step 5) and any
-    // other lookup error route through notFound() at this milestone. The
-    // human-copy lookup (lib/messages/lookup.ts) is wired for the catalog
-    // surface but the per-route ErrorExplainer is Task 5.9 §B. UI never
-    // shows raw error codes per AGENTS.md §1.5.
-    // TODO(Task 5.9): replace with the §B ErrorExplainer surface.
-    void err;
-    notFound();
+    // R18 #4 (round-17 §B HIGH): pre-fix every getShowForViewer throw
+    // mapped to notFound(). getShowForViewer throws TWO classes:
+    //   - LINK_NO_CREW_MATCH (cross-show fail-closed §7.2.2 step 5) —
+    //     genuine auth-deny: this user shouldn't see this show.
+    //   - "getShowForViewer: <table> fetch failed: ..." — infra fault
+    //     (DB/PostgREST outage on crew/show/hotel/room reads).
+    // Conflating them rendered DB outages as 404 indistinguishable
+    // from "wrong show," so operators saw 404s in access logs instead
+    // of real 500-class signals and crew got no recovery cue. Classify
+    // by error.message.
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === "LINK_NO_CREW_MATCH") {
+      notFound();
+    }
+    const entry = messageFor("ADMIN_SESSION_LOOKUP_FAILED" as never);
+    return (
+      <main
+        data-testid="show-page-data-failure"
+        className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
+      >
+        <h1 className="text-2xl font-bold text-text-strong">
+          We&rsquo;re having trouble loading this show
+        </h1>
+        <p className="mt-4 text-base text-text-subtle">
+          {entry.crewFacing ?? entry.dougFacing ?? "Please try again in a moment."}
+        </p>
+        <a
+          href={`/show/${slug}`}
+          className="mt-section-gap inline-flex min-h-tap-min items-center px-4 py-2 text-base text-text-strong underline underline-offset-2"
+        >
+          Try again
+        </a>
+      </main>
+    );
   }
 
   // Per-viewer context computed once and threaded into the hero card and
