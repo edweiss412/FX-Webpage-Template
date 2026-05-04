@@ -10,7 +10,10 @@ import {
 } from "@/lib/auth/constants";
 import { encodeSessionCookieValue, setSessionCookie } from "@/lib/auth/cookies";
 import { verifyLinkJwt } from "@/lib/auth/jwt";
-import { withShowAdvisoryLock } from "@/lib/db/advisoryLock";
+import {
+  ShowAdvisoryLockShowNotFoundError,
+  withShowAdvisoryLock,
+} from "@/lib/db/advisoryLock";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 type RedeemBody = {
@@ -134,7 +137,8 @@ export async function POST(request: NextRequest): Promise<Response> {
   const nonce = body.nonce;
   const showId = body.show_id;
 
-  return await withShowAdvisoryLock(showId, "block", async () => {
+  try {
+    return await withShowAdvisoryLock(showId, "block", async () => {
     const hash = nonceHash(nonce);
     const bootstrapEntries = parseBootstrapCookie(parseCookie(request, BOOTSTRAP_COOKIE_NAME));
     const cookieEntry = bootstrapEntries.find(
@@ -273,6 +277,12 @@ export async function POST(request: NextRequest): Promise<Response> {
         maxAgeSec: SESSION_COOKIE_MAX_AGE_SEC,
       }),
     );
-    return response;
-  });
+      return response;
+    });
+  } catch (error) {
+    if (error instanceof ShowAdvisoryLockShowNotFoundError) {
+      return jsonError(403, "CSRF_DENIED");
+    }
+    return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
+  }
 }

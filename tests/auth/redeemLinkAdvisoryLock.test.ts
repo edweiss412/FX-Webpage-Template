@@ -20,14 +20,30 @@ const state = vi.hoisted(() => ({
   readErrors: new Map<string, { message: string }>(),
   crewExists: true,
   appSettingsError: null as { message: string } | null,
+  lockError: null as "show-not-found" | "generic" | null,
 }));
 
 vi.mock("@/lib/db/advisoryLock", () => ({
+  ShowAdvisoryLockShowNotFoundError: class ShowAdvisoryLockShowNotFoundError extends Error {
+    constructor(showId: string) {
+      super(`Show ${showId} was not found`);
+      this.name = "ShowAdvisoryLockShowNotFoundError";
+    }
+  },
   withShowAdvisoryLock: async <T>(
     showId: string,
     mode: string,
     fn: () => T | Promise<T>,
   ): Promise<T> => {
+    if (state.lockError === "show-not-found") {
+      const { ShowAdvisoryLockShowNotFoundError } = await import(
+        "@/lib/db/advisoryLock"
+      );
+      throw new ShowAdvisoryLockShowNotFoundError(showId);
+    }
+    if (state.lockError === "generic") {
+      throw new Error("lock db failed");
+    }
     state.lockCalls.push({ showId, mode });
     state.insideLock = true;
     try {
@@ -158,6 +174,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
     state.readErrors.clear();
     state.crewExists = true;
     state.appSettingsError = null;
+    state.lockError = null;
   });
 
   function requestFor(options: {
@@ -230,6 +247,34 @@ describe("/api/auth/redeem-link advisory lock", () => {
 
   test("app_settings active signing key lookup errors return ADMIN_SESSION_LOOKUP_FAILED", async () => {
     state.appSettingsError = { message: "fake DB outage" };
+
+    const response = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
+  });
+
+  test("unknown show_id from advisory-lock lookup returns CSRF_DENIED", async () => {
+    state.lockError = "show-not-found";
+
+    const response = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ code: "CSRF_DENIED" });
+  });
+
+  test("generic advisory-lock failure returns ADMIN_SESSION_LOOKUP_FAILED", async () => {
+    state.lockError = "generic";
 
     const response = await POST(
       requestFor({
