@@ -163,15 +163,15 @@ export async function bootstrapMint(
     throw new Error("bootstrapMint: showId must be a UUID");
   }
 
-  // Round-7 §B finding: `try` mode caused legitimate burst-load callers
-  // (e.g. 50 simultaneous crew arrivals at a venue) to see a terminal
-  // error when one short lock holder briefly blocked acquisition. The
-  // critical section here is one INSERT — fast and bounded — so blocking
-  // serializes contention through millisecond-scale waits rather than
-  // failing valid requests. Per AGENTS.md invariant #2, blocking mode is
-  // reserved for the admin/blocking path; bootstrap mint qualifies as
-  // user-blocking (the page render is awaiting this Server Action).
-  const result = await withShowAdvisoryLock(showId, "block", async () => {
+  // Round-8 §B finding: 'block' mode (R8 #2) caused DB connection exhaustion
+  // — withShowAdvisoryLock allocates one postgres client per call, and a
+  // burst of 50+ blocked waiters all held a connection while queued on the
+  // same show lock, with no lock_timeout / pool cap. Reverting to 'try'
+  // mode (which fails fast on contention without holding a connection) and
+  // moving burst-resilience into a CLIENT-SIDE retry/backoff loop in
+  // Bootstrap.tsx. Each retry is a fresh request that creates and releases
+  // a connection — connections never queue.
+  const result = await withShowAdvisoryLock(showId, "try", async () => {
     const supabase = createSupabaseServiceRoleClient();
 
     // (1) Read active signing key id INSIDE the lock so concurrent

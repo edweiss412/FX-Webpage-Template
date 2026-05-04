@@ -158,7 +158,46 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
         // (1) Mint the bootstrap nonce + cookie entry via the Server
         // Action. This runs inside the per-show advisory lock and writes
         // both the DB row and the cookie atomically.
-        const { nonce } = await bootstrapMint(showId);
+        //
+        // R9 #2 burst-load resilience: the lock is held in 'try' mode
+        // server-side (R8 #2 briefly switched to 'block' but round-8 §B
+        // caught that blocking-mode held a DB connection per waiter and
+        // exhausted the connection pool). When 50+ crew arrive at a venue
+        // simultaneously, contention on the same show lock causes 'try'
+        // mode to throw ShowAdvisoryLockUnavailableError on losers.
+        // Retry with bounded backoff before falling through to the
+        // terminal error so legitimate users see at most ~600ms of delay
+        // rather than an immediate failure.
+        let nonce: string | undefined;
+        const backoffsMs = [100, 250]; // 3 total attempts
+        for (let attempt = 0; attempt <= backoffsMs.length; attempt++) {
+          try {
+            const result = await bootstrapMint(showId);
+            nonce = result.nonce;
+            break;
+          } catch (mintErr) {
+            if (controller.signal.aborted) {
+              throw mintErr;
+            }
+            if (attempt === backoffsMs.length) {
+              throw mintErr;
+            }
+            await new Promise<void>((resolve) => {
+              const timer = setTimeout(resolve, backoffsMs[attempt]);
+              controller.signal.addEventListener("abort", () => {
+                clearTimeout(timer);
+                resolve();
+              });
+            });
+            if (controller.signal.aborted) {
+              throw mintErr;
+            }
+          }
+        }
+        if (nonce === undefined) {
+          // Defensive — loop above either assigns nonce or throws.
+          throw new Error("bootstrapMint: nonce unset after retry loop");
+        }
 
         // (2) POST to redeem-link. Same-origin fetch sends the
         // __Host-fxav_bootstrap_v cookie automatically; the redeem-link
