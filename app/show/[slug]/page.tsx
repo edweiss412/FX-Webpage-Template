@@ -108,18 +108,35 @@ import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { messageFor } from "@/lib/messages/lookup";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
-/** Resolve a slug to a show id via a single bound SELECT. */
-async function resolveShowIdFromSlug(slug: string): Promise<string | null> {
+/**
+ * Resolve a slug to {id, published} via a single bound SELECT.
+ *
+ * R10 #1 (round-9 §A+§B HIGH): the page used to fetch only `id` and ran
+ * the auth chain (incl. validateLinkSession's `last_active_at` UPDATE
+ * side effect) before the only non-admin published-show check inside
+ * `getShowForViewer`. Two problems: (a) response shape distinguished
+ * 'unpublished but exists' from 'unknown slug' for non-admin viewers,
+ * leaking unpublished-show existence; (b) stale link sessions for
+ * later-unpublished shows still got their last_active_at refreshed.
+ * Returning published alongside id lets resolveViewer short-circuit
+ * non-admin requests on unpublished shows BEFORE link/google validators
+ * run, with notFound() as the indistinguishable response.
+ */
+type SlugResolution = { id: string; published: boolean };
+async function resolveShowFromSlug(slug: string): Promise<SlugResolution | null> {
   const supabase = createSupabaseServiceRoleClient();
   const res = await supabase
     .from("shows")
-    .select("id")
+    .select("id,published")
     .eq("slug", slug)
     .maybeSingle();
   if (res.error) {
     throw new Error(`/show/[slug]: slug lookup failed: ${res.error.message}`);
   }
-  return (res.data?.id as string | undefined) ?? null;
+  if (!res.data) return null;
+  const id = res.data.id as string | undefined;
+  if (!id) return null;
+  return { id, published: Boolean(res.data.published) };
 }
 
 /**
@@ -206,6 +223,7 @@ async function tryRequireAdmin(): Promise<boolean> {
 async function resolveViewer(
   req: Request,
   showId: string,
+  published: boolean,
 ): Promise<ChainResolution> {
   let clearCookie = false;
   let viewer: Viewer | null = null;
@@ -255,6 +273,18 @@ async function resolveViewer(
     }
     // Drift between isAdminSession and requireAdmin → fall through to the
     // next chain step. Don't return early.
+  }
+
+  // R10 #1 (round-9 §A+§B HIGH): non-admin viewers must NOT trigger the
+  // link/google validators against an unpublished show. The validators
+  // have side effects (validateLinkSession refreshes last_active_at on
+  // matching link_sessions rows) and their differing failure responses
+  // leak unpublished-show existence. Short-circuit to notFound() —
+  // indistinguishable from unknown slug — before any chain side effect
+  // can fire. Admin viewers (resolved at step 1 above) bypass this gate
+  // and continue to render drafts.
+  if (!viewer && !published) {
+    notFound();
   }
 
   // (2) validateLinkSession — runs only if admin didn't resolve. Its own
@@ -333,13 +363,14 @@ type PageProps = {
 export default async function ShowPage({ params }: PageProps) {
   const { slug } = await params;
 
-  const showId = await resolveShowIdFromSlug(slug);
-  if (!showId) {
+  const showInfo = await resolveShowFromSlug(slug);
+  if (!showInfo) {
     notFound();
   }
+  const { id: showId, published } = showInfo;
 
   const req = await buildRequestForChain();
-  const result = await resolveViewer(req, showId);
+  const result = await resolveViewer(req, showId, published);
 
   if (result.terminalFailure) {
     // AC-5.6a: a terminal_failure that ALSO carries `clearCookie: true`

@@ -73,7 +73,14 @@ vi.mock("@/lib/supabase/server", () => ({
       select: () => ({
         eq: () => ({
           maybeSingle: async () => ({
-            data: { id: "11111111-1111-1111-1111-111111111111" },
+            data: {
+              id: "11111111-1111-1111-1111-111111111111",
+              // R10 #1 published-gate added; this test exercises the
+              // clearCookie redirect path which requires published=true
+              // (otherwise the published gate short-circuits to notFound
+              // before the chain runs).
+              published: true,
+            },
             error: null,
           }),
         }),
