@@ -303,7 +303,7 @@ export function ShowRealtimeBridge({
         if (newClosureGen !== currentChannelGenerationRef.current) return;
 
         let newChannel: ShowInvalidationChannel | null = null;
-        let newSubscribed: Promise<string> | null = null;
+        let newSubscribed: Promise<void> | null = null;
         try {
           const result = subscribeToShow(
             supabase,
@@ -340,22 +340,30 @@ export function ShowRealtimeBridge({
         );
 
         // (e) AFTER the underlying socket reports SUBSCRIBED, run the
-        // version catch-up. Without this gate the catch-up races the
-        // Realtime join: an update that lands AFTER the version GET but
-        // BEFORE Realtime accepts the subscription is missed (catch-up
-        // sees the old token, Broadcast has not started delivering) and
-        // the page renders stale data forever. Codex HIGH 2.
+        // version catch-up. Codex round 2 HIGH: the readiness Promise
+        // now REJECTS on CHANNEL_ERROR / TIMED_OUT / CLOSED. On
+        // rejection, do NOT log success and do NOT run catch-up — the
+        // single-flight lock releases via the outer `finally`, and the
+        // status callback that triggered the rejection (or a subsequent
+        // disconnect) will drive a fresh renewal once the lock is free.
+        let readinessOk = false;
         try {
           await newSubscribed;
-        } catch {
-          // The Promise only ever resolves (with a status string); guard
-          // for completeness in case a future implementation rejects.
+          readinessOk = true;
+        } catch (err) {
+          console.warn(
+            "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
+            { reason: "readiness_failed", err },
+          );
         }
         if (!isMountedRef.current) return;
         if (newClosureGen !== currentChannelGenerationRef.current) return;
+        if (!readinessOk) return;
         await refreshSyncIfMismatch(newClosureGen);
 
-        // (f) Renewal succeeded — log success.
+        // (f) Renewal succeeded — log success. Only fires on the
+        // SUBSCRIBED-readiness path; failure path returned above without
+        // logging success.
         console.info(
           "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: success",
         );
@@ -438,7 +446,7 @@ export function ShowRealtimeBridge({
 
       const closureGen = currentChannelGenerationRef.current;
       let channel: ShowInvalidationChannel | null = null;
-      let subscribedPromise: Promise<string> | null = null;
+      let subscribedPromise: Promise<void> | null = null;
       try {
         const result = subscribeToShow(
           supabase,
@@ -470,19 +478,26 @@ export function ShowRealtimeBridge({
 
       // Post-subscribe catch-up: GATE on the readiness Promise so the
       // catch-up does not run before Realtime accepts the subscription.
-      // Without this gate (Codex HIGH 2), an update that lands AFTER the
-      // version GET but BEFORE Realtime accepts the subscription is
-      // missed: the catch-up sees the old token and Broadcast has not
-      // started delivering, leaving the page stale forever. Once
-      // SUBSCRIBED fires, compare the server's current version to the
-      // SSR'd renderVersion. Synchronous refresh on mismatch.
+      // Codex round 2 HIGH: readiness Promise REJECTS on CHANNEL_ERROR /
+      // TIMED_OUT / CLOSED. On rejection, do NOT run the catch-up — the
+      // status callback that drove the rejection has already kicked off
+      // (or will kick off) a renewal via handleStatusCallback. Without
+      // this guard the bridge would refreshSyncIfMismatch against an
+      // unjoined channel and silently mask a stuck-stale page until a
+      // later natural status event.
+      let readinessOk = false;
       try {
         await subscribedPromise;
-      } catch {
-        // The Promise only ever resolves; guard for completeness.
+        readinessOk = true;
+      } catch (err) {
+        console.warn(
+          "[ShowRealtimeBridge] subscription readiness failed",
+          err,
+        );
       }
       if (!isMountedRef.current || initialAborted) return;
       if (closureGen !== currentChannelGenerationRef.current) return;
+      if (!readinessOk) return;
       await refreshSyncIfMismatch(closureGen);
     })();
 

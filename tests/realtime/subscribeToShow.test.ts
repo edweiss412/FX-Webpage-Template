@@ -18,6 +18,7 @@
 import { describe, expect, test } from "vitest";
 import {
   subscribeToShow,
+  SubscribeReadinessError,
   type InvalidatePayload,
 } from "@/lib/realtime/subscribeToShow";
 
@@ -216,11 +217,14 @@ describe("subscribeToShow", () => {
     expect(result.channel).toBe(fake.handle);
   });
 
-  // === Codex HIGH 2 regression — subscribed Promise is the readiness signal ===
-  // The bridge MUST await this Promise before running its post-subscribe
-  // version-catch-up; otherwise an update that lands AFTER the version GET
-  // but BEFORE Realtime accepts the subscription is missed.
-  test("subscribed Promise resolves with the FIRST status callback Realtime delivers (HIGH 2)", async () => {
+  // === Codex round 2 HIGH — readiness Promise resolves ONLY on SUBSCRIBED ===
+  // The previous contract resolved on the FIRST status regardless of value, so
+  // a failure status (CHANNEL_ERROR / TIMED_OUT / CLOSED) satisfied the
+  // readiness gate and the bridge would mark renewal successful + run catch-up
+  // against an unjoined channel. The round 2 contract resolves only on
+  // 'SUBSCRIBED' and rejects with a SubscribeReadinessError on the three
+  // failure statuses; any other status leaves the Promise pending.
+  test("subscribed Promise resolves (with void) only when first status is SUBSCRIBED (Codex round 2 HIGH)", async () => {
     const fake = makeFakeSupabase();
     const result = subscribeToShow(
       fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
@@ -228,22 +232,102 @@ describe("subscribeToShow", () => {
       "fake.jwt.value",
       () => {},
     );
-    // Pending until status fires.
-    let resolvedWith: string | null = null;
-    void result.subscribed.then((s) => {
-      resolvedWith = s;
-    });
-    // No status yet → Promise still pending.
+    // Pending until SUBSCRIBED.
+    let resolved = false;
+    let rejected = false;
+    void result.subscribed.then(
+      () => {
+        resolved = true;
+      },
+      () => {
+        rejected = true;
+      },
+    );
     await Promise.resolve();
-    expect(resolvedWith).toBeNull();
+    expect(resolved).toBe(false);
+    expect(rejected).toBe(false);
 
-    // Fire SUBSCRIBED — Promise resolves with that status.
     fake.fireStatus("SUBSCRIBED");
-    await result.subscribed;
-    expect(resolvedWith).toBe("SUBSCRIBED");
+    await result.subscribed; // does not throw
+    expect(resolved).toBe(true);
+    expect(rejected).toBe(false);
   });
 
-  test("subscribed Promise resolves at most once even if status fires multiple times", async () => {
+  test("subscribed Promise REJECTS with SubscribeReadinessError on first-status CHANNEL_ERROR (Codex round 2 HIGH)", async () => {
+    const fake = makeFakeSupabase();
+    const result = subscribeToShow(
+      fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
+      "show-uuid-1",
+      "fake.jwt.value",
+      () => {},
+    );
+    fake.fireStatus("CHANNEL_ERROR");
+    await expect(result.subscribed).rejects.toBeInstanceOf(
+      SubscribeReadinessError,
+    );
+    await result.subscribed.catch((err: SubscribeReadinessError) => {
+      expect(err.status).toBe("CHANNEL_ERROR");
+    });
+  });
+
+  test("subscribed Promise REJECTS on first-status TIMED_OUT (Codex round 2 HIGH)", async () => {
+    const fake = makeFakeSupabase();
+    const result = subscribeToShow(
+      fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
+      "show-uuid-1",
+      "fake.jwt.value",
+      () => {},
+    );
+    fake.fireStatus("TIMED_OUT");
+    await expect(result.subscribed).rejects.toBeInstanceOf(
+      SubscribeReadinessError,
+    );
+    await result.subscribed.catch((err: SubscribeReadinessError) => {
+      expect(err.status).toBe("TIMED_OUT");
+    });
+  });
+
+  test("subscribed Promise REJECTS on first-status CLOSED (Codex round 2 HIGH)", async () => {
+    const fake = makeFakeSupabase();
+    const result = subscribeToShow(
+      fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
+      "show-uuid-1",
+      "fake.jwt.value",
+      () => {},
+    );
+    fake.fireStatus("CLOSED");
+    await expect(result.subscribed).rejects.toBeInstanceOf(
+      SubscribeReadinessError,
+    );
+    await result.subscribed.catch((err: SubscribeReadinessError) => {
+      expect(err.status).toBe("CLOSED");
+    });
+  });
+
+  test("subscribed Promise settles at most once: CHANNEL_ERROR then SUBSCRIBED stays REJECTED (Codex round 2 HIGH)", async () => {
+    const fake = makeFakeSupabase();
+    const result = subscribeToShow(
+      fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
+      "show-uuid-1",
+      "fake.jwt.value",
+      () => {},
+    );
+    // Failure first, then a SUBSCRIBED that arrives later. Per the
+    // round-2 contract the Promise has already rejected and stays
+    // rejected; SUBSCRIBED on the same channel handle is treated as a
+    // status transition, not a re-readiness signal. (Supabase Realtime
+    // never delivers SUBSCRIBED after CHANNEL_ERROR on the same channel
+    // handle in practice — the bridge tears down the failed channel
+    // and the status callback drives the renewal that creates a fresh
+    // channel handle. This test pins the contract for completeness.)
+    fake.fireStatus("CHANNEL_ERROR");
+    fake.fireStatus("SUBSCRIBED");
+    await expect(result.subscribed).rejects.toBeInstanceOf(
+      SubscribeReadinessError,
+    );
+  });
+
+  test("subscribed Promise settles at most once: SUBSCRIBED then later failures stay RESOLVED (Codex round 2 HIGH)", async () => {
     const fake = makeFakeSupabase();
     const result = subscribeToShow(
       fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
@@ -254,8 +338,9 @@ describe("subscribeToShow", () => {
     fake.fireStatus("SUBSCRIBED");
     fake.fireStatus("CLOSED");
     fake.fireStatus("CHANNEL_ERROR");
-    const first = await result.subscribed;
-    expect(first).toBe("SUBSCRIBED");
+    // Resolves cleanly — later failures are delivered through onStatus,
+    // not through the readiness Promise.
+    await result.subscribed;
   });
 
   test("optional onStatus callback receives every status transition", () => {

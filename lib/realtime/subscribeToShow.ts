@@ -77,21 +77,51 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export type ShowInvalidationChannel = ReturnType<SupabaseClient["channel"]>;
 
 /**
+ * Error thrown by the readiness Promise on a failure status. The `status`
+ * field carries the Realtime-reported failure value so callers (and tests)
+ * can disambiguate without parsing the message.
+ */
+export class SubscribeReadinessError extends Error {
+  readonly status: "CHANNEL_ERROR" | "TIMED_OUT" | "CLOSED";
+  constructor(status: "CHANNEL_ERROR" | "TIMED_OUT" | "CLOSED") {
+    super(
+      `subscribeToShow readiness failed: first status was '${status}' (expected 'SUBSCRIBED')`,
+    );
+    this.name = "SubscribeReadinessError";
+    this.status = status;
+  }
+}
+
+/**
  * Return type for subscribeToShow. The helper exposes a `subscribed` Promise
- * that resolves with the FIRST status callback Realtime delivers (typically
- * `'SUBSCRIBED'` on success, or `'CHANNEL_ERROR'` / `'TIMED_OUT'` /
- * `'CLOSED'` on failure). Callers MUST await this Promise before running
- * any post-subscribe catch-up logic — otherwise an update that lands AFTER
- * the version GET but BEFORE Realtime accepts the subscription is missed
- * (catch-up sees the old token, Broadcast has not yet started delivering).
+ * that RESOLVES only on `'SUBSCRIBED'` and REJECTS with a
+ * {@link SubscribeReadinessError} on `'CHANNEL_ERROR' | 'TIMED_OUT' |
+ * 'CLOSED'` (Codex round 2 HIGH).
  *
- * The Promise resolves at most once. Subsequent status transitions are
- * delivered through the per-call `onStatus` callback (also wired on
- * `.subscribe()`), which is the bridge's signal to drive renewal.
+ * Callers MUST await this Promise before running any post-subscribe
+ * catch-up logic — otherwise an update that lands AFTER the version GET
+ * but BEFORE Realtime accepts the subscription is missed (catch-up sees
+ * the old token, Broadcast has not yet started delivering).
+ *
+ * Round-2-fix rationale: the prior contract resolved on the FIRST status
+ * regardless of value, so a failure status (CHANNEL_ERROR / TIMED_OUT /
+ * CLOSED) satisfied the readiness gate. The bridge would then log
+ * `outcome:'success'`, run catch-up against an unjoined channel, and
+ * release `isRenewingRef` while `currentChannelRef` pointed at a failed
+ * channel — leaving the page without realtime invalidations until a
+ * subsequent natural status callback. Rejecting on failure forces the
+ * bridge to skip the success path; the lock still releases via the
+ * existing `finally` block, and the next natural CHANNEL_ERROR /
+ * disconnect callback can drive a fresh renewal cleanly.
+ *
+ * The Promise resolves OR rejects at most once. Subsequent status
+ * transitions are delivered through the per-call `onStatus` callback
+ * (also wired on `.subscribe()`), which is the bridge's signal to drive
+ * renewal.
  */
 export type SubscribeToShowResult = {
   channel: ShowInvalidationChannel;
-  subscribed: Promise<string>;
+  subscribed: Promise<void>;
 };
 
 /**
@@ -159,24 +189,46 @@ export function subscribeToShow(
     },
   );
 
-  // (4) Wire the subscribe-status callback AND a Promise that resolves
-  // with the FIRST status the underlying socket reports. The Promise is
-  // the readiness signal the bridge awaits before running its
-  // post-subscribe version-catch-up — without this signal, the catch-up
-  // races the Realtime join: an update that lands AFTER the version GET
-  // but BEFORE the server accepts the subscription is missed (the
-  // catch-up sees the old token, Broadcast has not started delivering)
-  // and the page renders stale data forever.
-  let resolveSubscribed: (status: string) => void = () => {};
-  const subscribed = new Promise<string>((resolve) => {
+  // (4) Wire the subscribe-status callback AND a Promise that signals
+  // readiness for the bridge's post-subscribe catch-up. Codex round 2
+  // HIGH: the readiness Promise RESOLVES only on `'SUBSCRIBED'` and
+  // REJECTS on `'CHANNEL_ERROR' | 'TIMED_OUT' | 'CLOSED'`. The previous
+  // contract resolved on the FIRST status regardless of value, so a
+  // failure status would satisfy the gate and the bridge would mark
+  // renewal successful + run catch-up against an unjoined channel.
+  //
+  // The Promise settles at most once; later transitions are delivered
+  // through the optional `onStatus` callback (the bridge's renewal
+  // signal). We attach a no-op .catch() to defang any unhandled-rejection
+  // warning when callers fire-and-forget the helper without awaiting
+  // (the optional `onStatus` is the canonical signal in that case; the
+  // Promise is purely a readiness gate).
+  let resolveSubscribed: () => void = () => {};
+  let rejectSubscribed: (err: SubscribeReadinessError) => void = () => {};
+  const subscribed = new Promise<void>((resolve, reject) => {
     resolveSubscribed = resolve;
+    rejectSubscribed = reject;
   });
-  let resolved = false;
+  // Defang unhandled-rejection warnings for callers that don't await.
+  subscribed.catch(() => {});
+  let settled = false;
 
   channel.subscribe((status: string) => {
-    if (!resolved) {
-      resolved = true;
-      resolveSubscribed(status);
+    if (!settled) {
+      if (status === "SUBSCRIBED") {
+        settled = true;
+        resolveSubscribed();
+      } else if (
+        status === "CHANNEL_ERROR" ||
+        status === "TIMED_OUT" ||
+        status === "CLOSED"
+      ) {
+        settled = true;
+        rejectSubscribed(new SubscribeReadinessError(status));
+      }
+      // Any other status (e.g., unknown future value) leaves the Promise
+      // pending — the bridge's onStatus callback receives every status
+      // and can drive its own logic.
     }
     if (onStatus) {
       onStatus(status);
