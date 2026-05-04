@@ -58,7 +58,25 @@ export async function validateGoogleSession(
   // Kept for the shared auth-chain signature; Supabase reads request cookies
   // via createSupabaseServerClient().
   void req;
-  const supabase = await createSupabaseServerClient();
+
+  // R17 #4 (round-16 §A MEDIUM): wrap client construction +
+  // service-role lookup in try/catch. Pre-fix createSupabaseServerClient,
+  // createSupabaseServiceRoleClient, and the .from(...) await could
+  // throw on missing env / cookie-store unavailable / network failure
+  // — none of those were caught and would produce an uncataloged
+  // framework error path instead of the terminal_failure contract
+  // callers (resolveShowViewer, show-page chain) expect. Mirror the
+  // top-level try/catch validateGoogleIdentity uses (R15 #4).
+  let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  try {
+    supabase = await createSupabaseServerClient();
+  } catch {
+    return {
+      kind: "terminal_failure",
+      status: 500,
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    };
+  }
   const { data: userResult, error: userError } = await supabase.auth.getUser();
   if (userError) {
     // R16 #1 (round-15 §A HIGH): pre-R16 the route collapsed any
@@ -82,14 +100,27 @@ export async function validateGoogleSession(
     return { kind: "continue" };
   }
 
-  const service = createSupabaseServiceRoleClient();
-  const { data: crewRows, error } = (await service
-    .from("crew_members")
-    .select("id,show_id,email")
-    .eq("show_id", context.showId)
-    .eq("email", email)) as { data: CrewMemberEmailRow[] | null; error: unknown };
-
-  if (error) {
+  // R17 #4: service-role client construction + .from() await can also
+  // throw infra/network errors — not just return { error }. Wrap so
+  // an unexpected throw maps to terminal_failure, not an uncaught
+  // framework error.
+  let crewRows: CrewMemberEmailRow[] | null;
+  try {
+    const service = createSupabaseServiceRoleClient();
+    const result = (await service
+      .from("crew_members")
+      .select("id,show_id,email")
+      .eq("show_id", context.showId)
+      .eq("email", email)) as { data: CrewMemberEmailRow[] | null; error: unknown };
+    if (result.error) {
+      return {
+        kind: "terminal_failure",
+        status: 500,
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+      };
+    }
+    crewRows = result.data;
+  } catch {
     return {
       kind: "terminal_failure",
       status: 500,

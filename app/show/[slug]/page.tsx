@@ -430,18 +430,39 @@ export default async function ShowPage({ params }: PageProps) {
     // AC-5.6a: a terminal_failure that ALSO carries `clearCookie: true`
     // (e.g. LINK_SESSION_KEY_ROTATED) must clear the stale cookie on the
     // FIRST response — not leave it in place until the user retries.
-    // Redirect through /auth/clear-session before the catalog/notFound
+    // Redirect through /auth/clear-session before the catalog/error
     // path so the Set-Cookie clear lands on the same response cycle.
     if (result.clearCookie) {
       const target = `/show/${slug}`;
       redirect(`/auth/clear-session?next=${encodeURIComponent(target)}`);
     }
-    // Server-side infrastructure fault — render via catalog message (no raw
-    // error codes per AGENTS.md §1.5). M5 §B Task 5.9's ErrorExplainer is
-    // the eventual surface; for now we 404 with a TODO. notFound() is the
-    // safer-by-default choice than leaking the raw 500 to the client.
-    void messageFor(result.terminalFailure.code as never);
-    notFound();
+    // R17 #5 (round-16 §B HIGH): pre-fix every terminal_failure
+    // rendered as notFound() — browsers showed 404, indistinguishable
+    // from "page doesn't exist." Crew got no signal that the server
+    // was having trouble; operators got the 404 in access logs instead
+    // of a real 500-class signal. Render a cataloged error block
+    // matching /me's R16 #4 shape so the user sees real failure state
+    // with retry guidance.
+    const entry = messageFor(result.terminalFailure.code as never);
+    return (
+      <main
+        data-testid="show-page-terminal-failure"
+        className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
+      >
+        <h1 className="text-2xl font-bold text-text-strong">
+          We&rsquo;re having trouble loading this show
+        </h1>
+        <p className="mt-4 text-base text-text-subtle">
+          {entry.crewFacing ?? entry.dougFacing ?? "Please try again in a moment."}
+        </p>
+        <a
+          href={`/show/${slug}`}
+          className="mt-section-gap inline-flex min-h-tap-min items-center px-4 py-2 text-base text-text-strong underline underline-offset-2"
+        >
+          Try again
+        </a>
+      </main>
+    );
   }
 
   // Chain-adapter clearCookie plumbing. Two cases:
