@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   issuedAt: new Date().toISOString(),
   consumedAt: null as string | null,
   consumeAttempts: 0,
+  readErrors: new Map<string, { message: string }>(),
 }));
 
 vi.mock("@/lib/db/advisoryLock", () => ({
@@ -78,7 +79,11 @@ function builder(table: string) {
       });
     },
     maybeSingle() {
+      const readError = state.readErrors.get(`${table}:select`);
       if (table === "bootstrap_nonces" && operation === "select") {
+        if (readError) {
+          return Promise.resolve({ data: null, error: readError });
+        }
         return Promise.resolve({
           data: {
             nonce_hash: nonceHash(state.nonce),
@@ -99,16 +104,25 @@ function builder(table: string) {
         return Promise.resolve({ data: { nonce_hash: nonceHash(state.nonce) }, error: null });
       }
       if (table === "crew_members") {
+        if (readError) {
+          return Promise.resolve({ data: null, error: readError });
+        }
         return Promise.resolve({
           data: { id: state.crewMemberId, show_id: state.showId, name: "Crew Tester" },
           error: null,
         });
       }
       if (table === "crew_member_auth") {
+        if (readError) {
+          return Promise.resolve({ data: null, error: readError });
+        }
         return Promise.resolve({
           data: { current_token_version: 1, revoked_below_version: 0 },
           error: null,
         });
+      }
+      if (table === "revoked_links" && readError) {
+        return Promise.resolve({ data: null, error: readError });
       }
       return Promise.resolve({ data: null, error: null });
     },
@@ -131,6 +145,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
     state.issuedAt = new Date().toISOString();
     state.consumedAt = null;
     state.consumeAttempts = 0;
+    state.readErrors.clear();
   });
 
   function requestFor(options: {
@@ -170,6 +185,26 @@ describe("/api/auth/redeem-link advisory lock", () => {
       signing_key_id: "k1",
     };
   }
+
+  test.each([
+    "bootstrap_nonces:select",
+    "crew_members:select",
+    "crew_member_auth:select",
+    "revoked_links:select",
+  ])("%s errors return ADMIN_SESSION_LOOKUP_FAILED", async (errorKey) => {
+    state.readErrors.set(errorKey, { message: "fake DB outage" });
+
+    const response = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
+  });
 
   test("missing bootstrap cookie returns CSRF_DENIED without consuming nonce", async () => {
     const response = await POST(requestFor());

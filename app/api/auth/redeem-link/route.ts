@@ -142,13 +142,16 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
 
     const supabase = createSupabaseServiceRoleClient();
-    const { data: nonceRow } = (await supabase
+    const { data: nonceRow, error: nonceError } = (await supabase
       .from("bootstrap_nonces")
       .select("nonce_hash,show_id,issued_at,consumed_at,signing_key_id")
       .eq("nonce_hash", hash)
       .eq("show_id", showId)
       .maybeSingle()) as { data: BootstrapNonceRow | null; error: unknown };
 
+    if (nonceError) {
+      return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
+    }
     if (!nonceRow || nonceRow.consumed_at !== null) {
       return jsonError(403, "CSRF_DENIED");
     }
@@ -199,22 +202,28 @@ export async function POST(request: NextRequest): Promise<Response> {
       return jsonError(403, "CSRF_DENIED");
     }
 
-    const { data: crew } = (await supabase
+    const { data: crew, error: crewError } = (await supabase
       .from("crew_members")
       .select("id,show_id,name")
       .eq("show_id", showId)
       .eq("name", verified.payload.crewMemberKey.name)
       .maybeSingle()) as { data: CrewRow | null; error: unknown };
+    if (crewError) {
+      return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
+    }
     if (!crew) {
       return jsonError(410, "LINK_NO_CREW_MATCH");
     }
 
-    const { data: authRow } = (await supabase
+    const { data: authRow, error: authError } = (await supabase
       .from("crew_member_auth")
       .select("current_token_version,revoked_below_version")
       .eq("show_id", showId)
       .eq("crew_name", crew.name)
       .maybeSingle()) as { data: AuthRow | null; error: unknown };
+    if (authError) {
+      return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
+    }
     if (!authRow || verified.payload.tokenVersion !== authRow.current_token_version) {
       return jsonError(410, "LINK_VERSION_MISMATCH");
     }
@@ -222,13 +231,16 @@ export async function POST(request: NextRequest): Promise<Response> {
       return jsonError(410, "LINK_REVOKED_FLOOR");
     }
 
-    const { data: revoked } = (await supabase
+    const { data: revoked, error: revokedError } = (await supabase
       .from("revoked_links")
       .select("token_version")
       .eq("show_id", showId)
       .eq("crew_name", crew.name)
       .eq("token_version", verified.payload.tokenVersion)
       .maybeSingle()) as { data: { token_version: number } | null; error: unknown };
+    if (revokedError) {
+      return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
+    }
     if (revoked) {
       return jsonError(410, "LINK_REVOKED_SURGICAL");
     }
