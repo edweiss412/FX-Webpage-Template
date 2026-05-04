@@ -282,18 +282,79 @@ No DEFERRED.md entry for the admin/dev surface — the audit explicitly accepts 
 
 ## Convergence log
 
-### Round 1 — 2026-05-03 (in progress)
+### Round 1 — 2026-05-03 (closed)
 
-**Reviewer**: GPT-5.5 / Codex per ROUTING.md M4 row.
+**Reviewer**: GPT-5.5 / Codex per ROUTING.md M4 row. **Verdict**: needs-attention → 3 HIGH closed in 3 commits.
 
-**Provenance note**: Round 1 was invoked via raw `node codex-companion.mjs adversarial-review --wait` with `CLAUDE_PLUGIN_ROOT` hardcoded to `~/.claude/plugins/cache/openai-codex/codex/1.0.4/scripts/codex-companion.mjs`. This bypassed (a) per-session `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}/sessions/${CODEX_COMPANION_SESSION_ID:-default}"` scoping documented in the `superpowers:adversarial-review` skill, and (b) the skill's convergence-loop wrapper (round cap + BLOCKING_ISSUES → fix → re-invoke → APPROVED semantics + escalate-to-user on round 3). The Codex review itself produced valid findings (3 HIGH on the realtime layer); the off-label invocation didn't break the review but bypassed the wrapper discipline that protects against concurrent-session state-clobbering. Round 2+ uses `/codex:adversarial-review --background --base <ref>` slash command per the canonical path. Captured as a memory feedback entry (`feedback_adversarial_review_canonical_invocation.md`) for cross-session future-protection.
+**Provenance note**: Round 1 was invoked via raw `node codex-companion.mjs adversarial-review --wait` with `CLAUDE_PLUGIN_ROOT` hardcoded to `~/.claude/plugins/cache/openai-codex/codex/1.0.4/scripts/codex-companion.mjs`. This bypassed (a) per-session `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}/sessions/${CODEX_COMPANION_SESSION_ID:-default}"` scoping documented in the `superpowers:adversarial-review` skill, and (b) the skill's convergence-loop wrapper. The Codex review itself produced valid findings (3 HIGH on the realtime layer); the off-label invocation didn't break the review but bypassed the wrapper discipline. Round 2+ uses the canonical bash invocation with proper `CLAUDE_PLUGIN_DATA` per-session scoping + dynamic `CLAUDE_PLUGIN_ROOT` resolution per the skill template. Captured as a memory feedback entry (`feedback_adversarial_review_canonical_invocation.md`) for cross-session future-protection.
 
 **Findings (3 HIGH, all must-fix-before-merge — all in the realtime invalidation layer):**
 
-- **HIGH 1** — Realtime invalidation channel not configured as `private: true` (`lib/realtime/subscribeToShow.ts:86-93`). Supabase Broadcast authorization only protects private channels. Without it the JWT mint is irrelevant for subscription authorization (or private DB broadcasts won't match this public client channel). Tenant-boundary + revocation failure for the page's stale-data transport.
-- **HIGH 2** — Initial catch-up runs BEFORE channel is subscribed (`components/realtime/ShowRealtimeBridge.tsx:391-419`). `subscribeToShow` returns the channel handle synchronously; `refreshSyncIfMismatch` runs as if the Realtime join completed. An update landing after the version GET but before the server has accepted the subscription is missed.
-- **HIGH 3** — Mandatory renewal single-flight guard missing (`components/realtime/ShowRealtimeBridge.tsx:225-231`). Plan §827 requires `isRenewingRef` lock; impl has only mounted/generation guards. Multiple `CHANNEL_ERROR`/`TIMED_OUT`/`CLOSED`/`system.disconnected` callbacks with the same generation can all enter `renewSubscription` before the first mint completes.
+- **HIGH 1** — Realtime invalidation channel not configured as `private: true`. Supabase Broadcast authorization only protects private channels. Closed at `9271ac3` (DB: `realtime.send()` + `realtime.messages` RLS policy with topic regex match against JWT `show_id` claim + admin OR-clause) and `a29c216` (client: `config.private = true`).
+- **HIGH 2** — Initial catch-up runs BEFORE channel is subscribed. Closed at `a29c216`: `subscribeToShow` returns `{ channel, subscribed: Promise }` resolving on first status; bridge awaits it before catch-up on both initial mount and renewal.
+- **HIGH 3** — Mandatory renewal single-flight guard missing. Closed at `5e632eb`: `isRenewingRef` set before first await, released in `finally`; rapid-cycle exactly-one + failure-releases-lock tests.
 
-**Fix dispatch in flight** (subagent `af2f48ce5af47ec37`): private-channel + `realtime.messages` RLS migration; Promise-based subscription readiness; `isRenewingRef` single-flight + rapid-cycle exactly-one + failure-releases-lock tests.
+vitest 1189 → 1196 (+7).
 
-Round 1 commit SHAs + closure summary will be appended below when the fix subagent reports back.
+### Round 2 — 2026-05-03 (closed)
+
+**Verdict**: needs-attention → 1 HIGH closed in 1 commit.
+
+- **HIGH** — Readiness Promise resolved on FIRST status regardless of value (`lib/realtime/subscribeToShow.ts:176-180`). CHANNEL_ERROR / TIMED_OUT / CLOSED satisfied the gate, so renewal could mark unjoined channel as successful + log success + run catch-up while `currentChannelRef` pointed at a failed channel. Closed at `8a22272`: readiness Promise now REJECTS on non-SUBSCRIBED with a typed `SubscribeReadinessError`. Bridge wraps `await` in try/catch; failure path emits `outcome:failed reason:readiness_failed` log, no catch-up. Test A (initial CHANNEL_ERROR) + Test B (renewal TIMED_OUT) added.
+
+vitest 1196 → 1202 (+6).
+
+### Round 3 — 2026-05-03 (closed)
+
+**Verdict**: needs-attention → 1 HIGH closed in 1 commit.
+
+- **HIGH** — Renewal readiness failure dropped the only retry trigger while the single-flight lock was held (`components/realtime/ShowRealtimeBridge.tsx:349-361`). The status that drove the readiness rejection ALSO fired `handleStatusCallback`, which called `renewSubscription` while `isRenewingRef` was still true → returned at the lock. Catch logged + returned. Finally released lock AFTER the triggering status was discarded. If the failure was the only status for that channel, page was stranded. Closed at `bea25dd`: `pendingRenewalRef` set in catch path; failed channel torn down; exponential backoff (250→500→1000→2000→5000ms cap; reset on first SUBSCRIBED) schedules retry after the lock release. Tests C (last-event TIMED_OUT auto-retries), D (5+ failures → backoff observed), E (unmount cancels pending retry).
+
+vitest 1202 → 1205 (+3).
+
+### Round 4 — 2026-05-03 (closed)
+
+**Verdict**: needs-attention → 1 HIGH closed in 1 commit.
+
+- **HIGH** — Late stale renewal could schedule against the new generation after cleanup/re-effect (`components/realtime/ShowRealtimeBridge.tsx:400-449`). The retry was scheduled by reading the generation counter at SCHEDULING time, not at the failed renewal's start. ABA race: cleanup advances generation + new effect mounts; old async catch sets pendingRenewalRef again; old finally schedules retry against new generation; timer fires old closure's `renewSubscription` against the new effect's slug/showId. Closed at `7c72deb`: per-effect abort token. Each `useEffect` creates a fresh `effectToken`; cleanup aborts it; every async path checks the token before mutating shared refs. Test F: held-removeChannel-across-remount-with-different-slug — proven to FAIL without the fix (`mintsAfterRemountSlugs` included `show-A` after remount with `show-B`).
+
+vitest 1205 → 1206 (+1).
+
+### Round 5 — 2026-05-03 (closed)
+
+**Verdict**: needs-attention → 1 HIGH closed in 1 commit.
+
+- **HIGH** — Stale aborted renewal could suppress or unlock the new effect's renewal flow (`components/realtime/ShowRealtimeBridge.tsx:286-288`). The `isRenewingRef` boolean lock was NOT bound to the per-effect token. Two failure modes: stale show-A renewal still held the boolean → show-B's `renewSubscription` returned at the lock; OR stale show-A's finally cleared the boolean while show-B's renewal was active → reopened overlapping-renewal race. Closed at `b7d7138`: `isRenewingRef` replaced with `renewalOwnerRef: useRef<EffectToken | null>`. Acquire stamps with the current effect token; release in finally + cleanup ONLY if `renewalOwnerRef.current === effectToken`. Tests G + H proven to FAIL under the regression.
+
+vitest 1206 → 1208 (+2).
+
+### Round 6 — 2026-05-03 (closed)
+
+**Verdict**: needs-attention → 2 HIGH (test rigor — not production) closed in 1 commit.
+
+- **HIGH 1** — Test G did not prove stale finally cannot clear a live show-B renewal lock. Old test completed show-B's renewal BEFORE releasing show-A's held mint → show-B's lock was already null when show-A's stale finally ran. A regression to unconditional `renewalOwnerRef = null` would still pass.
+- **HIGH 2** — Test H did not exercise pendingRenewalRef recovery. Old test drove show-B's renewal channel to SUBSCRIBED, never entering the readiness-failure catch.
+
+Closed at `f3ff9a3`: Tests G + H rewritten. Test G now holds show-B's mint AS WELL — show-B owns the lock when show-A's stale finally runs; second show-B renewal during held first is suppressed by the owner-token acquire check. Test H now drives show-B's renewal channel to TIMED_OUT, exercises the readiness-failure catch + 250ms backoff retry. Both tests proven to FAIL under the negative-regression variants (stashing the production equality check / setTimeout retry). Production code unchanged.
+
+vitest 1208 unchanged (test-rewrite, same count).
+
+### Round 7 — 2026-05-03 (closed)
+
+**Verdict**: needs-attention → 1 MEDIUM closed in 1 commit.
+
+- **MEDIUM** — `f42b501`'s `echo "next-env.d.ts" >> .gitignore` joined onto the previous unterminated `.claude/` line, creating a single bogus `.claude/next-env.d.ts` rule that ignored neither the root `next-env.d.ts` nor preserved the `.claude/` shield. Closed at `700b251`: split into two distinct rules (`.claude/` + `/next-env.d.ts`); verified via `git check-ignore -v`.
+
+### Round 8 — 2026-05-03 — APPROVED ✅
+
+**Verdict**: approve. **No material findings.**
+
+> Ship: the round 7 gitignore regression is closed. The diff splits the bogus combined rule into `.claude/` and `/next-env.d.ts`, and both `git check-ignore -v` probes resolve to the intended lines.
+
+---
+
+**Convergence reached at round 8.** 8 rounds total (1 round longer than M3's 8-round convergence). Total findings closed: 9 HIGH + 1 MEDIUM across 8 fix commits (`9271ac3`, `a29c216`, `5e632eb`, `8a22272`, `bea25dd`, `7c72deb`, `b7d7138`, `f3ff9a3`, `700b251`). Final test-suite state: vitest **1208 + 5 skipped** standalone; mobile-safari Playwright **115 + 35 skipped**; lint 0 errors; typecheck clean.
+
+Round-by-round pattern: every round surfaced ONE realtime-layer race or ONE test-rigor gap; each was closed by exactly one fix commit before the next round. Codex's first 5 rounds drilled progressively-deeper into the renewal/failure/cleanup race surface (private channel → readiness-on-status → catch-up-vs-finally → ABA generation → owner-token); rounds 6 + 7 caught test-rigor + gitignore housekeeping issues that would otherwise have shipped silently.
+
+**M4 closed. Ready for merge.**
