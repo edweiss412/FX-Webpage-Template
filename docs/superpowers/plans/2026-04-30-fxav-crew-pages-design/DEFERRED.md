@@ -149,6 +149,13 @@ When picking up a deferred item:
 **Why deferred:** §A coordination ask. §A would add the catalog entries; §B would swap the inline strings for ErrorExplainer renders. Not a §B-internal fix.
 **Suggested home:** Coordinate with §A in M6 or whenever the catalog next gets touched.
 
+### M5-D1 — OAuth callback structured operator-log entries
+
+**Source:** M5 adversarial review (2026-05-04, round 1, MEDIUM)
+**Description:** app/auth/callback/route.ts emits OAUTH_REDIRECT_INVALID and OAUTH_STATE_INVALID only as redirect query codes (lines 32-50). Spec AC-5.14 requires the matching structured operator-log entry for invalid next, missing/expired PKCE state, and exchange failures so redirect tampering and state-mixup failures are visible to operators independent of the affected user.
+**Why deferred:** The structured operator-log sink does not yet exist — per CF-PIN-3, operator-log writes are scheduled for M6/M8 alongside the sink itself. Producing entries now would require either a stub sink or a write to admin_alerts that doesn't match the spec's eventual shape. M5 §A close-out captured this as carry-forward.
+**Suggested home:** M6 (drive-sync) or M8 (bug-report) — whichever lands the operator-log sink first. When picking up: add the OAUTH_REDIRECT_INVALID and OAUTH_STATE_INVALID emit calls in callback/route.ts:32-50 alongside the sink, with regression tests covering invalid next, missing PKCE, and exchange failure paths.
+
 ---
 
 ## Resolved
