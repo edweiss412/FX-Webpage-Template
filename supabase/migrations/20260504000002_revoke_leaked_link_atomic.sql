@@ -9,7 +9,7 @@ create or replace function public.revoke_leaked_link_atomic(
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   auth_row public.crew_member_auth%rowtype;
@@ -70,3 +70,13 @@ begin
   );
 end;
 $$;
+
+-- Privileged write helper: lock down EXECUTE so only the service-role
+-- server path (the leaked-link middleware) may invoke this RPC.
+-- Supabase's default privileges grant EXECUTE to anon + authenticated
+-- on public-schema functions, so REVOKE FROM PUBLIC alone is insufficient
+-- — anon and authenticated must be revoked explicitly. Other entry
+-- points must go through the JWT-verified compromise-handler trust
+-- boundary in middleware.ts.
+revoke all on function public.revoke_leaked_link_atomic(uuid, text, int, text) from public, anon, authenticated;
+grant execute on function public.revoke_leaked_link_atomic(uuid, text, int, text) to service_role;
