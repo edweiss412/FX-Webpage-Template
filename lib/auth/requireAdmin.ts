@@ -25,6 +25,7 @@
  */
 import { notFound, forbidden } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { canonicalize } from "@/lib/email/canonicalize";
 
 export async function requireAdmin(): Promise<void> {
   // Build-time gate: 404 when the dev panel is not enabled in this build.
@@ -34,17 +35,23 @@ export async function requireAdmin(): Promise<void> {
 
   // Auth gate: ask Postgres' is_admin() helper. Reading via the cookie-bound
   // client means RLS-side helpers see the same auth.jwt() the rest of the
-  // request would. Empty cookies → unauthenticated → is_admin() returns false.
+  // request would. Empty cookies → unauthenticated → fail closed before RPC.
   let isAdmin = false;
   try {
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase.rpc("is_admin");
-    if (error) {
-      // Auth/RPC error — treat as not-admin and route to 403. Don't leak the
-      // raw error to the user.
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    const email = canonicalize(userData.user?.email);
+    if (userError || !email) {
       isAdmin = false;
     } else {
-      isAdmin = data === true;
+      const { data, error } = await supabase.rpc("is_admin");
+      if (error) {
+        // Auth/RPC error — treat as not-admin and route to 403. Don't leak the
+        // raw error to the user.
+        isAdmin = false;
+      } else {
+        isAdmin = data === true;
+      }
     }
   } catch {
     // createSupabaseServerClient() throws when SUPABASE_URL / ANON_KEY are
