@@ -109,6 +109,24 @@ export function todayWorkPhases(
 }
 
 /**
+ * Today's ISO `YYYY-MM-DD` date string in the show's venue timezone.
+ * Wrapper around `formatIsoInTimeZone` + `resolveTimezone` so callers
+ * outside this module (ScheduleTile primary-variant today-highlight,
+ * Task 4.13.distill Finding 2) can derive the same boundary without
+ * re-importing the timezone-resolution discipline.
+ *
+ * Pure function; same arguments → same result. The tile reads `new
+ * Date()` at the page handler and threads it through.
+ */
+export function todayIsoInShowTimezone(
+  show: Pick<ShowRow, "venue">,
+  today: Date,
+): string {
+  const tz = resolveTimezone(show);
+  return formatIsoInTimeZone(today, tz);
+}
+
+/**
  * Pack-list visibility per spec §8.1, AC-4.8 / AC-4.10.
  *
  *   visible iff (

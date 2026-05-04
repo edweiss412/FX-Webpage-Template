@@ -145,10 +145,11 @@ export function PackListTile({
       testId="pack-list-tile"
       heading="Pack list"
       headingTone="eyebrow"
+      variant="primary"
       ariaLabel="Pack list"
       bodyAs="div"
     >
-      <ul className="flex flex-1 flex-col gap-2">
+      <ol className="flex flex-1 flex-col gap-2">
         {visibleCases.map((c, idx) => (
           <li
             key={`${c.caseLabel}-${idx}`}
@@ -161,6 +162,13 @@ export function PackListTile({
               floor explicitly so a small caseLabel doesn't collapse the
               hit area on mobile. Cursor + outline on focus give the
               keyboard-native affordance.
+
+              Leading numeric prefix (Task 4.13.distill `primary`-variant
+              differentiation): a tabular-nums case index sits to the
+              left of the case label so the tile reads as a numbered
+              list, NOT a stack of identical disclosures. The number
+              uses the text-faint color so it's quiet weight; the case
+              label remains the primary text.
             */}
             <details className="group">
               <summary
@@ -175,8 +183,16 @@ export function PackListTile({
                   "[&::-webkit-details-marker]:hidden",
                 ].join(" ")}
               >
-                <span className="flex-1 truncate">
-                  {c.caseLabel || `Case ${idx + 1}`}
+                <span className="flex flex-1 items-baseline gap-2 truncate">
+                  <span
+                    aria-hidden="true"
+                    className="shrink-0 text-xs font-medium tabular-nums text-text-faint"
+                  >
+                    {idx + 1}.
+                  </span>
+                  <span className="truncate">
+                    {c.caseLabel || `Case ${idx + 1}`}
+                  </span>
                 </span>
                 <span className="flex items-center gap-2">
                   <span className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint tabular-nums">
@@ -237,7 +253,7 @@ export function PackListTile({
             </details>
           </li>
         ))}
-      </ul>
+      </ol>
 
       {/*
         Cardinality-cap disclosure stub. Static for M4 — see

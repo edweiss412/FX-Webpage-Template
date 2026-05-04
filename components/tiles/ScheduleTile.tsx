@@ -55,6 +55,7 @@ import type { DateRestriction, ShowRow } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { formatIsoDate } from "@/lib/format/date";
+import { todayIsoInShowTimezone } from "@/lib/visibility/packList";
 
 type SchedulePhase = "Travel In" | "Set" | "Show" | "Travel Out";
 
@@ -66,8 +67,18 @@ type ScheduleDay = {
 };
 
 type ScheduleTileProps = {
-  show: Pick<ShowRow, "dates">;
+  show: Pick<ShowRow, "dates" | "venue">;
   dateRestriction: DateRestriction;
+  /**
+   * "Today" — supplied by the page handler. When supplied, the row whose
+   * `data-day` matches today's ISO date in the venue timezone gets the
+   * §8.2 reference-moment treatment: a leading FXAV-orange dot + bolder
+   * weight on the date label. Optional so unit tests / Storybook /
+   * server snapshots can render the tile without a clock dependency
+   * (the row simply never highlights). Task 4.13.distill — `primary`
+   * variant differentiation.
+   */
+  today?: Date;
 };
 
 /**
@@ -95,7 +106,11 @@ function aggregateDays(dates: ShowRow["dates"]): ScheduleDay[] {
     .map(([date, phase]) => ({ date, phase }));
 }
 
-export function ScheduleTile({ show, dateRestriction }: ScheduleTileProps) {
+export function ScheduleTile({
+  show,
+  dateRestriction,
+  today,
+}: ScheduleTileProps) {
   // Branch 1 — unknown_asterisk. Render the placeholder copy and STOP.
   // Per spec §8.1 / AC-4.6 the viewer MUST NOT see the show's day list
   // while their own days are unconfirmed.
@@ -105,6 +120,7 @@ export function ScheduleTile({ show, dateRestriction }: ScheduleTileProps) {
         testId="schedule-tile"
         heading="My schedule"
         headingTone="eyebrow"
+        variant="primary"
         ariaLabel="My schedule"
         bodyAs="div"
       >
@@ -142,6 +158,7 @@ export function ScheduleTile({ show, dateRestriction }: ScheduleTileProps) {
         testId="schedule-tile"
         heading="My schedule"
         headingTone="eyebrow"
+        variant="primary"
         ariaLabel="My schedule"
         bodyAs="div"
       >
@@ -150,38 +167,74 @@ export function ScheduleTile({ show, dateRestriction }: ScheduleTileProps) {
     );
   }
 
+  // Today-highlight (Task 4.13.distill — `primary` variant
+  // differentiation). The row whose data-day matches today's
+  // venue-timezone-aware ISO date gets the §8.2 reference-moment
+  // treatment: a leading FXAV-orange dot. When `today` isn't supplied
+  // (unit-test or non-show-day callsites), no row highlights.
+  const todayIso = today ? todayIsoInShowTimezone(show, today) : null;
+
   return (
     <Section
       testId="schedule-tile"
       heading="My schedule"
       headingTone="eyebrow"
+      variant="primary"
       ariaLabel="My schedule"
       bodyAs="div"
     >
       <ol className="flex flex-1 flex-col gap-2">
-        {visibleDays.map((day) => (
-          <li
-            key={day.date}
-            data-testid="schedule-day"
-            data-day={day.date}
-            className="flex items-baseline justify-between gap-3 border-b border-border/60 pb-2 last:border-b-0 last:pb-0"
-          >
-            {/*
-              Date column — tabular figures default-on for <time> via
-              app/globals.css. Strong tone on the day label so the
-              chronological column scans cleanly.
-            */}
-            <time
-              dateTime={day.date}
-              className="text-sm font-semibold text-text-strong"
+        {visibleDays.map((day) => {
+          const isToday = todayIso !== null && day.date === todayIso;
+          return (
+            <li
+              key={day.date}
+              data-testid="schedule-day"
+              data-day={day.date}
+              {...(isToday ? { "data-today": "true" } : {})}
+              className={[
+                "flex items-baseline justify-between gap-3",
+                "border-b border-border/60 pb-2 last:border-b-0 last:pb-0",
+              ].join(" ")}
             >
-              {formatIsoDate(day.date, "weekday-short")}
-            </time>
-            <span className="text-xs uppercase tracking-[0.12em] text-text-faint">
-              {day.phase}
-            </span>
-          </li>
-        ))}
+              <span className="flex items-baseline gap-2">
+                {/*
+                  Today-pin: a small FXAV-orange dot (DESIGN.md §1.1
+                  --color-accent ≤10% coverage cap; reserved for the
+                  "this matters now" moments). Renders only on the row
+                  whose ISO date matches today in the venue timezone.
+                  Decorative — the data-today attribute carries the
+                  semantic state for screen readers / e2e tests.
+                */}
+                {isToday ? (
+                  <span
+                    data-testid="schedule-day-today-dot"
+                    aria-hidden="true"
+                    className="inline-block size-2 shrink-0 rounded-pill bg-accent"
+                  />
+                ) : null}
+                <time
+                  dateTime={day.date}
+                  className={[
+                    "text-sm",
+                    // Today reads bolder and slightly larger via the
+                    // accent-on-bg color (the AA-body orange variant
+                    // per DESIGN.md §1.1) so the row carries weight
+                    // without breaking the ≤10% accent cap.
+                    isToday
+                      ? "font-bold text-accent-on-bg"
+                      : "font-semibold text-text-strong",
+                  ].join(" ")}
+                >
+                  {formatIsoDate(day.date, "weekday-short")}
+                </time>
+              </span>
+              <span className="text-xs uppercase tracking-[0.12em] text-text-faint">
+                {day.phase}
+              </span>
+            </li>
+          );
+        })}
       </ol>
     </Section>
   );

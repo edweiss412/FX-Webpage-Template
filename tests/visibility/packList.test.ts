@@ -26,7 +26,11 @@
  *   - venue.timezone null fallback to 'America/New_York'.
  */
 import { describe, expect, test } from "vitest";
-import { isPackListVisibleToday, todayWorkPhases } from "@/lib/visibility/packList";
+import {
+  isPackListVisibleToday,
+  todayIsoInShowTimezone,
+  todayWorkPhases,
+} from "@/lib/visibility/packList";
 import type { ShowRow, StageRestriction, WorkPhase } from "@/lib/parser/types";
 
 /** Build a minimal ShowRow shaped to drive `todayWorkPhases`. */
@@ -321,5 +325,35 @@ describe("isPackListVisibleToday — stage_restriction intersection (AC-4.10)", 
     const today = new Date(Date.UTC(2026, 3, 17, 18, 0, 0));
     const restriction: StageRestriction = { kind: "explicit", stages: ["Show"] };
     expect(isPackListVisibleToday({ show, restriction, today })).toBe(true);
+  });
+});
+
+describe("todayIsoInShowTimezone (Task 4.13.distill — ScheduleTile primary today-highlight)", () => {
+  test("returns the venue-timezone-aware ISO date for today", () => {
+    // 2026-04-15 12:00 UTC is 08:00 in America/New_York (DST; UTC-4) →
+    // both render the same ISO date (2026-04-15) but the function MUST
+    // return the venue-tz date, not a naive UTC date.
+    const today = new Date(Date.UTC(2026, 3, 15, 12, 0, 0));
+    const show = makeShow({ schedulePhases: {} });
+    expect(todayIsoInShowTimezone(show, today)).toBe("2026-04-15");
+  });
+
+  test("01:00 UTC on 2026-04-16 in America/Los_Angeles is still 2026-04-15 (the boundary case)", () => {
+    // 01:00 UTC on Apr 16 is 18:00 PDT on Apr 15 (UTC-7 during DST).
+    // The naive `today.toISOString().slice(0,10)` would return
+    // "2026-04-16"; the venue-tz helper MUST return "2026-04-15".
+    const today = new Date(Date.UTC(2026, 3, 16, 1, 0, 0));
+    const show = makeShow({
+      schedulePhases: {},
+      timezone: "America/Los_Angeles",
+    });
+    expect(todayIsoInShowTimezone(show, today)).toBe("2026-04-15");
+  });
+
+  test("falls back to America/New_York when venue is null", () => {
+    const today = new Date(Date.UTC(2026, 3, 15, 18, 0, 0));
+    const show = makeShow({ schedulePhases: {} });
+    // 18:00 UTC = 14:00 NYC = 2026-04-15
+    expect(todayIsoInShowTimezone(show, today)).toBe("2026-04-15");
   });
 });

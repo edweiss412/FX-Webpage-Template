@@ -234,6 +234,7 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
                 <ScheduleTile
                   show={data.show}
                   dateRestriction={ctx.dateRestriction}
+                  today={today}
                 />
                 <AudioScopeTile
                   rooms={data.rooms}
