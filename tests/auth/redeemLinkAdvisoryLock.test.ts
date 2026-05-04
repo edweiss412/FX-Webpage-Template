@@ -401,6 +401,41 @@ describe("/api/auth/redeem-link advisory lock", () => {
     expect(bootstrapHeader).toContain(otherEntry.nonce_hash);
   });
 
+  test("R13 #4: post-consume failure path also strips the consumed entry from bootstrap cookie", async () => {
+    // Round-12 §B MEDIUM: R12 #1 only cleaned up on the 200 success
+    // path. Post-consume failures (invalid JWT, missing crew, version
+    // mismatch, revoked, DB read errors) also burn the nonce — and
+    // must also strip the consumed entry so multi-tab onboarding
+    // doesn't suffer the same eviction class R12 #1 was meant to close.
+    // This test exercises the invalid-JWT path; the same applyCleanup
+    // helper covers all other post-consume returns.
+    const otherEntry = {
+      nonce_hash: "cafebabe".repeat(8),
+      show_id: state.showId,
+      issued_at: new Date().toISOString(),
+      signing_key_id: "k1",
+    };
+    const consumedEntry = matchingCookieEntry();
+
+    const response = await POST(
+      requestFor({
+        token: "invalid-jwt-x",
+        cookieEntries: [otherEntry, consumedEntry],
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ code: "SESSION_NOT_FOUND" });
+    expect(state.consumedAt).toEqual(expect.any(String));
+    const setCookies = response.headers.getSetCookie();
+    const bootstrapHeader = setCookies.find((line) =>
+      line.startsWith("__Host-fxav_bootstrap_v="),
+    );
+    expect(bootstrapHeader).toBeDefined();
+    expect(bootstrapHeader).not.toContain(consumedEntry.nonce_hash);
+    expect(bootstrapHeader).toContain(otherEntry.nonce_hash);
+  });
+
   test("R12 #1: redeem clears bootstrap cookie when no entries remain after consume", async () => {
     // When the redeemed entry was the only one in the cookie, the
     // cookie must be cleared (Max-Age=0) — empty array on the wire
@@ -486,8 +521,14 @@ describe("/api/auth/redeem-link advisory lock", () => {
       code: "LINK_REDEEM_KEY_ROTATED",
     });
     expect(state.insertCount).toBe(0);
-    // Set-Cookie absent — no session minted.
-    expect(response.headers.get("set-cookie")).toBeNull();
+    // No __Host-fxav_session Set-Cookie — no session minted. The
+    // bootstrap-cookie cleanup (R13 #4) IS expected on every post-
+    // consume return, so we look for the absence of the session
+    // cookie specifically rather than asserting no Set-Cookie at all.
+    const setCookies = response.headers.getSetCookie();
+    expect(
+      setCookies.find((line) => line.startsWith("__Host-fxav_session=")),
+    ).toBeUndefined();
   });
 
   test("invalid JWT consumes nonce before returning SESSION_NOT_FOUND", async () => {

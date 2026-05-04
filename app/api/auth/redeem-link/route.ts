@@ -228,18 +228,41 @@ export async function POST(request: NextRequest): Promise<Response> {
       return jsonError(403, "CSRF_DENIED");
     }
 
+    // R13 #4 (round-12 §B MEDIUM): once consume succeeds, every
+    // downstream response — success OR error — must strip the consumed
+    // entry from __Host-fxav_bootstrap_v. R12 #1 only handled the
+    // success path; the post-consume failure paths (invalid JWT,
+    // missing crew, version mismatch, revoked, DB read errors, RPC
+    // failure) all left the consumed entry occupying a slot in the
+    // 5-cap cookie array for up to 30s, where multi-tab onboarding
+    // would still evict unredeemed entries from sibling tabs. The
+    // helper below is applied to every post-consume return.
+    const remainingEntries = bootstrapEntries.filter(
+      (entry) => !(entry.nonce_hash === hash && entry.show_id === showId),
+    );
+    const bootstrapCleanupHeader =
+      remainingEntries.length === 0
+        ? clearBootstrapCookie()
+        : `${BOOTSTRAP_COOKIE_NAME}=${encodeURIComponent(
+            JSON.stringify(remainingEntries),
+          )}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${BOOTSTRAP_NONCE_MAX_AGE_SEC}`;
+    const withBootstrapCleanup = <R extends Response>(response: R): R => {
+      response.headers.append("Set-Cookie", bootstrapCleanupHeader);
+      return response;
+    };
+
     let verified;
     try {
       verified = await verifyLinkJwt(token);
     } catch {
-      return jsonError(401, "SESSION_NOT_FOUND");
+      return withBootstrapCleanup(jsonError(401, "SESSION_NOT_FOUND"));
     }
 
     if (verified.verifiedKid !== activeSigningKeyId) {
-      return jsonError(403, "LINK_REDEEM_KEY_ROTATED");
+      return withBootstrapCleanup(jsonError(403, "LINK_REDEEM_KEY_ROTATED"));
     }
     if (verified.payload.showId !== showId) {
-      return jsonError(403, "CSRF_DENIED");
+      return withBootstrapCleanup(jsonError(403, "CSRF_DENIED"));
     }
 
     const { data: crew, error: crewError } = (await supabase
@@ -249,10 +272,10 @@ export async function POST(request: NextRequest): Promise<Response> {
       .eq("name", verified.payload.crewMemberKey.name)
       .maybeSingle()) as { data: CrewRow | null; error: unknown };
     if (crewError) {
-      return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
+      return withBootstrapCleanup(jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED"));
     }
     if (!crew) {
-      return jsonError(410, "LINK_NO_CREW_MATCH");
+      return withBootstrapCleanup(jsonError(410, "LINK_NO_CREW_MATCH"));
     }
 
     const { data: authRow, error: authError } = (await supabase
@@ -262,13 +285,13 @@ export async function POST(request: NextRequest): Promise<Response> {
       .eq("crew_name", crew.name)
       .maybeSingle()) as { data: AuthRow | null; error: unknown };
     if (authError) {
-      return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
+      return withBootstrapCleanup(jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED"));
     }
     if (!authRow || verified.payload.tokenVersion !== authRow.current_token_version) {
-      return jsonError(410, "LINK_VERSION_MISMATCH");
+      return withBootstrapCleanup(jsonError(410, "LINK_VERSION_MISMATCH"));
     }
     if (verified.payload.tokenVersion <= authRow.revoked_below_version) {
-      return jsonError(410, "LINK_REVOKED_FLOOR");
+      return withBootstrapCleanup(jsonError(410, "LINK_REVOKED_FLOOR"));
     }
 
     const { data: revoked, error: revokedError } = (await supabase
@@ -279,10 +302,10 @@ export async function POST(request: NextRequest): Promise<Response> {
       .eq("token_version", verified.payload.tokenVersion)
       .maybeSingle()) as { data: { token_version: number } | null; error: unknown };
     if (revokedError) {
-      return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
+      return withBootstrapCleanup(jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED"));
     }
     if (revoked) {
-      return jsonError(410, "LINK_REVOKED_SURGICAL");
+      return withBootstrapCleanup(jsonError(410, "LINK_REVOKED_SURGICAL"));
     }
 
     // R10 #3 (round-9 §A MEDIUM): atomic check-and-insert via SECURITY
@@ -310,11 +333,11 @@ export async function POST(request: NextRequest): Promise<Response> {
       },
     )) as { data: Array<{ token: string }> | null; error: unknown };
     if (insertResult.error) {
-      return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
+      return withBootstrapCleanup(jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED"));
     }
     if (!insertResult.data || insertResult.data.length === 0) {
       // Active signing key rotated between verifyLinkJwt() and INSERT.
-      return jsonError(403, "LINK_REDEEM_KEY_ROTATED");
+      return withBootstrapCleanup(jsonError(403, "LINK_REDEEM_KEY_ROTATED"));
     }
 
     const response = NextResponse.json({ crew_member_id: crew.id });
@@ -324,29 +347,7 @@ export async function POST(request: NextRequest): Promise<Response> {
         maxAgeSec: SESSION_COOKIE_MAX_AGE_SEC,
       }),
     );
-
-    // R12 #1 (round-11 §A MEDIUM): strip the consumed bootstrap nonce
-    // entry from __Host-fxav_bootstrap_v on success. Pre-fix, consumed
-    // entries lingered in the 5-cap cookie array; later mints would
-    // evict still-unredeemed entries from other open tabs and turn
-    // valid multi-tab redeems into CSRF_DENIED. Filter the just-
-    // consumed entry out and either rewrite the cookie with the
-    // remainder or clear it entirely if no entries remain.
-    const remainingEntries = bootstrapEntries.filter(
-      (entry) => !(entry.nonce_hash === hash && entry.show_id === showId),
-    );
-    if (remainingEntries.length === 0) {
-      response.headers.append("Set-Cookie", clearBootstrapCookie());
-    } else {
-      response.cookies.set(BOOTSTRAP_COOKIE_NAME, JSON.stringify(remainingEntries), {
-        httpOnly: true,
-        secure: true,
-        sameSite: "lax",
-        path: "/",
-        maxAge: BOOTSTRAP_NONCE_MAX_AGE_SEC,
-      });
-    }
-      return response;
+    return withBootstrapCleanup(response);
     });
   } catch (error) {
     if (error instanceof ShowAdvisoryLockShowNotFoundError) {
