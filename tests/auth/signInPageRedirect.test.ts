@@ -46,7 +46,9 @@ async function expectSignInRedirect(
     SignInPage({ searchParams: Promise.resolve(searchParams) }),
   ).rejects.toThrow(/^NEXT_REDIRECT:/);
   expect(redirectMock).toHaveBeenCalledTimes(1);
-  return redirectMock.mock.calls[0][0] as string;
+  const firstCall = redirectMock.mock.calls[0];
+  expect(firstCall).toBeDefined();
+  return firstCall![0] as string;
 }
 
 describe("sign-in page already-authenticated redirect fallback", () => {
