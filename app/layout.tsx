@@ -34,7 +34,18 @@ export const metadata: Metadata = {
  * the dataset attribute the script set pre-hydration but the server
  * rendered without.
  */
-const NO_FOUC_SCRIPT = `(function(){try{var t=localStorage.getItem('fxav-theme');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;}}catch(_){}})();`;
+// Stamps `data-theme` UNCONDITIONALLY: localStorage value if present, else
+// derived from matchMedia (`prefers-color-scheme: dark` → 'dark', else
+// 'light'). After this script runs, `document.documentElement.dataset.theme`
+// is ALWAYS one of the allowlisted values, so the ThemeToggle component's
+// post-mount read can rely on dataset alone (no fallback path). This makes
+// the post-mount sync deterministic across all four visitor cases (OS-light,
+// OS-dark, stored-light, stored-dark) per the theme-toggle code-quality
+// review. Note: the SSR placeholder icon (Moon) still flips to Sun on first
+// paint for visitors whose resolved theme is 'dark', which is unavoidable in
+// this pattern (SSR doesn't see localStorage or matchMedia). The
+// `suppressHydrationWarning` on the icon span silences that.
+const NO_FOUC_SCRIPT = `(function(){try{var t=localStorage.getItem('fxav-theme');if(t!=='light'&&t!=='dark'){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}document.documentElement.dataset.theme=t;}catch(_){}})();`;
 
 export default function RootLayout({
   children,

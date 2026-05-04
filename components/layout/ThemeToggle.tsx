@@ -54,16 +54,22 @@ type Theme = "light" | "dark";
 const STORAGE_KEY = "fxav-theme";
 
 /**
- * Resolve the currently-applied theme on the client. Reads the dataset
- * attribute first (set pre-hydration by the no-FOUC script) and falls
- * back to the system preference. localStorage is the persistence layer
- * but the dataset attribute is always the live truth post-hydration.
+ * Resolve the currently-applied theme on the client. The no-FOUC script
+ * in app/layout.tsx stamps `data-theme` UNCONDITIONALLY (localStorage
+ * value if present, else derived from `matchMedia`), so post-hydration
+ * the dataset attribute is always the live truth — no fallback path
+ * needed. The defensive matchMedia branch below is kept ONLY for the
+ * pathological case where the no-FOUC script failed (e.g., the IIFE
+ * threw before the dataset write because of a synchronous storage
+ * access exception in some sandboxed iframe). In normal operation it
+ * never fires.
  */
 function readAppliedTheme(): Theme {
   if (typeof document !== "undefined") {
     const ds = document.documentElement.dataset.theme;
     if (ds === "light" || ds === "dark") return ds;
   }
+  // Defensive fallback only — the no-FOUC script normally beats us here.
   if (
     typeof window !== "undefined" &&
     typeof window.matchMedia === "function" &&

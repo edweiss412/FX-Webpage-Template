@@ -64,8 +64,11 @@ test.describe("theme toggle (critique Finding 4 — flag wired)", () => {
     // deterministic for the initial assertion. The toggle should still
     // override regardless of system setting.
     await page.emulateMedia({ colorScheme: "light" });
-    // Clear any leftover localStorage from previous runs (Playwright reuses
-    // contexts across tests within a file, and the toggle persists).
+    // Clear cookies; localStorage is cleared explicitly below via
+    // page.evaluate (clearCookies does NOT touch localStorage; Playwright
+    // reuses contexts across tests within a file, and the toggle persists
+    // theme via localStorage, so the explicit removeItem is the load-bearing
+    // reset).
     await context.clearCookies();
 
     await page.goto(`/show/${slug}?crew=${leadCrewId}`);
