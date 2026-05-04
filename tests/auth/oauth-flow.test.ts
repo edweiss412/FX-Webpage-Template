@@ -299,7 +299,13 @@ describe("OAuth sign-out route", () => {
     expect(setCookies).toContain("sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
   });
 
-  test("POST logs link-session delete errors but still redirects with cookies cleared", async () => {
+  test("POST returns 500 ADMIN_SESSION_LOOKUP_FAILED on link-session delete failure with cookies preserved", async () => {
+    // R10 #2 reversal: pre-fix, sign-out logged the delete failure and
+    // still cleared cookies + redirected (R4 #3 design). Round-9 §A
+    // flagged this as a security regression — a copied cookie/token
+    // would remain server-side valid until expiry while the user sees a
+    // success response. Now sign-out emits a cataloged failure and
+    // preserves the cookies so the user can retry.
     server.service.deleteError = { message: "fake DB outage" };
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { POST } = await import("@/app/auth/sign-out/route");
@@ -316,15 +322,14 @@ describe("OAuth sign-out route", () => {
       }),
     );
 
-    expect(response.status).toBe(303);
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     expect(server.service.deletedTokens).toEqual([sessionToken]);
     expect(errorSpy).toHaveBeenCalled();
-    const setCookies = setCookieLines(response).join("\n");
-    expect(setCookies).toContain("__Host-fxav_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
-    expect(setCookies).toContain(
-      "__Host-fxav_bootstrap_v=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
-    );
-    expect(setCookies).toContain("sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+    // Cookies preserved — empty Set-Cookie list (no clear headers).
+    expect(setCookieLines(response)).toEqual([]);
 
     errorSpy.mockRestore();
   });
@@ -355,7 +360,11 @@ describe("OAuth sign-out route", () => {
     );
   });
 
-  test("POST clears chunked Supabase auth cookies when signOut fails", async () => {
+  test("POST returns 500 ADMIN_SESSION_LOOKUP_FAILED on Supabase signOut failure with cookies preserved", async () => {
+    // R10 #2 reversal: signOut() failure must NOT clear browser cookies
+    // — it would leave the leaked Supabase session server-side valid
+    // while the client appears logged out. Cataloged failure + cookies
+    // preserved lets the user retry from the same authenticated context.
     server.client.auth.signOut.mockResolvedValue({
       error: new Error("signOut failed"),
     });
@@ -372,17 +381,11 @@ describe("OAuth sign-out route", () => {
       }),
     );
 
-    expect(response.status).toBe(303);
-    const setCookies = setCookieLines(response).join("\n");
-    expect(setCookies).toContain(
-      "sb-test-auth-token.0=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
-    );
-    expect(setCookies).toContain(
-      "sb-test-auth-token.1=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
-    );
-    expect(setCookies).toContain(
-      "sb-test-auth-token-code-verifier.0=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
-    );
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
+    expect(setCookieLines(response)).toEqual([]);
 
     errorSpy.mockRestore();
   });
