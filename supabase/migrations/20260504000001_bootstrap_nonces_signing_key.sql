@@ -25,7 +25,7 @@ as $$
    where issued_at < now() - interval '5 minutes';
 $$;
 
-revoke all on function public.cleanup_bootstrap_nonces() from public;
+revoke all on function public.cleanup_bootstrap_nonces() from public, anon, authenticated;
 grant execute on function public.cleanup_bootstrap_nonces() to service_role;
 
 do $$
