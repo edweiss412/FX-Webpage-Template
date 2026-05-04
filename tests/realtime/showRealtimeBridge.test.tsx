@@ -1793,31 +1793,56 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
   // is now the owner, so the stale finally is a no-op against the
   // live owner.
   //
-  // Tests G + H pin the owner-token contract end-to-end.
+  // Tests G + H pin the owner-token contract end-to-end. Round-6 review
+  // strengthened both tests so the failure modes are actually exercised:
+  // Test G now holds show-B's renewal mint WHILE show-A's stale finally
+  // runs (so the lock is genuinely owned by a live, non-show-A holder),
+  // and Test H now drives show-B's renewal channel to TIMED_OUT to
+  // exercise the readiness-failure → pendingRenewalRef → 250ms-backoff
+  // recovery path end-to-end.
   test(
-    "HIGH (round 5) Test G — held mint during cleanup/remount: show-B renewal acquires the owner-token lock cleanly; show-A's resumed finally does NOT release it",
+    "HIGH (round 5/6) Test G — stale show-A finally does NOT clear show-B's live renewal lock; second show-B renewal during held first is suppressed",
     async () => {
-      // Hold show-A's renewal at the mint await. The `pushFetchHandler`
-      // for the subscriber-token endpoint returns a Promise we control:
-      // the first call (show-A initial mint) resolves immediately; the
-      // SECOND call (show-A renewal mint) parks until we release it;
-      // subsequent calls (show-B initial mint, show-B renewal mint)
-      // resolve immediately.
+      // Three held promises. The fetch handler parks the SHOW-A renewal
+      // mint (call #2) AND the FIRST SHOW-B renewal mint (call #4).
+      // Round-6 fix: holding the show-B renewal mint keeps the
+      // owner-token lock OWNED BY show-B at the moment show-A's stale
+      // finally runs — so the assertion that the stale finally does
+      // NOT clear the lock is genuinely load-bearing. Without this,
+      // the prior round-5 test let show-B's renewal complete (which
+      // already cleared the lock to null) before show-A's finally ran,
+      // making the equality check in production untestable.
       let mintCount = 0;
       let releaseShowARenewalMint: () => void = () => {};
+      let releaseShowBRenewalMint: () => void = () => {};
       const showARenewalMintHeld = new Promise<void>((resolve) => {
         releaseShowARenewalMint = resolve;
+      });
+      const showBRenewalMintHeld = new Promise<void>((resolve) => {
+        releaseShowBRenewalMint = resolve;
       });
       pushFetchHandler(
         (url) => url.includes("/api/realtime/subscriber-token"),
         async () => {
           mintCount += 1;
-          if (mintCount === 2) {
+          // CRITICAL: capture the per-call counter NOW. After we await
+          // a held promise and resume, the global mintCount has
+          // already advanced (later calls have run). Re-evaluating
+          // `mintCount === 4` post-await would cause mint #2 (show-A's
+          // parked renewal mint) to ALSO park on showBRenewalMintHeld
+          // when it resumes — defeating the intended ordering.
+          const myCall = mintCount;
+          if (myCall === 2) {
             // show-A's renewal mint: park here.
             await showARenewalMintHeld;
+          } else if (myCall === 4) {
+            // show-B's FIRST renewal mint: park here so the
+            // owner-token lock stays owned by show-B's effect token
+            // while show-A's stale finally runs.
+            await showBRenewalMintHeld;
           }
           return new Response(
-            JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
+            JSON.stringify({ jwt: `jwt-mint-${myCall}`, exp: 9999999999 }),
             { status: 200, headers: { "content-type": "application/json" } },
           );
         },
@@ -1843,28 +1868,22 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       await flushPromises();
 
       // Step 2: Trigger renewal on show-A. Its renewSubscription
-      // acquires the lock (with show-A's effect token) and parks at
-      // the mint await — the mint Promise is held by
-      // showARenewalMintHeld.
+      // acquires the lock with show-A's effect token and parks at the
+      // mint await. The mint Promise is held by showARenewalMintHeld.
       await act(async () => {
         showAFirstChannel.fireSystem({ event: "disconnected" });
       });
-      // Drain microtasks; the renewal is now parked at `await
-      // mintSubscriberToken(slug)`. No new channel registered yet.
       for (let i = 0; i < 5; i += 1) {
         await flushPromises();
       }
-      // mintCount must have advanced to 2 (the held call); only 1 (the
-      // initial) has resolved — the second is parked.
       expect(mintCount).toBe(2);
-      // Subscribe count is still 1 (show-A's initial); the renewal has
-      // not progressed past the mint.
       expect(subscribeMock.state.subscribeCalls.length).toBe(1);
 
-      // Step 3: Re-mount with slug=show-B, showId=show-B-uuid. React
-      // runs cleanup of show-A (which aborts show-A's effect token AND
-      // releases the lock for the cleaning-up owner) then mounts a
-      // fresh show-B effect.
+      // Step 3: Re-mount with slug=show-B. React runs cleanup of show-A
+      // (aborts show-A's effect token; releases the owner-token lock
+      // because the cleaning-up effect IS the owner) then mounts a
+      // fresh show-B effect. show-B's initial mint (call #3) resolves
+      // immediately and show-B subscribes.
       utils.rerender(
         <ShowRealtimeBridge
           showId="show-B-uuid"
@@ -1888,93 +1907,153 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
         showBChannel.fireStatus("SUBSCRIBED");
       });
       await flushPromises();
+      expect(mintCount).toBe(3);
 
-      // Step 4: Trigger renewal on show-B (system.disconnected). With
-      // a boolean lock, this would bail at `isRenewingRef.current` and
-      // never fire show-B's renewal — leaving the live bridge stranded
-      // until an external event. With an owner-token lock, cleanup
-      // already nulled the lock, so show-B's renewSubscription
-      // acquires cleanly and proceeds to mint.
-      const subscribesBeforeShowBRenewal =
-        subscribeMock.state.subscribeCalls.length;
-      const mintsBeforeShowBRenewal = mintCount;
+      // Step 4: Trigger renewal on show-B (system.disconnected). The
+      // cleanup of show-A nulled the lock, so show-B's renewSubscription
+      // acquires cleanly with show-B's effect token, then PARKS at the
+      // mint await (call #4 is held). The owner-token lock is now
+      // OWNED by show-B's live token.
       await act(async () => {
         showBChannel.fireSystem({ event: "disconnected" });
       });
-      for (let i = 0; i < 10; i += 1) {
+      for (let i = 0; i < 5; i += 1) {
+        await flushPromises();
+      }
+      expect(mintCount).toBe(4);
+      // No new subscribe yet — show-B's renewal is parked at the mint
+      // await before subscribeToShow is invoked.
+      expect(subscribeMock.state.subscribeCalls.length).toBe(2);
+
+      // Step 5: NOW release show-A's held mint. show-A's stale renewal
+      // resumes from the await. The post-await `if (effectToken.aborted)
+      // return` short-circuits BEFORE any setAuth / removeChannel /
+      // subscribeToShow / await newSubscribed work. Control falls
+      // through to finally.
+      //
+      // === CORE ASSERTION (round-6 strengthening) ===
+      // The stale show-A finally MUST NOT clear the lock — the lock is
+      // currently owned by show-B's live, parked-at-mint renewal. The
+      // production guard `if (renewalOwnerRef.current === effectToken)`
+      // is what prevents the stale clear; with an unconditional
+      // `renewalOwnerRef.current = null` in the finally, the lock would
+      // be wrongly nulled and step 6's second show-B disconnect would
+      // proceed to mint — which we assert against below.
+      // Resolve show-A's parked mint OUTSIDE act so the resumed
+      // microtask chain (fetch → Response.json → mintSubscriberToken
+      // → renewSubscription line 316 → finally) drains naturally
+      // through the test's microtask cycles. We then drain liberally
+      // inside act so any React state from the stale finally (none
+      // expected, but defensive) is committed.
+      releaseShowARenewalMint();
+      for (let i = 0; i < 50; i += 1) {
+        // Bare Promise.resolve() outside act — pure microtask drain.
+        await Promise.resolve();
+      }
+      for (let i = 0; i < 20; i += 1) {
+        await flushPromises();
+      }
+      // Belt-and-suspenders: advance fake timers a tick in case any
+      // stray Promise resolution scheduled a 0ms task.
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+      });
+      for (let i = 0; i < 20; i += 1) {
         await flushPromises();
       }
 
-      // === Owner-token assertion ===
-      // show-B's renewal MUST have minted a fresh token (mintCount
-      // advanced past show-A's still-held mint plus show-B's initial).
-      // Without the owner-token fix, show-B's renewal would have been
-      // suppressed by show-A's stale boolean — mintCount would still
-      // be 3 here (show-A initial + show-A renewal held + show-B
-      // initial).
-      expect(mintCount).toBeGreaterThan(mintsBeforeShowBRenewal);
-      // show-B's renewal opened a NEW channel (subscribeToShow called
-      // again).
-      expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(
-        subscribesBeforeShowBRenewal,
+      // Step 6: Fire ANOTHER system.disconnected on show-B's initial
+      // channel. The handler invokes renewSubscription, which checks
+      // `renewalOwnerRef.current !== null`. If the lock is still owned
+      // by show-B's first (held) renewal, this second call MUST be
+      // suppressed — no new mint, no new subscribe.
+      //
+      // Negative-regression hook: if production were `renewalOwnerRef
+      // = null` in the finally (no equality check), step 5 above would
+      // have nulled the lock, this second call would acquire cleanly,
+      // proceed past the held mint via call #5 (which the fetch handler
+      // resolves immediately), and advance both mintCount and
+      // subscribeCalls.length here.
+      const mintCountBeforeSecondDisconnect = mintCount;
+      const subscribesBeforeSecondDisconnect =
+        subscribeMock.state.subscribeCalls.length;
+      await act(async () => {
+        showBChannel.fireSystem({ event: "disconnected" });
+      });
+      // Drain microtasks so any erroneous-acquire mint POST + subscribe
+      // would have landed by now.
+      for (let i = 0; i < 10; i += 1) {
+        await flushPromises();
+      }
+      // === ROUND-6 CORE ASSERTION ===
+      // The owner-token lock is still held by show-B's first renewal,
+      // so the second renewal call bails. mintCount and subscribeCalls
+      // both unchanged.
+      expect(mintCount).toBe(mintCountBeforeSecondDisconnect);
+      expect(subscribeMock.state.subscribeCalls.length).toBe(
+        subscribesBeforeSecondDisconnect,
       );
+
+      // Step 7: Release show-B's first renewal mint. show-B's first
+      // renewal proceeds: setAuth → removeChannel(showB initial) →
+      // subscribeToShow → new renewal channel → await newSubscribed.
+      // Drive the renewal channel to SUBSCRIBED so the finally runs
+      // its lock-release path (owner === effectToken_B → clears).
+      await act(async () => {
+        releaseShowBRenewalMint();
+        for (let i = 0; i < 15; i += 1) {
+          await Promise.resolve();
+        }
+      });
+      for (let i = 0; i < 15; i += 1) {
+        await flushPromises();
+      }
+      // A new renewal channel is now registered.
       const showBRenewalChannel = subscribeMock.state.currentChannel;
       if (!showBRenewalChannel) {
         throw new Error("show-B renewal channel not registered");
       }
       expect(showBRenewalChannel).not.toBe(showBChannel);
-      // Drive show-B's renewal channel to SUBSCRIBED so its renewal
-      // finally executes — this populates show-B as the current owner
-      // of the lock.
+      expect(subscribeMock.state.subscribeCalls.length).toBe(3);
       await act(async () => {
         showBRenewalChannel.fireStatus("SUBSCRIBED");
-      });
-      await flushPromises();
-
-      // Step 5: Now release show-A's held mint. show-A's stale renewal
-      // resumes from the await, walks the rest of its try block (every
-      // step bails on `effectToken.aborted` because cleanup set it
-      // true), and lands in its finally. The finally checks
-      // `renewalOwnerRef.current === effectToken`. show-A's token is
-      // NOT the current owner (cleanup released the lock; show-B's
-      // renewal has since acquired and released its own slot — at this
-      // moment the lock is null, NOT show-A). The finally is a no-op
-      // against the live state.
-      const subscribesAtSnapshot = subscribeMock.state.subscribeCalls.length;
-      const mintCountAtSnapshot = mintCount;
-      await act(async () => {
-        releaseShowARenewalMint();
-        for (let i = 0; i < 15; i += 1) {
-          await Promise.resolve();
-        }
-      });
-      // Advance through any conceivable backoff window so a stale
-      // schedule would have fired by now.
-      await act(async () => {
-        vi.advanceTimersByTime(10_000);
       });
       for (let i = 0; i < 10; i += 1) {
         await flushPromises();
       }
 
-      // === Stale finally must be inert ===
-      // No additional mints. No additional subscribes. show-B's live
-      // channel still attached.
-      expect(mintCount).toBe(mintCountAtSnapshot);
-      expect(subscribeMock.state.subscribeCalls.length).toBe(
-        subscribesAtSnapshot,
+      // Step 8: Verify the lock IS now releasable by show-B's owner.
+      // Fire a fresh disconnect on the renewal channel — a new
+      // renewSubscription call should pass the lock check (owner is
+      // null now), mint a NEW token (call #5), and open a fresh
+      // channel. This proves the owner-token release worked correctly
+      // when the owner matched.
+      const mintCountBeforeThirdDisconnect = mintCount;
+      const subscribesBeforeThirdDisconnect =
+        subscribeMock.state.subscribeCalls.length;
+      await act(async () => {
+        showBRenewalChannel.fireSystem({ event: "disconnected" });
+      });
+      for (let i = 0; i < 15; i += 1) {
+        await flushPromises();
+      }
+      expect(mintCount).toBeGreaterThan(mintCountBeforeThirdDisconnect);
+      expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(
+        subscribesBeforeThirdDisconnect,
       );
-      expect(showBRenewalChannel.removed).toBe(false);
     },
   );
 
-  // Test H — variant of Test G where show-B receives TIMED_OUT BEFORE
-  // show-A's held renewal resolves. show-B's pendingRenewalRef +
-  // exponential-backoff retry path must drive recovery via the
-  // owner-token-bound lock, NOT be suppressed by show-A's stale
-  // ownership.
+  // Test H — show-B's renewal channel reports TIMED_OUT while show-A's
+  // mint is still held. The readiness-failure path sets
+  // pendingRenewalRef, the owner-token finally clears the lock, and the
+  // 250ms backoff timer fires the retry. Round-6 fix: the prior version
+  // drove show-B's renewal to SUBSCRIBED, which never entered the
+  // readiness-failure catch — making the pendingRenewalRef + backoff
+  // contract untested. This rewrite drives TIMED_OUT, advances the
+  // 250ms timer, and asserts the retry actually fires.
   test(
-    "HIGH (round 5) Test H — show-B receives TIMED_OUT during stale show-A renewal: show-B's pendingRenewalRef path drives recovery via owner-token lock",
+    "HIGH (round 5/6) Test H — show-B's renewal TIMED_OUT during stale show-A renewal: pendingRenewalRef + 250ms backoff retry mints/subscribes a fresh channel",
     async () => {
       let mintCount = 0;
       let releaseShowARenewalMint: () => void = () => {};
@@ -1995,7 +2074,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
         },
       );
 
-      // Step 1: Mount show-A → SUBSCRIBED.
+      // Step 1: Mount show-A → SUBSCRIBED. mintCount=1.
       const utils = render(
         <ShowRealtimeBridge
           showId="show-A-uuid"
@@ -2014,7 +2093,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       });
       await flushPromises();
 
-      // Step 2: Trigger renewal on show-A → parks at held mint.
+      // Step 2: Trigger renewal on show-A → parked at held mint #2.
       await act(async () => {
         showAFirstChannel.fireSystem({ event: "disconnected" });
       });
@@ -2023,7 +2102,8 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       }
       expect(mintCount).toBe(2);
 
-      // Step 3: Re-mount with show-B; drive to SUBSCRIBED.
+      // Step 3: Re-mount with show-B; cleanup releases show-A's lock
+      // ownership; show-B initial mint #3 + subscribe; SUBSCRIBED.
       utils.rerender(
         <ShowRealtimeBridge
           showId="show-B-uuid"
@@ -2046,37 +2126,25 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
         showBChannel.fireStatus("SUBSCRIBED");
       });
       await flushPromises();
+      expect(mintCount).toBe(3);
 
-      // Step 4: Fire TIMED_OUT on show-B's channel. This is the
-      // status-failure path: handleStatusCallback calls
-      // renewSubscription. Show-B's effect token must acquire the
-      // owner-token lock (show-A's stale ownership was released by
-      // cleanup), proceed to mint, open a renewal channel, and (when
-      // that channel's readiness fails or succeeds) walk the
-      // pendingRenewalRef path if needed.
-      //
-      // For this test we drive the renewal channel's status to
-      // SUBSCRIBED (success path) — what we're proving is that show-B
-      // RECEIVED a renewal at all, NOT that it backed off. The
-      // boolean-lock bug suppressed the renewal entirely.
-      const subscribesBeforeTimedOut =
-        subscribeMock.state.subscribeCalls.length;
-      const mintsBeforeTimedOut = mintCount;
+      // Step 4: Trigger show-B renewal via system.disconnected. show-B's
+      // renewSubscription acquires the lock (show-A's stale ownership
+      // was released by cleanup), mints (call #4), advances generation,
+      // removeChannel(showB initial), and subscribeToShow opens the
+      // renewal channel. Then `await newSubscribed` parks until the
+      // renewal channel reports a status.
+      const subscribesBeforeRenewal = subscribeMock.state.subscribeCalls.length;
       await act(async () => {
-        showBChannel.fireStatus("TIMED_OUT");
+        showBChannel.fireSystem({ event: "disconnected" });
       });
-      for (let i = 0; i < 10; i += 1) {
+      for (let i = 0; i < 15; i += 1) {
         await flushPromises();
       }
-
-      // show-B's renewal proceeded — mint count and subscribe count
-      // both advanced. Without the owner-token fix (boolean lock),
-      // show-A's stale `isRenewingRef=true` would have caused
-      // renewSubscription to return at the lock check and these
-      // counts would be unchanged.
-      expect(mintCount).toBeGreaterThan(mintsBeforeTimedOut);
+      expect(mintCount).toBe(4);
+      // A renewal channel is now registered.
       expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(
-        subscribesBeforeTimedOut,
+        subscribesBeforeRenewal,
       );
       const showBRenewalChannel = subscribeMock.state.currentChannel;
       if (!showBRenewalChannel) {
@@ -2084,22 +2152,70 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       }
       expect(showBRenewalChannel).not.toBe(showBChannel);
 
-      // Drive show-B's renewal channel to SUBSCRIBED so its renewal
-      // finally clears the lock cleanly (owner is show-B's token).
+      // Step 5: Drive the renewal channel to TIMED_OUT. The
+      // `await newSubscribed` REJECTS → catch path: removeChannel(failed),
+      // `pendingRenewalRef.current = true` (because !effectToken.aborted).
+      // Falls through finally: `renewalOwnerRef.current === effectToken`
+      // (show-B's token IS the current owner) → lock cleared.
+      // pendingRenewalRef is set + isMounted + !aborted → schedule
+      // setTimeout at backoffSchedule[0] = 250ms.
+      const mintCountBeforeBackoff = mintCount;
+      const subscribesBeforeBackoff =
+        subscribeMock.state.subscribeCalls.length;
       await act(async () => {
-        showBRenewalChannel.fireStatus("SUBSCRIBED");
+        showBRenewalChannel.fireStatus("TIMED_OUT");
       });
-      await flushPromises();
+      // Drain microtasks so the catch + finally have run and the
+      // 250ms setTimeout is enqueued.
+      for (let i = 0; i < 15; i += 1) {
+        await flushPromises();
+      }
+      // The TIMED_OUT readiness-failure must NOT have fired a NEW
+      // mint/subscribe yet — the retry is gated on the 250ms timer.
+      expect(mintCount).toBe(mintCountBeforeBackoff);
+      expect(subscribeMock.state.subscribeCalls.length).toBe(
+        subscribesBeforeBackoff,
+      );
+      // The failed renewal channel was torn down by the catch's
+      // removeChannel call.
+      expect(showBRenewalChannel.removed).toBe(true);
 
-      // Step 5: Release show-A's held mint. The stale renewal walks
-      // its post-await guards (every one bails on
-      // `effectToken.aborted`), reaches finally, and the
-      // `renewalOwnerRef.current === effectToken` check is FALSE
-      // (show-A's token is no longer the owner — cleanup released
-      // it; show-B's renewal acquired and released its own slot).
-      // The stale finally is a no-op.
-      const subscribesAtSnapshot = subscribeMock.state.subscribeCalls.length;
+      // Step 6: Advance fake timers PAST the 250ms backoff window.
+      // The pendingRenewalRef setTimeout fires → re-enters
+      // renewSubscription → acquires lock (now released) → mints (call
+      // #5) → opens a fresh renewal channel.
+      //
+      // Negative-regression hook: if the production finally OMITTED the
+      // pendingRenewalRef setTimeout scheduling block, no retry fires.
+      // mintCount and subscribeCalls.length stay at their step-5 values
+      // and the assertions below fail.
+      await act(async () => {
+        vi.advanceTimersByTime(250);
+      });
+      for (let i = 0; i < 15; i += 1) {
+        await flushPromises();
+      }
+
+      // === ROUND-6 CORE ASSERTION ===
+      // The pendingRenewalRef + 250ms backoff retry actually fired. A
+      // NEW mint POSTed; a NEW subscribeToShow opened a fresh channel.
+      expect(mintCount).toBeGreaterThan(mintCountBeforeBackoff);
+      expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(
+        subscribesBeforeBackoff,
+      );
+      const showBRetryChannel = subscribeMock.state.currentChannel;
+      if (!showBRetryChannel) {
+        throw new Error("show-B retry channel not registered");
+      }
+      expect(showBRetryChannel).not.toBe(showBRenewalChannel);
+      expect(showBRetryChannel).not.toBe(showBChannel);
+
+      // Step 7: Release show-A's held mint AFTER the retry has fired.
+      // show-A's stale renewal still walks finally as a no-op (owner
+      // is now show-B's retry token; aborted token blocks any
+      // pendingRenewalRef scheduling). No additional mints/subscribes.
       const mintCountAtSnapshot = mintCount;
+      const subscribesAtSnapshot = subscribeMock.state.subscribeCalls.length;
       await act(async () => {
         releaseShowARenewalMint();
         for (let i = 0; i < 15; i += 1) {
@@ -2112,13 +2228,10 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       for (let i = 0; i < 10; i += 1) {
         await flushPromises();
       }
-
-      // No stale-fired retries.
       expect(mintCount).toBe(mintCountAtSnapshot);
       expect(subscribeMock.state.subscribeCalls.length).toBe(
         subscribesAtSnapshot,
       );
-      expect(showBRenewalChannel.removed).toBe(false);
     },
   );
 });
