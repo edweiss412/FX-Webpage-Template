@@ -7,7 +7,49 @@ import {
   SESSION_COOKIE_NAME,
 } from "@/lib/auth/cookies";
 import { deleteSession } from "@/lib/auth/validateLinkSession";
+import { messageFor } from "@/lib/messages/lookup";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+/**
+ * R12 #2 (round-11 §A+§B): /me submits sign-out as a plain HTML form
+ * POST. When teardown fails, returning JSON makes the browser navigate
+ * to the raw `{ code: ... }` document — the user sees a raw catalog
+ * code instead of human copy, violating the no-raw-error-codes UI
+ * invariant. Return a minimal HTML page with messageFor()-rendered
+ * copy + a retry link instead. R10 #2's fail-loud + cookies-preserved
+ * contract is unchanged — the user can retry from the same auth
+ * context.
+ */
+function teardownFailureHtml(): string {
+  const entry = messageFor("ADMIN_SESSION_LOOKUP_FAILED");
+  const heading = "Sign-out couldn't complete";
+  const body = entry.crewFacing ?? entry.dougFacing ?? "Please try again.";
+  const retry = "Try signing out again";
+  return [
+    "<!doctype html>",
+    '<html lang="en">',
+    "<head>",
+    '<meta charset="utf-8">',
+    `<title>${heading}</title>`,
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    "<style>",
+    "body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:2rem;max-width:32rem;margin-inline:auto;color:#1a1a1a}",
+    "h1{font-size:1.5rem;margin:0 0 1rem}",
+    "p{margin:0 0 1rem}",
+    "form{margin:1rem 0 0}",
+    "button{font:inherit;padding:.6rem 1rem;border:1px solid #999;background:#f5f5f5;border-radius:.375rem;cursor:pointer}",
+    "</style>",
+    "</head>",
+    "<body>",
+    `<h1>${heading}</h1>`,
+    `<p>${body}</p>`,
+    '<form method="POST" action="/auth/sign-out">',
+    `<button type="submit">${retry}</button>`,
+    "</form>",
+    "</body>",
+    "</html>",
+  ].join("");
+}
 
 function clearSupabaseAuthCookies(request: NextRequest, response: NextResponse): void {
   for (const cookie of request.cookies.getAll()) {
@@ -59,10 +101,14 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   if (teardownFailed) {
-    return NextResponse.json(
-      { code: "ADMIN_SESSION_LOOKUP_FAILED" },
-      { status: 500 },
-    );
+    // No-raw-error-codes invariant: render catalog-derived HTML copy
+    // instead of `{ code: ... }` JSON. /me's plain form POST navigates
+    // to this response; the user must see human-readable copy + a
+    // retry path, not a JSON document.
+    return new NextResponse(teardownFailureHtml(), {
+      status: 500,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
   }
 
   const response = NextResponse.redirect(new URL("/auth/sign-in", request.url), { status: 303 });

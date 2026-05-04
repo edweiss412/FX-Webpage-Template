@@ -323,12 +323,14 @@ describe("OAuth sign-out route", () => {
     );
 
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({
-      code: "ADMIN_SESSION_LOOKUP_FAILED",
-    });
+    expect(response.headers.get("content-type")).toMatch(/text\/html/);
+    const html = await response.text();
+    // R12 #2: HTML response with catalog-rendered copy, NOT raw JSON.
+    expect(html).not.toContain("ADMIN_SESSION_LOOKUP_FAILED");
+    expect(html).toContain("Sign-out couldn't complete");
+    expect(html).toContain('action="/auth/sign-out"');
     expect(server.service.deletedTokens).toEqual([sessionToken]);
     expect(errorSpy).toHaveBeenCalled();
-    // Cookies preserved — empty Set-Cookie list (no clear headers).
     expect(setCookieLines(response)).toEqual([]);
 
     errorSpy.mockRestore();
@@ -382,9 +384,10 @@ describe("OAuth sign-out route", () => {
     );
 
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({
-      code: "ADMIN_SESSION_LOOKUP_FAILED",
-    });
+    expect(response.headers.get("content-type")).toMatch(/text\/html/);
+    const html = await response.text();
+    expect(html).not.toContain("ADMIN_SESSION_LOOKUP_FAILED");
+    expect(html).toContain("Sign-out couldn't complete");
     expect(setCookieLines(response)).toEqual([]);
 
     errorSpy.mockRestore();
