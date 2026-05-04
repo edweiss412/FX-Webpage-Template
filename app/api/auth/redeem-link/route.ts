@@ -281,40 +281,36 @@ export async function POST(request: NextRequest): Promise<Response> {
       return jsonError(410, "LINK_REVOKED_SURGICAL");
     }
 
-    // R9 #3: Re-read app_settings.active_signing_key_id immediately
-    // before the link_sessions INSERT and compare to verified.verifiedKid.
-    // Pre-R9 the active kid was read once early (line ~176 in the
-    // previous shape) and the verified-vs-active comparison ran against
-    // that stale value; an operator rotation between the early read and
-    // this INSERT meant the route minted a session under the retired
-    // kid. The fresh read narrows the race window to the few statements
-    // between this re-read and the INSERT — full atomicity would require
-    // a DB-side conditional INSERT (RPC or CHECK), but the TS-side
-    // re-read closes the practical window without a heavier refactor.
-    let freshActiveSigningKeyId: string;
-    try {
-      freshActiveSigningKeyId = await readActiveSigningKeyId();
-    } catch {
-      return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
-    }
-    if (verified.verifiedKid !== freshActiveSigningKeyId) {
-      return jsonError(403, "LINK_REDEEM_KEY_ROTATED");
-    }
-
+    // R10 #3 (round-9 §A MEDIUM): atomic check-and-insert via SECURITY
+    // DEFINER RPC. R9 #3's TS-side fresh re-read narrowed the rotation
+    // race window but didn't close it — there was still ~few statements
+    // between the re-read and the INSERT where an operator rotation
+    // could land. The RPC moves both into a single Postgres statement:
+    // INSERT ... SELECT ... FROM app_settings WHERE active_signing_key_id
+    // = $verifiedKid RETURNING token. Zero rows means rotation; non-zero
+    // means the active key still matches at insert time. Atomic.
     const opaqueToken = randomUUID();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + SESSION_COOKIE_MAX_AGE_SEC * 1000);
-    const insert = await supabase.from("link_sessions").insert({
-      token: opaqueToken,
-      show_id: showId,
-      crew_member_id: crew.id,
-      jwt_token_version: verified.payload.tokenVersion,
-      signing_key_id: verified.verifiedKid,
-      expires_at: expiresAt.toISOString(),
-      last_active_at: now.toISOString(),
-    });
-    if (insert.error) {
+    const insertResult = (await supabase.rpc(
+      "mint_link_session_if_active_kid_matches",
+      {
+        p_token: opaqueToken,
+        p_show_id: showId,
+        p_crew_member_id: crew.id,
+        p_jwt_token_version: verified.payload.tokenVersion,
+        p_signing_key_id: verified.verifiedKid,
+        p_expires_at: expiresAt.toISOString(),
+        p_last_active_at: now.toISOString(),
+        p_verified_kid: verified.verifiedKid,
+      },
+    )) as { data: Array<{ token: string }> | null; error: unknown };
+    if (insertResult.error) {
       return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
+    }
+    if (!insertResult.data || insertResult.data.length === 0) {
+      // Active signing key rotated between verifyLinkJwt() and INSERT.
+      return jsonError(403, "LINK_REDEEM_KEY_ROTATED");
     }
 
     const response = NextResponse.json({ crew_member_id: crew.id });

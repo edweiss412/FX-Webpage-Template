@@ -29,6 +29,16 @@ const state = vi.hoisted(() => ({
    */
   signingKeyIdQueue: [] as string[],
   insertCount: 0,
+  /**
+   * R10 #3: simulates the active_signing_key_id value AT THE MOMENT
+   * the conditional-INSERT RPC runs. Default "k1" (matches the JWT
+   * mock's verifiedKid). Set to "k2" in the rotation test to simulate
+   * an operator rotation committed between verifyLinkJwt() success
+   * and the INSERT — the RPC's WHERE clause now mismatches
+   * p_verified_kid and 0 rows are returned, surfacing as
+   * LINK_REDEEM_KEY_ROTATED.
+   */
+  kidAtInsertTime: "k1",
 }));
 
 vi.mock("@/lib/db/advisoryLock", () => ({
@@ -177,6 +187,23 @@ function builder(table: string) {
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServiceRoleClient: () => ({
     from: builder,
+    rpc: async (
+      name: string,
+      params: { p_verified_kid: string; p_token: string },
+    ) => {
+      if (name !== "mint_link_session_if_active_kid_matches") {
+        return { data: null, error: { message: `unknown rpc: ${name}` } };
+      }
+      // R10 #3: emulates Postgres conditional INSERT semantics. If the
+      // active kid at insert time matches p_verified_kid, the RPC's
+      // INSERT ... SELECT ... WHERE active_signing_key_id = $verified_kid
+      // returns the inserted token row; otherwise zero rows.
+      if (params.p_verified_kid !== state.kidAtInsertTime) {
+        return { data: [], error: null };
+      }
+      state.insertCount += 1;
+      return { data: [{ token: params.p_token }], error: null };
+    },
   }),
 }));
 
@@ -192,6 +219,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
     state.consumeAttempts = 0;
     state.signingKeyIdQueue = [];
     state.insertCount = 0;
+    state.kidAtInsertTime = "k1";
     state.readErrors.clear();
     state.crewExists = true;
     state.showPublished = true;
@@ -379,20 +407,23 @@ describe("/api/auth/redeem-link advisory lock", () => {
     expect(state.insertCount).toBe(0);
   });
 
-  test("rotation between active-key reads after JWT verify returns LINK_REDEEM_KEY_ROTATED", async () => {
-    // R9 #3: operator rotates app_settings.active_signing_key_id between
-    // the route's early read (used for the cookie/nonce kid match) and
-    // the link_sessions INSERT. Pre-fix, the stale value still passed
-    // the kid check at the verify-vs-active comparison and the route
-    // minted a session under the retired kid. Post-fix, a fresh read
-    // immediately before INSERT detects the rotation and returns
-    // LINK_REDEEM_KEY_ROTATED with no row, no cookie.
+  test("rotation between JWT verify and INSERT returns LINK_REDEEM_KEY_ROTATED", async () => {
+    // R10 #3: operator rotates app_settings.active_signing_key_id
+    // between the verifyLinkJwt() success and the conditional-INSERT
+    // RPC. Pre-R10 the route did a TS-side fresh re-read (R9 #3) which
+    // narrowed but didn't close the race; pre-R9 the route compared
+    // against a stale early read entirely. The R10 RPC moves the
+    // check-and-insert into one Postgres statement, so a rotation
+    // committed between verifyLinkJwt and the INSERT is observed
+    // atomically: zero rows from INSERT ... SELECT ... WHERE
+    // active_signing_key_id = $verifiedKid → LINK_REDEEM_KEY_ROTATED.
     //
-    // Mock sequence: first single() returns "k1" (matches the JWT
-    // mock's verifiedKid + cookie/nonce signing_key_id); second single()
-    // returns "k2" (rotated). With one early read + one fresh re-read,
-    // the queue captures the rotation between the two.
-    state.signingKeyIdQueue = ["k1", "k2"];
+    // Mock sequence: kidAtInsertTime="k2" simulates an operator
+    // rotation that committed AFTER the route's early read of "k1"
+    // (used for the cookie/nonce kid match) but BEFORE the conditional
+    // INSERT runs. The JWT mock returns verifiedKid="k1", so the RPC's
+    // WHERE clause mismatches and 0 rows are returned.
+    state.kidAtInsertTime = "k2";
 
     const response = await POST(
       requestFor({
