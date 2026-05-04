@@ -55,17 +55,28 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { Bootstrap } from "./Bootstrap";
 
 /**
- * Resolve a slug → show_id via a single bound SELECT. Mirrors the helper
- * in `app/show/[slug]/page.tsx:112-123` — the slug is part of the public
+ * Resolve a slug → {id, published} via a single bound SELECT. Mirrors the
+ * helper in `app/show/[slug]/page.tsx`. The slug is part of the public
  * URL path; this lookup carries no identity-binding semantics. Throws on
  * DB-level failure so Next's error boundary surfaces the infrastructure
  * fault rather than silently 404'ing.
+ *
+ * R11 #2 (round-10 §B HIGH): published is fetched alongside id so the
+ * bootstrap shell can notFound() unpublished slugs the same way the
+ * parent show page does. Without the gate, the shell rendered for any
+ * existing slug while unknown slugs hit notFound() — recreating the
+ * unpublished-show existence oracle the round-9/round-10 published gate
+ * was meant to close. The redeem-link route (R9 #1) gates published as
+ * its first DB step too, so a session can never be minted for an
+ * unpublished show; this gate stops the page-render existence leak +
+ * the unnecessary bootstrap_nonces inserts.
  */
-async function resolveShowIdFromSlug(slug: string): Promise<string | null> {
+type SlugResolution = { id: string; published: boolean };
+async function resolveShowFromSlug(slug: string): Promise<SlugResolution | null> {
   const supabase = createSupabaseServiceRoleClient();
   const res = await supabase
     .from("shows")
-    .select("id")
+    .select("id,published")
     .eq("slug", slug)
     .maybeSingle();
   if (res.error) {
@@ -73,7 +84,10 @@ async function resolveShowIdFromSlug(slug: string): Promise<string | null> {
       `/show/[slug]/p: slug lookup failed: ${res.error.message}`,
     );
   }
-  return (res.data?.id as string | undefined) ?? null;
+  if (!res.data) return null;
+  const id = res.data.id as string | undefined;
+  if (!id) return null;
+  return { id, published: Boolean(res.data.published) };
 }
 
 type PageProps = {
@@ -83,10 +97,17 @@ type PageProps = {
 export default async function BootstrapShellPage({ params }: PageProps) {
   const { slug } = await params;
 
-  const showId = await resolveShowIdFromSlug(slug);
-  if (!showId) {
+  const showInfo = await resolveShowFromSlug(slug);
+  // notFound() for both unknown slug AND unpublished slug — anti-oracle.
+  // The bootstrap shell is unauthenticated, so there's no admin bypass
+  // here; signed-link onboarding for an unpublished show would be
+  // rejected at /api/auth/redeem-link anyway (R9 #1's published gate
+  // is the first DB step there), but the page-level gate stops the
+  // existence leak before the client even mints a nonce.
+  if (!showInfo || !showInfo.published) {
     notFound();
   }
+  const showId = showInfo.id;
 
   return (
     <main
