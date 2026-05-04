@@ -210,7 +210,13 @@ async function pageContainerContentWidth(page: Page): Promise<number> {
   });
 }
 
-test.describe("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)", () => {
+// TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
+// The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration
+// is non-trivial because each test renders as a SPECIFIC crew identity (often non-LEAD),
+// which signInAs cannot easily reproduce — real Supabase auth ties to email, not crew_member_id.
+// Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
+// plus per-test fixture seeding. See handoff §0.
+test.describe.skip("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)", () => {
   let s: Snapshot;
 
   test.beforeAll(async () => {

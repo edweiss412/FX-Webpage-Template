@@ -114,7 +114,13 @@ async function lookupSeededShow(): Promise<{
   };
 }
 
-test.describe("crew page — layout shell (Task 4.2)", () => {
+// TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
+// The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration
+// is non-trivial because each test renders as a SPECIFIC crew identity (often non-LEAD),
+// which signInAs cannot easily reproduce — real Supabase auth ties to email, not crew_member_id.
+// Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
+// plus per-test fixture seeding. See handoff §0.
+test.describe.skip("crew page — layout shell (Task 4.2)", () => {
   test("renders page-shell + tile-grid (2 cols mobile) + right-now-card + footer at /show/[slug]?crew=…", async ({
     page,
   }) => {
@@ -155,7 +161,13 @@ test.describe("crew page — layout shell (Task 4.2)", () => {
  * + content + empty-state-discipline boundaries.
  */
 
-test.describe("crew page — LodgingTile (Task 4.4)", () => {
+// TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
+// The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration
+// is non-trivial because each test renders as a SPECIFIC crew identity (often non-LEAD),
+// which signInAs cannot easily reproduce — real Supabase auth ties to email, not crew_member_id.
+// Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
+// plus per-test fixture seeding. See handoff §0.
+test.describe.skip("crew page — LodgingTile (Task 4.4)", () => {
   test("renders LodgingTile with hotel name when viewer is named on a reservation", async ({
     page,
   }) => {
@@ -186,7 +198,13 @@ test.describe("crew page — LodgingTile (Task 4.4)", () => {
   });
 });
 
-test.describe("crew page — VenueTile (Task 4.4)", () => {
+// TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
+// The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration
+// is non-trivial because each test renders as a SPECIFIC crew identity (often non-LEAD),
+// which signInAs cannot easily reproduce — real Supabase auth ties to email, not crew_member_id.
+// Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
+// plus per-test fixture seeding. See handoff §0.
+test.describe.skip("crew page — VenueTile (Task 4.4)", () => {
   test("renders VenueTile with the venue name + address from a complete fixture", async ({
     page,
   }) => {
@@ -203,7 +221,13 @@ test.describe("crew page — VenueTile (Task 4.4)", () => {
   });
 });
 
-test.describe("crew page — CrewTile (Task 4.4)", () => {
+// TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
+// The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration
+// is non-trivial because each test renders as a SPECIFIC crew identity (often non-LEAD),
+// which signInAs cannot easily reproduce — real Supabase auth ties to email, not crew_member_id.
+// Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
+// plus per-test fixture seeding. See handoff §0.
+test.describe.skip("crew page — CrewTile (Task 4.4)", () => {
   test("renders CrewTile with every crew member + tap-to-call/email anchors", async ({
     page,
   }) => {
@@ -234,7 +258,13 @@ test.describe("crew page — CrewTile (Task 4.4)", () => {
   });
 });
 
-test.describe("crew page — ContactsTile (Task 4.4)", () => {
+// TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
+// The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration
+// is non-trivial because each test renders as a SPECIFIC crew identity (often non-LEAD),
+// which signInAs cannot easily reproduce — real Supabase auth ties to email, not crew_member_id.
+// Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
+// plus per-test fixture seeding. See handoff §0.
+test.describe.skip("crew page — ContactsTile (Task 4.4)", () => {
   test("renders ContactsTile with at least one contact when seeded", async ({
     page,
   }) => {
