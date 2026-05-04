@@ -45,8 +45,15 @@ vi.mock("@/lib/auth/isAdminSession", () => ({
   isAdminSession: async () => ({ ok: false }),
 }));
 
+const linkState = vi.hoisted(() => ({
+  clearCookie: false as boolean,
+}));
+
 vi.mock("@/lib/auth/validateLinkSession", () => ({
-  validateLinkSession: async () => ({ kind: "continue" }),
+  validateLinkSession: async () => ({
+    kind: "continue",
+    clearCookie: linkState.clearCookie ? true : undefined,
+  }),
 }));
 
 vi.mock("@/lib/auth/validateGoogleSession", () => ({
@@ -132,6 +139,7 @@ describe("ShowPage Google-no-crew redirect routing", () => {
   beforeEach(() => {
     navState.redirected = [];
     navState.notFoundCalled = 0;
+    linkState.clearCookie = false;
   });
 
   test("signed-in Google user with no crew row redirects to /me, not /auth/sign-in", async () => {
@@ -146,5 +154,24 @@ describe("ShowPage Google-no-crew redirect routing", () => {
     // already-authenticated guard). Post-fix: /me (breaks the loop;
     // /me lists shows the user actually has access to).
     expect(target).toBe("/me");
+  });
+
+  test("R14 #3: Google-no-crew + clearCookie redirects through /auth/clear-session before /me", async () => {
+    // Round-13 §B MEDIUM: a stale/revoked/wrong-show link cookie can
+    // set clearCookie=true via validateLinkSession's continue arm
+    // before the chain reaches the Google validator. R11 #1 redirected
+    // straight to /me on Google-no-crew, bypassing the cookie cleanup
+    // and leaving the stale cookie for the next request to recover.
+    // Now: clear-session with next=/me carries the cookie clear.
+    linkState.clearCookie = true;
+
+    await expect(
+      ShowPage({ params: Promise.resolve({ slug: "another-show" }) }),
+    ).rejects.toThrow(/^NEXT_REDIRECT:/);
+
+    expect(navState.redirected).toHaveLength(1);
+    const target = navState.redirected[0]!;
+    expect(target).toMatch(/^\/auth\/clear-session\?next=/);
+    expect(decodeURIComponent(target)).toContain("/me");
   });
 });

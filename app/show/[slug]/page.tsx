@@ -397,6 +397,17 @@ export default async function ShowPage({ params }: PageProps) {
   // instead — it lists shows the user actually has access to and the
   // empty-state path renders cleanly when none match.
   if (!result.viewer && result.googleNoCrewMatch) {
+    // R14 #3 (round-13 §B MEDIUM): if a stale/revoked/wrong-show
+    // link cookie set clearCookie before the chain reached the
+    // Google validator, the cleanup must still happen on this
+    // response. Pre-R14 the bare redirect to /me bypassed the
+    // /auth/clear-session hop, leaving the stale cookie in place
+    // and requiring an extra round-trip to recover. Route through
+    // clear-session?next=/me so the Set-Cookie clear lands on the
+    // same response cycle.
+    if (result.clearCookie) {
+      redirect(`/auth/clear-session?next=${encodeURIComponent("/me")}`);
+    }
     redirect("/me");
   }
 
