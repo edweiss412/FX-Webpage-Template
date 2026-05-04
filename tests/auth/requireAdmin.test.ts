@@ -75,13 +75,24 @@ describe("requireAdmin", () => {
     expect(server.client.rpc).not.toHaveBeenCalled();
   });
 
-  test("fails closed when public.is_admin() errors or denies", async () => {
+  test("fails closed via forbidden() when public.is_admin() denies", async () => {
     server.client.rpc.mockResolvedValue({ data: false, error: null });
     const { requireAdmin } = await import("@/lib/auth/requireAdmin");
 
     await expect(requireAdmin()).rejects.toThrow("forbidden()");
+  });
 
+  test("R17 #1: surfaces AdminInfraError when is_admin RPC errors (not forbidden)", async () => {
+    // Round-16 §A+§B HIGH: pre-R17 every RPC error collapsed to
+    // forbidden() 403, masquerading infra faults as authorization
+    // denials. Now requireAdmin throws AdminInfraError on RPC failure
+    // — admin layout/actions map it to a cataloged 500. Auth-negative
+    // (RPC returns false) still 403s.
     server.client.rpc.mockResolvedValue({ data: null, error: new Error("boom") });
-    await expect(requireAdmin()).rejects.toThrow("forbidden()");
+    const { requireAdmin, AdminInfraError } = await import(
+      "@/lib/auth/requireAdmin"
+    );
+
+    await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
   });
 });

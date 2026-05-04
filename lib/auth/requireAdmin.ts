@@ -21,36 +21,69 @@ import { forbidden } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { canonicalize } from "@/lib/email/canonicalize";
 
+/**
+ * R17 #1 (round-16 §A+§B HIGH): requireAdmin distinguishes auth-negative
+ * from infra-negative. Pre-fix every error path (createSupabaseServerClient
+ * throw, getUser error, is_admin RPC error) collapsed to isAdmin=false →
+ * forbidden() 403. That's the same catch-all-returns-benign class R15/R16
+ * have been closing across the auth helpers. For an admin chokepoint,
+ * fail-closed is correct UX — but the cause matters: a confirmed
+ * non-admin user warrants 403; an infra fault (DB outage, RPC failure,
+ * missing env) warrants a 500-class signal so operators see the
+ * server-side issue instead of debugging an authorization decision that
+ * never happened. Throw a typed AdminInfraError on infra paths; the
+ * caller surface in app/admin/layout.tsx maps it to a cataloged 500
+ * response. Confirmed non-admin still calls forbidden().
+ */
+export class AdminInfraError extends Error {
+  readonly code = "ADMIN_SESSION_LOOKUP_FAILED";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "AdminInfraError";
+  }
+}
+
 export async function requireAdmin(): Promise<void> {
   // Auth gate: ask Postgres' is_admin() helper. Reading via the cookie-bound
   // client means RLS-side helpers see the same auth.jwt() the rest of the
   // request would. Empty cookies → unauthenticated → fail closed before RPC.
-  let isAdmin = false;
+  let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-    const email = canonicalize(userData.user?.email);
-    if (userError || !email) {
-      isAdmin = false;
-    } else {
-      const { data, error } = await supabase.rpc("is_admin");
-      if (error) {
-        // Auth/RPC error — treat as not-admin and route to 403. Don't leak the
-        // raw error to the user.
-        isAdmin = false;
-      } else {
-        isAdmin = data === true;
-      }
-    }
-  } catch {
+    supabase = await createSupabaseServerClient();
+  } catch (err) {
     // createSupabaseServerClient() throws when SUPABASE_URL / ANON_KEY are
-    // missing — treat as not-admin. The same applies when the cookie store
-    // is unavailable (e.g. direct-import unit tests). Both scenarios MUST
-    // resolve to 403, never crash.
-    isAdmin = false;
+    // missing OR the cookie store is unavailable. Distinguishable infra
+    // fault — surface as AdminInfraError so the caller can render 500
+    // rather than 403. The chokepoint still fails closed (the throw
+    // propagates to Next's error boundary), but the response category
+    // is correct.
+    throw new AdminInfraError(
+      `requireAdmin: server client construction failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
-  if (!isAdmin) {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError) {
+    throw new AdminInfraError(
+      `requireAdmin: getUser failed: ${userError.message}`,
+    );
+  }
+  const email = canonicalize(userData.user?.email);
+  if (!email) {
+    // Confirmed unauthenticated — auth-level denial. Fail closed via
+    // forbidden() per the chokepoint contract.
+    forbidden();
+  }
+
+  const { data, error } = await supabase.rpc("is_admin");
+  if (error) {
+    throw new AdminInfraError(
+      `requireAdmin: is_admin RPC failed: ${error.message}`,
+    );
+  }
+  if (data !== true) {
+    // Confirmed non-admin — auth-level denial.
     forbidden();
   }
 }
