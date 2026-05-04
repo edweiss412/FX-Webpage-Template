@@ -200,6 +200,84 @@ The plan text for M4 names a few items that touch milestone boundaries; implemen
 
 > **Recommended disposition:** Use Supabase's `@supabase/realtime-js` test utilities OR mock the underlying WebSocket transport with `vi.mock`. The mock must (a) admit the JWT minted by `/api/realtime/subscriber-token`, (b) deliver Broadcast payloads to subscribed clients, (c) fire `system.reconnected` / `system.disconnected` events on demand. If the mock surface gets large, factor into `tests/realtime/mockBroadcast.ts` so all M4+M5+M6 Realtime tests share one harness.
 
+## M4 execution notes (pre-adversarial)
+
+These are material deviations from the original handoff/plan that the Codex adversarial reviewer should be aware of. Surfaced here so review round 1 doesn't relitigate decisions the user already ratified mid-implementation.
+
+1. **Task 4.3 ↔ 4.2 task reorder (user-approved 2026-05-03).** The plan ordered "layout shell" (4.2) before "data fetcher" (4.3), but the layout shell needs a real `getShowForViewer` projection to render anything beyond a placeholder; sequencing 4.3 ahead of 4.2 was a more honest TDD chain. User authorized the reorder before Task 4.2 dispatched.
+
+2. **Catch-up two-stage review pass mid-M4.** Tasks 4.1–4.10 dispatched without the per-task two-stage review (spec-compliance + code-quality) that AGENTS.md formalized later. User authorized "option A" — a single catch-up review pass over the existing surface area — and from Task 4.11 onward the per-task two-stage review was re-established. Expect Codex to ask "where are the per-task review artifacts for 4.1–4.10?" — answer: rolled up into the 2026-05-03 catch-up critique; remediation findings closed in `dac7e0c` and following commits.
+
+3. **Per-task two-stage review re-established Task 4.11 onward.** Tasks 4.11 (RightNowCard state machine), 4.12 (transition matrix), 4.13 (layout dimensions), 4.14 (visibility helpers), 4.16 (realtime bridge) all ran the full two-stage review, including review-finding follow-up commits.
+
+4. **`pre_travel` boundary widening.** Spec §8.2 literal: `today < travelIn − 1` triggers `pre_travel`. Task 4.11 implemented `daysAway >= 1` instead (the pre-travel state activates the day BEFORE travel-in). The widened predicate is sound — both reviewers OK'd it with inline rationale in `lib/time/rightNow.ts` — but flag it for adversarial round 1 so Codex can adjudicate spec literal vs intent.
+
+5. **Sticky `data-treatment` semantics (Task 4.12).** During Task 4.12 we attempted to reset `data-treatment` to `default` once a transition completed. That broke 8 e2e tests in `tests/e2e/right-now-transitions.spec.ts` because the test fixture expects the LAST applied treatment to remain readable on the post-transition DOM. Decision (commit `4282421`): keep `data-treatment` sticky — the value reflects the most recent crossfade treatment, not "the treatment currently in flight." Documented inline at `RightNowCard.tsx:494-500`.
+
+6. **Task 4.9 prereq fix `12e7c5f` for `schedule_phases` projection fallback.** PackListTile needs `schedule_phases[isoDate]` to drive `today's WorkPhase set`. The M2 schema column existed but the M1 parser didn't always populate it; M4 added a runtime fallback in `getShowForViewer` so unit fixtures produce a sane `WorkPhase[]` for "today" even when the parser left the column empty. **The fallback is a temporary M4 affordance — M6 sync layer should retire it once `schedule_phases` is parser-guaranteed populated.** Surface in M6 handoff §6.
+
+7. **Retrospective `/impeccable critique` (2026-05-03) + B-scope remediation.**
+   - Findings 2, 3, 4, 8 (HIGH/MEDIUM accessibility, focus-ring, tile structural concerns) — closed in B-scope remediation commits ahead of close-out.
+   - Findings 1 (tile reorder), 5 (header weight), 6 (data-\* attr relocation), 7 (tracking-eyebrow tokens) — deferred to M9 via DEFERRED.md `M4-D2`..`M4-D5`.
+
+8. **Tailwind v4 canonical-class linting policy (2026-05-03).** Ratified at commits `ffaefa9` + `e034976` + `14936ae`. Components MUST consume `@theme` tokens via the canonical Tailwind v4 utility (e.g., `min-h-right-now-min-h`, `shadow-tile`) — NEVER inline a `min-h-[176px]` literal, and prefer canonical form over `min-h-(--token)` arrow-variable syntax. `eslint-plugin-better-tailwindcss` enforces the policy. Comment markers in `app/globals.css` document the rule.
+
+9. **AGENTS.md §1 invariant 8 — UI quality gate (2026-05-03).** Ratified at `ffaefa9`. Every UI-shipping milestone runs `/impeccable critique` + `/impeccable audit` AFTER per-task closes and BEFORE adversarial review. Both with the canonical v3 preflight. Findings dispositioned in handoff §12. M4 is the first milestone the gate applies to natively (M3 ran the gate retrospectively in this same dispatch).
+
+10. **AC closure tally (all 12 AC-4.x criteria closed).** AC-4.1 (non-LEAD viewer) and AC-4.2 (LEAD viewer + financials) — `tests/e2e/crew-page.spec.ts`. AC-4.3 (RightNowCard state) — `tests/e2e/right-now-states.spec.ts`. AC-4.4 (5 §8.4 dimensional invariants) — `tests/e2e/layout-dimensions.spec.ts`. AC-4.5 (URL-strip) — `tests/visibility/openingReelText.test.ts` + crew DOM regression. AC-4.6 (`unknown_asterisk` schedule) — `tests/e2e/crew-page.spec.ts`. AC-4.7..AC-4.12 (pull-sheet pipeline) — `tests/visibility/packList.test.ts` + `tests/e2e/pack-list.spec.ts` + `tests/parser/pull-sheet.test.ts`.
+
+---
+
+## 12. Impeccable evaluation (UI quality gate — AGENTS.md §1 invariant 8)
+
+UI surface this milestone shipped: `app/show/[slug]/page.tsx` + `app/show/[slug]/layout.tsx`, all 13 `components/tiles/*.tsx`, `components/atoms/{Avatar,EmptyState,KeyValue,Section}.tsx`, `components/right-now/{RightNowCard.tsx,buildRightNowContext.ts}`, `components/realtime/ShowRealtimeBridge.tsx`, `components/layout/{Header,Footer,ThemeToggle}.tsx`, `app/globals.css` `@theme` block, `DESIGN.md`.
+
+### `/impeccable critique` — already ran 2026-05-03 (pre-policy retrospective)
+
+```
+Finding 1 (HIGH)   — Tile reorder by persona urgency       — disposition: deferred to M9 via DEFERRED.md M4-D2
+Finding 2 (HIGH)   — A11y / focus-ring contrast in dark    — disposition: fixed at SHA dac7e0c (B-scope remediation)
+Finding 3 (HIGH)   — Empty-state copy register              — disposition: fixed at SHA dac7e0c (B-scope remediation)
+Finding 4 (HIGH)   — Theme toggle no-FOUC contract          — disposition: fixed at SHA dac7e0c (B-scope remediation)
+Finding 5 (MEDIUM) — Header weight competes with RightNow   — disposition: deferred to M9 via DEFERRED.md M4-D3
+Finding 6 (MEDIUM) — RightNowCard data-* test attrs in AT   — disposition: deferred to M9 via DEFERRED.md M4-D4
+Finding 7 (LOW)    — tracking-[…] inline values (5 sites)   — disposition: deferred to M9 via DEFERRED.md M4-D5
+Finding 8 (MEDIUM) — Tile internal structure consistency    — disposition: fixed at SHA dac7e0c (B-scope remediation)
+```
+
+### `/impeccable audit` — ran in this dispatch (Task 4.15 close-out)
+
+Audit Health Score: **17/20 — Good**
+- Accessibility: 4 — WCAG AA focus rings, semantic h1→h2 chain, aria-label landmarks, ≥44px tap targets via `min-h-tap-min`/`min-w-tap-min` tokens.
+- Performance: 4 — single client island in M4 baseline (`ThemeToggle`) + scoped client islands (`RightNowCard`, `ShowRealtimeBridge`); no layout-thrash patterns; tile body crossfade uses framer-motion's `AnimatePresence mode="wait"` (no concurrent layout reads/writes).
+- Theming: 3 — full token system (`@theme` + `:root` light + `[data-theme="dark"]` + `prefers-color-scheme`); 5 inline `tracking-[…]` literals (M4-D5) and 3 `max-w-[1200px]` literals where a `--max-w-page` token would unify (P3).
+- Responsive: 4 — `grid-cols-2 sm:grid-cols-3 lg:grid-cols-4` per §8.4; mobile-safari Playwright suite passes 115; layout-dimensions assertion validates 390/1024/1200.
+- Anti-patterns: 2 — operator surface `app/admin/dev/page.tsx` carries raw `bg-blue-600 text-white`/`bg-yellow-600`/`text-red-700`/`text-gray-700` palette outside the token system (see Stream 2 retro audit below).
+
+```
+P0 — none
+P1 — none
+P2-1 — `app/show/[slug]/page.tsx:173` `max-w-[1200px]` inline literal — token consolidation; same value also at `Header.tsx:52` and `Footer.tsx:59` — disposition: deferred to M9 (folds in with M4-D5 tracking-eyebrow consolidation).
+P2-2 — `components/atoms/Section.tsx:208` conditional `{...(ariaLabel !== undefined ? { "aria-label": ariaLabel } : {})}` — `<article>` renders without an `aria-label` for tiles that don't supply one; the `<h2>` heading inside is reachable by AT but landmark navigation surfaces an unnamed article. Severity P2 — heading provides reachability, only landmark-list view degrades. Disposition: deferred to M9 (mechanical fix; coordinate with rebuild of section semantics if any).
+P3-1 — `components/tiles/PackListTile.tsx:198` + 16 other sites — `text-xs font-medium uppercase tracking-[0.12em] text-text-faint` repeated as a literal class string instead of a `EYEBROW` Tailwind v4 utility class — disposition: deferred to M9 with M4-D5 (becomes a single `eyebrow` utility once `--tracking-eyebrow` token lands).
+P3-2 — `components/atoms/Section.tsx:257` `flex flex-1 flex-col ${bodyGap} overflow-y-auto max-h-tile-overflow` — string concatenation makes the class set hard to grep; disposition: deferred (cosmetic).
+```
+
+DEFERRED.md updated: yes — entries `M4-D2`..`M4-D6` appended in this dispatch.
+
+### Stream 2 — M3 retrospective on `app/admin/dev/`
+
+This is the operator-only dev panel that shipped pre-policy. Audited per the AGENTS.md §1.8 retrospective rule.
+
+```
+Audit Health Score: 11/20 — Acceptable for an operator-only dev surface, would not pass crew-page bar.
+P1 — Anti-pattern density: raw `text-gray-700`, `bg-blue-600 text-white`, `bg-yellow-600 text-white`, `text-red-700`, `text-blue-700` literals across `app/admin/dev/page.tsx` (lines 82/94/130/148/162/213/240/263/280/305/337). Doesn't theme — light/dark have no swap. Disposition: ACCEPTED for M3 — operator surface, Doug-only, gated behind `ADMIN_DEV_PANEL_ENABLED`. The "no-raw-error-codes" exemption (AGENTS.md §1.5) extends the spirit to cover the operator UI register here. Surface for M3 follow-up in DEFERRED.md if a crew-shaped redesign is ever desired (NOT logged today — pre-policy and intentional).
+P2 — `min-w-[24rem]` inline literal on the fixture <select> at line 135. Disposition: ACCEPTED — operator surface, no token churn justified.
+P3 — `font-mono text-sm` page-wide register (line 80) — intentional "this is a dev tool, look like one" decision. Disposition: ACCEPTED — register-appropriate.
+```
+
+No DEFERRED.md entry for the admin/dev surface — the audit explicitly accepts the deviations for the operator-surface register. If a future milestone redesigns `/admin/dev` for non-Doug operators, raise then.
+
 ---
 
 ## Convergence log
