@@ -34,6 +34,7 @@ import { notFound } from "next/navigation";
 
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
+import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
 import { RightNowCard } from "@/components/right-now/RightNowCard";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
 import { AudioScopeTile } from "@/components/tiles/AudioScopeTile";
@@ -153,6 +154,20 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
   return (
     <>
       <Header show={data.show} />
+      {/*
+        ShowRealtimeBridge (Task 4.16 Checkpoint B) — the only new client
+        island this milestone adds. Mounts a Supabase Realtime Broadcast
+        subscription to `show:<id>:invalidation`; on each invalidate event
+        the bridge calls router.refresh() (debounced 100ms) so this
+        Server Component re-executes and re-fetches getShowForViewer.
+        Returns null — no visual surface. Mounting it before <main> keeps
+        the visual DOM untouched.
+      */}
+      <ShowRealtimeBridge
+        showId={showId}
+        slug={slug}
+        renderVersion={data.viewerVersionToken}
+      />
       <main
         data-testid="page-container"
         className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col gap-section-gap px-4 py-6 sm:p-8"

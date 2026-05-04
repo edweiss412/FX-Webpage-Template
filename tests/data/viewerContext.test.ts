@@ -44,6 +44,7 @@ function makeData(
     contacts: [],
     pullSheet: null,
     viewerName: null,
+    viewerVersionToken: "",
   };
 }
 

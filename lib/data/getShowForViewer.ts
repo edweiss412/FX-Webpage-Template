@@ -127,6 +127,24 @@ export type ShowForViewer = {
    * transportation.schedule[*].assigned_names for the viewer's name.
    */
   viewerName: string | null;
+  /**
+   * Monotonic millisecond high-water-mark across (shows.last_synced_at,
+   * max(crew_member_auth.last_changed_at), max(crew_members.last_changed_at)),
+   * computed by `public.viewer_version_token(uuid)` (see
+   * supabase/migrations/20260501001000_internal_and_admin.sql:18-32). Used
+   * by the M4 Task 4.16 Checkpoint B `<ShowRealtimeBridge>` client island
+   * as the SSR-time fence for the post-subscribe + system.reconnected
+   * version-catch-up path: the bridge fetches the server's current value
+   * via `/api/show/[slug]/version` and compares it to the snapshot's token
+   * — a mismatch means a publish fired during the SSR → hydrate gap or
+   * during a websocket reconnect, and the bridge synchronously
+   * router.refresh()es to re-execute the Server Component.
+   *
+   * Empty string is a valid sentinel for "no data yet" (the RPC returns
+   * '0' when no rows exist for the show); the bridge's comparison handles
+   * this by treating it as "no fence" (any subsequent token wins).
+   */
+  viewerVersionToken: string;
 };
 
 export async function getShowForViewer(
@@ -383,6 +401,23 @@ export async function getShowForViewer(
     }
   }
 
+  // === viewer_version_token RPC (Task 4.16 Checkpoint B SSR fence) ===
+  // Computed by public.viewer_version_token(uuid) — defined in
+  // supabase/migrations/20260501001000_internal_and_admin.sql:18-32. The
+  // function is granted EXECUTE to authenticated, anon, AND service_role,
+  // so this RPC succeeds under every viewer kind. Empty string is the
+  // "no fence" sentinel — the bridge tolerates it.
+  const versionRpc = await supabase.rpc("viewer_version_token", {
+    p_show_id: showId,
+  });
+  if (versionRpc.error) {
+    throw new Error(
+      `getShowForViewer: viewer_version_token RPC failed: ${versionRpc.error.message}`,
+    );
+  }
+  const viewerVersionToken: string =
+    typeof versionRpc.data === "string" ? versionRpc.data : "";
+
   return {
     show,
     crewMembers,
@@ -392,6 +427,7 @@ export async function getShowForViewer(
     contacts,
     pullSheet,
     viewerName,
+    viewerVersionToken,
     ...(financials ? { financials } : {}),
   };
 }
