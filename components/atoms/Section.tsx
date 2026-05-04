@@ -135,6 +135,15 @@ export function Section({
         never see scroll because content < container; tiles that overflow
         keep the excess internal, never blowing past their row track.
         Verified by tests/e2e/layout-dimensions.spec.ts (AC-4.4).
+
+        `flex-1` deliberately allows the body to grow into the row
+        stretch (§8.4 invariant 2 — equal-height tiles in the first
+        row). `max-h-(--spacing-tile-overflow)` only kicks in once the
+        body's intrinsic content height exceeds 240px (§8.4 invariant
+        4); under that threshold the body fills whatever vertical space
+        the stretched row gives it. Do NOT remove `flex-1` in a
+        "simplify" pass — without it, equal-height stretch fails on
+        rows where neighboring tiles are taller.
       */}
       <Body className="flex flex-1 flex-col gap-3 overflow-y-auto max-h-(--spacing-tile-overflow)">
         {children}

@@ -545,7 +545,13 @@ export function RightNowCard({ context }: RightNowCardProps) {
       data-stale={isStale ? "true" : "false"}
       aria-label="Right now"
       className={[
-        "rounded-md border border-border p-6",
+        // `w-full` is defense-in-depth: today the section width-fills
+        // implicitly because its parent (`app/show/[slug]/page.tsx` main)
+        // is a `flex flex-col`, but a future refactor that flips parent
+        // flex direction would silently collapse this card to intrinsic
+        // width. Stating `w-full` explicitly makes the §8.4 invariant 1
+        // contract local to the component.
+        "w-full rounded-md border border-border p-6",
         "shadow-(--shadow-tile)",
         // Holds card height fixed during the §8.2 crossfade. Sized
         // to the tallest body (`unknown` two-line detail) at the

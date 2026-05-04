@@ -46,6 +46,11 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { admin } from "./helpers/supabaseAdmin";
+import {
+  gotoCrewPage,
+  tileGridColumnCount,
+  VIEWPORTS,
+} from "./helpers/layout";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
@@ -217,8 +222,9 @@ test.describe("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)", () =
   });
 
   test("Invariant 1 — RightNow full-width at 390px", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+    await gotoCrewPage(page, s.slug, s.leadCrewId, {
+      viewport: VIEWPORTS.mobile390,
+    });
 
     const containerW = await pageContainerContentWidth(page);
     const rn = await box(page, "right-now-card");
@@ -229,8 +235,9 @@ test.describe("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)", () =
   });
 
   test("Invariant 1 — RightNow full-width at 1024px", async ({ page }) => {
-    await page.setViewportSize({ width: 1024, height: 800 });
-    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+    await gotoCrewPage(page, s.slug, s.leadCrewId, {
+      viewport: VIEWPORTS.desktop1024,
+    });
 
     const containerW = await pageContainerContentWidth(page);
     const rn = await box(page, "right-now-card");
@@ -241,8 +248,9 @@ test.describe("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)", () =
   });
 
   test("Invariant 1 — RightNow full-width at 1200px", async ({ page }) => {
-    await page.setViewportSize({ width: 1200, height: 800 });
-    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+    await gotoCrewPage(page, s.slug, s.leadCrewId, {
+      viewport: VIEWPORTS.desktop1200,
+    });
 
     const containerW = await pageContainerContentWidth(page);
     const rn = await box(page, "right-now-card");
@@ -255,15 +263,13 @@ test.describe("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)", () =
   test("Invariant 2 — tile grid is 2 cols at 390px (mobile)", async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+    await gotoCrewPage(page, s.slug, s.leadCrewId, {
+      viewport: VIEWPORTS.mobile390,
+    });
 
-    const cols = await page
-      .getByTestId("tile-grid")
-      .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-    const trackCount = cols.trim().split(/\s+/).filter(Boolean).length;
+    const { cols, count } = await tileGridColumnCount(page);
     expect(
-      trackCount,
+      count,
       `mobile (390px) tile-grid must be 2 columns; got "${cols}"`,
     ).toBe(2);
   });
@@ -274,15 +280,13 @@ test.describe("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)", () =
     // 800px is comfortably inside the [640, 1024) tablet range. Tailwind's
     // `sm` breakpoint hits at >=640px and `lg` at >=1024px, so 800 is sm
     // (3 cols) but not lg (4 cols).
-    await page.setViewportSize({ width: 800, height: 800 });
-    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+    await gotoCrewPage(page, s.slug, s.leadCrewId, {
+      viewport: VIEWPORTS.tablet800,
+    });
 
-    const cols = await page
-      .getByTestId("tile-grid")
-      .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-    const trackCount = cols.trim().split(/\s+/).filter(Boolean).length;
+    const { cols, count } = await tileGridColumnCount(page);
     expect(
-      trackCount,
+      count,
       `tablet (800px) tile-grid must be 3 columns; got "${cols}"`,
     ).toBe(3);
   });
@@ -290,83 +294,100 @@ test.describe("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)", () =
   test("Invariant 2 — tile grid is 4 cols at 1200px (desktop)", async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 1200, height: 800 });
-    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+    await gotoCrewPage(page, s.slug, s.leadCrewId, {
+      viewport: VIEWPORTS.desktop1200,
+    });
 
-    const cols = await page
-      .getByTestId("tile-grid")
-      .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
-    const trackCount = cols.trim().split(/\s+/).filter(Boolean).length;
+    const { cols, count } = await tileGridColumnCount(page);
     expect(
-      trackCount,
+      count,
       `desktop (1200px) tile-grid must be 4 columns; got "${cols}"`,
     ).toBe(4);
   });
 
-  test("Invariant 2 — tiles in the first row stretch to equal height (Tailwind v4 align-items: stretch)", async ({
-    page,
-  }) => {
-    // 1200px (4 cols) — populate enough first-row tiles that the equal-
-    // height invariant has something to verify. Use bounding-box height,
-    // not computed height, so we measure what the user sees.
-    await page.setViewportSize({ width: 1200, height: 800 });
-    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+  // Equal-stretch invariant runs at TWO viewports — 800px (3-col tablet)
+  // AND 1200px (4-col desktop) — so a tablet-only regression in
+  // align-items:stretch can't slip past Minor-4 review feedback.
+  for (const v of [VIEWPORTS.tablet800, VIEWPORTS.desktop1200] as const) {
+    test(`Invariant 2 — tiles in the first row stretch to equal height at ${v.width}px (Tailwind v4 align-items: stretch)`, async ({
+      page,
+    }) => {
+      // Populate enough first-row tiles that the equal-height invariant
+      // has something to verify. Use bounding-box height, not computed
+      // height, so we measure what the user sees.
+      await gotoCrewPage(page, s.slug, s.leadCrewId, { viewport: v });
 
-    // Collect the first-row tiles by bounding-box top: any tile whose
-    // top matches the first tile's top is in row 1.
-    const heights = await page.evaluate((testIds) => {
-      const tiles: Array<{ id: string; top: number; height: number }> = [];
-      for (const id of testIds) {
-        const els = document.querySelectorAll(`[data-testid="${id}"]`);
-        for (const el of Array.from(els)) {
-          const rect = (el as HTMLElement).getBoundingClientRect();
-          tiles.push({ id, top: rect.top, height: rect.height });
+      // Collect the first-row tiles by bounding-box top: any tile whose
+      // top matches the first tile's top is in row 1.
+      const heights = await page.evaluate((testIds) => {
+        const tiles: Array<{ id: string; top: number; height: number }> = [];
+        for (const id of testIds) {
+          const els = document.querySelectorAll(`[data-testid="${id}"]`);
+          for (const el of Array.from(els)) {
+            const rect = (el as HTMLElement).getBoundingClientRect();
+            tiles.push({ id, top: rect.top, height: rect.height });
+          }
         }
-      }
-      if (tiles.length < 2) return null;
-      const firstTop = Math.min(...tiles.map((t) => t.top));
-      const firstRow = tiles.filter((t) => Math.abs(t.top - firstTop) < 1);
-      return firstRow;
-    }, TILE_TESTIDS as readonly string[] as string[]);
+        if (tiles.length < 2) return null;
+        const firstTop = Math.min(...tiles.map((t) => t.top));
+        const firstRow = tiles.filter((t) => Math.abs(t.top - firstTop) < 1);
+        return firstRow;
+      }, TILE_TESTIDS as readonly string[] as string[]);
 
-    expect(heights, "expected ≥ 2 tiles in the first row").not.toBeNull();
-    if (!heights) return;
-    expect(heights.length).toBeGreaterThanOrEqual(2);
-
-    const minH = Math.min(...heights.map((t) => t.height));
-    const maxH = Math.max(...heights.map((t) => t.height));
-    expect(
-      maxH - minH,
-      `first-row tiles must equal-height (Tailwind v4 align-items:stretch). got heights=${JSON.stringify(heights)}`,
-    ).toBeLessThan(PIXEL_TOLERANCE);
-  });
-
-  test("Invariant 3 — every rendered tile has min-height ≥ 96px (--spacing-tile-min-h)", async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
-
-    const heights = await page.evaluate((testIds) => {
-      const out: Array<{ id: string; height: number }> = [];
-      for (const id of testIds) {
-        const els = document.querySelectorAll(`[data-testid="${id}"]`);
-        for (const el of Array.from(els)) {
-          const h = (el as HTMLElement).getBoundingClientRect().height;
-          out.push({ id, height: h });
-        }
-      }
-      return out;
-    }, TILE_TESTIDS as readonly string[] as string[]);
-
-    expect(heights.length, "expected ≥ 1 tile rendered").toBeGreaterThan(0);
-    for (const t of heights) {
       expect(
-        t.height,
-        `${t.id}.height (${t.height}) must be ≥ ${TILE_MIN_H - PIXEL_TOLERANCE}px (--spacing-tile-min-h)`,
-      ).toBeGreaterThanOrEqual(TILE_MIN_H - PIXEL_TOLERANCE);
-    }
-  });
+        heights,
+        `expected ≥ 2 tiles in the first row at ${v.width}px`,
+      ).not.toBeNull();
+      if (!heights) return;
+      expect(heights.length).toBeGreaterThanOrEqual(2);
+
+      const minH = Math.min(...heights.map((t) => t.height));
+      const maxH = Math.max(...heights.map((t) => t.height));
+      expect(
+        maxH - minH,
+        `first-row tiles must equal-height at ${v.width}px (Tailwind v4 align-items:stretch). got heights=${JSON.stringify(heights)}`,
+      ).toBeLessThan(PIXEL_TOLERANCE);
+    });
+  }
+
+  // Tile min-height runs at THREE viewports — 390px (2-col mobile),
+  // 800px (3-col tablet), 1200px (4-col desktop) — so a regression that
+  // only manifests at the tablet column count can't slip past Minor-4
+  // review feedback.
+  for (const v of [
+    VIEWPORTS.mobile390,
+    VIEWPORTS.tablet800,
+    VIEWPORTS.desktop1200,
+  ] as const) {
+    test(`Invariant 3 — every rendered tile has min-height ≥ 96px at ${v.width}px (--spacing-tile-min-h)`, async ({
+      page,
+    }) => {
+      await gotoCrewPage(page, s.slug, s.leadCrewId, { viewport: v });
+
+      const heights = await page.evaluate((testIds) => {
+        const out: Array<{ id: string; height: number }> = [];
+        for (const id of testIds) {
+          const els = document.querySelectorAll(`[data-testid="${id}"]`);
+          for (const el of Array.from(els)) {
+            const h = (el as HTMLElement).getBoundingClientRect().height;
+            out.push({ id, height: h });
+          }
+        }
+        return out;
+      }, TILE_TESTIDS as readonly string[] as string[]);
+
+      expect(
+        heights.length,
+        `expected ≥ 1 tile rendered at ${v.width}px`,
+      ).toBeGreaterThan(0);
+      for (const t of heights) {
+        expect(
+          t.height,
+          `${t.id}.height (${t.height}) must be ≥ ${TILE_MIN_H - PIXEL_TOLERANCE}px (--spacing-tile-min-h) at ${v.width}px`,
+        ).toBeGreaterThanOrEqual(TILE_MIN_H - PIXEL_TOLERANCE);
+      }
+    });
+  }
 
   test("Invariant 4 — overflowing NotesTile keeps overflow internal (≤240px) AND renders the disclosure stub", async ({
     page,
@@ -374,8 +395,9 @@ test.describe("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)", () =
     // Inflate contacts → NotesTile body intrinsic-content height >> 240px.
     await inflateNotesToOverflow(s, 10);
 
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+    await gotoCrewPage(page, s.slug, s.leadCrewId, {
+      viewport: VIEWPORTS.mobile390,
+    });
 
     const notes = page.getByTestId("notes-tile");
     await expect(notes).toBeVisible();
@@ -442,8 +464,9 @@ test.describe("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)", () =
   test("Invariant 4 — non-overflowing tile (VenueTile with stock fixture) does NOT render any overflow disclosure", async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+    await gotoCrewPage(page, s.slug, s.leadCrewId, {
+      viewport: VIEWPORTS.mobile390,
+    });
 
     const venue = page.getByTestId("venue-tile");
     await expect(venue).toBeVisible();
@@ -469,8 +492,9 @@ test.describe("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)", () =
     // tweak doesn't tip this case into the long-content branch.
     await stripAllContacts(s);
 
-    await page.setViewportSize({ width: 390, height: 2400 });
-    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+    await gotoCrewPage(page, s.slug, s.leadCrewId, {
+      viewport: VIEWPORTS.mobile390Tall,
+    });
 
     const footer = await box(page, "page-footer");
     const innerHeight = await page.evaluate(() => window.innerHeight);
@@ -499,8 +523,9 @@ test.describe("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)", () =
     // height clearly exceeds the 844px mobile viewport.
     await inflateNotesToOverflow(s, 10);
 
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
+    await gotoCrewPage(page, s.slug, s.leadCrewId, {
+      viewport: VIEWPORTS.mobile390,
+    });
 
     const innerHeight = await page.evaluate(() => window.innerHeight);
 
@@ -526,15 +551,26 @@ test.describe("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)", () =
 
     // Step 3: scroll down by 400px. The footer's `y` (relative to the
     // viewport) must DECREASE by ~400px — i.e., it moves with the page
-    // content rather than staying pinned.
-    await page.evaluate(() => window.scrollTo(0, 400));
+    // content rather than staying pinned. Tightened to ±5px (was
+    // `>300`, which allowed 100px of slack and could mask a "footer
+    // scrolls only halfway" bug — Minor-5 review feedback).
+    const SCROLL_DELTA = 400;
+    const SCROLL_TOLERANCE = 5;
+    await page.evaluate(
+      (delta) => window.scrollTo(0, delta),
+      SCROLL_DELTA,
+    );
     // Allow a tick for the browser to settle the scroll.
-    await page.waitForFunction(() => window.scrollY >= 399);
+    await page.waitForFunction(
+      (delta) => window.scrollY >= delta - 1,
+      SCROLL_DELTA,
+    );
     const footerAfter = await box(page, "page-footer");
 
+    const delta = footerInitial.y - footerAfter.y;
     expect(
-      footerInitial.y - footerAfter.y,
-      `long-content: footer.y must decrease by ~400px after scrolling 400px (initial=${footerInitial.y}, after=${footerAfter.y})`,
-    ).toBeGreaterThan(300);
+      Math.abs(delta - SCROLL_DELTA),
+      `long-content: footer.y must decrease by ${SCROLL_DELTA}±${SCROLL_TOLERANCE}px after scrolling ${SCROLL_DELTA}px (initial=${footerInitial.y}, after=${footerAfter.y}, delta=${delta})`,
+    ).toBeLessThan(SCROLL_TOLERANCE);
   });
 });
