@@ -318,6 +318,7 @@ const requiredColumns: ColumnExpectation[] = [
   col("reports", "lease_holder", "uuid", "YES", null),
   col("app_settings", "active_signing_key_id", "text", "NO", "'k1'::text"),
   col("link_sessions", "signing_key_id", "text", "NO", null),
+  col("bootstrap_nonces", "signing_key_id", "text", "NO", "'k1'::text"),
   col("pending_snapshot_uploads", "id", "uuid", "NO", "gen_random_uuid()"),
   col("pending_snapshot_uploads", "show_id", "uuid", "NO", null),
   col("pending_snapshot_uploads", "drive_file_id", "text", "NO", null),
@@ -659,6 +660,16 @@ describe("Task 2.5 applied schema introspection", () => {
         });
       });
     }
+  });
+
+  describe("bootstrap nonce invariants", () => {
+    test("bootstrap_nonces primary key is composite (nonce_hash, show_id)", () => {
+      const definition = indexDefinition("bootstrap_nonces_pkey");
+      expectExactDefinition(
+        definition,
+        "CREATE UNIQUE INDEX bootstrap_nonces_pkey ON public.bootstrap_nonces USING btree (nonce_hash, show_id)",
+      );
+    });
   });
 
   describe("helper function shape and hardening", () => {
