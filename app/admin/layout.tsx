@@ -23,8 +23,9 @@
  * Server Component (no 'use client').
  */
 import type { ReactNode } from "react";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { AdminInfraError, requireAdmin } from "@/lib/auth/requireAdmin";
 import { AlertBanner } from "@/components/admin/AlertBanner";
+import { messageFor } from "@/lib/messages/lookup";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +38,43 @@ export default async function AdminLayout({
   // if not admin). Per Next 16 App Router semantics, this runs before any
   // child page render, so the gate covers /admin/dev and any future
   // /admin/* additions automatically.
-  await requireAdmin();
+  //
+  // R18 #2 (round-17 §A+§B HIGH): R17 #1 made requireAdmin throw
+  // AdminInfraError on infra failure (was forbidden() for everything
+  // pre-R17 — auth-deny and infra-fault collapsed). The layout used
+  // to await requireAdmin without a catch + had no app/admin/error.tsx,
+  // so AdminInfraError fell into Next's generic error path. Catch it
+  // here and render a cataloged failure surface so admins see a real
+  // 500-class error with retry guidance instead of an opaque framework
+  // error. notFound() / forbidden() throws still propagate (those are
+  // Next navigation control flow with NEXT_HTTP_ERROR_FALLBACK digest).
+  try {
+    await requireAdmin();
+  } catch (err) {
+    if (err instanceof AdminInfraError) {
+      const entry = messageFor(err.code as never);
+      return (
+        <div
+          data-testid="admin-layout-infra-error"
+          className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center p-page-pad-mobile sm:p-page-pad-desktop text-center"
+        >
+          <h1 className="text-2xl font-semibold">
+            Admin session unavailable
+          </h1>
+          <p className="mt-4 text-base text-text-subtle">
+            {entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."}
+          </p>
+          <a
+            href="/admin"
+            className="mt-section-gap inline-flex min-h-tap-min items-center px-4 py-2 text-base text-text-strong underline underline-offset-2"
+          >
+            Try again
+          </a>
+        </div>
+      );
+    }
+    throw err;
+  }
 
   return (
     <div
