@@ -155,6 +155,16 @@ export function ShowRealtimeBridge({
   );
   // The active channel handle for cleanup (step 4) and renewal.
   const currentChannelRef = useRef<ShowInvalidationChannel | null>(null);
+  // Single-flight gate for renewSubscription (Codex HIGH 3 / plan §827).
+  // CHANNEL_ERROR / TIMED_OUT / CLOSED / system.disconnected callbacks can
+  // arrive in rapid succession with the SAME generation BEFORE the first
+  // mint completes (generation is not advanced until AFTER mintSubscriber
+  // resolves). Without this gate, a flaky network triggers overlapping
+  // JWT mints, repeated setAuth, and channel create/remove thrash. The
+  // ref is set true at the TOP of renewSubscription (BEFORE the first
+  // await) and cleared in a finally block on every exit path so a mint
+  // failure releases the lock and a subsequent disconnect can retry.
+  const isRenewingRef = useRef<boolean>(false);
   // Latest SSR'd renderVersion token. Updated on every render via the
   // render-time effect below — reconnect catch-up handlers MUST read this
   // ref, NOT the closure-captured prop, or the comparison silently uses
@@ -222,120 +232,140 @@ export function ShowRealtimeBridge({
     // channel was opened so a late renewal can't race a newer
     // generation already in flight from a concurrent code path.
     const renewSubscription = async (priorClosureGen: number) => {
-      if (!isMountedRef.current) return;
-      if (priorClosureGen !== currentChannelGenerationRef.current) return;
-
-      const newJwt = await mintSubscriberToken(slug);
-      if (!isMountedRef.current) return;
-      if (priorClosureGen !== currentChannelGenerationRef.current) return;
-
-      if (newJwt === null) {
-        console.warn(
-          "[ShowRealtimeBridge] SHOW_REALTIME_BROADCAST_AUTH_FAILED — JWT renewal mint failed; falling back to no-op (no retry loop)",
-        );
-        // Logging contract: the file-header doc (line ~82) promises a
-        // `SHOW_REALTIME_JWT_RENEWED outcome: 'failed'` log on every
-        // renewal-failure path. The `outcome:'success'` peer fires at
-        // line ~298. Each failure branch emits the failed outcome with
-        // a distinct `reason` tag so dashboards can disambiguate
-        // mint-fail vs setAuth-fail vs subscribe-fail.
-        console.warn(
-          "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
-          { reason: "mint_failed" },
-        );
-        return;
-      }
-
+      // === Codex HIGH 3 — single-flight gate ===
+      // Multiple CHANNEL_ERROR / TIMED_OUT / CLOSED / system.disconnected
+      // callbacks can arrive in rapid succession with the SAME generation
+      // BEFORE the first mint completes (the generation is not advanced
+      // until AFTER mintSubscriberToken resolves). Without this gate, a
+      // flaky network triggers overlapping JWT mints, repeated setAuth,
+      // and channel create/remove thrash. Set BEFORE the first await so
+      // every concurrent caller observes the lock; the finally block
+      // releases it on EVERY exit path so a mint failure releases the
+      // lock and a subsequent disconnect can retry.
+      if (isRenewingRef.current) return;
+      isRenewingRef.current = true;
       try {
-        supabase.realtime.setAuth(newJwt);
-      } catch (err) {
-        console.warn(
-          "[ShowRealtimeBridge] SHOW_REALTIME_BROADCAST_AUTH_FAILED — setAuth threw during renewal",
-          err,
-        );
-        console.warn(
-          "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
-          { reason: "set_auth_threw", err },
-        );
-        return;
-      }
+        if (!isMountedRef.current) return;
+        if (priorClosureGen !== currentChannelGenerationRef.current) return;
 
-      // Tear down the old channel BEFORE opening the new one so an
-      // in-flight CLOSED callback fires against the prior generation.
-      const oldChannel = currentChannelRef.current;
-      // Advance generation BEFORE removeChannel so any synchronous
-      // CLOSED callback inside removeChannel reads the advanced
-      // generation and short-circuits.
-      currentChannelGenerationRef.current += 1;
-      const newClosureGen = currentChannelGenerationRef.current;
-      if (oldChannel !== null) {
-        try {
-          await removeChannel(supabase, oldChannel);
-        } catch (err) {
-          // Swallow — teardown errors are not actionable client-side.
-          void err;
+        const newJwt = await mintSubscriberToken(slug);
+        if (!isMountedRef.current) return;
+        if (priorClosureGen !== currentChannelGenerationRef.current) return;
+
+        if (newJwt === null) {
+          console.warn(
+            "[ShowRealtimeBridge] SHOW_REALTIME_BROADCAST_AUTH_FAILED — JWT renewal mint failed; falling back to no-op (no retry loop)",
+          );
+          // Logging contract: the file-header doc (line ~82) promises a
+          // `SHOW_REALTIME_JWT_RENEWED outcome: 'failed'` log on every
+          // renewal-failure path. The `outcome:'success'` peer fires at
+          // line ~298. Each failure branch emits the failed outcome with
+          // a distinct `reason` tag so dashboards can disambiguate
+          // mint-fail vs setAuth-fail vs subscribe-fail.
+          console.warn(
+            "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
+            { reason: "mint_failed" },
+          );
+          return;
         }
-      }
-      if (!isMountedRef.current) return;
-      if (newClosureGen !== currentChannelGenerationRef.current) return;
 
-      let newChannel: ShowInvalidationChannel | null = null;
-      let newSubscribed: Promise<string> | null = null;
-      try {
-        const result = subscribeToShow(
-          supabase,
-          showId,
-          newJwt,
-          (token) => {
-            if (!isMountedRef.current) return;
-            if (newClosureGen !== currentChannelGenerationRef.current) return;
-            // Update the renderVersion ref optimistically so subsequent
-            // catch-ups don't re-fire on this same token.
-            if (typeof token === "string") {
-              renderVersionRef.current = token;
-            }
-            scheduleDebouncedRefresh();
-          },
-          (status) => handleStatusCallback(status, newClosureGen),
-        );
-        newChannel = result.channel;
-        newSubscribed = result.subscribed;
-      } catch (err) {
-        console.warn(
-          "[ShowRealtimeBridge] subscription failed during renewal",
-          err,
-        );
-        console.warn(
-          "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
-          { reason: "subscribe_threw", err },
-        );
-        return;
-      }
-      currentChannelRef.current = newChannel;
-      attachSystemHandler(newChannel, (e) =>
-        handleSystemEvent(e, newClosureGen),
-      );
+        try {
+          supabase.realtime.setAuth(newJwt);
+        } catch (err) {
+          console.warn(
+            "[ShowRealtimeBridge] SHOW_REALTIME_BROADCAST_AUTH_FAILED — setAuth threw during renewal",
+            err,
+          );
+          console.warn(
+            "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
+            { reason: "set_auth_threw", err },
+          );
+          return;
+        }
 
-      // (e) AFTER the underlying socket reports SUBSCRIBED, run the
-      // version catch-up. Without this gate the catch-up races the
-      // Realtime join: an update that lands AFTER the version GET but
-      // BEFORE Realtime accepts the subscription is missed (catch-up
-      // sees the old token, Broadcast has not started delivering) and
-      // the page renders stale data forever. Codex HIGH 2.
-      try {
-        await newSubscribed;
-      } catch {
-        // The Promise only ever resolves (with a status string); guard
-        // for completeness in case a future implementation rejects.
-      }
-      if (!isMountedRef.current) return;
-      if (newClosureGen !== currentChannelGenerationRef.current) return;
-      await refreshSyncIfMismatch(newClosureGen);
+        // Tear down the old channel BEFORE opening the new one so an
+        // in-flight CLOSED callback fires against the prior generation.
+        const oldChannel = currentChannelRef.current;
+        // Advance generation BEFORE removeChannel so any synchronous
+        // CLOSED callback inside removeChannel reads the advanced
+        // generation and short-circuits.
+        currentChannelGenerationRef.current += 1;
+        const newClosureGen = currentChannelGenerationRef.current;
+        if (oldChannel !== null) {
+          try {
+            await removeChannel(supabase, oldChannel);
+          } catch (err) {
+            // Swallow — teardown errors are not actionable client-side.
+            void err;
+          }
+        }
+        if (!isMountedRef.current) return;
+        if (newClosureGen !== currentChannelGenerationRef.current) return;
 
-      // (f) Renewal succeeded — log success.
-      console.info(
-        "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: success",
-      );
+        let newChannel: ShowInvalidationChannel | null = null;
+        let newSubscribed: Promise<string> | null = null;
+        try {
+          const result = subscribeToShow(
+            supabase,
+            showId,
+            newJwt,
+            (token) => {
+              if (!isMountedRef.current) return;
+              if (newClosureGen !== currentChannelGenerationRef.current) return;
+              // Update the renderVersion ref optimistically so subsequent
+              // catch-ups don't re-fire on this same token.
+              if (typeof token === "string") {
+                renderVersionRef.current = token;
+              }
+              scheduleDebouncedRefresh();
+            },
+            (status) => handleStatusCallback(status, newClosureGen),
+          );
+          newChannel = result.channel;
+          newSubscribed = result.subscribed;
+        } catch (err) {
+          console.warn(
+            "[ShowRealtimeBridge] subscription failed during renewal",
+            err,
+          );
+          console.warn(
+            "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
+            { reason: "subscribe_threw", err },
+          );
+          return;
+        }
+        currentChannelRef.current = newChannel;
+        attachSystemHandler(newChannel, (e) =>
+          handleSystemEvent(e, newClosureGen),
+        );
+
+        // (e) AFTER the underlying socket reports SUBSCRIBED, run the
+        // version catch-up. Without this gate the catch-up races the
+        // Realtime join: an update that lands AFTER the version GET but
+        // BEFORE Realtime accepts the subscription is missed (catch-up
+        // sees the old token, Broadcast has not started delivering) and
+        // the page renders stale data forever. Codex HIGH 2.
+        try {
+          await newSubscribed;
+        } catch {
+          // The Promise only ever resolves (with a status string); guard
+          // for completeness in case a future implementation rejects.
+        }
+        if (!isMountedRef.current) return;
+        if (newClosureGen !== currentChannelGenerationRef.current) return;
+        await refreshSyncIfMismatch(newClosureGen);
+
+        // (f) Renewal succeeded — log success.
+        console.info(
+          "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: success",
+        );
+      } finally {
+        // Codex HIGH 3 — release the single-flight lock on EVERY exit
+        // path (success AND every failure branch above that returned
+        // early). A failed mint must release the lock so a subsequent
+        // disconnect can trigger another renewal attempt.
+        isRenewingRef.current = false;
+      }
     };
 
     const handleSystemEvent = (e: SystemEvent, closureGen: number) => {

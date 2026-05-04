@@ -914,6 +914,134 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     expect(routerMock.state.refreshCalls).toBe(1);
   });
 
+  // === Codex HIGH 3 — single-flight gate for renewSubscription ===
+  // Multiple CHANNEL_ERROR / TIMED_OUT / CLOSED / system.disconnected
+  // callbacks can arrive in rapid succession with the SAME generation
+  // BEFORE the first mint completes. Without `isRenewingRef`, every
+  // disconnect kicks off its own mint → setAuth → re-subscribe sequence
+  // and the network thrash is observable as multiple JWT mints + multiple
+  // new channels for a single fault.
+
+  test("HIGH 3 — 5 rapid disconnect events trigger EXACTLY ONE renewSubscription / mint / re-subscribe sequence", async () => {
+    let mintCount = 0;
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () => {
+        mintCount += 1;
+        return new Response(
+          JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+
+    await mountBridgeAndAwaitSubscribe();
+    expect(subscribeMock.state.subscribeCalls).toHaveLength(1);
+    // Reset the mint counter to ignore the initial mint.
+    const baselineMints = mintCount;
+    const baselineSubscribes = subscribeMock.state.subscribeCalls.length;
+
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+
+    // Fire FIVE disconnect events back-to-back BEFORE any mint can
+    // complete. Without the single-flight guard, all five enter
+    // renewSubscription concurrently and each calls mintSubscriberToken,
+    // setAuth, removeChannel, subscribeToShow.
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+      firstChannel.fireSystem({ event: "disconnected" });
+      firstChannel.fireSystem({ event: "disconnected" });
+      firstChannel.fireSystem({ event: "disconnected" });
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    // Drain the renewal microtasks fully.
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+
+    // EXACTLY ONE additional mint and ONE additional subscribe call —
+    // the four redundant disconnect events were swallowed by the lock.
+    expect(mintCount - baselineMints).toBe(1);
+    expect(subscribeMock.state.subscribeCalls.length - baselineSubscribes).toBe(
+      1,
+    );
+  });
+
+  test("HIGH 3 — failed mint releases the single-flight lock; a subsequent disconnect can retry", async () => {
+    let mintCount = 0;
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () => {
+        mintCount += 1;
+        // Initial mint: success. First renewal mint: FAIL.
+        // Second renewal mint: success.
+        if (mintCount === 1) {
+          return new Response(
+            JSON.stringify({ jwt: "ok-1", exp: 9999999999 }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (mintCount === 2) {
+          return new Response(
+            JSON.stringify({ error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED" }),
+            { status: 401, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(
+          JSON.stringify({ jwt: `ok-${mintCount}`, exp: 9999999999 }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    await mountBridgeAndAwaitSubscribe();
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+    const baselineSubscribes = subscribeMock.state.subscribeCalls.length;
+
+    // Disconnect 1 — mint fails, lock must be released.
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+    // No new subscribe yet (mint failed).
+    expect(subscribeMock.state.subscribeCalls.length).toBe(baselineSubscribes);
+    // The mint-failed log fired (proves the renewal path executed and
+    // returned, NOT that it was silently swallowed by the lock).
+    const loggedFailedOnce = consoleWarnSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "object" &&
+          a !== null &&
+          (a as { reason?: unknown }).reason === "mint_failed",
+      ),
+    );
+    expect(loggedFailedOnce).toBe(true);
+
+    // Disconnect 2 — lock should be released, so the new disconnect
+    // triggers ANOTHER renewSubscription. Mint 3 succeeds → new
+    // subscribe call.
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+    // A new subscribe was attempted — proves the lock released.
+    expect(
+      subscribeMock.state.subscribeCalls.length - baselineSubscribes,
+    ).toBe(1);
+
+    consoleWarnSpy.mockRestore();
+  });
+
   // === Important 3 (default-branch warn for unknown system events) ===
   test("unknown system event hits the default branch and warns without crashing", async () => {
     const consoleWarnSpy = vi
