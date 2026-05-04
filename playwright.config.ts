@@ -100,10 +100,24 @@ export default defineConfig({
   ],
   webServer: [
     {
-      // M0 baseline server (port 3000) — covers the existing sample.spec.ts.
+      // M0 baseline server (port 3000) — covers the existing sample.spec.ts
+      // AND the M5 §B Task 5.7 auth-chain spec. The latter exercises
+      // signInAs(ADMIN_FIXTURE) / signInAs(NON_ADMIN_CREW_FIXTURE) which
+      // POST /api/test-auth/set-session — so this baseline server needs
+      // the same ENABLE_TEST_AUTH+TEST_AUTH_SECRET pair the dev-build /
+      // prod-build webServers carry. The endpoint's gates (host allowlist,
+      // email allowlist, create-only) keep the surface bounded; the secret
+      // is the same per-run constant the other servers use.
+      //
+      // ADMIN_DEV_PANEL_ENABLED=true is also set so the chain-adapter's
+      // requireAdmin() call (after isAdminSession success — controller
+      // Issue 5 + plan §276) can pass requireAdmin's build-time gate. The
+      // /admin/dev page itself isn't exercised on this project (only the
+      // admin-dev project hits it), so the wider gate doesn't affect any
+      // other test surface.
       command: process.env.CI
-        ? "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min pnpm build && JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min pnpm start"
-        : "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min pnpm dev",
+        ? "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm build && JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm start"
+        : "JWT_SIGNING_SECRET=redeem-link-test-secret-32-bytes-min ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=fxav-m3-test-auth-2026-DO-NOT-SHIP pnpm dev",
       url: "http://localhost:3000",
       reuseExistingServer: !process.env.CI,
       timeout: process.env.CI ? 120_000 : 60_000,

@@ -2,11 +2,11 @@
  * app/show/[slug]/page.tsx — per-show crew page.
  *
  * M5 §B Task 5.7 (spec §7.4) replaces the M4 identity-only mock with the
- * cookie-bound auth chain. Identity continues to be the only thing the
- * page passes to `getShowForViewer` (the role-spoof regression contract is
- * preserved — see `tests/data/show-page-role-spoof.test.ts` and the bans
- * enforced therein); what changes is HOW the page resolves identity. The
- * chain runs the four-step ladder per spec §7.3 + plan 05-auth.md:275-281:
+ * cookie-bound auth chain. Identity is the only thing the page passes to
+ * `getShowForViewer` (the role-spoof regression contract is preserved —
+ * see `tests/data/show-page-role-spoof.test.ts` and the bans enforced
+ * therein); what changes is HOW the page resolves identity. The chain
+ * runs the four-step ladder per spec §7.3 + plan 05-auth.md:275-281:
  *
  *     1. isAdminSession(req)         — admin precedence, runs FIRST
  *     2. validateLinkSession(req)    — __Host-fxav_session cookie path
@@ -23,6 +23,15 @@
  *     fault (DB outage, signing-key fetch failure). Chain stops; the page
  *     renders the catalog message via lib/messages/lookup.ts (no raw error
  *     codes per AGENTS.md §1.5).
+ *
+ * Admin precedence + requireAdmin() defense-in-depth (plan 05-auth.md:276):
+ *   When `isAdminSession` returns true, we IMMEDIATELY call `requireAdmin()`
+ *   to confirm via the canonical chokepoint (build-time gate + Postgres
+ *   is_admin() RPC). If the two predicates disagree (drift), we fall
+ *   through to the next chain step rather than render as admin. The
+ *   `requireAdmin()` call is wrapped in try/catch because it raises via
+ *   `notFound()` / `forbidden()` (Next.js navigation control flow); we
+ *   catch the navigation throw and continue the chain.
  *
  * Chain-adapter clearCookie plumbing (Q1 of the implementer-prompt answers):
  *   Next 16 forbids cookie mutation from a Server Component. When the chain
@@ -46,22 +55,19 @@
  * adapter consistently emits the clear-cookie marker even when admin
  * precedence wins before validateLinkSession runs.
  *
- * Backwards-compatibility note (M4 mock contract — DEV-ONLY fallback):
- *   The full M5 §B exit criteria include migrating every M4 e2e spec onto
- *   the real OAuth flow (handoff line 438). That migration is broader than
- *   Task 5.7 — it touches Playwright config + 12 spec files. To keep Task
- *   5.7's scope to a single commit AND preserve M4 e2e ("no M4 regressions"
- *   per the implementer's verification gate), the page falls back to the
- *   M4 identity-only `?as=admin` / `?crew=<id>` mock ONLY in non-production
- *   builds AND ONLY when the auth chain produces no viewer. Production
- *   builds (NODE_ENV === 'production' AND no test-auth flag) NEVER consult
- *   the mock — the chain's redirect-to-sign-in is the only path. This is
- *   the same shape used elsewhere in the codebase: M3's
- *   `app/api/test-auth/set-session/route.ts` is gated on a test-only env
- *   var; here the gate is the absence of production NODE_ENV. The static-
- *   analysis test in `tests/data/show-page-role-spoof.test.ts` continues
- *   to forbid the role-bearing query-param read — only `?crew` and `?as`
- *   survive in the fallback, which is the M4 identity-only mock contract.
+ * Admin-precedence skip-link-validator: per plan §276, when admin
+ * precedence wins we DO NOT run validateLinkSession. The link cookie is
+ * left in place (still valid for crew-mode use later); any DB-side cleanup
+ * for stale-but-wrong-show cookies happens naturally on the next request
+ * that runs the link branch (e.g., admin role removal).
+ *
+ * Identity-only contract: the `searchParams` object is intentionally NOT
+ * read for any auth decision. The static-analysis test
+ * `tests/data/show-page-role-spoof.test.ts` enforces that the role
+ * search-param (and bracket-form equivalents) are never referenced; the
+ * page no longer accepts a `searchParams` prop at all (M5 §B retires the
+ * M4 identity-only mock — see `app/api/test-auth/set-session` for the
+ * test-only auth path that replaces it).
  *
  * Server Component. No `'use client'`.
  */
@@ -101,14 +107,6 @@ import {
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { messageFor } from "@/lib/messages/lookup";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
-
-// Identity-only searchParams shape. NOTE: `role` is intentionally absent
-// from this type. If you find yourself adding it, stop — the static-
-// analysis test (tests/data/show-page-role-spoof.test.ts) will fail, and
-// the §7.4 contract will break. The DEV fallback supplies IDENTITY only;
-// role is freshly derived inside getShowForViewer from
-// crew_members.role_flags on every call.
-type SearchParams = { crew?: string; as?: string };
 
 /** Resolve a slug to a show id via a single bound SELECT. */
 async function resolveShowIdFromSlug(slug: string): Promise<string | null> {
@@ -157,6 +155,33 @@ type ChainResolution = {
 };
 
 /**
+ * Try the canonical admin chokepoint after `isAdminSession` returns true.
+ * `requireAdmin()` raises via `notFound()` / `forbidden()` (Next.js
+ * navigation control flow), so success is "no throw"; any throw means
+ * the dual gate disagreed and we fall through to the next chain step.
+ *
+ * Per plan §276: "If `isAdminSession` returns true, **run `requireAdmin`
+ * immediately** and resolve to `{ kind: 'admin' }`." This double-gate
+ * catches drift between the predicate (cookie-bound + RPC) and the
+ * canonical chokepoint (build-time + RPC). When drift happens, the
+ * conservative path is to NOT render as admin and fall through; the
+ * chain's later steps will either resolve a crew viewer or redirect to
+ * sign-in.
+ */
+async function tryRequireAdmin(): Promise<boolean> {
+  try {
+    await requireAdmin();
+    return true;
+  } catch {
+    // Build-time gate (404) or auth-gate (403) raised. Drift between
+    // isAdminSession (predicate) and requireAdmin (chokepoint) — fall
+    // through. Intentionally swallow — the chain's later steps handle
+    // the not-admin outcome.
+    return false;
+  }
+}
+
+/**
  * Run the four-step auth chain. See file-header comment for ordering and
  * tri-state contract. Returns the resolved viewer plus the OR-aggregated
  * clearCookie flag and any terminal_failure outcome.
@@ -198,10 +223,21 @@ async function resolveViewer(
   }
 
   // (1) Admin precedence — runs FIRST per plan 05-auth.md:276. A pure
-  // predicate; no DB writes, no cookie side effects.
+  // predicate; no DB writes, no cookie side effects. When it returns
+  // true we IMMEDIATELY call `requireAdmin()` (the canonical chokepoint
+  // — build-time gate + Postgres is_admin() RPC). Both must agree before
+  // we resolve to admin. The link branch is intentionally NOT run on this
+  // path (per plan §276); link cookies are left in place for crew-mode
+  // use later, with DB-side cleanup deferred to whichever future request
+  // exercises the link branch.
   const admin = await isAdminSession(req);
   if (admin.ok) {
-    viewer = { kind: "admin" };
+    const adminConfirmed = await tryRequireAdmin();
+    if (adminConfirmed) {
+      viewer = { kind: "admin" };
+    }
+    // Drift between isAdminSession and requireAdmin → fall through to the
+    // next chain step. Don't return early.
   }
 
   // (2) validateLinkSession — runs only if admin didn't resolve. Its own
@@ -244,143 +280,34 @@ async function resolveViewer(
 
   // (4) requireAdmin fallback — preserved per spec for non-OAuth admin
   // auth shapes. We can only reach this when isAdminSession returned
-  // false; requireAdmin is more conservative (uses the cookie-bound
-  // Supabase client + is_admin RPC) so the dual gate catches any drift.
+  // false at step 1; requireAdmin is more conservative (uses the
+  // cookie-bound Supabase client + is_admin RPC) so the dual gate
+  // catches any drift in the OTHER direction (admin via build-time
+  // chokepoint that isAdminSession's predicate missed).
   if (!viewer) {
-    try {
-      await requireAdmin();
+    const adminFallback = await tryRequireAdmin();
+    if (adminFallback) {
       viewer = { kind: "admin" };
-    } catch {
-      // Not admin (or build-time gate not enabled) — fall through.
     }
   }
 
   return { viewer, clearCookie, terminalFailure: null };
 }
 
-/**
- * DEV-only admin override: in non-production builds, `?as=admin` resolves
- * to admin viewer immediately, BEFORE the rest of the chain runs. This
- * mirrors the spec's admin-precedence ordering (admin always wins) for
- * environments where there's no real OAuth admin session for
- * isAdminSession to detect. Returns true iff dev fallback is enabled AND
- * the URL carries `?as=admin`.
- */
-function deriveDevAdminOverride(searchParams: SearchParams): boolean {
-  const isProd = process.env.NODE_ENV === "production";
-  const testAuthEnabled = process.env.ENABLE_TEST_AUTH === "true";
-  if (isProd && !testAuthEnabled) return false;
-  return searchParams.as === "admin";
-}
-
-/**
- * When the dev admin override fires, we still want to detect a stale
- * cookie (so the chain can clear it on the same response). Skip the
- * other validators — the admin viewer wins regardless — but inspect the
- * cookie envelope cheaply for cross-show / parse-fault clues. The §A
- * validators' DB-side DELETE for cross-show cookies still runs because
- * the chain's full ladder runs in the next render after clear-session
- * round-trips back here.
- */
-async function resolveAdminWithCookieClear(
-  req: Request,
-  showId: string,
-): Promise<ChainResolution> {
-  const cookieHeader = req.headers.get("cookie") ?? "";
-  let sessionCookieRaw: string | undefined;
-  for (const part of cookieHeader.split(";")) {
-    const [rawName, ...rawVal] = part.trim().split("=");
-    if (rawName === SESSION_COOKIE_NAME) {
-      sessionCookieRaw = rawVal.join("=");
-    }
-  }
-  const cookieEnvelope = decodeSessionCookieValue(sessionCookieRaw);
-  const cookieIsForWrongShow =
-    cookieEnvelope !== null && cookieEnvelope.show_id !== showId;
-  const cookiePresentButMalformed =
-    sessionCookieRaw !== undefined && cookieEnvelope === null;
-
-  return {
-    viewer: { kind: "admin" },
-    clearCookie: cookieIsForWrongShow || cookiePresentButMalformed,
-    terminalFailure: null,
-  };
-}
-
-/**
- * DEV-only fallback: if the auth chain didn't resolve a viewer and we're
- * in a non-production environment AND the URL carries the M4 identity-only
- * mock params (`?crew` or `?as=admin`), use them. Production NEVER hits
- * this branch — the chain's no-viewer outcome routes straight to
- * /auth/sign-in.
- *
- * Why this exists: Task 5.7's verification gate requires "no M4
- * regressions" on `pnpm test:e2e --project=mobile-safari`. The full M5
- * §B exit criteria include migrating every M4 e2e spec onto the real
- * OAuth flow (handoff line 438) — that migration is broader than this
- * task. The DEV fallback bridges the gap so M4 specs (which still use
- * `?crew=<id>` and `?as=admin`) keep passing while the new chain ships.
- *
- * Production posture (NODE_ENV === 'production' AND no test-auth flag):
- * the fallback is unreachable; the chain is the only viewer source.
- */
-function deriveDevFallbackViewer(searchParams: SearchParams): Viewer | null {
-  // Production posture check: the fallback is gated on either non-prod
-  // NODE_ENV OR the explicit ENABLE_TEST_AUTH=true flag (which only the
-  // Playwright dev/prod-build webServer commands set, not production
-  // deployments).
-  const isProd = process.env.NODE_ENV === "production";
-  const testAuthEnabled = process.env.ENABLE_TEST_AUTH === "true";
-  if (isProd && !testAuthEnabled) return null;
-
-  if (searchParams.as === "admin") return { kind: "admin" };
-  if (searchParams.crew) {
-    return { kind: "crew", crewMemberId: searchParams.crew };
-  }
-  return null;
-}
-
-/**
- * Build the URL we want the user to land at after the chain finishes —
- * either as the redirect target (chain failed, redirect to sign-in) or
- * as the `next` param when redirecting through clear-session.
- */
-function buildSelfPath(slug: string, sp: SearchParams): string {
-  const params = new URLSearchParams();
-  if (sp.crew) params.set("crew", sp.crew);
-  if (sp.as) params.set("as", sp.as);
-  const qs = params.toString();
-  return `/show/${slug}${qs ? `?${qs}` : ""}`;
-}
-
 type PageProps = {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<SearchParams>;
 };
 
-export default async function ShowPage({ params, searchParams }: PageProps) {
+export default async function ShowPage({ params }: PageProps) {
   const { slug } = await params;
-  const sp = await searchParams;
 
   const showId = await resolveShowIdFromSlug(slug);
   if (!showId) {
     notFound();
   }
 
-  // DEV-only fallback admin override: in non-production builds, `?as=admin`
-  // takes precedence over the link cookie (matches the spec's
-  // admin-precedence ordering — admin always wins, regardless of which
-  // crew credential class also resolves). We check this BEFORE running the
-  // full chain because the mock admin isn't visible to isAdminSession
-  // (which reads a real OAuth session, not a query param). When real
-  // OAuth admin exists, isAdminSession inside the chain catches it
-  // first; the M4 mock here is the dev-only equivalent.
-  const devAdminOverride = deriveDevAdminOverride(sp);
-
   const req = await buildRequestForChain();
-  const result = devAdminOverride
-    ? await resolveAdminWithCookieClear(req, showId)
-    : await resolveViewer(req, showId);
+  const result = await resolveViewer(req, showId);
 
   if (result.terminalFailure) {
     // Server-side infrastructure fault — render via catalog message (no raw
@@ -403,23 +330,19 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
   //   - clearCookie && !viewer: redirect to clear-session with
   //     next=/auth/sign-in?next=/show/<slug>. After clear, the user lands
   //     on the sign-in flow.
+  const selfPath = `/show/${slug}`;
   if (result.clearCookie) {
-    const selfPath = buildSelfPath(slug, sp);
     const target = result.viewer
       ? selfPath
       : `/auth/sign-in?next=${encodeURIComponent(selfPath)}`;
     redirect(`/auth/clear-session?next=${encodeURIComponent(target)}`);
   }
 
-  // No viewer from the chain. Try the DEV-only fallback first (M4 mock
-  // contract preservation); if still no viewer, redirect to sign-in.
-  let viewer: Viewer | null = result.viewer;
-  if (!viewer) {
-    viewer = deriveDevFallbackViewer(sp);
+  if (!result.viewer) {
+    redirect(`/auth/sign-in?next=${encodeURIComponent(selfPath)}`);
   }
-  if (!viewer) {
-    redirect(`/auth/sign-in?next=${encodeURIComponent(buildSelfPath(slug, sp))}`);
-  }
+
+  const viewer: Viewer = result.viewer;
 
   let data: ShowForViewer;
   try {

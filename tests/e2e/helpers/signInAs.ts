@@ -24,7 +24,27 @@ import { TEST_AUTH_SECRET } from "./testAuthConfig";
 import { admin } from "./supabaseAdmin";
 import { canonicalize } from "@/lib/email/canonicalize";
 
-export async function signInAs(page: Page, fixture: TestAuthFixture): Promise<void> {
+export type SignInAsOptions = {
+  /**
+   * Absolute URL for the test-auth endpoint. Used by tests that drive the
+   * browser at a host that differs from the project's default `baseURL`
+   * (e.g., M5 §B Task 5.7 auth-chain spec navigates to `127.0.0.1:3000`
+   * because Playwright's `addCookies` rejects `localhost` as a domain).
+   * When omitted, the helper uses the page's relative request context
+   * (which inherits the project baseURL).
+   *
+   * The auth cookies Supabase mints will be scoped to the host of THIS
+   * URL — so tests must subsequently navigate to the same host or those
+   * cookies won't accompany the request.
+   */
+  baseUrl?: string;
+};
+
+export async function signInAs(
+  page: Page,
+  fixture: TestAuthFixture,
+  options?: SignInAsOptions,
+): Promise<void> {
   // The endpoint enforces create-only semantics: a second sign-in for the
   // same email returns 410. To keep tests idempotent across runs, delete the
   // fixture user before attempting to create it. Service-role bypasses RLS.
@@ -34,7 +54,10 @@ export async function signInAs(page: Page, fixture: TestAuthFixture): Promise<vo
   // browser context that subsequent page.goto() calls will use. Send the
   // TEST_AUTH_SECRET as Authorization: Bearer; do NOT send isAdmin (the
   // server derives it from the email allowlist).
-  const response = await page.request.post("/api/test-auth/set-session", {
+  const url = options?.baseUrl
+    ? `${options.baseUrl.replace(/\/$/, "")}/api/test-auth/set-session`
+    : "/api/test-auth/set-session";
+  const response = await page.request.post(url, {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${TEST_AUTH_SECRET}`,
