@@ -92,6 +92,26 @@ type BootstrapCookieEntry = {
  * Also captures the per-attribute Set-Cookie text so test (e) can assert
  * the canonical __Host- attribute set.
  */
+/**
+ * Extract the raw bootstrap-cookie value (URL-encoded JSON) from a
+ * normalized headers array. Single source of truth for Set-Cookie
+ * parsing — used by both `BootstrapCookieCapture.captureSetCookies` and
+ * test (g)'s auto-plant listener.
+ *
+ * Returns null if no `__Host-fxav_bootstrap_v=` header is present.
+ */
+function extractBootstrapCookieRaw(
+  headers: Array<{ name: string; value: string }>,
+): string | null {
+  const setCookieHeaders = headers
+    .filter((h) => h.name.toLowerCase() === "set-cookie")
+    .map((h) => h.value);
+  if (setCookieHeaders.length === 0) return null;
+  const joined = setCookieHeaders.join(", ");
+  const m = joined.match(/__Host-fxav_bootstrap_v=([^;\r\n,]*)/);
+  return m && m[1] ? m[1] : null;
+}
+
 class BootstrapCookieCapture {
   private latestRaw: string | null = null;
   private latestSetCookieLine: string | null = null;
@@ -139,11 +159,10 @@ class BootstrapCookieCapture {
       if (setCookieHeaders.length === 0) return;
       const joined = setCookieHeaders.join(", ");
 
-      const bootstrapMatch = joined.match(
-        /__Host-fxav_bootstrap_v=([^;\r\n,]*)/,
-      );
-      if (bootstrapMatch) {
-        this.latestRaw = bootstrapMatch[1] ?? null;
+      // Bootstrap-cookie value (single source of truth via helper).
+      const bootstrapRaw = extractBootstrapCookieRaw(headers);
+      if (bootstrapRaw !== null) {
+        this.latestRaw = bootstrapRaw;
         // Capture the substring starting at our cookie's name and
         // extending through the next cookie's name OR end-of-string.
         // The "next cookie's name" pattern is `, <NAME>=` where NAME
@@ -151,6 +170,11 @@ class BootstrapCookieCapture {
         // comma which is followed by ` 04 May...`).
         const startIdx = joined.indexOf("__Host-fxav_bootstrap_v=");
         const tail = joined.substring(startIdx);
+        // .substring(1) skips the leading char so we don't match the
+        // cookie-name itself; nextCookieIdx is then 0-based in the
+        // slice, which corresponds to position (nextCookieIdx + 1) in
+        // the full `tail`. The slice end at (nextCookieIdx + 1)
+        // excludes the comma at that position.
         const nextCookieIdx = tail
           .substring(1)
           .search(/,\s*[A-Za-z][A-Za-z0-9_-]*=/);
@@ -681,6 +705,9 @@ test("(g) /show/<slug>/p#t=<valid-jwt> → bootstrap row created; redeem-link PO
   // browser-rejection limitation). This way the next outgoing request
   // (the redeem-link POST that the client island fires) will carry the
   // cookie back to the server, just like it would over HTTPS in prod.
+  //
+  // Uses `extractBootstrapCookieRaw` — single source of truth for
+  // Set-Cookie extraction shared with `BootstrapCookieCapture`.
   context.on("response", async (res) => {
     let headers: Array<{ name: string; value: string }>;
     try {
@@ -688,17 +715,13 @@ test("(g) /show/<slug>/p#t=<valid-jwt> → bootstrap row created; redeem-link PO
     } catch {
       return;
     }
-    const setCookieHeaders = headers
-      .filter((h) => h.name.toLowerCase() === "set-cookie")
-      .map((h) => h.value)
-      .join(", ");
-    const m = setCookieHeaders.match(/__Host-fxav_bootstrap_v=([^;\r\n,]*)/);
-    if (m && m[1]) {
+    const raw = extractBootstrapCookieRaw(headers);
+    if (raw !== null) {
       try {
         await context.addCookies([
           {
             name: BOOTSTRAP_COOKIE_LITERAL,
-            value: m[1],
+            value: raw,
             domain: "127.0.0.1",
             path: "/",
             httpOnly: true,

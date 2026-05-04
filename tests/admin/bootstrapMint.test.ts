@@ -86,6 +86,21 @@ const mockState = vi.hoisted(() => ({
   withLockSpy: vi.fn(),
 }));
 
+// Mock encoding contract — mirrors Next 16's wire behavior:
+//   - cookies().set(name, value, opts) URL-encodes the raw value when
+//     emitting Set-Cookie. The browser stores the encoded form and sends
+//     it back on subsequent requests; cookies().get(name).value then
+//     returns the URL-encoded string. Production code (parseExistingCookie
+//     in actions.ts and the §A redeem-link route) decodes once on read.
+//   - This mock therefore: (a) URL-encodes on .set() before storing,
+//     (b) returns the encoded value as-is on .get(). The
+//     `readCookieArray` helper below decodes once on read, mirroring the
+//     production read path. Seed values written directly into cookieJar
+//     in tests must therefore be PRE-ENCODED (URL-encoded JSON) — the
+//     "existing cookie array with 5 entries" test does this.
+//   - This contract catches a re-introduced double-encode regression in
+//     `actions.ts` (passing `encodeURIComponent(JSON.stringify(...))`
+//     would produce a doubly-encoded value that decodes to garbage).
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     get(name: string) {
@@ -95,8 +110,9 @@ vi.mock("next/headers", () => ({
     },
     set(name: string, value: string, options?: Record<string, unknown>) {
       mockState.setSpy(name, value, options);
+      // Simulate Next 16's auto-encoding on the wire.
       mockState.cookieJar.set(name, {
-        value,
+        value: encodeURIComponent(value),
         options: options as never,
       });
     },
@@ -385,6 +401,20 @@ describe("bootstrapMint", () => {
     expect(mockState.insertedNonces).toHaveLength(0);
   });
 
+  test("malformed showId (uppercase hex) → throws; no DB call (UUID_RE is case-sensitive, matching `lib/auth/constants.ts:9`)", async () => {
+    // Postgres normalizes UUIDs to lowercase on storage, so legitimate
+    // showIds always arrive lowercase from `resolveShowIdFromSlug`.
+    // Uppercase hex must be rejected (case-sensitive match per the
+    // canonical regex at lib/auth/constants.ts:9).
+    mockState.signingKeyIdSequence.push("k1"); // would be consumed if /i slipped back in
+    await expect(
+      bootstrapMint("11111111-AAAA-1111-1111-111111111111"),
+    ).rejects.toThrow();
+    expect(mockState.withLockSpy).not.toHaveBeenCalled();
+    expect(mockState.insertedNonces).toHaveLength(0);
+    expect(mockState.setSpy).not.toHaveBeenCalled();
+  });
+
   test("DB insert error → throws; cookie not written", async () => {
     mockState.signingKeyIdSequence.push("k1");
     mockState.insertError = { message: "rls denied" };
@@ -406,6 +436,10 @@ describe("bootstrapMint", () => {
 
   test("existing cookie array with 5 entries: 6th mint evicts oldest entry only (cookie-side cap)", async () => {
     // Pre-seed cookie with 5 existing entries (simulating a prior page render).
+    // Direct cookieJar.set bypasses the mocked cookies().set, so this seed
+    // must be PRE-ENCODED (URL-encoded) to match the wire-format contract
+    // documented above (the cookieJar stores wire-format values; reads
+    // decode once via decodeURIComponent).
     const prefilled = Array.from({ length: 5 }).map((_, i) => ({
       nonce_hash: `existing-hash-${i}`,
       show_id: VALID_SHOW_ID,

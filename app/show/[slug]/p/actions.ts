@@ -90,9 +90,17 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 // Local UUID regex — duplicated from `lib/auth/constants.ts` (UUID_RE)
 // because §B (this file's milestone) cannot modify §A's lib/auth surface.
 // A single internal callsite of a stable, format-only regex is acceptable
-// duplication; see the I2 precedent in `app/admin/actions.ts:35`.
+// duplication; see also `app/admin/actions.ts:35`.
+//
+// Case-sensitive (no /i flag) to match the canonical regex at
+// `lib/auth/constants.ts:9`. Postgres normalizes UUIDs to lowercase on
+// storage, so legitimate showIds always arrive in lowercase from
+// `resolveShowIdFromSlug`. Accepting uppercase hex would be overly
+// permissive and would diverge from the canonical auth surface.
+// (`app/admin/actions.ts:35` is still /i — that's §A territory and out
+// of scope for this milestone; tightening it is tracked separately.)
 const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 type BootstrapCookieEntry = {
   nonce_hash: string;
