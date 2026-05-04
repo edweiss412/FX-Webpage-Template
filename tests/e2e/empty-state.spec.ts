@@ -107,15 +107,19 @@ test.describe("crew page — empty-state discipline + §10 URL-strip (Task 4.14,
     await restore(s);
   });
 
-  test("opening_reel = 'TBD' renders NO `Opening reel:` line (hide sentinel)", async ({
+  test("opening_reel = 'TBD' renders NO opening-reel row (hide sentinel)", async ({
     page,
   }) => {
+    // Task 4.14 review fix-round: ShowStatusTile renders opening-reel as
+    // `<dt>Opening reel</dt><dd>{value}</dd>` (no inline `Opening reel:`
+    // prefix in the <dd> after the dt/dd cleanup). Assert via the
+    // testid scope rather than the literal "Opening reel:" substring —
+    // the testid is the canonical AC-4.5 contract surface.
     await setEventDetails(s, { opening_reel: "TBD" });
     await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
     const main = page.locator("main");
     await expect(main).toBeVisible();
-    const text = (await main.textContent()) ?? "";
-    expect(text).not.toMatch(/Opening reel:/i);
+    await expect(page.getByTestId("opening-reel")).toHaveCount(0);
   });
 
   test("opening_reel ∈ {YES, MAYBE, N/A, TBA, BACKUP ONLY} all render the line", async ({
@@ -159,8 +163,11 @@ test.describe("crew page — empty-state discipline + §10 URL-strip (Task 4.14,
     });
     await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
     const main = page.locator("main");
+    // Task 4.14 review fix-round: assert no opening-reel row by testid
+    // (matches the dt/dd pattern), then assert no Drive URL leakage in
+    // any rendered text.
+    await expect(page.getByTestId("opening-reel")).toHaveCount(0);
     const text = (await main.textContent()) ?? "";
-    expect(text).not.toMatch(/Opening reel:/i);
     expect(text).not.toContain("https://");
     expect(text).not.toContain("drive.google.com");
   });
@@ -194,11 +201,14 @@ test.describe("crew page — empty-state discipline + §10 URL-strip (Task 4.14,
   test("event_details.power = 'N/A' hides the field; 'House power, 20A' renders it", async ({
     page,
   }) => {
-    // Hide branch: N/A is a generic-optional sentinel.
+    // Hide branch: N/A is a generic-optional sentinel. Task 4.14 review
+    // fix-round (Minor 1): assert via testid rather than the brittle
+    // `^Power:|\sPower:` regex — the dt/dd cleanup means the rendered
+    // textContent reads "Power House power…" with no colon, and the
+    // testid is the canonical contract surface.
     await setEventDetails(s, { power: "N/A" });
     await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
-    let text = (await page.locator("main").textContent()) ?? "";
-    expect(text).not.toMatch(/^Power:|\sPower:/);
+    await expect(page.getByTestId("power")).toHaveCount(0);
 
     // Render branch: real content shows up.
     await setEventDetails(s, { power: "House power, 20A" });
@@ -206,7 +216,7 @@ test.describe("crew page — empty-state discipline + §10 URL-strip (Task 4.14,
     const power = page.getByTestId("power");
     await expect(power).toBeVisible();
     await expect(power).toContainText("House power, 20A");
-    text = (await page.locator("main").textContent()) ?? "";
+    const text = (await page.locator("main").textContent()) ?? "";
     expect(text).toContain("House power, 20A");
   });
 });

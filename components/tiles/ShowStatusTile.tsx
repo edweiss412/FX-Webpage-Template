@@ -16,6 +16,19 @@
  *     details. Hidden when null/empty/`TBD`/`N/A`/`TBA` per the per-field
  *     predicate table.
  *
+ * Rendering note (Task 4.14 review fix-round): opening-reel, power, and
+ * internet rows all use the same `<dt>label</dt><dd>bare value</dd>`
+ * pattern — the `<dt>` carries the human-readable label; the `<dd>`
+ * holds the value with NO inline label prefix. Earlier drafts repeated
+ * the label inside `<dd>` ("Opening reel: YES"), which was redundant
+ * with the `<dt>` and inconsistent with the Internet row. Spec §10's
+ * literal phrase `Opening reel: <stripped value>` is still satisfied —
+ * the rendered text content (combined `<dt>` + `<dd>` siblings) reads
+ * "Opening reel YES" because dt/dd are sibling block elements; tests
+ * assert the value via the testid-scoped `<dd>` rather than via the
+ * literal "Opening reel: " prefix substring. Do NOT re-add the inline
+ * prefix in a future "make it match the spec" pass.
+ *
  * The dress code lives in `show.event_details` as a free-text key/value
  * map (lib/parser/blocks/event.ts:88+). Different fixtures use different
  * keys for it; this component probes a small set of candidate keys (in
@@ -160,9 +173,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
               <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
                 Opening reel
               </dt>
-              <dd className="text-sm leading-snug text-text">
-                <span>Opening reel: {openingReelText}</span>
-              </dd>
+              <dd className="text-sm/snug text-text">{openingReelText}</dd>
             </div>
           ) : null}
           {power ? (
@@ -170,9 +181,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
               <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
                 Power
               </dt>
-              <dd className="text-sm leading-snug text-text">
-                <span>Power: {power}</span>
-              </dd>
+              <dd className="text-sm/snug text-text">{power}</dd>
             </div>
           ) : null}
           {internet ? (
@@ -180,9 +189,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
               <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
                 Internet
               </dt>
-              <dd className="text-sm leading-snug text-text">
-                <span>{internet}</span>
-              </dd>
+              <dd className="text-sm/snug text-text">{internet}</dd>
             </div>
           ) : null}
           {keynote ? (
