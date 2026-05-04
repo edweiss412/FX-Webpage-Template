@@ -28,9 +28,11 @@
  *   - Failsafe path is '/' (NOT '/admin' - different from validateNextParam)
  */
 import { describe, expect, test } from "vitest";
+import { NextRequest } from "next/server";
 
 import {
   CLEAR_SESSION_FAILSAFE_PATH,
+  GET,
   validateClearSessionNext,
 } from "@/app/auth/clear-session/route";
 
@@ -124,5 +126,84 @@ describe("validateClearSessionNext (clear-session local allowlist)", () => {
     const outcome = validateClearSessionNext(null, ORIGIN);
     expect(outcome.ok).toBe(false);
     expect(outcome.pathname).toBe("/");
+  });
+});
+
+describe("GET /auth/clear-session same-origin guard (R15 #1)", () => {
+  // Round-14 §A MEDIUM: clear-session was a credential-changing GET
+  // primitive with no Sec-Fetch-Site / Origin guard. Any external
+  // site could navigate a user to /auth/clear-session?next=... and
+  // silently clear the magic-link cookie. The guard now refuses the
+  // cookie-clear side effect on cross-site navigations.
+
+  function setCookieLines(response: Response): string[] {
+    const all = response.headers.getSetCookie?.() ?? [];
+    return all;
+  }
+
+  test("same-origin GET clears the cookie and redirects to validated next", async () => {
+    const request = new NextRequest(`${ORIGIN}/auth/clear-session?next=/me`, {
+      headers: { "sec-fetch-site": "same-origin" },
+    });
+    const response = await GET(request);
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("/me");
+    const cookies = setCookieLines(response);
+    expect(cookies.find((c) => c.startsWith("__Host-fxav_session="))).toBeDefined();
+  });
+
+  test("Sec-Fetch-Site=none (top-level nav) is allowed", async () => {
+    const request = new NextRequest(`${ORIGIN}/auth/clear-session?next=/me`, {
+      headers: { "sec-fetch-site": "none" },
+    });
+    const response = await GET(request);
+    expect(response.status).toBe(303);
+    const cookies = setCookieLines(response);
+    expect(cookies.find((c) => c.startsWith("__Host-fxav_session="))).toBeDefined();
+  });
+
+  test("cross-site GET refuses to clear the cookie", async () => {
+    const request = new NextRequest(`${ORIGIN}/auth/clear-session?next=/me`, {
+      headers: { "sec-fetch-site": "cross-site" },
+    });
+    const response = await GET(request);
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(CLEAR_SESSION_FAILSAFE_PATH);
+    // No Set-Cookie header — the cross-site weaponized request must NOT
+    // clear the cookie. This is the R15 #1 contract.
+    const cookies = setCookieLines(response);
+    expect(cookies).toEqual([]);
+  });
+
+  test("same-site (subdomain) GET refuses — only same-origin allowed", async () => {
+    // Sec-Fetch-Site=same-site is sibling-subdomain navigation, NOT
+    // strict same-origin. The guard refuses to be safe.
+    const request = new NextRequest(`${ORIGIN}/auth/clear-session?next=/me`, {
+      headers: { "sec-fetch-site": "same-site" },
+    });
+    const response = await GET(request);
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(CLEAR_SESSION_FAILSAFE_PATH);
+    expect(setCookieLines(response)).toEqual([]);
+  });
+
+  test("legacy browser fallback: Origin parity allowed when Sec-Fetch-Site absent", async () => {
+    const request = new NextRequest(`${ORIGIN}/auth/clear-session?next=/me`, {
+      headers: { origin: ORIGIN },
+    });
+    const response = await GET(request);
+    expect(response.status).toBe(303);
+    const cookies = setCookieLines(response);
+    expect(cookies.find((c) => c.startsWith("__Host-fxav_session="))).toBeDefined();
+  });
+
+  test("legacy browser fallback: cross-origin Origin header refused", async () => {
+    const request = new NextRequest(`${ORIGIN}/auth/clear-session?next=/me`, {
+      headers: { origin: "https://attacker.example" },
+    });
+    const response = await GET(request);
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(CLEAR_SESSION_FAILSAFE_PATH);
+    expect(setCookieLines(response)).toEqual([]);
   });
 });
