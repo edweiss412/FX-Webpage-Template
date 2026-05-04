@@ -13,6 +13,7 @@
  *
  * Server Component (no `'use client'`).
  */
+import { Lightbulb } from "lucide-react";
 import type { RoleFlag, RoomRow } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
@@ -41,6 +42,7 @@ export function LightingScopeTile({
         testId="lighting-scope-tile"
         heading="Lighting"
         headingTone="eyebrow"
+        headingIcon={<Lightbulb size={14} strokeWidth={2} />}
         ariaLabel="Lighting scope"
         bodyAs="div"
       >
@@ -54,6 +56,7 @@ export function LightingScopeTile({
       testId="lighting-scope-tile"
       heading="Lighting"
       headingTone="eyebrow"
+      headingIcon={<Lightbulb size={14} strokeWidth={2} />}
       ariaLabel="Lighting scope"
       bodyAs="dl"
     >

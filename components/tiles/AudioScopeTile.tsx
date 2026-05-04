@@ -9,6 +9,13 @@
  * role_flags. NO ad-hoc role check here — the predicate is the single
  * source of truth.
  *
+ * Leading icon (Task 4.13.distill — Finding 8 close-out):
+ *   The eyebrow renders a small lucide-react `Volume2` glyph to the
+ *   left of the heading so the three otherwise-similar scope tiles
+ *   (Audio / Video / Lighting) differentiate at a glance. The icon
+ *   inherits the eyebrow's `text-text-faint` color via Section's
+ *   `headingIcon` slot — no special-case styling here.
+ *
  * Empty-state discipline (spec §8.3):
  *   - Predicate FALSE → tile NEVER renders. Caller (page.tsx) decides
  *     whether to mount the component at all; this component returns null
@@ -23,6 +30,7 @@
  *
  * Server Component (no `'use client'`).
  */
+import { Volume2 } from "lucide-react";
 import type { RoleFlag, RoomRow } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
@@ -57,6 +65,7 @@ export function AudioScopeTile({ rooms, viewerFlags }: AudioScopeTileProps) {
         testId="audio-scope-tile"
         heading="Audio"
         headingTone="eyebrow"
+        headingIcon={<Volume2 size={14} strokeWidth={2} />}
         ariaLabel="Audio scope"
         bodyAs="div"
       >
@@ -70,6 +79,7 @@ export function AudioScopeTile({ rooms, viewerFlags }: AudioScopeTileProps) {
       testId="audio-scope-tile"
       heading="Audio"
       headingTone="eyebrow"
+      headingIcon={<Volume2 size={14} strokeWidth={2} />}
       ariaLabel="Audio scope"
       bodyAs="dl"
     >

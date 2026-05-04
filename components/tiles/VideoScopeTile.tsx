@@ -8,6 +8,7 @@
  *
  * Server Component (no `'use client'`).
  */
+import { Video } from "lucide-react";
 import type { RoleFlag, RoomRow } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
@@ -33,6 +34,7 @@ export function VideoScopeTile({ rooms, viewerFlags }: VideoScopeTileProps) {
         testId="video-scope-tile"
         heading="Video"
         headingTone="eyebrow"
+        headingIcon={<Video size={14} strokeWidth={2} />}
         ariaLabel="Video scope"
         bodyAs="div"
       >
@@ -46,6 +48,7 @@ export function VideoScopeTile({ rooms, viewerFlags }: VideoScopeTileProps) {
       testId="video-scope-tile"
       heading="Video"
       headingTone="eyebrow"
+      headingIcon={<Video size={14} strokeWidth={2} />}
       ariaLabel="Video scope"
       bodyAs="dl"
     >
