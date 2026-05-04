@@ -26,7 +26,12 @@ const resolveMock = vi.hoisted(() => {
             crew_member_id: string;
           }
         | { kind: "denied"; reason: string }
-        | { kind: "forbidden"; reason: string },
+        | {
+            kind: "forbidden";
+            reason: string;
+            show_id: string;
+            email?: string;
+          },
       lastSlug: null as null | string,
     },
   };
@@ -78,26 +83,41 @@ beforeEach(() => {
 });
 
 describe("GET /api/show/[slug]/version", () => {
-  test("denied → 401", async () => {
+  test("denied → 401 SHOW_VERSION_AUTH_FAILED", async () => {
+    // Pin BOTH status code and the version-route-specific error code.
+    // Distinct from /api/realtime/subscriber-token's
+    // SHOW_REALTIME_BROADCAST_AUTH_FAILED so admin-info logs and client
+    // branching can tell which surface returned the 401 (per plan §826).
     resolveMock.state.result = { kind: "denied", reason: "no_credentials" };
     const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
     expect(res.status).toBe(401);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("SHOW_VERSION_AUTH_FAILED");
     expect(resolveMock.state.lastSlug).toBe("test-show");
   });
 
-  test("denied (unknown_slug) → 401", async () => {
+  test("denied (unknown_slug) → 401 SHOW_VERSION_AUTH_FAILED", async () => {
     resolveMock.state.result = { kind: "denied", reason: "unknown_slug" };
     const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "nope" }) });
     expect(res.status).toBe(401);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("SHOW_VERSION_AUTH_FAILED");
   });
 
-  test("forbidden → 403", async () => {
+  test("forbidden → 403 SHOW_VERSION_CROSS_SHOW_FORBIDDEN", async () => {
+    // Pin the version-route-specific cross-show code. A regression that
+    // emits SHOW_REALTIME_CROSS_SHOW_FORBIDDEN here would defeat the §826
+    // distinction the plan requires (this test was the gap that let the
+    // HIGH 1 review finding land).
     resolveMock.state.result = {
       kind: "forbidden",
       reason: "cross_show_link_session",
+      show_id: "different-show-uuid",
     };
     const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
     expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("SHOW_VERSION_CROSS_SHOW_FORBIDDEN");
   });
 
   test("admin → 200 + version_token (calls viewer_version_token RPC)", async () => {
@@ -154,6 +174,7 @@ describe("GET /api/show/[slug]/version", () => {
     resolveMock.state.result = {
       kind: "forbidden",
       reason: "cross_show_link_session",
+      show_id: "different-show-uuid",
     };
     const forbidden = await GET(fakeReq(), { params: Promise.resolve({ slug: "test-show" }) });
     expect(denied.status).toBe(401);

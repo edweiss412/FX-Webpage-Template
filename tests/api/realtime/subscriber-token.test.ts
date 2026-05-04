@@ -36,7 +36,12 @@ const resolveMock = vi.hoisted(() => {
             crew_member_id: string;
           }
         | { kind: "denied"; reason: string }
-        | { kind: "forbidden"; reason: string },
+        | {
+            kind: "forbidden";
+            reason: string;
+            show_id: string;
+            email?: string;
+          },
     },
   };
 });
@@ -72,6 +77,7 @@ describe("POST /api/realtime/subscriber-token", () => {
     resolveMock.state.result = {
       kind: "forbidden",
       reason: "cross_show_link_session",
+      show_id: "different-show-uuid",
     };
     const res = await POST(makeReq({ slug: "test-show" }));
     expect(res.status).toBe(403);
@@ -174,6 +180,7 @@ describe("POST /api/realtime/subscriber-token", () => {
     resolveMock.state.result = {
       kind: "forbidden",
       reason: "cross_show_link_session",
+      show_id: "different-show-uuid",
     };
     const forbidden = await POST(makeReq({ slug: "test-show" }));
     expect(denied.status).toBe(401);

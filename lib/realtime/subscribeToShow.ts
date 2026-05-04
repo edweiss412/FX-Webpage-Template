@@ -27,14 +27,32 @@
  *   2. Opens the channel with `broadcast: { self: false }` so a publisher
  *      that also subscribes (not our case, but defense-in-depth) doesn't
  *      echo its own events back to itself.
- *   3. Listens for event === 'invalidate' broadcasts and forwards
- *      payload.version_token to onInvalidate.
+ *   3. Listens for event === 'invalidate' broadcasts and — only when
+ *      payload.show_id matches the subscribed showId — forwards
+ *      payload.version_token to onInvalidate. The payload guard is a
+ *      defense-in-depth fence per plan §827: the channel name already
+ *      includes the show id, but a misrouted broadcast or a future server
+ *      bug that publishes to the wrong topic would otherwise trigger a
+ *      spurious router.refresh() on the wrong show. The guard makes the
+ *      helper inert against misrouted messages.
  *   4. .subscribe()s and returns the channel handle so the caller can call
  *      supabase.removeChannel(handle) on cleanup.
  *
  * onInvalidate is invoked with the raw version_token string. The caller
  * (Checkpoint B `<ShowRealtimeBridge>`) is responsible for comparing it to
  * the snapshot's token and triggering router.refresh() on mismatch.
+ *
+ * Param order rationale (plan §827 specifies `(showId, jwt, onInvalidate)`
+ * — three params; this implementation uses four with `supabase` first):
+ *   The supabase client is injected as the first parameter rather than
+ *   read from a module-level browser singleton so the helper is trivially
+ *   testable from a node-environment Vitest run — the test fakes the
+ *   client shape inline (see tests/realtime/subscribeToShow.test.ts).
+ *   The Checkpoint B `<ShowRealtimeBridge>` constructs the browser client
+ *   via @supabase/ssr's createBrowserClient and threads it in. This DI
+ *   shape is a deliberate deviation from the plan's three-arg signature;
+ *   keep it documented here so a future reviewer doesn't re-flag it as a
+ *   spec drift.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -57,12 +75,23 @@ export function subscribeToShow(
 
   // (3) Forward invalidate events to the caller's callback. The narrow
   // `event: 'invalidate'` filter ensures we ignore any future event types
-  // the server might add to the same channel.
+  // the server might add to the same channel. The payload.show_id guard
+  // is the defense-in-depth fence required by plan §827: a misrouted
+  // broadcast (or a future publisher bug) that lands on this channel but
+  // carries a different show_id MUST NOT trigger onInvalidate, since the
+  // bridge would then issue a router.refresh() on the wrong show and
+  // potentially leak version tokens across shows.
   channel
     .on(
       "broadcast",
       { event: "invalidate" },
-      (msg: { event: string; payload: { version_token: string } }) => {
+      (msg: {
+        event: string;
+        payload: { show_id?: string; version_token: string };
+      }) => {
+        if (msg.payload?.show_id !== showId) {
+          return;
+        }
         const token = msg.payload?.version_token;
         if (typeof token === "string") {
           onInvalidate(token);

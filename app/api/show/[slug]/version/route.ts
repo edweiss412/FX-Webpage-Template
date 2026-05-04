@@ -16,9 +16,14 @@
  * fired during the SSR → hydrate gap) and the island must router.refresh().
  *
  * Auth: resolveShowViewer is the FIRST action.
- *   - denied    → 401 SHOW_REALTIME_BROADCAST_AUTH_FAILED
- *   - forbidden → 403 SHOW_REALTIME_CROSS_SHOW_FORBIDDEN
+ *   - denied    → 401 SHOW_VERSION_AUTH_FAILED
+ *   - forbidden → 403 SHOW_VERSION_CROSS_SHOW_FORBIDDEN
  *   - admin/crew_link/crew_google → 200 + { version_token }
+ *
+ * The codes are version-route-specific (NOT shared with the realtime
+ * subscriber-token route) per plan §826. Distinct codes let admin-info logs
+ * and client-side branching tell which surface returned the 403/401 — a
+ * stale snapshot vs. a stale realtime subscription is a different recovery.
  *
  * The error codes match the catalog in §12.4 (M5 lib/messages/lookup.ts maps
  * them to user-visible copy; this route emits the raw code so the client
@@ -37,13 +42,13 @@ export async function GET(
   const viewer = await resolveShowViewer(request, slug);
   if (viewer.kind === "denied") {
     return NextResponse.json(
-      { error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED", reason: viewer.reason },
+      { error: "SHOW_VERSION_AUTH_FAILED", reason: viewer.reason },
       { status: 401 },
     );
   }
   if (viewer.kind === "forbidden") {
     return NextResponse.json(
-      { error: "SHOW_REALTIME_CROSS_SHOW_FORBIDDEN", reason: viewer.reason },
+      { error: "SHOW_VERSION_CROSS_SHOW_FORBIDDEN", reason: viewer.reason },
       { status: 403 },
     );
   }

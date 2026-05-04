@@ -156,7 +156,12 @@ describe("resolveShowViewer — 5-arm discriminated union", () => {
     }
   });
 
-  test("(3b) link session for DIFFERENT show → forbidden (cross_show_link_session)", async () => {
+  test("(3b) link session for DIFFERENT show → forbidden (cross_show_link_session) carrying validator's resolved show_id", async () => {
+    // Per plan §789 + §826, the forbidden arm must carry the validator's
+    // resolved show_id (the show the cookie ACTUALLY belongs to) so admin-info
+    // logs can record the cross-show diagnostic. The slug-resolved show is
+    // "show-uuid-1"; the cookie's session is for "different-show-uuid"; the
+    // forbidden return must surface the LATTER.
     validatorMock.state.linkResult = {
       kind: "success",
       show_id: "different-show-uuid",
@@ -168,6 +173,9 @@ describe("resolveShowViewer — 5-arm discriminated union", () => {
     expect(result.kind).toBe("forbidden");
     if (result.kind === "forbidden") {
       expect(result.reason).toBe("cross_show_link_session");
+      expect(result.show_id).toBe("different-show-uuid");
+      // link variant has no email; field is undefined.
+      expect(result.email).toBeUndefined();
     }
   });
 
@@ -187,7 +195,10 @@ describe("resolveShowViewer — 5-arm discriminated union", () => {
     }
   });
 
-  test("(4b) google session for DIFFERENT show → forbidden (cross_show_google_session)", async () => {
+  test("(4b) google session for DIFFERENT show → forbidden (cross_show_google_session) carrying validator's resolved show_id + email", async () => {
+    // The google variant carries BOTH show_id (validator's resolved show, for
+    // cross-show diagnostics) AND email (operator identity, so admin-info
+    // logs don't have to re-query crew_member_auth). See plan §789 + §826.
     validatorMock.state.googleResult = {
       kind: "success",
       email: "alice@fxav.test",
@@ -198,6 +209,8 @@ describe("resolveShowViewer — 5-arm discriminated union", () => {
     expect(result.kind).toBe("forbidden");
     if (result.kind === "forbidden") {
       expect(result.reason).toBe("cross_show_google_session");
+      expect(result.show_id).toBe("different-show-uuid");
+      expect(result.email).toBe("alice@fxav.test");
     }
   });
 

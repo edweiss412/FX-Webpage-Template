@@ -51,7 +51,7 @@ export type ShowViewer =
       crew_member_id: string;
     }
   | { kind: "denied"; reason: string }
-  | { kind: "forbidden"; reason: string };
+  | { kind: "forbidden"; reason: string; show_id: string; email?: string };
 
 export async function resolveShowViewer(
   req: NextRequest,
@@ -91,7 +91,14 @@ export async function resolveShowViewer(
       };
     }
     // Valid session, wrong show — forbidden (403), not denied (401).
-    return { kind: "forbidden", reason: "cross_show_link_session" };
+    // Carry the validator's resolved show_id so admin-info logs can record
+    // the cross-show diagnostic (which show the cookie ACTUALLY belongs to,
+    // distinct from the show the URL requested).
+    return {
+      kind: "forbidden",
+      reason: "cross_show_link_session",
+      show_id: link.show_id,
+    };
   }
 
   // (4) Google-OAuth session.
@@ -105,7 +112,15 @@ export async function resolveShowViewer(
         crew_member_id: google.crew_member_id,
       };
     }
-    return { kind: "forbidden", reason: "cross_show_google_session" };
+    // Same diagnostic shape as the link branch above; google additionally
+    // carries email so the admin-info log can identify the operator without
+    // re-querying crew_member_auth.
+    return {
+      kind: "forbidden",
+      reason: "cross_show_google_session",
+      show_id: google.show_id,
+      email: google.email,
+    };
   }
 
   // (5) Fall through.

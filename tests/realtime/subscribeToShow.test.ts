@@ -26,12 +26,22 @@ function makeFakeSupabase() {
     config: { event: string };
   }> = [];
   let registeredHandler:
-    | ((msg: { event: string; payload: { version_token: string } }) => void)
+    | ((msg: {
+        event: string;
+        payload: { show_id?: string; version_token: string };
+      }) => void)
     | null = null;
   let subscribed = false;
 
   const channelHandle = {
-    on(event: string, config: { event: string }, handler: (msg: { event: string; payload: { version_token: string } }) => void) {
+    on(
+      event: string,
+      config: { event: string },
+      handler: (msg: {
+        event: string;
+        payload: { show_id?: string; version_token: string };
+      }) => void,
+    ) {
       onCalls.push({ event, config });
       registeredHandler = handler;
       return channelHandle;
@@ -57,7 +67,10 @@ function makeFakeSupabase() {
   return {
     supabase,
     state: { setAuthCalls, channelCalls, onCalls },
-    fire: (msg: { event: string; payload: { version_token: string } }) => {
+    fire: (msg: {
+      event: string;
+      payload: { show_id?: string; version_token: string };
+    }) => {
       if (!registeredHandler) throw new Error("no handler registered");
       registeredHandler(msg);
     },
@@ -107,7 +120,9 @@ describe("subscribeToShow", () => {
     expect(fake.state.onCalls[0]?.config.event).toBe("invalidate");
   });
 
-  test("fires onInvalidate with payload.version_token when an invalidate event arrives", () => {
+  test("fires onInvalidate with payload.version_token when an invalidate event arrives WITH MATCHING show_id (positive control)", () => {
+    // Positive control for the payload.show_id guard added per plan §827.
+    // Payloads with the matching show_id MUST trigger onInvalidate.
     const fake = makeFakeSupabase();
     const seenTokens: string[] = [];
     subscribeToShow(
@@ -118,9 +133,50 @@ describe("subscribeToShow", () => {
         seenTokens.push(token);
       },
     );
-    fake.fire({ event: "invalidate", payload: { version_token: "TOKEN-A" } });
-    fake.fire({ event: "invalidate", payload: { version_token: "TOKEN-B" } });
+    fake.fire({
+      event: "invalidate",
+      payload: { show_id: "show-uuid-1", version_token: "TOKEN-A" },
+    });
+    fake.fire({
+      event: "invalidate",
+      payload: { show_id: "show-uuid-1", version_token: "TOKEN-B" },
+    });
     expect(seenTokens).toEqual(["TOKEN-A", "TOKEN-B"]);
+  });
+
+  test("does NOT fire onInvalidate when payload.show_id does not match the subscribed show (negative control — defense in depth against misrouted broadcasts)", () => {
+    // Per plan §827: even if a misrouted broadcast or a future server bug
+    // delivers a payload to this channel that carries a DIFFERENT show_id,
+    // the helper MUST NOT trigger onInvalidate. Otherwise the bridge would
+    // call router.refresh() against the wrong show and version tokens
+    // could leak across shows.
+    //
+    // This is the failure mode HIGH 3 of the spec-compliance review
+    // pinned: an unguarded handler fires for any invalidate event,
+    // regardless of payload.show_id. This test fails on the unguarded
+    // implementation and passes on the guarded one.
+    const fake = makeFakeSupabase();
+    const seenTokens: string[] = [];
+    subscribeToShow(
+      fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
+      "show-uuid-1",
+      "fake.jwt.value",
+      (token) => {
+        seenTokens.push(token);
+      },
+    );
+    // Mismatched show_id — must be ignored.
+    fake.fire({
+      event: "invalidate",
+      payload: { show_id: "different-show-uuid", version_token: "TOKEN-X" },
+    });
+    // Missing show_id — also must be ignored (strict equality, no falsy
+    // branch that would pass through).
+    fake.fire({
+      event: "invalidate",
+      payload: { version_token: "TOKEN-Y" },
+    });
+    expect(seenTokens).toEqual([]);
   });
 
   test("returns the channel handle for caller cleanup via removeChannel", () => {
