@@ -37,7 +37,7 @@ async function upsertAmbiguousEmailAlert(input: {
   crewMemberIds: string[];
 }): Promise<void> {
   const supabase = createSupabaseServiceRoleClient();
-  await supabase.from("admin_alerts").upsert({
+  const { error } = await supabase.from("admin_alerts").upsert({
     show_id: input.showId,
     code: "AMBIGUOUS_EMAIL_BINDING",
     severity: "critical",
@@ -46,6 +46,9 @@ async function upsertAmbiguousEmailAlert(input: {
       crew_member_ids: input.crewMemberIds,
     },
   });
+  if (error) {
+    throw new Error("ambiguous email alert persistence failed");
+  }
 }
 
 export async function validateGoogleSession(
@@ -91,11 +94,19 @@ export async function validateGoogleSession(
   }
 
   if (rows.length > 1) {
-    await upsertAmbiguousEmailAlert({
-      showId: context.showId,
-      email,
-      crewMemberIds: rows.map((row) => row.id),
-    });
+    try {
+      await upsertAmbiguousEmailAlert({
+        showId: context.showId,
+        email,
+        crewMemberIds: rows.map((row) => row.id),
+      });
+    } catch {
+      return {
+        kind: "terminal_failure",
+        status: 500,
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+      };
+    }
     return {
       kind: "terminal_failure",
       status: 500,

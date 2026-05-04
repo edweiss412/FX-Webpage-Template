@@ -11,6 +11,7 @@ const googleMock = vi.hoisted(() => ({
   crewRows: [] as CrewRow[],
   eqCalls: [] as Array<[string, string]>,
   alertUpserts: [] as unknown[],
+  alertError: null as { message: string } | null,
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -52,7 +53,7 @@ vi.mock("@/lib/supabase/server", () => ({
         return {
           upsert(payload: unknown) {
             googleMock.alertUpserts.push(payload);
-            return Promise.resolve({ error: null });
+            return Promise.resolve({ error: googleMock.alertError });
           },
         };
       }
@@ -70,6 +71,7 @@ beforeEach(() => {
   googleMock.crewRows = [];
   googleMock.eqCalls = [];
   googleMock.alertUpserts = [];
+  googleMock.alertError = null;
 });
 
 describe("validateGoogleSession", () => {
@@ -139,5 +141,25 @@ describe("validateGoogleSession", () => {
     expect(JSON.stringify(googleMock.alertUpserts[0])).toContain(
       "AMBIGUOUS_EMAIL_BINDING",
     );
+  });
+
+  test("duplicate email alert persistence failure returns ADMIN_SESSION_LOOKUP_FAILED", async () => {
+    googleMock.userEmail = "alice@fxav.net";
+    googleMock.crewRows = [
+      { id: "crew-a", show_id: showId, email: "alice@fxav.net" },
+      { id: "crew-b", show_id: showId, email: "alice@fxav.net" },
+    ];
+    googleMock.alertError = { message: "fake DB outage" };
+
+    const result = await validateGoogleSession(new Request("https://crew.fxav.show"), {
+      showId,
+    });
+
+    expect(result).toEqual({
+      kind: "terminal_failure",
+      status: 500,
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
+    expect(googleMock.alertUpserts).toHaveLength(1);
   });
 });
