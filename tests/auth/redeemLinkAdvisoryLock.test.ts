@@ -22,6 +22,13 @@ const state = vi.hoisted(() => ({
   showPublished: true,
   appSettingsError: null as { message: string } | null,
   lockError: null as "show-not-found" | "generic" | null,
+  /**
+   * R9 #3 test support: when set, successive `single()` calls on
+   * `app_settings` return values from this queue (rotation simulation).
+   * Falls back to "k1" once exhausted.
+   */
+  signingKeyIdQueue: [] as string[],
+  insertCount: 0,
 }));
 
 vi.mock("@/lib/db/advisoryLock", () => ({
@@ -94,11 +101,13 @@ function builder(table: string) {
     },
     insert() {
       if (!state.insideLock) state.mutationsOutsideLock.push(`${table}.insert`);
+      state.insertCount += 1;
       return { error: null };
     },
     single() {
+      const next = state.signingKeyIdQueue.shift() ?? "k1";
       return Promise.resolve({
-        data: state.appSettingsError ? null : { active_signing_key_id: "k1" },
+        data: state.appSettingsError ? null : { active_signing_key_id: next },
         error: state.appSettingsError,
       });
     },
@@ -181,6 +190,8 @@ describe("/api/auth/redeem-link advisory lock", () => {
     state.issuedAt = new Date().toISOString();
     state.consumedAt = null;
     state.consumeAttempts = 0;
+    state.signingKeyIdQueue = [];
+    state.insertCount = 0;
     state.readErrors.clear();
     state.crewExists = true;
     state.showPublished = true;
@@ -342,6 +353,60 @@ describe("/api/auth/redeem-link advisory lock", () => {
 
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({ code: "CSRF_DENIED" });
+    // R9 #1: gate runs BEFORE nonce consume so the bootstrap proof is
+    // not burned on unpublished shows.
+    expect(state.consumedAt).toBeNull();
+    expect(state.insertCount).toBe(0);
+  });
+
+  test("invalid JWT for unpublished show returns CSRF_DENIED without consuming nonce (anti-oracle)", async () => {
+    // R9 #1 anti-oracle: the response for an unpublished show must be
+    // byte-equal regardless of whether the JWT would have verified, the
+    // crew exists, or the version matched — any divergence leaks
+    // unpublished-show existence + auth-state to a non-admin probe.
+    state.showPublished = false;
+
+    const response = await POST(
+      requestFor({
+        token: "invalid-jwt-z",
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ code: "CSRF_DENIED" });
+    expect(state.consumedAt).toBeNull();
+    expect(state.insertCount).toBe(0);
+  });
+
+  test("rotation between active-key reads after JWT verify returns LINK_REDEEM_KEY_ROTATED", async () => {
+    // R9 #3: operator rotates app_settings.active_signing_key_id between
+    // the route's early read (used for the cookie/nonce kid match) and
+    // the link_sessions INSERT. Pre-fix, the stale value still passed
+    // the kid check at the verify-vs-active comparison and the route
+    // minted a session under the retired kid. Post-fix, a fresh read
+    // immediately before INSERT detects the rotation and returns
+    // LINK_REDEEM_KEY_ROTATED with no row, no cookie.
+    //
+    // Mock sequence: first single() returns "k1" (matches the JWT
+    // mock's verifiedKid + cookie/nonce signing_key_id); second single()
+    // returns "k2" (rotated). With one early read + one fresh re-read,
+    // the queue captures the rotation between the two.
+    state.signingKeyIdQueue = ["k1", "k2"];
+
+    const response = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      code: "LINK_REDEEM_KEY_ROTATED",
+    });
+    expect(state.insertCount).toBe(0);
+    // Set-Cookie absent — no session minted.
+    expect(response.headers.get("set-cookie")).toBeNull();
   });
 
   test("invalid JWT consumes nonce before returning SESSION_NOT_FOUND", async () => {

@@ -143,13 +143,36 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   try {
     return await withShowAdvisoryLock(showId, "block", async () => {
+    const supabase = createSupabaseServiceRoleClient();
+
+    // R9 #1: Published-show gate runs FIRST — before nonce-row lookup,
+    // cookie checks, JWT verify, crew/auth/revoked reads, and consume.
+    // Pre-R9 the gate ran AFTER all of those, so an attacker with a
+    // valid bootstrap nonce could distinguish invalid JWT vs missing
+    // crew vs version mismatch vs revoked vs valid-but-unpublished by
+    // the differing responses returned before the late gate. Anti-oracle
+    // contract: every unpublished-show outcome returns one byte-equal
+    // CSRF_DENIED 403 regardless of which downstream check would have
+    // fired. Admin viewers don't traverse this route — admin auth uses
+    // the OAuth chain, not link-redeem — so no admin bypass needed here.
+    const { data: showVisibility, error: showVisibilityError } = (await supabase
+      .from("shows")
+      .select("published")
+      .eq("id", showId)
+      .maybeSingle()) as { data: ShowVisibilityRow | null; error: unknown };
+    if (showVisibilityError) {
+      return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
+    }
+    if (!showVisibility?.published) {
+      return jsonError(403, "CSRF_DENIED");
+    }
+
     const hash = nonceHash(nonce);
     const bootstrapEntries = parseBootstrapCookie(parseCookie(request, BOOTSTRAP_COOKIE_NAME));
     const cookieEntry = bootstrapEntries.find(
       (entry) => entry.nonce_hash === hash && entry.show_id === showId,
     );
 
-    const supabase = createSupabaseServiceRoleClient();
     const { data: nonceRow, error: nonceError } = (await supabase
       .from("bootstrap_nonces")
       .select("nonce_hash,show_id,issued_at,consumed_at,signing_key_id")
@@ -258,16 +281,24 @@ export async function POST(request: NextRequest): Promise<Response> {
       return jsonError(410, "LINK_REVOKED_SURGICAL");
     }
 
-    const { data: showVisibility, error: showVisibilityError } = (await supabase
-      .from("shows")
-      .select("published")
-      .eq("id", showId)
-      .maybeSingle()) as { data: ShowVisibilityRow | null; error: unknown };
-    if (showVisibilityError) {
+    // R9 #3: Re-read app_settings.active_signing_key_id immediately
+    // before the link_sessions INSERT and compare to verified.verifiedKid.
+    // Pre-R9 the active kid was read once early (line ~176 in the
+    // previous shape) and the verified-vs-active comparison ran against
+    // that stale value; an operator rotation between the early read and
+    // this INSERT meant the route minted a session under the retired
+    // kid. The fresh read narrows the race window to the few statements
+    // between this re-read and the INSERT — full atomicity would require
+    // a DB-side conditional INSERT (RPC or CHECK), but the TS-side
+    // re-read closes the practical window without a heavier refactor.
+    let freshActiveSigningKeyId: string;
+    try {
+      freshActiveSigningKeyId = await readActiveSigningKeyId();
+    } catch {
       return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
     }
-    if (!showVisibility?.published) {
-      return jsonError(403, "CSRF_DENIED");
+    if (verified.verifiedKid !== freshActiveSigningKeyId) {
+      return jsonError(403, "LINK_REDEEM_KEY_ROTATED");
     }
 
     const opaqueToken = randomUUID();
