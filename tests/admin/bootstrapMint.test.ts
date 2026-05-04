@@ -3,7 +3,10 @@
  *
  * Unit-test harness for `bootstrapMint`, the Server Action that
  * `app/show/[slug]/p/Bootstrap.tsx` invokes from its `useEffect` to:
- *   1. Run inside `withShowAdvisoryLock(showId, 'try', ...)`.
+ *   1. Run inside `withShowAdvisoryLock(showId, 'block', ...)` — round-7
+ *      §B raised the contention concern: 'try' mode failed legitimate
+ *      burst-load arrivals; 'block' serializes them through the fast
+ *      one-INSERT critical section.
  *   2. Read `app_settings.active_signing_key_id` INSIDE the lock so a
  *      concurrent §7.2.3 rotation can't slip between the read and the
  *      INSERT (the read-with-INSERT atomicity invariant from plan §199).
@@ -24,7 +27,7 @@
  *     .single()` (returns `{ data: { active_signing_key_id } }`) and
  *     `.from('bootstrap_nonces').insert(...)` (records the row).
  *   - `@/lib/db/advisoryLock` withShowAdvisoryLock — spied so we can
- *     assert the action ran inside it with mode 'try'.
+ *     assert the action ran inside it with mode 'block'.
  *
  * Anti-tautology discipline:
  *   - Cookie-name assertion compares against the literal
@@ -238,9 +241,14 @@ describe("bootstrapMint", () => {
     expect(typeof result.nonce).toBe("string");
     expect(result.nonce.length).toBeGreaterThan(0);
 
-    // Advisory lock contract: held in 'try' mode for this showId.
+    // Advisory lock contract: held in 'block' mode for this showId.
+    // Round-7 §B finding: 'try' mode caused legitimate burst-load callers
+    // (e.g. 50 simultaneous crew arrivals at a venue) to see a terminal
+    // error when one short lock holder briefly blocked acquisition.
+    // Bootstrap mint inside the lock is fast (one INSERT), so blocking
+    // serialization completes in milliseconds rather than failing.
     expect(mockState.withLockSpy).toHaveBeenCalledTimes(1);
-    expect(mockState.withLockSpy).toHaveBeenCalledWith(VALID_SHOW_ID, "try");
+    expect(mockState.withLockSpy).toHaveBeenCalledWith(VALID_SHOW_ID, "block");
 
     // Exactly one row inserted; signing_key_id matches what we seeded.
     expect(mockState.insertedNonces).toHaveLength(1);
