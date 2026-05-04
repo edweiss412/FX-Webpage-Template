@@ -30,17 +30,22 @@ beforeEach(() => {
 });
 
 describe("isAdminSession", () => {
-  test("returns ok:false without a Supabase user", async () => {
+  test("returns ok:false reason:not_admin without a Supabase user", async () => {
+    // R15 #3: ok:false now carries a `reason` discriminating
+    // "not_admin" (auth-level signal — chain falls through) from
+    // "infra_error" (couldn't decide — surface as 500 to operators).
     await expect(isAdminSession(new Request("https://crew.fxav.show"))).resolves.toEqual({
       ok: false,
+      reason: "not_admin",
     });
   });
 
-  test("returns ok:false when public.is_admin() denies", async () => {
+  test("returns ok:false reason:not_admin when public.is_admin() denies", async () => {
     adminMock.userEmail = " Alice@FXAV.NET ";
     adminMock.rpcResult = false;
     await expect(isAdminSession(new Request("https://crew.fxav.show"))).resolves.toEqual({
       ok: false,
+      reason: "not_admin",
     });
   });
 

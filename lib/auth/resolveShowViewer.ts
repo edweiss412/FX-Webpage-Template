@@ -70,12 +70,27 @@ export async function resolveShowViewer(
   // viewer can still distinguish unknown_slug from no_credentials. The slug
   // lookup itself is not sensitive — slugs are public per the spec — so the
   // bypass is safe.
+  //
+  // R15 #2 (round-14 §A+§B): the slug lookup also returns an `error` field
+  // that pre-fix was discarded. A DB/PostgREST outage produced
+  // { data: null, error: ... } and the helper collapsed that to
+  // denied/unknown_slug — masking the infra fault as an auth signal in
+  // the same way R14 #2 fixed for the validator chain. Capture and
+  // surface as terminal_failure so callers map to 500.
   const svc = createSupabaseServiceRoleClient();
-  const { data: showRow } = await svc
+  const slugLookup = await svc
     .from("shows")
     .select("id,published")
     .eq("slug", slug)
     .maybeSingle();
+  if (slugLookup.error) {
+    return {
+      kind: "terminal_failure",
+      status: 500,
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    };
+  }
+  const showRow = slugLookup.data;
   if (!showRow || typeof (showRow as { id?: unknown }).id !== "string") {
     return { kind: "denied", reason: "unknown_slug" };
   }
@@ -85,9 +100,22 @@ export async function resolveShowViewer(
   // (2) Admin precedence — an admin user is always admin regardless of any
   // crew session that might also match. This is required so admin debugging
   // doesn't get blocked by a stale crew cookie from a different show.
+  //
+  // R15 #3 (round-14 §B MEDIUM): the new infra_error arm surfaces an
+  // is_admin RPC / getUser failure to the API callers as terminal_failure
+  // 500 instead of silently falling through to the crew validators (which
+  // would also fail and produce a denied/forbidden response, masking the
+  // infra fault). Auth-level "not admin" continues to fall through.
   const admin = await isAdminSession(req);
   if (admin.ok && admin.email) {
     return { kind: "admin", email: admin.email, show_id };
+  }
+  if (!admin.ok && admin.reason === "infra_error") {
+    return {
+      kind: "terminal_failure",
+      status: 500,
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    };
   }
 
   if (!published) {
