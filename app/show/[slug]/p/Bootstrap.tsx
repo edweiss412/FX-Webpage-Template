@@ -159,18 +159,25 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
         // Action. This runs inside the per-show advisory lock and writes
         // both the DB row and the cookie atomically.
         //
-        // R9 #2 burst-load resilience: the lock is held in 'try' mode
-        // server-side (R8 #2 briefly switched to 'block' but round-8 §B
+        // R9 #2 + R10 #4 burst-load resilience: the lock is held in 'try'
+        // mode server-side (R8 #2 briefly switched to 'block' but round-8 §B
         // caught that blocking-mode held a DB connection per waiter and
         // exhausted the connection pool). When 50+ crew arrive at a venue
-        // simultaneously, contention on the same show lock causes 'try'
-        // mode to throw ShowAdvisoryLockUnavailableError on losers.
-        // Retry with bounded backoff before falling through to the
-        // terminal error so legitimate users see at most ~600ms of delay
-        // rather than an immediate failure.
+        // simultaneously, contention on the same show lock throws
+        // ShowAdvisoryLockUnavailableError on losers.
+        //
+        // Retry with JITTERED EXPONENTIAL backoff (round-9 §B finding:
+        // R9 #2's deterministic 100/250ms delays caused a thundering
+        // herd — every loser woke at the same time and re-collided).
+        // Each attempt waits baseMs * 2^attempt plus uniform jitter in
+        // [0, baseMs * 2^attempt]; with baseMs=80 and 3 total attempts,
+        // typical losers see ~80–160ms (1st retry) and ~160–320ms (2nd
+        // retry), distributing wakeups across a contention window
+        // proportional to the burst size.
+        const BASE_DELAY_MS = 80;
+        const MAX_ATTEMPTS = 3;
         let nonce: string | undefined;
-        const backoffsMs = [100, 250]; // 3 total attempts
-        for (let attempt = 0; attempt <= backoffsMs.length; attempt++) {
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
           try {
             const result = await bootstrapMint(showId);
             nonce = result.nonce;
@@ -179,11 +186,15 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
             if (controller.signal.aborted) {
               throw mintErr;
             }
-            if (attempt === backoffsMs.length) {
+            if (attempt === MAX_ATTEMPTS - 1) {
               throw mintErr;
             }
+            // Exponential base + uniform jitter in [0, base) so colliding
+            // clients pick distinct wake times.
+            const exponentialBase = BASE_DELAY_MS * 2 ** attempt;
+            const jittered = exponentialBase + Math.random() * exponentialBase;
             await new Promise<void>((resolve) => {
-              const timer = setTimeout(resolve, backoffsMs[attempt]);
+              const timer = setTimeout(resolve, jittered);
               controller.signal.addEventListener("abort", () => {
                 clearTimeout(timer);
                 resolve();
