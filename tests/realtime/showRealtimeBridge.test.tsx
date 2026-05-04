@@ -47,10 +47,13 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, render } from "@testing-library/react";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
 
+// Mirror the production discriminated union from
+// lib/realtime/showRealtimeChannelHandlers.ts. Tests that need to fire
+// an unknown event to exercise the consumer's `default`-branch warning
+// cast via `as unknown as SystemEvent` at the call site.
 type SystemEvent =
   | { event: "reconnected" }
-  | { event: "disconnected" }
-  | { event: string };
+  | { event: "disconnected" };
 
 // In-memory state shared by `vi.mock` factories AND each test.
 const subscribeMock = vi.hoisted(() => {
@@ -183,12 +186,24 @@ vi.mock("@/lib/realtime/showRealtimeChannelHandlers", () => {
   };
 });
 
+const supabaseMock = vi.hoisted(() => {
+  // A stable singleton client — tests need to spy on / override
+  // `realtime.setAuth` between mount and a renewal event, which requires
+  // the same `setAuth` reference across all `getSupabaseBrowserClient()`
+  // calls within a single test.
+  return {
+    state: {
+      setAuth: vi.fn() as ReturnType<typeof vi.fn>,
+    },
+  };
+});
+
 vi.mock("@/lib/supabase/browser", () => {
   return {
+    // The bridge only reads `.realtime.setAuth`; the rest is delegated
+    // to subscribeToShow which is itself mocked above.
     getSupabaseBrowserClient: () => ({
-      // The bridge only reads `.realtime.setAuth`; the rest is delegated
-      // to subscribeToShow which is itself mocked above.
-      realtime: { setAuth: vi.fn() },
+      realtime: { setAuth: supabaseMock.state.setAuth },
     }),
   };
 });
@@ -200,6 +215,8 @@ beforeEach(() => {
   subscribeMock.state.currentChannel = null;
   subscribeMock.state.channels = [];
   subscribeMock.state.throwOnNext = false;
+  supabaseMock.state.setAuth.mockReset();
+  supabaseMock.state.setAuth.mockImplementation(() => undefined);
   fetchMock.state.handlers = [];
   fetchMock.state.calls = [];
 
@@ -368,6 +385,15 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     versionTokenToReturn = "T1-RECONNECT";
     const channel = subscribeMock.state.currentChannel;
     if (!channel) throw new Error("channel not registered");
+    // Explicitly assert the system handler was attached BEFORE we fire
+    // the event. Currently attachment is synchronous so this passes
+    // trivially, but a future refactor that defers attachment (e.g.,
+    // wires the handler inside the post-subscribe catch-up) would
+    // silently regress this test without this guard — fireSystem would
+    // be a no-op against the empty handler array, and the test would
+    // pass only because routerMock.state.refreshCalls happens to be 0
+    // for unrelated reasons.
+    expect(channel.onSystemHandlers).toHaveLength(1);
     await act(async () => {
       channel.fireSystem({ event: "reconnected" });
     });
@@ -619,5 +645,189 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
 
     // No additional refresh — ref reads T2-LATEST, server returns T2-LATEST.
     expect(routerMock.state.refreshCalls).toBe(1);
+  });
+
+  // === Important 1 (Task 4.16 Checkpoint B code-quality review) ===
+  // The component's file-header doc promises that every renewal-failure
+  // path emits `SHOW_REALTIME_JWT_RENEWED outcome: 'failed'`. These three
+  // tests pin the contract — without them, a future refactor that drops
+  // the failed-outcome log would silently regress the logging contract
+  // (the prior renewal-mint-failure test only asserted the
+  // `BROADCAST_AUTH_FAILED` log fired, leaving the `outcome: failed` peer
+  // unverified).
+
+  test("renewal mint failure emits SHOW_REALTIME_JWT_RENEWED outcome: failed log", async () => {
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    let mintCount = 0;
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () => {
+        mintCount += 1;
+        if (mintCount === 1) {
+          return new Response(
+            JSON.stringify({ jwt: "ok-1", exp: 9999999999 }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(
+          JSON.stringify({ error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED" }),
+          { status: 401, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+
+    await mountBridgeAndAwaitSubscribe();
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 5; i += 1) {
+      await flushPromises();
+    }
+
+    const loggedFailedOutcome = consoleWarnSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "string" &&
+          a.includes("SHOW_REALTIME_JWT_RENEWED outcome: failed"),
+      ),
+    );
+    expect(loggedFailedOutcome).toBe(true);
+    // Reason tag specifically identifies mint failure.
+    const taggedMintFailed = consoleWarnSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "object" &&
+          a !== null &&
+          (a as { reason?: unknown }).reason === "mint_failed",
+      ),
+    );
+    expect(taggedMintFailed).toBe(true);
+
+    consoleWarnSpy.mockRestore();
+  });
+
+  test("renewal setAuth failure emits SHOW_REALTIME_JWT_RENEWED outcome: failed log", async () => {
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    // Force setAuth to throw on the SECOND call (the renewal call;
+    // the first call is the initial subscribe path).
+    let setAuthCalls = 0;
+    supabaseMock.state.setAuth.mockImplementation(() => {
+      setAuthCalls += 1;
+      if (setAuthCalls >= 2) {
+        throw new Error("setAuth boom");
+      }
+    });
+
+    await mountBridgeAndAwaitSubscribe();
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 5; i += 1) {
+      await flushPromises();
+    }
+
+    const loggedFailedOutcome = consoleWarnSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "string" &&
+          a.includes("SHOW_REALTIME_JWT_RENEWED outcome: failed"),
+      ),
+    );
+    expect(loggedFailedOutcome).toBe(true);
+    const taggedSetAuthThrew = consoleWarnSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "object" &&
+          a !== null &&
+          (a as { reason?: unknown }).reason === "set_auth_threw",
+      ),
+    );
+    expect(taggedSetAuthThrew).toBe(true);
+
+    consoleWarnSpy.mockRestore();
+  });
+
+  test("renewal subscribe failure emits SHOW_REALTIME_JWT_RENEWED outcome: failed log", async () => {
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    await mountBridgeAndAwaitSubscribe();
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+
+    // Arm the subscribe mock to throw on the NEXT call — that is the
+    // renewal-time re-subscribe.
+    subscribeMock.state.throwOnNext = true;
+
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 5; i += 1) {
+      await flushPromises();
+    }
+
+    const loggedFailedOutcome = consoleWarnSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "string" &&
+          a.includes("SHOW_REALTIME_JWT_RENEWED outcome: failed"),
+      ),
+    );
+    expect(loggedFailedOutcome).toBe(true);
+    const taggedSubscribeThrew = consoleWarnSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "object" &&
+          a !== null &&
+          (a as { reason?: unknown }).reason === "subscribe_threw",
+      ),
+    );
+    expect(taggedSubscribeThrew).toBe(true);
+
+    consoleWarnSpy.mockRestore();
+  });
+
+  // === Important 3 (default-branch warn for unknown system events) ===
+  test("unknown system event hits the default branch and warns without crashing", async () => {
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    await mountBridgeAndAwaitSubscribe();
+    const channel = subscribeMock.state.currentChannel;
+    if (!channel) throw new Error("channel not registered");
+    expect(channel.onSystemHandlers).toHaveLength(1);
+
+    await act(async () => {
+      // Cast through unknown — the type rejects this on purpose;
+      // production code defends against it via the runtime fence.
+      channel.fireSystem({ event: "rebalanced" } as unknown as SystemEvent);
+    });
+    await flushPromises();
+
+    const warned = consoleWarnSpy.mock.calls.some((args) =>
+      args.some(
+        (a) => typeof a === "string" && a.includes("unknown system event"),
+      ),
+    );
+    expect(warned).toBe(true);
+    // No refresh and no renewal — unknown events are inert.
+    expect(routerMock.state.refreshCalls).toBe(0);
+    expect(subscribeMock.state.subscribeCalls.length).toBe(1);
+
+    consoleWarnSpy.mockRestore();
   });
 });

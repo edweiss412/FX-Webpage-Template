@@ -184,6 +184,8 @@ export function ShowRealtimeBridge({
     if (pendingRefreshTimer.current !== null) {
       clearTimeout(pendingRefreshTimer.current);
     }
+    // Capture generation at schedule time so a later cleanup that advances
+    // the gen invalidates the pending refresh.
     const closureGen = currentChannelGenerationRef.current;
     pendingRefreshTimer.current = setTimeout(() => {
       pendingRefreshTimer.current = null;
@@ -232,6 +234,16 @@ export function ShowRealtimeBridge({
         console.warn(
           "[ShowRealtimeBridge] SHOW_REALTIME_BROADCAST_AUTH_FAILED — JWT renewal mint failed; falling back to no-op (no retry loop)",
         );
+        // Logging contract: the file-header doc (line ~82) promises a
+        // `SHOW_REALTIME_JWT_RENEWED outcome: 'failed'` log on every
+        // renewal-failure path. The `outcome:'success'` peer fires at
+        // line ~298. Each failure branch emits the failed outcome with
+        // a distinct `reason` tag so dashboards can disambiguate
+        // mint-fail vs setAuth-fail vs subscribe-fail.
+        console.warn(
+          "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
+          { reason: "mint_failed" },
+        );
         return;
       }
 
@@ -241,6 +253,10 @@ export function ShowRealtimeBridge({
         console.warn(
           "[ShowRealtimeBridge] SHOW_REALTIME_BROADCAST_AUTH_FAILED — setAuth threw during renewal",
           err,
+        );
+        console.warn(
+          "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
+          { reason: "set_auth_threw", err },
         );
         return;
       }
@@ -281,6 +297,10 @@ export function ShowRealtimeBridge({
           "[ShowRealtimeBridge] subscription failed during renewal",
           err,
         );
+        console.warn(
+          "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
+          { reason: "subscribe_threw", err },
+        );
         return;
       }
       currentChannelRef.current = newChannel;
@@ -303,11 +323,31 @@ export function ShowRealtimeBridge({
     const handleSystemEvent = (e: SystemEvent, closureGen: number) => {
       if (!isMountedRef.current) return;
       if (closureGen !== currentChannelGenerationRef.current) return;
-      if (e.event === "reconnected") {
-        // Catch-up bypass: synchronous refresh on version mismatch.
-        void refreshSyncIfMismatch(closureGen);
-      } else if (e.event === "disconnected") {
-        void renewSubscription(closureGen);
+      // Exhaustive switch over the SystemEvent discriminated union. The
+      // `default` branch is a runtime fence: if a future Supabase Realtime
+      // release introduces a new system event the type doesn't yet
+      // enumerate, the bridge logs a warning rather than silently dropping
+      // it (which made the silent-drop indistinguishable from a
+      // deliberate-ignore in the prior `{ event: string }` shape).
+      switch (e.event) {
+        case "reconnected":
+          // Catch-up bypass: synchronous refresh on version mismatch.
+          void refreshSyncIfMismatch(closureGen);
+          return;
+        case "disconnected":
+          void renewSubscription(closureGen);
+          return;
+        default: {
+          // Defensive cast through `unknown`: the type system says this
+          // branch is unreachable, but Supabase may deliver an unenumerated
+          // event at runtime. We log without crashing.
+          const unknownEvent = e as unknown as { event?: unknown };
+          console.warn(
+            "[ShowRealtimeBridge] unknown system event",
+            unknownEvent,
+          );
+          return;
+        }
       }
     };
 

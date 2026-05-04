@@ -28,21 +28,51 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ShowInvalidationChannel } from "./subscribeToShow";
 
-export type SystemEvent = { event: string };
+/**
+ * The `system` events the bridge handles. Narrowed to a discriminated
+ * union so the consumer's switch is exhaustive — if Supabase Realtime
+ * adds a new system event in a future release, the consumer's `default`
+ * branch logs a warning rather than silently dropping it (the previous
+ * `{ event: string }` shape made the silent-drop indistinguishable from
+ * "we deliberately ignored this").
+ *
+ * Cast through `unknown as SystemEvent` at the call site if Supabase
+ * delivers something the union doesn't enumerate at runtime — the
+ * consumer's `default` branch is the runtime fence; this type is the
+ * compile-time fence.
+ */
+export type SystemEvent =
+  | { event: "reconnected" }
+  | { event: "disconnected" };
 
 /**
  * Attach a `system`-event handler to the channel. Reconnect / disconnect
  * notifications arrive through this callback.
+ *
+ * Why the cast?
+ *   `RealtimeChannel.on()` has many overloads, one per event type
+ *   (`"presence"`, `"postgres_changes"`, `"broadcast"`, `"system"`, …),
+ *   each with a strictly-typed filter object. Targeting the `"system"`
+ *   overload directly through `RealtimeChannel`'s own typings would
+ *   require importing the internal `RealtimeChannelSendResponse` /
+ *   `REALTIME_LISTEN_TYPES` types from `@supabase/realtime-js`, which
+ *   are not part of `@supabase/supabase-js`'s public surface and
+ *   change between minor releases. We cast to the minimal local shape
+ *   (one specific overload: `(type='system', filter={}, cb)`) — the
+ *   integration test in tests/realtime/subscribeToShow.test.ts pins
+ *   the runtime shape, and tests/realtime/showRealtimeBridge.test.tsx
+ *   pins the bridge's call sites.
  */
 export function attachSystemHandler(
   channel: ShowInvalidationChannel,
   handler: (e: SystemEvent) => void,
 ): void {
-  // The Supabase Realtime channel `.on('system', {}, handler)` overload —
-  // empty filter object is the convention for catch-all.
+  // Targeted overload: `.on('system', {}, handler)`. Empty filter is the
+  // documented Supabase Realtime convention for catch-all on the `system`
+  // event channel; see https://supabase.com/docs/reference/javascript/subscribe.
   (channel as unknown as {
     on: (
-      type: string,
+      type: "system",
       filter: Record<string, never>,
       cb: (e: SystemEvent) => void,
     ) => void;
@@ -65,6 +95,11 @@ export function attachStatusHandler(
   channel: ShowInvalidationChannel,
   handler: (status: string) => void,
 ): void {
+  // Targeted overload: `.subscribe(callback)` — the single-argument form
+  // re-binds the status callback on an already-subscribed channel without
+  // re-opening the socket. The other overload `.subscribe()` (no args)
+  // returns a Promise; we don't use that one. See `@supabase/realtime-js`
+  // `RealtimeChannel.subscribe` for both signatures.
   (channel as unknown as {
     subscribe: (cb: (status: string) => void) => unknown;
   }).subscribe(handler);
