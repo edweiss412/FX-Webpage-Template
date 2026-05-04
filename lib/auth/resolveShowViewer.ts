@@ -64,13 +64,14 @@ export async function resolveShowViewer(
   const svc = createSupabaseServiceRoleClient();
   const { data: showRow } = await svc
     .from("shows")
-    .select("id")
+    .select("id,published")
     .eq("slug", slug)
     .maybeSingle();
   if (!showRow || typeof (showRow as { id?: unknown }).id !== "string") {
     return { kind: "denied", reason: "unknown_slug" };
   }
   const show_id: string = (showRow as { id: string }).id;
+  const published = (showRow as { published?: unknown }).published === true;
 
   // (2) Admin precedence — an admin user is always admin regardless of any
   // crew session that might also match. This is required so admin debugging
@@ -78,6 +79,10 @@ export async function resolveShowViewer(
   const admin = await isAdminSession(req);
   if (admin.ok && admin.email) {
     return { kind: "admin", email: admin.email, show_id };
+  }
+
+  if (!published) {
+    return { kind: "denied", reason: "unknown_slug" };
   }
 
   // (3) Magic-link session.

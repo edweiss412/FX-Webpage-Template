@@ -62,8 +62,8 @@ vi.mock("@/lib/auth/validateGoogleSession", () => ({
 const supabaseMock = vi.hoisted(() => {
   return {
     state: {
-      // null → no row; { id } → resolves to that show_id.
-      slugLookupRow: null as null | { id: string },
+      // null → no row; { id, published } → resolves to that show_id.
+      slugLookupRow: null as null | { id: string; published: boolean },
       slugLookupError: null as null | { message: string },
       lastSlugQueried: null as null | string,
     },
@@ -110,7 +110,7 @@ beforeEach(() => {
   validatorMock.state.googleResult = {
     kind: "continue",
   };
-  supabaseMock.state.slugLookupRow = { id: "show-uuid-1" };
+  supabaseMock.state.slugLookupRow = { id: "show-uuid-1", published: true };
   supabaseMock.state.slugLookupError = null;
   supabaseMock.state.lastSlugQueried = null;
 });
@@ -142,6 +142,56 @@ describe("resolveShowViewer — 5-arm discriminated union", () => {
     if (result.kind === "admin") {
       expect(result.email).toBe("edweiss412@gmail.com");
       expect(result.show_id).toBe("show-uuid-1");
+    }
+  });
+
+  test("admin session can resolve an unpublished show", async () => {
+    supabaseMock.state.slugLookupRow = { id: "show-uuid-1", published: false };
+    validatorMock.state.adminResult = {
+      ok: true,
+      email: "edweiss412@gmail.com",
+    };
+
+    const result = await resolveShowViewer(fakeReq(), "draft-show");
+
+    expect(result.kind).toBe("admin");
+    if (result.kind === "admin") {
+      expect(result.show_id).toBe("show-uuid-1");
+    }
+  });
+
+  test("link crew session for unpublished show resolves as not found", async () => {
+    supabaseMock.state.slugLookupRow = { id: "show-uuid-1", published: false };
+    validatorMock.state.linkResult = {
+      kind: "success",
+      viewer: { kind: "crew", showId: "show-uuid-1", crewMemberId: "crew-99" },
+    };
+
+    const result = await resolveShowViewer(fakeReq(), "draft-show");
+
+    expect(result.kind).toBe("denied");
+    if (result.kind === "denied") {
+      expect(result.reason).toBe("unknown_slug");
+    }
+  });
+
+  test("google crew session for unpublished show resolves as not found", async () => {
+    supabaseMock.state.slugLookupRow = { id: "show-uuid-1", published: false };
+    validatorMock.state.googleResult = {
+      kind: "success",
+      viewer: {
+        kind: "crew",
+        email: "alice@fxav.test",
+        showId: "show-uuid-1",
+        crewMemberId: "crew-77",
+      },
+    };
+
+    const result = await resolveShowViewer(fakeReq(), "draft-show");
+
+    expect(result.kind).toBe("denied");
+    if (result.kind === "denied") {
+      expect(result.reason).toBe("unknown_slug");
     }
   });
 

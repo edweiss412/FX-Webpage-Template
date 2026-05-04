@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   consumeAttempts: 0,
   readErrors: new Map<string, { message: string }>(),
   crewExists: true,
+  showPublished: true,
   appSettingsError: null as { message: string } | null,
   lockError: null as "show-not-found" | "generic" | null,
 }));
@@ -150,6 +151,15 @@ function builder(table: string) {
       if (table === "revoked_links" && readError) {
         return Promise.resolve({ data: null, error: readError });
       }
+      if (table === "shows") {
+        if (readError) {
+          return Promise.resolve({ data: null, error: readError });
+        }
+        return Promise.resolve({
+          data: { id: state.showId, published: state.showPublished },
+          error: null,
+        });
+      }
       return Promise.resolve({ data: null, error: null });
     },
   };
@@ -173,6 +183,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
     state.consumeAttempts = 0;
     state.readErrors.clear();
     state.crewExists = true;
+    state.showPublished = true;
     state.appSettingsError = null;
     state.lockError = null;
   });
@@ -318,6 +329,19 @@ describe("/api/auth/redeem-link advisory lock", () => {
     expect(response.status).toBe(200);
     expect(state.consumeAttempts).toBe(1);
     expect(state.consumedAt).toEqual(expect.any(String));
+  });
+
+  test("valid JWT for unpublished show cannot mint a link session", async () => {
+    state.showPublished = false;
+
+    const response = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ code: "CSRF_DENIED" });
   });
 
   test("invalid JWT consumes nonce before returning SESSION_NOT_FOUND", async () => {

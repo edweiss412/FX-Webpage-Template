@@ -98,6 +98,16 @@ describe("GET /api/show/[slug]/version", () => {
     expect(body.error).toBe("SHOW_VERSION_AUTH_FAILED");
   });
 
+  test("non-admin unpublished show denial does not issue a version token", async () => {
+    resolveMock.state.result = { kind: "denied", reason: "unknown_slug" };
+    const res = await GET(fakeReq(), { params: Promise.resolve({ slug: "draft-show" }) });
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error?: string; version_token?: string };
+    expect(body.error).toBe("SHOW_VERSION_AUTH_FAILED");
+    expect(body.version_token).toBeUndefined();
+    expect(supaMock.state.rpcCalls).toEqual([]);
+  });
+
   test("forbidden → 403 SHOW_VERSION_CROSS_SHOW_FORBIDDEN", async () => {
     // Pin the version-route-specific cross-show code. A regression that
     // emits SHOW_REALTIME_CROSS_SHOW_FORBIDDEN here would defeat the §826

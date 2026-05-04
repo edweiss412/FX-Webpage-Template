@@ -48,6 +48,10 @@ type AuthRow = {
   revoked_below_version: number;
 };
 
+type ShowVisibilityRow = {
+  published: boolean;
+};
+
 function jsonError(status: number, code: string): Response {
   return NextResponse.json({ code }, { status });
 }
@@ -252,6 +256,18 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
     if (revoked) {
       return jsonError(410, "LINK_REVOKED_SURGICAL");
+    }
+
+    const { data: showVisibility, error: showVisibilityError } = (await supabase
+      .from("shows")
+      .select("published")
+      .eq("id", showId)
+      .maybeSingle()) as { data: ShowVisibilityRow | null; error: unknown };
+    if (showVisibilityError) {
+      return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
+    }
+    if (!showVisibility?.published) {
+      return jsonError(403, "CSRF_DENIED");
     }
 
     const opaqueToken = randomUUID();

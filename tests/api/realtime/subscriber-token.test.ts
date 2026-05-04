@@ -67,6 +67,15 @@ describe("POST /api/realtime/subscriber-token", () => {
     expect(body.error).toBe("SHOW_REALTIME_BROADCAST_AUTH_FAILED");
   });
 
+  test("non-admin unpublished show denial does not issue a realtime token", async () => {
+    resolveMock.state.result = { kind: "denied", reason: "unknown_slug" };
+    const res = await POST(makeReq({ slug: "draft-show" }));
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error?: string; jwt?: string };
+    expect(body.error).toBe("SHOW_REALTIME_BROADCAST_AUTH_FAILED");
+    expect(body.jwt).toBeUndefined();
+  });
+
   test("forbidden → 403 SHOW_REALTIME_CROSS_SHOW_FORBIDDEN", async () => {
     resolveMock.state.result = {
       kind: "forbidden",
