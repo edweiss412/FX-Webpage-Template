@@ -130,6 +130,39 @@ After the implementer finishes:
 5. Only after convergence does the milestone move to "completed" status.
 ```
 
+## 11. Cross-milestone dependencies
+
+List any code paths, fixtures, helpers, or migrations the implementer needs that are owned by a different milestone. For each: name what the implementer needs, name the recommended disposition (create minimal stub vs. wait vs. extend), and name the milestone that owns the full implementation. Example: "M3 references `enrichWithDrivePins` which is owned by M6/M7 — recommended disposition: minimal stub created in M3 with a `mockDriveClient`, M6/M7 layers the real Drive API over the same interface."
+
+If "None," say so explicitly.
+
+## 12. Impeccable evaluation (UI quality gate — AGENTS.md §1 invariant 8)
+
+**Required only when the milestone ships any UI surface** (any file under `app/` except `app/api/**`, any file under `components/`, any new `app/globals.css` `@theme` block, any change to `DESIGN.md` or `tailwind.config.*`). For backend-only milestones, mark this section "N/A — no UI surface" and skip.
+
+The dual run happens AFTER per-task implementation closes and BEFORE adversarial review. Both commands run with the canonical v3 preflight gates (`load-context.mjs` → product gate → command-reference gate → register identification → preflight signal). Each surface reviewed:
+
+- [ ] `/impeccable critique <surface>` — UX heuristic scoring, persona walkthroughs, AI-slop test, absolute-ban scan.
+  - Score sheet attached: visual hierarchy, IA, cognitive load, emotional resonance, a11y floor, persona-specific scan-speed rule (e.g., "five-second answer rule" for the FXAV crew page).
+  - HIGH findings fixed OR logged in `DEFERRED.md` with a target milestone.
+  - MEDIUM findings triaged: fix-now / defer to in-milestone polish / defer to a future polish milestone.
+
+- [ ] `/impeccable audit <surface>` — Technical quality checks (a11y, performance, responsive, theming, anti-patterns). Scored P0-P3.
+  - P0/P1 findings fixed before adversarial review (these are spec-blocking).
+  - P2/P3 findings triaged: fix-now / defer.
+
+- [ ] DEFERRED.md updated with any retrospective deferrals.
+- [ ] Dispositions inline below or referenced by SHA:
+
+```
+critique findings: <Finding ID> — <severity> — <one-line> — disposition: <fixed at <SHA> | deferred to <milestone> via <DEFERRED.md ID>>
+audit findings: <P0-P3> — <one-line> — disposition: <fixed at <SHA> | deferred to <milestone> via <DEFERRED.md ID>>
+```
+
+If the milestone splits UI ownership across implementers (e.g., M5 backend = Codex, M5 UI = Opus per ROUTING.md), the impeccable evaluation runs ONLY on the UI portion (Opus side) and a single dispositions block covers the whole milestone's UI surface.
+
+The convergence log proper (below) appends ONLY after impeccable evaluation closes AND adversarial review begins. The milestone is marked "completed" only when BOTH impeccable §12 has zero unresolved HIGH/P0/P1 findings AND adversarial review has converged.
+
 ---
 
 ## Field discipline notes
