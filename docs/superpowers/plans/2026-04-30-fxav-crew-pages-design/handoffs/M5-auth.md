@@ -256,10 +256,20 @@ Codex deviations (extension #2):
 
 Verification: `pnpm test` = 1273 tests passing across 74 files; `pnpm lint` clean; `pnpm typecheck` passed; `pnpm test:e2e tests/e2e/redeem-link.spec.ts` = 6 tests passing; `pnpm test tests/db/schema-introspection.test.ts` = 103 tests passing.
 
-**Adversarial-review carry-forward (cumulative across all three pin-stops):**
-- (extension #1) `GoogleIdentityViewer.crewMemberId` is Supabase Auth `user.id`; `CrewShowSummary.crewMemberId` is `crew_members.id`. Same field name, different referents. Recommend rename `GoogleIdentityViewer.crewMemberId` → `userId` or drop the field entirely.
-- (extension #2) `DEFAULT_AUTH_NEXT_PATH: "/admin"` failsafe risks crew redirect dead-end — needs callback-side disambiguation.
-- (extension #2) Operator-log writes deferred to M6/M8 sink — confirm acceptable.
+**Adversarial-review carry-forward (cumulative across all three pin-stops + §B implementation + Task 5.6 close-out):**
+
+From contract pin-stops:
+- **CF-PIN-1** (extension #1) `GoogleIdentityViewer.crewMemberId` is Supabase Auth `user.id`; `CrewShowSummary.crewMemberId` is `crew_members.id`. Same field name, different referents. Recommend rename `GoogleIdentityViewer.crewMemberId` → `userId` or drop the field entirely.
+- **CF-PIN-2** (extension #2) `DEFAULT_AUTH_NEXT_PATH: "/admin"` failsafe risks crew redirect dead-end — needs callback-side disambiguation.
+- **CF-PIN-3** (extension #2) Operator-log writes deferred to M6/M8 sink — confirm acceptable.
+
+From §B implementation (reported at f027da7):
+- **CF-IMPL-1 (CRITICAL)** — `lib/auth/requireAdmin.ts:32` still has the M3 `ADMIN_DEV_PANEL_ENABLED` build-time gate. In production (flag unset) every admin request 404s. Pin-2 ext#2 contract said "body now production" — not honored in code. Workaround: `ADMIN_DEV_PANEL_ENABLED=true` set on test server. **§A must replace before M5 ships to production.** Reviewer should verify this is the first thing fixed in round 1.
+- **CF-IMPL-2** — `lib/auth/validateGoogleSession.ts:55` and `lib/auth/isAdminSession.ts:9` both `void req;` — the `req: Request` parameter is decorative. Synthetic Request from `/show/[slug]/page.tsx` and `/me/page.tsx` is forward-compat only. Either remove the parameter (interface break) or wire it to actually read cookies (current implementation reads via `next/headers` cookies()).
+- **CF-IMPL-3** — 14 M4 e2e specs `.skip`'d pending `?crew=` mock migration onto `signInAs(NON_ADMIN_CREW_FIXTURE)` per-show seeding. Tracked as deferred follow-up; ~150 tests await migration. Suggested home: M5 follow-up touch OR M9 polish.
+- **CF-IMPL-4** — `validateGoogleSession` returns `terminal_failure` 403 for `GOOGLE_NO_CREW_MATCH`. Should be `continue` (no infrastructure fault). §B chain adapter has a workaround treating step-3 status-403 as continue. **§A should fix the validator** so the workaround can be removed; otherwise the watchpoint #4 invariant ("terminal_failure reserved for server-side faults; client-driven faults return continue") drifts silently.
+
+**Pre-existing build failure noted by Codex at Task 5.6 (cefa902):** `pnpm build` fails on a `.next/dev/types` reference to disabled `/admin/dev/page.js` during the build wrapper. Not introduced by M5; pre-existing. Reviewer should confirm this is genuinely pre-existing (not a regression from M5's `app/admin/layout.tsx` AlertBanner mount) and route to the right milestone.
 
 ---
 
