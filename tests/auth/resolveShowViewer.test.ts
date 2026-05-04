@@ -25,17 +25,23 @@ const validatorMock = vi.hoisted(() => {
   return {
     state: {
       adminResult: { ok: false } as { ok: boolean; email?: string },
-      linkResult: { kind: "failure", reason: "no_link_session" } as
-        | { kind: "success"; show_id: string; crew_member_id: string }
-        | { kind: "failure"; reason: string },
-      googleResult: { kind: "failure", reason: "no_google_session" } as
+      linkResult: { kind: "continue" } as
         | {
             kind: "success";
-            email: string;
-            show_id: string;
-            crew_member_id: string;
+            viewer: { kind: "crew"; showId: string; crewMemberId: string };
           }
-        | { kind: "failure"; reason: string },
+        | { kind: "continue"; clearCookie?: true },
+      googleResult: { kind: "continue" } as
+        | {
+            kind: "success";
+            viewer: {
+              kind: "crew";
+              email: string;
+              showId: string;
+              crewMemberId: string;
+            };
+          }
+        | { kind: "continue" },
     },
   };
 });
@@ -99,12 +105,10 @@ function fakeReq(): NextRequest {
 beforeEach(() => {
   validatorMock.state.adminResult = { ok: false };
   validatorMock.state.linkResult = {
-    kind: "failure",
-    reason: "no_link_session",
+    kind: "continue",
   };
   validatorMock.state.googleResult = {
-    kind: "failure",
-    reason: "no_google_session",
+    kind: "continue",
   };
   supabaseMock.state.slugLookupRow = { id: "show-uuid-1" };
   supabaseMock.state.slugLookupError = null;
@@ -131,8 +135,7 @@ describe("resolveShowViewer — 5-arm discriminated union", () => {
     // precedence means the admin arm fires first.
     validatorMock.state.linkResult = {
       kind: "success",
-      show_id: "show-uuid-1",
-      crew_member_id: "crew-1",
+      viewer: { kind: "crew", showId: "show-uuid-1", crewMemberId: "crew-1" },
     };
     const result = await resolveShowViewer(fakeReq(), "test-show");
     expect(result.kind).toBe("admin");
@@ -145,8 +148,7 @@ describe("resolveShowViewer — 5-arm discriminated union", () => {
   test("(3a) link session matching show → crew_link arm", async () => {
     validatorMock.state.linkResult = {
       kind: "success",
-      show_id: "show-uuid-1",
-      crew_member_id: "crew-99",
+      viewer: { kind: "crew", showId: "show-uuid-1", crewMemberId: "crew-99" },
     };
     const result = await resolveShowViewer(fakeReq(), "test-show");
     expect(result.kind).toBe("crew_link");
@@ -164,8 +166,11 @@ describe("resolveShowViewer — 5-arm discriminated union", () => {
     // forbidden return must surface the LATTER.
     validatorMock.state.linkResult = {
       kind: "success",
-      show_id: "different-show-uuid",
-      crew_member_id: "crew-99",
+      viewer: {
+        kind: "crew",
+        showId: "different-show-uuid",
+        crewMemberId: "crew-99",
+      },
     };
     const result = await resolveShowViewer(fakeReq(), "test-show");
     // CRITICAL: this is forbidden (403), NOT denied (401). A valid session for
@@ -182,9 +187,12 @@ describe("resolveShowViewer — 5-arm discriminated union", () => {
   test("(4a) google session matching show → crew_google arm", async () => {
     validatorMock.state.googleResult = {
       kind: "success",
-      email: "alice@fxav.test",
-      show_id: "show-uuid-1",
-      crew_member_id: "crew-77",
+      viewer: {
+        kind: "crew",
+        email: "alice@fxav.test",
+        showId: "show-uuid-1",
+        crewMemberId: "crew-77",
+      },
     };
     const result = await resolveShowViewer(fakeReq(), "test-show");
     expect(result.kind).toBe("crew_google");
@@ -201,9 +209,12 @@ describe("resolveShowViewer — 5-arm discriminated union", () => {
     // logs don't have to re-query crew_member_auth). See plan §789 + §826.
     validatorMock.state.googleResult = {
       kind: "success",
-      email: "alice@fxav.test",
-      show_id: "different-show-uuid",
-      crew_member_id: "crew-77",
+      viewer: {
+        kind: "crew",
+        email: "alice@fxav.test",
+        showId: "different-show-uuid",
+        crewMemberId: "crew-77",
+      },
     };
     const result = await resolveShowViewer(fakeReq(), "test-show");
     expect(result.kind).toBe("forbidden");
@@ -227,15 +238,17 @@ describe("resolveShowViewer — 5-arm discriminated union", () => {
     // Drive the cross-show forbidden case ...
     validatorMock.state.linkResult = {
       kind: "success",
-      show_id: "different-show-uuid",
-      crew_member_id: "crew-99",
+      viewer: {
+        kind: "crew",
+        showId: "different-show-uuid",
+        crewMemberId: "crew-99",
+      },
     };
     const forbiddenResult = await resolveShowViewer(fakeReq(), "test-show");
 
     // ... and the no-credentials denied case.
     validatorMock.state.linkResult = {
-      kind: "failure",
-      reason: "no_link_session",
+      kind: "continue",
     };
     const deniedResult = await resolveShowViewer(fakeReq(), "test-show");
 

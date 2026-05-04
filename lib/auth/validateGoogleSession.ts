@@ -1,32 +1,122 @@
-/**
- * lib/auth/validateGoogleSession.ts (M4 minimal stub — M5 owns full impl)
- *
- * STABLE SIGNATURE — DO NOT CHANGE in M5:
- *   validateGoogleSession(req: NextRequest): Promise<
- *     | { kind: 'success'; email: string; show_id: string; crew_member_id: string }
- *     | { kind: 'failure'; reason: string }
- *   >
- *
- * Purpose: predicate used by lib/auth/resolveShowViewer.ts to detect a
- * Google-OAuth session bound to a specific (show_id, crew_member_id) pair.
- *
- * M5 owns the Google OAuth flow. The full impl will read the Supabase auth
- * session via @supabase/ssr, canonicalize the user's email through
- * lib/email/canonicalize.ts (AGENTS.md §1.3), look up the crew_members row
- * matching that email + show, and return the (show_id, crew_member_id) tuple.
- *
- * Stub returns { kind: 'failure', reason: 'no_google_session' } unconditionally.
- * No M4 caller depends on a successful crew_google arm; the success path
- * lights up in M5 with the real implementation.
- */
-import type { NextRequest } from "next/server";
+import type { AuthFailureCode } from "@/lib/auth/constants";
+import { canonicalize } from "@/lib/email/canonicalize";
+import {
+  createSupabaseServerClient,
+  createSupabaseServiceRoleClient,
+} from "@/lib/supabase/server";
+
+export type GoogleSessionViewer = {
+  kind: "crew";
+  email: string;
+  showId: string;
+  crewMemberId: string;
+};
+
+export type GoogleSessionValidationContext = {
+  showId: string;
+};
+
+export type GoogleSessionValidationResult =
+  | { kind: "success"; viewer: GoogleSessionViewer }
+  | { kind: "continue" }
+  | {
+      kind: "terminal_failure";
+      status: 403 | 500;
+      code: AuthFailureCode;
+    };
+
+type CrewMemberEmailRow = {
+  id: string;
+  show_id: string;
+  email: string;
+};
+
+async function upsertAmbiguousEmailAlert(input: {
+  showId: string;
+  email: string;
+  crewMemberIds: string[];
+}): Promise<void> {
+  const supabase = createSupabaseServiceRoleClient();
+  await supabase.from("admin_alerts").upsert({
+    show_id: input.showId,
+    code: "AMBIGUOUS_EMAIL_BINDING",
+    severity: "critical",
+    context: {
+      email: input.email,
+      crew_member_ids: input.crewMemberIds,
+    },
+  });
+}
 
 export async function validateGoogleSession(
-  req: NextRequest,
-): Promise<
-  | { kind: "success"; email: string; show_id: string; crew_member_id: string }
-  | { kind: "failure"; reason: string }
-> {
+  req: Request,
+  context: GoogleSessionValidationContext,
+): Promise<GoogleSessionValidationResult> {
   void req;
-  return { kind: "failure", reason: "no_google_session" };
+  const supabase = await createSupabaseServerClient();
+  const { data: userResult, error: userError } = await supabase.auth.getUser();
+  if (userError || !userResult.user) {
+    return { kind: "continue" };
+  }
+
+  const email = canonicalize(userResult.user.email);
+  if (!email) {
+    return { kind: "continue" };
+  }
+
+  const service = createSupabaseServiceRoleClient();
+  const { data: crewRows, error } = (await service
+    .from("crew_members")
+    .select("id,show_id,email")
+    .eq("show_id", context.showId)
+    .eq("email", email)) as { data: CrewMemberEmailRow[] | null; error: unknown };
+
+  if (error) {
+    return {
+      kind: "terminal_failure",
+      status: 500,
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    };
+  }
+
+  const rows = crewRows ?? [];
+  if (rows.length === 0) {
+    return {
+      kind: "terminal_failure",
+      status: 403,
+      code: "GOOGLE_NO_CREW_MATCH",
+    };
+  }
+
+  if (rows.length > 1) {
+    await upsertAmbiguousEmailAlert({
+      showId: context.showId,
+      email,
+      crewMemberIds: rows.map((row) => row.id),
+    });
+    return {
+      kind: "terminal_failure",
+      status: 500,
+      code: "AMBIGUOUS_EMAIL_BINDING",
+    };
+  }
+
+  const row = rows[0];
+  if (!row) {
+    return {
+      kind: "terminal_failure",
+      status: 403,
+      code: "GOOGLE_NO_CREW_MATCH",
+    };
+  }
+
+  return {
+    kind: "success",
+    viewer: {
+      kind: "crew",
+      email,
+      showId: row.show_id,
+      crewMemberId: row.id,
+    },
+  };
 }

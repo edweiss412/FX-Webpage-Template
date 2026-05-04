@@ -81,13 +81,13 @@ export async function resolveShowViewer(
   }
 
   // (3) Magic-link session.
-  const link = await validateLinkSession(req);
+  const link = await validateLinkSession(req, { showId: show_id });
   if (link.kind === "success") {
-    if (link.show_id === show_id) {
+    if (link.viewer.showId === show_id) {
       return {
         kind: "crew_link",
         show_id,
-        crew_member_id: link.crew_member_id,
+        crew_member_id: link.viewer.crewMemberId,
       };
     }
     // Valid session, wrong show — forbidden (403), not denied (401).
@@ -97,19 +97,22 @@ export async function resolveShowViewer(
     return {
       kind: "forbidden",
       reason: "cross_show_link_session",
-      show_id: link.show_id,
+      show_id: link.viewer.showId,
     };
+  }
+  if (link.kind === "terminal_failure") {
+    return { kind: "denied", reason: link.code };
   }
 
   // (4) Google-OAuth session.
-  const google = await validateGoogleSession(req);
+  const google = await validateGoogleSession(req, { showId: show_id });
   if (google.kind === "success") {
-    if (google.show_id === show_id) {
+    if (google.viewer.showId === show_id) {
       return {
         kind: "crew_google",
-        email: google.email,
+        email: google.viewer.email,
         show_id,
-        crew_member_id: google.crew_member_id,
+        crew_member_id: google.viewer.crewMemberId,
       };
     }
     // Same diagnostic shape as the link branch above; google additionally
@@ -118,9 +121,15 @@ export async function resolveShowViewer(
     return {
       kind: "forbidden",
       reason: "cross_show_google_session",
-      show_id: google.show_id,
-      email: google.email,
+      show_id: google.viewer.showId,
+      email: google.viewer.email,
     };
+  }
+  if (google.kind === "terminal_failure") {
+    if (google.status === 403) {
+      return { kind: "forbidden", reason: google.code, show_id };
+    }
+    return { kind: "denied", reason: google.code };
   }
 
   // (5) Fall through.
