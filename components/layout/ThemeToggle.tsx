@@ -123,7 +123,7 @@ export function ThemeToggle() {
       aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"}
       aria-pressed={isDark}
       onClick={flip}
-      className="inline-flex min-h-(--spacing-tap-min) min-w-(--spacing-tap-min) items-center justify-center rounded-sm border border-border bg-surface text-text-subtle transition-colors duration-(--duration-fast) hover:border-border-strong hover:bg-surface-raised hover:text-text"
+      className="inline-flex min-h-(--spacing-tap-min) min-w-(--spacing-tap-min) items-center justify-center rounded-sm border border-border bg-surface text-text-subtle transition-colors duration-(--duration-fast) hover:border-border-strong hover:bg-surface-raised hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-focus-ring) focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
     >
       {/*
         Show the icon for the OTHER theme — affordance is "this is
