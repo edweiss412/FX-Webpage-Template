@@ -92,4 +92,4 @@ Any task whose primary deliverable is UI code is owned by Opus, regardless of wh
 - Any file under `components/`
 - `app/globals.css`, `tailwind.config.ts`, `postcss.config.mjs`, `DESIGN.md`, design-token / theme files
 
-If you are running under Codex and a task you are about to start lands in any of those locations, **stop**. The task belongs to Opus + the `frontend-design` / `impeccable` skill stack. Hand back to the orchestrator (Claude Code) for that task. The handoff doc records which tasks split which way.
+If you are running under Codex and a task you are about to start lands in any of those locations, **stop**. The task belongs to Opus + the **impeccable v3** skill (`/impeccable` slash command and its preflight gates: PRODUCT.md → DESIGN.md → register identification → preflight signal). Impeccable v3 superseded the legacy `frontend-design` skill as the canonical UI workflow on this project; do NOT load `frontend-design` for new UI work. Hand back to the orchestrator (Claude Code) for that task. The handoff doc records which tasks split which way.
