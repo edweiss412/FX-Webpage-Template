@@ -342,16 +342,20 @@ export default async function ShowPage({ params }: PageProps) {
   const result = await resolveViewer(req, showId);
 
   if (result.terminalFailure) {
+    // AC-5.6a: a terminal_failure that ALSO carries `clearCookie: true`
+    // (e.g. LINK_SESSION_KEY_ROTATED) must clear the stale cookie on the
+    // FIRST response — not leave it in place until the user retries.
+    // Redirect through /auth/clear-session before the catalog/notFound
+    // path so the Set-Cookie clear lands on the same response cycle.
+    if (result.clearCookie) {
+      const target = `/show/${slug}`;
+      redirect(`/auth/clear-session?next=${encodeURIComponent(target)}`);
+    }
     // Server-side infrastructure fault — render via catalog message (no raw
     // error codes per AGENTS.md §1.5). M5 §B Task 5.9's ErrorExplainer is
     // the eventual surface; for now we 404 with a TODO. notFound() is the
     // safer-by-default choice than leaking the raw 500 to the client.
-    // Reading the message catalog ensures the code is registered (defense
-    // in depth: a deleted catalog entry would throw here, surfacing the
-    // bug at request time rather than silently rendering nothing).
     void messageFor(result.terminalFailure.code as never);
-    // TODO(Task 5.9): replace with the §B ErrorExplainer surface once
-    // components/messages/ErrorExplainer.tsx ships.
     notFound();
   }
 
