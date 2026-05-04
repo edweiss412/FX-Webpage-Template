@@ -48,10 +48,12 @@ When picking up a deferred item:
 
 ### M2-D6 — App-side advisory-lock helper shape deferred to consumer milestones
 
+**Status:** **In progress (M5)** as of 2026-05-03 — per M5 handoff §A, Codex authors `lib/db/advisoryLock.ts` in this milestone because Tasks 5.4 (`link_sessions` + `bootstrap_nonces` mutations) and 5.6 (`revoked_links` + `crew_member_auth` mutations) are the first code paths that need the lock held. Move to "Resolved" with the SHA when committed.
+
 **Source:** M2 adversarial review, Round 1 advisory note
 **Description:** Plan-wide invariant §1.2 mandates per-show advisory locks on every code path that mutates `shows` / `crew_members` / `crew_member_auth` / `pending_syncs` / `pending_ingestions`, with tests asserting the lock is held. M2 ships the schema that supports this; the actual helper and the lock-held tests live with the code paths that hold the lock (M5 auth, M6 sync).
 **Why deferred:** Defensible separation of concerns — testing "the lock is held" requires a code path that holds it, which doesn't exist until M5/M6.
-**Suggested home:** M5 handoff §6 (watchpoints) — explicitly call out that M5's auth-side mutations need the helper authored. M6 handoff §6 — same for sync. The helper itself probably belongs in `lib/db/advisoryLock.ts`.
+**Suggested home:** M5 handoff §6 (watchpoints) — explicitly call out that M5's auth-side mutations need the helper authored. M6 handoff §6 — same for sync. The helper itself probably belongs in `lib/db/advisoryLock.ts`. **API target:** `withShowAdvisoryLock(showId, mode, fn)` where `mode ∈ { 'try' | 'block' }`; lock key = `hashtext('show:' || shows.drive_file_id)` per spec §1.2; M6 sync consumes the same helper later — keep stable.
 
 ### M4-D1 — ShowStatusTile event_details key probing should route through parser canonical-key authority
 
