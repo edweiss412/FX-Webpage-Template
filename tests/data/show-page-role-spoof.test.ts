@@ -39,4 +39,15 @@ describe("/show/[slug] page source — identity-only mock contract", () => {
     expect(src).not.toMatch(/searchParams\s*\?\.\s*role\b/);
     expect(src).not.toMatch(/searchParams\s*\[\s*['"]role['"]\s*\]/);
   });
+
+  test("static-analysis: getShowForViewer blocks unpublished shows for non-admin viewers", () => {
+    const src = readFileSync(
+      path.resolve(__dirname, "../../lib/data/getShowForViewer.ts"),
+      "utf8",
+    );
+
+    expect(src).toMatch(/published/);
+    expect(src).toMatch(/!isAdmin[\s\S]{0,160}published/);
+    expect(src).toMatch(/LINK_NO_CREW_MATCH/);
+  });
 });

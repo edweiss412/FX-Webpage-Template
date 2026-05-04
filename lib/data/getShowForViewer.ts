@@ -197,6 +197,9 @@ export async function getShowForViewer(
     throw new Error("LINK_NO_CREW_MATCH");
   }
   const showRowDb = showRes.data;
+  if (!isAdmin && showRowDb.published !== true) {
+    throw new Error("LINK_NO_CREW_MATCH");
+  }
   const datesValue: ShowRow["dates"] = showRowDb.dates ?? {
     travelIn: null,
     set: null,

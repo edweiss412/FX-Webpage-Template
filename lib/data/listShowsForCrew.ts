@@ -19,6 +19,7 @@ type JoinedCrewShowRow = {
         title: string;
         dates: unknown;
         archived: boolean;
+        published: boolean;
       }
     | Array<{
         id: string;
@@ -26,6 +27,7 @@ type JoinedCrewShowRow = {
         title: string;
         dates: unknown;
         archived: boolean;
+        published: boolean;
       }>;
 };
 
@@ -43,7 +45,7 @@ function setDateMs(dates: unknown): number {
 
 function normalizeShow(row: JoinedCrewShowRow): CrewShowSummary | null {
   const show = Array.isArray(row.shows) ? row.shows[0] : row.shows;
-  if (!show || show.archived) {
+  if (!show || show.archived || !show.published) {
     return null;
   }
   return {
@@ -66,9 +68,10 @@ export async function listShowsForCrew(
   const supabase = createSupabaseServiceRoleClient();
   const { data, error } = (await supabase
     .from("crew_members")
-    .select("id, shows!inner(id, slug, title, dates, archived)")
+    .select("id, shows!inner(id, slug, title, dates, archived, published)")
     .eq("email", email)
-    .eq("shows.archived", false)) as {
+    .eq("shows.archived", false)
+    .eq("shows.published", true)) as {
     data: JoinedCrewShowRow[] | null;
     error: unknown;
   };

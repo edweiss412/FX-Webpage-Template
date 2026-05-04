@@ -10,6 +10,7 @@ type JoinedCrewShowRow = {
     title: string;
     dates: { set?: string | null } | null;
     archived: boolean;
+    published: boolean;
   };
 };
 
@@ -37,10 +38,15 @@ vi.mock("@/lib/supabase/server", () => ({
             ) {
               const email = filters.get("email");
               const archived = filters.get("shows.archived");
+              const published = filters.get("shows.published");
               resolve({
                 data:
-                  email === "alice@fxav.net" && archived === false
-                    ? dataMock.rows.filter((row) => !row.shows.archived)
+                  email === "alice@fxav.net" &&
+                  archived === false &&
+                  published === true
+                    ? dataMock.rows.filter(
+                        (row) => !row.shows.archived && row.shows.published,
+                      )
                     : [],
                 error: null,
               });
@@ -70,6 +76,7 @@ beforeEach(() => {
         title: "Old Show",
         dates: { set: "2026-01-10" },
         archived: false,
+        published: true,
       },
     },
     {
@@ -80,6 +87,18 @@ beforeEach(() => {
         title: "Archived Show",
         dates: { set: "2026-04-10" },
         archived: true,
+        published: true,
+      },
+    },
+    {
+      id: "crew-unpublished",
+      shows: {
+        id: "show-unpublished",
+        slug: "unpublished-show",
+        title: "Unpublished Show",
+        dates: { set: "2026-06-10" },
+        archived: false,
+        published: false,
       },
     },
     {
@@ -90,6 +109,7 @@ beforeEach(() => {
         title: "New Show",
         dates: { set: "2026-05-10" },
         archived: false,
+        published: true,
       },
     },
   ];
@@ -102,6 +122,7 @@ describe("listShowsForCrew", () => {
 
     expect(dataMock.filters).toContainEqual(["email", "alice@fxav.net"]);
     expect(dataMock.filters).toContainEqual(["shows.archived", false]);
+    expect(dataMock.filters).toContainEqual(["shows.published", true]);
     expect(shows).toEqual([
       {
         id: "show-new",
@@ -116,6 +137,46 @@ describe("listShowsForCrew", () => {
         title: "Old Show",
         dates: { set: "2026-01-10" },
         crewMemberId: "crew-old",
+      },
+    ]);
+    expect(shows.map((show) => show.id)).not.toContain("show-unpublished");
+  });
+
+  test("includes a crew show only when the joined show is published", async () => {
+    dataMock.rows = [
+      {
+        id: "crew-unpublished",
+        shows: {
+          id: "show-unpublished",
+          slug: "unpublished-show",
+          title: "Unpublished Show",
+          dates: { set: "2026-06-10" },
+          archived: false,
+          published: false,
+        },
+      },
+      {
+        id: "crew-published",
+        shows: {
+          id: "show-published",
+          slug: "published-show",
+          title: "Published Show",
+          dates: { set: "2026-07-10" },
+          archived: false,
+          published: true,
+        },
+      },
+    ];
+
+    const shows = await listShowsForCrew(identity);
+
+    expect(shows).toEqual([
+      {
+        id: "show-published",
+        slug: "published-show",
+        title: "Published Show",
+        dates: { set: "2026-07-10" },
+        crewMemberId: "crew-published",
       },
     ]);
   });
