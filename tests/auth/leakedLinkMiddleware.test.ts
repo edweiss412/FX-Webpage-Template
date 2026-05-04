@@ -23,10 +23,18 @@ const leakedState = vi.hoisted(() => ({
   alertUpserts: [] as unknown[],
   revokedRows: [] as unknown[],
   alertThrows: false,
+  verifyInfraFails: false as boolean,
 }));
 
 vi.mock("@/lib/auth/jwt", () => ({
   verifyLinkJwt: async () => {
+    if (leakedState.verifyInfraFails) {
+      // R13 #3: simulate a JWT verifier configuration/infrastructure
+      // failure (e.g. missing JWT_SIGNING_SECRET). The middleware's
+      // catch must distinguish this from a validation failure and
+      // return 503, not 410.
+      throw new Error("JWT_SIGNING_SECRET must be set");
+    }
     if (leakedState.verifyFails) {
       throw new Error("bad signature");
     }
@@ -146,13 +154,22 @@ function leakedRequest(): NextRequest {
   return new NextRequest("https://crew.fxav.test/show/test-show?t=signed-jwt");
 }
 
-async function expectJson(response: Response) {
-  return (await response.json()) as { code: string };
+/**
+ * R13 #2 (round-12): leaked-link middleware now returns HTML to
+ * browsers instead of JSON. The test helper inspects the rendered
+ * body for catalog-derived copy + the absence of raw error codes,
+ * since the no-raw-error-codes invariant forbids raw `{ code: ... }`
+ * payloads on document-load paths.
+ */
+async function expectHtml(response: Response): Promise<string> {
+  expect(response.headers.get("content-type")).toMatch(/text\/html/);
+  return response.text();
 }
 
 describe("middleware leaked-link revocation", () => {
   beforeEach(() => {
     leakedState.verifyFails = false;
+    leakedState.verifyInfraFails = false;
     leakedState.lockFails = false;
     leakedState.authReadFails = false;
     leakedState.revokedUpsertFails = false;
@@ -182,9 +199,9 @@ describe("middleware leaked-link revocation", () => {
       const response = await middleware(leakedRequest());
 
       expect(response.status).toBe(503);
-      await expect(expectJson(response)).resolves.toMatchObject({
-        code: "ADMIN_SESSION_LOOKUP_FAILED",
-      });
+      const html = await expectHtml(response);
+      expect(html).not.toContain("ADMIN_SESSION_LOOKUP_FAILED");
+      expect(html).toContain("Sign-in temporarily unavailable");
       expect(leakedState.alertUpserts).toHaveLength(1);
     },
   );
@@ -196,9 +213,9 @@ describe("middleware leaked-link revocation", () => {
     const response = await middleware(leakedRequest());
 
     expect(response.status).toBe(503);
-    await expect(expectJson(response)).resolves.toMatchObject({
-      code: "ADMIN_SESSION_LOOKUP_FAILED",
-    });
+    const html = await expectHtml(response);
+    expect(html).not.toContain("ADMIN_SESSION_LOOKUP_FAILED");
+    expect(html).toContain("Sign-in temporarily unavailable");
     expect(leakedState.alertUpserts).toHaveLength(1);
   });
 
@@ -208,9 +225,9 @@ describe("middleware leaked-link revocation", () => {
     const response = await middleware(leakedRequest());
 
     expect(response.status).toBe(410);
-    await expect(expectJson(response)).resolves.toMatchObject({
-      code: "LEAKED_LINK_DETECTED",
-    });
+    const html = await expectHtml(response);
+    expect(html).not.toContain("LEAKED_LINK_DETECTED");
+    expect(html).toContain("This link has been revoked");
     expect(leakedState.alertUpserts).toEqual([]);
   });
 
@@ -218,9 +235,9 @@ describe("middleware leaked-link revocation", () => {
     const response = await middleware(leakedRequest());
 
     expect(response.status).toBe(410);
-    await expect(expectJson(response)).resolves.toMatchObject({
-      code: "LEAKED_LINK_DETECTED",
-    });
+    const html = await expectHtml(response);
+    expect(html).not.toContain("LEAKED_LINK_DETECTED");
+    expect(html).toContain("This link has been revoked");
     expect(leakedState.alertUpserts).toEqual([]);
   });
 
@@ -230,9 +247,9 @@ describe("middleware leaked-link revocation", () => {
     const response = await middleware(leakedRequest());
 
     expect(response.status).toBe(503);
-    await expect(expectJson(response)).resolves.toMatchObject({
-      code: "ADMIN_SESSION_LOOKUP_FAILED",
-    });
+    const html = await expectHtml(response);
+    expect(html).not.toContain("ADMIN_SESSION_LOOKUP_FAILED");
+    expect(html).toContain("Sign-in temporarily unavailable");
     expect(leakedState.revokedRows).toEqual([]);
   });
 
@@ -248,8 +265,41 @@ describe("middleware leaked-link revocation", () => {
     const response = await middleware(leakedRequest());
 
     expect(response.status).toBe(410);
-    await expect(expectJson(response)).resolves.toMatchObject({
-      code: "LEAKED_LINK_DETECTED",
-    });
+    const html = await expectHtml(response);
+    expect(html).not.toContain("LEAKED_LINK_DETECTED");
+    expect(html).toContain("This link has been revoked");
+  });
+
+  test("R13 #3: JWT verifier infrastructure failure surfaces as 503, not 410", async () => {
+    // Round-12 §A MEDIUM: pre-fix, every verifyLinkJwt() throw was
+    // converted into "successful revocation" 410. If the verifier
+    // threw because of missing JWT_SIGNING_SECRET (config) — not
+    // because of a malformed/expired/forged token — the middleware
+    // would still tell the user the link was revoked AND skip the
+    // revocation writes. Operators saw no signal that the verifier
+    // was broken.
+    //
+    // Post-fix: isJwtInfraError narrows the catch. Validation
+    // failures still return 410 (same response shape; the
+    // existing "invalid JWT verification" test already covers
+    // that). Infra failures now return 503 +
+    // leakedLinkRevocationFailureResponse() so operators see the
+    // configuration fault.
+    leakedState.verifyInfraFails = true;
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await middleware(leakedRequest());
+
+    expect(response.status).toBe(503);
+    const html = await expectHtml(response);
+    expect(html).not.toContain("LEAKED_LINK_DETECTED");
+    expect(html).not.toContain("ADMIN_SESSION_LOOKUP_FAILED");
+    expect(html).toContain("Sign-in temporarily unavailable");
+    // No revocation writes occurred — the verifier infra failure
+    // means we couldn't decide anything.
+    expect(leakedState.revokedRows).toEqual([]);
+    expect(errorSpy).toHaveBeenCalled();
+
+    errorSpy.mockRestore();
   });
 });
