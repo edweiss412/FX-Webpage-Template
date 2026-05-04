@@ -77,7 +77,25 @@ export async function validateGoogleSession(
       code: "ADMIN_SESSION_LOOKUP_FAILED",
     };
   }
-  const { data: userResult, error: userError } = await supabase.auth.getUser();
+  // Meta-discipline (M5 R18 post-fix): the awaited supabase.auth.getUser()
+  // call can THROW (network, abort, JWT decode error) in addition to
+  // returning { error }. The pre-fix `if (userError)` arm only handled
+  // the returned-error case; a throw bypassed the discriminated union
+  // entirely and surfaced as an uncataloged framework error. Wrap so
+  // both shapes route to terminal_failure 500.
+  let userResult: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"];
+  let userError: Awaited<ReturnType<typeof supabase.auth.getUser>>["error"];
+  try {
+    const r = await supabase.auth.getUser();
+    userResult = r.data;
+    userError = r.error;
+  } catch {
+    return {
+      kind: "terminal_failure",
+      status: 500,
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    };
+  }
   if (userError) {
     // R16 #1 (round-15 §A HIGH): pre-R16 the route collapsed any
     // getUser() error into "continue", so a transient Supabase Auth

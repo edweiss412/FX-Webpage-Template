@@ -63,7 +63,22 @@ export async function requireAdmin(): Promise<void> {
     );
   }
 
-  const { data: userData, error: userError } = await supabase.auth.getUser();
+  // Meta-discipline (M5 R18 post-fix): supabase.auth.getUser() can THROW
+  // (network, abort, JWT decode error) in addition to returning { error }.
+  // R17 #1 only mapped userError to AdminInfraError; a throw bypassed the
+  // discriminated union and produced an uncataloged framework error
+  // instead of the cataloged 500 path admin layouts depend on.
+  let userData: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"];
+  let userError: Awaited<ReturnType<typeof supabase.auth.getUser>>["error"];
+  try {
+    const r = await supabase.auth.getUser();
+    userData = r.data;
+    userError = r.error;
+  } catch (err) {
+    throw new AdminInfraError(
+      `requireAdmin: getUser threw: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   if (userError) {
     throw new AdminInfraError(
       `requireAdmin: getUser failed: ${userError.message}`,
@@ -76,7 +91,19 @@ export async function requireAdmin(): Promise<void> {
     forbidden();
   }
 
-  const { data, error } = await supabase.rpc("is_admin");
+  // Same shape: rpc() can throw (network, abort) in addition to returning
+  // { error }. Both arms must reach AdminInfraError.
+  let data: Awaited<ReturnType<typeof supabase.rpc>>["data"];
+  let error: Awaited<ReturnType<typeof supabase.rpc>>["error"];
+  try {
+    const r = await supabase.rpc("is_admin");
+    data = r.data;
+    error = r.error;
+  } catch (err) {
+    throw new AdminInfraError(
+      `requireAdmin: is_admin RPC threw: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
   if (error) {
     throw new AdminInfraError(
       `requireAdmin: is_admin RPC failed: ${error.message}`,
