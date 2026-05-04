@@ -50,4 +50,4 @@ playwright/.cache/
 .vercel
 .superpowers/
 .serena/
-.claude/
+.claude/next-env.d.ts
