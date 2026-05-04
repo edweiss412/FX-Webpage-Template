@@ -307,6 +307,64 @@ describe("OAuth sign-out route", () => {
     errorSpy.mockRestore();
   });
 
+  test("POST clears chunked Supabase auth cookies when signOut succeeds", async () => {
+    const { POST } = await import("@/app/auth/sign-out/route");
+
+    const response = await POST(
+      new NextRequest("https://crew.fxav.test/auth/sign-out", {
+        method: "POST",
+        headers: {
+          cookie:
+            "sb-test-auth-token.0=chunk0; sb-test-auth-token.1=chunk1; sb-test-auth-token-code-verifier.0=pkce0",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(303);
+    const setCookies = setCookieLines(response).join("\n");
+    expect(setCookies).toContain(
+      "sb-test-auth-token.0=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
+    expect(setCookies).toContain(
+      "sb-test-auth-token.1=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
+    expect(setCookies).toContain(
+      "sb-test-auth-token-code-verifier.0=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
+  });
+
+  test("POST clears chunked Supabase auth cookies when signOut fails", async () => {
+    server.client.auth.signOut.mockResolvedValue({
+      error: new Error("signOut failed"),
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { POST } = await import("@/app/auth/sign-out/route");
+
+    const response = await POST(
+      new NextRequest("https://crew.fxav.test/auth/sign-out", {
+        method: "POST",
+        headers: {
+          cookie:
+            "sb-test-auth-token.0=chunk0; sb-test-auth-token.1=chunk1; sb-test-auth-token-code-verifier.0=pkce0",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(303);
+    const setCookies = setCookieLines(response).join("\n");
+    expect(setCookies).toContain(
+      "sb-test-auth-token.0=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
+    expect(setCookies).toContain(
+      "sb-test-auth-token.1=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
+    expect(setCookies).toContain(
+      "sb-test-auth-token-code-verifier.0=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
+
+    errorSpy.mockRestore();
+  });
+
   test("GET returns 405", async () => {
     const { GET } = await import("@/app/auth/sign-out/route");
 
