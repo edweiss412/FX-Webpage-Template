@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { validateNextParamDetailed } from "@/lib/auth/validateNextParam";
+import { isAdminSession } from "@/lib/auth/isAdminSession";
+import {
+  DEFAULT_AUTH_NEXT_PATH,
+  validateNextParamDetailed,
+} from "@/lib/auth/validateNextParam";
 
 type OAuthRedirectCode = "OAUTH_STATE_INVALID" | "OAUTH_REDIRECT_INVALID";
 
@@ -29,8 +33,9 @@ function clearPkceVerifierCookies(request: NextRequest, response: NextResponse):
 }
 
 export async function GET(request: NextRequest): Promise<Response> {
-  const nextOutcome = validateNextParamDetailed(request.nextUrl.searchParams.get("next"));
-  if (!nextOutcome.ok) {
+  const rawNext = request.nextUrl.searchParams.get("next");
+  const nextOutcome = validateNextParamDetailed(rawNext);
+  if (!nextOutcome.ok && rawNext !== null) {
     const response = signInRedirect(request, "OAUTH_REDIRECT_INVALID", nextOutcome.path);
     clearPkceVerifierCookies(request, response);
     return response;
@@ -51,7 +56,15 @@ export async function GET(request: NextRequest): Promise<Response> {
     return response;
   }
 
-  const response = redirectTo(request, nextOutcome.path);
+  let redirectPath = nextOutcome.path;
+  if (redirectPath === DEFAULT_AUTH_NEXT_PATH) {
+    const admin = await isAdminSession(request);
+    if (!admin.ok) {
+      redirectPath = "/me";
+    }
+  }
+
+  const response = redirectTo(request, redirectPath);
   clearPkceVerifierCookies(request, response);
   return response;
 }

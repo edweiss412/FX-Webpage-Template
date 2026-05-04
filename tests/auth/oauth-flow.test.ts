@@ -5,8 +5,10 @@ const server = vi.hoisted(() => ({
   client: {
     auth: {
       exchangeCodeForSession: vi.fn(),
+      getUser: vi.fn(),
       signOut: vi.fn(),
     },
+    rpc: vi.fn(),
   },
   createSupabaseServerClient: vi.fn(),
 }));
@@ -33,6 +35,66 @@ describe("OAuth callback route", () => {
     process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.test";
     server.createSupabaseServerClient.mockResolvedValue(server.client);
     server.client.auth.exchangeCodeForSession.mockResolvedValue({ data: {}, error: null });
+    server.client.auth.getUser.mockResolvedValue({
+      data: { user: { email: "crew@fxav.test" } },
+      error: null,
+    });
+    server.client.rpc.mockResolvedValue({ data: false, error: null });
+  });
+
+  test("crew-only successful callback with no next falls back to /me instead of /admin", async () => {
+    const { GET } = await import("@/app/auth/callback/route");
+
+    const response = await GET(
+      new NextRequest("https://crew.fxav.test/auth/callback?code=abc"),
+    );
+
+    expect(server.client.auth.exchangeCodeForSession).toHaveBeenCalledWith("abc");
+    expect(response.status).toBe(302);
+    expect(locationOf(response)).toBe("https://crew.fxav.test/me");
+  });
+
+  test("crew-only successful callback honors explicit /me next path", async () => {
+    const { GET } = await import("@/app/auth/callback/route");
+
+    const response = await GET(
+      new NextRequest("https://crew.fxav.test/auth/callback?code=abc&next=/me"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(locationOf(response)).toBe("https://crew.fxav.test/me");
+  });
+
+  test("admin successful callback with no next keeps the /admin fallback", async () => {
+    server.client.auth.getUser.mockResolvedValue({
+      data: { user: { email: "admin@fxav.test" } },
+      error: null,
+    });
+    server.client.rpc.mockResolvedValue({ data: true, error: null });
+    const { GET } = await import("@/app/auth/callback/route");
+
+    const response = await GET(
+      new NextRequest("https://crew.fxav.test/auth/callback?code=abc"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(locationOf(response)).toBe("https://crew.fxav.test/admin");
+  });
+
+  test("admin successful callback honors explicit /admin/dev next path", async () => {
+    server.client.auth.getUser.mockResolvedValue({
+      data: { user: { email: "admin@fxav.test" } },
+      error: null,
+    });
+    server.client.rpc.mockResolvedValue({ data: true, error: null });
+    const { GET } = await import("@/app/auth/callback/route");
+
+    const response = await GET(
+      new NextRequest("https://crew.fxav.test/auth/callback?code=abc&next=/admin/dev"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(locationOf(response)).toBe("https://crew.fxav.test/admin/dev");
   });
 
   test("exchanges ?code= and redirects to the validated next path", async () => {
