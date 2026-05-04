@@ -27,6 +27,20 @@ const leakedState = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/auth/jwt", () => ({
+  // R16 #2: isJwtInfraError moved into lib/auth/jwt.ts so redeem-link
+  // can use the same distinction the middleware does. The mock must
+  // export it too — vi.mock fully shadows the real module, so omitting
+  // it would leave middleware's import undefined and route every
+  // verifyLinkJwt failure through the validation arm regardless of
+  // mock state.
+  isJwtInfraError: (error: unknown): boolean => {
+    if (!(error instanceof Error)) return false;
+    return (
+      error.message.includes("JWT_SIGNING_SECRET") ||
+      error.message.includes("active signing key") ||
+      error.message.includes("Failed to read")
+    );
+  },
   verifyLinkJwt: async () => {
     if (leakedState.verifyInfraFails) {
       // R13 #3: simulate a JWT verifier configuration/infrastructure

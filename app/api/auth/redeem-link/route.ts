@@ -13,7 +13,7 @@ import {
   encodeSessionCookieValue,
   setSessionCookie,
 } from "@/lib/auth/cookies";
-import { verifyLinkJwt } from "@/lib/auth/jwt";
+import { isJwtInfraError, verifyLinkJwt } from "@/lib/auth/jwt";
 import {
   ShowAdvisoryLockShowNotFoundError,
   withShowAdvisoryLock,
@@ -254,7 +254,19 @@ export async function POST(request: NextRequest): Promise<Response> {
     let verified;
     try {
       verified = await verifyLinkJwt(token);
-    } catch {
+    } catch (error) {
+      // R16 #2 (round-15 §A MEDIUM): distinguish JWT verifier infra
+      // failures (missing JWT_SIGNING_SECRET, signing-key fetch fail)
+      // from validation failures (signature/expiry/malformed). Pre-fix,
+      // every verify throw mapped to 401 SESSION_NOT_FOUND — config
+      // faults masqueraded as invalid-link auth errors. Mirrors the
+      // middleware's R13 #3 distinction via the shared isJwtInfraError
+      // helper now in lib/auth/jwt.ts.
+      if (isJwtInfraError(error)) {
+        return withBootstrapCleanup(
+          jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED"),
+        );
+      }
       return withBootstrapCleanup(jsonError(401, "SESSION_NOT_FOUND"));
     }
 

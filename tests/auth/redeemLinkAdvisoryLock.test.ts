@@ -73,7 +73,22 @@ vi.mock("@/lib/db/advisoryLock", () => ({
 }));
 
 vi.mock("@/lib/auth/jwt", () => ({
+  isJwtInfraError: (error: unknown): boolean => {
+    if (!(error instanceof Error)) return false;
+    return (
+      error.message.includes("JWT_SIGNING_SECRET") ||
+      error.message.includes("active signing key") ||
+      error.message.includes("Failed to read")
+    );
+  },
   verifyLinkJwt: async (token: string) => {
+    if (token.startsWith("infra-fail")) {
+      // R16 #2: simulate JWT verifier infra/config failure (e.g.
+      // missing JWT_SIGNING_SECRET). The route's catch must distinguish
+      // this from a validation failure and return 500
+      // ADMIN_SESSION_LOOKUP_FAILED, not 401 SESSION_NOT_FOUND.
+      throw new Error("JWT_SIGNING_SECRET must be set");
+    }
     if (token.startsWith("invalid-jwt")) {
       throw new Error("bad signature");
     }
@@ -653,5 +668,25 @@ describe("/api/auth/redeem-link advisory lock", () => {
     expect(response.status).toBe(200);
     expect(state.lockCalls).toEqual([{ showId: state.showId, mode: "block" }]);
     expect(state.mutationsOutsideLock).toEqual([]);
+  });
+
+  test("R16 #2: JWT verifier infra/config failure returns 500 ADMIN_SESSION_LOOKUP_FAILED, not 401 SESSION_NOT_FOUND", async () => {
+    // Round-15 §A MEDIUM: pre-fix, every verifyLinkJwt() throw mapped
+    // to 401 SESSION_NOT_FOUND. Config faults like missing
+    // JWT_SIGNING_SECRET masqueraded as invalid-link auth errors and
+    // operators lost the server-fault signal. R16 #2 routes
+    // isJwtInfraError() throws to 500 ADMIN_SESSION_LOOKUP_FAILED
+    // matching middleware's R13 #3 distinction.
+    const response = await POST(
+      requestFor({
+        token: "infra-fail-secret-missing",
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
   });
 });

@@ -161,3 +161,27 @@ export async function verifyLinkJwt(token: string): Promise<VerifiedLinkJwt> {
   assertLinkJwtPayload(payload);
   return { payload, verifiedKid };
 }
+
+/**
+ * Distinguish JWT validation failures (signature mismatch, expired token,
+ * malformed claims — expected for leaked or tampered tokens) from JWT
+ * verifier infrastructure/configuration failures (missing
+ * `JWT_SIGNING_SECRET`, signing-key fetch failure, etc.).
+ *
+ * Validation failures should map to the existing auth-failure response
+ * (e.g. middleware's `LEAKED_LINK_DETECTED` 410 or redeem-link's
+ * `SESSION_NOT_FOUND` 401). Infra failures must NOT masquerade as
+ * "successful revocation" or "invalid link" — operators need a 503/500
+ * signal that the verifier itself is broken. R16 #2 extracts this
+ * helper from middleware.ts (R13 #3) so redeem-link and any future
+ * verifyLinkJwt caller can apply the same distinction consistently.
+ */
+export function isJwtInfraError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const msg = error.message;
+  return (
+    msg.includes("JWT_SIGNING_SECRET") ||
+    msg.includes("active signing key") ||
+    msg.includes("Failed to read")
+  );
+}

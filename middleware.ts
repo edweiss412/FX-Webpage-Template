@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { verifyLinkJwt } from "@/lib/auth/jwt";
+import { isJwtInfraError, verifyLinkJwt } from "@/lib/auth/jwt";
 import { withShowAdvisoryLock } from "@/lib/db/advisoryLock";
 import { messageFor } from "@/lib/messages/lookup";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -66,26 +66,9 @@ function leakedLinkRevocationFailureResponse(): Response {
   });
 }
 
-/**
- * R13 #3 (round-12 §A MEDIUM): distinguish JWT validation failures
- * from JWT verifier infrastructure/configuration failures. The
- * leaked-link middleware previously caught every verifyLinkJwt()
- * throw and converted it into a "successful revocation" 410, masking
- * config faults like missing JWT_SIGNING_SECRET as completed
- * revocations. Validation failures (signature, expiry, malformed
- * claims) are expected for leaked or tampered tokens and should
- * still 410. Infra failures must surface as 503 + admin signal so
- * operators see the configuration fault.
- */
-function isJwtInfraError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  const msg = error.message;
-  return (
-    msg.includes("JWT_SIGNING_SECRET") ||
-    msg.includes("active signing key") ||
-    msg.includes("Failed to read")
-  );
-}
+// R16 #2: isJwtInfraError moved to lib/auth/jwt.ts so redeem-link can
+// use the same distinction. Original R13 #3 commit kept here for
+// archaeology — the middleware's catch arm still calls the helper.
 
 function passThrough(): NextResponse {
   return NextResponse.next();
