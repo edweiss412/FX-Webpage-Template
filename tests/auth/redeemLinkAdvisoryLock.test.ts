@@ -18,6 +18,7 @@ const state = vi.hoisted(() => ({
   consumedAt: null as string | null,
   consumeAttempts: 0,
   readErrors: new Map<string, { message: string }>(),
+  crewExists: true,
 }));
 
 vi.mock("@/lib/db/advisoryLock", () => ({
@@ -37,14 +38,19 @@ vi.mock("@/lib/db/advisoryLock", () => ({
 }));
 
 vi.mock("@/lib/auth/jwt", () => ({
-  verifyLinkJwt: async () => ({
-    verifiedKid: "k1",
-    payload: {
-      showId: state.showId,
-      crewMemberKey: { showId: state.showId, name: "Crew Tester" },
-      tokenVersion: 1,
-    },
-  }),
+  verifyLinkJwt: async (token: string) => {
+    if (token.startsWith("invalid-jwt")) {
+      throw new Error("bad signature");
+    }
+    return {
+      verifiedKid: "k1",
+      payload: {
+        showId: state.showId,
+        crewMemberKey: { showId: state.showId, name: "Crew Tester" },
+        tokenVersion: 1,
+      },
+    };
+  },
 }));
 
 function nonceHash(value: string): string {
@@ -107,6 +113,9 @@ function builder(table: string) {
         if (readError) {
           return Promise.resolve({ data: null, error: readError });
         }
+        if (!state.crewExists) {
+          return Promise.resolve({ data: null, error: null });
+        }
         return Promise.resolve({
           data: { id: state.crewMemberId, show_id: state.showId, name: "Crew Tester" },
           error: null,
@@ -146,9 +155,11 @@ describe("/api/auth/redeem-link advisory lock", () => {
     state.consumedAt = null;
     state.consumeAttempts = 0;
     state.readErrors.clear();
+    state.crewExists = true;
   });
 
   function requestFor(options: {
+    token?: string;
     cookieEntries?: Array<{
       nonce_hash: string;
       show_id: string;
@@ -170,7 +181,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
       method: "POST",
       headers,
       body: JSON.stringify({
-        token: "signed-jwt",
+        token: options.token ?? "signed-jwt",
         nonce: state.nonce,
         show_id: state.showId,
       }),
@@ -247,7 +258,57 @@ describe("/api/auth/redeem-link advisory lock", () => {
     expect(state.consumedAt).toEqual(expect.any(String));
   });
 
-  test("revoked-links read error returns 500 without consuming nonce so retry can succeed", async () => {
+  test("invalid JWT consumes nonce before returning SESSION_NOT_FOUND", async () => {
+    const response = await POST(
+      requestFor({
+        token: "invalid-jwt-a",
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ code: "SESSION_NOT_FOUND" });
+    expect(state.consumedAt).toEqual(expect.any(String));
+  });
+
+  test("missing crew consumes nonce before returning LINK_NO_CREW_MATCH", async () => {
+    state.crewExists = false;
+
+    const response = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(response.status).toBe(410);
+    await expect(response.json()).resolves.toEqual({ code: "LINK_NO_CREW_MATCH" });
+    expect(state.consumedAt).toEqual(expect.any(String));
+  });
+
+  test("same nonce cannot enumerate multiple invalid JWT outcomes", async () => {
+    const firstResponse = await POST(
+      requestFor({
+        token: "invalid-jwt-a",
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(firstResponse.status).toBe(401);
+    await expect(firstResponse.json()).resolves.toEqual({ code: "SESSION_NOT_FOUND" });
+    expect(state.consumedAt).toEqual(expect.any(String));
+
+    const secondResponse = await POST(
+      requestFor({
+        token: "invalid-jwt-b",
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(secondResponse.status).toBe(403);
+    await expect(secondResponse.json()).resolves.toEqual({ code: "CSRF_DENIED" });
+  });
+
+  test("revoked-links read error returns 500 after consuming nonce", async () => {
     state.readErrors.set("revoked_links:select", { message: "fake DB outage" });
 
     const failedResponse = await POST(
@@ -260,16 +321,6 @@ describe("/api/auth/redeem-link advisory lock", () => {
     await expect(failedResponse.json()).resolves.toEqual({
       code: "ADMIN_SESSION_LOOKUP_FAILED",
     });
-    expect(state.consumedAt).toBeNull();
-
-    state.readErrors.clear();
-    const retryResponse = await POST(
-      requestFor({
-        cookieEntries: [matchingCookieEntry()],
-      }),
-    );
-
-    expect(retryResponse.status).toBe(200);
     expect(state.consumedAt).toEqual(expect.any(String));
   });
 
