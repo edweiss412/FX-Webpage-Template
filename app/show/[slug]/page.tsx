@@ -286,6 +286,21 @@ async function resolveViewer(
     }
     // Drift between isAdminSession and requireAdmin → fall through to the
     // next chain step. Don't return early.
+  } else if (admin.reason === "infra_error") {
+    // R16 #3 (round-15 §B HIGH): isAdminSession's R15 #3 infra_error
+    // arm was added but this show-page chain only checked admin.ok and
+    // fell through. A Supabase Auth or is_admin RPC outage was
+    // therefore silently treated as "ordinary not-admin" — the chain
+    // ran link/google validators on the failing infra and ultimately
+    // redirected to sign-in or /me, masking the server-side fault.
+    // Now we surface the infra fault distinctly via terminalFailure
+    // so the page renders the catalog-error path instead.
+    return {
+      viewer: null,
+      clearCookie,
+      terminalFailure: { status: 500, code: "ADMIN_SESSION_LOOKUP_FAILED" },
+      googleNoCrewMatch: false,
+    };
   }
 
   // R10 #1 (round-9 §A+§B HIGH): non-admin viewers must NOT trigger the
