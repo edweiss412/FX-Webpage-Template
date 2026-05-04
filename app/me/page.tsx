@@ -125,7 +125,7 @@ export default async function MePage() {
           <button
             data-testid="me-sign-out-button"
             type="submit"
-            className="text-sm text-text-subtle underline underline-offset-2 hover:text-text"
+            className="inline-flex min-h-tap-min items-center px-2 text-sm text-text-subtle underline underline-offset-2 hover:text-text"
           >
             Sign out
           </button>
@@ -160,14 +160,14 @@ function ShowCard({ show }: { show: CrewShowSummary }) {
   return (
     <li
       data-testid={`me-show-card-${show.slug}`}
-      className="rounded-md border border-border bg-surface p-tile-pad shadow-tile transition-shadow hover:shadow-tile"
+      className="rounded-md border border-border bg-surface p-tile-pad shadow-tile"
     >
       <Link href={`/show/${show.slug}`} className="block">
         <h2 className="text-lg font-semibold text-text-strong">{show.title}</h2>
         {dateLabel && isoDate ? (
           <time
             dateTime={isoDate}
-            className="mt-1 block text-sm text-text-subtle tabular-nums"
+            className="mt-1 block text-sm text-text-subtle"
           >
             {dateLabel}
           </time>

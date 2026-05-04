@@ -40,7 +40,10 @@ export default async function AdminLayout({
   await requireAdmin();
 
   return (
-    <div data-testid="admin-layout" className="mx-auto max-w-4xl p-6">
+    <div
+      data-testid="admin-layout"
+      className="mx-auto max-w-4xl p-page-pad-mobile sm:p-page-pad-desktop"
+    >
       <header className="mb-section-gap">
         <h1 className="text-xl font-semibold" data-testid="admin-header">
           Admin
