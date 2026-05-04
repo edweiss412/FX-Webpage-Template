@@ -155,23 +155,38 @@ export function ShowRealtimeBridge({
   );
   // The active channel handle for cleanup (step 4) and renewal.
   const currentChannelRef = useRef<ShowInvalidationChannel | null>(null);
-  // Single-flight gate for renewSubscription (Codex HIGH 3 / plan §827).
+  // Single-flight lock for renewSubscription (Codex HIGH 3 / plan §827,
+  // upgraded to owner-token in Codex round 5 HIGH).
   // CHANNEL_ERROR / TIMED_OUT / CLOSED / system.disconnected callbacks can
   // arrive in rapid succession with the SAME generation BEFORE the first
   // mint completes (generation is not advanced until AFTER mintSubscriber
   // resolves). Without this gate, a flaky network triggers overlapping
-  // JWT mints, repeated setAuth, and channel create/remove thrash. The
-  // ref is set true at the TOP of renewSubscription (BEFORE the first
-  // await) and cleared in a finally block on every exit path so a mint
-  // failure releases the lock and a subsequent disconnect can retry.
-  const isRenewingRef = useRef<boolean>(false);
+  // JWT mints, repeated setAuth, and channel create/remove thrash.
+  //
+  // Round 5 HIGH: a plain boolean lock is unsafe across cleanup/remount.
+  // If show-A is mid-renewal (boolean=true) when its effect cleans up
+  // and a new effect for show-B mounts, the boolean is still set true,
+  // so show-B's renewSubscription returns immediately at the lock check
+  // and never schedules its own recovery. Worse, show-A's eventual
+  // finally unconditionally clears the boolean — possibly while a
+  // (later) show-B renewal is in flight, re-opening the overlapping-
+  // renewal race the lock was meant to prevent.
+  //
+  // The fix is owner-token semantics: the lock holds a reference to the
+  // effect token that acquired it, not just a boolean. Acquire stamps
+  // the lock with THIS effect's token. Release in the finally clears
+  // the lock ONLY if the current owner is the same token — a stale
+  // aborted effect's finally is a no-op against the live owner.
+  // Cleanup ALSO clears the lock if the unmounting effect owns it, so
+  // the next mount can acquire cleanly.
+  const renewalOwnerRef = useRef<{ aborted: boolean } | null>(null);
   // Codex round 3 HIGH — renewal-failure retry trigger. Set inside the
   // renewal `catch` when `await newSubscribed` rejects (the readiness
   // Promise rejects on CHANNEL_ERROR / TIMED_OUT / CLOSED). The status
   // callback that triggered the rejection ALSO calls renewSubscription,
-  // but it returns at the single-flight lock because `isRenewingRef` is
-  // still true; the lock releases AFTER the status that proved the
-  // channel failed has already been discarded. Without this flag, a
+  // but it returns at the single-flight lock because `renewalOwnerRef`
+  // still owns this effect's token; the lock releases AFTER the status
+  // that proved the channel failed has already been discarded. Without this flag, a
   // terminal failure status leaves `currentChannelRef` pointed at the
   // failed channel and the page receives no realtime invalidations until
   // a separate later event or a manual reload. The flag is read AFTER
@@ -273,19 +288,25 @@ export function ShowRealtimeBridge({
     // channel was opened so a late renewal can't race a newer
     // generation already in flight from a concurrent code path.
     const renewSubscription = async (priorClosureGen: number) => {
-      // === Codex HIGH 3 — single-flight gate ===
+      // === Codex HIGH 3 / Round 5 HIGH — owner-token single-flight lock ===
       // Multiple CHANNEL_ERROR / TIMED_OUT / CLOSED / system.disconnected
       // callbacks can arrive in rapid succession with the SAME generation
       // BEFORE the first mint completes (the generation is not advanced
       // until AFTER mintSubscriberToken resolves). Without this gate, a
       // flaky network triggers overlapping JWT mints, repeated setAuth,
-      // and channel create/remove thrash. Set BEFORE the first await so
-      // every concurrent caller observes the lock; the finally block
-      // releases it on EVERY exit path so a mint failure releases the
-      // lock and a subsequent disconnect can retry.
+      // and channel create/remove thrash.
+      //
+      // Round 5: the lock is the per-effect token, not a boolean. Two
+      // checks before acquire: (1) abort-token short-circuit so a stale
+      // aborted effect never re-enters; (2) lock occupancy — if any
+      // owner is currently holding the lock (this effect or a stale
+      // one), bail. Then stamp the lock with THIS effect's token. The
+      // finally below clears the lock ONLY when the current owner is
+      // still THIS effect's token — preventing a stale aborted finally
+      // from releasing the lock while a fresh effect's renewal is live.
       if (effectToken.aborted) return;
-      if (isRenewingRef.current) return;
-      isRenewingRef.current = true;
+      if (renewalOwnerRef.current !== null) return;
+      renewalOwnerRef.current = effectToken;
       try {
         if (effectToken.aborted) return;
         if (!isMountedRef.current) return;
@@ -447,11 +468,16 @@ export function ShowRealtimeBridge({
         // doesn't poison the next legitimate failure-recovery sequence.
         renewalBackoffStepRef.current = 0;
       } finally {
-        // Codex HIGH 3 — release the single-flight lock on EVERY exit
-        // path (success AND every failure branch above that returned
-        // early). A failed mint must release the lock so a subsequent
-        // disconnect can trigger another renewal attempt.
-        isRenewingRef.current = false;
+        // Codex HIGH 3 / Round 5 HIGH — release the owner-token lock on
+        // EVERY exit path (success AND every failure branch above that
+        // returned early), but ONLY if the current owner is still THIS
+        // effect's token. If a stale aborted effect's finally runs after
+        // the live effect already acquired the lock, this guard makes
+        // the stale release a no-op — preserving the live effect's
+        // single-flight protection.
+        if (renewalOwnerRef.current === effectToken) {
+          renewalOwnerRef.current = null;
+        }
         // Codex round 3 HIGH — drain the renewal-pending flag now that
         // the lock has been released. If the catch path above (or any
         // earlier failure branch) flagged a retry-needed state, schedule
@@ -667,6 +693,21 @@ export function ShowRealtimeBridge({
         pendingRenewalTimerRef.current = null;
       }
       pendingRenewalRef.current = false;
+      // Round 5 HIGH — release the owner-token lock if THIS effect owns
+      // it. Without this, an unmount mid-renewal leaves the lock
+      // pointing at the (now-aborted) effect's token; the next effect's
+      // renewSubscription would still bail at the occupancy check
+      // because `renewalOwnerRef.current !== null`, even though the
+      // owner is a dead token. The stale renewal's finally would
+      // ALSO no-op (its `=== effectToken` check still matches the
+      // dead token, so it would clear) — but waiting on a stale
+      // finally that may never run (e.g., if the stale path returned
+      // before reaching the finally) leaves the new effect stuck.
+      // Clearing here unconditionally for the cleaning-up effect
+      // resolves that ambiguity.
+      if (renewalOwnerRef.current === effectToken) {
+        renewalOwnerRef.current = null;
+      }
       // 4. Tear down the channel.
       const channel = currentChannelRef.current;
       currentChannelRef.current = null;
