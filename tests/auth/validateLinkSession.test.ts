@@ -74,6 +74,10 @@ function tableClient(table: string) {
       delete: () => ({
         eq: (_column: string, value: string) => {
           mockDb.deletedTokens.push(value);
+          const error = mockDb.errors.get("link_sessions:delete") ?? null;
+          if (error) {
+            return Promise.resolve({ error });
+          }
           mockDb.linkSessions.delete(value);
           return Promise.resolve({ error: null });
         },
@@ -317,6 +321,93 @@ describe("validateLinkSession", () => {
     });
     expect(mockDb.linkSessions.has(sessionToken)).toBe(false);
   });
+
+  test.each([
+    {
+      name: "absolute timeout",
+      setup: () =>
+        seedValidSession({
+          expires_at: new Date(Date.now() - 1000).toISOString(),
+        }),
+      contextShowId: showId,
+    },
+    {
+      name: "signing-key rotation",
+      setup: () => {
+        seedValidSession();
+        mockDb.activeSigningKeyId = "k2";
+      },
+      contextShowId: showId,
+    },
+    {
+      name: "wrong show",
+      setup: () => seedValidSession(),
+      contextShowId: otherShowId,
+    },
+    {
+      name: "missing crew member id",
+      setup: () => seedValidSession({ crew_member_id: null }),
+      contextShowId: showId,
+    },
+    {
+      name: "missing crew row",
+      setup: () => {
+        seedValidSession();
+        mockDb.crewMembers.delete(crewMemberId);
+      },
+      contextShowId: showId,
+    },
+    {
+      name: "version mismatch",
+      setup: () => seedValidSession({ jwt_token_version: 2 }),
+      contextShowId: showId,
+    },
+    {
+      name: "revocation floor",
+      setup: () => {
+        seedValidSession();
+        mockDb.crewAuth.set(authKey(showId, "Eric Weiss"), {
+          current_token_version: 3,
+          revoked_below_version: 3,
+        });
+      },
+      contextShowId: showId,
+    },
+    {
+      name: "surgical revocation",
+      setup: () => {
+        seedValidSession();
+        mockDb.revokedLinks.add(revokedKey(showId, "Eric Weiss", 3));
+      },
+      contextShowId: showId,
+    },
+    {
+      name: "idle timeout",
+      setup: () =>
+        seedValidSession({
+          last_active_at: new Date(Date.now() - 16 * 60 * 1000).toISOString(),
+        }),
+      contextShowId: showId,
+    },
+  ])(
+    "$name delete error returns terminal failure without clearing the cookie",
+    async ({ setup, contextShowId }) => {
+      setup();
+      mockDb.errors.set("link_sessions:delete", { message: "fake DB outage" });
+
+      const result = await validateLinkSession(makeReq(cookieFor()), {
+        showId: contextShowId,
+      });
+
+      expect(result).toEqual({
+        kind: "terminal_failure",
+        status: 500,
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+      });
+      expect(mockDb.deletedTokens).toEqual([sessionToken]);
+      expect(mockDb.linkSessions.has(sessionToken)).toBe(true);
+    },
+  );
 
   test.each([
     "link_sessions:select",

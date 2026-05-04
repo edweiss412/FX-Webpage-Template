@@ -78,9 +78,12 @@ function lookupFailure(): LinkSessionValidationResult {
   };
 }
 
-async function deleteSession(token: string): Promise<void> {
+export async function deleteSession(token: string): Promise<void> {
   const supabase = createSupabaseServiceRoleClient();
-  await supabase.from("link_sessions").delete().eq("token", token);
+  const { error } = await supabase.from("link_sessions").delete().eq("token", token);
+  if (error) {
+    throw new Error("link session delete failed");
+  }
 }
 
 async function readActiveSigningKeyId(): Promise<string> {
@@ -130,7 +133,11 @@ export async function validateLinkSession(
     status: 401 | 410,
     code: AuthFailureCode,
   ): Promise<LinkSessionValidationResult> => {
-    await deleteSession(session.token);
+    try {
+      await deleteSession(session.token);
+    } catch {
+      return lookupFailure();
+    }
     return recoverable(status, code);
   };
 
@@ -145,7 +152,11 @@ export async function validateLinkSession(
     return lookupFailure();
   }
   if (session.signing_key_id !== activeSigningKeyId) {
-    await deleteSession(session.token);
+    try {
+      await deleteSession(session.token);
+    } catch {
+      return lookupFailure();
+    }
     return {
       kind: "terminal_failure",
       status: 401,
@@ -155,7 +166,11 @@ export async function validateLinkSession(
   }
 
   if (envelope.show_id !== context.showId || session.show_id !== context.showId) {
-    await deleteSession(session.token);
+    try {
+      await deleteSession(session.token);
+    } catch {
+      return lookupFailure();
+    }
     return { kind: "continue", clearCookie: true };
   }
 
