@@ -42,7 +42,7 @@
  */
 import { cookies, headers } from "next/headers";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 
 import { validateGoogleIdentity } from "@/lib/auth/validateGoogleIdentity";
 import { listShowsForCrew, type CrewShowSummary } from "@/lib/data/listShowsForCrew";
@@ -101,13 +101,33 @@ export default async function MePage() {
     redirect("/auth/sign-in?next=/me");
   }
   if (result.kind === "terminal_failure") {
-    // R15 #4: validator infra fault. Pre-fix every getUser/server-
-    // client failure was downgraded to "continue" → redirect to
-    // sign-in, masquerading as "you're not signed in." Now we
-    // surface a server-error response so the user sees a real
-    // failure state and operators get a 500-class signal.
-    void messageFor(result.code as never);
-    notFound();
+    // R16 #4 (round-15 §B MEDIUM): R15 #4 first added the
+    // terminal_failure handling but routed to notFound(), which
+    // browsers render as 404 — indistinguishable from "page doesn't
+    // exist" and giving crew no recovery cue for a server-side
+    // outage. Render a cataloged crew-facing copy block instead so
+    // the user sees a real failure state with retry guidance, not a
+    // 404 that reads like "you're not signed in."
+    const entry = messageFor(result.code as never);
+    return (
+      <main
+        data-testid="me-page-terminal-failure"
+        className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
+      >
+        <h1 className="text-2xl font-bold text-text-strong">
+          We&rsquo;re having trouble loading your shows
+        </h1>
+        <p className="mt-4 text-base text-text-subtle">
+          {entry.crewFacing ?? entry.dougFacing ?? "Please try again in a moment."}
+        </p>
+        <Link
+          href="/me"
+          className="mt-section-gap inline-flex min-h-tap-min items-center px-4 py-2 text-base text-text-strong underline underline-offset-2"
+        >
+          Try again
+        </Link>
+      </main>
+    );
   }
 
   const viewer = result.viewer;
