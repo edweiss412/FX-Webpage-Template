@@ -153,6 +153,13 @@ export async function POST(request: NextRequest): Promise<Response> {
       return jsonError(403, "CSRF_DENIED");
     }
 
+    if (!cookieEntry) {
+      return jsonError(403, "CSRF_DENIED");
+    }
+    if (cookieEntry.signing_key_id !== nonceRow.signing_key_id) {
+      return jsonError(403, "CSRF_DENIED");
+    }
+
     const consume = await supabase
       .from("bootstrap_nonces")
       .update({ consumed_at: new Date().toISOString() })
@@ -162,13 +169,6 @@ export async function POST(request: NextRequest): Promise<Response> {
       .select("nonce_hash")
       .maybeSingle();
     if (consume.error || !consume.data) {
-      return jsonError(403, "CSRF_DENIED");
-    }
-
-    if (!cookieEntry) {
-      return jsonError(403, "CSRF_NONCE_EXPIRED");
-    }
-    if (cookieEntry.signing_key_id !== nonceRow.signing_key_id) {
       return jsonError(403, "CSRF_DENIED");
     }
 
