@@ -204,6 +204,22 @@ vi.mock("@/lib/realtime/subscribeToShow", () => {
   };
 });
 
+// Hoisted state for the channel-handlers mock. The `removeChannelGate`
+// lets a test inject a Promise that `removeChannel` must await before
+// resolving — used to simulate the "removeChannel held across an
+// unmount/remount" scenario in Test F (Codex round 4 HIGH).
+const channelHandlersMock = vi.hoisted(() => {
+  return {
+    state: {
+      // When non-null, every removeChannel call awaits this Promise
+      // BEFORE marking the channel as removed and resolving. Tests
+      // stuff a manually-controlled Promise here to hold the renewal's
+      // failed-channel teardown across an unmount.
+      removeChannelGate: null as Promise<void> | null,
+    },
+  };
+});
+
 vi.mock("@/lib/realtime/showRealtimeChannelHandlers", () => {
   // The bridge wires `system` + status callbacks via this small adapter so
   // tests can attach handlers to the mocked channel. Real implementation
@@ -224,6 +240,10 @@ vi.mock("@/lib/realtime/showRealtimeChannelHandlers", () => {
     },
     removeChannel: vi.fn(
       async (_client: unknown, channel: { removed: boolean }) => {
+        const gate = channelHandlersMock.state.removeChannelGate;
+        if (gate !== null) {
+          await gate;
+        }
         channel.removed = true;
         return "ok";
       },
@@ -262,6 +282,7 @@ beforeEach(() => {
   subscribeMock.state.throwOnNext = false;
   supabaseMock.state.setAuth.mockReset();
   supabaseMock.state.setAuth.mockImplementation(() => undefined);
+  channelHandlersMock.state.removeChannelGate = null;
   fetchMock.state.handlers = [];
   fetchMock.state.calls = [];
 
@@ -1507,4 +1528,245 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
 
     consoleWarnSpy.mockRestore();
   });
+
+  // === Codex round 4 HIGH — stale-renewal-after-cleanup ABA race ===
+  // Scenario: a renewal's `await newSubscribed` rejects (TIMED_OUT) and
+  // the bridge enters its catch path. Inside the catch we tear down the
+  // failed channel via `await removeChannel(...)`. If the effect is
+  // CLEANED UP and RE-CREATED with a different slug/showId WHILE that
+  // removeChannel is still resolving, the old effect's catch resumes
+  // post-cleanup. Without a per-effect abort token, the old catch sets
+  // `pendingRenewalRef.current = true`; the old finally then reads the
+  // generation counter (which has advanced AND been advanced again by
+  // the new mount, so it could ABA-match the saved comparand) and
+  // schedules a backoff setTimeout that calls renewSubscription against
+  // the OLD effect's `slug`/`showId` closures — minting and subscribing
+  // for the wrong show, and removing the new effect's healthy channel.
+  //
+  // The fix is the per-effect abort token: cleanup sets
+  // `effectToken.aborted = true`; every async path in the renewal
+  // closes over THIS effect's token and bails on `aborted` BEFORE
+  // mutating shared refs or scheduling work. Test F pins this fix by
+  // simulating the exact race Codex flagged.
+  test(
+    "HIGH (round 4) Test F — held removeChannel + remount with different slug: stale renewal does NOT mint, subscribe, or remove the new channel",
+    async () => {
+      let mintCount = 0;
+      const mintCallsBySlug: string[] = [];
+      pushFetchHandler(
+        (url) => url.includes("/api/realtime/subscriber-token"),
+        async ({ init }) => {
+          mintCount += 1;
+          // Capture the slug body so we can assert later that NO mint
+          // POSTed for show-A's slug after the remount.
+          let slug = "";
+          try {
+            const body =
+              init && typeof init.body === "string"
+                ? (JSON.parse(init.body) as { slug?: unknown })
+                : null;
+            slug = typeof body?.slug === "string" ? body.slug : "";
+          } catch {
+            slug = "";
+          }
+          mintCallsBySlug.push(slug);
+          return new Response(
+            JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        },
+      );
+
+      // Step 1: Mount with slug=show-A.
+      const utils = render(
+        <ShowRealtimeBridge
+          showId="show-A-uuid"
+          slug="show-A"
+          renderVersion="BASELINE"
+        />,
+      );
+      for (let i = 0; i < 10; i += 1) {
+        if (subscribeMock.state.currentChannel) break;
+        await flushPromises();
+      }
+      const showAFirstChannel = subscribeMock.state.currentChannel;
+      if (!showAFirstChannel) throw new Error("show-A channel not registered");
+      await act(async () => {
+        showAFirstChannel.fireStatus("SUBSCRIBED");
+      });
+      await flushPromises();
+      await flushPromises();
+
+      // Step 2: Trigger renewal on show-A via system.disconnected.
+      // (The renewal is the path that ultimately calls
+      // `await removeChannel(failedChannel)` in its readiness-failed
+      // catch — the line we need to hold across the unmount/remount.)
+      await act(async () => {
+        showAFirstChannel.fireSystem({ event: "disconnected" });
+      });
+      // Drain the renewal microtasks until the NEW (post-renewal)
+      // channel for show-A is registered.
+      for (let i = 0; i < 10; i += 1) {
+        await flushPromises();
+      }
+      const showARenewalChannel = subscribeMock.state.currentChannel;
+      if (!showARenewalChannel) {
+        throw new Error("show-A renewal channel not registered");
+      }
+      expect(showARenewalChannel).not.toBe(showAFirstChannel);
+
+      // Step 3: Install the removeChannel gate BEFORE firing the
+      // failure status. The renewal's catch will call removeChannel on
+      // the failed channel; that call now blocks until we resolve the
+      // gate manually.
+      let resolveGate: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        resolveGate = resolve;
+      });
+      channelHandlersMock.state.removeChannelGate = gate;
+
+      // Step 4: Fire TIMED_OUT on the renewal channel → readiness
+      // rejects → bridge enters the catch path → calls
+      // `await removeChannel(failedChannel)` which now blocks on the
+      // gate. The bridge's catch is suspended at that await.
+      await act(async () => {
+        showARenewalChannel.fireStatus("TIMED_OUT");
+      });
+      // Drain microtasks WITHOUT resolving the gate. The catch's
+      // `await removeChannel` is parked here.
+      for (let i = 0; i < 10; i += 1) {
+        await flushPromises();
+      }
+
+      // Snapshot the relevant state BEFORE the remount: capture the
+      // mint-count and the subscribe-count that the OLD effect's
+      // stale renewal could perturb if the abort token isn't honored.
+      const subscribesBeforeRemount = subscribeMock.state.subscribeCalls.length;
+      const mintsBeforeRemount = mintCount;
+
+      // Step 5: Re-mount with slug=show-B, showId=show-B-uuid.
+      // React will run the cleanup of the show-A effect (which sets
+      // effectToken.aborted = true on the old token) and then run a
+      // fresh effect for show-B. The show-A effect's catch is STILL
+      // parked at `await removeChannel`.
+      //
+      // For the show-B mount the gate is also active (the same gate
+      // applies to all removeChannel calls). The show-B initial mount
+      // does not call removeChannel (no old channel to tear down), so
+      // its subscribe path runs fine. Drop the gate AFTER show-B's
+      // channel is registered so the show-B side never blocks.
+      utils.rerender(
+        <ShowRealtimeBridge
+          showId="show-B-uuid"
+          slug="show-B"
+          renderVersion="BASELINE"
+        />,
+      );
+      // Drain enough microtasks for show-B's mint + subscribe to land.
+      for (let i = 0; i < 15; i += 1) {
+        if (
+          subscribeMock.state.currentChannel &&
+          subscribeMock.state.currentChannel !== showARenewalChannel
+        ) {
+          break;
+        }
+        await flushPromises();
+      }
+      const showBChannel = subscribeMock.state.currentChannel;
+      if (!showBChannel) throw new Error("show-B channel not registered");
+      expect(showBChannel).not.toBe(showARenewalChannel);
+      // Resolve SUBSCRIBED on show-B so its readiness gate releases
+      // (we don't strictly need it for the assertion, but it makes
+      // the bridge state realistic).
+      await act(async () => {
+        showBChannel.fireStatus("SUBSCRIBED");
+      });
+      await flushPromises();
+
+      // Capture the subscribe sequence so we can assert no show-A
+      // slug mints / subscribes after the remount.
+      const subscribesByShow = subscribeMock.state.subscribeCalls.map(
+        (c) => c.showId,
+      );
+      const mintsBySlugBeforeStaleResume = [...mintCallsBySlug];
+
+      // === Snapshot AFTER remount, BEFORE resolveGate + timer drain ===
+      // `mintCount` and the subscribe array at this point already
+      // include show-B's initial mint/subscribe; any increase past
+      // these values would prove a stale renewal fired.
+      const mintCountAtSnapshot = mintCount;
+      const subscribesAtSnapshot = subscribeMock.state.subscribeCalls.length;
+      void mintsBeforeRemount;
+      void subscribesByShow;
+      void mintsBySlugBeforeStaleResume;
+
+      // Step 6: Resolve the held removeChannel — the show-A effect's
+      // catch resumes. This is the ABA window: with the round-4 fix,
+      // `effectToken.aborted` is true, so:
+      //   - The catch does NOT set pendingRenewalRef.current = true.
+      //   - The finally observes effectToken.aborted and skips
+      //     scheduling the retry setTimeout.
+      // Without the fix, the catch sets the flag, the finally schedules
+      // a retry against the live (show-B's) generation counter, the
+      // setTimeout fires renewSubscription with the OLD slug='show-A',
+      // mints a token for show-A, opens a show-A channel, and removes
+      // the live show-B channel.
+      await act(async () => {
+        resolveGate();
+        // Drain the resumed-catch + finally microtasks so any
+        // setTimeout the OLD finally schedules is actually scheduled
+        // before we advance fake timers below.
+        for (let i = 0; i < 10; i += 1) {
+          await Promise.resolve();
+        }
+      });
+      for (let i = 0; i < 10; i += 1) {
+        await flushPromises();
+      }
+
+      // Step 7: Advance well past the longest backoff bucket (5s).
+      // If the abort-token fence is missing, a stale retry would fire
+      // somewhere in this window.
+      await act(async () => {
+        vi.advanceTimersByTime(10_000);
+      });
+      for (let i = 0; i < 10; i += 1) {
+        await flushPromises();
+      }
+
+      // === Assertions ===
+
+      // No NEW mint POSTed to /api/realtime/subscriber-token for
+      // show-A's slug after the remount. The only legal mint between
+      // remount and end-of-test is show-B's initial mint.
+      const mintsAfterRemountSlugs = mintCallsBySlug.slice(
+        // The first `mintsBeforeRemount` entries are show-A's initial
+        // and show-A's renewal mints — pre-remount.
+        mintsBeforeRemount,
+      );
+      // After the remount, exactly one mint for show-B is legal. Any
+      // mint for show-A would prove the stale renewal fired.
+      expect(mintsAfterRemountSlugs).not.toContain("show-A");
+
+      // The current (show-B) channel was NOT removed by a stale
+      // renewSubscription. The bug would call removeChannel on
+      // currentChannelRef, which is now show-B's channel.
+      expect(showBChannel.removed).toBe(false);
+
+      // No new mint and no new subscribe fired AFTER the stale-resume
+      // window. Snapshot was taken just before resolveGate + 10s drain
+      // — these counts must be unchanged.
+      expect(mintCount).toBe(mintCountAtSnapshot);
+      expect(subscribeMock.state.subscribeCalls.length).toBe(
+        subscribesAtSnapshot,
+      );
+
+      // The stale renewal did not subscribe against show-A's showId
+      // post-remount.
+      const subscribesAfterRemountIds = subscribeMock.state.subscribeCalls
+        .slice(subscribesBeforeRemount)
+        .map((c) => c.showId);
+      expect(subscribesAfterRemountIds).not.toContain("show-A-uuid");
+    },
+  );
 });

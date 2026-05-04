@@ -250,6 +250,23 @@ export function ShowRealtimeBridge({
   useEffect(() => {
     isMountedRef.current = true;
 
+    // === Codex round 4 HIGH — per-effect abort token ===
+    // Generation comparison alone is ABA-vulnerable: between the moment
+    // a renewal observes "readiness failed" and the finally block reads
+    // currentChannelGenerationRef to schedule a retry, the effect can
+    // be cleaned up (gen advances to N+1) AND re-created (a new effect
+    // captures gen N+1 as its starting point). The OLD finally then
+    // observes gen still equals N+1 and schedules a retry whose
+    // setTimeout calls renewSubscription against the NEW effect's
+    // slug/showId — corrupting the live subscription.
+    //
+    // The abort token is the canonical fix: each useEffect creates a
+    // fresh `{ aborted: false }` object; cleanup sets `aborted = true`;
+    // every async path that mutates refs / schedules work / calls
+    // renewSubscription closes over THIS effect's token and bails on
+    // `aborted`. No two effects share a token, so ABA is impossible.
+    const effectToken: { aborted: boolean } = { aborted: false };
+
     const supabase = getSupabaseBrowserClient();
 
     // Renewal closure — captures `closureGen` at the time the previous
@@ -266,13 +283,16 @@ export function ShowRealtimeBridge({
       // every concurrent caller observes the lock; the finally block
       // releases it on EVERY exit path so a mint failure releases the
       // lock and a subsequent disconnect can retry.
+      if (effectToken.aborted) return;
       if (isRenewingRef.current) return;
       isRenewingRef.current = true;
       try {
+        if (effectToken.aborted) return;
         if (!isMountedRef.current) return;
         if (priorClosureGen !== currentChannelGenerationRef.current) return;
 
         const newJwt = await mintSubscriberToken(slug);
+        if (effectToken.aborted) return;
         if (!isMountedRef.current) return;
         if (priorClosureGen !== currentChannelGenerationRef.current) return;
 
@@ -323,6 +343,7 @@ export function ShowRealtimeBridge({
             void err;
           }
         }
+        if (effectToken.aborted) return;
         if (!isMountedRef.current) return;
         if (newClosureGen !== currentChannelGenerationRef.current) return;
 
@@ -397,8 +418,20 @@ export function ShowRealtimeBridge({
               void teardownErr;
             }
           }
-          pendingRenewalRef.current = true;
+          // Codex round 4 HIGH — only flag a retry if THIS effect is
+          // still the live one. If cleanup ran while removeChannel was
+          // resolving, setting pendingRenewalRef would leak across into
+          // the new effect's finally schedule, and the retry's
+          // setTimeout would fire renewSubscription against the new
+          // effect's slug/showId. The abort token is the per-effect
+          // owner check that generation comparison alone cannot provide
+          // (generation comparison is ABA-vulnerable across cleanup +
+          // remount with a different slug).
+          if (!effectToken.aborted) {
+            pendingRenewalRef.current = true;
+          }
         }
+        if (effectToken.aborted) return;
         if (!isMountedRef.current) return;
         if (newClosureGen !== currentChannelGenerationRef.current) return;
         if (!readinessOk) return;
@@ -426,7 +459,19 @@ export function ShowRealtimeBridge({
         // 2s → 5s (capped). The retry honors isMountedRef and the
         // current generation, and its setTimeout handle is tracked so
         // unmount cleanup can clear it.
-        if (pendingRenewalRef.current && isMountedRef.current) {
+        // Codex round 4 HIGH — gate the retry-schedule on the abort
+        // token BEFORE reading any refs. If this effect was cleaned up
+        // while the renewal was in-flight, we MUST NOT mutate
+        // pendingRenewalRef, the timer ref, or the backoff step ref —
+        // they belong to whichever effect is currently live (which
+        // could be a different one if React remounted with a new
+        // slug/showId). A late stale renewal whose effect was already
+        // torn down exits cleanly here.
+        if (
+          !effectToken.aborted &&
+          pendingRenewalRef.current &&
+          isMountedRef.current
+        ) {
           pendingRenewalRef.current = false;
           const step = renewalBackoffStepRef.current;
           // Capped exponential backoff. Step 0..4 → 250/500/1000/2000/5000ms;
@@ -444,6 +489,11 @@ export function ShowRealtimeBridge({
           }
           pendingRenewalTimerRef.current = setTimeout(() => {
             pendingRenewalTimerRef.current = null;
+            // Belt-and-suspenders: the timer's callback re-checks the
+            // abort token AND the generation at fire time. Either fence
+            // alone would suffice today, but layering them keeps the
+            // retry safe against a later refactor that drops one.
+            if (effectToken.aborted) return;
             if (!isMountedRef.current) return;
             if (retryGen !== currentChannelGenerationRef.current) return;
             void renewSubscription(retryGen);
@@ -453,6 +503,7 @@ export function ShowRealtimeBridge({
     };
 
     const handleSystemEvent = (e: SystemEvent, closureGen: number) => {
+      if (effectToken.aborted) return;
       if (!isMountedRef.current) return;
       if (closureGen !== currentChannelGenerationRef.current) return;
       // Exhaustive switch over the SystemEvent discriminated union. The
@@ -484,6 +535,7 @@ export function ShowRealtimeBridge({
     };
 
     const handleStatusCallback = (status: string, closureGen: number) => {
+      if (effectToken.aborted) return;
       if (!isMountedRef.current) return;
       if (closureGen !== currentChannelGenerationRef.current) return;
       // CHANNEL_ERROR / TIMED_OUT / CLOSED → renewal sequence.
@@ -502,6 +554,7 @@ export function ShowRealtimeBridge({
     let initialAborted = false;
     (async () => {
       const jwt = await mintSubscriberToken(slug);
+      if (effectToken.aborted) return;
       if (!isMountedRef.current || initialAborted) return;
       if (jwt === null) {
         console.warn(
@@ -571,6 +624,7 @@ export function ShowRealtimeBridge({
           err,
         );
       }
+      if (effectToken.aborted) return;
       if (!isMountedRef.current || initialAborted) return;
       if (closureGen !== currentChannelGenerationRef.current) return;
       if (!readinessOk) return;
@@ -586,6 +640,15 @@ export function ShowRealtimeBridge({
       // 1. Mark unmounted (every async guard reads this).
       isMountedRef.current = false;
       initialAborted = true;
+      // Codex round 4 HIGH — abort the per-effect token so any
+      // in-flight async path that resumes AFTER cleanup observes
+      // `aborted = true` and bails before mutating refs that now
+      // belong to whichever effect React mounted next. The token is
+      // captured by every closure created inside this useEffect, so a
+      // late finally / setTimeout / status callback from THIS effect
+      // can never poison the new effect's state — even when generation
+      // counters happen to align (the ABA case Codex round 4 flagged).
+      effectToken.aborted = true;
       // 2. Advance generation BEFORE removeChannel so a synchronous
       //    CLOSED callback inside step 4 captures a stale gen.
       currentChannelGenerationRef.current += 1;
