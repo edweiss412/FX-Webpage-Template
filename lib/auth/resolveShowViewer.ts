@@ -51,7 +51,16 @@ export type ShowViewer =
       crew_member_id: string;
     }
   | { kind: "denied"; reason: string }
-  | { kind: "forbidden"; reason: string; show_id: string; email?: string };
+  | { kind: "forbidden"; reason: string; show_id: string; email?: string }
+  /**
+   * R14 #2 (round-13 §B HIGH): preserve validator infrastructure
+   * failures (status-500 ADMIN_SESSION_LOOKUP_FAILED) so callers can
+   * surface them as 500 to operators rather than collapsing them into
+   * 401-denied / 403-forbidden auth signals. DB outages and
+   * signing-key fetch failures previously looked like the user wasn't
+   * authenticated, masking real server-side faults.
+   */
+  | { kind: "terminal_failure"; status: 500; code: string };
 
 export async function resolveShowViewer(
   req: NextRequest,
@@ -106,6 +115,12 @@ export async function resolveShowViewer(
     };
   }
   if (link.kind === "terminal_failure") {
+    // R14 #2: status-500 paths (ADMIN_SESSION_LOOKUP_FAILED) are infra
+    // faults — preserve as terminal_failure so callers map to 500.
+    // Status-401 paths remain denied (auth-level signal).
+    if (link.status === 500) {
+      return { kind: "terminal_failure", status: 500, code: link.code };
+    }
     return { kind: "denied", reason: link.code };
   }
 
@@ -133,6 +148,10 @@ export async function resolveShowViewer(
   if (google.kind === "terminal_failure") {
     if (google.status === 403) {
       return { kind: "forbidden", reason: google.code, show_id };
+    }
+    // R14 #2: status-500 → infra fault, preserve as terminal_failure.
+    if (google.status === 500) {
+      return { kind: "terminal_failure", status: 500, code: google.code };
     }
     return { kind: "denied", reason: google.code };
   }

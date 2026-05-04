@@ -69,6 +69,19 @@ export async function POST(request: NextRequest): Promise<Response> {
       { status: 403 },
     );
   }
+  if (viewer.kind === "terminal_failure") {
+    // R14 #2: validator infra fault — not an auth signal. Surface as
+    // 500 so operators see it as a server-side fault rather than a
+    // benign auth denial.
+    console.error(
+      "[/api/realtime/subscriber-token] validator infra failure",
+      viewer.code,
+    );
+    return NextResponse.json(
+      { error: "ADMIN_SESSION_LOOKUP_FAILED" },
+      { status: 500 },
+    );
+  }
 
   const secret = process.env.SUPABASE_JWT_SECRET;
   const issuer = process.env.SUPABASE_REALTIME_ISS;
