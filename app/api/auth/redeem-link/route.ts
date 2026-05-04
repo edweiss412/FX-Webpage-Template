@@ -8,7 +8,11 @@ import {
   SESSION_COOKIE_MAX_AGE_SEC,
   UUID_RE,
 } from "@/lib/auth/constants";
-import { encodeSessionCookieValue, setSessionCookie } from "@/lib/auth/cookies";
+import {
+  clearBootstrapCookie,
+  encodeSessionCookieValue,
+  setSessionCookie,
+} from "@/lib/auth/cookies";
 import { verifyLinkJwt } from "@/lib/auth/jwt";
 import {
   ShowAdvisoryLockShowNotFoundError,
@@ -320,6 +324,28 @@ export async function POST(request: NextRequest): Promise<Response> {
         maxAgeSec: SESSION_COOKIE_MAX_AGE_SEC,
       }),
     );
+
+    // R12 #1 (round-11 §A MEDIUM): strip the consumed bootstrap nonce
+    // entry from __Host-fxav_bootstrap_v on success. Pre-fix, consumed
+    // entries lingered in the 5-cap cookie array; later mints would
+    // evict still-unredeemed entries from other open tabs and turn
+    // valid multi-tab redeems into CSRF_DENIED. Filter the just-
+    // consumed entry out and either rewrite the cookie with the
+    // remainder or clear it entirely if no entries remain.
+    const remainingEntries = bootstrapEntries.filter(
+      (entry) => !(entry.nonce_hash === hash && entry.show_id === showId),
+    );
+    if (remainingEntries.length === 0) {
+      response.headers.append("Set-Cookie", clearBootstrapCookie());
+    } else {
+      response.cookies.set(BOOTSTRAP_COOKIE_NAME, JSON.stringify(remainingEntries), {
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: BOOTSTRAP_NONCE_MAX_AGE_SEC,
+      });
+    }
       return response;
     });
   } catch (error) {

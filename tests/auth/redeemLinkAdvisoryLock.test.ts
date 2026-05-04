@@ -370,6 +370,56 @@ describe("/api/auth/redeem-link advisory lock", () => {
     expect(state.consumedAt).toEqual(expect.any(String));
   });
 
+  test("R12 #1: redeem strips consumed entry from __Host-fxav_bootstrap_v cookie", async () => {
+    // Round-11 §A MEDIUM: consumed entries must be removed from the
+    // bootstrap cookie array on successful redeem so they don't take
+    // up slots in the 5-entry cap and evict still-unredeemed entries
+    // from other open tabs.
+    const otherEntry = {
+      nonce_hash: "deadbeef".repeat(8),
+      show_id: state.showId,
+      issued_at: new Date().toISOString(),
+      signing_key_id: "k1",
+    };
+    const consumedEntry = matchingCookieEntry();
+
+    const response = await POST(
+      requestFor({
+        cookieEntries: [otherEntry, consumedEntry],
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const setCookies = response.headers.getSetCookie();
+    const bootstrapHeader = setCookies.find((line) =>
+      line.startsWith("__Host-fxav_bootstrap_v="),
+    );
+    expect(bootstrapHeader).toBeDefined();
+    // Consumed entry's nonce_hash MUST NOT appear in the rewritten value.
+    expect(bootstrapHeader).not.toContain(consumedEntry.nonce_hash);
+    // The other (untouched) entry MUST still appear.
+    expect(bootstrapHeader).toContain(otherEntry.nonce_hash);
+  });
+
+  test("R12 #1: redeem clears bootstrap cookie when no entries remain after consume", async () => {
+    // When the redeemed entry was the only one in the cookie, the
+    // cookie must be cleared (Max-Age=0) — empty array on the wire
+    // would still take up a cookie slot.
+    const response = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const setCookies = response.headers.getSetCookie();
+    const bootstrapHeader = setCookies.find((line) =>
+      line.startsWith("__Host-fxav_bootstrap_v="),
+    );
+    expect(bootstrapHeader).toBeDefined();
+    expect(bootstrapHeader).toContain("Max-Age=0");
+  });
+
   test("valid JWT for unpublished show cannot mint a link session", async () => {
     state.showPublished = false;
 
