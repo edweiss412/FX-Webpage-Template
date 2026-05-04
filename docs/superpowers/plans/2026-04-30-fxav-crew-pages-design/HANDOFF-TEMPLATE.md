@@ -12,9 +12,60 @@ Use this template when starting any milestone, and especially when delegating a 
 # Handoff — M<n>: <milestone name>
 
 **Handed off:** <YYYY-MM-DD> by <human-name>
-**Implementer:** <model> / <harness> (per ROUTING.md)
+**Implementer:** <model> / <harness> (per ROUTING.md) — OR for split milestones: **split-mode (manual / Level 1)** — backend = <model>, UI = <model>, two concurrent terminals coordinating through this doc
 **Adversarial reviewer:** <model> / <harness>
 **Plan file:** `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/<file>.md`
+
+---
+
+## 0. Implementer split (split-mode milestones only — DELETE this section if single-implementer)
+
+If ROUTING.md routes this milestone to a single implementer, delete this entire section. Otherwise fill in:
+
+### §A — backend tasks (ship first; UI consumes these contracts)
+
+- **Task <n.m>** — <files> + <tests>. Description.
+- ...
+
+### §B — UI tasks (after §A pin-stops; consumes finalized contracts)
+
+- **Task <n.m>** — <files> + <tests>. Description.
+- ...
+
+### Coordination protocol
+
+- Disjoint by file path; neither implementer commits files outside their list without an explicit handoff note.
+- Both sessions commit per task per AGENTS.md §1.6.
+- Both sessions append to the convergence log; don't rebase or squash each other's commits.
+- Per-session UI hard rule: §A NEVER touches `app/` outside `app/api/`, `components/`, design tokens. §B NEVER touches `lib/auth/`, `app/api/auth/`, or any backend module §A owns.
+
+### Pin-stop sequence (§A → §B handshake gates)
+
+Pin-stops are checkpoints where the backend implementer pauses, reports the pinned contract surface, and waits for orchestrator + UI-side confirmation before resuming. Most split milestones have one or two pin-stops; some have three. The number depends on the contract topology, NOT a fixed convention.
+
+**Pin-stop heuristic:** a pin is justified at any contract boundary where (a) §B's next dependency cluster needs concrete signatures, AND (b) the §A work to produce those signatures is small enough to fail fast if the harness/sandbox/discipline is broken. The first pin in a milestone is usually narrow (verify the harness works); subsequent pins widen the contract surface.
+
+**Pin-stop N**: <description of what's pinned at this stop>. Includes:
+
+- `<module path>` — `<exported function/type>` shape
+- ...
+
+After this pin clears, <what §B work it unblocks>. <What §A work remains for the next pin or for parallel post-pin>.
+
+**Codex's report at each pin-stop must include:**
+
+1. The new contract-pin SHA (orchestrator passes this to §B as the rebase base for the next pin or for §B's start).
+2. The exported type names + signatures the UI consumes — pasted as a `.d.ts`-style block under a `### Pinned contract @ <SHA>` subsection appended at the bottom of this §0.
+3. Any deviations from the spec — flagged explicitly.
+4. Verification gate: `pnpm test && pnpm lint && pnpm typecheck` exits 0 at the pin-stop SHA.
+
+**If a pin-stop reveals a missing surface §B needs:** treat it as a pin-stop extension, NOT a new pin number. Update this section's bullet list inline, have §A extend the contract, and re-pin at a new SHA. New pin numbers are reserved for fundamentally new surfaces that emerge during implementation, not for "we forgot a function."
+
+**Anti-pattern:** §A resuming work past a pin-stop without orchestrator confirmation. The pin sequence is strictly ordered. If §A finds itself wanting to ship a post-pin task before §B has consumed the pin, that's a sign the dependency analysis was wrong; surface it.
+
+### What is NOT in either list
+
+- <items intentionally out of scope for this milestone>
 
 ---
 

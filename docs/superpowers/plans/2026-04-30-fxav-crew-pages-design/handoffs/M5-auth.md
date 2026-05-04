@@ -23,17 +23,19 @@ This is the first split-mode milestone the project has run. The two task lists b
 
 Files Codex creates / modifies (all under `lib/`, `app/api/`, `middleware.ts`, or `supabase/migrations/`):
 
-- **Task 5.1** — `lib/auth/jwt.ts` + `tests/auth/jwt.test.ts` (`signLinkJwt`, `verifyLinkJwt`, key-id capture for §7.2.3 global rotation).
+- **Task 5.1** — `lib/auth/jwt.ts` + `tests/auth/jwt.test.ts` (`signLinkJwt`, `verifyLinkJwt`, key-id capture for §7.2.3 global rotation). **`[PIN-STOP 1 — cleared at a7dff4e]`** Codex paused here on 2026-05-03 and reported. Orchestrator extended the pin sequence (Pin 1 alone is insufficient to unblock §B). Codex now continues toward Pin-stop 2.
 - **Task 5.2** — `lib/auth/validateLinkSession.ts`, `lib/auth/constants.ts`, `lib/auth/cookies.ts` (the shared `__Host-fxav_session` helper module: `setSessionCookie` / `clearSessionCookie` / `encodeSessionCookieValue` / `decodeSessionCookieValue`) + `tests/auth/validateLinkSession.test.ts` (twelve §7.2.2 steps + parse/format-fault enumeration + step 3a kid-rotation + step 5 reachability via `ON DELETE SET NULL`).
 - **Task 5.3** — `lib/auth/validateGoogleSession.ts` + `tests/auth/validateGoogleSession.test.ts` (`AMBIGUOUS_EMAIL_BINDING` + cross-show binding + admin_alerts UPSERT).
 - **Task 5.4** — `app/api/auth/redeem-link/route.ts` + `tests/e2e/redeem-link.spec.ts` (login-CSRF defense, bootstrap-nonce composite-key consume, `LINK_REDEEM_KEY_ROTATED` gate, `verifiedKid`-pinned `link_sessions.signing_key_id` write). **Schema migration**: this task introduces `bootstrap_nonces (nonce_hash, show_id, issued_at, consumed_at, signing_key_id)` with composite PK `(nonce_hash, show_id)` — ship as `supabase/migrations/2026050400000<n>_bootstrap_nonces.sql` AND add to AC-2.1's REQUIRED FK introspection list AND to the §4.3 admin-only RLS table list. Also add `link_sessions.signing_key_id` column if it isn't already present from M2.
-- **Task 5.6** — `middleware.ts` at repo root + `tests/e2e/leaked-link.spec.ts` (`?t=` compromise handler scans every `^/show/[^/]+` request, three branches: `=` / `<` / `>` of `current_token_version` with idempotent `revoked_links` INSERT).
+- **Task 5.6** — `middleware.ts` at repo root + `tests/e2e/leaked-link.spec.ts` (`?t=` compromise handler scans every `^/show/[^/]+` request, three branches: `=` / `<` / `>` of `current_token_version` with idempotent `revoked_links` INSERT). **`[POST-PIN-STOP 2 ONLY]`** This is the only §A task that runs AFTER Pin-stop 2. It imports `lib/messages/lookup.ts` (Pin-2 surface) and `validateLinkSession` (Pin-2 surface), so it cannot ship before Pin-2 closes. After Pin-2 clears, this runs in parallel with §B's UI work.
 - **Task 5.7 §A portion** — `lib/auth/isAdminSession.ts` + `tests/auth/isAdminSession.test.ts`. The shared admin-detection predicate. The `app/show/[slug]/page.tsx` chain wiring is §B.
 - **Task 5.8 §A portion** — `app/auth/callback/route.ts`, `app/auth/sign-out/route.ts`, `lib/auth/validateNextParam.ts` + `tests/auth/oauth-flow.test.ts` (validator + callback + sign-out routes). The `app/auth/sign-in/page.tsx` Server Component is §B.
 - **Task 5.9 §A portion** — `lib/messages/catalog.ts`, `lib/messages/lookup.ts` (M5-needed §12.4 entries: `LINK_*`, `SESSION_*`, `LINK_SESSION_KEY_ROTATED`, `LINK_REDEEM_KEY_ROTATED`, `AMBIGUOUS_EMAIL_BINDING`, `LEAKED_LINK_DETECTED`, `CSRF_DENIED`, `CSRF_NONCE_EXPIRED`, `CSRF_KEY_ROTATED`, `OAUTH_STATE_INVALID`, `OAUTH_REDIRECT_INVALID`, plus the §4.6 alert codes the banner renders). The banner UI itself is §B.
 - **Task 5.10 §A portion** — `lib/auth/validateGoogleIdentity.ts`, `lib/data/listShowsForCrew.ts` + `tests/auth/validateGoogleIdentity.test.ts` (deliberately non-DRY-with-`validateGoogleSession`; no `crew_members` query; no show binding).
 - **`lib/auth/requireAdmin.ts`** — UPDATE the M3 stub body with the production implementation. The interface stays stable (per M3 handoff §4 note); body now reads Supabase Auth session via `@supabase/ssr` + canonical email allowlist via the `is_admin()` SQL helper. Delete M3's `tests/e2e/helpers/signInAs.ts` minimal-stub `ADMIN_FIXTURE` / `NON_ADMIN_CREW_FIXTURE` only AFTER §B has migrated its tests onto the real OAuth flow.
 - **DEFERRED M2-D6** — `lib/db/advisoryLock.ts` (the per-show advisory-lock helper). Codex authors this in M5 because the auth-side mutation paths (Task 5.4 `link_sessions` INSERT, Task 5.6 `revoked_links` + `crew_member_auth` UPDATEs) are the first code paths that need it. Spec invariant §1.2 mandates `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` on every code path that mutates `shows` / `crew_members` / `crew_member_auth` / `pending_syncs` / `pending_ingestions`. The helper exposes a `withShowAdvisoryLock(showId, mode, fn)` shape; tests assert the lock is held during the callback. Mark M2-D6 "in progress" → Codex closes it in this milestone.
+
+> **`[PIN-STOP 2 — Codex stops here and reports]`** After all the §A bullets above (Tasks 5.2, 5.3, 5.4, 5.7 §A, 5.8 §A, 5.9 §A, 5.10 §A, requireAdmin body, advisoryLock helper) ship and `pnpm test && pnpm lint && pnpm typecheck` exits 0, Codex pauses. Reports per the §0 Pin-stop sequence subsection: new SHA, `.d.ts`-style export block, spec deviations, verification gate result. Orchestrator confirms; §B begins in parallel; Codex resumes §A with Task 5.6 (middleware) only.
 
 ### §B — Opus / UI tasks (after §A lands; consumes finalized contracts)
 
@@ -52,6 +54,40 @@ Files Opus creates / modifies (UI surface only — `app/` outside `app/api/**`, 
 - **DESIGN.md edits.** M4 closed DESIGN.md as canon. M5 introduces no new tokens; if a new sign-in-page / `/me` color or spacing surface is needed and isn't already in DESIGN.md, raise it as a question before adding — don't silently extend the design system mid-milestone.
 - **`/admin/dev` panel.** Pre-policy operator surface (M3). M5 does not touch it.
 - **Realtime invalidation channel.** M4 closed it; M5 only uses it (the cookie state-change trigger from `validateLinkSession` step 3a's row DELETE will fire the existing `crew_member_auth.last_changed_at` trigger Task 4.16 introduced).
+
+### Pin-stop sequence (§A → §B handshake gates)
+
+Split-mode milestones use **pin-stops** — checkpoints where the backend implementer (Codex) pauses, reports the pinned contract surface, and waits for orchestrator + UI-side confirmation before resuming. M5 has two pin-stops. Future split milestones may have one, two, or three depending on their contract topology.
+
+**Pin-stop 1** (cleared 2026-05-03 at SHA `a7dff4e63461529475fedeb8b1b6a2d80e963c86`): low-level signing primitives — `signLinkJwt(input): Promise<{ token, signingKeyId }>` and `verifyLinkJwt(token): Promise<{ payload: LinkJwtPayload, verifiedKid }>`. These are the building blocks every higher-level auth helper consumes, but they are not directly UI-consumable. Pin 1 unblocks no §B work; its purpose is to verify the harness, sandbox/git protocol, TDD discipline, and commit format are working before Codex commits to the larger contract surface. Codex initially halted here; orchestrator deemed the pin too narrow and extended toward Pin-stop 2.
+
+**Pin-stop 2** (target — Codex stops here and reports): full UI-consumable contract surface. Includes:
+
+- `lib/auth/cookies.ts` + `lib/auth/constants.ts` — `__Host-fxav_session` envelope shape, `setSessionCookie` / `clearSessionCookie` / `encodeSessionCookieValue` / `decodeSessionCookieValue` signatures
+- `lib/auth/validateLinkSession.ts` — `ValidatorOutcome` discriminated union (the tri-state spine)
+- `lib/auth/validateGoogleSession.ts` — same outcome shape, show-bound
+- `lib/auth/validateGoogleIdentity.ts` — same outcome shape, identity-only (deliberately non-DRY with validateGoogleSession)
+- `lib/auth/isAdminSession.ts` — admin predicate
+- `lib/auth/validateNextParam.ts` — five-guard helper
+- `app/api/auth/redeem-link/route.ts` + `bootstrap_nonces` migration — request/response contract for Bootstrap.tsx's client-side POST
+- `app/auth/callback/route.ts` + `app/auth/sign-out/route.ts` — OAuth round-trip endpoints sign-in page redirects to
+- `lib/messages/catalog.ts` + `lib/messages/lookup.ts` extensions — every `LINK_*` / `SESSION_*` / `OAUTH_*` / `CSRF_*` / `LEAKED_*` / `AMBIGUOUS_*` code AlertBanner and ErrorExplainer consume
+- `lib/data/listShowsForCrew.ts` — `/me` page's data fetcher
+- `lib/auth/requireAdmin.ts` body — interface unchanged from M3 stub; body now production
+- `lib/db/advisoryLock.ts` (DEFERRED M2-D6) — `withShowAdvisoryLock(showId, mode, fn)` signature; Bootstrap.tsx's server-side nonce mint consumes this
+
+After Pin-stop 2, §B starts in parallel. The only §A work remaining post-Pin-2 is `middleware.ts` (the `?t=` compromise handler — internal, no UI contract surface), which Codex finishes alongside §B's UI work.
+
+**Codex's report at Pin-stop 2 must include:**
+
+1. The new contract-pin SHA (orchestrator passes this to §B as the rebase base).
+2. The exported type names + signatures the UI consumes — pasted as a `.d.ts`-style block in this handoff under a new `### Pinned contract @ <SHA>` subsection appended at the bottom of §0.
+3. Any deviations from the spec (§7.2, §7.2.2, §7.3, §7.4) — flagged explicitly so §B doesn't inherit a silent contract drift.
+4. Verification gate: `pnpm test && pnpm lint && pnpm typecheck` exits 0 at the pin-stop SHA.
+
+**If Pin-stop 2 reveals a missing surface §B needs:** treat it as a Pin-stop-2-extension, NOT a new Pin-stop 3. Update this section's bullet list inline, have Codex extend the contract, and re-pin at a new SHA. Pin numbering stays at 2 because the contract surface is conceptually one gate; only fundamentally new surfaces (e.g., a future M6 "watch channel renewal hook" that didn't exist at M5 design time) earn a new pin number.
+
+**Anti-pattern:** Codex resuming §A's middleware.ts work *between* Pin-stops 1 and 2. The pin sequence is strictly ordered — middleware can ship only after Pin-stop 2 because it imports validators and `lib/messages/lookup.ts` from the Pin-2 surface. If Codex finds itself wanting to ship middleware before Pin 2, that's a sign the dependency analysis was wrong; surface it.
 
 ---
 
