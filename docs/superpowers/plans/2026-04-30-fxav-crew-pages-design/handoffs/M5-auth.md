@@ -89,6 +89,105 @@ After Pin-stop 2, §B starts in parallel. The only §A work remaining post-Pin-2
 
 **Anti-pattern:** Codex resuming §A's middleware.ts work *between* Pin-stops 1 and 2. The pin sequence is strictly ordered — middleware can ship only after Pin-stop 2 because it imports validators and `lib/messages/lookup.ts` from the Pin-2 surface. If Codex finds itself wanting to ship middleware before Pin 2, that's a sign the dependency analysis was wrong; surface it.
 
+### Pinned contract @ a7dff4e (Pin-stop 1 — 2026-05-03)
+
+```ts
+// lib/auth/jwt.ts
+export function signLinkJwt(input): Promise<{ token: string; signingKeyId: string }>;
+export function verifyLinkJwt(token): Promise<{ payload: LinkJwtPayload; verifiedKid: string }>;
+```
+
+Verification: `pnpm test tests/auth/jwt.test.ts` passed (4 tests); `pnpm typecheck` passed; `pnpm lint` clean.
+
+### Pinned contract @ 8d2fdc6 (Pin-stop 2 base — 2026-05-04)
+
+```ts
+// lib/auth/constants.ts
+export const SESSION_COOKIE_NAME: "__Host-fxav_session";
+export const BOOTSTRAP_COOKIE_NAME: "__Host-fxav_bootstrap_v";
+export const SESSION_COOKIE_MAX_AGE_SEC: number; // 43200
+export const SESSION_IDLE_TIMEOUT_SEC: number;   // 900
+
+export type AuthFailureCode =
+  | "SESSION_NOT_FOUND"
+  | "SESSION_ABSOLUTE_TIMEOUT"
+  | "SESSION_IDLE_TIMEOUT"
+  | "LINK_SESSION_KEY_ROTATED"
+  | "LINK_NO_CREW_MATCH"
+  | "LINK_VERSION_MISMATCH"
+  | "LINK_REVOKED_FLOOR"
+  | "LINK_REVOKED_SURGICAL"
+  | "GOOGLE_NO_CREW_MATCH"
+  | "AMBIGUOUS_EMAIL_BINDING"
+  | "ADMIN_SESSION_LOOKUP_FAILED";
+
+export type AuthFailure = {
+  status: 401 | 403 | 410 | 500;
+  code: AuthFailureCode;
+};
+
+// lib/auth/cookies.ts
+export type SessionCookieEnvelope = { token: string; show_id: string };
+
+export function setSessionCookie(value: string, opts: { maxAgeSec: number }): string;
+export function clearSessionCookie(): string;
+export function encodeSessionCookieValue(input: SessionCookieEnvelope): string;
+export function decodeSessionCookieValue(raw: string | undefined): SessionCookieEnvelope | null;
+
+// lib/auth/validateLinkSession.ts
+export type LinkSessionViewer = { kind: "crew"; showId: string; crewMemberId: string };
+export type LinkSessionValidationContext = { showId: string };
+export type LinkSessionValidationResult =
+  | { kind: "success"; viewer: LinkSessionViewer }
+  | { kind: "continue"; clearCookie?: true; priorFailure?: AuthFailure }
+  | { kind: "terminal_failure"; status: 401 | 500; code: AuthFailureCode; clearCookie?: true };
+
+export function validateLinkSession(req: Request, context: LinkSessionValidationContext): Promise<LinkSessionValidationResult>;
+
+// lib/auth/validateGoogleSession.ts
+export type GoogleSessionViewer = { kind: "crew"; email: string; showId: string; crewMemberId: string };
+export type GoogleSessionValidationContext = { showId: string };
+export type GoogleSessionValidationResult =
+  | { kind: "success"; viewer: GoogleSessionViewer }
+  | { kind: "continue" }
+  | { kind: "terminal_failure"; status: 403 | 500; code: AuthFailureCode };
+
+export function validateGoogleSession(req: Request, context: GoogleSessionValidationContext): Promise<GoogleSessionValidationResult>;
+
+// lib/auth/isAdminSession.ts
+export type AdminSessionResult = { ok: true; email: string } | { ok: false };
+export function isAdminSession(req: Request): Promise<AdminSessionResult>;
+```
+
+Codex deviations (Pin-2 base):
+1. `LINK_SESSION_KEY_ROTATED` returns terminal_failure rather than continue+clearCookie. **Spec-aligned per AC-5.6a** (server-side rotation is server-side fault classification).
+2. Steps 11-12 not rendered inside the validator; identity only. **Spec-aligned per §7.4 + watchpoint #4** (role re-derivation lives in `getShowForViewer`).
+
+Verification: `pnpm test` on cookies + 4 validator suites + resolveShowViewer = 30 tests passing; `pnpm typecheck` passed; `pnpm lint` clean.
+
+### Pinned contract @ df647b7 (Pin-stop 2 extension — 2026-05-04)
+
+```ts
+// lib/auth/validateGoogleIdentity.ts
+export type GoogleIdentityViewer = { kind: "crew"; email: string; crewMemberId: string };
+export type GoogleIdentityValidationResult =
+  | { kind: "success"; viewer: GoogleIdentityViewer }
+  | { kind: "continue" };
+
+export function validateGoogleIdentity(req: Request): Promise<GoogleIdentityValidationResult>;
+
+// lib/data/listShowsForCrew.ts
+export type CrewShowSummary = { id: string; slug: string; title: string; dates: unknown; crewMemberId: string };
+
+export function listShowsForCrew(viewer: GoogleIdentityViewer): Promise<CrewShowSummary[]>;
+```
+
+Codex deviations (extension):
+1. **`GoogleIdentityViewer.crewMemberId` is the Supabase Auth `user.id`, NOT a show-bound `crew_members.id`.** Codex chose this because `/me` is cross-show and a single `crew_members.id` doesn't exist for a cross-show identity. **`CrewShowSummary.crewMemberId` IS the per-show `crew_members.id`.** This means the same field name `crewMemberId` carries different referents across the two types — a contract trap. **Surfaced explicitly to the adversarial reviewer (M5 round 1):** decide whether to (a) accept and document the dual semantics, (b) rename `GoogleIdentityViewer.crewMemberId` → `userId` / `authUserId`, or (c) drop the field from `GoogleIdentityViewer` entirely (email is the canonical lookup key for `/me`; YAGNI says drop). My read: option (c) is cleanest. Not blocking §B start because §B's `/me` page consumes `email` for the `listShowsForCrew` call and ignores `viewer.crewMemberId` — but the rename should land before adversarial review concludes.
+2. `listShowsForCrew` accepts the full `GoogleIdentityViewer` and uses its canonical email for the membership query. Spec-aligned with §7.3 email-based `/me` semantics.
+
+Verification: `pnpm test` on cookies + 5 validator suites + listShowsForCrew = 35 tests passing; `pnpm typecheck` passed; `pnpm lint` clean.
+
 ---
 
 ## 1. Spec sections in scope
