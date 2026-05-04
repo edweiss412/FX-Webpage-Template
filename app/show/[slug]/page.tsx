@@ -172,6 +172,18 @@ type ChainResolution = {
   viewer: Viewer | null;
   clearCookie: boolean;
   terminalFailure: { status: 401 | 403 | 500; code: string } | null;
+  /**
+   * Round-10 §A HIGH: signed-in Google users with no crew row on this
+   * show would loop between /show/<slug> and /auth/sign-in?next=
+   * /show/<slug>. The §A workaround treats GOOGLE_NO_CREW_MATCH (403)
+   * as "continue" so requireAdmin gets a final chance, but if no
+   * viewer ultimately resolves the bare no-viewer redirect to
+   * sign-in collides with sign-in's already-authenticated guard.
+   * Track the GOOGLE_NO_CREW_MATCH outcome distinctly so the page can
+   * route those users to /me (which lists shows they actually have
+   * access to) instead of the looping sign-in path.
+   */
+  googleNoCrewMatch: boolean;
 };
 
 /**
@@ -227,6 +239,7 @@ async function resolveViewer(
 ): Promise<ChainResolution> {
   let clearCookie = false;
   let viewer: Viewer | null = null;
+  let googleNoCrewMatch = false;
 
   // Wrong-show cookie pre-check — Q6. Cheap (no DB), runs before any
   // validator. If the cookie envelope's show_id doesn't match this URL's
@@ -301,6 +314,7 @@ async function resolveViewer(
         viewer: null,
         clearCookie,
         terminalFailure: { status: link.status, code: link.code },
+        googleNoCrewMatch: false,
       };
     }
   }
@@ -332,9 +346,13 @@ async function resolveViewer(
           viewer: null,
           clearCookie,
           terminalFailure: { status: google.status, code: google.code },
+          googleNoCrewMatch: false,
         };
       }
-      // Fall through (status 403 — treat as continue).
+      // Fall through (status 403 — treat as continue) but record the
+      // outcome so the page can redirect to /me on no-viewer instead
+      // of looping through sign-in.
+      googleNoCrewMatch = true;
     }
     // continue: nothing to OR (validateGoogleSession's continue arm has
     // no clearCookie flag).
@@ -353,7 +371,7 @@ async function resolveViewer(
     }
   }
 
-  return { viewer, clearCookie, terminalFailure: null };
+  return { viewer, clearCookie, terminalFailure: null, googleNoCrewMatch };
 }
 
 type PageProps = {
@@ -371,6 +389,16 @@ export default async function ShowPage({ params }: PageProps) {
 
   const req = await buildRequestForChain();
   const result = await resolveViewer(req, showId, published);
+
+  // Round-10 §A HIGH: signed-in Google user with no crew row on this
+  // show resolves with no viewer. Redirecting to
+  // /auth/sign-in?next=/show/<slug> would collide with sign-in's
+  // already-authenticated guard and loop the browser. Send to /me
+  // instead — it lists shows the user actually has access to and the
+  // empty-state path renders cleanly when none match.
+  if (!result.viewer && result.googleNoCrewMatch) {
+    redirect("/me");
+  }
 
   if (result.terminalFailure) {
     // AC-5.6a: a terminal_failure that ALSO carries `clearCookie: true`
