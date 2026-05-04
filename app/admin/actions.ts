@@ -28,6 +28,12 @@ import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { canonicalize } from "@/lib/email/canonicalize";
 
+// Local UUID regex — duplicated from `lib/auth/constants.ts` (UUID_RE) because
+// §B (this file's milestone) cannot import from §A's lib/auth surface. A single
+// internal callsite of a stable, format-only regex is acceptable duplication;
+// see I2 in the M5 §B Task 5.9 code-quality review.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function resolveAdminAlertFormAction(formData: FormData): Promise<void> {
   // Defense-in-depth: gate independent of the caller (the layout's
   // requireAdmin call has already gated the page render, but the action
@@ -41,16 +47,35 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
     return;
   }
 
+  // Reject anything that isn't a well-formed UUID before it reaches Postgres.
+  // Without this guard, a malformed id leaks into server logs as a Postgres
+  // error and (pre-I1 fix) was silently swallowed by the discarded UPDATE
+  // result. The hidden form input always supplies a valid UUID; rejecting
+  // here is purely a hardening measure against crafted POSTs.
+  if (!UUID_RE.test(id)) return;
+
   const supabase = await createSupabaseServerClient();
   const { data: userData } = await supabase.auth.getUser();
-  const resolvedBy = canonicalize(userData.user?.email) ?? null;
+  const adminEmail = canonicalize(userData.user?.email);
+  if (!adminEmail) {
+    // Should be unreachable — requireAdmin() above would have thrown if the
+    // session lacked a canonical email. Defense in depth: if Supabase ever
+    // returns a session whose user.email round-trips through canonicalize()
+    // to null, we refuse to write a NULL resolved_by rather than silently
+    // attributing the resolve to "unknown."
+    console.error(
+      "[resolveAdminAlertFormAction] requireAdmin returned but canonicalized email is null",
+    );
+    return;
+  }
+  const resolvedBy = adminEmail;
 
   // RLS-gated UPDATE. The admin_only policy on admin_alerts requires
   // public.is_admin() to be true, which we've already verified. The
   // WHERE clause additionally requires the row to be still unresolved
   // so a double-click is a no-op (we don't overwrite a previous
   // resolved_at / resolved_by).
-  await supabase
+  const { error: updateError } = await supabase
     .from("admin_alerts")
     .update({
       resolved_at: new Date().toISOString(),
@@ -58,6 +83,17 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
     })
     .eq("id", id)
     .is("resolved_at", null);
+
+  if (updateError) {
+    // I1 fix: do NOT call revalidatePath when the UPDATE failed (network
+    // blip, RLS denial, misconfiguration). Silently revalidating would show
+    // the admin a "resolved" UI while the row remains unresolved on the DB.
+    console.error(
+      "[resolveAdminAlertFormAction] UPDATE failed:",
+      updateError.message,
+    );
+    return;
+  }
 
   // Re-render the admin layout so the AlertBanner re-runs its SELECT
   // and the freshly-resolved row drops out of the topmost slot.

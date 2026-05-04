@@ -46,9 +46,18 @@ export async function AlertBanner() {
     .order("raised_at", { ascending: false })
     .limit(1);
 
-  if (error || !data || data.length === 0) {
-    // No unresolved alerts (or RLS denied / network blip). Render nothing
-    // — the banner is intentionally invisible in clean state.
+  if (error) {
+    // I3 fix: distinguish DB error from empty result. Empty (no unresolved
+    // alerts) is the steady-state — banner stays invisible. An error means
+    // the banner system itself is broken (RLS denial after admin gate,
+    // network failure, mis-applied migration); log so an operator tailing
+    // server logs has a signal even though the visible behavior is the same.
+    console.error("[AlertBanner] admin_alerts SELECT failed:", error.message);
+    return null;
+  }
+  if (!data || data.length === 0) {
+    // No unresolved alerts. The banner is intentionally invisible in the
+    // clean state — no chrome, no ARIA region, nothing.
     return null;
   }
 
@@ -58,6 +67,10 @@ export async function AlertBanner() {
     <section
       data-testid="admin-alert-banner"
       data-alert-id={alert.id}
+      // role="status" + aria-live="polite" — SSR-rendered banner; not a
+      // time-critical interruption that warrants role="alert". If future
+      // versions inject the banner client-side via a real-time event,
+      // reconsider role="alert".
       role="status"
       aria-live="polite"
       className="mb-section-gap rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"

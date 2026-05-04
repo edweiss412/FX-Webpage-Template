@@ -30,17 +30,18 @@ import { AlertBanner } from "@/components/admin/AlertBanner";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 
 // In-memory rows the mock supabase client returns. Each test mutates this.
+// Mock shape mirrors the production SELECT exactly — `id, code, raised_at`.
+// Do NOT add fields the component doesn't select; mock drift hides
+// production-side regressions where the SELECT clause changes.
 type AlertRow = {
   id: string;
   code: string;
-  context: Record<string, unknown>;
   raised_at: string;
 };
 const mockState = vi.hoisted(() => ({
   rows: [] as Array<{
     id: string;
     code: string;
-    context: Record<string, unknown>;
     raised_at: string;
   }>,
 }));
@@ -51,7 +52,7 @@ vi.mock("@/lib/supabase/server", () => {
       // Build a chained mock that mirrors the call pattern:
       //   supabase
       //     .from('admin_alerts')
-      //     .select('id, code, context, raised_at')
+      //     .select('id, code, raised_at')
       //     .is('resolved_at', null)
       //     .order('raised_at', { ascending: false })
       //     .limit(1)
@@ -95,7 +96,6 @@ describe("AlertBanner", () => {
       {
         id: "alert-1",
         code: "AMBIGUOUS_EMAIL_BINDING",
-        context: { show_id: "show-uuid-stub" },
         raised_at: "2026-05-04T10:00:00Z",
       },
     ]);
@@ -110,13 +110,11 @@ describe("AlertBanner", () => {
       {
         id: "old",
         code: "GITHUB_BOT_LOGIN_MISSING",
-        context: {},
         raised_at: "2026-05-01T00:00:00Z",
       },
       {
         id: "new",
         code: "WATCH_CHANNEL_ORPHANED",
-        context: {},
         raised_at: "2026-05-04T12:00:00Z",
       },
     ]);
@@ -148,7 +146,6 @@ describe("AlertBanner", () => {
         {
           id: `alert-${code}`,
           code,
-          context: {},
           raised_at: "2026-05-04T10:00:00Z",
         },
       ]);
@@ -164,7 +161,6 @@ describe("AlertBanner", () => {
       {
         id: "alert-1",
         code: "AMBIGUOUS_EMAIL_BINDING",
-        context: {},
         raised_at: "2026-05-04T10:00:00Z",
       },
     ]);
@@ -197,7 +193,6 @@ describe("AlertBanner", () => {
       {
         id: "alert-with-resolve",
         code: "AMBIGUOUS_EMAIL_BINDING",
-        context: {},
         raised_at: "2026-05-04T10:00:00Z",
       },
     ]);
