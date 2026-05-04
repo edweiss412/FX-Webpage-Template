@@ -306,6 +306,11 @@ describe("OAuth sign-out route", () => {
     // would remain server-side valid until expiry while the user sees a
     // success response. Now sign-out emits a cataloged failure and
     // preserves the cookies so the user can retry.
+    //
+    // R13 #1 fail-stop: when deleteSession fails, supabase.auth.signOut
+    // MUST NOT be called. Pre-R13 it ran anyway and could clear the
+    // Supabase auth side even though the link-session row remained,
+    // breaking the "retry from same auth context" promise.
     server.service.deleteError = { message: "fake DB outage" };
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const { POST } = await import("@/app/auth/sign-out/route");
@@ -332,6 +337,9 @@ describe("OAuth sign-out route", () => {
     expect(server.service.deletedTokens).toEqual([sessionToken]);
     expect(errorSpy).toHaveBeenCalled();
     expect(setCookieLines(response)).toEqual([]);
+    // R13 #1: fail-stop — Supabase signOut must NOT have been called
+    // after deleteSession failed.
+    expect(server.client.auth.signOut).not.toHaveBeenCalled();
 
     errorSpy.mockRestore();
   });

@@ -88,16 +88,27 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
   }
 
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { error } = await supabase.auth.signOut();
-    if (error) {
+  // R13 #1 (round-12 §A HIGH): fail-stop after first teardown failure.
+  // R10 #2's contract is "atomic teardown: either everything succeeds
+  // and cookies clear, or everything fails and cookies preserved so the
+  // user can retry from the same auth context." Pre-R13 the route
+  // proceeded to supabase.auth.signOut() even after deleteSession()
+  // failed — the Supabase auth side could succeed and tear down half
+  // the session while the user gets a fail-loud response promising
+  // they could retry. Skip the second teardown step if the first
+  // failed, so the auth context the user retries from is unchanged.
+  if (!teardownFailed) {
+    try {
+      const supabase = await createSupabaseServerClient();
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error("signOut: Supabase signOut failed", error);
+        teardownFailed = true;
+      }
+    } catch (error) {
       console.error("signOut: Supabase signOut failed", error);
       teardownFailed = true;
     }
-  } catch (error) {
-    console.error("signOut: Supabase signOut failed", error);
-    teardownFailed = true;
   }
 
   if (teardownFailed) {
