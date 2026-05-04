@@ -38,7 +38,7 @@
  * Divergence decisions documented in the M4 Task 4.13 dispatch:
  *   A) Disclosure testid: per-tile (`pack-list-overflow-stub`,
  *      `notes-overflow-stub`) — matches Task 4.12 review-fix convention.
- *   B) Section atom body wrapper carries `max-h-(--spacing-tile-overflow)
+ *   B) Section atom body wrapper carries `max-h-tile-overflow
  *      overflow-y-auto` (single source of truth).
  *   C) Long-content scenario: synthesize at test time via DB inserts
  *      (10 synthetic contact notes, à la notes-tile.spec) — leaves the

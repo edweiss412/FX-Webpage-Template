@@ -102,6 +102,10 @@ describe("KeyValue atom", () => {
     // §3 spacing token — every interactive anchor has the 44px floor
     // applied via the tap-min token. The class is rendered into the
     // anchor's className for the e2e Playwright tap-target audit.
-    expect(html).toMatch(/min-h-\(--spacing-tap-min\)/);
+    // Asserts the canonical Tailwind v4 utility (`min-h-tap-min`)
+    // rather than the arrow-form (`min-h-(--spacing-tap-min)`) — the
+    // canonical form is enforced repo-wide by
+    // eslint-plugin-better-tailwindcss `enforce-canonical-classes`.
+    expect(html).toMatch(/\bmin-h-tap-min\b/);
   });
 });

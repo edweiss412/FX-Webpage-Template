@@ -93,7 +93,7 @@ export function VenueTile({ venue }: VenueTileProps) {
               href={venue.googleLink}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex min-h-(--spacing-tap-min) items-center -mx-1 px-1 py-1.5 text-text underline-offset-4 transition-colors duration-(--duration-fast) hover:text-accent-on-bg hover:underline"
+              className="inline-flex min-h-tap-min items-center -mx-1 px-1 py-1.5 text-text underline-offset-4 transition-colors duration-fast hover:text-accent-on-bg hover:underline"
             >
               Open in Maps
             </a>

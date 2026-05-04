@@ -155,7 +155,7 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
       <Header show={data.show} />
       <main
         data-testid="page-container"
-        className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col gap-(--spacing-section-gap) px-4 py-6 sm:px-8 sm:py-8"
+        className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col gap-section-gap px-4 py-6 sm:p-8"
       >
         {/*
           RightNowCard (Task 4.11, §8.2, AC-4.3) — the page's hero
@@ -195,7 +195,7 @@ export default async function ShowPage({ params, searchParams }: PageProps) {
         <section
           data-testid="tile-grid"
           aria-label="Show tiles"
-          className="grid grid-cols-2 items-stretch gap-(--spacing-tile-gap) sm:grid-cols-3 lg:grid-cols-4"
+          className="grid grid-cols-2 items-stretch gap-tile-gap sm:grid-cols-3 lg:grid-cols-4"
         >
           {/*
             Tile mounts. Real tiles per Task 4.4 (Lodging) land progressively;

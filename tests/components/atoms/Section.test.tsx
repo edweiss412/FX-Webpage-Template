@@ -12,10 +12,10 @@
  *   - variant 'people' renders body as <ul> by default.
  *   - explicit `bodyAs` overrides the variant default.
  *   - every variant preserves the §8.4 internal-overflow contract on
- *     the body wrapper (`max-h-(--spacing-tile-overflow)
+ *     the body wrapper (`max-h-tile-overflow
  *     overflow-y-auto`) — the load-bearing dimensional invariant.
  *   - every variant preserves Tailwind v4 stretch hygiene
- *     (`h-full min-h-(--spacing-tile-min-h)`) on the outer wrapper.
+ *     (`h-full min-h-tile-min-h`) on the outer wrapper.
  *   - `headingIcon` slot renders next to the heading when supplied
  *     (scope-tile differentiation, Finding 8).
  *   - `headingIcon` is absent from the rendered DOM when not supplied
@@ -89,14 +89,15 @@ describe("Section atom — variant API (Task 4.13.distill / Finding 2)", () => {
           <span>child</span>
         </Section>,
       );
-      // Both Tailwind v4 arrow-form classes must appear inside the
-      // rendered markup, on the body wrapper. We don't anchor the
+      // Both canonical Tailwind v4 utilities (named after the @theme
+      // tokens via PR-19059 canonical-class shape) must appear inside
+      // the rendered markup, on the body wrapper. We don't anchor the
       // assertion to the body element type since variants vary that;
       // we just require the §8.4 contract to be present somewhere.
       expect(
         html,
-        `variant '${v}' missing max-h-(--spacing-tile-overflow)`,
-      ).toMatch(/max-h-\(--spacing-tile-overflow\)/);
+        `variant '${v}' missing max-h-tile-overflow`,
+      ).toMatch(/\bmax-h-tile-overflow\b/);
       expect(html, `variant '${v}' missing overflow-y-auto`).toMatch(
         /overflow-y-auto/,
       );
@@ -112,8 +113,8 @@ describe("Section atom — variant API (Task 4.13.distill / Finding 2)", () => {
         </Section>,
       );
       expect(html, `variant '${v}' missing h-full`).toMatch(/h-full/);
-      expect(html, `variant '${v}' missing min-h-tile`).toMatch(
-        /min-h-\(--spacing-tile-min-h\)/,
+      expect(html, `variant '${v}' missing min-h-tile-min-h`).toMatch(
+        /\bmin-h-tile-min-h\b/,
       );
     }
   });

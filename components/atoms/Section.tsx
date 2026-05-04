@@ -60,11 +60,11 @@
  * end-to-end and would catch any regression):
  *
  *   • outer wrapper class:
- *     `h-full min-h-(--spacing-tile-min-h)
+ *     `h-full min-h-tile-min-h
  *       flex flex-col rounded-md border border-border bg-surface
- *       p-(--spacing-tile-pad)`
+ *       p-tile-pad`
  *   • body wrapper carries
- *     `max-h-(--spacing-tile-overflow) overflow-y-auto`
+ *     `max-h-tile-overflow overflow-y-auto`
  *     so the §8.4 internal-overflow rule is enforced inside ONE place
  *     (this atom). Tiles do NOT restate it.
  *   • heading is an `<h2>` — page hierarchy is <h1>=show title
@@ -174,7 +174,7 @@ export function Section({
   // shares the same shell so the §8.4 dimensional invariants hold for
   // every tile regardless of shape.
   const outerClass = [
-    "h-full min-h-(--spacing-tile-min-h)",
+    "h-full min-h-tile-min-h",
     "flex flex-col",
     // Heading-to-body gap differs per variant — `primary` runs tighter
     // so the leading row of a timeline/numbered list sits closer to the
@@ -183,7 +183,7 @@ export function Section({
     // gap-3 rhythm.
     variant === "primary" ? "gap-2" : "gap-3",
     "rounded-md border border-border bg-surface",
-    "p-(--spacing-tile-pad)",
+    "p-tile-pad",
   ].join(" ");
 
   // Heading classes by tone.
@@ -232,7 +232,8 @@ export function Section({
       </header>
       {/*
         §8.4 invariant 4 (internal-overflow rule). Tailwind v4 token map:
-        `max-h-(--spacing-tile-overflow)` resolves to 240px and
+        `max-h-tile-overflow` resolves to 240px (`@theme` token
+        `--spacing-tile-overflow`, canonical Tailwind v4 utility) and
         `overflow-y-auto` triggers the scroll container when intrinsic
         content height exceeds it. Tiles whose body fits inside 240px
         never see scroll because content < container; tiles that overflow
@@ -241,7 +242,7 @@ export function Section({
 
         `flex-1` deliberately allows the body to grow into the row
         stretch (§8.4 invariant 2 — equal-height tiles in the first
-        row). `max-h-(--spacing-tile-overflow)` only kicks in once the
+        row). `max-h-tile-overflow` only kicks in once the
         body's intrinsic content height exceeds 240px (§8.4 invariant
         4); under that threshold the body fills whatever vertical space
         the stretched row gives it. Do NOT remove `flex-1` in a
@@ -253,7 +254,7 @@ export function Section({
         per `bodyGap`.
       */}
       <Body
-        className={`flex flex-1 flex-col ${bodyGap} overflow-y-auto max-h-(--spacing-tile-overflow)`}
+        className={`flex flex-1 flex-col ${bodyGap} overflow-y-auto max-h-tile-overflow`}
       >
         {children}
       </Body>

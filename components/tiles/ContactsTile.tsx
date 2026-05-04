@@ -69,7 +69,7 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
           <Avatar name={contact.name} />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             {contact.name ? (
-              <p className="truncate text-sm font-semibold leading-tight text-text-strong">
+              <p className="truncate text-sm/tight font-semibold text-text-strong">
                 {contact.name}
               </p>
             ) : null}
@@ -81,10 +81,10 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
                 <a
                   href={`tel:${digitsOnly(contact.phone)}`}
                   className={[
-                    "inline-flex min-h-(--spacing-tap-min) items-center gap-1.5",
+                    "inline-flex min-h-tap-min items-center gap-1.5",
                     "rounded-sm border border-border bg-surface-sunken px-2.5 py-1",
                     "text-xs font-medium tabular-nums text-text",
-                    "transition-colors duration-(--duration-fast)",
+                    "transition-colors duration-fast",
                     "hover:text-accent-on-bg hover:border-border-strong",
                   ].join(" ")}
                   aria-label={
@@ -101,10 +101,10 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
                 <a
                   href={`mailto:${contact.email}`}
                   className={[
-                    "inline-flex min-h-(--spacing-tap-min) items-center gap-1.5",
+                    "inline-flex min-h-tap-min items-center gap-1.5",
                     "rounded-sm border border-border bg-surface-sunken px-2.5 py-1",
                     "text-xs font-medium text-text",
-                    "transition-colors duration-(--duration-fast)",
+                    "transition-colors duration-fast",
                     "hover:text-accent-on-bg hover:border-border-strong",
                   ].join(" ")}
                   aria-label={
@@ -119,7 +119,7 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
               ) : null}
             </div>
             {contact.notes ? (
-              <p className="pt-1 text-xs leading-snug text-text-subtle">
+              <p className="pt-1 text-xs/snug text-text-subtle">
                 {contact.notes}
               </p>
             ) : null}

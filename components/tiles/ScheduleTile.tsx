@@ -126,7 +126,7 @@ export function ScheduleTile({
       >
         <div
           data-testid="schedule-day-unconfirmed"
-          className="rounded-sm bg-surface-sunken px-3 py-3 text-sm text-text-subtle"
+          className="rounded-sm bg-surface-sunken p-3 text-sm text-text-subtle"
         >
           Your days haven&apos;t been confirmed yet. Check back after Doug
           finalizes the schedule.

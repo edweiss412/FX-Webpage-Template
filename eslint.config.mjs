@@ -39,6 +39,12 @@ const eslintConfig = defineConfig([
       },
     },
     rules: {
+      // Note: catches direct string literals + recognized utility callees
+      // (`clsx`/`cn`/`cva`/...). Array-style patterns like
+      // `className={[ "...", "..." ].filter(Boolean).join(" ")}` are NOT
+      // covered by the plugin's default selectors — those are linted by
+      // hand on initial canonicalization; new violations introduced via
+      // direct string literals or `clsx` calls WILL be caught.
       "better-tailwindcss/enforce-canonical-classes": "error",
     },
   },

@@ -86,9 +86,11 @@
    * crossfade transitions (Task 4.12 §8.2 invariant: card body
    * crossfades but container height stays within ±0.5px of the pre-
    * transition height; spec lines 2420-2421). Components MUST consume
-   * this via `min-h-(--spacing-right-now-min-h)` (Tailwind v4
-   * arbitrary-CSS-var arrow form) — NEVER inline a `min-h-[176px]`
-   * literal.
+   * this via the canonical `min-h-right-now-min-h` Tailwind v4
+   * utility (the `@theme` `--spacing-right-now-min-h` token compiles
+   * to that namespaced class) — NEVER inline a `min-h-[176px]`
+   * literal, and prefer the canonical form over the `min-h-(…)` arrow
+   * variable syntax (eslint-plugin-better-tailwindcss enforces this).
    */
   --spacing-right-now-min-h: 176px;
   --spacing-page-pad-mobile: 16px;
@@ -123,9 +125,11 @@
    * very-low-alpha warm-near-black drop; dark mode uses a deeper
    * pure-black drop tuned for the warm-charcoal `--color-bg`.
    *
-   * Components MUST consume this via `shadow-(--shadow-tile)` (Tailwind
-   * v4 arbitrary-CSS-var arrow form) — NEVER inline a `shadow-[…]`
-   * literal. The runtime value lives under :root / [data-theme="dark"] /
+   * Components MUST consume this via the canonical `shadow-tile`
+   * Tailwind v4 utility — NEVER inline a `shadow-[…]` literal, and
+   * prefer the canonical form over the `shadow-(--shadow-tile)` arrow
+   * variable syntax (eslint-plugin-better-tailwindcss enforces this).
+   * The runtime value lives under :root / [data-theme="dark"] /
    * @media(prefers-color-scheme:dark) so a single token spans both modes.
    */
   --shadow-tile: var(--shadow-tile-runtime);

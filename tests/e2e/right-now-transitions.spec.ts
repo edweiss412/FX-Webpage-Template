@@ -136,7 +136,7 @@ async function readCardAttrs(
 
 /**
  * Read the bounding box (height) of the card. Used to verify the
- * `min-h-(--spacing-right-now-min-h)` invariant: card height stays
+ * `min-h-right-now-min-h` invariant: card height stays
  * within ±0.5px of the pre-transition height during a crossfade.
  */
 async function cardHeight(page: Page): Promise<number> {

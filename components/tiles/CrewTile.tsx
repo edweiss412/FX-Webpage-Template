@@ -16,7 +16,7 @@
  *   - Email: canonicalized at the M1 boundary (lib/email/canonicalize.ts),
  *     rendered as a `mailto:` link.
  *   - Tap targets: every interactive anchor is ≥44×44px via the
- *     `min-h-(--spacing-tap-min)` class on KeyValue's anchor variant.
+ *     `min-h-tap-min` class on KeyValue's anchor variant.
  *
  * Empty-state behavior (spec §8.3):
  *   - crewMembers.length === 0 (very unlikely; a show always has crew)
@@ -81,7 +81,7 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
         >
           <Avatar name={member.name} />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <p className="truncate text-sm font-semibold leading-tight text-text-strong">
+            <p className="truncate text-sm/tight font-semibold text-text-strong">
               {member.name}
             </p>
             {member.role ? (
@@ -104,10 +104,10 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
                 <a
                   href={`tel:${digitsOnly(member.phone)}`}
                   className={[
-                    "inline-flex min-h-(--spacing-tap-min) items-center gap-1.5",
+                    "inline-flex min-h-tap-min items-center gap-1.5",
                     "rounded-sm border border-border bg-surface-sunken px-2.5 py-1",
                     "text-xs font-medium tabular-nums text-text",
-                    "transition-colors duration-(--duration-fast)",
+                    "transition-colors duration-fast",
                     "hover:text-accent-on-bg hover:border-border-strong",
                   ].join(" ")}
                   aria-label={`Call ${member.name}`}
@@ -120,10 +120,10 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
                 <a
                   href={`mailto:${member.email}`}
                   className={[
-                    "inline-flex min-h-(--spacing-tap-min) items-center gap-1.5",
+                    "inline-flex min-h-tap-min items-center gap-1.5",
                     "rounded-sm border border-border bg-surface-sunken px-2.5 py-1",
                     "text-xs font-medium text-text",
-                    "transition-colors duration-(--duration-fast)",
+                    "transition-colors duration-fast",
                     "hover:text-accent-on-bg hover:border-border-strong",
                   ].join(" ")}
                   aria-label={`Email ${member.name}`}

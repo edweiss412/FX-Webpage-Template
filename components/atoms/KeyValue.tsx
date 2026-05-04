@@ -129,14 +129,14 @@ export function KeyValue({
           href={href}
           className={[
             // 44px tap-target floor (§3 / DESIGN.md `--spacing-tap-min`).
-            "inline-flex min-h-(--spacing-tap-min) items-center",
+            "inline-flex min-h-tap-min items-center",
             // Row-gap spacing on the wrapper handles vertical rhythm;
             // the anchor itself only needs internal padding for hit-
             // area generosity.
             "-mx-1 px-1 py-1.5",
             // Color: text gets the strong-on-bg accent on hover; rest
             // is normal text weight per §1 ≤10% accent coverage cap.
-            "text-text underline-offset-4 transition-colors duration-(--duration-fast)",
+            "text-text underline-offset-4 transition-colors duration-fast",
             "hover:text-accent-on-bg hover:underline",
             // Tabular figures for phone strings; let mailto stay
             // proportional unless caller opts in.
@@ -160,7 +160,7 @@ export function KeyValue({
       <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
         {label}
       </dt>
-      <dd className="text-sm leading-snug">{renderedValue}</dd>
+      <dd className="text-sm/snug">{renderedValue}</dd>
     </div>
   );
 }

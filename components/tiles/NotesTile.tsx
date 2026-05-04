@@ -207,7 +207,7 @@ export function NotesTile({
               <details className="group">
                 <summary
                   className={[
-                    "flex min-h-(--spacing-tap-min) cursor-pointer list-none",
+                    "flex min-h-tap-min cursor-pointer list-none",
                     "flex-col gap-1 px-3 py-2",
                     "rounded-sm",
                     "[&::-webkit-details-marker]:hidden",
@@ -222,7 +222,7 @@ export function NotesTile({
                         data-testid="notes-item-truncated"
                         className={[
                           "text-xs font-medium text-text-faint",
-                          "transition-opacity duration-(--duration-fast)",
+                          "transition-opacity duration-fast",
                           "group-open:opacity-0",
                         ].join(" ")}
                       >

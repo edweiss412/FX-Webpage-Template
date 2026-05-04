@@ -48,7 +48,7 @@
  *                              regressions. (Per dispatch spec — admin-
  *                              only diagnostic, never user-visible.)
  *
- *   The container carries `min-h-(--spacing-right-now-min-h)` so the
+ *   The container carries `min-h-right-now-min-h` so the
  *   crossfade does not jiggle card height between bodies of different
  *   intrinsic heights — the §8.4 "min-height: 96px to prevent sub-card
  *   collapse" invariant generalized to the largest §8.2 body (`unknown`
@@ -552,11 +552,11 @@ export function RightNowCard({ context }: RightNowCardProps) {
         // width. Stating `w-full` explicitly makes the §8.4 invariant 1
         // contract local to the component.
         "w-full rounded-md border border-border p-6",
-        "shadow-(--shadow-tile)",
+        "shadow-tile",
         // Holds card height fixed during the §8.2 crossfade. Sized
         // to the tallest body (`unknown` two-line detail) at the
         // 390px mobile viewport. See app/globals.css token.
-        "min-h-(--spacing-right-now-min-h)",
+        "min-h-right-now-min-h",
         surfaceClass,
       ].join(" ")}
     >
@@ -583,7 +583,7 @@ export function RightNowCard({ context }: RightNowCardProps) {
           outgoing body fully exits (opacity → 0) BEFORE the new one
           enters (opacity 0 → 1). Keyed by state.kind so React rebuilds
           on swap; same kind is the same key (no animation triggered).
-          The container `min-h-(--spacing-right-now-min-h)` above
+          The container `min-h-right-now-min-h` above
           preserves card height during the crossfade. */}
       <AnimatePresence mode="wait" initial={false}>
         <motion.div

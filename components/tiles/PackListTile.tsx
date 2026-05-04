@@ -173,7 +173,7 @@ export function PackListTile({
             <details className="group">
               <summary
                 className={[
-                  "flex min-h-(--spacing-tap-min) cursor-pointer list-none",
+                  "flex min-h-tap-min cursor-pointer list-none",
                   "items-center justify-between gap-3",
                   "px-3 py-2 text-sm font-semibold text-text-strong",
                   "rounded-sm",
@@ -208,7 +208,7 @@ export function PackListTile({
                     aria-hidden="true"
                     className={[
                       "inline-block size-3 shrink-0",
-                      "transition-transform duration-(--duration-fast)",
+                      "transition-transform duration-fast",
                       "group-open:rotate-90",
                     ].join(" ")}
                   >
