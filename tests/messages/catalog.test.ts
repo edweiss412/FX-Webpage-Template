@@ -47,6 +47,7 @@ function producedCodes(): string[] {
     ...walkFiles("lib/data"),
     ...walkFiles("app/api"),
     ...walkFiles("app/auth"),
+    "middleware.ts",
   ];
   const codes = new Set<string>();
   const patterns = [
