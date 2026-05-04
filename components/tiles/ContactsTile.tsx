@@ -22,8 +22,8 @@
  * Server Component (no `'use client'`).
  */
 import type { ContactRow } from "@/lib/parser/types";
+import { Avatar } from "@/components/atoms/Avatar";
 import { Section } from "@/components/atoms/Section";
-import { KeyValue } from "@/components/atoms/KeyValue";
 
 type ContactsTileProps = {
   contacts: ContactRow[];
@@ -41,6 +41,11 @@ function kindLabel(kind: ContactRow["kind"]): string {
   }
 }
 
+/** Strip non-digit characters for the tel: href. */
+function digitsOnly(s: string): string {
+  return s.replace(/\D+/g, "");
+}
+
 export function ContactsTile({ contacts }: ContactsTileProps) {
   if (!contacts || contacts.length === 0) {
     return null;
@@ -51,49 +56,80 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
       testId="contacts-tile"
       heading="Contacts"
       headingTone="eyebrow"
+      variant="people"
       ariaLabel="Contacts"
-      bodyAs="div"
     >
-      <ul className="flex flex-1 flex-col gap-4">
-        {contacts.map((contact, idx) => (
-          <li
-            key={`${contact.kind}-${idx}`}
-            data-testid="contact-row"
-            className={[
-              "flex flex-col gap-2",
-              idx > 0 ? "border-t border-border pt-4" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            <div className="flex flex-col gap-0.5">
-              {contact.name ? (
-                <p className="text-base font-semibold leading-tight text-text-strong">
-                  {contact.name}
-                </p>
-              ) : null}
-              <p className="text-xs uppercase tracking-[0.12em] text-text-faint">
-                {kindLabel(contact.kind)}
+      {contacts.map((contact, idx) => (
+        <li
+          key={`${contact.kind}-${idx}`}
+          data-testid="contact-row"
+          className={[
+            "flex items-start gap-3",
+            idx > 0 ? "border-t border-border pt-4" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          <Avatar name={contact.name} />
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            {contact.name ? (
+              <p className="truncate text-sm font-semibold leading-tight text-text-strong">
+                {contact.name}
               </p>
-            </div>
-            <dl className="flex flex-col gap-2">
-              <KeyValue
-                label="Phone"
-                value={contact.phone}
-                {...(contact.phone ? { linkAs: "tel" as const } : {})}
-              />
-              <KeyValue
-                label="Email"
-                value={contact.email}
-                {...(contact.email ? { linkAs: "mailto" as const } : {})}
-              />
-              {contact.notes ? (
-                <KeyValue label="Notes" value={contact.notes} />
+            ) : null}
+            <p className="truncate text-xs uppercase tracking-[0.12em] text-text-faint">
+              {kindLabel(contact.kind)}
+            </p>
+            <div className="flex flex-wrap gap-2 pt-1">
+              {contact.phone ? (
+                <a
+                  href={`tel:${digitsOnly(contact.phone)}`}
+                  className={[
+                    "inline-flex min-h-(--spacing-tap-min) items-center gap-1.5",
+                    "rounded-sm border border-border bg-surface-sunken px-2.5 py-1",
+                    "text-xs font-medium tabular-nums text-text",
+                    "transition-colors duration-(--duration-fast)",
+                    "hover:text-accent-on-bg hover:border-border-strong",
+                  ].join(" ")}
+                  aria-label={
+                    contact.name
+                      ? `Call ${contact.name}`
+                      : `Call ${kindLabel(contact.kind)}`
+                  }
+                >
+                  <span aria-hidden="true">{"☎"}</span>
+                  <span>Call</span>
+                </a>
               ) : null}
-            </dl>
-          </li>
-        ))}
-      </ul>
+              {contact.email ? (
+                <a
+                  href={`mailto:${contact.email}`}
+                  className={[
+                    "inline-flex min-h-(--spacing-tap-min) items-center gap-1.5",
+                    "rounded-sm border border-border bg-surface-sunken px-2.5 py-1",
+                    "text-xs font-medium text-text",
+                    "transition-colors duration-(--duration-fast)",
+                    "hover:text-accent-on-bg hover:border-border-strong",
+                  ].join(" ")}
+                  aria-label={
+                    contact.name
+                      ? `Email ${contact.name}`
+                      : `Email ${kindLabel(contact.kind)}`
+                  }
+                >
+                  <span aria-hidden="true">{"✉"}</span>
+                  <span>Email</span>
+                </a>
+              ) : null}
+            </div>
+            {contact.notes ? (
+              <p className="pt-1 text-xs leading-snug text-text-subtle">
+                {contact.notes}
+              </p>
+            ) : null}
+          </div>
+        </li>
+      ))}
     </Section>
   );
 }

@@ -35,13 +35,18 @@
  * Server Component (no `'use client'`).
  */
 import type { ShowForViewer } from "@/lib/data/getShowForViewer";
+import { Avatar } from "@/components/atoms/Avatar";
 import { Section } from "@/components/atoms/Section";
-import { KeyValue } from "@/components/atoms/KeyValue";
 import { EmptyState } from "@/components/atoms/EmptyState";
 
 type CrewTileProps = {
   crewMembers: ShowForViewer["crewMembers"];
 };
+
+/** Strip non-digit characters for the tel: href. */
+function digitsOnly(s: string): string {
+  return s.replace(/\D+/g, "");
+}
 
 export function CrewTile({ crewMembers }: CrewTileProps) {
   if (!crewMembers || crewMembers.length === 0) {
@@ -50,6 +55,7 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
         testId="crew-tile"
         heading="Crew"
         headingTone="eyebrow"
+        variant="people"
         ariaLabel="Crew"
         bodyAs="div"
       >
@@ -63,46 +69,77 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
       testId="crew-tile"
       heading="Crew"
       headingTone="eyebrow"
+      variant="people"
       ariaLabel="Crew"
-      bodyAs="div"
     >
-      <ul className="flex flex-1 flex-col gap-4">
-        {crewMembers.map((member, idx) => (
-          <li
-            key={member.id}
-            data-testid="crew-row"
-            className={[
-              "flex flex-col gap-2",
-              idx > 0 ? "border-t border-border pt-4" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-          >
-            <div className="flex flex-col gap-0.5">
-              <p className="text-base font-semibold leading-tight text-text-strong">
-                {member.name}
+      {crewMembers.map((member, idx) => (
+        <li
+          key={member.id}
+          data-testid="crew-row"
+          className={[
+            "flex items-start gap-3",
+            idx > 0 ? "border-t border-border pt-4" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          <Avatar name={member.name} />
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <p className="truncate text-sm font-semibold leading-tight text-text-strong">
+              {member.name}
+            </p>
+            {member.role ? (
+              <p className="truncate text-xs uppercase tracking-[0.12em] text-text-faint">
+                {member.role}
               </p>
-              {member.role ? (
-                <p className="text-xs uppercase tracking-[0.12em] text-text-faint">
-                  {member.role}
-                </p>
+            ) : null}
+            {/*
+              Tap-to-call / tap-to-email controls. Each anchor is a
+              standalone tap target ≥44px (--spacing-tap-min) per
+              DESIGN.md §3. The visible label is just the icon-glyph +
+              short word ("Call" / "Email") to keep the row scannable;
+              the digits / address are NOT repeated as text — crew
+              don't read 10-digit numbers from the row, they tap to
+              dial. This is the substantive shape difference from the
+              old `dl`-of-KeyValue treatment (Finding 2 close-out).
+            */}
+            <div className="flex flex-wrap gap-2 pt-1">
+              {member.phone ? (
+                <a
+                  href={`tel:${digitsOnly(member.phone)}`}
+                  className={[
+                    "inline-flex min-h-(--spacing-tap-min) items-center gap-1.5",
+                    "rounded-sm border border-border bg-surface-sunken px-2.5 py-1",
+                    "text-xs font-medium tabular-nums text-text",
+                    "transition-colors duration-(--duration-fast)",
+                    "hover:text-accent-on-bg hover:border-border-strong",
+                  ].join(" ")}
+                  aria-label={`Call ${member.name}`}
+                >
+                  <span aria-hidden="true">{"☎"}</span>
+                  <span>Call</span>
+                </a>
+              ) : null}
+              {member.email ? (
+                <a
+                  href={`mailto:${member.email}`}
+                  className={[
+                    "inline-flex min-h-(--spacing-tap-min) items-center gap-1.5",
+                    "rounded-sm border border-border bg-surface-sunken px-2.5 py-1",
+                    "text-xs font-medium text-text",
+                    "transition-colors duration-(--duration-fast)",
+                    "hover:text-accent-on-bg hover:border-border-strong",
+                  ].join(" ")}
+                  aria-label={`Email ${member.name}`}
+                >
+                  <span aria-hidden="true">{"✉"}</span>
+                  <span>Email</span>
+                </a>
               ) : null}
             </div>
-            <dl className="flex flex-col gap-2">
-              <KeyValue
-                label="Phone"
-                value={member.phone}
-                {...(member.phone ? { linkAs: "tel" as const } : {})}
-              />
-              <KeyValue
-                label="Email"
-                value={member.email}
-                {...(member.email ? { linkAs: "mailto" as const } : {})}
-              />
-            </dl>
-          </li>
-        ))}
-      </ul>
+          </div>
+        </li>
+      ))}
     </Section>
   );
 }
