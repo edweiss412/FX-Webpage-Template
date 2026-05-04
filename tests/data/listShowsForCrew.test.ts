@@ -57,7 +57,7 @@ const { listShowsForCrew } = await import("@/lib/data/listShowsForCrew");
 const identity: GoogleIdentityViewer = {
   kind: "crew",
   email: " Alice@FXAV.NET ",
-  crewMemberId: "google-provider-sub-1",
+  authUserId: "google-provider-sub-1",
 };
 
 beforeEach(() => {

@@ -52,7 +52,7 @@ describe("validateGoogleIdentity", () => {
       viewer: {
         kind: "crew",
         email: "alice@fxav.net",
-        crewMemberId: "google-provider-sub-1",
+        authUserId: "google-provider-sub-1",
       },
     });
     expect(identityMock.serviceRoleCalls).toEqual([]);

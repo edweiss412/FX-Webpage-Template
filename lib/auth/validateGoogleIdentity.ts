@@ -9,7 +9,7 @@ export type GoogleIdentityViewer = {
    * show-bound `crew_members.id`. `/me` resolves per-show crew row IDs in
    * `listShowsForCrew`.
    */
-  crewMemberId: string;
+  authUserId: string;
 };
 
 export type GoogleIdentityValidationResult =
@@ -41,7 +41,7 @@ export async function validateGoogleIdentity(
       viewer: {
         kind: "crew",
         email,
-        crewMemberId: data.user.id,
+        authUserId: data.user.id,
       },
     };
   } catch {
