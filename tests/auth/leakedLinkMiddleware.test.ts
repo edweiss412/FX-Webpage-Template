@@ -21,6 +21,8 @@ const leakedState = vi.hoisted(() => ({
     revoked_below_version: number;
   } | null,
   alertUpserts: [] as unknown[],
+  revokedRows: [] as unknown[],
+  alertThrows: false,
 }));
 
 vi.mock("@/lib/auth/jwt", () => ({
@@ -81,17 +83,25 @@ function tableClient(table: string) {
   }
   if (table === "revoked_links") {
     return {
-      upsert: async () => ({
-        error: leakedState.revokedUpsertFails
-          ? { message: "revoked upsert failed" }
-          : null,
-      }),
+      upsert: async (payload: unknown) => {
+        if (!leakedState.revokedUpsertFails) {
+          leakedState.revokedRows.push(payload);
+        }
+        return {
+          error: leakedState.revokedUpsertFails
+            ? { message: "revoked upsert failed" }
+            : null,
+        };
+      },
     };
   }
   if (table === "admin_alerts") {
     return {
       upsert: async (payload: unknown) => {
         leakedState.alertUpserts.push(payload);
+        if (leakedState.alertThrows) {
+          throw new Error("alert failed");
+        }
         return { error: null };
       },
     };
@@ -102,6 +112,31 @@ function tableClient(table: string) {
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServiceRoleClient: () => ({
     from: tableClient,
+    rpc: async (name: string, params: Record<string, unknown>) => {
+      expect(name).toBe("revoke_leaked_link_atomic");
+      if (leakedState.authReadFails) {
+        return { data: null, error: { message: "auth read failed" } };
+      }
+      if (leakedState.revokedUpsertFails) {
+        return { data: null, error: { message: "revoked upsert failed" } };
+      }
+      if (leakedState.authUpdateFails) {
+        return { data: null, error: { message: "auth update failed" } };
+      }
+      if (!leakedState.authRow) {
+        return { data: { branch: "no_op" }, error: null };
+      }
+      const tokenVersion = Number(params.p_token_version);
+      if (tokenVersion <= leakedState.authRow.current_token_version) {
+        leakedState.revokedRows.push({
+          show_id: params.p_show_id,
+          crew_name: params.p_crew_name,
+          token_version: tokenVersion,
+          revoked_reason: "leaked_query_token",
+        });
+      }
+      return { data: { branch: "ok" }, error: null };
+    },
   }),
 }));
 
@@ -122,6 +157,7 @@ describe("middleware leaked-link revocation", () => {
     leakedState.authReadFails = false;
     leakedState.revokedUpsertFails = false;
     leakedState.authUpdateFails = false;
+    leakedState.alertThrows = false;
     leakedState.authRow = {
       show_id: "11111111-1111-4111-8111-111111111111",
       crew_name: "Crew Tester",
@@ -130,6 +166,7 @@ describe("middleware leaked-link revocation", () => {
       revoked_below_version: 0,
     };
     leakedState.alertUpserts = [];
+    leakedState.revokedRows = [];
   });
 
   test.each([
@@ -152,6 +189,19 @@ describe("middleware leaked-link revocation", () => {
     },
   );
 
+  test("alert persistence failure does not mask leaked-link revocation failure", async () => {
+    leakedState.authUpdateFails = true;
+    leakedState.alertThrows = true;
+
+    const response = await middleware(leakedRequest());
+
+    expect(response.status).toBe(503);
+    await expect(expectJson(response)).resolves.toMatchObject({
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
+    expect(leakedState.alertUpserts).toHaveLength(1);
+  });
+
   test("JWT verification failure still returns LEAKED_LINK_DETECTED", async () => {
     leakedState.verifyFails = true;
 
@@ -172,6 +222,18 @@ describe("middleware leaked-link revocation", () => {
       code: "LEAKED_LINK_DETECTED",
     });
     expect(leakedState.alertUpserts).toEqual([]);
+  });
+
+  test("update failure after revoked-link insert does not leave partial revoked row", async () => {
+    leakedState.authUpdateFails = true;
+
+    const response = await middleware(leakedRequest());
+
+    expect(response.status).toBe(503);
+    await expect(expectJson(response)).resolves.toMatchObject({
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
+    expect(leakedState.revokedRows).toEqual([]);
   });
 
   test("already-revoked leaked link remains idempotent LEAKED_LINK_DETECTED", async () => {
