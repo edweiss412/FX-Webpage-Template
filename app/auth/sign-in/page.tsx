@@ -85,15 +85,34 @@ export default async function SignInPage({
   // On network error, error is non-null and we fall through to render the sign-in CTA
   // (graceful degradation — the user can retry OAuth from the rendered page).
   const { data, error } = await supabase.auth.getUser();
+  // R17 #3: when isAdminSession returns infra_error during the
+  // already-authenticated guard, force the catalog code so the
+  // rendered page shows the failure block instead of redirecting.
+  let forcedErrorCode: string | null = null;
   if (!error && data?.user) {
-    let redirectPath = validatedNext;
+    let redirectPath: string | null = validatedNext;
     if (isAdminPath(redirectPath)) {
       const admin = await isAdminSession(new Request("https://crew.fxav.show"));
-      if (!admin.ok) {
+      if (admin.ok) {
+        // Confirmed admin — keep the validated /admin path.
+      } else if (admin.reason === "infra_error") {
+        // R17 #3 (round-16 §A+§B MEDIUM): under transient is_admin
+        // outage the guard previously sent admins to /me silently.
+        // Render the sign-in page with ADMIN_SESSION_LOOKUP_FAILED
+        // forced into the error block so ErrorExplainer surfaces the
+        // cataloged failure copy. User sees a real failure state with
+        // manual-retry guidance (the SignInButton on this page)
+        // instead of an opaque crew-page downgrade.
+        redirectPath = null;
+        forcedErrorCode = "ADMIN_SESSION_LOOKUP_FAILED";
+      } else {
+        // Confirmed not-admin — fall back to /me.
         redirectPath = "/me";
       }
     }
-    redirect(redirectPath);
+    if (redirectPath !== null) {
+      redirect(redirectPath);
+    }
   }
 
   // ── Error code allowlist ─────────────────────────────────────────
@@ -102,7 +121,10 @@ export default async function SignInPage({
   // ErrorExplainer is also defensive (unknown code → null) but we
   // gate at this layer too so an attacker who bypasses the regex
   // somehow still can't render an arbitrary catalog entry.
-  const errorCode = validateErrorCodeParam(firstScalar(params.code));
+  const errorCode =
+    forcedErrorCode !== null
+      ? validateErrorCodeParam(forcedErrorCode)
+      : validateErrorCodeParam(firstScalar(params.code));
 
   return (
     <main
