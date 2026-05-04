@@ -7,18 +7,24 @@
  *      UX. The element renders even with no asOf prop so Task 4.13's
  *      footer-presence assertion (data-testid="page-footer") passes.
  *   2. FXAV wordmark + copyright — small, neutral.
- *   3. Theme-toggle placeholder — visual-only static button at this
- *      milestone (M9 polish wires the actual data-theme attribute write).
- *      Rendered as a real <button> with aria-label so it carries the
- *      §3 ≥44px tap-target on mobile.
+ *   3. Theme toggle — small `'use client'` island (`ThemeToggle`) that
+ *      flips `<html data-theme>` and persists the choice in
+ *      localStorage['fxav-theme']. The Footer itself stays a Server
+ *      Component; only the toggle is a client island, per the impeccable
+ *      v3 critique Finding 4 wire-up. PRODUCT.md commits to a "clearly
+ *      discoverable theme toggle [that] respects `prefers-color-scheme`
+ *      on first paint" — the no-FOUC inline script in `app/layout.tsx`
+ *      handles the first-paint fallback; this slot carries the
+ *      user-override.
  *
  * `mt-auto` is applied here so the footer pins to the viewport bottom on
  * short pages and flows on long pages (DESIGN.md §3 spacing rhythm + plan
  * line 191 sticky-vs-flow rule). The parent flex container (in layout.tsx)
  * declares `min-h-screen flex flex-col` to make `mt-auto` actually anchor.
  *
- * Server Component — no interactivity at this milestone.
+ * Server Component — interactivity is delegated to the ThemeToggle island.
  */
+import { ThemeToggle } from "./ThemeToggle";
 
 type FooterProps = {
   /**
@@ -71,23 +77,14 @@ export function Footer({ asOf }: FooterProps) {
           <span className="font-regular tabular-nums">{year}</span>
         </p>
         {/*
-          Theme-toggle placeholder. Static at this milestone — actual
-          data-theme=light/dark attribute write is a future polish task.
-          Rendered as a real <button> with explicit min-height so the
-          ≥44px tap-target rule (DESIGN.md §3, --space-tap-min) holds even
-          before any client-side handler exists. type="button" prevents
-          accidental form submission if a future tile wraps the page in a
-          form during prototyping.
+          Theme toggle. Client island — see ThemeToggle.tsx for the
+          dataset/localStorage handshake and the no-FOUC contract with
+          app/layout.tsx. The slot still satisfies the §3 ≥44px tap
+          target via tokens; the icon glyph (Sun/Moon, lucide-react)
+          shows the OPPOSITE of the current theme so the affordance
+          reads "this is what you'll get if you tap."
         */}
-        <button
-          type="button"
-          data-testid="theme-toggle"
-          aria-label="Toggle theme (placeholder)"
-          className="inline-flex min-h-[44px] items-center gap-2 rounded-sm border border-border bg-surface px-3 py-1.5 text-xs font-medium text-text-subtle transition-colors duration-(--duration-fast) hover:border-border-strong hover:text-text"
-        >
-          <span aria-hidden="true">◐</span>
-          <span>Theme</span>
-        </button>
+        <ThemeToggle />
       </div>
     </footer>
   );
