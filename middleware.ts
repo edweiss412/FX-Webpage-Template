@@ -15,6 +15,8 @@ type CrewMemberAuthRow = {
   revoked_below_version: number;
 };
 
+class InvalidLeakedLinkError extends Error {}
+
 function leakedLinkResponse(): Response {
   const message = messageFor("LEAKED_LINK_DETECTED");
   return NextResponse.json(
@@ -26,8 +28,39 @@ function leakedLinkResponse(): Response {
   );
 }
 
+function leakedLinkRevocationFailureResponse(): Response {
+  const message = messageFor("ADMIN_SESSION_LOOKUP_FAILED");
+  return NextResponse.json(
+    {
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+      message: message.crewFacing,
+    },
+    { status: 503 },
+  );
+}
+
 function passThrough(): NextResponse {
   return NextResponse.next();
+}
+
+async function upsertRevocationFailureAlert(input: {
+  showId: string;
+  crewName: string;
+  tokenVersion: number;
+  error: unknown;
+}): Promise<void> {
+  const supabase = createSupabaseServiceRoleClient();
+  const message = input.error instanceof Error ? input.error.message : String(input.error);
+  await supabase.from("admin_alerts").upsert({
+    show_id: input.showId,
+    code: "ADMIN_SESSION_LOOKUP_FAILED",
+    context: {
+      source: "leaked_link_revocation",
+      crew_name: input.crewName,
+      token_version: input.tokenVersion,
+      error: message,
+    },
+  });
 }
 
 async function readAuthRow(showId: string, crewName: string): Promise<CrewMemberAuthRow | null> {
@@ -85,35 +118,44 @@ async function updateAuthRow(
 }
 
 async function revokeLeakedLink(token: string): Promise<Response> {
-  const { payload } = await verifyLinkJwt(token);
+  let payload: Awaited<ReturnType<typeof verifyLinkJwt>>["payload"];
+  try {
+    ({ payload } = await verifyLinkJwt(token));
+  } catch {
+    throw new InvalidLeakedLinkError("invalid leaked link token");
+  }
   const showId = payload.crewMemberKey.showId;
   const crewName = payload.crewMemberKey.name;
   const tokenVersion = payload.tokenVersion;
 
-  await withShowAdvisoryLock(showId, "block", async () => {
-    const auth = await readAuthRow(showId, crewName);
-    if (!auth) return;
+  try {
+    await withShowAdvisoryLock(showId, "block", async () => {
+      const auth = await readAuthRow(showId, crewName);
+      if (!auth) return;
 
-    if (tokenVersion === auth.current_token_version) {
+      if (tokenVersion === auth.current_token_version) {
+        await insertRevokedLink(showId, crewName, tokenVersion);
+        await updateAuthRow(showId, crewName, {
+          revoked_below_version: auth.current_token_version,
+        });
+        return;
+      }
+
       await insertRevokedLink(showId, crewName, tokenVersion);
+      if (tokenVersion < auth.current_token_version) {
+        return;
+      }
+
       await updateAuthRow(showId, crewName, {
-        revoked_below_version: auth.current_token_version,
+        current_token_version: tokenVersion,
+        max_issued_version: tokenVersion,
+        revoked_below_version: tokenVersion,
       });
-      return;
-    }
-
-    if (tokenVersion < auth.current_token_version) {
-      await insertRevokedLink(showId, crewName, tokenVersion);
-      return;
-    }
-
-    await insertRevokedLink(showId, crewName, tokenVersion);
-    await updateAuthRow(showId, crewName, {
-      current_token_version: tokenVersion,
-      max_issued_version: tokenVersion,
-      revoked_below_version: tokenVersion,
     });
-  });
+  } catch (error) {
+    await upsertRevocationFailureAlert({ showId, crewName, tokenVersion, error });
+    return leakedLinkRevocationFailureResponse();
+  }
 
   return leakedLinkResponse();
 }
@@ -131,7 +173,10 @@ export async function middleware(request: NextRequest): Promise<Response> {
 
   try {
     return await revokeLeakedLink(leakedToken);
-  } catch {
+  } catch (error) {
+    if (error instanceof InvalidLeakedLinkError) {
+      return leakedLinkResponse();
+    }
     return leakedLinkResponse();
   }
 }
