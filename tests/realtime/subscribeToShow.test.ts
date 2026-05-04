@@ -31,6 +31,7 @@ function makeFakeSupabase() {
   let registeredHandler:
     | ((msg: { event: string; payload: InvalidatePayload }) => void)
     | null = null;
+  let registeredStatusHandler: ((status: string) => void) | null = null;
   let subscribed = false;
 
   const channelHandle = {
@@ -43,8 +44,11 @@ function makeFakeSupabase() {
       registeredHandler = handler;
       return channelHandle;
     },
-    subscribe() {
+    subscribe(statusCallback?: (status: string) => void) {
       subscribed = true;
+      if (statusCallback) {
+        registeredStatusHandler = statusCallback;
+      }
       return channelHandle;
     },
   };
@@ -67,6 +71,11 @@ function makeFakeSupabase() {
     fire: (msg: { event: string; payload: InvalidatePayload }) => {
       if (!registeredHandler) throw new Error("no handler registered");
       registeredHandler(msg);
+    },
+    fireStatus: (status: string) => {
+      if (!registeredStatusHandler)
+        throw new Error("no status handler registered");
+      registeredStatusHandler(status);
     },
     subscribed: () => subscribed,
     handle: channelHandle,
@@ -98,6 +107,29 @@ describe("subscribeToShow", () => {
     const cfg = fake.state.channelCalls[0]?.config as {
       config?: { broadcast?: { self?: boolean } };
     };
+    expect(cfg?.config?.broadcast?.self).toBe(false);
+  });
+
+  // === Codex HIGH 1 regression — private: true is mandatory ===
+  // Supabase Realtime Authorization (RLS on realtime.messages) ONLY protects
+  // PRIVATE channels. A regression that drops `private: true` from the
+  // channel config silently disables tenant fencing AND revocation: any
+  // unauthenticated client could subscribe to any show:<uuid>:invalidation
+  // topic. This test pins the flag — it fails if `private: true` is missing
+  // OR coerced to false.
+  test("opens the channel as PRIVATE (`config.private === true`) — Codex HIGH 1 regression fence", () => {
+    const fake = makeFakeSupabase();
+    subscribeToShow(
+      fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
+      "show-uuid-1",
+      "fake.jwt.value",
+      () => {},
+    );
+    const cfg = fake.state.channelCalls[0]?.config as {
+      config?: { private?: boolean; broadcast?: { self?: boolean } };
+    };
+    expect(cfg?.config?.private).toBe(true);
+    // self=false is also still required (defense-in-depth).
     expect(cfg?.config?.broadcast?.self).toBe(false);
   });
 
@@ -173,14 +205,73 @@ describe("subscribeToShow", () => {
     expect(seenTokens).toEqual([]);
   });
 
-  test("returns the channel handle for caller cleanup via removeChannel", () => {
+  test("returns the channel handle (on .channel) for caller cleanup via removeChannel", () => {
     const fake = makeFakeSupabase();
-    const handle = subscribeToShow(
+    const result = subscribeToShow(
       fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
       "show-uuid-1",
       "fake.jwt.value",
       () => {},
     );
-    expect(handle).toBe(fake.handle);
+    expect(result.channel).toBe(fake.handle);
+  });
+
+  // === Codex HIGH 2 regression — subscribed Promise is the readiness signal ===
+  // The bridge MUST await this Promise before running its post-subscribe
+  // version-catch-up; otherwise an update that lands AFTER the version GET
+  // but BEFORE Realtime accepts the subscription is missed.
+  test("subscribed Promise resolves with the FIRST status callback Realtime delivers (HIGH 2)", async () => {
+    const fake = makeFakeSupabase();
+    const result = subscribeToShow(
+      fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
+      "show-uuid-1",
+      "fake.jwt.value",
+      () => {},
+    );
+    // Pending until status fires.
+    let resolvedWith: string | null = null;
+    void result.subscribed.then((s) => {
+      resolvedWith = s;
+    });
+    // No status yet → Promise still pending.
+    await Promise.resolve();
+    expect(resolvedWith).toBeNull();
+
+    // Fire SUBSCRIBED — Promise resolves with that status.
+    fake.fireStatus("SUBSCRIBED");
+    await result.subscribed;
+    expect(resolvedWith).toBe("SUBSCRIBED");
+  });
+
+  test("subscribed Promise resolves at most once even if status fires multiple times", async () => {
+    const fake = makeFakeSupabase();
+    const result = subscribeToShow(
+      fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
+      "show-uuid-1",
+      "fake.jwt.value",
+      () => {},
+    );
+    fake.fireStatus("SUBSCRIBED");
+    fake.fireStatus("CLOSED");
+    fake.fireStatus("CHANNEL_ERROR");
+    const first = await result.subscribed;
+    expect(first).toBe("SUBSCRIBED");
+  });
+
+  test("optional onStatus callback receives every status transition", () => {
+    const fake = makeFakeSupabase();
+    const seen: string[] = [];
+    subscribeToShow(
+      fake.supabase as unknown as Parameters<typeof subscribeToShow>[0],
+      "show-uuid-1",
+      "fake.jwt.value",
+      () => {},
+      (s) => {
+        seen.push(s);
+      },
+    );
+    fake.fireStatus("SUBSCRIBED");
+    fake.fireStatus("CHANNEL_ERROR");
+    expect(seen).toEqual(["SUBSCRIBED", "CHANNEL_ERROR"]);
   });
 });

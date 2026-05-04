@@ -117,6 +117,7 @@ vi.mock("@/lib/realtime/subscribeToShow", () => {
         showId: string,
         jwt: string,
         onInvalidate: (token: string) => void,
+        onStatus?: (status: string) => void,
       ) => {
         if (subscribeMock.state.throwOnNext) {
           subscribeMock.state.throwOnNext = false;
@@ -125,6 +126,23 @@ vi.mock("@/lib/realtime/subscribeToShow", () => {
         subscribeMock.state.subscribeCalls.push({ showId, jwt });
         const onSystemHandlers: Array<(e: SystemEvent) => void> = [];
         const onStatusHandlers: Array<(s: string) => void> = [];
+        // The new subscribeToShow contract calls .subscribe(statusCallback);
+        // the bridge passes its handleStatusCallback through `onStatus`. We
+        // register that here so existing `channel.fireStatus(s)` test
+        // helpers continue to drive the bridge's status-handling code path.
+        if (onStatus) {
+          onStatusHandlers.push(onStatus);
+        }
+        // The readiness Promise resolves with the FIRST status the test
+        // fires; if the test fires no status, the Promise stays pending
+        // and the bridge's catch-up never runs (which is the correct
+        // behavior pre-SUBSCRIBED). For tests that pre-date the readiness
+        // gate, `mountBridgeAndAwaitSubscribe` fires SUBSCRIBED below.
+        let resolveSubscribed: (status: string) => void = () => {};
+        const subscribed = new Promise<string>((resolve) => {
+          resolveSubscribed = resolve;
+        });
+        let subscribedResolved = false;
         const handle: {
           invalidate: (token: string, showIdArg?: string) => void;
           fireSystem: (e: SystemEvent) => void;
@@ -145,6 +163,11 @@ vi.mock("@/lib/realtime/subscribeToShow", () => {
             onSystemHandlers.forEach((fn) => fn(e));
           },
           fireStatus: (s) => {
+            // Resolve the readiness Promise on FIRST status (mirrors prod).
+            if (!subscribedResolved) {
+              subscribedResolved = true;
+              resolveSubscribed(s);
+            }
             onStatusHandlers.forEach((fn) => fn(s));
           },
           onSystemHandlers,
@@ -153,7 +176,7 @@ vi.mock("@/lib/realtime/subscribeToShow", () => {
         };
         subscribeMock.state.currentChannel = handle;
         subscribeMock.state.channels.push(handle);
-        return handle;
+        return { channel: handle, subscribed };
       },
     ),
   };
@@ -278,7 +301,10 @@ async function flushPromises() {
   });
 }
 
-async function mountBridgeAndAwaitSubscribe() {
+async function mountBridgeAndAwaitSubscribe(opts?: {
+  fireSubscribed?: boolean;
+}) {
+  const fireSubscribed = opts?.fireSubscribed ?? true;
   const utils = render(
     <ShowRealtimeBridge
       showId="show-uuid-1"
@@ -291,6 +317,16 @@ async function mountBridgeAndAwaitSubscribe() {
   // because the initial mount = mint POST → fetch.then() → subscribe).
   for (let i = 0; i < 10; i += 1) {
     if (subscribeMock.state.currentChannel) break;
+    await flushPromises();
+  }
+  // Fire SUBSCRIBED so the bridge's readiness Promise resolves and the
+  // post-subscribe catch-up runs. Tests that need to exercise the
+  // pre-subscribed (race) window pass `fireSubscribed: false` and drive
+  // the status manually.
+  if (fireSubscribed && subscribeMock.state.currentChannel) {
+    await act(async () => {
+      subscribeMock.state.currentChannel?.fireStatus("SUBSCRIBED");
+    });
     await flushPromises();
   }
   return utils;
@@ -508,6 +544,16 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     expect(renewedCall?.jwt).toBe("jwt-mint-2");
     // Old channel was removed.
     expect(firstChannel.removed).toBe(true);
+    // Fire SUBSCRIBED on the NEW channel so the renewal's readiness gate
+    // resolves and the success log fires (the catch-up + success log are
+    // now gated on the new channel reaching SUBSCRIBED — Codex HIGH 2).
+    const newChannel = subscribeMock.state.currentChannel;
+    if (!newChannel) throw new Error("renewal channel not registered");
+    await act(async () => {
+      newChannel.fireStatus("SUBSCRIBED");
+    });
+    await flushPromises();
+    await flushPromises();
     // Renewal log was emitted.
     const loggedRenewal = consoleInfoSpy.mock.calls.some((args) =>
       args.some((a) => typeof a === "string" && a.includes("SHOW_REALTIME_JWT_RENEWED")),
@@ -620,6 +666,15 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       if (subscribeMock.state.currentChannel) break;
       await flushPromises();
     }
+    // Fire SUBSCRIBED so the bridge's readiness gate releases the
+    // post-subscribe catch-up (Codex HIGH 2 — catch-up no longer races
+    // the Realtime join).
+    const initialChannel = subscribeMock.state.currentChannel;
+    if (!initialChannel) throw new Error("channel not registered");
+    await act(async () => {
+      initialChannel.fireStatus("SUBSCRIBED");
+    });
+    await flushPromises();
     // Initial post-subscribe catch-up: T0-INITIAL vs T2-LATEST → refresh.
     expect(routerMock.state.refreshCalls).toBe(1);
 
@@ -798,6 +853,65 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     expect(taggedSubscribeThrew).toBe(true);
 
     consoleWarnSpy.mockRestore();
+  });
+
+  // === Codex HIGH 2 regression — readiness gate before catch-up ===
+  // Without the readiness gate, the post-subscribe catch-up runs the
+  // version GET BEFORE Realtime accepts the subscription. An update that
+  // lands AFTER the version GET but BEFORE SUBSCRIBED is then missed:
+  // catch-up sees the old token, Broadcast has not started delivering,
+  // and the page renders stale data forever.
+  //
+  // This test mounts the bridge, lets the version GET resolve and then
+  // simulates an update landing in the race window. After SUBSCRIBED
+  // fires the bridge is now receiving Broadcast — the simulated update
+  // is delivered as an `invalidate` event and triggers a refresh.
+  // Without the gate, refreshCalls would be observed at 0 even after the
+  // late broadcast (race never closes).
+  test("HIGH 2 — catch-up runs only AFTER SUBSCRIBED; updates arriving in the race window are delivered post-subscribe", async () => {
+    // Version GET returns the SAME token as the SSR'd renderVersion so a
+    // catch-up that runs would NOT refresh (no mismatch). The only way
+    // refreshCalls reaches 1 in this test is via a Broadcast event
+    // delivered AFTER SUBSCRIBED — which is the fix HIGH 2 enforces.
+    pushFetchHandler(
+      (url) => /\/api\/show\/[^/]+\/version/.test(url),
+      async () =>
+        new Response(JSON.stringify({ version_token: "BASELINE" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    const utils = await mountBridgeAndAwaitSubscribe({
+      fireSubscribed: false,
+    });
+    void utils;
+    const channel = subscribeMock.state.currentChannel;
+    if (!channel) throw new Error("channel not registered");
+
+    // BEFORE SUBSCRIBED fires: confirm catch-up has not yet run by
+    // observing that no refresh has fired even after a long drain.
+    await flushPromises();
+    expect(routerMock.state.refreshCalls).toBe(0);
+
+    // Now SUBSCRIBED fires — readiness Promise resolves, catch-up runs
+    // (no mismatch, no refresh).
+    await act(async () => {
+      channel.fireStatus("SUBSCRIBED");
+    });
+    await flushPromises();
+    await flushPromises();
+    expect(routerMock.state.refreshCalls).toBe(0);
+
+    // Simulate an update arriving via Broadcast (post-subscribe — the
+    // race window has closed because we are now subscribed). The bridge
+    // schedules a debounced refresh.
+    channel.invalidate("TOKEN-LATE", "show-uuid-1");
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    await flushPromises();
+    expect(routerMock.state.refreshCalls).toBe(1);
   });
 
   // === Important 3 (default-branch warn for unknown system events) ===

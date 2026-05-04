@@ -24,9 +24,18 @@
  *   1. Calls supabase.realtime.setAuth(jwt) — required for Realtime
  *      Authorization on private channels. The JWT is minted by
  *      /api/realtime/subscriber-token after a 5-arm resolveShowViewer pass.
- *   2. Opens the channel with `broadcast: { self: false }` so a publisher
- *      that also subscribes (not our case, but defense-in-depth) doesn't
- *      echo its own events back to itself.
+ *   2. Opens the channel as PRIVATE (`config: { private: true,
+ *      broadcast: { self: false } }`). The `private: true` flag is the
+ *      mandatory pairing for the server-side `realtime.send(..., true)`
+ *      private publish — a public subscriber NEVER receives a private
+ *      broadcast and vice-versa. Supabase Realtime Authorization (RLS on
+ *      realtime.messages) ONLY protects private channels; without
+ *      `private: true` the JWT we just minted would be irrelevant for
+ *      subscription authorization, leaving cross-show subscriptions
+ *      unfenced and revocation never reaching the bridge. The
+ *      `broadcast: { self: false }` flag is defense-in-depth so a
+ *      publisher that also subscribes (not our case) doesn't echo its
+ *      own events.
  *   3. Listens for event === 'invalidate' broadcasts and — only when
  *      payload.show_id matches the subscribed showId — forwards
  *      payload.version_token to onInvalidate. The payload guard is a
@@ -35,8 +44,17 @@
  *      bug that publishes to the wrong topic would otherwise trigger a
  *      spurious router.refresh() on the wrong show. The guard makes the
  *      helper inert against misrouted messages.
- *   4. .subscribe()s and returns the channel handle so the caller can call
- *      supabase.removeChannel(handle) on cleanup.
+ *   4. .subscribe(statusCallback)s with a status callback that (a)
+ *      resolves the returned `subscribed` Promise with the FIRST status
+ *      Realtime delivers, and (b) forwards every status to the caller's
+ *      optional `onStatus` callback. The Promise is the readiness signal
+ *      the bridge awaits before running its post-subscribe version
+ *      catch-up — without this, the catch-up races the Realtime join and
+ *      can MISS an update that lands between the version GET and the
+ *      moment Realtime accepts the subscription.
+ *   5. Returns `{ channel, subscribed }` so the caller can call
+ *      supabase.removeChannel(channel) on cleanup AND `await subscribed`
+ *      to gate post-subscribe work behind the join-completion barrier.
  *
  * onInvalidate is invoked with the raw version_token string. The caller
  * (Checkpoint B `<ShowRealtimeBridge>`) is responsible for comparing it to
@@ -57,6 +75,24 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type ShowInvalidationChannel = ReturnType<SupabaseClient["channel"]>;
+
+/**
+ * Return type for subscribeToShow. The helper exposes a `subscribed` Promise
+ * that resolves with the FIRST status callback Realtime delivers (typically
+ * `'SUBSCRIBED'` on success, or `'CHANNEL_ERROR'` / `'TIMED_OUT'` /
+ * `'CLOSED'` on failure). Callers MUST await this Promise before running
+ * any post-subscribe catch-up logic — otherwise an update that lands AFTER
+ * the version GET but BEFORE Realtime accepts the subscription is missed
+ * (catch-up sees the old token, Broadcast has not yet started delivering).
+ *
+ * The Promise resolves at most once. Subsequent status transitions are
+ * delivered through the per-call `onStatus` callback (also wired on
+ * `.subscribe()`), which is the bridge's signal to drive renewal.
+ */
+export type SubscribeToShowResult = {
+  channel: ShowInvalidationChannel;
+  subscribed: Promise<string>;
+};
 
 /**
  * Shape of the `invalidate` broadcast payload emitted by both server-side
@@ -82,14 +118,23 @@ export function subscribeToShow(
   showId: string,
   jwt: string,
   onInvalidate: (versionToken: string) => void,
-): ShowInvalidationChannel {
+  onStatus?: (status: string) => void,
+): SubscribeToShowResult {
   // (1) JWT must be set before .channel() is called — Realtime authenticates
   // the subscription with the most-recently-set auth token at subscribe time.
   supabase.realtime.setAuth(jwt);
 
-  // (2) Open the per-show invalidation channel.
+  // (2) Open the per-show invalidation channel as a PRIVATE channel.
+  // Supabase Realtime Authorization (RLS on realtime.messages) ONLY
+  // protects PRIVATE channels — public channels can be subscribed to
+  // without authentication and would render the JWT-mint endpoint
+  // irrelevant for tenant fencing AND revocation. The matching server-side
+  // publish path uses `realtime.send(payload, event, topic, true)` (the
+  // 4th arg = private flag) so the publisher and the subscriber agree on
+  // privacy; a public DB broadcast does NOT reach a private subscriber and
+  // vice-versa (per Supabase docs).
   const channel = supabase.channel(`show:${showId}:invalidation`, {
-    config: { broadcast: { self: false } },
+    config: { private: true, broadcast: { self: false } },
   });
 
   // (3) Forward invalidate events to the caller's callback. The narrow
@@ -100,21 +145,43 @@ export function subscribeToShow(
   // carries a different show_id MUST NOT trigger onInvalidate, since the
   // bridge would then issue a router.refresh() on the wrong show and
   // potentially leak version tokens across shows.
-  channel
-    .on(
-      "broadcast",
-      { event: "invalidate" },
-      (msg: { event: string; payload: InvalidatePayload }) => {
-        if (msg.payload?.show_id !== showId) {
-          return;
-        }
-        const token = msg.payload?.version_token;
-        if (typeof token === "string") {
-          onInvalidate(token);
-        }
-      },
-    )
-    .subscribe();
+  channel.on(
+    "broadcast",
+    { event: "invalidate" },
+    (msg: { event: string; payload: InvalidatePayload }) => {
+      if (msg.payload?.show_id !== showId) {
+        return;
+      }
+      const token = msg.payload?.version_token;
+      if (typeof token === "string") {
+        onInvalidate(token);
+      }
+    },
+  );
 
-  return channel;
+  // (4) Wire the subscribe-status callback AND a Promise that resolves
+  // with the FIRST status the underlying socket reports. The Promise is
+  // the readiness signal the bridge awaits before running its
+  // post-subscribe version-catch-up — without this signal, the catch-up
+  // races the Realtime join: an update that lands AFTER the version GET
+  // but BEFORE the server accepts the subscription is missed (the
+  // catch-up sees the old token, Broadcast has not started delivering)
+  // and the page renders stale data forever.
+  let resolveSubscribed: (status: string) => void = () => {};
+  const subscribed = new Promise<string>((resolve) => {
+    resolveSubscribed = resolve;
+  });
+  let resolved = false;
+
+  channel.subscribe((status: string) => {
+    if (!resolved) {
+      resolved = true;
+      resolveSubscribed(status);
+    }
+    if (onStatus) {
+      onStatus(status);
+    }
+  });
+
+  return { channel, subscribed };
 }

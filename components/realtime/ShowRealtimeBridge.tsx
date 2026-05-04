@@ -99,7 +99,6 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { subscribeToShow } from "@/lib/realtime/subscribeToShow";
 import type { ShowInvalidationChannel } from "@/lib/realtime/subscribeToShow";
 import {
-  attachStatusHandler,
   attachSystemHandler,
   removeChannel,
   type SystemEvent,
@@ -281,17 +280,26 @@ export function ShowRealtimeBridge({
       if (newClosureGen !== currentChannelGenerationRef.current) return;
 
       let newChannel: ShowInvalidationChannel | null = null;
+      let newSubscribed: Promise<string> | null = null;
       try {
-        newChannel = subscribeToShow(supabase, showId, newJwt, (token) => {
-          if (!isMountedRef.current) return;
-          if (newClosureGen !== currentChannelGenerationRef.current) return;
-          // Update the renderVersion ref optimistically so subsequent
-          // catch-ups don't re-fire on this same token.
-          if (typeof token === "string") {
-            renderVersionRef.current = token;
-          }
-          scheduleDebouncedRefresh();
-        });
+        const result = subscribeToShow(
+          supabase,
+          showId,
+          newJwt,
+          (token) => {
+            if (!isMountedRef.current) return;
+            if (newClosureGen !== currentChannelGenerationRef.current) return;
+            // Update the renderVersion ref optimistically so subsequent
+            // catch-ups don't re-fire on this same token.
+            if (typeof token === "string") {
+              renderVersionRef.current = token;
+            }
+            scheduleDebouncedRefresh();
+          },
+          (status) => handleStatusCallback(status, newClosureGen),
+        );
+        newChannel = result.channel;
+        newSubscribed = result.subscribed;
       } catch (err) {
         console.warn(
           "[ShowRealtimeBridge] subscription failed during renewal",
@@ -307,11 +315,21 @@ export function ShowRealtimeBridge({
       attachSystemHandler(newChannel, (e) =>
         handleSystemEvent(e, newClosureGen),
       );
-      attachStatusHandler(newChannel, (status) =>
-        handleStatusCallback(status, newClosureGen),
-      );
 
-      // (e) AFTER new subscribe resolves, run the version catch-up.
+      // (e) AFTER the underlying socket reports SUBSCRIBED, run the
+      // version catch-up. Without this gate the catch-up races the
+      // Realtime join: an update that lands AFTER the version GET but
+      // BEFORE Realtime accepts the subscription is missed (catch-up
+      // sees the old token, Broadcast has not started delivering) and
+      // the page renders stale data forever. Codex HIGH 2.
+      try {
+        await newSubscribed;
+      } catch {
+        // The Promise only ever resolves (with a status string); guard
+        // for completeness in case a future implementation rejects.
+      }
+      if (!isMountedRef.current) return;
+      if (newClosureGen !== currentChannelGenerationRef.current) return;
       await refreshSyncIfMismatch(newClosureGen);
 
       // (f) Renewal succeeded — log success.
@@ -390,15 +408,24 @@ export function ShowRealtimeBridge({
 
       const closureGen = currentChannelGenerationRef.current;
       let channel: ShowInvalidationChannel | null = null;
+      let subscribedPromise: Promise<string> | null = null;
       try {
-        channel = subscribeToShow(supabase, showId, jwt, (token) => {
-          if (!isMountedRef.current) return;
-          if (closureGen !== currentChannelGenerationRef.current) return;
-          if (typeof token === "string") {
-            renderVersionRef.current = token;
-          }
-          scheduleDebouncedRefresh();
-        });
+        const result = subscribeToShow(
+          supabase,
+          showId,
+          jwt,
+          (token) => {
+            if (!isMountedRef.current) return;
+            if (closureGen !== currentChannelGenerationRef.current) return;
+            if (typeof token === "string") {
+              renderVersionRef.current = token;
+            }
+            scheduleDebouncedRefresh();
+          },
+          (status) => handleStatusCallback(status, closureGen),
+        );
+        channel = result.channel;
+        subscribedPromise = result.subscribed;
       } catch (err) {
         // Single failed subscribe does NOT loop. Bounded-backoff retry
         // is a v2 enhancement; v1 fails open.
@@ -410,12 +437,22 @@ export function ShowRealtimeBridge({
       }
       currentChannelRef.current = channel;
       attachSystemHandler(channel, (e) => handleSystemEvent(e, closureGen));
-      attachStatusHandler(channel, (status) =>
-        handleStatusCallback(status, closureGen),
-      );
 
-      // Post-subscribe catch-up: compare server's current version to the
+      // Post-subscribe catch-up: GATE on the readiness Promise so the
+      // catch-up does not run before Realtime accepts the subscription.
+      // Without this gate (Codex HIGH 2), an update that lands AFTER the
+      // version GET but BEFORE Realtime accepts the subscription is
+      // missed: the catch-up sees the old token and Broadcast has not
+      // started delivering, leaving the page stale forever. Once
+      // SUBSCRIBED fires, compare the server's current version to the
       // SSR'd renderVersion. Synchronous refresh on mismatch.
+      try {
+        await subscribedPromise;
+      } catch {
+        // The Promise only ever resolves; guard for completeness.
+      }
+      if (!isMountedRef.current || initialAborted) return;
+      if (closureGen !== currentChannelGenerationRef.current) return;
       await refreshSyncIfMismatch(closureGen);
     })();
 
