@@ -94,7 +94,7 @@ When picking up a deferred item:
 
 ### M2-D6 — App-side advisory-lock helper shape deferred to consumer milestones
 
-**Status:** **Resolved in the M5 advisory-lock helper commit** — exact commit SHA is reported in the Pin-2 extension handoff. A Git commit cannot contain its own final SHA without changing that SHA; this row is intentionally resolved in the same commit that authors `lib/db/advisoryLock.ts`.
+**Status:** **Resolved at SHA `dc68471` (M5 Pin-2 extension #2 — `feat(auth): add show advisory lock helper`)**. A Git commit cannot contain its own final SHA without changing that SHA, so this row was authored in the same commit that ships `lib/db/advisoryLock.ts` with a reference-by-name; the SHA is backfilled here in a follow-up orchestrator commit.
 
 **Source:** M2 adversarial review, Round 1 advisory note
 **Description:** Plan-wide invariant §1.2 mandates per-show advisory locks on every code path that mutates `shows` / `crew_members` / `crew_member_auth` / `pending_syncs` / `pending_ingestions`, with tests asserting the lock is held. M2 ships the schema that supports this; the actual helper and the lock-held tests live with the code paths that hold the lock (M5 auth, M6 sync).

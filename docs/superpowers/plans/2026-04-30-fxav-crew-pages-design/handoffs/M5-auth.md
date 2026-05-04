@@ -188,6 +188,79 @@ Codex deviations (extension):
 
 Verification: `pnpm test` on cookies + 5 validator suites + listShowsForCrew = 35 tests passing; `pnpm typecheck` passed; `pnpm lint` clean.
 
+### Pinned contract @ 766ed20 (Pin-stop 2 extension #2 — 2026-05-04)
+
+```ts
+// app/api/auth/redeem-link/route.ts
+export function POST(request: NextRequest): Promise<Response>;
+
+// lib/db/advisoryLock.ts
+export type ShowAdvisoryLockMode = "try" | "block";
+export class ShowAdvisoryLockUnavailableError extends Error {
+  readonly code: "SHOW_ADVISORY_LOCK_UNAVAILABLE";
+}
+export class ShowAdvisoryLockShowNotFoundError extends Error {
+  readonly code: "SHOW_ADVISORY_LOCK_SHOW_NOT_FOUND";
+}
+export function withShowAdvisoryLock<T>(
+  showId: string,
+  mode: ShowAdvisoryLockMode,
+  fn: () => T | Promise<T>,
+): Promise<T>;
+
+// lib/auth/requireAdmin.ts
+export function requireAdmin(): Promise<void>; // interface unchanged from M3 stub; body now production (Supabase Auth via @supabase/ssr + is_admin() SQL helper)
+
+// lib/auth/validateNextParam.ts
+export const DEFAULT_AUTH_NEXT_PATH: "/admin";
+export type ValidateNextParamOutcome =
+  | { ok: true; path: string }
+  | { ok: false; path: "/admin"; code: "OAUTH_REDIRECT_INVALID" };
+export function validateNextParamDetailed(raw: unknown): ValidateNextParamOutcome;
+export function validateNextParam(raw: unknown): string;
+
+// app/auth/callback/route.ts
+export function GET(request: NextRequest): Promise<Response>;
+
+// app/auth/sign-out/route.ts
+export function POST(request: NextRequest): Promise<Response>;
+export function GET(): Promise<Response>; // 405
+
+// lib/messages/lookup.ts
+export type MessageParams = Record<string, string | number | boolean | null | undefined>;
+export function messageFor(code: MessageCode, params?: MessageParams): MessageCatalogEntry;
+
+export type MessageCode =
+  | "LINK_EXPIRED" | "LINK_REVOKED_FLOOR" | "LINK_REVOKED_SURGICAL"
+  | "LINK_VERSION_MISMATCH" | "LINK_NO_CREW_MATCH" | "LEAKED_LINK_DETECTED"
+  | "CSRF_DENIED" | "CSRF_NONCE_EXPIRED" | "CSRF_KEY_ROTATED"
+  | "GOOGLE_NO_CREW_MATCH" | "AMBIGUOUS_EMAIL_BINDING"
+  | "SESSION_NOT_FOUND" | "SESSION_IDLE_TIMEOUT" | "SESSION_ABSOLUTE_TIMEOUT"
+  | "LINK_SESSION_KEY_ROTATED" | "LINK_REDEEM_KEY_ROTATED"
+  | "OAUTH_STATE_INVALID" | "OAUTH_REDIRECT_INVALID"
+  | "ADMIN_SESSION_LOOKUP_FAILED"
+  | "WATCH_CHANNEL_ORPHANED" | "WEBHOOK_TOKEN_INVALID"
+  | "REPORT_ORPHANED_LOST_LEASE" | "GITHUB_BOT_LOGIN_MISSING"
+  | "REPORT_LEASE_THRASHING" | "TILE_SERVER_RENDER_FAILED"
+  | "INVALID_JSON" | "SLUG_REQUIRED"
+  | "SHOW_REALTIME_BROADCAST_AUTH_FAILED" | "SHOW_REALTIME_CROSS_SHOW_FORBIDDEN"
+  | "SHOW_REALTIME_TOKEN_MISCONFIGURED"
+  | "SHOW_VERSION_AUTH_FAILED" | "SHOW_VERSION_CROSS_SHOW_FORBIDDEN"
+  | "SHOW_VERSION_TOKEN_RPC_FAILED";
+```
+
+Codex deviations (extension #2):
+1. **DEFERRED.md SHA self-reference impossibility.** Codex correctly noted that a commit cannot literally contain its own SHA. M2-D6 was marked Resolved in commit `dc68471` (the advisory-lock commit), and orchestrator backfills the SHA into DEFERRED.md in a follow-up commit. Not a contract issue, just a process note.
+2. **Operator-log writes for some auth error branches not wired** because no shared operator logging sink exists yet. Codes are cataloged and tested but not actually emitted to a sink. M6 / M8 will introduce the sink; M5 surfaces the codes correctly. **Adversarial-reviewer pin item:** confirm the deferral is acceptable and doesn't violate any spec §12.4 producer requirement.
+3. **`DEFAULT_AUTH_NEXT_PATH: "/admin"` as the failsafe fallback.** Crew users do not have access to `/admin` (RLS denies). If crew OAuth completes with an invalid `next`, validateNextParamDetailed returns `path: "/admin"`, and the callback redirects there, crew hits an authorization failure and bounces somewhere — potential redirect dead-end. **Adversarial-reviewer pin item:** the callback route's user-type-aware fallback (admin → /admin, crew → /me) should run AFTER validateNextParam returns its failsafe, so the failsafe never actually lands a crew user on /admin. Confirm this composition by reading `app/auth/callback/route.ts`.
+
+Verification: `pnpm test` = 1273 tests passing across 74 files; `pnpm lint` clean; `pnpm typecheck` passed; `pnpm test:e2e tests/e2e/redeem-link.spec.ts` = 6 tests passing; `pnpm test tests/db/schema-introspection.test.ts` = 103 tests passing.
+
+**Adversarial-review carry-forward (cumulative across all three pin-stops):**
+- (extension #1) `GoogleIdentityViewer.crewMemberId` is Supabase Auth `user.id`; `CrewShowSummary.crewMemberId` is `crew_members.id`. Same field name, different referents. Recommend rename `GoogleIdentityViewer.crewMemberId` → `userId` or drop the field entirely.
+- (extension #2) `DEFAULT_AUTH_NEXT_PATH: "/admin"` failsafe risks crew redirect dead-end — needs callback-side disambiguation.
+- (extension #2) Operator-log writes deferred to M6/M8 sink — confirm acceptable.
+
 ---
 
 ## 1. Spec sections in scope
