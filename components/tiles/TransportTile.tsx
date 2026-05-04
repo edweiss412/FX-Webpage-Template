@@ -70,7 +70,7 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
         ariaLabel="Transport"
         bodyAs="div"
       >
-        <EmptyState />
+        <EmptyState label="No transport details on file yet." />
       </Section>
     );
   }

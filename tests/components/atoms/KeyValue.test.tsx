@@ -36,27 +36,47 @@ describe("KeyValue atom", () => {
     expect(html).toMatch(/<dd[^>]*>[\s\S]*?Waldorf Astoria/);
   });
 
-  test("renders the canonical empty-state placeholder when value is null", () => {
+  test("renders the EmptyState atom when value is null (§8.3 required-field branch)", () => {
     const html = renderToStaticMarkup(
       <KeyValue label="Confirmation" value={null} />,
     );
     expect(html).toContain("Confirmation");
     // Spec §8.3 — required-field-missing inside a rendered tile renders
-    // the canonical "Doug hasn't filled this in yet" placeholder. The
-    // apostrophe is HTML-encoded by renderToStaticMarkup.
-    expect(html).toContain("Doug hasn&#x27;t filled this in yet");
+    // the EmptyState atom. Per Task 4.14 the default copy is the neutral
+    // crew-facing fallback ("Information missing.") since callers SHOULD
+    // pass per-field overrides; tiles missing an override fall through
+    // to the safety-net string instead of the prior Doug-personifying
+    // copy (Critique Finding 3a regression guard).
+    expect(html).toContain("Information missing.");
+    expect(html).toContain('data-testid="empty-state"');
   });
 
-  test("renders the canonical empty-state placeholder when value is undefined", () => {
+  test("renders EmptyState atom when value is undefined", () => {
     const html = renderToStaticMarkup(
       <KeyValue label="Notes" value={undefined} />,
     );
-    expect(html).toContain("Doug hasn&#x27;t filled this in yet");
+    expect(html).toContain("Information missing.");
   });
 
-  test("renders empty-state placeholder when value is whitespace-only string", () => {
+  test("renders EmptyState atom when value is whitespace-only string", () => {
     const html = renderToStaticMarkup(<KeyValue label="Notes" value="   " />);
-    expect(html).toContain("Doug hasn&#x27;t filled this in yet");
+    expect(html).toContain("Information missing.");
+  });
+
+  test("forwards `emptyLabel` override to the EmptyState atom for crew-facing copy", () => {
+    // Tiles SHOULD pass crew-facing copy via emptyLabel — Critique
+    // Finding 3a. The atom never sees the literal; it just renders
+    // whatever override the tile supplies.
+    const html = renderToStaticMarkup(
+      <KeyValue
+        label="Confirmation"
+        value={null}
+        emptyLabel="No reservation confirmed yet."
+      />,
+    );
+    expect(html).toContain("No reservation confirmed yet.");
+    expect(html).not.toContain("Information missing.");
+    expect(html).not.toContain("Doug");
   });
 
   test("phone-style value renders as tel: anchor with digits-only href", () => {

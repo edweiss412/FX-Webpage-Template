@@ -9,8 +9,8 @@
  *   - Every show has a venue conceptually, even if the data is incomplete.
  *     The tile ALWAYS renders (no whole-tile-missing branch). When
  *     `venue` is null OR `venue.name` is missing → the heading falls
- *     back to "Venue" and the body renders the canonical "Doug hasn't
- *     filled this in yet" placeholder via the EmptyState atom (required
+ *     back to "Venue" and the body renders the crew-facing EmptyState
+ *     ("Venue details haven't been added yet.") per Task 4.14 (required
  *     -field branch).
  *   - Optional fields (loadingDock, googleLink, notes) → omit when
  *     missing. Tile sized to actual content.
@@ -48,7 +48,7 @@ export function VenueTile({ venue }: VenueTileProps) {
         ariaLabel="Venue"
         bodyAs="div"
       >
-        <EmptyState />
+        <EmptyState label="Venue details haven't been added yet." />
       </Section>
     );
   }

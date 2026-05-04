@@ -1,11 +1,20 @@
 /**
  * components/tiles/ShowStatusTile.tsx — show-status tile (M4 Task 4.8;
- * spec §4.4 + §8.1; closes AC-4.1).
+ * spec §4.4 + §8.1; closes AC-4.1; extended in Task 4.14 to surface
+ * opening_reel + a curated set of optional event_details fields).
  *
  * Surfaces the public, every-crew-member-sees-it status fields:
  *   - coi_status (Certificate of Insurance) — explicit per AC-4.1.
  *   - dress code — venue / event-details lookup.
  *   - venue notes — show.venue.notes (when present).
+ *   - opening_reel — §10 URL-stripped text-only render. M4 ships TEXT
+ *     ONLY (`Opening reel: <stripped value>`); inline <video> ships in
+ *     M7 Task 7.6. Crew DOM MUST NEVER contain `https://`,
+ *     `drive.google.com`, or `docs.google.com` substrings — see
+ *     `lib/visibility/openingReelText.ts` + `lib/visibility/emptyState.ts`.
+ *   - power / internet / keynote_requirements — generic optional event
+ *     details. Hidden when null/empty/`TBD`/`N/A`/`TBA` per the per-field
+ *     predicate table.
  *
  * The dress code lives in `show.event_details` as a free-text key/value
  * map (lib/parser/blocks/event.ts:88+). Different fixtures use different
@@ -16,13 +25,15 @@
  * Empty-state discipline (spec §8.3):
  *   - The tile always renders (every show has a status, conceptually,
  *     even if all the fields are missing).
- *   - When ALL fields (coi_status + dress + venue.notes) are
- *     null/empty, the body falls back to the required-field
- *     EmptyState ("Doug hasn't filled this in yet").
+ *   - When ALL surfaced fields are missing/hidden, the body falls back
+ *     to the required-field EmptyState atom with crew-facing copy
+ *     ("No show status filled in yet.").
  *
  * `coi_status` is rendered inside an element with
  * `data-testid="coi-status"` so AC-4.1 can assert the visible value
- * without scanning prose.
+ * without scanning prose. Opening reel + power are likewise testid-scoped
+ * so AC-4.5 (`tests/e2e/empty-state.spec.ts`) can assert their visibility
+ * without scanning sibling tiles.
  *
  * Server Component (no `'use client'`).
  */
@@ -30,6 +41,11 @@ import type { ShowRow } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
 import { EmptyState } from "@/components/atoms/EmptyState";
+import {
+  shouldHideOpeningReel,
+  shouldHideGenericOptional,
+} from "@/lib/visibility/emptyState";
+import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 
 type ShowStatusTileProps = {
   show: Pick<ShowRow, "coi_status" | "venue" | "event_details">;
@@ -62,7 +78,40 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
   const dress = pickDressCode(show.event_details);
   const venueNotes = show.venue?.notes?.trim() || null;
 
-  const allEmpty = !coi && !dress && !venueNotes;
+  // Per-field empty-state dispatch (Task 4.14). The predicate table
+  // lives in `lib/visibility/emptyState.ts`; tiles MUST NOT inline
+  // string-list checks. opening_reel uses §10-aware semantics
+  // (preserves `N/A`/`MAYBE`/`TBA`/`BACKUP ONLY`); generic-optional
+  // fields hide the universal `TBD`/`N/A`/`TBA` sentinels.
+  const eventDetails = show.event_details ?? {};
+  const rawOpeningReel = eventDetails["opening_reel"] ?? null;
+  const openingReelHidden = shouldHideOpeningReel(rawOpeningReel);
+  // §10 URL-strip render contract: never expose Drive/Docs URLs to the
+  // crew DOM. The strip is the ONLY render path for opening_reel.
+  const openingReelText = openingReelHidden
+    ? null
+    : stripOpeningReelText(rawOpeningReel);
+
+  const rawPower = eventDetails["power"] ?? null;
+  const powerHidden = shouldHideGenericOptional(rawPower);
+  const power = powerHidden ? null : (rawPower ?? "").trim();
+
+  const rawInternet = eventDetails["internet"] ?? null;
+  const internetHidden = shouldHideGenericOptional(rawInternet);
+  const internet = internetHidden ? null : (rawInternet ?? "").trim();
+
+  const rawKeynote = eventDetails["keynote_requirements"] ?? null;
+  const keynoteHidden = shouldHideGenericOptional(rawKeynote);
+  const keynote = keynoteHidden ? null : (rawKeynote ?? "").trim();
+
+  const allEmpty =
+    !coi &&
+    !dress &&
+    !venueNotes &&
+    !openingReelText &&
+    !power &&
+    !internet &&
+    !keynote;
 
   return (
     <Section
@@ -74,7 +123,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
       bodyAs="dl"
     >
       {allEmpty ? (
-        <EmptyState />
+        <EmptyState label="No show status filled in yet." />
       ) : (
         <>
           {/*
@@ -91,12 +140,54 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
               data-testid="coi-status"
               className="text-sm font-semibold tabular-nums text-text-strong"
             >
-              {coi ?? <EmptyState />}
+              {coi ?? (
+                <EmptyState label="No certificate of insurance status yet." />
+              )}
             </dd>
           </div>
 
           {dress ? <KeyValue label="Dress code" value={dress} /> : null}
           {venueNotes ? <KeyValue label="Venue notes" value={venueNotes} /> : null}
+          {/*
+            Opening reel — §10 URL-stripped text-only line. The
+            `data-testid` lets AC-4.5 e2e assertions scope to this row
+            without scanning sibling tiles. M4 emits TEXT only; M7
+            Task 7.6 will add the inline <video src="/api/asset/reel/…">
+            element when the post-Apply pin columns are non-NULL.
+          */}
+          {openingReelText ? (
+            <div data-testid="opening-reel" className="flex flex-col gap-1">
+              <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
+                Opening reel
+              </dt>
+              <dd className="text-sm leading-snug text-text">
+                <span>Opening reel: {openingReelText}</span>
+              </dd>
+            </div>
+          ) : null}
+          {power ? (
+            <div data-testid="power" className="flex flex-col gap-1">
+              <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
+                Power
+              </dt>
+              <dd className="text-sm leading-snug text-text">
+                <span>Power: {power}</span>
+              </dd>
+            </div>
+          ) : null}
+          {internet ? (
+            <div data-testid="internet" className="flex flex-col gap-1">
+              <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
+                Internet
+              </dt>
+              <dd className="text-sm leading-snug text-text">
+                <span>{internet}</span>
+              </dd>
+            </div>
+          ) : null}
+          {keynote ? (
+            <KeyValue label="Keynote requirements" value={keynote} />
+          ) : null}
         </>
       )}
     </Section>

@@ -76,7 +76,7 @@ export function FinancialsTile({
         ariaLabel="Financials"
         bodyAs="div"
       >
-        <EmptyState />
+        <EmptyState label="No financial details on file yet." />
       </Section>
     );
   }

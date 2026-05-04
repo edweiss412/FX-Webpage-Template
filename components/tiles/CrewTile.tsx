@@ -27,7 +27,7 @@
  *     placeholder via KeyValue (the field is structurally required).
  *   - role missing → render the placeholder (parser warns separately
  *     if the source row is malformed; render-time we just say "Doug
- *     hasn't filled this in yet").
+ *     placeholder ("No crew listed for this show yet.") per Task 4.14.
  *
  * Each row carries `data-testid="crew-row"` for the e2e suite to
  * enumerate.
@@ -55,7 +55,7 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
         ariaLabel="Crew"
         bodyAs="div"
       >
-        <EmptyState />
+        <EmptyState label="No crew listed for this show yet." />
       </Section>
     );
   }

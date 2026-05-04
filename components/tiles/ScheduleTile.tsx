@@ -31,7 +31,7 @@
  *
  * Empty-state discipline (spec §8.3):
  *   - kind === 'none' AND show has no dates at all → required-field
- *     EmptyState ("Doug hasn't filled this in yet"). The dates block is
+ *     EmptyState ("Show dates haven't been confirmed yet."). The dates block is
  *     structural, not optional — a show with no dates is broken data,
  *     not "this viewer has no days."
  *   - kind === 'explicit' AND days[] is empty (or no day intersects
@@ -162,7 +162,7 @@ export function ScheduleTile({
         ariaLabel="My schedule"
         bodyAs="div"
       >
-        <EmptyState />
+        <EmptyState label="Show dates haven't been confirmed yet." />
       </Section>
     );
   }

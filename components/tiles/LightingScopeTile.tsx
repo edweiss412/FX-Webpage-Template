@@ -47,7 +47,7 @@ export function LightingScopeTile({
         ariaLabel="Lighting scope"
         bodyAs="div"
       >
-        <EmptyState />
+        <EmptyState label="No lighting details for any room yet." />
       </Section>
     );
   }

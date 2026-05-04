@@ -21,7 +21,7 @@
  *     whether to mount the component at all; this component returns null
  *     in that case as defense-in-depth.
  *   - Predicate TRUE but no rooms have a non-null `audio` value → render
- *     the required-field EmptyState ("Doug hasn't filled this in yet").
+ *     the required-field EmptyState ("No audio details for any room yet.").
  *     A LEAD-only viewer on a no-audio show STILL gets the tile so
  *     they can see the missing-data signal.
  *   - Per-room rendering: only rooms with a non-null audio string are
@@ -70,7 +70,7 @@ export function AudioScopeTile({ rooms, viewerFlags }: AudioScopeTileProps) {
         ariaLabel="Audio scope"
         bodyAs="div"
       >
-        <EmptyState />
+        <EmptyState label="No audio details for any room yet." />
       </Section>
     );
   }

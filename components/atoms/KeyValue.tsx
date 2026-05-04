@@ -15,9 +15,12 @@
  *
  * Empty-state behavior (§8.3 — required-field missing inside a rendered
  * tile):
- *   - null / undefined / whitespace-only string → render the canonical
- *     "Doug hasn't filled this in yet" placeholder via the EmptyState
- *     atom. Tiles MUST NOT inline the literal.
+ *   - null / undefined / whitespace-only string → render the EmptyState
+ *     atom. Callers SHOULD pass `emptyLabel` with crew-facing copy that
+ *     names the missing piece ("No reservation confirmed yet.");
+ *     omitting it falls through to the atom's neutral fallback
+ *     ("Information missing.") per Task 4.14 / Critique Finding 3a.
+ *     Tiles MUST NOT inline literal placeholder strings.
  *   - empty array of values is treated identically (a future variant
  *     for list-valued fields can change this; today's atom is scalar).
  *
@@ -68,8 +71,9 @@ type KeyValueProps = {
 
   /**
    * Optional override for the empty-state placeholder copy. Forwarded
-   * to EmptyState. Most callers omit and accept the canonical "Doug
-   * hasn't filled this in yet" string.
+   * to EmptyState. Tiles SHOULD pass a per-field crew-facing string
+   * ("No reservation confirmed yet.") per Task 4.14; omitting falls
+   * through to the atom's neutral "Information missing." fallback.
    */
   emptyLabel?: string;
 };
