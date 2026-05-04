@@ -52,6 +52,8 @@ export async function validateGoogleSession(
   req: Request,
   context: GoogleSessionValidationContext,
 ): Promise<GoogleSessionValidationResult> {
+  // Kept for the shared auth-chain signature; Supabase reads request cookies
+  // via createSupabaseServerClient().
   void req;
   const supabase = await createSupabaseServerClient();
   const { data: userResult, error: userError } = await supabase.auth.getUser();

@@ -23,6 +23,8 @@ export type GoogleIdentityValidationResult =
 export async function validateGoogleIdentity(
   req: Request,
 ): Promise<GoogleIdentityValidationResult> {
+  // Kept for the shared auth-chain signature; Supabase reads request cookies
+  // via createSupabaseServerClient().
   void req;
   try {
     const supabase = await createSupabaseServerClient();

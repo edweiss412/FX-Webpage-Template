@@ -6,6 +6,8 @@ export type AdminSessionResult =
   | { ok: false };
 
 export async function isAdminSession(req: Request): Promise<AdminSessionResult> {
+  // Kept for the shared auth-chain signature; Supabase reads request cookies
+  // via createSupabaseServerClient().
   void req;
   try {
     const supabase = await createSupabaseServerClient();
