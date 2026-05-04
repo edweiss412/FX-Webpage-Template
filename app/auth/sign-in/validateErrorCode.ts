@@ -32,9 +32,11 @@ import type { MessageCode } from "@/lib/messages/catalog";
  * Defense-in-depth syntactic regex. Bounded length (64 chars matches
  * the longest existing MessageCode comfortably while preventing
  * pathological inputs). UPPER_SNAKE_CASE only — matches the catalog's
- * naming convention.
+ * naming convention. The leading `[A-Z]` requirement rejects all-
+ * underscore strings (`_`, `___`) which catalog codes never start with;
+ * defense-in-depth on top of the allowlist gate below.
  */
-const ERROR_CODE_SYNTACTIC_RE = /^[A-Z_]{1,64}$/;
+const ERROR_CODE_SYNTACTIC_RE = /^[A-Z][A-Z_]{0,63}$/;
 
 /**
  * Allowlist of MessageCodes the OAuth callback emits and the sign-in

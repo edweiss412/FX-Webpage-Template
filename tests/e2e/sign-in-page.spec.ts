@@ -117,6 +117,7 @@ test.describe("Sign-In Page — redirect-loop guard (already signed in)", () => 
 
   test("already signed in (non-admin crew) + valid `next=/show/<slug>` → 302/redirect to the show page", async ({
     page,
+    request,
   }) => {
     // Seed a crew row so getShowForViewer can resolve the non-admin
     // viewer at /show/<slug>. Without a crew row the chain would
@@ -136,10 +137,33 @@ test.describe("Sign-In Page — redirect-loop guard (already signed in)", () => 
 
     try {
       await signInAs(page, NON_ADMIN_CREW_FIXTURE, { baseUrl: TEST_BASE_URL });
-      const response = await page.goto(
+      // Migrated to request-mode + maxRedirects:0 to mirror the admin
+      // tests above. The previous page.goto + expect(status===200)
+      // pattern silently followed redirects and asserted on the FINAL
+      // page's status — a passing test even if the sign-in page had
+      // failed to redirect (any 200-rendering destination would satisfy
+      // the assertion). Asserting the FIRST-hop redirect directly is
+      // the contract: "sign-in page bounces out of the way."
+      const cookies = await page.context().cookies(TEST_BASE_URL);
+      const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+      const firstHop = await request.get(
+        `${TEST_BASE_URL}/auth/sign-in?next=${encodeURIComponent(`/show/${slug}`)}`,
+        { maxRedirects: 0, headers: { cookie: cookieHeader } },
+      );
+      expect([302, 303, 307, 308]).toContain(firstHop.status());
+      const location = firstHop.headers()["location"];
+      expect(location).toBeTruthy();
+      const url = new URL(location ?? "", TEST_BASE_URL);
+      expect(url.pathname).toBe(`/show/${slug}`);
+
+      // Sanity check via page-mode follow-the-redirect: the sign-in
+      // CTA must not be rendered on the destination. Catches a
+      // regression where the redirect target somehow reverses back to
+      // /auth/sign-in (would render the CTA).
+      const followed = await page.goto(
         `${TEST_BASE_URL}/auth/sign-in?next=${encodeURIComponent(`/show/${slug}`)}`,
       );
-      expect(response?.status()).toBe(200);
+      expect(followed?.status()).toBe(200);
       expect(new URL(page.url()).pathname).toBe(`/show/${slug}`);
       await expect(page.getByTestId("sign-in-with-google")).toHaveCount(0);
     } finally {

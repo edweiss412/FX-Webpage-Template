@@ -69,6 +69,9 @@ describe("validateErrorCodeParam (sign-in page error-code allowlist)", () => {
     ["<script>alert(1)</script>", "XSS payload — fails regex"],
     ["OAUTH_STATE_INVALID; DROP TABLE users", "SQL-like junk fails regex"],
     ["%3Cscript%3E", "url-encoded angle brackets fail regex"],
+    ["_", "single underscore — fails regex (no leading letter)"],
+    ["___", "all underscores — fails regex (no leading letter)"],
+    ["_OAUTH_STATE_INVALID", "leading underscore — fails regex (no leading letter)"],
   ])("returns null for %s (%s)", (raw) => {
     expect(validateErrorCodeParam(raw)).toBeNull();
   });

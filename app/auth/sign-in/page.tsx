@@ -77,6 +77,8 @@ export default async function SignInPage({
   // "is the user authenticated?" question this matters: a stale cookie
   // would otherwise trigger an unnecessary redirect.
   const supabase = await createSupabaseServerClient();
+  // On network error, error is non-null and we fall through to render the sign-in CTA
+  // (graceful degradation — the user can retry OAuth from the rendered page).
   const { data, error } = await supabase.auth.getUser();
   if (!error && data?.user) {
     redirect(validatedNext);
