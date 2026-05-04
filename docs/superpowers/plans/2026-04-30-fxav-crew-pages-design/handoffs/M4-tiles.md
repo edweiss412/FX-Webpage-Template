@@ -282,4 +282,18 @@ No DEFERRED.md entry for the admin/dev surface — the audit explicitly accepts 
 
 ## Convergence log
 
-_(empty — adversarial review is post-implementation; record results here after Codex review converges)_
+### Round 1 — 2026-05-03 (in progress)
+
+**Reviewer**: GPT-5.5 / Codex per ROUTING.md M4 row.
+
+**Provenance note**: Round 1 was invoked via raw `node codex-companion.mjs adversarial-review --wait` with `CLAUDE_PLUGIN_ROOT` hardcoded to `~/.claude/plugins/cache/openai-codex/codex/1.0.4/scripts/codex-companion.mjs`. This bypassed (a) per-session `CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}/sessions/${CODEX_COMPANION_SESSION_ID:-default}"` scoping documented in the `superpowers:adversarial-review` skill, and (b) the skill's convergence-loop wrapper (round cap + BLOCKING_ISSUES → fix → re-invoke → APPROVED semantics + escalate-to-user on round 3). The Codex review itself produced valid findings (3 HIGH on the realtime layer); the off-label invocation didn't break the review but bypassed the wrapper discipline that protects against concurrent-session state-clobbering. Round 2+ uses `/codex:adversarial-review --background --base <ref>` slash command per the canonical path. Captured as a memory feedback entry (`feedback_adversarial_review_canonical_invocation.md`) for cross-session future-protection.
+
+**Findings (3 HIGH, all must-fix-before-merge — all in the realtime invalidation layer):**
+
+- **HIGH 1** — Realtime invalidation channel not configured as `private: true` (`lib/realtime/subscribeToShow.ts:86-93`). Supabase Broadcast authorization only protects private channels. Without it the JWT mint is irrelevant for subscription authorization (or private DB broadcasts won't match this public client channel). Tenant-boundary + revocation failure for the page's stale-data transport.
+- **HIGH 2** — Initial catch-up runs BEFORE channel is subscribed (`components/realtime/ShowRealtimeBridge.tsx:391-419`). `subscribeToShow` returns the channel handle synchronously; `refreshSyncIfMismatch` runs as if the Realtime join completed. An update landing after the version GET but before the server has accepted the subscription is missed.
+- **HIGH 3** — Mandatory renewal single-flight guard missing (`components/realtime/ShowRealtimeBridge.tsx:225-231`). Plan §827 requires `isRenewingRef` lock; impl has only mounted/generation guards. Multiple `CHANNEL_ERROR`/`TIMED_OUT`/`CLOSED`/`system.disconnected` callbacks with the same generation can all enter `renewSubscription` before the first mint completes.
+
+**Fix dispatch in flight** (subagent `af2f48ce5af47ec37`): private-channel + `realtime.messages` RLS migration; Promise-based subscription readiness; `isRenewingRef` single-flight + rapid-cycle exactly-one + failure-releases-lock tests.
+
+Round 1 commit SHAs + closure summary will be appended below when the fix subagent reports back.
