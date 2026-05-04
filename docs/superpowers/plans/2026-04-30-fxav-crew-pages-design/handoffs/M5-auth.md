@@ -495,21 +495,35 @@ Backend §A ships no UI surface; the §12 gate runs ONLY on §B's surface area p
 
 The dual run happens AFTER per-task implementation closes and BEFORE adversarial review. Both commands run with the canonical v3 preflight gates (`load-context.mjs` → product gate → command-reference gate → register identification → preflight signal).
 
-- [ ] `/impeccable critique <surface>` — UX heuristic scoring, persona walkthroughs, AI-slop test, absolute-ban scan.
+- [x] `/impeccable critique <surface>` — UX heuristic scoring, persona walkthroughs, AI-slop test, absolute-ban scan.
   - Score sheet attached: visual hierarchy, IA, cognitive load, emotional resonance, a11y floor, persona-specific scan-speed rule.
   - HIGH findings fixed OR logged in `DEFERRED.md` with a target milestone.
   - MEDIUM findings triaged: fix-now / defer to in-milestone polish / defer to a future polish milestone.
 
-- [ ] `/impeccable audit <surface>` — Technical quality checks (a11y, performance, responsive, theming, anti-patterns). Scored P0–P3.
+- [x] `/impeccable audit <surface>` — Technical quality checks (a11y, performance, responsive, theming, anti-patterns). Scored P0–P3.
   - P0/P1 findings fixed before adversarial review.
   - P2/P3 findings triaged.
 
-- [ ] DEFERRED.md updated with any retrospective deferrals.
-- [ ] Dispositions inline below or referenced by SHA.
+- [x] DEFERRED.md updated with any retrospective deferrals.
+- [x] Dispositions inline below or referenced by SHA.
 
 ```
-critique findings: <Finding ID> — <severity> — <one-line> — disposition: <fixed at <SHA> | deferred to <milestone> via <DEFERRED.md ID>>
-audit findings: <P0-P3> — <one-line> — disposition: <fixed at <SHA> | deferred to <milestone> via <DEFERRED.md ID>>
+critique findings:
+- C1 (P0) /me identical card grid, no "what's next" anchor — disposition: deferred to M9 polish via M5-D1
+- C2 (P0) Bootstrap no liveness/timeout — disposition: deferred to M9 polish via M5-D2
+- C3 (P1) AlertBanner single-alert / no queue depth / no Resolve confirm — disposition: deferred to M9 polish via M5-D3
+- C4 (P1) Sign-in no FXAV brand mark / no Google G icon — disposition: deferred to M9 polish via M5-D4
+- C5 (P2) "Ask Doug" copy / no self-serve fallbacks — disposition: deferred to M9 polish via M5-D5
+
+audit findings:
+- A-P1 #1 /me sign-out below 44px tap min — disposition: fixed at 1678000
+- A-P1 #2 AlertBanner Resolve missing focus-ring offset + transition — disposition: fixed at 1678000
+- A-P2 #4 admin layout p-6 raw vs token — disposition: fixed at 1678000
+- A-P2 #6 /me ShowCard hover-shadow no-op — disposition: fixed at 1678000
+- A-P3 #1 /me <time> redundant tabular-nums className — disposition: fixed at 1678000
+- A-P2/P3 batch (5 minor a11y/markup) — disposition: deferred to M9 polish via M5-D6
+- Systemic #1 accent button drift — disposition: deferred via M5-D7 (atom extraction at M6 or first 4th-variant trigger)
+- Systemic #2 inline error copy duplication — disposition: deferred via M5-D8 (§A coordination)
 ```
 
 The convergence log proper (below) appends ONLY after impeccable evaluation closes AND adversarial review begins. The milestone is marked "completed" only when BOTH impeccable §12 has zero unresolved HIGH/P0/P1 findings AND adversarial review has converged.
