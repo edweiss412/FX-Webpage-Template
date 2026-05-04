@@ -206,7 +206,7 @@ These are material deviations from the original handoff/plan that the Codex adve
 
 1. **Task 4.3 ↔ 4.2 task reorder (user-approved 2026-05-03).** The plan ordered "layout shell" (4.2) before "data fetcher" (4.3), but the layout shell needs a real `getShowForViewer` projection to render anything beyond a placeholder; sequencing 4.3 ahead of 4.2 was a more honest TDD chain. User authorized the reorder before Task 4.2 dispatched.
 
-2. **Catch-up two-stage review pass mid-M4.** Tasks 4.1–4.10 dispatched without the per-task two-stage review (spec-compliance + code-quality) that AGENTS.md formalized later. User authorized "option A" — a single catch-up review pass over the existing surface area — and from Task 4.11 onward the per-task two-stage review was re-established. Expect Codex to ask "where are the per-task review artifacts for 4.1–4.10?" — answer: rolled up into the 2026-05-03 catch-up critique; remediation findings closed in `dac7e0c` and following commits.
+2. **Catch-up two-stage review pass mid-M4.** Tasks 4.1–4.10 dispatched without the per-task two-stage review (spec-compliance + code-quality) that AGENTS.md formalized later. User authorized "option A" — a single catch-up review pass over the existing surface area — and from Task 4.11 onward the per-task two-stage review was re-established. Expect Codex to ask "where are the per-task review artifacts for 4.1–4.10?" — answer: rolled up into the 2026-05-03 catch-up critique; remediation findings closed across the B-scope distill Checkpoint A range (`6eefb28..957c40c`) plus follow-on Task 4.14 (`dff2635`) and theme-toggle commits (`16a08ab` / `8586b01` / `c59da30`); see §12 disposition block.
 
 3. **Per-task two-stage review re-established Task 4.11 onward.** Tasks 4.11 (RightNowCard state machine), 4.12 (transition matrix), 4.13 (layout dimensions), 4.14 (visibility helpers), 4.16 (realtime bridge) all ran the full two-stage review, including review-finding follow-up commits.
 
@@ -235,14 +235,14 @@ UI surface this milestone shipped: `app/show/[slug]/page.tsx` + `app/show/[slug]
 ### `/impeccable critique` — already ran 2026-05-03 (pre-policy retrospective)
 
 ```
-Finding 1 (HIGH)   — Tile reorder by persona urgency       — disposition: deferred to M9 via DEFERRED.md M4-D2
-Finding 2 (HIGH)   — A11y / focus-ring contrast in dark    — disposition: fixed at SHA dac7e0c (B-scope remediation)
-Finding 3 (HIGH)   — Empty-state copy register              — disposition: fixed at SHA dac7e0c (B-scope remediation)
-Finding 4 (HIGH)   — Theme toggle no-FOUC contract          — disposition: fixed at SHA dac7e0c (B-scope remediation)
+Finding 1 (HIGH)   — Tile order parser-output, not persona  — disposition: deferred to M9 via DEFERRED.md M4-D2
+Finding 2 (HIGH)   — Identical-card-grid trap (absolute ban) — disposition: fixed via Section variants — commits 6eefb28, 82144e2, 7ed0ab8, 743fd35, 957c40c (B-scope distill Checkpoint A) + 9b414c3 (distill review fix)
+Finding 3 (HIGH)   — EmptyState copy + faint-contrast       — disposition: fixed at dff2635 (Task 4.14 — per-field crew-facing copy + text-text-faint → text-text-subtle)
+Finding 4 (MEDIUM) — Footer theme toggle decorative         — disposition: fixed at 16a08ab (wire) + 8586b01 (focus-ring) + c59da30 (no-FOUC always-stamp)
 Finding 5 (MEDIUM) — Header weight competes with RightNow   — disposition: deferred to M9 via DEFERRED.md M4-D3
 Finding 6 (MEDIUM) — RightNowCard data-* test attrs in AT   — disposition: deferred to M9 via DEFERRED.md M4-D4
 Finding 7 (LOW)    — tracking-[…] inline values (5 sites)   — disposition: deferred to M9 via DEFERRED.md M4-D5
-Finding 8 (MEDIUM) — Tile internal structure consistency    — disposition: fixed at SHA dac7e0c (B-scope remediation)
+Finding 8 (LOW)    — Audio/Video/Lighting indistinguishable — disposition: fixed at 743fd35 (lucide-react Volume2/Video/Lightbulb leading icons via Section headingIcon slot)
 ```
 
 ### `/impeccable audit` — ran in this dispatch (Task 4.15 close-out)
