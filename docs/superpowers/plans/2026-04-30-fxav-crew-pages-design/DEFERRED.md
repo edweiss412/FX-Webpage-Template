@@ -156,6 +156,13 @@ When picking up a deferred item:
 **Why deferred:** The structured operator-log sink does not yet exist — per CF-PIN-3, operator-log writes are scheduled for M6/M8 alongside the sink itself. Producing entries now would require either a stub sink or a write to admin_alerts that doesn't match the spec's eventual shape. M5 §A close-out captured this as carry-forward.
 **Suggested home:** M6 (drive-sync) or M8 (bug-report) — whichever lands the operator-log sink first. When picking up: add the OAUTH_REDIRECT_INVALID and OAUTH_STATE_INVALID emit calls in callback/route.ts:32-50 alongside the sink, with regression tests covering invalid next, missing PKCE, and exchange failure paths.
 
+### M5-D2 — Redeem-link structured operator-log entries
+
+**Source:** M5 round-4 adversarial review (2026-05-04, §B finding, MEDIUM)
+**Description:** `app/api/auth/redeem-link/route.ts` emits redeem-link failure producer codes only as JSON responses: `CSRF_DENIED`, `CSRF_NONCE_EXPIRED`, `CSRF_KEY_ROTATED`, `LINK_REDEEM_KEY_ROTATED`, `SESSION_NOT_FOUND`, `LINK_NO_CREW_MATCH`, `LINK_VERSION_MISMATCH`, `LINK_REVOKED_FLOOR`, `LINK_REVOKED_SURGICAL`, and `ADMIN_SESSION_LOOKUP_FAILED`. These cover replay/body-cookie mismatch, bootstrap nonce expiry, signing-key rotation, leaked/tampered JWTs, cross-show JWT attempts, missing crew bindings, version drift, floor/surgical revocations, and infrastructure failures. Operators need a structured sink independent of the affected user's browser response.
+**Why deferred:** The structured operator-log sink does not yet exist — per CF-PIN-3, operator-log writes are scheduled for M6/M8 alongside the sink itself. Producing entries now would require either a stub sink or an `admin_alerts` write that does not match the spec's eventual operator-log shape.
+**Suggested home:** M6 (drive-sync) or M8 (bug-report) — whichever lands the operator-log sink first. When picking up: add emit calls in `app/api/auth/redeem-link/route.ts` for every producer code listed above, with tests for replay, key rotation, nonce expiry, no-crew/version/revocation outcomes, and `ADMIN_SESSION_LOOKUP_FAILED` infrastructure paths.
+
 ---
 
 ## Resolved
