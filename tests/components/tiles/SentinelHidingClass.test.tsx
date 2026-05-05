@@ -65,6 +65,7 @@ import { VideoScopeTile } from "@/components/tiles/VideoScopeTile";
 import { LightingScopeTile } from "@/components/tiles/LightingScopeTile";
 import { FinancialsTile } from "@/components/tiles/FinancialsTile";
 import { CrewTile } from "@/components/tiles/CrewTile";
+import { PackListTile } from "@/components/tiles/PackListTile";
 import type {
   ContactRow,
   HotelReservationRow,
@@ -1455,5 +1456,144 @@ describe("§8.3 actionable-link guard — CrewTile member.email (class-sweep rou
       <CrewTile crewMembers={makeMember({ email: "sam@crew.example" }) as never} />,
     );
     expect(html).toContain("mailto:sam@crew.example");
+  });
+});
+
+// ── Codex round-17 — PackListTile cat/subCat taxonomy sentinels ───────
+
+describe("§8.3 sentinel-hiding class — PackListTile cat/subCat (round-17)", () => {
+  // PackListTile is gated by isPackListVisibleToday — needs the
+  // venue's timezone-derived "today" to fall on a Set/Strike/Load
+  // Out phase. Use a fixed date + matching schedule_phases so the
+  // tile renders without time mocking.
+  const TODAY_ISO = "2026-04-21";
+  const TODAY = new Date("2026-04-21T16:00:00Z"); // mid-day NY tz
+
+  function makePackListShow(): { schedule_phases: Record<string, ("Load In" | "Set" | "Show" | "Strike" | "Load Out")[]>; venue: null } {
+    return {
+      schedule_phases: { [TODAY_ISO]: ["Set"] },
+      venue: null,
+    };
+  }
+
+  function makeItem(overrides: Partial<{ cat: string | null; subCat: string | null; item: string }>) {
+    return {
+      qty: 1,
+      cat: null,
+      subCat: null,
+      item: "FOH Mixer",
+      ...overrides,
+    };
+  }
+
+  for (const sentinel of SENTINELS) {
+    test(`hides cat sentinel "${sentinel}" from item taxonomy`, () => {
+      const html = renderToStaticMarkup(
+        <PackListTile
+          pullSheet={[
+            {
+              caseLabel: "FOH Rack",
+              items: [makeItem({ cat: sentinel, subCat: "Mixers" })],
+            },
+          ]}
+          show={makePackListShow()}
+          stageRestriction={{ kind: "none" }}
+          today={TODAY}
+        />,
+      );
+      // Tile renders (case label + item name confirm).
+      expect(html).toContain("FOH Rack");
+      expect(html).toContain("FOH Mixer");
+      // Catches: a sentinel cat would otherwise produce
+      // `(N/A / Mixers)`. Post-fix, only the non-sentinel subCat
+      // shows: `(Mixers)`.
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(`(${sentinel}`);
+        expect(html).not.toContain(`${sentinel} /`);
+      }
+    });
+
+    test(`hides subCat sentinel "${sentinel}" from item taxonomy`, () => {
+      const html = renderToStaticMarkup(
+        <PackListTile
+          pullSheet={[
+            {
+              caseLabel: "FOH Rack",
+              items: [makeItem({ cat: "FOH", subCat: sentinel })],
+            },
+          ]}
+          show={makePackListShow()}
+          stageRestriction={{ kind: "none" }}
+          today={TODAY}
+        />,
+      );
+      expect(html).toContain("FOH Mixer");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(`/ ${sentinel}`);
+        expect(html).not.toContain(`${sentinel})`);
+      }
+    });
+  }
+
+  test("when BOTH cat and subCat are sentinels, item label has no taxonomy parens", () => {
+    const html = renderToStaticMarkup(
+      <PackListTile
+        pullSheet={[
+          {
+            caseLabel: "FOH Rack",
+            items: [makeItem({ cat: "TBD", subCat: "N/A" })],
+          },
+        ]}
+        show={makePackListShow()}
+        stageRestriction={{ kind: "none" }}
+        today={TODAY}
+      />,
+    );
+    expect(html).toContain("FOH Mixer");
+    // No sentinel content.
+    expect(html).not.toContain("TBD");
+    expect(html).not.toContain("N/A");
+    // No orphan "()" parens (the formatItemLabel guard collapses
+    // taxonomy to empty when both sides are sentinels).
+    expect(html).not.toMatch(/FOH Mixer\s*\(\s*\)/);
+  });
+
+  test("renders both taxonomy parts for non-sentinel values (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <PackListTile
+        pullSheet={[
+          {
+            caseLabel: "FOH Rack",
+            items: [makeItem({ cat: "FOH", subCat: "Mixers" })],
+          },
+        ]}
+        show={makePackListShow()}
+        stageRestriction={{ kind: "none" }}
+        today={TODAY}
+      />,
+    );
+    expect(html).toContain("FOH Mixer");
+    expect(html).toContain("FOH / Mixers");
+  });
+
+  test("renders only non-sentinel side when one is sentinel + one is real", () => {
+    const html = renderToStaticMarkup(
+      <PackListTile
+        pullSheet={[
+          {
+            caseLabel: "FOH Rack",
+            items: [makeItem({ cat: "TBD", subCat: "Mixers" })],
+          },
+        ]}
+        show={makePackListShow()}
+        stageRestriction={{ kind: "none" }}
+        today={TODAY}
+      />,
+    );
+    expect(html).toContain("FOH Mixer");
+    // Real subCat survives, sentinel cat suppressed — output is
+    // `(Mixers)`, NOT `(TBD / Mixers)`.
+    expect(html).toContain("(Mixers)");
+    expect(html).not.toContain("TBD");
   });
 });

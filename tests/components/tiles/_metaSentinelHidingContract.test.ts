@@ -186,6 +186,16 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
     description: "contact.phone / email + member.phone / email",
     pattern: /\b(contact|member)\??\.(phone|email)\b/,
   },
+  // Round-17: PullSheetItem.cat / subCat. PackListTile builds an
+  // `(cat / subCat)` taxonomy string in formatItemLabel; sentinel
+  // values would otherwise render as `(N/A / TBD)`. The pattern
+  // anchors on `item.cat` / `item.subCat` (PackListTile's accessor)
+  // and is conservative against unrelated `.cat` / `.subCat`
+  // properties elsewhere by requiring the `item.` prefix.
+  {
+    description: "PullSheetItem.cat / subCat (pack-list taxonomy)",
+    pattern: /\bitem\??\.(cat|subCat)\b/,
+  },
 ];
 
 /**

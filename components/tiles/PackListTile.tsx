@@ -66,6 +66,7 @@ import type {
 } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
 import { isPackListVisibleToday } from "@/lib/visibility/packList";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 /** Cardinality cap per dispatch instructions — 12 cases inline; rest deferred. */
 const CASE_CAP = 12;
@@ -107,11 +108,20 @@ type PackListTileProps = {
  *   "8 × FOH Rack (FOH/Mixers)"
  * Defensive on null fields — qty NULL, cat NULL, subCat NULL all collapse
  * to a sensible string with no orphan punctuation.
+ *
+ * §8.3 generic-optional sentinel-hiding (Codex round-17): cat and
+ * subCat are nullable text fields that originate from free-text
+ * pull-sheet cells. The parser only trims blank cells; sentinel
+ * values like 'TBD' / 'N/A' / 'TBA' survive projection and would
+ * otherwise render as `(N/A / TBD)` taxonomy. Routes through the
+ * central predicate per lib/visibility/emptyState.ts:27-29.
  */
 function formatItemLabel(item: PullSheetItem): string {
   const qtyPart = item.qty !== null ? `${item.qty} × ` : "";
   const main = item.item;
-  const taxonomy = [item.cat, item.subCat].filter(Boolean).join(" / ");
+  const cat = shouldHideGenericOptional(item.cat) ? null : item.cat;
+  const subCat = shouldHideGenericOptional(item.subCat) ? null : item.subCat;
+  const taxonomy = [cat, subCat].filter(Boolean).join(" / ");
   const taxonomyPart = taxonomy ? ` (${taxonomy})` : "";
   return `${qtyPart}${main}${taxonomyPart}`;
 }
