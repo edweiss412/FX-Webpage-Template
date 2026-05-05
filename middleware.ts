@@ -83,7 +83,15 @@ async function upsertRevocationFailureAlert(input: {
   const message = input.error instanceof Error ? input.error.message : String(input.error);
   await supabase.from("admin_alerts").upsert({
     show_id: input.showId,
-    code: "ADMIN_SESSION_LOOKUP_FAILED",
+    // R21 F2 (round-21 §B MEDIUM): use the dedicated revocation-failure
+    // catalog code so AlertBanner has dougFacing copy to render. Pre-fix
+    // this used ADMIN_SESSION_LOOKUP_FAILED whose dougFacing is null,
+    // producing a blank banner with just a Resolve button — Doug got no
+    // signal that a leaked link could not be revoked. The user-facing
+    // 503 response (leakedLinkRevocationFailureResponse) still uses
+    // ADMIN_SESSION_LOOKUP_FAILED — that catalog entry has the
+    // crewFacing copy appropriate for the leaked-link victim.
+    code: "LEAKED_LINK_REVOCATION_FAILED",
     context: {
       source: "leaked_link_revocation",
       crew_name: input.crewName,

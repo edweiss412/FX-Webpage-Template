@@ -148,6 +148,30 @@ export const MESSAGE_CATALOG = {
     followUp: "Eric -> investigate admin/session lookup",
     helpfulContext: null,
   },
+  /**
+   * R21 F2 (round-21 §B MEDIUM): leaked-link revocation failure.
+   *
+   * The middleware compromise handler tried to revoke a signed link that
+   * was leaked into the URL (?t=...) but the SECURITY DEFINER RPC failed
+   * (DB outage, network, RLS misconfiguration). The leaked link MAY
+   * still be usable until the operator intervenes — this is the highest-
+   * severity admin alert in the catalog because it is the recovery path
+   * for a confirmed credential compromise.
+   *
+   * Pre-fix middleware reused ADMIN_SESSION_LOOKUP_FAILED for the alert
+   * row, but that catalog entry has dougFacing:null so the AlertBanner
+   * (surface="admin") rendered an empty shell with just a Resolve
+   * button — Doug got no signal what to act on.
+   */
+  LEAKED_LINK_REVOCATION_FAILED: {
+    code: "LEAKED_LINK_REVOCATION_FAILED",
+    dougFacing:
+      "A signed crew link was detected in a URL but couldn't be revoked. The leaked link may still work until this is resolved — Eric has been notified.",
+    crewFacing: null,
+    followUp: "Eric -> investigate revoke_leaked_link_atomic + DB connectivity, then re-run the compromise flow",
+    helpfulContext:
+      "When a magic-link token appears in the URL query string instead of being redeemed normally, the middleware treats it as a credential compromise and atomically revokes the underlying token version. This alert means that revocation RPC itself failed, so the leaked link could still be redeemed by an attacker until an operator clears the token version manually.",
+  },
   WATCH_CHANNEL_ORPHANED: {
     code: "WATCH_CHANNEL_ORPHANED",
     dougFacing: "A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved.",
