@@ -16,13 +16,17 @@ import { cookies } from "next/headers";
 export async function createSupabaseServerClient() {
   const cookieStore = await cookies();
   const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  const anonKey = process.env.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-  if (!url || !anonKey) {
+  const publishableKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+    process.env.SUPABASE_ANON_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+    "";
+  if (!url || !publishableKey) {
     throw new Error(
-      "createSupabaseServerClient: SUPABASE_URL and SUPABASE_ANON_KEY (or their NEXT_PUBLIC_ variants) must be set",
+      "createSupabaseServerClient: SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY must be set",
     );
   }
-  return createServerClient(url, anonKey, {
+  return createServerClient(url, publishableKey, {
     cookies: {
       getAll() {
         return cookieStore.getAll().map((c) => ({ name: c.name, value: c.value }));
@@ -53,6 +57,7 @@ export async function createSupabaseServerClient() {
 export function createSupabaseServiceRoleClient() {
   const url = process.env.SUPABASE_URL ?? "http://127.0.0.1:54321";
   const serviceKey =
+    process.env.SUPABASE_SECRET_KEY ??
     process.env.SUPABASE_SERVICE_ROLE_KEY ??
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
   return createClient(url, serviceKey, {
