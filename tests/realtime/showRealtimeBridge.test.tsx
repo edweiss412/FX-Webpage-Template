@@ -606,6 +606,89 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     consoleInfoSpy.mockRestore();
   });
 
+  test("Codex round-18 HIGH — invalidate + disconnect mid-debounce: renewal catch-up MUST still refresh", async () => {
+    // Race scenario from Codex round-18 finding:
+    //   1. Channel receives invalidate(T1) → schedules 100ms debounced refresh.
+    //   2. Socket disconnects BEFORE the 100ms timer fires.
+    //   3. Renewal advances generation; pending debounce bails on gen check.
+    //   4. New channel reaches SUBSCRIBED → catch-up runs.
+    //   5. Catch-up MUST detect that current /version (T1) differs from the
+    //      last SSR-rendered token (BASELINE) and call router.refresh().
+    //
+    // Pre-fix bug: the invalidate callback optimistically advanced
+    // `renderVersionRef.current = T1` BEFORE the debounce fired. So at
+    // step 5, refreshSyncIfMismatch fetched "T1-PENDING" and compared
+    // it to renderVersionRef.current (also "T1-PENDING") — no mismatch
+    // detected, refresh skipped, page silently kept stale data.
+    //
+    // Post-fix: the ref is left untouched in the broadcast callback;
+    // it represents only the last SSR-rendered prop. So the comparison
+    // (T1-PENDING vs BASELINE) detects the mismatch and refreshes.
+    let mintCount = 0;
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () => {
+        mintCount += 1;
+        return new Response(
+          JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+    // /version returns T1-PENDING — the token the broadcast invalidated
+    // for. After the disconnect+renewal, the catch-up MUST detect this
+    // differs from BASELINE and trigger refresh.
+    pushFetchHandler(
+      (url) => /\/api\/show\/[^/]+\/version/.test(url),
+      async () =>
+        new Response(JSON.stringify({ version_token: "T1-PENDING" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    await mountBridgeAndAwaitSubscribe();
+    // Drain the post-mount catch-up's refresh (BASELINE === BASELINE,
+    // no mismatch, so it should not have refreshed; reset just in case).
+    await flushPromises();
+    routerMock.state.refreshCalls = 0;
+
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+
+    // Step 1: invalidate(T1-PENDING) schedules the 100ms debounce.
+    await act(async () => {
+      firstChannel.invalidate("T1-PENDING", "show-uuid-1");
+    });
+    // Do NOT advance fake timers — the debounce timer must NOT fire
+    // before the disconnect interrupts it. That's the race condition.
+
+    // Step 2: disconnect interrupts mid-debounce. Renewal kicks in.
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    await flushPromises();
+    await flushPromises();
+
+    // Step 3: renewal opened a new channel; fire SUBSCRIBED so catch-up
+    // runs. Catch-up fetches /version (T1-PENDING) and compares to the
+    // ref (must be BASELINE post-fix).
+    const newChannel = subscribeMock.state.currentChannel;
+    if (!newChannel || newChannel === firstChannel) {
+      throw new Error("renewal channel not registered");
+    }
+    await act(async () => {
+      newChannel.fireStatus("SUBSCRIBED");
+    });
+    await flushPromises();
+    await flushPromises();
+
+    // Bug-pinning assertion: catch-up DID call router.refresh (≥ 1).
+    // Pre-fix this would be 0 because the optimistic ref-advance
+    // would have hidden the mismatch.
+    expect(routerMock.state.refreshCalls).toBeGreaterThanOrEqual(1);
+  });
+
   test("renewal mint failure: logs SHOW_REALTIME_BROADCAST_AUTH_FAILED, no retry-loop", async () => {
     const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 

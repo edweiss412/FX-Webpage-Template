@@ -378,11 +378,21 @@ export function ShowRealtimeBridge({
             (token) => {
               if (!isMountedRef.current) return;
               if (newClosureGen !== currentChannelGenerationRef.current) return;
-              // Update the renderVersion ref optimistically so subsequent
-              // catch-ups don't re-fire on this same token.
-              if (typeof token === "string") {
-                renderVersionRef.current = token;
-              }
+              // Codex round-18 HIGH: do NOT optimistically advance
+              // `renderVersionRef` here. The original rationale ("subsequent
+              // catch-ups don't re-fire on this same token") was wrong on
+              // two counts: (a) duplicate `router.refresh()` calls are
+              // idempotent so re-firing was never a problem; (b) advancing
+              // the ref here causes a disconnect-during-debounce race —
+              // if the socket disconnects before the 100ms timer fires,
+              // the renewal advances the channel generation, the debounce
+              // bails on the gen check, and the renewal catch-up then
+              // sees `currentToken === renderVersionRef.current` (because
+              // we already advanced it) and skips refresh. Net result: a
+              // received invalidation is silently lost. The fix is to let
+              // the ref reflect ONLY the last SSR-rendered prop (synced
+              // by the commit-phase effect above).
+              void token;
               scheduleDebouncedRefresh();
             },
             (status) => handleStatusCallback(status, newClosureGen),
@@ -610,9 +620,13 @@ export function ShowRealtimeBridge({
           (token) => {
             if (!isMountedRef.current) return;
             if (closureGen !== currentChannelGenerationRef.current) return;
-            if (typeof token === "string") {
-              renderVersionRef.current = token;
-            }
+            // Codex round-18 HIGH: see the renewal-side invalidate
+            // callback above for the rationale. Do NOT advance
+            // `renderVersionRef` here — it must reflect ONLY the last
+            // SSR-rendered prop (commit-phase effect handles that),
+            // otherwise a disconnect-during-debounce silently loses
+            // the invalidation when the renewal catch-up runs.
+            void token;
             scheduleDebouncedRefresh();
           },
           (status) => handleStatusCallback(status, closureGen),
