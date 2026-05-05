@@ -81,7 +81,16 @@ async function upsertRevocationFailureAlert(input: {
 }): Promise<void> {
   const supabase = createSupabaseServiceRoleClient();
   const message = input.error instanceof Error ? input.error.message : String(input.error);
-  await supabase.from("admin_alerts").upsert({
+  // R22 F1 (round-22 §A HIGH): pre-fix the upsert result was awaited
+  // but its `{ error }` field was never inspected — Supabase's normal
+  // returned-error shape (vs throw) silently dropped the alert, so a
+  // failed leaked-link revocation produced a 503 to the victim AND no
+  // operator alert. Doug had no signal that a leaked credential might
+  // still be usable. Now: throw on returned error so the caller's
+  // try/catch logs 'leaked-link revocation alert failed' AND the
+  // upsertRevocationFailureAlert callsite still surfaces 503 to the
+  // user (caller's try/catch wraps the alert step too).
+  const { error: alertError } = await supabase.from("admin_alerts").upsert({
     show_id: input.showId,
     // R21 F2 (round-21 §B MEDIUM): use the dedicated revocation-failure
     // catalog code so AlertBanner has dougFacing copy to render. Pre-fix
@@ -99,6 +108,11 @@ async function upsertRevocationFailureAlert(input: {
       error: message,
     },
   });
+  if (alertError) {
+    throw new Error(
+      `admin_alerts upsert failed: ${alertError.message ?? String(alertError)}`,
+    );
+  }
 }
 
 async function revokeLeakedLinkAtomic(

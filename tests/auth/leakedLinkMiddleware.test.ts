@@ -31,6 +31,7 @@ const leakedState = vi.hoisted(() => ({
   alertUpserts: [] as unknown[],
   revokedRows: [] as unknown[],
   alertThrows: false,
+  alertReturnsError: false,
   verifyInfraFails: false as boolean,
 }));
 
@@ -119,6 +120,13 @@ function tableClient(table: string) {
         if (leakedState.alertThrows) {
           throw new Error("alert failed");
         }
+        if (leakedState.alertReturnsError) {
+          // R22 F1 (round-22 §A HIGH): the upsert can return
+          // { error: ... } without throwing. Pre-fix
+          // upsertRevocationFailureAlert ignored that field, silently
+          // dropping the operator alert.
+          return { error: { message: "alert returned-error" } };
+        }
         return { error: null };
       },
     };
@@ -191,6 +199,7 @@ describe("middleware leaked-link revocation", () => {
     leakedState.revokedUpsertFails = false;
     leakedState.authUpdateFails = false;
     leakedState.alertThrows = false;
+    leakedState.alertReturnsError = false;
     leakedState.authRow = {
       show_id: "11111111-1111-4111-8111-111111111111",
       crew_name: "Crew Tester",
@@ -233,6 +242,32 @@ describe("middleware leaked-link revocation", () => {
     expect(html).not.toContain("ADMIN_SESSION_LOOKUP_FAILED");
     expect(html).toContain("Sign-in temporarily unavailable");
     expect(leakedState.alertUpserts).toHaveLength(1);
+  });
+
+  test("R22 F1: alert upsert returned-error (not thrown) still surfaces as 503 + logged failure", async () => {
+    // Codex round-22 §A HIGH: pre-fix upsertRevocationFailureAlert
+    // awaited the upsert but ignored its `{ error }` field. Supabase's
+    // returned-error shape (vs throw) silently dropped the alert,
+    // leaving Doug with no signal that a leaked credential might still
+    // be usable. Now the helper throws on returned error too — the
+    // outer try/catch logs 'leaked-link revocation alert failed' and
+    // the user gets the cataloged 503 instead of a fall-through 200.
+    leakedState.authUpdateFails = true;
+    leakedState.alertReturnsError = true;
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await middleware(leakedRequest());
+
+    expect(response.status).toBe(503);
+    const html = await expectHtml(response);
+    expect(html).not.toContain("ADMIN_SESSION_LOOKUP_FAILED");
+    expect(html).toContain("Sign-in temporarily unavailable");
+    expect(leakedState.alertUpserts).toHaveLength(1);
+    // Outer catch logs the alert failure path.
+    const calls = errorSpy.mock.calls.flat().filter((v): v is string => typeof v === "string");
+    expect(calls.some((c) => c.includes("leaked-link revocation alert failed"))).toBe(true);
+
+    errorSpy.mockRestore();
   });
 
   test("JWT verification failure still returns LEAKED_LINK_DETECTED", async () => {
