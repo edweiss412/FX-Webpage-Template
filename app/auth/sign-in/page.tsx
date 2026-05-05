@@ -81,15 +81,37 @@ export default async function SignInPage({
   // server-side trust decisions must use getUser(). For the
   // "is the user authenticated?" question this matters: a stale cookie
   // would otherwise trigger an unnecessary redirect.
-  const supabase = await createSupabaseServerClient();
-  // On network error, error is non-null and we fall through to render the sign-in CTA
-  // (graceful degradation — the user can retry OAuth from the rendered page).
-  const { data, error } = await supabase.auth.getUser();
+  // R19 F4 (round-19 §B MEDIUM): pre-fix the constructor +
+  // supabase.auth.getUser() were both unwrapped — a thrown infra fault
+  // (network, missing env, JWT decode error) bypassed the
+  // "fall through to render the CTA" path AND the cataloged error
+  // block, escaping into Next's generic error surface. Wrap both.
+  // Treat any throw as infra: render the sign-in page with the
+  // ADMIN_SESSION_LOOKUP_FAILED block via forcedErrorCode below.
+  // Returned errors retain the existing graceful-degradation behavior
+  // (fall through to render CTA) since those represent transient
+  // unauthenticated states more than "infra is broken."
+  type GetUserResult = Awaited<
+    ReturnType<Awaited<ReturnType<typeof createSupabaseServerClient>>["auth"]["getUser"]>
+  >;
+  let getUserResult: GetUserResult | undefined;
+  let infraThrew = false;
+  try {
+    const supabase = await createSupabaseServerClient();
+    getUserResult = await supabase.auth.getUser();
+  } catch {
+    infraThrew = true;
+  }
   // R17 #3: when isAdminSession returns infra_error during the
   // already-authenticated guard, force the catalog code so the
   // rendered page shows the failure block instead of redirecting.
   let forcedErrorCode: string | null = null;
-  if (!error && data?.user) {
+  if (infraThrew) {
+    forcedErrorCode = "ADMIN_SESSION_LOOKUP_FAILED";
+  }
+  const data = getUserResult?.data;
+  const error = getUserResult?.error;
+  if (!infraThrew && !error && data?.user) {
     let redirectPath: string | null = validatedNext;
     if (isAdminPath(redirectPath)) {
       const admin = await isAdminSession(new Request("https://crew.fxav.show"));
