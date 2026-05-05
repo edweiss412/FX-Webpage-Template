@@ -39,6 +39,7 @@ import { Avatar } from "@/components/atoms/Avatar";
 import { Section } from "@/components/atoms/Section";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { digitsOnly } from "@/lib/format/phone";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 type CrewTileProps = {
   crewMembers: ShowForViewer["crewMembers"];
@@ -100,9 +101,16 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
               old `dl`-of-KeyValue treatment (Finding 2 close-out).
             */}
             <div className="flex flex-wrap gap-2 pt-1">
-              {member.phone ? (
+              {/*
+                §8.3 actionable-link sentinel guard (round-16
+                class-sweep extension): hide the phone tap target
+                when value is a sentinel. Same harm pattern as
+                round-15 driver_phone — `tel:TBD` is dead.
+              */}
+              {!shouldHideGenericOptional(member.phone) &&
+              digitsOnly(member.phone ?? "").length > 0 ? (
                 <a
-                  href={`tel:${digitsOnly(member.phone)}`}
+                  href={`tel:${digitsOnly(member.phone ?? "")}`}
                   className={[
                     "inline-flex min-h-tap-min items-center gap-1.5",
                     "rounded-sm border border-border bg-surface-sunken px-2.5 py-1",
@@ -116,7 +124,12 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
                   <span>Call</span>
                 </a>
               ) : null}
-              {member.email ? (
+              {/*
+                §8.3 actionable-link sentinel guard (round-16
+                class-sweep extension): hide the email tap target
+                when value is a sentinel. `mailto:TBD` is dead.
+              */}
+              {!shouldHideGenericOptional(member.email) ? (
                 <a
                   href={`mailto:${member.email}`}
                   className={[

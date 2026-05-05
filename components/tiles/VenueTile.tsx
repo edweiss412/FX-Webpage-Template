@@ -33,6 +33,24 @@ type VenueTileProps = {
   venue: ShowRow["venue"];
 };
 
+/**
+ * URL-validity guard for the googleLink anchor (Codex round-16).
+ * Returns true only when the value parses as an `http(s):` URL —
+ * any other shape (sentinels like "TBD", bare paths, JS code) is
+ * rejected so the anchor doesn't become a dead/misleading
+ * navigation control. Mirrors the dead-tel:-link guard in
+ * TransportTile (round-15) and CrewTile/ContactsTile (round-16).
+ */
+function isParseableUrl(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export function VenueTile({ venue }: VenueTileProps) {
   // Required-field-missing branch per §8.3: the venue tile always
   // renders (every show has a venue conceptually) but the body is the
@@ -82,16 +100,32 @@ export function VenueTile({ venue }: VenueTileProps) {
         <KeyValue label="Address" value={null} />
       ) : null}
 
-      {venue.loadingDock ? (
+      {/*
+        §8.3 generic-optional (Codex round-16): loadingDock is a
+        generic optional text field. Sentinels reflow out via the
+        central predicate.
+      */}
+      {!shouldHideGenericOptional(venue.loadingDock ?? null) ? (
         <KeyValue label="Loading dock" value={venue.loadingDock} />
       ) : null}
 
-      {venue.googleLink ? (
+      {/*
+        §8.3 generic-optional + URL-validity (Codex round-16):
+        googleLink renders as an <a href>, so a sentinel like "TBD"
+        would otherwise become `href="TBD"` — a dead/misleading
+        navigation control with the same shape as the round-15
+        driver_phone tel: bug. Hide via the central predicate AND
+        require a parseable URL before rendering the anchor (a
+        non-URL string also doesn't belong here regardless of
+        sentinel status).
+      */}
+      {!shouldHideGenericOptional(venue.googleLink ?? null) &&
+      isParseableUrl(venue.googleLink) ? (
         <KeyValue
           label="Map"
           value={
             <a
-              href={venue.googleLink}
+              href={venue.googleLink ?? "#"}
               target="_blank"
               rel="noreferrer"
               className="inline-flex min-h-tap-min items-center -mx-1 px-1 py-1.5 text-text underline-offset-4 transition-colors duration-fast hover:text-accent-on-bg hover:underline"

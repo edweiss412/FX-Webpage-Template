@@ -167,6 +167,25 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
     description: "hotelReservation.hotel_address / confirmation_no",
     pattern: /\bres\??\.(hotel_address|confirmation_no)\b/,
   },
+  // Round-16: ShowRow.venue optional text fields. loadingDock is a
+  // generic-optional KeyValue row; googleLink is a URL-typed
+  // anchor that ALSO needs URL-validity guarding to avoid
+  // dead/misleading navigation controls (handled separately in
+  // VenueTile via isParseableUrl).
+  {
+    description: "venue.loadingDock / googleLink",
+    pattern: /\bvenue\??\.(loadingDock|googleLink)\b/,
+  },
+  // Round-16: ContactRow + CrewMemberRow actionable contact fields.
+  // contact.phone/email render `tel:`/`mailto:` tap targets — a
+  // sentinel value creates a dead/misleading control (same harm
+  // pattern as round-15 driver_phone). The `member.` accessor
+  // matches the analogous CrewTile render path; classified by
+  // class-sweep extension of the round-16 finding.
+  {
+    description: "contact.phone / email + member.phone / email",
+    pattern: /\b(contact|member)\??\.(phone|email)\b/,
+  },
 ];
 
 /**

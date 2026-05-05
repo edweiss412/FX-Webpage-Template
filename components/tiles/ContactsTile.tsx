@@ -78,9 +78,17 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
               {kindLabel(contact.kind)}
             </p>
             <div className="flex flex-wrap gap-2 pt-1">
-              {contact.phone ? (
+              {/*
+                §8.3 actionable-link sentinel guard (Codex round-16):
+                hide the phone tap target when value is a sentinel
+                ("TBD"/"N/A"/"TBA") — a `tel:` link to nothing is a
+                dead/misleading contact control. Same harm pattern as
+                round-15 driver_phone fix.
+              */}
+              {!shouldHideGenericOptional(contact.phone) &&
+              digitsOnly(contact.phone ?? "").length > 0 ? (
                 <a
-                  href={`tel:${digitsOnly(contact.phone)}`}
+                  href={`tel:${digitsOnly(contact.phone ?? "")}`}
                   className={[
                     "inline-flex min-h-tap-min items-center gap-1.5",
                     "rounded-sm border border-border bg-surface-sunken px-2.5 py-1",
@@ -98,7 +106,12 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
                   <span>Call</span>
                 </a>
               ) : null}
-              {contact.email ? (
+              {/*
+                §8.3 actionable-link sentinel guard (Codex round-16):
+                hide the email tap target when value is a sentinel.
+                A `mailto:TBD` link is a dead/misleading control.
+              */}
+              {!shouldHideGenericOptional(contact.email) ? (
                 <a
                   href={`mailto:${contact.email}`}
                   className={[

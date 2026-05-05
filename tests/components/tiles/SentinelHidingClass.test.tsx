@@ -64,6 +64,7 @@ import { AudioScopeTile } from "@/components/tiles/AudioScopeTile";
 import { VideoScopeTile } from "@/components/tiles/VideoScopeTile";
 import { LightingScopeTile } from "@/components/tiles/LightingScopeTile";
 import { FinancialsTile } from "@/components/tiles/FinancialsTile";
+import { CrewTile } from "@/components/tiles/CrewTile";
 import type {
   ContactRow,
   HotelReservationRow,
@@ -1172,5 +1173,287 @@ describe("§8.3 sentinel-hiding class — FinancialsTile (Codex round-12)", () =
     expect(html).toContain("Net 30 from event date");
     // Empty-state placeholder absent.
     expect(html).not.toContain("No financial details");
+  });
+});
+
+// ── Codex round-16 + class-sweep — VenueTile loadingDock + googleLink ─
+
+describe("§8.3 sentinel-hiding class — VenueTile loadingDock (round-16)", () => {
+  for (const sentinel of SENTINELS) {
+    test(`hides Loading dock row when value="${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <VenueTile
+          venue={{
+            name: "Hilton Downtown",
+            address: "200 Main St",
+            loadingDock: sentinel,
+            googleLink: null,
+            notes: null,
+          }}
+        />,
+      );
+      expect(html).toContain("Hilton Downtown");
+      expect(html).not.toContain("Loading dock");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+  }
+
+  test("renders Loading dock row for non-sentinel value (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <VenueTile
+        venue={{
+          name: "Hilton Downtown",
+          address: "200 Main St",
+          loadingDock: "Bay 3, alley off Walnut St",
+          googleLink: null,
+          notes: null,
+        }}
+      />,
+    );
+    expect(html).toContain("Bay 3, alley off Walnut St");
+  });
+});
+
+describe("§8.3 + URL-validity — VenueTile googleLink (round-16)", () => {
+  for (const sentinel of SENTINELS) {
+    test(`hides Map row when googleLink="${sentinel}" (sentinel)`, () => {
+      const html = renderToStaticMarkup(
+        <VenueTile
+          venue={{
+            name: "Hilton Downtown",
+            address: "200 Main St",
+            loadingDock: null,
+            googleLink: sentinel,
+            notes: null,
+          }}
+        />,
+      );
+      expect(html).toContain("Hilton Downtown");
+      // No anchor with href={sentinel} should render.
+      expect(html).not.toContain("Open in Maps");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+  }
+
+  test("hides Map row when googleLink is a non-URL (e.g., 'maps.google.com' without protocol)", () => {
+    // URL-validity guard: a string without protocol fails URL parse.
+    const html = renderToStaticMarkup(
+      <VenueTile
+        venue={{
+          name: "Hilton Downtown",
+          address: "200 Main St",
+          loadingDock: null,
+          googleLink: "maps.google.com/?q=Hilton",
+          notes: null,
+        }}
+      />,
+    );
+    // Catches: a future regression that lets bare-host strings render
+    // as href values, which browsers treat as relative paths.
+    expect(html).not.toContain("Open in Maps");
+  });
+
+  test("hides Map row when googleLink is a javascript: URL (XSS guard)", () => {
+    // URL-validity guard rejects non-http(s) protocols.
+    const html = renderToStaticMarkup(
+      <VenueTile
+        venue={{
+          name: "Hilton Downtown",
+          address: "200 Main St",
+          loadingDock: null,
+          googleLink: "javascript:alert('xss')",
+          notes: null,
+        }}
+      />,
+    );
+    expect(html).not.toContain("Open in Maps");
+    expect(html).not.toContain("javascript:");
+  });
+
+  test("renders Map anchor for valid https URL (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <VenueTile
+        venue={{
+          name: "Hilton Downtown",
+          address: "200 Main St",
+          loadingDock: null,
+          googleLink: "https://maps.google.com/?q=Hilton",
+          notes: null,
+        }}
+      />,
+    );
+    expect(html).toContain("Open in Maps");
+    expect(html).toContain("https://maps.google.com/?q=Hilton");
+  });
+});
+
+// ── Codex round-16 — ContactsTile phone/email actionable links ────────
+
+describe("§8.3 actionable-link guard — ContactsTile phone (round-16)", () => {
+  for (const sentinel of SENTINELS) {
+    test(`hides phone tap target when contact.phone="${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <ContactsTile
+          contacts={[
+            {
+              kind: "venue",
+              name: "Stella the FOH Manager",
+              email: null,
+              phone: sentinel,
+              notes: null,
+            },
+          ]}
+        />,
+      );
+      expect(html).toContain("Stella the FOH Manager");
+      // No tel: link should render against a sentinel phone.
+      expect(html).not.toContain("tel:");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+  }
+
+  test("renders Call link for non-sentinel phone (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <ContactsTile
+        contacts={[
+          {
+            kind: "venue",
+            name: "Stella the FOH Manager",
+            email: null,
+            phone: "555-1234",
+            notes: null,
+          },
+        ]}
+      />,
+    );
+    expect(html).toContain("tel:5551234");
+    expect(html).toContain("Call");
+  });
+});
+
+describe("§8.3 actionable-link guard — ContactsTile email (round-16)", () => {
+  for (const sentinel of SENTINELS) {
+    test(`hides email tap target when contact.email="${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <ContactsTile
+          contacts={[
+            {
+              kind: "venue",
+              name: "Stella the FOH Manager",
+              email: sentinel,
+              phone: null,
+              notes: null,
+            },
+          ]}
+        />,
+      );
+      expect(html).toContain("Stella the FOH Manager");
+      expect(html).not.toContain("mailto:");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+  }
+
+  test("renders Email link for non-sentinel email (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <ContactsTile
+        contacts={[
+          {
+            kind: "venue",
+            name: "Stella the FOH Manager",
+            email: "stella@venue.example",
+            phone: null,
+            notes: null,
+          },
+        ]}
+      />,
+    );
+    expect(html).toContain("mailto:stella@venue.example");
+    expect(html).toContain("Email");
+  });
+});
+
+// ── Class-sweep extension — CrewTile member.phone + member.email ──────
+
+describe("§8.3 actionable-link guard — CrewTile member.phone (class-sweep round-16)", () => {
+  function makeMember(overrides: Partial<{ phone: string | null; email: string | null }>) {
+    return [
+      {
+        id: "crew-1",
+        name: "Sam Crew",
+        email: null,
+        phone: null,
+        role: "A1",
+        roleFlags: ["A1"] as const,
+        dateRestriction: { kind: "none" as const },
+        stageRestriction: { kind: "none" as const },
+        ...overrides,
+      },
+    ];
+  }
+
+  for (const sentinel of SENTINELS) {
+    test(`hides phone tap target when member.phone="${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <CrewTile crewMembers={makeMember({ phone: sentinel }) as never} />,
+      );
+      expect(html).toContain("Sam Crew");
+      expect(html).not.toContain("tel:");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+  }
+
+  test("renders Call link for non-sentinel phone (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <CrewTile crewMembers={makeMember({ phone: "555-9876" }) as never} />,
+    );
+    expect(html).toContain("tel:5559876");
+  });
+});
+
+describe("§8.3 actionable-link guard — CrewTile member.email (class-sweep round-16)", () => {
+  function makeMember(overrides: Partial<{ phone: string | null; email: string | null }>) {
+    return [
+      {
+        id: "crew-1",
+        name: "Sam Crew",
+        email: null,
+        phone: null,
+        role: "A1",
+        roleFlags: ["A1"] as const,
+        dateRestriction: { kind: "none" as const },
+        stageRestriction: { kind: "none" as const },
+        ...overrides,
+      },
+    ];
+  }
+
+  for (const sentinel of SENTINELS) {
+    test(`hides email tap target when member.email="${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <CrewTile crewMembers={makeMember({ email: sentinel }) as never} />,
+      );
+      expect(html).toContain("Sam Crew");
+      expect(html).not.toContain("mailto:");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+  }
+
+  test("renders Email link for non-sentinel email (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <CrewTile crewMembers={makeMember({ email: "sam@crew.example" }) as never} />,
+    );
+    expect(html).toContain("mailto:sam@crew.example");
   });
 });
