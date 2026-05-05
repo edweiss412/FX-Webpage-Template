@@ -82,6 +82,34 @@ describe("selectRightNowState — viewer_unconfirmed precedence (§8.2 row 1)", 
     const state = selectRightNowState(todayInNY("2026-06-03"), dateless, ASTERISK);
     expect(state.kind).toBe("dateless");
   });
+
+  test("Codex round-22 MEDIUM — travelIn+travelOut WITHOUT showDays renders unknown (showDays empty = broken sheet data)", () => {
+    // Pre-fix, hasFullDates returned true when only travelIn +
+    // travelOut were non-null; the state machine then resolved to
+    // confident states (pre_travel / travel_in_day / post_show)
+    // even though showDays were missing. Spec §8.2 line 2414 says
+    // unknown / dateless are date-data fallbacks that override
+    // everything else; an empty showDays is exactly that — the
+    // sheet's show-day cells failed to parse, so the state machine
+    // can't answer "is today a show day?" Render the unknown
+    // fallback instead of authoritative-looking confident copy.
+    const partialDates = {
+      travelIn: "2026-04-20",
+      set: "2026-04-21",
+      showDays: [], // sheet's show-day cells failed to parse
+      travelOut: "2026-04-23",
+    };
+    // today happens to fall on a "show day" if showDays were
+    // populated — but they're empty, so the state machine cannot
+    // tell. Pre-fix would render pre_travel or travel_in_day or
+    // post_show; post-fix renders unknown.
+    const state = selectRightNowState(
+      todayInNY("2026-04-22"),
+      partialDates,
+      { kind: "none" },
+    );
+    expect(state.kind).toBe("unknown");
+  });
 });
 
 describe("selectRightNowState — viewer_after_last_day precedence (§8.2 row 2)", () => {

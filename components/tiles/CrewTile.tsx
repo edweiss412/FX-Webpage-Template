@@ -45,6 +45,18 @@ type CrewTileProps = {
   crewMembers: ShowForViewer["crewMembers"];
 };
 
+/**
+ * Cardinality cap before the §8.4 / AC-4.4 overflow disclosure
+ * (`[data-tile-show-more="true"]`) renders. The threshold is a
+ * conservative heuristic: avatar (32px) + 2 lines (~36px) + gap
+ * (~12px) ≈ 80px per crew row at the typography defaults. The
+ * tile body's max-h-tile-overflow is 240px, so 8 rows clear the
+ * floor before scrolling. NotesTile / PackListTile use 8 / 12
+ * for their respective row heights; this is the analogous Crew
+ * threshold (Codex round-22 MEDIUM closure).
+ */
+const CREW_INLINE_CAP = 8;
+
 export function CrewTile({ crewMembers }: CrewTileProps) {
   if (!crewMembers || crewMembers.length === 0) {
     return (
@@ -61,6 +73,9 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
     );
   }
 
+  const visibleCrew = crewMembers.slice(0, CREW_INLINE_CAP);
+  const overflowCount = Math.max(0, crewMembers.length - CREW_INLINE_CAP);
+
   return (
     <Section
       testId="crew-tile"
@@ -69,7 +84,7 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
       variant="people"
       ariaLabel="Crew"
     >
-      {crewMembers.map((member, idx) => (
+      {visibleCrew.map((member, idx) => (
         <li
           key={member.id}
           data-testid="crew-row"
@@ -149,6 +164,26 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
           </div>
         </li>
       ))}
+      {overflowCount > 0 ? (
+        // §8.4 / AC-4.4 overflow disclosure (Codex round-22 MEDIUM):
+        // when the crew roster exceeds CREW_INLINE_CAP, render a
+        // `data-tile-show-more` stub so users have an explicit
+        // affordance that more content exists. Mirrors the
+        // notes-overflow-stub / pack-list-overflow-stub pattern.
+        <li
+          data-testid="crew-overflow-stub"
+          data-tile-show-more="true"
+          className={[
+            "rounded-sm bg-surface-sunken px-3 py-2",
+            "text-sm text-text-subtle",
+            "border-t border-border pt-4",
+          ].join(" ")}
+        >
+          <span className="tabular-nums">+{overflowCount}</span>{" "}
+          {overflowCount === 1 ? "more crew member" : "more crew members"} on
+          the source sheet
+        </li>
+      ) : null}
     </Section>
   );
 }

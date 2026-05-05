@@ -157,7 +157,25 @@ function countParseableDates(dates: ShowRow["dates"]): number {
   return count;
 }
 
-/** Whether every named date is present (the gate for the show-wide states). */
+/**
+ * Whether every named date needed by the §8.2 state ladder is present.
+ *
+ * Codex round-22 MEDIUM: pre-fix this returned true when only
+ * travelIn + travelOut were non-null, ignoring whether showDays
+ * parsed. A sheet where show-day cells failed to parse but travel
+ * dates did would still resolve confident states like
+ * `pre_travel`/`travel_in_day`/`post_show`, masking the broken
+ * sheet data. Per spec §8.2 line 2414 (`unknown` and `dateless`
+ * are date-data fallbacks that override everything else), an
+ * empty showDays array means the §8.2 state machine cannot
+ * answer "is today a show day?" — and the user-visible failure
+ * is rendering authoritative copy on top of incomplete data.
+ *
+ * `set` remains optional: some shows legitimately have load-in
+ * and show on the same day with no separate set day. But every
+ * show has at least one show day by definition; an empty
+ * showDays is broken-sheet data, not a valid state.
+ */
 function hasFullDates(
   dates: ShowRow["dates"],
 ): dates is {
@@ -166,7 +184,12 @@ function hasFullDates(
   showDays: string[];
   travelOut: string;
 } {
-  return Boolean(dates.travelIn) && Boolean(dates.travelOut);
+  return (
+    Boolean(dates.travelIn) &&
+    Boolean(dates.travelOut) &&
+    Array.isArray(dates.showDays) &&
+    dates.showDays.length > 0
+  );
 }
 
 /**

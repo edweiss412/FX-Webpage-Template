@@ -288,6 +288,7 @@ export function NotesTile({
       {overflowCount > 0 ? (
         <div
           data-testid="notes-overflow-stub"
+          data-tile-show-more="true"
           className="rounded-sm bg-surface-sunken px-3 py-2 text-sm text-text-subtle"
         >
           <span className="tabular-nums">+{overflowCount}</span>{" "}
