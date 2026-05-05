@@ -37,7 +37,10 @@
  */
 import type { NextRequest } from "next/server";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
-import { validateLinkSession } from "@/lib/auth/validateLinkSession";
+import {
+  peekLinkSessionShow,
+  validateLinkSession,
+} from "@/lib/auth/validateLinkSession";
 import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
@@ -140,6 +143,33 @@ export async function resolveShowViewer(
   }
 
   // (3) Magic-link session.
+  //
+  // Codex round-25 HIGH closure: classify cross-show requests
+  // BEFORE running the destructive show-bound validator.
+  // validateLinkSession is show-bound: when the cookie envelope's
+  // show_id doesn't match the context.showId, it DELETES the
+  // session and returns `continue`. That destruction is
+  // appropriate as defense-in-depth for in-context requests
+  // (cookie says A, validator asked for A, DB session says B —
+  // forge attempt, destroy). But for legitimate CROSS-SHOW
+  // requests (valid showA cookie requesting showB's API
+  // endpoint), the M4 spec requires `forbidden`/403 with the
+  // valid session PRESERVED — not 401 with a destroyed session.
+  //
+  // Peek at the cookie envelope BEFORE the destructive validator.
+  // If the envelope's show_id differs from the requested
+  // show_id, route to forbidden directly (no DB hit, no
+  // deletion). The destructive path still runs for in-context
+  // requests where it makes sense.
+  const peek = peekLinkSessionShow(req);
+  if (peek.kind === "envelope" && peek.showId !== show_id) {
+    return {
+      kind: "forbidden",
+      reason: "cross_show_link_session",
+      show_id: peek.showId,
+    };
+  }
+
   const link = await validateLinkSession(req, { showId: show_id });
   if (link.kind === "success") {
     if (link.viewer.showId === show_id) {

@@ -99,6 +99,50 @@ async function readActiveSigningKeyId(): Promise<string> {
   return data.active_signing_key_id;
 }
 
+/**
+ * Non-destructive cookie peek (Codex round-25 HIGH closure).
+ *
+ * Returns the show_id claim encoded in the session cookie envelope
+ * WITHOUT touching the DB or deleting anything. resolveShowViewer
+ * uses this to classify cross-show requests as `forbidden`/403
+ * BEFORE the destructive show-bound validator runs. If we let
+ * validateLinkSession see a wrong-show cookie, it would
+ * defensively delete the session + return `continue`, which
+ * resolveShowViewer would then map to `denied`/401 — wrong status
+ * code AND a destroyed valid session.
+ *
+ * Returns:
+ *   - `kind: "no_cookie"`: no session cookie present (continue normal flow).
+ *   - `kind: "no_envelope"`: cookie present but undecodable (continue;
+ *     the destructive validator will clear it).
+ *   - `kind: "envelope"; showId: string`: the cookie's encoded show_id
+ *     claim. Caller compares to the requested show.
+ *
+ * Caveat: this is the COOKIE'S CLAIM, not the DB-validated truth.
+ * A forged cookie with a wrong-show envelope would route to
+ * forbidden here without DB validation. That's acceptable because:
+ *   (a) The forge attempt costs the attacker nothing; we lose
+ *       nothing by giving them 403 instead of 401.
+ *   (b) The next legitimate request to the cookie's CLAIMED show
+ *       runs the destructive validator, which catches DB mismatch
+ *       and deletes the forge.
+ *   (c) Cross-show routing must never destroy a valid session;
+ *       requiring DB verification before that classification would
+ *       defeat the whole point.
+ */
+export type LinkSessionPeekResult =
+  | { kind: "no_cookie" }
+  | { kind: "no_envelope" }
+  | { kind: "envelope"; showId: string };
+
+export function peekLinkSessionShow(req: Request): LinkSessionPeekResult {
+  const rawCookie = readCookie(req, SESSION_COOKIE_NAME);
+  if (rawCookie === undefined) return { kind: "no_cookie" };
+  const envelope = decodeSessionCookieValue(rawCookie);
+  if (!envelope) return { kind: "no_envelope" };
+  return { kind: "envelope", showId: envelope.show_id };
+}
+
 export async function validateLinkSession(
   req: Request,
   context: LinkSessionValidationContext,

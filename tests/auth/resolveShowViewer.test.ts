@@ -25,6 +25,17 @@ const validatorMock = vi.hoisted(() => {
   return {
     state: {
       adminResult: { ok: false } as { ok: boolean; email?: string },
+      // Codex round-25 HIGH: peek result drives the cross-show
+      // short-circuit BEFORE validateLinkSession runs. The peek
+      // is a non-destructive cookie read; on cross-show it routes
+      // to forbidden directly so the destructive show-bound
+      // validator never sees a wrong-show cookie (which it would
+      // delete + return 'continue' for, downgrading 403 to 401
+      // and destroying a valid session).
+      peekResult: { kind: "no_cookie" } as
+        | { kind: "no_cookie" }
+        | { kind: "no_envelope" }
+        | { kind: "envelope"; showId: string },
       linkResult: { kind: "continue" } as
         | {
             kind: "success";
@@ -42,6 +53,7 @@ const validatorMock = vi.hoisted(() => {
             };
           }
         | { kind: "continue" },
+      validateLinkSessionCallCount: 0,
     },
   };
 });
@@ -50,7 +62,11 @@ vi.mock("@/lib/auth/isAdminSession", () => ({
   isAdminSession: async () => validatorMock.state.adminResult,
 }));
 vi.mock("@/lib/auth/validateLinkSession", () => ({
-  validateLinkSession: async () => validatorMock.state.linkResult,
+  peekLinkSessionShow: () => validatorMock.state.peekResult,
+  validateLinkSession: async () => {
+    validatorMock.state.validateLinkSessionCallCount += 1;
+    return validatorMock.state.linkResult;
+  },
 }));
 vi.mock("@/lib/auth/validateGoogleSession", () => ({
   validateGoogleSession: async () => validatorMock.state.googleResult,
@@ -104,12 +120,14 @@ function fakeReq(): NextRequest {
 
 beforeEach(() => {
   validatorMock.state.adminResult = { ok: false };
+  validatorMock.state.peekResult = { kind: "no_cookie" };
   validatorMock.state.linkResult = {
     kind: "continue",
   };
   validatorMock.state.googleResult = {
     kind: "continue",
   };
+  validatorMock.state.validateLinkSessionCallCount = 0;
   supabaseMock.state.slugLookupRow = { id: "show-uuid-1", published: true };
   supabaseMock.state.slugLookupError = null;
   supabaseMock.state.lastSlugQueried = null;
@@ -322,5 +340,67 @@ describe("resolveShowViewer — 5-arm discriminated union", () => {
     if (result.kind === "denied") {
       expect(result.reason).toBe("unknown_slug");
     }
+  });
+
+  // ── Codex round-25 HIGH — cross-show signed-link 403 boundary ───────
+
+  test("Codex round-25 HIGH — cross-show signed-link cookie routes to forbidden BEFORE destructive validateLinkSession runs", async () => {
+    // Cookie envelope says show-uuid-OTHER; request asks for show-uuid-1.
+    // Pre-fix: peek did not exist, validateLinkSession ran with
+    // showId=show-uuid-1, saw cookie show=show-uuid-OTHER, deleted
+    // the session + returned 'continue', resolveShowViewer mapped
+    // that to denied/401. Crew got 401 instead of 403 AND lost
+    // their valid show-OTHER session.
+    //
+    // Post-fix: peek catches the cross-show cookie BEFORE the
+    // destructive validator runs. Result is forbidden with the
+    // cookie's actual show_id, no DB hit, no deletion.
+    validatorMock.state.peekResult = {
+      kind: "envelope",
+      showId: "show-uuid-OTHER",
+    };
+    const result = await resolveShowViewer(fakeReq(), "test-show");
+    expect(result.kind).toBe("forbidden");
+    if (result.kind === "forbidden") {
+      expect(result.reason).toBe("cross_show_link_session");
+      expect(result.show_id).toBe("show-uuid-OTHER");
+    }
+    // Critical: validateLinkSession was NEVER called. Pre-fix it
+    // ran and destroyed the session.
+    expect(validatorMock.state.validateLinkSessionCallCount).toBe(0);
+  });
+
+  test("Codex round-25 HIGH — in-context signed-link cookie still flows through validateLinkSession", async () => {
+    // Anti-tautology: when the cookie envelope's show_id matches
+    // the requested show_id, peek does NOT short-circuit; the
+    // normal validator runs as before.
+    validatorMock.state.peekResult = {
+      kind: "envelope",
+      showId: "show-uuid-1",
+    };
+    validatorMock.state.linkResult = {
+      kind: "success",
+      viewer: {
+        kind: "crew",
+        showId: "show-uuid-1",
+        crewMemberId: "crew-1",
+      },
+    };
+    const result = await resolveShowViewer(fakeReq(), "test-show");
+    expect(result.kind).toBe("crew_link");
+    // Critical: validateLinkSession DID run (peek didn't short-
+    // circuit).
+    expect(validatorMock.state.validateLinkSessionCallCount).toBe(1);
+  });
+
+  test("Codex round-25 HIGH — no cookie → peek returns no_cookie, normal flow continues", async () => {
+    // Defensive: peek with no_cookie must NOT classify as forbidden;
+    // the normal flow runs (validator returns continue → denied).
+    validatorMock.state.peekResult = { kind: "no_cookie" };
+    validatorMock.state.linkResult = { kind: "continue" };
+    const result = await resolveShowViewer(fakeReq(), "test-show");
+    // No admin, no link, no google → denied no_credentials.
+    expect(result.kind).toBe("denied");
+    expect(validatorMock.state.validateLinkSessionCallCount).toBe(1);
   });
 });
