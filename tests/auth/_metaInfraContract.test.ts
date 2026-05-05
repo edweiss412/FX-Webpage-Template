@@ -42,6 +42,13 @@
  *     - requireAdmin                → throws AdminInfraError (not forbidden())
  *     - resolveShowViewer           → { kind: "terminal_failure", status: 500 }
  *
+ *   M5 R19 update: resolveShowViewer was previously documented as
+ *   covered in this docstring but had no test rows. Codex round 19
+ *   caught the gap. The describe block below now exercises the helper
+ *   at its slug-lookup chokepoint (createSupabaseServiceRoleClient
+ *   throw + .from().maybeSingle() throw), pinning the contract
+ *   structurally instead of relying on docstring discipline.
+ *
  *   Future helpers MUST register themselves below to satisfy this
  *   structural guard. Adding a new auth helper without a row in this
  *   suite means a future review round will catch the missed contract.
@@ -278,6 +285,34 @@ describe("META infra-failure contract", () => {
           },
         }),
         { showId: "11111111-1111-4111-8111-111111111111" },
+      );
+      expect(result).toMatchObject({
+        kind: "terminal_failure",
+        status: 500,
+      });
+    });
+  });
+
+  describe("resolveShowViewer", () => {
+    test("service-role construction throw → terminal_failure 500", async () => {
+      infraMock.throwOnConstruct = true;
+      const { resolveShowViewer } = await import("@/lib/auth/resolveShowViewer");
+      const result = await resolveShowViewer(
+        new Request("http://meta.test") as never,
+        "any-slug",
+      );
+      expect(result).toMatchObject({
+        kind: "terminal_failure",
+        status: 500,
+      });
+    });
+
+    test("from() throw on slug lookup → terminal_failure 500", async () => {
+      infraMock.throwOnFrom = true;
+      const { resolveShowViewer } = await import("@/lib/auth/resolveShowViewer");
+      const result = await resolveShowViewer(
+        new Request("http://meta.test") as never,
+        "any-slug",
       );
       expect(result).toMatchObject({
         kind: "terminal_failure",

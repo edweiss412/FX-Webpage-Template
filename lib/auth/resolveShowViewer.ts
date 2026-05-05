@@ -77,12 +77,29 @@ export async function resolveShowViewer(
   // denied/unknown_slug — masking the infra fault as an auth signal in
   // the same way R14 #2 fixed for the validator chain. Capture and
   // surface as terminal_failure so callers map to 500.
-  const svc = createSupabaseServiceRoleClient();
-  const slugLookup = await svc
-    .from("shows")
-    .select("id,published")
-    .eq("slug", slug)
-    .maybeSingle();
+  // R19 F3 (round-19 §A HIGH): pre-fix the service-role construction +
+  // the awaited .from(...).maybeSingle() were not wrapped — a thrown
+  // infra fault (network, missing env, PostgREST 5xx surfacing as a
+  // throw rather than `{ error }`) bypassed the discriminated union
+  // and produced an uncataloged framework 500 in the API callers
+  // (subscriber-token / show-version routes). Mirror the wrap pattern
+  // used by validateGoogleSession (R17 #4) + validateLinkSession
+  // (R18 #1). Pinned structurally by tests/auth/_metaInfraContract.test.ts.
+  let slugLookup: { data: unknown; error: unknown };
+  try {
+    const svc = createSupabaseServiceRoleClient();
+    slugLookup = (await svc
+      .from("shows")
+      .select("id,published")
+      .eq("slug", slug)
+      .maybeSingle()) as { data: unknown; error: unknown };
+  } catch {
+    return {
+      kind: "terminal_failure",
+      status: 500,
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    };
+  }
   if (slugLookup.error) {
     return {
       kind: "terminal_failure",
