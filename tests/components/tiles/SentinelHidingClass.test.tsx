@@ -234,6 +234,68 @@ describe("§8.3 sentinel-hiding class — NotesTile (Codex round-10 MEDIUM)", ()
     // current spec interpretation.
     expect(html).toContain("Hotel: TBD");
   });
+
+  test("Codex round-21 MEDIUM — transport notes hidden when transportation prop is null (visibility boundary)", () => {
+    // Round 21 caught that page.tsx passed `data.transportation`
+    // unconditionally to NotesTile even when transportTileVisible
+    // was false, leaking transport notes via "Things to know" to
+    // viewers not authorized to see TransportTile. The page-level
+    // fix passes `transportVisible ? data.transportation : null`.
+    // This test pins the NotesTile-side contract: when transportation
+    // is null, NO data-source="transport" entry renders.
+    const html = renderToStaticMarkup(
+      <NotesTile
+        show={{ venue: null }}
+        hotelReservations={[]}
+        rooms={[]}
+        transportation={null}
+        contacts={[
+          {
+            kind: "venue",
+            name: "Front-of-House",
+            email: null,
+            phone: null,
+            notes: "Backstage entrance is around the corner",
+          },
+        ]}
+      />,
+    );
+    // Tile renders (contact note keeps it alive — anti-tautology).
+    expect(html).toContain("Backstage entrance is around the corner");
+    // No transport entry.
+    expect(html).not.toContain('data-source="transport"');
+    // The label "Transport" should not appear under any source row
+    // (the contact source uses "Contact: <name>" so the label "Transport"
+    // is unique to the transport source).
+    expect(html).not.toContain(">Transport<");
+  });
+
+  test("Codex round-21 MEDIUM — transport notes visible when transportation prop is provided (anti-tautology)", () => {
+    // Confirms the gate isn't a no-op disabler — when the page
+    // judges the viewer authorized AND passes transportation, the
+    // notes DO render.
+    const html = renderToStaticMarkup(
+      <NotesTile
+        show={{ venue: null }}
+        hotelReservations={[]}
+        rooms={[]}
+        transportation={{
+          driver_name: "Manny Driver",
+          driver_phone: null,
+          driver_email: null,
+          vehicle: null,
+          license_plate: null,
+          color: null,
+          parking: null,
+          schedule: [],
+          notes: "Park in the back lot, gate code 1234",
+        }}
+        contacts={[]}
+      />,
+    );
+    expect(html).toContain("Park in the back lot, gate code 1234");
+    expect(html).toContain('data-source="transport"');
+  });
 });
 
 describe("§8.3 sentinel-hiding class — TransportTile", () => {

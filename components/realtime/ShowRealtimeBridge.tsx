@@ -395,7 +395,7 @@ export function ShowRealtimeBridge({
             return;
           }
           console.warn(
-            "[ShowRealtimeBridge] SHOW_REALTIME_BROADCAST_AUTH_FAILED — JWT renewal mint failed; falling back to no-op (no retry loop)",
+            "[ShowRealtimeBridge] SHOW_REALTIME_BROADCAST_AUTH_FAILED — JWT renewal mint failed; will retry via bounded backoff",
           );
           // Logging contract: the file-header doc (line ~82) promises a
           // `SHOW_REALTIME_JWT_RENEWED outcome: 'failed'` log on every
@@ -407,6 +407,15 @@ export function ShowRealtimeBridge({
             "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
             { reason: "mint_failed" },
           );
+          // Codex round-21 MEDIUM: a transient mint failure (5xx /
+          // network) MUST set pendingRenewalRef so the existing
+          // bounded backoff retry path runs. Pre-fix, the round-20
+          // refactor returned without flagging the retry, leaving
+          // the bridge stuck on the disconnected channel until a
+          // manual refresh OR another status event. Wire it through:
+          // the finally block at line ~539 reads pendingRenewalRef
+          // to decide whether to schedule the next retry attempt.
+          pendingRenewalRef.current = true;
           return;
         }
         const newJwt = mintResult.value;

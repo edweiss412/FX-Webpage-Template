@@ -722,12 +722,25 @@ export default async function ShowPage({ params }: PageProps) {
                 {/*
                   NotesTile — aggregates every block-level `notes` field
                   into a single "Things to know" tile.
+
+                  Codex round-21 MEDIUM: gate `transportation` on
+                  `transportVisible`. NotesTile aggregates
+                  `transportation.notes` unconditionally; without this
+                  gate, a viewer not authorized to see the TransportTile
+                  (not the driver, not in any schedule's assigned_names)
+                  would still see transport notes under "Things to know"
+                  — a privacy boundary leak that exposes driver/parking/
+                  vehicle prose to unrelated crew. Passing null when the
+                  viewer can't see the tile keeps the boundary local +
+                  consistent.
                 */}
                 <NotesTile
                   show={data.show}
                   hotelReservations={data.hotelReservations}
                   rooms={data.rooms}
-                  transportation={data.transportation}
+                  transportation={
+                    transportVisible ? data.transportation : null
+                  }
                   contacts={data.contacts}
                 />
               </>

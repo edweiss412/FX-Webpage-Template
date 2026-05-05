@@ -606,6 +606,75 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     consoleInfoSpy.mockRestore();
   });
 
+  test("Codex round-21 MEDIUM — renewal mint transient 5xx MUST schedule bounded backoff retry (no manual refresh required)", async () => {
+    // Codex round-21: my round-20 refactor missed wiring
+    // pendingRenewalRef on transient_failure, so a 5xx during tab
+    // foregrounding left the bridge stuck on the disconnected
+    // channel until a manual refresh or another status event. The
+    // existing bounded-backoff retry only runs when pendingRenewalRef
+    // is set; the round-20 path returned without flagging it. Fix:
+    // set pendingRenewalRef.current = true in the transient branch
+    // so the next backoff attempt fires.
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    let mintCount = 0;
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () => {
+        mintCount += 1;
+        // Initial mint succeeds; renewal mint #1 transient 5xx;
+        // renewal mint #2 (the backoff retry) succeeds.
+        if (mintCount === 1) {
+          return new Response(
+            JSON.stringify({ jwt: "ok-1", exp: 9999999999 }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (mintCount === 2) {
+          return new Response(
+            JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }),
+            { status: 500, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(
+          JSON.stringify({ jwt: `ok-${mintCount}`, exp: 9999999999 }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+
+    await mountBridgeAndAwaitSubscribe();
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+    const baselineSubscribes = subscribeMock.state.subscribeCalls.length;
+
+    // Disconnect → first renewal mint (#2) fails 5xx. Pre-fix, the
+    // bridge would log the failure and STAY DEAD without a second
+    // disconnect. Post-fix, pendingRenewalRef is set, the finally
+    // block schedules the backoff retry, and a subsequent mint #3
+    // succeeds → new subscribe call.
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    // Drain microtasks AND advance timers to fire the bounded backoff.
+    for (let i = 0; i < 20; i += 1) {
+      await flushPromises();
+      vi.advanceTimersByTime(2000);
+    }
+    await flushPromises();
+
+    // Bug-pinning: the backoff retry produced a NEW subscribe call
+    // beyond the initial. Pre-fix this would equal baselineSubscribes
+    // (no retry fired).
+    expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(
+      baselineSubscribes,
+    );
+
+    consoleWarnSpy.mockRestore();
+  });
+
   test("Codex round-20 HIGH — renewal mint 401 (auth_denied) MUST force router.refresh", async () => {
     // Codex round-20 HIGH: auth-deny on the realtime endpoints means
     // the viewer's session was revoked while disconnected. Pre-fix,
