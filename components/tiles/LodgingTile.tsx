@@ -83,7 +83,12 @@ export function LodgingTile({ hotelReservations }: LodgingTileProps) {
               </p>
             ) : null}
 
-            {res.hotel_address ? (
+            {/*
+              §8.3 generic-optional (Codex round-14): hotel_address is
+              a generic optional text field. Sentinels reflow out via
+              the central predicate.
+            */}
+            {!shouldHideGenericOptional(res.hotel_address) ? (
               <p className="text-sm text-text-subtle">{res.hotel_address}</p>
             ) : null}
 
@@ -122,9 +127,11 @@ export function LodgingTile({ hotelReservations }: LodgingTileProps) {
                 Confirmation number — optional. The parser pulls this
                 from the names column when a "- #1234" suffix is
                 present; the projection passes it through. Tabular
-                figures applied so digit columns line up.
+                figures applied so digit columns line up. §8.3
+                generic-optional (Codex round-14): sentinels reflow
+                out via the central predicate.
               */}
-              {res.confirmation_no ? (
+              {!shouldHideGenericOptional(res.confirmation_no) ? (
                 <KeyValue
                   label="Confirmation"
                   value={res.confirmation_no}

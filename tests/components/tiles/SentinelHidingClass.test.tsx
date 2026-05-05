@@ -646,6 +646,81 @@ describe("§8.3 sentinel-hiding class — LodgingTile", () => {
     );
     expect(html).toContain("Late checkout granted");
   });
+
+  // ── Codex round-14 — hotel_address + confirmation_no sentinel sweep ─
+
+  for (const sentinel of SENTINELS) {
+    test(`hides hotel_address paragraph when value="${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <LodgingTile
+          hotelReservations={[
+            {
+              ordinal: 1,
+              hotel_name: "The Marriott Downtown",
+              hotel_address: sentinel,
+              names: ["Alice"],
+              confirmation_no: null,
+              check_in: null,
+              check_out: null,
+              notes: null,
+            },
+          ]}
+        />,
+      );
+      // Tile renders (hotel name confirms it's alive — anti-tautology).
+      expect(html).toContain("The Marriott Downtown");
+      // The address paragraph must NOT render the sentinel.
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+
+    test(`hides Confirmation row when confirmation_no="${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <LodgingTile
+          hotelReservations={[
+            {
+              ordinal: 1,
+              hotel_name: "The Marriott Downtown",
+              hotel_address: null,
+              names: ["Alice"],
+              confirmation_no: sentinel,
+              check_in: null,
+              check_out: null,
+              notes: null,
+            },
+          ]}
+        />,
+      );
+      expect(html).toContain("The Marriott Downtown");
+      expect(html).not.toContain("Confirmation");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+  }
+
+  test("renders hotel_address + confirmation_no for non-sentinel values (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <LodgingTile
+        hotelReservations={[
+          {
+            ordinal: 1,
+            hotel_name: "The Marriott Downtown",
+            hotel_address: "100 Hotel Way, Downtown",
+            names: ["Alice"],
+            confirmation_no: "ABC-123",
+            check_in: null,
+            check_out: null,
+            notes: null,
+          },
+        ]}
+      />,
+    );
+    expect(html).toContain("100 Hotel Way, Downtown");
+    expect(html).toContain("Confirmation");
+    expect(html).toContain("ABC-123");
+  });
 });
 
 describe("§8.3 sentinel-hiding class — VenueTile", () => {

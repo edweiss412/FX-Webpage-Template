@@ -148,6 +148,16 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
     description: "transportation.vehicle / license_plate / color / parking",
     pattern: /\btransportation\??\.(vehicle|license_plate|color|parking)\b/,
   },
+  // Round-14: HotelReservationRow optional text fields beyond `notes`.
+  // hotel_address and confirmation_no were missed by round-10's notes
+  // sweep because they are KeyValue rows on the body, not aggregated
+  // through NotesTile. The pattern matches `res.hotel_address` and
+  // `res.confirmation_no` in LodgingTile (and any future tile that
+  // unfurls reservation rows).
+  {
+    description: "hotelReservation.hotel_address / confirmation_no",
+    pattern: /\bres\??\.(hotel_address|confirmation_no)\b/,
+  },
 ];
 
 /**
