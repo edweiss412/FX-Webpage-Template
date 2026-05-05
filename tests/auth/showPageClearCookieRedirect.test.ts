@@ -60,6 +60,13 @@ vi.mock("@/lib/auth/validateGoogleSession", () => ({
 }));
 
 vi.mock("@/lib/auth/requireAdmin", () => ({
+  AdminInfraError: class AdminInfraError extends Error {
+    readonly code = "ADMIN_SESSION_LOOKUP_FAILED";
+    constructor(message: string) {
+      super(message);
+      this.name = "AdminInfraError";
+    }
+  },
   requireAdmin: async () => {
     const err = new Error("requireAdmin notFound");
     (err as { digest?: string }).digest = "NEXT_HTTP_ERROR_FALLBACK;404";

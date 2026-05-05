@@ -96,7 +96,7 @@ import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { SESSION_COOKIE_NAME } from "@/lib/auth/constants";
 import { decodeSessionCookieValue } from "@/lib/auth/cookies";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { AdminInfraError, requireAdmin } from "@/lib/auth/requireAdmin";
 import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
 import { validateLinkSession } from "@/lib/auth/validateLinkSession";
 import {
@@ -200,28 +200,40 @@ type ChainResolution = {
  * chain's later steps will either resolve a crew viewer or redirect to
  * sign-in.
  */
-async function tryRequireAdmin(): Promise<boolean> {
+type RequireAdminOutcome =
+  | { kind: "confirmed" }
+  | { kind: "drift" }
+  | { kind: "infra"; code: string };
+
+async function tryRequireAdmin(): Promise<RequireAdminOutcome> {
   try {
     await requireAdmin();
-    return true;
+    return { kind: "confirmed" };
   } catch (e) {
+    // R19 F2 (round-19 §A+§B HIGH): pre-fix tryRequireAdmin only
+    // swallowed Next navigation-control digests (notFound/forbidden)
+    // and rethrew everything else. R17 #1 introduced AdminInfraError
+    // for infra failures, so a transient getUser/RPC failure inside
+    // requireAdmin escaped both step-1 admin-precedence and step-4
+    // fallback into Next's generic error boundary instead of becoming
+    // a cataloged terminalFailure 500 with ADMIN_SESSION_LOOKUP_FAILED
+    // copy via the show-page chain. Catch the infra error here and
+    // surface as the infra arm; the chain converts it to terminalFailure.
+    if (e instanceof AdminInfraError) {
+      return { kind: "infra", code: e.code };
+    }
     // requireAdmin raises via `notFound()` / `forbidden()`. Both produce
     // an Error whose `digest` is `NEXT_HTTP_ERROR_FALLBACK;<status>` per
     // node_modules/next/dist/client/components/http-access-fallback/
-    // http-access-fallback.js (HTTP_ERROR_FALLBACK_ERROR_CODE +
-    // HTTPAccessErrorStatus = {NOT_FOUND: 404, FORBIDDEN: 403,
-    // UNAUTHORIZED: 401}). Only swallow those navigation-control throws
-    // — they signal the EXPECTED drift between `isAdminSession`
-    // (predicate) and `requireAdmin` (chokepoint). Any other throw
-    // (DB outage, Supabase service down, JWT signing-key fetch failure,
-    // etc.) MUST propagate so it surfaces in Next's error boundary
-    // rather than silently degrading the admin path to "not authed".
+    // http-access-fallback.js. Only swallow those navigation-control
+    // throws — they signal EXPECTED drift between `isAdminSession`
+    // (predicate) and `requireAdmin` (chokepoint).
     const digest = (e as { digest?: unknown })?.digest;
     if (
       typeof digest === "string" &&
       digest.startsWith("NEXT_HTTP_ERROR_FALLBACK;")
     ) {
-      return false;
+      return { kind: "drift" };
     }
     throw e;
   }
@@ -280,12 +292,23 @@ async function resolveViewer(
   // exercises the link branch.
   const admin = await isAdminSession(req);
   if (admin.ok) {
-    const adminConfirmed = await tryRequireAdmin();
-    if (adminConfirmed) {
+    const adminOutcome = await tryRequireAdmin();
+    if (adminOutcome.kind === "confirmed") {
       viewer = { kind: "admin" };
+    } else if (adminOutcome.kind === "infra") {
+      // R19 F2: requireAdmin's AdminInfraError surfaces here as a
+      // structured infra outcome — convert to the chain's terminalFailure
+      // arm so the page renders the cataloged 500 path instead of letting
+      // the throw escape into Next's generic error boundary.
+      return {
+        viewer: null,
+        clearCookie,
+        terminalFailure: { status: 500, code: adminOutcome.code },
+        googleNoCrewMatch: false,
+      };
     }
-    // Drift between isAdminSession and requireAdmin → fall through to the
-    // next chain step. Don't return early.
+    // kind === "drift": isAdminSession and requireAdmin disagreed —
+    // fall through to the next chain step.
   } else if (admin.reason === "infra_error") {
     // R16 #3 (round-15 §B HIGH): isAdminSession's R15 #3 infra_error
     // arm was added but this show-page chain only checked admin.ok and
@@ -381,8 +404,16 @@ async function resolveViewer(
   // chokepoint that isAdminSession's predicate missed).
   if (!viewer) {
     const adminFallback = await tryRequireAdmin();
-    if (adminFallback) {
+    if (adminFallback.kind === "confirmed") {
       viewer = { kind: "admin" };
+    } else if (adminFallback.kind === "infra") {
+      // R19 F2: same conversion at the step-4 fallback site.
+      return {
+        viewer: null,
+        clearCookie,
+        terminalFailure: { status: 500, code: adminFallback.code },
+        googleNoCrewMatch: false,
+      };
     }
   }
 
