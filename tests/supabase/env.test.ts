@@ -67,4 +67,19 @@ describe("Supabase env aliases", () => {
       process.env = oldEnv;
     }
   });
+
+  test("service-role helper refuses local fallback in production", () => {
+    const oldEnv = { ...process.env };
+    try {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.SUPABASE_URL = "https://project.supabase.co";
+      delete process.env.SUPABASE_SECRET_KEY;
+      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      expect(() => createSupabaseServiceRoleClient()).toThrow(/SUPABASE_SECRET_KEY/);
+    } finally {
+      process.env = oldEnv;
+      vi.unstubAllEnvs();
+    }
+  });
 });
