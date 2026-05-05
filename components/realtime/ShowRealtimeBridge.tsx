@@ -112,26 +112,72 @@ type ShowRealtimeBridgeProps = {
   renderVersion: string;
 };
 
-async function mintSubscriberToken(slug: string): Promise<string | null> {
-  const res = await fetch("/api/realtime/subscriber-token", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ slug }),
-  });
+/**
+ * Discriminated fetch result for the bridge's auth-bearing endpoints.
+ * Codex round-20 HIGH: collapsing every non-OK response to `null`
+ * silently swallowed 401/403 auth-deny responses. A revoked-while-
+ * offline viewer would reconnect, hit 401, the bridge would skip
+ * refresh, and the user would keep seeing stale show data instead
+ * of being denied/redirected by the Server Component auth chain.
+ *
+ * The fix is to discriminate auth-deny from transient/server failure
+ * so callers can route auth-deny to a forced refresh (which lets the
+ * page's auth resolver redirect/clear-session) while still treating
+ * 5xx / network failure as silent fail-open.
+ */
+type AuthFetchResult<T> =
+  | { kind: "ok"; value: T }
+  | { kind: "auth_denied"; status: 401 | 403 }
+  | { kind: "transient_failure" };
+
+async function mintSubscriberToken(
+  slug: string,
+): Promise<AuthFetchResult<string>> {
+  let res: Response;
+  try {
+    res = await fetch("/api/realtime/subscriber-token", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ slug }),
+    });
+  } catch {
+    return { kind: "transient_failure" };
+  }
+  if (res.status === 401 || res.status === 403) {
+    return { kind: "auth_denied", status: res.status as 401 | 403 };
+  }
   if (!res.ok) {
-    return null;
+    return { kind: "transient_failure" };
   }
   const body = (await res.json()) as { jwt?: unknown };
-  return typeof body.jwt === "string" ? body.jwt : null;
+  if (typeof body.jwt !== "string") {
+    return { kind: "transient_failure" };
+  }
+  return { kind: "ok", value: body.jwt };
 }
 
-async function fetchCurrentVersion(slug: string): Promise<string | null> {
-  const res = await fetch(`/api/show/${encodeURIComponent(slug)}/version`, {
-    method: "GET",
-  });
-  if (!res.ok) return null;
+async function fetchCurrentVersion(
+  slug: string,
+): Promise<AuthFetchResult<string>> {
+  let res: Response;
+  try {
+    res = await fetch(`/api/show/${encodeURIComponent(slug)}/version`, {
+      method: "GET",
+    });
+  } catch {
+    return { kind: "transient_failure" };
+  }
+  if (res.status === 401 || res.status === 403) {
+    return { kind: "auth_denied", status: res.status as 401 | 403 };
+  }
+  if (!res.ok) {
+    return { kind: "transient_failure" };
+  }
   const body = (await res.json()) as { version_token?: unknown };
-  return typeof body.version_token === "string" ? body.version_token : null;
+  if (typeof body.version_token !== "string") {
+    return { kind: "transient_failure" };
+  }
+  return { kind: "ok", value: body.version_token };
 }
 
 export function ShowRealtimeBridge({
@@ -252,10 +298,28 @@ export function ShowRealtimeBridge({
     async (closureGen: number) => {
       if (!isMountedRef.current) return;
       if (closureGen !== currentChannelGenerationRef.current) return;
-      const currentToken = await fetchCurrentVersion(slug);
+      const result = await fetchCurrentVersion(slug);
       if (!isMountedRef.current) return;
       if (closureGen !== currentChannelGenerationRef.current) return;
-      if (currentToken !== null && currentToken !== renderVersionRef.current) {
+      // Codex round-20 HIGH: auth-deny on the catch-up endpoint MUST
+      // force a refresh so the Server Component auth chain re-runs
+      // and routes the revoked viewer to the appropriate denial /
+      // clear-session path. Pre-fix this branch returned null and
+      // skipped refresh, leaving stale show data on screen for a
+      // viewer whose session was revoked while disconnected.
+      if (result.kind === "auth_denied") {
+        console.warn(
+          "[ShowRealtimeBridge] version endpoint returned auth_denied; forcing refresh to let the auth chain re-evaluate",
+          { status: result.status },
+        );
+        router.refresh();
+        return;
+      }
+      // Transient/server failure stays silent (fail-open posture):
+      // a flaky network or 500 should not yank the page. The next
+      // invalidation OR reconnect catch-up will retry.
+      if (result.kind === "transient_failure") return;
+      if (result.value !== renderVersionRef.current) {
         router.refresh();
       }
     },
@@ -312,12 +376,24 @@ export function ShowRealtimeBridge({
         if (!isMountedRef.current) return;
         if (priorClosureGen !== currentChannelGenerationRef.current) return;
 
-        const newJwt = await mintSubscriberToken(slug);
+        const mintResult = await mintSubscriberToken(slug);
         if (effectToken.aborted) return;
         if (!isMountedRef.current) return;
         if (priorClosureGen !== currentChannelGenerationRef.current) return;
 
-        if (newJwt === null) {
+        if (mintResult.kind !== "ok") {
+          // Codex round-20 HIGH: discriminate auth_denied (revoked
+          // session — force refresh so the Server Component auth
+          // chain re-evaluates and reroutes) from transient_failure
+          // (network / 5xx — stay silent fail-open).
+          if (mintResult.kind === "auth_denied") {
+            console.warn(
+              "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: auth_denied — viewer session revoked; forcing refresh",
+              { reason: "mint_auth_denied", status: mintResult.status },
+            );
+            router.refresh();
+            return;
+          }
           console.warn(
             "[ShowRealtimeBridge] SHOW_REALTIME_BROADCAST_AUTH_FAILED — JWT renewal mint failed; falling back to no-op (no retry loop)",
           );
@@ -333,6 +409,7 @@ export function ShowRealtimeBridge({
           );
           return;
         }
+        const newJwt = mintResult.value;
 
         try {
           supabase.realtime.setAuth(newJwt);
@@ -589,15 +666,32 @@ export function ShowRealtimeBridge({
     // === Initial mount: mint JWT then subscribe ===
     let initialAborted = false;
     (async () => {
-      const jwt = await mintSubscriberToken(slug);
+      const initialMintResult = await mintSubscriberToken(slug);
       if (effectToken.aborted) return;
       if (!isMountedRef.current || initialAborted) return;
-      if (jwt === null) {
+      // Codex round-20 HIGH discrimination: at INITIAL mount we keep
+      // the fail-open posture for both auth_denied AND
+      // transient_failure. Reasoning: in M4 the documented contract
+      // (apply-driven-refresh.spec.ts:38-49) is that the route's
+      // resolveShowViewer-gate returns 401 because real cookie auth
+      // ships in M5; forcing refresh on initial-mount auth_denied
+      // would create a render→mint→refresh→render→mint loop. The
+      // Server Component already authorized the page render, so we
+      // trust SSR's auth decision at mount and only escalate
+      // auth_denied responses on RENEWAL (where it definitionally
+      // means "viewer was revoked since the page rendered").
+      if (initialMintResult.kind !== "ok") {
+        const reason =
+          initialMintResult.kind === "auth_denied"
+            ? `mint_auth_denied_${initialMintResult.status}`
+            : "mint_transient";
         console.warn(
           "[ShowRealtimeBridge] subscription failed: initial JWT mint returned no token; falling back to no-op (no retry loop)",
+          { reason },
         );
         return;
       }
+      const jwt = initialMintResult.value;
 
       try {
         supabase.realtime.setAuth(jwt);

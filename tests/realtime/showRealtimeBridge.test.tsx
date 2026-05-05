@@ -606,6 +606,109 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     consoleInfoSpy.mockRestore();
   });
 
+  test("Codex round-20 HIGH — renewal mint 401 (auth_denied) MUST force router.refresh", async () => {
+    // Codex round-20 HIGH: auth-deny on the realtime endpoints means
+    // the viewer's session was revoked while disconnected. Pre-fix,
+    // the bridge silently swallowed the 401 (collapsed to null) and
+    // the page kept showing stale show data. Post-fix, the bridge
+    // forces router.refresh() so the Server Component auth chain
+    // re-evaluates and routes the revoked viewer appropriately.
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    let mintCount = 0;
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () => {
+        mintCount += 1;
+        // Initial mint succeeds; renewal mint returns 401.
+        if (mintCount === 1) {
+          return new Response(
+            JSON.stringify({ jwt: "ok-1", exp: 9999999999 }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(
+          JSON.stringify({ error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED" }),
+          { status: 401, headers: { "content-type": "application/json" } },
+        );
+      },
+    );
+
+    await mountBridgeAndAwaitSubscribe();
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+    routerMock.state.refreshCalls = 0;
+
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+
+    // Bug-pinning assertion: refresh fired on auth_denied.
+    expect(routerMock.state.refreshCalls).toBeGreaterThanOrEqual(1);
+    // The auth_denied log was emitted (different reason tag than
+    // the transient mint_failed path, so dashboards can disambiguate).
+    const loggedAuthDenied = consoleWarnSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "object" &&
+          a !== null &&
+          (a as { reason?: unknown }).reason === "mint_auth_denied",
+      ),
+    );
+    expect(loggedAuthDenied).toBe(true);
+
+    consoleWarnSpy.mockRestore();
+  });
+
+  test("Codex round-20 HIGH — version endpoint 401 on catch-up MUST force router.refresh", async () => {
+    // Same auth-deny logic but on the /version endpoint (the catch-up
+    // fetch). Pre-fix, fetchCurrentVersion collapsed every non-OK to
+    // null, refreshSyncIfMismatch saw "no token" and skipped refresh,
+    // page stayed stale. Post-fix, the discriminated result surfaces
+    // auth_denied and refreshSyncIfMismatch forces refresh.
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    pushFetchHandler(
+      (url) => /\/api\/show\/[^/]+\/version/.test(url),
+      async () =>
+        new Response(
+          JSON.stringify({ error: "SHOW_VERSION_AUTH_FAILED" }),
+          { status: 401, headers: { "content-type": "application/json" } },
+        ),
+    );
+
+    await mountBridgeAndAwaitSubscribe();
+    routerMock.state.refreshCalls = 0;
+
+    const channel = subscribeMock.state.currentChannel;
+    if (!channel) throw new Error("channel not registered");
+
+    // Trigger system.reconnected → catch-up runs.
+    await act(async () => {
+      channel.fireSystem({ event: "reconnected" });
+    });
+    await flushPromises();
+    await flushPromises();
+
+    expect(routerMock.state.refreshCalls).toBeGreaterThanOrEqual(1);
+    const loggedAuthDenied = consoleWarnSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "string" && a.includes("auth_denied"),
+      ),
+    );
+    expect(loggedAuthDenied).toBe(true);
+
+    consoleWarnSpy.mockRestore();
+  });
+
   test("Codex round-18 HIGH — invalidate + disconnect mid-debounce: renewal catch-up MUST still refresh", async () => {
     // Race scenario from Codex round-18 finding:
     //   1. Channel receives invalidate(T1) → schedules 100ms debounced refresh.
@@ -703,9 +806,15 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
             { status: 200, headers: { "content-type": "application/json" } },
           );
         }
+        // Codex round-20 HIGH refactor: 401/403 now route through
+        // the auth_denied branch which forces refresh. To preserve
+        // the original "transient mint failure stays fail-open"
+        // semantic, this test uses status 500 — a true transient
+        // failure (server fault, not auth deny). New tests below
+        // exercise the 401/403 auth_denied path explicitly.
         return new Response(
-          JSON.stringify({ error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED" }),
-          { status: 401, headers: { "content-type": "application/json" } },
+          JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }),
+          { status: 500, headers: { "content-type": "application/json" } },
         );
       },
     );
@@ -853,9 +962,15 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
             { status: 200, headers: { "content-type": "application/json" } },
           );
         }
+        // Codex round-20 HIGH refactor: 401/403 now route through
+        // the auth_denied branch which forces refresh. To preserve
+        // the original "transient mint failure stays fail-open"
+        // semantic, this test uses status 500 — a true transient
+        // failure (server fault, not auth deny). New tests below
+        // exercise the 401/403 auth_denied path explicitly.
         return new Response(
-          JSON.stringify({ error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED" }),
-          { status: 401, headers: { "content-type": "application/json" } },
+          JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }),
+          { status: 500, headers: { "content-type": "application/json" } },
         );
       },
     );
@@ -1109,9 +1224,12 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
           );
         }
         if (mintCount === 2) {
+          // Codex round-20 HIGH refactor: status 500 (transient
+          // failure) preserves the original test intent of "renewal
+          // mint failure releases the single-flight lock."
           return new Response(
-            JSON.stringify({ error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED" }),
-            { status: 401, headers: { "content-type": "application/json" } },
+            JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }),
+            { status: 500, headers: { "content-type": "application/json" } },
           );
         }
         return new Response(
