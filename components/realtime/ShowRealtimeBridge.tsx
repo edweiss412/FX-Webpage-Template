@@ -431,6 +431,14 @@ export function ShowRealtimeBridge({
             "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
             { reason: "set_auth_threw", err },
           );
+          // Codex round-24 MEDIUM: setAuth-throw on renewal must
+          // schedule the bounded backoff retry. Pre-fix the
+          // function returned with no retry, leaving the page
+          // silent until a manual refresh or another status event
+          // (e.g., crew member resumes laptop, mint succeeds, but
+          // setAuth throws once on the cold socket — page
+          // never recovers without intervention).
+          pendingRenewalRef.current = true;
           return;
         }
 
@@ -449,6 +457,10 @@ export function ShowRealtimeBridge({
             // Swallow — teardown errors are not actionable client-side.
             void err;
           }
+          // Codex round-24 MEDIUM: clear the ref after teardown so
+          // a subscribe_threw branch below doesn't leave a stale
+          // pointer to an already-removed channel.
+          currentChannelRef.current = null;
         }
         if (effectToken.aborted) return;
         if (!isMountedRef.current) return;
@@ -494,6 +506,13 @@ export function ShowRealtimeBridge({
             "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
             { reason: "subscribe_threw", err },
           );
+          // Codex round-24 MEDIUM: subscribe-throw on renewal must
+          // schedule the bounded backoff retry. Pre-fix this branch
+          // returned silent — the old channel was already removed
+          // (currentChannelRef cleared above) and the new channel
+          // never opened, so the page received no further events
+          // until a manual refresh.
+          pendingRenewalRef.current = true;
           return;
         }
         currentChannelRef.current = newChannel;

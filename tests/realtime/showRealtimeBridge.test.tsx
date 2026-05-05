@@ -606,6 +606,124 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     consoleInfoSpy.mockRestore();
   });
 
+  test("Codex round-24 MEDIUM — renewal setAuth-throw MUST schedule bounded backoff retry", async () => {
+    // Codex round-24: round-21 wired the retry on transient mint
+    // failures, but missed setAuth-throw. If renewal mint succeeds
+    // and setAuth then throws (cold socket / Supabase client
+    // misbehavior), the function logged + returned without
+    // pendingRenewalRef = true, leaving the page silent until a
+    // manual refresh or another status event. Fix: setAuth-throw
+    // also sets pendingRenewalRef so the bounded backoff retries.
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () =>
+        new Response(JSON.stringify({ jwt: "ok", exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    // setAuth: first call (initial mount) succeeds, second call
+    // (renewal) throws once, third call (retry) succeeds.
+    let setAuthCalls = 0;
+    supabaseMock.state.setAuth.mockImplementation(() => {
+      setAuthCalls += 1;
+      if (setAuthCalls === 2) {
+        throw new Error("META: simulated setAuth fault");
+      }
+    });
+
+    await mountBridgeAndAwaitSubscribe();
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+    const baselineSubscribes = subscribeMock.state.subscribeCalls.length;
+
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 20; i += 1) {
+      await flushPromises();
+      vi.advanceTimersByTime(2000);
+    }
+    await flushPromises();
+
+    // Bug-pinning: the backoff retry produced a NEW subscribe call
+    // beyond the initial. Pre-fix this would equal baselineSubscribes
+    // (no retry fired after setAuth-throw).
+    expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(
+      baselineSubscribes,
+    );
+    const loggedSetAuthThrew = consoleWarnSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "object" &&
+          a !== null &&
+          (a as { reason?: unknown }).reason === "set_auth_threw",
+      ),
+    );
+    expect(loggedSetAuthThrew).toBe(true);
+
+    consoleWarnSpy.mockRestore();
+  });
+
+  test("Codex round-24 MEDIUM — renewal subscribe-throw MUST schedule bounded backoff retry", async () => {
+    // Same shape as setAuth-throw, but the subscribe_threw branch.
+    // Pre-fix this branch logged + returned without flagging retry
+    // even though the old channel was already removed — leaving the
+    // bridge truly dead until manual intervention.
+    const consoleWarnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () =>
+        new Response(JSON.stringify({ jwt: "ok", exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+
+    await mountBridgeAndAwaitSubscribe();
+    const firstChannel = subscribeMock.state.currentChannel;
+    if (!firstChannel) throw new Error("channel not registered");
+    const baselineSubscribes = subscribeMock.state.subscribeCalls.length;
+
+    // Make subscribeToShow throw ONCE (the renewal subscribe).
+    // Subsequent calls (the backoff retry) succeed normally.
+    subscribeMock.state.throwOnNext = true;
+
+    await act(async () => {
+      firstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 20; i += 1) {
+      await flushPromises();
+      vi.advanceTimersByTime(2000);
+    }
+    await flushPromises();
+
+    // Bug-pinning: subscribeToShow was called more than once after
+    // the disconnect (one threw, the retry succeeded).
+    expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(
+      baselineSubscribes,
+    );
+    const loggedSubscribeThrew = consoleWarnSpy.mock.calls.some((args) =>
+      args.some(
+        (a) =>
+          typeof a === "object" &&
+          a !== null &&
+          (a as { reason?: unknown }).reason === "subscribe_threw",
+      ),
+    );
+    expect(loggedSubscribeThrew).toBe(true);
+
+    consoleWarnSpy.mockRestore();
+  });
+
   test("Codex round-21 MEDIUM — renewal mint transient 5xx MUST schedule bounded backoff retry (no manual refresh required)", async () => {
     // Codex round-21: my round-20 refactor missed wiring
     // pendingRenewalRef on transient_failure, so a 5xx during tab
