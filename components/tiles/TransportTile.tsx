@@ -49,14 +49,20 @@ type TransportTileProps = {
 export function TransportTile({ transportation, visible }: TransportTileProps) {
   if (!visible || !transportation) return null;
 
-  // §8.3 generic-optional sentinel-hiding (Codex round-10): notes is
-  // a generic optional text field. `notes: "TBD"` / `"N/A"` / `"TBA"`
-  // must be treated as missing so the allEmpty branch falls through
-  // to the empty-state placeholder and the inline notes paragraph
-  // does not render the sentinel string. Routes through the central
-  // predicate per lib/visibility/emptyState.ts:27-29 ("Tiles MUST
-  // NOT inline string-list checks").
+  // §8.3 generic-optional sentinel-hiding (Codex rounds 10 + 13):
+  // notes was reclassified in round 10; vehicle/license_plate/color/
+  // parking were reclassified in round 13. Driver fields (name/phone/
+  // email) stay on raw truthiness — those are identity fields, not
+  // generic-optional sentinels. Routes through the central predicate
+  // per lib/visibility/emptyState.ts:27-29 ("Tiles MUST NOT inline
+  // string-list checks").
   const notesVisible = !shouldHideGenericOptional(transportation.notes);
+  const vehicleVisible = !shouldHideGenericOptional(transportation.vehicle);
+  const licensePlateVisible = !shouldHideGenericOptional(
+    transportation.license_plate,
+  );
+  const colorVisible = !shouldHideGenericOptional(transportation.color);
+  const parkingVisible = !shouldHideGenericOptional(transportation.parking);
 
   // If the predicate said visible but every meaningful field is null
   // (degenerate row), fall back to required-field empty-state. This
@@ -64,10 +70,10 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
   // saw something — but guards against bad data without hiding the tile.
   const allEmpty =
     !transportation.driver_name &&
-    !transportation.vehicle &&
-    !transportation.license_plate &&
-    !transportation.color &&
-    !transportation.parking &&
+    !vehicleVisible &&
+    !licensePlateVisible &&
+    !colorVisible &&
+    !parkingVisible &&
     transportation.schedule.length === 0 &&
     !notesVisible;
   if (allEmpty) {
@@ -125,10 +131,10 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
           via KeyValue.tabular. Hairline divider above only when the
           driver block rendered AND any vehicle field is present.
         */}
-        {(transportation.vehicle ||
-          transportation.license_plate ||
-          transportation.color ||
-          transportation.parking) ? (
+        {(vehicleVisible ||
+          licensePlateVisible ||
+          colorVisible ||
+          parkingVisible) ? (
           <dl
             className={[
               "flex flex-col gap-3",
@@ -139,20 +145,20 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
               .filter(Boolean)
               .join(" ")}
           >
-            {transportation.vehicle ? (
+            {vehicleVisible ? (
               <KeyValue label="Vehicle" value={transportation.vehicle} />
             ) : null}
-            {transportation.license_plate ? (
+            {licensePlateVisible ? (
               <KeyValue
                 label="License plate"
                 value={transportation.license_plate}
                 tabular
               />
             ) : null}
-            {transportation.color ? (
+            {colorVisible ? (
               <KeyValue label="Color" value={transportation.color} />
             ) : null}
-            {transportation.parking ? (
+            {parkingVisible ? (
               <KeyValue label="Parking" value={transportation.parking} />
             ) : null}
           </dl>

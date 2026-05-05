@@ -284,6 +284,165 @@ describe("§8.3 sentinel-hiding class — TransportTile", () => {
     expect(html).toContain("Park in the back lot, gate code 1234");
   });
 
+  // ── Codex round-13 — TransportTile vehicle metadata reclassification ─
+  // Round 13 reclassified vehicle/license_plate/color/parking as §8.3
+  // generic-optional (round 12 had deferred them as identity fields,
+  // round 13 reversed that — sentinels in these fields render as fake
+  // logistics data which is the same user-visible regression as notes).
+
+  for (const sentinel of SENTINELS) {
+    test(`hides Vehicle row when transportation.vehicle="${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <TransportTile
+          transportation={{
+            driver_name: "Manny Driver",
+            driver_phone: null,
+            driver_email: null,
+            vehicle: sentinel,
+            license_plate: null,
+            color: null,
+            parking: null,
+            schedule: [],
+            notes: null,
+          }}
+          visible
+        />,
+      );
+      expect(html).toContain("Manny Driver");
+      expect(html).not.toContain("Vehicle</");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+
+    test(`hides License plate row when transportation.license_plate="${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <TransportTile
+          transportation={{
+            driver_name: "Manny Driver",
+            driver_phone: null,
+            driver_email: null,
+            vehicle: null,
+            license_plate: sentinel,
+            color: null,
+            parking: null,
+            schedule: [],
+            notes: null,
+          }}
+          visible
+        />,
+      );
+      expect(html).toContain("Manny Driver");
+      expect(html).not.toContain("License plate");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+
+    test(`hides Color row when transportation.color="${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <TransportTile
+          transportation={{
+            driver_name: "Manny Driver",
+            driver_phone: null,
+            driver_email: null,
+            vehicle: null,
+            license_plate: null,
+            color: sentinel,
+            parking: null,
+            schedule: [],
+            notes: null,
+          }}
+          visible
+        />,
+      );
+      expect(html).toContain("Manny Driver");
+      // The label "Color" is short and could appear in CSS class
+      // attribute strings (e.g., border-color); use the full
+      // `<dt>Color</dt>` shape (or similar) to avoid false positives.
+      // Simpler: just assert the sentinel value isn't in the DOM —
+      // that's the strict bug-pinning check.
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+
+    test(`hides Parking row when transportation.parking="${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <TransportTile
+          transportation={{
+            driver_name: "Manny Driver",
+            driver_phone: null,
+            driver_email: null,
+            vehicle: null,
+            license_plate: null,
+            color: null,
+            parking: sentinel,
+            schedule: [],
+            notes: null,
+          }}
+          visible
+        />,
+      );
+      expect(html).toContain("Manny Driver");
+      expect(html).not.toContain("Parking");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+  }
+
+  test("renders all vehicle metadata for non-sentinel values (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <TransportTile
+        transportation={{
+          driver_name: "Manny Driver",
+          driver_phone: null,
+          driver_email: null,
+          vehicle: "Sprinter Van",
+          license_plate: "ABC-1234",
+          color: "Black",
+          parking: "Lot 5, level B",
+          schedule: [],
+          notes: null,
+        }}
+        visible
+      />,
+    );
+    expect(html).toContain("Sprinter Van");
+    expect(html).toContain("ABC-1234");
+    expect(html).toContain("Black");
+    expect(html).toContain("Lot 5, level B");
+  });
+
+  test("when ALL vehicle metadata + notes are sentinels, tile shows empty-state", () => {
+    // Same all-sentinel pattern as the notes-only case below; this
+    // exercises the round-13 fix's allEmpty-branch wiring across the
+    // four reclassified fields. driver_name absent so the tile has
+    // no other content to keep it alive.
+    const html = renderToStaticMarkup(
+      <TransportTile
+        transportation={{
+          driver_name: null,
+          driver_phone: null,
+          driver_email: null,
+          vehicle: "TBD",
+          license_plate: "TBD",
+          color: "N/A",
+          parking: "TBA",
+          schedule: [],
+          notes: "TBD",
+        }}
+        visible
+      />,
+    );
+    expect(html).toContain("transport-tile");
+    expect(html).not.toContain("TBD");
+    expect(html).not.toContain("N/A");
+    expect(html).not.toContain("TBA");
+    expect(html).toContain("No transport details on file yet.");
+  });
+
   test("when notes is the only field and it's a sentinel, tile shows empty-state", () => {
     // Pre-fix: a transportation row whose only field is `notes:"TBD"`
     // would pass the allEmpty check (notes is truthy) and render a

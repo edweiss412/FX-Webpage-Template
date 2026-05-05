@@ -140,6 +140,14 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
     description: "event_details dress_code candidates",
     pattern: /event_details\["?(dress_code|dress|attire)"?\]|"dress_code"|"attire"|"dress code"/,
   },
+  // Round-13 reclassification: vehicle metadata on TransportationRow.
+  // The pattern anchors on `transportation.` to avoid matching unrelated
+  // .vehicle / .parking / .color references elsewhere (e.g., a hypothetical
+  // `palette.color` token).
+  {
+    description: "transportation.vehicle / license_plate / color / parking",
+    pattern: /\btransportation\??\.(vehicle|license_plate|color|parking)\b/,
+  },
 ];
 
 /**
