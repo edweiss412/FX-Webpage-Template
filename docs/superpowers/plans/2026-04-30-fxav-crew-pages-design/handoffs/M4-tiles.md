@@ -357,4 +357,63 @@ vitest 1208 unchanged (test-rewrite, same count).
 
 Round-by-round pattern: every round surfaced ONE realtime-layer race or ONE test-rigor gap; each was closed by exactly one fix commit before the next round. Codex's first 5 rounds drilled progressively-deeper into the renewal/failure/cleanup race surface (private channel → readiness-on-status → catch-up-vs-finally → ABA generation → owner-token); rounds 6 + 7 caught test-rigor + gitignore housekeeping issues that would otherwise have shipped silently.
 
-**M4 closed. Ready for merge.**
+**M4 closed (provisional — narrow-scope 8-round convergence). Ready for merge.**
+
+---
+
+## Fresh-eyes whole-M4 audit (rounds 9-27 — 2026-05-04 / 2026-05-05)
+
+**Methodology fix.** The original 8-round convergence narrowed scope after round 1 — rounds 2-8 each anchored to the previous round's fix commit (`git diff <fix-base>..HEAD`), so most of M4 was only reviewed once. The user flagged this on 2026-05-04 ("were we still getting fresh eyes on the whole milestone implementation each round or is it being steered to only double check the previous round's fixes?"). Rounds 9-27 anchor the diff to milestone base (`--base ef94896 --scope branch`) on every round so the FULL M4 surface stays fresh-eyes-reviewed. See memory `feedback_adversarial_review_full_milestone_scope.md` for the rule.
+
+**§8.3 sentinel-bypass class.** Rounds 10-17 surfaced the same generic-optional-text sentinel-leak class in different surfaces (NotesTile, then dress_code helper, then scope tiles + Financials, then transport vehicle metadata, then lodging address+confirmation, then driver fields, then VenueTile/ContactsTile/CrewTile actionable links, then PackListTile cat/subCat). Per memory `feedback_meta_contract_test_for_recurring_bug_class.md`, after 3 consecutive rounds on the same class a structural meta-contract test landed (`d091dbd` — `tests/components/tiles/_metaSentinelHidingContract.test.ts`). Class structurally closed at round 18.
+
+**Scope discipline.** Each round constrained Codex to the M4-frozen range (`ef94896..29f7106`) PLUS named round-N closure SHAs. M5 work in parallel was explicitly out of scope. One M5-authored fix (`5b38f54`) was promoted into M4 scope at round 14 as the canonical closure for a real M4-tip bug.
+
+**Disagreement loop.** Rounds 13, 23, 26 each raised structurally-identical complaints about the M4 realtime fail-open posture. The fail-open is documented at `tests/e2e/apply-driven-refresh.spec.ts:38-49` (M4 contract: SSR uses `?crew=` mock, mint is resolveShowViewer-gated and 401s unconditionally; real cookie auth ships in M5). Codex withdrew on rounds 14, 24, and 27 after the spec citation. Per memory `feedback_iterate_until_convergence.md`, finding-disagreement loops have a round-3 cap; this is the canonical example.
+
+### Round-N closure ledger
+
+| Round | Verdict | Severity | Class / surface | Closure SHA |
+|---|---|---|---|---|
+| 9 | needs-attention | HIGH | RightNow stale-tint symmetric (recovery direction) | `f146147` |
+| 10 | needs-attention | MEDIUM | §8.3 notes — 6 tiles | `208fafc` |
+| 11 | needs-attention | MEDIUM | §8.3 — pickDressCode helper | `989efd6` |
+| 12 | needs-attention | 2×MEDIUM | §8.3 — 3 scope tiles + FinancialsTile | `2146273` |
+| 12-followup | (test) | — | meta-contract for §8.3 recurring class | `d091dbd` |
+| 13 | needs-attention | MEDIUM | §8.3 — TransportTile vehicle metadata | `a0fb459` |
+| 13 | needs-attention | HIGH | realtime fail-open | **WITHDRAWN round 14** |
+| 14 | needs-attention | MEDIUM | §8.3 — LodgingTile hotel_address + confirmation_no | `a352723` |
+| 14 | needs-attention | MEDIUM | resolveShowViewer slug-lookup error swallow | `5b38f54` (M5-authored, promoted to M4 scope) |
+| 15 | needs-attention | MEDIUM | §8.3 — TransportTile driver_name/phone/email | `c84c8e7` |
+| 16 | needs-attention | 2×MEDIUM + class-sweep | §8.3 — VenueTile loadingDock+googleLink + ContactsTile phone+email + CrewTile phone+email | `4e89357` |
+| 17 | needs-attention | MEDIUM | §8.3 — PackListTile cat/subCat | `d964b89` |
+| 18 | needs-attention | HIGH | realtime invalidation race — renderVersionRef optimistic advance + disconnect-during-debounce loses invalidation | `bc5f6fc` |
+| 19 | needs-attention | MEDIUM | §8.2 — prefers-reduced-motion not honored on RightNow crossfade | `8728bdb` |
+| 20 | needs-attention | HIGH | realtime auth-deny silently swallowed | `b9dc28f` |
+| 21 | needs-attention | 2×MEDIUM | round-20 retry wire-up incomplete (transient mint) + transport-notes visibility leak via NotesTile | `0cb754f` |
+| 22 | needs-attention | 2×MEDIUM | hasFullDates over-permissive (showDays empty rendered confident states) + tile-show-more disclosure missing for Crew | `bb6829c` |
+| 23 | needs-attention | HIGH | parser-shaped M/D date_restriction vs ISO comparison | `3ef8364` |
+| 23 | needs-attention | MEDIUM | ContactsTile overflow disclosure missing | `3ef8364` |
+| 23 | needs-attention | HIGH | initial-mount auth-deny | **WITHDRAWN round 24** |
+| 24 | needs-attention | MEDIUM | round-21 retry incomplete on setAuth-throw + subscribe-throw paths | `03484d7` |
+| 25 | needs-attention | HIGH | cross-show signed-link 403 boundary broken (validateLinkSession destroyed valid session on cross-show) | `159aa21` |
+| 26 | needs-attention | MEDIUM | apply-driven-refresh.spec.ts doesn't exercise live-sync | **WITHDRAWN round 27** |
+| **27** | **APPROVE** ✅ | — | — | — |
+
+### Round 27 — 2026-05-05 — APPROVED ✅
+
+**Verdict**: approve. **No material findings.**
+
+> APPROVE. I withdraw the Round 26 live-sync finding: M4's documented contract is fail-open under `?crew=` mock identity, and I found no M4 AC requiring the success-path realtime round trip before M5 auth exists. No HIGH/MEDIUM findings supported in the scoped M4 range plus the named closure SHAs.
+
+---
+
+**Convergence reached at round 27 (whole-milestone fresh-eyes scope).** 27 rounds total (8 narrow + 19 fresh-eyes). Total findings closed: 7 HIGH + 17 MEDIUM across 19 fix commits + 1 meta-contract test commit + 3 withdrawn findings. Final test-suite state: vitest **1704 + 5 skipped**; typecheck clean.
+
+Pattern across the fresh-eyes audit:
+- **§8.3 saga (rounds 10-17)**: 8 consecutive rounds on the same generic-optional-text class. Closed structurally at round 17 + meta-contract test floor.
+- **Realtime race chain (rounds 18, 20, 21, 24)**: each round drilled into a different failure mode (invalidation race during debounce; auth-deny swallowed; transient retry incomplete; setAuth/subscribe throw paths). Closed by progressively narrower fixes.
+- **Cross-cutting (rounds 19, 22, 23, 25)**: prefers-reduced-motion accessibility; hasFullDates date-completeness gate; date_restriction format mismatch; cross-show 403 boundary preservation. Each a different class.
+- **Disagreement loop (rounds 13, 23, 26)**: M4 realtime fail-open contract relitigated; withdrawn each time after spec citation.
+
+**M4 fully closed (whole-milestone fresh-eyes converged at round 27). Ready for merge.**
