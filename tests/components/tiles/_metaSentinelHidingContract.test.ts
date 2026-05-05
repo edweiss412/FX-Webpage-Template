@@ -148,6 +148,15 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
     description: "transportation.vehicle / license_plate / color / parking",
     pattern: /\btransportation\??\.(vehicle|license_plate|color|parking)\b/,
   },
+  // Round-15 reclassification: driver assignment + contact fields on
+  // TransportationRow. Reasoning per Codex round 15: a sentinel
+  // driver_phone like "TBD" rendered as a `tel:TBD` link, creating a
+  // dead/misleading contact control. Round 12 had deferred these as
+  // identity fields; round 15 reversed that on user-harm grounds.
+  {
+    description: "transportation.driver_name / driver_phone / driver_email",
+    pattern: /\btransportation\??\.(driver_name|driver_phone|driver_email)\b/,
+  },
   // Round-14: HotelReservationRow optional text fields beyond `notes`.
   // hotel_address and confirmation_no were missed by round-10's notes
   // sweep because they are KeyValue rows on the body, not aggregated

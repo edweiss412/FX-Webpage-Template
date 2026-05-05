@@ -415,6 +415,143 @@ describe("§8.3 sentinel-hiding class — TransportTile", () => {
     expect(html).toContain("Lot 5, level B");
   });
 
+  // ── Codex round-15 — driver_name/driver_phone/driver_email reclass ──
+  // Round 12 deferred these as "identity" fields; round 15 reversed on
+  // user-harm grounds: a sentinel driver_phone like "TBD" rendered as
+  // a `tel:TBD` link, creating a dead/misleading contact control.
+
+  for (const sentinel of SENTINELS) {
+    test(`hides Driver row when driver_name="${sentinel}" + driver phone present`, () => {
+      const html = renderToStaticMarkup(
+        <TransportTile
+          transportation={{
+            driver_name: sentinel,
+            driver_phone: "555-1234",
+            driver_email: null,
+            vehicle: "Sprinter Van",
+            license_plate: null,
+            color: null,
+            parking: null,
+            schedule: [],
+            notes: null,
+          }}
+          visible
+        />,
+      );
+      // Tile alive (vehicle is non-sentinel anti-tautology sibling).
+      expect(html).toContain("Sprinter Van");
+      // Driver block must NOT render at all when name is sentinel —
+      // the block is gated on driverNameVisible. Phone link inside the
+      // block must therefore also be absent (no orphan tel:).
+      expect(html).not.toContain('label="Driver"');
+      expect(html).not.toContain("tel:");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+
+    test(`hides Driver phone row when driver_phone="${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <TransportTile
+          transportation={{
+            driver_name: "Manny Driver",
+            driver_phone: sentinel,
+            driver_email: null,
+            vehicle: null,
+            license_plate: null,
+            color: null,
+            parking: null,
+            schedule: [],
+            notes: null,
+          }}
+          visible
+        />,
+      );
+      // Driver block renders (name is real).
+      expect(html).toContain("Manny Driver");
+      // No tel: link should render against a sentinel phone.
+      // Catches: the dead-contact-control regression Codex round-15
+      // flagged — `tel:TBD` would appear here without the predicate.
+      expect(html).not.toContain("tel:");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+
+    test(`hides Driver email row when driver_email="${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <TransportTile
+          transportation={{
+            driver_name: "Manny Driver",
+            driver_phone: null,
+            driver_email: sentinel,
+            vehicle: null,
+            license_plate: null,
+            color: null,
+            parking: null,
+            schedule: [],
+            notes: null,
+          }}
+          visible
+        />,
+      );
+      expect(html).toContain("Manny Driver");
+      // No mailto: link should render against a sentinel email.
+      expect(html).not.toContain("mailto:");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+  }
+
+  test("when ALL driver fields are sentinels, tile shows empty-state (no orphan block)", () => {
+    const html = renderToStaticMarkup(
+      <TransportTile
+        transportation={{
+          driver_name: "TBD",
+          driver_phone: "TBD",
+          driver_email: "TBD",
+          vehicle: null,
+          license_plate: null,
+          color: null,
+          parking: null,
+          schedule: [],
+          notes: null,
+        }}
+        visible
+      />,
+    );
+    expect(html).toContain("transport-tile");
+    expect(html).not.toContain("TBD");
+    expect(html).not.toContain("tel:");
+    expect(html).not.toContain("mailto:");
+    expect(html).toContain("No transport details on file yet.");
+  });
+
+  test("renders all driver fields for non-sentinel values (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <TransportTile
+        transportation={{
+          driver_name: "Manny Driver",
+          driver_phone: "555-1234",
+          driver_email: "manny@example.com",
+          vehicle: null,
+          license_plate: null,
+          color: null,
+          parking: null,
+          schedule: [],
+          notes: null,
+        }}
+        visible
+      />,
+    );
+    expect(html).toContain("Manny Driver");
+    expect(html).toContain("555-1234");
+    expect(html).toContain("manny@example.com");
+    expect(html).toContain("tel:5551234");
+    expect(html).toContain("mailto:manny@example.com");
+  });
+
   test("when ALL vehicle metadata + notes are sentinels, tile shows empty-state", () => {
     // Same all-sentinel pattern as the notes-only case below; this
     // exercises the round-13 fix's allEmpty-branch wiring across the

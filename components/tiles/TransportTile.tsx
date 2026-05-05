@@ -49,13 +49,17 @@ type TransportTileProps = {
 export function TransportTile({ transportation, visible }: TransportTileProps) {
   if (!visible || !transportation) return null;
 
-  // §8.3 generic-optional sentinel-hiding (Codex rounds 10 + 13):
+  // §8.3 generic-optional sentinel-hiding (Codex rounds 10 + 13 + 15):
   // notes was reclassified in round 10; vehicle/license_plate/color/
-  // parking were reclassified in round 13. Driver fields (name/phone/
-  // email) stay on raw truthiness — those are identity fields, not
-  // generic-optional sentinels. Routes through the central predicate
-  // per lib/visibility/emptyState.ts:27-29 ("Tiles MUST NOT inline
-  // string-list checks").
+  // parking in round 13; driver_name/driver_phone/driver_email in
+  // round 15. The round-15 reclassification was driven by user harm:
+  // a sentinel driver_phone like "TBD" rendered as a `tel:TBD` link,
+  // creating a dead/misleading contact control (clicking opens the
+  // dialer to "TBD"). All transportation free-text fields originate
+  // from sheet cells that the parser only normalizes with presence()
+  // — sentinels survive projection. Routes through the central
+  // predicate per lib/visibility/emptyState.ts:27-29 ("Tiles MUST
+  // NOT inline string-list checks").
   const notesVisible = !shouldHideGenericOptional(transportation.notes);
   const vehicleVisible = !shouldHideGenericOptional(transportation.vehicle);
   const licensePlateVisible = !shouldHideGenericOptional(
@@ -63,13 +67,22 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
   );
   const colorVisible = !shouldHideGenericOptional(transportation.color);
   const parkingVisible = !shouldHideGenericOptional(transportation.parking);
+  const driverNameVisible = !shouldHideGenericOptional(
+    transportation.driver_name,
+  );
+  const driverPhoneVisible = !shouldHideGenericOptional(
+    transportation.driver_phone,
+  );
+  const driverEmailVisible = !shouldHideGenericOptional(
+    transportation.driver_email,
+  );
 
   // If the predicate said visible but every meaningful field is null
   // (degenerate row), fall back to required-field empty-state. This
   // shouldn't happen in practice — a row exists only when the parser
   // saw something — but guards against bad data without hiding the tile.
   const allEmpty =
-    !transportation.driver_name &&
+    !driverNameVisible &&
     !vehicleVisible &&
     !licensePlateVisible &&
     !colorVisible &&
@@ -106,17 +119,17 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
           + tap-to-email use the KeyValue atom's linkAs feature for
           consistent 44px tap targets.
         */}
-        {transportation.driver_name ? (
+        {driverNameVisible ? (
           <dl className="flex flex-col gap-3">
             <KeyValue label="Driver" value={transportation.driver_name} />
-            {transportation.driver_phone ? (
+            {driverPhoneVisible ? (
               <KeyValue
                 label="Driver phone"
                 value={transportation.driver_phone}
                 linkAs="tel"
               />
             ) : null}
-            {transportation.driver_email ? (
+            {driverEmailVisible ? (
               <KeyValue
                 label="Driver email"
                 value={transportation.driver_email}
@@ -138,9 +151,7 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
           <dl
             className={[
               "flex flex-col gap-3",
-              transportation.driver_name
-                ? "border-t border-border pt-4"
-                : "",
+              driverNameVisible ? "border-t border-border pt-4" : "",
             ]
               .filter(Boolean)
               .join(" ")}
