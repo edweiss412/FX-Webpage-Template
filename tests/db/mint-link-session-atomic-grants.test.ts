@@ -16,18 +16,17 @@
  * round-8 SECURITY DEFINER lockdown sweep pattern.
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
 const databaseUrl =
-  process.env.TEST_DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 function runPsql(sql: string): string {
-  return execFileSync(
-    "psql",
-    [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"],
-    { input: sql, encoding: "utf8" },
-  ).trim();
+  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"], {
+    input: sql,
+    encoding: "utf8",
+  }).trim();
 }
 
 describe("public.mint_link_session_if_active_kid_matches grants", () => {
@@ -57,11 +56,26 @@ describe("public.mint_link_session_if_active_kid_matches grants", () => {
         from pg_proc
        where proname = 'mint_link_session_if_active_kid_matches';
     `);
-    expect(proacl, "proacl must list service_role with EXECUTE").toMatch(
-      /service_role=X\//,
-    );
+    expect(proacl, "proacl must list service_role with EXECUTE").toMatch(/service_role=X\//);
     expect(proacl).not.toMatch(/(^|,)=X\//);
     expect(proacl).not.toMatch(/anon=X\//);
     expect(proacl).not.toMatch(/authenticated=X\//);
+  });
+
+  test("function body takes the per-show advisory lock before inserting link_sessions", () => {
+    const sql = readFileSync(
+      "supabase/migrations/20260504000003_mint_link_session_atomic.sql",
+      "utf8",
+    );
+
+    expect(sql).toMatch(
+      /select\s+drive_file_id[\s\S]+from\s+public\.shows[\s\S]+where\s+id\s*=\s*p_show_id/i,
+    );
+    expect(sql).toMatch(
+      /pg_advisory_xact_lock\s*\(\s*hashtext\s*\(\s*'show:'\s*\|\|\s*v_drive_file_id\s*\)\s*\)/i,
+    );
+    expect(sql.indexOf("pg_advisory_xact_lock")).toBeLessThan(
+      sql.indexOf("insert into public.link_sessions"),
+    );
   });
 });

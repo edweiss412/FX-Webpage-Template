@@ -30,31 +30,47 @@ create or replace function public.mint_link_session_if_active_kid_matches(
   p_verified_kid text
 )
 returns table(token text)
-language sql
+language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
-  insert into public.link_sessions (
-    token,
-    show_id,
-    crew_member_id,
-    jwt_token_version,
-    signing_key_id,
-    expires_at,
-    last_active_at
-  )
-  select
-    p_token,
-    p_show_id,
-    p_crew_member_id,
-    p_jwt_token_version,
-    p_signing_key_id,
-    p_expires_at,
-    p_last_active_at
-  from public.app_settings
-  where id = 'default'
-    and active_signing_key_id = p_verified_kid
-  returning token;
+declare
+  v_drive_file_id text;
+begin
+  select drive_file_id
+    into v_drive_file_id
+    from public.shows
+   where id = p_show_id;
+
+  if v_drive_file_id is null then
+    return;
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('show:' || v_drive_file_id));
+
+  return query
+    insert into public.link_sessions (
+      token,
+      show_id,
+      crew_member_id,
+      jwt_token_version,
+      signing_key_id,
+      expires_at,
+      last_active_at
+    )
+    select
+      p_token,
+      p_show_id,
+      p_crew_member_id,
+      p_jwt_token_version,
+      p_signing_key_id,
+      p_expires_at,
+      p_last_active_at
+    from public.app_settings
+    where id = 'default'
+      and active_signing_key_id = p_verified_kid
+    returning link_sessions.token;
+end;
 $$;
 
 revoke all on function public.mint_link_session_if_active_kid_matches(
