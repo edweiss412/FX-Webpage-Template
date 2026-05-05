@@ -1,4 +1,5 @@
 import type { AuthFailureCode } from "@/lib/auth/constants";
+import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient, createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -34,19 +35,14 @@ async function upsertAmbiguousEmailAlert(input: {
   email: string;
   crewMemberIds: string[];
 }): Promise<void> {
-  const supabase = createSupabaseServiceRoleClient();
-  const { error } = await supabase.from("admin_alerts").upsert({
-    show_id: input.showId,
+  await upsertAdminAlert({
+    showId: input.showId,
     code: "AMBIGUOUS_EMAIL_BINDING",
-    severity: "critical",
     context: {
       email: input.email,
       crew_member_ids: input.crewMemberIds,
     },
   });
-  if (error) {
-    throw new Error("ambiguous email alert persistence failed");
-  }
 }
 
 export async function validateGoogleSession(

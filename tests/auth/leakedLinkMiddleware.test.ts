@@ -138,6 +138,16 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServiceRoleClient: () => ({
     from: tableClient,
     rpc: async (name: string, params: Record<string, unknown>) => {
+      if (name === "upsert_admin_alert") {
+        leakedState.alertUpserts.push(params);
+        if (leakedState.alertThrows) {
+          throw new Error("alert failed");
+        }
+        if (leakedState.alertReturnsError) {
+          return { data: null, error: { message: "alert returned-error" } };
+        }
+        return { data: "alert-id", error: null };
+      }
       expect(name).toBe("revoke_leaked_link_atomic");
       if (leakedState.rpcThrows) {
         // R20 CRITICAL replacement for the removed lockFails path:

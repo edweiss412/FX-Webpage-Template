@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { isJwtInfraError, verifyLinkJwt } from "@/lib/auth/jwt";
 import { messageFor } from "@/lib/messages/lookup";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -79,7 +80,6 @@ async function upsertRevocationFailureAlert(input: {
   tokenVersion: number;
   error: unknown;
 }): Promise<void> {
-  const supabase = createSupabaseServiceRoleClient();
   const message = input.error instanceof Error ? input.error.message : String(input.error);
   // R22 F1 (round-22 §A HIGH): pre-fix the upsert result was awaited
   // but its `{ error }` field was never inspected — Supabase's normal
@@ -90,8 +90,8 @@ async function upsertRevocationFailureAlert(input: {
   // try/catch logs 'leaked-link revocation alert failed' AND the
   // upsertRevocationFailureAlert callsite still surfaces 503 to the
   // user (caller's try/catch wraps the alert step too).
-  const { error: alertError } = await supabase.from("admin_alerts").upsert({
-    show_id: input.showId,
+  await upsertAdminAlert({
+    showId: input.showId,
     // R21 F2 (round-21 §B MEDIUM): use the dedicated revocation-failure
     // catalog code so AlertBanner has dougFacing copy to render. Pre-fix
     // this used ADMIN_SESSION_LOOKUP_FAILED whose dougFacing is null,
@@ -108,11 +108,6 @@ async function upsertRevocationFailureAlert(input: {
       error: message,
     },
   });
-  if (alertError) {
-    throw new Error(
-      `admin_alerts upsert failed: ${alertError.message ?? String(alertError)}`,
-    );
-  }
 }
 
 async function revokeLeakedLinkAtomic(

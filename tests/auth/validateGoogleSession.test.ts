@@ -65,6 +65,13 @@ vi.mock("@/lib/supabase/server", () => ({
       }
       throw new Error(`unexpected table ${table}`);
     },
+    rpc(name: string, params: unknown) {
+      if (name !== "upsert_admin_alert") {
+        throw new Error(`unexpected rpc ${name}`);
+      }
+      googleMock.alertUpserts.push(params);
+      return Promise.resolve({ data: "alert-id", error: googleMock.alertError });
+    },
   }),
 }));
 
