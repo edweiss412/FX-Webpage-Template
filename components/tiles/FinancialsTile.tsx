@@ -35,6 +35,7 @@ import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { financialsVisible } from "@/lib/visibility/scopeTiles";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 type FinancialsTileProps = {
   /**
@@ -59,12 +60,29 @@ export function FinancialsTile({
   // component so a future refactor can't accidentally expose financials.
   if (!financialsVisible(viewerFlags, isAdmin)) return null;
 
+  // §8.3 generic-optional sentinel-hiding (Codex round-12): each of
+  // the four fields is a generic optional text field. Sentinel values
+  // (`'TBD'`/`'N/A'`/`'TBA'`) must be treated as missing — both for
+  // the allEmpty branch (so an all-sentinel financials row falls into
+  // the empty-state placeholder) AND for the per-field render gate
+  // (so individual sentinel fields reflow out).
+  const poVisible = !shouldHideGenericOptional(financials?.po ?? null);
+  const proposalVisible = !shouldHideGenericOptional(
+    financials?.proposal ?? null,
+  );
+  const invoiceVisible = !shouldHideGenericOptional(
+    financials?.invoice ?? null,
+  );
+  const invoiceNotesVisible = !shouldHideGenericOptional(
+    financials?.invoice_notes ?? null,
+  );
+
   const allEmpty =
     !financials ||
-    (!financials.po &&
-      !financials.proposal &&
-      !financials.invoice &&
-      !financials.invoice_notes);
+    (!poVisible &&
+      !proposalVisible &&
+      !invoiceVisible &&
+      !invoiceNotesVisible);
 
   if (allEmpty) {
     return (
@@ -90,16 +108,16 @@ export function FinancialsTile({
       ariaLabel="Financials"
       bodyAs="dl"
     >
-      {financials.po ? (
+      {poVisible ? (
         <KeyValue label="PO" value={financials.po} tabular />
       ) : null}
-      {financials.proposal ? (
+      {proposalVisible ? (
         <KeyValue label="Proposal" value={financials.proposal} tabular />
       ) : null}
-      {financials.invoice ? (
+      {invoiceVisible ? (
         <KeyValue label="Invoice" value={financials.invoice} tabular />
       ) : null}
-      {financials.invoice_notes ? (
+      {invoiceNotesVisible ? (
         <KeyValue label="Invoice notes" value={financials.invoice_notes} />
       ) : null}
     </Section>

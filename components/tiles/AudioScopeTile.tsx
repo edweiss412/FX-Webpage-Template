@@ -37,6 +37,7 @@ import { KeyValue } from "@/components/atoms/KeyValue";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { audioScopeVisible } from "@/lib/visibility/scopeTiles";
 import { roomLabel } from "@/lib/visibility/roomLabel";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 type AudioScopeTileProps = {
   rooms: RoomRow[];
@@ -55,9 +56,12 @@ export function AudioScopeTile({ rooms, viewerFlags }: AudioScopeTileProps) {
   // were never there.
   if (!audioScopeVisible(viewerFlags)) return null;
 
-  const withAudio = rooms.filter(
-    (r) => typeof r.audio === "string" && r.audio.trim() !== "",
-  );
+  // §8.3 generic-optional sentinel-hiding (Codex round-12): room.audio
+  // is a generic optional text field. Sentinels (`'TBD'`/`'N/A'`/
+  // `'TBA'`) must be filtered out so an all-sentinel rooms list falls
+  // through to the empty-state placeholder. Routes through the central
+  // predicate per lib/visibility/emptyState.ts:27-29.
+  const withAudio = rooms.filter((r) => !shouldHideGenericOptional(r.audio));
 
   if (withAudio.length === 0) {
     return (

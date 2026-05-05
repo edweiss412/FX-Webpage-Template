@@ -15,6 +15,7 @@ import { KeyValue } from "@/components/atoms/KeyValue";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { videoScopeVisible } from "@/lib/visibility/scopeTiles";
 import { roomLabel } from "@/lib/visibility/roomLabel";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 type VideoScopeTileProps = {
   rooms: RoomRow[];
@@ -24,9 +25,9 @@ type VideoScopeTileProps = {
 export function VideoScopeTile({ rooms, viewerFlags }: VideoScopeTileProps) {
   if (!videoScopeVisible(viewerFlags)) return null;
 
-  const withVideo = rooms.filter(
-    (r) => typeof r.video === "string" && r.video.trim() !== "",
-  );
+  // §8.3 generic-optional sentinel-hiding (Codex round-12): see
+  // AudioScopeTile.tsx for the contract — same routing applies.
+  const withVideo = rooms.filter((r) => !shouldHideGenericOptional(r.video));
 
   if (withVideo.length === 0) {
     return (

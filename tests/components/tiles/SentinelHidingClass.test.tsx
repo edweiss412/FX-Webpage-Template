@@ -60,9 +60,14 @@ import { ShowStatusTile } from "@/components/tiles/ShowStatusTile";
 import { LodgingTile } from "@/components/tiles/LodgingTile";
 import { VenueTile } from "@/components/tiles/VenueTile";
 import { ContactsTile } from "@/components/tiles/ContactsTile";
+import { AudioScopeTile } from "@/components/tiles/AudioScopeTile";
+import { VideoScopeTile } from "@/components/tiles/VideoScopeTile";
+import { LightingScopeTile } from "@/components/tiles/LightingScopeTile";
+import { FinancialsTile } from "@/components/tiles/FinancialsTile";
 import type {
   ContactRow,
   HotelReservationRow,
+  RoleFlag,
   RoomRow,
   ShowRow,
   TransportationRow,
@@ -555,5 +560,246 @@ describe("§8.3 sentinel-hiding class — ContactsTile", () => {
       />,
     );
     expect(html).toContain("Knows the loading dock combo");
+  });
+});
+
+// ── Codex round-12 — scope tiles + FinancialsTile sweep ──────────────
+//
+// Round 12 reclassified room scope strings (audio/video/lighting) as
+// generic-optional per §8.3 (the predicate's example list includes
+// `rooms.scenic` which is the same shape) — overturning the round-10
+// deferral. FinancialsTile was previously not covered; round 12 found
+// it bypasses the predicate on po/proposal/invoice/invoice_notes.
+
+function makeRoom(
+  kind: "gs" | "breakout" | "additional",
+  overrides: Partial<RoomRow>,
+): RoomRow {
+  return {
+    kind,
+    name: kind === "gs" ? "GS" : "Breakout A",
+    dimensions: null,
+    floor: null,
+    setup: null,
+    set_time: null,
+    show_time: null,
+    strike_time: null,
+    audio: null,
+    video: null,
+    lighting: null,
+    scenic: null,
+    power: null,
+    digital_signage: null,
+    other: null,
+    notes: null,
+    ...overrides,
+  };
+}
+
+const ALL_SCOPES: RoleFlag[] = ["LEAD", "L1"];
+
+describe("§8.3 sentinel-hiding class — AudioScopeTile (Codex round-12)", () => {
+  for (const sentinel of SENTINELS) {
+    test(`renders empty-state when EVERY room.audio is "${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <AudioScopeTile
+          rooms={[
+            makeRoom("gs", { audio: sentinel }),
+            makeRoom("breakout", { audio: sentinel }),
+          ]}
+          viewerFlags={ALL_SCOPES}
+        />,
+      );
+      // Tile renders (predicate visibility is true; tile is never null).
+      expect(html).toContain("audio-scope-tile");
+      // Empty-state placeholder must show — not the sentinel as a real
+      // audio spec.
+      expect(html).toContain("No audio details for any room yet.");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+  }
+
+  test("renders ONLY rooms with non-sentinel audio (mixed input)", () => {
+    const html = renderToStaticMarkup(
+      <AudioScopeTile
+        rooms={[
+          makeRoom("gs", { name: "GS", audio: "TBD" }),
+          makeRoom("breakout", { name: "Breakout A", audio: "L-Acoustics K1" }),
+          makeRoom("additional", { name: "Green Room", audio: "N/A" }),
+        ]}
+        viewerFlags={ALL_SCOPES}
+      />,
+    );
+    // Real spec survives.
+    expect(html).toContain("L-Acoustics K1");
+    // Sentinel rooms suppressed at the predicate.
+    expect(html).not.toContain("TBD");
+    expect(html).not.toContain("N/A");
+  });
+
+  test("renders real audio spec for non-sentinel value (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <AudioScopeTile
+        rooms={[makeRoom("gs", { name: "GS", audio: "L-Acoustics K1" })]}
+        viewerFlags={ALL_SCOPES}
+      />,
+    );
+    expect(html).toContain("L-Acoustics K1");
+    expect(html).not.toContain("No audio details");
+  });
+});
+
+describe("§8.3 sentinel-hiding class — VideoScopeTile (Codex round-12)", () => {
+  for (const sentinel of SENTINELS) {
+    test(`renders empty-state when EVERY room.video is "${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <VideoScopeTile
+          rooms={[makeRoom("gs", { video: sentinel })]}
+          viewerFlags={ALL_SCOPES}
+        />,
+      );
+      expect(html).toContain("video-scope-tile");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+  }
+
+  test("renders only rooms with non-sentinel video (mixed input)", () => {
+    const html = renderToStaticMarkup(
+      <VideoScopeTile
+        rooms={[
+          makeRoom("gs", { name: "GS", video: "TBD" }),
+          makeRoom("breakout", { name: "Ballroom", video: "Christie 4K projector" }),
+        ]}
+        viewerFlags={ALL_SCOPES}
+      />,
+    );
+    expect(html).toContain("Christie 4K projector");
+    expect(html).not.toContain("TBD");
+  });
+
+  test("renders real video spec for non-sentinel value (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <VideoScopeTile
+        rooms={[makeRoom("gs", { name: "GS", video: "Christie 4K projector" })]}
+        viewerFlags={ALL_SCOPES}
+      />,
+    );
+    expect(html).toContain("Christie 4K projector");
+  });
+});
+
+describe("§8.3 sentinel-hiding class — LightingScopeTile (Codex round-12)", () => {
+  for (const sentinel of SENTINELS) {
+    test(`renders empty-state when EVERY room.lighting is "${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <LightingScopeTile
+          rooms={[makeRoom("gs", { lighting: sentinel })]}
+          viewerFlags={ALL_SCOPES}
+        />,
+      );
+      expect(html).toContain("lighting-scope-tile");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+  }
+
+  test("renders only rooms with non-sentinel lighting (mixed input)", () => {
+    const html = renderToStaticMarkup(
+      <LightingScopeTile
+        rooms={[
+          makeRoom("gs", { name: "GS", lighting: "TBA" }),
+          makeRoom("breakout", { name: "Ballroom", lighting: "MAC Aura XB wash" }),
+        ]}
+        viewerFlags={ALL_SCOPES}
+      />,
+    );
+    expect(html).toContain("MAC Aura XB wash");
+    expect(html).not.toContain("TBA");
+  });
+
+  test("renders real lighting spec for non-sentinel value (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <LightingScopeTile
+        rooms={[makeRoom("gs", { name: "GS", lighting: "MAC Aura XB wash" })]}
+        viewerFlags={ALL_SCOPES}
+      />,
+    );
+    expect(html).toContain("MAC Aura XB wash");
+  });
+});
+
+describe("§8.3 sentinel-hiding class — FinancialsTile (Codex round-12)", () => {
+  // Visibility — financialsVisible(['LEAD'], false) → true. The tile
+  // also accepts `isAdmin: true` regardless of flags.
+  const VIEWER_FLAGS: RoleFlag[] = ["LEAD"];
+
+  for (const sentinel of SENTINELS) {
+    test(`renders empty-state when EVERY field is "${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <FinancialsTile
+          financials={{
+            po: sentinel,
+            proposal: sentinel,
+            invoice: sentinel,
+            invoice_notes: sentinel,
+          }}
+          viewerFlags={VIEWER_FLAGS}
+          isAdmin={false}
+        />,
+      );
+      // Tile renders (LEAD is entitled).
+      expect(html).toContain("financials-tile");
+      // Empty-state placeholder copy from the production path.
+      expect(html).toContain("No financial details on file yet.");
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+  }
+
+  test("renders ONLY non-sentinel fields when financials are mixed", () => {
+    const html = renderToStaticMarkup(
+      <FinancialsTile
+        financials={{
+          po: "PO-12345", // real
+          proposal: "TBD", // sentinel
+          invoice: "INV-99", // real
+          invoice_notes: "N/A", // sentinel
+        }}
+        viewerFlags={VIEWER_FLAGS}
+        isAdmin={false}
+      />,
+    );
+    expect(html).toContain("PO-12345");
+    expect(html).toContain("INV-99");
+    // Sentinels suppressed.
+    expect(html).not.toContain("TBD");
+    expect(html).not.toContain("N/A");
+  });
+
+  test("renders real fields for non-sentinel values (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <FinancialsTile
+        financials={{
+          po: "PO-12345",
+          proposal: "Approved 4/10",
+          invoice: "INV-99",
+          invoice_notes: "Net 30 from event date",
+        }}
+        viewerFlags={VIEWER_FLAGS}
+        isAdmin={false}
+      />,
+    );
+    expect(html).toContain("PO-12345");
+    expect(html).toContain("Approved 4/10");
+    expect(html).toContain("INV-99");
+    expect(html).toContain("Net 30 from event date");
+    // Empty-state placeholder absent.
+    expect(html).not.toContain("No financial details");
   });
 });

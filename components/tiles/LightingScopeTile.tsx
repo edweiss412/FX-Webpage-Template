@@ -20,6 +20,7 @@ import { KeyValue } from "@/components/atoms/KeyValue";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { lightingScopeVisible } from "@/lib/visibility/scopeTiles";
 import { roomLabel } from "@/lib/visibility/roomLabel";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 type LightingScopeTileProps = {
   rooms: RoomRow[];
@@ -32,8 +33,10 @@ export function LightingScopeTile({
 }: LightingScopeTileProps) {
   if (!lightingScopeVisible(viewerFlags)) return null;
 
+  // §8.3 generic-optional sentinel-hiding (Codex round-12): see
+  // AudioScopeTile.tsx for the contract — same routing applies.
   const withLighting = rooms.filter(
-    (r) => typeof r.lighting === "string" && r.lighting.trim() !== "",
+    (r) => !shouldHideGenericOptional(r.lighting),
   );
 
   if (withLighting.length === 0) {
