@@ -3,7 +3,15 @@ import { NextRequest } from "next/server";
 
 const leakedState = vi.hoisted(() => ({
   verifyFails: false,
-  lockFails: false,
+  // R20 CRITICAL: removed lockFails. R19 F1 moved the per-show advisory
+  // lock INSIDE revoke_leaked_link_atomic and R20 removed the JS-side
+  // withShowAdvisoryLock wrapper from middleware (was deadlocking with
+  // the in-RPC lock on a different connection). The "advisory lock"
+  // failure mode no longer exists at the JS layer; equivalent failure
+  // mode now is "RPC throws / returns error" — covered by rpcThrows
+  // below + the existing authReadFails/revokedUpsertFails/authUpdateFails
+  // returned-error paths.
+  rpcThrows: false,
   authReadFails: false,
   revokedUpsertFails: false,
   authUpdateFails: false,
@@ -61,19 +69,6 @@ vi.mock("@/lib/auth/jwt", () => ({
         tokenVersion: 3,
       },
     };
-  },
-}));
-
-vi.mock("@/lib/db/advisoryLock", () => ({
-  withShowAdvisoryLock: async <T>(
-    _showId: string,
-    _mode: string,
-    fn: () => T | Promise<T>,
-  ): Promise<T> => {
-    if (leakedState.lockFails) {
-      throw new Error("lock failed");
-    }
-    return await fn();
   },
 }));
 
@@ -136,6 +131,13 @@ vi.mock("@/lib/supabase/server", () => ({
     from: tableClient,
     rpc: async (name: string, params: Record<string, unknown>) => {
       expect(name).toBe("revoke_leaked_link_atomic");
+      if (leakedState.rpcThrows) {
+        // R20 CRITICAL replacement for the removed lockFails path:
+        // simulate the RPC layer itself blowing up (network, abort,
+        // etc.) — the equivalent failure mode now that the advisory
+        // lock lives inside the SECURITY DEFINER function.
+        throw new Error("rpc threw");
+      }
       if (leakedState.authReadFails) {
         return { data: null, error: { message: "auth read failed" } };
       }
@@ -184,7 +186,7 @@ describe("middleware leaked-link revocation", () => {
   beforeEach(() => {
     leakedState.verifyFails = false;
     leakedState.verifyInfraFails = false;
-    leakedState.lockFails = false;
+    leakedState.rpcThrows = false;
     leakedState.authReadFails = false;
     leakedState.revokedUpsertFails = false;
     leakedState.authUpdateFails = false;
@@ -201,7 +203,7 @@ describe("middleware leaked-link revocation", () => {
   });
 
   test.each([
-    ["advisory lock", () => (leakedState.lockFails = true)],
+    ["RPC infra throw", () => (leakedState.rpcThrows = true)],
     ["crew auth read", () => (leakedState.authReadFails = true)],
     ["revoked link upsert", () => (leakedState.revokedUpsertFails = true)],
     ["crew auth update", () => (leakedState.authUpdateFails = true)],
@@ -315,5 +317,39 @@ describe("middleware leaked-link revocation", () => {
     expect(errorSpy).toHaveBeenCalled();
 
     errorSpy.mockRestore();
+  });
+
+  test("R20 CRITICAL: middleware MUST NOT wrap revoke RPC in withShowAdvisoryLock (deadlock guard)", async () => {
+    // Codex round-20 CRITICAL: pre-fix middleware wrapped
+    // revokeLeakedLinkAtomic in withShowAdvisoryLock("block") on
+    // connection A while the RPC re-acquired the same lock on
+    // connection B — connection B blocked waiting for A; A blocked
+    // awaiting B's RPC response → deadlock → leaked links never
+    // revoked, defeating watchpoints #11/#12 entirely. Codex's
+    // recommendation: 'Add a regression test that detects the RPC is
+    // invoked without an already-held advisory lock on a separate
+    // connection.'
+    //
+    // Structural guard: the leaked-link middleware module must NOT
+    // import withShowAdvisoryLock at all. The deadlock is impossible
+    // if there's no JS-side wrapper. (lib/db/advisoryLock.ts itself
+    // remains exported for callers that own a single DB connection
+    // and do NOT also call a Supabase RPC that acquires the same key
+    // — but the leaked-link path violates that constraint.)
+    const fs = await import("node:fs/promises");
+    const middlewareSrc = await fs.readFile(
+      new URL("../../middleware.ts", import.meta.url),
+      "utf-8",
+    );
+    // Strip line/block comments before matching so the explanatory
+    // comment in the file (which mentions withShowAdvisoryLock as
+    // historical context for the deadlock) doesn't trip the guard.
+    const stripped = middlewareSrc
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^[ \t]*\/\/.*$/gm, "");
+    // No import of the wrapper.
+    expect(stripped).not.toMatch(/from\s+["']@\/lib\/db\/advisoryLock["']/);
+    // No call site for withShowAdvisoryLock outside comments.
+    expect(stripped).not.toMatch(/\bwithShowAdvisoryLock\s*\(/);
   });
 });

@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { isJwtInfraError, verifyLinkJwt } from "@/lib/auth/jwt";
-import { withShowAdvisoryLock } from "@/lib/db/advisoryLock";
 import { messageFor } from "@/lib/messages/lookup";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
@@ -132,9 +131,26 @@ async function revokeLeakedLink(token: string): Promise<Response> {
   const tokenVersion = payload.tokenVersion;
 
   try {
-    await withShowAdvisoryLock(showId, "block", async () => {
-      await revokeLeakedLinkAtomic(showId, crewName, tokenVersion);
-    });
+    // R20 CRITICAL (round-20 §A CRITICAL): pre-fix the leaked-link path
+    // wrapped revokeLeakedLinkAtomic in withShowAdvisoryLock("block").
+    // R19 F1 moved the SAME advisory-lock acquisition inside the
+    // SECURITY DEFINER RPC. The wrapper opened a JS-side Postgres
+    // connection A and acquired pg_advisory_xact_lock; the RPC ran on
+    // a different Supabase connection B and tried to acquire the same
+    // lock. Connection B blocked waiting for A; A blocked awaiting the
+    // RPC response — deadlock. The compromise handler hung on every
+    // ?t= leaked-link revocation, leaving exposed signed links
+    // unreclaimed (defeating watchpoints #11/#12 entirely).
+    //
+    // Now: rely on the RPC's in-function pg_advisory_xact_lock as the
+    // single per-show serialization point. The wrapper is removed
+    // entirely from this path. (lib/db/advisoryLock.ts itself remains
+    // for any future callers that own their own DB connection — but
+    // such callers MUST NOT also call a Supabase RPC that acquires
+    // the same lock from inside the wrapper. The deadlock invariant
+    // applies: never wrap a Supabase RPC in withShowAdvisoryLock when
+    // the RPC itself acquires the same key.)
+    await revokeLeakedLinkAtomic(showId, crewName, tokenVersion);
   } catch (error) {
     try {
       await upsertRevocationFailureAlert({ showId, crewName, tokenVersion, error });
