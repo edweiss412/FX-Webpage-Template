@@ -35,6 +35,7 @@ import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
 import { EmptyState } from "@/components/atoms/EmptyState";
 import { formatIsoDate } from "@/lib/format/date";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 type TransportTileProps = {
   transportation: TransportationRow | null;
@@ -48,6 +49,15 @@ type TransportTileProps = {
 export function TransportTile({ transportation, visible }: TransportTileProps) {
   if (!visible || !transportation) return null;
 
+  // §8.3 generic-optional sentinel-hiding (Codex round-10): notes is
+  // a generic optional text field. `notes: "TBD"` / `"N/A"` / `"TBA"`
+  // must be treated as missing so the allEmpty branch falls through
+  // to the empty-state placeholder and the inline notes paragraph
+  // does not render the sentinel string. Routes through the central
+  // predicate per lib/visibility/emptyState.ts:27-29 ("Tiles MUST
+  // NOT inline string-list checks").
+  const notesVisible = !shouldHideGenericOptional(transportation.notes);
+
   // If the predicate said visible but every meaningful field is null
   // (degenerate row), fall back to required-field empty-state. This
   // shouldn't happen in practice — a row exists only when the parser
@@ -59,7 +69,7 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
     !transportation.color &&
     !transportation.parking &&
     transportation.schedule.length === 0 &&
-    !transportation.notes;
+    !notesVisible;
   if (allEmpty) {
     return (
       <Section
@@ -194,7 +204,7 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
           </ol>
         ) : null}
 
-        {transportation.notes ? (
+        {notesVisible ? (
           <p className="border-t border-border pt-4 text-sm text-text-subtle">
             {transportation.notes}
           </p>

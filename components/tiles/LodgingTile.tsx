@@ -33,6 +33,7 @@
 import type { HotelReservationRow } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { formatIsoDate } from "@/lib/format/date";
 
 type LodgingTileProps = {
@@ -133,9 +134,14 @@ export function LodgingTile({ hotelReservations }: LodgingTileProps) {
 
               {/*
                 Notes — optional, free text. Rendered without tabular
-                figures since notes are prose.
+                figures since notes are prose. §8.3 generic-optional
+                (Codex round-10): sentinels (`'TBD'`/`'N/A'`/`'TBA'`)
+                are hidden via the central predicate so the row reflows
+                out for meaningless values.
               */}
-              {res.notes ? <KeyValue label="Notes" value={res.notes} /> : null}
+              {!shouldHideGenericOptional(res.notes) ? (
+                <KeyValue label="Notes" value={res.notes} />
+              ) : null}
             </dl>
           </div>
         ))}

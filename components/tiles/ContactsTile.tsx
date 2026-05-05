@@ -25,6 +25,7 @@ import type { ContactRow } from "@/lib/parser/types";
 import { Avatar } from "@/components/atoms/Avatar";
 import { Section } from "@/components/atoms/Section";
 import { digitsOnly } from "@/lib/format/phone";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 type ContactsTileProps = {
   contacts: ContactRow[];
@@ -118,7 +119,13 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
                 </a>
               ) : null}
             </div>
-            {contact.notes ? (
+            {/*
+              §8.3 generic-optional (Codex round-10): sentinels
+              (`'TBD'`/`'N/A'`/`'TBA'`) are hidden via the central
+              predicate so the notes paragraph reflows out for
+              meaningless values.
+            */}
+            {!shouldHideGenericOptional(contact.notes) ? (
               <p className="pt-1 text-xs/snug text-text-subtle">
                 {contact.notes}
               </p>

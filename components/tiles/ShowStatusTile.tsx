@@ -89,7 +89,14 @@ function pickDressCode(
 export function ShowStatusTile({ show }: ShowStatusTileProps) {
   const coi = show.coi_status?.trim() || null;
   const dress = pickDressCode(show.event_details);
-  const venueNotes = show.venue?.notes?.trim() || null;
+  // §8.3 generic-optional (Codex round-10): venue.notes follows the
+  // same sentinel-hiding rule as power/internet/keynote below. The
+  // file already imports shouldHideGenericOptional for those fields;
+  // we extend the same routing to venue notes.
+  const rawVenueNotes = show.venue?.notes ?? null;
+  const venueNotes = shouldHideGenericOptional(rawVenueNotes)
+    ? null
+    : (rawVenueNotes ?? "").trim();
 
   // Per-field empty-state dispatch (Task 4.14). The predicate table
   // lives in `lib/visibility/emptyState.ts`; tiles MUST NOT inline

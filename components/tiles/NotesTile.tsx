@@ -52,6 +52,7 @@ import type {
   TransportationRow,
 } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 const TRUNCATE_AT = 280;
 const SOURCE_CAP = 8;
@@ -77,14 +78,33 @@ type NotesTileProps = {
 };
 
 /**
- * Treat null/undefined/whitespace-only as missing per §8.3 (matches
- * KeyValue.isMissing semantics). Returns the trimmed string when
- * present, or null otherwise.
+ * Identity-field "non-empty" predicate. Treats null/undefined/
+ * whitespace-only as missing — used for labels like `hotel_name`,
+ * room `name`, contact `name`. These are identity fields, NOT
+ * generic-optional sentinels (per §8.3 + Codex round-10 finding) —
+ * a hotel literally named "TBD" is rare but valid, and a room
+ * named "N/A" is identifying, so we keep raw truthiness here.
  */
 function nonEmpty(s: string | null | undefined): string | null {
   if (s === null || s === undefined) return null;
   const t = s.trim();
   return t === "" ? null : t;
+}
+
+/**
+ * Notes-text predicate. Per §8.3, generic optional text fields
+ * (notes columns across every M4 tile) must hide null/empty/
+ * whitespace AND the universally-meaningless sentinels
+ * `'TBD' / 'N/A' / 'TBA'` (case-insensitive after trim). Routes
+ * through `lib/visibility/emptyState.ts:shouldHideGenericOptional`
+ * — the central predicate table that prevents per-tile sentinel
+ * drift. See lib/visibility/emptyState.ts:27-29 for the
+ * single-source-of-truth contract.
+ */
+function notesText(s: string | null | undefined): string | null {
+  if (s === null || s === undefined) return null;
+  if (shouldHideGenericOptional(s)) return null;
+  return s.trim();
 }
 
 /**
@@ -102,13 +122,16 @@ function aggregateNotes(
 ): NotesEntry[] {
   const out: NotesEntry[] = [];
 
-  const venueText = nonEmpty(show.venue?.notes ?? null);
+  // notes text → §8.3 generic-optional predicate (sentinels hidden).
+  // labels (hotel_name, room.name, contact.name) → identity fields,
+  // raw truthiness via nonEmpty().
+  const venueText = notesText(show.venue?.notes ?? null);
   if (venueText) {
     out.push({ source: "venue", label: "Venue", text: venueText });
   }
 
   for (const h of hotels) {
-    const text = nonEmpty(h.notes);
+    const text = notesText(h.notes);
     if (!text) continue;
     const name = nonEmpty(h.hotel_name);
     out.push({
@@ -119,7 +142,7 @@ function aggregateNotes(
   }
 
   for (const r of rooms) {
-    const text = nonEmpty(r.notes);
+    const text = notesText(r.notes);
     if (!text) continue;
     const name = nonEmpty(r.name);
     out.push({
@@ -130,14 +153,14 @@ function aggregateNotes(
   }
 
   if (transportation) {
-    const text = nonEmpty(transportation.notes);
+    const text = notesText(transportation.notes);
     if (text) {
       out.push({ source: "transport", label: "Transport", text });
     }
   }
 
   for (const c of contacts) {
-    const text = nonEmpty(c.notes);
+    const text = notesText(c.notes);
     if (!text) continue;
     const name = nonEmpty(c.name);
     out.push({

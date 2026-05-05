@@ -27,6 +27,7 @@ import type { ShowRow } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
 import { EmptyState } from "@/components/atoms/EmptyState";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 type VenueTileProps = {
   venue: ShowRow["venue"];
@@ -101,7 +102,14 @@ export function VenueTile({ venue }: VenueTileProps) {
         />
       ) : null}
 
-      {venue.notes ? <KeyValue label="Notes" value={venue.notes} /> : null}
+      {/*
+        §8.3 generic-optional (Codex round-10): sentinels
+        (`'TBD'`/`'N/A'`/`'TBA'`) are hidden via the central predicate
+        so the row reflows out for meaningless values.
+      */}
+      {!shouldHideGenericOptional(venue.notes ?? null) ? (
+        <KeyValue label="Notes" value={venue.notes ?? null} />
+      ) : null}
     </Section>
   );
 }
