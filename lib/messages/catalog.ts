@@ -149,6 +149,25 @@ export const MESSAGE_CATALOG = {
     helpfulContext: null,
   },
   /**
+   * R22 F3 (round-22 §B MEDIUM): redeem-link contention retry signal.
+   *
+   * The redeem-link route uses an in-process advisory lock with "try"
+   * mode (R22 F3 changed from "block" — block-mode held a postgres
+   * connection per blocked waiter and could exhaust the pool under
+   * venue-scale bursts of users redeeming links for the same show
+   * within seconds of each other). When the lock is contended, losers
+   * receive a 503 with this code and the client retries with jittered
+   * exponential backoff. Same shape as bootstrapMint's R8 #2 retry
+   * loop. The code is for the wire protocol — never shown to the user.
+   */
+  SHOW_BUSY_RETRY: {
+    code: "SHOW_BUSY_RETRY",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  /**
    * R21 F2 (round-21 §B MEDIUM): leaked-link revocation failure.
    *
    * The middleware compromise handler tried to revoke a signed link that

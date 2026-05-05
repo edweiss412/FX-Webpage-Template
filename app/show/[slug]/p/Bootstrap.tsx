@@ -214,19 +214,60 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
         // __Host-fxav_bootstrap_v cookie automatically; the redeem-link
         // route gates on Sec-Fetch-Site=same-origin (modern browsers
         // always set this for fetch from a same-origin context).
-        const res = await fetch("/api/auth/redeem-link", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            token,
-            nonce,
-            show_id: showId,
-          }),
-          credentials: "same-origin",
-          signal: controller.signal,
-        });
-
-        if (!res.ok) {
+        //
+        // R22 F3 (round-22 §B MEDIUM): the server-side advisory lock
+        // changed from "block" to "try" mode (block held a postgres
+        // connection per blocked waiter — venue-scale bursts could
+        // exhaust the pool). Losers now receive 503 + SHOW_BUSY_RETRY
+        // and the client retries with jittered exponential backoff,
+        // mirroring the bootstrapMint retry pattern above.
+        let res: Response | null = null;
+        for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+          const r = await fetch("/api/auth/redeem-link", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ token, nonce, show_id: showId }),
+            credentials: "same-origin",
+            signal: controller.signal,
+          });
+          if (r.status !== 503) {
+            res = r;
+            break;
+          }
+          // Probe the body for the SHOW_BUSY_RETRY signal. Other 503s
+          // (e.g. transient infra) are NOT retry-eligible — surface as
+          // generic error like before.
+          let busyRetry = false;
+          try {
+            const body: unknown = await r.clone().json();
+            if (
+              typeof body === "object" &&
+              body !== null &&
+              (body as { code?: unknown }).code === "SHOW_BUSY_RETRY"
+            ) {
+              busyRetry = true;
+            }
+          } catch {
+            // Body wasn't JSON; treat as non-retry.
+          }
+          if (!busyRetry || attempt === MAX_ATTEMPTS - 1) {
+            res = r;
+            break;
+          }
+          const exponentialBase = BASE_DELAY_MS * 2 ** attempt;
+          const jittered = exponentialBase + Math.random() * exponentialBase;
+          await new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, jittered);
+            controller.signal.addEventListener("abort", () => {
+              clearTimeout(timer);
+              resolve();
+            });
+          });
+          if (controller.signal.aborted) {
+            return;
+          }
+        }
+        if (!res || !res.ok) {
           // Render the generic error fallback. We deliberately don't
           // surface the §A error code (per invariant 5: no raw error
           // codes in user-visible UI). The error code is read by the

@@ -16,6 +16,7 @@ import {
 import { isJwtInfraError, verifyLinkJwt } from "@/lib/auth/jwt";
 import {
   ShowAdvisoryLockShowNotFoundError,
+  ShowAdvisoryLockUnavailableError,
   withShowAdvisoryLock,
 } from "@/lib/db/advisoryLock";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -146,7 +147,19 @@ export async function POST(request: NextRequest): Promise<Response> {
   const showId = body.show_id;
 
   try {
-    return await withShowAdvisoryLock(showId, "block", async () => {
+    // R22 F3 (round-22 §B MEDIUM): switch from "block" to "try" mode.
+    // Pre-fix the wrapper held a dedicated postgres connection per
+    // blocked waiter while the winning callback ran multi-step Supabase
+    // operations — under a venue-scale burst (50+ crew opening signed
+    // links within seconds), waiters queued on the same per-show lock
+    // could starve the very Supabase calls needed to complete auth.
+    // Same connection-exhaustion class bootstrapMint fixed in R8 §B.
+    // Switch to "try" mode (fails fast on contention without holding a
+    // connection) and signal the client to retry with jittered
+    // exponential backoff via 503 + SHOW_BUSY_RETRY. The Bootstrap
+    // client already handles the retry pattern for bootstrapMint;
+    // R22 F3 extends it to the redeem-link POST.
+    return await withShowAdvisoryLock(showId, "try", async () => {
     const supabase = createSupabaseServiceRoleClient();
 
     // R9 #1: Published-show gate runs FIRST — before nonce-row lookup,
@@ -364,6 +377,15 @@ export async function POST(request: NextRequest): Promise<Response> {
   } catch (error) {
     if (error instanceof ShowAdvisoryLockShowNotFoundError) {
       return jsonError(403, "CSRF_DENIED");
+    }
+    if (error instanceof ShowAdvisoryLockUnavailableError) {
+      // R22 F3: contention retry signal. The client (Bootstrap.tsx)
+      // retries with jittered exponential backoff. 503 status + a
+      // distinct wire code so the client can distinguish "infra is
+      // having a moment, retry shortly" from "infra is broken,
+      // surface error UI." The code is not user-visible — no
+      // catalog dougFacing/crewFacing copy needed.
+      return jsonError(503, "SHOW_BUSY_RETRY");
     }
     return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
   }

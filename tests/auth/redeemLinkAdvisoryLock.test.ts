@@ -21,7 +21,7 @@ const state = vi.hoisted(() => ({
   crewExists: true,
   showPublished: true,
   appSettingsError: null as { message: string } | null,
-  lockError: null as "show-not-found" | "generic" | null,
+  lockError: null as "show-not-found" | "unavailable" | "generic" | null,
   /**
    * R9 #3 test support: when set, successive `single()` calls on
    * `app_settings` return values from this queue (rotation simulation).
@@ -48,6 +48,13 @@ vi.mock("@/lib/db/advisoryLock", () => ({
       this.name = "ShowAdvisoryLockShowNotFoundError";
     }
   },
+  ShowAdvisoryLockUnavailableError: class ShowAdvisoryLockUnavailableError extends Error {
+    readonly code = "SHOW_ADVISORY_LOCK_UNAVAILABLE";
+    constructor(showId: string) {
+      super(`Could not acquire advisory lock for show ${showId}`);
+      this.name = "ShowAdvisoryLockUnavailableError";
+    }
+  },
   withShowAdvisoryLock: async <T>(
     showId: string,
     mode: string,
@@ -58,6 +65,12 @@ vi.mock("@/lib/db/advisoryLock", () => ({
         "@/lib/db/advisoryLock"
       );
       throw new ShowAdvisoryLockShowNotFoundError(showId);
+    }
+    if (state.lockError === "unavailable") {
+      const { ShowAdvisoryLockUnavailableError } = await import(
+        "@/lib/db/advisoryLock"
+      );
+      throw new ShowAdvisoryLockUnavailableError(showId);
     }
     if (state.lockError === "generic") {
       throw new Error("lock db failed");
@@ -666,8 +679,30 @@ describe("/api/auth/redeem-link advisory lock", () => {
     const response = await POST(request);
 
     expect(response.status).toBe(200);
-    expect(state.lockCalls).toEqual([{ showId: state.showId, mode: "block" }]);
+    // R22 F3: redeem-link uses "try" mode now (was "block"). Block-mode
+    // held a postgres connection per blocked waiter and could exhaust
+    // the pool under venue-scale bursts. Switching to "try" + 503
+    // SHOW_BUSY_RETRY signals the client to retry with backoff.
+    expect(state.lockCalls).toEqual([{ showId: state.showId, mode: "try" }]);
     expect(state.mutationsOutsideLock).toEqual([]);
+  });
+
+  test("R22 F3: lock-unavailable returns 503 SHOW_BUSY_RETRY (client-retry signal)", async () => {
+    // Codex round-22 §B MEDIUM: pre-fix the wrapper used "block" mode
+    // and held a postgres connection per blocked waiter. Now: "try"
+    // mode fails fast on contention; the route returns 503 with code
+    // SHOW_BUSY_RETRY so Bootstrap.tsx can retry with jittered
+    // exponential backoff (mirrors bootstrapMint's R8 #2 pattern).
+    state.lockError = "unavailable";
+
+    const response = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ code: "SHOW_BUSY_RETRY" });
   });
 
   test("R16 #2: JWT verifier infra/config failure returns 500 ADMIN_SESSION_LOOKUP_FAILED, not 401 SESSION_NOT_FOUND", async () => {
