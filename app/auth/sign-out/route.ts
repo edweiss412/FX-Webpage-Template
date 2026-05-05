@@ -76,12 +76,25 @@ export async function POST(request: NextRequest): Promise<Response> {
   // browser logged-out client-side while the leaked credential remains
   // server-side valid.
   let teardownFailed = false;
+  // R19 F5 (round-19 §B MEDIUM): track per-step teardown success so the
+  // failure response can clear cookies for steps that DID succeed and
+  // preserve cookies only for steps the user must retry. Pre-fix the
+  // route returned 500 with ALL cookies preserved on any failure — but
+  // if step 1 (FXAV link-session delete) succeeded and step 2 (Supabase
+  // signOut) failed, the FXAV cookie was preserved client-side while
+  // the row was already gone server-side, leaving the browser pointing
+  // at a stale credential. Now: clear cookies for completed teardowns;
+  // the retry handles only the steps that actually need to re-run.
   const envelope = decodeSessionCookieValue(
     request.cookies.get(SESSION_COOKIE_NAME)?.value,
   );
+  // linkSessionTornDown is true when there's nothing to delete OR the
+  // delete succeeded. This means the FXAV cookie is safely clearable.
+  let linkSessionTornDown = envelope === null;
   if (envelope) {
     try {
       await deleteSession(envelope.token);
+      linkSessionTornDown = true;
     } catch (error) {
       console.error("signOut: link session delete failed", error);
       teardownFailed = true;
@@ -91,12 +104,10 @@ export async function POST(request: NextRequest): Promise<Response> {
   // R13 #1 (round-12 §A HIGH): fail-stop after first teardown failure.
   // R10 #2's contract is "atomic teardown: either everything succeeds
   // and cookies clear, or everything fails and cookies preserved so the
-  // user can retry from the same auth context." Pre-R13 the route
-  // proceeded to supabase.auth.signOut() even after deleteSession()
-  // failed — the Supabase auth side could succeed and tear down half
-  // the session while the user gets a fail-loud response promising
-  // they could retry. Skip the second teardown step if the first
-  // failed, so the auth context the user retries from is unchanged.
+  // user can retry from the same auth context." Skip the second
+  // teardown step if the first failed, so the auth context the user
+  // retries from is unchanged for that side.
+  let supabaseSignedOut = false;
   if (!teardownFailed) {
     try {
       const supabase = await createSupabaseServerClient();
@@ -104,6 +115,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       if (error) {
         console.error("signOut: Supabase signOut failed", error);
         teardownFailed = true;
+      } else {
+        supabaseSignedOut = true;
       }
     } catch (error) {
       console.error("signOut: Supabase signOut failed", error);
@@ -116,10 +129,25 @@ export async function POST(request: NextRequest): Promise<Response> {
     // instead of `{ code: ... }` JSON. /me's plain form POST navigates
     // to this response; the user must see human-readable copy + a
     // retry path, not a JSON document.
-    return new NextResponse(teardownFailureHtml(), {
+    const failureResponse = new NextResponse(teardownFailureHtml(), {
       status: 500,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
+    // R19 F5: clear cookies for teardowns that completed so cookie
+    // state matches server state. The retry runs the step(s) that
+    // actually failed — decodeSessionCookieValue() returns null for
+    // the cleared cookie next time, so the retry skips the FXAV
+    // delete and re-attempts only Supabase signOut. The bootstrap
+    // cookie pairs with the FXAV session cookie and is cleared on the
+    // same condition.
+    if (linkSessionTornDown) {
+      failureResponse.headers.append("Set-Cookie", clearSessionCookie());
+      failureResponse.headers.append("Set-Cookie", clearBootstrapCookie());
+    }
+    if (supabaseSignedOut) {
+      clearSupabaseAuthCookies(request, failureResponse);
+    }
+    return failureResponse;
   }
 
   const response = NextResponse.redirect(new URL("/auth/sign-in", request.url), { status: 303 });
