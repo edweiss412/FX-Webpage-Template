@@ -205,7 +205,12 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     if (!cookieEntry) {
-      return jsonError(403, "CSRF_DENIED");
+      return jsonError(
+        403,
+        bootstrapEntries.length >= BOOTSTRAP_COOKIE_ENTRY_LIMIT
+          ? "CSRF_NONCE_EXPIRED"
+          : "CSRF_DENIED",
+      );
     }
     if (cookieEntry.signing_key_id !== nonceRow.signing_key_id) {
       return jsonError(403, "CSRF_DENIED");
@@ -217,12 +222,12 @@ export async function POST(request: NextRequest): Promise<Response> {
     } catch {
       return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
     }
-    if (
+    const csrfKeyRotated =
       cookieEntry.signing_key_id !== activeSigningKeyId &&
-      cookieEntry.signing_key_id === nonceRow.signing_key_id
-    ) {
-      return jsonError(403, "CSRF_KEY_ROTATED");
-    }
+      cookieEntry.signing_key_id === nonceRow.signing_key_id;
+    // Return after the single-use consume below. A key-rotation race is
+    // benign, but the nonce was already presented and must not remain
+    // redeemable if the active key is later restored.
 
     const nonceAgeMs = Date.now() - new Date(nonceRow.issued_at).getTime();
     if (nonceAgeMs > BOOTSTRAP_NONCE_MAX_AGE_SEC * 1000) {
@@ -263,6 +268,10 @@ export async function POST(request: NextRequest): Promise<Response> {
       response.headers.append("Set-Cookie", bootstrapCleanupHeader);
       return response;
     };
+
+    if (csrfKeyRotated) {
+      return withBootstrapCleanup(jsonError(403, "CSRF_KEY_ROTATED"));
+    }
 
     let verified;
     try {

@@ -323,6 +323,28 @@ describe("/api/auth/redeem-link advisory lock", () => {
     expect(state.consumedAt).toBeNull();
   });
 
+  test("otherwise-valid nonce with evicted cookie entry returns CSRF_NONCE_EXPIRED without consuming", async () => {
+    const evictingEntries = Array.from({ length: 5 }, (_, i) => ({
+      nonce_hash: `${i}`.repeat(64).slice(0, 64),
+      show_id: state.showId,
+      issued_at: state.issuedAt,
+      signing_key_id: "k1",
+    }));
+
+    const response = await POST(
+      requestFor({
+        cookieEntries: evictingEntries,
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      code: "CSRF_NONCE_EXPIRED",
+    });
+    expect(state.consumeAttempts).toBe(0);
+    expect(state.consumedAt).toBeNull();
+  });
+
   test("app_settings active signing key lookup errors return ADMIN_SESSION_LOOKUP_FAILED", async () => {
     state.appSettingsError = { message: "fake DB outage" };
 
@@ -557,6 +579,22 @@ describe("/api/auth/redeem-link advisory lock", () => {
     expect(
       setCookies.find((line) => line.startsWith("__Host-fxav_session=")),
     ).toBeUndefined();
+  });
+
+  test("kid rotation between bootstrap and redeem consumes nonce before CSRF_KEY_ROTATED", async () => {
+    state.signingKeyIdQueue = ["k2"];
+
+    const response = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ code: "CSRF_KEY_ROTATED" });
+    expect(state.consumeAttempts).toBe(1);
+    expect(state.consumedAt).toEqual(expect.any(String));
+    expect(state.insertCount).toBe(0);
   });
 
   test("invalid JWT consumes nonce before returning SESSION_NOT_FOUND", async () => {
