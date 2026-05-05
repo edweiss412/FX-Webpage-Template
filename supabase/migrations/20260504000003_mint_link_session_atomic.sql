@@ -10,6 +10,14 @@
 -- Apply-twice idempotency via DROP FUNCTION IF EXISTS + CREATE.
 -- SECURITY DEFINER + search_path = public, pg_temp lockdown follows
 -- the R7 + R8 hardening pattern.
+--
+-- This helper intentionally does NOT take the per-show advisory lock.
+-- /api/auth/redeem-link already holds withShowAdvisoryLock() across
+-- bootstrap nonce consume + this RPC call. Re-acquiring the same lock
+-- inside a SECURITY DEFINER RPC would use a different Postgres connection,
+-- so the RPC would wait on the JS connection while the JS connection waits
+-- on the RPC response. That is the deadlock class previously fixed for
+-- revoke_leaked_link_atomic.
 -- EXECUTE locked down to service_role only — anon/authenticated have
 -- no business minting link_sessions rows directly via Supabase REST,
 -- and Supabase's default privileges grant EXECUTE to those roles
@@ -34,20 +42,7 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
-declare
-  v_drive_file_id text;
 begin
-  select drive_file_id
-    into v_drive_file_id
-    from public.shows
-   where id = p_show_id;
-
-  if v_drive_file_id is null then
-    return;
-  end if;
-
-  perform pg_advisory_xact_lock(hashtext('show:' || v_drive_file_id));
-
   return query
     insert into public.link_sessions (
       token,

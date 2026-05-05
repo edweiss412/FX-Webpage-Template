@@ -62,20 +62,20 @@ describe("public.mint_link_session_if_active_kid_matches grants", () => {
     expect(proacl).not.toMatch(/authenticated=X\//);
   });
 
-  test("function body takes the per-show advisory lock before inserting link_sessions", () => {
+  test("function body does not re-acquire the per-show advisory lock", () => {
     const sql = readFileSync(
       "supabase/migrations/20260504000003_mint_link_session_atomic.sql",
       "utf8",
     );
 
-    expect(sql).toMatch(
-      /select\s+drive_file_id[\s\S]+from\s+public\.shows[\s\S]+where\s+id\s*=\s*p_show_id/i,
+    const body = sql
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^[ \t]*--.*$/gm, "");
+    expect(body).not.toMatch(
+      /\bpg_(?:try_)?advisory_xact_lock\s*\(/i,
     );
-    expect(sql).toMatch(
-      /pg_advisory_xact_lock\s*\(\s*hashtext\s*\(\s*'show:'\s*\|\|\s*v_drive_file_id\s*\)\s*\)/i,
-    );
-    expect(sql.indexOf("pg_advisory_xact_lock")).toBeLessThan(
-      sql.indexOf("insert into public.link_sessions"),
+    expect(body).toMatch(
+      /insert\s+into\s+public\.link_sessions/i,
     );
   });
 });
