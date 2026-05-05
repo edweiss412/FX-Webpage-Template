@@ -1106,25 +1106,3 @@ test.describe("clear-session route handler — Task 5.7 §B-allowed UI plumbing"
     );
   });
 });
-
-// X.3 audit fixture stubs (Q5 — pull-forward deferred). These skeletons
-// pin the four fixture names from plan 05-auth.md:301-305 so the X.3
-// pull-forward task has a concrete landing pad. The actual semantic AST
-// audit lands when X.3 ships. TODO(X.3): pull-forward audit fixture tests.
-test.describe.skip("X.3 audit fixtures — pull-forward stubs (TODO(X.3))", () => {
-  test("valid-link-cookie.fixture: 200, link branch wins, sinks fire after", () => {
-    // TODO(X.3): pull-forward — assert reachability of getShowForViewer
-    // sink is dominated by the link-cookie branch.
-  });
-  test("stale-revoked-cookie-plus-google.fixture: 200, cookie cleared, Google branch resolves", () => {
-    // TODO(X.3): pull-forward — assert the chain falls through link → google
-    // and the clear-cookie marker is present in the response.
-  });
-  test("wrong-show-cookie-plus-admin.fixture: 200, admin branch resolves with admin viewer", () => {
-    // TODO(X.3): pull-forward — assert admin precedence + clear-cookie.
-  });
-  test("admin-also-on-crew.fixture: 200 with admin viewer (NOT crew downgrade)", () => {
-    // TODO(X.3): pull-forward — assert admin-precedence over a fully-valid
-    // redeemed-link cookie.
-  });
-});
