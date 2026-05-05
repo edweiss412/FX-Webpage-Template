@@ -122,21 +122,39 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
  * non-admin requests on unpublished shows BEFORE link/google validators
  * run, with notFound() as the indistinguishable response.
  */
-type SlugResolution = { id: string; published: boolean };
-async function resolveShowFromSlug(slug: string): Promise<SlugResolution | null> {
-  const supabase = createSupabaseServiceRoleClient();
-  const res = await supabase
-    .from("shows")
-    .select("id,published")
-    .eq("slug", slug)
-    .maybeSingle();
-  if (res.error) {
-    throw new Error(`/show/[slug]: slug lookup failed: ${res.error.message}`);
+type SlugResolution =
+  | { kind: "found"; id: string; published: boolean }
+  | { kind: "not_found" }
+  | { kind: "infra_error"; code: "ADMIN_SESSION_LOOKUP_FAILED" };
+
+/**
+ * R21 F2 (round-21 §B MEDIUM): pre-fix this threw on res.error AND on
+ * thrown infra faults from createSupabaseServiceRoleClient() / the
+ * awaited .from(...).maybeSingle() — both bypassed the cataloged
+ * terminal-failure render path used elsewhere in the show page chain
+ * and escaped to Next's generic error surface. Same infra-as-framework-
+ * error class the milestone closed in the auth helpers, on a pre-chain
+ * data loader. Now: discriminated union; call site renders the existing
+ * cataloged ADMIN_SESSION_LOOKUP_FAILED block on the infra arm.
+ */
+async function resolveShowFromSlug(slug: string): Promise<SlugResolution> {
+  try {
+    const supabase = createSupabaseServiceRoleClient();
+    const res = await supabase
+      .from("shows")
+      .select("id,published")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (res.error) {
+      return { kind: "infra_error", code: "ADMIN_SESSION_LOOKUP_FAILED" };
+    }
+    if (!res.data) return { kind: "not_found" };
+    const id = res.data.id as string | undefined;
+    if (!id) return { kind: "not_found" };
+    return { kind: "found", id, published: Boolean(res.data.published) };
+  } catch {
+    return { kind: "infra_error", code: "ADMIN_SESSION_LOOKUP_FAILED" };
   }
-  if (!res.data) return null;
-  const id = res.data.id as string | undefined;
-  if (!id) return null;
-  return { id, published: Boolean(res.data.published) };
 }
 
 /**
@@ -428,7 +446,34 @@ export default async function ShowPage({ params }: PageProps) {
   const { slug } = await params;
 
   const showInfo = await resolveShowFromSlug(slug);
-  if (!showInfo) {
+  if (showInfo.kind === "infra_error") {
+    // R21 F1 (round-21 §B MEDIUM): pre-chain slug-lookup infra failure
+    // — render the same cataloged terminal-failure block the chain
+    // emits for ADMIN_SESSION_LOOKUP_FAILED downstream. Pre-fix the
+    // throw escaped to Next's generic error surface; the user saw an
+    // opaque framework error instead of the catalog copy + retry link.
+    const entry = messageFor(showInfo.code as never);
+    return (
+      <main
+        data-testid="show-page-terminal-failure"
+        className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
+      >
+        <h1 className="text-2xl font-bold text-text-strong">
+          We&rsquo;re having trouble loading this show
+        </h1>
+        <p className="mt-4 text-base text-text-subtle">
+          {entry.crewFacing ?? entry.dougFacing ?? "Please try again in a moment."}
+        </p>
+        <a
+          href={`/show/${slug}`}
+          className="mt-section-gap inline-flex min-h-tap-min items-center px-4 py-2 text-base text-text-strong underline underline-offset-2"
+        >
+          Try again
+        </a>
+      </main>
+    );
+  }
+  if (showInfo.kind === "not_found") {
     notFound();
   }
   const { id: showId, published } = showInfo;

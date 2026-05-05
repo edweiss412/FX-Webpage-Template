@@ -100,15 +100,14 @@ export default async function MePage() {
   if (result.kind === "continue") {
     redirect("/auth/sign-in?next=/me");
   }
-  if (result.kind === "terminal_failure") {
-    // R16 #4 (round-15 §B MEDIUM): R15 #4 first added the
-    // terminal_failure handling but routed to notFound(), which
-    // browsers render as 404 — indistinguishable from "page doesn't
-    // exist" and giving crew no recovery cue for a server-side
-    // outage. Render a cataloged crew-facing copy block instead so
-    // the user sees a real failure state with retry guidance, not a
-    // 404 that reads like "you're not signed in."
-    const entry = messageFor(result.code as never);
+  // R16 #4 + R21 F1 (round-21 §B MEDIUM): cataloged terminal-failure
+  // render. R16 #4 first added it for the chain's terminal_failure arm
+  // (replacing notFound() which browsers showed as 404 — indistinguishable
+  // from "page doesn't exist"). R21 F1 also routes thrown infra failures
+  // from listShowsForCrew through the same render so the data-load
+  // throw doesn't escape to Next's generic error boundary.
+  const renderTerminalFailure = (code: string) => {
+    const entry = messageFor(code as never);
     return (
       <main
         data-testid="me-page-terminal-failure"
@@ -128,10 +127,26 @@ export default async function MePage() {
         </Link>
       </main>
     );
+  };
+
+  if (result.kind === "terminal_failure") {
+    return renderTerminalFailure(result.code);
   }
 
   const viewer = result.viewer;
-  const shows = await listShowsForCrew(viewer);
+  // R21 F1 (round-21 §B MEDIUM): pre-fix listShowsForCrew throws
+  // (createSupabaseServiceRoleClient() / .from(...) infra throws + the
+  // explicit `throw new Error("listShowsForCrew: show lookup failed")`)
+  // escaped to Next's generic error surface — crew got an opaque
+  // framework page instead of the catalog copy + retry link. Wrap the
+  // call and route to the same cataloged terminal-failure render the
+  // chain's terminal_failure arm uses.
+  let shows;
+  try {
+    shows = await listShowsForCrew(viewer);
+  } catch {
+    return renderTerminalFailure("ADMIN_SESSION_LOOKUP_FAILED");
+  }
 
   return (
     <main

@@ -51,6 +51,7 @@
  */
 import { notFound } from "next/navigation";
 
+import { messageFor } from "@/lib/messages/lookup";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { Bootstrap } from "./Bootstrap";
 
@@ -71,23 +72,38 @@ import { Bootstrap } from "./Bootstrap";
  * unpublished show; this gate stops the page-render existence leak +
  * the unnecessary bootstrap_nonces inserts.
  */
-type SlugResolution = { id: string; published: boolean };
-async function resolveShowFromSlug(slug: string): Promise<SlugResolution | null> {
-  const supabase = createSupabaseServiceRoleClient();
-  const res = await supabase
-    .from("shows")
-    .select("id,published")
-    .eq("slug", slug)
-    .maybeSingle();
-  if (res.error) {
-    throw new Error(
-      `/show/[slug]/p: slug lookup failed: ${res.error.message}`,
-    );
+type SlugResolution =
+  | { kind: "found"; id: string; published: boolean }
+  | { kind: "not_found" }
+  | { kind: "infra_error"; code: "ADMIN_SESSION_LOOKUP_FAILED" };
+
+/**
+ * R21 F1 (round-21 §B MEDIUM): sibling of the show-page resolver — same
+ * infra-as-framework-error class. Pre-fix this threw on res.error AND
+ * on createSupabaseServiceRoleClient() / .from(...).maybeSingle()
+ * throws, escaping into Next's generic error surface. Now: discriminated
+ * union; the bootstrap shell renders a cataloged terminal-failure block
+ * on the infra arm. notFound() is preserved for the not-found and
+ * unpublished cases (anti-oracle existence leak still applies).
+ */
+async function resolveShowFromSlug(slug: string): Promise<SlugResolution> {
+  try {
+    const supabase = createSupabaseServiceRoleClient();
+    const res = await supabase
+      .from("shows")
+      .select("id,published")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (res.error) {
+      return { kind: "infra_error", code: "ADMIN_SESSION_LOOKUP_FAILED" };
+    }
+    if (!res.data) return { kind: "not_found" };
+    const id = res.data.id as string | undefined;
+    if (!id) return { kind: "not_found" };
+    return { kind: "found", id, published: Boolean(res.data.published) };
+  } catch {
+    return { kind: "infra_error", code: "ADMIN_SESSION_LOOKUP_FAILED" };
   }
-  if (!res.data) return null;
-  const id = res.data.id as string | undefined;
-  if (!id) return null;
-  return { id, published: Boolean(res.data.published) };
 }
 
 type PageProps = {
@@ -98,13 +114,39 @@ export default async function BootstrapShellPage({ params }: PageProps) {
   const { slug } = await params;
 
   const showInfo = await resolveShowFromSlug(slug);
+  if (showInfo.kind === "infra_error") {
+    // R21 F1 (round-21 §B MEDIUM): pre-chain slug-lookup infra failure
+    // — render the cataloged terminal-failure block. The bootstrap
+    // shell has no chain to fall through to, so this is the user's
+    // only recoverable signal that the server is having trouble.
+    const entry = messageFor(showInfo.code as never);
+    return (
+      <main
+        data-testid="bootstrap-shell-terminal-failure"
+        className="mx-auto flex min-h-screen w-full max-w-md flex-col items-center justify-center gap-4 px-6 py-12 text-center"
+      >
+        <h1 className="text-2xl font-bold text-text-strong">
+          We&rsquo;re having trouble loading this show
+        </h1>
+        <p className="mt-4 text-base text-text-subtle">
+          {entry.crewFacing ?? entry.dougFacing ?? "Please try again in a moment."}
+        </p>
+        <a
+          href={`/show/${slug}/p`}
+          className="mt-section-gap inline-flex min-h-tap-min items-center px-4 py-2 text-base text-text-strong underline underline-offset-2"
+        >
+          Try again
+        </a>
+      </main>
+    );
+  }
   // notFound() for both unknown slug AND unpublished slug — anti-oracle.
   // The bootstrap shell is unauthenticated, so there's no admin bypass
   // here; signed-link onboarding for an unpublished show would be
   // rejected at /api/auth/redeem-link anyway (R9 #1's published gate
   // is the first DB step there), but the page-level gate stops the
   // existence leak before the client even mints a nonce.
-  if (!showInfo || !showInfo.published) {
+  if (showInfo.kind === "not_found" || !showInfo.published) {
     notFound();
   }
   const showId = showInfo.id;
