@@ -63,7 +63,40 @@ function clearSupabaseAuthCookies(request: NextRequest, response: NextResponse):
   }
 }
 
+/**
+ * R22 F2 (round-22 §A HIGH): same-origin gate. Pre-fix the route
+ * accepted any POST and started teardown immediately, with no
+ * Sec-Fetch-Site / Origin guard. A cross-site form POST with
+ * SameSite=Lax cookies (Lax allows POST cookies on top-level
+ * navigation but NOT on cross-site fetch — and modern UAs vary on
+ * cross-site form POST cookie inclusion) gave an attacker a logout
+ * CSRF primitive: trigger the teardown to clear cookies AND/OR (with
+ * the new R19 F5 per-step semantics) potentially confuse the
+ * client/server cookie state mid-teardown. Match clear-session's
+ * R15 #1 same-origin guard so any cross-site POST is refused before
+ * any teardown or Set-Cookie emission.
+ */
+function isSameOriginRequest(request: NextRequest): boolean {
+  const secFetchSite = request.headers.get("sec-fetch-site");
+  if (secFetchSite !== null) {
+    return secFetchSite === "same-origin" || secFetchSite === "none";
+  }
+  const origin = request.headers.get("origin");
+  if (origin === null) {
+    return true;
+  }
+  return origin === request.nextUrl.origin;
+}
+
 export async function POST(request: NextRequest): Promise<Response> {
+  // R22 F2 (round-22 §A HIGH): refuse cross-site POSTs before any
+  // teardown work or Set-Cookie emission. 403 with no cookie clears
+  // — the user's session remains untouched and the attacker gets no
+  // ability to clear the browser cookie via cross-site form post.
+  if (!isSameOriginRequest(request)) {
+    return new NextResponse(null, { status: 403 });
+  }
+
   // R10 #2 (round-9 §A HIGH): if server-side teardown fails, return a
   // cataloged failure WITHOUT clearing cookies. R4 #3 originally chose
   // the opposite — log + always clear cookies + redirect — for UX

@@ -470,4 +470,31 @@ describe("OAuth sign-out route", () => {
     expect(response.status).toBe(405);
     expect(server.createSupabaseServerClient).not.toHaveBeenCalled();
   });
+
+  test("R22 F2: cross-site POST refused with 403 — no teardown, no Set-Cookie", async () => {
+    // Codex round-22 §A HIGH: pre-fix the route accepted any POST and
+    // started teardown immediately. A cross-site form POST gave an
+    // attacker a logout-CSRF primitive — could clear cookies AND/OR
+    // (with R19 F5 per-step semantics) confuse client/server cookie
+    // state. Now: same-origin gate before any teardown work.
+    server.service.deletedTokens.length = 0;
+    const { POST } = await import("@/app/auth/sign-out/route");
+
+    const response = await POST(
+      new NextRequest("https://crew.fxav.test/auth/sign-out", {
+        method: "POST",
+        headers: {
+          "sec-fetch-site": "cross-site",
+          cookie: "sb-test-auth-token.0=chunk0",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    // No teardown work — link session never touched.
+    expect(server.service.deletedTokens).toEqual([]);
+    // No cookie clears emitted — server.signOut never called.
+    expect(server.client.auth.signOut).not.toHaveBeenCalled();
+    expect(setCookieLines(response)).toEqual([]);
+  });
 });

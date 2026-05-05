@@ -58,8 +58,9 @@ describe("META admin_alerts catalog contract", () => {
   test.each(ADMIN_ALERTS_CODES)(
     "catalog code %s used by admin_alerts has non-null dougFacing copy",
     (code) => {
-      const entry = (MESSAGE_CATALOG as Record<string, { dougFacing: string | null }>)[code];
+      const entry = (MESSAGE_CATALOG as Record<string, { dougFacing: string | null } | undefined>)[code];
       expect(entry, `catalog entry ${code} missing — registered as admin_alerts code but not in MESSAGE_CATALOG`).toBeDefined();
+      if (!entry) return; // narrowing for TS — assertion above already failed
       expect(entry.dougFacing, `catalog entry ${code} has dougFacing:null — AlertBanner (surface="admin") would render an empty shell with just a Resolve button, leaving the operator without a signal. Author dougFacing copy in lib/messages/catalog.ts.`).not.toBeNull();
       expect((entry.dougFacing ?? "").length, `catalog entry ${code} dougFacing must be a non-empty string`).toBeGreaterThan(0);
     },
