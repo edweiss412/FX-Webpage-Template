@@ -70,6 +70,14 @@ type ShowStatusTileProps = {
  * order. The keys in the parser's CANONICAL_KEY_MAP are lowercased
  * with underscores, but unknown keys land verbatim — so we lowercase
  * for the probe.
+ *
+ * §8.3 generic-optional sentinel-hiding (Codex round-11 MEDIUM):
+ * dress_code is a generic optional text field — a sheet with
+ * `dress_code: "N/A"` / `"TBD"` / `"TBA"` previously rendered a
+ * "Dress code" row with the sentinel value, defeating the §8.3
+ * promise that meaningless values reflow out. Now routes through
+ * lib/visibility/emptyState.ts:shouldHideGenericOptional just like
+ * power/internet/keynote/venue notes in this same tile.
  */
 function pickDressCode(
   eventDetails: Record<string, string> | null | undefined,
@@ -81,7 +89,9 @@ function pickDressCode(
   const candidates = ["dress_code", "dress code", "dress", "attire"];
   for (const key of candidates) {
     const v = lowercase.get(key);
-    if (typeof v === "string" && v.trim() !== "") return v;
+    if (typeof v !== "string") continue;
+    if (shouldHideGenericOptional(v)) continue;
+    return v;
   }
   return null;
 }

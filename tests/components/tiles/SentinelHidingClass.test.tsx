@@ -355,6 +355,90 @@ describe("§8.3 sentinel-hiding class — ShowStatusTile", () => {
     expect(html).toContain("Venue notes");
     expect(html).toContain("No coffee allowed in the ballroom");
   });
+
+  // ── Codex round-11 MEDIUM — pickDressCode sentinel bypass ─────────
+  // Same sentinel-bypass class as round-10's notes finding, just on a
+  // different generic-optional field (dress_code in event_details).
+  // The pickDressCode helper previously returned raw values that
+  // passed `.trim() !== ""` — sentinel values like "N/A" leaked.
+
+  for (const sentinel of SENTINELS) {
+    test(`hides Dress code row when dress_code="${sentinel}"`, () => {
+      const html = renderToStaticMarkup(
+        <ShowStatusTile
+          show={{
+            coi_status: "ACCEPTED 4/15",
+            venue: null,
+            event_details: { dress_code: sentinel },
+          }}
+        />,
+      );
+      // Tile renders (COI confirms it's alive — anti-tautology).
+      expect(html).toContain("ACCEPTED 4/15");
+      // The "Dress code" label must NOT appear when the value is a
+      // sentinel — gate is on the value's emptiness via the predicate.
+      expect(html).not.toContain("Dress code");
+      // Belt-and-braces: the literal sentinel must not be in the DOM.
+      if (sentinel.trim().length > 0) {
+        expect(html).not.toContain(sentinel);
+      }
+    });
+  }
+
+  test("hides Dress code row across all candidate keys (dress / attire / dress code)", () => {
+    // The candidate-key fallback in pickDressCode probes
+    // ["dress_code", "dress code", "dress", "attire"] in order. The
+    // predicate must be applied to the resolved value regardless of
+    // which key matched — otherwise a sheet using "attire: N/A"
+    // would still leak.
+    for (const key of ["dress_code", "dress code", "dress", "attire"]) {
+      const html = renderToStaticMarkup(
+        <ShowStatusTile
+          show={{
+            coi_status: "ACCEPTED 4/15",
+            venue: null,
+            event_details: { [key]: "TBD" },
+          }}
+        />,
+      );
+      expect(html).not.toContain("Dress code");
+      expect(html).not.toContain("TBD");
+    }
+  });
+
+  test("hides Dress code row but preserves later candidate-key non-sentinel value", () => {
+    // The candidate fallback should also pass over an early-key
+    // sentinel and pick up a later-key real value.
+    const html = renderToStaticMarkup(
+      <ShowStatusTile
+        show={{
+          coi_status: "ACCEPTED 4/15",
+          venue: null,
+          event_details: {
+            dress_code: "N/A", // sentinel — predicate hides it
+            attire: "Black tie", // real value — should win
+          },
+        }}
+      />,
+    );
+    expect(html).toContain("Dress code");
+    expect(html).toContain("Black tie");
+    expect(html).not.toContain("N/A");
+  });
+
+  test("renders Dress code row for non-sentinel value (anti-tautology)", () => {
+    const html = renderToStaticMarkup(
+      <ShowStatusTile
+        show={{
+          coi_status: "ACCEPTED 4/15",
+          venue: null,
+          event_details: { dress_code: "Business casual" },
+        }}
+      />,
+    );
+    expect(html).toContain("Dress code");
+    expect(html).toContain("Business casual");
+  });
 });
 
 describe("§8.3 sentinel-hiding class — LodgingTile", () => {
