@@ -44,6 +44,7 @@
  */
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { deriveSchedulePhases } from "@/lib/parser";
+import { normalizeDateRestriction } from "@/lib/data/normalizeDateRestriction";
 import type {
   ContactRow,
   DateRestriction,
@@ -260,8 +261,16 @@ export async function getShowForViewer(
     phone: (row.phone as string | null) ?? null,
     role: row.role as string,
     roleFlags: ((row.role_flags as string[]) ?? []) as RoleFlag[],
-    dateRestriction:
-      ((row.date_restriction as DateRestriction | null) ?? { kind: "none" }),
+    // Codex round-23 HIGH: parser produces M/D tokens like "6/24"
+    // for explicit date restrictions. ScheduleTile + RightNow
+    // compare to ISO YYYY-MM-DD show dates; format mismatch left
+    // restricted crew with zero matching days. Normalize at the
+    // projection boundary so every UI consumer sees ISO. See
+    // lib/data/normalizeDateRestriction.ts.
+    dateRestriction: normalizeDateRestriction(
+      (row.date_restriction as DateRestriction | null) ?? { kind: "none" },
+      show.dates,
+    ),
     stageRestriction:
       ((row.stage_restriction as StageRestriction | null) ?? { kind: "none" }),
   }));

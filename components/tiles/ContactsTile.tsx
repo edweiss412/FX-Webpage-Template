@@ -43,10 +43,23 @@ function kindLabel(kind: ContactRow["kind"]): string {
   }
 }
 
+/**
+ * Cardinality cap before the §8.4 / AC-4.4 overflow disclosure
+ * renders. Each contact row is avatar (32px) + 2-3 lines of text +
+ * tap-target gap, ~120px per row in practice. The body's
+ * max-h-tile-overflow is 240px, so 6 rows clear the floor before
+ * the second screen of scroll. Mirrors the round-22 CrewTile
+ * threshold pattern (Codex round-23 MEDIUM closure).
+ */
+const CONTACTS_INLINE_CAP = 6;
+
 export function ContactsTile({ contacts }: ContactsTileProps) {
   if (!contacts || contacts.length === 0) {
     return null;
   }
+
+  const visibleContacts = contacts.slice(0, CONTACTS_INLINE_CAP);
+  const overflowCount = Math.max(0, contacts.length - CONTACTS_INLINE_CAP);
 
   return (
     <Section
@@ -56,7 +69,7 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
       variant="people"
       ariaLabel="Contacts"
     >
-      {contacts.map((contact, idx) => (
+      {visibleContacts.map((contact, idx) => (
         <li
           key={`${contact.kind}-${idx}`}
           data-testid="contact-row"
@@ -146,6 +159,24 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
           </div>
         </li>
       ))}
+      {overflowCount > 0 ? (
+        // §8.4 / AC-4.4 overflow disclosure (Codex round-23 MEDIUM):
+        // mirror the round-22 CrewTile pattern. Renders below the
+        // last visible contact when count > CONTACTS_INLINE_CAP.
+        <li
+          data-testid="contacts-overflow-stub"
+          data-tile-show-more="true"
+          className={[
+            "rounded-sm bg-surface-sunken px-3 py-2",
+            "text-sm text-text-subtle",
+            "border-t border-border pt-4",
+          ].join(" ")}
+        >
+          <span className="tabular-nums">+{overflowCount}</span>{" "}
+          {overflowCount === 1 ? "more contact" : "more contacts"} on the
+          source sheet
+        </li>
+      ) : null}
     </Section>
   );
 }
