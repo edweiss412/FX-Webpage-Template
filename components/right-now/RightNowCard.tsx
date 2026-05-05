@@ -165,6 +165,22 @@ type StateBody = {
 };
 
 /**
+ * The §8.2 "degraded zone" — kinds where the date-data fallback path
+ * is active. The matrix is symmetric per design (lib/time/
+ * rightNowTransitions.ts:19-22) so `morph-to-last-good` fires for
+ * BOTH degradation (good → unknown/dateless) AND recovery
+ * (unknown/dateless → good). The visual treatment ("no body
+ * crossfade, surface tint flip") is the same for both directions —
+ * but WHAT we render is directional: render lastGood only while we
+ * are STILL inside the degraded zone, swap to the recovered state
+ * the moment we exit. This predicate names the zone so the consumer
+ * can ask the directional question without breaking matrix symmetry.
+ */
+function isDegradedState(kind: RightNowState["kind"]): boolean {
+  return kind === "unknown" || kind === "dateless";
+}
+
+/**
  * Render the §8.2 body text for the resolved state. Pure mapping from
  * RightNowState + context to display content — keeps the JSX simple.
  *
@@ -411,9 +427,17 @@ export function RightNowCard({ context }: RightNowCardProps) {
     // tells us whether the upcoming transition is morph-to-last-good
     // (in which case we DO NOT advance lastGood — we want the prior
     // payload to keep rendering until recovery).
+    //
+    // Directional refinement (Codex round-9 HIGH): only refrain from
+    // advancing lastGood when we are ENTERING the degraded zone
+    // (state.kind ∈ unknown/dateless). On RECOVERY (degraded → good),
+    // the matrix still returns morph-to-last-good (symmetric by
+    // design), but the new state IS the recovered good payload — we
+    // must advance lastGood so the next render shows the fresh
+    // content, not the stale pre-degradation snapshot.
     const willBeStale =
       transitionTreatment(tracked.currentKind, state.kind) ===
-      "morph-to-last-good";
+        "morph-to-last-good" && isDegradedState(state.kind);
     setTracked({
       prevKind: tracked.currentKind,
       currentKind: state.kind,
@@ -425,19 +449,28 @@ export function RightNowCard({ context }: RightNowCardProps) {
   // Effective prev/current after a possible same-render rotation.
   // We compute against the post-rotation pair so the matrix lookup
   // sees the values the next paint will commit.
+  //
+  // Same directional refinement as the willBeStale block above: when
+  // recovering from a degraded kind to a good kind, advance lastGood
+  // to the recovered state IN-RENDER so the morph-to-last-good
+  // branch below picks the fresh payload (not the pre-degradation
+  // snapshot). The kindEnteringStaleZone check matches the
+  // willBeStale predicate exactly so the two are guaranteed
+  // consistent within this render.
   const effectivePrev =
     state.kind !== tracked.currentKind ? tracked.currentKind : tracked.prevKind;
   const effectiveCurrent = state.kind;
-  const effectiveLastGoodState =
+  const kindEnteringStaleZone =
     state.kind !== tracked.currentKind &&
-    transitionTreatment(tracked.currentKind, state.kind) !==
-      "morph-to-last-good"
+    transitionTreatment(tracked.currentKind, state.kind) ===
+      "morph-to-last-good" &&
+    isDegradedState(state.kind);
+  const effectiveLastGoodState =
+    state.kind !== tracked.currentKind && !kindEnteringStaleZone
       ? state
       : tracked.lastGoodState;
   const effectiveLastGoodBody =
-    state.kind !== tracked.currentKind &&
-    transitionTreatment(tracked.currentKind, state.kind) !==
-      "morph-to-last-good"
+    state.kind !== tracked.currentKind && !kindEnteringStaleZone
       ? body
       : tracked.lastGoodBody;
 
@@ -464,11 +497,20 @@ export function RightNowCard({ context }: RightNowCardProps) {
   // tint. The post-rotation lastGood values reflect this — when the
   // upcoming transition is stale, we did NOT advance lastGood above,
   // so it still points at the previous render's payload.
-  const renderState =
-    treatment === "morph-to-last-good" ? effectiveLastGoodState : state;
-  const renderBodyResolved =
-    treatment === "morph-to-last-good" ? effectiveLastGoodBody : body;
-  const isStale = treatment === "morph-to-last-good" || body.isStale;
+  //
+  // Directional refinement (Codex round-9 HIGH): the matrix returns
+  // morph-to-last-good for BOTH directions of `unknown ↔ good` and
+  // `dateless ↔ good`. We only want the "render lastGood + apply
+  // stale tint" branch on degradation (current state IS degraded);
+  // on recovery (current state is good) we render the recovered
+  // state and clear the tint. body.isStale still wins for the
+  // intrinsic dateless body so a card sitting at dateless without a
+  // recent transition still tints stale.
+  const showLastGood =
+    treatment === "morph-to-last-good" && isDegradedState(state.kind);
+  const renderState = showLastGood ? effectiveLastGoodState : state;
+  const renderBodyResolved = showLastGood ? effectiveLastGoodBody : body;
+  const isStale = showLastGood || body.isStale;
 
   // Diagnostic side-effect for matrix-violating transitions. Spec
   // says `unreachable` cells never fire on the natural code path; if
