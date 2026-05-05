@@ -8,6 +8,7 @@ type CrewRow = {
 
 const googleMock = vi.hoisted(() => ({
   userEmail: null as string | null,
+  missingSessionError: false,
   crewRows: [] as CrewRow[],
   eqCalls: [] as Array<[string, string]>,
   alertUpserts: [] as unknown[],
@@ -21,7 +22,13 @@ vi.mock("@/lib/supabase/server", () => ({
         data: googleMock.userEmail
           ? { user: { id: "auth-user-1", email: googleMock.userEmail } }
           : { user: null },
-        error: null,
+        error: googleMock.missingSessionError
+          ? {
+              name: "AuthSessionMissingError",
+              message: "Auth session missing!",
+              status: 400,
+            }
+          : null,
       }),
     },
   }),
@@ -40,8 +47,7 @@ vi.mock("@/lib/supabase/server", () => ({
               resolve({
                 data: googleMock.crewRows.filter(
                   (row) =>
-                    row.show_id === filters.get("show_id") &&
-                    row.email === filters.get("email"),
+                    row.show_id === filters.get("show_id") && row.email === filters.get("email"),
                 ),
                 error: null,
               });
@@ -68,6 +74,7 @@ const showId = "22222222-2222-4222-8222-222222222222";
 
 beforeEach(() => {
   googleMock.userEmail = null;
+  googleMock.missingSessionError = false;
   googleMock.crewRows = [];
   googleMock.eqCalls = [];
   googleMock.alertUpserts = [];
@@ -76,6 +83,7 @@ beforeEach(() => {
 
 describe("validateGoogleSession", () => {
   test("no Supabase user continues", async () => {
+    googleMock.missingSessionError = true;
     const result = await validateGoogleSession(new Request("https://crew.fxav.show"), {
       showId,
     });
@@ -138,9 +146,7 @@ describe("validateGoogleSession", () => {
       code: "AMBIGUOUS_EMAIL_BINDING",
     });
     expect(googleMock.alertUpserts).toHaveLength(1);
-    expect(JSON.stringify(googleMock.alertUpserts[0])).toContain(
-      "AMBIGUOUS_EMAIL_BINDING",
-    );
+    expect(JSON.stringify(googleMock.alertUpserts[0])).toContain("AMBIGUOUS_EMAIL_BINDING");
   });
 
   test("duplicate email alert persistence failure returns ADMIN_SESSION_LOOKUP_FAILED", async () => {

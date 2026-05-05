@@ -20,6 +20,7 @@
 import { forbidden } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
 
 /**
  * R17 #1 (round-16 §A+§B HIGH): requireAdmin distinguishes auth-negative
@@ -80,9 +81,10 @@ export async function requireAdmin(): Promise<void> {
     );
   }
   if (userError) {
-    throw new AdminInfraError(
-      `requireAdmin: getUser failed: ${userError.message}`,
-    );
+    if (isAuthSessionMissingError(userError)) {
+      forbidden();
+    }
+    throw new AdminInfraError(`requireAdmin: getUser failed: ${userError.message}`);
   }
   const email = canonicalize(userData.user?.email);
   if (!email) {
@@ -105,9 +107,7 @@ export async function requireAdmin(): Promise<void> {
     );
   }
   if (error) {
-    throw new AdminInfraError(
-      `requireAdmin: is_admin RPC failed: ${error.message}`,
-    );
+    throw new AdminInfraError(`requireAdmin: is_admin RPC failed: ${error.message}`);
   }
   if (data !== true) {
     // Confirmed non-admin — auth-level denial.

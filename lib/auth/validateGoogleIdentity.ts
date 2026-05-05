@@ -1,5 +1,6 @@
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
 
 export type GoogleIdentityViewer = {
   kind: "crew";
@@ -41,6 +42,9 @@ export async function validateGoogleIdentity(
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.auth.getUser();
     if (error) {
+      if (isAuthSessionMissingError(error)) {
+        return { kind: "continue" };
+      }
       // Infra fault — getUser() failed on the wire. Don't masquerade
       // as "no user."
       return {

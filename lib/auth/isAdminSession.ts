@@ -1,5 +1,6 @@
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
 
 /**
  * R15 #3 (round-14 §B MEDIUM): the `reason` discriminator distinguishes
@@ -27,6 +28,9 @@ export async function isAdminSession(req: Request): Promise<AdminSessionResult> 
     const supabase = await createSupabaseServerClient();
     const { data: userResult, error: userError } = await supabase.auth.getUser();
     if (userError) {
+      if (isAuthSessionMissingError(userError)) {
+        return { ok: false, reason: "not_admin" };
+      }
       return { ok: false, reason: "infra_error" };
     }
     const email = canonicalize(userResult.user?.email);

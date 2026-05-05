@@ -75,6 +75,22 @@ describe("requireAdmin", () => {
     expect(server.client.rpc).not.toHaveBeenCalled();
   });
 
+  test("treats Supabase AuthSessionMissingError as unauthenticated, not infra", async () => {
+    server.client.auth.getUser.mockResolvedValue({
+      data: { user: null },
+      error: {
+        name: "AuthSessionMissingError",
+        message: "Auth session missing!",
+        status: 400,
+      },
+    });
+    const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
+
+    await expect(requireAdmin()).rejects.toThrow("forbidden()");
+    await expect(requireAdmin()).rejects.not.toBeInstanceOf(AdminInfraError);
+    expect(server.client.rpc).not.toHaveBeenCalled();
+  });
+
   test("fails closed via forbidden() when public.is_admin() denies", async () => {
     server.client.rpc.mockResolvedValue({ data: false, error: null });
     const { requireAdmin } = await import("@/lib/auth/requireAdmin");
@@ -89,9 +105,7 @@ describe("requireAdmin", () => {
     // — admin layout/actions map it to a cataloged 500. Auth-negative
     // (RPC returns false) still 403s.
     server.client.rpc.mockResolvedValue({ data: null, error: new Error("boom") });
-    const { requireAdmin, AdminInfraError } = await import(
-      "@/lib/auth/requireAdmin"
-    );
+    const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
 
     await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
   });

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const identityMock = vi.hoisted(() => ({
   user: null as null | { id: string; email?: string | null },
+  missingSessionError: false,
   serviceRoleCalls: [] as string[],
 }));
 
@@ -10,7 +11,13 @@ vi.mock("@/lib/supabase/server", () => ({
     auth: {
       getUser: async () => ({
         data: { user: identityMock.user },
-        error: null,
+        error: identityMock.missingSessionError
+          ? {
+              name: "AuthSessionMissingError",
+              message: "Auth session missing!",
+              status: 400,
+            }
+          : null,
       }),
     },
   }),
@@ -29,11 +36,13 @@ const { validateGoogleIdentity } = await import("@/lib/auth/validateGoogleIdenti
 
 beforeEach(() => {
   identityMock.user = null;
+  identityMock.missingSessionError = false;
   identityMock.serviceRoleCalls = [];
 });
 
 describe("validateGoogleIdentity", () => {
   test("continues when there is no Supabase Auth user", async () => {
+    identityMock.missingSessionError = true;
     const result = await validateGoogleIdentity(new Request("https://crew.fxav.show/me"));
     expect(result).toEqual({ kind: "continue" });
     expect(identityMock.serviceRoleCalls).toEqual([]);

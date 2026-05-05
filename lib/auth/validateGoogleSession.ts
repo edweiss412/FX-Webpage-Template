@@ -1,9 +1,7 @@
 import type { AuthFailureCode } from "@/lib/auth/constants";
+import { isAuthSessionMissingError } from "@/lib/auth/supabaseAuthError";
 import { canonicalize } from "@/lib/email/canonicalize";
-import {
-  createSupabaseServerClient,
-  createSupabaseServiceRoleClient,
-} from "@/lib/supabase/server";
+import { createSupabaseServerClient, createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 export type GoogleSessionViewer = {
   kind: "crew";
@@ -97,6 +95,9 @@ export async function validateGoogleSession(
     };
   }
   if (userError) {
+    if (isAuthSessionMissingError(userError)) {
+      return { kind: "continue" };
+    }
     // R16 #1 (round-15 §A HIGH): pre-R16 the route collapsed any
     // getUser() error into "continue", so a transient Supabase Auth
     // outage looked identical to "no Google credentials." Through
