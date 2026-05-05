@@ -121,7 +121,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   daysBetween,
   formatIsoForTimezone,
@@ -367,6 +367,19 @@ type RightNowCardProps = {
 export function RightNowCard({ context }: RightNowCardProps) {
   const [now, setNow] = useState<Date>(() => new Date());
 
+  // §8.2 prefers-reduced-motion (Codex round-19 MEDIUM): framer-motion
+  // does NOT consume the CSS `--duration-*` custom properties — the
+  // global media-query override in app/globals.css zeroes those vars
+  // for CSS-driven elements only, not for motion-prop transitions on
+  // `<motion.div>`. The original code's comment ("framer-motion respects
+  // [reduced motion] through useReducedMotion") was aspirational, not
+  // implemented. Wire it up: when the user has prefers-reduced-motion,
+  // collapse the crossfade duration to 0 so the body swap is instant.
+  // Hook returns `null` until hydration completes; treat null as
+  // "unknown — animate at full duration" for SSR + first-paint
+  // consistency with the existing render contract.
+  const prefersReducedMotion = useReducedMotion();
+
   useEffect(() => {
     // 60-second tick. Keeps the card "live" without spamming React.
     // interval is cleared on unmount.
@@ -547,17 +560,16 @@ export function RightNowCard({ context }: RightNowCardProps) {
           animate: { opacity: 1 },
           exit: { opacity: 0 },
           transition: {
-            // 220ms (--duration-normal) with --ease-out-quart. The
-            // numbers are duplicated here because framer-motion does
-            // not read CSS custom properties; the prefers-reduced-
-            // motion override is handled by framer-motion's own
-            // useReducedMotion hook in a deeper API surface AND by
-            // the global token reduction (components that consume
-            // var(--duration-*) get 0ms — the literal here is the
-            // motion default and is overridden in tests via
-            // page.emulateMedia({ reducedMotion: 'reduce' }) which
-            // framer-motion respects through useReducedMotion).
-            duration: 0.22,
+            // 220ms (--duration-normal) with --ease-out-quart, OR 0ms
+            // when the user opted into prefers-reduced-motion.
+            // Codex round-19 MEDIUM: framer-motion does NOT consume
+            // the CSS `--duration-*` custom properties — the override
+            // in app/globals.css applies to CSS-driven elements only.
+            // Gate explicitly via useReducedMotion above so the body
+            // swap is instant for motion-sensitive users. `null`
+            // (pre-hydration / unknown) keeps the default duration so
+            // SSR + first-paint render unchanged.
+            duration: prefersReducedMotion === true ? 0 : 0.22,
             ease: [0.25, 1, 0.5, 1] as [number, number, number, number],
           },
         }
@@ -585,6 +597,19 @@ export function RightNowCard({ context }: RightNowCardProps) {
     <section
       data-testid="right-now-card"
       data-stale={isStale ? "true" : "false"}
+      data-prefers-reduced-motion={
+        // Codex round-19 MEDIUM: expose the resolved hook result on
+        // the surface so vitest + Playwright can deterministically
+        // assert the wiring. `null` (pre-hydration / unknown) maps
+        // to "unknown" so tests can distinguish "user opted in",
+        // "user opted out", and "not yet known". Ops can also read
+        // this in the browser inspector when triaging motion bugs.
+        prefersReducedMotion === true
+          ? "true"
+          : prefersReducedMotion === false
+            ? "false"
+            : "unknown"
+      }
       aria-label="Right now"
       className={[
         // `w-full` is defense-in-depth: today the section width-fills

@@ -294,3 +294,81 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
     expect(detail()?.textContent).toContain("Call: 11:11");
   });
 });
+
+// ── Codex round-19 — prefers-reduced-motion wiring ────────────────────
+//
+// We mock framer-motion to override `useReducedMotion` per-test. A
+// matchMedia mock at the test level is too late: framer-motion may
+// capture matchMedia at module-load time, so the late override is
+// ignored. vi.mock at module scope replaces the hook itself, which
+// is the only level of override that's reliable across versions.
+
+const reducedMotionMock = { value: false as boolean };
+
+vi.mock("framer-motion", async () => {
+  const actual =
+    await vi.importActual<typeof import("framer-motion")>("framer-motion");
+  return {
+    ...actual,
+    useReducedMotion: () => reducedMotionMock.value,
+  };
+});
+
+describe("RightNowCard — prefers-reduced-motion (Codex round-19 MEDIUM)", () => {
+  test("data-prefers-reduced-motion='true' when useReducedMotion returns true", () => {
+    reducedMotionMock.value = true;
+    const ctx = {
+      dates: {
+        travelIn: "2026-04-20",
+        travelOut: "2026-04-23",
+        set: "2026-04-20",
+        showDays: ["2026-04-21", "2026-04-22"],
+      },
+      dateRestriction: { kind: "none" as const },
+      showTitle: "Test Show",
+      hotelName: null,
+      hotelCheckInTime: null,
+      hotelCheckOutTime: null,
+      venueName: null,
+      loadInTime: null,
+      callTime: "14:00",
+      roomName: null,
+      strikeTime: null,
+      timezone: "America/New_York",
+    };
+    const { container } = render(<RightNowCard context={ctx} />);
+    const card = container.querySelector('[data-testid="right-now-card"]')!;
+    // Catches the round-19 bug: pre-fix, useReducedMotion was never
+    // called, so the attribute defaulted (or was missing) regardless
+    // of the user preference.
+    expect(card.getAttribute("data-prefers-reduced-motion")).toBe("true");
+  });
+
+  test("data-prefers-reduced-motion='false' when useReducedMotion returns false", () => {
+    reducedMotionMock.value = false;
+    const ctx = {
+      dates: {
+        travelIn: "2026-04-20",
+        travelOut: "2026-04-23",
+        set: "2026-04-20",
+        showDays: ["2026-04-21", "2026-04-22"],
+      },
+      dateRestriction: { kind: "none" as const },
+      showTitle: "Test Show",
+      hotelName: null,
+      hotelCheckInTime: null,
+      hotelCheckOutTime: null,
+      venueName: null,
+      loadInTime: null,
+      callTime: "14:00",
+      roomName: null,
+      strikeTime: null,
+      timezone: "America/New_York",
+    };
+    const { container } = render(<RightNowCard context={ctx} />);
+    const card = container.querySelector('[data-testid="right-now-card"]')!;
+    // Anti-tautology: confirm the attribute is NOT always "true" or
+    // "unknown" — it correctly reflects the user opt-out.
+    expect(card.getAttribute("data-prefers-reduced-motion")).toBe("false");
+  });
+});
