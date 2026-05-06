@@ -82,6 +82,7 @@ import {
   BOOTSTRAP_NONCE_MAX_AGE_SEC,
 } from "@/lib/auth/constants";
 import {
+  assertBootstrapCookieSigningConfigured,
   decodeBootstrapCookieEntries,
   encodeBootstrapCookieEntries,
   type BootstrapCookieEntry,
@@ -134,6 +135,11 @@ export async function bootstrapMint(
   if (typeof showId !== "string" || !UUID_RE.test(showId)) {
     throw new Error("bootstrapMint: showId must be a UUID");
   }
+
+  // Fail config errors before minting a DB nonce. Otherwise a missing
+  // signing secret would leave an unredeemable nonce row with no matching
+  // cookie envelope.
+  assertBootstrapCookieSigningConfigured();
 
   // UUIDv4 is 122 random bits; combined with the show_id composite-PK
   // partition this exceeds the §A schema's "cryptographically random"

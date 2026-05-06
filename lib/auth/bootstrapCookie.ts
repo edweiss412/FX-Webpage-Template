@@ -23,6 +23,10 @@ function bootstrapCookieSecret(): string {
   return secret;
 }
 
+export function assertBootstrapCookieSigningConfigured(): void {
+  void bootstrapCookieSecret();
+}
+
 function signingPayload(entries: BootstrapCookieEntry[]): string {
   return `fxav-bootstrap-cookie:v1:${JSON.stringify(entries)}`;
 }

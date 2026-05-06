@@ -493,6 +493,17 @@ describe("bootstrapMint", () => {
     expect(mockState.setSpy).not.toHaveBeenCalled();
   });
 
+  test("missing JWT_SIGNING_SECRET → throws before DB nonce mint", async () => {
+    delete process.env.JWT_SIGNING_SECRET;
+    mockState.signingKeyIdSequence.push("k1");
+
+    await expect(bootstrapMint(VALID_SHOW_ID)).rejects.toThrow(/JWT_SIGNING_SECRET/);
+
+    expect(mockState.rpcCalls).toEqual([]);
+    expect(mockState.insertedNonces).toHaveLength(0);
+    expect(mockState.setSpy).not.toHaveBeenCalled();
+  });
+
   test("existing cookie array with 5 entries: 6th mint evicts oldest entry only (cookie-side cap)", async () => {
     // Pre-seed cookie with 5 existing entries (simulating a prior page render).
     // Direct cookieJar.set bypasses the mocked cookies().set, so this seed
