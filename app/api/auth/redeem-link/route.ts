@@ -122,6 +122,26 @@ async function readActiveSigningKeyId(): Promise<string> {
   return data.active_signing_key_id;
 }
 
+function missingCookieEntryCode(
+  bootstrapEntries: BootstrapCookieEntry[],
+  nonceRow: BootstrapNonceRow,
+): "CSRF_DENIED" | "CSRF_NONCE_EXPIRED" {
+  if (bootstrapEntries.length < BOOTSTRAP_COOKIE_ENTRY_LIMIT) {
+    return "CSRF_DENIED";
+  }
+
+  const nonceIssuedAtMs = Date.parse(nonceRow.issued_at);
+  if (!Number.isFinite(nonceIssuedAtMs)) {
+    return "CSRF_DENIED";
+  }
+
+  const cookieLooksEvicted = bootstrapEntries.every((entry) => {
+    const entryIssuedAtMs = Date.parse(entry.issued_at);
+    return Number.isFinite(entryIssuedAtMs) && entryIssuedAtMs > nonceIssuedAtMs;
+  });
+  return cookieLooksEvicted ? "CSRF_NONCE_EXPIRED" : "CSRF_DENIED";
+}
+
 export async function POST(request: NextRequest): Promise<Response> {
   if (!sameOriginAllowed(request)) {
     return jsonError(403, "CSRF_DENIED");
@@ -205,12 +225,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     if (!cookieEntry) {
-      return jsonError(
-        403,
-        bootstrapEntries.length >= BOOTSTRAP_COOKIE_ENTRY_LIMIT
-          ? "CSRF_NONCE_EXPIRED"
-          : "CSRF_DENIED",
-      );
+      return jsonError(403, missingCookieEntryCode(bootstrapEntries, nonceRow));
     }
     if (cookieEntry.signing_key_id !== nonceRow.signing_key_id) {
       return jsonError(403, "CSRF_DENIED");

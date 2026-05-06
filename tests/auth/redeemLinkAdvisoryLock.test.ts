@@ -324,10 +324,11 @@ describe("/api/auth/redeem-link advisory lock", () => {
   });
 
   test("otherwise-valid nonce with evicted cookie entry returns CSRF_NONCE_EXPIRED without consuming", async () => {
+    const issuedAtMs = new Date(state.issuedAt).getTime();
     const evictingEntries = Array.from({ length: 5 }, (_, i) => ({
       nonce_hash: `${i}`.repeat(64).slice(0, 64),
       show_id: state.showId,
-      issued_at: state.issuedAt,
+      issued_at: new Date(issuedAtMs + i + 1).toISOString(),
       signing_key_id: "k1",
     }));
 
@@ -340,6 +341,28 @@ describe("/api/auth/redeem-link advisory lock", () => {
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({
       code: "CSRF_NONCE_EXPIRED",
+    });
+    expect(state.consumeAttempts).toBe(0);
+    expect(state.consumedAt).toBeNull();
+  });
+
+  test("missing entry in full bootstrap cookie with non-evicting timestamps returns CSRF_DENIED", async () => {
+    const forgedEntries = Array.from({ length: 5 }, (_, i) => ({
+      nonce_hash: `${i}`.repeat(64).slice(0, 64),
+      show_id: state.showId,
+      issued_at: state.issuedAt,
+      signing_key_id: "k1",
+    }));
+
+    const response = await POST(
+      requestFor({
+        cookieEntries: forgedEntries,
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      code: "CSRF_DENIED",
     });
     expect(state.consumeAttempts).toBe(0);
     expect(state.consumedAt).toBeNull();
