@@ -324,8 +324,10 @@ async function waitForBootstrapSettled(page: Page, slug: string): Promise<void> 
  * In dev over HTTP the browser refuses to accept any __Host- cookie, so
  * the next render's "existing array" is empty and the cookie value
  * regresses to just the freshly minted entry. Planting the captured
- * value via addCookies (`secure: false`) restores the production
- * cumulative-state contract.
+ * value restores the production cumulative-state contract. Chromium
+ * enforces `__Host-` strictly in addCookies(), so it gets a host-only
+ * Secure cookie; WebKit echoes the local HTTP cookie only through the
+ * older insecure dev-server shape.
  *
  * Tests that need cumulative state across navigations (b, c, d, f) call
  * this between gotos. Tests that observe a single render's behavior
@@ -337,24 +339,45 @@ async function plantBootstrapCookie(
 ): Promise<void> {
   const entries = cap.latestEntries();
   if (entries.length === 0) return;
-  // Re-encode for the wire — Playwright's addCookies stores the value
-  // as-is, so we URL-encode here (matching what Next would emit on
-  // Set-Cookie if the browser had accepted it).
+  // Re-encode for the wire: cookie values cannot contain raw JSON
+  // quotes/commas/braces, and Playwright stores addCookies values as-is.
+  // This matches the URL-encoded value the browser would retain from
+  // Next's Set-Cookie header in HTTPS production.
   const value = encodeURIComponent(encodeBootstrapCookieEntries(entries));
+  const isWebKit = context.browser()?.browserType().name() === "webkit";
   await context.addCookies([
-    {
-      name: BOOTSTRAP_COOKIE_LITERAL,
-      value,
-      domain: "127.0.0.1",
-      path: "/",
-      httpOnly: true,
-      // secure: false so Playwright accepts the cookie over our HTTP
-      // dev server. The production __Host- prefix attribute set is
-      // asserted separately in test (e) via Set-Cookie inspection.
-      secure: false,
-      sameSite: "Lax",
-    },
+    isWebKit
+      ? {
+          name: BOOTSTRAP_COOKIE_LITERAL,
+          value,
+          domain: "127.0.0.1",
+          path: "/",
+          httpOnly: true,
+          secure: false,
+          sameSite: "Lax",
+        }
+      : {
+          name: BOOTSTRAP_COOKIE_LITERAL,
+          value,
+          // Use url rather than domain/path so Playwright creates a
+          // host-only cookie. A `Domain=` attribute would violate the
+          // `__Host-` prefix contract and Chromium rejects it.
+          url: "https://127.0.0.1:3000/",
+          httpOnly: true,
+          secure: true,
+          sameSite: "Lax",
+        },
   ]);
+}
+
+async function stubRedeemLinkForMintOnlyAssertions(page: Page): Promise<void> {
+  await page.route("**/api/auth/redeem-link", async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({ code: "SESSION_NOT_FOUND" }),
+    });
+  });
 }
 
 test.beforeAll(() => {
@@ -379,11 +402,10 @@ test("(a) single render mints exactly one bootstrap_nonces row + one cookie arra
   const fix = await createShowFixture("a");
   const cap = new BootstrapCookieCapture();
   cap.attach(context);
+  await stubRedeemLinkForMintOnlyAssertions(page);
   try {
-    // Use a placeholder JWT — we're asserting the bootstrap mint
-    // side-effects, not the redeem outcome (the redeem-link POST will
-    // fail with 401, but the bootstrap_nonces row + cookie are written
-    // BEFORE that POST, so the assertions below still hold).
+    // Use a placeholder JWT and stub redeem-link — this test asserts the
+    // bootstrap mint side-effects, not the later redeem/cleanup outcome.
     await page.goto(`/show/${fix.slug}/p#t=placeholder-not-a-jwt`);
     await waitForBootstrapSettled(page, fix.slug);
 
@@ -425,6 +447,7 @@ test("(b) two quick renders → two distinct nonces in cookie array; both rows +
   const fix = await createShowFixture("b");
   const cap = new BootstrapCookieCapture();
   cap.attach(context);
+  await stubRedeemLinkForMintOnlyAssertions(page);
   try {
     await page.goto(`/show/${fix.slug}/p#t=placeholder-1`);
     await waitForBootstrapSettled(page, fix.slug);
@@ -481,6 +504,7 @@ test("(c) cross-show: /show/A/p then /show/B/p → two rows (one per show) + two
   const fixB = await createShowFixture("cb");
   const cap = new BootstrapCookieCapture();
   cap.attach(context);
+  await stubRedeemLinkForMintOnlyAssertions(page);
   try {
     await page.goto(`/show/${fixA.slug}/p#t=placeholder-a`);
     await waitForBootstrapSettled(page, fixA.slug);
@@ -522,6 +546,7 @@ test("(d) 5-entry cookie cap honored: 6 renders → exactly 5 entries; oldest ev
   const fix = await createShowFixture("d");
   const cap = new BootstrapCookieCapture();
   cap.attach(context);
+  await stubRedeemLinkForMintOnlyAssertions(page);
   try {
     for (let i = 0; i < 6; i++) {
       await page.goto(`/show/${fix.slug}/p#t=placeholder-${i}`);
@@ -566,6 +591,7 @@ test("(e) cookie name MUST be the literal __Host-fxav_bootstrap_v with canonical
   const fix = await createShowFixture("e");
   const cap = new BootstrapCookieCapture();
   cap.attach(context);
+  await stubRedeemLinkForMintOnlyAssertions(page);
   try {
     await page.goto(`/show/${fix.slug}/p#t=placeholder`);
     await waitForBootstrapSettled(page, fix.slug);
@@ -603,6 +629,7 @@ test("(f) rotation between renders: first row + cookie entry pinned to k1; secon
   const fix = await createShowFixture("f");
   const cap = new BootstrapCookieCapture();
   cap.attach(context);
+  await stubRedeemLinkForMintOnlyAssertions(page);
   try {
     // First render under k1.
     await admin
@@ -691,8 +718,8 @@ test("(g) /show/<slug>/p#t=<valid-jwt> → bootstrap row created; redeem-link PO
   cap.attach(context);
 
   // Auto-plant any __Host-fxav_bootstrap_v cookie the server emits back
-  // into the browser jar (with `secure: false` to bypass the HTTP
-  // browser-rejection limitation). This way the next outgoing request
+  // into the browser jar, using a browser-specific local-HTTP shim.
+  // This way the next outgoing request
   // (the redeem-link POST that the client island fires) will carry the
   // cookie back to the server, just like it would over HTTPS in prod.
   //
@@ -708,16 +735,26 @@ test("(g) /show/<slug>/p#t=<valid-jwt> → bootstrap row created; redeem-link PO
     const raw = extractBootstrapCookieRaw(headers);
     if (raw !== null) {
       try {
+        const isWebKit = context.browser()?.browserType().name() === "webkit";
         await context.addCookies([
-          {
-            name: BOOTSTRAP_COOKIE_LITERAL,
-            value: raw,
-            domain: "127.0.0.1",
-            path: "/",
-            httpOnly: true,
-            secure: false,
-            sameSite: "Lax",
-          },
+          isWebKit
+            ? {
+                name: BOOTSTRAP_COOKIE_LITERAL,
+                value: raw,
+                domain: "127.0.0.1",
+                path: "/",
+                httpOnly: true,
+                secure: false,
+                sameSite: "Lax",
+              }
+            : {
+                name: BOOTSTRAP_COOKIE_LITERAL,
+                value: raw,
+                url: "https://127.0.0.1:3000/",
+                httpOnly: true,
+                secure: true,
+                sameSite: "Lax",
+              },
         ]);
       } catch {
         // ignore — addCookies can fail if context is closing
