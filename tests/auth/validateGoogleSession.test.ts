@@ -125,15 +125,14 @@ describe("validateGoogleSession", () => {
     });
   });
 
-  test("signed-in email not on the requested show is GOOGLE_NO_CREW_MATCH", async () => {
+  test("signed-in email not on the requested show falls through with GOOGLE_NO_CREW_MATCH signal", async () => {
     googleMock.userEmail = "missing@fxav.net";
     googleMock.crewRows = [];
     const result = await validateGoogleSession(new Request("https://crew.fxav.show"), {
       showId,
     });
     expect(result).toEqual({
-      kind: "terminal_failure",
-      status: 403,
+      kind: "continue",
       code: "GOOGLE_NO_CREW_MATCH",
     });
   });

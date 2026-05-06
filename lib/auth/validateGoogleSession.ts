@@ -17,7 +17,7 @@ export type GoogleSessionValidationContext = {
 
 export type GoogleSessionValidationResult =
   | { kind: "success"; viewer: GoogleSessionViewer }
-  | { kind: "continue" }
+  | { kind: "continue"; code?: "GOOGLE_NO_CREW_MATCH" }
   | {
       kind: "terminal_failure";
       status: 403 | 500;
@@ -146,8 +146,7 @@ export async function validateGoogleSession(
   const rows = crewRows ?? [];
   if (rows.length === 0) {
     return {
-      kind: "terminal_failure",
-      status: 403,
+      kind: "continue",
       code: "GOOGLE_NO_CREW_MATCH",
     };
   }
@@ -176,8 +175,7 @@ export async function validateGoogleSession(
   const row = rows[0];
   if (!row) {
     return {
-      kind: "terminal_failure",
-      status: 403,
+      kind: "continue",
       code: "GOOGLE_NO_CREW_MATCH",
     };
   }

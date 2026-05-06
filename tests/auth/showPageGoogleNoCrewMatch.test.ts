@@ -58,8 +58,7 @@ vi.mock("@/lib/auth/validateLinkSession", () => ({
 
 vi.mock("@/lib/auth/validateGoogleSession", () => ({
   validateGoogleSession: async () => ({
-    kind: "terminal_failure",
-    status: 403,
+    kind: "continue",
     code: "GOOGLE_NO_CREW_MATCH",
   }),
 }));

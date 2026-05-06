@@ -384,34 +384,20 @@ async function resolveViewer(
         kind: "crew",
         crewMemberId: google.viewer.crewMemberId,
       };
-    } else if (google.kind === "terminal_failure") {
-      // §B workaround for §A contract bug (carry-forward CF4):
-      // `validateGoogleSession` returns `terminal_failure` with status 403
-      // and code `GOOGLE_NO_CREW_MATCH` when an authenticated Google user
-      // has no crew row on this show. Semantically that's "no match, fall
-      // through" — NOT an infrastructure failure. The `requireAdmin()`
-      // step 4 fallback must still get a chance to resolve env-allowlisted
-      // admins whose `isAdminSession` predicate missed in step 1 (e.g.,
-      // app_metadata.role='admin' shapes that the predicate didn't pick
-      // up). Until §A switches `GOOGLE_NO_CREW_MATCH` to `continue`, we
-      // treat status-403 terminal_failures from this step as continue.
-      // Status-500 (AMBIGUOUS_EMAIL_BINDING, ADMIN_SESSION_LOOKUP_FAILED)
-      // remains a real terminal_failure — we still stop the chain there.
-      if (google.status !== 403) {
-        return {
-          viewer: null,
-          clearCookie,
-          terminalFailure: { status: google.status, code: google.code },
-          googleNoCrewMatch: false,
-        };
+    } else if (google.kind === "continue") {
+      if (google.code === "GOOGLE_NO_CREW_MATCH") {
+        googleNoCrewMatch = true;
       }
-      // Fall through (status 403 — treat as continue) but record the
-      // outcome so the page can redirect to /me on no-viewer instead
-      // of looping through sign-in.
-      googleNoCrewMatch = true;
+    } else if (google.kind === "terminal_failure") {
+      return {
+        viewer: null,
+        clearCookie,
+        terminalFailure: { status: google.status, code: google.code },
+        googleNoCrewMatch: false,
+      };
     }
-    // continue: nothing to OR (validateGoogleSession's continue arm has
-    // no clearCookie flag).
+    // continue: record GOOGLE_NO_CREW_MATCH, otherwise nothing to OR
+    // (validateGoogleSession's continue arm has no clearCookie flag).
   }
 
   // (4) requireAdmin fallback — preserved per spec for non-OAuth admin
@@ -432,6 +418,17 @@ async function resolveViewer(
         terminalFailure: { status: 500, code: adminFallback.code },
         googleNoCrewMatch: false,
       };
+    } else {
+      if (googleNoCrewMatch) {
+        // A real Google session exists, but not for this show. Redirect
+        // to /me so the user can pick an accessible show or sign out.
+        return {
+          viewer: null,
+          clearCookie,
+          terminalFailure: null,
+          googleNoCrewMatch: true,
+        };
+      }
     }
   }
 

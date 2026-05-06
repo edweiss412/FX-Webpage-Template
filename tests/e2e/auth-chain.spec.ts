@@ -887,24 +887,19 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     // the unused `page` fixture (M5 §B Task 5.7 M2 fix).
   });
 
-  // ─── Test 13 (NEW, C1 regression): Google user not on this show's crew
-  //     does NOT halt the chain on step 3 — falls through to step 4,
-  //     and (when step 4 also fails) lands on /auth/sign-in. ────────────
-  test("Test 13a (C1): Google user whose email has no crew row on this show falls through step 3 (NOT a terminal_failure) and reaches /auth/sign-in", async ({
+  // ─── Test 13 (C1 regression): Google user not on this show's crew
+  //     does NOT halt the chain on step 3; after admin fallback also fails,
+  //     the page redirects to /me to avoid a sign-in redirect loop. ───────
+  test("Test 13a (C1): Google user whose email has no crew row on this show falls through step 3 (NOT a terminal_failure) and reaches /me", async ({
     page,
     request,
   }) => {
-    // C1 contract: validateGoogleSession returns
-    //   { kind: 'terminal_failure', status: 403, code: 'GOOGLE_NO_CREW_MATCH' }
-    // when an authenticated Google user has no crew row on the requested
-    // show. Pre-fix, the chain adapter treated ALL terminal_failures
-    // identically: `notFound()` (the catch-all 404 page). That swallowed
-    // the rare-but-real case where a non-admin Google user lands on a
-    // show they're not part of — they got 404 instead of being redirected
-    // to /auth/sign-in. Post-fix, status-403 terminal_failure from step
-    // 3 is treated as `continue`; the chain proceeds to step 4
-    // (requireAdmin), and when THAT also fails to resolve, the page
-    // handler's "no viewer" branch redirects to /auth/sign-in.
+    // C1 contract: validateGoogleSession returns continue with a
+    // GOOGLE_NO_CREW_MATCH signal when an authenticated Google user has
+    // no crew row on the requested show. The chain proceeds to step 4
+    // (requireAdmin), and when that also fails to resolve, the page
+    // redirects to /me so the already-signed-in user can choose an
+    // accessible show or sign out without looping through sign-in.
     //
     // Setup: NON_ADMIN_CREW_FIXTURE has a crew row on the auth-chain
     // show (`googleCrewId`) so by default validateGoogleSession resolves
@@ -928,8 +923,8 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
         { maxRedirects: 0, headers: { cookie: cookieHeader } },
       );
       // The C1 contract: NOT a 404 (terminal_failure → notFound) and
-      // NOT a 200 (no viewer should resolve). MUST be a redirect to
-      // /auth/sign-in (no-viewer branch in the page handler).
+      // NOT a 200 (no viewer should resolve). MUST be a redirect to /me
+      // to avoid colliding with sign-in's already-authenticated guard.
       expect(
         response.status(),
         "GOOGLE_NO_CREW_MATCH must NOT be treated as a terminal failure (would 404)",
@@ -938,10 +933,7 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
       const location = response.headers()["location"];
       expect(location).toBeTruthy();
       const url = new URL(location ?? "", "http://127.0.0.1:3000");
-      expect(url.pathname).toBe("/auth/sign-in");
-      expect(decodeURIComponent(url.searchParams.get("next") ?? "")).toBe(
-        `/show/${slug}`,
-      );
+      expect(url.pathname).toBe("/me");
     } finally {
       // Restore the googleCrew row so subsequent tests in this file (and
       // beforeEach reset assumptions) see it.
