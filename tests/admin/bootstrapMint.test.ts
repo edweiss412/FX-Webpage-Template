@@ -3,32 +3,21 @@
  *
  * Unit-test harness for `bootstrapMint`, the Server Action that
  * `app/show/[slug]/p/Bootstrap.tsx` invokes from its `useEffect` to:
- *   1. Run inside `withShowAdvisoryLock(showId, 'try', ...)` — round-8
- *      §B reverted R8 #2's switch to 'block' because blocking-mode held
- *      a DB connection per waiter (no lock_timeout / pool cap, burst-load
- *      caused connection exhaustion). Burst-resilience moved to
- *      client-side retry/backoff in Bootstrap.tsx.
- *   2. Read `app_settings.active_signing_key_id` INSIDE the lock so a
- *      concurrent §7.2.3 rotation can't slip between the read and the
- *      INSERT (the read-with-INSERT atomicity invariant from plan §199).
- *   3. INSERT a `bootstrap_nonces` row at composite PK `(nonce_hash, show_id)`
- *      pinned to the captured signing_key_id.
- *   4. APPEND a `{ nonce_hash, show_id, issued_at, signing_key_id }` entry
+ *   1. Call `mint_bootstrap_nonce_atomic`, a lock-taking RPC that reads
+ *      `app_settings.active_signing_key_id` and INSERTs a
+ *      `bootstrap_nonces` row in one Postgres transaction.
+ *   2. APPEND a `{ nonce_hash, show_id, issued_at, signing_key_id }` entry
  *      to the `__Host-fxav_bootstrap_v` cookie array (cap 5; evict oldest).
- *   5. Set the cookie via `cookies().set(...)` with the canonical `__Host-`
+ *   3. Set the cookie via `cookies().set(...)` with the canonical `__Host-`
  *      attribute set (HttpOnly, Secure, SameSite=Lax, Path=/, Max-Age=30,
  *      no Domain).
- *   6. Return `{ nonce }` so the client island can echo it (alongside the
+ *   4. Return `{ nonce }` so the client island can echo it (alongside the
  *      JWT extracted from `location.hash`) into the redeem-link POST body.
  *
  * Mock surface:
  *   - `next/headers` cookies() — get/set/getAll a programmable cookie store.
  *   - `@/lib/supabase/server` createSupabaseServiceRoleClient — the
- *     Supabase builder mocks `.from('app_settings').select(...).eq(...)
- *     .single()` (returns `{ data: { active_signing_key_id } }`) and
- *     `.from('bootstrap_nonces').insert(...)` (records the row).
- *   - `@/lib/db/advisoryLock` withShowAdvisoryLock — spied so we can
- *     assert the action ran inside it with mode 'try'.
+ *     Supabase mock handles `.rpc('mint_bootstrap_nonce_atomic', ...)`.
  *
  * Anti-tautology discipline:
  *   - Cookie-name assertion compares against the literal
@@ -67,6 +56,7 @@ const mockState = vi.hoisted(() => ({
     show_id: string;
     signing_key_id: string;
   }>,
+  rpcCalls: [] as string[],
   // Failure mode toggles — when set, the next insert returns this error.
   insertError: null as null | { message: string },
   // R12 #3: defense-in-depth published-show gate inside bootstrapMint.
@@ -193,7 +183,43 @@ vi.mock("@/lib/supabase/server", () => ({
       }
       throw new Error(`unexpected from(${table})`);
     };
-    return { from: builder };
+    return {
+      from: builder,
+      rpc: async (name: string, params: Record<string, unknown>) => {
+        mockState.rpcCalls.push(name);
+        if (name !== "mint_bootstrap_nonce_atomic") {
+          return { data: null, error: { message: `unexpected rpc ${name}` } };
+        }
+        if (mockState.showLookupError) {
+          return { data: null, error: mockState.showLookupError };
+        }
+        if (!mockState.showPublished) {
+          return {
+            data: [{ status: "show_unavailable", signing_key_id: null }],
+            error: null,
+          };
+        }
+        if (mockState.insertError) {
+          return { data: null, error: mockState.insertError };
+        }
+        const signingKeyId = mockState.signingKeyIdSequence.shift();
+        if (signingKeyId === undefined) {
+          return {
+            data: [{ status: "signing_key_unavailable", signing_key_id: null }],
+            error: null,
+          };
+        }
+        mockState.insertedNonces.push({
+          nonce_hash: String(params.p_nonce_hash),
+          show_id: String(params.p_show_id),
+          signing_key_id: signingKeyId,
+        });
+        return {
+          data: [{ status: "minted", signing_key_id: signingKeyId }],
+          error: null,
+        };
+      },
+    };
   },
   // Not used by bootstrapMint, but the action's module imports may pull this
   // path; provide a stub so vi.mock fully shadows the real module.
@@ -219,6 +245,7 @@ import { bootstrapMint } from "@/app/show/[slug]/p/actions";
 function resetState() {
   mockState.signingKeyIdSequence = [];
   mockState.insertedNonces = [];
+  mockState.rpcCalls = [];
   mockState.insertError = null;
   mockState.showPublished = true;
   mockState.showLookupError = null;
@@ -266,14 +293,11 @@ describe("bootstrapMint", () => {
     expect(typeof result.nonce).toBe("string");
     expect(result.nonce.length).toBeGreaterThan(0);
 
-    // Advisory lock contract: held in 'try' mode for this showId.
-    // R8 #2 briefly switched this to 'block' for burst-load resilience,
-    // but round-8 §B caught that 'block' mode causes DB connection
-    // exhaustion (each waiter holds a connection while queued, no
-    // lock_timeout). Reverted to 'try' in R9 #2; burst-resilience moved
-    // to client-side retry/backoff in Bootstrap.tsx.
-    expect(mockState.withLockSpy).toHaveBeenCalledTimes(1);
-    expect(mockState.withLockSpy).toHaveBeenCalledWith(VALID_SHOW_ID, "try");
+    // Lock contract: nonce minting is a single lock-taking RPC so the
+    // read of app_settings and INSERT into bootstrap_nonces occur in the
+    // same Postgres transaction.
+    expect(mockState.withLockSpy).not.toHaveBeenCalled();
+    expect(mockState.rpcCalls).toEqual(["mint_bootstrap_nonce_atomic"]);
 
     // Exactly one row inserted; signing_key_id matches what we seeded.
     expect(mockState.insertedNonces).toHaveLength(1);
@@ -294,7 +318,7 @@ describe("bootstrapMint", () => {
     // Cookie attributes — anti-tautology: literal cookie name AND every
     // canonical __Host- attribute.
     expect(mockState.setSpy).toHaveBeenCalledTimes(1);
-    const [name, _value, opts] = mockState.setSpy.mock.calls[0]! as [
+    const [name, , opts] = mockState.setSpy.mock.calls[0]! as [
       string,
       string,
       Record<string, unknown>,
@@ -414,8 +438,9 @@ describe("bootstrapMint", () => {
 
     await expect(bootstrapMint("not-a-uuid")).rejects.toThrow();
 
-    // Should never have entered the lock — input validation precedes the lock.
+    // Should never have entered the DB path — input validation precedes RPC.
     expect(mockState.withLockSpy).not.toHaveBeenCalled();
+    expect(mockState.rpcCalls).toEqual([]);
     expect(mockState.insertedNonces).toHaveLength(0);
     expect(mockState.setSpy).not.toHaveBeenCalled();
   });
@@ -423,6 +448,7 @@ describe("bootstrapMint", () => {
   test("malformed showId (empty string) → throws; no DB call", async () => {
     await expect(bootstrapMint("")).rejects.toThrow();
     expect(mockState.withLockSpy).not.toHaveBeenCalled();
+    expect(mockState.rpcCalls).toEqual([]);
     expect(mockState.insertedNonces).toHaveLength(0);
   });
 
@@ -431,6 +457,7 @@ describe("bootstrapMint", () => {
       bootstrapMint("'; DROP TABLE bootstrap_nonces; --"),
     ).rejects.toThrow();
     expect(mockState.withLockSpy).not.toHaveBeenCalled();
+    expect(mockState.rpcCalls).toEqual([]);
     expect(mockState.insertedNonces).toHaveLength(0);
   });
 
@@ -444,6 +471,7 @@ describe("bootstrapMint", () => {
       bootstrapMint("11111111-AAAA-1111-1111-111111111111"),
     ).rejects.toThrow();
     expect(mockState.withLockSpy).not.toHaveBeenCalled();
+    expect(mockState.rpcCalls).toEqual([]);
     expect(mockState.insertedNonces).toHaveLength(0);
     expect(mockState.setSpy).not.toHaveBeenCalled();
   });
@@ -454,9 +482,8 @@ describe("bootstrapMint", () => {
 
     await expect(bootstrapMint(VALID_SHOW_ID)).rejects.toThrow();
 
-    // The lock was entered (input validation passed), but the cookie write
-    // happens only after the row INSERT succeeds. So no cookie mutation.
-    expect(mockState.withLockSpy).toHaveBeenCalledTimes(1);
+    expect(mockState.withLockSpy).not.toHaveBeenCalled();
+    expect(mockState.rpcCalls).toEqual(["mint_bootstrap_nonce_atomic"]);
     expect(mockState.setSpy).not.toHaveBeenCalled();
   });
 
@@ -528,12 +555,12 @@ describe("bootstrapMint", () => {
     expect(mockState.signingKeyIdSequence).toEqual(["k1"]);
   });
 
-  test("R12 #3: shows.published lookup error throws before any mutation", async () => {
+  test("R12 #3: locked nonce-mint RPC error throws before any cookie mutation", async () => {
     mockState.showLookupError = { message: "fake DB outage" };
     mockState.signingKeyIdSequence.push("k1");
 
     await expect(bootstrapMint(VALID_SHOW_ID)).rejects.toThrow(
-      /shows\.published lookup failed/,
+      /bootstrap_nonces insert failed/,
     );
 
     expect(mockState.insertedNonces).toEqual([]);

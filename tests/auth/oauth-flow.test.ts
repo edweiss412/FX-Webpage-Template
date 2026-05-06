@@ -221,6 +221,28 @@ describe("OAuth callback route", () => {
     );
   });
 
+  test("clears chunked PKCE verifier cookies on successful callback", async () => {
+    const { GET } = await import("@/app/auth/callback/route");
+
+    const response = await GET(
+      new NextRequest("https://crew.fxav.test/auth/callback?code=abc&next=/me", {
+        headers: {
+          cookie:
+            "sb-test-auth-token-code-verifier.0=chunk0; sb-test-auth-token-code-verifier.1=chunk1",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(302);
+    const setCookies = setCookieLines(response);
+    expect(setCookies).toContain(
+      "sb-test-auth-token-code-verifier.0=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
+    expect(setCookies).toContain(
+      "sb-test-auth-token-code-verifier.1=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
+  });
+
   test("redirects PKCE/state failures with canonical OAUTH_STATE_INVALID code", async () => {
     server.client.auth.exchangeCodeForSession.mockResolvedValue({
       data: null,

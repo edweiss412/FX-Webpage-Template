@@ -25,7 +25,7 @@ function signInRedirect(request: NextRequest, code: OAuthRedirectCode, nextPath:
 
 function clearPkceVerifierCookies(request: NextRequest, response: NextResponse): void {
   for (const cookie of request.cookies.getAll()) {
-    if (!/^sb-[^-]+-auth-token-code-verifier$/.test(cookie.name)) {
+    if (!/^sb-[^-]+-auth-token-code-verifier(?:\.\d+)?$/.test(cookie.name)) {
       continue;
     }
     response.headers.append(

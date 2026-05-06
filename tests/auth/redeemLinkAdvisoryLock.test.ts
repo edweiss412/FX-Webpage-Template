@@ -40,6 +40,12 @@ const state = vi.hoisted(() => ({
    * LINK_REDEEM_KEY_ROTATED.
    */
   kidAtInsertTime: "k1",
+  mintStatusAtInsertTime: "minted" as
+    | "minted"
+    | "no_crew_match"
+    | "version_mismatch"
+    | "revoked_floor"
+    | "revoked_surgical",
 }));
 
 vi.mock("@/lib/db/advisoryLock", () => ({
@@ -244,15 +250,21 @@ vi.mock("@/lib/supabase/server", () => ({
       if (name !== "mint_link_session_if_active_kid_matches") {
         return { data: null, error: { message: `unknown rpc: ${name}` } };
       }
-      // R10 #3: emulates Postgres conditional INSERT semantics. If the
-      // active kid at insert time matches p_verified_kid, the RPC's
-      // INSERT ... SELECT ... WHERE active_signing_key_id = $verified_kid
-      // returns the inserted token row; otherwise zero rows.
+      // R10 #3 + adversarial M5 review: emulate Postgres conditional
+      // INSERT semantics at the serialized point. The RPC returns a
+      // precise status without minting if key/auth/revocation state raced
+      // after the route's pre-checks.
       if (params.p_verified_kid !== state.kidAtInsertTime) {
-        return { data: [], error: null };
+        return { data: [{ status: "key_rotated", token: null }], error: null };
+      }
+      if (state.mintStatusAtInsertTime !== "minted") {
+        return {
+          data: [{ status: state.mintStatusAtInsertTime, token: null }],
+          error: null,
+        };
       }
       state.insertCount += 1;
-      return { data: [{ token: params.p_token }], error: null };
+      return { data: [{ status: "minted", token: params.p_token }], error: null };
     },
   }),
 }));
@@ -271,6 +283,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
     state.signingKeyIdQueue = [];
     state.insertCount = 0;
     state.kidAtInsertTime = "k1";
+    state.mintStatusAtInsertTime = "minted";
     state.readErrors.clear();
     state.crewExists = true;
     state.showPublished = true;
@@ -626,6 +639,51 @@ describe("/api/auth/redeem-link advisory lock", () => {
       setCookies.find((line) => line.startsWith("__Host-fxav_session=")),
     ).toBeUndefined();
   });
+
+  test("token-version race before locked mint returns LINK_VERSION_MISMATCH without minting", async () => {
+    state.mintStatusAtInsertTime = "version_mismatch";
+
+    const response = await POST(
+      requestFor({
+        cookieEntries: [matchingCookieEntry()],
+      }),
+    );
+
+    expect(response.status).toBe(410);
+    await expect(response.json()).resolves.toEqual({
+      code: "LINK_VERSION_MISMATCH",
+    });
+    expect(state.insertCount).toBe(0);
+    const setCookies = response.headers.getSetCookie();
+    expect(
+      setCookies.find((line) => line.startsWith("__Host-fxav_session=")),
+    ).toBeUndefined();
+  });
+
+  test.each([
+    ["no_crew_match", 410, "LINK_NO_CREW_MATCH"],
+    ["revoked_floor", 410, "LINK_REVOKED_FLOOR"],
+    ["revoked_surgical", 410, "LINK_REVOKED_SURGICAL"],
+  ] as const)(
+    "%s race before locked mint returns %s without minting",
+    async (mintStatus, expectedStatus, expectedCode) => {
+      state.mintStatusAtInsertTime = mintStatus;
+
+      const response = await POST(
+        requestFor({
+          cookieEntries: [matchingCookieEntry()],
+        }),
+      );
+
+      expect(response.status).toBe(expectedStatus);
+      await expect(response.json()).resolves.toEqual({ code: expectedCode });
+      expect(state.insertCount).toBe(0);
+      const setCookies = response.headers.getSetCookie();
+      expect(
+        setCookies.find((line) => line.startsWith("__Host-fxav_session=")),
+      ).toBeUndefined();
+    },
+  );
 
   test("kid rotation between bootstrap and redeem consumes nonce before CSRF_KEY_ROTATED", async () => {
     state.signingKeyIdQueue = ["k2"];

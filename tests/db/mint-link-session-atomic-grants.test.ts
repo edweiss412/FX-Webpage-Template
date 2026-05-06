@@ -3,8 +3,8 @@
  *
  * Asserts the grant shape on
  * public.mint_link_session_if_active_kid_matches(text,uuid,uuid,int,text,
- * timestamptz,timestamptz,text), defined in
- * supabase/migrations/20260504000003_mint_link_session_atomic.sql.
+ * timestamptz,timestamptz,text), currently defined in
+ * supabase/migrations/20260505000003_recheck_link_session_mint_auth_state.sql.
  *
  * The function is a privileged write helper: it INSERTs into
  * link_sessions conditional on app_settings.active_signing_key_id
@@ -62,18 +62,18 @@ describe("public.mint_link_session_if_active_kid_matches grants", () => {
     expect(proacl).not.toMatch(/authenticated=X\//);
   });
 
-  test("function body does not re-acquire the per-show advisory lock", () => {
+  test("function body takes the per-show advisory lock and re-checks auth state", () => {
     const sql = readFileSync(
-      "supabase/migrations/20260504000003_mint_link_session_atomic.sql",
+      "supabase/migrations/20260505000003_recheck_link_session_mint_auth_state.sql",
       "utf8",
     );
 
     const body = sql
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/^[ \t]*--.*$/gm, "");
-    expect(body).not.toMatch(
-      /\bpg_(?:try_)?advisory_xact_lock\s*\(/i,
-    );
+    expect(body).toMatch(/\bpg_advisory_xact_lock\s*\(/i);
+    expect(body).toMatch(/public\.crew_member_auth/i);
+    expect(body).toMatch(/public\.revoked_links/i);
     expect(body).toMatch(
       /insert\s+into\s+public\.link_sessions/i,
     );

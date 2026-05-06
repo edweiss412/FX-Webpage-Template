@@ -57,6 +57,17 @@ type ConsumeBootstrapNonceResult = {
   consumed_at: string | null;
 };
 
+type MintLinkSessionResult = {
+  status:
+    | "minted"
+    | "key_rotated"
+    | "no_crew_match"
+    | "version_mismatch"
+    | "revoked_floor"
+    | "revoked_surgical";
+  token: string | null;
+};
+
 function jsonError(status: number, code: string): Response {
   return NextResponse.json({ code }, { status });
 }
@@ -371,13 +382,30 @@ export async function POST(request: NextRequest): Promise<Response> {
         p_last_active_at: now.toISOString(),
         p_verified_kid: verified.verifiedKid,
       },
-    )) as { data: Array<{ token: string }> | null; error: unknown };
+    )) as { data: MintLinkSessionResult[] | null; error: unknown };
     if (insertResult.error) {
       return withBootstrapCleanup(jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED"));
     }
-    if (!insertResult.data || insertResult.data.length === 0) {
-      // Active signing key rotated between verifyLinkJwt() and INSERT.
-      return withBootstrapCleanup(jsonError(403, "LINK_REDEEM_KEY_ROTATED"));
+    const mintStatus = insertResult.data?.[0]?.status;
+    if (mintStatus !== "minted") {
+      if (mintStatus === "key_rotated" || mintStatus === undefined) {
+        // Active signing key rotated between verifyLinkJwt() and INSERT,
+        // or the RPC returned no structured status.
+        return withBootstrapCleanup(jsonError(403, "LINK_REDEEM_KEY_ROTATED"));
+      }
+      if (mintStatus === "no_crew_match") {
+        return withBootstrapCleanup(jsonError(410, "LINK_NO_CREW_MATCH"));
+      }
+      if (mintStatus === "version_mismatch") {
+        return withBootstrapCleanup(jsonError(410, "LINK_VERSION_MISMATCH"));
+      }
+      if (mintStatus === "revoked_floor") {
+        return withBootstrapCleanup(jsonError(410, "LINK_REVOKED_FLOOR"));
+      }
+      if (mintStatus === "revoked_surgical") {
+        return withBootstrapCleanup(jsonError(410, "LINK_REVOKED_SURGICAL"));
+      }
+      return withBootstrapCleanup(jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED"));
     }
 
     const response = NextResponse.json({ crew_member_id: crew.id });

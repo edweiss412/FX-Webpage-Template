@@ -17,6 +17,8 @@ function lockTakingRpcNames(): string[] {
     "supabase/migrations/20260504000003_mint_link_session_atomic.sql",
     "supabase/migrations/20260504000004_revoke_leaked_link_atomic_advisory_lock.sql",
     "supabase/migrations/20260505000001_redeem_link_locked_rpcs.sql",
+    "supabase/migrations/20260505000002_mint_bootstrap_nonce_atomic.sql",
+    "supabase/migrations/20260505000003_recheck_link_session_mint_auth_state.sql",
   ];
 
   const names = new Set<string>();
@@ -42,6 +44,7 @@ describe("advisory-lock RPC deadlock guard", () => {
     expect(lockTakingNames).toContain("revoke_leaked_link_atomic");
     expect(lockTakingNames).toContain("consume_bootstrap_nonce_atomic");
     expect(lockTakingNames).toContain("mint_link_session_if_active_kid_matches");
+    expect(lockTakingNames).toContain("mint_bootstrap_nonce_atomic");
 
     const sourceFiles = [
       "app/api/auth/redeem-link/route.ts",
@@ -76,5 +79,14 @@ describe("advisory-lock RPC deadlock guard", () => {
     expect(source).not.toMatch(/withShowAdvisoryLock\s*\(/);
     expect(source).toMatch(/\.rpc\(\s*["']consume_bootstrap_nonce_atomic["']/);
     expect(source).toMatch(/\.rpc\(\s*["']mint_link_session_if_active_kid_matches["']/);
+  });
+
+  test("bootstrap nonce mint does not use JS-side advisory lock around Supabase mutations", () => {
+    const source = stripComments(
+      readFileSync(join(ROOT, "app/show/[slug]/p/actions.ts"), "utf8"),
+    );
+
+    expect(source).not.toMatch(/withShowAdvisoryLock\s*\(/);
+    expect(source).toMatch(/\.rpc\(\s*["']mint_bootstrap_nonce_atomic["']/);
   });
 });

@@ -27,19 +27,16 @@
  *   between the read and the INSERT, the redeem-link route's row-vs-cookie
  *   kid comparison would mis-classify a benign rotation race as
  *   `CSRF_DENIED` (instead of the correct `CSRF_KEY_ROTATED`). To prevent
- *   the race, we read `app_settings.active_signing_key_id` INSIDE the
- *   per-show advisory lock, then INSERT the row and write the cookie
- *   entry from the SAME captured value — all within the same lock.
+ *   the race, `mint_bootstrap_nonce_atomic` reads
+ *   `app_settings.active_signing_key_id` and INSERTs the row inside one
+ *   lock-taking Postgres transaction. The action writes the cookie entry
+ *   from the signing_key_id returned by that RPC.
  *
  * Per-show advisory lock invariant (AGENTS.md §1.2):
  *   Every code path that mutates `bootstrap_nonces` (a row keyed by show)
- *   runs inside `withShowAdvisoryLock(showId, 'try', ...)`. The 'try'
- *   mode is correct: bootstrap rendering should NOT block on a contended
- *   lock — if another concurrent bootstrap mint is in flight for this
- *   show, surface the transient error so the page reload retries
- *   naturally. (At 30s nonce TTL + ~1ms INSERT, contention is effectively
- *   impossible in practice; the lock exists as a defense-in-depth
- *   guarantee.)
+ *   goes through `mint_bootstrap_nonce_atomic`, which uses
+ *   `pg_try_advisory_xact_lock(hashtext('show:' || drive_file_id))` and
+ *   returns a transient busy status instead of blocking a request thread.
  *
  * Cookie array contract:
  *   - Existing array is parsed defensively (any malformed cookie is
@@ -84,7 +81,6 @@ import {
   BOOTSTRAP_COOKIE_NAME,
   BOOTSTRAP_NONCE_MAX_AGE_SEC,
 } from "@/lib/auth/constants";
-import { withShowAdvisoryLock } from "@/lib/db/advisoryLock";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 // Local UUID regex — duplicated from `lib/auth/constants.ts` (UUID_RE)
@@ -107,6 +103,15 @@ type BootstrapCookieEntry = {
   show_id: string;
   issued_at: string;
   signing_key_id: string;
+};
+
+type MintBootstrapNonceResult = {
+  status:
+    | "minted"
+    | "busy"
+    | "show_unavailable"
+    | "signing_key_unavailable";
+  signing_key_id: string | null;
 };
 
 function parseExistingCookie(
@@ -163,123 +168,69 @@ export async function bootstrapMint(
     throw new Error("bootstrapMint: showId must be a UUID");
   }
 
-  // Round-8 §B finding: 'block' mode (R8 #2) caused DB connection exhaustion
-  // — withShowAdvisoryLock allocates one postgres client per call, and a
-  // burst of 50+ blocked waiters all held a connection while queued on the
-  // same show lock, with no lock_timeout / pool cap. Reverting to 'try'
-  // mode (which fails fast on contention without holding a connection) and
-  // moving burst-resilience into a CLIENT-SIDE retry/backoff loop in
-  // Bootstrap.tsx. Each retry is a fresh request that creates and releases
-  // a connection — connections never queue.
-  const result = await withShowAdvisoryLock(showId, "try", async () => {
-    const supabase = createSupabaseServiceRoleClient();
+  // UUIDv4 is 122 random bits; combined with the show_id composite-PK
+  // partition this exceeds the §A schema's "cryptographically random"
+  // requirement and matches the redeem-link route's session-token mint.
+  const nonce = randomUUID();
+  const nonceHash = createHash("sha256").update(nonce).digest("hex");
+  const issuedAt = new Date().toISOString();
 
-    // R12 #3 (round-11 §B HIGH): defense-in-depth published gate. R11
-    // #2 added the page-level gate at /show/[slug]/p/page.tsx, but
-    // Server Actions have their own dispatch path; an attacker who
-    // skips the page render and POSTs directly to this Server Action
-    // with an unpublished show UUID could still trigger DB/cookie
-    // mutation. Refuse unpublished shows here too — under the show
-    // advisory lock so the check + INSERT pair is consistent.
-    const visibility = await supabase
-      .from("shows")
-      .select("published")
-      .eq("id", showId)
-      .maybeSingle();
-    if (visibility.error) {
-      throw new Error(
-        `bootstrapMint: shows.published lookup failed: ${visibility.error.message}`,
-      );
-    }
-    if (!visibility.data || !visibility.data.published) {
-      // Throw the same shape as malformed-input — clients see a
-      // generic Server Action failure, not a published-state oracle.
-      throw new Error("bootstrapMint: show not available");
-    }
+  const supabase = createSupabaseServiceRoleClient();
+  const mint = (await supabase.rpc("mint_bootstrap_nonce_atomic", {
+    p_show_id: showId,
+    p_nonce_hash: nonceHash,
+    p_issued_at: issuedAt,
+  })) as { data: MintBootstrapNonceResult[] | null; error: { message?: string } | null };
 
-    // (1) Read active signing key id INSIDE the lock so concurrent
-    // §7.2.3 rotation can't slip between this SELECT and the INSERT
-    // below. The captured value is then used as the SAME source-of-truth
-    // for both (a) the bootstrap_nonces row write and (b) the cookie
-    // envelope entry write — guaranteeing the redeem-link route's
-    // row-vs-cookie kid comparison succeeds for every legitimate render.
-    const { data: appSettings, error: appSettingsError } = await supabase
-      .from("app_settings")
-      .select("active_signing_key_id")
-      .eq("id", "default")
-      .single();
-    if (
-      appSettingsError ||
-      !appSettings ||
-      typeof appSettings.active_signing_key_id !== "string" ||
-      appSettings.active_signing_key_id.length === 0
-    ) {
-      throw new Error(
-        "bootstrapMint: active signing key id unavailable from app_settings",
-      );
-    }
-    const signingKeyId: string = appSettings.active_signing_key_id;
-
-    // (2) Generate the nonce + SHA-256 hash for the row's PK component.
-    // UUIDv4 is 122 random bits; combined with the show_id composite-PK
-    // partition this exceeds the §A schema's "cryptographically random"
-    // requirement and matches the pattern already established by the
-    // redeem-link route's session-token mint (`route.ts:234`).
-    const nonce = randomUUID();
-    const nonceHash = createHash("sha256").update(nonce).digest("hex");
-
-    // (3) INSERT the row at composite PK (nonce_hash, show_id) carrying
-    // the captured signing_key_id. The insert is non-conditional — the
-    // 122-bit nonce + show_id partition makes a PK collision effectively
-    // impossible in any realistic time horizon.
-    const insertResult = await supabase.from("bootstrap_nonces").insert({
-      nonce_hash: nonceHash,
-      show_id: showId,
-      signing_key_id: signingKeyId,
-    });
-    if (insertResult.error) {
-      throw new Error(
-        `bootstrapMint: bootstrap_nonces insert failed: ${insertResult.error.message}`,
-      );
-    }
-
-    // (4) Append + cap the cookie array; set the cookie via Next's
-    // cookies() API. Server-Action context allows mutation (Server
-    // Component render context does not — that's why we route through a
-    // Server Action rather than mutating from the page render).
-    const cookieStore = await cookies();
-    const existing = parseExistingCookie(
-      cookieStore.get(BOOTSTRAP_COOKIE_NAME)?.value,
+  if (mint.error) {
+    throw new Error(
+      `bootstrapMint: bootstrap_nonces insert failed: ${mint.error.message ?? "unknown error"}`,
     );
-    const newEntry: BootstrapCookieEntry = {
-      nonce_hash: nonceHash,
-      show_id: showId,
-      issued_at: new Date().toISOString(),
-      signing_key_id: signingKeyId,
-    };
-    const updated = [...existing, newEntry].slice(
-      -BOOTSTRAP_COOKIE_ENTRY_LIMIT,
+  }
+  const outcome = mint.data?.[0];
+  if (!outcome || outcome.status === "signing_key_unavailable") {
+    throw new Error(
+      "bootstrapMint: active signing key id unavailable from app_settings",
     );
-    // Next 16's cookies().set(name, value, opts) URL-encodes the value
-    // automatically when emitting the Set-Cookie header. We pass the raw
-    // JSON string and let Next encode it once — the on-the-wire value
-    // matches the §A redeem-link route's `decodeURIComponent(raw)` parse
-    // contract (`app/api/auth/redeem-link/route.ts:68`). A second
-    // encodeURIComponent here would produce a double-encoded value that
-    // the §A parser would decode only once, yielding garbage JSON.
-    const cookieValue = JSON.stringify(updated);
+  }
+  if (outcome.status === "busy") {
+    throw new Error("bootstrapMint: show lock unavailable");
+  }
+  if (outcome.status === "show_unavailable") {
+    throw new Error("bootstrapMint: show not available");
+  }
+  if (outcome.status !== "minted" || !outcome.signing_key_id) {
+    throw new Error("bootstrapMint: nonce mint failed");
+  }
 
-    cookieStore.set(BOOTSTRAP_COOKIE_NAME, cookieValue, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: BOOTSTRAP_NONCE_MAX_AGE_SEC,
-      // Note: no `domain` — the __Host- prefix forbids it.
-    });
+  const signingKeyId = outcome.signing_key_id;
 
-    return { nonce } satisfies BootstrapMintResult;
+  // Append + cap the cookie array; set the cookie via Next's cookies() API.
+  const cookieStore = await cookies();
+  const existing = parseExistingCookie(
+    cookieStore.get(BOOTSTRAP_COOKIE_NAME)?.value,
+  );
+  const newEntry: BootstrapCookieEntry = {
+    nonce_hash: nonceHash,
+    show_id: showId,
+    issued_at: issuedAt,
+    signing_key_id: signingKeyId,
+  };
+  const updated = [...existing, newEntry].slice(
+    -BOOTSTRAP_COOKIE_ENTRY_LIMIT,
+  );
+  // Next 16's cookies().set(name, value, opts) URL-encodes the value
+  // automatically when emitting the Set-Cookie header. We pass raw JSON.
+  const cookieValue = JSON.stringify(updated);
+
+  cookieStore.set(BOOTSTRAP_COOKIE_NAME, cookieValue, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: BOOTSTRAP_NONCE_MAX_AGE_SEC,
+    // Note: no `domain` — the __Host- prefix forbids it.
   });
 
-  return result;
+  return { nonce } satisfies BootstrapMintResult;
 }
