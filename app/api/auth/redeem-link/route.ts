@@ -13,6 +13,11 @@ import {
   encodeSessionCookieValue,
   setSessionCookie,
 } from "@/lib/auth/cookies";
+import {
+  decodeBootstrapCookieEntries,
+  encodeBootstrapCookieEntries,
+  type BootstrapCookieEntry,
+} from "@/lib/auth/bootstrapCookie";
 import { isJwtInfraError, verifyLinkJwt } from "@/lib/auth/jwt";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
@@ -27,13 +32,6 @@ type BootstrapNonceRow = {
   show_id: string;
   issued_at: string;
   consumed_at: string | null;
-  signing_key_id: string;
-};
-
-type BootstrapCookieEntry = {
-  nonce_hash: string;
-  show_id: string;
-  issued_at: string;
   signing_key_id: string;
 };
 
@@ -84,30 +82,6 @@ function parseCookie(req: Request, name: string): string | undefined {
     if (rawName === name) return value.join("=");
   }
   return undefined;
-}
-
-function parseBootstrapCookie(raw: string | undefined): BootstrapCookieEntry[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(decodeURIComponent(raw)) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((entry): entry is BootstrapCookieEntry => {
-        if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-          return false;
-        }
-        const e = entry as Record<string, unknown>;
-        return (
-          typeof e.nonce_hash === "string" &&
-          typeof e.show_id === "string" &&
-          typeof e.issued_at === "string" &&
-          typeof e.signing_key_id === "string"
-        );
-      })
-      .slice(-BOOTSTRAP_COOKIE_ENTRY_LIMIT);
-  } catch {
-    return [];
-  }
 }
 
 function sameOriginAllowed(req: Request): boolean {
@@ -203,7 +177,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     const hash = nonceHash(nonce);
-    const bootstrapEntries = parseBootstrapCookie(parseCookie(request, BOOTSTRAP_COOKIE_NAME));
+    const bootstrapEntries = decodeBootstrapCookieEntries(
+      parseCookie(request, BOOTSTRAP_COOKIE_NAME),
+    );
     const cookieEntry = bootstrapEntries.find(
       (entry) => entry.nonce_hash === hash && entry.show_id === showId,
     );
@@ -279,7 +255,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       remainingEntries.length === 0
         ? clearBootstrapCookie()
         : `${BOOTSTRAP_COOKIE_NAME}=${encodeURIComponent(
-            JSON.stringify(remainingEntries),
+            encodeBootstrapCookieEntries(remainingEntries),
           )}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${BOOTSTRAP_NONCE_MAX_AGE_SEC}`;
     const withBootstrapCleanup = <R extends Response>(response: R): R => {
       response.headers.append("Set-Cookie", bootstrapCleanupHeader);

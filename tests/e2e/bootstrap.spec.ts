@@ -61,6 +61,11 @@ import { randomUUID } from "node:crypto";
 import { expect, test, type Page, type BrowserContext } from "@playwright/test";
 
 import { signLinkJwt } from "@/lib/auth/jwt";
+import {
+  decodeBootstrapCookieEntries,
+  encodeBootstrapCookieEntries,
+  type BootstrapCookieEntry,
+} from "@/lib/auth/bootstrapCookie";
 import { admin } from "@/tests/e2e/helpers/supabaseAdmin";
 
 const TEST_SECRET = "redeem-link-test-secret-32-bytes-min";
@@ -70,13 +75,6 @@ const TEST_SECRET = "redeem-link-test-secret-32-bytes-min";
 // against the literal so a rename triggers a test failure here too.
 const BOOTSTRAP_COOKIE_LITERAL = "__Host-fxav_bootstrap_v";
 const SESSION_COOKIE_LITERAL = "__Host-fxav_session";
-
-type BootstrapCookieEntry = {
-  nonce_hash: string;
-  show_id: string;
-  issued_at: string;
-  signing_key_id: string;
-};
 
 /**
  * `__Host-` cookies require Secure + the browser refuses them on plain
@@ -190,15 +188,7 @@ class BootstrapCookieCapture {
   }
 
   latestEntries(): BootstrapCookieEntry[] {
-    if (this.latestRaw === null || this.latestRaw.length === 0) return [];
-    try {
-      const decoded = decodeURIComponent(this.latestRaw);
-      const parsed = JSON.parse(decoded) as unknown;
-      if (!Array.isArray(parsed)) return [];
-      return parsed as BootstrapCookieEntry[];
-    } catch {
-      return [];
-    }
+    return decodeBootstrapCookieEntries(this.latestRaw ?? undefined);
   }
 
   latestRawSetCookieLine(): string | null {
@@ -350,7 +340,7 @@ async function plantBootstrapCookie(
   // Re-encode for the wire — Playwright's addCookies stores the value
   // as-is, so we URL-encode here (matching what Next would emit on
   // Set-Cookie if the browser had accepted it).
-  const value = encodeURIComponent(JSON.stringify(entries));
+  const value = encodeURIComponent(encodeBootstrapCookieEntries(entries));
   await context.addCookies([
     {
       name: BOOTSTRAP_COOKIE_LITERAL,

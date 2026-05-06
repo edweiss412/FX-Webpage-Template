@@ -6,6 +6,7 @@ import {
   BOOTSTRAP_COOKIE_NAME,
   BOOTSTRAP_NONCE_MAX_AGE_SEC,
 } from "@/lib/auth/constants";
+import { encodeBootstrapCookieEntries } from "@/lib/auth/bootstrapCookie";
 
 const state = vi.hoisted(() => ({
   insideLock: false,
@@ -273,6 +274,7 @@ const { POST } = await import("@/app/api/auth/redeem-link/route");
 
 describe("/api/auth/redeem-link advisory lock", () => {
   beforeEach(() => {
+    process.env.JWT_SIGNING_SECRET = "redeem-link-advisory-lock-test-secret";
     state.insideLock = false;
     state.lockCalls = [];
     state.rpcCalls = [];
@@ -307,7 +309,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
     };
     if (options.cookieEntries) {
       headers.Cookie = `${BOOTSTRAP_COOKIE_NAME}=${encodeURIComponent(
-        JSON.stringify(options.cookieEntries),
+        encodeBootstrapCookieEntries(options.cookieEntries),
       )}`;
     }
     return new NextRequest("https://crew.fxav.test/api/auth/redeem-link", {
@@ -352,6 +354,34 @@ describe("/api/auth/redeem-link advisory lock", () => {
 
   test("missing bootstrap cookie returns CSRF_DENIED without consuming nonce", async () => {
     const response = await POST(requestFor());
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ code: "CSRF_DENIED" });
+    expect(state.consumeAttempts).toBe(0);
+    expect(state.consumedAt).toBeNull();
+  });
+
+  test("unsigned bootstrap cookie JSON is rejected even when nonce hash matches", async () => {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Origin: "https://crew.fxav.test",
+      "Sec-Fetch-Site": "same-origin",
+      Cookie: `${BOOTSTRAP_COOKIE_NAME}=${encodeURIComponent(
+        JSON.stringify([matchingCookieEntry()]),
+      )}`,
+    };
+
+    const response = await POST(
+      new NextRequest("https://crew.fxav.test/api/auth/redeem-link", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          token: "signed-jwt",
+          nonce: state.nonce,
+          show_id: state.showId,
+        }),
+      }),
+    );
 
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({ code: "CSRF_DENIED" });
@@ -808,7 +838,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
         Origin: "https://crew.fxav.test",
         "Sec-Fetch-Site": "same-origin",
         Cookie: `${BOOTSTRAP_COOKIE_NAME}=${encodeURIComponent(
-          JSON.stringify([matchingCookieEntry()]),
+          encodeBootstrapCookieEntries([matchingCookieEntry()]),
         )}`,
       },
       body: JSON.stringify({

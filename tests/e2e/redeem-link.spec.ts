@@ -3,6 +3,10 @@ import { expect, test } from "@playwright/test";
 
 import { signLinkJwt } from "@/lib/auth/jwt";
 import { BOOTSTRAP_COOKIE_NAME, SESSION_COOKIE_NAME } from "@/lib/auth/constants";
+import {
+  encodeBootstrapCookieEntries,
+  type BootstrapCookieEntry,
+} from "@/lib/auth/bootstrapCookie";
 import { admin } from "@/tests/e2e/helpers/supabaseAdmin";
 
 const TEST_SECRET = "redeem-link-test-secret-32-bytes-min";
@@ -17,8 +21,8 @@ function nonceHash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function bootstrapCookie(entries: unknown[]): string {
-  return encodeURIComponent(JSON.stringify(entries));
+function bootstrapCookie(entries: BootstrapCookieEntry[]): string {
+  return encodeURIComponent(encodeBootstrapCookieEntries(entries));
 }
 
 test.beforeAll(async () => {

@@ -81,6 +81,11 @@ import {
   BOOTSTRAP_COOKIE_NAME,
   BOOTSTRAP_NONCE_MAX_AGE_SEC,
 } from "@/lib/auth/constants";
+import {
+  decodeBootstrapCookieEntries,
+  encodeBootstrapCookieEntries,
+  type BootstrapCookieEntry,
+} from "@/lib/auth/bootstrapCookie";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 // Local UUID regex — duplicated from `lib/auth/constants.ts` (UUID_RE)
@@ -98,13 +103,6 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-type BootstrapCookieEntry = {
-  nonce_hash: string;
-  show_id: string;
-  issued_at: string;
-  signing_key_id: string;
-};
-
 type MintBootstrapNonceResult = {
   status:
     | "minted"
@@ -113,37 +111,6 @@ type MintBootstrapNonceResult = {
     | "signing_key_unavailable";
   signing_key_id: string | null;
 };
-
-function parseExistingCookie(
-  raw: string | undefined,
-): BootstrapCookieEntry[] {
-  if (!raw) return [];
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(raw);
-  } catch {
-    return [];
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(decoded);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-  return parsed.filter((entry): entry is BootstrapCookieEntry => {
-    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-      return false;
-    }
-    const e = entry as Record<string, unknown>;
-    return (
-      typeof e.nonce_hash === "string" &&
-      typeof e.show_id === "string" &&
-      typeof e.issued_at === "string" &&
-      typeof e.signing_key_id === "string"
-    );
-  });
-}
 
 export type BootstrapMintResult = {
   /**
@@ -207,7 +174,7 @@ export async function bootstrapMint(
 
   // Append + cap the cookie array; set the cookie via Next's cookies() API.
   const cookieStore = await cookies();
-  const existing = parseExistingCookie(
+  const existing = decodeBootstrapCookieEntries(
     cookieStore.get(BOOTSTRAP_COOKIE_NAME)?.value,
   );
   const newEntry: BootstrapCookieEntry = {
@@ -221,7 +188,7 @@ export async function bootstrapMint(
   );
   // Next 16's cookies().set(name, value, opts) URL-encodes the value
   // automatically when emitting the Set-Cookie header. We pass raw JSON.
-  const cookieValue = JSON.stringify(updated);
+  const cookieValue = encodeBootstrapCookieEntries(updated);
 
   cookieStore.set(BOOTSTRAP_COOKIE_NAME, cookieValue, {
     httpOnly: true,

@@ -38,6 +38,10 @@
  * All assertions in this file use the literal string for anti-tautology.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import {
+  decodeBootstrapCookieEntries,
+  encodeBootstrapCookieEntries,
+} from "@/lib/auth/bootstrapCookie";
 
 const COOKIE_NAME_LITERAL = "__Host-fxav_bootstrap_v";
 const VALID_SHOW_ID = "11111111-2222-3333-4444-555555555555";
@@ -243,6 +247,7 @@ vi.mock("@/lib/db/advisoryLock", () => ({
 import { bootstrapMint } from "@/app/show/[slug]/p/actions";
 
 function resetState() {
+  process.env.JWT_SIGNING_SECRET = "bootstrap-mint-test-secret";
   mockState.signingKeyIdSequence = [];
   mockState.insertedNonces = [];
   mockState.rpcCalls = [];
@@ -262,13 +267,7 @@ function readCookieArray(): Array<{
 }> {
   const entry = mockState.cookieJar.get(COOKIE_NAME_LITERAL);
   if (!entry) return [];
-  const decoded = decodeURIComponent(entry.value);
-  return JSON.parse(decoded) as Array<{
-    nonce_hash: string;
-    show_id: string;
-    issued_at: string;
-    signing_key_id: string;
-  }>;
+  return decodeBootstrapCookieEntries(entry.value);
 }
 
 async function sha256Hex(input: string): Promise<string> {
@@ -507,7 +506,7 @@ describe("bootstrapMint", () => {
       signing_key_id: "k1",
     }));
     mockState.cookieJar.set(COOKIE_NAME_LITERAL, {
-      value: encodeURIComponent(JSON.stringify(prefilled)),
+      value: encodeURIComponent(encodeBootstrapCookieEntries(prefilled)),
     });
     mockState.signingKeyIdSequence.push("k1");
 
