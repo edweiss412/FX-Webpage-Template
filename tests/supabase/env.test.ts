@@ -2,6 +2,22 @@ import { describe, expect, test, vi } from "vitest";
 
 const captures = vi.hoisted(() => ({
   server: null as null | { url: string; key: string },
+  serverCookieOptions: null as null | {
+    cookies: {
+      setAll: (
+        cookiesToSet: Array<{
+          name: string;
+          value: string;
+          options: Record<string, unknown>;
+        }>,
+      ) => void;
+    };
+  },
+  cookieSets: [] as Array<{
+    name: string;
+    value: string;
+    options: Record<string, unknown>;
+  }>,
   browser: null as null | { url: string; key: string },
   service: null as null | { url: string; key: string },
 }));
@@ -9,13 +25,26 @@ const captures = vi.hoisted(() => ({
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     getAll: () => [],
-    set: () => undefined,
+    set: (name: string, value: string, options: Record<string, unknown>) => {
+      captures.cookieSets.push({ name, value, options });
+    },
   }),
 }));
 
 vi.mock("@supabase/ssr", () => ({
-  createServerClient: vi.fn((url: string, key: string) => {
+  createServerClient: vi.fn((url: string, key: string, options: {
+    cookies: {
+      setAll: (
+        cookiesToSet: Array<{
+          name: string;
+          value: string;
+          options: Record<string, unknown>;
+        }>,
+      ) => void;
+    };
+  }) => {
     captures.server = { url, key };
+    captures.serverCookieOptions = options;
     return {};
   }),
   createBrowserClient: vi.fn((url: string, key: string) => {
@@ -36,6 +65,39 @@ const { createSupabaseServerClient, createSupabaseServiceRoleClient } =
 const { getSupabaseBrowserClient } = await import("@/lib/supabase/browser");
 
 describe("Supabase env aliases", () => {
+  test("server helper writes PKCE verifier cookies with HttpOnly attributes", async () => {
+    const oldEnv = { ...process.env };
+    try {
+      captures.cookieSets = [];
+      process.env.SUPABASE_URL = "https://project.supabase.co";
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY = "sb_publishable_doc";
+
+      await createSupabaseServerClient();
+      captures.serverCookieOptions!.cookies.setAll([
+        {
+          name: "sb-test-auth-token-code-verifier",
+          value: "verifier",
+          options: { path: "/" },
+        },
+      ]);
+
+      expect(captures.cookieSets).toEqual([
+        {
+          name: "sb-test-auth-token-code-verifier",
+          value: "verifier",
+          options: {
+            path: "/",
+            httpOnly: true,
+            secure: true,
+            sameSite: "lax",
+          },
+        },
+      ]);
+    } finally {
+      process.env = oldEnv;
+    }
+  });
+
   test("server, browser, and service-role helpers accept the documented Supabase key names", async () => {
     const oldEnv = { ...process.env };
     try {

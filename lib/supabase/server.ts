@@ -13,6 +13,24 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
+const SUPABASE_PKCE_VERIFIER_COOKIE_RE =
+  /^sb-[^-]+-auth-token-code-verifier(?:\.\d+)?$/;
+
+function hardenSupabaseCookieOptions(
+  name: string,
+  options: Parameters<Awaited<ReturnType<typeof cookies>>["set"]>[2],
+): Parameters<Awaited<ReturnType<typeof cookies>>["set"]>[2] {
+  if (!SUPABASE_PKCE_VERIFIER_COOKIE_RE.test(name)) {
+    return options;
+  }
+  return {
+    ...options,
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+  };
+}
+
 export async function createSupabaseServerClient() {
   const cookieStore = await cookies();
   const url = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -34,7 +52,12 @@ export async function createSupabaseServerClient() {
       setAll(cookiesToSet) {
         try {
           cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
+            const hardenedOptions = hardenSupabaseCookieOptions(name, options);
+            if (hardenedOptions === undefined) {
+              cookieStore.set(name, value);
+            } else {
+              cookieStore.set(name, value, hardenedOptions);
+            }
           });
         } catch {
           // Cookie writes from a Server Component are forbidden; the middleware/

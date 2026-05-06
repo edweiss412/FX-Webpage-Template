@@ -6,6 +6,7 @@ import { encodeSessionCookieValue } from "@/lib/auth/cookies";
 const server = vi.hoisted(() => ({
   client: {
     auth: {
+      signInWithOAuth: vi.fn(),
       exchangeCodeForSession: vi.fn(),
       getUser: vi.fn(),
       signOut: vi.fn(),
@@ -48,6 +49,69 @@ function setCookieLines(response: Response): string[] {
   const header = response.headers.get("set-cookie");
   return header ? header.split(/,\s*(?=[^;,=]+(?:=|;))/) : [];
 }
+
+describe("OAuth start route", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.test";
+    server.createSupabaseServerClient.mockResolvedValue(server.client);
+    server.client.auth.signInWithOAuth.mockResolvedValue({
+      data: { url: "https://accounts.google.test/oauth" },
+      error: null,
+    });
+  });
+
+  test("starts Google OAuth on the server and redirects to the provider URL", async () => {
+    const { GET } = await import("@/app/api/auth/google/start/route");
+
+    const response = await GET(
+      new NextRequest("https://crew.fxav.test/api/auth/google/start?next=/show/rpas-central"),
+    );
+
+    expect(server.client.auth.signInWithOAuth).toHaveBeenCalledWith({
+      provider: "google",
+      options: {
+        redirectTo:
+          "https://crew.fxav.test/auth/callback?next=%2Fshow%2Frpas-central",
+        queryParams: { prompt: "select_account" },
+      },
+    });
+    expect(response.status).toBe(302);
+    expect(locationOf(response)).toBe("https://accounts.google.test/oauth");
+  });
+
+  test("invalid next values return the cataloged redirect error before OAuth starts", async () => {
+    const { GET } = await import("@/app/api/auth/google/start/route");
+
+    const response = await GET(
+      new NextRequest("https://crew.fxav.test/api/auth/google/start?next=/show/rpas-central/p"),
+    );
+
+    expect(server.client.auth.signInWithOAuth).not.toHaveBeenCalled();
+    expect(response.status).toBe(302);
+    expect(locationOf(response)).toBe(
+      "https://crew.fxav.test/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin",
+    );
+  });
+
+  test("OAuth initiation failures return a cataloged sign-in error", async () => {
+    server.client.auth.signInWithOAuth.mockResolvedValue({
+      data: { url: null },
+      error: new Error("provider disabled"),
+    });
+    const { GET } = await import("@/app/api/auth/google/start/route");
+
+    const response = await GET(
+      new NextRequest("https://crew.fxav.test/api/auth/google/start?next=/me"),
+    );
+
+    expect(response.status).toBe(302);
+    expect(locationOf(response)).toBe(
+      "https://crew.fxav.test/auth/sign-in?code=ADMIN_SESSION_LOOKUP_FAILED&next=%2Fme",
+    );
+  });
+});
 
 describe("OAuth callback route", () => {
   beforeEach(() => {
