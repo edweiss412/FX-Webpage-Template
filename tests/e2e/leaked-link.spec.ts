@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, test, type APIResponse } from "@playwright/test";
 
 import { signLinkJwt } from "@/lib/auth/jwt";
 import { admin } from "@/tests/e2e/helpers/supabaseAdmin";
@@ -51,6 +51,13 @@ async function revokedRows() {
   return data;
 }
 
+async function expectLeakedLinkHtml(response: APIResponse) {
+  expect(response.headers()["content-type"]).toContain("text/html");
+  const body = await response.text();
+  expect(body).toContain("This link has been revoked");
+  expect(body).not.toContain("LEAKED_LINK_DETECTED");
+}
+
 test.beforeAll(async () => {
   process.env.JWT_SIGNING_SECRET = TEST_SECRET;
   await admin.from("shows").delete().eq("id", showId);
@@ -95,7 +102,7 @@ test("scans leaked ?t= on the root crew page and raises the revocation floor for
   const response = await request.get(await leakedUrl(`/show/${slug}`, 3));
 
   expect(response.status()).toBe(410);
-  await expect(response.json()).resolves.toMatchObject({ code: "LEAKED_LINK_DETECTED" });
+  await expectLeakedLinkHtml(response);
   expect(await revokedRows()).toEqual([
     { crew_name: crewName, token_version: 3, revoked_reason: "leaked_query_token" },
   ]);
@@ -135,7 +142,7 @@ test("leaked future versions lift current max issued and floor together in one t
   const response = await request.get(await leakedUrl(`/show/${slug}/p/anything`, 7));
 
   expect(response.status()).toBe(410);
-  await expect(response.json()).resolves.toMatchObject({ code: "LEAKED_LINK_DETECTED" });
+  await expectLeakedLinkHtml(response);
   expect(await revokedRows()).toEqual([
     { crew_name: crewName, token_version: 7, revoked_reason: "leaked_query_token" },
   ]);
