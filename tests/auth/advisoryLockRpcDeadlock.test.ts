@@ -16,6 +16,7 @@ function lockTakingRpcNames(): string[] {
     "supabase/migrations/20260502000000_dev_schema_clone.sql",
     "supabase/migrations/20260504000003_mint_link_session_atomic.sql",
     "supabase/migrations/20260504000004_revoke_leaked_link_atomic_advisory_lock.sql",
+    "supabase/migrations/20260505000001_redeem_link_locked_rpcs.sql",
   ];
 
   const names = new Set<string>();
@@ -39,6 +40,8 @@ describe("advisory-lock RPC deadlock guard", () => {
   test("no Supabase RPC that takes a show advisory lock is called inside withShowAdvisoryLock", () => {
     const lockTakingNames = lockTakingRpcNames();
     expect(lockTakingNames).toContain("revoke_leaked_link_atomic");
+    expect(lockTakingNames).toContain("consume_bootstrap_nonce_atomic");
+    expect(lockTakingNames).toContain("mint_link_session_if_active_kid_matches");
 
     const sourceFiles = [
       "app/api/auth/redeem-link/route.ts",
@@ -63,5 +66,15 @@ describe("advisory-lock RPC deadlock guard", () => {
         }
       }
     }
+  });
+
+  test("redeem-link route does not use JS-side advisory lock around Supabase mutations", () => {
+    const source = stripComments(
+      readFileSync(join(ROOT, "app/api/auth/redeem-link/route.ts"), "utf8"),
+    );
+
+    expect(source).not.toMatch(/withShowAdvisoryLock\s*\(/);
+    expect(source).toMatch(/\.rpc\(\s*["']consume_bootstrap_nonce_atomic["']/);
+    expect(source).toMatch(/\.rpc\(\s*["']mint_link_session_if_active_kid_matches["']/);
   });
 });

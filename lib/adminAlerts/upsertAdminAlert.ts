@@ -2,7 +2,8 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 export type AdminAlertCode =
   | "AMBIGUOUS_EMAIL_BINDING"
-  | "LEAKED_LINK_REVOCATION_FAILED";
+  | "LEAKED_LINK_REVOCATION_FAILED"
+  | "LEAKED_LINK_DETECTED";
 
 export type UpsertAdminAlertInput = {
   showId: string | null;

@@ -14,11 +14,6 @@ import {
   setSessionCookie,
 } from "@/lib/auth/cookies";
 import { isJwtInfraError, verifyLinkJwt } from "@/lib/auth/jwt";
-import {
-  ShowAdvisoryLockShowNotFoundError,
-  ShowAdvisoryLockUnavailableError,
-  withShowAdvisoryLock,
-} from "@/lib/db/advisoryLock";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 type RedeemBody = {
@@ -55,6 +50,11 @@ type AuthRow = {
 
 type ShowVisibilityRow = {
   published: boolean;
+};
+
+type ConsumeBootstrapNonceResult = {
+  status: "consumed" | "busy" | "show_unavailable" | "nonce_unavailable";
+  consumed_at: string | null;
 };
 
 function jsonError(status: number, code: string): Response {
@@ -167,19 +167,6 @@ export async function POST(request: NextRequest): Promise<Response> {
   const showId = body.show_id;
 
   try {
-    // R22 F3 (round-22 §B MEDIUM): switch from "block" to "try" mode.
-    // Pre-fix the wrapper held a dedicated postgres connection per
-    // blocked waiter while the winning callback ran multi-step Supabase
-    // operations — under a venue-scale burst (50+ crew opening signed
-    // links within seconds), waiters queued on the same per-show lock
-    // could starve the very Supabase calls needed to complete auth.
-    // Same connection-exhaustion class bootstrapMint fixed in R8 §B.
-    // Switch to "try" mode (fails fast on contention without holding a
-    // connection) and signal the client to retry with jittered
-    // exponential backoff via 503 + SHOW_BUSY_RETRY. The Bootstrap
-    // client already handles the retry pattern for bootstrapMint;
-    // R22 F3 extends it to the redeem-link POST.
-    return await withShowAdvisoryLock(showId, "try", async () => {
     const supabase = createSupabaseServiceRoleClient();
 
     // R9 #1: Published-show gate runs FIRST — before nonce-row lookup,
@@ -249,15 +236,19 @@ export async function POST(request: NextRequest): Promise<Response> {
       return jsonError(403, "CSRF_NONCE_EXPIRED");
     }
 
-    const consume = await supabase
-      .from("bootstrap_nonces")
-      .update({ consumed_at: new Date().toISOString() })
-      .eq("nonce_hash", hash)
-      .eq("show_id", showId)
-      .is("consumed_at", null)
-      .select("nonce_hash")
-      .maybeSingle();
-    if (consume.error || !consume.data) {
+    const consume = (await supabase.rpc("consume_bootstrap_nonce_atomic", {
+      p_show_id: showId,
+      p_nonce_hash: hash,
+      p_consumed_at: new Date().toISOString(),
+    })) as { data: ConsumeBootstrapNonceResult[] | null; error: unknown };
+    if (consume.error) {
+      return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
+    }
+    const consumeStatus = consume.data?.[0]?.status;
+    if (consumeStatus === "busy") {
+      return jsonError(503, "SHOW_BUSY_RETRY");
+    }
+    if (consumeStatus === "show_unavailable" || consumeStatus !== "consumed") {
       return jsonError(403, "CSRF_DENIED");
     }
 
@@ -397,20 +388,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       }),
     );
     return withBootstrapCleanup(response);
-    });
   } catch (error) {
-    if (error instanceof ShowAdvisoryLockShowNotFoundError) {
-      return jsonError(403, "CSRF_DENIED");
-    }
-    if (error instanceof ShowAdvisoryLockUnavailableError) {
-      // R22 F3: contention retry signal. The client (Bootstrap.tsx)
-      // retries with jittered exponential backoff. 503 status + a
-      // distinct wire code so the client can distinguish "infra is
-      // having a moment, retry shortly" from "infra is broken,
-      // surface error UI." The code is not user-visible — no
-      // catalog dougFacing/crewFacing copy needed.
-      return jsonError(503, "SHOW_BUSY_RETRY");
-    }
+    console.error("redeem-link failed", error);
     return jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED");
   }
 }

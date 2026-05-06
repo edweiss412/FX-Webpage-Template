@@ -110,6 +110,22 @@ async function upsertRevocationFailureAlert(input: {
   });
 }
 
+async function upsertLeakedLinkDetectedAlert(input: {
+  showId: string;
+  crewName: string;
+  tokenVersion: number;
+}): Promise<void> {
+  await upsertAdminAlert({
+    showId: input.showId,
+    code: "LEAKED_LINK_DETECTED",
+    context: {
+      source: "leaked_query_token",
+      crew_name: input.crewName,
+      token_version: input.tokenVersion,
+    },
+  });
+}
+
 async function revokeLeakedLinkAtomic(
   showId: string,
   crewName: string,
@@ -175,6 +191,12 @@ async function revokeLeakedLink(token: string): Promise<Response> {
       console.error("leaked-link revocation alert failed", alertError);
     }
     return leakedLinkRevocationFailureResponse();
+  }
+
+  try {
+    await upsertLeakedLinkDetectedAlert({ showId, crewName, tokenVersion });
+  } catch (alertError) {
+    console.error("leaked-link detected alert failed", alertError);
   }
 
   return leakedLinkResponse();

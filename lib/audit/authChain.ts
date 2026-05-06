@@ -34,6 +34,10 @@ function firstCall(calls: CallSite[], name: string): CallSite | undefined {
   return calls.find((call) => call.name === name);
 }
 
+function firstNamedCall(calls: CallSite[], names: string[]): CallSite | undefined {
+  return calls.find((call) => names.includes(call.name));
+}
+
 function hasDefaultModifier(node: ts.Node): boolean {
   return (
     ts.canHaveModifiers(node) &&
@@ -149,6 +153,77 @@ function auditPublicBootstrap(path: string, sourceFile: ts.SourceFile): AuthAudi
   return findings;
 }
 
+function auditRedeemLinkRoute(path: string, sourceFile: ts.SourceFile): AuthAuditFinding[] {
+  const findings: AuthAuditFinding[] = [];
+  const source = sourceFile.text;
+  if (/\bwithShowAdvisoryLock\b/.test(source)) {
+    findings.push(
+      `${path}: redeem-link mutations must be inside lock-taking RPCs, not sidecar withShowAdvisoryLock callbacks`,
+    );
+  }
+  if (!/\.rpc\(\s*["']consume_bootstrap_nonce_atomic["']/.test(source)) {
+    findings.push(`${path}: bootstrap nonce consume must use consume_bootstrap_nonce_atomic`);
+  }
+  if (!/\.rpc\(\s*["']mint_link_session_if_active_kid_matches["']/.test(source)) {
+    findings.push(`${path}: link-session mint must use mint_link_session_if_active_kid_matches`);
+  }
+  if (/\.from\(\s*["']bootstrap_nonces["'][\s\S]*?\.update\s*\(/.test(source)) {
+    findings.push(`${path}: bootstrap nonce consume must not be a TS-side Supabase update`);
+  }
+  return findings;
+}
+
+function auditCallbackRoute(path: string, sourceFile: ts.SourceFile): AuthAuditFinding[] {
+  const findings: AuthAuditFinding[] = [];
+  const getRoute = findFunction(sourceFile, "GET");
+  if (!getRoute?.body) {
+    findings.push(`${path}: missing GET route function`);
+    return findings;
+  }
+  const calls = collectCallSites(getRoute.body);
+  const nextValidation = firstNamedCall(calls, ["validateNextParamDetailed", "validateNextParam"]);
+  const redirect = firstNamedCall(calls, ["redirect", "redirectTo", "signInRedirect"]);
+  if (!nextValidation || (redirect && redirect.pos < nextValidation.pos)) {
+    findings.push(`${path}: callback must validate next before redirecting`);
+  }
+  return findings;
+}
+
+function auditSignInPage(path: string, sourceFile: ts.SourceFile): AuthAuditFinding[] {
+  const findings: AuthAuditFinding[] = [];
+  const page = findDefaultFunction(sourceFile);
+  if (!page?.body) {
+    findings.push(`${path}: missing default route function`);
+    return findings;
+  }
+  const calls = collectCallSites(page.body);
+  const nextValidation = firstCall(calls, "validateNextParam");
+  const redirectCall = firstCall(calls, "redirect");
+  if (!nextValidation || (redirectCall && redirectCall.pos < nextValidation.pos)) {
+    findings.push(`${path}: sign-in must validate next before redirecting`);
+  }
+  const source = sourceFile.text;
+  if (!/\bvalidateErrorCodeParam\b/.test(source) || !/\bErrorExplainer\b/.test(source)) {
+    findings.push(`${path}: sign-in error rendering must flow through validateErrorCodeParam and ErrorExplainer`);
+  }
+  return findings;
+}
+
+function auditSignOutRoute(path: string, sourceFile: ts.SourceFile): AuthAuditFinding[] {
+  const findings: AuthAuditFinding[] = [];
+  const getRoute = findFunction(sourceFile, "GET");
+  if (!getRoute?.body || !/\b405\b/.test(getRoute.body.getText(sourceFile))) {
+    findings.push(`${path}: GET must return 405`);
+  }
+  const postRoute = findFunction(sourceFile, "POST");
+  if (!postRoute?.body) {
+    findings.push(`${path}: missing POST route function`);
+  } else if (!collectCallSites(postRoute.body).some((call) => call.name === "clearSessionCookie")) {
+    findings.push(`${path}: POST must clear the FXAV session with clearSessionCookie`);
+  }
+  return findings;
+}
+
 export function auditM5AuthFile(path: string, source: string): AuthAuditFinding[] {
   const sourceFile = parse(path, source);
   if (path === "app/show/[slug]/page.tsx") {
@@ -159,6 +234,18 @@ export function auditM5AuthFile(path: string, source: string): AuthAuditFinding[
   }
   if (path === "app/show/[slug]/p/page.tsx") {
     return auditPublicBootstrap(path, sourceFile);
+  }
+  if (path === "app/api/auth/redeem-link/route.ts") {
+    return auditRedeemLinkRoute(path, sourceFile);
+  }
+  if (path === "app/auth/sign-in/page.tsx") {
+    return auditSignInPage(path, sourceFile);
+  }
+  if (path === "app/auth/callback/route.ts") {
+    return auditCallbackRoute(path, sourceFile);
+  }
+  if (path === "app/auth/sign-out/route.ts") {
+    return auditSignOutRoute(path, sourceFile);
   }
   return [];
 }

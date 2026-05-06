@@ -10,6 +10,7 @@ import {
 const state = vi.hoisted(() => ({
   insideLock: false,
   lockCalls: [] as Array<{ showId: string; mode: string }>,
+  rpcCalls: [] as string[],
   mutationsOutsideLock: [] as string[],
   showId: "11111111-1111-4111-8111-111111111111",
   nonce: "nonce",
@@ -217,8 +218,29 @@ vi.mock("@/lib/supabase/server", () => ({
     from: builder,
     rpc: async (
       name: string,
-      params: { p_verified_kid: string; p_token: string },
+      params: Record<string, unknown>,
     ) => {
+      state.rpcCalls.push(name);
+      if (name === "consume_bootstrap_nonce_atomic") {
+        state.consumeAttempts += 1;
+        if (state.lockError === "show-not-found") {
+          return { data: [{ status: "show_unavailable", consumed_at: null }], error: null };
+        }
+        if (state.lockError === "unavailable") {
+          return { data: [{ status: "busy", consumed_at: null }], error: null };
+        }
+        if (state.lockError === "generic") {
+          return { data: null, error: { message: "lock db failed" } };
+        }
+        if (state.consumedAt !== null) {
+          return { data: [{ status: "nonce_unavailable", consumed_at: null }], error: null };
+        }
+        state.consumedAt = String(params.p_consumed_at);
+        return {
+          data: [{ status: "consumed", consumed_at: state.consumedAt }],
+          error: null,
+        };
+      }
       if (name !== "mint_link_session_if_active_kid_matches") {
         return { data: null, error: { message: `unknown rpc: ${name}` } };
       }
@@ -241,6 +263,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
   beforeEach(() => {
     state.insideLock = false;
     state.lockCalls = [];
+    state.rpcCalls = [];
     state.mutationsOutsideLock = [];
     state.issuedAt = new Date().toISOString();
     state.consumedAt = null;
@@ -719,7 +742,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
     await expect(response.json()).resolves.toEqual({ code: "CSRF_NONCE_EXPIRED" });
   });
 
-  test("holds the show advisory lock while consuming nonce and minting link session", async () => {
+  test("redeem-link mutations are routed through lock-taking RPCs", async () => {
     const request = new NextRequest("https://crew.fxav.test/api/auth/redeem-link", {
       method: "POST",
       headers: {
@@ -740,11 +763,11 @@ describe("/api/auth/redeem-link advisory lock", () => {
     const response = await POST(request);
 
     expect(response.status).toBe(200);
-    // R22 F3: redeem-link uses "try" mode now (was "block"). Block-mode
-    // held a postgres connection per blocked waiter and could exhaust
-    // the pool under venue-scale bursts. Switching to "try" + 503
-    // SHOW_BUSY_RETRY signals the client to retry with backoff.
-    expect(state.lockCalls).toEqual([{ showId: state.showId, mode: "try" }]);
+    expect(state.lockCalls).toEqual([]);
+    expect(state.rpcCalls).toEqual([
+      "consume_bootstrap_nonce_atomic",
+      "mint_link_session_if_active_kid_matches",
+    ]);
     expect(state.mutationsOutsideLock).toEqual([]);
   });
 

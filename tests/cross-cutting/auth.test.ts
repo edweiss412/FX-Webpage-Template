@@ -77,4 +77,74 @@ describe("X.3 M5 auth-chain semantic audit", () => {
       "app/show/[slug]/p/page.tsx: public bootstrap shell must not import validateLinkSession",
     );
   });
+
+  test("real redeem-link route passes mutation-lock coverage checks", () => {
+    expect(
+      auditM5AuthFile(
+        "app/api/auth/redeem-link/route.ts",
+        read("app/api/auth/redeem-link/route.ts"),
+      ),
+    ).toEqual([]);
+  });
+
+  test("rejects redeem-link routes that wrap Supabase mutations in a sidecar JS advisory lock", () => {
+    const findings = auditM5AuthFile(
+      "app/api/auth/redeem-link/route.ts",
+      `
+        import { withShowAdvisoryLock } from "@/lib/db/advisoryLock";
+        export async function POST(request) {
+          return withShowAdvisoryLock(showId, "try", async () => {
+            await supabase.from("bootstrap_nonces").update({ consumed_at: now });
+            await supabase.rpc("mint_link_session_if_active_kid_matches", {});
+          });
+        }
+      `,
+    );
+
+    expect(findings).toContain(
+      "app/api/auth/redeem-link/route.ts: redeem-link mutations must be inside lock-taking RPCs, not sidecar withShowAdvisoryLock callbacks",
+    );
+  });
+
+  test("real OAuth routes pass callback/sign-in/sign-out checks", () => {
+    expect(
+      auditM5AuthFile("app/auth/sign-in/page.tsx", read("app/auth/sign-in/page.tsx")),
+    ).toEqual([]);
+    expect(
+      auditM5AuthFile("app/auth/callback/route.ts", read("app/auth/callback/route.ts")),
+    ).toEqual([]);
+    expect(
+      auditM5AuthFile("app/auth/sign-out/route.ts", read("app/auth/sign-out/route.ts")),
+    ).toEqual([]);
+  });
+
+  test("rejects callback routes that redirect before validating next", () => {
+    const findings = auditM5AuthFile(
+      "app/auth/callback/route.ts",
+      `
+        export async function GET(request) {
+          return NextResponse.redirect(new URL(request.nextUrl.searchParams.get("next"), request.url));
+        }
+      `,
+    );
+
+    expect(findings).toContain(
+      "app/auth/callback/route.ts: callback must validate next before redirecting",
+    );
+  });
+
+  test("rejects sign-out routes that allow GET or omit clearSessionCookie on POST", () => {
+    const findings = auditM5AuthFile(
+      "app/auth/sign-out/route.ts",
+      `
+        export async function GET() { return Response.redirect("/auth/sign-in"); }
+        export async function POST() { return Response.redirect("/auth/sign-in"); }
+      `,
+    );
+
+    expect(findings).toContain("app/auth/sign-out/route.ts: GET must return 405");
+    expect(findings).toContain(
+      "app/auth/sign-out/route.ts: POST must clear the FXAV session with clearSessionCookie",
+    );
+  });
 });

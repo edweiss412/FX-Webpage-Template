@@ -58,6 +58,11 @@ const FORBIDDEN_PATTERNS: Array<{ regex: RegExp; label: string }> = [
 const AUDITED_PATHS = [
   "app/api/test-auth/set-session/route.ts",
   "tests/e2e/helpers/signInAs.ts",
+  "lib/auth/isAdminSession.ts",
+  "lib/auth/requireAdmin.ts",
+  "lib/auth/validateGoogleIdentity.ts",
+  "lib/auth/validateGoogleSession.ts",
+  "lib/data/listShowsForCrew.ts",
 ];
 
 describe("Round 4 Finding 1 — static-text guard against inline email normalization", () => {

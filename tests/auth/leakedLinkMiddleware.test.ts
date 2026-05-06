@@ -299,7 +299,12 @@ describe("middleware leaked-link revocation", () => {
     const html = await expectHtml(response);
     expect(html).not.toContain("LEAKED_LINK_DETECTED");
     expect(html).toContain("This link has been revoked");
-    expect(leakedState.alertUpserts).toEqual([]);
+    expect(leakedState.alertUpserts).toEqual([
+      expect.objectContaining({
+        p_code: "LEAKED_LINK_DETECTED",
+        p_show_id: "11111111-1111-4111-8111-111111111111",
+      }),
+    ]);
   });
 
   test("update failure after revoked-link insert does not leave partial revoked row", async () => {
