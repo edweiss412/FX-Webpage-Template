@@ -31,8 +31,8 @@
  *     covered by tests/auth/requireAdmin.test.ts; here we test the body
  *     downstream of it).
  *   - @/lib/supabase/server → builder mock whose .from('admin_alerts').update()
- *     .eq().is() chain resolves to a configurable { error } shape, and whose
- *     .auth.getUser() returns a configurable user.email.
+ *     .eq().is().is() chain resolves to a configurable { error } shape, and
+ *     whose .auth.getUser() returns a configurable user.email.
  *   - next/cache → spy on revalidatePath.
  *
  * The action is "use server" but Vitest's ESM loader does not block import
@@ -49,6 +49,7 @@ const mockState = vi.hoisted(() => ({
   userEmail: "admin@fxav.test" as string | null | undefined,
   updateSpy: vi.fn(),
   fromSpy: vi.fn(),
+  filters: [] as Array<{ method: "eq" | "is"; column: string; value: unknown }>,
 }));
 
 vi.mock("@/lib/auth/requireAdmin", () => ({
@@ -60,12 +61,21 @@ vi.mock("@/lib/supabase/server", () => ({
     const builder = {
       update: (payload: unknown) => {
         mockState.updateSpy(payload);
-        return {
-          eq: (_col: string, _val: string) => ({
-            is: (_col2: string, _val2: unknown) =>
-              Promise.resolve(mockState.chainResult),
-          }),
-        };
+        return builder;
+      },
+      eq: (col: string, val: string) => {
+        mockState.filters.push({ method: "eq", column: col, value: val });
+        return builder;
+      },
+      is: (col: string, val: unknown) => {
+        mockState.filters.push({ method: "is", column: col, value: val });
+        return builder;
+      },
+      then: (
+        resolve: (value: typeof mockState.chainResult) => unknown,
+        reject?: (reason: unknown) => unknown,
+      ) => {
+        return Promise.resolve(mockState.chainResult).then(resolve, reject);
       },
     };
     return {
@@ -101,6 +111,7 @@ describe("resolveAdminAlertFormAction", () => {
     mockState.userEmail = "admin@fxav.test";
     mockState.updateSpy.mockClear();
     mockState.fromSpy.mockClear();
+    mockState.filters = [];
     revalidatePathSpy.mockClear();
     consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -125,6 +136,11 @@ describe("resolveAdminAlertFormAction", () => {
     // The .update() call carried both resolved_at (an ISO string) and
     // resolved_by (the canonicalized admin email).
     expect(mockState.updateSpy).toHaveBeenCalledTimes(1);
+    expect(mockState.filters).toEqual([
+      { method: "eq", column: "id", value: VALID_UUID },
+      { method: "is", column: "resolved_at", value: null },
+      { method: "is", column: "show_id", value: null },
+    ]);
     const updateCall = mockState.updateSpy.mock.calls[0];
     if (!updateCall) throw new Error("expected update() to have been called");
     const payload = updateCall[0] as {
@@ -168,6 +184,16 @@ describe("resolveAdminAlertFormAction", () => {
     expect(String(errArg)).toContain("rls denied");
   });
 
+  test("scope hardening: action resolves only global alerts", async () => {
+    await resolveAdminAlertFormAction(fd({ id: VALID_UUID }));
+
+    expect(mockState.filters).toContainEqual({
+      method: "is",
+      column: "show_id",
+      value: null,
+    });
+  });
+
   // ============ I2: malformed UUID guard ============
 
   test("I2: malformed id (not a UUID) → no DB call, no revalidation, no log", async () => {
@@ -182,9 +208,7 @@ describe("resolveAdminAlertFormAction", () => {
   test("I2: malformed id (UUID-shaped but wrong length) → rejected", async () => {
     // 7-char first segment instead of 8 — passes a naive substring check but
     // fails the strict UUID regex.
-    await resolveAdminAlertFormAction(
-      fd({ id: "1111111-2222-3333-4444-555555555555" }),
-    );
+    await resolveAdminAlertFormAction(fd({ id: "1111111-2222-3333-4444-555555555555" }));
 
     expect(mockState.fromSpy).not.toHaveBeenCalled();
     expect(mockState.updateSpy).not.toHaveBeenCalled();
@@ -192,9 +216,7 @@ describe("resolveAdminAlertFormAction", () => {
   });
 
   test("I2: SQL-injection-shaped id → rejected", async () => {
-    await resolveAdminAlertFormAction(
-      fd({ id: "'; DROP TABLE admin_alerts; --" }),
-    );
+    await resolveAdminAlertFormAction(fd({ id: "'; DROP TABLE admin_alerts; --" }));
 
     expect(mockState.fromSpy).not.toHaveBeenCalled();
     expect(mockState.updateSpy).not.toHaveBeenCalled();

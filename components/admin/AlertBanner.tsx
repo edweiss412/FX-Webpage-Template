@@ -3,8 +3,9 @@
  *
  * Server Component. Renders the topmost unresolved row from
  * `public.admin_alerts` (spec §4.6) using <ErrorExplainer surface="admin"
- * helpfulContext />, with a click-through "Resolve" form bound to
- * `resolveAdminAlertFormAction`.
+ * helpfulContext />. Global alerts get a click-through "Resolve" form bound
+ * to `resolveAdminAlertFormAction`; per-show alerts link to the show-scoped
+ * alert route so the operator views show context before resolving.
  *
  * Mounted by `app/admin/layout.tsx` so every admin route gets the banner.
  * The layout calls `requireAdmin()` first; the banner's RLS-gated SELECT
@@ -30,6 +31,8 @@ type AlertRow = {
   id: string;
   code: string;
   raised_at: string;
+  show_id: string | null;
+  shows: { slug: string } | Array<{ slug: string }> | null;
 };
 
 export async function AlertBanner() {
@@ -41,7 +44,7 @@ export async function AlertBanner() {
   // and reject (zero rows) otherwise.
   const { data, error } = await supabase
     .from("admin_alerts")
-    .select("id, code, raised_at")
+    .select("id, code, raised_at, show_id, shows(slug)")
     .is("resolved_at", null)
     .order("raised_at", { ascending: false })
     .limit(1);
@@ -62,6 +65,12 @@ export async function AlertBanner() {
   }
 
   const alert = data[0] as AlertRow;
+  const show = Array.isArray(alert.shows) ? alert.shows[0] : alert.shows;
+  const showSlug = show?.slug ?? null;
+  const isPerShowAlert = alert.show_id !== null;
+  if (isPerShowAlert && !showSlug) {
+    console.error("[AlertBanner] per-show alert missing show slug:", alert.id);
+  }
 
   return (
     <section
@@ -77,29 +86,28 @@ export async function AlertBanner() {
     >
       <ErrorExplainer code={alert.code} surface="admin" helpfulContext />
 
-      {/*
-        Resolve form — POSTs to the Server Action which UPDATEs
-        resolved_at/resolved_by under RLS. The hidden `id` input pins the
-        row; the action ignores submissions without an id.
-      */}
-      <form
-        action={resolveAdminAlertFormAction}
-        className="mt-4"
-      >
-        <input
-          type="hidden"
-          name="id"
-          value={alert.id}
-          data-testid="admin-alert-id-input"
-        />
-        <button
-          type="submit"
-          data-testid="admin-alert-resolve-button"
-          className="min-h-tap-min min-w-tap-min rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          Resolve
-        </button>
-      </form>
+      {isPerShowAlert ? (
+        showSlug ? (
+          <a
+            href={`/admin/show/${encodeURIComponent(showSlug)}?alert_id=${encodeURIComponent(alert.id)}`}
+            data-testid="admin-alert-show-link"
+            className="mt-4 inline-flex min-h-tap-min min-w-tap-min items-center rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg"
+          >
+            View show
+          </a>
+        ) : null
+      ) : (
+        <form action={resolveAdminAlertFormAction} className="mt-4">
+          <input type="hidden" name="id" value={alert.id} data-testid="admin-alert-id-input" />
+          <button
+            type="submit"
+            data-testid="admin-alert-resolve-button"
+            className="min-h-tap-min min-w-tap-min rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Resolve
+          </button>
+        </form>
+      )}
     </section>
   );
 }

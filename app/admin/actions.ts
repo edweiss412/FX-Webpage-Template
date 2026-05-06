@@ -73,8 +73,8 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
   // RLS-gated UPDATE. The admin_only policy on admin_alerts requires
   // public.is_admin() to be true, which we've already verified. The
   // WHERE clause additionally requires the row to be still unresolved
-  // so a double-click is a no-op (we don't overwrite a previous
-  // resolved_at / resolved_by).
+  // and global-only. Per-show alerts must be resolved from the
+  // show-scoped route after the operator views show context.
   const { error: updateError } = await supabase
     .from("admin_alerts")
     .update({
@@ -82,16 +82,14 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
       resolved_by: resolvedBy,
     })
     .eq("id", id)
-    .is("resolved_at", null);
+    .is("resolved_at", null)
+    .is("show_id", null);
 
   if (updateError) {
     // I1 fix: do NOT call revalidatePath when the UPDATE failed (network
     // blip, RLS denial, misconfiguration). Silently revalidating would show
     // the admin a "resolved" UI while the row remains unresolved on the DB.
-    console.error(
-      "[resolveAdminAlertFormAction] UPDATE failed:",
-      updateError.message,
-    );
+    console.error("[resolveAdminAlertFormAction] UPDATE failed:", updateError.message);
     return;
   }
 

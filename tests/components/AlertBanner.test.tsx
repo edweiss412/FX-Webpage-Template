@@ -30,19 +30,23 @@ import { AlertBanner } from "@/components/admin/AlertBanner";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 
 // In-memory rows the mock supabase client returns. Each test mutates this.
-// Mock shape mirrors the production SELECT exactly — `id, code, raised_at`.
-// Do NOT add fields the component doesn't select; mock drift hides
-// production-side regressions where the SELECT clause changes.
+// Mock shape mirrors the production SELECT exactly:
+// `id, code, raised_at, show_id, shows(slug)`. Do NOT add fields the
+// component doesn't select; mock drift hides production-side regressions.
 type AlertRow = {
   id: string;
   code: string;
   raised_at: string;
+  show_id: string | null;
+  shows: { slug: string } | null;
 };
 const mockState = vi.hoisted(() => ({
   rows: [] as Array<{
     id: string;
     code: string;
     raised_at: string;
+    show_id: string | null;
+    shows: { slug: string } | null;
   }>,
 }));
 
@@ -52,7 +56,7 @@ vi.mock("@/lib/supabase/server", () => {
       // Build a chained mock that mirrors the call pattern:
       //   supabase
       //     .from('admin_alerts')
-      //     .select('id, code, raised_at')
+      //     .select('id, code, raised_at, show_id, shows(slug)')
       //     .is('resolved_at', null)
       //     .order('raised_at', { ascending: false })
       //     .limit(1)
@@ -64,7 +68,7 @@ vi.mock("@/lib/supabase/server", () => {
         limit: (n: number) => Promise.resolve({ data: mockState.rows.slice(0, n), error: null }),
       };
       return {
-        from: (_table: string) => builder,
+        from: () => builder,
       };
     },
   };
@@ -97,6 +101,8 @@ describe("AlertBanner", () => {
         id: "alert-1",
         code: "AMBIGUOUS_EMAIL_BINDING",
         raised_at: "2026-05-04T10:00:00Z",
+        show_id: "11111111-1111-4111-8111-111111111111",
+        shows: { slug: "test-show" },
       },
     ]);
     const { getByTestId } = render(await AlertBanner());
@@ -111,11 +117,15 @@ describe("AlertBanner", () => {
         id: "old",
         code: "GITHUB_BOT_LOGIN_MISSING",
         raised_at: "2026-05-01T00:00:00Z",
+        show_id: null,
+        shows: null,
       },
       {
         id: "new",
         code: "WATCH_CHANNEL_ORPHANED",
         raised_at: "2026-05-04T12:00:00Z",
+        show_id: "11111111-1111-4111-8111-111111111111",
+        shows: { slug: "test-show" },
       },
     ]);
     const { getByTestId, container } = render(await AlertBanner());
@@ -147,6 +157,8 @@ describe("AlertBanner", () => {
           id: `alert-${code}`,
           code,
           raised_at: "2026-05-04T10:00:00Z",
+          show_id: null,
+          shows: null,
         },
       ]);
       const { getByTestId } = render(await AlertBanner());
@@ -162,6 +174,8 @@ describe("AlertBanner", () => {
         id: "alert-1",
         code: "AMBIGUOUS_EMAIL_BINDING",
         raised_at: "2026-05-04T10:00:00Z",
+        show_id: "11111111-1111-4111-8111-111111111111",
+        shows: { slug: "test-show" },
       },
     ]);
     const { container } = render(await AlertBanner());
@@ -188,12 +202,14 @@ describe("AlertBanner", () => {
     }
   });
 
-  test("renders the Resolve form (Server Action target) when an alert is present", async () => {
+  test("renders the Resolve form (Server Action target) for a global alert", async () => {
     setRows([
       {
         id: "alert-with-resolve",
-        code: "AMBIGUOUS_EMAIL_BINDING",
+        code: "GITHUB_BOT_LOGIN_MISSING",
         raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
       },
     ]);
     const { getByTestId } = render(await AlertBanner());
@@ -203,5 +219,24 @@ describe("AlertBanner", () => {
     // The hidden alert-id input pins which row the action resolves.
     const idInput = getByTestId("admin-alert-id-input") as HTMLInputElement;
     expect(idInput.value).toBe("alert-with-resolve");
+  });
+
+  test("per-show alert does not render inline Resolve and links to the show-scoped alert", async () => {
+    setRows([
+      {
+        id: "per-show-alert",
+        code: "AMBIGUOUS_EMAIL_BINDING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: "11111111-1111-4111-8111-111111111111",
+        shows: { slug: "test-show" },
+      },
+    ]);
+
+    const { getByTestId, queryByTestId } = render(await AlertBanner());
+
+    expect(queryByTestId("admin-alert-resolve-button")).toBeNull();
+    expect(queryByTestId("admin-alert-id-input")).toBeNull();
+    const link = getByTestId("admin-alert-show-link") as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/admin/show/test-show?alert_id=per-show-alert");
   });
 });
