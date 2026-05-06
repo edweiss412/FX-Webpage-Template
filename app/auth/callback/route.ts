@@ -38,11 +38,7 @@ function clearPkceVerifierCookies(request: NextRequest, response: NextResponse):
 export async function GET(request: NextRequest): Promise<Response> {
   const rawNext = request.nextUrl.searchParams.get("next");
   const nextOutcome = validateNextParamDetailed(rawNext);
-  if (!nextOutcome.ok && rawNext !== null) {
-    const response = signInRedirect(request, "OAUTH_REDIRECT_INVALID", nextOutcome.path);
-    clearPkceVerifierCookies(request, response);
-    return response;
-  }
+  const hasInvalidExplicitNext = !nextOutcome.ok && rawNext !== null;
 
   const code = request.nextUrl.searchParams.get("code");
   if (!code) {
@@ -84,6 +80,11 @@ export async function GET(request: NextRequest): Promise<Response> {
   }
   if (exchangeResult.error) {
     const response = signInRedirect(request, "OAUTH_STATE_INVALID", nextOutcome.path);
+    clearPkceVerifierCookies(request, response);
+    return response;
+  }
+  if (hasInvalidExplicitNext) {
+    const response = signInRedirect(request, "OAUTH_REDIRECT_INVALID", nextOutcome.path);
     clearPkceVerifierCookies(request, response);
     return response;
   }

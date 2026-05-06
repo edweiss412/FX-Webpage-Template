@@ -181,7 +181,7 @@ describe("OAuth callback route", () => {
       new NextRequest("https://crew.fxav.test/auth/callback?code=abc&next=/show/rpas-central/p"),
     );
 
-    expect(server.client.auth.exchangeCodeForSession).not.toHaveBeenCalled();
+    expect(server.client.auth.exchangeCodeForSession).toHaveBeenCalledWith("abc");
     expect(response.status).toBe(302);
     expect(locationOf(response)).toBe(
       "https://crew.fxav.test/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin",
