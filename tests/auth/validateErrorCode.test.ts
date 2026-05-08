@@ -50,6 +50,13 @@ describe("validateErrorCodeParam (sign-in page error-code allowlist)", () => {
     expect(validateErrorCodeParam("CSRF_DENIED")).toBeNull();
   });
 
+  test("returns null for ADMIN_SESSION_LOOKUP_FAILED when supplied via the URL", () => {
+    // Infrastructure failures may be rendered only through trusted
+    // server-side state. The user-controlled `?code=` param stays
+    // limited to the two OAuth callback codes from AC-5.14.
+    expect(validateErrorCodeParam("ADMIN_SESSION_LOOKUP_FAILED")).toBeNull();
+  });
+
   test("returns null for an arbitrary user-injected uppercase string that passes regex", () => {
     // Passes regex but isn't in the allowlist — the second gate trips.
     expect(validateErrorCodeParam("ARBITRARY_USER_INJECTED_STRING")).toBeNull();

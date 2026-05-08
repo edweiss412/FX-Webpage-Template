@@ -95,7 +95,7 @@ describe("OAuth start route", () => {
     );
   });
 
-  test("OAuth initiation failures return a cataloged sign-in error", async () => {
+  test("OAuth initiation failures render cataloged HTML without widening the sign-in code allowlist", async () => {
     server.client.auth.signInWithOAuth.mockResolvedValue({
       data: { url: null },
       error: new Error("provider disabled"),
@@ -106,10 +106,12 @@ describe("OAuth start route", () => {
       new NextRequest("https://crew.fxav.test/api/auth/google/start?next=/me"),
     );
 
-    expect(response.status).toBe(302);
-    expect(locationOf(response)).toBe(
-      "https://crew.fxav.test/auth/sign-in?code=ADMIN_SESSION_LOOKUP_FAILED&next=%2Fme",
-    );
+    expect(response.status).toBe(503);
+    expect(response.headers.get("content-type")).toMatch(/text\/html/);
+    const html = await response.text();
+    expect(html).toContain("Sign-in temporarily unavailable");
+    expect(html).toContain("Something is misconfigured for this show. Doug has been notified.");
+    expect(html).not.toContain("ADMIN_SESSION_LOOKUP_FAILED");
   });
 });
 
@@ -272,6 +274,23 @@ describe("OAuth callback route", () => {
     expect(locationOf(response)).toBe(
       "https://crew.fxav.test/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin",
     );
+  });
+
+  test("callback infrastructure throws render cataloged HTML without a public ADMIN_SESSION_LOOKUP_FAILED code", async () => {
+    server.createSupabaseServerClient.mockRejectedValue(new Error("env missing"));
+    const { GET } = await import("@/app/auth/callback/route");
+
+    const response = await GET(
+      new NextRequest("https://crew.fxav.test/auth/callback?code=abc&next=/me"),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("content-type")).toMatch(/text\/html/);
+    const html = await response.text();
+    expect(html).toContain("Sign-in temporarily unavailable");
+    expect(html).toContain("Something is misconfigured for this show. Doug has been notified.");
+    expect(html).not.toContain("ADMIN_SESSION_LOOKUP_FAILED");
+    expect(response.headers.get("location")).toBeNull();
   });
 });
 

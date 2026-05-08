@@ -38,6 +38,7 @@ import { redirect } from "next/navigation";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { validateNextParam } from "@/lib/auth/validateNextParam";
+import type { MessageCode } from "@/lib/messages/catalog";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 
 import { SignInButton } from "./SignInButton";
@@ -143,9 +144,9 @@ export default async function SignInPage({
   // ErrorExplainer is also defensive (unknown code → null) but we
   // gate at this layer too so an attacker who bypasses the regex
   // somehow still can't render an arbitrary catalog entry.
-  const errorCode =
+  const errorCode: MessageCode | null =
     forcedErrorCode !== null
-      ? validateErrorCodeParam(forcedErrorCode)
+      ? (forcedErrorCode as MessageCode)
       : validateErrorCodeParam(firstScalar(params.code));
 
   return (

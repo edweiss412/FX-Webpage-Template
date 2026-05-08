@@ -49,13 +49,6 @@ const ERROR_CODE_SYNTACTIC_RE = /^[A-Z][A-Z_]{0,63}$/;
 const OAUTH_ALLOWED_CODES = new Set<MessageCode>([
   "OAUTH_STATE_INVALID",
   "OAUTH_REDIRECT_INVALID",
-  // R17 #2/#3 (round-16 §A+§B MEDIUM): admin-session lookup
-  // infrastructure failure surfaces as a sign-in page error instead
-  // of a silent /me redirect. The OAuth callback and the sign-in
-  // already-authenticated guard both forward this code on
-  // isAdminSession.reason === "infra_error" so the user sees a
-  // cataloged retry-able error instead of an opaque downgrade.
-  "ADMIN_SESSION_LOOKUP_FAILED",
 ]);
 
 /**

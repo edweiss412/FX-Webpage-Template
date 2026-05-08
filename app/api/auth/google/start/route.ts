@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { validateNextParamDetailed } from "@/lib/auth/validateNextParam";
+import { messageFor } from "@/lib/messages/lookup";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 function signInRedirect(request: NextRequest, code: string, nextPath: string): NextResponse {
@@ -8,6 +9,29 @@ function signInRedirect(request: NextRequest, code: string, nextPath: string): N
   url.searchParams.set("code", code);
   url.searchParams.set("next", nextPath);
   return NextResponse.redirect(url, { status: 302 });
+}
+
+function infraFailureResponse(): Response {
+  const entry = messageFor("ADMIN_SESSION_LOOKUP_FAILED");
+  const body = entry.crewFacing ?? entry.dougFacing ?? "Please try again.";
+  const html = [
+    "<!doctype html>",
+    '<html lang="en">',
+    "<head>",
+    '<meta charset="utf-8">',
+    "<title>Sign-in temporarily unavailable</title>",
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    "</head>",
+    "<body>",
+    "<h1>Sign-in temporarily unavailable</h1>",
+    `<p>${body}</p>`,
+    "</body>",
+    "</html>",
+  ].join("");
+  return new NextResponse(html, {
+    status: 503,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
 }
 
 export async function GET(request: NextRequest): Promise<Response> {
@@ -24,7 +48,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   try {
     supabase = await createSupabaseServerClient();
   } catch {
-    return signInRedirect(request, "ADMIN_SESSION_LOOKUP_FAILED", nextOutcome.path);
+    return infraFailureResponse();
   }
 
   try {
@@ -36,10 +60,10 @@ export async function GET(request: NextRequest): Promise<Response> {
       },
     });
     if (error || !data.url) {
-      return signInRedirect(request, "ADMIN_SESSION_LOOKUP_FAILED", nextOutcome.path);
+      return infraFailureResponse();
     }
     return NextResponse.redirect(data.url, { status: 302 });
   } catch {
-    return signInRedirect(request, "ADMIN_SESSION_LOOKUP_FAILED", nextOutcome.path);
+    return infraFailureResponse();
   }
 }

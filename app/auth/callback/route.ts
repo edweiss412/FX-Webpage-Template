@@ -5,6 +5,7 @@ import { isAdminSession } from "@/lib/auth/isAdminSession";
 import {
   validateNextParamDetailed,
 } from "@/lib/auth/validateNextParam";
+import { messageFor } from "@/lib/messages/lookup";
 
 type OAuthRedirectCode = "OAUTH_STATE_INVALID" | "OAUTH_REDIRECT_INVALID";
 
@@ -21,6 +22,29 @@ function signInRedirect(request: NextRequest, code: OAuthRedirectCode, nextPath:
   url.searchParams.set("code", code);
   url.searchParams.set("next", nextPath);
   return NextResponse.redirect(url, { status: 302 });
+}
+
+function infraFailureResponse(): NextResponse {
+  const entry = messageFor("ADMIN_SESSION_LOOKUP_FAILED");
+  const body = entry.crewFacing ?? entry.dougFacing ?? "Please try again.";
+  const html = [
+    "<!doctype html>",
+    '<html lang="en">',
+    "<head>",
+    '<meta charset="utf-8">',
+    "<title>Sign-in temporarily unavailable</title>",
+    '<meta name="viewport" content="width=device-width,initial-scale=1">',
+    "</head>",
+    "<body>",
+    "<h1>Sign-in temporarily unavailable</h1>",
+    `<p>${body}</p>`,
+    "</body>",
+    "</html>",
+  ].join("");
+  return new NextResponse(html, {
+    status: 503,
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
 }
 
 function clearPkceVerifierCookies(request: NextRequest, response: NextResponse): void {
@@ -60,10 +84,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   try {
     supabase = await createSupabaseServerClient();
   } catch {
-    const url = new URL("/auth/sign-in", request.url);
-    url.searchParams.set("code", "ADMIN_SESSION_LOOKUP_FAILED");
-    url.searchParams.set("next", nextOutcome.path);
-    const infraResponse = NextResponse.redirect(url, { status: 302 });
+    const infraResponse = infraFailureResponse();
     clearPkceVerifierCookies(request, infraResponse);
     return infraResponse;
   }
@@ -71,10 +92,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   try {
     exchangeResult = await supabase.auth.exchangeCodeForSession(code);
   } catch {
-    const url = new URL("/auth/sign-in", request.url);
-    url.searchParams.set("code", "ADMIN_SESSION_LOOKUP_FAILED");
-    url.searchParams.set("next", nextOutcome.path);
-    const infraResponse = NextResponse.redirect(url, { status: 302 });
+    const infraResponse = infraFailureResponse();
     clearPkceVerifierCookies(request, infraResponse);
     return infraResponse;
   }
@@ -102,25 +120,7 @@ export async function GET(request: NextRequest): Promise<Response> {
         // ErrorExplainer so the user sees a cataloged error and a
         // clear retry path. Confirmed not_admin still falls through
         // to /me as before.
-        const response = signInRedirect(
-          request,
-          "OAUTH_STATE_INVALID" as OAuthRedirectCode,
-          nextOutcome.path,
-        );
-        // Replace the OAUTH_STATE_INVALID code with the infra-fault
-        // code by rewriting the redirect URL since the helper is
-        // typed to OAuthRedirectCode literals. Kept inline rather
-        // than expanding the helper's union to keep the change
-        // surface narrow.
-        const url = new URL("/auth/sign-in", request.url);
-        url.searchParams.set("code", "ADMIN_SESSION_LOOKUP_FAILED");
-        url.searchParams.set("next", nextOutcome.path);
-        const infraResponse = NextResponse.redirect(url, { status: 302 });
-        // Copy Set-Cookie clears from the failsafe response so PKCE
-        // cookies are still cleared on this error path.
-        for (const setCookie of response.headers.getSetCookie?.() ?? []) {
-          infraResponse.headers.append("Set-Cookie", setCookie);
-        }
+        const infraResponse = infraFailureResponse();
         clearPkceVerifierCookies(request, infraResponse);
         return infraResponse;
       }
