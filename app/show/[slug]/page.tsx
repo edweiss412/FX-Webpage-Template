@@ -49,17 +49,16 @@
  *       After clear, the user lands on the sign-in flow.
  *
  * Wrong-show cookie detection (Q6): decoded at the top of the chain (cheap,
- * no DB hit). When `envelope.show_id !== showId`, the validator's continue+
- * clearCookie path will already fire as part of `validateLinkSession`'s
- * own cross-show check; we OR-aggregate the same flag here so the chain
- * adapter consistently emits the clear-cookie marker even when admin
- * precedence wins before validateLinkSession runs.
+ * no DB hit). When `envelope.show_id !== showId`, we OR-aggregate the
+ * clear-cookie flag before admin precedence can short-circuit the link
+ * validator. Non-admin paths still let `validateLinkSession` perform the
+ * server-side cleanup before the clear-session hop.
  *
  * Admin-precedence skip-link-validator: per plan §276, when admin
- * precedence wins we DO NOT run validateLinkSession. The link cookie is
- * left in place (still valid for crew-mode use later); any DB-side cleanup
- * for stale-but-wrong-show cookies happens naturally on the next request
- * that runs the link branch (e.g., admin role removal).
+ * precedence wins we DO NOT run validateLinkSession. A valid same-show link
+ * cookie is left in place (still valid for crew-mode use later). Malformed
+ * or wrong-show cookies are cleared client-side through the clear-session
+ * route, but the admin path intentionally avoids destructive DB cleanup.
  *
  * Identity-only contract: the `searchParams` object is intentionally NOT
  * read for any auth decision. The static-analysis test

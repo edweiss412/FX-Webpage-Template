@@ -7,8 +7,8 @@
  *   1. Identity gate. Calls the deliberately non-DRY identity helper.
  *      Unlike the show-bound Google validator (which resolves a
  *      crew_members.id under a specific show), validateGoogleIdentity
- *      returns ONLY cross-show identity ({ email, crewMemberId } where
- *      crewMemberId is the Supabase Auth user.id, not a per-show row).
+ *      returns ONLY cross-show identity ({ email, authUserId } where
+ *      authUserId is the Supabase Auth user.id, not a per-show row).
  *      On `kind: 'continue'` (no session), redirect to
  *      /auth/sign-in?next=/me.
  *

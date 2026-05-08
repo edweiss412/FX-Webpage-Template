@@ -9,8 +9,8 @@
  *   - venue notes — show.venue.notes (when present).
  *   - opening_reel — §10 URL-stripped text-only render. M4 ships TEXT
  *     ONLY (`Opening reel: <stripped value>`); inline <video> ships in
- *     M7 Task 7.6. Crew DOM MUST NEVER contain `https://`,
- *     `drive.google.com`, or `docs.google.com` substrings — see
+ *     M7 Task 7.6. Crew DOM MUST NEVER contain raw URL or Google document
+ *     host substrings — see
  *     `lib/visibility/openingReelText.ts` + `lib/visibility/emptyState.ts`.
  *   - power / internet / keynote_requirements — generic optional event
  *     details. Hidden when null/empty/`TBD`/`N/A`/`TBA` per the per-field
