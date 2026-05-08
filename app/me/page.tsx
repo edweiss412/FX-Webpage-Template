@@ -4,9 +4,8 @@
  * Server Component. The cross-show signed-in landing surface for crew
  * members. Three responsibilities:
  *
- *   1. Identity gate. Calls the deliberately-non-DRY-with-
- *      validateGoogleSession helper validateGoogleIdentity. Unlike
- *      validateGoogleSession (which is show-bound and resolves a
+ *   1. Identity gate. Calls the deliberately non-DRY identity helper.
+ *      Unlike the show-bound Google validator (which resolves a
  *      crew_members.id under a specific show), validateGoogleIdentity
  *      returns ONLY cross-show identity ({ email, crewMemberId } where
  *      crewMemberId is the Supabase Auth user.id, not a per-show row).
