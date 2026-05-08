@@ -30,9 +30,9 @@ export type StageRestriction =
 // post-normalization vocabulary.
 //
 // Restriction markers like `ONLY` and the `***` asterisk form are recognized
-// by the parser as valid tokens (no UNKNOWN_ROLE_TOKEN warning is emitted) but
-// do NOT appear in `role_flags`. They influence `stage_restriction` (ONLY) and
-// `date_restriction.kind = 'unknown_asterisk'` (***) instead.
+// by the parser as valid tokens (no UNKNOWN_ROLE_TOKEN warning is emitted).
+// `ONLY` is persisted as an atomic role flag; the asterisks feed
+// `date_restriction.kind = 'unknown_asterisk'`.
 export type RoleFlag =
   // Capability flags
   | "LEAD"
@@ -56,7 +56,9 @@ export type RoleFlag =
   | "SHOW_CALLER"
   | "GREEN_ROOM"
   | "OWNER"
-  | "CONTENT_CREATION";
+  | "CONTENT_CREATION"
+  // Restriction marker
+  | "ONLY";
 
 export type CrewMemberRow = {
   name: string;

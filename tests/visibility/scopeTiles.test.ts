@@ -45,6 +45,7 @@ const VALID_ROLE_FLAGS: RoleFlag[] = [
   "L1",
   "GS",
   "BO",
+  "ONLY",
   "CAM_OP",
   "PTZ",
   "LED",
@@ -227,10 +228,7 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
 
 describe("static-analysis: scopeTiles.ts documents the role-flag origin contract", () => {
   test("source file carries a 'no caller-supplied role_flags trust' comment header", () => {
-    const src = readFileSync(
-      path.resolve(__dirname, "../../lib/visibility/scopeTiles.ts"),
-      "utf8",
-    );
+    const src = readFileSync(path.resolve(__dirname, "../../lib/visibility/scopeTiles.ts"), "utf8");
     // The contract: the *origin* of `flags` is always
     // getShowForViewer's freshly-loaded crew_members.role_flags. The header
     // must mention that explicitly so future maintainers don't reroute the

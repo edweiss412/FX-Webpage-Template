@@ -217,6 +217,10 @@ function buildCrewMember(params: {
   const roleFlagResult = extractRoleFlags(cleanedRole);
   warnings.push(...roleFlagResult.warnings);
   if (agg) agg.warnings.push(...roleFlagResult.warnings);
+  const roleFlags = [...roleFlagResult.flags];
+  if (/\bONLY\b/i.test(params.nameRaw) || /\bONLY\b/i.test(params.roleRaw)) {
+    if (!roleFlags.includes("ONLY")) roleFlags.push("ONLY");
+  }
 
   let dateRestriction = dayResult.restriction;
   if (hasTripleAsterisk(params.roleRaw) && dateRestriction.kind === "none") {
@@ -238,7 +242,7 @@ function buildCrewMember(params: {
     email,
     phone: presence(phoneRaw),
     role: cleanedRole,
-    role_flags: roleFlagResult.flags,
+    role_flags: roleFlags,
     date_restriction: dateRestriction,
     stage_restriction: stageRestriction,
     flight_info: flightRaw ? presence(flightRaw) : null,

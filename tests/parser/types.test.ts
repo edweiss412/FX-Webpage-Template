@@ -43,9 +43,11 @@ describe("parser/types", () => {
     const _dr: DateRestriction = { kind: "none" };
     const _sr: StageRestriction = { kind: "none" };
     const _rf: RoleFlag = "LEAD";
+    const _restrictionFlag: RoleFlag = "ONLY";
     const _wp: WorkPhase = "Show";
     const _rk: RoomKind = "gs";
     const _ck: ContactKind = "venue";
+    expect([_rf, _restrictionFlag]).toEqual(["LEAD", "ONLY"]);
     expect(true).toBe(true);
   });
 

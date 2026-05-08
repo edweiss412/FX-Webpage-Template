@@ -35,6 +35,7 @@ const ROLE_NORMALIZATIONS: Record<string, RoleFlag> = {
   OWNER: "OWNER",
   "CONTENT CREATION": "CONTENT_CREATION",
   CONTENT_CREATION: "CONTENT_CREATION",
+  ONLY: "ONLY",
 };
 
 // Multi-word tokens that must be matched BEFORE splitting by / or -.
@@ -42,6 +43,8 @@ const MULTI_WORD_TOKENS: string[] = ["CONTENT CREATION", "SHOW CALLER", "GREEN R
 
 // ── Stage restriction patterns ────────────────────────────────────────────────
 const FULL_STAGE_PATTERN = /Load\s+In\s*\/\s*Set\s*\/\s*Strike\s*\/\s*Load\s+Out/i;
+const FULL_STAGE_ONLY_PATTERN =
+  /Load\s+In\s*\/\s*Set\s*\/\s*Strike\s*\/\s*Load\s+Out\s+ONLY\*{0,3}/i;
 const LOAD_IN_SET_ONLY_PATTERN = /^\s*-?\s*Load\s+In\s*\/\s*Set\s+ONLY\s*$/i;
 const LOAD_OUT_STRIKE_ONLY_PATTERN = /^\s*-?\s*Load\s+Out\s*\/\s*Strike\s+ONLY\s*$/i;
 
@@ -146,7 +149,7 @@ function extractDateTokens(text: string): string[] {
  *  - "Load Out / Strike ONLY" → ['Load Out','Strike'] (2025-10-fixed-income:31)
  */
 export function extractStageRestriction(roleCell: string): StageRestriction {
-  if (FULL_STAGE_PATTERN.test(roleCell)) {
+  if (FULL_STAGE_ONLY_PATTERN.test(roleCell)) {
     return { kind: "explicit", stages: ["Load In", "Set", "Strike", "Load Out"] };
   }
   if (LOAD_IN_SET_ONLY_PATTERN.test(roleCell)) {
@@ -178,6 +181,12 @@ export type RoleFlagResult = {
  */
 export function extractRoleFlags(roleCell: string): RoleFlagResult {
   const warnings: ParseWarning[] = [];
+  const hasOnlyMarker = /\bONLY\b/i.test(roleCell);
+  const flags: RoleFlag[] = [];
+  const unknownTokens: string[] = [];
+  const pushFlag = (flag: RoleFlag) => {
+    if (!flags.includes(flag)) flags.push(flag);
+  };
 
   let remainder = roleCell;
 
@@ -205,11 +214,9 @@ export function extractRoleFlags(roleCell: string): RoleFlagResult {
   remainder = remainder.replace(/^[\s\-]+|[\s\-]+$/g, "").trim();
 
   if (!remainder) {
-    return { flags: [], unknownTokens: [], warnings };
+    if (hasOnlyMarker) pushFlag("ONLY");
+    return { flags, unknownTokens, warnings };
   }
-
-  const flags: RoleFlag[] = [];
-  const unknownTokens: string[] = [];
 
   // Match multi-word tokens before splitting
   let working = remainder;
@@ -231,13 +238,12 @@ export function extractRoleFlags(roleCell: string): RoleFlagResult {
 
   for (const tok of rawTokens) {
     if (!tok) continue;
-    // ONLY is a recognized restriction marker (not a capability flag) — silently skip
-    // without emitting UNKNOWN_ROLE_TOKEN. The stage/date restriction fields carry
-    // the restriction semantics; role_flags should never contain "ONLY".
+    // ONLY is a recognized restriction marker. It is added once below from
+    // hasOnlyMarker so it is not duplicated when tokenized directly.
     if (tok === "ONLY") continue;
     const canonical = ROLE_NORMALIZATIONS[tok];
     if (canonical) {
-      flags.push(canonical);
+      pushFlag(canonical);
     } else {
       unknownTokens.push(tok);
       warnings.push({
@@ -250,9 +256,11 @@ export function extractRoleFlags(roleCell: string): RoleFlagResult {
   }
 
   for (const mwFlag of extractedMultiWord) {
-    if (!flags.includes(mwFlag)) {
-      flags.push(mwFlag);
-    }
+    pushFlag(mwFlag);
+  }
+
+  if (hasOnlyMarker) {
+    pushFlag("ONLY");
   }
 
   return { flags, unknownTokens, warnings };
