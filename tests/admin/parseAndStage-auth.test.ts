@@ -23,6 +23,8 @@
  * build-time gate (which would otherwise throw notFound() and mask the
  * auth-gate proof). Set inline by Vitest's env setup below.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { admin } from "../e2e/helpers/supabaseAdmin";
 
@@ -40,6 +42,44 @@ process.env.ADMIN_DEV_PANEL_ENABLED = "true";
 import { parseAndStage, resetDevSchema } from "@/app/admin/dev/actions";
 
 const FIXTURE_HAPPY = "2026-03-rpas-central-four-seasons.md";
+const ACTIONS_SOURCE_PATH = join(process.cwd(), "app/admin/dev/actions.ts");
+
+function firstStatementOfExportedAction(name: string): string {
+  const source = readFileSync(ACTIONS_SOURCE_PATH, "utf8");
+  const headerMatch = new RegExp(`export\\s+async\\s+function\\s+${name}\\b`).exec(source);
+  expect(
+    headerMatch,
+    `expected to find exported async function ${name} in actions.ts`,
+  ).not.toBeNull();
+
+  const openBrace = source.indexOf("{\n", headerMatch?.index ?? 0);
+  expect(openBrace, `expected ${name} to have a function body`).toBeGreaterThan(-1);
+
+  let depth = 0;
+  let closeBrace = -1;
+  for (let i = openBrace; i < source.length; i += 1) {
+    if (source[i] === "{") depth += 1;
+    if (source[i] === "}") depth -= 1;
+    if (depth === 0) {
+      closeBrace = i;
+      break;
+    }
+  }
+  expect(closeBrace, `expected to find closing brace for ${name}`).toBeGreaterThan(openBrace);
+
+  const body = source.slice(openBrace + 1, closeBrace);
+  const executableLines = body
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(
+      (line) =>
+        line.length > 0 &&
+        !line.startsWith("//") &&
+        !line.startsWith("*") &&
+        !line.startsWith("/*"),
+    );
+  return executableLines[0] ?? "";
+}
 
 /**
  * Predicate that returns true when an error is one of the signals
@@ -113,6 +153,22 @@ afterEach(async () => {
 });
 
 describe("defense-in-depth: requireAdmin() is the first line of every /admin/dev server action", () => {
+  test("every exported /admin/dev action has await requireAdmin() as its first executable statement", () => {
+    for (const actionName of [
+      "parseAndStage",
+      "parseAndStageFormAction",
+      "getStagedResult",
+      "resetDevSchema",
+      "resetDevSchemaFormAction",
+      "listFixtures",
+    ]) {
+      expect(
+        firstStatementOfExportedAction(actionName),
+        `${actionName} must call requireAdmin() directly as its first executable line; delegating to another gated helper is not enough for the M3 server-action invariant.`,
+      ).toBe("await requireAdmin();");
+    }
+  });
+
   test("parseAndStage() rejects without admin auth via Next.js HTTP-access fallback", async () => {
     const before = await devTablesEmpty();
     expect(before.shows).toBe(0);

@@ -389,6 +389,7 @@ export async function resetDevSchema(): Promise<{ ok: true }> {
 }
 
 export async function resetDevSchemaFormAction(): Promise<void> {
+  await requireAdmin();
   await resetDevSchema();
   // Redirect to a clean /admin/dev so the now-stale ?fixture= query param
   // (if any) doesn't try to re-render a result that was just truncated.
