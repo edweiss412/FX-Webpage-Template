@@ -7,7 +7,7 @@
  *   `lib/supabase/server.ts:35-39` swallow-pattern proves this — Supabase's
  *   own cookie-write is wrapped in try/catch because the RSC adapter throws).
  *   The chain-adapter in `app/show/[slug]/page.tsx` runs INSIDE the Server
- *   Component render, so when the chain decides the user's `__Host-fxav_session`
+ *   Component render, so when the chain decides the user's FXAV session
  *   cookie must be cleared (stale, malformed, wrong-show, revoked, etc.), the
  *   page MUST hand off the cookie mutation to a route handler that can write
  *   Set-Cookie headers on its response.
@@ -152,7 +152,7 @@ export function validateClearSessionNext(
 /**
  * R15 #1 (round-14 §A MEDIUM): same-origin gate. /auth/clear-session
  * performs a credential-changing side effect (clears
- * __Host-fxav_session) on any GET. Pre-fix it had no
+ * the FXAV session cookie) on any GET. Pre-fix it had no
  * Sec-Fetch-Site / Origin guard, so any external site could navigate
  * a user to /auth/clear-session?next=... and silently clear the
  * magic-link cookie. Modern browsers always set Sec-Fetch-Site for
@@ -194,7 +194,7 @@ export async function GET(request: NextRequest): Promise<Response> {
   // Emit a RELATIVE Location header so the browser preserves whichever host
   // it dialed (some test/dev setups dial 127.0.0.1 while the underlying
   // server's `request.url` reports `localhost`; an absolute URL would yank
-  // the browser onto a different host where __Host-fxav_session and
+  // the browser onto a different host where the FXAV session and
   // Supabase auth cookies are NOT scoped — breaking the chain). The
   // pathname is already validated against the local allowlist; the search
   // string is opaque-data preserved from the validator.

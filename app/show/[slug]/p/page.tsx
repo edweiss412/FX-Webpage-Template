@@ -1,8 +1,8 @@
 /**
  * app/show/[slug]/p/page.tsx (M5 §B Task 5.5 — Opus's portion)
  *
- * The bootstrap shell that exists ONLY to mint a `__Host-fxav_session`
- * cookie from a `#t=<jwt>` URL fragment. This route is the public entry
+ * The bootstrap shell that exists ONLY to mint the FXAV session cookie
+ * from a `#t=<jwt>` URL fragment. This route is the public entry
  * point for the signed-link onboarding flow described in spec §7.2:
  *
  *   1. Doug shares a link of the form `https://crew.fxav.show/show/<slug>/p#t=<jwt>`.

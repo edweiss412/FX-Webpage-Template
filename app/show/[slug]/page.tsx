@@ -9,7 +9,7 @@
  * runs the four-step ladder per spec §7.3 + plan 05-auth.md:275-281:
  *
  *     1. isAdminSession(req)         — admin precedence, runs FIRST
- *     2. validateLinkSession(req)    — __Host-fxav_session cookie path
+ *     2. validateLinkSession(req)    — FXAV session cookie path
  *     3. validateGoogleSession(req)  — Supabase OAuth path
  *     4. requireAdmin()              — final fallback (non-OAuth admin shapes)
  *

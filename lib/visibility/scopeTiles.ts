@@ -5,7 +5,7 @@
  * Single source of truth for which scope tiles a viewer sees on the
  * per-show crew page. EVERY scope-tile component (AudioScopeTile,
  * VideoScopeTile, LightingScopeTile) imports its predicate from this
- * file. NO ad-hoc `viewerRole === 'LEAD'` checks are permitted anywhere
+ * file. NO ad-hoc role-string checks are permitted anywhere
  * in the codebase — every visibility decision routes through these
  * functions so the rule lives in one place.
  *
