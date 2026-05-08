@@ -624,7 +624,7 @@ export default async function ShowPage({ params }: PageProps) {
       />
       <main
         data-testid="page-container"
-        className="mx-auto flex w-full max-w-[1200px] flex-1 flex-col gap-section-gap px-4 py-6 sm:p-8"
+        className="mx-auto flex w-full max-w-300 flex-1 flex-col gap-section-gap px-4 py-6 sm:p-8"
       >
         {/*
           RightNowCard — hero element. Time-aware AND viewer-aware. State
