@@ -82,7 +82,8 @@ describe("message catalog", () => {
   test("returns immutable catalog entries by code", () => {
     expect(messageFor("OAUTH_STATE_INVALID")).toMatchObject({
       code: "OAUTH_STATE_INVALID",
-      crewFacing: "Something interrupted your sign-in. Please click the original link from Doug again to start over.",
+      crewFacing:
+        "Something interrupted your sign-in. Please click the original link from Doug again to start over.",
     });
   });
 

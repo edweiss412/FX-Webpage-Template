@@ -49,12 +49,7 @@
  * extracted) so a future predicate addition surfaces here AND in the
  * matrix as a TypeScript error if the matrix is incomplete.
  */
-export type CapabilityPredicate =
-  | "hasLead"
-  | "hasA1"
-  | "hasV1"
-  | "hasL1"
-  | "hasAdmin";
+export type CapabilityPredicate = "hasLead" | "hasA1" | "hasV1" | "hasL1" | "hasAdmin";
 
 /**
  * The five gated tiles whose visibility this matrix covers. Listed
@@ -190,12 +185,7 @@ export const CAPABILITY_TRANSITION_MATRIX: CapabilityTransitionEntry[] = [
     // see every gated tile regardless of LEAD presence.
     aFlipDelta: { appears: [], disappears: [] },
     bFlipDelta: {
-      appears: [
-        "FinancialsTile",
-        "AudioScopeTile",
-        "VideoScopeTile",
-        "LightingScopeTile",
-      ],
+      appears: ["FinancialsTile", "AudioScopeTile", "VideoScopeTile", "LightingScopeTile"],
       disappears: [],
     },
     reason:
@@ -229,12 +219,7 @@ export const CAPABILITY_TRANSITION_MATRIX: CapabilityTransitionEntry[] = [
     // hasA1 flip toggles Audio only when hasAdmin is false.
     aFlipDelta: { appears: [], disappears: [] },
     bFlipDelta: {
-      appears: [
-        "FinancialsTile",
-        "AudioScopeTile",
-        "VideoScopeTile",
-        "LightingScopeTile",
-      ],
+      appears: ["FinancialsTile", "AudioScopeTile", "VideoScopeTile", "LightingScopeTile"],
       disappears: [],
     },
     reason:
@@ -254,16 +239,10 @@ export const CAPABILITY_TRANSITION_MATRIX: CapabilityTransitionEntry[] = [
     b: "hasAdmin",
     aFlipDelta: { appears: [], disappears: [] },
     bFlipDelta: {
-      appears: [
-        "FinancialsTile",
-        "AudioScopeTile",
-        "VideoScopeTile",
-        "LightingScopeTile",
-      ],
+      appears: ["FinancialsTile", "AudioScopeTile", "VideoScopeTile", "LightingScopeTile"],
       disappears: [],
     },
-    reason:
-      "hasAdmin unlocks all gated tiles. hasV1 flip is conditional on hasAdmin being false.",
+    reason: "hasAdmin unlocks all gated tiles. hasV1 flip is conditional on hasAdmin being false.",
   },
   // ── hasL1 × hasAdmin ──────────────────────────────────────────────
   {
@@ -271,16 +250,10 @@ export const CAPABILITY_TRANSITION_MATRIX: CapabilityTransitionEntry[] = [
     b: "hasAdmin",
     aFlipDelta: { appears: [], disappears: [] },
     bFlipDelta: {
-      appears: [
-        "FinancialsTile",
-        "AudioScopeTile",
-        "VideoScopeTile",
-        "LightingScopeTile",
-      ],
+      appears: ["FinancialsTile", "AudioScopeTile", "VideoScopeTile", "LightingScopeTile"],
       disappears: [],
     },
-    reason:
-      "hasAdmin unlocks all gated tiles. hasL1 flip is conditional on hasAdmin being false.",
+    reason: "hasAdmin unlocks all gated tiles. hasL1 flip is conditional on hasAdmin being false.",
   },
 ];
 

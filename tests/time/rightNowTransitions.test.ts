@@ -73,12 +73,8 @@ void _typeCheck;
 //    "matrix has 66 entries" runtime test — and the intuitive fix to
 //    that failure (relax the count) silently masks the real bug. Keep
 //    BOTH directions.
-type _Exhaustive = Exclude<
-  RightNowState["kind"],
-  (typeof ALL_KINDS)[number]
-> extends never
-  ? true
-  : false;
+type _Exhaustive =
+  Exclude<RightNowState["kind"], (typeof ALL_KINDS)[number]> extends never ? true : false;
 const _exhaustive: _Exhaustive = true;
 void _exhaustive;
 
@@ -111,9 +107,7 @@ describe("RIGHT_NOW_TRANSITION_MATRIX — structural invariants", () => {
   });
 
   test("no diagonals — every entry has from !== to", () => {
-    const diagonals = RIGHT_NOW_TRANSITION_MATRIX.filter(
-      (entry) => entry.from === entry.to,
-    );
+    const diagonals = RIGHT_NOW_TRANSITION_MATRIX.filter((entry) => entry.from === entry.to);
     expect(diagonals).toEqual([]);
   });
 
@@ -185,23 +179,10 @@ describe("transitionTreatment(from, to) — symmetric lookup helper", () => {
   });
 
   test("returns null for unknown kinds (defense against `as any` bypass)", () => {
+    expect(transitionTreatment("not_a_real_state" as RightNowStateKind, "pre_travel")).toBeNull();
+    expect(transitionTreatment("pre_travel", "also_not_real" as RightNowStateKind)).toBeNull();
     expect(
-      transitionTreatment(
-        "not_a_real_state" as RightNowStateKind,
-        "pre_travel",
-      ),
-    ).toBeNull();
-    expect(
-      transitionTreatment(
-        "pre_travel",
-        "also_not_real" as RightNowStateKind,
-      ),
-    ).toBeNull();
-    expect(
-      transitionTreatment(
-        "garbage" as RightNowStateKind,
-        "more_garbage" as RightNowStateKind,
-      ),
+      transitionTreatment("garbage" as RightNowStateKind, "more_garbage" as RightNowStateKind),
     ).toBeNull();
   });
 
@@ -218,12 +199,8 @@ describe("transitionTreatment(from, to) — symmetric lookup helper", () => {
   });
 
   test("pre_travel → travel_in_day is crossfade-body (spec line 2420)", () => {
-    expect(transitionTreatment("pre_travel", "travel_in_day")).toBe(
-      "crossfade-body",
-    );
-    expect(transitionTreatment("travel_in_day", "pre_travel")).toBe(
-      "crossfade-body",
-    );
+    expect(transitionTreatment("pre_travel", "travel_in_day")).toBe("crossfade-body");
+    expect(transitionTreatment("travel_in_day", "pre_travel")).toBe("crossfade-body");
   });
 
   test("any-state ↔ unknown is morph-to-last-good (spec line 2424)", () => {
@@ -253,27 +230,17 @@ describe("transitionTreatment(from, to) — symmetric lookup helper", () => {
   });
 
   test("viewer_off_day_pre ↔ viewer_after_last_day is unreachable (calendrical paradox)", () => {
-    expect(
-      transitionTreatment("viewer_off_day_pre", "viewer_after_last_day"),
-    ).toBe("unreachable");
-    expect(
-      transitionTreatment("viewer_after_last_day", "viewer_off_day_pre"),
-    ).toBe("unreachable");
+    expect(transitionTreatment("viewer_off_day_pre", "viewer_after_last_day")).toBe("unreachable");
+    expect(transitionTreatment("viewer_after_last_day", "viewer_off_day_pre")).toBe("unreachable");
   });
 
   test("viewer_off_day_pre → set_day is crossfade-body (plan Step 2 explicit)", () => {
-    expect(transitionTreatment("viewer_off_day_pre", "set_day")).toBe(
-      "crossfade-body",
-    );
+    expect(transitionTreatment("viewer_off_day_pre", "set_day")).toBe("crossfade-body");
   });
 
   test("viewer_off_day → show_day_n is crossfade-body (spec lines 2422-2423)", () => {
-    expect(transitionTreatment("viewer_off_day", "show_day_n")).toBe(
-      "crossfade-body",
-    );
-    expect(transitionTreatment("show_day_n", "viewer_off_day")).toBe(
-      "crossfade-body",
-    );
+    expect(transitionTreatment("viewer_off_day", "show_day_n")).toBe("crossfade-body");
+    expect(transitionTreatment("show_day_n", "viewer_off_day")).toBe("crossfade-body");
   });
 });
 
@@ -295,9 +262,7 @@ describe("RIGHT_NOW_TRANSITION_MATRIX — full enumeration cross-check", () => {
     }
     expect(expectedKeys.size).toBe(66);
 
-    const actualKeys = new Set(
-      RIGHT_NOW_TRANSITION_MATRIX.map((e) => pairKey(e.from, e.to)),
-    );
+    const actualKeys = new Set(RIGHT_NOW_TRANSITION_MATRIX.map((e) => pairKey(e.from, e.to)));
     const missing = [...expectedKeys].filter((k) => !actualKeys.has(k));
     const extra = [...actualKeys].filter((k) => !expectedKeys.has(k));
     expect(missing).toEqual([]);
@@ -410,9 +375,7 @@ describe("right-now-transition-matrix.md — markdown grid sentinel", () => {
     const lines = md.split("\n");
     // The column header line is the one starting with `|` whose first
     // cell is empty AND which lists `pre_t` as its first non-empty cell.
-    const headerLine = lines.find(
-      (line) => /^\|\s+\|\s*pre_t\s*\|/.test(line),
-    );
+    const headerLine = lines.find((line) => /^\|\s+\|\s*pre_t\s*\|/.test(line));
     expect(headerLine, "column-header row not found in markdown").toBeDefined();
     const cells = headerLine!
       .split("|")
@@ -437,12 +400,9 @@ describe("right-now-transition-matrix.md — markdown grid sentinel", () => {
     // Find the column-header line so we can parse the column order
     // (the markdown happens to use precedence-table order; pin it
     // explicitly rather than assuming).
-    const headerLineIndex = lines.findIndex(
-      (line) => /^\|\s+\|\s*pre_t\s*\|/.test(line),
-    );
+    const headerLineIndex = lines.findIndex((line) => /^\|\s+\|\s*pre_t\s*\|/.test(line));
     expect(headerLineIndex).toBeGreaterThanOrEqual(0);
-    const colAbbrs = lines[headerLineIndex]!
-      .split("|")
+    const colAbbrs = lines[headerLineIndex]!.split("|")
       .slice(1, -1)
       .map((c) => c.trim())
       .slice(1);
@@ -468,10 +428,7 @@ describe("right-now-transition-matrix.md — markdown grid sentinel", () => {
       seenRows.push(rowKind);
 
       const cells = match[2]!.split("|").map((c) => c.trim());
-      expect(
-        cells.length,
-        `row ${rowKind} has ${cells.length} cells; expected 12`,
-      ).toBe(12);
+      expect(cells.length, `row ${rowKind} has ${cells.length} cells; expected 12`).toBe(12);
 
       const rowIndex = colKinds.indexOf(rowKind);
       // rowIndex is the column position where the diagonal sits; every

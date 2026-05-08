@@ -32,9 +32,7 @@ import { SCOPE_TILE_UNLOCKING_FLAGS } from "@/lib/visibility/scopeTiles";
 // rest of the ShowForViewer fields are unused by the helper today, but
 // they MUST be carried in the type so the page can pass `data` straight
 // through. Tests construct a stub that satisfies the type.
-function makeData(
-  crewMembers: ShowForViewer["crewMembers"],
-): ShowForViewer {
+function makeData(crewMembers: ShowForViewer["crewMembers"]): ShowForViewer {
   return {
     show: {} as ShowForViewer["show"],
     crewMembers,

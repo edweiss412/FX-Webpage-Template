@@ -68,14 +68,10 @@ describe("public.mint_link_session_if_active_kid_matches grants", () => {
       "utf8",
     );
 
-    const body = sql
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/^[ \t]*--.*$/gm, "");
+    const body = sql.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*--.*$/gm, "");
     expect(body).toMatch(/\bpg_advisory_xact_lock\s*\(/i);
     expect(body).toMatch(/public\.crew_member_auth/i);
     expect(body).toMatch(/public\.revoked_links/i);
-    expect(body).toMatch(
-      /insert\s+into\s+public\.link_sessions/i,
-    );
+    expect(body).toMatch(/insert\s+into\s+public\.link_sessions/i);
   });
 });

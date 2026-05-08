@@ -88,18 +88,13 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
         <li
           key={member.id}
           data-testid="crew-row"
-          className={[
-            "flex items-start gap-3",
-            idx > 0 ? "border-t border-border pt-4" : "",
-          ]
+          className={["flex items-start gap-3", idx > 0 ? "border-t border-border pt-4" : ""]
             .filter(Boolean)
             .join(" ")}
         >
           <Avatar name={member.name} />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <p className="truncate text-sm/tight font-semibold text-text-strong">
-              {member.name}
-            </p>
+            <p className="truncate text-sm/tight font-semibold text-text-strong">{member.name}</p>
             {member.role ? (
               <p className="truncate text-xs uppercase tracking-[0.12em] text-text-faint">
                 {member.role}
@@ -180,8 +175,7 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
           ].join(" ")}
         >
           <span className="tabular-nums">+{overflowCount}</span>{" "}
-          {overflowCount === 1 ? "more crew member" : "more crew members"} on
-          the source sheet
+          {overflowCount === 1 ? "more crew member" : "more crew members"} on the source sheet
         </li>
       ) : null}
     </Section>

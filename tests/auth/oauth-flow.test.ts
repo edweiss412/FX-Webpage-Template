@@ -72,8 +72,7 @@ describe("OAuth start route", () => {
     expect(server.client.auth.signInWithOAuth).toHaveBeenCalledWith({
       provider: "google",
       options: {
-        redirectTo:
-          "https://crew.fxav.test/auth/callback?next=%2Fshow%2Frpas-central",
+        redirectTo: "https://crew.fxav.test/auth/callback?next=%2Fshow%2Frpas-central",
         queryParams: { prompt: "select_account" },
       },
     });
@@ -132,9 +131,7 @@ describe("OAuth callback route", () => {
   test("crew-only successful callback with no next falls back to /me instead of /admin", async () => {
     const { GET } = await import("@/app/auth/callback/route");
 
-    const response = await GET(
-      new NextRequest("https://crew.fxav.test/auth/callback?code=abc"),
-    );
+    const response = await GET(new NextRequest("https://crew.fxav.test/auth/callback?code=abc"));
 
     expect(server.client.auth.exchangeCodeForSession).toHaveBeenCalledWith("abc");
     expect(response.status).toBe(302);
@@ -182,9 +179,7 @@ describe("OAuth callback route", () => {
     server.client.rpc.mockResolvedValue({ data: true, error: null });
     const { GET } = await import("@/app/auth/callback/route");
 
-    const response = await GET(
-      new NextRequest("https://crew.fxav.test/auth/callback?code=abc"),
-    );
+    const response = await GET(new NextRequest("https://crew.fxav.test/auth/callback?code=abc"));
 
     expect(response.status).toBe(302);
     expect(locationOf(response)).toBe("https://crew.fxav.test/admin");
@@ -325,11 +320,15 @@ describe("OAuth sign-out route", () => {
     expect(response.status).toBe(303);
     expect(locationOf(response)).toBe("https://crew.fxav.test/auth/sign-in");
     const setCookies = setCookieLines(response).join("\n");
-    expect(setCookies).toContain("__Host-fxav_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+    expect(setCookies).toContain(
+      "__Host-fxav_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
     expect(setCookies).toContain(
       "__Host-fxav_bootstrap_v=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
     );
-    expect(setCookies).toContain("sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+    expect(setCookies).toContain(
+      "sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
     expect(setCookies).toContain(
       "sb-test-auth-token-code-verifier=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
     );
@@ -353,11 +352,15 @@ describe("OAuth sign-out route", () => {
     expect(response.status).toBe(303);
     expect(server.service.deletedTokens).toEqual([sessionToken]);
     const setCookies = setCookieLines(response).join("\n");
-    expect(setCookies).toContain("__Host-fxav_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+    expect(setCookies).toContain(
+      "__Host-fxav_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
     expect(setCookies).toContain(
       "__Host-fxav_bootstrap_v=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
     );
-    expect(setCookies).toContain("sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+    expect(setCookies).toContain(
+      "sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
   });
 
   test("POST without an FXAV session cookie skips DB delete and still clears cookies", async () => {
@@ -375,11 +378,15 @@ describe("OAuth sign-out route", () => {
     expect(response.status).toBe(303);
     expect(server.service.deletedTokens).toEqual([]);
     const setCookies = setCookieLines(response).join("\n");
-    expect(setCookies).toContain("__Host-fxav_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+    expect(setCookies).toContain(
+      "__Host-fxav_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
     expect(setCookies).toContain(
       "__Host-fxav_bootstrap_v=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
     );
-    expect(setCookies).toContain("sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+    expect(setCookies).toContain(
+      "sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
   });
 
   test("POST with malformed FXAV session cookie skips DB delete and still clears cookies", async () => {
@@ -389,7 +396,8 @@ describe("OAuth sign-out route", () => {
       new NextRequest("https://crew.fxav.test/auth/sign-out", {
         method: "POST",
         headers: {
-          cookie: "__Host-fxav_session=%xy; __Host-fxav_bootstrap_v=bootstrap; sb-test-auth-token=auth",
+          cookie:
+            "__Host-fxav_session=%xy; __Host-fxav_bootstrap_v=bootstrap; sb-test-auth-token=auth",
         },
       }),
     );
@@ -397,11 +405,15 @@ describe("OAuth sign-out route", () => {
     expect(response.status).toBe(303);
     expect(server.service.deletedTokens).toEqual([]);
     const setCookies = setCookieLines(response).join("\n");
-    expect(setCookies).toContain("__Host-fxav_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+    expect(setCookies).toContain(
+      "__Host-fxav_session=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
     expect(setCookies).toContain(
       "__Host-fxav_bootstrap_v=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
     );
-    expect(setCookies).toContain("sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0");
+    expect(setCookies).toContain(
+      "sb-test-auth-token=; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=0",
+    );
   });
 
   test("POST returns 500 ADMIN_SESSION_LOOKUP_FAILED on link-session delete failure with cookies preserved", async () => {
@@ -507,9 +519,9 @@ describe("OAuth sign-out route", () => {
     expect(html).toContain("Sign-out couldn't complete");
     // Supabase cookies must NOT be cleared — that side's teardown failed.
     const cookies = setCookieLines(response);
-    expect(
-      cookies.some((c) => c.startsWith("sb-test-auth-token") && /Max-Age=0/i.test(c)),
-    ).toBe(false);
+    expect(cookies.some((c) => c.startsWith("sb-test-auth-token") && /Max-Age=0/i.test(c))).toBe(
+      false,
+    );
 
     errorSpy.mockRestore();
   });
@@ -538,8 +550,7 @@ describe("OAuth sign-out route", () => {
       new NextRequest("https://crew.fxav.test/auth/sign-out", {
         method: "POST",
         headers: {
-          cookie:
-            `__Host-fxav_session=${fxavEnvelope}; sb-test-auth-token.0=chunk0`,
+          cookie: `__Host-fxav_session=${fxavEnvelope}; sb-test-auth-token.0=chunk0`,
         },
       }),
     );
@@ -547,22 +558,16 @@ describe("OAuth sign-out route", () => {
     expect(response.status).toBe(500);
     // FXAV link-session row was deleted server-side, so its cookie must
     // be cleared client-side.
-    expect(server.service.deletedTokens).toEqual([
-      "00000000-0000-4000-8000-000000000000",
-    ]);
+    expect(server.service.deletedTokens).toEqual(["00000000-0000-4000-8000-000000000000"]);
     const cookies = setCookieLines(response);
-    expect(
-      cookies.some(
-        (c) => c.startsWith("__Host-fxav_session=") && /Max-Age=0/i.test(c),
-      ),
-    ).toBe(true);
+    expect(cookies.some((c) => c.startsWith("__Host-fxav_session=") && /Max-Age=0/i.test(c))).toBe(
+      true,
+    );
     // Supabase cookies must be preserved — that side's teardown failed
     // and the user must retry.
-    expect(
-      cookies.some(
-        (c) => c.startsWith("sb-test-auth-token") && /Max-Age=0/i.test(c),
-      ),
-    ).toBe(false);
+    expect(cookies.some((c) => c.startsWith("sb-test-auth-token") && /Max-Age=0/i.test(c))).toBe(
+      false,
+    );
 
     errorSpy.mockRestore();
   });

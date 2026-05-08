@@ -43,17 +43,12 @@ async function snapshot(): Promise<Snapshot> {
   }
   const showId = showRes.data.id as string;
 
-  const crewRes = await admin
-    .from("crew_members")
-    .select("id, role_flags")
-    .eq("show_id", showId);
+  const crewRes = await admin.from("crew_members").select("id, role_flags").eq("show_id", showId);
   if (crewRes.error || !crewRes.data?.length) {
     throw new Error(`empty-state.spec: no crew rows`);
   }
   const lead = crewRes.data.find(
-    (c) =>
-      Array.isArray(c.role_flags) &&
-      (c.role_flags as string[]).includes("LEAD"),
+    (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead) throw new Error(`empty-state.spec: no LEAD`);
 
@@ -61,25 +56,18 @@ async function snapshot(): Promise<Snapshot> {
     slug: showRes.data.slug as string,
     showId,
     leadCrewId: lead.id as string,
-    originalEventDetails:
-      (showRes.data.event_details as Record<string, string> | null) ?? {},
+    originalEventDetails: (showRes.data.event_details as Record<string, string> | null) ?? {},
   };
 }
 
 /** Replace event_details with a patched copy (preserves keys we don't mutate). */
-async function setEventDetails(
-  s: Snapshot,
-  patch: Record<string, string | null>,
-): Promise<void> {
+async function setEventDetails(s: Snapshot, patch: Record<string, string | null>): Promise<void> {
   const merged: Record<string, string> = { ...s.originalEventDetails };
   for (const [k, v] of Object.entries(patch)) {
     if (v === null) delete merged[k];
     else merged[k] = v;
   }
-  const res = await admin
-    .from("shows")
-    .update({ event_details: merged })
-    .eq("id", s.showId);
+  const res = await admin.from("shows").update({ event_details: merged }).eq("id", s.showId);
   if (res.error) throw new Error(`setEventDetails failed: ${res.error.message}`);
 }
 
@@ -113,9 +101,7 @@ test.describe.skip("crew page — empty-state discipline + §10 URL-strip (Task 
     await restore(s);
   });
 
-  test("opening_reel = 'TBD' renders NO opening-reel row (hide sentinel)", async ({
-    page,
-  }) => {
+  test("opening_reel = 'TBD' renders NO opening-reel row (hide sentinel)", async ({ page }) => {
     // Task 4.14 review fix-round: ShowStatusTile renders opening-reel as
     // `<dt>Opening reel</dt><dd>{value}</dd>` (no inline `Opening reel:`
     // prefix in the <dd> after the dt/dd cleanup). Assert via the
@@ -161,9 +147,7 @@ test.describe.skip("crew page — empty-state discipline + §10 URL-strip (Task 
     await expect(page.locator('video[src*="/api/asset/reel/"]')).toHaveCount(0);
   });
 
-  test("pure-URL cell renders NO line; DOM has no https/drive.google.com", async ({
-    page,
-  }) => {
+  test("pure-URL cell renders NO line; DOM has no https/drive.google.com", async ({ page }) => {
     await setEventDetails(s, {
       opening_reel: "https://drive.google.com/file/d/abc/view",
     });
@@ -182,8 +166,7 @@ test.describe.skip("crew page — empty-state discipline + §10 URL-strip (Task 
     page,
   }) => {
     await setEventDetails(s, {
-      opening_reel:
-        "LOOP VIDEO - https://docs.google.com/document/d/abc/edit",
+      opening_reel: "LOOP VIDEO - https://docs.google.com/document/d/abc/edit",
     });
     await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
     const reel = page.getByTestId("opening-reel");

@@ -155,10 +155,7 @@ export default async function SignInPage({
       className="mx-auto flex min-h-screen max-w-md flex-col justify-center bg-bg px-4 py-section-gap text-text sm:px-8"
     >
       <header className="mb-section-gap text-center">
-        <h1
-          data-testid="sign-in-headline"
-          className="text-3xl font-bold text-text-strong"
-        >
+        <h1 data-testid="sign-in-headline" className="text-3xl font-bold text-text-strong">
           Sign in with Google
         </h1>
         <p className="mt-3 text-base text-text-subtle">

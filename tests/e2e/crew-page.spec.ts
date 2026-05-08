@@ -69,33 +69,24 @@ async function lookupSeededShow(): Promise<{
     );
   }
 
-  const lead = crewRes.data.find((c) =>
-    Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
+  const lead = crewRes.data.find(
+    (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead) {
-    throw new Error(
-      `crew-page.spec: no LEAD crew member found for slug=${showRes.data.slug}.`,
-    );
+    throw new Error(`crew-page.spec: no LEAD crew member found for slug=${showRes.data.slug}.`);
   }
 
   // Find hotel reservations to build named/unnamed crew lookups.
-  const hotelRes = await admin
-    .from("hotel_reservations")
-    .select("names")
-    .eq("show_id", showId);
+  const hotelRes = await admin.from("hotel_reservations").select("names").eq("show_id", showId);
   if (hotelRes.error) {
-    throw new Error(
-      `crew-page.spec: hotel_reservations fetch failed: ${hotelRes.error.message}`,
-    );
+    throw new Error(`crew-page.spec: hotel_reservations fetch failed: ${hotelRes.error.message}`);
   }
   const allHotelNames: string[] = (hotelRes.data ?? []).flatMap((r) =>
     Array.isArray(r.names) ? (r.names as string[]) : [],
   );
 
   const isNamed = (crewName: string) =>
-    allHotelNames.some((n) =>
-      n.toLowerCase().includes(crewName.toLowerCase()),
-    );
+    allHotelNames.some((n) => n.toLowerCase().includes(crewName.toLowerCase()));
 
   const namedCrew = crewRes.data.find((c) => isNamed(c.name as string));
   const unnamedCrew = crewRes.data.find((c) => !isNamed(c.name as string));
@@ -143,10 +134,7 @@ test.describe.skip("crew page — layout shell (Task 4.2)", () => {
       .getByTestId("tile-grid")
       .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
     const trackCount = cols.trim().split(/\s+/).filter(Boolean).length;
-    expect(
-      trackCount,
-      `mobile tile-grid must be 2 columns (§8.4); got "${cols}"`,
-    ).toBe(2);
+    expect(trackCount, `mobile tile-grid must be 2 columns (§8.4); got "${cols}"`).toBe(2);
   });
 });
 
@@ -228,9 +216,7 @@ test.describe.skip("crew page — VenueTile (Task 4.4)", () => {
 // Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
 // plus per-test fixture seeding. See handoff §0.
 test.describe.skip("crew page — CrewTile (Task 4.4)", () => {
-  test("renders CrewTile with every crew member + tap-to-call/email anchors", async ({
-    page,
-  }) => {
+  test("renders CrewTile with every crew member + tap-to-call/email anchors", async ({ page }) => {
     const { slug, leadCrewId } = await lookupSeededShow();
     const response = await page.goto(`/show/${slug}?crew=${leadCrewId}`);
     expect(response?.status()).toBe(200);
@@ -252,9 +238,7 @@ test.describe.skip("crew page — CrewTile (Task 4.4)", () => {
     await expect(crew.locator('a[href="tel:4803301848"]')).toBeVisible();
 
     // Tap-to-email: Eric Weiss's email is "edweiss412@gmail.com".
-    await expect(
-      crew.locator('a[href="mailto:edweiss412@gmail.com"]'),
-    ).toBeVisible();
+    await expect(crew.locator('a[href="mailto:edweiss412@gmail.com"]')).toBeVisible();
   });
 });
 
@@ -265,9 +249,7 @@ test.describe.skip("crew page — CrewTile (Task 4.4)", () => {
 // Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
 // plus per-test fixture seeding. See handoff §0.
 test.describe.skip("crew page — ContactsTile (Task 4.4)", () => {
-  test("renders ContactsTile with at least one contact when seeded", async ({
-    page,
-  }) => {
+  test("renders ContactsTile with at least one contact when seeded", async ({ page }) => {
     const { slug, leadCrewId, showId } = await lookupSeededShow();
 
     // Pre-flight: assert the seed corpus has at least one contact for this

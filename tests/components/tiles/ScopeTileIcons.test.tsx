@@ -87,19 +87,13 @@ describe("Scope-tile leading icons (Task 4.13.distill — Finding 8)", () => {
     // path-data, since we compare bodies pairwise rather than against
     // hardcoded path strings.
     const audioHeader = extractHeader(
-      renderToStaticMarkup(
-        <AudioScopeTile rooms={[]} viewerFlags={allScopesViewerFlags} />,
-      ),
+      renderToStaticMarkup(<AudioScopeTile rooms={[]} viewerFlags={allScopesViewerFlags} />),
     );
     const videoHeader = extractHeader(
-      renderToStaticMarkup(
-        <VideoScopeTile rooms={[]} viewerFlags={allScopesViewerFlags} />,
-      ),
+      renderToStaticMarkup(<VideoScopeTile rooms={[]} viewerFlags={allScopesViewerFlags} />),
     );
     const lightingHeader = extractHeader(
-      renderToStaticMarkup(
-        <LightingScopeTile rooms={[]} viewerFlags={allScopesViewerFlags} />,
-      ),
+      renderToStaticMarkup(<LightingScopeTile rooms={[]} viewerFlags={allScopesViewerFlags} />),
     );
 
     const extractSvg = (s: string): string => {

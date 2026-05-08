@@ -47,11 +47,7 @@ describe("validateClearSessionNext (clear-session local allowlist)", () => {
       ["/show/rpas-central", "/show/rpas-central", ""],
       ["/show/rpas-central?as=admin", "/show/rpas-central", "?as=admin"],
       ["/auth/sign-in", "/auth/sign-in", ""],
-      [
-        "/auth/sign-in?next=/show/rpas-central",
-        "/auth/sign-in",
-        "?next=/show/rpas-central",
-      ],
+      ["/auth/sign-in?next=/show/rpas-central", "/auth/sign-in", "?next=/show/rpas-central"],
       ["/me", "/me", ""],
       ["/me?tab=info", "/me", "?tab=info"],
       ["/me/profile", "/me/profile", ""],
@@ -69,10 +65,7 @@ describe("validateClearSessionNext (clear-session local allowlist)", () => {
     });
 
     test("accepts an absolute URL on the same origin", () => {
-      const outcome = validateClearSessionNext(
-        `${ORIGIN}/show/foo?as=admin`,
-        ORIGIN,
-      );
+      const outcome = validateClearSessionNext(`${ORIGIN}/show/foo?as=admin`, ORIGIN);
       expect(outcome.ok).toBe(true);
       if (outcome.ok) {
         expect(outcome.pathname).toBe("/show/foo");

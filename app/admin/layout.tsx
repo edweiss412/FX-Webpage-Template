@@ -29,11 +29,7 @@ import { messageFor } from "@/lib/messages/lookup";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminLayout({
-  children,
-}: {
-  children: ReactNode;
-}) {
+export default async function AdminLayout({ children }: { children: ReactNode }) {
   // FIRST LINE — gates every admin route (404 if build-time flag off, 403
   // if not admin). Per Next 16 App Router semantics, this runs before any
   // child page render, so the gate covers /admin/dev and any future
@@ -58,9 +54,7 @@ export default async function AdminLayout({
           data-testid="admin-layout-infra-error"
           className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center p-page-pad-mobile sm:p-page-pad-desktop text-center"
         >
-          <h1 className="text-2xl font-semibold">
-            Admin session unavailable
-          </h1>
+          <h1 className="text-2xl font-semibold">Admin session unavailable</h1>
           <p className="mt-4 text-base text-text-subtle">
             {entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."}
           </p>

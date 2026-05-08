@@ -22,11 +22,7 @@
  * class of bug once and the same class is easy to repeat here.
  */
 import { describe, expect, test } from "vitest";
-import {
-  daysBetween,
-  formatIsoForTimezone,
-  selectRightNowState,
-} from "@/lib/time/rightNow";
+import { daysBetween, formatIsoForTimezone, selectRightNowState } from "@/lib/time/rightNow";
 import type { DateRestriction } from "@/lib/parser/types";
 
 /** Default fixture: a 5-day Waldorf-shaped show. */
@@ -103,11 +99,7 @@ describe("selectRightNowState — viewer_unconfirmed precedence (§8.2 row 1)", 
     // populated — but they're empty, so the state machine cannot
     // tell. Pre-fix would render pre_travel or travel_in_day or
     // post_show; post-fix renders unknown.
-    const state = selectRightNowState(
-      todayInNY("2026-04-22"),
-      partialDates,
-      { kind: "none" },
-    );
+    const state = selectRightNowState(todayInNY("2026-04-22"), partialDates, { kind: "none" });
     expect(state.kind).toBe("unknown");
   });
 });
@@ -151,11 +143,7 @@ describe("selectRightNowState — viewer_off_day (§8.2 row 3)", () => {
 
 describe("selectRightNowState — viewer_off_day_pre (§8.2 row 4)", () => {
   test("today before viewer's first assigned day AND before travelIn", () => {
-    const state = selectRightNowState(
-      todayInNY("2026-05-30"),
-      DATES,
-      explicit("2026-06-02"),
-    );
+    const state = selectRightNowState(todayInNY("2026-05-30"), DATES, explicit("2026-06-02"));
     expect(state.kind).toBe("viewer_off_day_pre");
     if (state.kind === "viewer_off_day_pre") {
       expect(state.firstAssignedDay).toBe("2026-06-02");
@@ -228,11 +216,7 @@ describe("selectRightNowState — show-wide states gated on viewer membership", 
     // Explicit days = ['2026-06-04']; today = '2026-06-04'. That's
     // showDays[1] → Show Day 2 of 3. Verifies the OR gate fires when
     // the viewer IS scheduled for today.
-    const state = selectRightNowState(
-      todayInNY("2026-06-04"),
-      DATES,
-      explicit("2026-06-04"),
-    );
+    const state = selectRightNowState(todayInNY("2026-06-04"), DATES, explicit("2026-06-04"));
     expect(state.kind).toBe("show_day_n");
     if (state.kind === "show_day_n") {
       expect(state.n).toBe(2);
@@ -253,11 +237,7 @@ describe("selectRightNowState — post_show (§8.2 row 10)", () => {
 
   test("today > viewer's last assigned day but before travelOut → viewer_after_last_day, not post_show", () => {
     // viewer_after_last_day takes precedence (row 2 above row 10).
-    const state = selectRightNowState(
-      todayInNY("2026-06-04"),
-      DATES,
-      explicit("2026-06-02"),
-    );
+    const state = selectRightNowState(todayInNY("2026-06-04"), DATES, explicit("2026-06-02"));
     expect(state.kind).toBe("viewer_after_last_day");
   });
 });
@@ -298,11 +278,7 @@ describe("selectRightNowState — timezone-aware date comparison (regression)", 
     // travelIn date is '2026-06-01'. A naive UTC comparison would
     // see "today === travelIn"; the timezone-aware comparison sees
     // May 31 < June 1 and falls through to pre_travel.
-    const state = selectRightNowState(
-      new Date("2026-06-01T03:00:00Z"),
-      DATES,
-      NONE,
-    );
+    const state = selectRightNowState(new Date("2026-06-01T03:00:00Z"), DATES, NONE);
     expect(state.kind).toBe("pre_travel");
   });
 });

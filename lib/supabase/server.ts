@@ -13,8 +13,7 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 
-const SUPABASE_PKCE_VERIFIER_COOKIE_RE =
-  /^sb-[^-]+-auth-token-code-verifier(?:\.\d+)?$/;
+const SUPABASE_PKCE_VERIFIER_COOKIE_RE = /^sb-[^-]+-auth-token-code-verifier(?:\.\d+)?$/;
 
 function hardenSupabaseCookieOptions(
   name: string,

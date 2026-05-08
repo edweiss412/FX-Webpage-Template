@@ -29,9 +29,8 @@ function makeFakeSupabase() {
     event: string;
     config: { event: string };
   }> = [];
-  let registeredHandler:
-    | ((msg: { event: string; payload: InvalidatePayload }) => void)
-    | null = null;
+  let registeredHandler: ((msg: { event: string; payload: InvalidatePayload }) => void) | null =
+    null;
   let registeredStatusHandler: ((status: string) => void) | null = null;
   let subscribed = false;
 
@@ -74,8 +73,7 @@ function makeFakeSupabase() {
       registeredHandler(msg);
     },
     fireStatus: (status: string) => {
-      if (!registeredStatusHandler)
-        throw new Error("no status handler registered");
+      if (!registeredStatusHandler) throw new Error("no status handler registered");
       registeredStatusHandler(status);
     },
     subscribed: () => subscribed,
@@ -262,9 +260,7 @@ describe("subscribeToShow", () => {
       () => {},
     );
     fake.fireStatus("CHANNEL_ERROR");
-    await expect(result.subscribed).rejects.toBeInstanceOf(
-      SubscribeReadinessError,
-    );
+    await expect(result.subscribed).rejects.toBeInstanceOf(SubscribeReadinessError);
     await result.subscribed.catch((err: SubscribeReadinessError) => {
       expect(err.status).toBe("CHANNEL_ERROR");
     });
@@ -279,9 +275,7 @@ describe("subscribeToShow", () => {
       () => {},
     );
     fake.fireStatus("TIMED_OUT");
-    await expect(result.subscribed).rejects.toBeInstanceOf(
-      SubscribeReadinessError,
-    );
+    await expect(result.subscribed).rejects.toBeInstanceOf(SubscribeReadinessError);
     await result.subscribed.catch((err: SubscribeReadinessError) => {
       expect(err.status).toBe("TIMED_OUT");
     });
@@ -296,9 +290,7 @@ describe("subscribeToShow", () => {
       () => {},
     );
     fake.fireStatus("CLOSED");
-    await expect(result.subscribed).rejects.toBeInstanceOf(
-      SubscribeReadinessError,
-    );
+    await expect(result.subscribed).rejects.toBeInstanceOf(SubscribeReadinessError);
     await result.subscribed.catch((err: SubscribeReadinessError) => {
       expect(err.status).toBe("CLOSED");
     });
@@ -322,9 +314,7 @@ describe("subscribeToShow", () => {
     // channel handle. This test pins the contract for completeness.)
     fake.fireStatus("CHANNEL_ERROR");
     fake.fireStatus("SUBSCRIBED");
-    await expect(result.subscribed).rejects.toBeInstanceOf(
-      SubscribeReadinessError,
-    );
+    await expect(result.subscribed).rejects.toBeInstanceOf(SubscribeReadinessError);
   });
 
   test("subscribed Promise settles at most once: SUBSCRIBED then later failures stay RESOLVED (Codex round 2 HIGH)", async () => {

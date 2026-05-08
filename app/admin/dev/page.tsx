@@ -80,10 +80,9 @@ export default async function AdminDevPage({
     <main className="mx-auto max-w-4xl p-6 font-mono text-sm">
       <h1 className="text-xl font-bold mb-4">/admin/dev — fixture upload-test</h1>
       <p className="mb-4 text-gray-700">
-        Real Phase-1 write-through against the <code>dev.*</code> schema. Pick a
-        fixture and stage it; rows land in <code>dev.pending_syncs</code> /{" "}
-        <code>dev.pending_ingestions</code>. Production tables in <code>public.*</code>{" "}
-        are never touched.
+        Real Phase-1 write-through against the <code>dev.*</code> schema. Pick a fixture and stage
+        it; rows land in <code>dev.pending_syncs</code> / <code>dev.pending_ingestions</code>.
+        Production tables in <code>public.*</code> are never touched.
       </p>
 
       <FixturePickerForm fixtures={fixtures} selected={selected} />
@@ -97,13 +96,10 @@ export default async function AdminDevPage({
       ) : null}
 
       {selected && !result && !lookupError ? (
-        <section
-          className="mt-6 border border-yellow-500 p-3"
-          data-testid="no-staged-result"
-        >
+        <section className="mt-6 border border-yellow-500 p-3" data-testid="no-staged-result">
           <p>
-            No staged result for <code>{selected}</code> in <code>dev.*</code>.
-            Submit the form above to parse and stage it.
+            No staged result for <code>{selected}</code> in <code>dev.*</code>. Submit the form
+            above to parse and stage it.
           </p>
         </section>
       ) : null}
@@ -113,13 +109,7 @@ export default async function AdminDevPage({
   );
 }
 
-function FixturePickerForm({
-  fixtures,
-  selected,
-}: {
-  fixtures: string[];
-  selected: string;
-}) {
+function FixturePickerForm({ fixtures, selected }: { fixtures: string[]; selected: string }) {
   // POST-only Server Action submission. The form has no method=... attribute
   // because Next.js's <form action={ServerAction}> always submits as POST.
   // GET requests to /admin/dev?fixture=... are now safe (read-only via
@@ -185,9 +175,7 @@ function ParsePanel({ result }: { result: ParseAndStageResult }) {
         </dd>
         <dt>Staging row:</dt>
         <dd data-testid="staging-row">
-          {result.staging
-            ? `${result.staging.kind} (id=${result.staging.id})`
-            : "— none —"}
+          {result.staging ? `${result.staging.kind} (id=${result.staging.id})` : "— none —"}
         </dd>
       </dl>
 
@@ -224,8 +212,8 @@ function EnrichmentSummary({ result }: { result: ParseAndStageResult }) {
           Linked-folder items: {result.enrichment.linkedFolderItemCount}
         </li>
         <li data-testid="enriched-embedded-images">
-          Embedded images: {result.enrichment.embeddedImageCount} (M3 always 0;
-          M7 wires real Sheets-API capture)
+          Embedded images: {result.enrichment.embeddedImageCount} (M3 always 0; M7 wires real
+          Sheets-API capture)
         </li>
       </ul>
     </section>
@@ -282,8 +270,7 @@ function ParseWarnings({ result }: { result: ParseAndStageResult }) {
         <ul className="ml-4 list-disc">
           {result.parseWarnings.map((w, idx) => (
             <li key={`${w.code}-${idx}`} data-testid="parse-warning-item">
-              <span className="font-bold">{w.severity}</span>:{" "}
-              <code>{w.code}</code> — {w.message}
+              <span className="font-bold">{w.severity}</span>: <code>{w.code}</code> — {w.message}
               {w.rawSnippet ? (
                 <pre className="text-xs whitespace-pre-wrap ml-4">{w.rawSnippet}</pre>
               ) : null}
@@ -298,17 +285,14 @@ function ParseWarnings({ result }: { result: ParseAndStageResult }) {
 function RawUnrecognized({ result }: { result: ParseAndStageResult }) {
   return (
     <section className="mb-3" data-testid="raw-unrecognized">
-      <h3 className="font-bold">
-        Raw unrecognized chunks ({result.rawUnrecognized.length})
-      </h3>
+      <h3 className="font-bold">Raw unrecognized chunks ({result.rawUnrecognized.length})</h3>
       {result.rawUnrecognized.length === 0 ? (
         <p className="text-xs text-gray-600">— none —</p>
       ) : (
         <ul className="ml-4 list-disc">
           {result.rawUnrecognized.map((chunk, idx) => (
             <li key={`${chunk.block}-${chunk.key}-${idx}`} data-testid="raw-unrecognized-item">
-              <span className="font-bold">{chunk.block}</span> /{" "}
-              <code>{chunk.key}</code>:{" "}
+              <span className="font-bold">{chunk.block}</span> / <code>{chunk.key}</code>:{" "}
               <pre className="text-xs whitespace-pre-wrap ml-4 inline">{chunk.value}</pre>
               <ReportSnippetButton snippet={`${chunk.block}/${chunk.key}: ${chunk.value}`} />
             </li>

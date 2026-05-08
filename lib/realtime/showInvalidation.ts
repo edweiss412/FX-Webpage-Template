@@ -30,10 +30,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export async function publishShowInvalidation(
-  tx: SupabaseClient,
-  showId: string,
-): Promise<void> {
+export async function publishShowInvalidation(tx: SupabaseClient, showId: string): Promise<void> {
   const { error } = await tx.rpc("publish_show_invalidation", {
     p_show_id: showId,
   });

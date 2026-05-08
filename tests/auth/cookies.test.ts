@@ -23,9 +23,7 @@ describe("signed-link session cookie helpers", () => {
     expect(decodeSessionCookieValue("%xy")).toBeNull();
     expect(decodeSessionCookieValue(encodeURIComponent("not json"))).toBeNull();
     expect(
-      decodeSessionCookieValue(
-        encodeURIComponent(JSON.stringify({ v: 2, token, show_id })),
-      ),
+      decodeSessionCookieValue(encodeURIComponent(JSON.stringify({ v: 2, token, show_id }))),
     ).toBeNull();
     expect(
       decodeSessionCookieValue(

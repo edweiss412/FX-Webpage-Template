@@ -1,4 +1,8 @@
-import { MESSAGE_CATALOG, type MessageCode, type MessageCatalogEntry } from "@/lib/messages/catalog";
+import {
+  MESSAGE_CATALOG,
+  type MessageCode,
+  type MessageCatalogEntry,
+} from "@/lib/messages/catalog";
 
 export { MESSAGE_CATALOG, type MessageCode, type MessageCatalogEntry };
 

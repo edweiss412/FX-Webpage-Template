@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
-import {
-  validateNextParamDetailed,
-} from "@/lib/auth/validateNextParam";
+import { validateNextParamDetailed } from "@/lib/auth/validateNextParam";
 import { messageFor } from "@/lib/messages/lookup";
 
 type OAuthRedirectCode = "OAUTH_STATE_INVALID" | "OAUTH_REDIRECT_INVALID";
@@ -17,7 +15,11 @@ function isAdminPath(path: string): boolean {
   return /^\/admin(?:\/|$)/.test(path);
 }
 
-function signInRedirect(request: NextRequest, code: OAuthRedirectCode, nextPath: string): NextResponse {
+function signInRedirect(
+  request: NextRequest,
+  code: OAuthRedirectCode,
+  nextPath: string,
+): NextResponse {
   const url = new URL("/auth/sign-in", request.url);
   url.searchParams.set("code", code);
   url.searchParams.set("next", nextPath);

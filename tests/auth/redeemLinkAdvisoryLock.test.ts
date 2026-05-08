@@ -2,10 +2,7 @@ import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-import {
-  BOOTSTRAP_COOKIE_NAME,
-  BOOTSTRAP_NONCE_MAX_AGE_SEC,
-} from "@/lib/auth/constants";
+import { BOOTSTRAP_COOKIE_NAME, BOOTSTRAP_NONCE_MAX_AGE_SEC } from "@/lib/auth/constants";
 import { encodeBootstrapCookieEntries } from "@/lib/auth/bootstrapCookie";
 
 const state = vi.hoisted(() => ({
@@ -69,15 +66,11 @@ vi.mock("@/lib/db/advisoryLock", () => ({
     fn: () => T | Promise<T>,
   ): Promise<T> => {
     if (state.lockError === "show-not-found") {
-      const { ShowAdvisoryLockShowNotFoundError } = await import(
-        "@/lib/db/advisoryLock"
-      );
+      const { ShowAdvisoryLockShowNotFoundError } = await import("@/lib/db/advisoryLock");
       throw new ShowAdvisoryLockShowNotFoundError(showId);
     }
     if (state.lockError === "unavailable") {
-      const { ShowAdvisoryLockUnavailableError } = await import(
-        "@/lib/db/advisoryLock"
-      );
+      const { ShowAdvisoryLockUnavailableError } = await import("@/lib/db/advisoryLock");
       throw new ShowAdvisoryLockUnavailableError(showId);
     }
     if (state.lockError === "generic") {
@@ -223,10 +216,7 @@ function builder(table: string) {
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServiceRoleClient: () => ({
     from: builder,
-    rpc: async (
-      name: string,
-      params: Record<string, unknown>,
-    ) => {
+    rpc: async (name: string, params: Record<string, unknown>) => {
       state.rpcCalls.push(name);
       if (name === "consume_bootstrap_nonce_atomic") {
         state.consumeAttempts += 1;
@@ -293,15 +283,17 @@ describe("/api/auth/redeem-link advisory lock", () => {
     state.lockError = null;
   });
 
-  function requestFor(options: {
-    token?: string;
-    cookieEntries?: Array<{
-      nonce_hash: string;
-      show_id: string;
-      issued_at: string;
-      signing_key_id: string;
-    }>;
-  } = {}): NextRequest {
+  function requestFor(
+    options: {
+      token?: string;
+      cookieEntries?: Array<{
+        nonce_hash: string;
+        show_id: string;
+        issued_at: string;
+        signing_key_id: string;
+      }>;
+    } = {},
+  ): NextRequest {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
       Origin: "https://crew.fxav.test",
@@ -530,9 +522,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
 
     expect(response.status).toBe(200);
     const setCookies = response.headers.getSetCookie();
-    const bootstrapHeader = setCookies.find((line) =>
-      line.startsWith("__Host-fxav_bootstrap_v="),
-    );
+    const bootstrapHeader = setCookies.find((line) => line.startsWith("__Host-fxav_bootstrap_v="));
     expect(bootstrapHeader).toBeDefined();
     // Consumed entry's nonce_hash MUST NOT appear in the rewritten value.
     expect(bootstrapHeader).not.toContain(consumedEntry.nonce_hash);
@@ -567,9 +557,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
     await expect(response.json()).resolves.toEqual({ code: "SESSION_NOT_FOUND" });
     expect(state.consumedAt).toEqual(expect.any(String));
     const setCookies = response.headers.getSetCookie();
-    const bootstrapHeader = setCookies.find((line) =>
-      line.startsWith("__Host-fxav_bootstrap_v="),
-    );
+    const bootstrapHeader = setCookies.find((line) => line.startsWith("__Host-fxav_bootstrap_v="));
     expect(bootstrapHeader).toBeDefined();
     expect(bootstrapHeader).not.toContain(consumedEntry.nonce_hash);
     expect(bootstrapHeader).toContain(otherEntry.nonce_hash);
@@ -587,9 +575,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
 
     expect(response.status).toBe(200);
     const setCookies = response.headers.getSetCookie();
-    const bootstrapHeader = setCookies.find((line) =>
-      line.startsWith("__Host-fxav_bootstrap_v="),
-    );
+    const bootstrapHeader = setCookies.find((line) => line.startsWith("__Host-fxav_bootstrap_v="));
     expect(bootstrapHeader).toBeDefined();
     expect(bootstrapHeader).toContain("Max-Age=0");
   });
@@ -665,9 +651,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
     // consume return, so we look for the absence of the session
     // cookie specifically rather than asserting no Set-Cookie at all.
     const setCookies = response.headers.getSetCookie();
-    expect(
-      setCookies.find((line) => line.startsWith("__Host-fxav_session=")),
-    ).toBeUndefined();
+    expect(setCookies.find((line) => line.startsWith("__Host-fxav_session="))).toBeUndefined();
   });
 
   test("token-version race before locked mint returns LINK_VERSION_MISMATCH without minting", async () => {
@@ -685,9 +669,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
     });
     expect(state.insertCount).toBe(0);
     const setCookies = response.headers.getSetCookie();
-    expect(
-      setCookies.find((line) => line.startsWith("__Host-fxav_session=")),
-    ).toBeUndefined();
+    expect(setCookies.find((line) => line.startsWith("__Host-fxav_session="))).toBeUndefined();
   });
 
   test.each([
@@ -709,9 +691,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
       await expect(response.json()).resolves.toEqual({ code: expectedCode });
       expect(state.insertCount).toBe(0);
       const setCookies = response.headers.getSetCookie();
-      expect(
-        setCookies.find((line) => line.startsWith("__Host-fxav_session=")),
-      ).toBeUndefined();
+      expect(setCookies.find((line) => line.startsWith("__Host-fxav_session="))).toBeUndefined();
     },
   );
 
@@ -816,9 +796,7 @@ describe("/api/auth/redeem-link advisory lock", () => {
   });
 
   test("expired nonce with matching cookie returns CSRF_NONCE_EXPIRED", async () => {
-    state.issuedAt = new Date(
-      Date.now() - (BOOTSTRAP_NONCE_MAX_AGE_SEC + 1) * 1000,
-    ).toISOString();
+    state.issuedAt = new Date(Date.now() - (BOOTSTRAP_NONCE_MAX_AGE_SEC + 1) * 1000).toISOString();
 
     const response = await POST(
       requestFor({

@@ -46,11 +46,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { admin } from "./helpers/supabaseAdmin";
-import {
-  gotoCrewPage,
-  tileGridColumnCount,
-  VIEWPORTS,
-} from "./helpers/layout";
+import { gotoCrewPage, tileGridColumnCount, VIEWPORTS } from "./helpers/layout";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
@@ -106,17 +102,12 @@ async function snapshotSeed(): Promise<Snapshot> {
   }
   const showId = showRes.data.id as string;
 
-  const crewRes = await admin
-    .from("crew_members")
-    .select("id, role_flags")
-    .eq("show_id", showId);
+  const crewRes = await admin.from("crew_members").select("id, role_flags").eq("show_id", showId);
   if (crewRes.error || !crewRes.data?.length) {
     throw new Error(`layout-dimensions.spec: no crew rows`);
   }
   const lead = crewRes.data.find(
-    (c) =>
-      Array.isArray(c.role_flags) &&
-      (c.role_flags as string[]).includes("LEAD"),
+    (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead) throw new Error(`layout-dimensions.spec: no LEAD`);
 
@@ -204,9 +195,7 @@ async function pageContainerContentWidth(page: Page): Promise<number> {
   return el.evaluate((node) => {
     const rect = node.getBoundingClientRect();
     const cs = window.getComputedStyle(node);
-    return (
-      rect.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
-    );
+    return rect.width - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   });
 }
 
@@ -266,23 +255,16 @@ test.describe.skip("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)",
     ).toBeLessThan(PIXEL_TOLERANCE);
   });
 
-  test("Invariant 2 — tile grid is 2 cols at 390px (mobile)", async ({
-    page,
-  }) => {
+  test("Invariant 2 — tile grid is 2 cols at 390px (mobile)", async ({ page }) => {
     await gotoCrewPage(page, s.slug, s.leadCrewId, {
       viewport: VIEWPORTS.mobile390,
     });
 
     const { cols, count } = await tileGridColumnCount(page);
-    expect(
-      count,
-      `mobile (390px) tile-grid must be 2 columns; got "${cols}"`,
-    ).toBe(2);
+    expect(count, `mobile (390px) tile-grid must be 2 columns; got "${cols}"`).toBe(2);
   });
 
-  test("Invariant 2 — tile grid is 3 cols at 800px (tablet, 640–1024)", async ({
-    page,
-  }) => {
+  test("Invariant 2 — tile grid is 3 cols at 800px (tablet, 640–1024)", async ({ page }) => {
     // 800px is comfortably inside the [640, 1024) tablet range. Tailwind's
     // `sm` breakpoint hits at >=640px and `lg` at >=1024px, so 800 is sm
     // (3 cols) but not lg (4 cols).
@@ -291,24 +273,16 @@ test.describe.skip("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)",
     });
 
     const { cols, count } = await tileGridColumnCount(page);
-    expect(
-      count,
-      `tablet (800px) tile-grid must be 3 columns; got "${cols}"`,
-    ).toBe(3);
+    expect(count, `tablet (800px) tile-grid must be 3 columns; got "${cols}"`).toBe(3);
   });
 
-  test("Invariant 2 — tile grid is 4 cols at 1200px (desktop)", async ({
-    page,
-  }) => {
+  test("Invariant 2 — tile grid is 4 cols at 1200px (desktop)", async ({ page }) => {
     await gotoCrewPage(page, s.slug, s.leadCrewId, {
       viewport: VIEWPORTS.desktop1200,
     });
 
     const { cols, count } = await tileGridColumnCount(page);
-    expect(
-      count,
-      `desktop (1200px) tile-grid must be 4 columns; got "${cols}"`,
-    ).toBe(4);
+    expect(count, `desktop (1200px) tile-grid must be 4 columns; got "${cols}"`).toBe(4);
   });
 
   // Equal-stretch invariant runs at TWO viewports — 800px (3-col tablet)
@@ -325,25 +299,25 @@ test.describe.skip("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)",
 
       // Collect the first-row tiles by bounding-box top: any tile whose
       // top matches the first tile's top is in row 1.
-      const heights = await page.evaluate((testIds) => {
-        const tiles: Array<{ id: string; top: number; height: number }> = [];
-        for (const id of testIds) {
-          const els = document.querySelectorAll(`[data-testid="${id}"]`);
-          for (const el of Array.from(els)) {
-            const rect = (el as HTMLElement).getBoundingClientRect();
-            tiles.push({ id, top: rect.top, height: rect.height });
+      const heights = await page.evaluate(
+        (testIds) => {
+          const tiles: Array<{ id: string; top: number; height: number }> = [];
+          for (const id of testIds) {
+            const els = document.querySelectorAll(`[data-testid="${id}"]`);
+            for (const el of Array.from(els)) {
+              const rect = (el as HTMLElement).getBoundingClientRect();
+              tiles.push({ id, top: rect.top, height: rect.height });
+            }
           }
-        }
-        if (tiles.length < 2) return null;
-        const firstTop = Math.min(...tiles.map((t) => t.top));
-        const firstRow = tiles.filter((t) => Math.abs(t.top - firstTop) < 1);
-        return firstRow;
-      }, TILE_TESTIDS as readonly string[] as string[]);
+          if (tiles.length < 2) return null;
+          const firstTop = Math.min(...tiles.map((t) => t.top));
+          const firstRow = tiles.filter((t) => Math.abs(t.top - firstTop) < 1);
+          return firstRow;
+        },
+        TILE_TESTIDS as readonly string[] as string[],
+      );
 
-      expect(
-        heights,
-        `expected ≥ 2 tiles in the first row at ${v.width}px`,
-      ).not.toBeNull();
+      expect(heights, `expected ≥ 2 tiles in the first row at ${v.width}px`).not.toBeNull();
       if (!heights) return;
       expect(heights.length).toBeGreaterThanOrEqual(2);
 
@@ -360,32 +334,28 @@ test.describe.skip("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)",
   // 800px (3-col tablet), 1200px (4-col desktop) — so a regression that
   // only manifests at the tablet column count can't slip past Minor-4
   // review feedback.
-  for (const v of [
-    VIEWPORTS.mobile390,
-    VIEWPORTS.tablet800,
-    VIEWPORTS.desktop1200,
-  ] as const) {
+  for (const v of [VIEWPORTS.mobile390, VIEWPORTS.tablet800, VIEWPORTS.desktop1200] as const) {
     test(`Invariant 3 — every rendered tile has min-height ≥ 96px at ${v.width}px (--spacing-tile-min-h)`, async ({
       page,
     }) => {
       await gotoCrewPage(page, s.slug, s.leadCrewId, { viewport: v });
 
-      const heights = await page.evaluate((testIds) => {
-        const out: Array<{ id: string; height: number }> = [];
-        for (const id of testIds) {
-          const els = document.querySelectorAll(`[data-testid="${id}"]`);
-          for (const el of Array.from(els)) {
-            const h = (el as HTMLElement).getBoundingClientRect().height;
-            out.push({ id, height: h });
+      const heights = await page.evaluate(
+        (testIds) => {
+          const out: Array<{ id: string; height: number }> = [];
+          for (const id of testIds) {
+            const els = document.querySelectorAll(`[data-testid="${id}"]`);
+            for (const el of Array.from(els)) {
+              const h = (el as HTMLElement).getBoundingClientRect().height;
+              out.push({ id, height: h });
+            }
           }
-        }
-        return out;
-      }, TILE_TESTIDS as readonly string[] as string[]);
+          return out;
+        },
+        TILE_TESTIDS as readonly string[] as string[],
+      );
 
-      expect(
-        heights.length,
-        `expected ≥ 1 tile rendered at ${v.width}px`,
-      ).toBeGreaterThan(0);
+      expect(heights.length, `expected ≥ 1 tile rendered at ${v.width}px`).toBeGreaterThan(0);
       for (const t of heights) {
         expect(
           t.height,
@@ -504,9 +474,7 @@ test.describe.skip("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)",
 
     const footer = await box(page, "page-footer");
     const innerHeight = await page.evaluate(() => window.innerHeight);
-    const docHeight = await page.evaluate(
-      () => document.documentElement.scrollHeight,
-    );
+    const docHeight = await page.evaluate(() => document.documentElement.scrollHeight);
 
     // Sanity guard: the test is only meaningful when the page is
     // actually shorter than the viewport. Failing here means the
@@ -538,9 +506,7 @@ test.describe.skip("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)",
     // Step 1: confirm the page is in fact taller than the viewport. If
     // not, the assertion below is vacuous (and we should regenerate the
     // long fixture).
-    const docHeight = await page.evaluate(
-      () => document.documentElement.scrollHeight,
-    );
+    const docHeight = await page.evaluate(() => document.documentElement.scrollHeight);
     expect(
       docHeight,
       `long-content: documentElement.scrollHeight (${docHeight}) must exceed window.innerHeight (${innerHeight}); test fixture didn't grow the page enough`,
@@ -562,15 +528,9 @@ test.describe.skip("crew page — layout dimensions (Task 4.13, §8.4, AC-4.4)",
     // scrolls only halfway" bug — Minor-5 review feedback).
     const SCROLL_DELTA = 400;
     const SCROLL_TOLERANCE = 5;
-    await page.evaluate(
-      (delta) => window.scrollTo(0, delta),
-      SCROLL_DELTA,
-    );
+    await page.evaluate((delta) => window.scrollTo(0, delta), SCROLL_DELTA);
     // Allow a tick for the browser to settle the scroll.
-    await page.waitForFunction(
-      (delta) => window.scrollY >= delta - 1,
-      SCROLL_DELTA,
-    );
+    await page.waitForFunction((delta) => window.scrollY >= delta - 1, SCROLL_DELTA);
     const footerAfter = await box(page, "page-footer");
 
     const delta = footerInitial.y - footerAfter.y;

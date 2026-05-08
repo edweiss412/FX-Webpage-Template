@@ -30,10 +30,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type APIResponse } from "@playwright/test";
 
-import {
-  SESSION_COOKIE_NAME,
-  SESSION_COOKIE_MAX_AGE_SEC,
-} from "@/lib/auth/constants";
+import { SESSION_COOKIE_NAME, SESSION_COOKIE_MAX_AGE_SEC } from "@/lib/auth/constants";
 import { admin } from "./helpers/supabaseAdmin";
 import { assertHostFxavSessionClear } from "./helpers/cookies";
 import { seedLinkSession } from "./helpers/seedLinkSession";
@@ -78,9 +75,7 @@ function setCookieValues(response: APIResponse): string[] {
 }
 
 function findSessionClearHeader(response: APIResponse): string | undefined {
-  return setCookieValues(response).find((v) =>
-    v.startsWith(`${SESSION_COOKIE_NAME}=`),
-  );
+  return setCookieValues(response).find((v) => v.startsWith(`${SESSION_COOKIE_NAME}=`));
 }
 
 /** Anti-tautology assertion (Issue 7): the FIRST-hop page redirect MUST NOT
@@ -224,14 +219,8 @@ test.beforeEach(async () => {
   await admin.from("link_sessions").delete().in("show_id", [showId, altShowId]);
   // Reset revoked_links for the auth-chain crew names so prior revocations
   // don't leak across tests.
-  await admin
-    .from("revoked_links")
-    .delete()
-    .in("show_id", [showId, altShowId]);
-  await admin
-    .from("app_settings")
-    .update({ active_signing_key_id: "k1" })
-    .eq("id", "default");
+  await admin.from("revoked_links").delete().in("show_id", [showId, altShowId]);
+  await admin.from("app_settings").update({ active_signing_key_id: "k1" }).eq("id", "default");
   // Reset role_flags to baseline so AC-5.10's mutate-during-test doesn't
   // poison subsequent runs.
   await admin
@@ -307,10 +296,7 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     // Simplest fix: DELETE the admin-also row, run the test, and restore
     // it inline (deferred test.afterAll is too coarse). This keeps test
     // independence without coupling beforeEach/afterEach to one test.
-    const beforeDelete = await admin
-      .from("crew_members")
-      .delete()
-      .eq("id", adminAlsoCrewId);
+    const beforeDelete = await admin.from("crew_members").delete().eq("id", adminAlsoCrewId);
     if (beforeDelete.error) throw new Error(beforeDelete.error.message);
 
     try {
@@ -375,9 +361,7 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     // sending all the page-context cookies on the request so the server
     // sees both the link cookie AND the Supabase auth cookies.
     const cookies = await page.context().cookies("http://127.0.0.1:3000");
-    const cookieHeader = cookies
-      .map((c) => `${c.name}=${c.value}`)
-      .join("; ");
+    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
     const firstHop = await request.get(`http://127.0.0.1:3000/show/${slug}`, {
       maxRedirects: 0,
       headers: { cookie: cookieHeader },
@@ -391,9 +375,7 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
 
     // The next= target should be the same show URL (viewer resolved via
     // Google, so we re-render after clear, not bounce to sign-in).
-    const decodedNext = decodeURIComponent(
-      location?.split("next=")[1] ?? "",
-    );
+    const decodedNext = decodeURIComponent(location?.split("next=")[1] ?? "");
     expect(decodedNext).toBe(`/show/${slug}`);
 
     const clearResponse = await request.get(
@@ -448,9 +430,7 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     ]);
 
     const cookies = await page.context().cookies("http://127.0.0.1:3000");
-    const cookieHeader = cookies
-      .map((c) => `${c.name}=${c.value}`)
-      .join("; ");
+    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 
     const firstHop = await request.get(`http://127.0.0.1:3000/show/${slug}`, {
       maxRedirects: 0,
@@ -523,19 +503,17 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     ]);
 
     const cookies = await page.context().cookies("http://127.0.0.1:3000");
-    const cookieHeader = cookies
-      .map((c) => `${c.name}=${c.value}`)
-      .join("; ");
+    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 
     // 1. Direct request assertion: status MUST be 200, NOT 303 to
     // clear-session. If the implementation incorrectly redirects through
     // clear-session, this test fails (the controller's Issue 3 check).
     // We allow the response to be a final 200 (no redirects taken because
     // there's no clear-cookie hop).
-    const directResponse = await request.get(
-      `http://127.0.0.1:3000/show/${slug}`,
-      { maxRedirects: 0, headers: { cookie: cookieHeader } },
-    );
+    const directResponse = await request.get(`http://127.0.0.1:3000/show/${slug}`, {
+      maxRedirects: 0,
+      headers: { cookie: cookieHeader },
+    });
     expect(
       directResponse.status(),
       "admin precedence must NOT trigger a clear-session redirect when the cookie is valid for the same show",
@@ -624,9 +602,7 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     ]);
 
     const cookies = await page.context().cookies("http://127.0.0.1:3000");
-    const cookieHeader = cookies
-      .map((c) => `${c.name}=${c.value}`)
-      .join("; ");
+    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 
     const firstHop = await request.get(`http://127.0.0.1:3000/show/${slug}`, {
       maxRedirects: 0,
@@ -642,9 +618,7 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     // The next= target is the same show URL — Google branch resolved a
     // viewer, so post-clear the chain re-runs and renders. NOT
     // /auth/sign-in (that's the no-viewer path).
-    const decodedNext = decodeURIComponent(
-      location?.split("next=")[1] ?? "",
-    );
+    const decodedNext = decodeURIComponent(location?.split("next=")[1] ?? "");
     expect(decodedNext).toBe(`/show/${slug}`);
 
     const clearResponse = await request.get(
@@ -685,9 +659,7 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     ]);
 
     const cookies = await page.context().cookies("http://127.0.0.1:3000");
-    const cookieHeader = cookies
-      .map((c) => `${c.name}=${c.value}`)
-      .join("; ");
+    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 
     const firstHop = await request.get(`http://127.0.0.1:3000/show/${slug}`, {
       maxRedirects: 0,
@@ -700,9 +672,7 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     expectNoSessionClear(firstHop);
 
     // Same-show next= (admin resolved, re-render after clear).
-    const decodedNext = decodeURIComponent(
-      location?.split("next=")[1] ?? "",
-    );
+    const decodedNext = decodeURIComponent(location?.split("next=")[1] ?? "");
     expect(decodedNext).toBe(`/show/${slug}`);
 
     const clearResponse = await request.get(
@@ -740,9 +710,7 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     // Anti-tautology: page redirect MUST NOT carry the clear cookie.
     expectNoSessionClear(firstHop);
 
-    const decodedOnce = decodeURIComponent(
-      location?.split("next=")[1] ?? "",
-    );
+    const decodedOnce = decodeURIComponent(location?.split("next=")[1] ?? "");
     expect(decodedOnce).toContain("/auth/sign-in");
     const decodedTwice = decodeURIComponent(decodedOnce);
     expect(decodedTwice).toContain(`/show/${slug}`);
@@ -762,9 +730,7 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     expect(secondLocation).toBeTruthy();
     const secondUrl = new URL(secondLocation ?? "", "http://127.0.0.1:3000");
     expect(secondUrl.pathname).toBe("/auth/sign-in");
-    expect(decodeURIComponent(secondUrl.searchParams.get("next") ?? "")).toBe(
-      `/show/${slug}`,
-    );
+    expect(decodeURIComponent(secondUrl.searchParams.get("next") ?? "")).toBe(`/show/${slug}`);
   });
 
   // ─── No-creds (existing): chain redirects to /auth/sign-in ───────────
@@ -779,9 +745,7 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     expect(location).toBeTruthy();
     expect(location).toContain("/auth/sign-in");
     expect(location).toContain("next=");
-    const decodedNext = decodeURIComponent(
-      location?.split("next=")[1] ?? "",
-    );
+    const decodedNext = decodeURIComponent(location?.split("next=")[1] ?? "");
     expect(decodedNext).toBe(`/show/${slug}`);
   });
 
@@ -806,13 +770,10 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
 
     // Step 1: navigate to /show/<show-b-slug> (altSlug). The user has no
     // Google/admin for B. Capture the first-hop response.
-    const firstHopB = await request.get(
-      `http://127.0.0.1:3000/show/${altSlug}`,
-      {
-        maxRedirects: 0,
-        headers: { cookie: `${SESSION_COOKIE_NAME}=${cookieValue}` },
-      },
-    );
+    const firstHopB = await request.get(`http://127.0.0.1:3000/show/${altSlug}`, {
+      maxRedirects: 0,
+      headers: { cookie: `${SESSION_COOKIE_NAME}=${cookieValue}` },
+    });
     // The chain detects wrong-show cookie + no other creds → redirect to
     // clear-session, which then 303s to /auth/sign-in.
     expect([302, 303, 307, 308]).toContain(firstHopB.status());
@@ -838,21 +799,13 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     // (the no-viewer path).
     const secondLocationB = clearResponseB.headers()["location"];
     expect(secondLocationB).toBeTruthy();
-    const secondUrlB = new URL(
-      secondLocationB ?? "",
-      "http://127.0.0.1:3000",
-    );
+    const secondUrlB = new URL(secondLocationB ?? "", "http://127.0.0.1:3000");
     expect(secondUrlB.pathname).toBe("/auth/sign-in");
-    expect(
-      decodeURIComponent(secondUrlB.searchParams.get("next") ?? ""),
-    ).toBe(`/show/${altSlug}`);
+    expect(decodeURIComponent(secondUrlB.searchParams.get("next") ?? "")).toBe(`/show/${altSlug}`);
 
     // Confirm validateLinkSession DELETEd the link_sessions row (the
     // wrong-show DELETE side effect, plan §150-151 in validateLinkSession.ts).
-    const postBurnCheck = await admin
-      .from("link_sessions")
-      .select("token")
-      .eq("token", token);
+    const postBurnCheck = await admin.from("link_sessions").select("token").eq("token", token);
     expect(postBurnCheck.error).toBeFalsy();
     expect(postBurnCheck.data ?? []).toHaveLength(0);
 
@@ -861,10 +814,7 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     // applies cookies that were actually set by previous responses, and
     // we sent the request with `maxRedirects:0` so the clear-cookie didn't
     // land in the page.context). Use a fresh request with no cookies.
-    const secondNavA = await request.get(
-      `http://127.0.0.1:3000/show/${slug}`,
-      { maxRedirects: 0 },
-    );
+    const secondNavA = await request.get(`http://127.0.0.1:3000/show/${slug}`, { maxRedirects: 0 });
     // No cookie, link_sessions row is gone; chain falls through to
     // /auth/sign-in (no clear-session hop because there's nothing to clear).
     expect([302, 303, 307, 308]).toContain(secondNavA.status());
@@ -873,9 +823,7 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     expect(locationA).toContain("/auth/sign-in");
     const urlA = new URL(locationA ?? "", "http://127.0.0.1:3000");
     expect(urlA.pathname).toBe("/auth/sign-in");
-    expect(decodeURIComponent(urlA.searchParams.get("next") ?? "")).toBe(
-      `/show/${slug}`,
-    );
+    expect(decodeURIComponent(urlA.searchParams.get("next") ?? "")).toBe(`/show/${slug}`);
 
     // Note: a browser-driven sanity follow-up was originally written here
     // but proved redundant — the request-mode flow above already proves
@@ -905,23 +853,18 @@ test.describe("auth chain — Task 5.7 (§7.4 cookie-bound, AC-5.9..5.10)", () =
     // show (`googleCrewId`) so by default validateGoogleSession resolves
     // a viewer for it. To exercise GOOGLE_NO_CREW_MATCH we DELETE that
     // crew row for the duration of the test, then restore it inline.
-    const beforeDelete = await admin
-      .from("crew_members")
-      .delete()
-      .eq("id", googleCrewId);
+    const beforeDelete = await admin.from("crew_members").delete().eq("id", googleCrewId);
     if (beforeDelete.error) throw new Error(beforeDelete.error.message);
 
     try {
       await signInAs(page, NON_ADMIN_CREW_FIXTURE, { baseUrl: TEST_BASE_URL });
       const cookies = await page.context().cookies("http://127.0.0.1:3000");
-      const cookieHeader = cookies
-        .map((c) => `${c.name}=${c.value}`)
-        .join("; ");
+      const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 
-      const response = await request.get(
-        `http://127.0.0.1:3000/show/${slug}`,
-        { maxRedirects: 0, headers: { cookie: cookieHeader } },
-      );
+      const response = await request.get(`http://127.0.0.1:3000/show/${slug}`, {
+        maxRedirects: 0,
+        headers: { cookie: cookieHeader },
+      });
       // The C1 contract: NOT a 404 (terminal_failure → notFound) and
       // NOT a 200 (no viewer should resolve). MUST be a redirect to /me
       // to avoid colliding with sign-in's already-authenticated guard.
@@ -1061,9 +1004,7 @@ test.describe("clear-session route handler — Task 5.7 §B-allowed UI plumbing"
     expect(sessionClear).not.toContain(`Max-Age=${SESSION_COOKIE_MAX_AGE_SEC}`);
   });
 
-  test("clear-session GET with disallowed next falls back to failsafe '/'", async ({
-    request,
-  }) => {
+  test("clear-session GET with disallowed next falls back to failsafe '/'", async ({ request }) => {
     // The local validator rejects external origins → falls back to '/'.
     const response = await request.get(
       `http://127.0.0.1:3000/auth/clear-session?next=${encodeURIComponent("https://evil.example/steal")}`,
@@ -1093,8 +1034,6 @@ test.describe("clear-session route handler — Task 5.7 §B-allowed UI plumbing"
     expect(location).toBeTruthy();
     const url = new URL(location ?? "", "http://127.0.0.1:3000");
     expect(url.pathname).toBe("/auth/sign-in");
-    expect(decodeURIComponent(url.searchParams.get("next") ?? "")).toBe(
-      `/show/${slug}`,
-    );
+    expect(decodeURIComponent(url.searchParams.get("next") ?? "")).toBe(`/show/${slug}`);
   });
 });

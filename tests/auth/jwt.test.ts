@@ -99,9 +99,11 @@ describe("signed-link JWT helpers", () => {
       name: "Eric Weiss",
       tokenVersion: 1,
     });
-    const tampered = `${signed.token.slice(0, -1)}${
-      signed.token.endsWith("a") ? "b" : "a"
-    }`;
+    const segments = signed.token.split(".");
+    expect(segments).toHaveLength(3);
+    const signature = segments[2]!;
+    const tamperedSignature = `${signature.startsWith("a") ? "b" : "a"}${signature.slice(1)}`;
+    const tampered = `${segments[0]}.${segments[1]}.${tamperedSignature}`;
 
     await expect(verifyLinkJwt(tampered)).rejects.toThrow();
   });

@@ -43,10 +43,9 @@ import { SESSION_COOKIE_NAME } from "@/lib/auth/constants";
  *     and browsers silently reject a `__Host-` cookie that names Domain).
  */
 export function assertHostFxavSessionClear(setCookieHeader: string): void {
-  expect(
-    setCookieHeader,
-    `Set-Cookie header must start with ${SESSION_COOKIE_NAME}=`,
-  ).toContain(`${SESSION_COOKIE_NAME}=;`);
+  expect(setCookieHeader, `Set-Cookie header must start with ${SESSION_COOKIE_NAME}=`).toContain(
+    `${SESSION_COOKIE_NAME}=;`,
+  );
   expect(setCookieHeader).toContain("Path=/");
   expect(setCookieHeader).toContain("Secure");
   expect(setCookieHeader).toContain("HttpOnly");

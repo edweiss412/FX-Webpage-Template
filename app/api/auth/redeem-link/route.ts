@@ -278,9 +278,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       // middleware's R13 #3 distinction via the shared isJwtInfraError
       // helper now in lib/auth/jwt.ts.
       if (isJwtInfraError(error)) {
-        return withBootstrapCleanup(
-          jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED"),
-        );
+        return withBootstrapCleanup(jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED"));
       }
       return withBootstrapCleanup(jsonError(401, "SESSION_NOT_FOUND"));
     }
@@ -346,19 +344,16 @@ export async function POST(request: NextRequest): Promise<Response> {
     const opaqueToken = randomUUID();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + SESSION_COOKIE_MAX_AGE_SEC * 1000);
-    const insertResult = (await supabase.rpc(
-      "mint_link_session_if_active_kid_matches",
-      {
-        p_token: opaqueToken,
-        p_show_id: showId,
-        p_crew_member_id: crew.id,
-        p_jwt_token_version: verified.payload.tokenVersion,
-        p_signing_key_id: verified.verifiedKid,
-        p_expires_at: expiresAt.toISOString(),
-        p_last_active_at: now.toISOString(),
-        p_verified_kid: verified.verifiedKid,
-      },
-    )) as { data: MintLinkSessionResult[] | null; error: unknown };
+    const insertResult = (await supabase.rpc("mint_link_session_if_active_kid_matches", {
+      p_token: opaqueToken,
+      p_show_id: showId,
+      p_crew_member_id: crew.id,
+      p_jwt_token_version: verified.payload.tokenVersion,
+      p_signing_key_id: verified.verifiedKid,
+      p_expires_at: expiresAt.toISOString(),
+      p_last_active_at: now.toISOString(),
+      p_verified_kid: verified.verifiedKid,
+    })) as { data: MintLinkSessionResult[] | null; error: unknown };
     if (insertResult.error) {
       return withBootstrapCleanup(jsonError(500, "ADMIN_SESSION_LOOKUP_FAILED"));
     }

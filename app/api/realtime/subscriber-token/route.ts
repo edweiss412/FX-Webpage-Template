@@ -73,14 +73,8 @@ export async function POST(request: NextRequest): Promise<Response> {
     // R14 #2: validator infra fault — not an auth signal. Surface as
     // 500 so operators see it as a server-side fault rather than a
     // benign auth denial.
-    console.error(
-      "[/api/realtime/subscriber-token] validator infra failure",
-      viewer.code,
-    );
-    return NextResponse.json(
-      { error: "ADMIN_SESSION_LOOKUP_FAILED" },
-      { status: 500 },
-    );
+    console.error("[/api/realtime/subscriber-token] validator infra failure", viewer.code);
+    return NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
   }
 
   const secret = process.env.SUPABASE_JWT_SECRET;
@@ -88,10 +82,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   if (!secret || !issuer) {
     // Misconfigured server — refuse to mint. Don't leak which env var is
     // missing in the response body.
-    return NextResponse.json(
-      { error: "SHOW_REALTIME_TOKEN_MISCONFIGURED" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "SHOW_REALTIME_TOKEN_MISCONFIGURED" }, { status: 500 });
   }
   if (Buffer.byteLength(secret, "utf8") < MIN_HS256_SECRET_BYTES) {
     // HS256 requires ≥32 bytes / 256 bits of secret material per RFC 7518
@@ -103,10 +94,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     console.error(
       "[/api/realtime/subscriber-token] SUPABASE_JWT_SECRET is shorter than 32 bytes; refusing to mint HS256 JWT",
     );
-    return NextResponse.json(
-      { error: "SHOW_REALTIME_TOKEN_MISCONFIGURED" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "SHOW_REALTIME_TOKEN_MISCONFIGURED" }, { status: 500 });
   }
 
   const showId = viewer.show_id;

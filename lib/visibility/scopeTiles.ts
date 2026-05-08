@@ -131,10 +131,7 @@ export function lightingScopeVisible(flags: RoleFlag[]): boolean {
  * is the only mock-mode admit, gated at the page handler. M5 replaces
  * the mock with cookie-bound auth; the predicate signature stays stable.
  */
-export function financialsVisible(
-  flags: RoleFlag[],
-  isAdmin: boolean,
-): boolean {
+export function financialsVisible(flags: RoleFlag[], isAdmin: boolean): boolean {
   return isAdmin || flags.includes("LEAD");
 }
 
@@ -183,7 +180,5 @@ export function transportTileVisible(opts: {
   // at lib/parser/types.ts:147-152 — preserved verbatim across
   // parser → seed → persistence → projection (regression test #7 in
   // tests/data/getShowForViewer.test.ts).
-  return transportation.schedule.some((s) =>
-    s.assigned_names.includes(viewerName),
-  );
+  return transportation.schedule.some((s) => s.assigned_names.includes(viewerName));
 }

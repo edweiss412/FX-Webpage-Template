@@ -119,11 +119,7 @@ export function validateClearSessionNext(
   }
 
   const value = raw.trim();
-  if (
-    CONTROL_CHAR_RE.test(raw) ||
-    value.includes("\\") ||
-    /%2e%2e/i.test(value)
-  ) {
+  if (CONTROL_CHAR_RE.test(raw) || value.includes("\\") || /%2e%2e/i.test(value)) {
     return { ok: false, pathname: CLEAR_SESSION_FAILSAFE_PATH, search: "" };
   }
 

@@ -37,10 +37,7 @@
  */
 import type { NextRequest } from "next/server";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
-import {
-  peekLinkSessionShow,
-  validateLinkSession,
-} from "@/lib/auth/validateLinkSession";
+import { peekLinkSessionShow, validateLinkSession } from "@/lib/auth/validateLinkSession";
 import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
@@ -65,10 +62,7 @@ export type ShowViewer =
    */
   | { kind: "terminal_failure"; status: 500; code: string };
 
-export async function resolveShowViewer(
-  req: NextRequest,
-  slug: string,
-): Promise<ShowViewer> {
+export async function resolveShowViewer(req: NextRequest, slug: string): Promise<ShowViewer> {
   // (1) Slug resolution. Service-role client bypasses RLS so an unauthenticated
   // viewer can still distinguish unknown_slug from no_credentials. The slug
   // lookup itself is not sensitive — slugs are public per the spec — so the

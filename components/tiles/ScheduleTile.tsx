@@ -106,11 +106,7 @@ function aggregateDays(dates: ShowRow["dates"]): ScheduleDay[] {
     .map(([date, phase]) => ({ date, phase }));
 }
 
-export function ScheduleTile({
-  show,
-  dateRestriction,
-  today,
-}: ScheduleTileProps) {
+export function ScheduleTile({ show, dateRestriction, today }: ScheduleTileProps) {
   // Branch 1 — unknown_asterisk. Render the placeholder copy and STOP.
   // Per spec §8.1 / AC-4.6 the viewer MUST NOT see the show's day list
   // while their own days are unconfirmed.
@@ -128,8 +124,7 @@ export function ScheduleTile({
           data-testid="schedule-day-unconfirmed"
           className="rounded-sm bg-surface-sunken p-3 text-sm text-text-subtle"
         >
-          Your days haven&apos;t been confirmed yet. Check back after Doug
-          finalizes the schedule.
+          Your days haven&apos;t been confirmed yet. Check back after Doug finalizes the schedule.
         </div>
       </Section>
     );
@@ -221,9 +216,7 @@ export function ScheduleTile({
                     // accent-on-bg color (the AA-body orange variant
                     // per DESIGN.md §1.1) so the row carries weight
                     // without breaking the ≤10% accent cap.
-                    isToday
-                      ? "font-bold text-accent-on-bg"
-                      : "font-semibold text-text-strong",
+                    isToday ? "font-bold text-accent-on-bg" : "font-semibold text-text-strong",
                   ].join(" ")}
                 >
                   {formatIsoDate(day.date, "weekday-short")}

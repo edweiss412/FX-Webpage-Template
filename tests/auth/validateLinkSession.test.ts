@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import {
-  encodeSessionCookieValue,
-  SESSION_COOKIE_MAX_AGE_SEC,
-} from "@/lib/auth/cookies";
+import { encodeSessionCookieValue, SESSION_COOKIE_MAX_AGE_SEC } from "@/lib/auth/cookies";
 
 type LinkSessionRow = {
   token: string;
@@ -127,9 +124,7 @@ function tableClient(table: string) {
           eq: (_column2: string, crewName: string) => ({
             eq: (_column3: string, tokenVersion: number) => ({
               maybeSingle: async () => ({
-                data: mockDb.revokedLinks.has(
-                  revokedKey(showId, crewName, tokenVersion),
-                )
+                data: mockDb.revokedLinks.has(revokedKey(showId, crewName, tokenVersion))
                   ? { token_version: tokenVersion }
                   : null,
                 error: mockDb.errors.get("revoked_links:select") ?? null,
@@ -152,10 +147,7 @@ const sessionToken = "11111111-1111-4111-8111-111111111111";
 
 function makeReq(cookieValue?: string): Request {
   return new Request("https://crew.fxav.show/show/test-show", {
-    headers:
-      cookieValue === undefined
-        ? {}
-        : { Cookie: `__Host-fxav_session=${cookieValue}` },
+    headers: cookieValue === undefined ? {} : { Cookie: `__Host-fxav_session=${cookieValue}` },
   });
 }
 
@@ -414,21 +406,18 @@ describe("validateLinkSession", () => {
     "crew_members:select",
     "crew_member_auth:select",
     "revoked_links:select",
-  ])(
-    "%s errors return terminal failure without deleting the session",
-    async (errorKey) => {
-      seedValidSession();
-      mockDb.errors.set(errorKey, { message: "fake DB outage" });
+  ])("%s errors return terminal failure without deleting the session", async (errorKey) => {
+    seedValidSession();
+    mockDb.errors.set(errorKey, { message: "fake DB outage" });
 
-      const result = await validateLinkSession(makeReq(cookieFor()), { showId });
+    const result = await validateLinkSession(makeReq(cookieFor()), { showId });
 
-      expect(result).toEqual({
-        kind: "terminal_failure",
-        status: 500,
-        code: "ADMIN_SESSION_LOOKUP_FAILED",
-      });
-      expect(mockDb.deletedTokens).toEqual([]);
-      expect(mockDb.linkSessions.has(sessionToken)).toBe(true);
-    },
-  );
+    expect(result).toEqual({
+      kind: "terminal_failure",
+      status: 500,
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
+    expect(mockDb.deletedTokens).toEqual([]);
+    expect(mockDb.linkSessions.has(sessionToken)).toBe(true);
+  });
 });

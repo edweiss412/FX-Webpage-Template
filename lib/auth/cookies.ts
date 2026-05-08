@@ -12,10 +12,7 @@ export type SessionCookieEnvelope = {
   show_id: string;
 };
 
-export function setSessionCookie(
-  value: string,
-  opts: { maxAgeSec: number },
-): string {
+export function setSessionCookie(value: string, opts: { maxAgeSec: number }): string {
   return `${SESSION_COOKIE_NAME}=${value}; Path=/; Secure; HttpOnly; SameSite=Lax; Max-Age=${opts.maxAgeSec}`;
 }
 
@@ -31,14 +28,10 @@ export function encodeSessionCookieValue(input: SessionCookieEnvelope): string {
   if (!UUID_RE.test(input.token) || !UUID_RE.test(input.show_id)) {
     throw new Error("session cookie token and show_id must be UUIDs");
   }
-  return encodeURIComponent(
-    JSON.stringify({ v: 1, token: input.token, show_id: input.show_id }),
-  );
+  return encodeURIComponent(JSON.stringify({ v: 1, token: input.token, show_id: input.show_id }));
 }
 
-export function decodeSessionCookieValue(
-  raw: string | undefined,
-): SessionCookieEnvelope | null {
+export function decodeSessionCookieValue(raw: string | undefined): SessionCookieEnvelope | null {
   if (raw === undefined || raw.length === 0 || raw.length > 1024) {
     return null;
   }

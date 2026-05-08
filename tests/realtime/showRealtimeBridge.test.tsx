@@ -51,9 +51,7 @@ import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
 // lib/realtime/showRealtimeChannelHandlers.ts. Tests that need to fire
 // an unknown event to exercise the consumer's `default`-branch warning
 // cast via `as unknown as SystemEvent` at the call site.
-type SystemEvent =
-  | { event: "reconnected" }
-  | { event: "disconnected" };
+type SystemEvent = { event: "reconnected" } | { event: "disconnected" };
 
 // In-memory state shared by `vi.mock` factories AND each test.
 const subscribeMock = vi.hoisted(() => {
@@ -177,11 +175,7 @@ vi.mock("@/lib/realtime/subscribeToShow", () => {
               if (s === "SUBSCRIBED") {
                 subscribedSettled = true;
                 resolveSubscribed();
-              } else if (
-                s === "CHANNEL_ERROR" ||
-                s === "TIMED_OUT" ||
-                s === "CLOSED"
-              ) {
+              } else if (s === "CHANNEL_ERROR" || s === "TIMED_OUT" || s === "CLOSED") {
                 subscribedSettled = true;
                 rejectSubscribed(
                   new Error(
@@ -238,16 +232,14 @@ vi.mock("@/lib/realtime/showRealtimeChannelHandlers", () => {
     ) => {
       channel.onStatusHandlers.push(handler);
     },
-    removeChannel: vi.fn(
-      async (_client: unknown, channel: { removed: boolean }) => {
-        const gate = channelHandlersMock.state.removeChannelGate;
-        if (gate !== null) {
-          await gate;
-        }
-        channel.removed = true;
-        return "ok";
-      },
-    ),
+    removeChannel: vi.fn(async (_client: unknown, channel: { removed: boolean }) => {
+      const gate = channelHandlersMock.state.removeChannelGate;
+      if (gate !== null) {
+        await gate;
+      }
+      channel.removed = true;
+      return "ok";
+    }),
   };
 });
 
@@ -300,22 +292,20 @@ beforeEach(() => {
       // Allow tests to override via `pushFetchHandler`.
       for (const h of fetchMock.state.handlers) {
         if (h.match(url)) {
-          return init === undefined
-            ? h.respond({ url })
-            : h.respond({ url, init });
+          return init === undefined ? h.respond({ url }) : h.respond({ url, init });
         }
       }
       if (url.includes("/api/realtime/subscriber-token")) {
-        return new Response(
-          JSON.stringify({ jwt: "default-jwt", exp: 9999999999 }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ jwt: "default-jwt", exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       if (url.match(/\/api\/show\/[^/]+\/version/)) {
-        return new Response(
-          JSON.stringify({ version_token: "BASELINE" }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ version_token: "BASELINE" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       }
       return new Response("", { status: 404 });
     }),
@@ -344,16 +334,10 @@ async function flushPromises() {
   });
 }
 
-async function mountBridgeAndAwaitSubscribe(opts?: {
-  fireSubscribed?: boolean;
-}) {
+async function mountBridgeAndAwaitSubscribe(opts?: { fireSubscribed?: boolean }) {
   const fireSubscribed = opts?.fireSubscribed ?? true;
   const utils = render(
-    <ShowRealtimeBridge
-      showId="show-uuid-1"
-      slug="some-slug"
-      renderVersion="BASELINE"
-    />,
+    <ShowRealtimeBridge showId="show-uuid-1" slug="some-slug" renderVersion="BASELINE" />,
   );
   // Initial mount kicks off the JWT mint then subscribeToShow.
   // Drain microtasks until the channel is registered (we run a small loop
@@ -449,10 +433,10 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     pushFetchHandler(
       (url) => /\/api\/show\/[^/]+\/version/.test(url),
       async () =>
-        new Response(
-          JSON.stringify({ version_token: versionTokenToReturn }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ version_token: versionTokenToReturn }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
 
     await mountBridgeAndAwaitSubscribe();
@@ -560,10 +544,10 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       (url) => url.includes("/api/realtime/subscriber-token"),
       async () => {
         mintCount += 1;
-        return new Response(
-          JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       },
     );
 
@@ -583,7 +567,8 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
 
     // After renewal: a NEW channel was created with the freshly minted JWT.
     expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThanOrEqual(2);
-    const renewedCall = subscribeMock.state.subscribeCalls[subscribeMock.state.subscribeCalls.length - 1];
+    const renewedCall =
+      subscribeMock.state.subscribeCalls[subscribeMock.state.subscribeCalls.length - 1];
     expect(renewedCall?.jwt).toBe("jwt-mint-2");
     // Old channel was removed.
     expect(firstChannel.removed).toBe(true);
@@ -614,9 +599,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // pendingRenewalRef = true, leaving the page silent until a
     // manual refresh or another status event. Fix: setAuth-throw
     // also sets pendingRenewalRef so the bounded backoff retries.
-    const consoleWarnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     pushFetchHandler(
       (url) => url.includes("/api/realtime/subscriber-token"),
@@ -654,9 +637,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // Bug-pinning: the backoff retry produced a NEW subscribe call
     // beyond the initial. Pre-fix this would equal baselineSubscribes
     // (no retry fired after setAuth-throw).
-    expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(
-      baselineSubscribes,
-    );
+    expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(baselineSubscribes);
     const loggedSetAuthThrew = consoleWarnSpy.mock.calls.some((args) =>
       args.some(
         (a) =>
@@ -675,9 +656,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // Pre-fix this branch logged + returned without flagging retry
     // even though the old channel was already removed — leaving the
     // bridge truly dead until manual intervention.
-    const consoleWarnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     pushFetchHandler(
       (url) => url.includes("/api/realtime/subscriber-token"),
@@ -708,9 +687,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
 
     // Bug-pinning: subscribeToShow was called more than once after
     // the disconnect (one threw, the retry succeeded).
-    expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(
-      baselineSubscribes,
-    );
+    expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(baselineSubscribes);
     const loggedSubscribeThrew = consoleWarnSpy.mock.calls.some((args) =>
       args.some(
         (a) =>
@@ -733,9 +710,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // is set; the round-20 path returned without flagging it. Fix:
     // set pendingRenewalRef.current = true in the transient branch
     // so the next backoff attempt fires.
-    const consoleWarnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     let mintCount = 0;
     pushFetchHandler(
@@ -745,21 +720,21 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
         // Initial mint succeeds; renewal mint #1 transient 5xx;
         // renewal mint #2 (the backoff retry) succeeds.
         if (mintCount === 1) {
-          return new Response(
-            JSON.stringify({ jwt: "ok-1", exp: 9999999999 }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
+          return new Response(JSON.stringify({ jwt: "ok-1", exp: 9999999999 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
         }
         if (mintCount === 2) {
-          return new Response(
-            JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }),
-            { status: 500, headers: { "content-type": "application/json" } },
-          );
+          return new Response(JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          });
         }
-        return new Response(
-          JSON.stringify({ jwt: `ok-${mintCount}`, exp: 9999999999 }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ jwt: `ok-${mintCount}`, exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       },
     );
 
@@ -786,9 +761,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // Bug-pinning: the backoff retry produced a NEW subscribe call
     // beyond the initial. Pre-fix this would equal baselineSubscribes
     // (no retry fired).
-    expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(
-      baselineSubscribes,
-    );
+    expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(baselineSubscribes);
 
     consoleWarnSpy.mockRestore();
   });
@@ -800,9 +773,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // the page kept showing stale show data. Post-fix, the bridge
     // forces router.refresh() so the Server Component auth chain
     // re-evaluates and routes the revoked viewer appropriately.
-    const consoleWarnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     let mintCount = 0;
     pushFetchHandler(
@@ -811,15 +782,15 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
         mintCount += 1;
         // Initial mint succeeds; renewal mint returns 401.
         if (mintCount === 1) {
-          return new Response(
-            JSON.stringify({ jwt: "ok-1", exp: 9999999999 }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
+          return new Response(JSON.stringify({ jwt: "ok-1", exp: 9999999999 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
         }
-        return new Response(
-          JSON.stringify({ error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED" }),
-          { status: 401, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ error: "SHOW_REALTIME_BROADCAST_AUTH_FAILED" }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        });
       },
     );
 
@@ -858,17 +829,15 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // null, refreshSyncIfMismatch saw "no token" and skipped refresh,
     // page stayed stale. Post-fix, the discriminated result surfaces
     // auth_denied and refreshSyncIfMismatch forces refresh.
-    const consoleWarnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     pushFetchHandler(
       (url) => /\/api\/show\/[^/]+\/version/.test(url),
       async () =>
-        new Response(
-          JSON.stringify({ error: "SHOW_VERSION_AUTH_FAILED" }),
-          { status: 401, headers: { "content-type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ error: "SHOW_VERSION_AUTH_FAILED" }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        }),
     );
 
     await mountBridgeAndAwaitSubscribe();
@@ -886,10 +855,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
 
     expect(routerMock.state.refreshCalls).toBeGreaterThanOrEqual(1);
     const loggedAuthDenied = consoleWarnSpy.mock.calls.some((args) =>
-      args.some(
-        (a) =>
-          typeof a === "string" && a.includes("auth_denied"),
-      ),
+      args.some((a) => typeof a === "string" && a.includes("auth_denied")),
     );
     expect(loggedAuthDenied).toBe(true);
 
@@ -919,10 +885,10 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       (url) => url.includes("/api/realtime/subscriber-token"),
       async () => {
         mintCount += 1;
-        return new Response(
-          JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       },
     );
     // /version returns T1-PENDING — the token the broadcast invalidated
@@ -988,10 +954,10 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       async () => {
         mintCount += 1;
         if (mintCount === 1) {
-          return new Response(
-            JSON.stringify({ jwt: "ok-1", exp: 9999999999 }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
+          return new Response(JSON.stringify({ jwt: "ok-1", exp: 9999999999 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
         }
         // Codex round-20 HIGH refactor: 401/403 now route through
         // the auth_denied branch which forces refresh. To preserve
@@ -999,10 +965,10 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
         // semantic, this test uses status 500 — a true transient
         // failure (server fault, not auth deny). New tests below
         // exercise the 401/403 auth_denied path explicitly.
-        return new Response(
-          JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }),
-          { status: 500, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
       },
     );
 
@@ -1037,11 +1003,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     subscribeMock.state.throwOnNext = true;
 
     const utils = render(
-      <ShowRealtimeBridge
-        showId="show-uuid-1"
-        slug="some-slug"
-        renderVersion="BASELINE"
-      />,
+      <ShowRealtimeBridge showId="show-uuid-1" slug="some-slug" renderVersion="BASELINE" />,
     );
     // Drain mint + subscribe attempts.
     for (let i = 0; i < 10; i += 1) {
@@ -1056,9 +1018,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     expect(subscribeMock.state.subscribeCalls.length).toBeLessThanOrEqual(1);
     const loggedWarn = consoleWarnSpy.mock.calls.some((args) =>
       args.some(
-        (a) =>
-          typeof a === "string" &&
-          a.includes("[ShowRealtimeBridge] subscription failed"),
+        (a) => typeof a === "string" && a.includes("[ShowRealtimeBridge] subscription failed"),
       ),
     );
     expect(loggedWarn).toBe(true);
@@ -1071,18 +1031,14 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     pushFetchHandler(
       (url) => /\/api\/show\/[^/]+\/version/.test(url),
       async () =>
-        new Response(
-          JSON.stringify({ version_token: versionTokenToReturn }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
+        new Response(JSON.stringify({ version_token: versionTokenToReturn }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
 
     const utils = render(
-      <ShowRealtimeBridge
-        showId="show-uuid-1"
-        slug="some-slug"
-        renderVersion="T0-INITIAL"
-      />,
+      <ShowRealtimeBridge showId="show-uuid-1" slug="some-slug" renderVersion="T0-INITIAL" />,
     );
     for (let i = 0; i < 10; i += 1) {
       if (subscribeMock.state.currentChannel) break;
@@ -1104,11 +1060,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // so a subsequent reconnect catch-up reads T2-LATEST and does NOT refresh
     // when the server returns the same value.
     utils.rerender(
-      <ShowRealtimeBridge
-        showId="show-uuid-1"
-        slug="some-slug"
-        renderVersion="T2-LATEST"
-      />,
+      <ShowRealtimeBridge showId="show-uuid-1" slug="some-slug" renderVersion="T2-LATEST" />,
     );
     await flushPromises();
 
@@ -1134,9 +1086,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
   // unverified).
 
   test("renewal mint failure emits SHOW_REALTIME_JWT_RENEWED outcome: failed log", async () => {
-    const consoleWarnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     let mintCount = 0;
     pushFetchHandler(
@@ -1144,10 +1094,10 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       async () => {
         mintCount += 1;
         if (mintCount === 1) {
-          return new Response(
-            JSON.stringify({ jwt: "ok-1", exp: 9999999999 }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
+          return new Response(JSON.stringify({ jwt: "ok-1", exp: 9999999999 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
         }
         // Codex round-20 HIGH refactor: 401/403 now route through
         // the auth_denied branch which forces refresh. To preserve
@@ -1155,10 +1105,10 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
         // semantic, this test uses status 500 — a true transient
         // failure (server fault, not auth deny). New tests below
         // exercise the 401/403 auth_denied path explicitly.
-        return new Response(
-          JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }),
-          { status: 500, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
       },
     );
 
@@ -1175,9 +1125,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
 
     const loggedFailedOutcome = consoleWarnSpy.mock.calls.some((args) =>
       args.some(
-        (a) =>
-          typeof a === "string" &&
-          a.includes("SHOW_REALTIME_JWT_RENEWED outcome: failed"),
+        (a) => typeof a === "string" && a.includes("SHOW_REALTIME_JWT_RENEWED outcome: failed"),
       ),
     );
     expect(loggedFailedOutcome).toBe(true);
@@ -1196,9 +1144,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
   });
 
   test("renewal setAuth failure emits SHOW_REALTIME_JWT_RENEWED outcome: failed log", async () => {
-    const consoleWarnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     // Force setAuth to throw on the SECOND call (the renewal call;
     // the first call is the initial subscribe path).
@@ -1223,9 +1169,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
 
     const loggedFailedOutcome = consoleWarnSpy.mock.calls.some((args) =>
       args.some(
-        (a) =>
-          typeof a === "string" &&
-          a.includes("SHOW_REALTIME_JWT_RENEWED outcome: failed"),
+        (a) => typeof a === "string" && a.includes("SHOW_REALTIME_JWT_RENEWED outcome: failed"),
       ),
     );
     expect(loggedFailedOutcome).toBe(true);
@@ -1243,9 +1187,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
   });
 
   test("renewal subscribe failure emits SHOW_REALTIME_JWT_RENEWED outcome: failed log", async () => {
-    const consoleWarnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     await mountBridgeAndAwaitSubscribe();
     const firstChannel = subscribeMock.state.currentChannel;
@@ -1264,9 +1206,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
 
     const loggedFailedOutcome = consoleWarnSpy.mock.calls.some((args) =>
       args.some(
-        (a) =>
-          typeof a === "string" &&
-          a.includes("SHOW_REALTIME_JWT_RENEWED outcome: failed"),
+        (a) => typeof a === "string" && a.includes("SHOW_REALTIME_JWT_RENEWED outcome: failed"),
       ),
     );
     expect(loggedFailedOutcome).toBe(true);
@@ -1356,10 +1296,10 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       (url) => url.includes("/api/realtime/subscriber-token"),
       async () => {
         mintCount += 1;
-        return new Response(
-          JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       },
     );
 
@@ -1391,9 +1331,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // EXACTLY ONE additional mint and ONE additional subscribe call —
     // the four redundant disconnect events were swallowed by the lock.
     expect(mintCount - baselineMints).toBe(1);
-    expect(subscribeMock.state.subscribeCalls.length - baselineSubscribes).toBe(
-      1,
-    );
+    expect(subscribeMock.state.subscribeCalls.length - baselineSubscribes).toBe(1);
   });
 
   test("HIGH 3 — failed mint releases the single-flight lock; a subsequent disconnect can retry", async () => {
@@ -1405,30 +1343,28 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
         // Initial mint: success. First renewal mint: FAIL.
         // Second renewal mint: success.
         if (mintCount === 1) {
-          return new Response(
-            JSON.stringify({ jwt: "ok-1", exp: 9999999999 }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
+          return new Response(JSON.stringify({ jwt: "ok-1", exp: 9999999999 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
         }
         if (mintCount === 2) {
           // Codex round-20 HIGH refactor: status 500 (transient
           // failure) preserves the original test intent of "renewal
           // mint failure releases the single-flight lock."
-          return new Response(
-            JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }),
-            { status: 500, headers: { "content-type": "application/json" } },
-          );
+          return new Response(JSON.stringify({ error: "INTERNAL_SERVER_ERROR" }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          });
         }
-        return new Response(
-          JSON.stringify({ jwt: `ok-${mintCount}`, exp: 9999999999 }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ jwt: `ok-${mintCount}`, exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       },
     );
 
-    const consoleWarnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     await mountBridgeAndAwaitSubscribe();
     const firstChannel = subscribeMock.state.currentChannel;
@@ -1466,9 +1402,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       await flushPromises();
     }
     // A new subscribe was attempted — proves the lock released.
-    expect(
-      subscribeMock.state.subscribeCalls.length - baselineSubscribes,
-    ).toBe(1);
+    expect(subscribeMock.state.subscribeCalls.length - baselineSubscribes).toBe(1);
 
     consoleWarnSpy.mockRestore();
   });
@@ -1509,19 +1443,15 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       (url) => url.includes("/api/realtime/subscriber-token"),
       async () => {
         mintCount += 1;
-        return new Response(
-          JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       },
     );
 
-    const consoleInfoSpy = vi
-      .spyOn(console, "info")
-      .mockImplementation(() => undefined);
-    const consoleWarnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
+    const consoleInfoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     // Mount WITHOUT firing SUBSCRIBED — we drive the failure status by hand.
     const utils = await mountBridgeAndAwaitSubscribe({
@@ -1556,9 +1486,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // still in flight; the new channel has not reached SUBSCRIBED).
     const loggedSuccess = consoleInfoSpy.mock.calls.some((args) =>
       args.some(
-        (a) =>
-          typeof a === "string" &&
-          a.includes("SHOW_REALTIME_JWT_RENEWED outcome: success"),
+        (a) => typeof a === "string" && a.includes("SHOW_REALTIME_JWT_RENEWED outcome: success"),
       ),
     );
     expect(loggedSuccess).toBe(false);
@@ -1579,19 +1507,15 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       (url) => url.includes("/api/realtime/subscriber-token"),
       async () => {
         mintCount += 1;
-        return new Response(
-          JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       },
     );
 
-    const consoleInfoSpy = vi
-      .spyOn(console, "info")
-      .mockImplementation(() => undefined);
-    const consoleWarnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
+    const consoleInfoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     await mountBridgeAndAwaitSubscribe();
     const firstChannel = subscribeMock.state.currentChannel;
@@ -1607,9 +1531,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     }
 
     // Renewal opened a NEW channel.
-    expect(subscribeMock.state.subscribeCalls.length).toBe(
-      initialSubscribeCount + 1,
-    );
+    expect(subscribeMock.state.subscribeCalls.length).toBe(initialSubscribeCount + 1);
     const renewalChannel = subscribeMock.state.currentChannel;
     if (!renewalChannel) throw new Error("renewal channel not registered");
     expect(renewalChannel).not.toBe(firstChannel);
@@ -1626,9 +1548,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // No success log fired — the renewal did NOT mark itself successful.
     const loggedSuccess = consoleInfoSpy.mock.calls.some((args) =>
       args.some(
-        (a) =>
-          typeof a === "string" &&
-          a.includes("SHOW_REALTIME_JWT_RENEWED outcome: success"),
+        (a) => typeof a === "string" && a.includes("SHOW_REALTIME_JWT_RENEWED outcome: success"),
       ),
     );
     expect(loggedSuccess).toBe(false);
@@ -1694,10 +1614,10 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       (url) => url.includes("/api/realtime/subscriber-token"),
       async () => {
         mintCount += 1;
-        return new Response(
-          JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       },
     );
 
@@ -1713,9 +1633,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     for (let i = 0; i < 10; i += 1) {
       await flushPromises();
     }
-    expect(subscribeMock.state.subscribeCalls.length).toBe(
-      initialSubscribeCount + 1,
-    );
+    expect(subscribeMock.state.subscribeCalls.length).toBe(initialSubscribeCount + 1);
     const renewalChannel = subscribeMock.state.currentChannel;
     if (!renewalChannel) throw new Error("renewal channel not registered");
 
@@ -1761,10 +1679,10 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       (url) => url.includes("/api/realtime/subscriber-token"),
       async () => {
         mintCount += 1;
-        return new Response(
-          JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       },
     );
 
@@ -1821,9 +1739,9 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     // Five renewal attempts after the initial subscribe + initial
     // disconnect-driven renewal (= initialSubscribeCount + 1 new
     // channel, then 5 retries).
-    expect(
-      subscribeMock.state.subscribeCalls.length - initialSubscribeCount,
-    ).toBe(1 + cumulativeNew);
+    expect(subscribeMock.state.subscribeCalls.length - initialSubscribeCount).toBe(
+      1 + cumulativeNew,
+    );
   });
 
   // Test E — Cleanup cancels pending retry: renewal failure scheduled a
@@ -1835,10 +1753,10 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
       (url) => url.includes("/api/realtime/subscriber-token"),
       async () => {
         mintCount += 1;
-        return new Response(
-          JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
+        return new Response(JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
       },
     );
 
@@ -1855,8 +1773,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     }
     const renewalChannel = subscribeMock.state.currentChannel;
     if (!renewalChannel) throw new Error("renewal channel not registered");
-    const subscribeCountBeforeFailure =
-      subscribeMock.state.subscribeCalls.length;
+    const subscribeCountBeforeFailure = subscribeMock.state.subscribeCalls.length;
     const mintCountBeforeFailure = mintCount;
 
     // Renewal channel's first status is TIMED_OUT → readiness rejects,
@@ -1880,17 +1797,13 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     }
 
     // No new subscribe and no new mint after unmount.
-    expect(subscribeMock.state.subscribeCalls.length).toBe(
-      subscribeCountBeforeFailure,
-    );
+    expect(subscribeMock.state.subscribeCalls.length).toBe(subscribeCountBeforeFailure);
     expect(mintCount).toBe(mintCountBeforeFailure);
   });
 
   // === Important 3 (default-branch warn for unknown system events) ===
   test("unknown system event hits the default branch and warns without crashing", async () => {
-    const consoleWarnSpy = vi
-      .spyOn(console, "warn")
-      .mockImplementation(() => undefined);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     await mountBridgeAndAwaitSubscribe();
     const channel = subscribeMock.state.currentChannel;
@@ -1905,9 +1818,7 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
     await flushPromises();
 
     const warned = consoleWarnSpy.mock.calls.some((args) =>
-      args.some(
-        (a) => typeof a === "string" && a.includes("unknown system event"),
-      ),
+      args.some((a) => typeof a === "string" && a.includes("unknown system event")),
     );
     expect(warned).toBe(true);
     // No refresh and no renewal — unknown events are inert.
@@ -1936,227 +1847,212 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
   // closes over THIS effect's token and bails on `aborted` BEFORE
   // mutating shared refs or scheduling work. Test F pins this fix by
   // simulating the exact race Codex flagged.
-  test(
-    "HIGH (round 4) Test F — held removeChannel + remount with different slug: stale renewal does NOT mint, subscribe, or remove the new channel",
-    async () => {
-      let mintCount = 0;
-      const mintCallsBySlug: string[] = [];
-      pushFetchHandler(
-        (url) => url.includes("/api/realtime/subscriber-token"),
-        async ({ init }) => {
-          mintCount += 1;
-          // Capture the slug body so we can assert later that NO mint
-          // POSTed for show-A's slug after the remount.
-          let slug = "";
-          try {
-            const body =
-              init && typeof init.body === "string"
-                ? (JSON.parse(init.body) as { slug?: unknown })
-                : null;
-            slug = typeof body?.slug === "string" ? body.slug : "";
-          } catch {
-            slug = "";
-          }
-          mintCallsBySlug.push(slug);
-          return new Response(
-            JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        },
-      );
-
-      // Step 1: Mount with slug=show-A.
-      const utils = render(
-        <ShowRealtimeBridge
-          showId="show-A-uuid"
-          slug="show-A"
-          renderVersion="BASELINE"
-        />,
-      );
-      for (let i = 0; i < 10; i += 1) {
-        if (subscribeMock.state.currentChannel) break;
-        await flushPromises();
-      }
-      const showAFirstChannel = subscribeMock.state.currentChannel;
-      if (!showAFirstChannel) throw new Error("show-A channel not registered");
-      await act(async () => {
-        showAFirstChannel.fireStatus("SUBSCRIBED");
-      });
-      await flushPromises();
-      await flushPromises();
-
-      // Step 2: Trigger renewal on show-A via system.disconnected.
-      // (The renewal is the path that ultimately calls
-      // `await removeChannel(failedChannel)` in its readiness-failed
-      // catch — the line we need to hold across the unmount/remount.)
-      await act(async () => {
-        showAFirstChannel.fireSystem({ event: "disconnected" });
-      });
-      // Drain the renewal microtasks until the NEW (post-renewal)
-      // channel for show-A is registered.
-      for (let i = 0; i < 10; i += 1) {
-        await flushPromises();
-      }
-      const showARenewalChannel = subscribeMock.state.currentChannel;
-      if (!showARenewalChannel) {
-        throw new Error("show-A renewal channel not registered");
-      }
-      expect(showARenewalChannel).not.toBe(showAFirstChannel);
-
-      // Step 3: Install the removeChannel gate BEFORE firing the
-      // failure status. The renewal's catch will call removeChannel on
-      // the failed channel; that call now blocks until we resolve the
-      // gate manually.
-      let resolveGate: () => void = () => {};
-      const gate = new Promise<void>((resolve) => {
-        resolveGate = resolve;
-      });
-      channelHandlersMock.state.removeChannelGate = gate;
-
-      // Step 4: Fire TIMED_OUT on the renewal channel → readiness
-      // rejects → bridge enters the catch path → calls
-      // `await removeChannel(failedChannel)` which now blocks on the
-      // gate. The bridge's catch is suspended at that await.
-      await act(async () => {
-        showARenewalChannel.fireStatus("TIMED_OUT");
-      });
-      // Drain microtasks WITHOUT resolving the gate. The catch's
-      // `await removeChannel` is parked here.
-      for (let i = 0; i < 10; i += 1) {
-        await flushPromises();
-      }
-
-      // Snapshot the relevant state BEFORE the remount: capture the
-      // mint-count and the subscribe-count that the OLD effect's
-      // stale renewal could perturb if the abort token isn't honored.
-      const subscribesBeforeRemount = subscribeMock.state.subscribeCalls.length;
-      const mintsBeforeRemount = mintCount;
-
-      // Step 5: Re-mount with slug=show-B, showId=show-B-uuid.
-      // React will run the cleanup of the show-A effect (which sets
-      // effectToken.aborted = true on the old token) and then run a
-      // fresh effect for show-B. The show-A effect's catch is STILL
-      // parked at `await removeChannel`.
-      //
-      // For the show-B mount the gate is also active (the same gate
-      // applies to all removeChannel calls). The show-B initial mount
-      // does not call removeChannel (no old channel to tear down), so
-      // its subscribe path runs fine. Drop the gate AFTER show-B's
-      // channel is registered so the show-B side never blocks.
-      utils.rerender(
-        <ShowRealtimeBridge
-          showId="show-B-uuid"
-          slug="show-B"
-          renderVersion="BASELINE"
-        />,
-      );
-      // Drain enough microtasks for show-B's mint + subscribe to land.
-      for (let i = 0; i < 15; i += 1) {
-        if (
-          subscribeMock.state.currentChannel &&
-          subscribeMock.state.currentChannel !== showARenewalChannel
-        ) {
-          break;
+  test("HIGH (round 4) Test F — held removeChannel + remount with different slug: stale renewal does NOT mint, subscribe, or remove the new channel", async () => {
+    let mintCount = 0;
+    const mintCallsBySlug: string[] = [];
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async ({ init }) => {
+        mintCount += 1;
+        // Capture the slug body so we can assert later that NO mint
+        // POSTed for show-A's slug after the remount.
+        let slug = "";
+        try {
+          const body =
+            init && typeof init.body === "string"
+              ? (JSON.parse(init.body) as { slug?: unknown })
+              : null;
+          slug = typeof body?.slug === "string" ? body.slug : "";
+        } catch {
+          slug = "";
         }
-        await flushPromises();
-      }
-      const showBChannel = subscribeMock.state.currentChannel;
-      if (!showBChannel) throw new Error("show-B channel not registered");
-      expect(showBChannel).not.toBe(showARenewalChannel);
-      // Resolve SUBSCRIBED on show-B so its readiness gate releases
-      // (we don't strictly need it for the assertion, but it makes
-      // the bridge state realistic).
-      await act(async () => {
-        showBChannel.fireStatus("SUBSCRIBED");
-      });
+        mintCallsBySlug.push(slug);
+        return new Response(JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
+
+    // Step 1: Mount with slug=show-A.
+    const utils = render(
+      <ShowRealtimeBridge showId="show-A-uuid" slug="show-A" renderVersion="BASELINE" />,
+    );
+    for (let i = 0; i < 10; i += 1) {
+      if (subscribeMock.state.currentChannel) break;
       await flushPromises();
+    }
+    const showAFirstChannel = subscribeMock.state.currentChannel;
+    if (!showAFirstChannel) throw new Error("show-A channel not registered");
+    await act(async () => {
+      showAFirstChannel.fireStatus("SUBSCRIBED");
+    });
+    await flushPromises();
+    await flushPromises();
 
-      // Capture the subscribe sequence so we can assert no show-A
-      // slug mints / subscribes after the remount.
-      const subscribesByShow = subscribeMock.state.subscribeCalls.map(
-        (c) => c.showId,
-      );
-      const mintsBySlugBeforeStaleResume = [...mintCallsBySlug];
+    // Step 2: Trigger renewal on show-A via system.disconnected.
+    // (The renewal is the path that ultimately calls
+    // `await removeChannel(failedChannel)` in its readiness-failed
+    // catch — the line we need to hold across the unmount/remount.)
+    await act(async () => {
+      showAFirstChannel.fireSystem({ event: "disconnected" });
+    });
+    // Drain the renewal microtasks until the NEW (post-renewal)
+    // channel for show-A is registered.
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+    const showARenewalChannel = subscribeMock.state.currentChannel;
+    if (!showARenewalChannel) {
+      throw new Error("show-A renewal channel not registered");
+    }
+    expect(showARenewalChannel).not.toBe(showAFirstChannel);
 
-      // === Snapshot AFTER remount, BEFORE resolveGate + timer drain ===
-      // `mintCount` and the subscribe array at this point already
-      // include show-B's initial mint/subscribe; any increase past
-      // these values would prove a stale renewal fired.
-      const mintCountAtSnapshot = mintCount;
-      const subscribesAtSnapshot = subscribeMock.state.subscribeCalls.length;
-      void mintsBeforeRemount;
-      void subscribesByShow;
-      void mintsBySlugBeforeStaleResume;
+    // Step 3: Install the removeChannel gate BEFORE firing the
+    // failure status. The renewal's catch will call removeChannel on
+    // the failed channel; that call now blocks until we resolve the
+    // gate manually.
+    let resolveGate: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      resolveGate = resolve;
+    });
+    channelHandlersMock.state.removeChannelGate = gate;
 
-      // Step 6: Resolve the held removeChannel — the show-A effect's
-      // catch resumes. This is the ABA window: with the round-4 fix,
-      // `effectToken.aborted` is true, so:
-      //   - The catch does NOT set pendingRenewalRef.current = true.
-      //   - The finally observes effectToken.aborted and skips
-      //     scheduling the retry setTimeout.
-      // Without the fix, the catch sets the flag, the finally schedules
-      // a retry against the live (show-B's) generation counter, the
-      // setTimeout fires renewSubscription with the OLD slug='show-A',
-      // mints a token for show-A, opens a show-A channel, and removes
-      // the live show-B channel.
-      await act(async () => {
-        resolveGate();
-        // Drain the resumed-catch + finally microtasks so any
-        // setTimeout the OLD finally schedules is actually scheduled
-        // before we advance fake timers below.
-        for (let i = 0; i < 10; i += 1) {
-          await Promise.resolve();
-        }
-      });
-      for (let i = 0; i < 10; i += 1) {
-        await flushPromises();
+    // Step 4: Fire TIMED_OUT on the renewal channel → readiness
+    // rejects → bridge enters the catch path → calls
+    // `await removeChannel(failedChannel)` which now blocks on the
+    // gate. The bridge's catch is suspended at that await.
+    await act(async () => {
+      showARenewalChannel.fireStatus("TIMED_OUT");
+    });
+    // Drain microtasks WITHOUT resolving the gate. The catch's
+    // `await removeChannel` is parked here.
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+
+    // Snapshot the relevant state BEFORE the remount: capture the
+    // mint-count and the subscribe-count that the OLD effect's
+    // stale renewal could perturb if the abort token isn't honored.
+    const subscribesBeforeRemount = subscribeMock.state.subscribeCalls.length;
+    const mintsBeforeRemount = mintCount;
+
+    // Step 5: Re-mount with slug=show-B, showId=show-B-uuid.
+    // React will run the cleanup of the show-A effect (which sets
+    // effectToken.aborted = true on the old token) and then run a
+    // fresh effect for show-B. The show-A effect's catch is STILL
+    // parked at `await removeChannel`.
+    //
+    // For the show-B mount the gate is also active (the same gate
+    // applies to all removeChannel calls). The show-B initial mount
+    // does not call removeChannel (no old channel to tear down), so
+    // its subscribe path runs fine. Drop the gate AFTER show-B's
+    // channel is registered so the show-B side never blocks.
+    utils.rerender(
+      <ShowRealtimeBridge showId="show-B-uuid" slug="show-B" renderVersion="BASELINE" />,
+    );
+    // Drain enough microtasks for show-B's mint + subscribe to land.
+    for (let i = 0; i < 15; i += 1) {
+      if (
+        subscribeMock.state.currentChannel &&
+        subscribeMock.state.currentChannel !== showARenewalChannel
+      ) {
+        break;
       }
+      await flushPromises();
+    }
+    const showBChannel = subscribeMock.state.currentChannel;
+    if (!showBChannel) throw new Error("show-B channel not registered");
+    expect(showBChannel).not.toBe(showARenewalChannel);
+    // Resolve SUBSCRIBED on show-B so its readiness gate releases
+    // (we don't strictly need it for the assertion, but it makes
+    // the bridge state realistic).
+    await act(async () => {
+      showBChannel.fireStatus("SUBSCRIBED");
+    });
+    await flushPromises();
 
-      // Step 7: Advance well past the longest backoff bucket (5s).
-      // If the abort-token fence is missing, a stale retry would fire
-      // somewhere in this window.
-      await act(async () => {
-        vi.advanceTimersByTime(10_000);
-      });
+    // Capture the subscribe sequence so we can assert no show-A
+    // slug mints / subscribes after the remount.
+    const subscribesByShow = subscribeMock.state.subscribeCalls.map((c) => c.showId);
+    const mintsBySlugBeforeStaleResume = [...mintCallsBySlug];
+
+    // === Snapshot AFTER remount, BEFORE resolveGate + timer drain ===
+    // `mintCount` and the subscribe array at this point already
+    // include show-B's initial mint/subscribe; any increase past
+    // these values would prove a stale renewal fired.
+    const mintCountAtSnapshot = mintCount;
+    const subscribesAtSnapshot = subscribeMock.state.subscribeCalls.length;
+    void mintsBeforeRemount;
+    void subscribesByShow;
+    void mintsBySlugBeforeStaleResume;
+
+    // Step 6: Resolve the held removeChannel — the show-A effect's
+    // catch resumes. This is the ABA window: with the round-4 fix,
+    // `effectToken.aborted` is true, so:
+    //   - The catch does NOT set pendingRenewalRef.current = true.
+    //   - The finally observes effectToken.aborted and skips
+    //     scheduling the retry setTimeout.
+    // Without the fix, the catch sets the flag, the finally schedules
+    // a retry against the live (show-B's) generation counter, the
+    // setTimeout fires renewSubscription with the OLD slug='show-A',
+    // mints a token for show-A, opens a show-A channel, and removes
+    // the live show-B channel.
+    await act(async () => {
+      resolveGate();
+      // Drain the resumed-catch + finally microtasks so any
+      // setTimeout the OLD finally schedules is actually scheduled
+      // before we advance fake timers below.
       for (let i = 0; i < 10; i += 1) {
-        await flushPromises();
+        await Promise.resolve();
       }
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
 
-      // === Assertions ===
+    // Step 7: Advance well past the longest backoff bucket (5s).
+    // If the abort-token fence is missing, a stale retry would fire
+    // somewhere in this window.
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
 
-      // No NEW mint POSTed to /api/realtime/subscriber-token for
-      // show-A's slug after the remount. The only legal mint between
-      // remount and end-of-test is show-B's initial mint.
-      const mintsAfterRemountSlugs = mintCallsBySlug.slice(
-        // The first `mintsBeforeRemount` entries are show-A's initial
-        // and show-A's renewal mints — pre-remount.
-        mintsBeforeRemount,
-      );
-      // After the remount, exactly one mint for show-B is legal. Any
-      // mint for show-A would prove the stale renewal fired.
-      expect(mintsAfterRemountSlugs).not.toContain("show-A");
+    // === Assertions ===
 
-      // The current (show-B) channel was NOT removed by a stale
-      // renewSubscription. The bug would call removeChannel on
-      // currentChannelRef, which is now show-B's channel.
-      expect(showBChannel.removed).toBe(false);
+    // No NEW mint POSTed to /api/realtime/subscriber-token for
+    // show-A's slug after the remount. The only legal mint between
+    // remount and end-of-test is show-B's initial mint.
+    const mintsAfterRemountSlugs = mintCallsBySlug.slice(
+      // The first `mintsBeforeRemount` entries are show-A's initial
+      // and show-A's renewal mints — pre-remount.
+      mintsBeforeRemount,
+    );
+    // After the remount, exactly one mint for show-B is legal. Any
+    // mint for show-A would prove the stale renewal fired.
+    expect(mintsAfterRemountSlugs).not.toContain("show-A");
 
-      // No new mint and no new subscribe fired AFTER the stale-resume
-      // window. Snapshot was taken just before resolveGate + 10s drain
-      // — these counts must be unchanged.
-      expect(mintCount).toBe(mintCountAtSnapshot);
-      expect(subscribeMock.state.subscribeCalls.length).toBe(
-        subscribesAtSnapshot,
-      );
+    // The current (show-B) channel was NOT removed by a stale
+    // renewSubscription. The bug would call removeChannel on
+    // currentChannelRef, which is now show-B's channel.
+    expect(showBChannel.removed).toBe(false);
 
-      // The stale renewal did not subscribe against show-A's showId
-      // post-remount.
-      const subscribesAfterRemountIds = subscribeMock.state.subscribeCalls
-        .slice(subscribesBeforeRemount)
-        .map((c) => c.showId);
-      expect(subscribesAfterRemountIds).not.toContain("show-A-uuid");
-    },
-  );
+    // No new mint and no new subscribe fired AFTER the stale-resume
+    // window. Snapshot was taken just before resolveGate + 10s drain
+    // — these counts must be unchanged.
+    expect(mintCount).toBe(mintCountAtSnapshot);
+    expect(subscribeMock.state.subscribeCalls.length).toBe(subscribesAtSnapshot);
+
+    // The stale renewal did not subscribe against show-A's showId
+    // post-remount.
+    const subscribesAfterRemountIds = subscribeMock.state.subscribeCalls
+      .slice(subscribesBeforeRemount)
+      .map((c) => c.showId);
+    expect(subscribesAfterRemountIds).not.toContain("show-A-uuid");
+  });
 
   // === Codex round 5 HIGH — owner-token lock vs boolean lock ===
   // Scenario: show-A is mid-renewal — its `renewSubscription` has
@@ -2188,249 +2084,234 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
   // and Test H now drives show-B's renewal channel to TIMED_OUT to
   // exercise the readiness-failure → pendingRenewalRef → 250ms-backoff
   // recovery path end-to-end.
-  test(
-    "HIGH (round 5/6) Test G — stale show-A finally does NOT clear show-B's live renewal lock; second show-B renewal during held first is suppressed",
-    async () => {
-      // Three held promises. The fetch handler parks the SHOW-A renewal
-      // mint (call #2) AND the FIRST SHOW-B renewal mint (call #4).
-      // Round-6 fix: holding the show-B renewal mint keeps the
-      // owner-token lock OWNED BY show-B at the moment show-A's stale
-      // finally runs — so the assertion that the stale finally does
-      // NOT clear the lock is genuinely load-bearing. Without this,
-      // the prior round-5 test let show-B's renewal complete (which
-      // already cleared the lock to null) before show-A's finally ran,
-      // making the equality check in production untestable.
-      let mintCount = 0;
-      let releaseShowARenewalMint: () => void = () => {};
-      let releaseShowBRenewalMint: () => void = () => {};
-      const showARenewalMintHeld = new Promise<void>((resolve) => {
-        releaseShowARenewalMint = resolve;
-      });
-      const showBRenewalMintHeld = new Promise<void>((resolve) => {
-        releaseShowBRenewalMint = resolve;
-      });
-      pushFetchHandler(
-        (url) => url.includes("/api/realtime/subscriber-token"),
-        async () => {
-          mintCount += 1;
-          // CRITICAL: capture the per-call counter NOW. After we await
-          // a held promise and resume, the global mintCount has
-          // already advanced (later calls have run). Re-evaluating
-          // `mintCount === 4` post-await would cause mint #2 (show-A's
-          // parked renewal mint) to ALSO park on showBRenewalMintHeld
-          // when it resumes — defeating the intended ordering.
-          const myCall = mintCount;
-          if (myCall === 2) {
-            // show-A's renewal mint: park here.
-            await showARenewalMintHeld;
-          } else if (myCall === 4) {
-            // show-B's FIRST renewal mint: park here so the
-            // owner-token lock stays owned by show-B's effect token
-            // while show-A's stale finally runs.
-            await showBRenewalMintHeld;
-          }
-          return new Response(
-            JSON.stringify({ jwt: `jwt-mint-${myCall}`, exp: 9999999999 }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        },
-      );
-
-      // Step 1: Mount with slug=show-A. Drive through SUBSCRIBED.
-      const utils = render(
-        <ShowRealtimeBridge
-          showId="show-A-uuid"
-          slug="show-A"
-          renderVersion="BASELINE"
-        />,
-      );
-      for (let i = 0; i < 10; i += 1) {
-        if (subscribeMock.state.currentChannel) break;
-        await flushPromises();
-      }
-      const showAFirstChannel = subscribeMock.state.currentChannel;
-      if (!showAFirstChannel) throw new Error("show-A channel not registered");
-      await act(async () => {
-        showAFirstChannel.fireStatus("SUBSCRIBED");
-      });
-      await flushPromises();
-
-      // Step 2: Trigger renewal on show-A. Its renewSubscription
-      // acquires the lock with show-A's effect token and parks at the
-      // mint await. The mint Promise is held by showARenewalMintHeld.
-      await act(async () => {
-        showAFirstChannel.fireSystem({ event: "disconnected" });
-      });
-      for (let i = 0; i < 5; i += 1) {
-        await flushPromises();
-      }
-      expect(mintCount).toBe(2);
-      expect(subscribeMock.state.subscribeCalls.length).toBe(1);
-
-      // Step 3: Re-mount with slug=show-B. React runs cleanup of show-A
-      // (aborts show-A's effect token; releases the owner-token lock
-      // because the cleaning-up effect IS the owner) then mounts a
-      // fresh show-B effect. show-B's initial mint (call #3) resolves
-      // immediately and show-B subscribes.
-      utils.rerender(
-        <ShowRealtimeBridge
-          showId="show-B-uuid"
-          slug="show-B"
-          renderVersion="BASELINE"
-        />,
-      );
-      for (let i = 0; i < 15; i += 1) {
-        if (
-          subscribeMock.state.currentChannel &&
-          subscribeMock.state.currentChannel !== showAFirstChannel
-        ) {
-          break;
+  test("HIGH (round 5/6) Test G — stale show-A finally does NOT clear show-B's live renewal lock; second show-B renewal during held first is suppressed", async () => {
+    // Three held promises. The fetch handler parks the SHOW-A renewal
+    // mint (call #2) AND the FIRST SHOW-B renewal mint (call #4).
+    // Round-6 fix: holding the show-B renewal mint keeps the
+    // owner-token lock OWNED BY show-B at the moment show-A's stale
+    // finally runs — so the assertion that the stale finally does
+    // NOT clear the lock is genuinely load-bearing. Without this,
+    // the prior round-5 test let show-B's renewal complete (which
+    // already cleared the lock to null) before show-A's finally ran,
+    // making the equality check in production untestable.
+    let mintCount = 0;
+    let releaseShowARenewalMint: () => void = () => {};
+    let releaseShowBRenewalMint: () => void = () => {};
+    const showARenewalMintHeld = new Promise<void>((resolve) => {
+      releaseShowARenewalMint = resolve;
+    });
+    const showBRenewalMintHeld = new Promise<void>((resolve) => {
+      releaseShowBRenewalMint = resolve;
+    });
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () => {
+        mintCount += 1;
+        // CRITICAL: capture the per-call counter NOW. After we await
+        // a held promise and resume, the global mintCount has
+        // already advanced (later calls have run). Re-evaluating
+        // `mintCount === 4` post-await would cause mint #2 (show-A's
+        // parked renewal mint) to ALSO park on showBRenewalMintHeld
+        // when it resumes — defeating the intended ordering.
+        const myCall = mintCount;
+        if (myCall === 2) {
+          // show-A's renewal mint: park here.
+          await showARenewalMintHeld;
+        } else if (myCall === 4) {
+          // show-B's FIRST renewal mint: park here so the
+          // owner-token lock stays owned by show-B's effect token
+          // while show-A's stale finally runs.
+          await showBRenewalMintHeld;
         }
-        await flushPromises();
-      }
-      const showBChannel = subscribeMock.state.currentChannel;
-      if (!showBChannel) throw new Error("show-B channel not registered");
-      expect(showBChannel).not.toBe(showAFirstChannel);
-      await act(async () => {
-        showBChannel.fireStatus("SUBSCRIBED");
-      });
+        return new Response(JSON.stringify({ jwt: `jwt-mint-${myCall}`, exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
+
+    // Step 1: Mount with slug=show-A. Drive through SUBSCRIBED.
+    const utils = render(
+      <ShowRealtimeBridge showId="show-A-uuid" slug="show-A" renderVersion="BASELINE" />,
+    );
+    for (let i = 0; i < 10; i += 1) {
+      if (subscribeMock.state.currentChannel) break;
       await flushPromises();
-      expect(mintCount).toBe(3);
+    }
+    const showAFirstChannel = subscribeMock.state.currentChannel;
+    if (!showAFirstChannel) throw new Error("show-A channel not registered");
+    await act(async () => {
+      showAFirstChannel.fireStatus("SUBSCRIBED");
+    });
+    await flushPromises();
 
-      // Step 4: Trigger renewal on show-B (system.disconnected). The
-      // cleanup of show-A nulled the lock, so show-B's renewSubscription
-      // acquires cleanly with show-B's effect token, then PARKS at the
-      // mint await (call #4 is held). The owner-token lock is now
-      // OWNED by show-B's live token.
-      await act(async () => {
-        showBChannel.fireSystem({ event: "disconnected" });
-      });
-      for (let i = 0; i < 5; i += 1) {
-        await flushPromises();
+    // Step 2: Trigger renewal on show-A. Its renewSubscription
+    // acquires the lock with show-A's effect token and parks at the
+    // mint await. The mint Promise is held by showARenewalMintHeld.
+    await act(async () => {
+      showAFirstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 5; i += 1) {
+      await flushPromises();
+    }
+    expect(mintCount).toBe(2);
+    expect(subscribeMock.state.subscribeCalls.length).toBe(1);
+
+    // Step 3: Re-mount with slug=show-B. React runs cleanup of show-A
+    // (aborts show-A's effect token; releases the owner-token lock
+    // because the cleaning-up effect IS the owner) then mounts a
+    // fresh show-B effect. show-B's initial mint (call #3) resolves
+    // immediately and show-B subscribes.
+    utils.rerender(
+      <ShowRealtimeBridge showId="show-B-uuid" slug="show-B" renderVersion="BASELINE" />,
+    );
+    for (let i = 0; i < 15; i += 1) {
+      if (
+        subscribeMock.state.currentChannel &&
+        subscribeMock.state.currentChannel !== showAFirstChannel
+      ) {
+        break;
       }
-      expect(mintCount).toBe(4);
-      // No new subscribe yet — show-B's renewal is parked at the mint
-      // await before subscribeToShow is invoked.
-      expect(subscribeMock.state.subscribeCalls.length).toBe(2);
+      await flushPromises();
+    }
+    const showBChannel = subscribeMock.state.currentChannel;
+    if (!showBChannel) throw new Error("show-B channel not registered");
+    expect(showBChannel).not.toBe(showAFirstChannel);
+    await act(async () => {
+      showBChannel.fireStatus("SUBSCRIBED");
+    });
+    await flushPromises();
+    expect(mintCount).toBe(3);
 
-      // Step 5: NOW release show-A's held mint. show-A's stale renewal
-      // resumes from the await. The post-await `if (effectToken.aborted)
-      // return` short-circuits BEFORE any setAuth / removeChannel /
-      // subscribeToShow / await newSubscribed work. Control falls
-      // through to finally.
-      //
-      // === CORE ASSERTION (round-6 strengthening) ===
-      // The stale show-A finally MUST NOT clear the lock — the lock is
-      // currently owned by show-B's live, parked-at-mint renewal. The
-      // production guard `if (renewalOwnerRef.current === effectToken)`
-      // is what prevents the stale clear; with an unconditional
-      // `renewalOwnerRef.current = null` in the finally, the lock would
-      // be wrongly nulled and step 6's second show-B disconnect would
-      // proceed to mint — which we assert against below.
-      // Resolve show-A's parked mint OUTSIDE act so the resumed
-      // microtask chain (fetch → Response.json → mintSubscriberToken
-      // → renewSubscription line 316 → finally) drains naturally
-      // through the test's microtask cycles. We then drain liberally
-      // inside act so any React state from the stale finally (none
-      // expected, but defensive) is committed.
-      releaseShowARenewalMint();
-      for (let i = 0; i < 50; i += 1) {
-        // Bare Promise.resolve() outside act — pure microtask drain.
+    // Step 4: Trigger renewal on show-B (system.disconnected). The
+    // cleanup of show-A nulled the lock, so show-B's renewSubscription
+    // acquires cleanly with show-B's effect token, then PARKS at the
+    // mint await (call #4 is held). The owner-token lock is now
+    // OWNED by show-B's live token.
+    await act(async () => {
+      showBChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 5; i += 1) {
+      await flushPromises();
+    }
+    expect(mintCount).toBe(4);
+    // No new subscribe yet — show-B's renewal is parked at the mint
+    // await before subscribeToShow is invoked.
+    expect(subscribeMock.state.subscribeCalls.length).toBe(2);
+
+    // Step 5: NOW release show-A's held mint. show-A's stale renewal
+    // resumes from the await. The post-await `if (effectToken.aborted)
+    // return` short-circuits BEFORE any setAuth / removeChannel /
+    // subscribeToShow / await newSubscribed work. Control falls
+    // through to finally.
+    //
+    // === CORE ASSERTION (round-6 strengthening) ===
+    // The stale show-A finally MUST NOT clear the lock — the lock is
+    // currently owned by show-B's live, parked-at-mint renewal. The
+    // production guard `if (renewalOwnerRef.current === effectToken)`
+    // is what prevents the stale clear; with an unconditional
+    // `renewalOwnerRef.current = null` in the finally, the lock would
+    // be wrongly nulled and step 6's second show-B disconnect would
+    // proceed to mint — which we assert against below.
+    // Resolve show-A's parked mint OUTSIDE act so the resumed
+    // microtask chain (fetch → Response.json → mintSubscriberToken
+    // → renewSubscription line 316 → finally) drains naturally
+    // through the test's microtask cycles. We then drain liberally
+    // inside act so any React state from the stale finally (none
+    // expected, but defensive) is committed.
+    releaseShowARenewalMint();
+    for (let i = 0; i < 50; i += 1) {
+      // Bare Promise.resolve() outside act — pure microtask drain.
+      await Promise.resolve();
+    }
+    for (let i = 0; i < 20; i += 1) {
+      await flushPromises();
+    }
+    // Belt-and-suspenders: advance fake timers a tick in case any
+    // stray Promise resolution scheduled a 0ms task.
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    for (let i = 0; i < 20; i += 1) {
+      await flushPromises();
+    }
+
+    // Step 6: Fire ANOTHER system.disconnected on show-B's initial
+    // channel. The handler invokes renewSubscription, which checks
+    // `renewalOwnerRef.current !== null`. If the lock is still owned
+    // by show-B's first (held) renewal, this second call MUST be
+    // suppressed — no new mint, no new subscribe.
+    //
+    // Negative-regression hook: if production were `renewalOwnerRef
+    // = null` in the finally (no equality check), step 5 above would
+    // have nulled the lock, this second call would acquire cleanly,
+    // proceed past the held mint via call #5 (which the fetch handler
+    // resolves immediately), and advance both mintCount and
+    // subscribeCalls.length here.
+    const mintCountBeforeSecondDisconnect = mintCount;
+    const subscribesBeforeSecondDisconnect = subscribeMock.state.subscribeCalls.length;
+    await act(async () => {
+      showBChannel.fireSystem({ event: "disconnected" });
+    });
+    // Drain microtasks so any erroneous-acquire mint POST + subscribe
+    // would have landed by now.
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+    // === ROUND-6 CORE ASSERTION ===
+    // The owner-token lock is still held by show-B's first renewal,
+    // so the second renewal call bails. mintCount and subscribeCalls
+    // both unchanged.
+    expect(mintCount).toBe(mintCountBeforeSecondDisconnect);
+    expect(subscribeMock.state.subscribeCalls.length).toBe(subscribesBeforeSecondDisconnect);
+
+    // Step 7: Release show-B's first renewal mint. show-B's first
+    // renewal proceeds: setAuth → removeChannel(showB initial) →
+    // subscribeToShow → new renewal channel → await newSubscribed.
+    // Drive the renewal channel to SUBSCRIBED so the finally runs
+    // its lock-release path (owner === effectToken_B → clears).
+    await act(async () => {
+      releaseShowBRenewalMint();
+      for (let i = 0; i < 15; i += 1) {
         await Promise.resolve();
       }
-      for (let i = 0; i < 20; i += 1) {
-        await flushPromises();
-      }
-      // Belt-and-suspenders: advance fake timers a tick in case any
-      // stray Promise resolution scheduled a 0ms task.
-      await act(async () => {
-        vi.advanceTimersByTime(1);
-      });
-      for (let i = 0; i < 20; i += 1) {
-        await flushPromises();
-      }
+    });
+    for (let i = 0; i < 15; i += 1) {
+      await flushPromises();
+    }
+    // A new renewal channel is now registered.
+    const showBRenewalChannel = subscribeMock.state.currentChannel;
+    if (!showBRenewalChannel) {
+      throw new Error("show-B renewal channel not registered");
+    }
+    expect(showBRenewalChannel).not.toBe(showBChannel);
+    expect(subscribeMock.state.subscribeCalls.length).toBe(3);
+    await act(async () => {
+      showBRenewalChannel.fireStatus("SUBSCRIBED");
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
 
-      // Step 6: Fire ANOTHER system.disconnected on show-B's initial
-      // channel. The handler invokes renewSubscription, which checks
-      // `renewalOwnerRef.current !== null`. If the lock is still owned
-      // by show-B's first (held) renewal, this second call MUST be
-      // suppressed — no new mint, no new subscribe.
-      //
-      // Negative-regression hook: if production were `renewalOwnerRef
-      // = null` in the finally (no equality check), step 5 above would
-      // have nulled the lock, this second call would acquire cleanly,
-      // proceed past the held mint via call #5 (which the fetch handler
-      // resolves immediately), and advance both mintCount and
-      // subscribeCalls.length here.
-      const mintCountBeforeSecondDisconnect = mintCount;
-      const subscribesBeforeSecondDisconnect =
-        subscribeMock.state.subscribeCalls.length;
-      await act(async () => {
-        showBChannel.fireSystem({ event: "disconnected" });
-      });
-      // Drain microtasks so any erroneous-acquire mint POST + subscribe
-      // would have landed by now.
-      for (let i = 0; i < 10; i += 1) {
-        await flushPromises();
-      }
-      // === ROUND-6 CORE ASSERTION ===
-      // The owner-token lock is still held by show-B's first renewal,
-      // so the second renewal call bails. mintCount and subscribeCalls
-      // both unchanged.
-      expect(mintCount).toBe(mintCountBeforeSecondDisconnect);
-      expect(subscribeMock.state.subscribeCalls.length).toBe(
-        subscribesBeforeSecondDisconnect,
-      );
-
-      // Step 7: Release show-B's first renewal mint. show-B's first
-      // renewal proceeds: setAuth → removeChannel(showB initial) →
-      // subscribeToShow → new renewal channel → await newSubscribed.
-      // Drive the renewal channel to SUBSCRIBED so the finally runs
-      // its lock-release path (owner === effectToken_B → clears).
-      await act(async () => {
-        releaseShowBRenewalMint();
-        for (let i = 0; i < 15; i += 1) {
-          await Promise.resolve();
-        }
-      });
-      for (let i = 0; i < 15; i += 1) {
-        await flushPromises();
-      }
-      // A new renewal channel is now registered.
-      const showBRenewalChannel = subscribeMock.state.currentChannel;
-      if (!showBRenewalChannel) {
-        throw new Error("show-B renewal channel not registered");
-      }
-      expect(showBRenewalChannel).not.toBe(showBChannel);
-      expect(subscribeMock.state.subscribeCalls.length).toBe(3);
-      await act(async () => {
-        showBRenewalChannel.fireStatus("SUBSCRIBED");
-      });
-      for (let i = 0; i < 10; i += 1) {
-        await flushPromises();
-      }
-
-      // Step 8: Verify the lock IS now releasable by show-B's owner.
-      // Fire a fresh disconnect on the renewal channel — a new
-      // renewSubscription call should pass the lock check (owner is
-      // null now), mint a NEW token (call #5), and open a fresh
-      // channel. This proves the owner-token release worked correctly
-      // when the owner matched.
-      const mintCountBeforeThirdDisconnect = mintCount;
-      const subscribesBeforeThirdDisconnect =
-        subscribeMock.state.subscribeCalls.length;
-      await act(async () => {
-        showBRenewalChannel.fireSystem({ event: "disconnected" });
-      });
-      for (let i = 0; i < 15; i += 1) {
-        await flushPromises();
-      }
-      expect(mintCount).toBeGreaterThan(mintCountBeforeThirdDisconnect);
-      expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(
-        subscribesBeforeThirdDisconnect,
-      );
-    },
-  );
+    // Step 8: Verify the lock IS now releasable by show-B's owner.
+    // Fire a fresh disconnect on the renewal channel — a new
+    // renewSubscription call should pass the lock check (owner is
+    // null now), mint a NEW token (call #5), and open a fresh
+    // channel. This proves the owner-token release worked correctly
+    // when the owner matched.
+    const mintCountBeforeThirdDisconnect = mintCount;
+    const subscribesBeforeThirdDisconnect = subscribeMock.state.subscribeCalls.length;
+    await act(async () => {
+      showBRenewalChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 15; i += 1) {
+      await flushPromises();
+    }
+    expect(mintCount).toBeGreaterThan(mintCountBeforeThirdDisconnect);
+    expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(
+      subscribesBeforeThirdDisconnect,
+    );
+  });
 
   // Test H — show-B's renewal channel reports TIMED_OUT while show-A's
   // mint is still held. The readiness-failure path sets
@@ -2440,186 +2321,166 @@ describe("ShowRealtimeBridge — Checkpoint B", () => {
   // readiness-failure catch — making the pendingRenewalRef + backoff
   // contract untested. This rewrite drives TIMED_OUT, advances the
   // 250ms timer, and asserts the retry actually fires.
-  test(
-    "HIGH (round 5/6) Test H — show-B's renewal TIMED_OUT during stale show-A renewal: pendingRenewalRef + 250ms backoff retry mints/subscribes a fresh channel",
-    async () => {
-      let mintCount = 0;
-      let releaseShowARenewalMint: () => void = () => {};
-      const showARenewalMintHeld = new Promise<void>((resolve) => {
-        releaseShowARenewalMint = resolve;
-      });
-      pushFetchHandler(
-        (url) => url.includes("/api/realtime/subscriber-token"),
-        async () => {
-          mintCount += 1;
-          if (mintCount === 2) {
-            await showARenewalMintHeld;
-          }
-          return new Response(
-            JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        },
-      );
-
-      // Step 1: Mount show-A → SUBSCRIBED. mintCount=1.
-      const utils = render(
-        <ShowRealtimeBridge
-          showId="show-A-uuid"
-          slug="show-A"
-          renderVersion="BASELINE"
-        />,
-      );
-      for (let i = 0; i < 10; i += 1) {
-        if (subscribeMock.state.currentChannel) break;
-        await flushPromises();
-      }
-      const showAFirstChannel = subscribeMock.state.currentChannel;
-      if (!showAFirstChannel) throw new Error("show-A channel not registered");
-      await act(async () => {
-        showAFirstChannel.fireStatus("SUBSCRIBED");
-      });
-      await flushPromises();
-
-      // Step 2: Trigger renewal on show-A → parked at held mint #2.
-      await act(async () => {
-        showAFirstChannel.fireSystem({ event: "disconnected" });
-      });
-      for (let i = 0; i < 5; i += 1) {
-        await flushPromises();
-      }
-      expect(mintCount).toBe(2);
-
-      // Step 3: Re-mount with show-B; cleanup releases show-A's lock
-      // ownership; show-B initial mint #3 + subscribe; SUBSCRIBED.
-      utils.rerender(
-        <ShowRealtimeBridge
-          showId="show-B-uuid"
-          slug="show-B"
-          renderVersion="BASELINE"
-        />,
-      );
-      for (let i = 0; i < 15; i += 1) {
-        if (
-          subscribeMock.state.currentChannel &&
-          subscribeMock.state.currentChannel !== showAFirstChannel
-        ) {
-          break;
+  test("HIGH (round 5/6) Test H — show-B's renewal TIMED_OUT during stale show-A renewal: pendingRenewalRef + 250ms backoff retry mints/subscribes a fresh channel", async () => {
+    let mintCount = 0;
+    let releaseShowARenewalMint: () => void = () => {};
+    const showARenewalMintHeld = new Promise<void>((resolve) => {
+      releaseShowARenewalMint = resolve;
+    });
+    pushFetchHandler(
+      (url) => url.includes("/api/realtime/subscriber-token"),
+      async () => {
+        mintCount += 1;
+        if (mintCount === 2) {
+          await showARenewalMintHeld;
         }
-        await flushPromises();
-      }
-      const showBChannel = subscribeMock.state.currentChannel;
-      if (!showBChannel) throw new Error("show-B channel not registered");
-      await act(async () => {
-        showBChannel.fireStatus("SUBSCRIBED");
-      });
+        return new Response(JSON.stringify({ jwt: `jwt-mint-${mintCount}`, exp: 9999999999 }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    );
+
+    // Step 1: Mount show-A → SUBSCRIBED. mintCount=1.
+    const utils = render(
+      <ShowRealtimeBridge showId="show-A-uuid" slug="show-A" renderVersion="BASELINE" />,
+    );
+    for (let i = 0; i < 10; i += 1) {
+      if (subscribeMock.state.currentChannel) break;
       await flushPromises();
-      expect(mintCount).toBe(3);
+    }
+    const showAFirstChannel = subscribeMock.state.currentChannel;
+    if (!showAFirstChannel) throw new Error("show-A channel not registered");
+    await act(async () => {
+      showAFirstChannel.fireStatus("SUBSCRIBED");
+    });
+    await flushPromises();
 
-      // Step 4: Trigger show-B renewal via system.disconnected. show-B's
-      // renewSubscription acquires the lock (show-A's stale ownership
-      // was released by cleanup), mints (call #4), advances generation,
-      // removeChannel(showB initial), and subscribeToShow opens the
-      // renewal channel. Then `await newSubscribed` parks until the
-      // renewal channel reports a status.
-      const subscribesBeforeRenewal = subscribeMock.state.subscribeCalls.length;
-      await act(async () => {
-        showBChannel.fireSystem({ event: "disconnected" });
-      });
+    // Step 2: Trigger renewal on show-A → parked at held mint #2.
+    await act(async () => {
+      showAFirstChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 5; i += 1) {
+      await flushPromises();
+    }
+    expect(mintCount).toBe(2);
+
+    // Step 3: Re-mount with show-B; cleanup releases show-A's lock
+    // ownership; show-B initial mint #3 + subscribe; SUBSCRIBED.
+    utils.rerender(
+      <ShowRealtimeBridge showId="show-B-uuid" slug="show-B" renderVersion="BASELINE" />,
+    );
+    for (let i = 0; i < 15; i += 1) {
+      if (
+        subscribeMock.state.currentChannel &&
+        subscribeMock.state.currentChannel !== showAFirstChannel
+      ) {
+        break;
+      }
+      await flushPromises();
+    }
+    const showBChannel = subscribeMock.state.currentChannel;
+    if (!showBChannel) throw new Error("show-B channel not registered");
+    await act(async () => {
+      showBChannel.fireStatus("SUBSCRIBED");
+    });
+    await flushPromises();
+    expect(mintCount).toBe(3);
+
+    // Step 4: Trigger show-B renewal via system.disconnected. show-B's
+    // renewSubscription acquires the lock (show-A's stale ownership
+    // was released by cleanup), mints (call #4), advances generation,
+    // removeChannel(showB initial), and subscribeToShow opens the
+    // renewal channel. Then `await newSubscribed` parks until the
+    // renewal channel reports a status.
+    const subscribesBeforeRenewal = subscribeMock.state.subscribeCalls.length;
+    await act(async () => {
+      showBChannel.fireSystem({ event: "disconnected" });
+    });
+    for (let i = 0; i < 15; i += 1) {
+      await flushPromises();
+    }
+    expect(mintCount).toBe(4);
+    // A renewal channel is now registered.
+    expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(subscribesBeforeRenewal);
+    const showBRenewalChannel = subscribeMock.state.currentChannel;
+    if (!showBRenewalChannel) {
+      throw new Error("show-B renewal channel not registered");
+    }
+    expect(showBRenewalChannel).not.toBe(showBChannel);
+
+    // Step 5: Drive the renewal channel to TIMED_OUT. The
+    // `await newSubscribed` REJECTS → catch path: removeChannel(failed),
+    // `pendingRenewalRef.current = true` (because !effectToken.aborted).
+    // Falls through finally: `renewalOwnerRef.current === effectToken`
+    // (show-B's token IS the current owner) → lock cleared.
+    // pendingRenewalRef is set + isMounted + !aborted → schedule
+    // setTimeout at backoffSchedule[0] = 250ms.
+    const mintCountBeforeBackoff = mintCount;
+    const subscribesBeforeBackoff = subscribeMock.state.subscribeCalls.length;
+    await act(async () => {
+      showBRenewalChannel.fireStatus("TIMED_OUT");
+    });
+    // Drain microtasks so the catch + finally have run and the
+    // 250ms setTimeout is enqueued.
+    for (let i = 0; i < 15; i += 1) {
+      await flushPromises();
+    }
+    // The TIMED_OUT readiness-failure must NOT have fired a NEW
+    // mint/subscribe yet — the retry is gated on the 250ms timer.
+    expect(mintCount).toBe(mintCountBeforeBackoff);
+    expect(subscribeMock.state.subscribeCalls.length).toBe(subscribesBeforeBackoff);
+    // The failed renewal channel was torn down by the catch's
+    // removeChannel call.
+    expect(showBRenewalChannel.removed).toBe(true);
+
+    // Step 6: Advance fake timers PAST the 250ms backoff window.
+    // The pendingRenewalRef setTimeout fires → re-enters
+    // renewSubscription → acquires lock (now released) → mints (call
+    // #5) → opens a fresh renewal channel.
+    //
+    // Negative-regression hook: if the production finally OMITTED the
+    // pendingRenewalRef setTimeout scheduling block, no retry fires.
+    // mintCount and subscribeCalls.length stay at their step-5 values
+    // and the assertions below fail.
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+    });
+    for (let i = 0; i < 15; i += 1) {
+      await flushPromises();
+    }
+
+    // === ROUND-6 CORE ASSERTION ===
+    // The pendingRenewalRef + 250ms backoff retry actually fired. A
+    // NEW mint POSTed; a NEW subscribeToShow opened a fresh channel.
+    expect(mintCount).toBeGreaterThan(mintCountBeforeBackoff);
+    expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(subscribesBeforeBackoff);
+    const showBRetryChannel = subscribeMock.state.currentChannel;
+    if (!showBRetryChannel) {
+      throw new Error("show-B retry channel not registered");
+    }
+    expect(showBRetryChannel).not.toBe(showBRenewalChannel);
+    expect(showBRetryChannel).not.toBe(showBChannel);
+
+    // Step 7: Release show-A's held mint AFTER the retry has fired.
+    // show-A's stale renewal still walks finally as a no-op (owner
+    // is now show-B's retry token; aborted token blocks any
+    // pendingRenewalRef scheduling). No additional mints/subscribes.
+    const mintCountAtSnapshot = mintCount;
+    const subscribesAtSnapshot = subscribeMock.state.subscribeCalls.length;
+    await act(async () => {
+      releaseShowARenewalMint();
       for (let i = 0; i < 15; i += 1) {
-        await flushPromises();
+        await Promise.resolve();
       }
-      expect(mintCount).toBe(4);
-      // A renewal channel is now registered.
-      expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(
-        subscribesBeforeRenewal,
-      );
-      const showBRenewalChannel = subscribeMock.state.currentChannel;
-      if (!showBRenewalChannel) {
-        throw new Error("show-B renewal channel not registered");
-      }
-      expect(showBRenewalChannel).not.toBe(showBChannel);
-
-      // Step 5: Drive the renewal channel to TIMED_OUT. The
-      // `await newSubscribed` REJECTS → catch path: removeChannel(failed),
-      // `pendingRenewalRef.current = true` (because !effectToken.aborted).
-      // Falls through finally: `renewalOwnerRef.current === effectToken`
-      // (show-B's token IS the current owner) → lock cleared.
-      // pendingRenewalRef is set + isMounted + !aborted → schedule
-      // setTimeout at backoffSchedule[0] = 250ms.
-      const mintCountBeforeBackoff = mintCount;
-      const subscribesBeforeBackoff =
-        subscribeMock.state.subscribeCalls.length;
-      await act(async () => {
-        showBRenewalChannel.fireStatus("TIMED_OUT");
-      });
-      // Drain microtasks so the catch + finally have run and the
-      // 250ms setTimeout is enqueued.
-      for (let i = 0; i < 15; i += 1) {
-        await flushPromises();
-      }
-      // The TIMED_OUT readiness-failure must NOT have fired a NEW
-      // mint/subscribe yet — the retry is gated on the 250ms timer.
-      expect(mintCount).toBe(mintCountBeforeBackoff);
-      expect(subscribeMock.state.subscribeCalls.length).toBe(
-        subscribesBeforeBackoff,
-      );
-      // The failed renewal channel was torn down by the catch's
-      // removeChannel call.
-      expect(showBRenewalChannel.removed).toBe(true);
-
-      // Step 6: Advance fake timers PAST the 250ms backoff window.
-      // The pendingRenewalRef setTimeout fires → re-enters
-      // renewSubscription → acquires lock (now released) → mints (call
-      // #5) → opens a fresh renewal channel.
-      //
-      // Negative-regression hook: if the production finally OMITTED the
-      // pendingRenewalRef setTimeout scheduling block, no retry fires.
-      // mintCount and subscribeCalls.length stay at their step-5 values
-      // and the assertions below fail.
-      await act(async () => {
-        vi.advanceTimersByTime(250);
-      });
-      for (let i = 0; i < 15; i += 1) {
-        await flushPromises();
-      }
-
-      // === ROUND-6 CORE ASSERTION ===
-      // The pendingRenewalRef + 250ms backoff retry actually fired. A
-      // NEW mint POSTed; a NEW subscribeToShow opened a fresh channel.
-      expect(mintCount).toBeGreaterThan(mintCountBeforeBackoff);
-      expect(subscribeMock.state.subscribeCalls.length).toBeGreaterThan(
-        subscribesBeforeBackoff,
-      );
-      const showBRetryChannel = subscribeMock.state.currentChannel;
-      if (!showBRetryChannel) {
-        throw new Error("show-B retry channel not registered");
-      }
-      expect(showBRetryChannel).not.toBe(showBRenewalChannel);
-      expect(showBRetryChannel).not.toBe(showBChannel);
-
-      // Step 7: Release show-A's held mint AFTER the retry has fired.
-      // show-A's stale renewal still walks finally as a no-op (owner
-      // is now show-B's retry token; aborted token blocks any
-      // pendingRenewalRef scheduling). No additional mints/subscribes.
-      const mintCountAtSnapshot = mintCount;
-      const subscribesAtSnapshot = subscribeMock.state.subscribeCalls.length;
-      await act(async () => {
-        releaseShowARenewalMint();
-        for (let i = 0; i < 15; i += 1) {
-          await Promise.resolve();
-        }
-      });
-      await act(async () => {
-        vi.advanceTimersByTime(10_000);
-      });
-      for (let i = 0; i < 10; i += 1) {
-        await flushPromises();
-      }
-      expect(mintCount).toBe(mintCountAtSnapshot);
-      expect(subscribeMock.state.subscribeCalls.length).toBe(
-        subscribesAtSnapshot,
-      );
-    },
-  );
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+    for (let i = 0; i < 10; i += 1) {
+      await flushPromises();
+    }
+    expect(mintCount).toBe(mintCountAtSnapshot);
+    expect(subscribeMock.state.subscribeCalls.length).toBe(subscribesAtSnapshot);
+  });
 });

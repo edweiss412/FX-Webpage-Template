@@ -41,9 +41,7 @@ import type { ShowInvalidationChannel } from "./subscribeToShow";
  * consumer's `default` branch is the runtime fence; this type is the
  * compile-time fence.
  */
-export type SystemEvent =
-  | { event: "reconnected" }
-  | { event: "disconnected" };
+export type SystemEvent = { event: "reconnected" } | { event: "disconnected" };
 
 /**
  * Attach a `system`-event handler to the channel. Reconnect / disconnect
@@ -70,13 +68,11 @@ export function attachSystemHandler(
   // Targeted overload: `.on('system', {}, handler)`. Empty filter is the
   // documented Supabase Realtime convention for catch-all on the `system`
   // event channel; see https://supabase.com/docs/reference/javascript/subscribe.
-  (channel as unknown as {
-    on: (
-      type: "system",
-      filter: Record<string, never>,
-      cb: (e: SystemEvent) => void,
-    ) => void;
-  }).on("system", {}, handler);
+  (
+    channel as unknown as {
+      on: (type: "system", filter: Record<string, never>, cb: (e: SystemEvent) => void) => void;
+    }
+  ).on("system", {}, handler);
 }
 
 /**
@@ -100,9 +96,11 @@ export function attachStatusHandler(
   // re-opening the socket. The other overload `.subscribe()` (no args)
   // returns a Promise; we don't use that one. See `@supabase/realtime-js`
   // `RealtimeChannel.subscribe` for both signatures.
-  (channel as unknown as {
-    subscribe: (cb: (status: string) => void) => unknown;
-  }).subscribe(handler);
+  (
+    channel as unknown as {
+      subscribe: (cb: (status: string) => void) => unknown;
+    }
+  ).subscribe(handler);
 }
 
 /**

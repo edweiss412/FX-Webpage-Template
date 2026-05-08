@@ -68,12 +68,7 @@ describe("Section atom — variant API (Task 4.13.distill / Finding 2)", () => {
   test("explicit bodyAs overrides the variant default", () => {
     // 'people' default is <ul>; override to <ol>.
     const html = renderToStaticMarkup(
-      <Section
-        testId="t-people-ol"
-        heading="Crew"
-        variant="people"
-        bodyAs="ol"
-      >
+      <Section testId="t-people-ol" heading="Crew" variant="people" bodyAs="ol">
         <li>row</li>
       </Section>,
     );
@@ -94,13 +89,8 @@ describe("Section atom — variant API (Task 4.13.distill / Finding 2)", () => {
       // the rendered markup, on the body wrapper. We don't anchor the
       // assertion to the body element type since variants vary that;
       // we just require the §8.4 contract to be present somewhere.
-      expect(
-        html,
-        `variant '${v}' missing max-h-tile-overflow`,
-      ).toMatch(/\bmax-h-tile-overflow\b/);
-      expect(html, `variant '${v}' missing overflow-y-auto`).toMatch(
-        /overflow-y-auto/,
-      );
+      expect(html, `variant '${v}' missing max-h-tile-overflow`).toMatch(/\bmax-h-tile-overflow\b/);
+      expect(html, `variant '${v}' missing overflow-y-auto`).toMatch(/overflow-y-auto/);
     }
   });
 
@@ -113,9 +103,7 @@ describe("Section atom — variant API (Task 4.13.distill / Finding 2)", () => {
         </Section>,
       );
       expect(html, `variant '${v}' missing h-full`).toMatch(/h-full/);
-      expect(html, `variant '${v}' missing min-h-tile-min-h`).toMatch(
-        /\bmin-h-tile-min-h\b/,
-      );
+      expect(html, `variant '${v}' missing min-h-tile-min-h`).toMatch(/\bmin-h-tile-min-h\b/);
     }
   });
 
@@ -124,14 +112,7 @@ describe("Section atom — variant API (Task 4.13.distill / Finding 2)", () => {
       <Section
         testId="t-icon"
         heading="Audio"
-        headingIcon={
-          <svg
-            data-testid="t-icon-svg"
-            viewBox="0 0 24 24"
-            width="14"
-            height="14"
-          />
-        }
+        headingIcon={<svg data-testid="t-icon-svg" viewBox="0 0 24 24" width="14" height="14" />}
       >
         <span>child</span>
       </Section>,
@@ -139,7 +120,7 @@ describe("Section atom — variant API (Task 4.13.distill / Finding 2)", () => {
     // Both the icon and the heading text must appear, AND the icon
     // must precede the heading in source order so it reads to the
     // left of the eyebrow on the rendered surface.
-    expect(html).toContain("data-testid=\"t-icon-svg\"");
+    expect(html).toContain('data-testid="t-icon-svg"');
     const iconIdx = html.indexOf("t-icon-svg");
     const headingIdx = html.indexOf("Audio");
     expect(iconIdx).toBeGreaterThan(-1);
@@ -156,9 +137,7 @@ describe("Section atom — variant API (Task 4.13.distill / Finding 2)", () => {
     // The heading-icon slot wraps icon + h2 in a flex row when an
     // icon is present. Without one, no such wrapper element should
     // appear — the <h2> is a direct child of the <header>.
-    expect(html).not.toMatch(
-      /<div class="flex items-center gap-1\.5">[\s\S]*?<h2/,
-    );
+    expect(html).not.toMatch(/<div class="flex items-center gap-1\.5">[\s\S]*?<h2/);
   });
 
   test("VARIANT_BODY_DEFAULT exports the variant→element contract", () => {

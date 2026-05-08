@@ -57,9 +57,7 @@ function normalizeShow(row: JoinedCrewShowRow): CrewShowSummary | null {
   };
 }
 
-export async function listShowsForCrew(
-  viewer: GoogleIdentityViewer,
-): Promise<CrewShowSummary[]> {
+export async function listShowsForCrew(viewer: GoogleIdentityViewer): Promise<CrewShowSummary[]> {
   const email = canonicalize(viewer.email);
   if (!email) {
     return [];

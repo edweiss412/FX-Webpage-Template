@@ -89,11 +89,7 @@ type SlugResolution =
 async function resolveShowFromSlug(slug: string): Promise<SlugResolution> {
   try {
     const supabase = createSupabaseServiceRoleClient();
-    const res = await supabase
-      .from("shows")
-      .select("id,published")
-      .eq("slug", slug)
-      .maybeSingle();
+    const res = await supabase.from("shows").select("id,published").eq("slug", slug).maybeSingle();
     if (res.error) {
       return { kind: "infra_error", code: "ADMIN_SESSION_LOOKUP_FAILED" };
     }

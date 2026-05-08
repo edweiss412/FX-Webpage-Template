@@ -148,24 +148,13 @@ export default async function MePage() {
   }
 
   return (
-    <main
-      data-testid="me-page"
-      className="mx-auto max-w-2xl px-4 py-section-gap text-text sm:px-8"
-    >
+    <main data-testid="me-page" className="mx-auto max-w-2xl px-4 py-section-gap text-text sm:px-8">
       <header data-testid="me-page-header" className="mb-section-gap">
         <h1 className="text-3xl font-bold text-text-strong">My shows</h1>
-        <p
-          data-testid="me-signed-in-as"
-          className="mt-2 text-base text-text-subtle"
-        >
+        <p data-testid="me-signed-in-as" className="mt-2 text-base text-text-subtle">
           Signed in as <span className="font-medium text-text">{viewer.email}</span>
         </p>
-        <form
-          data-testid="me-sign-out-form"
-          action="/auth/sign-out"
-          method="POST"
-          className="mt-3"
-        >
+        <form data-testid="me-sign-out-form" action="/auth/sign-out" method="POST" className="mt-3">
           <button
             data-testid="me-sign-out-button"
             type="submit"
@@ -177,22 +166,15 @@ export default async function MePage() {
       </header>
 
       {shows.length === 0 ? (
-        <div
-          data-testid="me-empty-state"
-          className="py-12 text-center text-base text-text-subtle"
-        >
+        <div data-testid="me-empty-state" className="py-12 text-center text-base text-text-subtle">
           <p>You&rsquo;re not on any shows under this Google account.</p>
           <p className="mt-2">
-            If you signed in with the wrong account, sign out and try again
-            with the address Doug used for your crew sheet. Otherwise, ask
-            Doug to add you.
+            If you signed in with the wrong account, sign out and try again with the address Doug
+            used for your crew sheet. Otherwise, ask Doug to add you.
           </p>
         </div>
       ) : (
-        <ul
-          data-testid="me-card-grid"
-          className="grid gap-tile-gap sm:grid-cols-2 lg:grid-cols-3"
-        >
+        <ul data-testid="me-card-grid" className="grid gap-tile-gap sm:grid-cols-2 lg:grid-cols-3">
           {shows.map((show) => (
             <ShowCard key={show.id} show={show} />
           ))}
@@ -214,10 +196,7 @@ function ShowCard({ show }: { show: CrewShowSummary }) {
       <Link href={`/show/${show.slug}`} className="block">
         <h2 className="text-lg font-semibold text-text-strong">{show.title}</h2>
         {dateLabel && isoDate ? (
-          <time
-            dateTime={isoDate}
-            className="mt-1 block text-sm text-text-subtle"
-          >
+          <time dateTime={isoDate} className="mt-1 block text-sm text-text-subtle">
             {dateLabel}
           </time>
         ) : null}

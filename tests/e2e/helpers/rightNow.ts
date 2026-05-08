@@ -41,8 +41,7 @@
 import type { Page } from "@playwright/test";
 import { admin } from "./supabaseAdmin";
 
-export const SEED_DRIVE_FILE_ID =
-  "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
+export const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
 /**
  * Seed dates — copied here so the helper does not have to re-query the
@@ -91,19 +90,13 @@ export async function lookupSeededShow(): Promise<SeededShow> {
     .select("id, name, role_flags, date_restriction")
     .eq("show_id", showId);
   if (crewRes.error || !crewRes.data?.length) {
-    throw new Error(
-      `right-now-transitions: no crew rows for slug=${showRes.data.slug}`,
-    );
+    throw new Error(`right-now-transitions: no crew rows for slug=${showRes.data.slug}`);
   }
   const lead = crewRes.data.find(
-    (c) =>
-      Array.isArray(c.role_flags) &&
-      (c.role_flags as string[]).includes("LEAD"),
+    (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead) {
-    throw new Error(
-      `right-now-transitions: no LEAD crew member for slug=${showRes.data.slug}`,
-    );
+    throw new Error(`right-now-transitions: no LEAD crew member for slug=${showRes.data.slug}`);
   }
 
   return {
@@ -114,18 +107,13 @@ export async function lookupSeededShow(): Promise<SeededShow> {
   };
 }
 
-export async function setDateRestriction(
-  leadCrewId: string,
-  restriction: unknown,
-): Promise<void> {
+export async function setDateRestriction(leadCrewId: string, restriction: unknown): Promise<void> {
   const { error } = await admin
     .from("crew_members")
     .update({ date_restriction: restriction })
     .eq("id", leadCrewId);
   if (error)
-    throw new Error(
-      `right-now-transitions: update date_restriction failed: ${error.message}`,
-    );
+    throw new Error(`right-now-transitions: update date_restriction failed: ${error.message}`);
 }
 
 /**
@@ -151,10 +139,7 @@ export async function pinClock(page: Page, isoDate: string): Promise<void> {
  * scheduled to fire within the window fires synchronously from the
  * page's perspective.
  */
-export async function advanceClock(
-  page: Page,
-  seconds: number = 70,
-): Promise<void> {
+export async function advanceClock(page: Page, seconds: number = 70): Promise<void> {
   await page.clock.runFor(seconds * 1000);
 }
 
@@ -164,10 +149,7 @@ export async function advanceClock(
  * next tick to pick up a new wall-clock time but we control when the
  * tick fires.
  */
-export async function setSystemTime(
-  page: Page,
-  isoDate: string,
-): Promise<void> {
+export async function setSystemTime(page: Page, isoDate: string): Promise<void> {
   await page.clock.setSystemTime(new Date(`${isoDate}T12:00:00Z`));
 }
 
@@ -269,20 +251,14 @@ export const STATE_DRIVERS: Record<string, StateDriver> = {
  * Used by both the parametrized audit (initial-state assertion) and
  * the compound tests (setup phase).
  */
-export async function driveToState(
-  page: Page,
-  show: SeededShow,
-  kind: string,
-): Promise<void> {
+export async function driveToState(page: Page, show: SeededShow, kind: string): Promise<void> {
   const driver = STATE_DRIVERS[kind];
   if (!driver) throw new Error(`No driver for kind: ${kind}`);
   await setDateRestriction(show.leadCrewId, driver.restriction);
   await pinClock(page, driver.clockDate);
   const r = await page.goto(`/show/${show.slug}?crew=${show.leadCrewId}`);
   if (r?.status() !== 200) {
-    throw new Error(
-      `right-now-transitions: navigate to ${show.slug} returned ${r?.status()}`,
-    );
+    throw new Error(`right-now-transitions: navigate to ${show.slug} returned ${r?.status()}`);
   }
 }
 
@@ -308,10 +284,7 @@ export async function driveToState(
  * to pick up the new restriction. The audit suite documents which
  * transitions can be driven via tick-only and which require navigation.
  */
-export async function transitionTo(
-  page: Page,
-  toKind: string,
-): Promise<void> {
+export async function transitionTo(page: Page, toKind: string): Promise<void> {
   const driver = STATE_DRIVERS[toKind];
   if (!driver) throw new Error(`No driver for kind: ${toKind}`);
   await setSystemTime(page, driver.clockDate);

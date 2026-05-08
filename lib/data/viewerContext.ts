@@ -82,14 +82,11 @@ export type ViewerContext = {
  *     false. Shouldn't happen post-getShowForViewer cross-show check,
  *     but mirrors the original IIFE's tolerance.
  */
-export function resolveViewerContext(
-  viewer: Viewer,
-  data: ShowForViewer,
-): ViewerContext {
+export function resolveViewerContext(viewer: Viewer, data: ShowForViewer): ViewerContext {
   const isAdmin = viewer.kind === "admin";
   const viewerCrew =
     viewer.kind === "crew" || viewer.kind === "admin_preview"
-      ? data.crewMembers.find((c) => c.id === viewer.crewMemberId) ?? null
+      ? (data.crewMembers.find((c) => c.id === viewer.crewMemberId) ?? null)
       : null;
 
   const dateRestriction: DateRestriction = viewerCrew

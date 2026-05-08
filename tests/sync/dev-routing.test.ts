@@ -220,7 +220,10 @@ describe("AC-3.2: MI-7 SECTION_SHRINKAGE routes to dev.pending_syncs with trigge
     const mi7Hotels = row.triggered_review_items.find(
       (t) => t.invariant === "MI-7" && t.section === "hotel_reservations",
     );
-    expect(mi7Hotels, "MI-7 SECTION_SHRINKAGE for hotel_reservations must be in triggered_review_items").toBeDefined();
+    expect(
+      mi7Hotels,
+      "MI-7 SECTION_SHRINKAGE for hotel_reservations must be in triggered_review_items",
+    ).toBeDefined();
     expect(mi7Hotels?.prior_count).toBe(4);
     expect(mi7Hotels?.new_count).toBe(1);
 
@@ -314,10 +317,7 @@ const FLIP_DRIVE_FILE_ID = `dev:fixture:${FLIP_FIXTURE_NAME}`;
 // seasons.md because it's a known-clean v4 fixture with crew, rooms,
 // dates, and zero hardErrors (verified by the parser-corpus probe).
 async function readValidV4(): Promise<string> {
-  return await readFile(
-    join(FIXTURE_DIR, "2026-03-rpas-central-four-seasons.md"),
-    "utf8",
-  );
+  return await readFile(join(FIXTURE_DIR, "2026-03-rpas-central-four-seasons.md"), "utf8");
 }
 
 const NO_VERSION_MARKDOWN =
@@ -359,10 +359,9 @@ describe("Round 5 Finding 1 — dev_phase1_stage clears opposite-table live row 
     // stale pending_ingestions row before the new pending_syncs upsert.
     await writeFile(join(FIXTURE_DIR, FLIP_FIXTURE_NAME), await readValidV4(), "utf8");
     const r2 = await parseAndStage(FLIP_FIXTURE_NAME);
-    expect(
-      r2.outcome,
-      "step 2 must NOT be hard_fail — valid v4 markdown should pass",
-    ).not.toBe("hard_fail");
+    expect(r2.outcome, "step 2 must NOT be hard_fail — valid v4 markdown should pass").not.toBe(
+      "hard_fail",
+    );
     expect(r2.staging?.kind).toBe("pending_sync");
 
     // Mutual-exclusion invariant: pending_ingestions must be EMPTY.
@@ -580,7 +579,10 @@ describe("Round 6 Finding 1 — dev_phase1_stage holds the per-show advisory loc
     // Parse: split on the marker labels. psql -At returns one value per
     // line, with an empty line between SELECT statements is NOT emitted —
     // values come back contiguous; markers tell us which is which.
-    const lines = out.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+    const lines = out
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
     const lockMarkerIdx = lines.indexOf("---LOCKS---");
     const anyMarkerIdx = lines.indexOf("---ANY_ADVISORY---");
     expect(lockMarkerIdx, "psql output must contain ---LOCKS--- marker").toBeGreaterThan(-1);
@@ -659,7 +661,10 @@ describe("Round 6 Finding 1 — dev_phase1_stage holds the per-show advisory loc
       rollback;
     `;
     const out = runPsqlAt(sql);
-    const lines = out.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+    const lines = out
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
     const matchedIdx = lines.indexOf("---MATCHED---");
     const matchedCount = Number(lines[matchedIdx + 1] ?? "0");
     expect(

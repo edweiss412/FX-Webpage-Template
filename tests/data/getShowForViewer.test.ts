@@ -32,7 +32,12 @@ const TEST_PREFIX = "getShowForViewer-test:";
 async function seedShow(opts: {
   title: string;
   coiStatus?: string | null;
-  financials?: { po: string | null; proposal: string | null; invoice: string | null; invoice_notes: string | null } | null;
+  financials?: {
+    po: string | null;
+    proposal: string | null;
+    invoice: string | null;
+    invoice_notes: string | null;
+  } | null;
 }): Promise<string> {
   const driveFileId = `${TEST_PREFIX}${crypto.randomUUID()}`;
   const slug = `gsfv-${crypto.randomUUID().slice(0, 12)}`;
@@ -158,10 +163,7 @@ describe("getShowForViewer (§7.4)", () => {
   });
 
   test("static-analysis: source contains no caller-supplied role_flags or viewerRole signature", () => {
-    const src = readFileSync(
-      path.resolve(__dirname, "../../lib/data/getShowForViewer.ts"),
-      "utf8",
-    );
+    const src = readFileSync(path.resolve(__dirname, "../../lib/data/getShowForViewer.ts"), "utf8");
     expect(src).not.toMatch(/role_flags\s*:/);
     expect(src).not.toMatch(/viewerRole\s*:/);
   });
@@ -178,9 +180,9 @@ describe("getShowForViewer (§7.4)", () => {
 
     // Calling with Alice's id but pointing at Show B MUST throw, not silently
     // fall through and return Show B's data with Alice's LEAD flags applied.
-    await expect(
-      getShowForViewer(showB, { kind: "crew", crewMemberId: aliceId }),
-    ).rejects.toThrow("LINK_NO_CREW_MATCH");
+    await expect(getShowForViewer(showB, { kind: "crew", crewMemberId: aliceId })).rejects.toThrow(
+      "LINK_NO_CREW_MATCH",
+    );
   });
 
   test("transport projection regression: schedule[*].assigned_names round-trips", async () => {

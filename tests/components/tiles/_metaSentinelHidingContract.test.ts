@@ -260,9 +260,7 @@ describe("META §8.3 sentinel-hiding contract — components/tiles/", () => {
       const source = readTileSource(filename);
 
       // Which canonical generic-optional fields does this tile reference?
-      const matches = GENERIC_OPTIONAL_FIELDS.filter((f) =>
-        f.pattern.test(source),
-      );
+      const matches = GENERIC_OPTIONAL_FIELDS.filter((f) => f.pattern.test(source));
       if (matches.length === 0) continue;
 
       // The tile DOES consume at least one generic-optional field.
@@ -293,10 +291,9 @@ describe("META §8.3 sentinel-hiding contract — components/tiles/", () => {
     // silent contract loophole. Every exemption MUST cite a spec
     // section or Codex round disposition.
     for (const e of EXEMPTIONS) {
-      expect(
-        e.reason.trim().length,
-        `${e.filename}: exemption reason is empty`,
-      ).toBeGreaterThan(20);
+      expect(e.reason.trim().length, `${e.filename}: exemption reason is empty`).toBeGreaterThan(
+        20,
+      );
     }
   });
 

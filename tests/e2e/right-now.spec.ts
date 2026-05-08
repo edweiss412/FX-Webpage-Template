@@ -61,8 +61,7 @@ async function lookupSeededShow(): Promise<SeededShow> {
     throw new Error(`right-now.spec: no crew rows for slug=${showRes.data.slug}`);
   }
   const lead = crewRes.data.find(
-    (c) =>
-      Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
+    (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead) {
     throw new Error(`right-now.spec: no LEAD crew member for slug=${showRes.data.slug}`);
@@ -76,16 +75,12 @@ async function lookupSeededShow(): Promise<SeededShow> {
   };
 }
 
-async function setDateRestriction(
-  leadCrewId: string,
-  restriction: unknown,
-): Promise<void> {
+async function setDateRestriction(leadCrewId: string, restriction: unknown): Promise<void> {
   const { error } = await admin
     .from("crew_members")
     .update({ date_restriction: restriction })
     .eq("id", leadCrewId);
-  if (error)
-    throw new Error(`right-now.spec: update date_restriction failed: ${error.message}`);
+  if (error) throw new Error(`right-now.spec: update date_restriction failed: ${error.message}`);
 }
 
 /**
@@ -159,9 +154,7 @@ test.describe.skip("crew page — RightNowCard (Task 4.11, AC-4.3)", () => {
     await expect(card).toBeVisible();
     const stateMarker = card.getByTestId("right-now-state");
     await expect(stateMarker).toHaveAttribute("data-state", "show_day_n");
-    await expect(card.getByTestId("right-now-lead")).toContainText(
-      "Today: Show day 1 of 2",
-    );
+    await expect(card.getByTestId("right-now-lead")).toContainText("Today: Show day 1 of 2");
   });
 
   test("AC-4.3 viewer_unconfirmed (asterisk) on Show Day 1 → unconfirmed copy, NOT show_day", async ({
@@ -183,14 +176,10 @@ test.describe.skip("crew page — RightNowCard (Task 4.11, AC-4.3)", () => {
       "data-state",
       "viewer_unconfirmed",
     );
-    await expect(card.getByTestId("right-now-lead")).toContainText(
-      /aren['’]t confirmed yet/,
-    );
+    await expect(card.getByTestId("right-now-lead")).toContainText(/aren['’]t confirmed yet/);
   });
 
-  test("AC-4.3 viewer_off_day → 'Not scheduled today' + next assigned day", async ({
-    page,
-  }) => {
+  test("AC-4.3 viewer_off_day → 'Not scheduled today' + next assigned day", async ({ page }) => {
     // Pin to Show Day 1 (2026-04-21). LEAD is restricted to Show Day 2
     // only (2026-04-22). Today is NOT in days; today < max(days);
     // today is within span [travelIn 04-19, travelOut 04-23].
@@ -208,13 +197,9 @@ test.describe.skip("crew page — RightNowCard (Task 4.11, AC-4.3)", () => {
       "data-state",
       "viewer_off_day",
     );
-    await expect(card.getByTestId("right-now-lead")).toContainText(
-      "Not scheduled today",
-    );
+    await expect(card.getByTestId("right-now-lead")).toContainText("Not scheduled today");
     // The detail line must mention the next assigned day.
-    await expect(card.getByTestId("right-now-detail")).toContainText(
-      /next assigned day/i,
-    );
+    await expect(card.getByTestId("right-now-detail")).toContainText(/next assigned day/i);
   });
 
   test("AC-4.3 viewer_after_last_day → 'Your assignment is complete' (precedence over viewer_off_day)", async ({
@@ -237,8 +222,6 @@ test.describe.skip("crew page — RightNowCard (Task 4.11, AC-4.3)", () => {
       "data-state",
       "viewer_after_last_day",
     );
-    await expect(card.getByTestId("right-now-lead")).toContainText(
-      "Your assignment is complete",
-    );
+    await expect(card.getByTestId("right-now-lead")).toContainText("Your assignment is complete");
   });
 });

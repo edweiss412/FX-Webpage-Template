@@ -28,10 +28,7 @@ import path from "node:path";
 
 describe("/show/[slug] page source — identity-only mock contract", () => {
   test("static-analysis: page source NEVER reads searchParams.role (plan §preamble)", () => {
-    const src = readFileSync(
-      path.resolve(__dirname, "../../app/show/[slug]/page.tsx"),
-      "utf8",
-    );
+    const src = readFileSync(path.resolve(__dirname, "../../app/show/[slug]/page.tsx"), "utf8");
     expect(
       src,
       "searchParams.role must not be referenced — only ?crew and ?as are read",
@@ -41,10 +38,7 @@ describe("/show/[slug] page source — identity-only mock contract", () => {
   });
 
   test("static-analysis: getShowForViewer blocks unpublished shows for non-admin viewers", () => {
-    const src = readFileSync(
-      path.resolve(__dirname, "../../lib/data/getShowForViewer.ts"),
-      "utf8",
-    );
+    const src = readFileSync(path.resolve(__dirname, "../../lib/data/getShowForViewer.ts"), "utf8");
 
     expect(src).toMatch(/published/);
     expect(src).toMatch(/!isAdmin[\s\S]{0,160}published/);

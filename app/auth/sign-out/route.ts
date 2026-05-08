@@ -118,9 +118,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   // the row was already gone server-side, leaving the browser pointing
   // at a stale credential. Now: clear cookies for completed teardowns;
   // the retry handles only the steps that actually need to re-run.
-  const envelope = decodeSessionCookieValue(
-    request.cookies.get(SESSION_COOKIE_NAME)?.value,
-  );
+  const envelope = decodeSessionCookieValue(request.cookies.get(SESSION_COOKIE_NAME)?.value);
   // linkSessionTornDown is true when there's nothing to delete OR the
   // delete succeeded. This means the FXAV cookie is safely clearable.
   let linkSessionTornDown = envelope === null;

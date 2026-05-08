@@ -84,9 +84,7 @@ export type ShowInvalidationChannel = ReturnType<SupabaseClient["channel"]>;
 export class SubscribeReadinessError extends Error {
   readonly status: "CHANNEL_ERROR" | "TIMED_OUT" | "CLOSED";
   constructor(status: "CHANNEL_ERROR" | "TIMED_OUT" | "CLOSED") {
-    super(
-      `subscribeToShow readiness failed: first status was '${status}' (expected 'SUBSCRIBED')`,
-    );
+    super(`subscribeToShow readiness failed: first status was '${status}' (expected 'SUBSCRIBED')`);
     this.name = "SubscribeReadinessError";
     this.status = status;
   }
@@ -218,11 +216,7 @@ export function subscribeToShow(
       if (status === "SUBSCRIBED") {
         settled = true;
         resolveSubscribed();
-      } else if (
-        status === "CHANNEL_ERROR" ||
-        status === "TIMED_OUT" ||
-        status === "CLOSED"
-      ) {
+      } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
         settled = true;
         rejectSubscribed(new SubscribeReadinessError(status));
       }

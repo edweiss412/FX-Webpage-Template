@@ -87,9 +87,7 @@ const SENTINELS = ["TBD", "N/A", "TBA", "  ", ""] as const;
 // attribute (e.g. aria-label, title)" leaks.
 
 describe("§8.3 sentinel-hiding class — NotesTile (Codex round-10 MEDIUM)", () => {
-  function fixtureShow(
-    overrides: Partial<Pick<ShowRow, "venue">> = {},
-  ): Pick<ShowRow, "venue"> {
+  function fixtureShow(overrides: Partial<Pick<ShowRow, "venue">> = {}): Pick<ShowRow, "venue"> {
     return {
       venue: null,
       ...overrides,
@@ -841,9 +839,7 @@ describe("§8.3 sentinel-hiding class — LodgingTile", () => {
 
   test("renders Notes row for non-sentinel value", () => {
     const html = renderToStaticMarkup(
-      <LodgingTile
-        hotelReservations={[lodgingFixture("Late checkout granted")]}
-      />,
+      <LodgingTile hotelReservations={[lodgingFixture("Late checkout granted")]} />,
     );
     expect(html).toContain("Late checkout granted");
   });
@@ -958,9 +954,7 @@ describe("§8.3 sentinel-hiding class — VenueTile", () => {
         }}
       />,
     );
-    expect(html).toContain(
-      "Tell front desk you are with FXAV for parking validation",
-    );
+    expect(html).toContain("Tell front desk you are with FXAV for parking validation");
   });
 });
 
@@ -977,9 +971,7 @@ describe("§8.3 sentinel-hiding class — ContactsTile", () => {
 
   for (const sentinel of SENTINELS) {
     test(`hides notes paragraph when contact.notes="${sentinel}"`, () => {
-      const html = renderToStaticMarkup(
-        <ContactsTile contacts={[contactFixture(sentinel)]} />,
-      );
+      const html = renderToStaticMarkup(<ContactsTile contacts={[contactFixture(sentinel)]} />);
       // Tile renders (contact name confirms it's alive).
       expect(html).toContain("Stella the FOH Manager");
       if (sentinel.trim().length > 0) {
@@ -990,9 +982,7 @@ describe("§8.3 sentinel-hiding class — ContactsTile", () => {
 
   test("renders notes paragraph for non-sentinel value", () => {
     const html = renderToStaticMarkup(
-      <ContactsTile
-        contacts={[contactFixture("Knows the loading dock combo")]}
-      />,
+      <ContactsTile contacts={[contactFixture("Knows the loading dock combo")]} />,
     );
     expect(html).toContain("Knows the loading dock combo");
   });
@@ -1006,10 +996,7 @@ describe("§8.3 sentinel-hiding class — ContactsTile", () => {
 // deferral. FinancialsTile was previously not covered; round 12 found
 // it bypasses the predicate on po/proposal/invoice/invoice_notes.
 
-function makeRoom(
-  kind: "gs" | "breakout" | "additional",
-  overrides: Partial<RoomRow>,
-): RoomRow {
+function makeRoom(kind: "gs" | "breakout" | "additional", overrides: Partial<RoomRow>): RoomRow {
   return {
     kind,
     name: kind === "gs" ? "GS" : "Breakout A",
@@ -1038,10 +1025,7 @@ describe("§8.3 sentinel-hiding class — AudioScopeTile (Codex round-12)", () =
     test(`renders empty-state when EVERY room.audio is "${sentinel}"`, () => {
       const html = renderToStaticMarkup(
         <AudioScopeTile
-          rooms={[
-            makeRoom("gs", { audio: sentinel }),
-            makeRoom("breakout", { audio: sentinel }),
-          ]}
+          rooms={[makeRoom("gs", { audio: sentinel }), makeRoom("breakout", { audio: sentinel })]}
           viewerFlags={ALL_SCOPES}
         />,
       );
@@ -1090,10 +1074,7 @@ describe("§8.3 sentinel-hiding class — VideoScopeTile (Codex round-12)", () =
   for (const sentinel of SENTINELS) {
     test(`renders empty-state when EVERY room.video is "${sentinel}"`, () => {
       const html = renderToStaticMarkup(
-        <VideoScopeTile
-          rooms={[makeRoom("gs", { video: sentinel })]}
-          viewerFlags={ALL_SCOPES}
-        />,
+        <VideoScopeTile rooms={[makeRoom("gs", { video: sentinel })]} viewerFlags={ALL_SCOPES} />,
       );
       expect(html).toContain("video-scope-tile");
       if (sentinel.trim().length > 0) {
@@ -1531,14 +1512,19 @@ describe("§8.3 sentinel-hiding class — PackListTile cat/subCat (round-17)", (
   const TODAY_ISO = "2026-04-21";
   const TODAY = new Date("2026-04-21T16:00:00Z"); // mid-day NY tz
 
-  function makePackListShow(): { schedule_phases: Record<string, ("Load In" | "Set" | "Show" | "Strike" | "Load Out")[]>; venue: null } {
+  function makePackListShow(): {
+    schedule_phases: Record<string, ("Load In" | "Set" | "Show" | "Strike" | "Load Out")[]>;
+    venue: null;
+  } {
     return {
       schedule_phases: { [TODAY_ISO]: ["Set"] },
       venue: null,
     };
   }
 
-  function makeItem(overrides: Partial<{ cat: string | null; subCat: string | null; item: string }>) {
+  function makeItem(
+    overrides: Partial<{ cat: string | null; subCat: string | null; item: string }>,
+  ) {
     return {
       qty: 1,
       cat: null,

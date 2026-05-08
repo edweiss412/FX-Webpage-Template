@@ -184,9 +184,7 @@ test("same-origin expired nonce returns CSRF_NONCE_EXPIRED without minting a ses
   expect(count).toBe(0);
 });
 
-test("kid rotation between bootstrap and redeem returns CSRF_KEY_ROTATED", async ({
-  request,
-}) => {
+test("kid rotation between bootstrap and redeem returns CSRF_KEY_ROTATED", async ({ request }) => {
   const hash = nonceHash(nonce);
   const nonceInsert = await admin.from("bootstrap_nonces").insert({
     nonce_hash: hash,

@@ -32,9 +32,7 @@ test.describe("admin layout (mobile-safari, /admin/dev)", () => {
 
     // The /admin/dev page render is nested inside the layout (the page's
     // <main> with the /admin/dev — fixture upload-test heading still mounts).
-    await expect(
-      page.locator("h1", { hasText: "/admin/dev — fixture upload-test" }),
-    ).toBeVisible();
+    await expect(page.locator("h1", { hasText: "/admin/dev — fixture upload-test" })).toBeVisible();
   });
 
   test("unauthenticated request to /admin/dev returns the requireAdmin gate response (404 or 403)", async ({

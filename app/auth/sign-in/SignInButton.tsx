@@ -12,11 +12,7 @@ export type SignInButtonProps = {
 
 export function SignInButton({ validatedNext }: SignInButtonProps) {
   return (
-    <form
-      data-testid="sign-in-with-google-form"
-      action="/api/auth/google/start"
-      method="get"
-    >
+    <form data-testid="sign-in-with-google-form" action="/api/auth/google/start" method="get">
       <input type="hidden" name="next" value={validatedNext} />
       <button
         type="submit"

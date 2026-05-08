@@ -98,9 +98,7 @@ const SESSION_COOKIE_LITERAL = "__Host-fxav_session";
  *
  * Returns null if no `__Host-fxav_bootstrap_v=` header is present.
  */
-function extractBootstrapCookieRaw(
-  headers: Array<{ name: string; value: string }>,
-): string | null {
+function extractBootstrapCookieRaw(headers: Array<{ name: string; value: string }>): string | null {
   const setCookieHeaders = headers
     .filter((h) => h.name.toLowerCase() === "set-cookie")
     .map((h) => h.value);
@@ -140,51 +138,44 @@ class BootstrapCookieCapture {
     });
   }
 
-  private captureSetCookies(
-    headers: Array<{ name: string; value: string }>,
-  ): void {
-      // Playwright's headersArray normalizes multiple Set-Cookie headers
-      // by SPLITTING ON COMMAS — which is wrong for cookies whose
-      // Expires attribute contains a comma ("Expires=Mon, 04 May..."),
-      // since the comma INSIDE the expires value gets treated as a
-      // multi-cookie separator. To recover the canonical Set-Cookie
-      // string, concatenate ALL adjacent set-cookie entries with `, `
-      // (the mangled separator), then scan for our cookie name + the
-      // expected attribute set.
-      const setCookieHeaders = headers
-        .filter((h) => h.name.toLowerCase() === "set-cookie")
-        .map((h) => h.value);
-      if (setCookieHeaders.length === 0) return;
-      const joined = setCookieHeaders.join(", ");
+  private captureSetCookies(headers: Array<{ name: string; value: string }>): void {
+    // Playwright's headersArray normalizes multiple Set-Cookie headers
+    // by SPLITTING ON COMMAS — which is wrong for cookies whose
+    // Expires attribute contains a comma ("Expires=Mon, 04 May..."),
+    // since the comma INSIDE the expires value gets treated as a
+    // multi-cookie separator. To recover the canonical Set-Cookie
+    // string, concatenate ALL adjacent set-cookie entries with `, `
+    // (the mangled separator), then scan for our cookie name + the
+    // expected attribute set.
+    const setCookieHeaders = headers
+      .filter((h) => h.name.toLowerCase() === "set-cookie")
+      .map((h) => h.value);
+    if (setCookieHeaders.length === 0) return;
+    const joined = setCookieHeaders.join(", ");
 
-      // Bootstrap-cookie value (single source of truth via helper).
-      const bootstrapRaw = extractBootstrapCookieRaw(headers);
-      if (bootstrapRaw !== null) {
-        this.latestRaw = bootstrapRaw;
-        // Capture the substring starting at our cookie's name and
-        // extending through the next cookie's name OR end-of-string.
-        // The "next cookie's name" pattern is `, <NAME>=` where NAME
-        // doesn't start with a digit (protects against Expires's date
-        // comma which is followed by ` 04 May...`).
-        const startIdx = joined.indexOf("__Host-fxav_bootstrap_v=");
-        const tail = joined.substring(startIdx);
-        // .substring(1) skips the leading char so we don't match the
-        // cookie-name itself; nextCookieIdx is then 0-based in the
-        // slice, which corresponds to position (nextCookieIdx + 1) in
-        // the full `tail`. The slice end at (nextCookieIdx + 1)
-        // excludes the comma at that position.
-        const nextCookieIdx = tail
-          .substring(1)
-          .search(/,\s*[A-Za-z][A-Za-z0-9_-]*=/);
-        this.latestSetCookieLine =
-          nextCookieIdx === -1
-            ? tail
-            : tail.substring(0, nextCookieIdx + 1);
-      }
-      const sessionMatch = joined.match(/__Host-fxav_session=([^;\r\n,]*)/);
-      if (sessionMatch) {
-        this.sessionCookieRaw = sessionMatch[1] ?? null;
-      }
+    // Bootstrap-cookie value (single source of truth via helper).
+    const bootstrapRaw = extractBootstrapCookieRaw(headers);
+    if (bootstrapRaw !== null) {
+      this.latestRaw = bootstrapRaw;
+      // Capture the substring starting at our cookie's name and
+      // extending through the next cookie's name OR end-of-string.
+      // The "next cookie's name" pattern is `, <NAME>=` where NAME
+      // doesn't start with a digit (protects against Expires's date
+      // comma which is followed by ` 04 May...`).
+      const startIdx = joined.indexOf("__Host-fxav_bootstrap_v=");
+      const tail = joined.substring(startIdx);
+      // .substring(1) skips the leading char so we don't match the
+      // cookie-name itself; nextCookieIdx is then 0-based in the
+      // slice, which corresponds to position (nextCookieIdx + 1) in
+      // the full `tail`. The slice end at (nextCookieIdx + 1)
+      // excludes the comma at that position.
+      const nextCookieIdx = tail.substring(1).search(/,\s*[A-Za-z][A-Za-z0-9_-]*=/);
+      this.latestSetCookieLine = nextCookieIdx === -1 ? tail : tail.substring(0, nextCookieIdx + 1);
+    }
+    const sessionMatch = joined.match(/__Host-fxav_session=([^;\r\n,]*)/);
+    if (sessionMatch) {
+      this.sessionCookieRaw = sessionMatch[1] ?? null;
+    }
   }
 
   latestEntries(): BootstrapCookieEntry[] {
@@ -285,15 +276,10 @@ async function waitForBootstrapSettled(page: Page, slug: string): Promise<void> 
   await page
     .waitForFunction(
       ({ slug: s }) => {
-        if (
-          document.querySelector('[data-testid="bootstrap-error"]') !== null
-        ) {
+        if (document.querySelector('[data-testid="bootstrap-error"]') !== null) {
           return true;
         }
-        if (
-          document.querySelector('[data-testid="bootstrap-no-fragment"]') !==
-          null
-        ) {
+        if (document.querySelector('[data-testid="bootstrap-no-fragment"]') !== null) {
           return true;
         }
         // Navigated away (router.replace fired).
@@ -386,10 +372,7 @@ test.beforeAll(() => {
 
 test.beforeEach(async ({ context }) => {
   // Reset signing-key state and clear any stale browser cookies.
-  await admin
-    .from("app_settings")
-    .update({ active_signing_key_id: "k1" })
-    .eq("id", "default");
+  await admin.from("app_settings").update({ active_signing_key_id: "k1" }).eq("id", "default");
   await context.clearCookies();
 });
 
@@ -475,9 +458,7 @@ test("(b) two quick renders → two distinct nonces in cookie array; both rows +
     if (error) throw new Error(error.message);
     expect(rows ?? []).toHaveLength(2);
     expect((rows ?? [])[0]!.nonce_hash).not.toBe((rows ?? [])[1]!.nonce_hash);
-    expect((rows ?? [])[0]!.signing_key_id).toBe(
-      (rows ?? [])[1]!.signing_key_id,
-    );
+    expect((rows ?? [])[0]!.signing_key_id).toBe((rows ?? [])[1]!.signing_key_id);
 
     // Latest cookie carries BOTH entries (server reads existing array,
     // appends, writes back the union).
@@ -632,10 +613,7 @@ test("(f) rotation between renders: first row + cookie entry pinned to k1; secon
   await stubRedeemLinkForMintOnlyAssertions(page);
   try {
     // First render under k1.
-    await admin
-      .from("app_settings")
-      .update({ active_signing_key_id: "k1" })
-      .eq("id", "default");
+    await admin.from("app_settings").update({ active_signing_key_id: "k1" }).eq("id", "default");
     await page.goto(`/show/${fix.slug}/p#t=placeholder-pre-rotation`);
     await waitForBootstrapSettled(page, fix.slug);
 
@@ -653,10 +631,7 @@ test("(f) rotation between renders: first row + cookie entry pinned to k1; secon
     expect(entriesAfterFirst[0]!.signing_key_id).toBe("k1");
 
     // Rotate the active signing key.
-    await admin
-      .from("app_settings")
-      .update({ active_signing_key_id: "k2" })
-      .eq("id", "default");
+    await admin.from("app_settings").update({ active_signing_key_id: "k2" }).eq("id", "default");
 
     // Plant cumulative cookie state for the second render.
     await plantBootstrapCookie(context, cap);
@@ -674,36 +649,25 @@ test("(f) rotation between renders: first row + cookie entry pinned to k1; secon
       .order("issued_at", { ascending: true });
     expect(rowsAfterSecond ?? []).toHaveLength(2);
 
-    const firstRowAfter = (rowsAfterSecond ?? []).find(
-      (r) => r.nonce_hash === firstRowHash,
-    );
+    const firstRowAfter = (rowsAfterSecond ?? []).find((r) => r.nonce_hash === firstRowHash);
     expect(firstRowAfter).toBeDefined();
     expect(firstRowAfter!.signing_key_id).toBe("k1");
 
-    const secondRow = (rowsAfterSecond ?? []).find(
-      (r) => r.nonce_hash !== firstRowHash,
-    );
+    const secondRow = (rowsAfterSecond ?? []).find((r) => r.nonce_hash !== firstRowHash);
     expect(secondRow).toBeDefined();
     expect(secondRow!.signing_key_id).toBe("k2");
 
     const entriesAfterSecond = cap.latestEntries();
     expect(entriesAfterSecond).toHaveLength(2);
-    const cookieFirst = entriesAfterSecond.find(
-      (e) => e.nonce_hash === firstRowHash,
-    );
-    const cookieSecond = entriesAfterSecond.find(
-      (e) => e.nonce_hash !== firstRowHash,
-    );
+    const cookieFirst = entriesAfterSecond.find((e) => e.nonce_hash === firstRowHash);
+    const cookieSecond = entriesAfterSecond.find((e) => e.nonce_hash !== firstRowHash);
     expect(cookieFirst).toBeDefined();
     expect(cookieFirst!.signing_key_id).toBe("k1");
     expect(cookieSecond).toBeDefined();
     expect(cookieSecond!.signing_key_id).toBe("k2");
   } finally {
     await tearDownShowFixture(fix);
-    await admin
-      .from("app_settings")
-      .update({ active_signing_key_id: "k1" })
-      .eq("id", "default");
+    await admin.from("app_settings").update({ active_signing_key_id: "k1" }).eq("id", "default");
   }
 });
 
@@ -765,8 +729,7 @@ test("(g) /show/<slug>/p#t=<valid-jwt> → bootstrap row created; redeem-link PO
   // Capture every redeem-link POST body so we can assert the client island
   // sent the right shape ({ token, nonce, show_id }) — the contract the
   // §A redeem-link route consumes.
-  const redeemPosts: Array<{ token: string; nonce: string; show_id: string }> =
-    [];
+  const redeemPosts: Array<{ token: string; nonce: string; show_id: string }> = [];
   page.on("request", (req) => {
     if (req.url().includes("/api/auth/redeem-link") && req.method() === "POST") {
       try {
@@ -901,8 +864,7 @@ test("(i) /show/<slug>/p#t=<invalid-jwt> → redeem-link rejects; generic inline
     // Syntactically-valid-looking but unverifiable JWT. The redeem-link
     // route should respond with 401 SESSION_NOT_FOUND or similar; the
     // bootstrap shell should render the generic error block.
-    const garbageJwt =
-      "eyJhbGciOiJIUzI1NiJ9.eyJnYXJiYWdlIjp0cnVlfQ.invalid-signature";
+    const garbageJwt = "eyJhbGciOiJIUzI1NiJ9.eyJnYXJiYWdlIjp0cnVlfQ.invalid-signature";
 
     await page.goto(`/show/${fix.slug}/p#t=${encodeURIComponent(garbageJwt)}`);
     await expect(page.getByTestId("bootstrap-error")).toBeVisible({

@@ -41,20 +41,15 @@ async function lookupSeeded(): Promise<{
   }
   const showId = showRes.data.id as string;
 
-  const crewRes = await admin
-    .from("crew_members")
-    .select("id, role_flags")
-    .eq("show_id", showId);
+  const crewRes = await admin.from("crew_members").select("id, role_flags").eq("show_id", showId);
   if (crewRes.error || !crewRes.data?.length) {
     throw new Error(`role-spoof.spec: no crew rows`);
   }
-  const lead = crewRes.data.find((c) =>
-    Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
+  const lead = crewRes.data.find(
+    (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   const nonLead = crewRes.data.find(
-    (c) =>
-      Array.isArray(c.role_flags) &&
-      !(c.role_flags as string[]).includes("LEAD"),
+    (c) => Array.isArray(c.role_flags) && !(c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead || !nonLead) {
     throw new Error(
@@ -75,9 +70,7 @@ async function lookupSeeded(): Promise<{
 // Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
 // plus per-test fixture seeding. See handoff §0.
 test.describe.skip("crew page — role-spoof regression (Task 4.8, §7.4)", () => {
-  test("?role=lead does NOT unlock FinancialsTile when crew row is non-LEAD", async ({
-    page,
-  }) => {
+  test("?role=lead does NOT unlock FinancialsTile when crew row is non-LEAD", async ({ page }) => {
     const { slug, nonLeadCrewId } = await lookupSeeded();
     // Spoof attempt: a non-LEAD crew member appends ?role=lead. The page
     // MUST IGNORE the role param entirely (it reads only ?crew and ?as)
@@ -87,9 +80,7 @@ test.describe.skip("crew page — role-spoof regression (Task 4.8, §7.4)", () =
     await expect(page.getByTestId("financials-tile")).toHaveCount(0);
   });
 
-  test("?role=admin does NOT unlock admin path when ?as= is not 'admin'", async ({
-    page,
-  }) => {
+  test("?role=admin does NOT unlock admin path when ?as= is not 'admin'", async ({ page }) => {
     const { slug, nonLeadCrewId } = await lookupSeeded();
     // Spoof attempt: a non-LEAD crew member appends ?role=admin. Same
     // contract as above — the role param is ignored, only ?as=admin
@@ -99,17 +90,13 @@ test.describe.skip("crew page — role-spoof regression (Task 4.8, §7.4)", () =
     await expect(page.getByTestId("financials-tile")).toHaveCount(0);
   });
 
-  test("real LEAD viewer DOES see FinancialsTile (positive control)", async ({
-    page,
-  }) => {
+  test("real LEAD viewer DOES see FinancialsTile (positive control)", async ({ page }) => {
     const { slug, leadCrewId } = await lookupSeeded();
     await page.goto(`/show/${slug}?crew=${leadCrewId}`);
     await expect(page.getByTestId("financials-tile")).toBeVisible();
   });
 
-  test("real admin viewer DOES see FinancialsTile (positive control)", async ({
-    page,
-  }) => {
+  test("real admin viewer DOES see FinancialsTile (positive control)", async ({ page }) => {
     const { slug } = await lookupSeeded();
     await page.goto(`/show/${slug}?as=admin`);
     await expect(page.getByTestId("financials-tile")).toBeVisible();

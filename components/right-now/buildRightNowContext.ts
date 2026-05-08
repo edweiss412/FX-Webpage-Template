@@ -70,17 +70,11 @@ export function buildRightNowContext(opts: {
 
   const ed = show.event_details ?? {};
   const callTime =
-    typeof ed.call_time === "string" && ed.call_time.length > 0
-      ? ed.call_time
-      : null;
+    typeof ed.call_time === "string" && ed.call_time.length > 0 ? ed.call_time : null;
   const loadInTime =
-    typeof ed.load_in_time === "string" && ed.load_in_time.length > 0
-      ? ed.load_in_time
-      : null;
+    typeof ed.load_in_time === "string" && ed.load_in_time.length > 0 ? ed.load_in_time : null;
   const strikeTime =
-    typeof ed.strike_time === "string" && ed.strike_time.length > 0
-      ? ed.strike_time
-      : null;
+    typeof ed.strike_time === "string" && ed.strike_time.length > 0 ? ed.strike_time : null;
   const roomName =
     typeof ed.first_show_room === "string" && ed.first_show_room.length > 0
       ? ed.first_show_room

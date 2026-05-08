@@ -15,10 +15,7 @@
  * "Opening reel: N/A".
  */
 import { describe, expect, test } from "vitest";
-import {
-  shouldHideOpeningReel,
-  shouldHideGenericOptional,
-} from "@/lib/visibility/emptyState";
+import { shouldHideOpeningReel, shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 describe("shouldHideOpeningReel", () => {
   test("null is hidden", () => {
@@ -51,17 +48,11 @@ describe("shouldHideOpeningReel", () => {
 
   test("URL-stripped residue drives hide vs render", () => {
     // YES + URL → residue `YES` → render
-    expect(
-      shouldHideOpeningReel("YES - https://drive.google.com/file/d/abc/view"),
-    ).toBe(false);
+    expect(shouldHideOpeningReel("YES - https://drive.google.com/file/d/abc/view")).toBe(false);
     // pure URL → residue empty → hide
-    expect(
-      shouldHideOpeningReel("https://drive.google.com/file/d/abc/view"),
-    ).toBe(true);
+    expect(shouldHideOpeningReel("https://drive.google.com/file/d/abc/view")).toBe(true);
     // pure docs.google.com URL → residue empty → hide
-    expect(
-      shouldHideOpeningReel("https://docs.google.com/document/d/abc/edit"),
-    ).toBe(true);
+    expect(shouldHideOpeningReel("https://docs.google.com/document/d/abc/edit")).toBe(true);
   });
 });
 
@@ -83,9 +74,7 @@ describe("shouldHideGenericOptional", () => {
 
   test("real content renders (not hidden)", () => {
     expect(shouldHideGenericOptional("House power, 20A")).toBe(false);
-    expect(shouldHideGenericOptional("Wi-Fi: FXAV-Show / pw fxav2026")).toBe(
-      false,
-    );
+    expect(shouldHideGenericOptional("Wi-Fi: FXAV-Show / pw fxav2026")).toBe(false);
     expect(shouldHideGenericOptional("Black drape, 24x12")).toBe(false);
   });
 });

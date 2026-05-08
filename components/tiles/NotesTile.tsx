@@ -193,13 +193,7 @@ export function NotesTile({
   transportation,
   contacts,
 }: NotesTileProps) {
-  const entries = aggregateNotes(
-    show,
-    hotelReservations,
-    rooms,
-    transportation,
-    contacts,
-  );
+  const entries = aggregateNotes(show, hotelReservations, rooms, transportation, contacts);
 
   // §8.3 whole-tile-missing: zero notes anywhere reflows out.
   if (entries.length === 0) return null;
@@ -292,8 +286,7 @@ export function NotesTile({
           className="rounded-sm bg-surface-sunken px-3 py-2 text-sm text-text-subtle"
         >
           <span className="tabular-nums">+{overflowCount}</span>{" "}
-          {overflowCount === 1 ? "more note" : "more notes"} on the source
-          sheet
+          {overflowCount === 1 ? "more note" : "more notes"} on the source sheet
         </div>
       ) : null}
     </Section>

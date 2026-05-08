@@ -87,7 +87,7 @@ After Pin-stop 2, §B starts in parallel. The only §A work remaining post-Pin-2
 
 **If Pin-stop 2 reveals a missing surface §B needs:** treat it as a Pin-stop-2-extension, NOT a new Pin-stop 3. Update this section's bullet list inline, have Codex extend the contract, and re-pin at a new SHA. Pin numbering stays at 2 because the contract surface is conceptually one gate; only fundamentally new surfaces (e.g., a future M6 "watch channel renewal hook" that didn't exist at M5 design time) earn a new pin number.
 
-**Anti-pattern:** Codex resuming §A's middleware.ts work *between* Pin-stops 1 and 2. The pin sequence is strictly ordered — middleware can ship only after Pin-stop 2 because it imports validators and `lib/messages/lookup.ts` from the Pin-2 surface. If Codex finds itself wanting to ship middleware before Pin 2, that's a sign the dependency analysis was wrong; surface it.
+**Anti-pattern:** Codex resuming §A's middleware.ts work _between_ Pin-stops 1 and 2. The pin sequence is strictly ordered — middleware can ship only after Pin-stop 2 because it imports validators and `lib/messages/lookup.ts` from the Pin-2 surface. If Codex finds itself wanting to ship middleware before Pin 2, that's a sign the dependency analysis was wrong; surface it.
 
 ### Pinned contract @ a7dff4e (Pin-stop 1 — 2026-05-03)
 
@@ -106,7 +106,7 @@ Verification: `pnpm test tests/auth/jwt.test.ts` passed (4 tests); `pnpm typeche
 export const SESSION_COOKIE_NAME: "__Host-fxav_session";
 export const BOOTSTRAP_COOKIE_NAME: "__Host-fxav_bootstrap_v";
 export const SESSION_COOKIE_MAX_AGE_SEC: number; // 43200
-export const SESSION_IDLE_TIMEOUT_SEC: number;   // 900
+export const SESSION_IDLE_TIMEOUT_SEC: number; // 900
 
 export type AuthFailureCode =
   | "SESSION_NOT_FOUND"
@@ -142,17 +142,28 @@ export type LinkSessionValidationResult =
   | { kind: "continue"; clearCookie?: true; priorFailure?: AuthFailure }
   | { kind: "terminal_failure"; status: 401 | 500; code: AuthFailureCode; clearCookie?: true };
 
-export function validateLinkSession(req: Request, context: LinkSessionValidationContext): Promise<LinkSessionValidationResult>;
+export function validateLinkSession(
+  req: Request,
+  context: LinkSessionValidationContext,
+): Promise<LinkSessionValidationResult>;
 
 // lib/auth/validateGoogleSession.ts
-export type GoogleSessionViewer = { kind: "crew"; email: string; showId: string; crewMemberId: string };
+export type GoogleSessionViewer = {
+  kind: "crew";
+  email: string;
+  showId: string;
+  crewMemberId: string;
+};
 export type GoogleSessionValidationContext = { showId: string };
 export type GoogleSessionValidationResult =
   | { kind: "success"; viewer: GoogleSessionViewer }
   | { kind: "continue" }
   | { kind: "terminal_failure"; status: 403 | 500; code: AuthFailureCode };
 
-export function validateGoogleSession(req: Request, context: GoogleSessionValidationContext): Promise<GoogleSessionValidationResult>;
+export function validateGoogleSession(
+  req: Request,
+  context: GoogleSessionValidationContext,
+): Promise<GoogleSessionValidationResult>;
 
 // lib/auth/isAdminSession.ts
 export type AdminSessionResult = { ok: true; email: string } | { ok: false };
@@ -160,6 +171,7 @@ export function isAdminSession(req: Request): Promise<AdminSessionResult>;
 ```
 
 Codex deviations (Pin-2 base):
+
 1. `LINK_SESSION_KEY_ROTATED` returns terminal_failure rather than continue+clearCookie. **Spec-aligned per AC-5.6a** (server-side rotation is server-side fault classification).
 2. Steps 11-12 not rendered inside the validator; identity only. **Spec-aligned per §7.4 + watchpoint #4** (role re-derivation lives in `getShowForViewer`).
 
@@ -177,12 +189,19 @@ export type GoogleIdentityValidationResult =
 export function validateGoogleIdentity(req: Request): Promise<GoogleIdentityValidationResult>;
 
 // lib/data/listShowsForCrew.ts
-export type CrewShowSummary = { id: string; slug: string; title: string; dates: unknown; crewMemberId: string };
+export type CrewShowSummary = {
+  id: string;
+  slug: string;
+  title: string;
+  dates: unknown;
+  crewMemberId: string;
+};
 
 export function listShowsForCrew(viewer: GoogleIdentityViewer): Promise<CrewShowSummary[]>;
 ```
 
 Codex deviations (extension):
+
 1. **`GoogleIdentityViewer.crewMemberId` is the Supabase Auth `user.id`, NOT a show-bound `crew_members.id`.** Codex chose this because `/me` is cross-show and a single `crew_members.id` doesn't exist for a cross-show identity. **`CrewShowSummary.crewMemberId` IS the per-show `crew_members.id`.** This means the same field name `crewMemberId` carries different referents across the two types — a contract trap. **Surfaced explicitly to the adversarial reviewer (M5 round 1):** decide whether to (a) accept and document the dual semantics, (b) rename `GoogleIdentityViewer.crewMemberId` → `userId` / `authUserId`, or (c) drop the field from `GoogleIdentityViewer` entirely (email is the canonical lookup key for `/me`; YAGNI says drop). My read: option (c) is cleanest. Not blocking §B start because §B's `/me` page consumes `email` for the `listShowsForCrew` call and ignores `viewer.crewMemberId` — but the rename should land before adversarial review concludes.
 2. `listShowsForCrew` accepts the full `GoogleIdentityViewer` and uses its canonical email for the membership query. Spec-aligned with §7.3 email-based `/me` semantics.
 
@@ -231,25 +250,43 @@ export type MessageParams = Record<string, string | number | boolean | null | un
 export function messageFor(code: MessageCode, params?: MessageParams): MessageCatalogEntry;
 
 export type MessageCode =
-  | "LINK_EXPIRED" | "LINK_REVOKED_FLOOR" | "LINK_REVOKED_SURGICAL"
-  | "LINK_VERSION_MISMATCH" | "LINK_NO_CREW_MATCH" | "LEAKED_LINK_DETECTED"
-  | "CSRF_DENIED" | "CSRF_NONCE_EXPIRED" | "CSRF_KEY_ROTATED"
-  | "GOOGLE_NO_CREW_MATCH" | "AMBIGUOUS_EMAIL_BINDING"
-  | "SESSION_NOT_FOUND" | "SESSION_IDLE_TIMEOUT" | "SESSION_ABSOLUTE_TIMEOUT"
-  | "LINK_SESSION_KEY_ROTATED" | "LINK_REDEEM_KEY_ROTATED"
-  | "OAUTH_STATE_INVALID" | "OAUTH_REDIRECT_INVALID"
+  | "LINK_EXPIRED"
+  | "LINK_REVOKED_FLOOR"
+  | "LINK_REVOKED_SURGICAL"
+  | "LINK_VERSION_MISMATCH"
+  | "LINK_NO_CREW_MATCH"
+  | "LEAKED_LINK_DETECTED"
+  | "CSRF_DENIED"
+  | "CSRF_NONCE_EXPIRED"
+  | "CSRF_KEY_ROTATED"
+  | "GOOGLE_NO_CREW_MATCH"
+  | "AMBIGUOUS_EMAIL_BINDING"
+  | "SESSION_NOT_FOUND"
+  | "SESSION_IDLE_TIMEOUT"
+  | "SESSION_ABSOLUTE_TIMEOUT"
+  | "LINK_SESSION_KEY_ROTATED"
+  | "LINK_REDEEM_KEY_ROTATED"
+  | "OAUTH_STATE_INVALID"
+  | "OAUTH_REDIRECT_INVALID"
   | "ADMIN_SESSION_LOOKUP_FAILED"
-  | "WATCH_CHANNEL_ORPHANED" | "WEBHOOK_TOKEN_INVALID"
-  | "REPORT_ORPHANED_LOST_LEASE" | "GITHUB_BOT_LOGIN_MISSING"
-  | "REPORT_LEASE_THRASHING" | "TILE_SERVER_RENDER_FAILED"
-  | "INVALID_JSON" | "SLUG_REQUIRED"
-  | "SHOW_REALTIME_BROADCAST_AUTH_FAILED" | "SHOW_REALTIME_CROSS_SHOW_FORBIDDEN"
+  | "WATCH_CHANNEL_ORPHANED"
+  | "WEBHOOK_TOKEN_INVALID"
+  | "REPORT_ORPHANED_LOST_LEASE"
+  | "GITHUB_BOT_LOGIN_MISSING"
+  | "REPORT_LEASE_THRASHING"
+  | "TILE_SERVER_RENDER_FAILED"
+  | "INVALID_JSON"
+  | "SLUG_REQUIRED"
+  | "SHOW_REALTIME_BROADCAST_AUTH_FAILED"
+  | "SHOW_REALTIME_CROSS_SHOW_FORBIDDEN"
   | "SHOW_REALTIME_TOKEN_MISCONFIGURED"
-  | "SHOW_VERSION_AUTH_FAILED" | "SHOW_VERSION_CROSS_SHOW_FORBIDDEN"
+  | "SHOW_VERSION_AUTH_FAILED"
+  | "SHOW_VERSION_CROSS_SHOW_FORBIDDEN"
   | "SHOW_VERSION_TOKEN_RPC_FAILED";
 ```
 
 Codex deviations (extension #2):
+
 1. **DEFERRED.md SHA self-reference impossibility.** Codex correctly noted that a commit cannot literally contain its own SHA. M2-D6 was marked Resolved in commit `dc68471` (the advisory-lock commit), and orchestrator backfills the SHA into DEFERRED.md in a follow-up commit. Not a contract issue, just a process note.
 2. **Operator-log writes for some auth error branches not wired** because no shared operator logging sink exists yet. Codes are cataloged and tested but not actually emitted to a sink. M6 / M8 will introduce the sink; M5 surfaces the codes correctly. **Adversarial-reviewer pin item:** confirm the deferral is acceptable and doesn't violate any spec §12.4 producer requirement.
 3. **`DEFAULT_AUTH_NEXT_PATH: "/admin"` as the failsafe fallback.** Crew users do not have access to `/admin` (RLS denies). If crew OAuth completes with an invalid `next`, validateNextParamDetailed returns `path: "/admin"`, and the callback redirects there, crew hits an authorization failure and bounces somewhere — potential redirect dead-end. **Adversarial-reviewer pin item:** the callback route's user-type-aware fallback (admin → /admin, crew → /me) should run AFTER validateNextParam returns its failsafe, so the failsafe never actually lands a crew user on /admin. Confirm this composition by reading `app/auth/callback/route.ts`.
@@ -259,11 +296,13 @@ Verification: `pnpm test` = 1273 tests passing across 74 files; `pnpm lint` clea
 **Adversarial-review carry-forward (cumulative across all three pin-stops + §B implementation + Task 5.6 close-out):**
 
 From contract pin-stops:
+
 - **CF-PIN-1** (extension #1) `GoogleIdentityViewer.crewMemberId` is Supabase Auth `user.id`; `CrewShowSummary.crewMemberId` is `crew_members.id`. Same field name, different referents. Recommend rename `GoogleIdentityViewer.crewMemberId` → `userId` or drop the field entirely.
 - **CF-PIN-2** (extension #2) `DEFAULT_AUTH_NEXT_PATH: "/admin"` failsafe risks crew redirect dead-end — needs callback-side disambiguation.
 - **CF-PIN-3** (extension #2) Operator-log writes deferred to M6/M8 sink — confirm acceptable.
 
 From §B implementation (reported at f027da7):
+
 - **CF-IMPL-1 (CRITICAL)** — `lib/auth/requireAdmin.ts:32` still has the M3 `ADMIN_DEV_PANEL_ENABLED` build-time gate. In production (flag unset) every admin request 404s. Pin-2 ext#2 contract said "body now production" — not honored in code. Workaround: `ADMIN_DEV_PANEL_ENABLED=true` set on test server. **§A must replace before M5 ships to production.** Reviewer should verify this is the first thing fixed in round 1.
 - **CF-IMPL-2** — `lib/auth/validateGoogleSession.ts:55` and `lib/auth/isAdminSession.ts:9` both `void req;` — the `req: Request` parameter is decorative. Synthetic Request from `/show/[slug]/page.tsx` and `/me/page.tsx` is forward-compat only. Either remove the parameter (interface break) or wire it to actually read cookies (current implementation reads via `next/headers` cookies()).
 - **CF-IMPL-3** — 14 M4 e2e specs `.skip`'d pending `?crew=` mock migration onto `signInAs(NON_ADMIN_CREW_FIXTURE)` per-show seeding. Tracked as deferred follow-up; ~150 tests await migration. Suggested home: M5 follow-up touch OR M9 polish.
@@ -495,6 +534,7 @@ After §A and §B both complete:
 ## 12. Impeccable evaluation (UI quality gate — AGENTS.md §1 invariant 8)
 
 UI surface §B ships in this milestone:
+
 - `app/auth/sign-in/page.tsx`
 - `app/show/[slug]/p/page.tsx` + `app/show/[slug]/p/Bootstrap.tsx`
 - `app/me/page.tsx`

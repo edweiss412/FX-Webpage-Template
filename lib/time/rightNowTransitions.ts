@@ -511,8 +511,7 @@ export const RIGHT_NOW_TRANSITION_MATRIX: TransitionMatrixEntry[] = [
     from: "viewer_after_last_day",
     to: "post_show",
     treatment: "crossfade-body",
-    reason:
-      "Doug removes the explicit restriction; viewer becomes unrestricted post-show.",
+    reason: "Doug removes the explicit restriction; viewer becomes unrestricted post-show.",
   },
 
   // ── Rule 7: viewer-aware ↔ viewer-aware (6 pairs) ─────────────────

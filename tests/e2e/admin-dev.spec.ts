@@ -11,11 +11,7 @@
 import { test, expect } from "@playwright/test";
 import { ADMIN_FIXTURE, NON_ADMIN_CREW_FIXTURE } from "./helpers/fixtures";
 import { signInAs, signOut } from "./helpers/signInAs";
-import {
-  admin,
-  resetDevSchema,
-  snapshotPublicSchema,
-} from "./helpers/supabaseAdmin";
+import { admin, resetDevSchema, snapshotPublicSchema } from "./helpers/supabaseAdmin";
 
 const FIXTURE_HAPPY = "2026-03-rpas-central-four-seasons.md";
 const FIXTURE_FINTECH_WITH_REEL = "2026-05-fintech-forum-cto-summit.md";
@@ -33,10 +29,7 @@ test.beforeEach(async ({ page }) => {
 
 test.describe("dev-build only — admin-dev page behaves under ADMIN_DEV_PANEL_ENABLED=true", () => {
   test.beforeEach(({}, testInfo) => {
-    test.skip(
-      testInfo.project.name !== "dev-build",
-      "dev-build project only",
-    );
+    test.skip(testInfo.project.name !== "dev-build", "dev-build project only");
   });
 
   test("admin/dev: upload fixture, see parse panel (AC-3.1) — public schema untouched", async ({
@@ -65,10 +58,9 @@ test.describe("dev-build only — admin-dev page behaves under ADMIN_DEV_PANEL_E
     expect(after.pendingSyncsCount, "public.pending_syncs row count must not change").toBe(
       before.pendingSyncsCount,
     );
-    expect(
-      after.pendingSyncsHashes,
-      "public.pending_syncs content hash must not change",
-    ).toEqual(before.pendingSyncsHashes);
+    expect(after.pendingSyncsHashes, "public.pending_syncs content hash must not change").toEqual(
+      before.pendingSyncsHashes,
+    );
     expect(
       after.pendingIngestionsCount,
       "public.pending_ingestions row count must not change",
@@ -127,9 +119,7 @@ test.describe("dev-build only — admin-dev page behaves under ADMIN_DEV_PANEL_E
     // the server-side parseAndStage call dispatches. dev.pending_syncs
     // stays empty, proving no fixture-derived row landed.
     await signInAs(page, NON_ADMIN_CREW_FIXTURE);
-    const response = await page.goto(
-      `/admin/dev?fixture=${encodeURIComponent(FIXTURE_HAPPY)}`,
-    );
+    const response = await page.goto(`/admin/dev?fixture=${encodeURIComponent(FIXTURE_HAPPY)}`);
     expect(response?.status()).toBe(403);
 
     // dev.* state must be unchanged.
@@ -200,9 +190,7 @@ test.describe("dev-build only — admin-dev page behaves under ADMIN_DEV_PANEL_E
 
     // Navigate to /admin/dev?fixture=... via raw GET — the most-prefetched
     // shape (browsers may prefetch query-param URLs aggressively).
-    const response = await page.goto(
-      `/admin/dev?fixture=${encodeURIComponent(FIXTURE_HAPPY)}`,
-    );
+    const response = await page.goto(`/admin/dev?fixture=${encodeURIComponent(FIXTURE_HAPPY)}`);
     expect(response?.status()).toBe(200);
 
     // dev.pending_syncs MUST still be empty — GET did not parse.
@@ -211,9 +199,7 @@ test.describe("dev-build only — admin-dev page behaves under ADMIN_DEV_PANEL_E
       .from("pending_syncs")
       .select("*", { count: "exact", head: true });
     expect(after.error).toBeNull();
-    expect(after.count, "GET /admin/dev?fixture=... must NOT trigger parseAndStage").toBe(
-      0,
-    );
+    expect(after.count, "GET /admin/dev?fixture=... must NOT trigger parseAndStage").toBe(0);
   });
 
   test("admin/dev runs the FULL parseSheet → enrichWithDrivePins → invariants → phase1 chain", async ({
@@ -226,17 +212,13 @@ test.describe("dev-build only — admin-dev page behaves under ADMIN_DEV_PANEL_E
 
     // Enrichment ran — assertions visible in the rendered panel:
     await expect(page.locator("[data-testid=enriched-reel-pin]")).toBeVisible();
-    await expect(
-      page.locator("[data-testid=enriched-linked-folder-items]"),
-    ).toBeVisible();
+    await expect(page.locator("[data-testid=enriched-linked-folder-items]")).toBeVisible();
     await expect(page.locator("[data-testid=enriched-embedded-images]")).toBeVisible();
 
     // Anti-tautology: assert mockDriveClient was called by checking the
     // mock-emitted marker that the panel surfaces. The marker is set inside
     // the mock implementation and rendered by the page's enrichment-summary.
-    await expect(
-      page.locator("[data-testid=enrichment-mock-marker]"),
-    ).toContainText(/mock/i);
+    await expect(page.locator("[data-testid=enrichment-mock-marker]")).toContainText(/mock/i);
   });
 
   test("admin/dev surfaces parse_warnings, every triggered MI, and raw_unrecognized chunks", async ({
@@ -265,18 +247,13 @@ test.describe("dev-build only — admin-dev page behaves under ADMIN_DEV_PANEL_E
 
     // The "report this" button per the §15 demo flow — pre-fills /api/report
     // (M8 wires the actual endpoint; M3 stubs the destination).
-    await expect(
-      page.locator("[data-testid=report-snippet-button]").first(),
-    ).toBeVisible();
+    await expect(page.locator("[data-testid=report-snippet-button]").first()).toBeVisible();
   });
 });
 
 test.describe("prod-build only — page is permanently absent regardless of auth", () => {
   test.beforeEach(({}, testInfo) => {
-    test.skip(
-      testInfo.project.name !== "prod-build",
-      "prod-build project only",
-    );
+    test.skip(testInfo.project.name !== "prod-build", "prod-build project only");
   });
 
   test("admin/dev: prod build returns 404 even for admin (build artifact gate)", async ({
@@ -290,10 +267,7 @@ test.describe("prod-build only — page is permanently absent regardless of auth
 
 test.describe("prod-runtime-flip only — Round 1 Finding 1 regression", () => {
   test.beforeEach(({}, testInfo) => {
-    test.skip(
-      testInfo.project.name !== "prod-runtime-flip",
-      "prod-runtime-flip project only",
-    );
+    test.skip(testInfo.project.name !== "prod-runtime-flip", "prod-runtime-flip project only");
   });
 
   test("admin/dev: STILL 404 when prod build is started with ADMIN_DEV_PANEL_ENABLED=true at runtime (build-artifact gate, not runtime-flippable)", async ({

@@ -121,11 +121,9 @@ async function readCardAttrs(
     // sampling other attributes. The card's SSR render may briefly
     // show the server-clock state before the pinned client clock
     // takes over.
-    await expect(card.getByTestId("right-now-state")).toHaveAttribute(
-      "data-state",
-      expectedState,
-      { timeout: 5000 },
-    );
+    await expect(card.getByTestId("right-now-state")).toHaveAttribute("data-state", expectedState, {
+      timeout: 5000,
+    });
   }
   const stateMarker = card.getByTestId("right-now-state");
   const state = await stateMarker.getAttribute("data-state");
@@ -349,9 +347,7 @@ test.describe.skip("RightNow §8.2 — 6 compound transition audits (plan Step 3
    * Realtime (M6). For this test, we set the restriction BEFORE the
    * page load, so the clock tick alone drives the transition.
    */
-  test("compound 2: viewer_off_day → show_day_n via showDay rollover", async ({
-    page,
-  }) => {
+  test("compound 2: viewer_off_day → show_day_n via showDay rollover", async ({ page }) => {
     // Set restriction so viewer is off-day on showDay1 but on-day on
     // showDay2. driveToState pins clock to showDay1.
     await setDateRestriction(s.leadCrewId, {
@@ -490,9 +486,7 @@ test.describe.skip("RightNow §8.2 — 6 compound transition audits (plan Step 3
    * but stays inside the show_day_n window) and asserting
    * data-treatment stays "instant" / no kind change.
    */
-  test("compound 6: same-kind tick does not trigger card-level crossfade", async ({
-    page,
-  }) => {
+  test("compound 6: same-kind tick does not trigger card-level crossfade", async ({ page }) => {
     await driveToState(page, s, "show_day_n");
     const before = await readCardAttrs(page, "show_day_n");
     expect(before.state).toBe("show_day_n");

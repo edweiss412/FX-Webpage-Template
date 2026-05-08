@@ -55,14 +55,8 @@ export async function GET(
   if (viewer.kind === "terminal_failure") {
     // R14 #2: validator infra fault — surface as 500 so operators see
     // server-side faults instead of misclassifying them as auth denials.
-    console.error(
-      "[/api/show/[slug]/version] validator infra failure",
-      viewer.code,
-    );
-    return NextResponse.json(
-      { error: "ADMIN_SESSION_LOOKUP_FAILED" },
-      { status: 500 },
-    );
+    console.error("[/api/show/[slug]/version] validator infra failure", viewer.code);
+    return NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
   }
 
   // viewer is now admin | crew_link | crew_google — all carry show_id.
@@ -93,10 +87,7 @@ export async function GET(
     p_show_id: showId,
   });
   if (error) {
-    return NextResponse.json(
-      { error: "SHOW_VERSION_TOKEN_RPC_FAILED" },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: "SHOW_VERSION_TOKEN_RPC_FAILED" }, { status: 500 });
   }
 
   return NextResponse.json({ version_token: data ?? "" });

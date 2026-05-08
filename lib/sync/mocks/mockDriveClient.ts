@@ -12,7 +12,11 @@
  * "enrichment populated something" path, we expose a marker through
  * `mockMarker` and a default-by-prefix metadata generator.
  */
-import type { DriveClient, DriveFileMeta, DriveFolderListing } from "@/lib/sync/enrichWithDrivePins";
+import type {
+  DriveClient,
+  DriveFileMeta,
+  DriveFolderListing,
+} from "@/lib/sync/enrichWithDrivePins";
 
 /** Marker string the page surfaces in its enrichment summary so the
  *  pipeline-parity test can assert the mock actually ran (anti-tautology

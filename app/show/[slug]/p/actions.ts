@@ -101,15 +101,10 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 // permissive and would diverge from the canonical auth surface.
 // (`app/admin/actions.ts:35` is still /i — that's §A territory and out
 // of scope for this milestone; tightening it is tracked separately.)
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 type MintBootstrapNonceResult = {
-  status:
-    | "minted"
-    | "busy"
-    | "show_unavailable"
-    | "signing_key_unavailable";
+  status: "minted" | "busy" | "show_unavailable" | "signing_key_unavailable";
   signing_key_id: string | null;
 };
 
@@ -126,9 +121,7 @@ export type BootstrapMintResult = {
   nonce: string;
 };
 
-export async function bootstrapMint(
-  showId: string,
-): Promise<BootstrapMintResult> {
+export async function bootstrapMint(showId: string): Promise<BootstrapMintResult> {
   // Defense-in-depth UUID validation — caller is client-controlled (the
   // Bootstrap.tsx island echoes a server-rendered prop). Reject anything
   // not UUID-shaped BEFORE entering the lock or hitting the DB.
@@ -162,9 +155,7 @@ export async function bootstrapMint(
   }
   const outcome = mint.data?.[0];
   if (!outcome || outcome.status === "signing_key_unavailable") {
-    throw new Error(
-      "bootstrapMint: active signing key id unavailable from app_settings",
-    );
+    throw new Error("bootstrapMint: active signing key id unavailable from app_settings");
   }
   if (outcome.status === "busy") {
     throw new Error("bootstrapMint: show lock unavailable");
@@ -180,18 +171,14 @@ export async function bootstrapMint(
 
   // Append + cap the cookie array; set the cookie via Next's cookies() API.
   const cookieStore = await cookies();
-  const existing = decodeBootstrapCookieEntries(
-    cookieStore.get(BOOTSTRAP_COOKIE_NAME)?.value,
-  );
+  const existing = decodeBootstrapCookieEntries(cookieStore.get(BOOTSTRAP_COOKIE_NAME)?.value);
   const newEntry: BootstrapCookieEntry = {
     nonce_hash: nonceHash,
     show_id: showId,
     issued_at: issuedAt,
     signing_key_id: signingKeyId,
   };
-  const updated = [...existing, newEntry].slice(
-    -BOOTSTRAP_COOKIE_ENTRY_LIMIT,
-  );
+  const updated = [...existing, newEntry].slice(-BOOTSTRAP_COOKIE_ENTRY_LIMIT);
   // Next 16's cookies().set(name, value, opts) URL-encodes the value
   // automatically when emitting the Set-Cookie header. We pass raw JSON.
   const cookieValue = encodeBootstrapCookieEntries(updated);

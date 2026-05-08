@@ -60,9 +60,7 @@ function timingSafeEqualString(left: string, right: string): boolean {
   return timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-export function encodeBootstrapCookieEntries(
-  entries: BootstrapCookieEntry[],
-): string {
+export function encodeBootstrapCookieEntries(entries: BootstrapCookieEntry[]): string {
   const capped = entries.filter(isEntry).slice(-BOOTSTRAP_COOKIE_ENTRY_LIMIT);
   const envelope: BootstrapCookieEnvelope = {
     v: 1,
@@ -72,9 +70,7 @@ export function encodeBootstrapCookieEntries(
   return JSON.stringify(envelope);
 }
 
-export function decodeBootstrapCookieEntries(
-  raw: string | undefined,
-): BootstrapCookieEntry[] {
+export function decodeBootstrapCookieEntries(raw: string | undefined): BootstrapCookieEntry[] {
   if (!raw) return [];
 
   let decoded: string;
@@ -104,10 +100,7 @@ export function decodeBootstrapCookieEntries(
     return [];
   }
 
-  if (
-    envelope.entries.length > BOOTSTRAP_COOKIE_ENTRY_LIMIT ||
-    !envelope.entries.every(isEntry)
-  ) {
+  if (envelope.entries.length > BOOTSTRAP_COOKIE_ENTRY_LIMIT || !envelope.entries.every(isEntry)) {
     return [];
   }
 

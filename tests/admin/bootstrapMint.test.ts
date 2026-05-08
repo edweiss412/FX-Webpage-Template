@@ -168,11 +168,7 @@ vi.mock("@/lib/supabase/server", () => ({
       }
       if (table === "bootstrap_nonces") {
         return {
-          insert: async (row: {
-            nonce_hash: string;
-            show_id: string;
-            signing_key_id: string;
-          }) => {
+          insert: async (row: { nonce_hash: string; show_id: string; signing_key_id: string }) => {
             if (mockState.insertError) {
               return { error: mockState.insertError, data: null };
             }
@@ -233,7 +229,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 vi.mock("@/lib/db/advisoryLock", () => ({
-  withShowAdvisoryLock: async <T,>(
+  withShowAdvisoryLock: async <T>(
     showId: string,
     mode: "try" | "block",
     fn: () => T | Promise<T>,
@@ -452,9 +448,7 @@ describe("bootstrapMint", () => {
   });
 
   test("malformed showId (SQL-injection shape) → throws; no DB call", async () => {
-    await expect(
-      bootstrapMint("'; DROP TABLE bootstrap_nonces; --"),
-    ).rejects.toThrow();
+    await expect(bootstrapMint("'; DROP TABLE bootstrap_nonces; --")).rejects.toThrow();
     expect(mockState.withLockSpy).not.toHaveBeenCalled();
     expect(mockState.rpcCalls).toEqual([]);
     expect(mockState.insertedNonces).toHaveLength(0);
@@ -466,9 +460,7 @@ describe("bootstrapMint", () => {
     // Uppercase hex must be rejected (case-sensitive match per the
     // canonical regex at lib/auth/constants.ts:9).
     mockState.signingKeyIdSequence.push("k1"); // would be consumed if /i slipped back in
-    await expect(
-      bootstrapMint("11111111-AAAA-1111-1111-111111111111"),
-    ).rejects.toThrow();
+    await expect(bootstrapMint("11111111-AAAA-1111-1111-111111111111")).rejects.toThrow();
     expect(mockState.withLockSpy).not.toHaveBeenCalled();
     expect(mockState.rpcCalls).toEqual([]);
     expect(mockState.insertedNonces).toHaveLength(0);
@@ -554,9 +546,7 @@ describe("bootstrapMint", () => {
     mockState.showPublished = false;
     mockState.signingKeyIdSequence.push("k1");
 
-    await expect(bootstrapMint(VALID_SHOW_ID)).rejects.toThrow(
-      /show not available/,
-    );
+    await expect(bootstrapMint(VALID_SHOW_ID)).rejects.toThrow(/show not available/);
 
     expect(mockState.insertedNonces).toEqual([]);
     expect(mockState.setSpy).not.toHaveBeenCalled();
@@ -569,9 +559,7 @@ describe("bootstrapMint", () => {
     mockState.showLookupError = { message: "fake DB outage" };
     mockState.signingKeyIdSequence.push("k1");
 
-    await expect(bootstrapMint(VALID_SHOW_ID)).rejects.toThrow(
-      /bootstrap_nonces insert failed/,
-    );
+    await expect(bootstrapMint(VALID_SHOW_ID)).rejects.toThrow(/bootstrap_nonces insert failed/);
 
     expect(mockState.insertedNonces).toEqual([]);
     expect(mockState.setSpy).not.toHaveBeenCalled();

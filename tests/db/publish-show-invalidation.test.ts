@@ -21,15 +21,13 @@ import { execFileSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
 
 const databaseUrl =
-  process.env.TEST_DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 function runPsql(sql: string): string {
-  return execFileSync(
-    "psql",
-    [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"],
-    { input: sql, encoding: "utf8" },
-  ).trim();
+  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"], {
+    input: sql,
+    encoding: "utf8",
+  }).trim();
 }
 
 describe("public.publish_show_invalidation(uuid)", () => {

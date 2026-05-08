@@ -41,9 +41,7 @@ describe("CAPABILITY_TRANSITION_MATRIX — structural invariants", () => {
   });
 
   test("no diagonals — every entry has a !== b", () => {
-    const diagonals = CAPABILITY_TRANSITION_MATRIX.filter(
-      (entry) => entry.a === entry.b,
-    );
+    const diagonals = CAPABILITY_TRANSITION_MATRIX.filter((entry) => entry.a === entry.b);
     expect(diagonals).toEqual([]);
   });
 
@@ -99,21 +97,13 @@ describe("affectedTilesOnFlip(flipped, held, direction) — symmetric lookup", (
     // deltas, each correctly attributed to the flipped predicate.
     for (const entry of CAPABILITY_TRANSITION_MATRIX) {
       // Forward lookup: flipped=a, held=b → aFlipDelta.
-      const aFlippedWithBHeld = affectedTilesOnFlip(
-        entry.a,
-        entry.b,
-        "false_to_true",
-      );
+      const aFlippedWithBHeld = affectedTilesOnFlip(entry.a, entry.b, "false_to_true");
       expect(aFlippedWithBHeld).toEqual(entry.aFlipDelta);
       // Reverse-arg-order lookup: flipped=b, held=a (note: arguments
       // physically swapped). pairKey must produce the SAME key, so
       // ENTRY_LOOKUP hits the same entry; the helper then selects
       // bFlipDelta because `flipped === entry.b`.
-      const bFlippedWithAHeld = affectedTilesOnFlip(
-        entry.b,
-        entry.a,
-        "false_to_true",
-      );
+      const bFlippedWithAHeld = affectedTilesOnFlip(entry.b, entry.a, "false_to_true");
       expect(bFlippedWithAHeld).toEqual(entry.bFlipDelta);
     }
   });
@@ -126,11 +116,7 @@ describe("affectedTilesOnFlip(flipped, held, direction) — symmetric lookup", (
 
   test("returns null for unknown predicates (defense against `as any`)", () => {
     expect(
-      affectedTilesOnFlip(
-        "not_a_predicate" as CapabilityPredicate,
-        "hasLead",
-        "false_to_true",
-      ),
+      affectedTilesOnFlip("not_a_predicate" as CapabilityPredicate, "hasLead", "false_to_true"),
     ).toBeNull();
   });
 
@@ -177,11 +163,7 @@ describe("Plan Step 4 worked examples — three compound cases", () => {
    * hasL1 false→true (with hasLead=false): Lighting appears.
    */
   test("['LEAD'] → ['L1']: composed deltas — 3 disappear, 1 appears", () => {
-    const leadDelta = affectedTilesOnFlip(
-      "hasLead",
-      "hasL1",
-      "true_to_false",
-    );
+    const leadDelta = affectedTilesOnFlip("hasLead", "hasL1", "true_to_false");
     const l1Delta = affectedTilesOnFlip("hasL1", "hasLead", "false_to_true");
     expect(leadDelta).toEqual({
       appears: [],
@@ -242,8 +224,7 @@ describe("Plan Step 4 worked examples — three compound cases", () => {
      */
     function visibleGatedTiles(flags: RoleFlag[]): GatedTile[] {
       const visible: GatedTile[] = [];
-      if (financialsVisible(flags, /* isAdmin */ false))
-        visible.push("FinancialsTile");
+      if (financialsVisible(flags, /* isAdmin */ false)) visible.push("FinancialsTile");
       if (audioScopeVisible(flags)) visible.push("AudioScopeTile");
       if (videoScopeVisible(flags)) visible.push("VideoScopeTile");
       if (lightingScopeVisible(flags)) visible.push("LightingScopeTile");
@@ -256,11 +237,7 @@ describe("Plan Step 4 worked examples — three compound cases", () => {
     // BEFORE: LEAD unlocks Financials + Audio (LEAD branch) + Video
     // (LEAD branch). A1 also unlocks Audio (already unlocked). L1 not
     // present → no Lighting.
-    expect(before).toEqual([
-      "FinancialsTile",
-      "AudioScopeTile",
-      "VideoScopeTile",
-    ]);
+    expect(before).toEqual(["FinancialsTile", "AudioScopeTile", "VideoScopeTile"]);
     // AFTER: V1 unlocks Video only. No LEAD → no Financials, no Audio.
     // No L1 → no Lighting.
     expect(after).toEqual(["VideoScopeTile"]);

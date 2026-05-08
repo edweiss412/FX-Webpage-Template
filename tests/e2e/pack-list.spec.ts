@@ -52,10 +52,8 @@
 import { test, expect } from "@playwright/test";
 import { admin } from "./helpers/supabaseAdmin";
 
-const PULLSHEET_DRIVE_FILE_ID =
-  "seed-fixture:2024-05-east-coast-family-office";
-const NO_PULLSHEET_DRIVE_FILE_ID =
-  "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
+const PULLSHEET_DRIVE_FILE_ID = "seed-fixture:2024-05-east-coast-family-office";
+const NO_PULLSHEET_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
 
 /** Format a Date as `YYYY-MM-DD` in the given IANA timezone (en-CA → ISO). */
 function isoInTz(date: Date, timeZone: string): string {
@@ -97,9 +95,7 @@ async function snapshotAndPrepare(): Promise<SeededRefs> {
     .eq("drive_file_id", PULLSHEET_DRIVE_FILE_ID)
     .single();
   if (ecRes.error || !ecRes.data) {
-    throw new Error(
-      `pack-list.spec: pull-sheet fixture not found (run \`pnpm db:seed\`)`,
-    );
+    throw new Error(`pack-list.spec: pull-sheet fixture not found (run \`pnpm db:seed\`)`);
   }
   // Pick any crew member on the show — we'll mutate their
   // stage_restriction. Use the first one alphabetically for determinism.
@@ -110,9 +106,7 @@ async function snapshotAndPrepare(): Promise<SeededRefs> {
     .order("name", { ascending: true })
     .limit(1);
   if (ecCrewRes.error || !ecCrewRes.data?.length) {
-    throw new Error(
-      `pack-list.spec: no crew rows for ${PULLSHEET_DRIVE_FILE_ID}`,
-    );
+    throw new Error(`pack-list.spec: no crew rows for ${PULLSHEET_DRIVE_FILE_ID}`);
   }
   const ecCrew = ecCrewRes.data[0]!;
 
@@ -138,9 +132,7 @@ async function snapshotAndPrepare(): Promise<SeededRefs> {
     throw new Error(`pack-list.spec: no crew rows for ${NO_PULLSHEET_DRIVE_FILE_ID}`);
   }
   const wLead = wCrewRes.data.find(
-    (c) =>
-      Array.isArray(c.role_flags) &&
-      (c.role_flags as string[]).includes("LEAD"),
+    (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!wLead) throw new Error(`pack-list.spec: no LEAD in waldorf`);
 
@@ -182,9 +174,7 @@ async function setSchedulePhases(
 
 async function setStageRestriction(
   crewId: string,
-  restriction:
-    | { kind: "explicit"; stages: string[] }
-    | { kind: "none" },
+  restriction: { kind: "explicit"; stages: string[] } | { kind: "none" },
 ): Promise<void> {
   const { error } = await admin
     .from("crew_members")
@@ -193,14 +183,8 @@ async function setStageRestriction(
   if (error) throw new Error(`update stage_restriction failed: ${error.message}`);
 }
 
-async function setPullSheet(
-  showId: string,
-  pullSheet: unknown,
-): Promise<void> {
-  const { error } = await admin
-    .from("shows")
-    .update({ pull_sheet: pullSheet })
-    .eq("id", showId);
+async function setPullSheet(showId: string, pullSheet: unknown): Promise<void> {
+  const { error } = await admin.from("shows").update({ pull_sheet: pullSheet }).eq("id", showId);
   if (error) throw new Error(`update pull_sheet failed: ${error.message}`);
 }
 
@@ -265,15 +249,8 @@ test.describe.skip("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => 
     page,
   }) => {
     const today = todayInNY();
-    await setSchedulePhases(
-      s.pullSheetShowId,
-      s.pullSheetOriginalEventDetails,
-      ["Set"],
-      today,
-    );
-    const r = await page.goto(
-      `/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`,
-    );
+    await setSchedulePhases(s.pullSheetShowId, s.pullSheetOriginalEventDetails, ["Set"], today);
+    const r = await page.goto(`/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`);
     expect(r?.status()).toBe(200);
     const tile = page.getByTestId("pack-list-tile");
     await expect(tile).toBeVisible();
@@ -284,19 +261,10 @@ test.describe.skip("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => 
     await expect(cases).not.toHaveCount(0);
   });
 
-  test("AC-4.8 (Strike day): tile visible on a Strike-only day", async ({
-    page,
-  }) => {
+  test("AC-4.8 (Strike day): tile visible on a Strike-only day", async ({ page }) => {
     const today = todayInNY();
-    await setSchedulePhases(
-      s.pullSheetShowId,
-      s.pullSheetOriginalEventDetails,
-      ["Strike"],
-      today,
-    );
-    const r = await page.goto(
-      `/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`,
-    );
+    await setSchedulePhases(s.pullSheetShowId, s.pullSheetOriginalEventDetails, ["Strike"], today);
+    const r = await page.goto(`/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`);
     expect(r?.status()).toBe(200);
     await expect(page.getByTestId("pack-list-tile")).toBeVisible();
   });
@@ -311,9 +279,7 @@ test.describe.skip("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => 
       ["Load Out"],
       today,
     );
-    const r = await page.goto(
-      `/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`,
-    );
+    const r = await page.goto(`/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`);
     expect(r?.status()).toBe(200);
     await expect(page.getByTestId("pack-list-tile")).toBeVisible();
   });
@@ -322,15 +288,8 @@ test.describe.skip("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => 
     page,
   }) => {
     const today = todayInNY();
-    await setSchedulePhases(
-      s.pullSheetShowId,
-      s.pullSheetOriginalEventDetails,
-      ["Show"],
-      today,
-    );
-    const r = await page.goto(
-      `/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`,
-    );
+    await setSchedulePhases(s.pullSheetShowId, s.pullSheetOriginalEventDetails, ["Show"], today);
+    const r = await page.goto(`/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`);
     expect(r?.status()).toBe(200);
     await expect(page.getByTestId("pack-list-tile")).toHaveCount(0);
   });
@@ -339,15 +298,8 @@ test.describe.skip("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => 
     page,
   }) => {
     const today = todayInNY();
-    await setSchedulePhases(
-      s.pullSheetShowId,
-      s.pullSheetOriginalEventDetails,
-      ["Load In"],
-      today,
-    );
-    const r = await page.goto(
-      `/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`,
-    );
+    await setSchedulePhases(s.pullSheetShowId, s.pullSheetOriginalEventDetails, ["Load In"], today);
+    const r = await page.goto(`/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`);
     expect(r?.status()).toBe(200);
     await expect(page.getByTestId("pack-list-tile")).toHaveCount(0);
   });
@@ -359,15 +311,8 @@ test.describe.skip("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => 
     // predicate would otherwise admit it; the tile MUST still be absent
     // because pull_sheet is NULL.
     const today = todayInNY();
-    await setSchedulePhases(
-      s.noPullSheetShowId,
-      s.noPullSheetOriginalEventDetails,
-      ["Set"],
-      today,
-    );
-    const r = await page.goto(
-      `/show/${s.noPullSheetSlug}?crew=${s.noPullSheetLeadCrewId}`,
-    );
+    await setSchedulePhases(s.noPullSheetShowId, s.noPullSheetOriginalEventDetails, ["Set"], today);
+    const r = await page.goto(`/show/${s.noPullSheetSlug}?crew=${s.noPullSheetLeadCrewId}`);
     expect(r?.status()).toBe(200);
     await expect(page.getByTestId("pack-list-tile")).toHaveCount(0);
   });
@@ -376,19 +321,12 @@ test.describe.skip("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => 
     page,
   }) => {
     const today = todayInNY();
-    await setSchedulePhases(
-      s.pullSheetShowId,
-      s.pullSheetOriginalEventDetails,
-      ["Set"],
-      today,
-    );
+    await setSchedulePhases(s.pullSheetShowId, s.pullSheetOriginalEventDetails, ["Set"], today);
     await setStageRestriction(s.pullSheetLeadCrewId, {
       kind: "explicit",
       stages: ["Load In", "Set"],
     });
-    await page.goto(
-      `/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`,
-    );
+    await page.goto(`/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`);
     await expect(page.getByTestId("pack-list-tile")).toBeVisible();
   });
 
@@ -396,19 +334,12 @@ test.describe.skip("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => 
     page,
   }) => {
     const today = todayInNY();
-    await setSchedulePhases(
-      s.pullSheetShowId,
-      s.pullSheetOriginalEventDetails,
-      ["Set"],
-      today,
-    );
+    await setSchedulePhases(s.pullSheetShowId, s.pullSheetOriginalEventDetails, ["Set"], today);
     await setStageRestriction(s.pullSheetLeadCrewId, {
       kind: "explicit",
       stages: ["Load Out", "Strike"],
     });
-    await page.goto(
-      `/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`,
-    );
+    await page.goto(`/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`);
     await expect(page.getByTestId("pack-list-tile")).toHaveCount(0);
   });
 
@@ -416,19 +347,12 @@ test.describe.skip("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => 
     page,
   }) => {
     const today = todayInNY();
-    await setSchedulePhases(
-      s.pullSheetShowId,
-      s.pullSheetOriginalEventDetails,
-      ["Strike"],
-      today,
-    );
+    await setSchedulePhases(s.pullSheetShowId, s.pullSheetOriginalEventDetails, ["Strike"], today);
     await setStageRestriction(s.pullSheetLeadCrewId, {
       kind: "explicit",
       stages: ["Load Out", "Strike"],
     });
-    await page.goto(
-      `/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`,
-    );
+    await page.goto(`/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`);
     await expect(page.getByTestId("pack-list-tile")).toBeVisible();
   });
 
@@ -437,37 +361,21 @@ test.describe.skip("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => 
   }) => {
     const today = todayInNY();
     // Set day
-    await setSchedulePhases(
-      s.pullSheetShowId,
-      s.pullSheetOriginalEventDetails,
-      ["Set"],
-      today,
-    );
+    await setSchedulePhases(s.pullSheetShowId, s.pullSheetOriginalEventDetails, ["Set"], today);
     await setStageRestriction(s.pullSheetLeadCrewId, {
       kind: "explicit",
       stages: ["Set", "Strike"],
     });
-    await page.goto(
-      `/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`,
-    );
+    await page.goto(`/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`);
     await expect(page.getByTestId("pack-list-tile")).toBeVisible();
 
     // Strike day
-    await setSchedulePhases(
-      s.pullSheetShowId,
-      s.pullSheetOriginalEventDetails,
-      ["Strike"],
-      today,
-    );
-    await page.goto(
-      `/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`,
-    );
+    await setSchedulePhases(s.pullSheetShowId, s.pullSheetOriginalEventDetails, ["Strike"], today);
+    await page.goto(`/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`);
     await expect(page.getByTestId("pack-list-tile")).toBeVisible();
   });
 
-  test("AC-4.11: partial-parse rawSnippet renders inline next to item label", async ({
-    page,
-  }) => {
+  test("AC-4.11: partial-parse rawSnippet renders inline next to item label", async ({ page }) => {
     const today = todayInNY();
     // Inject a synthetic pull_sheet with one item that carries
     // rawSnippet. The M1 parser doesn't emit rawSnippet on any live
@@ -489,16 +397,9 @@ test.describe.skip("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => 
       },
     ];
     await setPullSheet(s.pullSheetShowId, synthetic);
-    await setSchedulePhases(
-      s.pullSheetShowId,
-      s.pullSheetOriginalEventDetails,
-      ["Set"],
-      today,
-    );
+    await setSchedulePhases(s.pullSheetShowId, s.pullSheetOriginalEventDetails, ["Set"], today);
 
-    await page.goto(
-      `/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`,
-    );
+    await page.goto(`/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`);
     const tile = page.getByTestId("pack-list-tile");
     await expect(tile).toBeVisible();
     // Open the <details> so the inner items render.
@@ -520,20 +421,19 @@ test.describe.skip("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => 
     const today = todayInNY();
     const synthetic = [
       { caseLabel: "Case A", items: [{ qty: 1, cat: "FOH", subCat: null, item: "Mixer" }] },
-      { caseLabel: "Case B", items: [{ qty: 2, cat: "FOH", subCat: null, item: "Speaker" }, { qty: 4, cat: "FOH", subCat: null, item: "Cable" }] },
+      {
+        caseLabel: "Case B",
+        items: [
+          { qty: 2, cat: "FOH", subCat: null, item: "Speaker" },
+          { qty: 4, cat: "FOH", subCat: null, item: "Cable" },
+        ],
+      },
       { caseLabel: "Case C", items: [{ qty: null, cat: null, subCat: null, item: "Misc" }] },
     ];
     await setPullSheet(s.pullSheetShowId, synthetic);
-    await setSchedulePhases(
-      s.pullSheetShowId,
-      s.pullSheetOriginalEventDetails,
-      ["Set"],
-      today,
-    );
+    await setSchedulePhases(s.pullSheetShowId, s.pullSheetOriginalEventDetails, ["Set"], today);
 
-    await page.goto(
-      `/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`,
-    );
+    await page.goto(`/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`);
     const tile = page.getByTestId("pack-list-tile");
     await expect(tile).toBeVisible();
     const cases = tile.getByTestId("pack-list-case");
@@ -555,16 +455,9 @@ test.describe.skip("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => 
       items: [{ qty: 1, cat: "X", subCat: null, item: `item-${i}` }],
     }));
     await setPullSheet(s.pullSheetShowId, synthetic);
-    await setSchedulePhases(
-      s.pullSheetShowId,
-      s.pullSheetOriginalEventDetails,
-      ["Set"],
-      today,
-    );
+    await setSchedulePhases(s.pullSheetShowId, s.pullSheetOriginalEventDetails, ["Set"], today);
 
-    await page.goto(
-      `/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`,
-    );
+    await page.goto(`/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`);
     const tile = page.getByTestId("pack-list-tile");
     await expect(tile).toBeVisible();
     await expect(tile.getByTestId("pack-list-case")).toHaveCount(12);
@@ -573,25 +466,16 @@ test.describe.skip("crew page — PackListTile (Task 4.9, AC-4.7..4.12)", () => 
     await expect(showMore).toContainText(/\+3 more cases/);
   });
 
-  test("Cardinality cap: exactly 12 cases → no show-more stub", async ({
-    page,
-  }) => {
+  test("Cardinality cap: exactly 12 cases → no show-more stub", async ({ page }) => {
     const today = todayInNY();
     const synthetic = Array.from({ length: 12 }, (_, i) => ({
       caseLabel: `Case ${i + 1}`,
       items: [{ qty: 1, cat: "X", subCat: null, item: `item-${i}` }],
     }));
     await setPullSheet(s.pullSheetShowId, synthetic);
-    await setSchedulePhases(
-      s.pullSheetShowId,
-      s.pullSheetOriginalEventDetails,
-      ["Set"],
-      today,
-    );
+    await setSchedulePhases(s.pullSheetShowId, s.pullSheetOriginalEventDetails, ["Set"], today);
 
-    await page.goto(
-      `/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`,
-    );
+    await page.goto(`/show/${s.pullSheetSlug}?crew=${s.pullSheetLeadCrewId}`);
     const tile = page.getByTestId("pack-list-tile");
     await expect(tile).toBeVisible();
     await expect(tile.getByTestId("pack-list-case")).toHaveCount(12);

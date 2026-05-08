@@ -26,9 +26,7 @@ import { KeyValue } from "@/components/atoms/KeyValue";
 
 describe("KeyValue atom", () => {
   test("renders label + value when both supplied", () => {
-    const html = renderToStaticMarkup(
-      <KeyValue label="Hotel" value="Waldorf Astoria" />,
-    );
+    const html = renderToStaticMarkup(<KeyValue label="Hotel" value="Waldorf Astoria" />);
     expect(html).toContain("Hotel");
     expect(html).toContain("Waldorf Astoria");
     // Semantic structure: <dt>label</dt><dd>value</dd>.
@@ -37,9 +35,7 @@ describe("KeyValue atom", () => {
   });
 
   test("renders the EmptyState atom when value is null (§8.3 required-field branch)", () => {
-    const html = renderToStaticMarkup(
-      <KeyValue label="Confirmation" value={null} />,
-    );
+    const html = renderToStaticMarkup(<KeyValue label="Confirmation" value={null} />);
     expect(html).toContain("Confirmation");
     // Spec §8.3 — required-field-missing inside a rendered tile renders
     // the EmptyState atom. Per Task 4.14 the default copy is the neutral
@@ -52,9 +48,7 @@ describe("KeyValue atom", () => {
   });
 
   test("renders EmptyState atom when value is undefined", () => {
-    const html = renderToStaticMarkup(
-      <KeyValue label="Notes" value={undefined} />,
-    );
+    const html = renderToStaticMarkup(<KeyValue label="Notes" value={undefined} />);
     expect(html).toContain("Information missing.");
   });
 
@@ -68,11 +62,7 @@ describe("KeyValue atom", () => {
     // Finding 3a. The atom never sees the literal; it just renders
     // whatever override the tile supplies.
     const html = renderToStaticMarkup(
-      <KeyValue
-        label="Confirmation"
-        value={null}
-        emptyLabel="No reservation confirmed yet."
-      />,
+      <KeyValue label="Confirmation" value={null} emptyLabel="No reservation confirmed yet." />,
     );
     expect(html).toContain("No reservation confirmed yet.");
     expect(html).not.toContain("Information missing.");
@@ -80,9 +70,7 @@ describe("KeyValue atom", () => {
   });
 
   test("phone-style value renders as tel: anchor with digits-only href", () => {
-    const html = renderToStaticMarkup(
-      <KeyValue label="Phone" value="508-404-4496" linkAs="tel" />,
-    );
+    const html = renderToStaticMarkup(<KeyValue label="Phone" value="508-404-4496" linkAs="tel" />);
     // Display keeps the formatted source; href strips non-digits.
     expect(html).toContain("508-404-4496");
     expect(html).toMatch(/href="tel:5084044496"/);
@@ -96,9 +84,7 @@ describe("KeyValue atom", () => {
   });
 
   test("anchor tap targets carry the spacing-tap-min utility", () => {
-    const html = renderToStaticMarkup(
-      <KeyValue label="Phone" value="508-404-4496" linkAs="tel" />,
-    );
+    const html = renderToStaticMarkup(<KeyValue label="Phone" value="508-404-4496" linkAs="tel" />);
     // §3 spacing token — every interactive anchor has the 44px floor
     // applied via the tap-min token. The class is rendered into the
     // anchor's className for the e2e Playwright tap-target audit.

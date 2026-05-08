@@ -53,7 +53,8 @@ export const MESSAGE_CATALOG = {
   CSRF_DENIED: {
     code: "CSRF_DENIED",
     dougFacing: null,
-    crewFacing: "We couldn't open this link. Try the original link Doug shared again, in the same browser.",
+    crewFacing:
+      "We couldn't open this link. Try the original link Doug shared again, in the same browser.",
     followUp: "Crew -> reopen original link; if persistent, Eric",
     helpfulContext: null,
   },
@@ -125,8 +126,10 @@ export const MESSAGE_CATALOG = {
   },
   OAUTH_STATE_INVALID: {
     code: "OAUTH_STATE_INVALID",
-    dougFacing: "Something interrupted your sign-in. Please click the original link from Doug again to start over.",
-    crewFacing: "Something interrupted your sign-in. Please click the original link from Doug again to start over.",
+    dougFacing:
+      "Something interrupted your sign-in. Please click the original link from Doug again to start over.",
+    crewFacing:
+      "Something interrupted your sign-in. Please click the original link from Doug again to start over.",
     followUp: "Crew -> reopen the link; Eric if persistent",
     helpfulContext:
       "Google OAuth uses a one-time security token to make sure the sign-in callback came from the request your browser actually started. The token was missing, expired, or didn't match. Click the original link from Doug again to start fresh.",
@@ -187,13 +190,15 @@ export const MESSAGE_CATALOG = {
     dougFacing:
       "A signed crew link was detected in a URL but couldn't be revoked. The leaked link may still work until this is resolved — Eric has been notified.",
     crewFacing: null,
-    followUp: "Eric -> investigate revoke_leaked_link_atomic + DB connectivity, then re-run the compromise flow",
+    followUp:
+      "Eric -> investigate revoke_leaked_link_atomic + DB connectivity, then re-run the compromise flow",
     helpfulContext:
       "When a magic-link token appears in the URL query string instead of being redeemed normally, the middleware treats it as a credential compromise and atomically revokes the underlying token version. This alert means that revocation RPC itself failed, so the leaked link could still be redeemed by an attacker until an operator clears the token version manually.",
   },
   WATCH_CHANNEL_ORPHANED: {
     code: "WATCH_CHANNEL_ORPHANED",
-    dougFacing: "A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved.",
+    dougFacing:
+      "A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved.",
     crewFacing: null,
     followUp: "Eric -> reconcile / retry",
     helpfulContext:

@@ -19,29 +19,21 @@ import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 
 describe("stripOpeningReelText (§10 URL-strip render contract)", () => {
   test("strips a `YES - <drive-url>` mixed cell down to `YES`", () => {
-    expect(
-      stripOpeningReelText("YES - https://drive.google.com/file/d/abc/view"),
-    ).toBe("YES");
+    expect(stripOpeningReelText("YES - https://drive.google.com/file/d/abc/view")).toBe("YES");
   });
 
   test("strips a `LOOP VIDEO - <docs-url>` cell down to `LOOP VIDEO`", () => {
-    expect(
-      stripOpeningReelText(
-        "LOOP VIDEO - https://docs.google.com/document/d/abc/edit",
-      ),
-    ).toBe("LOOP VIDEO");
+    expect(stripOpeningReelText("LOOP VIDEO - https://docs.google.com/document/d/abc/edit")).toBe(
+      "LOOP VIDEO",
+    );
   });
 
   test("returns empty string for a pure-URL cell (entire value is Drive URL)", () => {
-    expect(
-      stripOpeningReelText("https://drive.google.com/file/d/abc/view"),
-    ).toBe("");
+    expect(stripOpeningReelText("https://drive.google.com/file/d/abc/view")).toBe("");
   });
 
   test("returns empty string for a pure-docs.google.com URL cell", () => {
-    expect(
-      stripOpeningReelText("https://docs.google.com/document/d/abc/edit"),
-    ).toBe("");
+    expect(stripOpeningReelText("https://docs.google.com/document/d/abc/edit")).toBe("");
   });
 
   test("returns the value unchanged when no URL is present", () => {
@@ -59,9 +51,7 @@ describe("stripOpeningReelText (§10 URL-strip render contract)", () => {
   });
 
   test("strips http (not just https) URLs", () => {
-    expect(
-      stripOpeningReelText("YES - http://drive.google.com/file/d/abc/view"),
-    ).toBe("YES");
+    expect(stripOpeningReelText("YES - http://drive.google.com/file/d/abc/view")).toBe("YES");
   });
 
   test("strips a leading orphan connector `- YES`", () => {
@@ -74,10 +64,8 @@ describe("stripOpeningReelText (§10 URL-strip render contract)", () => {
 
   test("collapses internal whitespace runs to single spaces", () => {
     // After URL-strip the cell may have multiple consecutive spaces.
-    expect(
-      stripOpeningReelText(
-        "YES   https://drive.google.com/file/d/abc/view   PLEASE",
-      ),
-    ).toBe("YES PLEASE");
+    expect(stripOpeningReelText("YES   https://drive.google.com/file/d/abc/view   PLEASE")).toBe(
+      "YES PLEASE",
+    );
   });
 });

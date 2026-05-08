@@ -44,13 +44,8 @@ export function Header({ show }: HeaderProps) {
   const venueLine = show.venue?.name ?? null;
 
   return (
-    <header
-      data-testid="page-header"
-      className="border-b border-border bg-bg"
-    >
-      <div
-        className="mx-auto flex w-full max-w-[1200px] items-end justify-between gap-6 px-4 pb-5 pt-7 sm:px-8 sm:pb-6 sm:pt-9"
-      >
+    <header data-testid="page-header" className="border-b border-border bg-bg">
+      <div className="mx-auto flex w-full max-w-[1200px] items-end justify-between gap-6 px-4 pb-5 pt-7 sm:px-8 sm:pb-6 sm:pt-9">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium uppercase tracking-[0.14em] text-text-faint">
             {show.client_label}

@@ -40,38 +40,26 @@ function makeRoom(partial: Partial<RoomRow> & { kind: RoomRow["kind"] }): RoomRo
 
 describe("roomLabel", () => {
   test("kind: 'gs' with a name → returns the name verbatim", () => {
-    expect(roomLabel(makeRoom({ kind: "gs", name: "Grand Ballroom" }))).toBe(
-      "Grand Ballroom",
-    );
+    expect(roomLabel(makeRoom({ kind: "gs", name: "Grand Ballroom" }))).toBe("Grand Ballroom");
   });
 
   test("kind: 'gs' with empty-string name → falls back to 'General Session'", () => {
-    expect(roomLabel(makeRoom({ kind: "gs", name: "" }))).toBe(
-      "General Session",
-    );
+    expect(roomLabel(makeRoom({ kind: "gs", name: "" }))).toBe("General Session");
   });
 
   test("kind: 'breakout' with a name → returns the name verbatim", () => {
-    expect(roomLabel(makeRoom({ kind: "breakout", name: "Salon A" }))).toBe(
-      "Salon A",
-    );
+    expect(roomLabel(makeRoom({ kind: "breakout", name: "Salon A" }))).toBe("Salon A");
   });
 
   test("kind: 'breakout' with empty-string name → falls back to 'Breakout'", () => {
-    expect(roomLabel(makeRoom({ kind: "breakout", name: "" }))).toBe(
-      "Breakout",
-    );
+    expect(roomLabel(makeRoom({ kind: "breakout", name: "" }))).toBe("Breakout");
   });
 
   test("kind: 'additional' with a name → returns the name verbatim", () => {
-    expect(
-      roomLabel(makeRoom({ kind: "additional", name: "Green Room" })),
-    ).toBe("Green Room");
+    expect(roomLabel(makeRoom({ kind: "additional", name: "Green Room" }))).toBe("Green Room");
   });
 
   test("kind: 'additional' with empty-string name → falls back to 'Additional'", () => {
-    expect(roomLabel(makeRoom({ kind: "additional", name: "" }))).toBe(
-      "Additional",
-    );
+    expect(roomLabel(makeRoom({ kind: "additional", name: "" }))).toBe("Additional");
   });
 });

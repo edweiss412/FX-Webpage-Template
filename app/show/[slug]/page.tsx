@@ -98,11 +98,7 @@ import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { AdminInfraError, requireAdmin } from "@/lib/auth/requireAdmin";
 import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
 import { validateLinkSession } from "@/lib/auth/validateLinkSession";
-import {
-  getShowForViewer,
-  type Viewer,
-  type ShowForViewer,
-} from "@/lib/data/getShowForViewer";
+import { getShowForViewer, type Viewer, type ShowForViewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { messageFor } from "@/lib/messages/lookup";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -139,11 +135,7 @@ type SlugResolution =
 async function resolveShowFromSlug(slug: string): Promise<SlugResolution> {
   try {
     const supabase = createSupabaseServiceRoleClient();
-    const res = await supabase
-      .from("shows")
-      .select("id,published")
-      .eq("slug", slug)
-      .maybeSingle();
+    const res = await supabase.from("shows").select("id,published").eq("slug", slug).maybeSingle();
     if (res.error) {
       return { kind: "infra_error", code: "ADMIN_SESSION_LOOKUP_FAILED" };
     }
@@ -246,10 +238,7 @@ async function tryRequireAdmin(): Promise<RequireAdminOutcome> {
     // throws — they signal EXPECTED drift between `isAdminSession`
     // (predicate) and `requireAdmin` (chokepoint).
     const digest = (e as { digest?: unknown })?.digest;
-    if (
-      typeof digest === "string" &&
-      digest.startsWith("NEXT_HTTP_ERROR_FALLBACK;")
-    ) {
+    if (typeof digest === "string" && digest.startsWith("NEXT_HTTP_ERROR_FALLBACK;")) {
       return { kind: "drift" };
     }
     throw e;
@@ -288,13 +277,11 @@ async function resolveViewer(
     return undefined;
   })();
   const cookieEnvelope = decodeSessionCookieValue(sessionCookieRaw);
-  const cookieIsForWrongShow =
-    cookieEnvelope !== null && cookieEnvelope.show_id !== showId;
+  const cookieIsForWrongShow = cookieEnvelope !== null && cookieEnvelope.show_id !== showId;
   // A cookie that's present but FAILED to decode is also "needs clearing"
   // (parse/format fault) — set clearCookie now so the chain emits the marker
   // even if admin precedence resolves first.
-  const cookiePresentButMalformed =
-    sessionCookieRaw !== undefined && cookieEnvelope === null;
+  const cookiePresentButMalformed = sessionCookieRaw !== undefined && cookieEnvelope === null;
   if (cookieIsForWrongShow || cookiePresentButMalformed) {
     clearCookie = true;
   }
@@ -546,9 +533,7 @@ export default async function ShowPage({ params }: PageProps) {
   //     on the sign-in flow.
   const selfPath = `/show/${slug}`;
   if (result.clearCookie) {
-    const target = result.viewer
-      ? selfPath
-      : `/auth/sign-in?next=${encodeURIComponent(selfPath)}`;
+    const target = result.viewer ? selfPath : `/auth/sign-in?next=${encodeURIComponent(selfPath)}`;
     redirect(`/auth/clear-session?next=${encodeURIComponent(target)}`);
   }
 
@@ -617,11 +602,7 @@ export default async function ShowPage({ params }: PageProps) {
         calls router.refresh() (debounced 100ms) so this Server Component
         re-executes and re-fetches getShowForViewer.
       */}
-      <ShowRealtimeBridge
-        showId={showId}
-        slug={slug}
-        renderVersion={data.viewerVersionToken}
-      />
+      <ShowRealtimeBridge showId={showId} slug={slug} renderVersion={data.viewerVersionToken} />
       <main
         data-testid="page-container"
         className="mx-auto flex w-full max-w-300 flex-1 flex-col gap-section-gap px-4 py-6 sm:p-8"
@@ -673,22 +654,10 @@ export default async function ShowPage({ params }: PageProps) {
                   dateRestriction={ctx.dateRestriction}
                   today={today}
                 />
-                <AudioScopeTile
-                  rooms={data.rooms}
-                  viewerFlags={ctx.viewerFlags}
-                />
-                <VideoScopeTile
-                  rooms={data.rooms}
-                  viewerFlags={ctx.viewerFlags}
-                />
-                <LightingScopeTile
-                  rooms={data.rooms}
-                  viewerFlags={ctx.viewerFlags}
-                />
-                <TransportTile
-                  transportation={data.transportation}
-                  visible={transportVisible}
-                />
+                <AudioScopeTile rooms={data.rooms} viewerFlags={ctx.viewerFlags} />
+                <VideoScopeTile rooms={data.rooms} viewerFlags={ctx.viewerFlags} />
+                <LightingScopeTile rooms={data.rooms} viewerFlags={ctx.viewerFlags} />
+                <TransportTile transportation={data.transportation} visible={transportVisible} />
                 {/*
                   ShowStatusTile (Task 4.8 / AC-4.1) — public, every-crew
                   surface. Renders coi_status + dress code + venue notes.
@@ -734,9 +703,7 @@ export default async function ShowPage({ params }: PageProps) {
                   show={data.show}
                   hotelReservations={data.hotelReservations}
                   rooms={data.rooms}
-                  transportation={
-                    transportVisible ? data.transportation : null
-                  }
+                  transportation={transportVisible ? data.transportation : null}
                   contacts={data.contacts}
                 />
               </>

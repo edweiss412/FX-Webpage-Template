@@ -1,8 +1,5 @@
 import type { AuthFailure, AuthFailureCode } from "@/lib/auth/constants";
-import {
-  SESSION_COOKIE_NAME,
-  SESSION_IDLE_TIMEOUT_SEC,
-} from "@/lib/auth/constants";
+import { SESSION_COOKIE_NAME, SESSION_IDLE_TIMEOUT_SEC } from "@/lib/auth/constants";
 import { decodeSessionCookieValue } from "@/lib/auth/cookies";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
@@ -63,10 +60,7 @@ function readCookie(req: Request, name: string): string | undefined {
   return undefined;
 }
 
-function recoverable(
-  status: 401 | 410,
-  code: AuthFailureCode,
-): LinkSessionValidationResult {
+function recoverable(status: 401 | 410, code: AuthFailureCode): LinkSessionValidationResult {
   return { kind: "continue", clearCookie: true, priorFailure: { status, code } };
 }
 

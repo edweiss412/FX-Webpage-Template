@@ -58,12 +58,7 @@
  * primitive for tap-to-expand, so no client island is needed; the
  * keyboard/screen-reader behavior is built into the browser.
  */
-import type {
-  PullSheetCase,
-  PullSheetItem,
-  ShowRow,
-  StageRestriction,
-} from "@/lib/parser/types";
+import type { PullSheetCase, PullSheetItem, ShowRow, StageRestriction } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
 import { isPackListVisibleToday } from "@/lib/visibility/packList";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
@@ -126,12 +121,7 @@ function formatItemLabel(item: PullSheetItem): string {
   return `${qtyPart}${main}${taxonomyPart}`;
 }
 
-export function PackListTile({
-  pullSheet,
-  show,
-  stageRestriction,
-  today,
-}: PackListTileProps) {
+export function PackListTile({ pullSheet, show, stageRestriction, today }: PackListTileProps) {
   // §8.3 whole-tile-missing — AC-4.9 (no PULL SHEET tab on the source sheet).
   if (pullSheet === null) return null;
 
@@ -200,14 +190,11 @@ export function PackListTile({
                   >
                     {idx + 1}.
                   </span>
-                  <span className="truncate">
-                    {c.caseLabel || `Case ${idx + 1}`}
-                  </span>
+                  <span className="truncate">{c.caseLabel || `Case ${idx + 1}`}</span>
                 </span>
                 <span className="flex items-center gap-2">
                   <span className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint tabular-nums">
-                    {c.items.length}{" "}
-                    {c.items.length === 1 ? "item" : "items"}
+                    {c.items.length} {c.items.length === 1 ? "item" : "items"}
                   </span>
                   {/*
                     Custom caret — rotates 90° when the parent <details>
@@ -275,14 +262,12 @@ export function PackListTile({
         <div
           data-testid="pack-list-overflow-stub"
           data-tile-show-more="true"
-          className={[
-            "rounded-sm bg-surface-sunken px-3 py-2",
-            "text-sm text-text-subtle",
-          ].join(" ")}
+          className={["rounded-sm bg-surface-sunken px-3 py-2", "text-sm text-text-subtle"].join(
+            " ",
+          )}
         >
           <span className="tabular-nums">+{overflowCount}</span>{" "}
-          {overflowCount === 1 ? "more case" : "more cases"} on the source
-          pull sheet
+          {overflowCount === 1 ? "more case" : "more cases"} on the source pull sheet
         </div>
       ) : null}
     </Section>

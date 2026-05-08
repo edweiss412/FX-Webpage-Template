@@ -97,71 +97,65 @@ function runCanonicalBuild(flagSet: boolean): string {
   return distDir;
 }
 
-describe.skipIf(!RUN)(
-  "Round 2 Finding 1 — pnpm build canonical-path artifact gate",
-  () => {
-    test("pnpm build with ADMIN_DEV_PANEL_ENABLED unset → artifact does NOT contain /admin/dev route", () => {
-      const distDir = runCanonicalBuild(false);
+describe.skipIf(!RUN)("Round 2 Finding 1 — pnpm build canonical-path artifact gate", () => {
+  test("pnpm build with ADMIN_DEV_PANEL_ENABLED unset → artifact does NOT contain /admin/dev route", () => {
+    const distDir = runCanonicalBuild(false);
 
-      // Three independent introspection signals — all must indicate absence.
+    // Three independent introspection signals — all must indicate absence.
 
-      // 1. The compiled page module directory should not exist.
-      const compiledRouteDir = join(distDir, "server", "app", "admin", "dev");
+    // 1. The compiled page module directory should not exist.
+    const compiledRouteDir = join(distDir, "server", "app", "admin", "dev");
+    expect(
+      existsSync(compiledRouteDir),
+      `expected ${compiledRouteDir} to NOT exist; the canonical pnpm build leaked /admin/dev into the artifact`,
+    ).toBe(false);
+
+    // 2. The app-paths-manifest should not list /admin/dev.
+    const appPathsManifest = join(distDir, "server", "app-paths-manifest.json");
+    if (existsSync(appPathsManifest)) {
+      const manifest = JSON.parse(readFileSync(appPathsManifest, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      const adminDevKeys = Object.keys(manifest).filter((k) => k.startsWith("/admin/dev"));
       expect(
-        existsSync(compiledRouteDir),
-        `expected ${compiledRouteDir} to NOT exist; the canonical pnpm build leaked /admin/dev into the artifact`,
-      ).toBe(false);
+        adminDevKeys,
+        `app-paths-manifest.json contains /admin/dev entries: ${JSON.stringify(adminDevKeys)}`,
+      ).toEqual([]);
+    }
 
-      // 2. The app-paths-manifest should not list /admin/dev.
-      const appPathsManifest = join(distDir, "server", "app-paths-manifest.json");
-      if (existsSync(appPathsManifest)) {
-        const manifest = JSON.parse(readFileSync(appPathsManifest, "utf8")) as Record<
-          string,
-          unknown
-        >;
-        const adminDevKeys = Object.keys(manifest).filter((k) => k.startsWith("/admin/dev"));
-        expect(
-          adminDevKeys,
-          `app-paths-manifest.json contains /admin/dev entries: ${JSON.stringify(adminDevKeys)}`,
-        ).toEqual([]);
-      }
+    // 3. routes-manifest.json (Pages Router) should not list it either.
+    const routesManifest = join(distDir, "routes-manifest.json");
+    if (existsSync(routesManifest)) {
+      const text = readFileSync(routesManifest, "utf8");
+      expect(text.includes("/admin/dev"), "routes-manifest.json mentions /admin/dev").toBe(false);
+    }
 
-      // 3. routes-manifest.json (Pages Router) should not list it either.
-      const routesManifest = join(distDir, "routes-manifest.json");
-      if (existsSync(routesManifest)) {
-        const text = readFileSync(routesManifest, "utf8");
-        expect(
-          text.includes("/admin/dev"),
-          "routes-manifest.json mentions /admin/dev",
-        ).toBe(false);
-      }
+    rmSync(distDir, { recursive: true, force: true });
+  }, 300_000);
 
-      rmSync(distDir, { recursive: true, force: true });
-    }, 300_000);
+  test("pnpm build with ADMIN_DEV_PANEL_ENABLED=true → artifact DOES contain /admin/dev route (control)", () => {
+    // Negative control: prove the prior assertion isn't vacuous (i.e. the
+    // route would be present if the flag were set). Without this control,
+    // a build that always produces an empty manifest would pass the
+    // primary assertion trivially.
+    const distDir = runCanonicalBuild(true);
 
-    test("pnpm build with ADMIN_DEV_PANEL_ENABLED=true → artifact DOES contain /admin/dev route (control)", () => {
-      // Negative control: prove the prior assertion isn't vacuous (i.e. the
-      // route would be present if the flag were set). Without this control,
-      // a build that always produces an empty manifest would pass the
-      // primary assertion trivially.
-      const distDir = runCanonicalBuild(true);
+    const compiledRouteDir = join(distDir, "server", "app", "admin", "dev");
+    const serverAppDir = join(distDir, "server", "app");
+    const exists = existsSync(compiledRouteDir);
+    let serverAppListing = "(missing)";
+    if (existsSync(serverAppDir)) {
+      serverAppListing = readdirSync(serverAppDir).join(", ");
+    }
+    expect(
+      exists,
+      `control: expected ${compiledRouteDir} to exist when flag is set; if absent, the wrapper script is incorrectly disabling files even with the flag enabled. server/app/ contents: [${serverAppListing}]`,
+    ).toBe(true);
 
-      const compiledRouteDir = join(distDir, "server", "app", "admin", "dev");
-      const serverAppDir = join(distDir, "server", "app");
-      const exists = existsSync(compiledRouteDir);
-      let serverAppListing = "(missing)";
-      if (existsSync(serverAppDir)) {
-        serverAppListing = readdirSync(serverAppDir).join(", ");
-      }
-      expect(
-        exists,
-        `control: expected ${compiledRouteDir} to exist when flag is set; if absent, the wrapper script is incorrectly disabling files even with the flag enabled. server/app/ contents: [${serverAppListing}]`,
-      ).toBe(true);
-
-      rmSync(distDir, { recursive: true, force: true });
-    }, 300_000);
-  },
-);
+    rmSync(distDir, { recursive: true, force: true });
+  }, 300_000);
+});
 
 if (!RUN) {
   console.log(

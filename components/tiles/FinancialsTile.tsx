@@ -50,11 +50,7 @@ type FinancialsTileProps = {
   isAdmin: boolean;
 };
 
-export function FinancialsTile({
-  financials,
-  viewerFlags,
-  isAdmin,
-}: FinancialsTileProps) {
+export function FinancialsTile({ financials, viewerFlags, isAdmin }: FinancialsTileProps) {
   // Defense-in-depth gate. The application-layer projection already
   // gates this; the predicate re-check makes the contract local to the
   // component so a future refactor can't accidentally expose financials.
@@ -67,22 +63,12 @@ export function FinancialsTile({
   // the empty-state placeholder) AND for the per-field render gate
   // (so individual sentinel fields reflow out).
   const poVisible = !shouldHideGenericOptional(financials?.po ?? null);
-  const proposalVisible = !shouldHideGenericOptional(
-    financials?.proposal ?? null,
-  );
-  const invoiceVisible = !shouldHideGenericOptional(
-    financials?.invoice ?? null,
-  );
-  const invoiceNotesVisible = !shouldHideGenericOptional(
-    financials?.invoice_notes ?? null,
-  );
+  const proposalVisible = !shouldHideGenericOptional(financials?.proposal ?? null);
+  const invoiceVisible = !shouldHideGenericOptional(financials?.invoice ?? null);
+  const invoiceNotesVisible = !shouldHideGenericOptional(financials?.invoice_notes ?? null);
 
   const allEmpty =
-    !financials ||
-    (!poVisible &&
-      !proposalVisible &&
-      !invoiceVisible &&
-      !invoiceNotesVisible);
+    !financials || (!poVisible && !proposalVisible && !invoiceVisible && !invoiceNotesVisible);
 
   if (allEmpty) {
     return (
@@ -108,15 +94,9 @@ export function FinancialsTile({
       ariaLabel="Financials"
       bodyAs="dl"
     >
-      {poVisible ? (
-        <KeyValue label="PO" value={financials.po} tabular />
-      ) : null}
-      {proposalVisible ? (
-        <KeyValue label="Proposal" value={financials.proposal} tabular />
-      ) : null}
-      {invoiceVisible ? (
-        <KeyValue label="Invoice" value={financials.invoice} tabular />
-      ) : null}
+      {poVisible ? <KeyValue label="PO" value={financials.po} tabular /> : null}
+      {proposalVisible ? <KeyValue label="Proposal" value={financials.proposal} tabular /> : null}
+      {invoiceVisible ? <KeyValue label="Invoice" value={financials.invoice} tabular /> : null}
       {invoiceNotesVisible ? (
         <KeyValue label="Invoice notes" value={financials.invoice_notes} />
       ) : null}

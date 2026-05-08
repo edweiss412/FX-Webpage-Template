@@ -58,11 +58,7 @@ describe("ErrorExplainer", () => {
 
   test("when helpfulContext={true} AND catalog.helpfulContext is non-null, renders the helpful-context block", () => {
     const { getByTestId } = render(
-      <ErrorExplainer
-        code="CSRF_NONCE_EXPIRED"
-        surface="crew"
-        helpfulContext
-      />,
+      <ErrorExplainer code="CSRF_NONCE_EXPIRED" surface="crew" helpfulContext />,
     );
     expect(getByTestId("error-explainer-helpful-context").textContent).toBe(
       MESSAGE_CATALOG.CSRF_NONCE_EXPIRED.helpfulContext!,
@@ -78,36 +74,27 @@ describe("ErrorExplainer", () => {
   });
 
   test("when helpfulContext is omitted/false, the block does not render even if catalog has copy", () => {
-    const { queryByTestId } = render(
-      <ErrorExplainer code="CSRF_NONCE_EXPIRED" surface="crew" />,
-    );
+    const { queryByTestId } = render(<ErrorExplainer code="CSRF_NONCE_EXPIRED" surface="crew" />);
     expect(queryByTestId("error-explainer-helpful-context")).toBeNull();
   });
 
   test("DEFENSIVE: unknown code (user-controlled string) renders null — no DOM mount", () => {
     const { container } = render(
-      <ErrorExplainer
-        code="ARBITRARY_INJECTED_STRING"
-        surface="crew"
-      />,
+      <ErrorExplainer code="ARBITRARY_INJECTED_STRING" surface="crew" />,
     );
     expect(container.firstChild).toBeNull();
   });
 
   test("DEFENSIVE: known code with null catalog field for the surface renders null", () => {
     // LINK_EXPIRED.dougFacing === null — admin surface has nothing to render.
-    const { container } = render(
-      <ErrorExplainer code="LINK_EXPIRED" surface="admin" />,
-    );
+    const { container } = render(<ErrorExplainer code="LINK_EXPIRED" surface="admin" />);
     expect(container.firstChild).toBeNull();
   });
 
   test("DEFENSIVE: known code with null catalog field on the OTHER surface still renders for the requested surface", () => {
     // LEAKED_LINK_DETECTED has both crewFacing and dougFacing populated;
     // sanity-check that dougFacing renders even though both surfaces have copy.
-    const { getByTestId } = render(
-      <ErrorExplainer code="LEAKED_LINK_DETECTED" surface="admin" />,
-    );
+    const { getByTestId } = render(<ErrorExplainer code="LEAKED_LINK_DETECTED" surface="admin" />);
     expect(getByTestId("error-explainer-message").textContent).toBe(
       MESSAGE_CATALOG.LEAKED_LINK_DETECTED.dougFacing!,
     );

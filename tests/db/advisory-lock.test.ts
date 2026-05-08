@@ -2,10 +2,7 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, test } from "vitest";
 
-import {
-  ShowAdvisoryLockUnavailableError,
-  withShowAdvisoryLock,
-} from "@/lib/db/advisoryLock";
+import { ShowAdvisoryLockUnavailableError, withShowAdvisoryLock } from "@/lib/db/advisoryLock";
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -98,9 +95,9 @@ describe("withShowAdvisoryLock", () => {
 
     await expect(
       withShowAdvisoryLock(showId, "block", async () => {
-        await expect(withShowAdvisoryLock(showId, "try", async () => "unexpected")).rejects.toBeInstanceOf(
-          ShowAdvisoryLockUnavailableError,
-        );
+        await expect(
+          withShowAdvisoryLock(showId, "try", async () => "unexpected"),
+        ).rejects.toBeInstanceOf(ShowAdvisoryLockUnavailableError);
       }),
     ).resolves.toBeUndefined();
   });

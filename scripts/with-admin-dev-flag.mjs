@@ -29,10 +29,7 @@ import { renameSync, existsSync, openSync, closeSync, unlinkSync, mkdirSync } fr
 import { join } from "node:path";
 
 const ROOT = process.cwd();
-const FILES = [
-  "app/admin/dev/page.tsx",
-  "app/admin/dev/actions.ts",
-];
+const FILES = ["app/admin/dev/page.tsx", "app/admin/dev/actions.ts"];
 const DISABLED_SUFFIX = ".disabled-by-build-gate";
 
 // File-system lock so concurrent Playwright webServer builds (dev-build,

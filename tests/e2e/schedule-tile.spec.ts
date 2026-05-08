@@ -72,9 +72,7 @@ async function lookupSeededShow(): Promise<SeededShow> {
   const allDates = [...all].sort();
 
   if (allDates.length === 0) {
-    throw new Error(
-      `schedule-tile.spec: Waldorf fixture must have at least one show date — got 0`,
-    );
+    throw new Error(`schedule-tile.spec: Waldorf fixture must have at least one show date — got 0`);
   }
 
   const crewRes = await admin
@@ -82,19 +80,13 @@ async function lookupSeededShow(): Promise<SeededShow> {
     .select("id, name, role_flags, date_restriction")
     .eq("show_id", showId);
   if (crewRes.error || !crewRes.data?.length) {
-    throw new Error(
-      `schedule-tile.spec: no crew rows for slug=${showRes.data.slug}`,
-    );
+    throw new Error(`schedule-tile.spec: no crew rows for slug=${showRes.data.slug}`);
   }
   const lead = crewRes.data.find(
-    (c) =>
-      Array.isArray(c.role_flags) &&
-      (c.role_flags as string[]).includes("LEAD"),
+    (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead) {
-    throw new Error(
-      `schedule-tile.spec: no LEAD crew member for slug=${showRes.data.slug}`,
-    );
+    throw new Error(`schedule-tile.spec: no LEAD crew member for slug=${showRes.data.slug}`);
   }
 
   return {
@@ -118,9 +110,7 @@ async function setDateRestriction(
     .update({ date_restriction: restriction })
     .eq("id", leadCrewId);
   if (error) {
-    throw new Error(
-      `schedule-tile.spec: failed to update date_restriction: ${error.message}`,
-    );
+    throw new Error(`schedule-tile.spec: failed to update date_restriction: ${error.message}`);
   }
 }
 
@@ -151,9 +141,7 @@ test.describe.skip("crew page — ScheduleTile (Task 4.5, AC-4.6)", () => {
       days: null,
     });
 
-    const response = await page.goto(
-      `/show/${seeded.slug}?crew=${seeded.leadCrewId}`,
-    );
+    const response = await page.goto(`/show/${seeded.slug}?crew=${seeded.leadCrewId}`);
     expect(response?.status()).toBe(200);
 
     const tile = page.getByTestId("schedule-tile");
@@ -164,9 +152,9 @@ test.describe.skip("crew page — ScheduleTile (Task 4.5, AC-4.6)", () => {
     // exact copy is the tile's choice; the contract is the testid +
     // the substring.
     await expect(tile.getByTestId("schedule-day-unconfirmed")).toBeVisible();
-    await expect(
-      tile.getByTestId("schedule-day-unconfirmed"),
-    ).toContainText(/haven't been confirmed|aren't confirmed|hasn't been confirmed|pending/i);
+    await expect(tile.getByTestId("schedule-day-unconfirmed")).toContainText(
+      /haven't been confirmed|aren't confirmed|hasn't been confirmed|pending/i,
+    );
 
     // ZERO per-day rows — the tile MUST NOT leak which days the show is
     // on while the viewer's days are unknown.
@@ -184,9 +172,7 @@ test.describe.skip("crew page — ScheduleTile (Task 4.5, AC-4.6)", () => {
       days: [onlyDay],
     });
 
-    const response = await page.goto(
-      `/show/${seeded.slug}?crew=${seeded.leadCrewId}`,
-    );
+    const response = await page.goto(`/show/${seeded.slug}?crew=${seeded.leadCrewId}`);
     expect(response?.status()).toBe(200);
 
     const tile = page.getByTestId("schedule-tile");
@@ -204,9 +190,7 @@ test.describe.skip("crew page — ScheduleTile (Task 4.5, AC-4.6)", () => {
   test("unrestricted crew (kind: 'none') sees ALL show days", async ({ page }) => {
     await setDateRestriction(seeded.leadCrewId, { kind: "none" });
 
-    const response = await page.goto(
-      `/show/${seeded.slug}?crew=${seeded.leadCrewId}`,
-    );
+    const response = await page.goto(`/show/${seeded.slug}?crew=${seeded.leadCrewId}`);
     expect(response?.status()).toBe(200);
 
     const tile = page.getByTestId("schedule-tile");

@@ -105,7 +105,7 @@ function runGates(request: Request): Response | null {
   let diff = presented.length === expected.length ? 0 : 1;
   const len = Math.max(presented.length, expected.length);
   for (let i = 0; i < len; i++) {
-    diff |= (presented.charCodeAt(i) ^ expected.charCodeAt(i)) || 0;
+    diff |= presented.charCodeAt(i) ^ expected.charCodeAt(i) || 0;
   }
   if (diff !== 0) {
     return reject(401, "unauthorized");

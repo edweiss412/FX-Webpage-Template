@@ -44,13 +44,11 @@ async function lookupSeeded(): Promise<{
   if (crewRes.error || !crewRes.data?.length) {
     throw new Error(`status-financials.spec: no crew rows`);
   }
-  const lead = crewRes.data.find((c) =>
-    Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
+  const lead = crewRes.data.find(
+    (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   const nonLead = crewRes.data.find(
-    (c) =>
-      Array.isArray(c.role_flags) &&
-      !(c.role_flags as string[]).includes("LEAD"),
+    (c) => Array.isArray(c.role_flags) && !(c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead || !nonLead) {
     throw new Error(
@@ -99,9 +97,7 @@ test.describe.skip("crew page — ShowStatusTile (Task 4.8, AC-4.1)", () => {
 // Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
 // plus per-test fixture seeding. See handoff §0.
 test.describe.skip("crew page — FinancialsTile (Task 4.8, AC-4.2)", () => {
-  test("LEAD viewer sees FinancialsTile with PO / Proposal / Invoice content", async ({
-    page,
-  }) => {
+  test("LEAD viewer sees FinancialsTile with PO / Proposal / Invoice content", async ({ page }) => {
     const { slug, leadCrewId } = await lookupSeeded();
     const r = await page.goto(`/show/${slug}?crew=${leadCrewId}`);
     expect(r?.status()).toBe(200);
@@ -115,9 +111,7 @@ test.describe.skip("crew page — FinancialsTile (Task 4.8, AC-4.2)", () => {
     await expect(fin).toContainText(/PO|Proposal|Invoice/i);
   });
 
-  test("non-LEAD viewer does NOT see FinancialsTile (AC-4.2)", async ({
-    page,
-  }) => {
+  test("non-LEAD viewer does NOT see FinancialsTile (AC-4.2)", async ({ page }) => {
     const { slug, nonLeadCrewId } = await lookupSeeded();
     const r = await page.goto(`/show/${slug}?crew=${nonLeadCrewId}`);
     expect(r?.status()).toBe(200);

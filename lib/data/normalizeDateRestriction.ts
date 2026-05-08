@@ -53,11 +53,7 @@ function resolveShowYear(dates: ShowRow["dates"]): number | null {
   return null;
 }
 
-function pickYearForMonthDay(
-  month: number,
-  day: number,
-  dates: ShowRow["dates"],
-): number | null {
+function pickYearForMonthDay(month: number, day: number, dates: ShowRow["dates"]): number | null {
   const isoCandidates: string[] = [];
   if (typeof dates.travelIn === "string" && ISO_DATE_PATTERN.test(dates.travelIn)) {
     isoCandidates.push(dates.travelIn);

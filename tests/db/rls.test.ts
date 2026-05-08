@@ -2,10 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-const migrationPath = join(
-  process.cwd(),
-  "supabase/migrations/20260501002000_rls_policies.sql",
-);
+const migrationPath = join(process.cwd(), "supabase/migrations/20260501002000_rls_policies.sql");
 const migrationExists = existsSync(migrationPath);
 
 const adminTables = [
@@ -41,9 +38,7 @@ const crewReadableTables = [
   "contacts",
 ] as const;
 
-const peerCrewReadableTables = crewReadableTables.filter(
-  (tableName) => tableName !== "shows",
-);
+const peerCrewReadableTables = crewReadableTables.filter((tableName) => tableName !== "shows");
 
 function migrationSql(): string {
   if (!migrationExists) {
@@ -77,10 +72,7 @@ function grantPattern(tableName: string): RegExp {
 
 describe("Task 2.3 RLS policy migration", () => {
   test("migration file exists at the required task path", () => {
-    expect(
-      migrationExists,
-      `expected migration file to exist: ${migrationPath}`,
-    ).toBe(true);
+    expect(migrationExists, `expected migration file to exist: ${migrationPath}`).toBe(true);
   });
 
   if (migrationExists) {
@@ -159,11 +151,7 @@ describe("Task 2.3 RLS policy migration", () => {
 
     test("enables RLS and grants table privileges for every protected table", () => {
       for (const tableName of [...adminTables, ...crewReadableTables]) {
-        expectSql(
-          sql,
-          enableRlsPattern(tableName),
-          `${tableName} must enable row-level security`,
-        );
+        expectSql(sql, enableRlsPattern(tableName), `${tableName} must enable row-level security`);
         expectSql(
           sql,
           grantPattern(tableName),

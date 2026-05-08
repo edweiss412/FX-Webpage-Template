@@ -62,9 +62,7 @@ export type SeedLinkSessionOutput = {
   cookieValue: string;
 };
 
-export async function seedLinkSession(
-  input: SeedLinkSessionInput,
-): Promise<SeedLinkSessionOutput> {
+export async function seedLinkSession(input: SeedLinkSessionInput): Promise<SeedLinkSessionOutput> {
   const token = randomUUID();
   const expiresAt = input.expiresAt ?? new Date(Date.now() + 12 * 60 * 60 * 1000);
   const lastActiveAt = input.lastActiveAt ?? new Date();

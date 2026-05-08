@@ -51,12 +51,8 @@ describe("public.mint_bootstrap_nonce_atomic grants", () => {
   });
 
   test("migration revokes EXECUTE from PUBLIC, anon, and authenticated, then grants service_role", () => {
-    expect(mintMigration).toContain(
-      "revoke all on function public.mint_bootstrap_nonce_atomic(",
-    );
-    expect(mintMigration).toContain(
-      ") from public, anon, authenticated;",
-    );
+    expect(mintMigration).toContain("revoke all on function public.mint_bootstrap_nonce_atomic(");
+    expect(mintMigration).toContain(") from public, anon, authenticated;");
     expect(mintMigration).toContain(
       "grant execute on function public.mint_bootstrap_nonce_atomic(",
     );

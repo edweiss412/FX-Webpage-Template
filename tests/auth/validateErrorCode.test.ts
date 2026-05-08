@@ -27,15 +27,11 @@ import { validateErrorCodeParam } from "@/app/auth/sign-in/validateErrorCode";
 
 describe("validateErrorCodeParam (sign-in page error-code allowlist)", () => {
   test("returns 'OAUTH_STATE_INVALID' for the literal string 'OAUTH_STATE_INVALID'", () => {
-    expect(validateErrorCodeParam("OAUTH_STATE_INVALID")).toBe(
-      "OAUTH_STATE_INVALID",
-    );
+    expect(validateErrorCodeParam("OAUTH_STATE_INVALID")).toBe("OAUTH_STATE_INVALID");
   });
 
   test("returns 'OAUTH_REDIRECT_INVALID' for the literal string 'OAUTH_REDIRECT_INVALID'", () => {
-    expect(validateErrorCodeParam("OAUTH_REDIRECT_INVALID")).toBe(
-      "OAUTH_REDIRECT_INVALID",
-    );
+    expect(validateErrorCodeParam("OAUTH_REDIRECT_INVALID")).toBe("OAUTH_REDIRECT_INVALID");
   });
 
   test("returns null for a known catalog code that's NOT in the OAuth allowlist (LINK_EXPIRED)", () => {

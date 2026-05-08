@@ -215,13 +215,9 @@ export function directedTransportTreatment(
   // inverse direction's treatment (e.g., FF → TF is fade-in-mount, so
   // TF → FF is fade-out-unmount; FF → TT is fade-in-mount, so TT → FF
   // is fade-out-unmount; TF ↔ FT is stay-mounted-pulse symmetric).
-  const directed = TRANSPORT_TRANSITION_MATRIX.find(
-    (e) => e.from === from && e.to === to,
-  );
+  const directed = TRANSPORT_TRANSITION_MATRIX.find((e) => e.from === from && e.to === to);
   if (directed) return directed.treatment;
-  const inverse = TRANSPORT_TRANSITION_MATRIX.find(
-    (e) => e.from === to && e.to === from,
-  );
+  const inverse = TRANSPORT_TRANSITION_MATRIX.find((e) => e.from === to && e.to === from);
   if (!inverse) return null;
   // Direction inversion rules:
   //   fade-in-mount       → fade-out-unmount

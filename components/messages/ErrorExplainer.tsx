@@ -58,11 +58,7 @@ function isKnownCode(code: string): code is MessageCode {
   return Object.prototype.hasOwnProperty.call(MESSAGE_CATALOG, code);
 }
 
-export function ErrorExplainer({
-  code,
-  surface,
-  helpfulContext = false,
-}: ErrorExplainerProps) {
+export function ErrorExplainer({ code, surface, helpfulContext = false }: ErrorExplainerProps) {
   // Defensive: unknown code → render nothing. The sign-in page passes
   // user-controlled `searchParams.code`; this is the last backstop.
   if (!isKnownCode(code)) {
@@ -77,16 +73,12 @@ export function ErrorExplainer({
     return null;
   }
 
-  const showHelpfulContext =
-    helpfulContext === true && entry.helpfulContext != null;
+  const showHelpfulContext = helpfulContext === true && entry.helpfulContext != null;
 
   return (
     <div data-testid="error-explainer">
       {/* The message text. Host provides framing chrome (bg/border/padding). */}
-      <p
-        data-testid="error-explainer-message"
-        className="text-base font-medium"
-      >
+      <p data-testid="error-explainer-message" className="text-base font-medium">
         {message}
       </p>
       {showHelpfulContext ? (

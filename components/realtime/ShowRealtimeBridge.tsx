@@ -130,9 +130,7 @@ type AuthFetchResult<T> =
   | { kind: "auth_denied"; status: 401 | 403 }
   | { kind: "transient_failure" };
 
-async function mintSubscriberToken(
-  slug: string,
-): Promise<AuthFetchResult<string>> {
+async function mintSubscriberToken(slug: string): Promise<AuthFetchResult<string>> {
   let res: Response;
   try {
     res = await fetch("/api/realtime/subscriber-token", {
@@ -156,9 +154,7 @@ async function mintSubscriberToken(
   return { kind: "ok", value: body.jwt };
 }
 
-async function fetchCurrentVersion(
-  slug: string,
-): Promise<AuthFetchResult<string>> {
+async function fetchCurrentVersion(slug: string): Promise<AuthFetchResult<string>> {
   let res: Response;
   try {
     res = await fetch(`/api/show/${encodeURIComponent(slug)}/version`, {
@@ -180,11 +176,7 @@ async function fetchCurrentVersion(
   return { kind: "ok", value: body.version_token };
 }
 
-export function ShowRealtimeBridge({
-  showId,
-  slug,
-  renderVersion,
-}: ShowRealtimeBridgeProps) {
+export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtimeBridgeProps) {
   const router = useRouter();
 
   // === Refs ===
@@ -196,9 +188,7 @@ export function ShowRealtimeBridge({
   const currentChannelGenerationRef = useRef<number>(0);
   // Pending debounced router.refresh handle. Cleared in step 3 of
   // cleanup AND on every fresh onInvalidate.
-  const pendingRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const pendingRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The active channel handle for cleanup (step 4) and renewal.
   const currentChannelRef = useRef<ShowInvalidationChannel | null>(null);
   // Single-flight lock for renewSubscription (Codex HIGH 3 / plan §827,
@@ -247,9 +237,7 @@ export function ShowRealtimeBridge({
   // Pending setTimeout handle for the backoff retry. Cleared in cleanup
   // step 3 so an unmount that happens during the backoff window doesn't
   // leak a renewSubscription call against a torn-down bridge.
-  const pendingRenewalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
+  const pendingRenewalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Latest SSR'd renderVersion token. Updated on every render via the
   // render-time effect below — reconnect catch-up handlers MUST read this
   // ref, NOT the closure-captured prop, or the comparison silently uses
@@ -403,10 +391,9 @@ export function ShowRealtimeBridge({
           // line ~298. Each failure branch emits the failed outcome with
           // a distinct `reason` tag so dashboards can disambiguate
           // mint-fail vs setAuth-fail vs subscribe-fail.
-          console.warn(
-            "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
-            { reason: "mint_failed" },
-          );
+          console.warn("[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed", {
+            reason: "mint_failed",
+          });
           // Codex round-21 MEDIUM: a transient mint failure (5xx /
           // network) MUST set pendingRenewalRef so the existing
           // bounded backoff retry path runs. Pre-fix, the round-20
@@ -427,10 +414,10 @@ export function ShowRealtimeBridge({
             "[ShowRealtimeBridge] SHOW_REALTIME_BROADCAST_AUTH_FAILED — setAuth threw during renewal",
             err,
           );
-          console.warn(
-            "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
-            { reason: "set_auth_threw", err },
-          );
+          console.warn("[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed", {
+            reason: "set_auth_threw",
+            err,
+          });
           // Codex round-24 MEDIUM: setAuth-throw on renewal must
           // schedule the bounded backoff retry. Pre-fix the
           // function returned with no retry, leaving the page
@@ -498,14 +485,11 @@ export function ShowRealtimeBridge({
           newChannel = result.channel;
           newSubscribed = result.subscribed;
         } catch (err) {
-          console.warn(
-            "[ShowRealtimeBridge] subscription failed during renewal",
+          console.warn("[ShowRealtimeBridge] subscription failed during renewal", err);
+          console.warn("[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed", {
+            reason: "subscribe_threw",
             err,
-          );
-          console.warn(
-            "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
-            { reason: "subscribe_threw", err },
-          );
+          });
           // Codex round-24 MEDIUM: subscribe-throw on renewal must
           // schedule the bounded backoff retry. Pre-fix this branch
           // returned silent — the old channel was already removed
@@ -516,9 +500,7 @@ export function ShowRealtimeBridge({
           return;
         }
         currentChannelRef.current = newChannel;
-        attachSystemHandler(newChannel, (e) =>
-          handleSystemEvent(e, newClosureGen),
-        );
+        attachSystemHandler(newChannel, (e) => handleSystemEvent(e, newClosureGen));
 
         // (e) AFTER the underlying socket reports SUBSCRIBED, run the
         // version catch-up. Codex round 2 HIGH: the readiness Promise
@@ -536,10 +518,10 @@ export function ShowRealtimeBridge({
           await newSubscribed;
           readinessOk = true;
         } catch (err) {
-          console.warn(
-            "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed",
-            { reason: "readiness_failed", err },
-          );
+          console.warn("[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: failed", {
+            reason: "readiness_failed",
+            err,
+          });
           // Tear down the failed channel: a future renewal must create
           // a fresh handle, not reuse this one. Generation was already
           // advanced when we opened this channel, so the synchronous
@@ -576,9 +558,7 @@ export function ShowRealtimeBridge({
         // (f) Renewal succeeded — log success. Only fires on the
         // SUBSCRIBED-readiness path; failure path returned above without
         // logging success.
-        console.info(
-          "[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: success",
-        );
+        console.info("[ShowRealtimeBridge] SHOW_REALTIME_JWT_RENEWED outcome: success");
         // Reset backoff on a clean subscribe so a transient blip
         // doesn't poison the next legitimate failure-recovery sequence.
         renewalBackoffStepRef.current = 0;
@@ -608,18 +588,13 @@ export function ShowRealtimeBridge({
         // could be a different one if React remounted with a new
         // slug/showId). A late stale renewal whose effect was already
         // torn down exits cleanly here.
-        if (
-          !effectToken.aborted &&
-          pendingRenewalRef.current &&
-          isMountedRef.current
-        ) {
+        if (!effectToken.aborted && pendingRenewalRef.current && isMountedRef.current) {
           pendingRenewalRef.current = false;
           const step = renewalBackoffStepRef.current;
           // Capped exponential backoff. Step 0..4 → 250/500/1000/2000/5000ms;
           // step >= 4 stays at 5s.
           const backoffSchedule = [250, 500, 1000, 2000, 5000];
-          const delay =
-            backoffSchedule[Math.min(step, backoffSchedule.length - 1)];
+          const delay = backoffSchedule[Math.min(step, backoffSchedule.length - 1)];
           renewalBackoffStepRef.current = step + 1;
           // Capture the live generation at schedule time so a cleanup or
           // a concurrent renewal that advances the generation invalidates
@@ -666,10 +641,7 @@ export function ShowRealtimeBridge({
           // branch is unreachable, but Supabase may deliver an unenumerated
           // event at runtime. We log without crashing.
           const unknownEvent = e as unknown as { event?: unknown };
-          console.warn(
-            "[ShowRealtimeBridge] unknown system event",
-            unknownEvent,
-          );
+          console.warn("[ShowRealtimeBridge] unknown system event", unknownEvent);
           return;
         }
       }
@@ -680,11 +652,7 @@ export function ShowRealtimeBridge({
       if (!isMountedRef.current) return;
       if (closureGen !== currentChannelGenerationRef.current) return;
       // CHANNEL_ERROR / TIMED_OUT / CLOSED → renewal sequence.
-      if (
-        status === "CHANNEL_ERROR" ||
-        status === "TIMED_OUT" ||
-        status === "CLOSED"
-      ) {
+      if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
         void renewSubscription(closureGen);
       }
       // SUBSCRIBED is the success path; the post-subscribe catch-up is
@@ -724,10 +692,7 @@ export function ShowRealtimeBridge({
       try {
         supabase.realtime.setAuth(jwt);
       } catch (err) {
-        console.warn(
-          "[ShowRealtimeBridge] subscription failed: setAuth threw",
-          err,
-        );
+        console.warn("[ShowRealtimeBridge] subscription failed: setAuth threw", err);
         return;
       }
 
@@ -758,10 +723,7 @@ export function ShowRealtimeBridge({
       } catch (err) {
         // Single failed subscribe does NOT loop. Bounded-backoff retry
         // is a v2 enhancement; v1 fails open.
-        console.warn(
-          "[ShowRealtimeBridge] subscription failed",
-          err,
-        );
+        console.warn("[ShowRealtimeBridge] subscription failed", err);
         return;
       }
       currentChannelRef.current = channel;
@@ -781,10 +743,7 @@ export function ShowRealtimeBridge({
         await subscribedPromise;
         readinessOk = true;
       } catch (err) {
-        console.warn(
-          "[ShowRealtimeBridge] subscription readiness failed",
-          err,
-        );
+        console.warn("[ShowRealtimeBridge] subscription readiness failed", err);
       }
       if (effectToken.aborted) return;
       if (!isMountedRef.current || initialAborted) return;

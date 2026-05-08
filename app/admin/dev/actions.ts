@@ -148,8 +148,7 @@ export async function parseAndStage(
   // Step 4: route via Phase-1 RPC.
   const supabase = createSupabaseServiceRoleClient();
 
-  const triggeredJson =
-    invariants.outcome === "stage" ? invariants.triggeredItems : [];
+  const triggeredJson = invariants.outcome === "stage" ? invariants.triggeredItems : [];
 
   // If parser hardErrors fired but invariants returned 'pass'/'stage', still
   // route to pending_ingestions. parseSheet's MI-1 path returns hardErrors+pass.
@@ -166,18 +165,15 @@ export async function parseAndStage(
   //      pass when no parser hardError fired but invariants then rejected.
   //   3. 'MI_UNKNOWN'                — defensive sentinel; cannot reach
   //      under current code paths but keeps the column non-null.
-  const failedCodes =
-    invariants.outcome === "hard_fail" ? invariants.failedCodes : [];
-  const invariantMessages =
-    invariants.outcome === "hard_fail" ? invariants.messages : [];
+  const failedCodes = invariants.outcome === "hard_fail" ? invariants.failedCodes : [];
+  const invariantMessages = invariants.outcome === "hard_fail" ? invariants.messages : [];
   const finalHardCode =
     effectiveOutcome === "hard_fail"
       ? (parsed.hardErrors[0]?.code ?? failedCodes[0] ?? "MI_UNKNOWN")
       : null;
   const finalHardMessage =
     effectiveOutcome === "hard_fail"
-      ? [...parsed.hardErrors.map((e) => e.message), ...invariantMessages].join(" | ") ||
-        null
+      ? [...parsed.hardErrors.map((e) => e.message), ...invariantMessages].join(" | ") || null
       : null;
 
   const warningSummary =
@@ -270,9 +266,7 @@ export async function parseAndStageFormAction(formData: FormData): Promise<void>
  *
  * Returns null when no row is found (e.g. the dev schema was just reset).
  */
-export async function getStagedResult(
-  filename: string,
-): Promise<ParseAndStageResult | null> {
+export async function getStagedResult(filename: string): Promise<ParseAndStageResult | null> {
   await requireAdmin();
   if (!FIXTURE_NAME_RE.test(filename)) {
     // Don't leak which filenames are/aren't allowed; treat invalid names as
@@ -332,9 +326,7 @@ export async function getStagedResult(
   const syncsRes = await supabase
     .schema("dev")
     .from("pending_syncs")
-    .select(
-      "id, drive_file_id, parse_result, triggered_review_items, warning_summary",
-    )
+    .select("id, drive_file_id, parse_result, triggered_review_items, warning_summary")
     .eq("drive_file_id", fixtureFileId)
     .is("wizard_session_id", null)
     .maybeSingle();

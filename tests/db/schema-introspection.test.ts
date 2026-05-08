@@ -2,15 +2,13 @@ import { execFileSync } from "node:child_process";
 import { describe, expect, test } from "vitest";
 
 const databaseUrl =
-  process.env.TEST_DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 function runPsql(sql: string): string {
-  return execFileSync(
-    "psql",
-    [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"],
-    { input: sql, encoding: "utf8" },
-  ).trim();
+  return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"], {
+    input: sql,
+    encoding: "utf8",
+  }).trim();
 }
 
 function normalizeWhitespace(value: string): string {
@@ -760,8 +758,12 @@ describe("Task 2.5 applied schema introspection", () => {
         expect(definitions).toContain(required);
       }
 
-      expect(definitions).not.toMatch(/\bfrom\s+(?!public\.)(shows|crew_members|crew_member_auth)\b/i);
-      expect(definitions).not.toMatch(/\b(public\.)?(is_admin|auth_email_canonical|canonicalize_email|viewer_version_token)\b(?!\s*\()/i);
+      expect(definitions).not.toMatch(
+        /\bfrom\s+(?!public\.)(shows|crew_members|crew_member_auth)\b/i,
+      );
+      expect(definitions).not.toMatch(
+        /\b(public\.)?(is_admin|auth_email_canonical|canonicalize_email|viewer_version_token)\b(?!\s*\()/i,
+      );
     });
   });
 

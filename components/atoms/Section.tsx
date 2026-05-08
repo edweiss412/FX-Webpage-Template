@@ -144,10 +144,7 @@ type SectionProps = {
  * `bodyAs`; this map is the fallback. Exported for tests so the
  * variant contract is asserted in one place.
  */
-export const VARIANT_BODY_DEFAULT: Record<
-  SectionVariant,
-  "dl" | "div" | "ul"
-> = {
+export const VARIANT_BODY_DEFAULT: Record<SectionVariant, "dl" | "div" | "ul"> = {
   reference: "dl",
   primary: "div",
   people: "ul",
@@ -199,8 +196,7 @@ export function Section({
   // discipline. People rows carry more breathing room (each row is a
   // person-block with two lines + tap targets); primary runs tighter
   // (dense scannable list); reference holds the standard 12px rhythm.
-  const bodyGap =
-    variant === "people" ? "gap-4" : variant === "primary" ? "gap-2.5" : "gap-3";
+  const bodyGap = variant === "people" ? "gap-4" : variant === "primary" ? "gap-2.5" : "gap-3";
 
   return (
     <article
@@ -226,9 +222,7 @@ export function Section({
         ) : (
           <h2 className={headingClass}>{heading}</h2>
         )}
-        {subheading ? (
-          <div className="text-sm text-text-subtle">{subheading}</div>
-        ) : null}
+        {subheading ? <div className="text-sm text-text-subtle">{subheading}</div> : null}
       </header>
       {/*
         §8.4 invariant 4 (internal-overflow rule). Tailwind v4 token map:
@@ -253,9 +247,7 @@ export function Section({
         gets the §8.4 contract) but variant-specific on inter-row gap
         per `bodyGap`.
       */}
-      <Body
-        className={`flex flex-1 flex-col ${bodyGap} overflow-y-auto max-h-tile-overflow`}
-      >
+      <Body className={`flex flex-1 flex-col ${bodyGap} overflow-y-auto max-h-tile-overflow`}>
         {children}
       </Body>
     </article>

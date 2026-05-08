@@ -46,10 +46,7 @@ const ERROR_CODE_SYNTACTIC_RE = /^[A-Z][A-Z_]{0,63}$/;
  * `as const` keeps the literal type so the readonly Set check below
  * narrows the return type correctly.
  */
-const OAUTH_ALLOWED_CODES = new Set<MessageCode>([
-  "OAUTH_STATE_INVALID",
-  "OAUTH_REDIRECT_INVALID",
-]);
+const OAUTH_ALLOWED_CODES = new Set<MessageCode>(["OAUTH_STATE_INVALID", "OAUTH_REDIRECT_INVALID"]);
 
 /**
  * Validate a user-controlled `searchParams.code` value for the sign-in

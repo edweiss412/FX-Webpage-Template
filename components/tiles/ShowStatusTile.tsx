@@ -54,10 +54,7 @@ import type { ShowRow } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
 import { EmptyState } from "@/components/atoms/EmptyState";
-import {
-  shouldHideOpeningReel,
-  shouldHideGenericOptional,
-} from "@/lib/visibility/emptyState";
+import { shouldHideOpeningReel, shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 
 type ShowStatusTileProps = {
@@ -79,13 +76,9 @@ type ShowStatusTileProps = {
  * lib/visibility/emptyState.ts:shouldHideGenericOptional just like
  * power/internet/keynote/venue notes in this same tile.
  */
-function pickDressCode(
-  eventDetails: Record<string, string> | null | undefined,
-): string | null {
+function pickDressCode(eventDetails: Record<string, string> | null | undefined): string | null {
   if (!eventDetails) return null;
-  const lowercase = new Map(
-    Object.entries(eventDetails).map(([k, v]) => [k.toLowerCase(), v]),
-  );
+  const lowercase = new Map(Object.entries(eventDetails).map(([k, v]) => [k.toLowerCase(), v]));
   const candidates = ["dress_code", "dress code", "dress", "attire"];
   for (const key of candidates) {
     const v = lowercase.get(key);
@@ -104,9 +97,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
   // file already imports shouldHideGenericOptional for those fields;
   // we extend the same routing to venue notes.
   const rawVenueNotes = show.venue?.notes ?? null;
-  const venueNotes = shouldHideGenericOptional(rawVenueNotes)
-    ? null
-    : (rawVenueNotes ?? "").trim();
+  const venueNotes = shouldHideGenericOptional(rawVenueNotes) ? null : (rawVenueNotes ?? "").trim();
 
   // Per-field empty-state dispatch (Task 4.14). The predicate table
   // lives in `lib/visibility/emptyState.ts`; tiles MUST NOT inline
@@ -118,9 +109,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
   const openingReelHidden = shouldHideOpeningReel(rawOpeningReel);
   // §10 URL-strip render contract: never expose Drive/Docs URLs to the
   // crew DOM. The strip is the ONLY render path for opening_reel.
-  const openingReelText = openingReelHidden
-    ? null
-    : stripOpeningReelText(rawOpeningReel);
+  const openingReelText = openingReelHidden ? null : stripOpeningReelText(rawOpeningReel);
 
   const rawPower = eventDetails["power"] ?? null;
   const powerHidden = shouldHideGenericOptional(rawPower);
@@ -135,13 +124,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
   const keynote = keynoteHidden ? null : (rawKeynote ?? "").trim();
 
   const allEmpty =
-    !coi &&
-    !dress &&
-    !venueNotes &&
-    !openingReelText &&
-    !power &&
-    !internet &&
-    !keynote;
+    !coi && !dress && !venueNotes && !openingReelText && !power && !internet && !keynote;
 
   return (
     <Section
@@ -163,16 +146,12 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
             contain dates ("SENT 4/15") or ID numbers.
           */}
           <div className="flex flex-col gap-1">
-            <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
-              COI
-            </dt>
+            <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">COI</dt>
             <dd
               data-testid="coi-status"
               className="text-sm font-semibold tabular-nums text-text-strong"
             >
-              {coi ?? (
-                <EmptyState label="No certificate of insurance status yet." />
-              )}
+              {coi ?? <EmptyState label="No certificate of insurance status yet." />}
             </dd>
           </div>
 
@@ -209,9 +188,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
               <dd className="text-sm/snug text-text">{internet}</dd>
             </div>
           ) : null}
-          {keynote ? (
-            <KeyValue label="Keynote requirements" value={keynote} />
-          ) : null}
+          {keynote ? <KeyValue label="Keynote requirements" value={keynote} /> : null}
         </>
       )}
     </Section>

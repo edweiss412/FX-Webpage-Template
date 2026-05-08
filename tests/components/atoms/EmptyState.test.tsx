@@ -66,9 +66,7 @@ describe("EmptyState atom", () => {
     // (e.g., "No hotel reservations on file yet"). Task 4.14 wired
     // every M4 tile to pass an override; the default is reserved as
     // a safety net for tiles that omit one.
-    const html = renderToStaticMarkup(
-      <EmptyState label="No hotel reservations on file yet." />,
-    );
+    const html = renderToStaticMarkup(<EmptyState label="No hotel reservations on file yet." />);
     expect(html).toContain("No hotel reservations on file yet.");
   });
 });

@@ -55,10 +55,7 @@ export interface DriveClient {
    * are unavailable (forces restage-only recovery per types.ts:215-217).
    * M3 mock returns null; M7 implements real byte capture.
    */
-  getEmbeddedImageBytes?: (
-    spreadsheetId: string,
-    objectId: string,
-  ) => Promise<Uint8Array | null>;
+  getEmbeddedImageBytes?: (spreadsheetId: string, objectId: string) => Promise<Uint8Array | null>;
 }
 
 export type EnrichContext = {
@@ -100,9 +97,7 @@ export async function enrichWithDrivePins(
 
   let linkedFolderItems: LinkedFolderItemStub[] = [];
   if (parsed.diagrams.linkedFolder) {
-    const listing = await driveClient.listFolder(
-      parsed.diagrams.linkedFolder.driveFolderId,
-    );
+    const listing = await driveClient.listFolder(parsed.diagrams.linkedFolder.driveFolderId);
     linkedFolderItems = listing.files.map((f) => ({
       driveFileId: f.driveFileId,
       mimeType: f.mimeType,

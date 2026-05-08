@@ -118,10 +118,7 @@ export function todayWorkPhases(
  * Pure function; same arguments → same result. The tile reads `new
  * Date()` at the page handler and threads it through.
  */
-export function todayIsoInShowTimezone(
-  show: Pick<ShowRow, "venue">,
-  today: Date,
-): string {
+export function todayIsoInShowTimezone(show: Pick<ShowRow, "venue">, today: Date): string {
   const tz = resolveTimezone(show);
   return formatIsoInTimeZone(today, tz);
 }

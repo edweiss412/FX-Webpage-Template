@@ -82,9 +82,7 @@ describe("advisory-lock RPC deadlock guard", () => {
   });
 
   test("bootstrap nonce mint does not use JS-side advisory lock around Supabase mutations", () => {
-    const source = stripComments(
-      readFileSync(join(ROOT, "app/show/[slug]/p/actions.ts"), "utf8"),
-    );
+    const source = stripComments(readFileSync(join(ROOT, "app/show/[slug]/p/actions.ts"), "utf8"));
 
     expect(source).not.toMatch(/withShowAdvisoryLock\s*\(/);
     expect(source).toMatch(/\.rpc\(\s*["']mint_bootstrap_nonce_atomic["']/);

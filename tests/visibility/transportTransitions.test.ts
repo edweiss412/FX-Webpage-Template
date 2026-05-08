@@ -43,9 +43,7 @@ describe("TRANSPORT_TRANSITION_MATRIX — structural invariants", () => {
   });
 
   test("no diagonals — every entry has from !== to", () => {
-    const diagonals = TRANSPORT_TRANSITION_MATRIX.filter(
-      (entry) => entry.from === entry.to,
-    );
+    const diagonals = TRANSPORT_TRANSITION_MATRIX.filter((entry) => entry.from === entry.to);
     expect(diagonals).toEqual([]);
   });
 
@@ -105,21 +103,14 @@ describe("transportTransitionTreatment(from, to) — symmetric lookup", () => {
   });
 
   test("returns null for unknown states (defense against `as any`)", () => {
-    expect(
-      transportTransitionTreatment(
-        "ZZ" as TransportBranchState,
-        "FF",
-      ),
-    ).toBeNull();
+    expect(transportTransitionTreatment("ZZ" as TransportBranchState, "FF")).toBeNull();
   });
 });
 
 describe("directedTransportTreatment — direction-aware lookup", () => {
   test("forward directions match matrix entries verbatim", () => {
     for (const entry of TRANSPORT_TRANSITION_MATRIX) {
-      expect(directedTransportTreatment(entry.from, entry.to)).toBe(
-        entry.treatment,
-      );
+      expect(directedTransportTreatment(entry.from, entry.to)).toBe(entry.treatment);
     }
   });
 
@@ -268,9 +259,7 @@ describe("Compound transport transitions (review Important 4)", () => {
     // new name. Driver branch false; schedule-tag branch true.
     const reTaggedTransport: TransportationRow = {
       ...baseTransport,
-      schedule: [
-        { ...baseTransport.schedule[0]!, assigned_names: ["New Name"] },
-      ],
+      schedule: [{ ...baseTransport.schedule[0]!, assigned_names: ["New Name"] }],
     };
     const afterVisible = transportTileVisible({
       transportation: reTaggedTransport,

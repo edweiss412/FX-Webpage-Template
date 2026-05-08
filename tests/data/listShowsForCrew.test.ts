@@ -33,20 +33,14 @@ vi.mock("@/lib/supabase/server", () => ({
               filters.set(column, value);
               return this;
             },
-            then(
-              resolve: (value: { data: JoinedCrewShowRow[]; error: null }) => void,
-            ) {
+            then(resolve: (value: { data: JoinedCrewShowRow[]; error: null }) => void) {
               const email = filters.get("email");
               const archived = filters.get("shows.archived");
               const published = filters.get("shows.published");
               resolve({
                 data:
-                  email === "alice@fxav.net" &&
-                  archived === false &&
-                  published === true
-                    ? dataMock.rows.filter(
-                        (row) => !row.shows.archived && row.shows.published,
-                      )
+                  email === "alice@fxav.net" && archived === false && published === true
+                    ? dataMock.rows.filter((row) => !row.shows.archived && row.shows.published)
                     : [],
                 error: null,
               });

@@ -3,6 +3,7 @@
 Non-blocking findings from milestone adversarial reviews that were intentionally deferred rather than fixed in-milestone. Each item names a suggested home milestone where it should be picked up. **This is not a TODO list to clear automatically** — every entry has context for why it was deferred and where the right place to address it is.
 
 When picking up a deferred item:
+
 1. Move it from "Open" to "In progress" with the milestone it landed in.
 2. Resolve it in that milestone's handoff doc convergence log.
 3. Update the row to "Resolved" with the commit SHA + milestone reference.
@@ -16,12 +17,12 @@ When picking up a deferred item:
 **Source:** M2 adversarial review, Round 1 advisory note
 **Description:** `ADMIN_EMAILS` is env-driven (set once in `.env.local` per spec §14.3), but there is no documented rotation procedure, audit trail, or in-product UX for adding/removing admins. Today the only path is "edit env, redeploy."
 **Why deferred:** Out of M2 schema scope. Doesn't block anything functional — admins work, the allow-list is honored. It's an ops-hardening question.
-**Suggested home:** M9 (polish) or X.* (cross-cutting). Could also land as a separate ops doc rather than code.
+**Suggested home:** M9 (polish) or X.\* (cross-cutting). Could also land as a separate ops doc rather than code.
 
 ### M2-D2 — Static-vs-runtime breadth for the 21 admin-table RLS matrix
 
 **Source:** M2 adversarial review, Round 1 advisory note
-**Description:** AC-2.5 tests pin the §4.3 admin-only table list (21 tables × 4 verbs = 84 cells) at schema-introspection time. There is no runtime probe that the *live* policy set still matches §4.3 after future migrations land. A future migration could silently drop or weaken a policy and current tests wouldn't catch it.
+**Description:** AC-2.5 tests pin the §4.3 admin-only table list (21 tables × 4 verbs = 84 cells) at schema-introspection time. There is no runtime probe that the _live_ policy set still matches §4.3 after future migrations land. A future migration could silently drop or weaken a policy and current tests wouldn't catch it.
 **Why deferred:** M2's introspection coverage is correct for "what shipped at M2." Runtime drift detection is a separate concern, and the right time to add it is when there are actually multiple migrations in play (M3+).
 **Suggested home:** X.6 (traceability matrix walker) — it already enumerates spec sections, can be extended to assert live-policy parity. Alternatively land it as part of the next M2-touching migration.
 
@@ -67,7 +68,7 @@ When picking up a deferred item:
 **Why deferred:** Visual-rebalance call that benefits from a `/impeccable shape` session.
 **Suggested home:** M9 polish. Either shrink the header (smaller title, condense to a sticky-thin bar) so the RightNowCard wins the page's primary moment unambiguously, OR commit to header-as-context (smaller title, drop the orange hairline which fights the RightNowCard's accent dot for the eye).
 
-### M4-D4 — RightNowCard data-* test attribute relocation
+### M4-D4 — RightNowCard data-\* test attribute relocation
 
 **Source:** M4 catch-up `/impeccable critique`, 2026-05-03 (Finding 6 MEDIUM)
 **Description:** `components/right-now/RightNowCard.tsx` carries 3 `data-*` test attributes (`data-state`, `data-rendered-state`, `data-treatment`) on a screen-reader-traversed `<p>`. Over-instrumented for a hero element.
@@ -127,13 +128,14 @@ When picking up a deferred item:
 
 **Source:** M5 §B `/impeccable audit`, 2026-05-04 (Findings P2 #3, P2 #5, P2 #7, P3 #2, P3 #3 — batched)
 **Description:** Five small audit findings deferred:
+
 1. `<details>` UA marker not styled / no `list-style: none` reset (`components/messages/ErrorExplainer.tsx:93-98`).
 2. SignInButton inline error not associated with button via `aria-describedby` (`app/auth/sign-in/SignInButton.tsx:118-145`).
 3. AlertBanner `role="status" aria-live="polite"` on SSR-only region — comment-documented; consider `aria-atomic="true"` for future client-injection.
 4. Bootstrap connecting state has no `aria-live` for state transitions.
 5. Sign-in page `<header>` lacks `aria-labelledby` (only matters when multiple `<header>` elements stack).
-**Why deferred:** All P2/P3. Low-impact a11y polish that benefits from a coordinated pass rather than scattered fixes.
-**Suggested home:** M9 polish.
+   **Why deferred:** All P2/P3. Low-impact a11y polish that benefits from a coordinated pass rather than scattered fixes.
+   **Suggested home:** M9 polish.
 
 ### M5-D7 — Accent button drift across §B surfaces (Systemic)
 

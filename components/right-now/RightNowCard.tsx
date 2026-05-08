@@ -128,10 +128,7 @@ import {
   selectRightNowState,
   type RightNowState,
 } from "@/lib/time/rightNow";
-import {
-  transitionTreatment,
-  type TransitionTreatment,
-} from "@/lib/time/rightNowTransitions";
+import { transitionTreatment, type TransitionTreatment } from "@/lib/time/rightNowTransitions";
 import { formatIsoDate } from "@/lib/format/date";
 import type { RightNowContext } from "@/components/right-now/buildRightNowContext";
 
@@ -190,11 +187,7 @@ function isDegradedState(kind: RightNowState["kind"]): boolean {
  * The `<time>` element gives screen readers and search engines the
  * machine-readable ISO date alongside the human-formatted weekday.
  */
-function renderBody(
-  state: RightNowState,
-  ctx: RightNowContext,
-  now: Date,
-): StateBody {
+function renderBody(state: RightNowState, ctx: RightNowContext, now: Date): StateBody {
   switch (state.kind) {
     case "viewer_unconfirmed":
       return {
@@ -282,12 +275,9 @@ function renderBody(
           ? `Call: ${ctx.callTime} (${ctx.roomName})`
           : `Call: ${ctx.callTime}`
         : null;
-      const strikePart =
-        state.isLast && ctx.strikeTime ? `Strike: ${ctx.strikeTime}` : null;
+      const strikePart = state.isLast && ctx.strikeTime ? `Strike: ${ctx.strikeTime}` : null;
       const detail =
-        callPart && strikePart
-          ? `${callPart}. ${strikePart}.`
-          : callPart ?? strikePart ?? null;
+        callPart && strikePart ? `${callPart}. ${strikePart}.` : (callPart ?? strikePart ?? null);
       return { lead, detail, isStale: false };
     }
     case "travel_out_day":
@@ -318,17 +308,13 @@ function renderBody(
           <>
             Show details:{" "}
             {travelIn ? (
-              <time dateTime={travelIn}>
-                {formatIsoDate(travelIn, "weekday-short")}
-              </time>
+              <time dateTime={travelIn}>{formatIsoDate(travelIn, "weekday-short")}</time>
             ) : (
               "—"
             )}{" "}
             to{" "}
             {travelOut ? (
-              <time dateTime={travelOut}>
-                {formatIsoDate(travelOut, "weekday-short")}
-              </time>
+              <time dateTime={travelOut}>{formatIsoDate(travelOut, "weekday-short")}</time>
             ) : (
               "—"
             )}
@@ -449,8 +435,8 @@ export function RightNowCard({ context }: RightNowCardProps) {
     // must advance lastGood so the next render shows the fresh
     // content, not the stale pre-degradation snapshot.
     const willBeStale =
-      transitionTreatment(tracked.currentKind, state.kind) ===
-        "morph-to-last-good" && isDegradedState(state.kind);
+      transitionTreatment(tracked.currentKind, state.kind) === "morph-to-last-good" &&
+      isDegradedState(state.kind);
     setTracked({
       prevKind: tracked.currentKind,
       currentKind: state.kind,
@@ -470,22 +456,16 @@ export function RightNowCard({ context }: RightNowCardProps) {
   // snapshot). The kindEnteringStaleZone check matches the
   // willBeStale predicate exactly so the two are guaranteed
   // consistent within this render.
-  const effectivePrev =
-    state.kind !== tracked.currentKind ? tracked.currentKind : tracked.prevKind;
+  const effectivePrev = state.kind !== tracked.currentKind ? tracked.currentKind : tracked.prevKind;
   const effectiveCurrent = state.kind;
   const kindEnteringStaleZone =
     state.kind !== tracked.currentKind &&
-    transitionTreatment(tracked.currentKind, state.kind) ===
-      "morph-to-last-good" &&
+    transitionTreatment(tracked.currentKind, state.kind) === "morph-to-last-good" &&
     isDegradedState(state.kind);
   const effectiveLastGoodState =
-    state.kind !== tracked.currentKind && !kindEnteringStaleZone
-      ? state
-      : tracked.lastGoodState;
+    state.kind !== tracked.currentKind && !kindEnteringStaleZone ? state : tracked.lastGoodState;
   const effectiveLastGoodBody =
-    state.kind !== tracked.currentKind && !kindEnteringStaleZone
-      ? body
-      : tracked.lastGoodBody;
+    state.kind !== tracked.currentKind && !kindEnteringStaleZone ? body : tracked.lastGoodBody;
 
   // Resolve the §8.2 transition treatment for prev → current. On the
   // very first render (or self-transitions) the helper returns null;
@@ -500,11 +480,7 @@ export function RightNowCard({ context }: RightNowCardProps) {
   // suite catches the regression. The diagnostic side-effect happens
   // in an effect (below), NOT during render — render must stay pure.
   const treatment: TransitionTreatment =
-    rawTreatment === null
-      ? "instant"
-      : rawTreatment === "unreachable"
-        ? "instant"
-        : rawTreatment;
+    rawTreatment === null ? "instant" : rawTreatment === "unreachable" ? "instant" : rawTreatment;
 
   // morph-to-last-good: keep the previous body on screen, flip surface
   // tint. The post-rotation lastGood values reflect this — when the
@@ -519,8 +495,7 @@ export function RightNowCard({ context }: RightNowCardProps) {
   // state and clear the tint. body.isStale still wins for the
   // intrinsic dateless body so a card sitting at dateless without a
   // recent transition still tints stale.
-  const showLastGood =
-    treatment === "morph-to-last-good" && isDegradedState(state.kind);
+  const showLastGood = treatment === "morph-to-last-good" && isDegradedState(state.kind);
   const renderState = showLastGood ? effectiveLastGoodState : state;
   const renderBodyResolved = showLastGood ? effectiveLastGoodBody : body;
   const isStale = showLastGood || body.isStale;
@@ -639,10 +614,7 @@ export function RightNowCard({ context }: RightNowCardProps) {
         data-treatment={treatment}
         className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-accent-on-bg"
       >
-        <span
-          aria-hidden="true"
-          className="inline-block size-1.5 rounded-pill bg-accent"
-        />
+        <span aria-hidden="true" className="inline-block size-1.5 rounded-pill bg-accent" />
         Right now
       </p>
 
@@ -653,11 +625,7 @@ export function RightNowCard({ context }: RightNowCardProps) {
           The container `min-h-right-now-min-h` above
           preserves card height during the crossfade. */}
       <AnimatePresence mode="wait" initial={false}>
-        <motion.div
-          key={renderState.kind}
-          data-testid="right-now-body"
-          {...motionProps}
-        >
+        <motion.div key={renderState.kind} data-testid="right-now-body" {...motionProps}>
           <h2
             data-testid="right-now-lead"
             className="mt-3 text-2xl font-bold leading-tight tracking-tight text-text-strong sm:text-3xl tabular-nums"

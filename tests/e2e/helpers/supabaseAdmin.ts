@@ -49,10 +49,9 @@ export async function snapshotPublicSchema(): Promise<PublicSchemaSnapshot> {
   // to surface the row count in the response header even if rows are empty.
   const showsRes = await admin
     .from("shows")
-    .select(
-      "id, last_sync_status, last_sync_error, last_synced_at, last_seen_modified_time",
-      { count: "exact" },
-    );
+    .select("id, last_sync_status, last_sync_error, last_synced_at, last_seen_modified_time", {
+      count: "exact",
+    });
   if (showsRes.error) throw new Error(`shows snapshot failed: ${showsRes.error.message}`);
 
   const pendingSyncsRes = await admin
@@ -74,20 +73,17 @@ export async function snapshotPublicSchema(): Promise<PublicSchemaSnapshot> {
   const cmAuthRes = await admin
     .from("crew_member_auth")
     .select("show_id", { count: "exact", head: true });
-  if (cmAuthRes.error) throw new Error(`crew_member_auth snapshot failed: ${cmAuthRes.error.message}`);
+  if (cmAuthRes.error)
+    throw new Error(`crew_member_auth snapshot failed: ${cmAuthRes.error.message}`);
 
   const logRes = await admin.from("sync_log").select("id", { count: "exact", head: true });
   if (logRes.error) throw new Error(`sync_log snapshot failed: ${logRes.error.message}`);
 
-  const auditRes = await admin
-    .from("sync_audit")
-    .select("id", { count: "exact", head: true });
+  const auditRes = await admin.from("sync_audit").select("id", { count: "exact", head: true });
   if (auditRes.error) throw new Error(`sync_audit snapshot failed: ${auditRes.error.message}`);
 
   // Build content hashes — JSON-stringify each row's content fields.
-  const pendingSyncsHashes = (pendingSyncsRes.data ?? [])
-    .map((row) => JSON.stringify(row))
-    .sort();
+  const pendingSyncsHashes = (pendingSyncsRes.data ?? []).map((row) => JSON.stringify(row)).sort();
   const pendingIngestionsHashes = (pendingIngRes.data ?? [])
     .map((row) => JSON.stringify(row))
     .sort();

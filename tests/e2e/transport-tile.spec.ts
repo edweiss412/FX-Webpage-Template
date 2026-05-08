@@ -50,19 +50,17 @@ type SeededRefs = {
    * Snapshot of the show's pre-existing transportation row (if any) so
    * afterAll can restore. null if the show had no row.
    */
-  originalTransport:
-    | {
-        driver_name: string | null;
-        driver_phone: string | null;
-        driver_email: string | null;
-        vehicle: string | null;
-        license_plate: string | null;
-        color: string | null;
-        parking: string | null;
-        schedule: unknown;
-        notes: string | null;
-      }
-    | null;
+  originalTransport: {
+    driver_name: string | null;
+    driver_phone: string | null;
+    driver_email: string | null;
+    vehicle: string | null;
+    license_plate: string | null;
+    color: string | null;
+    parking: string | null;
+    schedule: unknown;
+    notes: string | null;
+  } | null;
 };
 
 async function snapshotAndPrepare(): Promise<SeededRefs> {
@@ -147,9 +145,21 @@ async function applyTestState(seeded: SeededRefs): Promise<void> {
   // stripping LEAD so financials gating is not implicated).
   const stripLead = (flags: string[]) => flags.filter((f) => f !== "LEAD");
   const updates = [
-    { id: seeded.driverCrew.id, name: DRIVER_SENTINEL, role_flags: stripLead(seeded.driverCrew.originalRoleFlags) },
-    { id: seeded.passengerCrew.id, name: PASSENGER_SENTINEL, role_flags: stripLead(seeded.passengerCrew.originalRoleFlags) },
-    { id: seeded.unrelatedCrew.id, name: UNRELATED_SENTINEL, role_flags: stripLead(seeded.unrelatedCrew.originalRoleFlags) },
+    {
+      id: seeded.driverCrew.id,
+      name: DRIVER_SENTINEL,
+      role_flags: stripLead(seeded.driverCrew.originalRoleFlags),
+    },
+    {
+      id: seeded.passengerCrew.id,
+      name: PASSENGER_SENTINEL,
+      role_flags: stripLead(seeded.passengerCrew.originalRoleFlags),
+    },
+    {
+      id: seeded.unrelatedCrew.id,
+      name: UNRELATED_SENTINEL,
+      role_flags: stripLead(seeded.unrelatedCrew.originalRoleFlags),
+    },
   ];
   for (const u of updates) {
     const { error } = await admin
@@ -227,37 +237,27 @@ test.describe.skip("crew page — TransportTile (Task 4.7, §8.1)", () => {
   test("branch 1: viewer is driver (driver_name === viewerName) → TransportTile renders", async ({
     page,
   }) => {
-    const r = await page.goto(
-      `/show/${seeded.slug}?crew=${seeded.driverCrew.id}`,
-    );
+    const r = await page.goto(`/show/${seeded.slug}?crew=${seeded.driverCrew.id}`);
     expect(r?.status()).toBe(200);
     await expect(page.getByTestId("transport-tile")).toBeVisible();
     // Driver-specific data should appear (vehicle name).
-    await expect(page.getByTestId("transport-tile")).toContainText(
-      /Sprinter \(test\)/,
-    );
+    await expect(page.getByTestId("transport-tile")).toContainText(/Sprinter \(test\)/);
   });
 
   test("branch 2: viewer is assigned passenger (driver_name does NOT match) → TransportTile renders", async ({
     page,
   }) => {
-    const r = await page.goto(
-      `/show/${seeded.slug}?crew=${seeded.passengerCrew.id}`,
-    );
+    const r = await page.goto(`/show/${seeded.slug}?crew=${seeded.passengerCrew.id}`);
     expect(r?.status()).toBe(200);
     await expect(page.getByTestId("transport-tile")).toBeVisible();
     // Assigned-name should appear in the rendered schedule row.
-    await expect(page.getByTestId("transport-tile")).toContainText(
-      PASSENGER_SENTINEL,
-    );
+    await expect(page.getByTestId("transport-tile")).toContainText(PASSENGER_SENTINEL);
   });
 
   test("neither branch: viewer is unrelated → TransportTile absent (whole-tile-missing)", async ({
     page,
   }) => {
-    const r = await page.goto(
-      `/show/${seeded.slug}?crew=${seeded.unrelatedCrew.id}`,
-    );
+    const r = await page.goto(`/show/${seeded.slug}?crew=${seeded.unrelatedCrew.id}`);
     expect(r?.status()).toBe(200);
     await expect(page.getByTestId("transport-tile")).toHaveCount(0);
   });

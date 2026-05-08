@@ -29,9 +29,7 @@ describe("SignInButton", () => {
   });
 
   test("submits to the server OAuth start route with validated next", () => {
-    const { getByTestId } = render(
-      <SignInButton validatedNext="/show/abc-def-123" />,
-    );
+    const { getByTestId } = render(<SignInButton validatedNext="/show/abc-def-123" />);
 
     const form = getByTestId("sign-in-with-google-form") as HTMLFormElement;
     expect(form.method).toBe("get");

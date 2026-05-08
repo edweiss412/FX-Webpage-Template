@@ -149,9 +149,9 @@ describe("ShowPage Google-no-crew redirect routing", () => {
   });
 
   test("signed-in Google user with no crew row redirects to /me, not /auth/sign-in", async () => {
-    await expect(
-      ShowPage({ params: Promise.resolve({ slug: "another-show" }) }),
-    ).rejects.toThrow(/^NEXT_REDIRECT:/);
+    await expect(ShowPage({ params: Promise.resolve({ slug: "another-show" }) })).rejects.toThrow(
+      /^NEXT_REDIRECT:/,
+    );
 
     expect(navState.notFoundCalled).toBe(0);
     expect(navState.redirected).toHaveLength(1);
@@ -171,9 +171,9 @@ describe("ShowPage Google-no-crew redirect routing", () => {
     // Now: clear-session with next=/me carries the cookie clear.
     linkState.clearCookie = true;
 
-    await expect(
-      ShowPage({ params: Promise.resolve({ slug: "another-show" }) }),
-    ).rejects.toThrow(/^NEXT_REDIRECT:/);
+    await expect(ShowPage({ params: Promise.resolve({ slug: "another-show" }) })).rejects.toThrow(
+      /^NEXT_REDIRECT:/,
+    );
 
     expect(navState.redirected).toHaveLength(1);
     const target = navState.redirected[0]!;

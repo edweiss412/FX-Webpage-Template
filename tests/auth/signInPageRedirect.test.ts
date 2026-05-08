@@ -42,9 +42,9 @@ const { default: SignInPage } = await import("@/app/auth/sign-in/page");
 async function expectSignInRedirect(
   searchParams: Record<string, string | undefined>,
 ): Promise<string> {
-  await expect(
-    SignInPage({ searchParams: Promise.resolve(searchParams) }),
-  ).rejects.toThrow(/^NEXT_REDIRECT:/);
+  await expect(SignInPage({ searchParams: Promise.resolve(searchParams) })).rejects.toThrow(
+    /^NEXT_REDIRECT:/,
+  );
   expect(redirectMock).toHaveBeenCalledTimes(1);
   const firstCall = redirectMock.mock.calls[0];
   expect(firstCall).toBeDefined();
@@ -63,9 +63,7 @@ describe("sign-in page already-authenticated redirect fallback", () => {
   });
 
   test("crew already signed in with invalid next redirects to /me", async () => {
-    await expect(
-      expectSignInRedirect({ next: "https://attacker.example/x" }),
-    ).resolves.toBe("/me");
+    await expect(expectSignInRedirect({ next: "https://attacker.example/x" })).resolves.toBe("/me");
   });
 
   test("crew already signed in with explicit /me next keeps /me", async () => {
@@ -73,9 +71,7 @@ describe("sign-in page already-authenticated redirect fallback", () => {
   });
 
   test("crew already signed in with explicit /admin/users next redirects to /me", async () => {
-    await expect(expectSignInRedirect({ next: "/admin/users" })).resolves.toBe(
-      "/me",
-    );
+    await expect(expectSignInRedirect({ next: "/admin/users" })).resolves.toBe("/me");
   });
 
   test("admin already signed in with missing next redirects to /admin", async () => {
@@ -89,17 +85,13 @@ describe("sign-in page already-authenticated redirect fallback", () => {
     authState.userEmail = "admin@fxav.test";
     authState.isAdmin = true;
 
-    await expect(expectSignInRedirect({ next: "/admin/dev" })).resolves.toBe(
-      "/admin/dev",
-    );
+    await expect(expectSignInRedirect({ next: "/admin/dev" })).resolves.toBe("/admin/dev");
   });
 
   test("admin already signed in with explicit /admin/users next keeps /admin/users", async () => {
     authState.userEmail = "admin@fxav.test";
     authState.isAdmin = true;
 
-    await expect(expectSignInRedirect({ next: "/admin/users" })).resolves.toBe(
-      "/admin/users",
-    );
+    await expect(expectSignInRedirect({ next: "/admin/users" })).resolves.toBe("/admin/users");
   });
 });

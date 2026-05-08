@@ -21,5 +21,4 @@
 export const TEST_AUTH_SECRET =
   process.env.TEST_AUTH_SECRET ?? "fxav-m3-test-auth-2026-DO-NOT-SHIP";
 
-export const TEST_AUTH_BASE_URL =
-  process.env.TEST_AUTH_BASE_URL ?? "http://127.0.0.1:3001";
+export const TEST_AUTH_BASE_URL = process.env.TEST_AUTH_BASE_URL ?? "http://127.0.0.1:3001";

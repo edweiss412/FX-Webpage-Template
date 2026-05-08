@@ -176,9 +176,7 @@ function countParseableDates(dates: ShowRow["dates"]): number {
  * show has at least one show day by definition; an empty
  * showDays is broken-sheet data, not a valid state.
  */
-function hasFullDates(
-  dates: ShowRow["dates"],
-): dates is {
+function hasFullDates(dates: ShowRow["dates"]): dates is {
   travelIn: string;
   set: string | null;
   showDays: string[];
@@ -208,9 +206,7 @@ export function selectRightNowState(
   viewerDateRestriction: DateRestriction,
   options?: { timezone?: string },
 ): RightNowState {
-  const tz = options?.timezone && options.timezone.length > 0
-    ? options.timezone
-    : DEFAULT_TIMEZONE;
+  const tz = options?.timezone && options.timezone.length > 0 ? options.timezone : DEFAULT_TIMEZONE;
   const todayIso = formatIsoForTimezone(today, tz);
 
   // ── §8.2 rows 11-12: date-data fallbacks override everything else ──
@@ -240,16 +236,11 @@ export function selectRightNowState(
   }
 
   // Pre-compute viewer-specific aggregates used by rows 2-4.
-  const viewerDays =
-    viewerDateRestriction.kind === "explicit" ? viewerDateRestriction.days : null;
+  const viewerDays = viewerDateRestriction.kind === "explicit" ? viewerDateRestriction.days : null;
   const viewerLastDay =
-    viewerDays && viewerDays.length > 0
-      ? [...viewerDays].sort()[viewerDays.length - 1]!
-      : null;
-  const viewerFirstDay =
-    viewerDays && viewerDays.length > 0 ? [...viewerDays].sort()[0]! : null;
-  const todayInViewerDays =
-    viewerDays !== null && viewerDays.includes(todayIso);
+    viewerDays && viewerDays.length > 0 ? [...viewerDays].sort()[viewerDays.length - 1]! : null;
+  const viewerFirstDay = viewerDays && viewerDays.length > 0 ? [...viewerDays].sort()[0]! : null;
+  const todayInViewerDays = viewerDays !== null && viewerDays.includes(todayIso);
 
   // ── §8.2 row 2: viewer_after_last_day (BEFORE viewer_off_day) ──
   // Explicit days, today > max(viewer.days). Catches the "next assigned
@@ -301,9 +292,7 @@ export function selectRightNowState(
     // refactor can't silently emit `daysAway: 0` (which would render
     // "Today" as the lead — wrong copy for an off-day pre state).
     if (daysAway < 1) {
-      throw new Error(
-        `viewer_off_day_pre invariant: daysAway must be >= 1 (got ${daysAway})`,
-      );
+      throw new Error(`viewer_off_day_pre invariant: daysAway must be >= 1 (got ${daysAway})`);
     }
     return {
       kind: "viewer_off_day_pre",
@@ -319,8 +308,7 @@ export function selectRightNowState(
   // catches that case (and is more specific), reaching pre_travel here
   // implies the viewer is unrestricted OR the viewer has explicit days
   // that include today.
-  const viewerAllowsShowState =
-    viewerDateRestriction.kind === "none" || todayInViewerDays;
+  const viewerAllowsShowState = viewerDateRestriction.kind === "none" || todayInViewerDays;
 
   // ── §8.2 row 5: pre_travel ──
   // The spec table reads "today < travelIn − 1 day", but the
@@ -330,10 +318,7 @@ export function selectRightNowState(
   // `unknown`-fallback hole between pre_travel and travel_in_day.
   // We interpret the spec wording as inclusive at T-1 (daysAway >= 1)
   // so today=May31 / travelIn=Jun1 renders pre_travel{daysAway:1}.
-  if (
-    viewerAllowsShowState &&
-    daysBetween(todayIso, travelIn) >= 1
-  ) {
+  if (viewerAllowsShowState && daysBetween(todayIso, travelIn) >= 1) {
     return {
       kind: "pre_travel",
       travelIn,
@@ -347,11 +332,7 @@ export function selectRightNowState(
   }
 
   // ── §8.2 row 7: set_day ──
-  if (
-    viewerAllowsShowState &&
-    setDay !== null &&
-    compareIso(todayIso, setDay) === 0
-  ) {
+  if (viewerAllowsShowState && setDay !== null && compareIso(todayIso, setDay) === 0) {
     return { kind: "set_day" };
   }
 

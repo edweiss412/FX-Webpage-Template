@@ -4,8 +4,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 const LINK_JWT_ISSUER = "fxav-crew-pages";
 const DEFAULT_EXPIRY_SECONDS = 90 * 24 * 60 * 60;
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export type LinkJwtInput = {
   showId: string;
@@ -78,10 +77,7 @@ function assertValidInput(input: LinkJwtInput): void {
   if (!Number.isInteger(input.tokenVersion) || input.tokenVersion <= 0) {
     throw new Error("tokenVersion must be a positive integer");
   }
-  if (
-    input.expiresInSec !== undefined &&
-    !Number.isInteger(input.expiresInSec)
-  ) {
+  if (input.expiresInSec !== undefined && !Number.isInteger(input.expiresInSec)) {
     throw new Error("expiresInSec must be an integer");
   }
 }

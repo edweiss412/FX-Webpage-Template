@@ -73,10 +73,7 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
         <li
           key={`${contact.kind}-${idx}`}
           data-testid="contact-row"
-          className={[
-            "flex items-start gap-3",
-            idx > 0 ? "border-t border-border pt-4" : "",
-          ]
+          className={["flex items-start gap-3", idx > 0 ? "border-t border-border pt-4" : ""]
             .filter(Boolean)
             .join(" ")}
         >
@@ -110,9 +107,7 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
                     "hover:text-accent-on-bg hover:border-border-strong",
                   ].join(" ")}
                   aria-label={
-                    contact.name
-                      ? `Call ${contact.name}`
-                      : `Call ${kindLabel(contact.kind)}`
+                    contact.name ? `Call ${contact.name}` : `Call ${kindLabel(contact.kind)}`
                   }
                 >
                   <span aria-hidden="true">{"☎"}</span>
@@ -135,9 +130,7 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
                     "hover:text-accent-on-bg hover:border-border-strong",
                   ].join(" ")}
                   aria-label={
-                    contact.name
-                      ? `Email ${contact.name}`
-                      : `Email ${kindLabel(contact.kind)}`
+                    contact.name ? `Email ${contact.name}` : `Email ${kindLabel(contact.kind)}`
                   }
                 >
                   <span aria-hidden="true">{"✉"}</span>
@@ -152,9 +145,7 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
               meaningless values.
             */}
             {!shouldHideGenericOptional(contact.notes) ? (
-              <p className="pt-1 text-xs/snug text-text-subtle">
-                {contact.notes}
-              </p>
+              <p className="pt-1 text-xs/snug text-text-subtle">{contact.notes}</p>
             ) : null}
           </div>
         </li>
@@ -173,8 +164,7 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
           ].join(" ")}
         >
           <span className="tabular-nums">+{overflowCount}</span>{" "}
-          {overflowCount === 1 ? "more contact" : "more contacts"} on the
-          source sheet
+          {overflowCount === 1 ? "more contact" : "more contacts"} on the source sheet
         </li>
       ) : null}
     </Section>

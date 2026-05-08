@@ -148,10 +148,7 @@ export type ShowForViewer = {
   viewerVersionToken: string;
 };
 
-export async function getShowForViewer(
-  showId: string,
-  viewer: Viewer,
-): Promise<ShowForViewer> {
+export async function getShowForViewer(showId: string, viewer: Viewer): Promise<ShowForViewer> {
   const supabase = createSupabaseServiceRoleClient();
 
   const isAdmin = viewer.kind === "admin";
@@ -271,8 +268,7 @@ export async function getShowForViewer(
       (row.date_restriction as DateRestriction | null) ?? { kind: "none" },
       show.dates,
     ),
-    stageRestriction:
-      ((row.stage_restriction as StageRestriction | null) ?? { kind: "none" }),
+    stageRestriction: (row.stage_restriction as StageRestriction | null) ?? { kind: "none" },
   }));
 
   // === Hotel reservations ===
@@ -280,7 +276,9 @@ export async function getShowForViewer(
   // Admin viewers see ALL reservations.
   const hotelRes = await supabase
     .from("hotel_reservations")
-    .select("ordinal, hotel_name, hotel_address, names, confirmation_no, check_in, check_out, notes")
+    .select(
+      "ordinal, hotel_name, hotel_address, names, confirmation_no, check_in, check_out, notes",
+    )
     .eq("show_id", showId)
     .order("ordinal", { ascending: true });
   if (hotelRes.error) {
@@ -300,9 +298,7 @@ export async function getShowForViewer(
     isAdmin || viewerName === null
       ? allHotels
       : allHotels.filter((res) =>
-          res.names.some((n) =>
-            n.toLowerCase().includes((viewerName as string).toLowerCase()),
-          ),
+          res.names.some((n) => n.toLowerCase().includes((viewerName as string).toLowerCase())),
         );
 
   // === Rooms ===
@@ -427,8 +423,7 @@ export async function getShowForViewer(
       `getShowForViewer: viewer_version_token RPC failed: ${versionRpc.error.message}`,
     );
   }
-  const viewerVersionToken: string =
-    typeof versionRpc.data === "string" ? versionRpc.data : "";
+  const viewerVersionToken: string = typeof versionRpc.data === "string" ? versionRpc.data : "";
 
   return {
     show,

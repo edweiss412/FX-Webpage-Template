@@ -180,9 +180,7 @@ describe("META infra-failure contract", () => {
   describe("validateGoogleIdentity", () => {
     test("getUser throw → { kind: 'terminal_failure', status: 500 }", async () => {
       infraMock.throwOnGetUser = true;
-      const { validateGoogleIdentity } = await import(
-        "@/lib/auth/validateGoogleIdentity"
-      );
+      const { validateGoogleIdentity } = await import("@/lib/auth/validateGoogleIdentity");
       const result = await validateGoogleIdentity(new Request("http://meta.test"));
       expect(result).toMatchObject({
         kind: "terminal_failure",
@@ -192,9 +190,7 @@ describe("META infra-failure contract", () => {
 
     test("server-client construction throw → terminal_failure 500", async () => {
       infraMock.throwOnConstruct = true;
-      const { validateGoogleIdentity } = await import(
-        "@/lib/auth/validateGoogleIdentity"
-      );
+      const { validateGoogleIdentity } = await import("@/lib/auth/validateGoogleIdentity");
       const result = await validateGoogleIdentity(new Request("http://meta.test"));
       expect(result).toMatchObject({
         kind: "terminal_failure",
@@ -206,13 +202,10 @@ describe("META infra-failure contract", () => {
   describe("validateGoogleSession", () => {
     test("server-client construction throw → terminal_failure 500", async () => {
       infraMock.throwOnConstruct = true;
-      const { validateGoogleSession } = await import(
-        "@/lib/auth/validateGoogleSession"
-      );
-      const result = await validateGoogleSession(
-        new Request("http://meta.test"),
-        { showId: "11111111-1111-4111-8111-111111111111" },
-      );
+      const { validateGoogleSession } = await import("@/lib/auth/validateGoogleSession");
+      const result = await validateGoogleSession(new Request("http://meta.test"), {
+        showId: "11111111-1111-4111-8111-111111111111",
+      });
       expect(result).toMatchObject({
         kind: "terminal_failure",
         status: 500,
@@ -221,13 +214,10 @@ describe("META infra-failure contract", () => {
 
     test("getUser throw → terminal_failure 500", async () => {
       infraMock.throwOnGetUser = true;
-      const { validateGoogleSession } = await import(
-        "@/lib/auth/validateGoogleSession"
-      );
-      const result = await validateGoogleSession(
-        new Request("http://meta.test"),
-        { showId: "11111111-1111-4111-8111-111111111111" },
-      );
+      const { validateGoogleSession } = await import("@/lib/auth/validateGoogleSession");
+      const result = await validateGoogleSession(new Request("http://meta.test"), {
+        showId: "11111111-1111-4111-8111-111111111111",
+      });
       expect(result).toMatchObject({
         kind: "terminal_failure",
         status: 500,
@@ -238,9 +228,7 @@ describe("META infra-failure contract", () => {
   describe("validateLinkSession", () => {
     test("server-client construction throw with cookie present → terminal_failure 500", async () => {
       infraMock.throwOnConstruct = true;
-      const { validateLinkSession } = await import(
-        "@/lib/auth/validateLinkSession"
-      );
+      const { validateLinkSession } = await import("@/lib/auth/validateLinkSession");
       // Need a cookie present for the helper to enter the supabase path
       // (no cookie short-circuits to "continue" before any DB work).
       const result = await validateLinkSession(
@@ -267,9 +255,7 @@ describe("META infra-failure contract", () => {
 
     test("from() throw with cookie present → terminal_failure 500", async () => {
       infraMock.throwOnFrom = true;
-      const { validateLinkSession } = await import(
-        "@/lib/auth/validateLinkSession"
-      );
+      const { validateLinkSession } = await import("@/lib/auth/validateLinkSession");
       const result = await validateLinkSession(
         new Request("http://meta.test", {
           headers: {
@@ -297,10 +283,7 @@ describe("META infra-failure contract", () => {
     test("service-role construction throw → terminal_failure 500", async () => {
       infraMock.throwOnConstruct = true;
       const { resolveShowViewer } = await import("@/lib/auth/resolveShowViewer");
-      const result = await resolveShowViewer(
-        new Request("http://meta.test") as never,
-        "any-slug",
-      );
+      const result = await resolveShowViewer(new Request("http://meta.test") as never, "any-slug");
       expect(result).toMatchObject({
         kind: "terminal_failure",
         status: 500,
@@ -310,10 +293,7 @@ describe("META infra-failure contract", () => {
     test("from() throw on slug lookup → terminal_failure 500", async () => {
       infraMock.throwOnFrom = true;
       const { resolveShowViewer } = await import("@/lib/auth/resolveShowViewer");
-      const result = await resolveShowViewer(
-        new Request("http://meta.test") as never,
-        "any-slug",
-      );
+      const result = await resolveShowViewer(new Request("http://meta.test") as never, "any-slug");
       expect(result).toMatchObject({
         kind: "terminal_failure",
         status: 500,
@@ -324,17 +304,13 @@ describe("META infra-failure contract", () => {
   describe("requireAdmin", () => {
     test("server-client construction throw → AdminInfraError (not forbidden)", async () => {
       infraMock.throwOnConstruct = true;
-      const { requireAdmin, AdminInfraError } = await import(
-        "@/lib/auth/requireAdmin"
-      );
+      const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
       await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
     });
 
     test("getUser throw → AdminInfraError", async () => {
       infraMock.throwOnGetUser = true;
-      const { requireAdmin, AdminInfraError } = await import(
-        "@/lib/auth/requireAdmin"
-      );
+      const { requireAdmin, AdminInfraError } = await import("@/lib/auth/requireAdmin");
       await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
     });
   });

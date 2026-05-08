@@ -160,9 +160,9 @@ describe("ShowPage non-admin published-show gate", () => {
   });
 
   test("non-admin + unpublished slug returns notFound BEFORE link/google validators run", async () => {
-    await expect(
-      ShowPage({ params: Promise.resolve({ slug: "draft-show" }) }),
-    ).rejects.toThrow("NEXT_NOT_FOUND");
+    await expect(ShowPage({ params: Promise.resolve({ slug: "draft-show" }) })).rejects.toThrow(
+      "NEXT_NOT_FOUND",
+    );
 
     expect(navState.notFoundCalled).toBe(1);
     expect(navState.redirected).toEqual([]);
@@ -177,9 +177,9 @@ describe("ShowPage non-admin published-show gate", () => {
 
     // Reaches the no-viewer redirect path (no auth) — that's the
     // expected behavior for a published show with no session.
-    await expect(
-      ShowPage({ params: Promise.resolve({ slug: "live-show" }) }),
-    ).rejects.toThrow(/^NEXT_REDIRECT:/);
+    await expect(ShowPage({ params: Promise.resolve({ slug: "live-show" }) })).rejects.toThrow(
+      /^NEXT_REDIRECT:/,
+    );
 
     expect(navState.notFoundCalled).toBe(0);
     expect(validatorState.validateLinkSessionCalls).toBe(1);
@@ -188,9 +188,9 @@ describe("ShowPage non-admin published-show gate", () => {
   test("unknown slug returns notFound (regression — same response as unpublished)", async () => {
     supabaseState.showExists = false;
 
-    await expect(
-      ShowPage({ params: Promise.resolve({ slug: "nonexistent" }) }),
-    ).rejects.toThrow("NEXT_NOT_FOUND");
+    await expect(ShowPage({ params: Promise.resolve({ slug: "nonexistent" }) })).rejects.toThrow(
+      "NEXT_NOT_FOUND",
+    );
 
     expect(navState.notFoundCalled).toBe(1);
     expect(validatorState.validateLinkSessionCalls).toBe(0);

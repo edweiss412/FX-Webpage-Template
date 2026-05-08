@@ -132,9 +132,7 @@ test.describe("admin AlertBanner (mobile-safari, /admin/dev)", () => {
       .eq("id", id)
       .single();
     expect(error).toBeNull();
-    expect((data as { resolved_by: string | null } | null)?.resolved_by).toBe(
-      ADMIN_FIXTURE.email,
-    );
+    expect((data as { resolved_by: string | null } | null)?.resolved_by).toBe(ADMIN_FIXTURE.email);
   });
 
   test("non-admin user: /admin/dev → 403 from the layout's requireAdmin gate (banner never mounts)", async ({

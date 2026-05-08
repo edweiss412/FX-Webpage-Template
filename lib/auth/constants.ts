@@ -6,8 +6,7 @@ export const SESSION_IDLE_TIMEOUT_SEC = 15 * 60;
 export const BOOTSTRAP_NONCE_MAX_AGE_SEC = 30;
 export const BOOTSTRAP_COOKIE_ENTRY_LIMIT = 5;
 
-export const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export type AuthFailureCode =
   | "SESSION_NOT_FOUND"

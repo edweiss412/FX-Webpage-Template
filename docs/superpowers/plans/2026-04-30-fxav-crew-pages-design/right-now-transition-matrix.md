@@ -10,31 +10,31 @@ constant is a bug in this file — the TS constant is canonical.
 
 ## States (12)
 
-| # | Kind | Notes |
-|---|---|---|
-| 1 | `pre_travel` | today < travelIn − 1 day (and viewer unrestricted or pre-first-day) |
-| 2 | `travel_in_day` | today === travelIn |
-| 3 | `set_day` | today === setDay |
-| 4 | `show_day_n` | today === showDays[n] |
-| 5 | `travel_out_day` | today === travelOut |
-| 6 | `post_show` | today > travelOut |
-| 7 | `viewer_off_day` | viewer explicit days, today not in days, today in span |
-| 8 | `viewer_off_day_pre` | viewer explicit days, today < travelIn AND today < first viewer day |
-| 9 | `viewer_unconfirmed` | viewer.date_restriction.kind === 'unknown_asterisk' |
-| 10 | `viewer_after_last_day` | viewer explicit days, today > max(viewer.days) |
-| 11 | `dateless` | no parseable show date at all |
-| 12 | `unknown` | one or more parseable but not all (gate: travelIn AND travelOut required) |
+| #   | Kind                    | Notes                                                                     |
+| --- | ----------------------- | ------------------------------------------------------------------------- |
+| 1   | `pre_travel`            | today < travelIn − 1 day (and viewer unrestricted or pre-first-day)       |
+| 2   | `travel_in_day`         | today === travelIn                                                        |
+| 3   | `set_day`               | today === setDay                                                          |
+| 4   | `show_day_n`            | today === showDays[n]                                                     |
+| 5   | `travel_out_day`        | today === travelOut                                                       |
+| 6   | `post_show`             | today > travelOut                                                         |
+| 7   | `viewer_off_day`        | viewer explicit days, today not in days, today in span                    |
+| 8   | `viewer_off_day_pre`    | viewer explicit days, today < travelIn AND today < first viewer day       |
+| 9   | `viewer_unconfirmed`    | viewer.date_restriction.kind === 'unknown_asterisk'                       |
+| 10  | `viewer_after_last_day` | viewer explicit days, today > max(viewer.days)                            |
+| 11  | `dateless`              | no parseable show date at all                                             |
+| 12  | `unknown`               | one or more parseable but not all (gate: travelIn AND travelOut required) |
 
 ---
 
 ## Treatments (4)
 
-| Treatment | When applied | Visual |
-|---|---|---|
-| `crossfade-body` | Date rollover OR data-edit recovery | Card body crossfades; container `min-h-[X]` preserves height |
-| `morph-to-last-good` | Sync error (Any → unknown) OR fall-back to `dateless` | Card snaps to last-good payload; stale tint applied; no animation |
-| `instant` | User-initiated state change (currently no entry) | Card swaps payload instantly; no tint |
-| `unreachable` | No natural code path on the 60-second tick | Regression-guarded; assertion that the production state machine never produces this transition (sync skips route via `unknown`) |
+| Treatment            | When applied                                          | Visual                                                                                                                          |
+| -------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `crossfade-body`     | Date rollover OR data-edit recovery                   | Card body crossfades; container `min-h-[X]` preserves height                                                                    |
+| `morph-to-last-good` | Sync error (Any → unknown) OR fall-back to `dateless` | Card snaps to last-good payload; stale tint applied; no animation                                                               |
+| `instant`            | User-initiated state change (currently no entry)      | Card swaps payload instantly; no tint                                                                                           |
+| `unreachable`        | No natural code path on the 60-second tick            | Regression-guarded; assertion that the production state machine never produces this transition (sync skips route via `unknown`) |
 
 ---
 
@@ -42,20 +42,20 @@ constant is a bug in this file — the TS constant is canonical.
 
 `C` = `crossfade-body` · `M` = `morph-to-last-good` · `U` = `unreachable` · `—` = self / lower triangle (matrix is symmetric).
 
-|              | pre_t | tr_in | set | show_n | tr_out | post | v_off | v_off_pre | v_unconf | v_after | datel | unkn |
-|--------------|:----:|:----:|:---:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|:----:|
-| **pre_travel**           | —  | C  | U  | U  | U  | U  | C  | C  | C  | C  | M  | M  |
-| **travel_in_day**        | —  | —  | C  | U  | U  | U  | C  | C  | C  | C  | M  | M  |
-| **set_day**              | —  | —  | —  | C  | U  | U  | C  | C  | C  | C  | M  | M  |
-| **show_day_n**           | —  | —  | —  | —  | C  | U  | C  | U  | C  | C  | M  | M  |
-| **travel_out_day**       | —  | —  | —  | —  | —  | C  | C  | U  | C  | C  | M  | M  |
-| **post_show**            | —  | —  | —  | —  | —  | —  | C  | U  | C  | C  | M  | M  |
-| **viewer_off_day**       | —  | —  | —  | —  | —  | —  | —  | C  | C  | C  | M  | M  |
-| **viewer_off_day_pre**   | —  | —  | —  | —  | —  | —  | —  | —  | C  | U  | M  | M  |
-| **viewer_unconfirmed**   | —  | —  | —  | —  | —  | —  | —  | —  | —  | C  | M  | M  |
-| **viewer_after_last_day**| —  | —  | —  | —  | —  | —  | —  | —  | —  | —  | M  | M  |
-| **dateless**             | —  | —  | —  | —  | —  | —  | —  | —  | —  | —  | —  | C  |
-| **unknown**              | —  | —  | —  | —  | —  | —  | —  | —  | —  | —  | —  | —  |
+|                           | pre_t | tr_in | set | show_n | tr_out | post | v_off | v_off_pre | v_unconf | v_after | datel | unkn |
+| ------------------------- | :---: | :---: | :-: | :----: | :----: | :--: | :---: | :-------: | :------: | :-----: | :---: | :--: |
+| **pre_travel**            |   —   |   C   |  U  |   U    |   U    |  U   |   C   |     C     |    C     |    C    |   M   |  M   |
+| **travel_in_day**         |   —   |   —   |  C  |   U    |   U    |  U   |   C   |     C     |    C     |    C    |   M   |  M   |
+| **set_day**               |   —   |   —   |  —  |   C    |   U    |  U   |   C   |     C     |    C     |    C    |   M   |  M   |
+| **show_day_n**            |   —   |   —   |  —  |   —    |   C    |  U   |   C   |     U     |    C     |    C    |   M   |  M   |
+| **travel_out_day**        |   —   |   —   |  —  |   —    |   —    |  C   |   C   |     U     |    C     |    C    |   M   |  M   |
+| **post_show**             |   —   |   —   |  —  |   —    |   —    |  —   |   C   |     U     |    C     |    C    |   M   |  M   |
+| **viewer_off_day**        |   —   |   —   |  —  |   —    |   —    |  —   |   —   |     C     |    C     |    C    |   M   |  M   |
+| **viewer_off_day_pre**    |   —   |   —   |  —  |   —    |   —    |  —   |   —   |     —     |    C     |    U    |   M   |  M   |
+| **viewer_unconfirmed**    |   —   |   —   |  —  |   —    |   —    |  —   |   —   |     —     |    —     |    C    |   M   |  M   |
+| **viewer_after_last_day** |   —   |   —   |  —  |   —    |   —    |  —   |   —   |     —     |    —     |    —    |   M   |  M   |
+| **dateless**              |   —   |   —   |  —  |   —    |   —    |  —   |   —   |     —     |    —     |    —    |   —   |  C   |
+| **unknown**               |   —   |   —   |  —  |   —    |   —    |  —   |   —   |     —     |    —     |    —    |   —   |  —   |
 
 (Read row → column. The grid is symmetric: `(a, b)` and `(b, a)` carry
 the same treatment, so only the upper triangle is filled.)

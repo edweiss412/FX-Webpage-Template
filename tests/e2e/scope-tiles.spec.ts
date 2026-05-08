@@ -51,23 +51,16 @@ async function lookupSeeded(): Promise<SeededShow> {
     .eq("drive_file_id", SEED_DRIVE_FILE_ID)
     .single();
   if (showRes.error || !showRes.data) {
-    throw new Error(
-      `scope-tiles.spec: seeded show not found (run \`pnpm db:seed\`).`,
-    );
+    throw new Error(`scope-tiles.spec: seeded show not found (run \`pnpm db:seed\`).`);
   }
   const showId = showRes.data.id as string;
 
-  const crewRes = await admin
-    .from("crew_members")
-    .select("id, role_flags")
-    .eq("show_id", showId);
+  const crewRes = await admin.from("crew_members").select("id, role_flags").eq("show_id", showId);
   if (crewRes.error || !crewRes.data?.length) {
     throw new Error(`scope-tiles.spec: no crew rows`);
   }
   const lead = crewRes.data.find(
-    (c) =>
-      Array.isArray(c.role_flags) &&
-      (c.role_flags as string[]).includes("LEAD"),
+    (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead) throw new Error(`scope-tiles.spec: no LEAD crew`);
 
@@ -77,9 +70,7 @@ async function lookupSeeded(): Promise<SeededShow> {
     .eq("show_id", showId)
     .limit(1);
   if (roomsRes.error || !roomsRes.data?.length) {
-    throw new Error(
-      `scope-tiles.spec: no rooms for show — Waldorf fixture must seed at least one`,
-    );
+    throw new Error(`scope-tiles.spec: no rooms for show — Waldorf fixture must seed at least one`);
   }
   const room = roomsRes.data[0];
   if (!room) throw new Error("scope-tiles.spec: room missing after limit");
@@ -99,10 +90,7 @@ async function lookupSeeded(): Promise<SeededShow> {
 }
 
 async function setRoleFlags(crewId: string, flags: string[]): Promise<void> {
-  const { error } = await admin
-    .from("crew_members")
-    .update({ role_flags: flags })
-    .eq("id", crewId);
+  const { error } = await admin.from("crew_members").update({ role_flags: flags }).eq("id", crewId);
   if (error) {
     throw new Error(`scope-tiles.spec: setRoleFlags failed: ${error.message}`);
   }
@@ -122,9 +110,7 @@ async function ensureRoomContent(roomId: string): Promise<void> {
     })
     .eq("id", roomId);
   if (error) {
-    throw new Error(
-      `scope-tiles.spec: ensureRoomContent failed: ${error.message}`,
-    );
+    throw new Error(`scope-tiles.spec: ensureRoomContent failed: ${error.message}`);
   }
 }
 
@@ -134,9 +120,7 @@ async function restoreRoomContent(
 ): Promise<void> {
   const { error } = await admin.from("rooms").update(original).eq("id", roomId);
   if (error) {
-    throw new Error(
-      `scope-tiles.spec: restoreRoomContent failed: ${error.message}`,
-    );
+    throw new Error(`scope-tiles.spec: restoreRoomContent failed: ${error.message}`);
   }
 }
 
@@ -159,9 +143,7 @@ test.describe.skip("crew page — AVL scope tiles (Task 4.6, §8.1)", () => {
     await restoreRoomContent(seeded.firstRoomId, seeded.firstRoomOriginal);
   });
 
-  test("['A1'] viewer → Audio visible; Video + Lighting hidden", async ({
-    page,
-  }) => {
+  test("['A1'] viewer → Audio visible; Video + Lighting hidden", async ({ page }) => {
     await setRoleFlags(seeded.leadCrewId, ["A1"]);
     const r = await page.goto(`/show/${seeded.slug}?crew=${seeded.leadCrewId}`);
     expect(r?.status()).toBe(200);
@@ -172,9 +154,7 @@ test.describe.skip("crew page — AVL scope tiles (Task 4.6, §8.1)", () => {
     await expect(page.getByTestId("lighting-scope-tile")).toHaveCount(0);
   });
 
-  test("['V1'] viewer → Video visible; Audio + Lighting hidden", async ({
-    page,
-  }) => {
+  test("['V1'] viewer → Video visible; Audio + Lighting hidden", async ({ page }) => {
     await setRoleFlags(seeded.leadCrewId, ["V1"]);
     const r = await page.goto(`/show/${seeded.slug}?crew=${seeded.leadCrewId}`);
     expect(r?.status()).toBe(200);
@@ -185,24 +165,18 @@ test.describe.skip("crew page — AVL scope tiles (Task 4.6, §8.1)", () => {
     await expect(page.getByTestId("lighting-scope-tile")).toHaveCount(0);
   });
 
-  test("['L1'] viewer → Lighting visible; Audio + Video hidden", async ({
-    page,
-  }) => {
+  test("['L1'] viewer → Lighting visible; Audio + Video hidden", async ({ page }) => {
     await setRoleFlags(seeded.leadCrewId, ["L1"]);
     const r = await page.goto(`/show/${seeded.slug}?crew=${seeded.leadCrewId}`);
     expect(r?.status()).toBe(200);
 
     await expect(page.getByTestId("lighting-scope-tile")).toBeVisible();
-    await expect(page.getByTestId("lighting-scope-tile")).toContainText(
-      /Lighting:/,
-    );
+    await expect(page.getByTestId("lighting-scope-tile")).toContainText(/Lighting:/);
     await expect(page.getByTestId("audio-scope-tile")).toHaveCount(0);
     await expect(page.getByTestId("video-scope-tile")).toHaveCount(0);
   });
 
-  test("['LEAD'] viewer → Audio + Video visible; Lighting hidden", async ({
-    page,
-  }) => {
+  test("['LEAD'] viewer → Audio + Video visible; Lighting hidden", async ({ page }) => {
     await setRoleFlags(seeded.leadCrewId, ["LEAD"]);
     const r = await page.goto(`/show/${seeded.slug}?crew=${seeded.leadCrewId}`);
     expect(r?.status()).toBe(200);

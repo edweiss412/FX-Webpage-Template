@@ -107,9 +107,9 @@ describe("X.3 M5 auth-chain semantic audit", () => {
   });
 
   test("real OAuth routes pass callback/sign-in/sign-out checks", () => {
-    expect(
-      auditM5AuthFile("app/auth/sign-in/page.tsx", read("app/auth/sign-in/page.tsx")),
-    ).toEqual([]);
+    expect(auditM5AuthFile("app/auth/sign-in/page.tsx", read("app/auth/sign-in/page.tsx"))).toEqual(
+      [],
+    );
     expect(
       auditM5AuthFile("app/auth/callback/route.ts", read("app/auth/callback/route.ts")),
     ).toEqual([]);

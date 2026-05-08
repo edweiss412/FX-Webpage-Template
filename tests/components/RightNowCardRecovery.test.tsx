@@ -138,10 +138,8 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
     });
     const { container, rerender } = render(<RightNowCard context={ctxA} />);
     const card = () => container.querySelector('[data-testid="right-now-card"]')!;
-    const stateMarker = () =>
-      container.querySelector('[data-testid="right-now-state"]')!;
-    const detail = () =>
-      container.querySelector('[data-testid="right-now-detail"]');
+    const stateMarker = () => container.querySelector('[data-testid="right-now-state"]')!;
+    const detail = () => container.querySelector('[data-testid="right-now-detail"]');
 
     // Sanity: initial render resolved to show_day_n with the v1 callTime.
     // Catches: a fixture or pinned-clock regression that would invalidate
@@ -168,9 +166,7 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
     // degradation (which is allowed by the matrix — morph-to-last-good
     // says we should NOT do that).
     expect(stateMarker().getAttribute("data-state")).toBe("unknown");
-    expect(stateMarker().getAttribute("data-rendered-state")).toBe(
-      "show_day_n",
-    );
+    expect(stateMarker().getAttribute("data-rendered-state")).toBe("show_day_n");
     expect(card().getAttribute("data-stale")).toBe("true");
     expect(detail()?.textContent).toContain("Call: 14:00");
 
@@ -210,9 +206,7 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
     // state. Belt-and-braces — if (c) passes by accident through some
     // future render-text quirk, this still pins the rendered-state
     // semantics from the file-header data-testid contract.
-    expect(stateMarker().getAttribute("data-rendered-state")).toBe(
-      "show_day_n",
-    );
+    expect(stateMarker().getAttribute("data-rendered-state")).toBe("show_day_n");
   });
 
   test("show_day_n → dateless → show_day_n: stale clears (parallel to unknown branch)", () => {
@@ -228,10 +222,8 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
     });
     const { container, rerender } = render(<RightNowCard context={ctxA} />);
     const card = () => container.querySelector('[data-testid="right-now-card"]')!;
-    const stateMarker = () =>
-      container.querySelector('[data-testid="right-now-state"]')!;
-    const detail = () =>
-      container.querySelector('[data-testid="right-now-detail"]');
+    const stateMarker = () => container.querySelector('[data-testid="right-now-state"]')!;
+    const detail = () => container.querySelector('[data-testid="right-now-detail"]');
 
     expect(stateMarker().getAttribute("data-state")).toBe("show_day_n");
     expect(card().getAttribute("data-stale")).toBe("false");
@@ -273,10 +265,8 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
     });
     const { container, rerender } = render(<RightNowCard context={ctxA} />);
     const card = () => container.querySelector('[data-testid="right-now-card"]')!;
-    const stateMarker = () =>
-      container.querySelector('[data-testid="right-now-state"]')!;
-    const detail = () =>
-      container.querySelector('[data-testid="right-now-detail"]');
+    const stateMarker = () => container.querySelector('[data-testid="right-now-state"]')!;
+    const detail = () => container.querySelector('[data-testid="right-now-detail"]');
 
     expect(detail()?.textContent).toContain("Call: 11:11");
 
@@ -287,9 +277,7 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
     // Authoritative state is unknown; rendered state is the lastGood
     // (show_day_n); stale tint applied; OLD body still on screen.
     expect(stateMarker().getAttribute("data-state")).toBe("unknown");
-    expect(stateMarker().getAttribute("data-rendered-state")).toBe(
-      "show_day_n",
-    );
+    expect(stateMarker().getAttribute("data-rendered-state")).toBe("show_day_n");
     expect(card().getAttribute("data-stale")).toBe("true");
     expect(detail()?.textContent).toContain("Call: 11:11");
   });
@@ -306,8 +294,7 @@ describe("RightNowCard — stale-tint UNWINDS on recovery (Codex round-9 HIGH)",
 const reducedMotionMock = { value: false as boolean };
 
 vi.mock("framer-motion", async () => {
-  const actual =
-    await vi.importActual<typeof import("framer-motion")>("framer-motion");
+  const actual = await vi.importActual<typeof import("framer-motion")>("framer-motion");
   return {
     ...actual,
     useReducedMotion: () => reducedMotionMock.value,

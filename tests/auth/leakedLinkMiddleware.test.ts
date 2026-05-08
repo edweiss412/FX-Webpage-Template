@@ -81,9 +81,7 @@ function tableClient(table: string) {
           eq: () => ({
             maybeSingle: async () => ({
               data: leakedState.authReadFails ? null : leakedState.authRow,
-              error: leakedState.authReadFails
-                ? { message: "auth read failed" }
-                : null,
+              error: leakedState.authReadFails ? { message: "auth read failed" } : null,
             }),
           }),
         }),
@@ -91,9 +89,7 @@ function tableClient(table: string) {
       update: () => ({
         eq: () => ({
           eq: async () => ({
-            error: leakedState.authUpdateFails
-              ? { message: "auth update failed" }
-              : null,
+            error: leakedState.authUpdateFails ? { message: "auth update failed" } : null,
           }),
         }),
       }),
@@ -106,9 +102,7 @@ function tableClient(table: string) {
           leakedState.revokedRows.push(payload);
         }
         return {
-          error: leakedState.revokedUpsertFails
-            ? { message: "revoked upsert failed" }
-            : null,
+          error: leakedState.revokedUpsertFails ? { message: "revoked upsert failed" } : null,
         };
       },
     };
@@ -394,9 +388,7 @@ describe("middleware leaked-link revocation", () => {
     // Strip line/block comments before matching so the explanatory
     // comment in the file (which mentions withShowAdvisoryLock as
     // historical context for the deadlock) doesn't trip the guard.
-    const stripped = middlewareSrc
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/^[ \t]*\/\/.*$/gm, "");
+    const stripped = middlewareSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
     // No import of the wrapper.
     expect(stripped).not.toMatch(/from\s+["']@\/lib\/db\/advisoryLock["']/);
     // No call site for withShowAdvisoryLock outside comments.

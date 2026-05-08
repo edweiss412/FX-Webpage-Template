@@ -90,24 +90,14 @@ function digitsOnly(s: string): string {
   return s.replace(/\D+/g, "");
 }
 
-export function KeyValue({
-  label,
-  value,
-  linkAs,
-  tabular,
-  emptyLabel,
-}: KeyValueProps) {
+export function KeyValue({ label, value, linkAs, tabular, emptyLabel }: KeyValueProps) {
   // Decide value rendering up front so the missing branch is obvious.
   if (isMissing(value)) {
     return (
       <div className="flex flex-col gap-1">
-        <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
-          {label}
-        </dt>
+        <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">{label}</dt>
         <dd>
-          <EmptyState
-            {...(emptyLabel !== undefined ? { label: emptyLabel } : {})}
-          />
+          <EmptyState {...(emptyLabel !== undefined ? { label: emptyLabel } : {})} />
         </dd>
       </div>
     );
@@ -122,8 +112,7 @@ export function KeyValue({
   // aren't strings (e.g., a pre-built <time> child) skip linkAs.
   const renderedValue: ReactNode = (() => {
     if (linkAs && typeof value === "string") {
-      const href =
-        linkAs === "tel" ? `tel:${digitsOnly(value)}` : `mailto:${value}`;
+      const href = linkAs === "tel" ? `tel:${digitsOnly(value)}` : `mailto:${value}`;
       return (
         <a
           href={href}
@@ -157,9 +146,7 @@ export function KeyValue({
 
   return (
     <div className="flex flex-col gap-1">
-      <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
-        {label}
-      </dt>
+      <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">{label}</dt>
       <dd className="text-sm/snug">{renderedValue}</dd>
     </div>
   );

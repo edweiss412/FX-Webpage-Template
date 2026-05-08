@@ -96,9 +96,7 @@ export function VenueTile({ venue }: VenueTileProps) {
         but defensible if the upstream data is incomplete. When
         present, address renders in the subheading slot above instead.
       */}
-      {!venue.address ? (
-        <KeyValue label="Address" value={null} />
-      ) : null}
+      {!venue.address ? <KeyValue label="Address" value={null} /> : null}
 
       {/*
         §8.3 generic-optional (Codex round-16): loadingDock is a
@@ -119,8 +117,7 @@ export function VenueTile({ venue }: VenueTileProps) {
         non-URL string also doesn't belong here regardless of
         sentinel status).
       */}
-      {!shouldHideGenericOptional(venue.googleLink ?? null) &&
-      isParseableUrl(venue.googleLink) ? (
+      {!shouldHideGenericOptional(venue.googleLink ?? null) && isParseableUrl(venue.googleLink) ? (
         <KeyValue
           label="Map"
           value={

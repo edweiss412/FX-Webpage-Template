@@ -56,26 +56,18 @@ describe("upsertAdminAlert", () => {
   });
 
   test("migration uses the spec §4.6 partial-index conflict target and recurrence update", () => {
-    const sql = readFileSync(
-      "supabase/migrations/20260505000000_upsert_admin_alert.sql",
-      "utf8",
-    );
+    const sql = readFileSync("supabase/migrations/20260505000000_upsert_admin_alert.sql", "utf8");
 
     expect(sql).toMatch(
       /on\s+conflict\s*\(\s*coalesce\s*\(\s*show_id::text\s*,\s*''\s*\)\s*,\s*code\s*\)\s*where\s+resolved_at\s+is\s+null/i,
     );
     expect(sql).toMatch(/last_seen_at\s*=\s*now\s*\(\s*\)/i);
-    expect(sql).toMatch(
-      /occurrence_count\s*=\s*public\.admin_alerts\.occurrence_count\s*\+\s*1/i,
-    );
+    expect(sql).toMatch(/occurrence_count\s*=\s*public\.admin_alerts\.occurrence_count\s*\+\s*1/i);
     expect(sql).toMatch(/context\s*=\s*excluded\.context/i);
   });
 
   test("production admin_alerts producers route through the coalescing helper", () => {
-    const files = [
-      "lib/auth/validateGoogleSession.ts",
-      "middleware.ts",
-    ];
+    const files = ["lib/auth/validateGoogleSession.ts", "middleware.ts"];
 
     for (const file of files) {
       const source = readFileSync(file, "utf8")

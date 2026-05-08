@@ -204,7 +204,9 @@ function auditSignInPage(path: string, sourceFile: ts.SourceFile): AuthAuditFind
   }
   const source = sourceFile.text;
   if (!/\bvalidateErrorCodeParam\b/.test(source) || !/\bErrorExplainer\b/.test(source)) {
-    findings.push(`${path}: sign-in error rendering must flow through validateErrorCodeParam and ErrorExplainer`);
+    findings.push(
+      `${path}: sign-in error rendering must flow through validateErrorCodeParam and ErrorExplainer`,
+    );
   }
   return findings;
 }

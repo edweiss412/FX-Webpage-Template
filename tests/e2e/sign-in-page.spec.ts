@@ -68,9 +68,7 @@ test.describe("Sign-In Page (§7.3, AC-5.14) — unsigned baseline", () => {
     await signOut(page);
   });
 
-  test("unsigned + clean URL → 200; sign-in CTA visible; no error block", async ({
-    page,
-  }) => {
+  test("unsigned + clean URL → 200; sign-in CTA visible; no error block", async ({ page }) => {
     const response = await page.goto(`${TEST_BASE_URL}/auth/sign-in`);
     expect(response?.status()).toBe(200);
     await expect(page.getByTestId("sign-in-page")).toBeVisible();
@@ -104,10 +102,10 @@ test.describe("Sign-In Page — redirect-loop guard (already signed in)", () => 
     // the destination."
     const cookies = await page.context().cookies(TEST_BASE_URL);
     const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
-    const firstHop = await request.get(
-      `${TEST_BASE_URL}/auth/sign-in?next=/admin`,
-      { maxRedirects: 0, headers: { cookie: cookieHeader } },
-    );
+    const firstHop = await request.get(`${TEST_BASE_URL}/auth/sign-in?next=/admin`, {
+      maxRedirects: 0,
+      headers: { cookie: cookieHeader },
+    });
     expect([302, 303, 307, 308]).toContain(firstHop.status());
     const location = firstHop.headers()["location"];
     expect(location).toBeTruthy();
@@ -228,23 +226,17 @@ test.describe("Sign-In Page — error block render gate", () => {
     // fails. Per ErrorExplainer, the rendered message is in the
     // [data-testid=error-explainer-message] element.
     const message = page.getByTestId("error-explainer-message");
-    await expect(message).toHaveText(
-      MESSAGE_CATALOG.OAUTH_STATE_INVALID.crewFacing!,
-    );
+    await expect(message).toHaveText(MESSAGE_CATALOG.OAUTH_STATE_INVALID.crewFacing!);
   });
 
   test("OAUTH_REDIRECT_INVALID renders the catalog crewFacing copy (verbatim, anti-tautology)", async ({
     page,
   }) => {
-    const response = await page.goto(
-      `${TEST_BASE_URL}/auth/sign-in?code=OAUTH_REDIRECT_INVALID`,
-    );
+    const response = await page.goto(`${TEST_BASE_URL}/auth/sign-in?code=OAUTH_REDIRECT_INVALID`);
     expect(response?.status()).toBe(200);
     await expect(page.getByTestId("sign-in-error-block")).toBeVisible();
     const message = page.getByTestId("error-explainer-message");
-    await expect(message).toHaveText(
-      MESSAGE_CATALOG.OAUTH_REDIRECT_INVALID.crewFacing!,
-    );
+    await expect(message).toHaveText(MESSAGE_CATALOG.OAUTH_REDIRECT_INVALID.crewFacing!);
   });
 
   test("arbitrary code → no error block (defensive: validator silently rejects, no copy revealed)", async ({
@@ -266,18 +258,14 @@ test.describe("Sign-In Page — error block render gate", () => {
     // LINK_EXPIRED is a real MessageCode in lib/messages/catalog.ts but
     // the OAuth callback never emits it. The allowlist is what gates
     // rendering — defense in depth on top of the catalog lookup.
-    const response = await page.goto(
-      `${TEST_BASE_URL}/auth/sign-in?code=LINK_EXPIRED`,
-    );
+    const response = await page.goto(`${TEST_BASE_URL}/auth/sign-in?code=LINK_EXPIRED`);
     expect(response?.status()).toBe(200);
     await expect(page.getByTestId("sign-in-page")).toBeVisible();
     await expect(page.getByTestId("sign-in-error-block")).toHaveCount(0);
     // Anti-tautology: LINK_EXPIRED has known crewFacing copy. Assert
     // that copy is NOT present in the DOM (catching the bug where the
     // gate is bypassed and the explainer renders anyway).
-    await expect(page.locator("body")).not.toContainText(
-      MESSAGE_CATALOG.LINK_EXPIRED.crewFacing!,
-    );
+    await expect(page.locator("body")).not.toContainText(MESSAGE_CATALOG.LINK_EXPIRED.crewFacing!);
   });
 
   test("XSS injection (literal <script>) → no error block, no script execution, raw markup not in DOM", async ({
@@ -307,9 +295,7 @@ test.describe("Sign-In Page — error block render gate", () => {
   }) => {
     // When the gate ALLOWS the code, the catalog copy renders — but the
     // raw code key (OAUTH_STATE_INVALID) must not leak into visible text.
-    await page.goto(
-      `${TEST_BASE_URL}/auth/sign-in?code=OAUTH_STATE_INVALID`,
-    );
+    await page.goto(`${TEST_BASE_URL}/auth/sign-in?code=OAUTH_STATE_INVALID`);
     const bodyText = await page.locator("body").innerText();
     // The bare token "OAUTH_STATE_INVALID" must not appear as visible
     // text (it would only appear there if a developer accidentally

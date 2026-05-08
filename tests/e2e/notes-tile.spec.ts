@@ -54,30 +54,19 @@ async function snapshot(): Promise<Snapshot> {
   }
   const showId = showRes.data.id as string;
 
-  const crewRes = await admin
-    .from("crew_members")
-    .select("id, role_flags")
-    .eq("show_id", showId);
+  const crewRes = await admin.from("crew_members").select("id, role_flags").eq("show_id", showId);
   if (crewRes.error || !crewRes.data?.length) {
     throw new Error(`notes-tile.spec: no crew rows`);
   }
   const lead = crewRes.data.find(
-    (c) =>
-      Array.isArray(c.role_flags) &&
-      (c.role_flags as string[]).includes("LEAD"),
+    (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead) throw new Error(`notes-tile.spec: no LEAD`);
 
-  const hotelRes = await admin
-    .from("hotel_reservations")
-    .select("id, notes")
-    .eq("show_id", showId);
+  const hotelRes = await admin.from("hotel_reservations").select("id, notes").eq("show_id", showId);
   if (hotelRes.error) throw new Error(hotelRes.error.message);
 
-  const roomsRes = await admin
-    .from("rooms")
-    .select("id, notes")
-    .eq("show_id", showId);
+  const roomsRes = await admin.from("rooms").select("id, notes").eq("show_id", showId);
   if (roomsRes.error) throw new Error(roomsRes.error.message);
 
   const transRes = await admin
@@ -120,17 +109,11 @@ async function snapshot(): Promise<Snapshot> {
 
 async function applySnapshot(s: Snapshot): Promise<void> {
   // Restore venue JSONB.
-  await admin
-    .from("shows")
-    .update({ venue: s.originalVenue })
-    .eq("id", s.showId);
+  await admin.from("shows").update({ venue: s.originalVenue }).eq("id", s.showId);
 
   // Restore hotel notes.
   for (const h of s.originalHotels) {
-    await admin
-      .from("hotel_reservations")
-      .update({ notes: h.notes })
-      .eq("id", h.id);
+    await admin.from("hotel_reservations").update({ notes: h.notes }).eq("id", h.id);
   }
 
   // Restore room notes.
@@ -204,10 +187,7 @@ test.describe.skip("crew page — NotesTile (Task 4.10, §8.1)", () => {
       ...((s.originalVenue as Record<string, unknown>) ?? {}),
       notes: "Venue notes — load via dock entrance only.",
     };
-    await admin
-      .from("shows")
-      .update({ venue: venueWithNotes })
-      .eq("id", s.showId);
+    await admin.from("shows").update({ venue: venueWithNotes }).eq("id", s.showId);
 
     if (s.originalHotels[0]) {
       await admin
@@ -236,14 +216,10 @@ test.describe.skip("crew page — NotesTile (Task 4.10, §8.1)", () => {
     await expect(tile.locator('[data-source="room"]')).toHaveCount(1);
     await expect(tile.locator('[data-source="transport"]')).toHaveCount(1);
     // Contacts also have seed notes — at least the 3 originals.
-    expect(
-      await tile.locator('[data-source="contact"]').count(),
-    ).toBeGreaterThanOrEqual(3);
+    expect(await tile.locator('[data-source="contact"]').count()).toBeGreaterThanOrEqual(3);
   });
 
-  test("returns null (whole-tile-missing) when ALL notes are stripped (§8.3)", async ({
-    page,
-  }) => {
+  test("returns null (whole-tile-missing) when ALL notes are stripped (§8.3)", async ({ page }) => {
     // Strip venue notes.
     const venue = { ...((s.originalVenue as Record<string, unknown>) ?? {}) };
     venue.notes = null;
@@ -251,25 +227,16 @@ test.describe.skip("crew page — NotesTile (Task 4.10, §8.1)", () => {
 
     // Strip hotel notes.
     for (const h of s.originalHotels) {
-      await admin
-        .from("hotel_reservations")
-        .update({ notes: null })
-        .eq("id", h.id);
+      await admin.from("hotel_reservations").update({ notes: null }).eq("id", h.id);
     }
     // Strip rooms notes.
     for (const r of s.originalRooms) {
       await admin.from("rooms").update({ notes: null }).eq("id", r.id);
     }
     // Strip transport notes.
-    await admin
-      .from("transportation")
-      .update({ notes: null })
-      .eq("show_id", s.showId);
+    await admin.from("transportation").update({ notes: null }).eq("show_id", s.showId);
     // Strip contact notes.
-    await admin
-      .from("contacts")
-      .update({ notes: null })
-      .eq("show_id", s.showId);
+    await admin.from("contacts").update({ notes: null }).eq("show_id", s.showId);
 
     await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
     await expect(page.getByTestId("notes-tile")).toHaveCount(0);
@@ -280,28 +247,20 @@ test.describe.skip("crew page — NotesTile (Task 4.10, §8.1)", () => {
   }) => {
     // 360-char note — well over the 280 cap. Use a deterministic
     // string we can pin in the assertion.
-    const longText =
-      "A".repeat(150) + " — middle marker — " + "B".repeat(180);
+    const longText = "A".repeat(150) + " — middle marker — " + "B".repeat(180);
     expect(longText.length).toBeGreaterThan(280);
 
     const venueWithLongNote = {
       ...((s.originalVenue as Record<string, unknown>) ?? {}),
       notes: longText,
     };
-    await admin
-      .from("shows")
-      .update({ venue: venueWithLongNote })
-      .eq("id", s.showId);
+    await admin.from("shows").update({ venue: venueWithLongNote }).eq("id", s.showId);
 
     await page.goto(`/show/${s.slug}?crew=${s.leadCrewId}`);
-    const venueItem = page
-      .getByTestId("notes-tile")
-      .locator('[data-source="venue"]');
+    const venueItem = page.getByTestId("notes-tile").locator('[data-source="venue"]');
     await expect(venueItem).toHaveCount(1);
     // The truncated indicator should be present.
-    await expect(
-      venueItem.getByTestId("notes-item-truncated"),
-    ).toHaveCount(1);
+    await expect(venueItem.getByTestId("notes-item-truncated")).toHaveCount(1);
     // The summary should NOT contain the full string before expand.
     // Click the summary to open the <details>; then assert the full
     // text appears in the body.
@@ -321,18 +280,12 @@ test.describe.skip("crew page — NotesTile (Task 4.10, §8.1)", () => {
     venue.notes = null;
     await admin.from("shows").update({ venue }).eq("id", s.showId);
     for (const h of s.originalHotels) {
-      await admin
-        .from("hotel_reservations")
-        .update({ notes: null })
-        .eq("id", h.id);
+      await admin.from("hotel_reservations").update({ notes: null }).eq("id", h.id);
     }
     for (const r of s.originalRooms) {
       await admin.from("rooms").update({ notes: null }).eq("id", r.id);
     }
-    await admin
-      .from("transportation")
-      .update({ notes: null })
-      .eq("show_id", s.showId);
+    await admin.from("transportation").update({ notes: null }).eq("show_id", s.showId);
 
     // Replace contacts with 10 synthetic rows, each with notes.
     await admin.from("contacts").delete().eq("show_id", s.showId);
@@ -366,10 +319,7 @@ test.describe.skip("crew page — NotesTile (Task 4.10, §8.1)", () => {
     // notes value. The label should read "Contact: Isabella Vizzini"
     // (DESIGN.md §9 bans em dashes in user-visible copy, so we use a
     // colon as the source-name separator).
-    const labels = await tile
-      .getByTestId("notes-item")
-      .locator("summary")
-      .allInnerTexts();
+    const labels = await tile.getByTestId("notes-item").locator("summary").allInnerTexts();
     // Labels are rendered with `uppercase` CSS so allInnerTexts may
     // return uppercase ("CONTACT: …"). Use case-insensitive match.
     const hasNamed = labels.some((l) => /Contact:\s+\S/i.test(l));

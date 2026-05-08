@@ -27,17 +27,12 @@ type LightingScopeTileProps = {
   viewerFlags: RoleFlag[];
 };
 
-export function LightingScopeTile({
-  rooms,
-  viewerFlags,
-}: LightingScopeTileProps) {
+export function LightingScopeTile({ rooms, viewerFlags }: LightingScopeTileProps) {
   if (!lightingScopeVisible(viewerFlags)) return null;
 
   // §8.3 generic-optional sentinel-hiding (Codex round-12): see
   // AudioScopeTile.tsx for the contract — same routing applies.
-  const withLighting = rooms.filter(
-    (r) => !shouldHideGenericOptional(r.lighting),
-  );
+  const withLighting = rooms.filter((r) => !shouldHideGenericOptional(r.lighting));
 
   if (withLighting.length === 0) {
     return (

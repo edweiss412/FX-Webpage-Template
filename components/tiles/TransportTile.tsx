@@ -62,20 +62,12 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
   // NOT inline string-list checks").
   const notesVisible = !shouldHideGenericOptional(transportation.notes);
   const vehicleVisible = !shouldHideGenericOptional(transportation.vehicle);
-  const licensePlateVisible = !shouldHideGenericOptional(
-    transportation.license_plate,
-  );
+  const licensePlateVisible = !shouldHideGenericOptional(transportation.license_plate);
   const colorVisible = !shouldHideGenericOptional(transportation.color);
   const parkingVisible = !shouldHideGenericOptional(transportation.parking);
-  const driverNameVisible = !shouldHideGenericOptional(
-    transportation.driver_name,
-  );
-  const driverPhoneVisible = !shouldHideGenericOptional(
-    transportation.driver_phone,
-  );
-  const driverEmailVisible = !shouldHideGenericOptional(
-    transportation.driver_email,
-  );
+  const driverNameVisible = !shouldHideGenericOptional(transportation.driver_name);
+  const driverPhoneVisible = !shouldHideGenericOptional(transportation.driver_phone);
+  const driverEmailVisible = !shouldHideGenericOptional(transportation.driver_email);
 
   // If the predicate said visible but every meaningful field is null
   // (degenerate row), fall back to required-field empty-state. This
@@ -123,18 +115,10 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
           <dl className="flex flex-col gap-3">
             <KeyValue label="Driver" value={transportation.driver_name} />
             {driverPhoneVisible ? (
-              <KeyValue
-                label="Driver phone"
-                value={transportation.driver_phone}
-                linkAs="tel"
-              />
+              <KeyValue label="Driver phone" value={transportation.driver_phone} linkAs="tel" />
             ) : null}
             {driverEmailVisible ? (
-              <KeyValue
-                label="Driver email"
-                value={transportation.driver_email}
-                linkAs="mailto"
-              />
+              <KeyValue label="Driver email" value={transportation.driver_email} linkAs="mailto" />
             ) : null}
           </dl>
         ) : null}
@@ -144,10 +128,7 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
           via KeyValue.tabular. Hairline divider above only when the
           driver block rendered AND any vehicle field is present.
         */}
-        {(vehicleVisible ||
-          licensePlateVisible ||
-          colorVisible ||
-          parkingVisible) ? (
+        {vehicleVisible || licensePlateVisible || colorVisible || parkingVisible ? (
           <dl
             className={[
               "flex flex-col gap-3",
@@ -156,22 +137,12 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
               .filter(Boolean)
               .join(" ")}
           >
-            {vehicleVisible ? (
-              <KeyValue label="Vehicle" value={transportation.vehicle} />
-            ) : null}
+            {vehicleVisible ? <KeyValue label="Vehicle" value={transportation.vehicle} /> : null}
             {licensePlateVisible ? (
-              <KeyValue
-                label="License plate"
-                value={transportation.license_plate}
-                tabular
-              />
+              <KeyValue label="License plate" value={transportation.license_plate} tabular />
             ) : null}
-            {colorVisible ? (
-              <KeyValue label="Color" value={transportation.color} />
-            ) : null}
-            {parkingVisible ? (
-              <KeyValue label="Parking" value={transportation.parking} />
-            ) : null}
+            {colorVisible ? <KeyValue label="Color" value={transportation.color} /> : null}
+            {parkingVisible ? <KeyValue label="Parking" value={transportation.parking} /> : null}
           </dl>
         ) : null}
 
@@ -194,26 +165,16 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
                 </p>
                 <p className="text-sm text-text">
                   {leg.date ? (
-                    <time
-                      dateTime={leg.date}
-                      className="font-semibold text-text-strong"
-                    >
+                    <time dateTime={leg.date} className="font-semibold text-text-strong">
                       {formatIsoDate(leg.date, "weekday-short")}
                     </time>
                   ) : null}
-                  {leg.date && leg.time ? (
-                    <span className="text-text-subtle"> · </span>
-                  ) : null}
-                  {leg.time ? (
-                    <span className="tabular-nums">{leg.time}</span>
-                  ) : null}
+                  {leg.date && leg.time ? <span className="text-text-subtle"> · </span> : null}
+                  {leg.time ? <span className="tabular-nums">{leg.time}</span> : null}
                 </p>
                 {leg.assigned_names.length > 0 ? (
                   <p className="text-sm text-text-subtle">
-                    With:{" "}
-                    <span className="text-text">
-                      {leg.assigned_names.join(", ")}
-                    </span>
+                    With: <span className="text-text">{leg.assigned_names.join(", ")}</span>
                   </p>
                 ) : null}
               </li>

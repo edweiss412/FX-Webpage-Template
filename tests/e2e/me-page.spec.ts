@@ -68,14 +68,8 @@ async function deleteSeed(): Promise<void> {
   // Cascade-style cleanup. crew_members FKs to shows so deleting the show
   // is sufficient — but we explicitly delete the crew rows first to
   // keep the assertion crisp if FKs ever change.
-  await admin
-    .from("crew_members")
-    .delete()
-    .in("id", [olderCrewId, newerCrewId, soloCrewId]);
-  await admin
-    .from("shows")
-    .delete()
-    .in("id", [olderShowId, newerShowId, soloShowId]);
+  await admin.from("crew_members").delete().in("id", [olderCrewId, newerCrewId, soloCrewId]);
+  await admin.from("shows").delete().in("id", [olderShowId, newerShowId, soloShowId]);
 }
 
 test.beforeAll(async () => {
@@ -146,10 +140,7 @@ test.afterAll(async () => {
 // can opt-in to the rows it wants. listShowsForCrew matches by email,
 // so deleting all crew_members for our shows isolates state.
 test.beforeEach(async () => {
-  await admin
-    .from("crew_members")
-    .delete()
-    .in("id", [olderCrewId, newerCrewId, soloCrewId]);
+  await admin.from("crew_members").delete().in("id", [olderCrewId, newerCrewId, soloCrewId]);
 });
 
 test.describe("/me — unsigned baseline", () => {
@@ -157,9 +148,7 @@ test.describe("/me — unsigned baseline", () => {
     await signOut(page);
   });
 
-  test("unsigned + GET /me → 302/redirect to /auth/sign-in?next=/me", async ({
-    request,
-  }) => {
+  test("unsigned + GET /me → 302/redirect to /auth/sign-in?next=/me", async ({ request }) => {
     const firstHop = await request.get(`${TEST_BASE_URL}/me`, {
       maxRedirects: 0,
     });
@@ -271,9 +260,7 @@ test.describe("/me — signed-in crew with shows", () => {
     await expect(page.getByTestId(/^me-show-card-/)).toHaveCount(0);
   });
 
-  test("signed-in baseline → canonical email surfaced in subhead", async ({
-    page,
-  }) => {
+  test("signed-in baseline → canonical email surfaced in subhead", async ({ page }) => {
     await signInAs(page, NON_ADMIN_CREW_FIXTURE, { baseUrl: TEST_BASE_URL });
     const response = await page.goto(`${TEST_BASE_URL}/me`);
     expect(response?.status()).toBe(200);
@@ -287,9 +274,7 @@ test.describe("/me — signed-in crew with shows", () => {
 });
 
 test.describe("/me — invariant 5 (no raw error codes)", () => {
-  test("no LINK_/SESSION_/OAUTH_/GOOGLE_ tokens leak into rendered DOM", async ({
-    page,
-  }) => {
+  test("no LINK_/SESSION_/OAUTH_/GOOGLE_ tokens leak into rendered DOM", async ({ page }) => {
     // Seed one show so the page renders the success branch (where copy
     // could most plausibly leak a §12.4 token via a defensive fallback).
     const insert = await admin.from("crew_members").insert({
@@ -316,9 +301,7 @@ test.describe("/me — invariant 5 (no raw error codes)", () => {
 });
 
 test.describe("/me — sign-out form", () => {
-  test("sign-out form present; action /auth/sign-out; method POST", async ({
-    page,
-  }) => {
+  test("sign-out form present; action /auth/sign-out; method POST", async ({ page }) => {
     await signInAs(page, NON_ADMIN_CREW_FIXTURE, { baseUrl: TEST_BASE_URL });
     await page.goto(`${TEST_BASE_URL}/me`);
 

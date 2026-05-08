@@ -105,9 +105,7 @@ export function LodgingTile({ hotelReservations }: LodgingTileProps) {
                   label="Check in"
                   value={
                     res.check_in ? (
-                      <time dateTime={res.check_in}>
-                        {formatIsoDate(res.check_in, "short")}
-                      </time>
+                      <time dateTime={res.check_in}>{formatIsoDate(res.check_in, "short")}</time>
                     ) : null
                   }
                 />
@@ -115,9 +113,7 @@ export function LodgingTile({ hotelReservations }: LodgingTileProps) {
                   label="Check out"
                   value={
                     res.check_out ? (
-                      <time dateTime={res.check_out}>
-                        {formatIsoDate(res.check_out, "short")}
-                      </time>
+                      <time dateTime={res.check_out}>{formatIsoDate(res.check_out, "short")}</time>
                     ) : null
                   }
                 />
@@ -132,11 +128,7 @@ export function LodgingTile({ hotelReservations }: LodgingTileProps) {
                 out via the central predicate.
               */}
               {!shouldHideGenericOptional(res.confirmation_no) ? (
-                <KeyValue
-                  label="Confirmation"
-                  value={res.confirmation_no}
-                  tabular
-                />
+                <KeyValue label="Confirmation" value={res.confirmation_no} tabular />
               ) : null}
 
               {/*

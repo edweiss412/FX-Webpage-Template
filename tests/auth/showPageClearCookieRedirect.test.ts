@@ -166,9 +166,9 @@ describe("ShowPage terminal_failure + clearCookie", () => {
   });
 
   test("LINK_SESSION_KEY_ROTATED redirects to /auth/clear-session before notFound", async () => {
-    await expect(
-      ShowPage({ params: Promise.resolve({ slug: "test-show" }) }),
-    ).rejects.toThrow(/^NEXT_REDIRECT:/);
+    await expect(ShowPage({ params: Promise.resolve({ slug: "test-show" }) })).rejects.toThrow(
+      /^NEXT_REDIRECT:/,
+    );
 
     expect(navState.notFoundCalled).toBe(0);
     expect(navState.redirected).toHaveLength(1);

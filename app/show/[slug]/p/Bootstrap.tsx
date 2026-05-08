@@ -88,10 +88,7 @@ type BootstrapProps = {
   slug: string;
 };
 
-type UiState =
-  | { kind: "connecting" }
-  | { kind: "no_fragment" }
-  | { kind: "error" };
+type UiState = { kind: "connecting" } | { kind: "no_fragment" } | { kind: "error" };
 
 const GENERIC_ERROR_COPY =
   "Something went wrong opening this link. Try the original link Doug shared again, or contact Doug if it keeps happening.";
@@ -280,11 +277,7 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
         // the user's history / clipboard. `replaceState` is a no-op for
         // the back-button history but mutates the address bar in place.
         try {
-          window.history.replaceState(
-            null,
-            "",
-            window.location.pathname + window.location.search,
-          );
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
         } catch {
           // history API can throw in edge cases (e.g., restricted iframe
           // contexts). The redirect below still fires; the fragment may
@@ -317,10 +310,7 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
 
   if (ui.kind === "no_fragment") {
     return (
-      <p
-        data-testid="bootstrap-no-fragment"
-        className="text-base text-text-subtle"
-      >
+      <p data-testid="bootstrap-no-fragment" className="text-base text-text-subtle">
         {NO_FRAGMENT_COPY}
       </p>
     );
@@ -328,11 +318,7 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
 
   if (ui.kind === "error") {
     return (
-      <p
-        data-testid="bootstrap-error"
-        role="alert"
-        className="text-base text-warning-text"
-      >
+      <p data-testid="bootstrap-error" role="alert" className="text-base text-warning-text">
         {GENERIC_ERROR_COPY}
       </p>
     );
@@ -340,10 +326,7 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
 
   // ui.kind === "connecting"
   return (
-    <p
-      data-testid="bootstrap-connecting"
-      className="text-base text-text-subtle"
-    >
+    <p data-testid="bootstrap-connecting" className="text-base text-text-subtle">
       Connecting…
     </p>
   );

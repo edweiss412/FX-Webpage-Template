@@ -24,9 +24,7 @@ function databaseUrl(): string {
   const configured = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
   if (configured) return configured;
   if (process.env.NODE_ENV === "production") {
-    throw new Error(
-      "withShowAdvisoryLock requires DATABASE_URL in production",
-    );
+    throw new Error("withShowAdvisoryLock requires DATABASE_URL in production");
   }
   return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 }

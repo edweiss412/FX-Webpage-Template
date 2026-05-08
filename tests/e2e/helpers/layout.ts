@@ -82,9 +82,7 @@ export async function gotoCrewPage(
  * Returns `{ cols, count }` so callers can include the raw value in
  * their assertion message.
  */
-export async function tileGridColumnCount(
-  page: Page,
-): Promise<{ cols: string; count: number }> {
+export async function tileGridColumnCount(page: Page): Promise<{ cols: string; count: number }> {
   const cols = await page
     .getByTestId("tile-grid")
     .evaluate((el) => getComputedStyle(el).gridTemplateColumns);

@@ -74,7 +74,7 @@ All three §13.2.3 ratified amendments are M8-only; **none apply to M4**:
   - [ ] **`lib/visibility/scopeTiles.ts` does NOT exist.** Task 4.6.
   - [ ] **`lib/visibility/emptyState.ts` and `lib/visibility/openingReelText.ts` do NOT exist.** Task 4.14.
   - [ ] **`lib/time/rightNow.ts`, `lib/realtime/subscribeToShow.ts`, `lib/realtime/showInvalidation.ts`, `lib/auth/resolveShowViewer.ts` do NOT exist.** Tasks 4.11 / 4.16.
-  - [ ] **`lib/messages/lookup.ts` does NOT exist.** This is X.* cross-cutting territory but the §17.1 invariant ("no raw error codes in user-visible UI") activates the moment crew-page tiles render error states. **M4 must ship a minimal `lib/messages/lookup.ts`** with at least the codes any M4 tile/empty-state/AC-4.5 path renders (`LINK_NO_CREW_MATCH`, `OPENING_REEL_NOT_VIDEO`, soft warning copy for `PULL_SHEET_PARSE_PARTIAL` / `PULL_SHEET_AMBIGUOUS_FORMAT`, MI-8c review-pending copy for AC-4.11/4.12). X.6 later expands it.
+  - [ ] **`lib/messages/lookup.ts` does NOT exist.** This is X.\* cross-cutting territory but the §17.1 invariant ("no raw error codes in user-visible UI") activates the moment crew-page tiles render error states. **M4 must ship a minimal `lib/messages/lookup.ts`** with at least the codes any M4 tile/empty-state/AC-4.5 path renders (`LINK_NO_CREW_MATCH`, `OPENING_REEL_NOT_VIDEO`, soft warning copy for `PULL_SHEET_PARSE_PARTIAL` / `PULL_SHEET_AMBIGUOUS_FORMAT`, MI-8c review-pending copy for AC-4.11/4.12). X.6 later expands it.
 - [x] **Specific env vars set in `.env.local`**: M2/M3 vars (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ADMIN_DEV_PANEL_ENABLED`, `TEST_AUTH_SECRET`, `ENABLE_TEST_AUTH`) all present. M4 introduces `SUPABASE_JWT_SECRET` (server-only, used by Task 4.16's Broadcast JWT mint) and `SUPABASE_REALTIME_ISS` (issuer claim for Realtime JWTs). Document the additions in `.env.local.example` when Task 4.16 lands.
 - [x] **Database migrations applied**: all M2 + M3 migrations applied to local Supabase. Task 4.16 introduces a new migration adding `crew_member_auth.last_changed_at` + `crew_members.last_changed_at` columns, two UPDATE triggers, and the `viewer_version_token(show_id uuid) returns text` SECURITY-DEFINER helper. Apply via `pnpm dlx supabase db reset && pnpm db:seed`.
 
@@ -184,7 +184,7 @@ After Tasks 4.1–4.16 are committed:
 
 The plan text for M4 names a few items that touch milestone boundaries; implementer must surface each as a question to the orchestrator before writing implementation code if disposition is unclear. Recommended dispositions follow.
 
-**(a) `lib/messages/lookup.ts`** — referenced by §17.1 invariant ("no raw error codes in UI") and required by M4 tile/empty-state surfaces. The full module is X.* cross-cutting.
+**(a) `lib/messages/lookup.ts`** — referenced by §17.1 invariant ("no raw error codes in UI") and required by M4 tile/empty-state surfaces. The full module is X.\* cross-cutting.
 
 > **Recommended disposition:** Create a minimal `lib/messages/lookup.ts` as part of the first M4 task that needs it (likely Task 4.4 or Task 4.14). Include only the codes M4 surfaces in user-visible UI: `LINK_NO_CREW_MATCH`, `OPENING_REEL_NOT_VIDEO`, `PULL_SHEET_PARSE_PARTIAL`, `PULL_SHEET_AMBIGUOUS_FORMAT`, MI-8c review-pending copy, `SHOW_REALTIME_BROADCAST_AUTH_FAILED`, `SHOW_REALTIME_CROSS_SHOW_FORBIDDEN`, `SHOW_VERSION_CROSS_SHOW_FORBIDDEN`. Operator-facing dev-panel codes (M3) remain raw per the existing exemption. X.6 expands the catalog later.
 
@@ -248,6 +248,7 @@ Finding 8 (LOW)    — Audio/Video/Lighting indistinguishable — disposition: f
 ### `/impeccable audit` — ran in this dispatch (Task 4.15 close-out)
 
 Audit Health Score: **17/20 — Good**
+
 - Accessibility: 4 — WCAG AA focus rings, semantic h1→h2 chain, aria-label landmarks, ≥44px tap targets via `min-h-tap-min`/`min-w-tap-min` tokens.
 - Performance: 4 — single client island in M4 baseline (`ThemeToggle`) + scoped client islands (`RightNowCard`, `ShowRealtimeBridge`); no layout-thrash patterns; tile body crossfade uses framer-motion's `AnimatePresence mode="wait"` (no concurrent layout reads/writes).
 - Theming: 3 — full token system (`@theme` + `:root` light + `[data-theme="dark"]` + `prefers-color-scheme`); 5 inline `tracking-[…]` literals (M4-D5) and 3 `max-w-[1200px]` literals where a `--max-w-page` token would unify (P3).
@@ -373,32 +374,32 @@ Round-by-round pattern: every round surfaced ONE realtime-layer race or ONE test
 
 ### Round-N closure ledger
 
-| Round | Verdict | Severity | Class / surface | Closure SHA |
-|---|---|---|---|---|
-| 9 | needs-attention | HIGH | RightNow stale-tint symmetric (recovery direction) | `f146147` |
-| 10 | needs-attention | MEDIUM | §8.3 notes — 6 tiles | `208fafc` |
-| 11 | needs-attention | MEDIUM | §8.3 — pickDressCode helper | `989efd6` |
-| 12 | needs-attention | 2×MEDIUM | §8.3 — 3 scope tiles + FinancialsTile | `2146273` |
-| 12-followup | (test) | — | meta-contract for §8.3 recurring class | `d091dbd` |
-| 13 | needs-attention | MEDIUM | §8.3 — TransportTile vehicle metadata | `a0fb459` |
-| 13 | needs-attention | HIGH | realtime fail-open | **WITHDRAWN round 14** |
-| 14 | needs-attention | MEDIUM | §8.3 — LodgingTile hotel_address + confirmation_no | `a352723` |
-| 14 | needs-attention | MEDIUM | resolveShowViewer slug-lookup error swallow | `5b38f54` (M5-authored, promoted to M4 scope) |
-| 15 | needs-attention | MEDIUM | §8.3 — TransportTile driver_name/phone/email | `c84c8e7` |
-| 16 | needs-attention | 2×MEDIUM + class-sweep | §8.3 — VenueTile loadingDock+googleLink + ContactsTile phone+email + CrewTile phone+email | `4e89357` |
-| 17 | needs-attention | MEDIUM | §8.3 — PackListTile cat/subCat | `d964b89` |
-| 18 | needs-attention | HIGH | realtime invalidation race — renderVersionRef optimistic advance + disconnect-during-debounce loses invalidation | `bc5f6fc` |
-| 19 | needs-attention | MEDIUM | §8.2 — prefers-reduced-motion not honored on RightNow crossfade | `8728bdb` |
-| 20 | needs-attention | HIGH | realtime auth-deny silently swallowed | `b9dc28f` |
-| 21 | needs-attention | 2×MEDIUM | round-20 retry wire-up incomplete (transient mint) + transport-notes visibility leak via NotesTile | `0cb754f` |
-| 22 | needs-attention | 2×MEDIUM | hasFullDates over-permissive (showDays empty rendered confident states) + tile-show-more disclosure missing for Crew | `bb6829c` |
-| 23 | needs-attention | HIGH | parser-shaped M/D date_restriction vs ISO comparison | `3ef8364` |
-| 23 | needs-attention | MEDIUM | ContactsTile overflow disclosure missing | `3ef8364` |
-| 23 | needs-attention | HIGH | initial-mount auth-deny | **WITHDRAWN round 24** |
-| 24 | needs-attention | MEDIUM | round-21 retry incomplete on setAuth-throw + subscribe-throw paths | `03484d7` |
-| 25 | needs-attention | HIGH | cross-show signed-link 403 boundary broken (validateLinkSession destroyed valid session on cross-show) | `159aa21` |
-| 26 | needs-attention | MEDIUM | apply-driven-refresh.spec.ts doesn't exercise live-sync | **WITHDRAWN round 27** |
-| **27** | **APPROVE** ✅ | — | — | — |
+| Round       | Verdict         | Severity               | Class / surface                                                                                                      | Closure SHA                                   |
+| ----------- | --------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| 9           | needs-attention | HIGH                   | RightNow stale-tint symmetric (recovery direction)                                                                   | `f146147`                                     |
+| 10          | needs-attention | MEDIUM                 | §8.3 notes — 6 tiles                                                                                                 | `208fafc`                                     |
+| 11          | needs-attention | MEDIUM                 | §8.3 — pickDressCode helper                                                                                          | `989efd6`                                     |
+| 12          | needs-attention | 2×MEDIUM               | §8.3 — 3 scope tiles + FinancialsTile                                                                                | `2146273`                                     |
+| 12-followup | (test)          | —                      | meta-contract for §8.3 recurring class                                                                               | `d091dbd`                                     |
+| 13          | needs-attention | MEDIUM                 | §8.3 — TransportTile vehicle metadata                                                                                | `a0fb459`                                     |
+| 13          | needs-attention | HIGH                   | realtime fail-open                                                                                                   | **WITHDRAWN round 14**                        |
+| 14          | needs-attention | MEDIUM                 | §8.3 — LodgingTile hotel_address + confirmation_no                                                                   | `a352723`                                     |
+| 14          | needs-attention | MEDIUM                 | resolveShowViewer slug-lookup error swallow                                                                          | `5b38f54` (M5-authored, promoted to M4 scope) |
+| 15          | needs-attention | MEDIUM                 | §8.3 — TransportTile driver_name/phone/email                                                                         | `c84c8e7`                                     |
+| 16          | needs-attention | 2×MEDIUM + class-sweep | §8.3 — VenueTile loadingDock+googleLink + ContactsTile phone+email + CrewTile phone+email                            | `4e89357`                                     |
+| 17          | needs-attention | MEDIUM                 | §8.3 — PackListTile cat/subCat                                                                                       | `d964b89`                                     |
+| 18          | needs-attention | HIGH                   | realtime invalidation race — renderVersionRef optimistic advance + disconnect-during-debounce loses invalidation     | `bc5f6fc`                                     |
+| 19          | needs-attention | MEDIUM                 | §8.2 — prefers-reduced-motion not honored on RightNow crossfade                                                      | `8728bdb`                                     |
+| 20          | needs-attention | HIGH                   | realtime auth-deny silently swallowed                                                                                | `b9dc28f`                                     |
+| 21          | needs-attention | 2×MEDIUM               | round-20 retry wire-up incomplete (transient mint) + transport-notes visibility leak via NotesTile                   | `0cb754f`                                     |
+| 22          | needs-attention | 2×MEDIUM               | hasFullDates over-permissive (showDays empty rendered confident states) + tile-show-more disclosure missing for Crew | `bb6829c`                                     |
+| 23          | needs-attention | HIGH                   | parser-shaped M/D date_restriction vs ISO comparison                                                                 | `3ef8364`                                     |
+| 23          | needs-attention | MEDIUM                 | ContactsTile overflow disclosure missing                                                                             | `3ef8364`                                     |
+| 23          | needs-attention | HIGH                   | initial-mount auth-deny                                                                                              | **WITHDRAWN round 24**                        |
+| 24          | needs-attention | MEDIUM                 | round-21 retry incomplete on setAuth-throw + subscribe-throw paths                                                   | `03484d7`                                     |
+| 25          | needs-attention | HIGH                   | cross-show signed-link 403 boundary broken (validateLinkSession destroyed valid session on cross-show)               | `159aa21`                                     |
+| 26          | needs-attention | MEDIUM                 | apply-driven-refresh.spec.ts doesn't exercise live-sync                                                              | **WITHDRAWN round 27**                        |
+| **27**      | **APPROVE** ✅  | —                      | —                                                                                                                    | —                                             |
 
 ### Round 27 — 2026-05-05 — APPROVED ✅
 
@@ -411,6 +412,7 @@ Round-by-round pattern: every round surfaced ONE realtime-layer race or ONE test
 **Convergence reached at round 27 (whole-milestone fresh-eyes scope).** 27 rounds total (8 narrow + 19 fresh-eyes). Total findings closed: 7 HIGH + 17 MEDIUM across 19 fix commits + 1 meta-contract test commit + 3 withdrawn findings. Final test-suite state: vitest **1704 + 5 skipped**; typecheck clean.
 
 Pattern across the fresh-eyes audit:
+
 - **§8.3 saga (rounds 10-17)**: 8 consecutive rounds on the same generic-optional-text class. Closed structurally at round 17 + meta-contract test floor.
 - **Realtime race chain (rounds 18, 20, 21, 24)**: each round drilled into a different failure mode (invalidation race during debounce; auth-deny swallowed; transient retry incomplete; setAuth/subscribe throw paths). Closed by progressively narrower fixes.
 - **Cross-cutting (rounds 19, 22, 23, 25)**: prefers-reduced-motion accessibility; hasFullDates date-completeness gate; date_restriction format mismatch; cross-show 403 boundary preservation. Each a different class.

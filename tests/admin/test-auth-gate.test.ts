@@ -77,7 +77,11 @@ vi.mock("@supabase/supabase-js", () => {
     createClient: () => ({
       auth: {
         admin: {
-          createUser: async (args: { email: unknown; password: unknown; app_metadata: unknown }) => {
+          createUser: async (args: {
+            email: unknown;
+            password: unknown;
+            app_metadata: unknown;
+          }) => {
             // Capture args so Round 4 Finding 1 tests can assert the route
             // passed the canonicalized email (not the raw client input).
             supabaseMock.state.createUserCalls.push({
@@ -191,24 +195,18 @@ describe("Layer 1 — direct route-handler import (deterministic gate-rejection 
 
   test("Gate 1: ENABLE_TEST_AUTH != 'true' → 404 (Round 2 Finding 2 #1)", async () => {
     delete process.env.ENABLE_TEST_AUTH;
-    const res = await POST(
-      makeRequest({ body: { email: "edweiss412@gmail.com" } }),
-    );
+    const res = await POST(makeRequest({ body: { email: "edweiss412@gmail.com" } }));
     expect(res.status, "ENABLE_TEST_AUTH unset must produce 404").toBe(404);
   });
 
   test("Gate 1: ENABLE_TEST_AUTH = 'false' → 404", async () => {
     process.env.ENABLE_TEST_AUTH = "false";
-    const res = await POST(
-      makeRequest({ body: { email: "edweiss412@gmail.com" } }),
-    );
+    const res = await POST(makeRequest({ body: { email: "edweiss412@gmail.com" } }));
     expect(res.status, "ENABLE_TEST_AUTH='false' must produce 404").toBe(404);
   });
 
   test("Gate 2a: missing Authorization Bearer → 401", async () => {
-    const res = await POST(
-      makeRequest({ body: { email: "edweiss412@gmail.com" }, bearer: null }),
-    );
+    const res = await POST(makeRequest({ body: { email: "edweiss412@gmail.com" }, bearer: null }));
     expect(res.status).toBe(401);
   });
 
@@ -258,9 +256,7 @@ describe("Layer 1 — direct route-handler import (deterministic gate-rejection 
   });
 
   test("Gate 4: non-allowlisted email → 400", async () => {
-    const res = await POST(
-      makeRequest({ body: { email: "attacker@malicious.test" } }),
-    );
+    const res = await POST(makeRequest({ body: { email: "attacker@malicious.test" } }));
     expect(res.status, "non-allowlisted email must reject").toBe(400);
   });
 
@@ -314,13 +310,8 @@ describe("Layer 1 — direct route-handler import (deterministic gate-rejection 
 
   test("Gate 5: createUser → 'User already registered' → 410 Gone (create-only)", async () => {
     supabaseMock.state.createUserMode = "already_registered";
-    const res = await POST(
-      makeRequest({ body: { email: "edweiss412@gmail.com" } }),
-    );
-    expect(
-      res.status,
-      "create-only must reject mutations of existing users (Gate 5)",
-    ).toBe(410);
+    const res = await POST(makeRequest({ body: { email: "edweiss412@gmail.com" } }));
+    expect(res.status, "create-only must reject mutations of existing users (Gate 5)").toBe(410);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("user_exists_create_only");
   });
@@ -331,9 +322,7 @@ describe("Layer 1 — direct route-handler import (deterministic gate-rejection 
     // codes differ. If a future regression treats every error as
     // already-registered, this test catches it.
     supabaseMock.state.createUserMode = "other_error";
-    const res = await POST(
-      makeRequest({ body: { email: "edweiss412@gmail.com" } }),
-    );
+    const res = await POST(makeRequest({ body: { email: "edweiss412@gmail.com" } }));
     expect(res.status, "non-already-registered errors must surface as 500").toBe(500);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("create_user_failed");
@@ -436,10 +425,9 @@ describe("Layer 1 — direct route-handler import (deterministic gate-rejection 
     ).toBe(canonicalForm);
 
     // (c) ssr signInWithPassword received the CANONICAL email, not raw.
-    expect(
-      supabaseMock.state.signInWithPasswordCalls.length,
-      "signInWithPassword must run",
-    ).toBe(1);
+    expect(supabaseMock.state.signInWithPasswordCalls.length, "signInWithPassword must run").toBe(
+      1,
+    );
     expect(
       supabaseMock.state.signInWithPasswordCalls[0]?.email,
       "Supabase ssr signInWithPassword MUST receive the canonical email, NOT the raw input.",

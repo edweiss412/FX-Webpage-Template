@@ -57,18 +57,12 @@ async function lookupSeed(): Promise<{
   }
   const showId = showRes.data.id as string;
 
-  const crewRes = await admin
-    .from("crew_members")
-    .select("id, role_flags")
-    .eq("show_id", showId);
+  const crewRes = await admin.from("crew_members").select("id, role_flags").eq("show_id", showId);
   if (crewRes.error || !crewRes.data?.length) {
-    throw new Error(
-      `apply-driven-refresh.spec: no crew rows for slug=${showRes.data.slug}.`,
-    );
+    throw new Error(`apply-driven-refresh.spec: no crew rows for slug=${showRes.data.slug}.`);
   }
   const lead = crewRes.data.find(
-    (c) =>
-      Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
+    (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead) throw new Error("apply-driven-refresh.spec: no LEAD crew member");
 
@@ -140,8 +134,7 @@ test.describe.skip("ShowRealtimeBridge — Task 4.16 Checkpoint B", () => {
     // Assert no retry-loop chatter (≤ 2 warn lines from the bridge).
     const bridgeWarns = consoleMessages.filter(
       (m) =>
-        m.type() === "warning" &&
-        m.text().includes("[ShowRealtimeBridge] subscription failed"),
+        m.type() === "warning" && m.text().includes("[ShowRealtimeBridge] subscription failed"),
     );
     expect(
       bridgeWarns.length,

@@ -96,10 +96,7 @@ describe("POST /api/realtime/subscriber-token", () => {
     expect(typeof body.jwt).toBe("string");
     expect(typeof body.exp).toBe("number");
 
-    const { payload } = await jwtVerify(
-      body.jwt,
-      new TextEncoder().encode(TEST_JWT_SECRET),
-    );
+    const { payload } = await jwtVerify(body.jwt, new TextEncoder().encode(TEST_JWT_SECRET));
 
     // Exact claim shape required by the plan: { show_id, sub, exp, iss,
     // role: 'authenticated', viewer_kind }. No extra app-level claims.
@@ -122,10 +119,7 @@ describe("POST /api/realtime/subscriber-token", () => {
     const res = await POST(makeReq({ slug: "test-show" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { jwt: string };
-    const { payload } = await jwtVerify(
-      body.jwt,
-      new TextEncoder().encode(TEST_JWT_SECRET),
-    );
+    const { payload } = await jwtVerify(body.jwt, new TextEncoder().encode(TEST_JWT_SECRET));
     expect(payload.viewer_kind).toBe("crew_link");
     expect(payload.sub).toBe("crew-99");
     expect(payload.show_id).toBe("show-uuid-1");
@@ -136,10 +130,7 @@ describe("POST /api/realtime/subscriber-token", () => {
     const res = await POST(makeReq({ slug: "test-show" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { jwt: string };
-    const { payload } = await jwtVerify(
-      body.jwt,
-      new TextEncoder().encode(TEST_JWT_SECRET),
-    );
+    const { payload } = await jwtVerify(body.jwt, new TextEncoder().encode(TEST_JWT_SECRET));
     expect(payload.viewer_kind).toBe("crew_google");
     expect(payload.sub).toBe("crew-77");
   });

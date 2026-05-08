@@ -36,17 +36,12 @@ async function lookupSeed(): Promise<{ slug: string; leadCrewId: string }> {
   }
   const showId = showRes.data.id as string;
 
-  const crewRes = await admin
-    .from("crew_members")
-    .select("id, role_flags")
-    .eq("show_id", showId);
+  const crewRes = await admin.from("crew_members").select("id, role_flags").eq("show_id", showId);
   if (crewRes.error || !crewRes.data?.length) {
     throw new Error(`theme-toggle.spec: no crew rows for show ${showId}.`);
   }
   const lead = crewRes.data.find(
-    (c) =>
-      Array.isArray(c.role_flags) &&
-      (c.role_flags as string[]).includes("LEAD"),
+    (c) => Array.isArray(c.role_flags) && (c.role_flags as string[]).includes("LEAD"),
   );
   if (!lead) throw new Error("theme-toggle.spec: no LEAD crew member.");
 
@@ -60,10 +55,7 @@ async function lookupSeed(): Promise<{ slug: string; leadCrewId: string }> {
 // Each affected show needs a per-test crew row whose email matches NON_ADMIN_CREW_FIXTURE,
 // plus per-test fixture seeding. See handoff §0.
 test.describe.skip("theme toggle (critique Finding 4 — flag wired)", () => {
-  test("flips data-theme + writes localStorage + survives reload", async ({
-    page,
-    context,
-  }) => {
+  test("flips data-theme + writes localStorage + survives reload", async ({ page, context }) => {
     const { slug, leadCrewId } = await lookupSeed();
 
     // Pin the system preference to LIGHT so the no-FOUC fallback path is
@@ -100,23 +92,15 @@ test.describe.skip("theme toggle (critique Finding 4 — flag wired)", () => {
     // The button's aria-pressed reflects "is dark", which should be false.
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     // aria-label is the ACTION (what clicking does), not the current state.
-    await expect(toggle).toHaveAttribute(
-      "aria-label",
-      "Switch to dark theme",
-    );
+    await expect(toggle).toHaveAttribute("aria-label", "Switch to dark theme");
 
     // Click → dark.
     await toggle.click();
 
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
-    await expect(toggle).toHaveAttribute(
-      "aria-label",
-      "Switch to light theme",
-    );
-    expect(
-      await page.evaluate(() => window.localStorage.getItem("fxav-theme")),
-    ).toBe("dark");
+    await expect(toggle).toHaveAttribute("aria-label", "Switch to light theme");
+    expect(await page.evaluate(() => window.localStorage.getItem("fxav-theme"))).toBe("dark");
 
     // Reload → the no-FOUC inline script must re-stamp data-theme=dark on
     // <html> BEFORE React hydrates. No flash, no reset to light.
@@ -127,22 +111,15 @@ test.describe.skip("theme toggle (critique Finding 4 — flag wired)", () => {
     });
 
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-    await expect(page.getByTestId("theme-toggle")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    await expect(page.getByTestId("theme-toggle")).toHaveAttribute("aria-pressed", "true");
 
     // Click again → back to light.
     await page.getByTestId("theme-toggle").click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-    expect(
-      await page.evaluate(() => window.localStorage.getItem("fxav-theme")),
-    ).toBe("light");
+    expect(await page.evaluate(() => window.localStorage.getItem("fxav-theme"))).toBe("light");
   });
 
-  test("tap target ≥44×44px (DESIGN.md §3 --spacing-tap-min)", async ({
-    page,
-  }) => {
+  test("tap target ≥44×44px (DESIGN.md §3 --spacing-tap-min)", async ({ page }) => {
     const { slug, leadCrewId } = await lookupSeed();
     await page.goto(`/show/${slug}?crew=${leadCrewId}`);
     const box = await page.getByTestId("theme-toggle").boundingBox();

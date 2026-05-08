@@ -32,21 +32,27 @@ vi.mock("next/headers", () => ({
 }));
 
 vi.mock("@supabase/ssr", () => ({
-  createServerClient: vi.fn((url: string, key: string, options: {
-    cookies: {
-      setAll: (
-        cookiesToSet: Array<{
-          name: string;
-          value: string;
-          options: Record<string, unknown>;
-        }>,
-      ) => void;
-    };
-  }) => {
-    captures.server = { url, key };
-    captures.serverCookieOptions = options;
-    return {};
-  }),
+  createServerClient: vi.fn(
+    (
+      url: string,
+      key: string,
+      options: {
+        cookies: {
+          setAll: (
+            cookiesToSet: Array<{
+              name: string;
+              value: string;
+              options: Record<string, unknown>;
+            }>,
+          ) => void;
+        };
+      },
+    ) => {
+      captures.server = { url, key };
+      captures.serverCookieOptions = options;
+      return {};
+    },
+  ),
   createBrowserClient: vi.fn((url: string, key: string) => {
     captures.browser = { url, key };
     return {};
