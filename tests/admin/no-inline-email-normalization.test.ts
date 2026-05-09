@@ -22,7 +22,7 @@
  * here intentionally has no exempt rules to avoid encouraging bypass —
  * if a real exemption is needed in M5+, add the parsing logic then.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -55,6 +55,18 @@ const FORBIDDEN_PATTERNS: Array<{ regex: RegExp; label: string }> = [
   { regex: /\.trimEnd\s*\(/g, label: ".trimEnd()" },
 ];
 
+function collectSourceFiles(relDir: string): string[] {
+  const absDir = join(ROOT, relDir);
+  return readdirSync(absDir)
+    .flatMap((entry) => {
+      const rel = `${relDir}/${entry}`;
+      const abs = join(ROOT, rel);
+      if (statSync(abs).isDirectory()) return collectSourceFiles(rel);
+      return /\.(ts|tsx)$/.test(entry) ? [rel] : [];
+    })
+    .sort();
+}
+
 const AUDITED_PATHS = [
   "app/api/test-auth/set-session/route.ts",
   "tests/e2e/helpers/signInAs.ts",
@@ -63,6 +75,8 @@ const AUDITED_PATHS = [
   "lib/auth/validateGoogleIdentity.ts",
   "lib/auth/validateGoogleSession.ts",
   "lib/data/listShowsForCrew.ts",
+  ...collectSourceFiles("lib/drive"),
+  ...collectSourceFiles("lib/sync"),
 ];
 
 describe("Round 4 Finding 1 — static-text guard against inline email normalization", () => {
