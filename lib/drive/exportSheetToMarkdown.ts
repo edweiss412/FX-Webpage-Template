@@ -55,9 +55,10 @@ function expandMerges(grid: CellGrid, merges: readonly XLSX.Range[] = []): void 
     const source = grid[merge.s.r]?.[merge.s.c] ?? "";
     if (isBlank(source)) continue;
     grid[merge.s.r] ??= [];
+    const targetRow = grid[merge.s.r];
     for (let col = merge.s.c; col <= merge.e.c; col += 1) {
-      if (isBlank(grid[merge.s.r]?.[col] ?? "")) {
-        grid[merge.s.r][col] = source;
+      if (targetRow && isBlank(targetRow[col] ?? "")) {
+        targetRow[col] = source;
       }
     }
   }
