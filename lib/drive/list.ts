@@ -11,6 +11,7 @@ export type DriveListedFile = {
   mimeType: string;
   modifiedTime: string;
   parents: string[];
+  trashed?: boolean;
   headRevisionId?: string;
   md5Checksum?: string;
 };
@@ -40,6 +41,7 @@ function toListedFile(file: drive_v3.Schema$File): DriveListedFile | null {
     modifiedTime: file.modifiedTime,
     parents: file.parents ?? [],
   };
+  if (typeof file.trashed === "boolean") listed.trashed = file.trashed;
   if (file.headRevisionId) listed.headRevisionId = file.headRevisionId;
   if (file.md5Checksum) listed.md5Checksum = file.md5Checksum;
   return listed;

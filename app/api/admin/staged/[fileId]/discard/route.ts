@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { canonicalize } from "@/lib/email/canonicalize";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   discardStaged,
   WIZARD_SCOPE_NOT_YET_IMPLEMENTED,
@@ -25,6 +27,36 @@ function statusForCode(code: string): number {
   return 409;
 }
 
+async function readAdminEmail(): Promise<
+  { kind: "ok"; email: string } | { kind: "infra_error" }
+> {
+  let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  try {
+    supabase = await createSupabaseServerClient();
+  } catch (error) {
+    console.error("[/api/admin/staged/[fileId]/discard] server client construction failed", error);
+    return { kind: "infra_error" };
+  }
+
+  let data: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"];
+  let error: Awaited<ReturnType<typeof supabase.auth.getUser>>["error"];
+  try {
+    const response = await supabase.auth.getUser();
+    data = response.data;
+    error = response.error;
+  } catch (cause) {
+    console.error("[/api/admin/staged/[fileId]/discard] getUser threw", cause);
+    return { kind: "infra_error" };
+  }
+  if (error) {
+    console.error("[/api/admin/staged/[fileId]/discard] getUser failed", error.message);
+    return { kind: "infra_error" };
+  }
+  const email = canonicalize(data.user?.email);
+  if (!email) return { kind: "infra_error" };
+  return { kind: "ok", email };
+}
+
 export async function POST(request: NextRequest, context: RouteContext): Promise<Response> {
   await requireAdmin();
   const { fileId } = await context.params;
@@ -47,11 +79,16 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
     return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
   }
   const variant = isDiscardVariant(body.variant) ? body.variant : "try_again";
+  const admin = await readAdminEmail();
+  if (admin.kind === "infra_error") {
+    return NextResponse.json({ ok: false, error: "SYNC_INFRA_ERROR" }, { status: 500 });
+  }
 
   const result = await discardStaged({
     driveFileId: fileId,
     sourceScope: "live",
     stagedId: body.staged_id,
+    discardedByEmail: admin.email,
     variant,
   });
   if ("skipped" in result) {

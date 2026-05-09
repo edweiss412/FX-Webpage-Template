@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import { getDriveClient } from "@/lib/drive/client";
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
@@ -96,6 +97,7 @@ export type ApplyStagedResult =
       outcome: "invalid_request";
       code: typeof MISSING_REVIEWER_CHOICE | typeof INVALID_REVIEWER_ACTION;
     }
+  | { outcome: "discarded"; variant: "try_again" }
   | { outcome: "wizard_deferred"; code: typeof WIZARD_SCOPE_NOT_YET_IMPLEMENTED };
 
 export type ApplyStagedDeps = {
@@ -151,6 +153,7 @@ export type ApplyStagedDeps = {
   upsertAdminAlert?: (
     input: { showId: string | null; code: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE; context: Record<string, unknown> },
   ) => Promise<unknown>;
+  retryEmbeddedRevisionAvailability?: (spreadsheetId: string) => Promise<boolean>;
 };
 
 function timestampMs(value: string | null | undefined): number | null {
@@ -236,8 +239,9 @@ function deriveAuthSideEffects(
     if (item.invariant === "MI-12" && action === "rename") {
       names.push(item.removed_name, item.added_name);
     }
-    if ((item.invariant === "MI-13" || item.invariant === "MI-14") && action === "rename") {
-      names.push(item.removed_name, item.added_name);
+    if (item.invariant === "MI-13" || item.invariant === "MI-14") {
+      if (action === "rename") names.push(item.removed_name, item.added_name);
+      if (action === "independent") names.push(item.removed_name);
     }
     if (
       (item.invariant === "MI-13-orphan-remove" ||
@@ -501,6 +505,7 @@ function depsWithDefaults(deps: ApplyStagedDeps): RequiredPick<
   | "restoreShowStatus"
   | "upsertLivePendingIngestion"
   | "bumpReviewerAuthFloors"
+  | "retryEmbeddedRevisionAvailability"
 > &
   Pick<ApplyStagedDeps, "upsertAdminAlert"> {
   return {
@@ -517,21 +522,77 @@ function depsWithDefaults(deps: ApplyStagedDeps): RequiredPick<
       deps.upsertLivePendingIngestion ?? defaultUpsertLivePendingIngestion,
     bumpReviewerAuthFloors: deps.bumpReviewerAuthFloors ?? defaultBumpReviewerAuthFloors,
     upsertAdminAlert: deps.upsertAdminAlert ?? defaultUpsertAdminAlert,
+    retryEmbeddedRevisionAvailability:
+      deps.retryEmbeddedRevisionAvailability ?? defaultRetryEmbeddedRevisionAvailability,
   };
 }
 
-function applyAssetReviewEffects(
+async function defaultRetryEmbeddedRevisionAvailability(spreadsheetId: string): Promise<boolean> {
+  const drive = getDriveClient();
+  const response = await drive.revisions.list({
+    fileId: spreadsheetId,
+    fields: "revisions(id)",
+  });
+  return (response.data.revisions ?? []).some((revision: { id?: string | null }) =>
+    Boolean(revision.id),
+  );
+}
+
+function warning(code: string): Phase2Args["parseResult"]["warnings"][number] {
+  return { severity: "warn", code, message: code };
+}
+
+async function applyAssetReviewEffects(
   pending: PendingSyncForApply,
   show: ShowForApply | null,
-): { parseResult: Phase2Args["parseResult"]; adminAlertCode: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | null } {
-  const hasUnavailable = pending.triggeredReviewItems.some(
-    (item) => item.invariant === "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+  retryEmbeddedRevisionAvailability: (spreadsheetId: string) => Promise<boolean>,
+): Promise<{ parseResult: Phase2Args["parseResult"]; adminAlertCode: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | null }> {
+  const unavailable = pending.triggeredReviewItems.find(
+    (item): item is Extract<TriggeredReviewItem, { invariant: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE" }> =>
+      item.invariant === "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
   );
+  const noneFound = pending.triggeredReviewItems.some(
+    (item) => item.invariant === "DIAGRAMS_EMBEDDED_NONE_FOUND",
+  );
+  const linkedDrift = pending.triggeredReviewItems.some(
+    (item) => item.invariant === "DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING",
+  );
+  const reelDrift = pending.triggeredReviewItems.some(
+    (item) => item.invariant === "REEL_DRIFT_PENDING",
+  );
+  const hasUnavailable = Boolean(unavailable);
   if (!hasUnavailable) {
-    const shouldMintSnapshot = pending.triggeredReviewItems.some((item) =>
-      ASSET_REVIEW_INVARIANTS.has(item.invariant),
-    );
+    const shouldMintSnapshot = noneFound || linkedDrift;
+    const warnings = [
+      ...pending.parseResult.warnings,
+      ...(linkedDrift ? [warning("LINKED_ASSET_DRIFTED")] : []),
+      ...(reelDrift ? [warning("REEL_DRIFTED")] : []),
+    ];
+    const openingReel = reelDrift ? null : pending.parseResult.openingReel;
     if (!shouldMintSnapshot) return { parseResult: pending.parseResult, adminAlertCode: null };
+    return {
+      parseResult: {
+        ...pending.parseResult,
+        warnings,
+        openingReel,
+        diagrams: {
+          linkedFolder: noneFound ? null : pending.parseResult.diagrams.linkedFolder,
+          embeddedImages: noneFound ? [] : pending.parseResult.diagrams.embeddedImages,
+          linkedFolderItems: noneFound
+            ? []
+            : pending.parseResult.diagrams.linkedFolderItems.map((item) => ({
+                ...item,
+                snapshotPath: item.snapshotPath ?? null,
+              })),
+          snapshot_revision_id: randomUUID(),
+          snapshot_status: linkedDrift ? "partial_failure" : "complete",
+        } as Phase2Args["parseResult"]["diagrams"],
+      },
+      adminAlertCode: null,
+    };
+  }
+
+  if (unavailable && (await retryEmbeddedRevisionAvailability(unavailable.spreadsheet_id))) {
     return {
       parseResult: {
         ...pending.parseResult,
@@ -551,7 +612,7 @@ function applyAssetReviewEffects(
       diagrams: show?.diagrams as Phase2Args["parseResult"]["diagrams"],
       warnings: [
         ...pending.parseResult.warnings,
-        { code: EMBEDDED_RECOVERY_REQUIRES_RESTAGE, message: EMBEDDED_RECOVERY_REQUIRES_RESTAGE },
+        warning(EMBEDDED_RECOVERY_REQUIRES_RESTAGE),
       ] as Phase2Args["parseResult"]["warnings"],
     },
     adminAlertCode: EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
@@ -614,11 +675,25 @@ export async function applyStaged_unlocked(
 
   const validation = validateReviewerChoices(pending.triggeredReviewItems, args.reviewerChoices);
   if (!("ok" in validation)) return validation;
+  if (validation.choices.some((choice) => choice.action === "reject")) {
+    await deps.restoreShowStatus(
+      tx,
+      pending.driveFileId,
+      pending.priorLastSyncStatus,
+      pending.priorLastSyncError,
+    );
+    await deps.deleteLivePendingSync(tx, pending.driveFileId, pending.stagedId);
+    return { outcome: "discarded", variant: "try_again" };
+  }
   const derivedSideEffects = deriveAuthSideEffects(
     pending.triggeredReviewItems,
     validation.choices,
   );
-  const assetAdjusted = applyAssetReviewEffects(pending, show);
+  const assetAdjusted = await applyAssetReviewEffects(
+    pending,
+    show,
+    deps.retryEmbeddedRevisionAvailability,
+  );
 
   const phase2 = await deps.runPhase2(tx, {
     driveFileId: pending.driveFileId,

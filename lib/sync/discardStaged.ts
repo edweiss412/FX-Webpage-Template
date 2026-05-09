@@ -34,9 +34,10 @@ type ShowForDiscard = {
 
 type LiveDeferralInput = {
   driveFileId: string;
-  driveFileName: string;
   deferredKind: "defer_until_modified" | "permanent_ignore";
   deferredAtModifiedTime: string | null;
+  deferredByEmail: string;
+  reason: string | null;
   wizardSessionId: null;
 };
 
@@ -45,6 +46,7 @@ export type DiscardStagedArgs =
       driveFileId: string;
       sourceScope: "live";
       stagedId: string;
+      discardedByEmail: string;
       variant?: DiscardVariant;
     }
   | {
@@ -183,19 +185,26 @@ async function defaultUpsertLiveDeferral(
   await tx.queryOne<{ upserted: boolean }>(
     `
       insert into public.deferred_ingestions (
-        drive_file_id, drive_file_name, deferred_kind,
-        deferred_at_modified_time, wizard_session_id
+        drive_file_id, deferred_kind, deferred_at_modified_time,
+        deferred_by_email, reason, wizard_session_id
       )
-      values ($1, $2, $3, $4::timestamptz, null)
+      values ($1, $2, $3::timestamptz, $4, $5, null)
       on conflict (drive_file_id) where wizard_session_id is null
       do update set
-        drive_file_name = excluded.drive_file_name,
         deferred_kind = excluded.deferred_kind,
         deferred_at_modified_time = excluded.deferred_at_modified_time,
+        deferred_by_email = excluded.deferred_by_email,
+        reason = excluded.reason,
         deferred_at = now()
       returning true as upserted
     `,
-    [row.driveFileId, row.driveFileName, row.deferredKind, row.deferredAtModifiedTime],
+    [
+      row.driveFileId,
+      row.deferredKind,
+      row.deferredAtModifiedTime,
+      row.deferredByEmail,
+      row.reason,
+    ],
   );
 }
 
@@ -241,10 +250,11 @@ export async function discardStaged_unlocked(
   } else if (variant !== "try_again") {
     await deps.upsertLiveDeferral(tx, {
       driveFileId: pending.driveFileId,
-      driveFileName: pending.driveFileName,
       deferredKind: variant,
       deferredAtModifiedTime:
         variant === "defer_until_modified" ? pending.stagedModifiedTime : null,
+      deferredByEmail: args.discardedByEmail,
+      reason: `discard:${variant}`,
       wizardSessionId: null,
     });
   }

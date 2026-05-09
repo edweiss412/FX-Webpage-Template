@@ -28,6 +28,7 @@ describe("Drive fetch wrappers", () => {
         mimeType: "application/vnd.google-apps.spreadsheet",
         modifiedTime: "2026-05-08T12:00:00.000Z",
         parents: ["folder-1"],
+        trashed: true,
         headRevisionId: "head-1",
         md5Checksum: "abc123",
       },
@@ -44,12 +45,13 @@ describe("Drive fetch wrappers", () => {
       mimeType: "application/vnd.google-apps.spreadsheet",
       modifiedTime: "2026-05-08T12:00:00.000Z",
       parents: ["folder-1"],
+      trashed: true,
       headRevisionId: "head-1",
       md5Checksum: "abc123",
     });
     expect(filesGet).toHaveBeenCalledWith({
       fileId: "sheet-1",
-      fields: "id, name, mimeType, modifiedTime, parents, headRevisionId, md5Checksum",
+      fields: "id, name, mimeType, modifiedTime, parents, trashed, headRevisionId, md5Checksum",
       supportsAllDrives: true,
     });
   });
@@ -122,7 +124,7 @@ describe("Drive fetch wrappers", () => {
     expect(filesGet).toHaveBeenCalledWith({
       fileId: "sheet-1",
       fields:
-        "id, name, mimeType, modifiedTime, parents, headRevisionId, md5Checksum, exportLinks",
+        "id, name, mimeType, modifiedTime, parents, trashed, headRevisionId, md5Checksum, exportLinks",
       supportsAllDrives: true,
     });
     expect(fetchImpl).toHaveBeenCalledWith("https://docs.google.com/export/current.xlsx", {

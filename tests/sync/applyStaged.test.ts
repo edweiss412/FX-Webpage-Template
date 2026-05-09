@@ -429,6 +429,160 @@ describe("applyStaged live-scope", () => {
     ]);
   });
 
+  test("reject reviewer choice routes through discard semantics before Phase 2", async () => {
+    const item: TriggeredReviewItem = {
+      id: "mi12",
+      invariant: "MI-12",
+      removed_name: "Bob",
+      added_name: "Robert",
+      email: "bob@test.test",
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ triggeredReviewItems: [item] }),
+      ),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "mi12", action: "reject" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "discarded", variant: "try_again" });
+    expect(syncDeps.restoreShowStatus).toHaveBeenCalledWith(tx, "drive-file-1", "ok", null);
+    expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+    expect(syncDeps.insertSyncAudit).not.toHaveBeenCalled();
+  });
+
+  test("MI-13 independent choice bumps the removed identity only", async () => {
+    const item: TriggeredReviewItem = {
+      id: "mi13",
+      invariant: "MI-13",
+      removed_name: "Old Person",
+      added_name: "New Person",
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ triggeredReviewItems: [item] }),
+      ),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "mi13", action: "independent" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toMatchObject({
+      outcome: "applied",
+      derivedSideEffects: { revokeFloorForNames: ["Old Person"] },
+    });
+    expect(syncDeps.bumpReviewerAuthFloors).toHaveBeenCalledWith(tx, "show-1", ["Old Person"]);
+  });
+
+  test("DIAGRAMS_EMBEDDED_NONE_FOUND mints an intentionally empty diagram snapshot", async () => {
+    const item: TriggeredReviewItem = {
+      id: "empty-diagrams",
+      invariant: "DIAGRAMS_EMBEDDED_NONE_FOUND",
+      spreadsheet_id: "sheet-1",
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(
+      async () => ({ outcome: "applied" as const, showId: "show-1" }),
+    );
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ triggeredReviewItems: [item] }),
+      ),
+      runPhase2,
+    });
+
+    await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "empty-diagrams", action: "apply" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    const phase2Args = runPhase2.mock.calls[0]?.[1];
+    expect(phase2Args?.parseResult.diagrams).toMatchObject({
+      linkedFolder: null,
+      embeddedImages: [],
+      linkedFolderItems: [],
+      snapshot_status: "complete",
+    });
+    expect(typeof (phase2Args?.parseResult.diagrams as { snapshot_revision_id?: unknown }).snapshot_revision_id).toBe(
+      "string",
+    );
+  });
+
+  test("DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE retries before preserving prior diagrams", async () => {
+    const item: TriggeredReviewItem = {
+      id: "no-revision",
+      invariant: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+      spreadsheet_id: "sheet-1",
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const retryEmbeddedRevisionAvailability = vi.fn(async () => false);
+    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(
+      async () => ({ outcome: "applied" as const, showId: "show-1" }),
+    );
+    const priorDiagrams = { snapshot_revision_id: "prior-rev", snapshot_status: "complete" };
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ triggeredReviewItems: [item] }),
+      ),
+      readShowForApply: vi.fn(async () => ({
+        showId: "show-1",
+        lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
+        diagrams: priorDiagrams,
+      })),
+      retryEmbeddedRevisionAvailability,
+      runPhase2,
+    });
+
+    await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "no-revision", action: "apply" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(retryEmbeddedRevisionAvailability).toHaveBeenCalledWith("sheet-1");
+    expect(runPhase2.mock.calls[0]?.[1]?.parseResult.diagrams).toBe(priorDiagrams);
+    expect(syncDeps.upsertAdminAlert).toHaveBeenCalledWith({
+      showId: "show-1",
+      code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
+      context: { drive_file_id: "drive-file-1" },
+    });
+  });
+
   test("wizard scope is explicitly deferred behind a 501 code", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const syncDeps = deps();

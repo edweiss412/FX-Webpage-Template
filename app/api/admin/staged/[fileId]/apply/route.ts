@@ -119,6 +119,9 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
   if (result.outcome === "applied") {
     return NextResponse.json({ ok: true, result });
   }
+  if (result.outcome === "discarded") {
+    return NextResponse.json({ ok: true, result });
+  }
   return NextResponse.json(
     { ok: false, error: result.code },
     { status: statusForCode(result.code) },

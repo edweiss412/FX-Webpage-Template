@@ -23,6 +23,26 @@ vi.mock("@/lib/sync/discardStaged", () => ({
   WIZARD_SCOPE_NOT_YET_IMPLEMENTED: "WIZARD_SCOPE_NOT_YET_IMPLEMENTED",
 }));
 
+const supabaseMock = vi.hoisted(() => ({
+  userEmail: "Doug@FXAV.test",
+  getUserError: null as null | { message: string },
+  getUserThrows: null as null | Error,
+}));
+
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServerClient: async () => ({
+    auth: {
+      getUser: async () => {
+        if (supabaseMock.getUserThrows) throw supabaseMock.getUserThrows;
+        return {
+          data: { user: { email: supabaseMock.userEmail } },
+          error: supabaseMock.getUserError,
+        };
+      },
+    },
+  }),
+}));
+
 const { POST } = await import("@/app/api/admin/staged/[fileId]/discard/route");
 
 function request(body: unknown) {
@@ -37,6 +57,9 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
   beforeEach(() => {
     adminMock.requireAdmin.mockClear();
     discardMock.discardStaged.mockClear();
+    supabaseMock.userEmail = "Doug@FXAV.test";
+    supabaseMock.getUserError = null;
+    supabaseMock.getUserThrows = null;
   });
 
   test("wizard source_scope is a hard 501 guard before discardStaged", async () => {
@@ -72,6 +95,7 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
       driveFileId: "drive-file-1",
       sourceScope: "live",
       stagedId: "staged-live",
+      discardedByEmail: "doug@fxav.test",
       variant: "defer_until_modified",
     });
   });
@@ -89,5 +113,18 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
 
     expect(response.status).toBe(status);
     await expect(response.json()).resolves.toEqual({ ok: false, error: code });
+  });
+
+  test("admin email lookup infra faults return SYNC_INFRA_ERROR", async () => {
+    supabaseMock.getUserThrows = new Error("network");
+
+    const response = await POST(
+      request({ source_scope: "live", staged_id: "staged-live", variant: "try_again" }),
+      { params: Promise.resolve({ fileId: "drive-file-1" }) },
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: "SYNC_INFRA_ERROR" });
+    expect(discardMock.discardStaged).not.toHaveBeenCalled();
   });
 });

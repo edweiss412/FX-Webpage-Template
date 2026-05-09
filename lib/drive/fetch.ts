@@ -7,7 +7,7 @@ export const MARKDOWN_EXPORT_MIME_TYPE = "text/markdown";
 export const XLSX_EXPORT_MIME_TYPE =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 export const DRIVE_FILE_METADATA_FIELDS =
-  "id, name, mimeType, modifiedTime, parents, headRevisionId, md5Checksum";
+  "id, name, mimeType, modifiedTime, parents, trashed, headRevisionId, md5Checksum";
 export const DRIVE_EXPORT_METADATA_FIELDS = `${DRIVE_FILE_METADATA_FIELDS}, exportLinks`;
 
 export type DriveFetchOptions = {
@@ -35,6 +35,7 @@ function toDriveFileMetadata(file: drive_v3.Schema$File): DriveListedFile {
     modifiedTime: file.modifiedTime,
     parents: file.parents ?? [],
   };
+  if (typeof file.trashed === "boolean") metadata.trashed = file.trashed;
   if (file.headRevisionId) metadata.headRevisionId = file.headRevisionId;
   if (file.md5Checksum) metadata.md5Checksum = file.md5Checksum;
   return metadata;
