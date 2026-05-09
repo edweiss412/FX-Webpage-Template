@@ -41,7 +41,7 @@ export default defineConfig({
       // route doesn't depend on any of the dev-build / prod-build env gates.
       name: "mobile-safari",
       testMatch:
-        /(sample|crew-page|schedule-tile|scope-tiles|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|theme-toggle|empty-state|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-layout|sign-in-page|bootstrap|me-page)\.spec\.ts/,
+        /(sample|crew-page|schedule-tile|scope-tiles|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|theme-toggle|empty-state|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-layout|admin-parse-panel|sign-in-page|bootstrap|me-page)\.spec\.ts/,
       use: {
         ...devices["iPhone 14"],
         viewport: { width: 390, height: 844 },
@@ -55,7 +55,7 @@ export default defineConfig({
     {
       name: "desktop-chromium",
       testMatch:
-        /(sample|crew-page|schedule-tile|scope-tiles|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|theme-toggle|empty-state|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-layout|sign-in-page|bootstrap|me-page)\.spec\.ts/,
+        /(sample|crew-page|schedule-tile|scope-tiles|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|theme-toggle|empty-state|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-layout|admin-parse-panel|sign-in-page|bootstrap|me-page)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },
