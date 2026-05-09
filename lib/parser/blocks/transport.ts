@@ -30,24 +30,6 @@ import type { ParseAggregator } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, splitRow } from "./_helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
 
-// Stage labels that indicate schedule rows (not metadata rows)
-const SCHEDULE_STAGE_LABELS = new Set([
-  "rental pickup",
-  "load at warehouse",
-  "pick up warehouse",
-  "load in at venue",
-  "pick up venue",
-  "drop off warehouse",
-  "unload at warehouse",
-  "rental return",
-  "drop off venue",
-  // v2-style
-  "pick up warehouse",
-  "drop off venue",
-  "pick up venue",
-  "drop off warehouse",
-]);
-
 /**
  * Non-transport block labels that signal the transport schedule has ended.
  * When the v4 parser encounters a row whose first cell matches one of these
@@ -124,7 +106,7 @@ export function parseTransportation(
   markdown: string,
   _version: "v1" | "v2" | "v4",
   crewMembers?: CrewMemberRow[],
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   _agg?: ParseAggregator,
 ): TransportationRow | null {
   // Try v4 header first (TRANSPORTATION/Equipment Transporter style)
@@ -170,10 +152,6 @@ function parseV4Transport(
 
   // Detect column positions from the header row itself
   // Header: | TRANSPORTATION/... | TRANSPORTATION/Name | PHONE/xxx | EMAIL/xxx | LICENSE |
-  const headerParts = tableLines[0]!
-    .split("|")
-    .slice(1, -1)
-    .map((s) => s.trim());
   const dateColIdx = detectDateColIdx(tableLines);
   const timeColIdx = dateColIdx + 1;
   const passengersColIdx = detectPassengersColIdx(tableLines);
@@ -354,7 +332,7 @@ function parseV2Transport(
 
 function parseV1Transport(
   markdown: string,
-  crewMembers?: CrewMemberRow[],
+  _crewMembers?: CrewMemberRow[],
 ): TransportationRow | null {
   // Match: | Driver | <name> | <phone> |  (v1 has no TRANSPORTATION header)
   const headerRe = /^\|\s*Driver\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/im;

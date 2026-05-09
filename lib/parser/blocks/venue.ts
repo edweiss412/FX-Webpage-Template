@@ -50,7 +50,7 @@ type VenueFields = NonNullable<ShowRow["venue"]>;
  *                   Alias-based dispatch handles all versions identically, so
  *                   the parameter is not read internally.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+ 
 export function parseVenue(
   markdown: string,
   version: "v1" | "v2" | "v4",

@@ -48,7 +48,7 @@ function classifyLabel(label: string): DateRowKind {
 export function parseDates(
   markdown: string,
   version: "v1" | "v2" | "v4",
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   _agg?: ParseAggregator,
 ): ShowRow["dates"] {
   const result: ShowRow["dates"] = {

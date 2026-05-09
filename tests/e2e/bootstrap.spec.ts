@@ -74,7 +74,6 @@ const TEST_SECRET = "redeem-link-test-secret-32-bytes-min";
 // (lib/auth/constants.ts) are the single source of truth; we assert
 // against the literal so a rename triggers a test failure here too.
 const BOOTSTRAP_COOKIE_LITERAL = "__Host-fxav_bootstrap_v";
-const SESSION_COOKIE_LITERAL = "__Host-fxav_session";
 
 /**
  * `__Host-` cookies require Secure + the browser refuses them on plain

@@ -33,6 +33,44 @@ import type {
   InvariantOutcome,
 } from "@/lib/parser/types";
 
+// Type-export contract: every name imported above must remain exported from
+// `@/lib/parser/types`. Referencing each in this tuple type forces a TS error
+// the moment any export is renamed or removed. Compile-time only — the test
+// file's runtime assertions live in the `it` blocks below.
+type _ExportContract = [
+  ParseWarning,
+  ParseError,
+  DateRestriction,
+  StageRestriction,
+  RoleFlag,
+  CrewMemberRow,
+  ClientContact,
+  ClientContactPerson,
+  ShowRow,
+  WorkPhase,
+  HotelReservationRow,
+  RoomKind,
+  RoomRow,
+  TransportScheduleEntry,
+  TransportationRow,
+  ContactKind,
+  ContactRow,
+  PullSheetItem,
+  PullSheetCase,
+  EmbeddedImageStub,
+  LinkedFolderRef,
+  LinkedFolderItemStub,
+  OpeningReelRef,
+  OpeningReelPinned,
+  PersistedEmbeddedImage,
+  PersistedLinkedFolderItem,
+  PersistedDiagrams,
+  ParsedSheet,
+  ParseResult,
+  TriggeredReviewItem,
+  InvariantOutcome,
+];
+
 describe("parser/types", () => {
   it("exports every canonical type contract", () => {
     // Construct a minimal value of each top-level type to prove the type compiles

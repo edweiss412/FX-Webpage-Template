@@ -206,7 +206,7 @@ describe("parseClient — corpus coverage (all 10 fixtures)", () => {
       const md = readFileSync(fixturePath, "utf8");
       const version = detectVersion(md);
       expect(version).not.toBeNull();
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+       
       const r = parseClient(md, version!);
       expect(r.client_label.length).toBeGreaterThan(0);
     });

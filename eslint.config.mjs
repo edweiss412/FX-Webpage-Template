@@ -46,6 +46,18 @@ const eslintConfig = defineConfig([
       // hand on initial canonicalization; new violations introduced via
       // direct string literals or `clsx` calls WILL be caught.
       "better-tailwindcss/enforce-canonical-classes": "error",
+      // Honor the leading-underscore convention for intentionally unused
+      // identifiers (parser-block `_version` parameters, type-test
+      // construction sentinels, destructured-but-discarded values).
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          destructuredArrayIgnorePattern: "^_",
+        },
+      ],
     },
   },
   // Must be last: disables ESLint rules that conflict with Prettier formatting.

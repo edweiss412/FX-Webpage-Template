@@ -30,14 +30,14 @@ const MAX_HOTELS = 4; // cardinality cap §10
 function warn(msg: string): void {
   // warnings are surfaced as console.warn in dev; the full ParseResult warnings
   // array is assembled at the top-level parser (Task 1.11).
-  /* eslint-disable-next-line no-console */
+   
   console.warn(`[hotels] ${msg}`);
 }
 
 export function parseHotels(
   markdown: string,
   _version: "v1" | "v2" | "v4",
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   _agg?: ParseAggregator,
 ): HotelReservationRow[] {
   // Try the structured HOTEL table first (v4 + v2 newer layouts)

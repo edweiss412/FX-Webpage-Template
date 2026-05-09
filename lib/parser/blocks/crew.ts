@@ -49,7 +49,7 @@ export function parseCrew(
   markdown: string,
   // version is part of the public API contract (§2.4); reserved for future
   // version-specific column-shape handling. Detection is currently content-based.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   _version: "v1" | "v2" | "v4",
   agg?: ParseAggregator,
 ): CrewMemberRow[] {

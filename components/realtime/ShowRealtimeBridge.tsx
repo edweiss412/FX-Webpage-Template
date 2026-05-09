@@ -817,8 +817,10 @@ export function ShowRealtimeBridge({ showId, slug, renderVersion }: ShowRealtime
     // showId / slug are stable for the lifetime of the page (the URL
     // resolves them once at server-render time); we still list them so
     // a hypothetical future surface that rotates them remounts the
-    // bridge cleanly.
-  }, [showId, slug, scheduleDebouncedRefresh, refreshSyncIfMismatch]);
+    // bridge cleanly. `router` is a stable App Router instance from
+    // `useRouter()` but is referenced directly inside the effect (the
+    // auth-deny refresh fast paths), so exhaustive-deps requires it.
+  }, [showId, slug, scheduleDebouncedRefresh, refreshSyncIfMismatch, router]);
 
   return null;
 }

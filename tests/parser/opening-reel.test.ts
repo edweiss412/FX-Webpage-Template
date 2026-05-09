@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
 import { extractOpeningReel } from "@/lib/parser/opening-reel";
 
 // ── AC-7.23: substring anywhere in cell ───────────────────────────────────────

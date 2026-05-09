@@ -64,7 +64,7 @@ function hasContactSignal(text: string): boolean {
 export function parseContacts(
   markdown: string,
   _version: "v1" | "v2" | "v4",
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   _agg?: ParseAggregator,
 ): ContactRow[] {
   const contacts: ContactRow[] = [];
