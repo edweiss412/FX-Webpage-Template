@@ -153,3 +153,28 @@ User authorized "continue until convergence" after the round-3 cap, which extend
 689 parser/invariant tests passing across 22 test files at convergence. Lint, typecheck, build all clean. Working tree clean. The recurring `format:check` flag on the spec docs file is a Prettier whitespace artifact triggered by Codex's read commands; the actual code is Prettier-clean and the spec edit is discarded post-review.
 
 **M1 closed.** Foundation parser ready for M2 (schema + RLS + DB migrations) and M3 (admin upload-test). Tasks 1.6–1.14 spec amendments + ratifications all internally consistent at convergence.
+
+### Round 9 — Self-review pass (2026-05-08, no cross-model)
+
+User-initiated additional adversarial review run by GPT-5.5 / Codex against the same artifacts (handoff + plan + spec), no cross-model — Codex reviewed AND repaired in-session per the user's standing permission for this round. Surfaced a real defect introduced during the original 8-round closure: **`ONLY` role-flag semantics**.
+
+The defect (two-part):
+
+1. **`extractStageRestriction` over-fired on full-stage prefix alone.** Any role row starting with `Load In / Set / Strike / Load Out` (e.g., a normal `Doug Larson — Load In / Set / Strike / Load Out — LEAD / V1` capability row) was returning `stage_restriction: { kind: 'explicit', stages: ['Load In','Set','Strike','Load Out'] }` even though the role had no `ONLY` token. The all-4-stages restriction should ONLY fire when the literal `ONLY` (or `ONLY***`) marker is present.
+
+2. **`ONLY` was incorrectly removed from the `RoleFlag` union.** During my round-3 fix I de-zombied `'ONLY'` from `RoleFlag` on the rationale that it was a "recognized-but-suppressed restriction marker." That was wrong against the ratified spec and downstream plan inventory: `ONLY` IS persisted as an atomic role flag (paired with `stage_restriction`/`date_restriction.unknown_asterisk` for restriction semantics; the flag itself remains in `role_flags`).
+
+Fixed in commit `17f08cf` (2026-05-08):
+- `lib/parser/types.ts` — re-added `'ONLY'` to the `RoleFlag` union with updated comment ("ONLY is persisted as an atomic role flag").
+- `lib/parser/personalization.ts` — `FULL_STAGE_ONLY_PATTERN` now requires the literal `ONLY` (or `ONLY***`) suffix; `extractRoleFlags` adds `'ONLY'` once when `hasOnlyMarker` is true (idempotent via `pushFlag` helper).
+- `lib/parser/blocks/crew.ts` — additionally inspects `nameRaw` AND `roleRaw` for `\bONLY\b` so name-cell ONLY markers (`Calvin Saller (6/24 ONLY)`) also produce the flag.
+- Tests updated: `Doug Larson LEAD / V1` → `stage_restriction: { kind: 'none' }`; pure-ONLY rows (Calvin in 2025-06/2025-05/2026-03/2026-05; Eric Weiss in 2025-10) → `role_flags: ['ONLY']`; synthetic vocabulary test confirms restriction tokens produce `['ONLY']` not `[]`; `tests/visibility/scopeTiles.test.ts` updated to include `ONLY` in known-canonical list.
+
+Verification at HEAD `17f08cf`:
+- `pnpm test:parser` — 21 files, 689 tests passed.
+- `pnpm test` (full suite) — 103 files, 1749 passed (5 skipped).
+- `pnpm typecheck` / `pnpm lint` — green (lint warnings pre-existing).
+- `pnpm build` — clean after `.next` clear.
+- Touched-file Prettier check — clean.
+
+**Convergence reached on round 9.** This pass exposed that round-3's "ONLY is recognized but never emitted" decision was a real defect rather than a clean-up — it removed downstream-required behavior. Lesson logged: when removing a token from a public type union, verify against downstream consumers before treating it as "zombie code."
