@@ -1,10 +1,14 @@
 import type { drive_v3 } from "googleapis";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
+import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
 import type { DriveListedFile } from "@/lib/drive/list";
 
 export const MARKDOWN_EXPORT_MIME_TYPE = "text/markdown";
+export const XLSX_EXPORT_MIME_TYPE =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 export const DRIVE_FILE_METADATA_FIELDS =
   "id, name, mimeType, modifiedTime, parents, headRevisionId, md5Checksum";
+export const DRIVE_EXPORT_METADATA_FIELDS = `${DRIVE_FILE_METADATA_FIELDS}, exportLinks`;
 
 export type DriveFetchOptions = {
   drive?: drive_v3.Drive;
@@ -17,14 +21,6 @@ export class DriveFetchError extends Error {
     super(message);
     this.name = "DriveFetchError";
   }
-}
-
-function dataToString(data: unknown): string {
-  if (typeof data === "string") return data;
-  if (Buffer.isBuffer(data)) return data.toString("utf8");
-  if (data instanceof Uint8Array) return Buffer.from(data).toString("utf8");
-  if (data instanceof ArrayBuffer) return Buffer.from(data).toString("utf8");
-  throw new DriveFetchError("Drive export response was not text or bytes");
 }
 
 function toDriveFileMetadata(file: drive_v3.Schema$File): DriveListedFile {
@@ -44,6 +40,30 @@ function toDriveFileMetadata(file: drive_v3.Schema$File): DriveListedFile {
   return metadata;
 }
 
+function bindingToken(file: drive_v3.Schema$File | DriveListedFile): string {
+  const token = file.headRevisionId ?? file.modifiedTime;
+  if (!token) {
+    const fileId = "driveFileId" in file ? file.driveFileId : file.id;
+    throw new DriveFetchError(`Drive files.get response omitted revision token for ${fileId}`);
+  }
+  return token;
+}
+
+async function fetchFileForExport(
+  driveFileId: string,
+  drive: drive_v3.Drive,
+): Promise<drive_v3.Schema$File> {
+  const response = await drive.files.get({
+    fileId: driveFileId,
+    fields: DRIVE_EXPORT_METADATA_FIELDS,
+    supportsAllDrives: true,
+  });
+  if (!response.data.id || !response.data.name || !response.data.mimeType || !response.data.modifiedTime) {
+    throw new DriveFetchError("Drive files.get response omitted required metadata");
+  }
+  return response.data;
+}
+
 export async function fetchDriveFileMetadata(
   driveFileId: string,
   options: DriveFetchOptions = {},
@@ -58,20 +78,20 @@ export async function fetchDriveFileMetadata(
   return toDriveFileMetadata(response.data);
 }
 
+/**
+ * @internal: tests only. Production sync paths must call
+ * fetchSheetAsMarkdownAtRevision with a binding token captured before parsing.
+ */
 export async function fetchSheetAsMarkdown(
   driveFileId: string,
   options: DriveFetchOptions = {},
 ): Promise<string> {
   const drive = options.drive ?? getDriveClient();
-  const response = await drive.files.export(
-    {
-      fileId: driveFileId,
-      mimeType: MARKDOWN_EXPORT_MIME_TYPE,
-    },
-    { responseType: "text" },
-  );
-
-  return dataToString(response.data);
+  const metadata = await fetchDriveFileMetadata(driveFileId, { ...options, drive });
+  return fetchSheetAsMarkdownAtRevision(driveFileId, bindingToken(metadata), {
+    ...options,
+    drive,
+  });
 }
 
 export async function fetchSheetAsMarkdownAtRevision(
@@ -80,15 +100,18 @@ export async function fetchSheetAsMarkdownAtRevision(
   options: DriveFetchOptions = {},
 ): Promise<string> {
   const drive = options.drive ?? getDriveClient();
-  const response = await drive.revisions.get({
-    fileId: driveFileId,
-    revisionId,
-    fields: "exportLinks",
-  });
-  const exportUrl = response.data.exportLinks?.[MARKDOWN_EXPORT_MIME_TYPE];
+  const before = await fetchFileForExport(driveFileId, drive);
+  const beforeToken = bindingToken(before);
+  if (beforeToken !== revisionId) {
+    throw new DriveFetchError(
+      `Drive bound revision token for ${driveFileId} changed before xlsx export`,
+    );
+  }
+
+  const exportUrl = before.exportLinks?.[XLSX_EXPORT_MIME_TYPE];
   if (!exportUrl) {
     throw new DriveFetchError(
-      `Drive revision ${revisionId} for ${driveFileId} did not include a markdown export link`,
+      `Drive revision token ${revisionId} for ${driveFileId} did not include an xlsx export link`,
     );
   }
   const accessToken = await (options.getAccessToken ?? getDriveAccessToken)();
@@ -96,14 +119,19 @@ export async function fetchSheetAsMarkdownAtRevision(
   const exportResponse = await fetchImpl(exportUrl, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
-      Accept: MARKDOWN_EXPORT_MIME_TYPE,
+      Accept: XLSX_EXPORT_MIME_TYPE,
     },
   });
   if (!exportResponse.ok) {
-    throw new DriveFetchError(
-      `Drive revision markdown export failed with HTTP ${exportResponse.status}`,
-    );
+    throw new DriveFetchError(`Drive revision xlsx export failed with HTTP ${exportResponse.status}`);
   }
 
-  return exportResponse.text();
+  const bytes = await exportResponse.arrayBuffer();
+  const after = await fetchFileForExport(driveFileId, drive);
+  const afterToken = bindingToken(after);
+  if (afterToken !== revisionId) {
+    throw new DriveFetchError(`Drive revision token for ${driveFileId} changed during xlsx export`);
+  }
+
+  return synthesizeMarkdownFromXlsx(bytes);
 }

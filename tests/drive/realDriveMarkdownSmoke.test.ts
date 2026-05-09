@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { getDriveClient } from "@/lib/drive/client";
-import {
-  fetchSheetAsMarkdownAtRevision,
-  MARKDOWN_EXPORT_MIME_TYPE,
-} from "@/lib/drive/fetch";
+import { fetchSheetAsMarkdownAtRevision, XLSX_EXPORT_MIME_TYPE } from "@/lib/drive/fetch";
+import { loadLocalEnv } from "./loadLocalEnv";
+
+loadLocalEnv();
 
 const fixtureSpreadsheetId =
   process.env.M6_REAL_DRIVE_FIXTURE_SPREADSHEET_ID ??
@@ -13,28 +13,21 @@ const fixtureSpreadsheetId =
 const hasLiveDriveConfig = Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON && fixtureSpreadsheetId);
 
 describe.skipIf(!hasLiveDriveConfig)("real Drive markdown export smoke", () => {
-  test("live fixture revision exposes text/markdown and exports through the pinned wrapper", async () => {
+  test("live fixture exposes xlsx export and fetches through the bound wrapper", async () => {
     const drive = getDriveClient();
     const metadata = await drive.files.get({
       fileId: fixtureSpreadsheetId as string,
-      fields: "id, name, mimeType, modifiedTime, headRevisionId",
+      fields: "id, name, mimeType, modifiedTime, headRevisionId, exportLinks",
       supportsAllDrives: true,
     });
-    const headRevisionId = metadata.data.headRevisionId;
+    const bindingToken = metadata.data.headRevisionId ?? metadata.data.modifiedTime;
 
-    expect(headRevisionId, "fixture spreadsheet must expose a headRevisionId").toBeTruthy();
-
-    const revision = await drive.revisions.get({
-      fileId: fixtureSpreadsheetId as string,
-      revisionId: headRevisionId as string,
-      fields: "exportLinks",
-    });
-
-    expect(revision.data.exportLinks).toHaveProperty(MARKDOWN_EXPORT_MIME_TYPE);
+    expect(bindingToken, "fixture spreadsheet must expose a bindable revision token").toBeTruthy();
+    expect(metadata.data.exportLinks).toHaveProperty(XLSX_EXPORT_MIME_TYPE);
 
     const markdown = await fetchSheetAsMarkdownAtRevision(
       fixtureSpreadsheetId as string,
-      headRevisionId as string,
+      bindingToken as string,
       { drive },
     );
 

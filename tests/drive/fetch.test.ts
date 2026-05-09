@@ -1,5 +1,11 @@
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { drive_v3 } from "googleapis";
+
+const synthesizeMarkdownFromXlsx = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/drive/exportSheetToMarkdown", () => ({
+  synthesizeMarkdownFromXlsx,
+}));
 
 function fakeDrive(parts: {
   files?: Partial<drive_v3.Resource$Files>;
@@ -9,6 +15,11 @@ function fakeDrive(parts: {
 }
 
 describe("Drive fetch wrappers", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    synthesizeMarkdownFromXlsx.mockReturnValue("| CLIENT |\n| :---: |\n| ACME |");
+  });
+
   test("fetchDriveFileMetadata wraps files.get with the fields sync needs", async () => {
     const filesGet = vi.fn().mockResolvedValue({
       data: {
@@ -43,64 +54,122 @@ describe("Drive fetch wrappers", () => {
     });
   });
 
-  test("fetchSheetAsMarkdown wraps files.export with the markdown MIME type", async () => {
-    const exportFile = vi.fn().mockResolvedValue({ data: "# Show Sheet\n" });
-    const { fetchSheetAsMarkdown, MARKDOWN_EXPORT_MIME_TYPE } = await import("@/lib/drive/fetch");
-
-    const markdown = await fetchSheetAsMarkdown("sheet-1", {
-      drive: fakeDrive({ files: { export: exportFile } }),
-    });
-
-    expect(markdown).toBe("# Show Sheet\n");
-    expect(exportFile).toHaveBeenCalledWith(
-      {
-        fileId: "sheet-1",
-        mimeType: MARKDOWN_EXPORT_MIME_TYPE,
-      },
-      { responseType: "text" },
-    );
-  });
-
-  test("fetchSheetAsMarkdownAtRevision resolves the revision export link and fetches markdown with auth", async () => {
-    const revisionsGet = vi.fn().mockResolvedValue({
+  test("fetchSheetAsMarkdown is a test-only helper that binds to the current modifiedTime token", async () => {
+    const filesGet = vi.fn().mockResolvedValue({
       data: {
+        id: "sheet-1",
+        name: "Show Sheet",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
         exportLinks: {
-          "text/markdown": "https://docs.google.com/export/rev-1-markdown",
-          "application/pdf": "https://docs.google.com/export/rev-1-pdf",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+            "https://docs.google.com/export/current.xlsx",
         },
       },
     });
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
-      text: vi.fn().mockResolvedValue("# Revision R1\n"),
+      arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(4)),
     });
-    const { fetchSheetAsMarkdownAtRevision, MARKDOWN_EXPORT_MIME_TYPE } = await import(
-      "@/lib/drive/fetch"
-    );
+    const { fetchSheetAsMarkdown } = await import("@/lib/drive/fetch");
 
-    const markdown = await fetchSheetAsMarkdownAtRevision("sheet-1", "rev-1", {
-      drive: fakeDrive({ revisions: { get: revisionsGet } }),
+    const markdown = await fetchSheetAsMarkdown("sheet-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
       fetch: fetchImpl,
       getAccessToken: async () => "ya29.test-token",
     });
 
-    expect(markdown).toBe("# Revision R1\n");
-    expect(revisionsGet).toHaveBeenCalledWith({
-      fileId: "sheet-1",
-      revisionId: "rev-1",
-      fields: "exportLinks",
-    });
-    expect(fetchImpl).toHaveBeenCalledWith("https://docs.google.com/export/rev-1-markdown", {
-      headers: {
-        Authorization: "Bearer ya29.test-token",
-        Accept: MARKDOWN_EXPORT_MIME_TYPE,
-      },
-    });
+    expect(markdown).toBe("| CLIENT |\n| :---: |\n| ACME |");
+    expect(filesGet).toHaveBeenCalledTimes(3);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  test("fetchSheetAsMarkdownAtRevision fails closed when the revision lacks a markdown export link", async () => {
-    const revisionsGet = vi.fn().mockResolvedValue({
+  test("fetchSheetAsMarkdownAtRevision exports xlsx bytes when the metadata token remains stable", async () => {
+    const filesGet = vi.fn().mockResolvedValue({
       data: {
+        id: "sheet-1",
+        name: "Show Sheet",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        exportLinks: {
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+            "https://docs.google.com/export/current.xlsx",
+          "application/pdf": "https://docs.google.com/export/rev-1-pdf",
+        },
+      },
+    });
+    const bytes = new ArrayBuffer(8);
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: vi.fn().mockResolvedValue(bytes),
+    });
+    const { fetchSheetAsMarkdownAtRevision, XLSX_EXPORT_MIME_TYPE } = await import(
+      "@/lib/drive/fetch"
+    );
+
+    const markdown = await fetchSheetAsMarkdownAtRevision(
+      "sheet-1",
+      "2026-05-08T12:00:00.000Z",
+      {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        fetch: fetchImpl,
+        getAccessToken: async () => "ya29.test-token",
+      },
+    );
+
+    expect(markdown).toBe("| CLIENT |\n| :---: |\n| ACME |");
+    expect(filesGet).toHaveBeenCalledTimes(2);
+    expect(filesGet).toHaveBeenCalledWith({
+      fileId: "sheet-1",
+      fields:
+        "id, name, mimeType, modifiedTime, parents, headRevisionId, md5Checksum, exportLinks",
+      supportsAllDrives: true,
+    });
+    expect(fetchImpl).toHaveBeenCalledWith("https://docs.google.com/export/current.xlsx", {
+      headers: {
+        Authorization: "Bearer ya29.test-token",
+        Accept: XLSX_EXPORT_MIME_TYPE,
+      },
+    });
+    expect(synthesizeMarkdownFromXlsx).toHaveBeenCalledWith(bytes);
+  });
+
+  test("fetchSheetAsMarkdownAtRevision accepts a real headRevisionId token when Drive provides one", async () => {
+    const filesGet = vi.fn().mockResolvedValue({
+      data: {
+        id: "sheet-1",
+        name: "Show Sheet",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        headRevisionId: "head-1",
+        exportLinks: {
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+            "https://docs.google.com/export/current.xlsx",
+        },
+      },
+    });
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(4)),
+    });
+    const { fetchSheetAsMarkdownAtRevision } = await import("@/lib/drive/fetch");
+
+    await fetchSheetAsMarkdownAtRevision("sheet-1", "head-1", {
+      drive: fakeDrive({ files: { get: filesGet } }),
+      fetch: fetchImpl,
+      getAccessToken: async () => "ya29.test-token",
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  test("fetchSheetAsMarkdownAtRevision fails closed when Drive lacks an xlsx export link", async () => {
+    const filesGet = vi.fn().mockResolvedValue({
+      data: {
+        id: "sheet-1",
+        name: "Show Sheet",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
         exportLinks: {
           "application/pdf": "https://docs.google.com/export/rev-1-pdf",
         },
@@ -110,20 +179,25 @@ describe("Drive fetch wrappers", () => {
     const { fetchSheetAsMarkdownAtRevision } = await import("@/lib/drive/fetch");
 
     await expect(
-      fetchSheetAsMarkdownAtRevision("sheet-1", "rev-1", {
-        drive: fakeDrive({ revisions: { get: revisionsGet } }),
+      fetchSheetAsMarkdownAtRevision("sheet-1", "2026-05-08T12:00:00.000Z", {
+        drive: fakeDrive({ files: { get: filesGet } }),
         fetch: fetchImpl,
         getAccessToken: async () => "ya29.test-token",
       }),
-    ).rejects.toThrow(/markdown export link/);
+    ).rejects.toThrow(/xlsx export link/);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  test("fetchSheetAsMarkdownAtRevision throws when the revision export endpoint fails", async () => {
-    const revisionsGet = vi.fn().mockResolvedValue({
+  test("fetchSheetAsMarkdownAtRevision throws when the xlsx export endpoint fails", async () => {
+    const filesGet = vi.fn().mockResolvedValue({
       data: {
+        id: "sheet-1",
+        name: "Show Sheet",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
         exportLinks: {
-          "text/markdown": "https://docs.google.com/export/rev-1-markdown",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+            "https://docs.google.com/export/current.xlsx",
         },
       },
     });
@@ -135,11 +209,80 @@ describe("Drive fetch wrappers", () => {
     const { fetchSheetAsMarkdownAtRevision } = await import("@/lib/drive/fetch");
 
     await expect(
-      fetchSheetAsMarkdownAtRevision("sheet-1", "rev-1", {
-        drive: fakeDrive({ revisions: { get: revisionsGet } }),
+      fetchSheetAsMarkdownAtRevision("sheet-1", "2026-05-08T12:00:00.000Z", {
+        drive: fakeDrive({ files: { get: filesGet } }),
         fetch: fetchImpl,
         getAccessToken: async () => "ya29.test-token",
       }),
     ).rejects.toThrow(/HTTP 410/);
+  });
+
+  test("fetchSheetAsMarkdownAtRevision aborts before export when the bound token is stale", async () => {
+    const filesGet = vi.fn().mockResolvedValue({
+      data: {
+        id: "sheet-1",
+        name: "Show Sheet",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:05:00.000Z",
+        exportLinks: {
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+            "https://docs.google.com/export/current.xlsx",
+        },
+      },
+    });
+    const fetchImpl = vi.fn();
+    const { fetchSheetAsMarkdownAtRevision } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchSheetAsMarkdownAtRevision("sheet-1", "2026-05-08T12:00:00.000Z", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        fetch: fetchImpl,
+        getAccessToken: async () => "ya29.test-token",
+      }),
+    ).rejects.toThrow(/bound revision token/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  test("fetchSheetAsMarkdownAtRevision aborts after export when Drive changes mid-flight", async () => {
+    const filesGet = vi
+      .fn()
+      .mockResolvedValueOnce({
+        data: {
+          id: "sheet-1",
+          name: "Show Sheet",
+          mimeType: "application/vnd.google-apps.spreadsheet",
+          modifiedTime: "2026-05-08T12:00:00.000Z",
+          exportLinks: {
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+              "https://docs.google.com/export/current.xlsx",
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          id: "sheet-1",
+          name: "Show Sheet",
+          mimeType: "application/vnd.google-apps.spreadsheet",
+          modifiedTime: "2026-05-08T12:06:00.000Z",
+          exportLinks: {
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+              "https://docs.google.com/export/current.xlsx",
+          },
+        },
+      });
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(4)),
+    });
+    const { fetchSheetAsMarkdownAtRevision } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchSheetAsMarkdownAtRevision("sheet-1", "2026-05-08T12:00:00.000Z", {
+        drive: fakeDrive({ files: { get: filesGet } }),
+        fetch: fetchImpl,
+        getAccessToken: async () => "ya29.test-token",
+      }),
+    ).rejects.toThrow(/changed during xlsx export/);
+    expect(synthesizeMarkdownFromXlsx).not.toHaveBeenCalled();
   });
 });

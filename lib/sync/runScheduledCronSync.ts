@@ -805,13 +805,9 @@ async function defaultCaptureBinding(
   fileMeta: DriveListedFile,
 ): Promise<Phase1Binding> {
   const metadata = await fetchDriveFileMetadata(driveFileId);
-  const headRevisionId = metadata.headRevisionId;
-  if (!headRevisionId) {
-    throw new DriveMetadataMissingError(driveFileId);
-  }
   void fileMeta;
   return {
-    headRevisionId,
+    headRevisionId: metadata.headRevisionId ?? metadata.modifiedTime,
     modifiedTime: metadata.modifiedTime,
   };
 }
@@ -847,6 +843,10 @@ function isRevisionRace(error: unknown): boolean {
   return (
     /did not include a markdown export link/i.test(message) ||
     /markdown export failed with HTTP 404/i.test(message) ||
+    /did not include an xlsx export link/i.test(message) ||
+    /xlsx export failed with HTTP 404/i.test(message) ||
+    /changed during xlsx export/i.test(message) ||
+    /bound revision token/i.test(message) ||
     /bound revision/i.test(message)
   );
 }
