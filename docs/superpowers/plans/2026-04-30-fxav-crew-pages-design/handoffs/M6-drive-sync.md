@@ -224,7 +224,7 @@ export function synthesizeMarkdownFromXlsx(buffer: ArrayBuffer): string;
 
 `fetchSheetAsMarkdownAtRevision`'s xlsx export path fails mid-flight: the captured token no longer matches before xlsx bytes are fetched, the xlsx export link is missing, the authenticated xlsx fetch returns 404, or the post-byte metadata re-read shows a token mismatch. All classify as `STAGED_PARSE_REVISION_RACE`.
 
-### Pinned contract @ c00ea3a (Pin-stop 2 — 2026-05-09)
+### Pinned contract @ 8d2cc24 (Pin-stop 2 — 2026-05-09)
 
 Tasks 6.3, 6.4, 6.5, and 6.6 backend engine surface shipped: gating, Phase 1, Phase 2, locked cron orchestration, cron routes, Vercel schedules, M6 message catalog entries, and structural meta-tests.
 
@@ -333,7 +333,7 @@ export function GET(request: NextRequest): Promise<Response>;
 
 - `app/api/admin/sync/[slug]/route.ts` and `app/api/admin/staged/[fileId]/{apply,discard}/route.ts` are still absent at this pin. The current task list assigns those implementations to Task 6.7 and Task 6.11/6.12, but §0's Pin-stop 2 UI-consumable surface also lists their contracts. Treat this as a Pin-stop-2-extension before §B starts if the UI must consume live routes rather than the engine contracts above.
 
-**Verification at Pin-stop 2 code SHA `c00ea3a`:**
+**Verification at Pin-stop 2 code SHA `8d2cc24`:**
 
 - `pnpm test && pnpm lint && pnpm typecheck` — exits 0
 - Test count: 1900 passed, 5 skipped
