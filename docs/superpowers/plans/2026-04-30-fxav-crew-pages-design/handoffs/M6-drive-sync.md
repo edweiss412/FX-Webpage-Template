@@ -162,7 +162,7 @@ export function fetchSheetAsMarkdownAtRevision(
 - `pnpm typecheck` — passed
 - Cross-model fresh-eyes review: APPROVED, recommended proceeding to Pin-stop 2.
 
-### Pinned contract @ 043a814 (Pin-stop 1.5 — 2026-05-08)
+### Pinned contract @ 6277169 (Pin-stop 1.5 — 2026-05-08)
 
 Pin-stop 2 halted because the live Google Sheet fixture does not support the Pin-stop 1 markdown/revision export assumption. Probe output is committed at `docs/m6/pin-1.5-export-probe.md`.
 
