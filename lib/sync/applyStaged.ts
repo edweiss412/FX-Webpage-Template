@@ -28,6 +28,7 @@ export const MISSING_REVIEWER_CHOICE = "MISSING_REVIEWER_CHOICE" as const;
 export const INVALID_REVIEWER_ACTION = "INVALID_REVIEWER_ACTION" as const;
 export const WIZARD_SCOPE_NOT_YET_IMPLEMENTED = "WIZARD_SCOPE_NOT_YET_IMPLEMENTED" as const;
 export const EMBEDDED_RECOVERY_REQUIRES_RESTAGE = "EMBEDDED_RECOVERY_REQUIRES_RESTAGE" as const;
+export const SYNC_INFRA_ERROR = "SYNC_INFRA_ERROR" as const;
 
 export type ReviewerChoice = {
   item_id: string;
@@ -97,6 +98,7 @@ export type ApplyStagedResult =
       outcome: "invalid_request";
       code: typeof MISSING_REVIEWER_CHOICE | typeof INVALID_REVIEWER_ACTION;
     }
+  | { outcome: "infra_error"; code: typeof SYNC_INFRA_ERROR }
   | { outcome: "discarded"; variant: "try_again" }
   | { outcome: "wizard_deferred"; code: typeof WIZARD_SCOPE_NOT_YET_IMPLEMENTED };
 
@@ -463,6 +465,20 @@ function isGone(metadata: DriveListedFile & { trashed?: boolean }): boolean {
   return metadata.trashed === true;
 }
 
+function driveErrorStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const candidate = error as { status?: unknown; code?: unknown; response?: { status?: unknown } };
+  if (typeof candidate.status === "number") return candidate.status;
+  if (typeof candidate.code === "number") return candidate.code;
+  if (typeof candidate.response?.status === "number") return candidate.response.status;
+  return null;
+}
+
+function isApplySourceGone(error: unknown): boolean {
+  const status = driveErrorStatus(error);
+  return status === 404 || status === 410;
+}
+
 async function restoreDeleteAndIngest(
   tx: LockedShowTx<SyncPipelineTx>,
   pending: PendingSyncForApply,
@@ -533,13 +549,17 @@ function depsWithDefaults(deps: ApplyStagedDeps): RequiredPick<
 
 async function defaultRetryEmbeddedRevisionAvailability(spreadsheetId: string): Promise<boolean> {
   const drive = getDriveClient();
-  const response = await drive.revisions.list({
-    fileId: spreadsheetId,
-    fields: "revisions(id)",
-  });
-  return (response.data.revisions ?? []).some((revision: { id?: string | null }) =>
-    Boolean(revision.id),
-  );
+  try {
+    const response = await drive.revisions.list({
+      fileId: spreadsheetId,
+      fields: "revisions(id)",
+    });
+    return (response.data.revisions ?? []).some((revision: { id?: string | null }) =>
+      Boolean(revision.id),
+    );
+  } catch {
+    return false;
+  }
 }
 
 function warning(code: string): Phase2Args["parseResult"]["warnings"][number] {
@@ -569,14 +589,14 @@ async function applyAssetReviewEffects(
     (item) => item.invariant === "REEL_DRIFT_PENDING",
   );
   const hasUnavailable = Boolean(unavailable);
+  const warnings = [
+    ...pending.parseResult.warnings,
+    ...(linkedDrift ? [warning("LINKED_ASSET_DRIFTED")] : []),
+    ...(reelDrift ? [warning("REEL_DRIFTED")] : []),
+  ];
+  const openingReel = reelDrift ? null : pending.parseResult.openingReel;
   if (!hasUnavailable) {
     const shouldMintSnapshot = noneFound || linkedDrift;
-    const warnings = [
-      ...pending.parseResult.warnings,
-      ...(linkedDrift ? [warning("LINKED_ASSET_DRIFTED")] : []),
-      ...(reelDrift ? [warning("REEL_DRIFTED")] : []),
-    ];
-    const openingReel = reelDrift ? null : pending.parseResult.openingReel;
     if (!shouldMintSnapshot) {
       return {
         parseResult: {
@@ -619,6 +639,8 @@ async function applyAssetReviewEffects(
     return {
       parseResult: {
         ...pending.parseResult,
+        warnings,
+        openingReel,
         diagrams: {
           ...pending.parseResult.diagrams,
           snapshot_revision_id: randomUUID(),
@@ -633,9 +655,10 @@ async function applyAssetReviewEffects(
   return {
     parseResult: {
       ...pending.parseResult,
+      openingReel,
       diagrams: show?.diagrams as Phase2Args["parseResult"]["diagrams"],
       warnings: [
-        ...pending.parseResult.warnings,
+        ...warnings,
         warning(EMBEDDED_RECOVERY_REQUIRES_RESTAGE),
       ] as Phase2Args["parseResult"]["warnings"],
     },
@@ -672,7 +695,10 @@ export async function applyStaged_unlocked(
   let metadata: DriveListedFile & { trashed?: boolean };
   try {
     metadata = await deps.fetchDriveFileMetadata(args.driveFileId);
-  } catch {
+  } catch (error) {
+    if (!isApplySourceGone(error)) {
+      return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
+    }
     await restoreDeleteAndIngest(tx, pending, show, STAGED_PARSE_SOURCE_GONE, deps);
     return { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE };
   }

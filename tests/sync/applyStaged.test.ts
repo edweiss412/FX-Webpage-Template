@@ -290,6 +290,34 @@ describe("applyStaged live-scope", () => {
     expect(goneDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
   });
 
+  test("transient Drive metadata failures return SYNC_INFRA_ERROR without consuming the staged row", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const transient = Object.assign(new Error("drive unavailable"), { status: 503 });
+    const syncDeps = deps({
+      fetchDriveFileMetadata: vi.fn(async () => {
+        throw transient;
+      }),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "infra_error", code: "SYNC_INFRA_ERROR" });
+    expect(syncDeps.restoreShowStatus).not.toHaveBeenCalled();
+    expect(syncDeps.upsertLivePendingIngestion).not.toHaveBeenCalled();
+    expect(syncDeps.deleteLivePendingSync).not.toHaveBeenCalled();
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+  });
+
   test("first-seen Drive gone and out-of-scope failures route live recovery to pending_ingestions only", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const firstSeen = {
@@ -616,6 +644,72 @@ describe("applyStaged live-scope", () => {
       code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
       context: { drive_file_id: "drive-file-1" },
     });
+  });
+
+  test("embedded revision recovery composes with reel drift side effects", async () => {
+    const unavailable: TriggeredReviewItem = {
+      id: "no-revision",
+      invariant: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+      spreadsheet_id: "sheet-1",
+    };
+    const reelDrift: TriggeredReviewItem = {
+      id: "reel-drift",
+      invariant: "REEL_DRIFT_PENDING",
+      reel_drive_file_id: "reel-1",
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(
+      async () => ({ outcome: "applied" as const, showId: "show-1" }),
+    );
+    const priorDiagrams = { snapshot_revision_id: "prior-rev", snapshot_status: "complete" };
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({
+          triggeredReviewItems: [unavailable, reelDrift],
+          parseResult: {
+            ...parseResult(),
+            openingReel: {
+              driveFileId: "reel-1",
+              drive_modified_time: "2026-05-08T10:00:00.000Z",
+              headRevisionId: "reel-head-1",
+              mimeType: "video/mp4",
+            },
+          },
+        }),
+      ),
+      readShowForApply: vi.fn(async () => ({
+        showId: "show-1",
+        lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
+        diagrams: priorDiagrams,
+      })),
+      retryEmbeddedRevisionAvailability: vi.fn(async () => false),
+      runPhase2,
+    });
+
+    await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [
+          { item_id: "no-revision", action: "apply" },
+          { item_id: "reel-drift", action: "apply" },
+        ],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    const phase2Args = runPhase2.mock.calls[0]?.[1];
+    expect(phase2Args?.parseResult.diagrams).toBe(priorDiagrams);
+    expect(phase2Args?.parseResult.openingReel).toBeNull();
+    expect(phase2Args?.parseResult.warnings).toContainEqual(
+      expect.objectContaining({ code: "REEL_DRIFTED" }),
+    );
+    expect(phase2Args?.parseResult.warnings).toContainEqual(
+      expect.objectContaining({ code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE" }),
+    );
   });
 
   test("REEL_DRIFT_PENDING clears the stale opening reel and persists a warning without diagram mutation", async () => {

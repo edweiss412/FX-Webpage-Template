@@ -24,6 +24,7 @@ function isDiscardVariant(value: unknown): value is DiscardVariant {
 
 function statusForCode(code: string): number {
   if (code === "PENDING_SYNC_NOT_FOUND") return 404;
+  if (code === "INVALID_REVIEWER_ACTION") return 400;
   return 409;
 }
 

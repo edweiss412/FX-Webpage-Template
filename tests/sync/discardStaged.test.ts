@@ -3,6 +3,7 @@ import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import {
   discardStaged_unlocked,
+  INVALID_REVIEWER_ACTION,
   PENDING_SYNC_NOT_FOUND,
   STALE_DISCARD_REJECTED,
   WIZARD_SCOPE_NOT_YET_IMPLEMENTED,
@@ -157,6 +158,28 @@ describe("discardStaged live-scope", () => {
       }),
     );
     expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
+  });
+
+  test("existing-show defer and permanent-ignore variants are rejected instead of silently ignored", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps();
+
+    const result = await discardStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        discardedByEmail: "doug@fxav.test",
+        variant: "defer_until_modified",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "invalid_request", code: INVALID_REVIEWER_ACTION });
+    expect(syncDeps.restoreShowStatus).not.toHaveBeenCalled();
+    expect(syncDeps.upsertLiveDeferral).not.toHaveBeenCalled();
+    expect(syncDeps.deleteLivePendingSync).not.toHaveBeenCalled();
   });
 
   test("missing live row returns PENDING_SYNC_NOT_FOUND without touching wizard rows", async () => {

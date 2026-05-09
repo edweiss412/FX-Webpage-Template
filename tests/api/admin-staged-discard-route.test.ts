@@ -102,6 +102,7 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
 
   test.each([
     ["PENDING_SYNC_NOT_FOUND", 404],
+    ["INVALID_REVIEWER_ACTION", 400],
     ["STALE_DISCARD_REJECTED", 409],
   ] as const)("maps %s to %i", async (code, status) => {
     discardMock.discardStaged.mockResolvedValueOnce({ outcome: "x", code });

@@ -70,6 +70,8 @@ function statusForCode(code: string): number {
     case "MISSING_REVIEWER_CHOICE":
     case "INVALID_REVIEWER_ACTION":
       return 400;
+    case "SYNC_INFRA_ERROR":
+      return 500;
     default:
       return 409;
   }

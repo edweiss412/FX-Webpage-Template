@@ -123,6 +123,7 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
     ["STAGED_PARSE_OUTDATED", 409],
     ["MISSING_REVIEWER_CHOICE", 400],
     ["INVALID_REVIEWER_ACTION", 400],
+    ["SYNC_INFRA_ERROR", 500],
   ] as const)("maps %s to %i", async (code, status) => {
     applyMock.applyStaged.mockResolvedValueOnce({ outcome: "x", code });
 

@@ -8,11 +8,12 @@ import {
   withPostgresSyncPipelineLock,
 } from "@/lib/sync/runScheduledCronSync";
 import {
+  INVALID_REVIEWER_ACTION,
   PENDING_SYNC_NOT_FOUND,
   WIZARD_SCOPE_NOT_YET_IMPLEMENTED,
 } from "@/lib/sync/applyStaged";
 
-export { PENDING_SYNC_NOT_FOUND, WIZARD_SCOPE_NOT_YET_IMPLEMENTED };
+export { INVALID_REVIEWER_ACTION, PENDING_SYNC_NOT_FOUND, WIZARD_SCOPE_NOT_YET_IMPLEMENTED };
 export const STALE_DISCARD_REJECTED = "STALE_DISCARD_REJECTED" as const;
 
 export type DiscardVariant = "try_again" | "defer_until_modified" | "permanent_ignore";
@@ -61,6 +62,7 @@ export type DiscardStagedResult =
   | { outcome: "discarded"; variant: DiscardVariant }
   | { outcome: "not_found"; code: typeof PENDING_SYNC_NOT_FOUND }
   | { outcome: "stale"; code: typeof STALE_DISCARD_REJECTED }
+  | { outcome: "invalid_request"; code: typeof INVALID_REVIEWER_ACTION }
   | { outcome: "wizard_deferred"; code: typeof WIZARD_SCOPE_NOT_YET_IMPLEMENTED };
 
 export type DiscardStagedDeps = {
@@ -240,6 +242,9 @@ export async function discardStaged_unlocked(
 
   const variant = args.variant ?? "try_again";
   const show = await deps.readShowForDiscard(tx, args.driveFileId);
+  if (show && variant !== "try_again") {
+    return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
+  }
   if (show) {
     await deps.restoreShowStatus(
       tx,
