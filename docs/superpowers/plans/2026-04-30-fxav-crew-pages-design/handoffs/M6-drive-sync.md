@@ -354,6 +354,117 @@ The extension is recorded as a NEW Pinned-contract block under §0 when it close
 - `pnpm test && pnpm lint && pnpm typecheck` — exits 0
 - Test count: 1900 passed, 5 skipped
 
+### Pinned contract @ 2ae73ae (Pin-stop 2 extension — 2026-05-09)
+
+Tasks 6.7, 6.11 §A live-scope, and 6.12 §A live-scope shipped. Wizard-scope Apply/Discard remains deferred to the 6.8 coda and is guarded with `501 WIZARD_SCOPE_NOT_YET_IMPLEMENTED` before any lock or mutation work.
+
+```ts
+// lib/sync/runManualSyncForShow
+export const FINALIZE_OWNED_SHOW: "FINALIZE_OWNED_SHOW";
+export type ManualSyncResult = ProcessOneFileResult | {
+  outcome: "blocked";
+  code: "FINALIZE_OWNED_SHOW";
+};
+export function runManualSyncForShow(
+  driveFileId: string,
+  mode?: "manual",
+  deps?: RunManualSyncForShowDeps,
+): Promise<ManualSyncResult | ConcurrentSyncSkipped>;
+export function runManualSyncForShow_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  mode?: "manual",
+  deps?: RunManualSyncForShowDeps,
+): Promise<ProcessOneFileResult>;
+
+// app/api/admin/sync/[slug]/route
+export type ManualSyncRouteResponse =
+  | { ok: true; result: ProcessOneFileResult }
+  | { ok: false; error: "FINALIZE_OWNED_SHOW" | "SHOW_BUSY_RETRY" | "PENDING_SYNC_NOT_FOUND" | "SYNC_INFRA_ERROR" | string };
+
+// lib/sync/applyStaged
+export type ReviewerChoice = {
+  item_id: string;
+  action: "apply" | "reject" | "rename" | "independent";
+  rename_value?: string;
+};
+export type ApplyStagedArgs =
+  | { driveFileId: string; sourceScope: "live"; stagedId: string; reviewerChoices: ReviewerChoice[]; appliedByEmail: string }
+  | { driveFileId: string; sourceScope: "wizard"; wizardSessionId: string; stagedId: string; reviewerChoices: ReviewerChoice[]; appliedByEmail: string };
+export type ApplyStagedResult =
+  | { outcome: "applied"; showId: string; syncAuditId: string | null; derivedSideEffects: { revokeFloorForNames: string[] }; adminAlertCode?: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE" | null }
+  | { outcome: "discarded"; variant: "try_again" }
+  | { outcome: "not_found"; code: "PENDING_SYNC_NOT_FOUND" }
+  | { outcome: "superseded"; code: "STAGED_PARSE_SUPERSEDED" }
+  | { outcome: "source_gone"; code: "STAGED_PARSE_SOURCE_GONE" }
+  | { outcome: "source_out_of_scope"; code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" }
+  | { outcome: "outdated"; code: "STAGED_PARSE_OUTDATED" }
+  | { outcome: "invalid_request"; code: "MISSING_REVIEWER_CHOICE" | "INVALID_REVIEWER_ACTION" }
+  | { outcome: "infra_error"; code: "SYNC_INFRA_ERROR" }
+  | { outcome: "wizard_deferred"; code: "WIZARD_SCOPE_NOT_YET_IMPLEMENTED" };
+export function applyStaged(args: ApplyStagedArgs, deps?: ApplyStagedDeps): Promise<ApplyStagedResult | ConcurrentSyncSkipped>;
+export function applyStaged_unlocked(tx: LockedShowTx<SyncPipelineTx>, args: ApplyStagedArgs, deps?: ApplyStagedDeps): Promise<ApplyStagedResult>;
+
+// app/api/admin/staged/[fileId]/apply/route
+export type ApplyRouteBody =
+  | { source_scope: "live"; staged_id: string; choices: ReviewerChoice[] }
+  | { source_scope: "wizard"; staged_id: string; wizard_session_id?: string; choices?: ReviewerChoice[] };
+export type ApplyRouteResponse =
+  | { ok: true; result: Extract<ApplyStagedResult, { outcome: "applied" | "discarded" }> }
+  | { ok: false; error: "WIZARD_SCOPE_NOT_YET_IMPLEMENTED" | "PENDING_SYNC_NOT_FOUND" | "MISSING_REVIEWER_CHOICE" | "INVALID_REVIEWER_ACTION" | "SYNC_INFRA_ERROR" | "STAGED_PARSE_SUPERSEDED" | "STAGED_PARSE_SOURCE_GONE" | "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" | "STAGED_PARSE_OUTDATED" | "SHOW_BUSY_RETRY" };
+
+// lib/sync/discardStaged
+export type DiscardVariant = "try_again" | "defer_until_modified" | "permanent_ignore";
+export type DiscardStagedArgs =
+  | { driveFileId: string; sourceScope: "live"; stagedId: string; discardedByEmail: string; variant?: DiscardVariant }
+  | { driveFileId: string; sourceScope: "wizard"; wizardSessionId: string; stagedId: string; variant?: DiscardVariant };
+export type DiscardStagedResult =
+  | { outcome: "discarded"; variant: DiscardVariant }
+  | { outcome: "not_found"; code: "PENDING_SYNC_NOT_FOUND" }
+  | { outcome: "stale"; code: "STALE_DISCARD_REJECTED" }
+  | { outcome: "invalid_request"; code: "INVALID_REVIEWER_ACTION" }
+  | { outcome: "wizard_deferred"; code: "WIZARD_SCOPE_NOT_YET_IMPLEMENTED" };
+export function discardStaged(args: DiscardStagedArgs, deps?: DiscardStagedDeps): Promise<DiscardStagedResult | ConcurrentSyncSkipped>;
+export function discardStaged_unlocked(tx: LockedShowTx<SyncPipelineTx>, args: DiscardStagedArgs, deps?: DiscardStagedDeps): Promise<DiscardStagedResult>;
+
+// app/api/admin/staged/[fileId]/discard/route
+export type DiscardRouteBody =
+  | { source_scope: "live"; staged_id: string; variant?: DiscardVariant }
+  | { source_scope: "wizard"; staged_id: string; wizard_session_id?: string; variant?: DiscardVariant };
+export type DiscardRouteResponse =
+  | { ok: true; result: Extract<DiscardStagedResult, { outcome: "discarded" }> }
+  | { ok: false; error: "WIZARD_SCOPE_NOT_YET_IMPLEMENTED" | "PENDING_SYNC_NOT_FOUND" | "INVALID_REVIEWER_ACTION" | "STALE_DISCARD_REJECTED" | "SHOW_BUSY_RETRY" };
+```
+
+**Route status map for §B ErrorExplainer:**
+
+- `POST /api/admin/sync/[slug]`: `404 PENDING_SYNC_NOT_FOUND`; `409 FINALIZE_OWNED_SHOW`; `409 SHOW_BUSY_RETRY`; `500 SYNC_INFRA_ERROR`; other returned sync `code` values are `409`.
+- `POST /api/admin/staged/[fileId]/apply`: `501 WIZARD_SCOPE_NOT_YET_IMPLEMENTED`; `404 PENDING_SYNC_NOT_FOUND`; `400 MISSING_REVIEWER_CHOICE` / `INVALID_REVIEWER_ACTION`; `500 SYNC_INFRA_ERROR`; `409 STAGED_PARSE_SUPERSEDED` / `STAGED_PARSE_SOURCE_GONE` / `STAGED_PARSE_SOURCE_OUT_OF_SCOPE` / `STAGED_PARSE_OUTDATED` / `SHOW_BUSY_RETRY`.
+- `POST /api/admin/staged/[fileId]/discard`: `501 WIZARD_SCOPE_NOT_YET_IMPLEMENTED`; `404 PENDING_SYNC_NOT_FOUND`; `400 INVALID_REVIEWER_ACTION`; `409 STALE_DISCARD_REJECTED` / `SHOW_BUSY_RETRY`.
+
+**Live-scope behavioral contract:**
+
+- Manual sync acquires the admin/blocking show lock (`tryOnly: false`) and checks `FINALIZE_OWNED_SHOW` inside that locked transaction before Drive work.
+- Apply reads only live `pending_syncs` (`wizard_session_id IS NULL`), validates `staged_id` as UUID at the route, enforces reviewer-choice completeness, Drive-reverifies source state, runs Phase 2 from the stored `parse_result`, writes `sync_audit`, deletes the live staged row, and only emits `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` admin alerts after the locked transaction commits.
+- Discard reads/deletes only live `pending_syncs`, validates `staged_id` as UUID at the route, supports existing-show `try_again`, first-seen `try_again`, first-seen `defer_until_modified`, and first-seen `permanent_ignore`. Existing-show defer/ignore is rejected as `INVALID_REVIEWER_ACTION`.
+- Auth side effects bump `crew_member_auth.revoked_below_version` to at least `current_token_version + 1` for the affected crew names.
+- Wizard-scope Apply/Discard returns `501 WIZARD_SCOPE_NOT_YET_IMPLEMENTED` before lock acquisition. The implementation carries explicit `// wizard-scope deferred to 6.8 coda` markers.
+
+**Spec deviations / deferrals:**
+
+- Wizard-scope Apply/Discard is deferred to the 6.8 coda by orchestrator instruction. The 501 route guard is the pinned §B-facing contract until that coda ships.
+- `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE` live Apply preserves prior diagrams and emits `EMBEDDED_RECOVERY_REQUIRES_RESTAGE`; it does not trust a late revision-availability probe to reconstruct binary pins inside Apply.
+- Manual route curl smoke with a real admin cookie was not run in this headless session; route-level tests cover the handler contract, auth-boundary error paths, and route status map.
+
+**Verification at Pin-stop 2 extension code SHA `2ae73ae`:**
+
+- `pnpm test && pnpm lint && pnpm typecheck` — exits 0
+- `pnpm test` count: 2002 passed, 5 skipped
+- Sync/meta/static guard suite: 89 passed across `_metaInfraContract`, `_advisoryLockSingleHolderContract`, `_phase2InvariantContract`, `_partitionScopeContract`, `no-unpinned-export`, `no-inline-email-normalization`, `_metaAdminAlertCatalog`, and `m6-sync-catalog`
+- `rg "lastPollAt" lib app supabase tests` — zero matches
+- Unpinned `fetchSheetAsMarkdown(` guard over `lib/sync`, `app/api/cron`, and `app/api/admin` — zero matches
+- Cross-model adversarial review loop: fresh-eyes Claude review returned `APPROVED`
+
 ---
 
 ## 1. Spec sections in scope
