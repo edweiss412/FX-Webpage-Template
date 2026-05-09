@@ -130,10 +130,7 @@ function isDriveModifiedTimeUnstable(fileMeta: DriveListedFile): boolean {
   return Date.now() - modifiedMs < MI8_DEBOUNCE_MS;
 }
 
-function mi8DebounceReason(
-  args: Phase1Args,
-  items: TriggeredReviewItem[],
-): Phase1Result | null {
+function mi8DebounceReason(args: Phase1Args, items: TriggeredReviewItem[]): Phase1Result | null {
   if (!isMi8DebounceMode(args.mode)) return null;
   if (!isDriveModifiedTimeUnstable(args.fileMeta)) return null;
   if (items.length === 0) return null;
@@ -156,6 +153,8 @@ function withLeadToggleSafetyNet(
 ): TriggeredReviewItem[] {
   if (!prior) return items;
   const priorByName = new Map(prior.crewMembers.map((member) => [member.name, member]));
+  const hasMi9 = items.some((item) => item.invariant === "MI-9");
+  if (hasMi9) return items;
   const hasMi10 = items.some((item) => item.invariant === "MI-10");
   if (hasMi10) return items;
 
@@ -215,7 +214,11 @@ export async function runPhase1(tx: Phase1Tx, args: Phase1Args): Promise<Phase1R
   const sentinel = sentinelFor(args, show);
   const invariantItems =
     invariant.outcome === "stage"
-      ? withLeadToggleSafetyNet(show?.priorParseResult ?? null, args.parseResult, invariant.triggeredItems)
+      ? withLeadToggleSafetyNet(
+          show?.priorParseResult ?? null,
+          args.parseResult,
+          invariant.triggeredItems,
+        )
       : [];
   const debounce = mi8DebounceReason(args, invariantItems);
   if (debounce) return debounce;
@@ -229,7 +232,8 @@ export async function runPhase1(tx: Phase1Tx, args: Phase1Args): Promise<Phase1R
     await callTx("deleteLivePendingIngestion", () =>
       tx.deleteLivePendingIngestion(args.driveFileId),
     );
-    const priorLastSyncStatus = existingPending?.priorLastSyncStatus ?? show?.lastSyncStatus ?? null;
+    const priorLastSyncStatus =
+      existingPending?.priorLastSyncStatus ?? show?.lastSyncStatus ?? null;
     const priorLastSyncError = existingPending?.priorLastSyncError ?? show?.lastSyncError ?? null;
     const upserted = await callTx("upsertLivePendingSync", () =>
       tx.upsertLivePendingSync({

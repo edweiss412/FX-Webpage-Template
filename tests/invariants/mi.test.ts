@@ -999,7 +999,21 @@ describe("Stage-for-approval invariants (MI-6..MI-14)", () => {
       }
     });
 
-    it("stages when role flag is added (additive change)", () => {
+    it("does NOT stage when a non-LEAD role flag changes", () => {
+      const prior = synthParseResult({
+        crewMembers: [synthCrewMember({ name: "Bob", email: "bob@x.com", role_flags: ["A1"] })],
+      });
+      const next = synthParseResult({
+        crewMembers: [synthCrewMember({ name: "Bob", email: "bob@x.com", role_flags: ["V1"] })],
+      });
+      const r = runInvariants(prior, next);
+      if (r.outcome === "stage") {
+        expect(findItems(r.triggeredItems, "MI-9")).toHaveLength(0);
+        expect(findItems(r.triggeredItems, "MI-10")).toHaveLength(0);
+      }
+    });
+
+    it("stages when LEAD is added", () => {
       const prior = synthParseResult({
         crewMembers: [synthCrewMember({ name: "Bob", email: "bob@x.com", role_flags: ["A1"] })],
       });
@@ -1013,6 +1027,7 @@ describe("Stage-for-approval invariants (MI-6..MI-14)", () => {
       if (r.outcome === "stage") {
         const items = findItems(r.triggeredItems, "MI-9");
         expect(items.length).toBeGreaterThanOrEqual(1);
+        expect(findItems(r.triggeredItems, "MI-10")).toHaveLength(0);
       }
     });
 

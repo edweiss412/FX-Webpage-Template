@@ -56,6 +56,7 @@ const ADMIN_ALERTS_CODES = [
   "WEBHOOK_TOKEN_INVALID", //         M6 Drive webhook verification failure
   "EMBEDDED_RECOVERY_REQUIRES_RESTAGE", // M6 asset recovery alert
   "LIVE_ROW_CONFLICT", //             M6 live-row conflict recovery
+  "ROLE_FLAGS_NOTICE", //             M6 auto-applied non-LEAD role_flags change
 ] as const;
 
 describe("META admin_alerts catalog contract", () => {
@@ -88,5 +89,14 @@ describe("META admin_alerts catalog contract", () => {
         `${code} registered as admin_alerts code but not in MESSAGE_CATALOG`,
       ).toBe(true);
     }
+  });
+
+  test("ROLE_FLAGS_NOTICE is info severity; existing admin alerts remain warning by default", () => {
+    const entries = MESSAGE_CATALOG as Record<
+      string,
+      { severity?: "info" | "warning"; dougFacing: string | null }
+    >;
+    expect(entries.ROLE_FLAGS_NOTICE?.severity).toBe("info");
+    expect(entries.LIVE_ROW_CONFLICT?.severity ?? "warning").toBe("warning");
   });
 });

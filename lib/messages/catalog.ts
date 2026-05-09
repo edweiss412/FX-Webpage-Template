@@ -1,5 +1,6 @@
 export type MessageCatalogEntry = {
   code: string;
+  severity?: "info" | "warning";
   dougFacing: string | null;
   crewFacing: string | null;
   followUp: string | null;
@@ -176,8 +177,7 @@ export const MESSAGE_CATALOG = {
     dougFacing: "A newer sync already won. Refresh to see the latest staged or applied data.",
     crewFacing: null,
     followUp: "Doug -> refresh the admin page",
-    helpfulContext:
-      "The cron worker refused to write an older parse over a newer Drive revision.",
+    helpfulContext: "The cron worker refused to write an older parse over a newer Drive revision.",
   },
   STALE_PUSH_ABORTED: {
     code: "STALE_PUSH_ABORTED",
@@ -214,8 +214,7 @@ export const MESSAGE_CATALOG = {
   },
   STAGED_PARSE_REVISION_RACE_COOLDOWN: {
     code: "STAGED_PARSE_REVISION_RACE_COOLDOWN",
-    dougFacing:
-      "The sheet keeps changing mid-sync, so retries are temporarily backing off.",
+    dougFacing: "The sheet keeps changing mid-sync, so retries are temporarily backing off.",
     crewFacing: null,
     followUp: "Doug -> pause edits briefly or retry manually",
     helpfulContext:
@@ -293,6 +292,16 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Eric -> reconcile the live row and staged parse",
     helpfulContext: null,
+  },
+  ROLE_FLAGS_NOTICE: {
+    code: "ROLE_FLAGS_NOTICE",
+    severity: "info",
+    dougFacing:
+      "A non-Lead crew capability changed and was applied automatically. Review the updated crew row if anything looks off.",
+    crewFacing: null,
+    followUp: "Doug -> no action needed unless the role is wrong",
+    helpfulContext:
+      "LEAD additions or removals still require review. Non-Lead role flag changes sync automatically and are recorded here for visibility.",
   },
   FINALIZE_OWNED_SHOW: {
     code: "FINALIZE_OWNED_SHOW",

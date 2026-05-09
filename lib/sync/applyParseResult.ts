@@ -3,6 +3,7 @@ import type { ParseResult } from "@/lib/parser/types";
 export type ApplyParseResultSnapshot = {
   showId: string;
   previousCrewNames: string[];
+  previousCrewMembers?: ParseResult["crewMembers"];
 };
 
 export type ApplyParseResultTx = {

@@ -4,7 +4,8 @@ export type AdminAlertCode =
   | "AMBIGUOUS_EMAIL_BINDING"
   | "LEAKED_LINK_REVOCATION_FAILED"
   | "LEAKED_LINK_DETECTED"
-  | "EMBEDDED_RECOVERY_REQUIRES_RESTAGE";
+  | "EMBEDDED_RECOVERY_REQUIRES_RESTAGE"
+  | "ROLE_FLAGS_NOTICE";
 
 export type UpsertAdminAlertInput = {
   showId: string | null;

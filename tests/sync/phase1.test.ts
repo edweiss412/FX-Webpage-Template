@@ -533,13 +533,13 @@ describe("runPhase1 routing and writes", () => {
     ["MI-8c", parseResult(), parseResult({ pullSheet: null })],
     [
       "MI-9",
-      parseResult({ crewMembers: [crew("Alice", { role_flags: ["A1"] })] }),
-      parseResult({ crewMembers: [crew("Alice", { role_flags: ["V1"] })] }),
-    ],
-    [
-      "MI-10",
       parseResult({ crewMembers: [crew("Alice", { role_flags: ["LEAD"] })] }),
       parseResult({ crewMembers: [crew("Alice", { role_flags: ["A1"] })] }),
+    ],
+    [
+      "MI-9",
+      parseResult({ crewMembers: [crew("Alice", { role_flags: ["A1"] })] }),
+      parseResult({ crewMembers: [crew("Alice", { role_flags: ["A1", "LEAD"] })] }),
     ],
     [
       "MI-11",
@@ -577,7 +577,45 @@ describe("runPhase1 routing and writes", () => {
     expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
       expect.arrayContaining([expect.objectContaining({ invariant: expectedInvariant })]),
     );
+    if (expectedInvariant === "MI-9") {
+      expect(tx.pendingSyncs[0]?.triggeredReviewItems).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ invariant: "MI-10" })]),
+      );
+    }
     expect(tx.shows.get("file-1")?.lastSyncStatus).toBe("pending_review");
+  });
+
+  test.each([
+    [
+      "non-LEAD capability swap",
+      parseResult({ crewMembers: [crew("Alice", { role_flags: ["A1"] })] }),
+      parseResult({ crewMembers: [crew("Alice", { role_flags: ["V1"] })] }),
+    ],
+    [
+      "non-LEAD additive capability",
+      parseResult({ crewMembers: [crew("Alice", { role_flags: ["A1"] })] }),
+      parseResult({ crewMembers: [crew("Alice", { role_flags: ["A1", "BO"] })] }),
+    ],
+    [
+      "LEAD preserved while department changes",
+      parseResult({ crewMembers: [crew("Alice", { role_flags: ["LEAD", "A1"] })] }),
+      parseResult({ crewMembers: [crew("Alice", { role_flags: ["LEAD", "V1"] })] }),
+    ],
+  ])("%s bypasses Phase 1 review under MI-9 LEAD-bit narrowing", async (_label, prior, next) => {
+    const tx = new FakePhase1Tx();
+    tx.shows.set("file-1", {
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      priorParseResult: prior,
+    });
+
+    const result = await runWith(tx, next);
+
+    expect(result.outcome).toBe("pass");
+    expect(tx.pendingSyncs).toHaveLength(0);
+    expect(tx.shows.get("file-1")?.lastSyncStatus).toBe("ok");
   });
 
   test("clean existing-show parse passes without pending writes", async () => {

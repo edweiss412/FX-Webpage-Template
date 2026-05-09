@@ -447,8 +447,22 @@ class PostgresPipelineTx implements SyncPipelineTx {
       [args.driveFileId],
     );
     const previousCrew = existing
-      ? await this.rows<{ name: string }>(
-          "select name from public.crew_members where show_id = $1 order by name",
+      ? await this.rows<{
+          name: string;
+          email: string | null;
+          phone: string | null;
+          role: string;
+          role_flags: string[];
+          date_restriction: unknown;
+          stage_restriction: unknown;
+          flight_info: string | null;
+        }>(
+          `
+            select name, email, phone, role, role_flags, date_restriction, stage_restriction, flight_info
+              from public.crew_members
+             where show_id = $1
+             order by name
+          `,
           [existing.id],
         )
       : [];
@@ -580,6 +594,18 @@ class PostgresPipelineTx implements SyncPipelineTx {
       outcome: "updated" as const,
       showId: updated.id,
       previousCrewNames: previousCrew.map((row) => row.name),
+      previousCrewMembers: previousCrew.map((row) => ({
+        name: row.name,
+        email: row.email,
+        phone: row.phone,
+        role: row.role,
+        role_flags: row.role_flags as ParseResult["crewMembers"][number]["role_flags"],
+        date_restriction:
+          row.date_restriction as ParseResult["crewMembers"][number]["date_restriction"],
+        stage_restriction:
+          row.stage_restriction as ParseResult["crewMembers"][number]["stage_restriction"],
+        flight_info: row.flight_info,
+      })),
     };
   }
 

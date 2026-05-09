@@ -80,11 +80,8 @@ function normalizeCoi(v: string | null): string | null {
   return t.length === 0 ? null : t;
 }
 
-/** Set equality for RoleFlag arrays (order-insensitive) */
-function roleFlagsEqual(a: RoleFlag[], b: RoleFlag[]): boolean {
-  if (a.length !== b.length) return false;
-  const setA = new Set<RoleFlag>(a);
-  return b.every((f) => setA.has(f));
+function hasLeadFlag(flags: readonly RoleFlag[]): boolean {
+  return flags.includes("LEAD");
 }
 
 // ---------------------------------------------------------------------------
@@ -517,12 +514,12 @@ export function runInvariants(prior: ParseResult | null, next: ParseResult): Inv
   const nextByName = new Map(next.crewMembers.map((cm) => [cm.name, cm]));
 
   // -------------------------------------------------------------------------
-  // MI-9: role_flags change for existing crew (matched by name)
+  // MI-9: LEAD-bit set-membership delta for existing crew (matched by name)
   // -------------------------------------------------------------------------
   for (const [name, priorCm] of priorByName) {
     const nextCm = nextByName.get(name);
     if (nextCm == null) continue; // not in new — covered by removal logic
-    if (!roleFlagsEqual(priorCm.role_flags, nextCm.role_flags)) {
+    if (hasLeadFlag(priorCm.role_flags) !== hasLeadFlag(nextCm.role_flags)) {
       triggeredItems.push({
         id: randomUUID(),
         invariant: "MI-9",
@@ -536,7 +533,7 @@ export function runInvariants(prior: ParseResult | null, next: ParseResult): Inv
   // -------------------------------------------------------------------------
   // MI-10: LEAD flag toggle — documented as a safety-net alongside MI-9.
   // Per spec: "Treat MI-9 as the canonical implementation; MI-10 exists as a
-  // documentation-level safety net." MI-9 above already covers this. We
+  // documentation-level safety net." MI-9 above covers the LEAD-bit delta. We
   // emit an additional MI-10 item only when LEAD changes but MI-9 wasn't
   // emitted for the same crew member (e.g., edge case where they were both
   // set equal but LEAD state changed — logically impossible, so this is
@@ -554,8 +551,8 @@ export function runInvariants(prior: ParseResult | null, next: ParseResult): Inv
     for (const [name, priorCm] of priorByName) {
       const nextCm = nextByName.get(name);
       if (nextCm == null) continue;
-      const priorHasLead = priorCm.role_flags.includes("LEAD");
-      const nextHasLead = nextCm.role_flags.includes("LEAD");
+      const priorHasLead = hasLeadFlag(priorCm.role_flags);
+      const nextHasLead = hasLeadFlag(nextCm.role_flags);
       if (priorHasLead !== nextHasLead && !mi9Names.has(name)) {
         triggeredItems.push({ id: randomUUID(), invariant: "MI-10" });
       }

@@ -321,6 +321,7 @@ export function GET(request: NextRequest): Promise<Response>;
 - Spreadsheet file 404 / source gone remains `STAGED_PARSE_SOURCE_GONE`.
 - Binary-asset enrichment retains full revision-pinning classification and does not inherit the spreadsheet modtime-CAS fallback.
 - Amendment 7 correction: automated modes (`cron`, `push`, `recovery`; asset-recovery does not enter Phase 1) defer MI-8 / MI-8b-only staging while Drive `modifiedTime` is younger than `MI8_DEBOUNCE_MS = 240_000`. Manual and onboarding modes bypass the debounce, and MI-8c remains immediate.
+- Amendment 8 correction: MI-9 stages only LEAD-bit set-membership deltas. Non-LEAD `role_flags` deltas auto-apply in Phase 2 and emit `ROLE_FLAGS_NOTICE` (`severity: "info"`) through the admin-alert catalog; MI-10 remains a documentation safety net when MI-9 does not already cover the LEAD toggle.
 
 **Structural guards shipped and passing:**
 

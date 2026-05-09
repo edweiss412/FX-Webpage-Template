@@ -9,6 +9,7 @@ type FakeShow = {
   lastSyncStatus: string | null;
   lastSyncError: string | null;
   crewNames: string[];
+  crewMembers?: CrewMemberRow[];
 };
 
 type FakeCrewAuth = {
@@ -27,6 +28,14 @@ function crew(name: string, email = `${name.toLowerCase()}@example.com`): CrewMe
     date_restriction: { kind: "none" },
     stage_restriction: { kind: "none" },
     flight_info: null,
+  };
+}
+
+function crewWithFlags(name: string, roleFlags: CrewMemberRow["role_flags"]): CrewMemberRow {
+  return {
+    ...crew(name),
+    role: roleFlags.join("/"),
+    role_flags: roleFlags,
   };
 }
 
@@ -157,11 +166,19 @@ class FakePhase2Tx {
       crewNames: [],
     };
     const previousCrewNames = [...nextShow.crewNames];
+    const previousCrewMembers = nextShow.crewMembers
+      ? nextShow.crewMembers.map((member) => ({ ...member, role_flags: [...member.role_flags] }))
+      : previousCrewNames.map((name) => crew(name));
     nextShow.lastSeenModifiedTime = args.modifiedTime;
     nextShow.lastSyncStatus = "ok";
     nextShow.lastSyncError = null;
     this.shows.set(args.driveFileId, nextShow);
-    return { outcome: "updated" as const, showId: nextShow.id, previousCrewNames };
+    return {
+      outcome: "updated" as const,
+      showId: nextShow.id,
+      previousCrewNames,
+      previousCrewMembers,
+    };
   }
 
   async deleteCrewMembersNotIn(showId: string, names: string[]) {
@@ -173,7 +190,13 @@ class FakePhase2Tx {
   async upsertCrewMembers(showId: string, members: CrewMemberRow[]) {
     this.operations.push(`upsertCrewMembers:${showId}`);
     const show = [...this.shows.values()].find((row) => row.id === showId);
-    if (show) show.crewNames = members.map((member) => member.name);
+    if (show) {
+      show.crewNames = members.map((member) => member.name);
+      show.crewMembers = members.map((member) => ({
+        ...member,
+        role_flags: [...member.role_flags],
+      }));
+    }
   }
 
   async provisionAddedCrewAuth(_showId: string, names: string[]) {
@@ -343,7 +366,9 @@ describe("runPhase2 destructive snapshot", () => {
       crewNames: ["Alice Old"],
     });
 
-    await runWith(tx, { parseResult: parseResult({ crewMembers: [crew("Alice New", "same@example.com")] }) });
+    await runWith(tx, {
+      parseResult: parseResult({ crewMembers: [crew("Alice New", "same@example.com")] }),
+    });
 
     expect(tx.operations.indexOf("deleteCrewMembersNotIn:show-1:Alice New")).toBeLessThan(
       tx.operations.indexOf("upsertCrewMembers:show-1"),
@@ -369,6 +394,54 @@ describe("runPhase2 destructive snapshot", () => {
       revoked_below_version: 1,
     });
   });
+
+  test.each([
+    {
+      label: "department changes while LEAD remains set",
+      priorFlags: ["LEAD", "A1"] as CrewMemberRow["role_flags"],
+      newFlags: ["LEAD", "V1"] as CrewMemberRow["role_flags"],
+    },
+    {
+      label: "non-LEAD capability is added",
+      priorFlags: ["A1"] as CrewMemberRow["role_flags"],
+      newFlags: ["A1", "BO"] as CrewMemberRow["role_flags"],
+    },
+  ])(
+    "auto-applied non-LEAD role flag changes emit ROLE_FLAGS_NOTICE info alert: $label",
+    async ({ priorFlags, newFlags }) => {
+      const tx = new FakePhase2Tx();
+      tx.shows.set("file-1", {
+        id: "show-1",
+        driveFileId: "file-1",
+        lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+        lastSyncStatus: "ok",
+        lastSyncError: null,
+        crewNames: ["Alice"],
+        crewMembers: [crewWithFlags("Alice", priorFlags)],
+      });
+      const upsertAdminAlert = vi.fn(async () => "alert-1");
+
+      await runWith(tx, {
+        parseResult: parseResult({ crewMembers: [crewWithFlags("Alice", newFlags)] }),
+        upsertAdminAlert,
+      });
+
+      expect(upsertAdminAlert).toHaveBeenCalledWith({
+        showId: "show-1",
+        code: "ROLE_FLAGS_NOTICE",
+        context: {
+          drive_file_id: "file-1",
+          changes: [
+            {
+              crew_name: "Alice",
+              prior_flags: priorFlags,
+              new_flags: newFlags,
+            },
+          ],
+        },
+      });
+    },
+  );
 
   test("removed crew auth floors are lifted to current_token_version", async () => {
     const tx = new FakePhase2Tx();
