@@ -214,6 +214,20 @@ If the milestone splits UI ownership across implementers (e.g., M5 backend = Cod
 
 The convergence log proper (below) appends ONLY after impeccable evaluation closes AND adversarial review begins. The milestone is marked "completed" only when BOTH impeccable §12 has zero unresolved HIGH/P0/P1 findings AND adversarial review has converged.
 
+## 13. Meta-test inventory (AGENTS.md writing-plans rule)
+
+What structural meta-tests does this milestone CREATE or EXTEND? Required by AGENTS.md "Writing-plans additions" — declare before drafting tasks. The point: when a bug class recurs in 3+ review rounds, the cure is a structural registry test, not another patch. Pre-declaring the registry at handoff time eliminates the rounds before they happen.
+
+For each candidate class below, mark **create / extend / N/A — <reason>**. Then list the new registry rows (or extension SHAs) the milestone will land.
+
+- [ ] **Supabase call-boundary discipline** — `tests/auth/_metaInfraContract.test.ts` (auth helpers) — required if the milestone adds auth helpers, admin RPCs, or any `{ data, error }`-returning external call. New rows: `<list>`.
+- [ ] **Sentinel hiding in optional text** — `tests/components/tiles/_metaSentinelHidingContract.test.ts` — required if the milestone renders optional/nullable text fields where a sentinel value (`'TBD'`, `'—'`, `'FALSE'`) could leak. New rows: `<list>`.
+- [ ] **admin_alerts catalog completeness** — `tests/messages/_metaAdminAlertCatalog.test.ts` — required if the milestone adds any `admin_alerts` row (every catalog code MUST have non-null `dougFacing`). New rows: `<list>`.
+- [ ] **Advisory-lock topology** — `tests/auth/advisoryLockRpcDeadlock.test.ts` — required if the milestone adds any `pg_advisory*` caller. Single-holder rule per AGENTS.md §1.2. New surfaces: `<list>`.
+- [ ] **No-inline-email-normalization** — `tests/admin/no-inline-email-normalization.test.ts` — required if the milestone reads emails from external surfaces. New surfaces covered: `<list>`.
+
+If "None applies because <reason>," say so explicitly — empty cells silently lie.
+
 ---
 
 ## Field discipline notes
