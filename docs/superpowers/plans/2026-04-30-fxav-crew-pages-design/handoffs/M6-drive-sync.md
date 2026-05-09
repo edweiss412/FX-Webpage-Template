@@ -162,6 +162,56 @@ export function fetchSheetAsMarkdownAtRevision(
 - `pnpm typecheck` — passed
 - Cross-model fresh-eyes review: APPROVED, recommended proceeding to Pin-stop 2.
 
+### Pinned contract @ 043a814 (Pin-stop 1.5 — 2026-05-08)
+
+Pin-stop 2 halted because the live Google Sheet fixture does not support the Pin-stop 1 markdown/revision export assumption. Probe output is committed at `docs/m6/pin-1.5-export-probe.md`.
+
+**Probe summary:**
+
+- `files.get(... headRevisionId, exportLinks)` returned no `headRevisionId`; `revisions.list` returned zero revisions.
+- `exportLinks` contained xlsx, csv, tsv, pdf, ods, and zip; no `text/markdown` and no `text/html`.
+- `files.export(text/markdown)` failed against the live Sheet; xlsx export succeeded and parsed with SheetJS.
+- The fixture folder id derived from `parents[0]` is `1iU80Y2mqYmkCuBQYer0TEF1fta6fDp1C`; `.env.local.example` now includes `M6_REAL_DRIVE_FIXTURE_FOLDER_ID`.
+
+**Final binding contract:**
+
+Google Sheets in this Drive shape cannot be pinned to a Drive revision id. `fetchSheetAsMarkdownAtRevision(driveFileId, revisionId, opts)` now treats `revisionId` as the captured Drive binding token: `headRevisionId` when Drive supplies one, otherwise `modifiedTime`. The function reads current xlsx export bytes only after verifying the starting token still matches, re-reads metadata after the byte fetch, and throws `DriveFetchError` if the token changed. `runScheduledCronSync` captures the same token before parsing and re-verifies before Phase 1/Phase 2.
+
+```ts
+// lib/drive/fetch
+export const MARKDOWN_EXPORT_MIME_TYPE: "text/markdown"; // retained for Pin-1 compatibility only
+export const XLSX_EXPORT_MIME_TYPE: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+export const DRIVE_FILE_METADATA_FIELDS: string;
+export const DRIVE_EXPORT_METADATA_FIELDS: string;
+export type DriveFetchOptions = {
+  drive?: drive_v3.Drive;
+  fetch?: typeof fetch;
+  getAccessToken?: () => Promise<string>;
+};
+export class DriveFetchError extends Error {}
+export function fetchDriveFileMetadata(driveFileId: string, options?: DriveFetchOptions): Promise<DriveListedFile>;
+/** @internal: tests only */
+export function fetchSheetAsMarkdown(driveFileId: string, options?: DriveFetchOptions): Promise<string>;
+export function fetchSheetAsMarkdownAtRevision(
+  driveFileId: string,
+  revisionId: string,
+  options?: DriveFetchOptions,
+): Promise<string>;
+
+// lib/drive/exportSheetToMarkdown
+export function synthesizeMarkdownFromXlsx(buffer: ArrayBuffer): string;
+```
+
+**Round-trip status:**
+
+- `tests/drive/round-trip-fixture.test.ts` loads `M6_REAL_DRIVE_FIXTURE_SPREADSHEET_ID`, fetches the live Sheet through `fetchSheetAsMarkdownAtRevision`, parses the synthesized markdown and `fixtures/shows/raw/2025-05-redefining-fixed-income-private-credit.md`, and asserts structural equality.
+- With `.env.local` populated, the round-trip test passes against the real fixture.
+- Without secrets, the round-trip test skips cleanly.
+
+**Watchpoint 10 trigger-class (b), updated language:**
+
+`fetchSheetAsMarkdownAtRevision`'s xlsx export path fails mid-flight: the captured token no longer matches before xlsx bytes are fetched, the xlsx export link is missing, the authenticated xlsx fetch returns 404, or the post-byte metadata re-read shows a token mismatch. All classify as `STAGED_PARSE_REVISION_RACE`.
+
 ---
 
 ## 1. Spec sections in scope
@@ -327,9 +377,9 @@ M6 has not yet been implemented; no prior M6 convergence log exists. Watchpoints
 
 9. **Per-show advisory lock key derives from `hashtext('show:' || drive_file_id)`, NOT `show_id` and NOT `slug`.** Per spec §1.2 / AGENTS.md §1.2. Cron and admin paths must converge on the same hashkey or the lock provides no isolation. First-seen sheets (no `shows` row yet) STILL use `drive_file_id` so the lock is consistent across "first-seen" and "existing-show" paths.
 
-10. **Same-revision binding contract (Task 6.6 §A — five trigger classes).** `runScheduledCronSync` MUST capture `binding = { headRevisionId, modifiedTime }` BEFORE markdown export, run all enrichment substeps against `binding.headRevisionId`, then re-verify `headRevisionId` matches before entering the transaction. Five classes trigger `STAGED_PARSE_REVISION_RACE` (NOT generic `drive_error`):
-    - (a) post-enrichment `headRevisionId` mismatch
-    - (b) `revisions.export(driveFileId, R1, mimeType)` returns 404 mid-flight
+10. **Same-revision binding contract (Task 6.6 §A — five trigger classes).** `runScheduledCronSync` MUST capture `binding = { headRevisionId, modifiedTime }` BEFORE xlsx export, where `headRevisionId` is the binding token (`metadata.headRevisionId` when Drive supplies one, otherwise `metadata.modifiedTime` for Google Sheets that expose no revision id). It MUST run all enrichment substeps against `binding.headRevisionId`, then re-verify the binding token matches before entering the transaction. Five classes trigger `STAGED_PARSE_REVISION_RACE` (NOT generic `drive_error`):
+    - (a) post-enrichment binding-token mismatch
+    - (b) `fetchSheetAsMarkdownAtRevision`'s xlsx export path fails mid-flight: the captured token no longer matches before xlsx bytes are fetched, the xlsx export link is missing, the authenticated xlsx fetch returns 404, or the post-byte metadata re-read shows a token mismatch
     - (c) `spreadsheets.get` 404 mid-flight on the bound revision
     - (d) `drive.revisions.list` succeeds but doesn't include `binding.headRevisionId`
     - (e) per-asset `revisions.get` / `revisions.export` returns 404 specifically because the bound revision is gone
