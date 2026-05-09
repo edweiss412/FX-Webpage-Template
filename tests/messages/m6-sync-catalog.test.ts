@@ -36,6 +36,21 @@ const M6_SYNC_CODES = [
   "LOCK_OWNERSHIP_ASSERTION_FAILED",
 ] as const;
 
+const M6_PIN2_EXTENSION_ROUTE_CODES = [
+  "FINALIZE_OWNED_SHOW",
+  "MISSING_REVIEWER_CHOICE",
+  "INVALID_REVIEWER_ACTION",
+  "PENDING_SYNC_NOT_FOUND",
+  "SHOW_BUSY_RETRY",
+  "STALE_DISCARD_REJECTED",
+  "STAGED_PARSE_OUTDATED",
+  "STAGED_PARSE_SOURCE_GONE",
+  "STAGED_PARSE_SOURCE_OUT_OF_SCOPE",
+  "STAGED_PARSE_SUPERSEDED",
+  "SYNC_INFRA_ERROR",
+  "WIZARD_SCOPE_NOT_YET_IMPLEMENTED",
+] as const;
+
 describe("M6 sync message catalog", () => {
   test.each(M6_SYNC_CODES)("%s is cataloged before admin UI renders it", (code) => {
     const entry = (MESSAGE_CATALOG as Record<string, { dougFacing: string | null } | undefined>)[
@@ -44,4 +59,16 @@ describe("M6 sync message catalog", () => {
 
     expect(entry, `${code} missing from MESSAGE_CATALOG`).toBeDefined();
   });
+
+  test.each(M6_PIN2_EXTENSION_ROUTE_CODES)(
+    "%s emitted by Pin-2 extension routes is cataloged",
+    (code) => {
+      const entry = (
+        MESSAGE_CATALOG as Record<string, { dougFacing: string | null } | undefined>
+      )[code];
+
+      expect(entry, `${code} missing from MESSAGE_CATALOG`).toBeDefined();
+      expect(entry?.dougFacing, `${code} needs Doug-facing copy`).toEqual(expect.any(String));
+    },
+  );
 });

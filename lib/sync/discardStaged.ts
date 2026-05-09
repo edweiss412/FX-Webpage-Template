@@ -272,6 +272,10 @@ export async function discardStaged(
   args: DiscardStagedArgs,
   deps: DiscardStagedDeps = {},
 ): Promise<DiscardStagedResult | ConcurrentSyncSkipped> {
+  // wizard-scope deferred to 6.8 coda
+  if (args.sourceScope === "wizard") {
+    return { outcome: "wizard_deferred", code: WIZARD_SCOPE_NOT_YET_IMPLEMENTED };
+  }
   return await withPostgresSyncPipelineLock(
     args.driveFileId,
     (tx) => discardStaged_unlocked(tx, args, deps),

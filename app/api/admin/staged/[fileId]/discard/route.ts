@@ -105,7 +105,7 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
   const result = await discardStaged({
     driveFileId: fileId,
     sourceScope: "live",
-    stagedId: body.staged_id,
+    stagedId: body.staged_id.toLowerCase(),
     discardedByEmail: admin.email,
     variant,
   });

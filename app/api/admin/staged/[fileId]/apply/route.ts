@@ -126,7 +126,7 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
   const result = await applyStaged({
     driveFileId: fileId,
     sourceScope: "live",
-    stagedId: body.staged_id,
+    stagedId: body.staged_id.toLowerCase(),
     reviewerChoices: choices,
     appliedByEmail: admin.email,
   });

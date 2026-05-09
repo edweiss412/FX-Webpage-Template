@@ -161,14 +161,15 @@ export const MESSAGE_CATALOG = {
    * within seconds of each other). When the lock is contended, losers
    * receive a 503 with this code and the client retries with jittered
    * exponential backoff. Same shape as bootstrapMint's R8 #2 retry
-   * loop. The code is for the wire protocol — never shown to the user.
+   * loop. M6 admin sync routes can also surface this to Doug when a
+   * show-level sync lock is contended.
    */
   SHOW_BUSY_RETRY: {
     code: "SHOW_BUSY_RETRY",
-    dougFacing: null,
+    dougFacing: "That show is already syncing. Try again in a moment.",
     crewFacing: null,
-    followUp: null,
-    helpfulContext: null,
+    followUp: "Doug -> retry after the current sync finishes",
+    helpfulContext: "Another sync is holding the per-show advisory lock; retry with backoff.",
   },
   STALE_WRITE_ABORTED: {
     code: "STALE_WRITE_ABORTED",

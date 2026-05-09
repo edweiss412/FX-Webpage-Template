@@ -645,7 +645,7 @@ async function applyAssetReviewEffects(
   }
 
   if (!show?.showId) {
-    return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
+    return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
   }
 
   if (unavailable) {
@@ -812,6 +812,10 @@ export async function applyStaged(
   args: ApplyStagedArgs,
   deps: ApplyStagedDeps = {},
 ): Promise<ApplyStagedResult | ConcurrentSyncSkipped> {
+  // wizard-scope deferred to 6.8 coda
+  if (args.sourceScope === "wizard") {
+    return { outcome: "wizard_deferred", code: WIZARD_SCOPE_NOT_YET_IMPLEMENTED };
+  }
   return await withPostgresSyncPipelineLock(
     args.driveFileId,
     (tx) => applyStaged_unlocked(tx, args, deps),

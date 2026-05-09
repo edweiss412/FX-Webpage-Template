@@ -811,6 +811,43 @@ describe("applyStaged live-scope", () => {
     expect(syncDeps.deleteLivePendingSync).not.toHaveBeenCalled();
   });
 
+  test("first-seen embedded revision unavailability returns SYNC_INFRA_ERROR instead of blaming reviewer input", async () => {
+    const item: TriggeredReviewItem = {
+      id: "no-revision",
+      invariant: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+      spreadsheet_id: "sheet-1",
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ baseModifiedTime: null, triggeredReviewItems: [item] }),
+      ),
+      readShowForApply: vi.fn(async () => ({
+        showId: null,
+        lastSeenModifiedTime: null,
+        diagrams: null,
+      })),
+      retryEmbeddedRevisionAvailability: vi.fn(async () => false),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "no-revision", action: "apply" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "infra_error", code: "SYNC_INFRA_ERROR" });
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+    expect(syncDeps.deleteLivePendingSync).not.toHaveBeenCalled();
+  });
+
+
   test("embedded revision retry success still requires re-stage instead of applying incomplete pins", async () => {
     const item: TriggeredReviewItem = {
       id: "no-revision",
