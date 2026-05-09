@@ -38,4 +38,17 @@ describe("M6 pending-row partition scope contract", () => {
     expect(deleteOffset).toBeGreaterThan(-1);
     expect(deleteScopeOffset).toBeGreaterThan(deleteOffset);
   });
+
+  test("Discard live-scope SELECT and DELETE carry wizard_session_id IS NULL", () => {
+    const discardStaged = source("lib/sync/discardStaged.ts");
+    const selectOffset = discardStaged.indexOf("from public.pending_syncs");
+    const selectScopeOffset = discardStaged.indexOf("and wizard_session_id is null", selectOffset);
+    const deleteOffset = discardStaged.indexOf("delete from public.pending_syncs");
+    const deleteScopeOffset = discardStaged.indexOf("and wizard_session_id is null", deleteOffset);
+
+    expect(selectOffset).toBeGreaterThan(-1);
+    expect(selectScopeOffset).toBeGreaterThan(selectOffset);
+    expect(deleteOffset).toBeGreaterThan(-1);
+    expect(deleteScopeOffset).toBeGreaterThan(deleteOffset);
+  });
 });

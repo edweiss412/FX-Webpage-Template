@@ -1,0 +1,265 @@
+import {
+  assertShowLockHeld,
+  type ConcurrentSyncSkipped,
+  type LockedShowTx,
+} from "@/lib/sync/lockedShowTx";
+import {
+  type SyncPipelineTx,
+  withPostgresSyncPipelineLock,
+} from "@/lib/sync/runScheduledCronSync";
+import {
+  PENDING_SYNC_NOT_FOUND,
+  WIZARD_SCOPE_NOT_YET_IMPLEMENTED,
+} from "@/lib/sync/applyStaged";
+
+export { PENDING_SYNC_NOT_FOUND, WIZARD_SCOPE_NOT_YET_IMPLEMENTED };
+export const STALE_DISCARD_REJECTED = "STALE_DISCARD_REJECTED" as const;
+
+export type DiscardVariant = "try_again" | "defer_until_modified" | "permanent_ignore";
+
+export type PendingSyncForDiscard = {
+  driveFileId: string;
+  driveFileName: string;
+  stagedId: string;
+  sourceKind: string;
+  wizardSessionId: string | null;
+  stagedModifiedTime: string;
+  priorLastSyncStatus: string | null;
+  priorLastSyncError: string | null;
+};
+
+type ShowForDiscard = {
+  showId: string;
+};
+
+type LiveDeferralInput = {
+  driveFileId: string;
+  driveFileName: string;
+  deferredKind: "defer_until_modified" | "permanent_ignore";
+  deferredAtModifiedTime: string | null;
+  wizardSessionId: null;
+};
+
+export type DiscardStagedArgs =
+  | {
+      driveFileId: string;
+      sourceScope: "live";
+      stagedId: string;
+      variant?: DiscardVariant;
+    }
+  | {
+      driveFileId: string;
+      sourceScope: "wizard";
+      wizardSessionId: string;
+      stagedId: string;
+      variant?: DiscardVariant;
+    };
+
+export type DiscardStagedResult =
+  | { outcome: "discarded"; variant: DiscardVariant }
+  | { outcome: "not_found"; code: typeof PENDING_SYNC_NOT_FOUND }
+  | { outcome: "stale"; code: typeof STALE_DISCARD_REJECTED }
+  | { outcome: "wizard_deferred"; code: typeof WIZARD_SCOPE_NOT_YET_IMPLEMENTED };
+
+export type DiscardStagedDeps = {
+  readLivePendingSyncForDiscard?: (
+    tx: LockedShowTx<SyncPipelineTx>,
+    driveFileId: string,
+  ) => Promise<PendingSyncForDiscard | null>;
+  readShowForDiscard?: (
+    tx: LockedShowTx<SyncPipelineTx>,
+    driveFileId: string,
+  ) => Promise<ShowForDiscard | null>;
+  restoreShowStatus?: (
+    tx: LockedShowTx<SyncPipelineTx>,
+    driveFileId: string,
+    priorStatus: string | null,
+    priorError: string | null,
+  ) => Promise<void>;
+  deleteLivePendingSync?: (
+    tx: LockedShowTx<SyncPipelineTx>,
+    driveFileId: string,
+    stagedId: string,
+  ) => Promise<void>;
+  upsertLiveDeferral?: (
+    tx: LockedShowTx<SyncPipelineTx>,
+    row: LiveDeferralInput,
+  ) => Promise<void>;
+};
+
+async function defaultReadLivePendingSyncForDiscard(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+): Promise<PendingSyncForDiscard | null> {
+  const row = await tx.queryOne<{
+    drive_file_id: string;
+    staged_id: string;
+    source_kind: string;
+    wizard_session_id: string | null;
+    staged_modified_time: string;
+    prior_last_sync_status: string | null;
+    prior_last_sync_error: string | null;
+    parse_result: { show?: { title?: string } };
+  } | null>(
+    `
+      select drive_file_id, staged_id, source_kind, wizard_session_id,
+             staged_modified_time, prior_last_sync_status, prior_last_sync_error,
+             parse_result
+        from public.pending_syncs
+       where drive_file_id = $1
+         and wizard_session_id is null
+       limit 1
+    `,
+    [driveFileId],
+  );
+  if (!row) return null;
+  return {
+    driveFileId: row.drive_file_id,
+    driveFileName: row.parse_result.show?.title ?? row.drive_file_id,
+    stagedId: row.staged_id,
+    sourceKind: row.source_kind,
+    wizardSessionId: row.wizard_session_id,
+    stagedModifiedTime: row.staged_modified_time,
+    priorLastSyncStatus: row.prior_last_sync_status,
+    priorLastSyncError: row.prior_last_sync_error,
+  };
+}
+
+async function defaultReadShowForDiscard(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+): Promise<ShowForDiscard | null> {
+  const row = await tx.queryOne<{ id: string } | null>(
+    `
+      select id
+        from public.shows
+       where drive_file_id = $1
+       limit 1
+    `,
+    [driveFileId],
+  );
+  return row ? { showId: row.id } : null;
+}
+
+async function defaultRestoreShowStatus(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  priorStatus: string | null,
+  priorError: string | null,
+): Promise<void> {
+  await tx.queryOne<{ restored: boolean }>(
+    `
+      update public.shows
+         set last_sync_status = $2,
+             last_sync_error = $3
+       where drive_file_id = $1
+      returning true as restored
+    `,
+    [driveFileId, priorStatus, priorError],
+  );
+}
+
+async function defaultDeleteLivePendingSync(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  stagedId: string,
+): Promise<void> {
+  await tx.queryOne<{ deleted: boolean }>(
+    `
+      delete from public.pending_syncs
+       where drive_file_id = $1
+         and staged_id = $2::uuid
+         and wizard_session_id is null
+      returning true as deleted
+    `,
+    [driveFileId, stagedId],
+  );
+}
+
+async function defaultUpsertLiveDeferral(
+  tx: LockedShowTx<SyncPipelineTx>,
+  row: LiveDeferralInput,
+): Promise<void> {
+  await tx.queryOne<{ upserted: boolean }>(
+    `
+      insert into public.deferred_ingestions (
+        drive_file_id, drive_file_name, deferred_kind,
+        deferred_at_modified_time, wizard_session_id
+      )
+      values ($1, $2, $3, $4::timestamptz, null)
+      on conflict (drive_file_id) where wizard_session_id is null
+      do update set
+        drive_file_name = excluded.drive_file_name,
+        deferred_kind = excluded.deferred_kind,
+        deferred_at_modified_time = excluded.deferred_at_modified_time,
+        deferred_at = now()
+      returning true as upserted
+    `,
+    [row.driveFileId, row.driveFileName, row.deferredKind, row.deferredAtModifiedTime],
+  );
+}
+
+function depsWithDefaults(deps: DiscardStagedDeps): Required<DiscardStagedDeps> {
+  return {
+    readLivePendingSyncForDiscard:
+      deps.readLivePendingSyncForDiscard ?? defaultReadLivePendingSyncForDiscard,
+    readShowForDiscard: deps.readShowForDiscard ?? defaultReadShowForDiscard,
+    restoreShowStatus: deps.restoreShowStatus ?? defaultRestoreShowStatus,
+    deleteLivePendingSync: deps.deleteLivePendingSync ?? defaultDeleteLivePendingSync,
+    upsertLiveDeferral: deps.upsertLiveDeferral ?? defaultUpsertLiveDeferral,
+  };
+}
+
+export async function discardStaged_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  args: DiscardStagedArgs,
+  injectedDeps: DiscardStagedDeps = {},
+): Promise<DiscardStagedResult> {
+  await assertShowLockHeld(tx, args.driveFileId);
+
+  // wizard-scope deferred to 6.8 coda
+  if (args.sourceScope === "wizard") {
+    return { outcome: "wizard_deferred", code: WIZARD_SCOPE_NOT_YET_IMPLEMENTED };
+  }
+
+  const deps = depsWithDefaults(injectedDeps);
+  const pending = await deps.readLivePendingSyncForDiscard(tx, args.driveFileId);
+  if (!pending) return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+  if (pending.stagedId !== args.stagedId) {
+    return { outcome: "stale", code: STALE_DISCARD_REJECTED };
+  }
+
+  const variant = args.variant ?? "try_again";
+  const show = await deps.readShowForDiscard(tx, args.driveFileId);
+  if (show) {
+    await deps.restoreShowStatus(
+      tx,
+      pending.driveFileId,
+      pending.priorLastSyncStatus,
+      pending.priorLastSyncError,
+    );
+  } else if (variant !== "try_again") {
+    await deps.upsertLiveDeferral(tx, {
+      driveFileId: pending.driveFileId,
+      driveFileName: pending.driveFileName,
+      deferredKind: variant,
+      deferredAtModifiedTime:
+        variant === "defer_until_modified" ? pending.stagedModifiedTime : null,
+      wizardSessionId: null,
+    });
+  }
+
+  await deps.deleteLivePendingSync(tx, pending.driveFileId, pending.stagedId);
+  return { outcome: "discarded", variant };
+}
+
+export async function discardStaged(
+  args: DiscardStagedArgs,
+  deps: DiscardStagedDeps = {},
+): Promise<DiscardStagedResult | ConcurrentSyncSkipped> {
+  return await withPostgresSyncPipelineLock(
+    args.driveFileId,
+    (tx) => discardStaged_unlocked(tx, args, deps),
+    { tryOnly: false },
+  );
+}
