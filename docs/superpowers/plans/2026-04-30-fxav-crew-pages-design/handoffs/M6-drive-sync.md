@@ -329,9 +329,25 @@ export function GET(request: NextRequest): Promise<Response>;
 - `tests/drive/no-unpinned-export.test.ts`
 - `tests/admin/no-inline-email-normalization.test.ts` now audits `lib/drive/**` and `lib/sync/**`.
 
-**Pin-stop 2 deviation / extension needed:**
+**Pin-stop 2 deviation / extension scope (resolved 2026-05-09):**
 
-- `app/api/admin/sync/[slug]/route.ts` and `app/api/admin/staged/[fileId]/{apply,discard}/route.ts` are still absent at this pin. The current task list assigns those implementations to Task 6.7 and Task 6.11/6.12, but §0's Pin-stop 2 UI-consumable surface also lists their contracts. Treat this as a Pin-stop-2-extension before §B starts if the UI must consume live routes rather than the engine contracts above.
+§0's original Pin-2 surface bullets listed `app/api/admin/sync/[slug]/route.ts` and `app/api/admin/staged/[fileId]/{apply,discard}/route.ts` as Pin-2-consumable contracts AND simultaneously assigned their implementations to Tasks 6.7 / 6.11 / 6.12 (post-Pin-2). Codex shipped the engine surface (Tasks 6.3–6.6) at this pin and correctly flagged the gap before §B starts.
+
+**Resolution — Pin-stop-2-extension scope, live-scope-only:**
+
+§B's parse panel renders the per-show admin surface for an _existing_ show; it never invokes the wizard step-3 onboarding flow (M10 territory). So the extension can ship live-scope-only without needing 6.8's partial-index migration:
+
+1. **Task 6.7 in full** — `runManualSyncForShow` + `runManualSyncForShow_unlocked` + `app/api/admin/sync/[slug]/route.ts` + FINALIZE_OWNED_SHOW two-arm guard. Live-only routing is acceptable here because the guard's wizard-checkpoint join reads existing M2 schema (`wizard_finalize_checkpoints` was provisioned at M2; the `shows_pending_changes` shadow surface ditto).
+2. **Task 6.11 §A live-scope-only** — `app/api/admin/staged/[fileId]/apply/route.ts` + `lib/sync/applyStaged.ts` covering ONLY the `source_scope = 'live'` branch (`AND wizard_session_id IS NULL` predicates). Wizard-scope branch (Phase-1-only approval, `wizard_approved = TRUE` UPDATE, manifest transition) is deferred to a coda after 6.8's partial-index migration lands. The asset-review item Apply-time effects (DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE / NONE_FOUND / LINKED_FOLDER_DRIFT_PENDING / REEL_DRIFT_PENDING) ship live-scope; reviewer-choices validator ships in full.
+3. **Task 6.12 §A live-scope-only** — `app/api/admin/staged/[fileId]/discard/route.ts` covering the three live-scope variants (try-again / defer-until-modified / permanent-ignore). Wizard-scope branch deferred to the same coda.
+
+**Schema dependency check:** live-scope routes only use `wizard_session_id IS NULL` predicates, which work on the M2 base schema without requiring the partial-index split (the split is a query-plan optimization for coexistence; correctness is enforced by the predicate). `pending_syncs.wizard_approved BOOLEAN NOT NULL DEFAULT FALSE` and the related columns exist from Task 2.2; the CHECK is satisfied by every live row.
+
+**Wizard-scope coda (deferred from this extension):** the wizard branches of 6.11/6.12 land alongside 6.8's full implementation (which ships the `runOnboardingScan` engine + the partial-index migration). Once 6.8 + the coda are in, the wizard surfaces are ready for M10 to consume.
+
+**Post-extension parallel work:** §A continues with 6.8 (full + migration) → 6.9 (watch lifecycle) → 6.10 (webhook + push); §B starts in parallel against the live-scope route contracts pinned by the extension.
+
+The extension is recorded as a NEW Pinned-contract block under §0 when it closes (per the M5 / Pin-1.5 convention), NOT as a Pin-stop 3.
 
 **Verification at Pin-stop 2 code SHA `8d2cc24`:**
 
