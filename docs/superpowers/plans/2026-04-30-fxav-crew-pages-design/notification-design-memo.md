@@ -182,15 +182,17 @@ This keeps the dev-facing inbox singular: every piece of feedback lands as a Git
 
 ## Open questions to validate with Doug before implementation
 
-These should be answered by conversation, not designed-around. The defaults below are the spec's best-guess, but Doug's actual answers should drive the calibration.
+The notification-related questions live in the canonical Doug-validation doc:
+[`doug-validation-questions.md`](./doug-validation-questions.md) §4 (channels and
+timing) and §5 (feedback / communication). Specifically: §4.1 (email vs SMS vs
+other), §4.2 (digest send time), §4.3 (reply-to behavior), §4.4 (auto-publish
+confirmation), §4.5 (one-click Apply scope), §5.1–§5.3 (feedback affordance
+design).
 
-1. **Is email the right primary push channel?** Default assumption: yes. Alternatives: SMS (lower friction but harder to embed action links), Slack/Teams (probably not relevant for Doug), browser push (requires PWA).
-2. **What time of day for the daily digest?** Default: 8am ET. Better answered by knowing when Doug starts his work day — too early and he ignores it, too late and the day's editing has already started.
-3. **Does Doug want a confirmation email when a sheet auto-publishes for the first time (post-FIRST_SEEN_REVIEW Apply)?** Default: yes — gives him a paper trail of "this went live at this time." Alternative: no — quiet success, no email unless something needed his attention.
-4. **What's the right threshold for "promote tier-2 to tier-1"?** Default: 24h unactioned. Could be tighter (12h) or looser (48h).
-5. **Should the push include the parse summary (show title, dates, crew count) or just a "click here to review" link?** Default: include summary so Doug can triage from the email without opening the dashboard. Alternative: link-only for security/PII reasons (the email could leak through forwarding).
-6. **Reply-to-email feedback — does Doug naturally hit reply on automated emails, or does he assume "noreply" and never tries?** This is a behavior question, not a design question — measure after launch.
-7. **For one-click Apply-from-email, which staging classes does Doug want this for?** Default: low-stakes only (MI-6, MI-7, MI-8, MI-8b). Higher-stakes (auth-sensitive) require dashboard click-through. Calibrate after observing.
+When Doug's answers come in, update the validation doc inline AND propagate
+calibrated values into this memo's "Concrete design sketch" section before the
+push milestone is specced. That way the memo's design proposal and the
+validation answers stay in sync as the single source of truth.
 
 ---
 
