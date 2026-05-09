@@ -26,6 +26,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { resolveAdminAlertFormAction } from "@/app/admin/actions";
+import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 
 type AlertRow = {
   id: string;
@@ -35,6 +36,19 @@ type AlertRow = {
   shows: { slug: string } | Array<{ slug: string }> | null;
 };
 
+// Codes whose catalog entry is `severity: 'info'` are operator notices
+// (Amendment 8 / ROLE_FLAGS_NOTICE is the canonical example) — they are
+// recorded for visibility but must not raise the primary admin banner.
+// The dedicated alert-feed surface that shows them is M9/M10 territory.
+// Computed at module load from MESSAGE_CATALOG so adding a new info-severity
+// entry to the catalog automatically extends the exclusion list.
+// Cast widens each literal-typed entry (the catalog uses
+// `as const satisfies Record<string, MessageCatalogEntry>`) so the
+// optional `severity` field is visible to the filter.
+const INFO_SEVERITY_CODES: string[] = (Object.values(MESSAGE_CATALOG) as MessageCatalogEntry[])
+  .filter((entry) => entry.severity === "info")
+  .map((entry) => entry.code);
+
 export async function AlertBanner() {
   const supabase = await createSupabaseServerClient();
 
@@ -42,12 +56,22 @@ export async function AlertBanner() {
   // public.is_admin() to return true; the layout's requireAdmin() has
   // already gated the request, so this should always succeed for admins
   // and reject (zero rows) otherwise.
-  const { data, error } = await supabase
+  // Build the SELECT in two stages so the info-severity exclusion is only
+  // appended when there is something to exclude. PostgREST `.not('code',
+  // 'in', '(...)')` requires a non-empty value list; appending an empty
+  // `()` clause throws on the server.
+  let query = supabase
     .from("admin_alerts")
     .select("id, code, raised_at, show_id, shows(slug)")
-    .is("resolved_at", null)
-    .order("raised_at", { ascending: false })
-    .limit(1);
+    .is("resolved_at", null);
+  if (INFO_SEVERITY_CODES.length > 0) {
+    query = query.not(
+      "code",
+      "in",
+      `(${INFO_SEVERITY_CODES.map((code) => `"${code}"`).join(",")})`,
+    );
+  }
+  const { data, error } = await query.order("raised_at", { ascending: false }).limit(1);
 
   if (error) {
     // I3 fix: distinguish DB error from empty result. Empty (no unresolved

@@ -53,19 +53,45 @@ const mockState = vi.hoisted(() => ({
 vi.mock("@/lib/supabase/server", () => {
   return {
     createSupabaseServerClient: async () => {
-      // Build a chained mock that mirrors the call pattern:
+      // Build a chained mock that mirrors the production call pattern:
       //   supabase
       //     .from('admin_alerts')
       //     .select('id, code, raised_at, show_id, shows(slug)')
       //     .is('resolved_at', null)
+      //     .not('code', 'in', '("INFO_CODE_A","INFO_CODE_B")')   // info-severity exclusion
       //     .order('raised_at', { ascending: false })
       //     .limit(1)
-      // and resolves to { data: AlertRow[], error: null }.
+      // .not() filtering is honored so that an info-severity row sitting at
+      // the top of raised_at DESC does NOT mask a lower warning row in the
+      // .limit(1) result — replicates real PostgREST semantics.
+      const filters: Array<{ kind: "not_in"; column: string; values: string[] }> = [];
       const builder = {
         select: () => builder,
         is: () => builder,
+        not: (column: string, op: string, valueList: string) => {
+          if (op === "in") {
+            const inner = valueList.replace(/^\(/, "").replace(/\)$/, "");
+            const values = inner
+              .split(",")
+              .map((v) => v.trim().replace(/^"/, "").replace(/"$/, ""))
+              .filter(Boolean);
+            filters.push({ kind: "not_in", column, values });
+          }
+          return builder;
+        },
         order: () => builder,
-        limit: (n: number) => Promise.resolve({ data: mockState.rows.slice(0, n), error: null }),
+        limit: (n: number) => {
+          let rows: typeof mockState.rows = mockState.rows;
+          for (const f of filters) {
+            if (f.kind === "not_in") {
+              rows = rows.filter((row) => {
+                const cell = (row as unknown as Record<string, unknown>)[f.column];
+                return typeof cell === "string" ? !f.values.includes(cell) : true;
+              });
+            }
+          }
+          return Promise.resolve({ data: rows.slice(0, n), error: null });
+        },
       };
       return {
         from: () => builder,
@@ -200,6 +226,44 @@ describe("AlertBanner", () => {
         `raw code '${code}' must not appear in the rendered DOM (invariant 5)`,
       ).toBe(false);
     }
+  });
+
+  test("info-severity codes (e.g., ROLE_FLAGS_NOTICE) are excluded; banner falls through to the next non-info row", async () => {
+    setRows([
+      {
+        id: "info-row-newest",
+        code: "ROLE_FLAGS_NOTICE",
+        raised_at: "2026-05-09T12:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+      {
+        id: "warning-row-older",
+        code: "WATCH_CHANNEL_ORPHANED",
+        raised_at: "2026-05-04T00:00:00Z",
+        show_id: "11111111-1111-4111-8111-111111111111",
+        shows: { slug: "test-show" },
+      },
+    ]);
+    const { getByTestId, container } = render(await AlertBanner());
+    expect(getByTestId("error-explainer-message").textContent).toBe(
+      MESSAGE_CATALOG.WATCH_CHANNEL_ORPHANED.dougFacing!,
+    );
+    expect(container.querySelector('[data-alert-id="info-row-newest"]')).toBeNull();
+  });
+
+  test("only an info-severity row exists → banner renders nothing", async () => {
+    setRows([
+      {
+        id: "only-info",
+        code: "ROLE_FLAGS_NOTICE",
+        raised_at: "2026-05-09T12:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    expect(container.firstChild).toBeNull();
   });
 
   test("renders the Resolve form (Server Action target) for a global alert", async () => {
