@@ -3,8 +3,17 @@
 > **Status:** Forward-looking design memo. Not yet a spec section, not yet a milestone plan. Captures design principles for whichever future milestone owns the push-notification surface.
 >
 > **Drafted:** 2026-05-09
+> **Updated:** 2026-05-09 with provisional answers to BLOCKER questions §1.1, §1.2, §4.1, §5.1, §6.1, §7.3 from `doug-validation-questions.md` (Eric, pending Doug confirmation).
 > **Source:** Conversation thread following ratification of plan amendments 7 + 8 (`00-overview.md`). Triggered by the observation that the spec currently has zero push surface — the dashboard is purely pull, and Doug's natural surface is Drive, not the dashboard.
 > **Suggested home:** New milestone (M11+ or post-v1) once core sync + admin surfaces stabilize. Do NOT retrofit into M6–M10 — those have their own scope and ship priorities. This memo is the load-bearing context the future milestone-spec-author should read first.
+
+**Calibrated assumptions** (from validation doc, 2026-05-09):
+
+- **Channel:** email primary for v1; `lib/notify/` abstraction supports SMS as a second channel without re-architecting (build channel-agnostic from day 1, ship email-only).
+- **Show count:** 10–15 simultaneous shows is the realistic upper bound. Cross-show coalescing in the daily digest is **mandatory**, not optional.
+- **Feedback channel:** reply-to-email is the **primary** feedback path (matches Doug's existing "text or email Eric" habit). One-click "Report a problem" links and structured forms are secondary.
+- **Live-edits propagation:** confirmed — once a sheet is in the watched folder, edits flow live. No publish-gate layer; MI staging gates handle the suspicious-change carve-outs.
+- **Sharing-as-publishing:** "I shared the link" means final, not draft. Leans toward auto-publish-with-email-undo on FIRST_SEEN_REVIEW, but §7.1 is still open — final call deferred.
 
 ---
 
@@ -31,11 +40,13 @@ Every event that requires Doug's attention MUST have a push surface. Events that
 
 Three tiers, with explicit assignment of every §12.4 catalog code to one tier:
 
-| Tier                              | Surface                                                   | Codes (initial assignment, calibrate after observation)                                                                                                      |
-| --------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Real-time push** (rare, urgent) | Out-of-band email at the moment it happens                | `MI-11_EMAIL_CHANGE`, `MI-12_PROBABLE_RENAME`, `MI-13_NAME_AND_EMAIL_CHANGE`, `MI-14_NO_EMAIL_RENAME`, `FIRST_SEEN_REVIEW`, `SHEET_UNAVAILABLE` (>1h), `DRIVE_FETCH_FAILED` (>2 retries), `MI-1`..`MI-5b` hard fails on a previously-published show |
-| **Daily digest** (most things)    | One email at a fixed time bundling everything pending     | `MI-6`, `MI-7`, `MI-7b`, `MI-8`, `MI-8b`, `MI-8c`, `MI-9_ROLE_FLAGS_DELTA` (LEAD-bit, post-amendment-8), `ONBOARDING_SCAN_REVIEW`, parser soft warnings whose `dougFacing` is non-null |
-| **Dashboard-only** (info)         | Visible if he visits, never pushed                        | `ROLE_FLAGS_NOTICE`, `TYPO_NORMALIZED`, `DIAGRAMS_TAB_MISSING`, `UNEXPECTED_PARENT`, all admin-log-only codes, `SYNC_DELAYED_MODERATE` (severe is already real-time) |
+| Tier                              | Surface                                                       | Codes (initial assignment, calibrate after observation)                                                                                                      |
+| --------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Real-time push** (rare, urgent) | Out-of-band **email** at the moment it happens                | `MI-11_EMAIL_CHANGE`, `MI-12_PROBABLE_RENAME`, `MI-13_NAME_AND_EMAIL_CHANGE`, `MI-14_NO_EMAIL_RENAME`, `FIRST_SEEN_REVIEW`, `SHEET_UNAVAILABLE` (>1h), `DRIVE_FETCH_FAILED` (>2 retries), `MI-1`..`MI-5b` hard fails on a previously-published show |
+| **Daily digest** (most things)    | One **email** at a fixed time bundling **across all shows**   | `MI-6`, `MI-7`, `MI-7b`, `MI-8`, `MI-8b`, `MI-8c`, `MI-9_ROLE_FLAGS_DELTA` (LEAD-bit, post-amendment-8), `ONBOARDING_SCAN_REVIEW`, parser soft warnings whose `dougFacing` is non-null |
+| **Dashboard-only** (info)         | Visible if he visits, never pushed                            | `ROLE_FLAGS_NOTICE`, `TYPO_NORMALIZED`, `DIAGRAMS_TAB_MISSING`, `UNEXPECTED_PARENT`, all admin-log-only codes, `SYNC_DELAYED_MODERATE` (severe is already real-time) |
+
+**Channel:** email is the v1 primary (Doug works on PC/laptop; email is his ambient surface). The `lib/notify/` abstraction MUST be channel-agnostic (`'email' | 'sms' | 'webhook'` enum) so SMS lands as a follow-on without re-architecting, but the v1 implementation ships email-only.
 
 Tier assignments are calibration questions, not invariants. Watch what Doug ignores in real-time push and demote it to digest; watch what he wishes he'd known sooner in digest and promote it. A digest item that's been sitting unactioned for >24h auto-promotes to real-time on the next tick.
 
@@ -68,16 +79,18 @@ The MI-8 / MI-8b modtime-stability debounce ratified in plan amendments 7 (2026-
 
 ## Principle 4 — Coalescing
 
-Per-parse coalescing is already in the spec ("a single `pending_syncs` row aggregates all stage-for-approval events from a single parse run"). The push surface adds two more layers:
+**Show count context (validated 2026-05-09):** Doug runs 10–15 active shows simultaneously. At that scale, per-show emails are untenable even at low staging frequency — coalescing isn't a nice-to-have, it's the only way the push surface stays usable. Per-parse coalescing is already in the spec ("a single `pending_syncs` row aggregates all stage-for-approval events from a single parse run"). The push surface adds two MANDATORY layers on top:
 
-- **Per-show coalescing across syncs.** If Show X already has an unactioned push out (`pending_syncs.email_sent_at IS NOT NULL` and the row still exists), subsequent stagings on the same show update the existing record without firing a new push. Subject becomes "Show X: now 4 items to review (was 2)."
-- **Cross-show daily digest.** Tier-2 items batch into one daily digest covering all shows. Subject: "FXAV: 3 shows have 7 items to review."
+- **Per-show coalescing across syncs.** If Show X already has an unactioned push out (`pending_syncs.email_sent_at IS NOT NULL` and the row still exists), subsequent stagings on the same show update the existing record without firing a new push. Subject becomes "Show X: now 4 items to review (was 2)." **Required, not optional.**
+- **Cross-show daily digest is the default for tier-2.** Tier-2 items batch into one daily digest covering all 10–15 active shows. Subject: "FXAV: 3 shows have 7 items to review." Per-show tier-2 emails are NEVER sent — only the cross-show digest. **Required, not optional.** A digest with 0 items is not sent (quiet success).
 
 A push is fired when:
 
 - It's tier-1 (real-time), OR
-- It's tier-2 AND no digest has been sent for this `(show_id, day)` yet today, OR
+- It's the daily-digest tick AND there's at least one tier-2 item across any show that hasn't been included in a prior digest yet, OR
 - It's a "promotion" (tier-2 item now older than 24h promotes to tier-1).
+
+**Dashboard implication (cross-link to spec §9.1):** at 15 shows, the dashboard list MUST sort by urgency — `(unactioned_staging_count desc, last_modified desc)` — not alphabetically. Alpha order buries the things that need attention. Capture as a follow-up note for whichever milestone owns the dashboard polish (M9 polish or M10 onboarding). Not strictly part of the push surface but emerges from the same scale assumption.
 
 ---
 
@@ -98,15 +111,15 @@ Inverse-test for whether a push is well-calibrated: would Doug be surprised to r
 
 If we're already in Doug's email asking him to act, that's also the right surface for him to flag things back to us. Every push notification must carry a feedback affordance — Doug should never have to context-switch to the dashboard to tell us something looks wrong.
 
-**Three forms of feedback embedded in every push:**
+**Three forms of feedback embedded in every push, ordered by Doug's existing habit (validated 2026-05-09 — his current channel for "something's wrong" is text or email to Eric, conversational not ticket-based):**
 
-1. **One-click "Report a problem"** — link in every push that opens a pre-filled form (or directly creates a GitHub issue via the existing M8 `/api/report` pipeline) with the show + staging + parse context already attached. Doug clicks → optionally types 1–2 sentences → submits. Lands in GitHub Issues exactly as the dashboard "Report" button does.
+1. **Reply-to-email feedback (PRIMARY).** Every push email's `Reply-To:` header points at an ingest address that lands the reply in `feedback_inbox` and (if the body exceeds a min-quality threshold) auto-promotes to a GitHub issue via the existing M8 `/api/report` pipeline. Doug hits reply with freeform notes from any mail client — exactly mirroring his current "text or email Eric" habit. **This is the form to optimize hardest;** it's the lowest-friction path AND matches what Doug already does. Works without clicking any link.
 
-2. **One-click "This is fine, apply"** — for low-stakes stagings (info-and-confirm, non-auth-sensitive), the email itself can carry an Apply-from-email button using a signed action token (short-lived, one-shot). Higher-stakes stagings (MI-11 email change, MI-12/13/14 renames, FIRST_SEEN_REVIEW) still require dashboard click-through so Doug sees the diff.
+2. **One-click "Report a problem" link.** Secondary path for cases where reply isn't natural (e.g., a digest covering 5 shows where Doug wants to flag one specifically). Pre-filled form / GitHub issue with show + staging + parse context already attached. Doug clicks → optionally types 1–2 sentences → submits.
 
-3. **Reply-to-email feedback** — the email's `Reply-To:` header points at an ingest address that creates a GitHub issue or a `pending_feedback` row. Doug just hits reply with notes; we ingest and route to Eric. Lowest-friction option — works from any mail client without clicking links.
+3. **One-click "This is fine, apply" button.** Tertiary — for low-stakes stagings (non-auth-sensitive: MI-6, MI-7, MI-7b, MI-8, MI-8b, MI-8c), the email carries an Apply-from-email button using a signed action token (short-lived, one-shot). Higher-stakes stagings (MI-11 email change, MI-12/13/14 renames, FIRST_SEEN_REVIEW) still require dashboard click-through so Doug sees the diff. Use sparingly.
 
-The integration with M8's report pipeline is the key insight: we already have a "feedback to dev" surface (GitHub Issues via `/api/report`). Extending it to accept email-originated reports is additive. Doug's mental model becomes "if something's off in the email, hit reply or click the button — same thing happens either way."
+The integration with M8's report pipeline is the key insight: we already have a "feedback to dev" surface (GitHub Issues via `/api/report`). Extending it to accept email-originated reports is additive. Doug's mental model becomes "if something's off in the email, hit reply or click the button — same thing happens either way." Match his existing habit (reply-to-email) first; offer structure (forms, buttons) as fallback for cases where reply doesn't fit.
 
 ---
 

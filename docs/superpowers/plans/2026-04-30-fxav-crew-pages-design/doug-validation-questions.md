@@ -235,13 +235,54 @@ These are the "we already decided X, but let's double-check" questions. Often an
 
 ## Answered
 
-_(Move questions here as they're answered. Format below.)_
+> **Note on provenance:** answers below provided by Eric (dev) based on outside-in observation of Doug's workflow, pending direct confirmation with Doug. Treat these as "high-confidence working assumptions sufficient to unblock design" rather than ratified facts. When Doug actually answers, update the entry in place — same date / answer / follow-up format. If his answer differs from Eric's, note both with timestamps and update affected design sections.
 
-### §X.Y — [Question summary] — answered YYYY-MM-DD
+### §1.1 — Drive structure mental model — answered 2026-05-09 (Eric, pending Doug confirmation)
 
-**Doug's answer:** [paraphrased]
-**Design follow-up:** [no change needed | spec amendment N drafted | DEFERRED.md entry MX-DY | follow-up conversation needed]
-**Audit trail:** [conversation notes / commit SHA / amendment reference]
+**Answer:** The watched-folder model is an acceptable starting point. Doug shares his sheets via Drive folder workflow already; a designated "FXAV Live Shows" folder slots into his existing structure naturally.
+**Design follow-up:** No change needed. Confirms M10 onboarding wizard's folder-pointer design and M6's cron-scans-watched-folder model. The first-cut UX is correct.
+**Audit trail:** Conversation 2026-05-09; commit `246beb6` and follow-up commit (this one).
+
+### §1.2 — Ready-to-share moment — answered 2026-05-09 (Eric, pending Doug confirmation)
+
+**Answer:** "I shared the link" means the sheet is **final**, unless new information arrives that requires editing. The folder-move is a deliberate "this is ready" act, not "here's a draft for feedback."
+**Design follow-up:** Leans toward auto-publish on FIRST_SEEN_REVIEW (since Doug has already decided "this is ready" by moving it). However, §7.1 is still open and that's the canonical decision point. When §7.1 is decided, this answer informs the default direction. **Cross-link:** the related concern is "what if Doug drags the wrong file?" — caught by FIRST_SEEN_REVIEW today, would be uncaught with auto-publish. A possible compromise (auto-apply after a 4h email-delayed window with one-click cancel) preserves both the "trust the drag" UX and the "wrong-folder mistake" safety net. Capture for §7.1 deliberation.
+**Audit trail:** Conversation 2026-05-09; commit forthcoming.
+
+### §4.1 — Attention surface channel choice — answered 2026-05-09 (Eric, pending Doug confirmation)
+
+**Answer:** **Email is the primary channel** for v1. Doug edits documents on PC/laptop, so email is most accessible to him. Build the `lib/notify/` abstraction to support SMS as a second channel without re-architecting — but ship email-only first.
+**Design follow-up:** Update `notification-design-memo.md` Tier 1 / Tier 2 surface column to lock in "email" rather than equivocating across SMS/Slack/PWA. Keep the channel column as `text` enum in the `push_log` schema (`'email' | 'sms' | 'webhook'`) so SMS provider can land later without migration. Drop the "Slack/Teams" option from the alternatives — out of scope for v1 and not aligned with Doug's surface.
+**Audit trail:** Conversation 2026-05-09; commit forthcoming.
+
+### §5.1 — Current feedback channel — answered 2026-05-09 (Eric, pending Doug confirmation)
+
+**Answer:** When something looks wrong, Doug **adjusts the sheet directly first**, then **texts or emails** Eric (or whoever's running the show) if there's an adjustment that needs to be communicated before in-person contact. Current flow is conversational, not ticket-based.
+**Design follow-up:** **Reply-to-email feedback is the primary integration**, not a secondary nice-to-have. The notification-design-memo §6 currently lists three feedback forms with implicit priority on click-through forms; reorder so reply-to-email is form 1 (matches Doug's existing habit), one-click "Report a problem" link is form 2 (gives a structured path when reply is awkward), structured form is form 3 (deepest path, rarely needed). Update memo accordingly.
+**Audit trail:** Conversation 2026-05-09; commit forthcoming.
+
+### §6.1 — Simultaneous show count — answered 2026-05-09 (Eric, pending Doug confirmation)
+
+**Answer:** **10–15 shows simultaneously** is the realistic upper bound. Materially higher than the implicit ~3–5 default the spec was calibrated against.
+**Design follow-up:** **Cross-show coalescing in the daily digest is mandatory, not optional** — at 15 active shows, per-show emails would be untenable even at low staging frequency. Update notification-design-memo §4 (Coalescing) to make cross-show daily digest the default, not a "could also do." Dashboard list (spec §9.1) needs **default sort by urgency** (unactioned-staging-count desc, last-edited-modtime desc) rather than alpha — at 15 shows, alpha order buries the things needing attention. Add a derived note for whichever milestone owns the dashboard polish (M9 or M10).
+**Audit trail:** Conversation 2026-05-09; commit forthcoming.
+
+### §7.3 — Live-edits-visible preference — answered 2026-05-09 (Eric, pending Doug confirmation)
+
+**Answer:** Once a sheet is in the watched folder (= published), live edits should be visible to crew. **No publish-gate layer on top of continuous sync.** The folder-move is the only "publish" act; everything after that flows live.
+**Design follow-up:** No change needed. Confirms the current continuous-sync model. Reinforces that MI staging gates (which interrupt live propagation only for suspicious changes) are the right calibration layer — a global publish-gate would over-correct.
+**Audit trail:** Conversation 2026-05-09; commit forthcoming.
+
+---
+
+## Open (priority subset)
+
+The remaining BLOCKER question, plus all CALIBRATION and OBSERVE questions, stay in the "Open" section above. Specifically:
+
+- **§7.1 — FIRST_SEEN_REVIEW friction or value-add?** [BLOCKER, Eric thinking 2026-05-09]
+  - Connected to §1.2 (answered) — if "shared = final" then auto-publish is defensible, but the "wrong-folder mistake" failure mode argues for keeping the gate.
+  - Possible compromise: auto-apply after a 4h delay with email "Show X will publish in 4h — click here to cancel." Trusts the drag while preserving an undo window.
+  - Decide at next sit-down with Doug or by Eric judgment when push-notification milestone is specced.
 
 ---
 
