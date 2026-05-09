@@ -170,6 +170,194 @@ export const MESSAGE_CATALOG = {
     followUp: null,
     helpfulContext: null,
   },
+  STALE_WRITE_ABORTED: {
+    code: "STALE_WRITE_ABORTED",
+    dougFacing: "A newer sync already won. Refresh to see the latest staged or applied data.",
+    crewFacing: null,
+    followUp: "Doug -> refresh the admin page",
+    helpfulContext:
+      "The cron worker refused to write an older parse over a newer Drive revision.",
+  },
+  STALE_PUSH_ABORTED: {
+    code: "STALE_PUSH_ABORTED",
+    dougFacing: "A newer sync already won. The push notification was ignored.",
+    crewFacing: null,
+    followUp: "Doug -> refresh if the admin view looks stale",
+    helpfulContext: "A Google Drive push event tried to apply data older than the current row.",
+  },
+  STALE_MANUAL_REPLAY_ABORTED: {
+    code: "STALE_MANUAL_REPLAY_ABORTED",
+    dougFacing:
+      "That manual sync was based on an older sheet revision. Refresh and run sync again if needed.",
+    crewFacing: null,
+    followUp: "Doug -> refresh, then retry",
+    helpfulContext:
+      "Manual sync allows same-revision replay, but it still refuses to apply a strictly older revision.",
+  },
+  CONCURRENT_SYNC_SKIPPED: {
+    code: "CONCURRENT_SYNC_SKIPPED",
+    dougFacing: "Another sync is already running for this show. Try again in a moment.",
+    crewFacing: null,
+    followUp: "Doug -> retry shortly",
+    helpfulContext:
+      "The per-show advisory lock was busy, so this attempt skipped instead of waiting.",
+  },
+  STAGED_PARSE_REVISION_RACE: {
+    code: "STAGED_PARSE_REVISION_RACE",
+    dougFacing:
+      "The sheet changed while we were reading it. We'll retry from the new revision on the next sync.",
+    crewFacing: null,
+    followUp: "Doug -> wait for the next sync or retry after editing pauses",
+    helpfulContext:
+      "Markdown export, enrichment, and Drive metadata must all describe the same revision.",
+  },
+  STAGED_PARSE_REVISION_RACE_COOLDOWN: {
+    code: "STAGED_PARSE_REVISION_RACE_COOLDOWN",
+    dougFacing:
+      "The sheet keeps changing mid-sync, so retries are temporarily backing off.",
+    crewFacing: null,
+    followUp: "Doug -> pause edits briefly or retry manually",
+    helpfulContext:
+      "Repeated same-revision binding races are cooled down to protect Drive API quota.",
+  },
+  STAGED_PARSE_SOURCE_OUT_OF_SCOPE: {
+    code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE",
+    dougFacing: "This staged sheet is no longer in the watched Drive folder.",
+    crewFacing: null,
+    followUp: "Doug -> move the sheet back or discard the staged parse",
+    helpfulContext: null,
+  },
+  STAGED_PARSE_SOURCE_GONE: {
+    code: "STAGED_PARSE_SOURCE_GONE",
+    dougFacing: "This Drive sheet is unavailable or was deleted.",
+    crewFacing: null,
+    followUp: "Doug -> restore the sheet or discard the staged parse",
+    helpfulContext: null,
+  },
+  STAGED_PARSE_OUTDATED: {
+    code: "STAGED_PARSE_OUTDATED",
+    dougFacing: "A newer sheet revision exists. Refresh and review the latest staged parse.",
+    crewFacing: null,
+    followUp: "Doug -> refresh",
+    helpfulContext: null,
+  },
+  STAGED_PARSE_RESTAGED_INLINE: {
+    code: "STAGED_PARSE_RESTAGED_INLINE",
+    dougFacing: "The sheet changed during review, so we restaged it from the latest revision.",
+    crewFacing: null,
+    followUp: "Doug -> review the updated parse",
+    helpfulContext: null,
+  },
+  STAGED_PARSE_SUPERSEDED: {
+    code: "STAGED_PARSE_SUPERSEDED",
+    dougFacing: "The staged parse you were viewing was replaced by a newer sync.",
+    crewFacing: null,
+    followUp: "Doug -> refresh and review the latest staged parse",
+    helpfulContext: null,
+  },
+  STALE_DISCARD_REJECTED: {
+    code: "STALE_DISCARD_REJECTED",
+    dougFacing:
+      "The staged parse you were viewing was replaced by a newer sync. Refresh and review the latest version before deciding.",
+    crewFacing: null,
+    followUp: "Doug -> refresh",
+    helpfulContext: null,
+  },
+  WIZARD_SESSION_SUPERSEDED: {
+    code: "WIZARD_SESSION_SUPERSEDED",
+    dougFacing: "This onboarding scan was replaced by a newer scan.",
+    crewFacing: null,
+    followUp: "Doug -> continue from the latest onboarding scan",
+    helpfulContext: null,
+  },
+  WIZARD_SESSION_SUPERSEDED_DURING_SCAN: {
+    code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
+    dougFacing: "A newer onboarding scan started before this one finished.",
+    crewFacing: null,
+    followUp: "Doug -> use the latest scan",
+    helpfulContext: null,
+  },
+  WIZARD_ISOLATION_INDEXES_MISSING: {
+    code: "WIZARD_ISOLATION_INDEXES_MISSING",
+    dougFacing:
+      "Onboarding isolation indexes are missing. Stop onboarding until the database migration is fixed.",
+    crewFacing: null,
+    followUp: "Eric -> verify pending_syncs and pending_ingestions partition indexes",
+    helpfulContext: null,
+  },
+  LIVE_ROW_CONFLICT: {
+    code: "LIVE_ROW_CONFLICT",
+    dougFacing:
+      "A live show row conflicted with the staged sync. The developer needs to reconcile it before applying.",
+    crewFacing: null,
+    followUp: "Eric -> reconcile the live row and staged parse",
+    helpfulContext: null,
+  },
+  FINALIZE_OWNED_SHOW: {
+    code: "FINALIZE_OWNED_SHOW",
+    dougFacing: "This onboarding finalize step tried to take over an existing owned show.",
+    crewFacing: null,
+    followUp: "Doug -> review the existing show before finalizing",
+    helpfulContext: null,
+  },
+  WEBHOOK_HEADERS_MISSING: {
+    code: "WEBHOOK_HEADERS_MISSING",
+    dougFacing: "A Drive webhook request was missing required Google headers.",
+    crewFacing: null,
+    followUp: "Eric -> inspect webhook delivery",
+    helpfulContext: null,
+  },
+  WEBHOOK_NOOP_ALREADY_SYNCED: {
+    code: "WEBHOOK_NOOP_ALREADY_SYNCED",
+    dougFacing: "This Drive notification was already synced.",
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  EMBEDDED_RECOVERY_REQUIRES_RESTAGE: {
+    code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
+    dougFacing:
+      "Embedded diagram recovery could not complete from the current revision. Edit or re-save the sheet so it can restage.",
+    crewFacing: null,
+    followUp: "Doug -> make a small sheet edit, then sync again",
+    helpfulContext:
+      "The current approved diagram snapshot stays live until a fresh revision can be captured.",
+  },
+  LINKED_ASSET_DRIFTED: {
+    code: "LINKED_ASSET_DRIFTED",
+    dougFacing: "A linked Drive asset changed after staging and needs review.",
+    crewFacing: null,
+    followUp: "Doug -> review linked assets before applying",
+    helpfulContext: null,
+  },
+  REEL_DRIFTED: {
+    code: "REEL_DRIFTED",
+    dougFacing: "The opening reel changed after staging and needs review.",
+    crewFacing: null,
+    followUp: "Doug -> review the reel before applying",
+    helpfulContext: null,
+  },
+  MISSING_REVIEWER_CHOICE: {
+    code: "MISSING_REVIEWER_CHOICE",
+    dougFacing: "Choose how to handle every review item before applying.",
+    crewFacing: null,
+    followUp: "Doug -> complete all review choices",
+    helpfulContext: null,
+  },
+  INVALID_REVIEWER_ACTION: {
+    code: "INVALID_REVIEWER_ACTION",
+    dougFacing: "One review choice was not valid. Refresh and try again.",
+    crewFacing: null,
+    followUp: "Doug -> refresh and retry",
+    helpfulContext: null,
+  },
+  PENDING_SYNC_NOT_FOUND: {
+    code: "PENDING_SYNC_NOT_FOUND",
+    dougFacing: "That staged sync is no longer available.",
+    crewFacing: null,
+    followUp: "Doug -> refresh the admin page",
+    helpfulContext: null,
+  },
   /**
    * R21 F2 (round-21 §B MEDIUM): leaked-link revocation failure.
    *

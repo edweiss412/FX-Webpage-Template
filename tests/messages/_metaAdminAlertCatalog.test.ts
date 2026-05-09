@@ -52,6 +52,10 @@ import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 const ADMIN_ALERTS_CODES = [
   "LEAKED_LINK_REVOCATION_FAILED", // middleware.ts:upsertRevocationFailureAlert
   "AMBIGUOUS_EMAIL_BINDING", //       lib/auth/validateGoogleSession.ts
+  "WATCH_CHANNEL_ORPHANED", //        M6 watch subscription recovery
+  "WEBHOOK_TOKEN_INVALID", //         M6 Drive webhook verification failure
+  "EMBEDDED_RECOVERY_REQUIRES_RESTAGE", // M6 asset recovery alert
+  "LIVE_ROW_CONFLICT", //             M6 live-row conflict recovery
 ] as const;
 
 describe("META admin_alerts catalog contract", () => {

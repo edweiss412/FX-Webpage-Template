@@ -1,0 +1,1009 @@
+import postgres from "postgres";
+import { canonicalize } from "@/lib/email/canonicalize";
+import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
+import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
+import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
+import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
+import {
+  enrichWithDrivePins,
+  type DriveClient,
+  type DriveFileMeta,
+} from "@/lib/sync/enrichWithDrivePins";
+import {
+  assertShowLockHeld,
+  CONCURRENT_SYNC_SKIPPED,
+  type ConcurrentSyncSkipped,
+  type LockableSyncTx,
+  type LockedShowTx,
+  withShowLock,
+} from "@/lib/sync/lockedShowTx";
+import { runPhase1, type Phase1Args, type Phase1Binding, type Phase1Tx } from "@/lib/sync/phase1";
+import {
+  runPhase2,
+  type Phase2Args,
+  type Phase2Mode,
+  type Phase2Result,
+  type Phase2Tx,
+} from "@/lib/sync/phase2";
+import {
+  perFileProcessor,
+  type ResolvedSyncMode,
+  type SyncMode,
+} from "@/lib/sync/perFileProcessor";
+
+export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
+export const STAGED_PARSE_SOURCE_GONE = "STAGED_PARSE_SOURCE_GONE" as const;
+
+export type SyncPipelineTx = LockableSyncTx & Phase1Tx & Phase2Tx;
+
+export type ProcessOneFileResult =
+  | { outcome: "skipped"; reason: string }
+  | { outcome: "asset_recovery" }
+  | { outcome: "stage"; stagedId: string }
+  | { outcome: "hard_fail"; code: string }
+  | { outcome: "applied"; showId: string }
+  | { outcome: "stale"; code: string }
+  | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
+  | { outcome: "source_gone"; code: typeof STAGED_PARSE_SOURCE_GONE }
+  | { outcome: "parse_error"; code: string }
+  | ConcurrentSyncSkipped;
+
+export type SyncLogEntry = {
+  driveFileId: string;
+  outcome: string;
+  code?: string;
+  payload?: Record<string, unknown>;
+};
+
+export type ProcessOneFileDeps = {
+  withShowLock?: (
+    driveFileId: string,
+    fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<ProcessOneFileResult> | ProcessOneFileResult,
+    options?: Parameters<typeof withShowLock<SyncPipelineTx, ProcessOneFileResult>>[2],
+  ) => Promise<ProcessOneFileResult | ConcurrentSyncSkipped>;
+  perFileProcessor?: typeof perFileProcessor;
+  captureBinding?: (driveFileId: string, fileMeta: DriveListedFile) => Promise<Phase1Binding>;
+  fetchMarkdownAtRevision?: (driveFileId: string, revisionId: string) => Promise<string>;
+  parseSheet?: (markdown: string, filename?: string) => ParsedSheet;
+  enrichWithDrivePins?: (
+    parsed: ParsedSheet,
+    driveClient: DriveClient,
+    ctx: { driveFileId: string; fileMeta: DriveFileMeta; binding: Phase1Binding },
+  ) => Promise<ParseResult>;
+  driveClient?: DriveClient;
+  runPhase1?: typeof runPhase1;
+  runPhase2?: typeof runPhase2;
+  logSync?: (entry: SyncLogEntry) => Promise<void>;
+  publishShowInvalidation?: (showId: string) => Promise<void>;
+};
+
+export type RunScheduledCronSyncDeps = {
+  folderId?: string;
+  listFolder?: typeof listDriveFolder;
+  processOneFile?: (
+    driveFileId: string,
+    mode: "cron",
+    fileMeta: DriveListedFile,
+  ) => Promise<ProcessOneFileResult>;
+};
+
+export type RunScheduledCronSyncResult = {
+  processed: Array<{
+    driveFileId: string;
+    result: ProcessOneFileResult;
+  }>;
+};
+
+type PostgresTransaction = {
+  unsafe(sql: string, params?: unknown[]): Promise<unknown[]>;
+};
+
+function databaseUrl(): string {
+  const configured = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+  if (configured) return configured;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("runScheduledCronSync requires DATABASE_URL in production");
+  }
+  return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+}
+
+class PostgresPipelineTx implements SyncPipelineTx {
+  constructor(private readonly tx: PostgresTransaction) {}
+
+  async queryOne<T>(sql: string, params: unknown[]): Promise<T> {
+    return (await this.one<T>(sql, params)) as T;
+  }
+
+  private async rows<T>(sql: string, params: unknown[] = []): Promise<T[]> {
+    return (await this.tx.unsafe(sql, params)) as T[];
+  }
+
+  private async one<T>(sql: string, params: unknown[] = []): Promise<T | null> {
+    const rows = await this.rows<T>(sql, params);
+    return rows[0] ?? null;
+  }
+
+  async readShowForPhase1(driveFileId: string) {
+    const show = await this.one<{
+      id: string;
+      drive_file_id: string;
+      title: string;
+      client_label: string;
+      client_contact: unknown;
+      template_version: string;
+      venue: unknown;
+      dates: unknown;
+      event_details: unknown;
+      agenda_links: unknown;
+      diagrams: unknown;
+      opening_reel_drive_file_id: string | null;
+      opening_reel_drive_modified_time: string | null;
+      opening_reel_head_revision_id: string | null;
+      opening_reel_mime_type: string | null;
+      coi_status: string | null;
+      pull_sheet: unknown;
+      last_sync_status: string | null;
+      last_sync_error: string | null;
+      last_seen_modified_time: string | null;
+    }>(
+      `
+        select *
+          from public.shows
+         where drive_file_id = $1
+         limit 1
+      `,
+      [driveFileId],
+    );
+    if (!show) return null;
+
+    const crewMembers = await this.rows<ParseResult["crewMembers"][number]>(
+      `
+        select name, email, phone, role, role_flags, date_restriction, stage_restriction, flight_info
+          from public.crew_members
+         where show_id = $1
+         order by name
+      `,
+      [show.id],
+    );
+    const hotelReservations = await this.rows<ParseResult["hotelReservations"][number]>(
+      `
+        select ordinal, hotel_name, hotel_address, names, confirmation_no, check_in, check_out, notes
+          from public.hotel_reservations
+         where show_id = $1
+         order by ordinal
+      `,
+      [show.id],
+    );
+    const rooms = await this.rows<ParseResult["rooms"][number]>(
+      `
+        select kind, name, dimensions, floor, setup, set_time, show_time, strike_time,
+               audio, video, lighting, scenic, power, digital_signage, other, notes
+          from public.rooms
+         where show_id = $1
+         order by name
+      `,
+      [show.id],
+    );
+    const transportation = await this.one<ParseResult["transportation"]>(
+      `
+        select driver_name, driver_phone, driver_email, vehicle, license_plate, color,
+               parking, schedule, notes
+          from public.transportation
+         where show_id = $1
+         limit 1
+      `,
+      [show.id],
+    );
+    const contacts = await this.rows<ParseResult["contacts"][number]>(
+      `
+        select kind, name, email, phone, notes
+          from public.contacts
+         where show_id = $1
+         order by kind, name
+      `,
+      [show.id],
+    );
+    const internal = await this.one<{
+      parse_warnings: ParseResult["warnings"] | null;
+      raw_unrecognized: ParseResult["raw_unrecognized"] | null;
+    }>(
+      `
+        select parse_warnings, raw_unrecognized
+          from public.shows_internal
+         where show_id = $1
+         limit 1
+      `,
+      [show.id],
+    );
+
+    return {
+      driveFileId: show.drive_file_id,
+      lastSeenModifiedTime: show.last_seen_modified_time,
+      lastSyncStatus: show.last_sync_status,
+      lastSyncError: show.last_sync_error,
+      priorParseResult: {
+        show: {
+          title: show.title,
+          client_label: show.client_label,
+          client_contact: show.client_contact as ParseResult["show"]["client_contact"],
+          template_version: show.template_version as ParseResult["show"]["template_version"],
+          venue: show.venue as ParseResult["show"]["venue"],
+          dates: show.dates as ParseResult["show"]["dates"],
+          schedule_phases: {},
+          event_details: (show.event_details ?? {}) as ParseResult["show"]["event_details"],
+          agenda_links: (show.agenda_links ?? []) as ParseResult["show"]["agenda_links"],
+          coi_status: show.coi_status,
+          po: null,
+          proposal: null,
+          invoice: null,
+          invoice_notes: null,
+        },
+        crewMembers,
+        hotelReservations,
+        rooms,
+        transportation,
+        contacts,
+        pullSheet: show.pull_sheet as ParseResult["pullSheet"],
+        diagrams: show.diagrams as ParseResult["diagrams"],
+        openingReel: show.opening_reel_drive_file_id
+          ? {
+              driveFileId: show.opening_reel_drive_file_id,
+              drive_modified_time: show.opening_reel_drive_modified_time ?? "",
+              headRevisionId: show.opening_reel_head_revision_id ?? "",
+              mimeType: show.opening_reel_mime_type ?? "",
+            }
+          : null,
+        raw_unrecognized: internal?.raw_unrecognized ?? [],
+        warnings: internal?.parse_warnings ?? [],
+        hardErrors: [],
+      },
+    };
+  }
+
+  async readLivePendingSync(driveFileId: string) {
+    const row = await this.one<{
+      drive_file_id: string;
+      wizard_session_id: string | null;
+      base_modified_time: string | null;
+      staged_modified_time: string;
+      parse_result: ParseResult;
+      triggered_review_items: unknown[];
+      prior_last_sync_status: string | null;
+      prior_last_sync_error: string | null;
+      staged_id: string;
+      source_kind: string;
+      warning_summary: string;
+    }>(
+      `
+        select drive_file_id, wizard_session_id, base_modified_time, staged_modified_time,
+               parse_result, triggered_review_items, prior_last_sync_status,
+               prior_last_sync_error, staged_id, source_kind, warning_summary
+          from public.pending_syncs
+         where drive_file_id = $1
+           and wizard_session_id is null
+         limit 1
+      `,
+      [driveFileId],
+    );
+    if (!row) return null;
+    return {
+      driveFileId: row.drive_file_id,
+      wizardSessionId: row.wizard_session_id,
+      baseModifiedTime: row.base_modified_time,
+      stagedModifiedTime: row.staged_modified_time,
+      parseResult: row.parse_result,
+      triggeredReviewItems: row.triggered_review_items as never[],
+      priorLastSyncStatus: row.prior_last_sync_status,
+      priorLastSyncError: row.prior_last_sync_error,
+      stagedId: row.staged_id,
+      sourceKind: row.source_kind,
+      warningSummary: row.warning_summary,
+    };
+  }
+
+  async upsertLivePendingIngestion(row: Parameters<Phase1Tx["upsertLivePendingIngestion"]>[0]) {
+    await this.rows(
+      `
+        insert into public.pending_ingestions (
+          drive_file_id, drive_file_name, last_error_code, last_error_message,
+          last_warnings, wizard_session_id, last_seen_modified_time
+        )
+        values ($1, $2, $3, $4, $5::jsonb, null, $6::timestamptz)
+        on conflict (drive_file_id) where wizard_session_id is null
+        do update set
+          drive_file_name = excluded.drive_file_name,
+          last_attempt_at = now(),
+          attempt_count = public.pending_ingestions.attempt_count + 1,
+          last_error_code = excluded.last_error_code,
+          last_error_message = excluded.last_error_message,
+          last_warnings = excluded.last_warnings,
+          last_seen_modified_time = excluded.last_seen_modified_time
+      `,
+      [
+        row.driveFileId,
+        row.driveFileName,
+        row.lastErrorCode,
+        row.lastErrorMessage,
+        JSON.stringify(row.lastWarnings),
+        row.lastSeenModifiedTime,
+      ],
+    );
+  }
+
+  async deleteLivePendingIngestion(driveFileId: string) {
+    await this.rows(
+      `
+        delete from public.pending_ingestions
+         where drive_file_id = $1
+           and wizard_session_id is null
+      `,
+      [driveFileId],
+    );
+  }
+
+  async upsertLivePendingSync(row: Parameters<Phase1Tx["upsertLivePendingSync"]>[0]) {
+    const upserted = await this.one<{ staged_id: string }>(
+      `
+        insert into public.pending_syncs (
+          drive_file_id, base_modified_time, staged_modified_time, parse_result,
+          triggered_review_items, prior_last_sync_status, prior_last_sync_error,
+          staged_id, source_kind, warning_summary, wizard_session_id
+        )
+        values ($1, $2::timestamptz, $3::timestamptz, $4::jsonb, $5::jsonb, $6, $7,
+                coalesce($8::uuid, gen_random_uuid()), $9, $10, null)
+        on conflict (drive_file_id) where wizard_session_id is null
+        do update set
+          parsed_at = now(),
+          base_modified_time = excluded.base_modified_time,
+          staged_modified_time = excluded.staged_modified_time,
+          parse_result = excluded.parse_result,
+          triggered_review_items = excluded.triggered_review_items,
+          prior_last_sync_status = excluded.prior_last_sync_status,
+          prior_last_sync_error = excluded.prior_last_sync_error,
+          staged_id = excluded.staged_id,
+          source_kind = excluded.source_kind,
+          warning_summary = excluded.warning_summary
+        returning staged_id
+      `,
+      [
+        row.driveFileId,
+        row.baseModifiedTime,
+        row.stagedModifiedTime,
+        JSON.stringify(row.parseResult),
+        JSON.stringify(row.triggeredReviewItems),
+        row.priorLastSyncStatus,
+        row.priorLastSyncError,
+        row.stagedId ?? null,
+        row.sourceKind,
+        row.warningSummary,
+      ],
+    );
+    return { stagedId: upserted?.staged_id ?? row.stagedId ?? "" };
+  }
+
+  async updateShowParseError(driveFileId: string, error: { code: string; message: string }) {
+    await this.rows(
+      `
+        update public.shows
+           set last_sync_status = 'hard_fail',
+               last_sync_error = $2,
+               last_synced_at = now()
+         where drive_file_id = $1
+      `,
+      [driveFileId, error.code],
+    );
+  }
+
+  async updateShowPendingReview(driveFileId: string) {
+    await this.rows(
+      `
+        update public.shows
+           set last_sync_status = 'pending_review',
+               last_sync_error = null,
+               last_synced_at = now()
+         where drive_file_id = $1
+      `,
+      [driveFileId],
+    );
+  }
+
+  async deleteWizardPendingSyncsExcept(wizardSessionId: string) {
+    await this.rows(
+      `
+        delete from public.pending_syncs
+         where wizard_session_id is not null
+           and wizard_session_id <> $1::uuid
+      `,
+      [wizardSessionId],
+    );
+  }
+
+  async applyShowSnapshot(args: Parameters<Phase2Tx["applyShowSnapshot"]>[0]) {
+    const existing = await this.one<{ id: string }>(
+      "select id from public.shows where drive_file_id = $1 limit 1",
+      [args.driveFileId],
+    );
+    const previousCrew = existing
+      ? await this.rows<{ name: string }>(
+          "select name from public.crew_members where show_id = $1 order by name",
+          [existing.id],
+        )
+      : [];
+    const stalePredicate =
+      args.staleGuard === "strict_less_than"
+        ? "(last_seen_modified_time is null or last_seen_modified_time < $16::timestamptz)"
+        : "(last_seen_modified_time is null or last_seen_modified_time <= $16::timestamptz)";
+    const params = [
+      args.driveFileId,
+      args.slug,
+      args.parseResult.show.title,
+      args.parseResult.show.client_label,
+      JSON.stringify(args.parseResult.show.client_contact),
+      args.parseResult.show.template_version,
+      JSON.stringify(args.parseResult.show.venue),
+      JSON.stringify(args.parseResult.show.dates),
+      JSON.stringify(args.parseResult.show.event_details),
+      JSON.stringify(args.parseResult.show.agenda_links),
+      JSON.stringify(args.parseResult.diagrams),
+      args.parseResult.openingReel?.driveFileId ?? null,
+      args.parseResult.openingReel?.drive_modified_time ?? null,
+      args.parseResult.openingReel?.headRevisionId ?? null,
+      args.parseResult.openingReel?.mimeType ?? null,
+      args.modifiedTime,
+      args.parseResult.show.coi_status,
+      JSON.stringify(args.parseResult.pullSheet),
+    ];
+
+    const updated = existing
+      ? await this.one<{ id: string }>(
+          `
+            update public.shows
+               set slug = $2,
+                   title = $3,
+                   client_label = $4,
+                   client_contact = $5::jsonb,
+                   template_version = $6,
+                   venue = $7::jsonb,
+                   dates = $8::jsonb,
+                   event_details = $9::jsonb,
+                   agenda_links = $10::jsonb,
+                   diagrams = $11::jsonb,
+                   opening_reel_drive_file_id = $12,
+                   opening_reel_drive_modified_time = $13::timestamptz,
+                   opening_reel_head_revision_id = $14,
+                   opening_reel_mime_type = $15,
+                   last_seen_modified_time = $16::timestamptz,
+                   coi_status = $17,
+                   pull_sheet = $18::jsonb,
+                   last_synced_at = now(),
+                   last_sync_status = 'ok',
+                   last_sync_error = null
+             where drive_file_id = $1
+               and ${stalePredicate}
+             returning id
+          `,
+          params,
+        )
+      : await this.one<{ id: string }>(
+          `
+            insert into public.shows (
+              drive_file_id, slug, title, client_label, client_contact, template_version,
+              venue, dates, event_details, agenda_links, diagrams,
+              opening_reel_drive_file_id, opening_reel_drive_modified_time,
+              opening_reel_head_revision_id, opening_reel_mime_type,
+              last_seen_modified_time, coi_status, pull_sheet,
+              last_synced_at, last_sync_status, last_sync_error
+            )
+            values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
+                    $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
+                    $14, $15, $16::timestamptz, $17, $18::jsonb, now(), 'ok', null)
+            on conflict (drive_file_id) do nothing
+            returning id
+          `,
+          params,
+        );
+
+    if (!updated) return { outcome: "stale" as const };
+    return {
+      outcome: "updated" as const,
+      showId: updated.id,
+      previousCrewNames: previousCrew.map((row) => row.name),
+    };
+  }
+
+  async deleteCrewMembersNotIn(showId: string, names: string[]) {
+    await this.rows("delete from public.crew_members where show_id = $1 and not (name = any($2))", [
+      showId,
+      names,
+    ]);
+  }
+
+  async upsertCrewMembers(showId: string, members: ParseResult["crewMembers"]) {
+    for (const member of members) {
+      await this.rows(
+        `
+          insert into public.crew_members (
+            show_id, name, email, phone, role, role_flags, date_restriction,
+            stage_restriction, flight_info
+          )
+          values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9)
+          on conflict (show_id, name)
+          do update set
+            email = excluded.email,
+            phone = excluded.phone,
+            role = excluded.role,
+            role_flags = excluded.role_flags,
+            date_restriction = excluded.date_restriction,
+            stage_restriction = excluded.stage_restriction,
+            flight_info = excluded.flight_info
+        `,
+        [
+          showId,
+          member.name,
+          canonicalize(member.email),
+          member.phone,
+          member.role,
+          member.role_flags,
+          JSON.stringify(member.date_restriction),
+          JSON.stringify(member.stage_restriction),
+          member.flight_info,
+        ],
+      );
+    }
+  }
+
+  async provisionAddedCrewAuth(showId: string, names: string[]) {
+    for (const name of names) {
+      await this.rows(
+        `
+          insert into public.crew_member_auth (show_id, crew_name)
+          values ($1, $2)
+          on conflict (show_id, crew_name) do nothing
+        `,
+        [showId, name],
+      );
+    }
+  }
+
+  async revokeRemovedCrewAuth(showId: string, names: string[]) {
+    if (names.length === 0) return;
+    await this.rows(
+      `
+        update public.crew_member_auth
+           set revoked_below_version = greatest(revoked_below_version, max_issued_version)
+         where show_id = $1
+           and crew_name = any($2)
+      `,
+      [showId, names],
+    );
+  }
+
+  async replaceHotelReservations(showId: string, rows: ParseResult["hotelReservations"]) {
+    await this.rows("delete from public.hotel_reservations where show_id = $1", [showId]);
+    for (const row of rows) {
+      await this.rows(
+        `
+          insert into public.hotel_reservations (
+            show_id, ordinal, hotel_name, hotel_address, names, confirmation_no,
+            check_in, check_out, notes
+          )
+          values ($1, $2, $3, $4, $5, $6, $7::date, $8::date, $9)
+        `,
+        [
+          showId,
+          row.ordinal,
+          row.hotel_name,
+          row.hotel_address,
+          row.names,
+          row.confirmation_no,
+          row.check_in,
+          row.check_out,
+          row.notes,
+        ],
+      );
+    }
+  }
+
+  async replaceRooms(showId: string, rows: ParseResult["rooms"]) {
+    await this.rows("delete from public.rooms where show_id = $1", [showId]);
+    for (const row of rows) {
+      await this.rows(
+        `
+          insert into public.rooms (
+            show_id, kind, name, dimensions, floor, setup, set_time, show_time,
+            strike_time, audio, video, lighting, scenic, power, digital_signage,
+            other, notes
+          )
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+        `,
+        [
+          showId,
+          row.kind,
+          row.name,
+          row.dimensions,
+          row.floor,
+          row.setup,
+          row.set_time,
+          row.show_time,
+          row.strike_time,
+          row.audio,
+          row.video,
+          row.lighting,
+          row.scenic,
+          row.power,
+          row.digital_signage,
+          row.other,
+          row.notes,
+        ],
+      );
+    }
+  }
+
+  async replaceTransportation(showId: string, row: ParseResult["transportation"]) {
+    await this.rows("delete from public.transportation where show_id = $1", [showId]);
+    if (!row) return;
+    await this.rows(
+      `
+        insert into public.transportation (
+          show_id, driver_name, driver_phone, driver_email, vehicle, license_plate,
+          color, parking, schedule, notes
+        )
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10)
+      `,
+      [
+        showId,
+        row.driver_name,
+        row.driver_phone,
+        canonicalize(row.driver_email),
+        row.vehicle,
+        row.license_plate,
+        row.color,
+        row.parking,
+        JSON.stringify(row.schedule),
+        row.notes,
+      ],
+    );
+  }
+
+  async replaceContacts(showId: string, rows: ParseResult["contacts"]) {
+    await this.rows("delete from public.contacts where show_id = $1", [showId]);
+    for (const row of rows) {
+      await this.rows(
+        `
+          insert into public.contacts (show_id, kind, name, email, phone, notes)
+          values ($1, $2, $3, $4, $5, $6)
+        `,
+        [showId, row.kind, row.name, canonicalize(row.email), row.phone, row.notes],
+      );
+    }
+  }
+
+  async upsertShowsInternal(
+    showId: string,
+    payload: Parameters<Phase2Tx["upsertShowsInternal"]>[1],
+  ) {
+    await this.rows(
+      `
+        insert into public.shows_internal (show_id, financials, parse_warnings, raw_unrecognized)
+        values ($1, $2::jsonb, $3::jsonb, $4::jsonb)
+        on conflict (show_id)
+        do update set
+          financials = excluded.financials,
+          parse_warnings = excluded.parse_warnings,
+          raw_unrecognized = excluded.raw_unrecognized
+      `,
+      [
+        showId,
+        JSON.stringify(payload.financials),
+        JSON.stringify(payload.parse_warnings),
+        JSON.stringify(payload.raw_unrecognized),
+      ],
+    );
+  }
+}
+
+function envFolderId(): string {
+  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID ?? process.env.DRIVE_FOLDER_ID;
+  if (!folderId) {
+    throw new Error("runScheduledCronSync requires GOOGLE_DRIVE_FOLDER_ID or DRIVE_FOLDER_ID");
+  }
+  return folderId;
+}
+
+async function withPostgresShowLock(
+  driveFileId: string,
+  fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<ProcessOneFileResult> | ProcessOneFileResult,
+): Promise<ProcessOneFileResult | ConcurrentSyncSkipped> {
+  const sql = postgres(databaseUrl(), {
+    max: 1,
+    idle_timeout: 1,
+    prepare: false,
+  });
+
+  try {
+    return (await sql.begin(async (rawTx) => {
+      const tx = new PostgresPipelineTx(rawTx as unknown as PostgresTransaction);
+      return await withShowLock<SyncPipelineTx, ProcessOneFileResult>(driveFileId, fn, {
+        tx,
+        tryOnly: true,
+      });
+    })) as ProcessOneFileResult | ConcurrentSyncSkipped;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
+function toDriveFileMeta(file: DriveListedFile): DriveFileMeta {
+  return {
+    driveFileId: file.driveFileId,
+    headRevisionId: file.headRevisionId ?? "",
+    md5Checksum: file.md5Checksum ?? "",
+    mimeType: file.mimeType,
+    modifiedTime: file.modifiedTime,
+    name: file.name,
+  };
+}
+
+async function defaultCaptureBinding(
+  driveFileId: string,
+  fileMeta: DriveListedFile,
+): Promise<Phase1Binding> {
+  const metadata = await fetchDriveFileMetadata(driveFileId);
+  const headRevisionId = metadata.headRevisionId ?? fileMeta.headRevisionId;
+  if (!headRevisionId) {
+    throw new Error(`Drive file ${driveFileId} omitted headRevisionId`);
+  }
+  return {
+    headRevisionId,
+    modifiedTime: metadata.modifiedTime,
+  };
+}
+
+function defaultDriveClient(): DriveClient {
+  return {
+    async getFile(fileId) {
+      return toDriveFileMeta(await fetchDriveFileMetadata(fileId));
+    },
+    async listFolder(folderId) {
+      return {
+        folderId,
+        files: (await listDriveFolder(folderId)).map(toDriveFileMeta),
+      };
+    },
+  };
+}
+
+function errorCode(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const candidate = error as { code?: unknown; status?: unknown; response?: { status?: unknown } };
+  const value = candidate.code ?? candidate.status ?? candidate.response?.status;
+  return typeof value === "number" ? value : null;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isRevisionRace(error: unknown): boolean {
+  const message = errorMessage(error);
+  if (errorCode(error) === 404 && /revision/i.test(message)) return true;
+  return (
+    /did not include a markdown export link/i.test(message) ||
+    /markdown export failed with HTTP 404/i.test(message) ||
+    /bound revision/i.test(message)
+  );
+}
+
+function isSourceGone(error: unknown): boolean {
+  const code = errorCode(error);
+  return code === 404 && !isRevisionRace(error);
+}
+
+async function logSync(
+  deps: ProcessOneFileDeps,
+  driveFileId: string,
+  result: ProcessOneFileResult,
+  payload?: Record<string, unknown>,
+): Promise<void> {
+  if ("skipped" in result) return;
+  const entry: SyncLogEntry = {
+    driveFileId,
+    outcome: result.outcome,
+  };
+  if ("code" in result) entry.code = result.code;
+  if ("reason" in result) entry.code = result.reason;
+  if (payload) entry.payload = payload;
+  await deps.logSync?.(entry);
+}
+
+export async function runPhase1_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  args: Phase1Args,
+  deps: ProcessOneFileDeps = {},
+) {
+  return await (deps.runPhase1 ?? runPhase1)(tx, args);
+}
+
+export async function runPhase2_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  args: Phase2Args,
+  deps: ProcessOneFileDeps = {},
+): Promise<Phase2Result> {
+  return await (deps.runPhase2 ?? runPhase2)(tx, args);
+}
+
+export async function processOneFile(
+  driveFileId: string,
+  mode: SyncMode,
+  fileMeta: DriveListedFile,
+  deps: ProcessOneFileDeps = {},
+): Promise<ProcessOneFileResult> {
+  const lock = deps.withShowLock ?? withPostgresShowLock;
+  const result = await lock(
+    driveFileId,
+    (lockedTx) => processOneFile_unlocked(lockedTx, driveFileId, mode, fileMeta, deps),
+  );
+  if ("skipped" in result) {
+    const skipped = { outcome: "skipped" as const, reason: CONCURRENT_SYNC_SKIPPED };
+    await logSync(deps, driveFileId, skipped);
+  }
+  return result;
+}
+
+export async function processOneFile_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  mode: SyncMode,
+  fileMeta: DriveListedFile,
+  deps: ProcessOneFileDeps = {},
+): Promise<ProcessOneFileResult> {
+  if (process.env.NODE_ENV !== "production") {
+    await assertShowLockHeld(tx, driveFileId);
+  }
+
+  const gate = await (deps.perFileProcessor ?? perFileProcessor)(driveFileId, mode, fileMeta);
+  if (gate.outcome === "skip") {
+    const result = { outcome: "skipped" as const, reason: gate.reason };
+    await logSync(deps, driveFileId, result);
+    return result;
+  }
+  if (gate.mode === "asset_recovery") {
+    const result = { outcome: "asset_recovery" as const };
+    await logSync(deps, driveFileId, result);
+    return result;
+  }
+
+  const captureBinding = deps.captureBinding ?? defaultCaptureBinding;
+  const binding = await captureBinding(driveFileId, fileMeta);
+  let markdown: string;
+  try {
+    markdown = await (deps.fetchMarkdownAtRevision ?? fetchSheetAsMarkdownAtRevision)(
+      driveFileId,
+      binding.headRevisionId,
+    );
+  } catch (error) {
+    if (isRevisionRace(error)) {
+      const result = {
+        outcome: "revision_race" as const,
+        code: STAGED_PARSE_REVISION_RACE,
+      };
+      await logSync(deps, driveFileId, result, {
+        revisionId: binding.headRevisionId,
+      });
+      return result;
+    }
+    if (isSourceGone(error)) {
+      const result = { outcome: "source_gone" as const, code: STAGED_PARSE_SOURCE_GONE };
+      await logSync(deps, driveFileId, result);
+      return result;
+    }
+    throw error;
+  }
+
+  const parsed = (deps.parseSheet ?? parseMarkdownSheet)(markdown, fileMeta.name);
+  let enriched: ParseResult;
+  try {
+    enriched = await (deps.enrichWithDrivePins ?? enrichWithDrivePins)(
+      parsed,
+      deps.driveClient ?? defaultDriveClient(),
+      { driveFileId, fileMeta: toDriveFileMeta(fileMeta), binding },
+    );
+  } catch (error) {
+    if (isRevisionRace(error)) {
+      const result = {
+        outcome: "revision_race" as const,
+        code: STAGED_PARSE_REVISION_RACE,
+      };
+      await logSync(deps, driveFileId, result, {
+        revisionId: binding.headRevisionId,
+      });
+      return result;
+    }
+    throw error;
+  }
+
+  const currentBinding = await captureBinding(driveFileId, fileMeta);
+  if (currentBinding.headRevisionId !== binding.headRevisionId) {
+    const result = { outcome: "revision_race" as const, code: STAGED_PARSE_REVISION_RACE };
+    await logSync(deps, driveFileId, result, {
+      staged: binding.headRevisionId,
+      current: currentBinding.headRevisionId,
+    });
+    return result;
+  }
+
+  const resolvedMode = gate.mode as Exclude<ResolvedSyncMode, "asset_recovery">;
+  const phase1 = await runPhase1_unlocked(
+    tx,
+    {
+      driveFileId,
+      mode: resolvedMode,
+      fileMeta,
+      parseResult: enriched,
+      binding,
+    },
+    deps,
+  );
+  if (phase1.outcome === "hard_fail") {
+    const result = { outcome: "hard_fail" as const, code: phase1.code };
+    await logSync(deps, driveFileId, result);
+    return result;
+  }
+  if (phase1.outcome === "stage") {
+    const result = { outcome: "stage" as const, stagedId: phase1.stagedId };
+    await logSync(deps, driveFileId, result);
+    return result;
+  }
+
+  const phase2 = await runPhase2_unlocked(
+    tx,
+    {
+      driveFileId,
+      mode: resolvedMode as Phase2Mode,
+      fileMeta,
+      parseResult: enriched,
+      binding,
+    },
+    deps,
+  );
+
+  if (phase2.outcome === "stale") {
+    const result = { outcome: "stale" as const, code: phase2.code };
+    await logSync(deps, driveFileId, result);
+    return result;
+  }
+
+  const result = { outcome: "applied" as const, showId: phase2.showId };
+  await deps.publishShowInvalidation?.(phase2.showId);
+  await logSync(deps, driveFileId, result);
+  return result;
+}
+
+export async function runScheduledCronSync(
+  deps: RunScheduledCronSyncDeps = {},
+): Promise<RunScheduledCronSyncResult> {
+  const folderId = deps.folderId ?? envFolderId();
+  const listFolder = deps.listFolder ?? listDriveFolder;
+  const process = deps.processOneFile ?? processOneFile;
+  const files = await listFolder(folderId);
+  const processed: RunScheduledCronSyncResult["processed"] = [];
+
+  for (const file of files) {
+    try {
+      processed.push({
+        driveFileId: file.driveFileId,
+        result: await process(file.driveFileId, "cron", file),
+      });
+    } catch (error) {
+      processed.push({
+        driveFileId: file.driveFileId,
+        result: {
+          outcome: "parse_error",
+          code: error instanceof Error ? error.message : "SYNC_FILE_FAILED",
+        },
+      });
+    }
+  }
+
+  return { processed };
+}
