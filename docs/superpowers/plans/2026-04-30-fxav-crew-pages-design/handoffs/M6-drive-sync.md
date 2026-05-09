@@ -468,6 +468,65 @@ export type DiscardRouteResponse =
 - Unpinned `fetchSheetAsMarkdown(` guard over `lib/sync`, `app/api/cron`, and `app/api/admin` — zero matches
 - Cross-model adversarial review loop: fresh-eyes Claude review returned `APPROVED`
 
+### Pinned contract @ ddafda3 (Pin-stop 2 extension coda + Tasks 6.8-6.10 — 2026-05-09)
+
+This block supersedes the temporary `WIZARD_SCOPE_NOT_YET_IMPLEMENTED` 501 guard in the `2ae73ae` pin. Wizard-scope Apply/Discard, onboarding scan, watch lifecycle, webhook dispatch, and the production `sync_log` sink are now shipped.
+
+```ts
+// lib/sync/applyStaged
+export type ApplyStagedArgs =
+  | { driveFileId: string; sourceScope: "live"; stagedId: string; reviewerChoices: ReviewerChoice[]; appliedByEmail: string }
+  | { driveFileId: string; sourceScope: "wizard"; wizardSessionId: string; stagedId: string; reviewerChoices: ReviewerChoice[]; appliedByEmail: string };
+export type ApplyStagedResult =
+  | { outcome: "applied"; showId: string; syncAuditId: string | null; derivedSideEffects: { revokeFloorForNames: string[] }; adminAlertCode?: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE" | null; roleFlagsNotice?: RoleFlagsNotice }
+  | { outcome: "wizard_applied"; wizardSessionId: string; stagedId: string }
+  | { outcome: "wizard_superseded"; code: "WIZARD_SESSION_SUPERSEDED" }
+  | { outcome: "not_found"; code: "PENDING_SYNC_NOT_FOUND" }
+  | { outcome: "superseded"; code: "STAGED_PARSE_SUPERSEDED" }
+  | { outcome: "source_gone"; code: "STAGED_PARSE_SOURCE_GONE" }
+  | { outcome: "source_out_of_scope"; code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" }
+  | { outcome: "outdated"; code: "STAGED_PARSE_OUTDATED" }
+  | { outcome: "invalid_request"; code: "MISSING_REVIEWER_CHOICE" | "INVALID_REVIEWER_ACTION" }
+  | { outcome: "infra_error"; code: "SYNC_INFRA_ERROR" }
+  | { outcome: "discarded"; variant: "try_again" };
+
+// lib/sync/discardStaged
+export type DiscardStagedResult =
+  | { outcome: "discarded"; variant: "try_again" | "defer_until_modified" | "permanent_ignore" }
+  | { outcome: "not_found"; code: "PENDING_SYNC_NOT_FOUND" }
+  | { outcome: "stale"; code: "STALE_DISCARD_REJECTED" }
+  | { outcome: "invalid_request"; code: "INVALID_REVIEWER_ACTION" }
+  | { outcome: "wizard_superseded"; code: "WIZARD_SESSION_SUPERSEDED" };
+
+// app/api/admin/staged/[fileId]/apply/route
+export type ApplyRouteBody =
+  | { source_scope: "live"; staged_id: string; choices: ReviewerChoice[] }
+  | { source_scope: "wizard"; staged_id: string; wizard_session_id: string; choices?: ReviewerChoice[] };
+
+// app/api/admin/staged/[fileId]/discard/route
+export type DiscardRouteBody =
+  | { source_scope: "live"; staged_id: string; variant?: DiscardVariant }
+  | { source_scope: "wizard"; staged_id: string; wizard_session_id: string; variant?: DiscardVariant };
+
+// lib/sync/syncLog
+export type SyncLogEntry = { driveFileId: string; outcome: string; code?: string; payload?: Record<string, unknown> };
+export function makePostgresSyncLogSink(sql: { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> }): (entry: SyncLogEntry) => Promise<void>;
+export function writeSyncLog(entry: SyncLogEntry): Promise<void>;
+```
+
+**Route status map after coda:**
+
+- `POST /api/admin/staged/[fileId]/apply`: `404 PENDING_SYNC_NOT_FOUND`; `400 MISSING_REVIEWER_CHOICE` / `INVALID_REVIEWER_ACTION`; `500 SYNC_INFRA_ERROR`; `409 WIZARD_SESSION_SUPERSEDED` / `STAGED_PARSE_SUPERSEDED` / `STAGED_PARSE_SOURCE_GONE` / `STAGED_PARSE_SOURCE_OUT_OF_SCOPE` / `STAGED_PARSE_OUTDATED` / `SHOW_BUSY_RETRY`.
+- `POST /api/admin/staged/[fileId]/discard`: `404 PENDING_SYNC_NOT_FOUND`; `400 INVALID_REVIEWER_ACTION`; `409 WIZARD_SESSION_SUPERSEDED` / `STALE_DISCARD_REJECTED` / `SHOW_BUSY_RETRY`.
+- The removed `WIZARD_SCOPE_NOT_YET_IMPLEMENTED` code is no longer in `lib/messages/catalog.ts`.
+
+**Coda behavioral notes:**
+
+- Wizard Apply is Phase-1-only approval: it sets `pending_syncs.wizard_approved = TRUE`, persists reviewer choices, marks `onboarding_scan_manifest.status = 'applied'`, and does not mutate live `shows`.
+- Wizard Discard updates `onboarding_scan_manifest.status` to `discard_retryable`, `defer_until_modified`, or `permanent_ignore` under the active-wizard-session CAS before deleting the wizard `pending_syncs` row.
+- Cron and push production routes inject `writeSyncLog`; `WEBHOOK_NOOP_ALREADY_SYNCED` and other per-file outcomes now write `sync_log` rows through the existing schema (`status`, `message`, `parse_warnings`).
+- `WEBHOOK_TOKEN_INVALID` alert writes coalesce repeated bad-token/resource requests for the same channel for one hour before re-upserting the unresolved alert.
+
 ---
 
 ## 1. Spec sections in scope
@@ -535,6 +594,8 @@ Note: spec also enumerates partial AC-8.9..8.13 overlap for `sync_audit`-related
 - [ ] Amendment 9 — first-seen auto-publish + 24h unpublish undo — **DEFERRED as M6-D12.** The plan text in `06-drive-sync.md` describes the ratified target contract, but this backend handoff explicitly does not close amended AC-6.11 until M6-D12 ships.
 
 M6 does not touch the report pipeline or the parser registry. Amendment 9 is ratified but explicitly deferred in this handoff; Tasks 6.8-6.10 and their review loop do not close amended AC-6.11.
+
+Post-extension status: Task 6.8, the wizard-scope Apply/Discard coda for Tasks 6.11/6.12, Task 6.9, and Task 6.10 are pinned in §0 at `ddafda3` and supersede the temporary 501 wizard-scope contract from `2ae73ae`.
 
 ## 4. Pre-handoff state
 
