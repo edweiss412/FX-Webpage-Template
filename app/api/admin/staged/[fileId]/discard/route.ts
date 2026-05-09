@@ -23,6 +23,7 @@ function isDiscardVariant(value: unknown): value is DiscardVariant {
 }
 
 function statusForCode(code: string): number {
+  if (code === "WIZARD_SCOPE_NOT_YET_IMPLEMENTED") return 501;
   if (code === "PENDING_SYNC_NOT_FOUND") return 404;
   if (code === "INVALID_REVIEWER_ACTION") return 400;
   return 409;
@@ -79,7 +80,10 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
   if (body.source_scope !== "live" || typeof body.staged_id !== "string") {
     return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
   }
-  const variant = isDiscardVariant(body.variant) ? body.variant : "try_again";
+  if (body.variant !== undefined && !isDiscardVariant(body.variant)) {
+    return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
+  }
+  const variant = body.variant ?? "try_again";
   const admin = await readAdminEmail();
   if (admin.kind === "infra_error") {
     return NextResponse.json({ ok: false, error: "SYNC_INFRA_ERROR" }, { status: 500 });

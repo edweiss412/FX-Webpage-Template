@@ -65,6 +65,8 @@ function isReviewerChoice(value: unknown): value is ReviewerChoice {
 
 function statusForCode(code: string): number {
   switch (code) {
+    case "WIZARD_SCOPE_NOT_YET_IMPLEMENTED":
+      return 501;
     case "PENDING_SYNC_NOT_FOUND":
       return 404;
     case "MISSING_REVIEWER_CHOICE":

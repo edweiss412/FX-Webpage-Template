@@ -406,6 +406,30 @@ describe("applyStaged live-scope", () => {
     expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
   });
 
+  test("unparseable Drive modifiedTime returns SYNC_INFRA_ERROR without consuming the staged row", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      fetchDriveFileMetadata: vi.fn(async () => driveMeta({ modifiedTime: "not-a-date" })),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "infra_error", code: "SYNC_INFRA_ERROR" });
+    expect(syncDeps.restoreShowStatus).not.toHaveBeenCalled();
+    expect(syncDeps.deleteLivePendingSync).not.toHaveBeenCalled();
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+  });
+
   test("reviewer choices are complete and asset-review items are apply-only", async () => {
     const assetItem: TriggeredReviewItem = {
       id: "asset-1",
@@ -646,6 +670,40 @@ describe("applyStaged live-scope", () => {
     });
   });
 
+  test("embedded revision retry infra failures do not write alerts or consume the staged row", async () => {
+    const item: TriggeredReviewItem = {
+      id: "no-revision",
+      invariant: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+      spreadsheet_id: "sheet-1",
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ triggeredReviewItems: [item] }),
+      ),
+      retryEmbeddedRevisionAvailability: vi.fn(async () => {
+        throw Object.assign(new Error("drive unavailable"), { status: 503 });
+      }),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "no-revision", action: "apply" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "infra_error", code: "SYNC_INFRA_ERROR" });
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+    expect(syncDeps.upsertAdminAlert).not.toHaveBeenCalled();
+    expect(syncDeps.deleteLivePendingSync).not.toHaveBeenCalled();
+  });
+
   test("embedded revision recovery composes with reel drift side effects", async () => {
     const unavailable: TriggeredReviewItem = {
       id: "no-revision",
@@ -758,6 +816,35 @@ describe("applyStaged live-scope", () => {
       expect.objectContaining({ code: "REEL_DRIFTED" }),
     );
     expect(phase2Args?.parseResult.diagrams).toEqual(parseResult().diagrams);
+  });
+
+  test("Phase 2 stale result restores prior status, deletes pending row, and skips side effects", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      runPhase2: vi.fn(async () => ({
+        outcome: "stale" as const,
+        code: "STALE_MANUAL_REPLAY_ABORTED" as const,
+      })),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "superseded", code: STAGED_PARSE_SUPERSEDED });
+    expect(syncDeps.restoreShowStatus).toHaveBeenCalledWith(tx, "drive-file-1", "ok", null);
+    expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
+    expect(syncDeps.insertSyncAudit).not.toHaveBeenCalled();
+    expect(syncDeps.bumpReviewerAuthFloors).not.toHaveBeenCalled();
+    expect(syncDeps.upsertAdminAlert).not.toHaveBeenCalled();
   });
 
   test("wizard scope is explicitly deferred behind a 501 code", async () => {

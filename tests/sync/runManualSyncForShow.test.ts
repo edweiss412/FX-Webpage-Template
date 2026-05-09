@@ -106,10 +106,11 @@ describe("runManualSyncForShow", () => {
     ).rejects.toMatchObject({ code: "LOCK_OWNERSHIP_ASSERTION_FAILED" });
   });
 
-  test("outer wrapper checks FINALIZE_OWNED_SHOW before Drive or lock work", async () => {
+  test("outer wrapper checks FINALIZE_OWNED_SHOW inside the caller-owned lock before Drive work", async () => {
+    const tx = fakeTx(true) as LockedShowTx<FakeTx>;
     const checkFinalizeOwnership = vi.fn(async () => true);
     const fetchDriveFileMetadata = vi.fn(async () => fileMeta("drive-file-1"));
-    const withPipelineLock = vi.fn();
+    const withPipelineLock = vi.fn(async (_driveFileId, fn) => fn(tx));
 
     const result = await runManualSyncForShow("drive-file-1", "manual", {
       checkFinalizeOwnership,
@@ -118,9 +119,9 @@ describe("runManualSyncForShow", () => {
     });
 
     expect(result).toEqual({ outcome: "blocked", code: FINALIZE_OWNED_SHOW });
-    expect(checkFinalizeOwnership).toHaveBeenCalledWith("drive-file-1");
+    expect(withPipelineLock).toHaveBeenCalledWith("drive-file-1", expect.any(Function));
+    expect(checkFinalizeOwnership).toHaveBeenCalledWith(tx, "drive-file-1");
     expect(fetchDriveFileMetadata).not.toHaveBeenCalled();
-    expect(withPipelineLock).not.toHaveBeenCalled();
   });
 
   test("outer wrapper is the only lock holder for a legitimate manual sync", async () => {

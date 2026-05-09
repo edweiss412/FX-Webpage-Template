@@ -6,6 +6,13 @@ function source(path: string): string {
   return readFileSync(join(process.cwd(), path), "utf8");
 }
 
+function windowsAround(haystack: string, needle: string, radius = 320): string[] {
+  return [...haystack.matchAll(new RegExp(needle, "gi"))].map((match) => {
+    const index = match.index ?? 0;
+    return haystack.slice(Math.max(0, index - radius), index + needle.length + radius);
+  });
+}
+
 describe("M6 pending-row partition scope contract", () => {
   test("Supabase read-side pending_syncs SELECTs are scoped to live wizard_session_id", () => {
     const gate = source("lib/sync/perFileProcessor.ts");
@@ -28,27 +35,38 @@ describe("M6 pending-row partition scope contract", () => {
 
   test("Apply live-scope SELECT and DELETE carry wizard_session_id IS NULL", () => {
     const applyStaged = source("lib/sync/applyStaged.ts");
-    const selectOffset = applyStaged.indexOf("from public.pending_syncs");
-    const selectScopeOffset = applyStaged.indexOf("and wizard_session_id is null", selectOffset);
-    const deleteOffset = applyStaged.indexOf("delete from public.pending_syncs");
-    const deleteScopeOffset = applyStaged.indexOf("and wizard_session_id is null", deleteOffset);
+    const windows = [
+      ...windowsAround(applyStaged, "from public\\.pending_syncs"),
+      ...windowsAround(applyStaged, "delete from public\\.pending_syncs"),
+    ];
 
-    expect(selectOffset).toBeGreaterThan(-1);
-    expect(selectScopeOffset).toBeGreaterThan(selectOffset);
-    expect(deleteOffset).toBeGreaterThan(-1);
-    expect(deleteScopeOffset).toBeGreaterThan(deleteOffset);
+    expect(windows.length).toBeGreaterThanOrEqual(2);
+    for (const sqlWindow of windows) {
+      expect(sqlWindow.toLowerCase()).toContain("wizard_session_id is null");
+    }
   });
 
   test("Discard live-scope SELECT and DELETE carry wizard_session_id IS NULL", () => {
     const discardStaged = source("lib/sync/discardStaged.ts");
-    const selectOffset = discardStaged.indexOf("from public.pending_syncs");
-    const selectScopeOffset = discardStaged.indexOf("and wizard_session_id is null", selectOffset);
-    const deleteOffset = discardStaged.indexOf("delete from public.pending_syncs");
-    const deleteScopeOffset = discardStaged.indexOf("and wizard_session_id is null", deleteOffset);
+    const windows = [
+      ...windowsAround(discardStaged, "from public\\.pending_syncs"),
+      ...windowsAround(discardStaged, "delete from public\\.pending_syncs"),
+    ];
 
-    expect(selectOffset).toBeGreaterThan(-1);
-    expect(selectScopeOffset).toBeGreaterThan(selectOffset);
-    expect(deleteOffset).toBeGreaterThan(-1);
-    expect(deleteScopeOffset).toBeGreaterThan(deleteOffset);
+    expect(windows.length).toBeGreaterThanOrEqual(2);
+    for (const sqlWindow of windows) {
+      expect(sqlWindow.toLowerCase()).toContain("wizard_session_id is null");
+    }
+  });
+
+  test("live upsert conflict targets have matching partial unique indexes", () => {
+    const ddl = source("supabase/migrations/20260501001000_internal_and_admin.sql");
+
+    expect(ddl).toMatch(
+      /create unique index pending_ingestions_live_drive_file_idx\s+on public\.pending_ingestions \(drive_file_id\) where wizard_session_id is null;/i,
+    );
+    expect(ddl).toMatch(
+      /create unique index deferred_ingestions_live_drive_file_idx\s+on public\.deferred_ingestions \(drive_file_id\) where wizard_session_id is null;/i,
+    );
   });
 });

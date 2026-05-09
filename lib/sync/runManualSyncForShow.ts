@@ -25,7 +25,10 @@ export type FinalizeOwnedShowResult = {
 export type ManualSyncResult = ProcessOneFileResult | FinalizeOwnedShowResult;
 
 export type RunManualSyncForShowDeps = {
-  checkFinalizeOwnership?: (driveFileId: string) => Promise<boolean>;
+  checkFinalizeOwnership?: (
+    tx: LockedShowTx<SyncPipelineTx>,
+    driveFileId: string,
+  ) => Promise<boolean>;
   fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
   processOneFile_unlocked?: (
     tx: LockedShowTx<SyncPipelineTx>,
@@ -91,6 +94,42 @@ export async function readFinalizeOwnershipGuard(driveFileId: string): Promise<b
   }
 }
 
+async function readFinalizeOwnershipGuard_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+): Promise<boolean> {
+  const row = await tx.queryOne<{
+    first_seen_owned: boolean;
+    existing_show_owned: boolean;
+  }>(
+    `
+      select
+        exists (
+          select 1
+            from public.shows s
+            join public.onboarding_scan_manifest m
+              on m.drive_file_id = s.drive_file_id
+             and m.status = 'applied'
+            join public.wizard_finalize_checkpoints c
+              on c.wizard_session_id = m.wizard_session_id
+           where s.drive_file_id = $1
+             and s.published = false
+             and c.status in ('in_progress', 'all_batches_complete')
+        ) as first_seen_owned,
+        exists (
+          select 1
+            from public.shows_pending_changes spc
+            join public.wizard_finalize_checkpoints c
+              on c.wizard_session_id = spc.wizard_session_id
+           where spc.drive_file_id = $1
+             and c.status in ('in_progress', 'all_batches_complete')
+        ) as existing_show_owned
+    `,
+    [driveFileId],
+  );
+  return Boolean(row.first_seen_owned || row.existing_show_owned);
+}
+
 export async function runManualSyncForShow_unlocked(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
@@ -108,15 +147,13 @@ export async function runManualSyncForShow(
   mode: Extract<SyncMode, "manual"> = "manual",
   deps: RunManualSyncForShowDeps = {},
 ): Promise<ManualSyncResult | ConcurrentSyncSkipped> {
-  const isFinalizeOwned = await (deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard)(
-    driveFileId,
-  );
-  if (isFinalizeOwned) {
-    return { outcome: "blocked", code: FINALIZE_OWNED_SHOW };
-  }
-
   const withLock = deps.withPipelineLock ?? ((id, fn) => withPostgresSyncPipelineLock(id, fn));
-  return await withLock(driveFileId, (tx) =>
-    runManualSyncForShow_unlocked(tx, driveFileId, mode, deps),
-  );
+  return await withLock(driveFileId, async (tx) => {
+    const isFinalizeOwned = await (deps.checkFinalizeOwnership ??
+      readFinalizeOwnershipGuard_unlocked)(tx, driveFileId);
+    if (isFinalizeOwned) {
+      return { outcome: "blocked", code: FINALIZE_OWNED_SHOW };
+    }
+    return await runManualSyncForShow_unlocked(tx, driveFileId, mode, deps);
+  });
 }

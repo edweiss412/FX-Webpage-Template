@@ -100,8 +100,27 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
     });
   });
 
+  test("invalid live discard variant is rejected instead of defaulting to try_again", async () => {
+    const response = await POST(
+      request({
+        source_scope: "live",
+        staged_id: "staged-live",
+        variant: "permanint_ignore",
+      }),
+      { params: Promise.resolve({ fileId: "drive-file-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "INVALID_REVIEWER_ACTION",
+    });
+    expect(discardMock.discardStaged).not.toHaveBeenCalled();
+  });
+
   test.each([
     ["PENDING_SYNC_NOT_FOUND", 404],
+    ["WIZARD_SCOPE_NOT_YET_IMPLEMENTED", 501],
     ["INVALID_REVIEWER_ACTION", 400],
     ["STALE_DISCARD_REJECTED", 409],
   ] as const)("maps %s to %i", async (code, status) => {
@@ -118,6 +137,19 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
 
   test("admin email lookup infra faults return SYNC_INFRA_ERROR", async () => {
     supabaseMock.getUserThrows = new Error("network");
+
+    const response = await POST(
+      request({ source_scope: "live", staged_id: "staged-live", variant: "try_again" }),
+      { params: Promise.resolve({ fileId: "drive-file-1" }) },
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: "SYNC_INFRA_ERROR" });
+    expect(discardMock.discardStaged).not.toHaveBeenCalled();
+  });
+
+  test("admin email returned-error path returns SYNC_INFRA_ERROR", async () => {
+    supabaseMock.getUserError = { message: "auth unreachable" };
 
     const response = await POST(
       request({ source_scope: "live", staged_id: "staged-live", variant: "try_again" }),

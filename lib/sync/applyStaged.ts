@@ -175,6 +175,10 @@ function isAfter(left: string, right: string): boolean {
   return leftMs !== null && rightMs !== null && leftMs > rightMs;
 }
 
+function isValidTimestamp(value: string | null | undefined): boolean {
+  return timestampMs(value) !== null;
+}
+
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
@@ -549,17 +553,13 @@ function depsWithDefaults(deps: ApplyStagedDeps): RequiredPick<
 
 async function defaultRetryEmbeddedRevisionAvailability(spreadsheetId: string): Promise<boolean> {
   const drive = getDriveClient();
-  try {
-    const response = await drive.revisions.list({
-      fileId: spreadsheetId,
-      fields: "revisions(id)",
-    });
-    return (response.data.revisions ?? []).some((revision: { id?: string | null }) =>
-      Boolean(revision.id),
-    );
-  } catch {
-    return false;
-  }
+  const response = await drive.revisions.list({
+    fileId: spreadsheetId,
+    fields: "revisions(id)",
+  });
+  return (response.data.revisions ?? []).some((revision: { id?: string | null }) =>
+    Boolean(revision.id),
+  );
 }
 
 function warning(code: string): Phase2Args["parseResult"]["warnings"][number] {
@@ -635,7 +635,18 @@ async function applyAssetReviewEffects(
     return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
   }
 
-  if (unavailable && (await retryEmbeddedRevisionAvailability(unavailable.spreadsheet_id))) {
+  let embeddedRevisionsAvailable = false;
+  if (unavailable) {
+    try {
+      embeddedRevisionsAvailable = await retryEmbeddedRevisionAvailability(
+        unavailable.spreadsheet_id,
+      );
+    } catch {
+      return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
+    }
+  }
+
+  if (unavailable && embeddedRevisionsAvailable) {
     return {
       parseResult: {
         ...pending.parseResult,
@@ -713,6 +724,10 @@ export async function applyStaged_unlocked(
     return { outcome: "source_out_of_scope", code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE };
   }
 
+  if (!isValidTimestamp(metadata.modifiedTime)) {
+    return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
+  }
+
   if (isAfter(metadata.modifiedTime, pending.stagedModifiedTime)) {
     await deps.restoreShowStatus(
       tx,
@@ -759,6 +774,12 @@ export async function applyStaged_unlocked(
     },
   });
   if (phase2.outcome === "stale") {
+    await deps.restoreShowStatus(
+      tx,
+      pending.driveFileId,
+      pending.priorLastSyncStatus,
+      pending.priorLastSyncError,
+    );
     await deps.deleteLivePendingSync(tx, pending.driveFileId, pending.stagedId);
     return { outcome: "superseded", code: STAGED_PARSE_SUPERSEDED };
   }

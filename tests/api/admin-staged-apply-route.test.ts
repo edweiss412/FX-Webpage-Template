@@ -117,6 +117,7 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
 
   test.each([
     ["PENDING_SYNC_NOT_FOUND", 404],
+    ["WIZARD_SCOPE_NOT_YET_IMPLEMENTED", 501],
     ["STAGED_PARSE_SUPERSEDED", 409],
     ["STAGED_PARSE_SOURCE_GONE", 409],
     ["STAGED_PARSE_SOURCE_OUT_OF_SCOPE", 409],
@@ -138,6 +139,19 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
 
   test("admin email lookup infra faults return SYNC_INFRA_ERROR", async () => {
     supabaseMock.getUserThrows = new Error("network");
+
+    const response = await POST(
+      request({ source_scope: "live", staged_id: "staged-live", choices: [] }),
+      { params: Promise.resolve({ fileId: "drive-file-1" }) },
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: "SYNC_INFRA_ERROR" });
+    expect(applyMock.applyStaged).not.toHaveBeenCalled();
+  });
+
+  test("admin email returned-error path returns SYNC_INFRA_ERROR", async () => {
+    supabaseMock.getUserError = { message: "auth unreachable" };
 
     const response = await POST(
       request({ source_scope: "live", staged_id: "staged-live", choices: [] }),
