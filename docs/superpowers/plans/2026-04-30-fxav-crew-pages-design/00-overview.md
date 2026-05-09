@@ -61,6 +61,36 @@
       produce a 50% false-negative rate. **Parser treats v4 as `row:Contact Office`
       SINGLE-marker (100% reliable); MAIN/SECONDARY is documentation-only.** Re-introduce as
       `v4-strict` if a future sub-variant requires it.
+   6. **Spec §5.2 / §5.3 — Sheets revision binding falls back to modifiedTime CAS** _(applies
+      to M6 onward; ratified at M6 Pin-stop 1.5 — 2026-05-09)_. The spec at §5.2 / §5.3
+      specifies markdown export "preferred via `revisions.export` when supported" with
+      `binding.headRevisionId` as the authoritative pin token. Three Drive / Sheets API facts
+      verified against current Google docs (2026-05-09) collectively close the door for
+      Workspace-native files:
+      - **`files.get(... headRevisionId, md5Checksum ...)`** — Drive API v3 docs: _"Output
+        only. The ID of the file's head revision. This is currently only available for files
+        with binary content in Google Drive."_ Google Sheets are Workspace-native, not binary;
+        both fields return `null` regardless of permission level. **No Editor / Owner upgrade
+        path changes this.**
+      - **`drive.revisions.list`** — structurally empty for Workspace-native files. Sheets
+        revisions live in Sheets-internal storage that the Drive `revisions` resource does
+        not surface.
+      - **Sheets API v4** — `spreadsheets.get`, `spreadsheets.values.get`, and
+        `spreadsheets.values.batchGet` accept no revision-id parameter; all three always read
+        HEAD.
+
+      **The plan ratifies modifiedTime CAS as the permanent binding contract for the
+      spreadsheet:** `fetchSheetAsMarkdownAtRevision` treats `revisionId` as
+      `metadata.headRevisionId ?? metadata.modifiedTime`; xlsx bytes are fetched only after
+      verifying the captured token still matches; metadata is re-read after the byte fetch and
+      again before the Phase-1/Phase-2 transaction; any mismatch raises
+      `STAGED_PARSE_REVISION_RACE`. **Per-asset binding for embedded images and linked-folder
+      Drive files is unaffected** — those targets are binary files and the spec §6.11
+      `(headRevisionId, md5Checksum)` / `(sheetsRevisionId, embeddedFingerprint)` immutable-pin
+      contracts apply to them in full. Spreadsheet binding = modtime CAS; per-asset binary
+      binding = full revision pinning. M6 Pin-stop 1.5 contract block (handoff §0) carries the
+      production fetch primitive; M6 §6 watchpoint 10 carries the spreadsheet-vs-binary-asset
+      asymmetry.
 
 2. **TDD is mandatory.** Every task starts with a failing test, then the minimal implementation, then a passing test, then a commit. Skipping the failing-test step means the test isn't actually covering what it claims.
 3. **Commit per task.** Commit messages take the form `feat(<area>): <one-line summary>` or `test(<area>): ...` — area names are `parser`, `db`, `sync`, `auth`, `crew-page`, `admin`, `report`, `onboarding`, `assets`, `infra`.

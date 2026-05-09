@@ -173,9 +173,21 @@ Pin-stop 2 halted because the live Google Sheet fixture does not support the Pin
 - `files.export(text/markdown)` failed against the live Sheet; xlsx export succeeded and parsed with SheetJS.
 - The fixture folder id derived from `parents[0]` is `1iU80Y2mqYmkCuBQYer0TEF1fta6fDp1C`; `.env.local.example` now includes `M6_REAL_DRIVE_FIXTURE_FOLDER_ID`.
 
+**Authoritative cause (Drive API v3 docs, verified 2026-05-09):**
+
+Google Sheets cannot be pinned to a Drive revision id at all — this is structural, not a permission-level or scope artifact. Three Google API facts collectively close the door:
+
+1. **`files.get(... headRevisionId, md5Checksum ...)`** — Drive API v3 docs: _"Output only. The ID of the file's head revision. **This is currently only available for files with binary content in Google Drive.**"_ Google Sheets / Docs / Slides are Workspace-native files, not binary content, so both fields return `null` regardless of permission level. There is **no Editor / Owner upgrade path** that changes this for Sheets.
+2. **`drive.revisions.list`** — structurally empty for Workspace-native files. Revisions for Sheets are tracked via Sheets-internal storage that the Drive `revisions` resource does not surface.
+3. **Sheets API v4** — `spreadsheets.get`, `spreadsheets.values.get`, and `spreadsheets.values.batchGet` accept no revision-id parameter; all three always read HEAD.
+
+The implication: **modifiedTime CAS is the permanent binding ceiling for Sheets**, not a temporary fallback regime. The spec §5.2 / §5.3 reference to `revisions.export` was written against a primitive that does not exist for the file type the system actually targets; this is captured as a ratified plan amendment in `00-overview.md` (#6).
+
 **Final binding contract:**
 
-Google Sheets in this Drive shape cannot be pinned to a Drive revision id. `fetchSheetAsMarkdownAtRevision(driveFileId, revisionId, opts)` now treats `revisionId` as the captured Drive binding token: `headRevisionId` when Drive supplies one, otherwise `modifiedTime`. The function reads current xlsx export bytes only after verifying the starting token still matches, re-reads metadata after the byte fetch, and throws `DriveFetchError` if the token changed. `runScheduledCronSync` captures the same token before parsing and re-verifies before Phase 1/Phase 2.
+`fetchSheetAsMarkdownAtRevision(driveFileId, revisionId, opts)` treats `revisionId` as the captured Drive binding token: `metadata.headRevisionId ?? metadata.modifiedTime` (the nullish fallback is the load-bearing one for Sheets, but the function tolerates either input shape so binary-content callers get full revision pinning when available). The function reads current xlsx export bytes only after verifying the starting token still matches, re-reads metadata after the byte fetch, and throws `DriveFetchError` if the token changed. `runScheduledCronSync` captures the same token before parsing and re-verifies before Phase 1/Phase 2.
+
+**Asymmetry — per-asset binary-content binding is NOT affected.** Embedded-image fetches and linked-folder Drive file fetches target binary files (PNG/JPG/PDF/etc.), so `headRevisionId` and `md5Checksum` ARE populated for them and the spec §6.11 `(sheetsRevisionId, embeddedFingerprint)` and `(headRevisionId, md5Checksum)` immutable-pin contracts apply in full. Only the spreadsheet itself collapses to modtime CAS. M7's asset_recovery and Apply-time asset re-verify retain the full immutable-pin guarantees for those targets.
 
 ```ts
 // lib/drive/fetch
@@ -377,13 +389,19 @@ M6 has not yet been implemented; no prior M6 convergence log exists. Watchpoints
 
 9. **Per-show advisory lock key derives from `hashtext('show:' || drive_file_id)`, NOT `show_id` and NOT `slug`.** Per spec §1.2 / AGENTS.md §1.2. Cron and admin paths must converge on the same hashkey or the lock provides no isolation. First-seen sheets (no `shows` row yet) STILL use `drive_file_id` so the lock is consistent across "first-seen" and "existing-show" paths.
 
-10. **Same-revision binding contract (Task 6.6 §A — five trigger classes).** `runScheduledCronSync` MUST capture `binding = { headRevisionId, modifiedTime }` BEFORE xlsx export, where `headRevisionId` is the binding token (`metadata.headRevisionId` when Drive supplies one, otherwise `metadata.modifiedTime` for Google Sheets that expose no revision id). It MUST run all enrichment substeps against `binding.headRevisionId`, then re-verify the binding token matches before entering the transaction. Five classes trigger `STAGED_PARSE_REVISION_RACE` (NOT generic `drive_error`):
-    - (a) post-enrichment binding-token mismatch
-    - (b) `fetchSheetAsMarkdownAtRevision`'s xlsx export path fails mid-flight: the captured token no longer matches before xlsx bytes are fetched, the xlsx export link is missing, the authenticated xlsx fetch returns 404, or the post-byte metadata re-read shows a token mismatch
-    - (c) `spreadsheets.get` 404 mid-flight on the bound revision
-    - (d) `drive.revisions.list` succeeds but doesn't include `binding.headRevisionId`
-    - (e) per-asset `revisions.get` / `revisions.export` returns 404 specifically because the bound revision is gone
-    Each must NOT advance `last_seen_modified_time`, MUST NOT call `runPhase1`, MUST emit `STAGED_PARSE_REVISION_RACE` to `sync_log`. The `STAGED_PARSE_SOURCE_GONE` case (file itself gone) is distinct — preserve the classification.
+10. **Same-revision binding contract (Task 6.6 §A — split spreadsheet vs binary-asset binding per plan amendment 6 + Pin-1.5 deviation).**
+
+    **For the spreadsheet itself (Workspace-native Sheet)** — full revision pinning is unavailable per Drive API v3 docs (`headRevisionId` is "currently only available for files with binary content"). The strongest available contract is **modifiedTime CAS**: `runScheduledCronSync` MUST capture `binding = { bindingToken, modifiedTime }` BEFORE xlsx export, where `bindingToken = metadata.headRevisionId ?? metadata.modifiedTime`. It MUST run all enrichment substeps against the captured token, then re-verify the token after the xlsx fetch AND again before entering the Phase-1/Phase-2 transaction. Three classes trigger `STAGED_PARSE_REVISION_RACE` (NOT generic `drive_error`):
+
+    - (a) **post-fetch token mismatch** — `metadata.modifiedTime` (or `headRevisionId` if present) moved between starting capture and the post-byte-fetch metadata re-read
+    - (b) **xlsx export path failure mid-flight** — `files.get` returns no xlsx export link, OR the authenticated fetch against the xlsx URL returns 404
+    - (c) **post-enrichment token mismatch** — token moved between starting capture and the final pre-Phase-1 re-verify (covers the case where Doug edits during enrichment substeps even if the xlsx fetch itself completed cleanly)
+
+    **For embedded-image and linked-folder Drive-file fetches (binary targets)** — full revision pinning DOES work and is preserved. Per spec §6.11 the `(sheetsRevisionId, embeddedFingerprint)` and `(headRevisionId, md5Checksum)` immutable-pin contracts apply because these targets are binary files. Per-asset failures (`revisions.get` 404 specifically because the bound revision was retired; pinned-bytes fetch 404; `md5Checksum` mismatch on buffer-then-verify) ARE classified as `STAGED_PARSE_REVISION_RACE` for those targets, exactly as spec §5.2 / §6.11 specify. **Asymmetry summary:** spreadsheet-level binding = modtime CAS; per-asset binary binding = full revision pinning.
+
+    The `STAGED_PARSE_SOURCE_GONE` case (`files.get` returns 404 because the spreadsheet itself was trashed / the parents no longer include the watched folder) is a distinct class — preserve the classification. Each `STAGED_PARSE_REVISION_RACE` class above must NOT advance `last_seen_modified_time`, MUST NOT call `runPhase1`, MUST emit `STAGED_PARSE_REVISION_RACE` to `sync_log`.
+
+    Earlier handoff drafts listed five classes including `drive.revisions.list` mismatch and `revisions.get` 404 *for the spreadsheet itself*; both are retired here because Drive's `revisions` resource is structurally empty for Workspace-native files. They survive only for binary-asset targets per the asymmetry above.
 
 11. **Revision-race cooldown gate (Task 6.6 §A).** A hot sheet (Doug repeatedly editing) would burn Drive API quota indefinitely without the cooldown. Spec §5.2 specifies `revision_race_cooldowns(drive_file_id, head_revision_id, last_race_at, retry_count)` with composite PK. Backoff = `LEAST(60 * 2^retry_count, 600)` seconds. Manual override skips the gate; successful Phase 2 commit clears it. The seven-class test matrix in Task 6.6 Step 1 covers all branches.
 
