@@ -84,6 +84,79 @@ describe("synthesizeMarkdownFromXlsx", () => {
     );
   });
 
+  test("collapses legacy pull-sheet title bands into the parser-facing case header", () => {
+    const markdown = synthesizeMarkdownFromXlsx(
+      workbookBuffer([
+        {
+          name: "OLD PULL SHEET",
+          rows: [
+            ["PULL SHEET", "", "", "", ""],
+            [],
+            [],
+            [],
+            ["RIA - CHICAGO, IL\nLakeview - 7th Floor\nSet: 4/15/24 - 7:00am", "", "", "", ""],
+            [],
+            [],
+            [],
+            [1, "FOH Rack", "", "FOH", false],
+          ],
+          merges: [
+            { s: { r: 0, c: 0 }, e: { r: 3, c: 4 } },
+            { s: { r: 4, c: 0 }, e: { r: 7, c: 4 } },
+          ],
+        },
+      ]),
+    );
+
+    expect(markdown).toBe(
+      [
+        "| PULL SHEET/RIA - CHICAGO, IL&#10;Lakeview - 7th Floor&#10;Set: 4/15/24 - 7:00am | PULL SHEET/RIA - CHICAGO, IL&#10;Lakeview - 7th Floor&#10;Set: 4/15/24 - 7:00am | PULL SHEET/RIA - CHICAGO, IL&#10;Lakeview - 7th Floor&#10;Set: 4/15/24 - 7:00am | PULL SHEET/RIA - CHICAGO, IL&#10;Lakeview - 7th Floor&#10;Set: 4/15/24 - 7:00am | PULL SHEET/RIA - CHICAGO, IL&#10;Lakeview - 7th Floor&#10;Set: 4/15/24 - 7:00am |",
+        "| :---: | :---: | :---: | :---: | :---: |",
+        "| 1 | FOH Rack |  | FOH | FALSE |",
+      ].join("\n"),
+    );
+  });
+
+  test("keeps the DETAILS checklist label-only to match the fixture parser contract", () => {
+    const markdown = synthesizeMarkdownFromXlsx(
+      workbookBuffer([
+        {
+          name: "INFO",
+          rows: [
+            ["DETAILS", ""],
+            ["Floor Plan", "LINK"],
+            ["Room Diagram", "LINK"],
+          ],
+        },
+      ]),
+    );
+
+    expect(markdown).toBe(
+      ["| DETAILS |", "| :---: |", "| Floor Plan |", "| Room Diagram |"].join("\n"),
+    );
+  });
+
+  test("drops merged room-title rows before GS/BO equipment tables", () => {
+    const markdown = synthesizeMarkdownFromXlsx(
+      workbookBuffer([
+        {
+          name: "INFO",
+          rows: [
+            ["GENERAL SESSION\nLAKEVIEW BALLROOM\n61' x 55' x 11'\n7th Floor"],
+            ["GS Setup", "Pods"],
+            ["GS Set Time", "5/12 @ 6:30 AM"],
+          ],
+        },
+      ]),
+    );
+
+    expect(markdown).toBe(
+      ["| GS Setup | Pods |", "| :---: | :---: |", "| GS Set Time | 5/12 @ 6:30 AM |"].join(
+        "\n",
+      ),
+    );
+  });
+
   test("escapes parser-significant characters and converts embedded newlines", () => {
     const markdown = synthesizeMarkdownFromXlsx(
       workbookBuffer([

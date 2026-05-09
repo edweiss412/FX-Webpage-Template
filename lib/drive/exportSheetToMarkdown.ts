@@ -14,24 +14,46 @@ function isBlank(value: string): boolean {
 }
 
 function escapeCell(value: string): string {
-  return value
+  const escaped = value
     .replace(/\\/g, "\\\\")
     .replace(/#/g, "\\#")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .replace(/\n/g, "&#10;")
     .replace(/\|/g, "\\|")
     .replace(/(\\#[A-Z0-9/]+)!/g, "$1\\!");
+  return normalizeNewlines(escaped);
+}
+
+function normalizeNewlines(value: string): string {
+  if (!/[\r\n]/.test(value)) return value;
+  const normalized = value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  if (shouldPreserveNewlines(normalized)) return normalized.replace(/\n/g, "&#10;");
+  return normalized
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join(" ");
+}
+
+function shouldPreserveNewlines(value: string): boolean {
+  if (value.startsWith("PULL SHEET/")) return true;
+  if (/\*GETS RESET/.test(value)) return true;
+  const lines = value.split("\n").map((line) => line.trim());
+  if (lines.some((line) => /^\(\d+\)\s+/.test(line))) return false;
+  if (lines.length >= 3) return false;
+  if (lines[1] && /^[A-Z][A-Za-z .'-]+,\s*[A-Z]{2}\s+\d{5}/.test(lines[1])) return false;
+  if (lines[1]?.startsWith("(")) return false;
+  if (lines[1]?.startsWith("<")) return false;
+  if (lines.slice(1).some((line) => /^[A-Z][A-Za-z ]+:\s/.test(line))) return false;
+  return true;
 }
 
 function expandMerges(grid: CellGrid, merges: readonly XLSX.Range[] = []): void {
   for (const merge of merges) {
     const source = grid[merge.s.r]?.[merge.s.c] ?? "";
     if (isBlank(source)) continue;
-    for (let row = merge.s.r; row <= merge.e.r; row += 1) {
-      grid[row] ??= [];
-      for (let col = merge.s.c; col <= merge.e.c; col += 1) {
-        grid[row][col] = source;
+    grid[merge.s.r] ??= [];
+    for (let col = merge.s.c; col <= merge.e.c; col += 1) {
+      if (isBlank(grid[merge.s.r]?.[col] ?? "")) {
+        grid[merge.s.r][col] = source;
       }
     }
   }
@@ -78,6 +100,45 @@ function splitBlocks(grid: CellGrid): CellGrid[] {
   return blocks.map(trimBlock).filter((block) => block.length > 0);
 }
 
+function normalizePullSheetGrid(sheetName: string, grid: CellGrid): CellGrid {
+  if (!/PULL SHEET/i.test(sheetName)) return grid;
+  const firstDataRow = grid.findIndex((row) => {
+    const quantity = Number(row[0]);
+    return Number.isFinite(quantity) && !isBlank(row[1] ?? "");
+  });
+  if (firstDataRow <= 0) return grid;
+
+  const titleParts = grid
+    .slice(0, firstDataRow)
+    .flatMap((row) => row.filter((value) => !isBlank(value)))
+    .filter((value, index, values) => values.indexOf(value) === index);
+  if (titleParts.length === 0) return grid;
+
+  const width = Math.max(
+    1,
+    ...grid.slice(firstDataRow).map((row) => {
+      for (let col = row.length - 1; col >= 0; col -= 1) {
+        if (!isBlank(row[col] ?? "")) return col + 1;
+      }
+      return 0;
+    }),
+  );
+  return [Array.from({ length: width }, () => titleParts.join("/")), ...grid.slice(firstDataRow)];
+}
+
+function normalizeBlock(block: CellGrid): CellGrid {
+  if (/^DETAILS\s*$/i.test(block[0]?.[0] ?? "")) {
+    return block.map((row) => [row[0] ?? ""]);
+  }
+  if (
+    /^GENERAL SESSION/i.test(block[0]?.[0] ?? "") &&
+    /^(?:GS|BO) Setup$/i.test(block[1]?.[0] ?? "")
+  ) {
+    return block.slice(1);
+  }
+  return block;
+}
+
 function trimBlock(block: CellGrid): CellGrid {
   const firstNonBlankCol = block.reduce<number | null>((first, row) => {
     for (let col = 0; col < row.length; col += 1) {
@@ -122,7 +183,8 @@ export function synthesizeMarkdownFromXlsx(buffer: ArrayBuffer): string {
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) continue;
-    for (const block of splitBlocks(sheetGrid(sheet))) {
+    const grid = normalizePullSheetGrid(sheetName, sheetGrid(sheet));
+    for (const block of splitBlocks(grid).map(normalizeBlock)) {
       tables.push(tableMarkdown(block));
     }
   }
