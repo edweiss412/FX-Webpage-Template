@@ -73,6 +73,11 @@ const infraRegistry = [
     path: "lib/sync/syncLog.ts",
     contract: "sync_log sink thrown SQL faults propagate to the route/orchestrator caller",
   },
+  {
+    helper: "getActiveWatchedFolderId",
+    path: "lib/appSettings/getWatchedFolderId.ts",
+    contract: "app_settings watched-folder lookup faults become typed infra_error results",
+  },
 ] as const;
 
 function read(path: string): string {
@@ -124,6 +129,11 @@ async function importProcessor() {
   return import("@/lib/sync/perFileProcessor");
 }
 
+async function importWatchedFolderHelper() {
+  vi.resetModules();
+  return import("@/lib/appSettings/getWatchedFolderId");
+}
+
 beforeEach(() => {
   infraMock.throwOnConstruct = false;
   infraMock.throwOnFrom = false;
@@ -157,6 +167,30 @@ describe("sync Supabase infra-failure contract", () => {
       await expect(perFileProcessor("file-1", "cron", fileMeta())).rejects.toBeInstanceOf(
         SyncInfraError,
       );
+    });
+  });
+
+  describe("getActiveWatchedFolderId", () => {
+    test("service-role construction throw → typed infra_error", async () => {
+      infraMock.throwOnConstruct = true;
+      const { getActiveWatchedFolderId } = await importWatchedFolderHelper();
+
+      await expect(getActiveWatchedFolderId()).resolves.toMatchObject({
+        kind: "infra_error",
+        source: "thrown_error",
+        operation: "createSupabaseServiceRoleClient",
+      });
+    });
+
+    test("Supabase .from() throw → typed infra_error", async () => {
+      infraMock.throwOnFrom = true;
+      const { getActiveWatchedFolderId } = await importWatchedFolderHelper();
+
+      await expect(getActiveWatchedFolderId()).resolves.toMatchObject({
+        kind: "infra_error",
+        source: "thrown_error",
+        operation: "readActiveWatchedFolderId",
+      });
     });
   });
 

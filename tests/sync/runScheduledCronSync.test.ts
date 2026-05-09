@@ -473,6 +473,74 @@ describe("processOneFile", () => {
 });
 
 describe("runScheduledCronSync", () => {
+  const originalGoogleDriveFolderId = process.env.GOOGLE_DRIVE_FOLDER_ID;
+  const originalDriveFolderId = process.env.DRIVE_FOLDER_ID;
+
+  function restoreFolderEnv() {
+    if (originalGoogleDriveFolderId === undefined) delete process.env.GOOGLE_DRIVE_FOLDER_ID;
+    else process.env.GOOGLE_DRIVE_FOLDER_ID = originalGoogleDriveFolderId;
+    if (originalDriveFolderId === undefined) delete process.env.DRIVE_FOLDER_ID;
+    else process.env.DRIVE_FOLDER_ID = originalDriveFolderId;
+  }
+
+  test("uses app_settings watched_folder_id instead of env folder overrides", async () => {
+    process.env.GOOGLE_DRIVE_FOLDER_ID = "env-folder-x";
+    delete process.env.DRIVE_FOLDER_ID;
+    const listFolder = vi.fn(async () => [fileMeta("file-a")]);
+    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-a" }));
+    const getActiveWatchedFolderId = vi.fn(async () => ({ folderId: "settings-folder-y" }));
+
+    try {
+      await runScheduledCronSync({
+        listFolder,
+        processOneFile,
+        getActiveWatchedFolderId,
+      } as unknown as Parameters<typeof runScheduledCronSync>[0]);
+    } finally {
+      restoreFolderEnv();
+    }
+
+    expect(getActiveWatchedFolderId).toHaveBeenCalledOnce();
+    expect(listFolder).toHaveBeenCalledWith("settings-folder-y");
+    expect(listFolder).not.toHaveBeenCalledWith("env-folder-x");
+  });
+
+  test("no app_settings folder and no first-boot env fallback is a typed cron no-op", async () => {
+    delete process.env.GOOGLE_DRIVE_FOLDER_ID;
+    delete process.env.DRIVE_FOLDER_ID;
+    const logSync = vi.fn(async () => undefined);
+    const listFolder = vi.fn(async () => [fileMeta("file-a")]);
+    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-a" }));
+
+    try {
+      const result = await runScheduledCronSync({
+        listFolder,
+        processOneFile,
+        logSync,
+        getActiveWatchedFolderId: vi.fn(async () => ({ kind: "no_folder_configured" })),
+      } as unknown as Parameters<typeof runScheduledCronSync>[0]);
+
+      expect(result).toEqual({
+        processed: [],
+        summary: { outcome: "skipped", skipReason: "no_folder_configured" },
+      });
+    } finally {
+      restoreFolderEnv();
+    }
+
+    expect(listFolder).not.toHaveBeenCalled();
+    expect(processOneFile).not.toHaveBeenCalled();
+    expect(logSync).toHaveBeenCalledWith({
+      driveFileId: null,
+      outcome: "skipped",
+      code: "no_folder_configured",
+      payload: {
+        kind: "cron_no_folder_configured",
+        skip_reason: "no_folder_configured",
+      },
+    });
+  });
+
   test("processes every listed Sheet and keeps per-file failures isolated", async () => {
     const processOneFile = vi
       .fn()

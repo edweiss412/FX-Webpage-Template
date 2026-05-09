@@ -1,5 +1,9 @@
 import postgres from "postgres";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import {
+  getActiveWatchedFolderId,
+  type ActiveWatchedFolderResult,
+} from "@/lib/appSettings/getWatchedFolderId";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
@@ -73,7 +77,7 @@ export type ProcessOneFileResult =
   | ConcurrentSyncSkipped;
 
 export type SyncLogEntry = {
-  driveFileId: string;
+  driveFileId: string | null;
   outcome: string;
   code?: string;
   payload?: Record<string, unknown>;
@@ -104,6 +108,7 @@ export type ProcessOneFileDeps = {
 
 export type RunScheduledCronSyncDeps = {
   folderId?: string;
+  getActiveWatchedFolderId?: () => Promise<ActiveWatchedFolderResult>;
   listFolder?: typeof listDriveFolder;
   logSync?: (entry: SyncLogEntry) => Promise<void>;
   processOneFile?: (
@@ -119,6 +124,9 @@ export type RunScheduledCronSyncResult = {
     driveFileId: string;
     result: ProcessOneFileResult;
   }>;
+  summary?:
+    | { outcome: "skipped"; skipReason: "no_folder_configured" }
+    | { outcome: "parse_error"; code: typeof SYNC_INFRA_ERROR };
 };
 
 type PostgresTransaction = {
@@ -822,14 +830,6 @@ class SyncStepTimeoutError extends Error {
   }
 }
 
-function envFolderId(): string {
-  const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID ?? process.env.DRIVE_FOLDER_ID;
-  if (!folderId) {
-    throw new Error("runScheduledCronSync requires GOOGLE_DRIVE_FOLDER_ID or DRIVE_FOLDER_ID");
-  }
-  return folderId;
-}
-
 export async function withPostgresSyncPipelineLock<R = ProcessOneFileResult>(
   driveFileId: string,
   fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<R> | R,
@@ -1204,7 +1204,35 @@ export async function processOneFile_unlocked(
 export async function runScheduledCronSync(
   deps: RunScheduledCronSyncDeps = {},
 ): Promise<RunScheduledCronSyncResult> {
-  const folderId = deps.folderId ?? envFolderId();
+  const folderResult = deps.folderId
+    ? { folderId: deps.folderId }
+    : await (deps.getActiveWatchedFolderId ?? getActiveWatchedFolderId)();
+  if ("kind" in folderResult) {
+    if (folderResult.kind === "no_folder_configured") {
+      await deps.logSync?.({
+        driveFileId: null,
+        outcome: "skipped",
+        code: "no_folder_configured",
+        payload: {
+          kind: "cron_no_folder_configured",
+          skip_reason: "no_folder_configured",
+        },
+      });
+      return {
+        processed: [],
+        summary: { outcome: "skipped", skipReason: "no_folder_configured" },
+      };
+    }
+    await deps.logSync?.({
+      driveFileId: null,
+      outcome: "parse_error",
+      code: SYNC_INFRA_ERROR,
+      payload: errorPayload(folderResult.cause),
+    });
+    return { processed: [], summary: { outcome: "parse_error", code: SYNC_INFRA_ERROR } };
+  }
+
+  const folderId = folderResult.folderId;
   const listFolder = deps.listFolder ?? listDriveFolder;
   const runOne = deps.processOneFile ?? processOneFile;
   const processDeps = deps.logSync ? { logSync: deps.logSync } : undefined;
