@@ -18,6 +18,7 @@ export type Phase2Tx = ApplyParseResultTx & {
     staleGuard: "strict_less_than" | "less_than_or_equal";
     parseResult: ParseResult;
     slug: string;
+    skipDiagramsWrite?: boolean;
   }): Promise<
     | {
         outcome: "updated";
@@ -36,6 +37,7 @@ export type Phase2Args = {
   fileMeta: DriveListedFile;
   parseResult: ParseResult;
   binding: Phase1Binding;
+  skipDiagramsWrite?: boolean;
 };
 
 export type Phase2Result =
@@ -86,6 +88,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       staleGuard: staleGuardForMode(args.mode),
       parseResult: args.parseResult,
       slug: deriveSlug(args.parseResult, []),
+      skipDiagramsWrite: args.skipDiagramsWrite ?? false,
     }),
   );
 

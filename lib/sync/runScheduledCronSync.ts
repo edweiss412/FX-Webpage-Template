@@ -479,7 +479,33 @@ class PostgresPipelineTx implements SyncPipelineTx {
 
     const updated = existing
       ? await this.one<{ id: string }>(
+          args.skipDiagramsWrite
+            ? `
+            update public.shows
+               set slug = $2,
+                   title = $3,
+                   client_label = $4,
+                   client_contact = $5::jsonb,
+                   template_version = $6,
+                   venue = $7::jsonb,
+                   dates = $8::jsonb,
+                   event_details = $9::jsonb,
+                   agenda_links = $10::jsonb,
+                   opening_reel_drive_file_id = $12,
+                   opening_reel_drive_modified_time = $13::timestamptz,
+                   opening_reel_head_revision_id = $14,
+                   opening_reel_mime_type = $15,
+                   last_seen_modified_time = $16::timestamptz,
+                   coi_status = $17,
+                   pull_sheet = $18::jsonb,
+                   last_synced_at = now(),
+                   last_sync_status = 'ok',
+                   last_sync_error = null
+             where drive_file_id = $1
+               and ${stalePredicate}
+             returning id
           `
+            : `
             update public.shows
                set slug = $2,
                    title = $3,

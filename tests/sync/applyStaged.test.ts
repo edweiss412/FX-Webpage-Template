@@ -266,7 +266,7 @@ describe("applyStaged live-scope", () => {
     expect(syncDeps.runPhase2).not.toHaveBeenCalled();
   });
 
-  test("Drive gone and out-of-scope reverify failures restore/delete and route live recovery to live pending_ingestions", async () => {
+  test("existing-show Drive gone restores prior status and does not create pending_ingestions", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const goneDeps = deps({
       fetchDriveFileMetadata: vi.fn(async () => driveMeta({ trashed: true })),
@@ -285,6 +285,38 @@ describe("applyStaged live-scope", () => {
     );
 
     expect(gone).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    expect(goneDeps.restoreShowStatus).toHaveBeenCalledWith(tx, "drive-file-1", "ok", null);
+    expect(goneDeps.upsertLivePendingIngestion).not.toHaveBeenCalled();
+    expect(goneDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
+  });
+
+  test("first-seen Drive gone and out-of-scope failures route live recovery to pending_ingestions only", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const firstSeen = {
+      showId: null,
+      lastSeenModifiedTime: null,
+      diagrams: null,
+    };
+    const goneDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () => pending({ baseModifiedTime: null })),
+      readShowForApply: vi.fn(async () => firstSeen),
+      fetchDriveFileMetadata: vi.fn(async () => driveMeta({ trashed: true })),
+    });
+
+    const gone = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      goneDeps,
+    );
+
+    expect(gone).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    expect(goneDeps.restoreShowStatus).not.toHaveBeenCalled();
     expect(goneDeps.upsertLivePendingIngestion).toHaveBeenCalledWith(
       tx,
       expect.objectContaining({
@@ -292,9 +324,10 @@ describe("applyStaged live-scope", () => {
         lastErrorCode: STAGED_PARSE_SOURCE_GONE,
       }),
     );
-    expect(goneDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
 
     const movedDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () => pending({ baseModifiedTime: null })),
+      readShowForApply: vi.fn(async () => firstSeen),
       fetchDriveFileMetadata: vi.fn(async () => driveMeta({ parents: ["other-folder"] })),
     });
     const moved = await applyStaged_unlocked(
@@ -313,6 +346,7 @@ describe("applyStaged live-scope", () => {
       outcome: "source_out_of_scope",
       code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE,
     });
+    expect(movedDeps.restoreShowStatus).not.toHaveBeenCalled();
     expect(movedDeps.upsertLivePendingIngestion).toHaveBeenCalledWith(
       tx,
       expect.objectContaining({ lastErrorCode: STAGED_PARSE_SOURCE_OUT_OF_SCOPE }),
@@ -576,6 +610,7 @@ describe("applyStaged live-scope", () => {
 
     expect(retryEmbeddedRevisionAvailability).toHaveBeenCalledWith("sheet-1");
     expect(runPhase2.mock.calls[0]?.[1]?.parseResult.diagrams).toBe(priorDiagrams);
+    expect(runPhase2.mock.calls[0]?.[1]?.skipDiagramsWrite).toBe(true);
     expect(syncDeps.upsertAdminAlert).toHaveBeenCalledWith({
       showId: "show-1",
       code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",

@@ -466,26 +466,30 @@ function isGone(metadata: DriveListedFile & { trashed?: boolean }): boolean {
 async function restoreDeleteAndIngest(
   tx: LockedShowTx<SyncPipelineTx>,
   pending: PendingSyncForApply,
+  show: ShowForApply | null,
   code: typeof STAGED_PARSE_SOURCE_GONE | typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE,
   deps: RequiredPick<
     ApplyStagedDeps,
     "restoreShowStatus" | "upsertLivePendingIngestion" | "deleteLivePendingSync"
   >,
 ): Promise<void> {
-  await deps.restoreShowStatus(
-    tx,
-    pending.driveFileId,
-    pending.priorLastSyncStatus,
-    pending.priorLastSyncError,
-  );
-  await deps.upsertLivePendingIngestion(tx, {
-    driveFileId: pending.driveFileId,
-    driveFileName: pending.parseResult.show.title,
-    lastErrorCode: code,
-    lastErrorMessage: code,
-    lastWarnings: pending.parseResult.warnings,
-    lastSeenModifiedTime: pending.stagedModifiedTime,
-  });
+  if (show?.showId) {
+    await deps.restoreShowStatus(
+      tx,
+      pending.driveFileId,
+      pending.priorLastSyncStatus,
+      pending.priorLastSyncError,
+    );
+  } else {
+    await deps.upsertLivePendingIngestion(tx, {
+      driveFileId: pending.driveFileId,
+      driveFileName: pending.parseResult.show.title,
+      lastErrorCode: code,
+      lastErrorMessage: code,
+      lastWarnings: pending.parseResult.warnings,
+      lastSeenModifiedTime: pending.stagedModifiedTime,
+    });
+  }
   await deps.deleteLivePendingSync(tx, pending.driveFileId, pending.stagedId);
 }
 
@@ -546,7 +550,11 @@ async function applyAssetReviewEffects(
   pending: PendingSyncForApply,
   show: ShowForApply | null,
   retryEmbeddedRevisionAvailability: (spreadsheetId: string) => Promise<boolean>,
-): Promise<{ parseResult: Phase2Args["parseResult"]; adminAlertCode: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | null }> {
+): Promise<{
+  parseResult: Phase2Args["parseResult"];
+  adminAlertCode: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | null;
+  skipDiagramsWrite: boolean;
+} | ApplyStagedResult> {
   const unavailable = pending.triggeredReviewItems.find(
     (item): item is Extract<TriggeredReviewItem, { invariant: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE" }> =>
       item.invariant === "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
@@ -577,6 +585,7 @@ async function applyAssetReviewEffects(
           openingReel,
         },
         adminAlertCode: null,
+        skipDiagramsWrite: false,
       };
     }
     return {
@@ -598,7 +607,12 @@ async function applyAssetReviewEffects(
         } as Phase2Args["parseResult"]["diagrams"],
       },
       adminAlertCode: null,
+      skipDiagramsWrite: false,
     };
+  }
+
+  if (!show?.showId) {
+    return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
   }
 
   if (unavailable && (await retryEmbeddedRevisionAvailability(unavailable.spreadsheet_id))) {
@@ -612,6 +626,7 @@ async function applyAssetReviewEffects(
         } as Phase2Args["parseResult"]["diagrams"],
       },
       adminAlertCode: null,
+      skipDiagramsWrite: false,
     };
   }
 
@@ -625,6 +640,7 @@ async function applyAssetReviewEffects(
       ] as Phase2Args["parseResult"]["warnings"],
     },
     adminAlertCode: EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
+    skipDiagramsWrite: true,
   };
 }
 
@@ -657,17 +673,17 @@ export async function applyStaged_unlocked(
   try {
     metadata = await deps.fetchDriveFileMetadata(args.driveFileId);
   } catch {
-    await restoreDeleteAndIngest(tx, pending, STAGED_PARSE_SOURCE_GONE, deps);
+    await restoreDeleteAndIngest(tx, pending, show, STAGED_PARSE_SOURCE_GONE, deps);
     return { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE };
   }
   if (isGone(metadata)) {
-    await restoreDeleteAndIngest(tx, pending, STAGED_PARSE_SOURCE_GONE, deps);
+    await restoreDeleteAndIngest(tx, pending, show, STAGED_PARSE_SOURCE_GONE, deps);
     return { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE };
   }
 
   const watchedFolderId = await deps.readWatchedFolderId(tx);
   if (watchedFolderId && !metadata.parents.includes(watchedFolderId)) {
-    await restoreDeleteAndIngest(tx, pending, STAGED_PARSE_SOURCE_OUT_OF_SCOPE, deps);
+    await restoreDeleteAndIngest(tx, pending, show, STAGED_PARSE_SOURCE_OUT_OF_SCOPE, deps);
     return { outcome: "source_out_of_scope", code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE };
   }
 
@@ -703,12 +719,14 @@ export async function applyStaged_unlocked(
     show,
     deps.retryEmbeddedRevisionAvailability,
   );
+  if (!("parseResult" in assetAdjusted)) return assetAdjusted;
 
   const phase2 = await deps.runPhase2(tx, {
     driveFileId: pending.driveFileId,
     mode: "manual",
     fileMeta: metadata,
     parseResult: assetAdjusted.parseResult,
+    skipDiagramsWrite: assetAdjusted.skipDiagramsWrite,
     binding: {
       bindingToken: pending.stagedModifiedTime,
       modifiedTime: pending.stagedModifiedTime,
