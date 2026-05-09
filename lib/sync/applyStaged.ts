@@ -487,7 +487,10 @@ async function restoreDeleteAndIngest(
   tx: LockedShowTx<SyncPipelineTx>,
   pending: PendingSyncForApply,
   show: ShowForApply | null,
-  code: typeof STAGED_PARSE_SOURCE_GONE | typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE,
+  code:
+    | typeof STAGED_PARSE_SOURCE_GONE
+    | typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE
+    | typeof STAGED_PARSE_OUTDATED,
   deps: RequiredPick<
     ApplyStagedDeps,
     "restoreShowStatus" | "upsertLivePendingIngestion" | "deleteLivePendingSync"
@@ -635,32 +638,12 @@ async function applyAssetReviewEffects(
     return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
   }
 
-  let embeddedRevisionsAvailable = false;
   if (unavailable) {
     try {
-      embeddedRevisionsAvailable = await retryEmbeddedRevisionAvailability(
-        unavailable.spreadsheet_id,
-      );
+      await retryEmbeddedRevisionAvailability(unavailable.spreadsheet_id);
     } catch {
       return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
     }
-  }
-
-  if (unavailable && embeddedRevisionsAvailable) {
-    return {
-      parseResult: {
-        ...pending.parseResult,
-        warnings,
-        openingReel,
-        diagrams: {
-          ...pending.parseResult.diagrams,
-          snapshot_revision_id: randomUUID(),
-          snapshot_status: "complete",
-        } as Phase2Args["parseResult"]["diagrams"],
-      },
-      adminAlertCode: null,
-      skipDiagramsWrite: false,
-    };
   }
 
   return {
@@ -729,19 +712,16 @@ export async function applyStaged_unlocked(
   }
 
   if (isAfter(metadata.modifiedTime, pending.stagedModifiedTime)) {
-    await deps.restoreShowStatus(
-      tx,
-      pending.driveFileId,
-      pending.priorLastSyncStatus,
-      pending.priorLastSyncError,
-    );
-    await deps.deleteLivePendingSync(tx, pending.driveFileId, pending.stagedId);
+    await restoreDeleteAndIngest(tx, pending, show, STAGED_PARSE_OUTDATED, deps);
     return { outcome: "outdated", code: STAGED_PARSE_OUTDATED };
   }
 
   const validation = validateReviewerChoices(pending.triggeredReviewItems, args.reviewerChoices);
   if (!("ok" in validation)) return validation;
   if (validation.choices.some((choice) => choice.action === "reject")) {
+    if (!show?.showId) {
+      return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
+    }
     await deps.restoreShowStatus(
       tx,
       pending.driveFileId,

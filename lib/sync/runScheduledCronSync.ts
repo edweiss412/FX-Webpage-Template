@@ -456,6 +456,10 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.staleGuard === "strict_less_than"
         ? "(last_seen_modified_time is null or last_seen_modified_time < $16::timestamptz)"
         : "(last_seen_modified_time is null or last_seen_modified_time <= $16::timestamptz)";
+    const skipDiagramsStalePredicate =
+      args.staleGuard === "strict_less_than"
+        ? "(last_seen_modified_time is null or last_seen_modified_time < $15::timestamptz)"
+        : "(last_seen_modified_time is null or last_seen_modified_time <= $15::timestamptz)";
     const params = [
       args.driveFileId,
       args.slug,
@@ -468,6 +472,25 @@ class PostgresPipelineTx implements SyncPipelineTx {
       JSON.stringify(args.parseResult.show.event_details),
       JSON.stringify(args.parseResult.show.agenda_links),
       JSON.stringify(args.parseResult.diagrams),
+      args.parseResult.openingReel?.driveFileId ?? null,
+      args.parseResult.openingReel?.drive_modified_time ?? null,
+      args.parseResult.openingReel?.headRevisionId ?? null,
+      args.parseResult.openingReel?.mimeType ?? null,
+      args.modifiedTime,
+      args.parseResult.show.coi_status,
+      JSON.stringify(args.parseResult.pullSheet),
+    ];
+    const skipDiagramsParams = [
+      args.driveFileId,
+      args.slug,
+      args.parseResult.show.title,
+      args.parseResult.show.client_label,
+      JSON.stringify(args.parseResult.show.client_contact),
+      args.parseResult.show.template_version,
+      JSON.stringify(args.parseResult.show.venue),
+      JSON.stringify(args.parseResult.show.dates),
+      JSON.stringify(args.parseResult.show.event_details),
+      JSON.stringify(args.parseResult.show.agenda_links),
       args.parseResult.openingReel?.driveFileId ?? null,
       args.parseResult.openingReel?.drive_modified_time ?? null,
       args.parseResult.openingReel?.headRevisionId ?? null,
@@ -491,18 +514,18 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    dates = $8::jsonb,
                    event_details = $9::jsonb,
                    agenda_links = $10::jsonb,
-                   opening_reel_drive_file_id = $12,
-                   opening_reel_drive_modified_time = $13::timestamptz,
-                   opening_reel_head_revision_id = $14,
-                   opening_reel_mime_type = $15,
-                   last_seen_modified_time = $16::timestamptz,
-                   coi_status = $17,
-                   pull_sheet = $18::jsonb,
+                   opening_reel_drive_file_id = $11,
+                   opening_reel_drive_modified_time = $12::timestamptz,
+                   opening_reel_head_revision_id = $13,
+                   opening_reel_mime_type = $14,
+                   last_seen_modified_time = $15::timestamptz,
+                   coi_status = $16,
+                   pull_sheet = $17::jsonb,
                    last_synced_at = now(),
                    last_sync_status = 'ok',
                    last_sync_error = null
              where drive_file_id = $1
-               and ${stalePredicate}
+               and ${skipDiagramsStalePredicate}
              returning id
           `
             : `
@@ -531,7 +554,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
                and ${stalePredicate}
              returning id
           `,
-          params,
+          args.skipDiagramsWrite ? skipDiagramsParams : params,
         )
       : await this.one<{ id: string }>(
           `

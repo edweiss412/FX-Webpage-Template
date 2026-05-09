@@ -406,6 +406,44 @@ describe("applyStaged live-scope", () => {
     expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
   });
 
+  test("first-seen outdated Drive modifiedTime routes recovery back to pending_ingestions", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () => pending({ baseModifiedTime: null })),
+      readShowForApply: vi.fn(async () => ({
+        showId: null,
+        lastSeenModifiedTime: null,
+        diagrams: null,
+      })),
+      fetchDriveFileMetadata: vi.fn(async () =>
+        driveMeta({ modifiedTime: "2026-05-08T13:00:00.000Z" }),
+      ),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "outdated", code: STAGED_PARSE_OUTDATED });
+    expect(syncDeps.restoreShowStatus).not.toHaveBeenCalled();
+    expect(syncDeps.upsertLivePendingIngestion).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        driveFileId: "drive-file-1",
+        lastErrorCode: STAGED_PARSE_OUTDATED,
+      }),
+    );
+    expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
+  });
+
   test("unparseable Drive modifiedTime returns SYNC_INFRA_ERROR without consuming the staged row", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const syncDeps = deps({
@@ -547,6 +585,44 @@ describe("applyStaged live-scope", () => {
     expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
     expect(syncDeps.runPhase2).not.toHaveBeenCalled();
     expect(syncDeps.insertSyncAudit).not.toHaveBeenCalled();
+  });
+
+  test("reject reviewer choice is invalid for first-seen rows with no show to restore", async () => {
+    const item: TriggeredReviewItem = {
+      id: "mi12",
+      invariant: "MI-12",
+      removed_name: "Bob",
+      added_name: "Robert",
+      email: "bob@test.test",
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ baseModifiedTime: null, triggeredReviewItems: [item] }),
+      ),
+      readShowForApply: vi.fn(async () => ({
+        showId: null,
+        lastSeenModifiedTime: null,
+        diagrams: null,
+      })),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "mi12", action: "reject" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "invalid_request", code: INVALID_REVIEWER_ACTION });
+    expect(syncDeps.restoreShowStatus).not.toHaveBeenCalled();
+    expect(syncDeps.deleteLivePendingSync).not.toHaveBeenCalled();
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
   });
 
   test("MI-13 independent choice bumps the removed identity only", async () => {
@@ -702,6 +778,51 @@ describe("applyStaged live-scope", () => {
     expect(syncDeps.runPhase2).not.toHaveBeenCalled();
     expect(syncDeps.upsertAdminAlert).not.toHaveBeenCalled();
     expect(syncDeps.deleteLivePendingSync).not.toHaveBeenCalled();
+  });
+
+  test("embedded revision retry success still requires re-stage instead of applying incomplete pins", async () => {
+    const item: TriggeredReviewItem = {
+      id: "no-revision",
+      invariant: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+      spreadsheet_id: "sheet-1",
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const priorDiagrams = { snapshot_revision_id: "prior-rev", snapshot_status: "complete" };
+    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(
+      async () => ({ outcome: "applied" as const, showId: "show-1" }),
+    );
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ triggeredReviewItems: [item] }),
+      ),
+      readShowForApply: vi.fn(async () => ({
+        showId: "show-1",
+        lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
+        diagrams: priorDiagrams,
+      })),
+      retryEmbeddedRevisionAvailability: vi.fn(async () => true),
+      runPhase2,
+    });
+
+    await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "no-revision", action: "apply" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(runPhase2.mock.calls[0]?.[1]?.parseResult.diagrams).toBe(priorDiagrams);
+    expect(runPhase2.mock.calls[0]?.[1]?.skipDiagramsWrite).toBe(true);
+    expect(syncDeps.upsertAdminAlert).toHaveBeenCalledWith({
+      showId: "show-1",
+      code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
+      context: { drive_file_id: "drive-file-1" },
+    });
   });
 
   test("embedded revision recovery composes with reel drift side effects", async () => {

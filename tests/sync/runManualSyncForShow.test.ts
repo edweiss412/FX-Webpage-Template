@@ -142,6 +142,12 @@ describe("runManualSyncForShow", () => {
     expect(processOneFile_unlocked).toHaveBeenCalledOnce();
   });
 
+  test("default manual lock acquisition uses the admin blocking lock mode", () => {
+    const source = String(runManualSyncForShow);
+
+    expect(source).toContain("tryOnly: false");
+  });
+
   test("raw SyncPipelineTx is not assignable to runManualSyncForShow_unlocked", async () => {
     const rawTx = fakeTx(true);
 

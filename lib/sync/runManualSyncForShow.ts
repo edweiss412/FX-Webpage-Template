@@ -147,7 +147,9 @@ export async function runManualSyncForShow(
   mode: Extract<SyncMode, "manual"> = "manual",
   deps: RunManualSyncForShowDeps = {},
 ): Promise<ManualSyncResult | ConcurrentSyncSkipped> {
-  const withLock = deps.withPipelineLock ?? ((id, fn) => withPostgresSyncPipelineLock(id, fn));
+  const withLock =
+    deps.withPipelineLock ??
+    ((id, fn) => withPostgresSyncPipelineLock(id, fn, { tryOnly: false }));
   return await withLock(driveFileId, async (tx) => {
     const isFinalizeOwned = await (deps.checkFinalizeOwnership ??
       readFinalizeOwnershipGuard_unlocked)(tx, driveFileId);

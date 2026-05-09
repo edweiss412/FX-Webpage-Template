@@ -100,6 +100,19 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
     });
   });
 
+  test("null JSON body returns INVALID_REVIEWER_ACTION", async () => {
+    const response = await POST(request(null), {
+      params: Promise.resolve({ fileId: "drive-file-1" }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "INVALID_REVIEWER_ACTION",
+    });
+    expect(discardMock.discardStaged).not.toHaveBeenCalled();
+  });
+
   test("invalid live discard variant is rejected instead of defaulting to try_again", async () => {
     const response = await POST(
       request({

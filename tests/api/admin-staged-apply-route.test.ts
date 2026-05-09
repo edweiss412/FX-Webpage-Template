@@ -115,6 +115,19 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
     });
   });
 
+  test("null JSON body returns INVALID_REVIEWER_ACTION", async () => {
+    const response = await POST(request(null), {
+      params: Promise.resolve({ fileId: "drive-file-1" }),
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "INVALID_REVIEWER_ACTION",
+    });
+    expect(applyMock.applyStaged).not.toHaveBeenCalled();
+  });
+
   test.each([
     ["PENDING_SYNC_NOT_FOUND", 404],
     ["WIZARD_SCOPE_NOT_YET_IMPLEMENTED", 501],

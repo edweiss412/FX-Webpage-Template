@@ -69,6 +69,9 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
   } catch {
     return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
   }
+  if (!body || typeof body !== "object") {
+    return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
+  }
 
   if (body.source_scope === "wizard") {
     // wizard-scope deferred to 6.8 coda
