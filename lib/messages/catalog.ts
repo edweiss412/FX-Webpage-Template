@@ -368,14 +368,6 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug -> refresh the admin page",
     helpfulContext: null,
   },
-  WIZARD_SCOPE_NOT_YET_IMPLEMENTED: {
-    code: "WIZARD_SCOPE_NOT_YET_IMPLEMENTED",
-    dougFacing: "Wizard-staged Apply and Discard are not available in this build yet.",
-    crewFacing: null,
-    followUp: "Doug -> use the live staged review flow for now",
-    helpfulContext:
-      "The live-scope Apply/Discard backend is shipped first; wizard-scope actions are deferred to the 6.8 coda.",
-  },
   SYNC_FILE_FAILED: {
     code: "SYNC_FILE_FAILED",
     dougFacing: "One sheet could not be synced. The other sheets continued.",

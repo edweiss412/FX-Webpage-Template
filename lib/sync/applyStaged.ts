@@ -9,15 +9,8 @@ import {
   type ConcurrentSyncSkipped,
   type LockedShowTx,
 } from "@/lib/sync/lockedShowTx";
-import {
-  runPhase2,
-  type Phase2Args,
-  type Phase2Result,
-} from "@/lib/sync/phase2";
-import {
-  type SyncPipelineTx,
-  withPostgresSyncPipelineLock,
-} from "@/lib/sync/runScheduledCronSync";
+import { runPhase2, type Phase2Args, type Phase2Result } from "@/lib/sync/phase2";
+import { type SyncPipelineTx, withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 
 export const PENDING_SYNC_NOT_FOUND = "PENDING_SYNC_NOT_FOUND" as const;
 export const STAGED_PARSE_SUPERSEDED = "STAGED_PARSE_SUPERSEDED" as const;
@@ -26,7 +19,7 @@ export const STAGED_PARSE_SOURCE_OUT_OF_SCOPE = "STAGED_PARSE_SOURCE_OUT_OF_SCOP
 export const STAGED_PARSE_OUTDATED = "STAGED_PARSE_OUTDATED" as const;
 export const MISSING_REVIEWER_CHOICE = "MISSING_REVIEWER_CHOICE" as const;
 export const INVALID_REVIEWER_ACTION = "INVALID_REVIEWER_ACTION" as const;
-export const WIZARD_SCOPE_NOT_YET_IMPLEMENTED = "WIZARD_SCOPE_NOT_YET_IMPLEMENTED" as const;
+export const WIZARD_SESSION_SUPERSEDED = "WIZARD_SESSION_SUPERSEDED" as const;
 export const EMBEDDED_RECOVERY_REQUIRES_RESTAGE = "EMBEDDED_RECOVERY_REQUIRES_RESTAGE" as const;
 export const SYNC_INFRA_ERROR = "SYNC_INFRA_ERROR" as const;
 
@@ -101,23 +94,44 @@ export type ApplyStagedResult =
     }
   | { outcome: "infra_error"; code: typeof SYNC_INFRA_ERROR }
   | { outcome: "discarded"; variant: "try_again" }
-  | { outcome: "wizard_deferred"; code: typeof WIZARD_SCOPE_NOT_YET_IMPLEMENTED };
+  | { outcome: "wizard_applied"; wizardSessionId: string; stagedId: string }
+  | { outcome: "wizard_superseded"; code: typeof WIZARD_SESSION_SUPERSEDED };
 
 export type ApplyStagedDeps = {
   readLivePendingSyncForApply?: (
     tx: LockedShowTx<SyncPipelineTx>,
     driveFileId: string,
   ) => Promise<PendingSyncForApply | null>;
+  readWizardPendingSyncForApply?: (
+    tx: LockedShowTx<SyncPipelineTx>,
+    driveFileId: string,
+    wizardSessionId: string,
+  ) => Promise<PendingSyncForApply | null>;
+  readActiveWizardSession?: (tx: LockedShowTx<SyncPipelineTx>) => Promise<string | null>;
+  approveWizardPendingSync?: (
+    tx: LockedShowTx<SyncPipelineTx>,
+    row: {
+      driveFileId: string;
+      wizardSessionId: string;
+      stagedId: string;
+      appliedByEmail: string;
+      reviewerChoices: ReviewerChoice[];
+    },
+  ) => Promise<void>;
+  markWizardManifestApplied?: (
+    tx: LockedShowTx<SyncPipelineTx>,
+    driveFileId: string,
+    wizardSessionId: string,
+  ) => Promise<void>;
   readShowForApply?: (
     tx: LockedShowTx<SyncPipelineTx>,
     driveFileId: string,
   ) => Promise<ShowForApply | null>;
   readWatchedFolderId?: (tx: LockedShowTx<SyncPipelineTx>) => Promise<string | null>;
-  fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile & { trashed?: boolean }>;
-  runPhase2?: (
-    tx: LockedShowTx<SyncPipelineTx>,
-    args: Phase2Args,
-  ) => Promise<Phase2Result>;
+  fetchDriveFileMetadata?: (
+    driveFileId: string,
+  ) => Promise<DriveListedFile & { trashed?: boolean }>;
+  runPhase2?: (tx: LockedShowTx<SyncPipelineTx>, args: Phase2Args) => Promise<Phase2Result>;
   insertSyncAudit?: (
     tx: LockedShowTx<SyncPipelineTx>,
     row: {
@@ -153,9 +167,11 @@ export type ApplyStagedDeps = {
     showId: string,
     names: string[],
   ) => Promise<void>;
-  upsertAdminAlert?: (
-    input: { showId: string | null; code: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE; context: Record<string, unknown> },
-  ) => Promise<unknown>;
+  upsertAdminAlert?: (input: {
+    showId: string | null;
+    code: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE;
+    context: Record<string, unknown>;
+  }) => Promise<unknown>;
   retryEmbeddedRevisionAvailability?: (spreadsheetId: string) => Promise<boolean>;
 };
 
@@ -264,8 +280,7 @@ function deriveAuthSideEffects(
       if (action === "independent") names.push(item.removed_name);
     }
     if (
-      (item.invariant === "MI-13-orphan-remove" ||
-        item.invariant === "MI-14-orphan-remove") &&
+      (item.invariant === "MI-13-orphan-remove" || item.invariant === "MI-14-orphan-remove") &&
       action === "apply"
     ) {
       names.push(item.removed_name);
@@ -329,6 +344,107 @@ async function defaultReadLivePendingSyncForApply(
   };
 }
 
+async function defaultReadWizardPendingSyncForApply(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  wizardSessionId: string,
+): Promise<PendingSyncForApply | null> {
+  const row = await tx.queryOne<{
+    drive_file_id: string;
+    staged_id: string;
+    source_kind: string;
+    wizard_session_id: string | null;
+    base_modified_time: string | null;
+    staged_modified_time: string;
+    parse_result: Phase2Args["parseResult"];
+    triggered_review_items: TriggeredReviewItem[];
+    prior_last_sync_status: string | null;
+    prior_last_sync_error: string | null;
+    warning_summary: string;
+  } | null>(
+    `
+      select drive_file_id, staged_id, source_kind, wizard_session_id,
+             base_modified_time, staged_modified_time, parse_result,
+             triggered_review_items, prior_last_sync_status,
+             prior_last_sync_error, warning_summary
+        from public.pending_syncs
+       where drive_file_id = $1
+         and wizard_session_id = $2::uuid
+       limit 1
+    `,
+    [driveFileId, wizardSessionId],
+  );
+  if (!row) return null;
+  return {
+    driveFileId: row.drive_file_id,
+    stagedId: row.staged_id,
+    sourceKind: row.source_kind,
+    wizardSessionId: row.wizard_session_id,
+    baseModifiedTime: row.base_modified_time,
+    stagedModifiedTime: row.staged_modified_time,
+    parseResult: row.parse_result,
+    triggeredReviewItems: row.triggered_review_items,
+    priorLastSyncStatus: row.prior_last_sync_status,
+    priorLastSyncError: row.prior_last_sync_error,
+    warningSummary: row.warning_summary,
+  };
+}
+
+async function defaultReadActiveWizardSession(
+  tx: LockedShowTx<SyncPipelineTx>,
+): Promise<string | null> {
+  const row = await tx.queryOne<{ pending_wizard_session_id: string | null } | null>(
+    "select pending_wizard_session_id from public.app_settings where id = 'default' limit 1",
+    [],
+  );
+  return row?.pending_wizard_session_id ?? null;
+}
+
+async function defaultApproveWizardPendingSync(
+  tx: LockedShowTx<SyncPipelineTx>,
+  row: Parameters<NonNullable<ApplyStagedDeps["approveWizardPendingSync"]>>[1],
+): Promise<void> {
+  await tx.queryOne<{ approved: boolean }>(
+    `
+      update public.pending_syncs
+         set wizard_approved = true,
+             wizard_approved_by_email = $4,
+             wizard_approved_at = now(),
+             wizard_reviewer_choices = $5::jsonb,
+             wizard_reviewer_choices_version = 1
+       where drive_file_id = $1
+         and wizard_session_id = $2::uuid
+         and staged_id = $3::uuid
+      returning true as approved
+    `,
+    [
+      row.driveFileId,
+      row.wizardSessionId,
+      row.stagedId,
+      row.appliedByEmail,
+      JSON.stringify(row.reviewerChoices),
+    ],
+  );
+}
+
+async function defaultMarkWizardManifestApplied(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  wizardSessionId: string,
+): Promise<void> {
+  await tx.queryOne<{ applied: boolean }>(
+    `
+      update public.onboarding_scan_manifest
+         set status = 'applied',
+             transitioned_at = now()
+       where drive_file_id = $1
+         and wizard_session_id = $2::uuid
+      returning true as applied
+    `,
+    [driveFileId, wizardSessionId],
+  );
+}
+
 async function defaultReadShowForApply(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
@@ -354,7 +470,9 @@ async function defaultReadShowForApply(
   };
 }
 
-async function defaultReadWatchedFolderId(tx: LockedShowTx<SyncPipelineTx>): Promise<string | null> {
+async function defaultReadWatchedFolderId(
+  tx: LockedShowTx<SyncPipelineTx>,
+): Promise<string | null> {
   const row = await tx.queryOne<{ watched_folder_id: string | null } | null>(
     "select watched_folder_id from public.app_settings where id = 'default' limit 1",
     [],
@@ -535,9 +653,15 @@ type RequiredPick<T, K extends keyof T> = {
   [P in K]-?: NonNullable<T[P]>;
 };
 
-function depsWithDefaults(deps: ApplyStagedDeps): RequiredPick<
+function depsWithDefaults(
+  deps: ApplyStagedDeps,
+): RequiredPick<
   ApplyStagedDeps,
   | "readLivePendingSyncForApply"
+  | "readWizardPendingSyncForApply"
+  | "readActiveWizardSession"
+  | "approveWizardPendingSync"
+  | "markWizardManifestApplied"
   | "readShowForApply"
   | "readWatchedFolderId"
   | "fetchDriveFileMetadata"
@@ -553,6 +677,11 @@ function depsWithDefaults(deps: ApplyStagedDeps): RequiredPick<
   return {
     readLivePendingSyncForApply:
       deps.readLivePendingSyncForApply ?? defaultReadLivePendingSyncForApply,
+    readWizardPendingSyncForApply:
+      deps.readWizardPendingSyncForApply ?? defaultReadWizardPendingSyncForApply,
+    readActiveWizardSession: deps.readActiveWizardSession ?? defaultReadActiveWizardSession,
+    approveWizardPendingSync: deps.approveWizardPendingSync ?? defaultApproveWizardPendingSync,
+    markWizardManifestApplied: deps.markWizardManifestApplied ?? defaultMarkWizardManifestApplied,
     readShowForApply: deps.readShowForApply ?? defaultReadShowForApply,
     readWatchedFolderId: deps.readWatchedFolderId ?? defaultReadWatchedFolderId,
     fetchDriveFileMetadata: deps.fetchDriveFileMetadata ?? fetchDriveFileMetadata,
@@ -588,14 +717,21 @@ async function applyAssetReviewEffects(
   pending: PendingSyncForApply,
   show: ShowForApply | null,
   retryEmbeddedRevisionAvailability: (spreadsheetId: string) => Promise<boolean>,
-): Promise<{
-  parseResult: Phase2Args["parseResult"];
-  adminAlertCode: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | null;
-  skipDiagramsWrite: boolean;
-} | ApplyStagedResult> {
+): Promise<
+  | {
+      parseResult: Phase2Args["parseResult"];
+      adminAlertCode: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | null;
+      skipDiagramsWrite: boolean;
+    }
+  | ApplyStagedResult
+> {
   const unavailable = pending.triggeredReviewItems.find(
-    (item): item is Extract<TriggeredReviewItem, { invariant: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE" }> =>
-      item.invariant === "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+    (
+      item,
+    ): item is Extract<
+      TriggeredReviewItem,
+      { invariant: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE" }
+    > => item.invariant === "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
   );
   const noneFound = pending.triggeredReviewItems.some(
     (item) => item.invariant === "DIAGRAMS_EMBEDDED_NONE_FOUND",
@@ -683,12 +819,41 @@ export async function applyStaged_unlocked(
 ): Promise<ApplyStagedResult> {
   await assertShowLockHeld(tx, args.driveFileId);
 
-  // wizard-scope deferred to 6.8 coda
+  const deps = depsWithDefaults(injectedDeps);
   if (args.sourceScope === "wizard") {
-    return { outcome: "wizard_deferred", code: WIZARD_SCOPE_NOT_YET_IMPLEMENTED };
+    const pending = await deps.readWizardPendingSyncForApply(
+      tx,
+      args.driveFileId,
+      args.wizardSessionId,
+    );
+    if (!pending) return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+    const activeWizardSession = await deps.readActiveWizardSession(tx);
+    if (
+      activeWizardSession !== args.wizardSessionId ||
+      pending.wizardSessionId !== args.wizardSessionId
+    ) {
+      return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
+    }
+    if (pending.stagedId !== args.stagedId) {
+      return { outcome: "superseded", code: STAGED_PARSE_SUPERSEDED };
+    }
+    const validation = validateReviewerChoices(pending.triggeredReviewItems, args.reviewerChoices);
+    if (!("ok" in validation)) return validation;
+    await deps.approveWizardPendingSync(tx, {
+      driveFileId: pending.driveFileId,
+      wizardSessionId: args.wizardSessionId,
+      stagedId: pending.stagedId,
+      appliedByEmail: args.appliedByEmail,
+      reviewerChoices: validation.choices,
+    });
+    await deps.markWizardManifestApplied(tx, pending.driveFileId, args.wizardSessionId);
+    return {
+      outcome: "wizard_applied",
+      wizardSessionId: args.wizardSessionId,
+      stagedId: pending.stagedId,
+    };
   }
 
-  const deps = depsWithDefaults(injectedDeps);
   const pending = await deps.readLivePendingSyncForApply(tx, args.driveFileId);
   if (!pending) return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
   if (pending.stagedId !== args.stagedId) {
@@ -773,11 +938,7 @@ export async function applyStaged_unlocked(
     return { outcome: "superseded", code: STAGED_PARSE_SUPERSEDED };
   }
 
-  await deps.bumpReviewerAuthFloors(
-    tx,
-    phase2.showId,
-    derivedSideEffects.revokeFloorForNames,
-  );
+  await deps.bumpReviewerAuthFloors(tx, phase2.showId, derivedSideEffects.revokeFloorForNames);
   const syncAuditId = await deps.insertSyncAudit(tx, {
     showId: phase2.showId,
     driveFileId: pending.driveFileId,
@@ -805,10 +966,6 @@ export async function applyStaged(
   args: ApplyStagedArgs,
   deps: ApplyStagedDeps = {},
 ): Promise<ApplyStagedResult | ConcurrentSyncSkipped> {
-  // wizard-scope deferred to 6.8 coda
-  if (args.sourceScope === "wizard") {
-    return { outcome: "wizard_deferred", code: WIZARD_SCOPE_NOT_YET_IMPLEMENTED };
-  }
   const result = await withPostgresSyncPipelineLock(
     args.driveFileId,
     (tx) => applyStaged_unlocked(tx, args, deps),

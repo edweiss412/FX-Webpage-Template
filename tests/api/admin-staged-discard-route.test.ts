@@ -11,7 +11,9 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
 
 const discardMock = vi.hoisted(() => ({
   discardStaged: vi.fn<
-    (args: unknown) => Promise<
+    (
+      args: unknown,
+    ) => Promise<
       | { outcome: "discarded"; variant: "try_again" | "defer_until_modified" | "permanent_ignore" }
       | { outcome: "x"; code: string }
     >
@@ -20,7 +22,6 @@ const discardMock = vi.hoisted(() => ({
 
 vi.mock("@/lib/sync/discardStaged", () => ({
   discardStaged: discardMock.discardStaged,
-  WIZARD_SCOPE_NOT_YET_IMPLEMENTED: "WIZARD_SCOPE_NOT_YET_IMPLEMENTED",
 }));
 
 const supabaseMock = vi.hoisted(() => ({
@@ -62,18 +63,29 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
     supabaseMock.getUserThrows = null;
   });
 
-  test("wizard source_scope is a hard 501 guard before discardStaged", async () => {
+  test("wizard discard passes wizard_session_id and variant", async () => {
     const response = await POST(
-      request({ source_scope: "wizard", staged_id: "22222222-2222-4222-8222-222222222222", variant: "try_again" }),
+      request({
+        source_scope: "wizard",
+        wizard_session_id: "33333333-3333-4333-8333-333333333333",
+        staged_id: "22222222-2222-4222-8222-222222222222",
+        variant: "try_again",
+      }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      ok: false,
-      error: "WIZARD_SCOPE_NOT_YET_IMPLEMENTED",
+      ok: true,
+      result: { outcome: "discarded", variant: "try_again" },
     });
-    expect(discardMock.discardStaged).not.toHaveBeenCalled();
+    expect(discardMock.discardStaged).toHaveBeenCalledWith({
+      driveFileId: "drive-file-1",
+      sourceScope: "wizard",
+      wizardSessionId: "33333333-3333-4333-8333-333333333333",
+      stagedId: "22222222-2222-4222-8222-222222222222",
+      variant: "try_again",
+    });
   });
 
   test("live discard passes staged_id and variant", async () => {
@@ -147,14 +159,18 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
 
   test.each([
     ["PENDING_SYNC_NOT_FOUND", 404],
-    ["WIZARD_SCOPE_NOT_YET_IMPLEMENTED", 501],
+    ["WIZARD_SESSION_SUPERSEDED", 409],
     ["INVALID_REVIEWER_ACTION", 400],
     ["STALE_DISCARD_REJECTED", 409],
   ] as const)("maps %s to %i", async (code, status) => {
     discardMock.discardStaged.mockResolvedValueOnce({ outcome: "x", code });
 
     const response = await POST(
-      request({ source_scope: "live", staged_id: "11111111-1111-4111-8111-111111111111", variant: "try_again" }),
+      request({
+        source_scope: "live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
+        variant: "try_again",
+      }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
@@ -166,7 +182,11 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
     supabaseMock.getUserThrows = new Error("network");
 
     const response = await POST(
-      request({ source_scope: "live", staged_id: "11111111-1111-4111-8111-111111111111", variant: "try_again" }),
+      request({
+        source_scope: "live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
+        variant: "try_again",
+      }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
@@ -179,7 +199,11 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
     supabaseMock.getUserError = { message: "auth unreachable" };
 
     const response = await POST(
-      request({ source_scope: "live", staged_id: "11111111-1111-4111-8111-111111111111", variant: "try_again" }),
+      request({
+        source_scope: "live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
+        variant: "try_again",
+      }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 

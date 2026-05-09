@@ -38,7 +38,7 @@ describe("M6 pending-row partition scope contract", () => {
     const windows = [
       ...windowsAround(applyStaged, "from public\\.pending_syncs"),
       ...windowsAround(applyStaged, "delete from public\\.pending_syncs"),
-    ];
+    ].filter((sqlWindow) => sqlWindow.toLowerCase().includes("wizard_session_id is null"));
 
     expect(windows.length).toBeGreaterThanOrEqual(2);
     for (const sqlWindow of windows) {
@@ -46,17 +46,42 @@ describe("M6 pending-row partition scope contract", () => {
     }
   });
 
+  test("Apply wizard-scope SELECT, UPDATE, and manifest writes carry wizard_session_id equality", () => {
+    const applyStaged = source("lib/sync/applyStaged.ts");
+    const windows = [
+      ...windowsAround(applyStaged, "from public\\.pending_syncs", 420),
+      ...windowsAround(applyStaged, "update public\\.pending_syncs", 420),
+      ...windowsAround(applyStaged, "update public\\.onboarding_scan_manifest", 420),
+    ].filter((sqlWindow) => sqlWindow.toLowerCase().includes("wizard_session_id ="));
+
+    expect(windows.length).toBeGreaterThanOrEqual(3);
+  });
+
   test("Discard live-scope SELECT and DELETE carry wizard_session_id IS NULL", () => {
     const discardStaged = source("lib/sync/discardStaged.ts");
     const windows = [
       ...windowsAround(discardStaged, "from public\\.pending_syncs"),
       ...windowsAround(discardStaged, "delete from public\\.pending_syncs"),
-    ];
+    ].filter((sqlWindow) => sqlWindow.toLowerCase().includes("wizard_session_id is null"));
 
     expect(windows.length).toBeGreaterThanOrEqual(2);
     for (const sqlWindow of windows) {
       expect(sqlWindow.toLowerCase()).toContain("wizard_session_id is null");
     }
+  });
+
+  test("Discard wizard-scope SELECT, DELETE, and deferral writes carry wizard_session_id equality", () => {
+    const discardStaged = source("lib/sync/discardStaged.ts");
+    const windows = [
+      ...windowsAround(discardStaged, "from public\\.pending_syncs", 420),
+      ...windowsAround(discardStaged, "delete from public\\.pending_syncs", 420),
+      ...windowsAround(discardStaged, "insert into public\\.deferred_ingestions", 560),
+    ].filter((sqlWindow) => sqlWindow.toLowerCase().includes("wizard_session_id ="));
+
+    expect(windows.length).toBeGreaterThanOrEqual(3);
+    expect(discardStaged.toLowerCase()).toContain(
+      "on conflict (drive_file_id, wizard_session_id) where wizard_session_id is not null",
+    );
   });
 
   test("Onboarding scan writes target only the wizard partition", () => {

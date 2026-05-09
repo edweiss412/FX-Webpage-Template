@@ -14,10 +14,13 @@ import {
   STAGED_PARSE_SOURCE_GONE,
   STAGED_PARSE_SOURCE_OUT_OF_SCOPE,
   STAGED_PARSE_SUPERSEDED,
-  WIZARD_SCOPE_NOT_YET_IMPLEMENTED,
+  WIZARD_SESSION_SUPERSEDED,
   type ApplyStagedDeps,
   type PendingSyncForApply,
 } from "@/lib/sync/applyStaged";
+
+const W1 = "11111111-1111-4111-8111-111111111111";
+const W2 = "22222222-2222-4222-8222-222222222222";
 
 type FakeTx = SyncPipelineTx & {
   held: boolean;
@@ -183,17 +186,16 @@ describe("applyStaged live-scope", () => {
         driveFileId: "drive-file-1",
         mode: "manual",
         parseResult: pending().parseResult,
-        binding: { bindingToken: "2026-05-08T12:00:00.000Z", modifiedTime: "2026-05-08T12:00:00.000Z" },
+        binding: {
+          bindingToken: "2026-05-08T12:00:00.000Z",
+          modifiedTime: "2026-05-08T12:00:00.000Z",
+        },
       }),
     );
     expect(syncDeps.insertSyncAudit).toHaveBeenCalledBefore(
       vi.mocked(syncDeps.deleteLivePendingSync!),
     );
-    expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(
-      tx,
-      "drive-file-1",
-      "staged-live",
-    );
+    expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
   });
 
   test("missing live row returns PENDING_SYNC_NOT_FOUND without falling back to wizard rows", async () => {
@@ -260,11 +262,7 @@ describe("applyStaged live-scope", () => {
     );
 
     expect(result).toEqual({ outcome: "superseded", code: STAGED_PARSE_SUPERSEDED });
-    expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(
-      tx,
-      "drive-file-1",
-      "staged-live",
-    );
+    expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
     expect(syncDeps.runPhase2).not.toHaveBeenCalled();
   });
 
@@ -512,8 +510,20 @@ describe("applyStaged live-scope", () => {
 
   test("auth-sensitive review choices derive revoked-below-version floor bumps", async () => {
     const items: TriggeredReviewItem[] = [
-      { id: "mi11", invariant: "MI-11", crew_name: "Alice", prior_email: "a@old.test", new_email: "a@new.test" },
-      { id: "mi12", invariant: "MI-12", removed_name: "Bob", added_name: "Robert", email: "bob@test.test" },
+      {
+        id: "mi11",
+        invariant: "MI-11",
+        crew_name: "Alice",
+        prior_email: "a@old.test",
+        new_email: "a@new.test",
+      },
+      {
+        id: "mi12",
+        invariant: "MI-12",
+        removed_name: "Bob",
+        added_name: "Robert",
+        email: "bob@test.test",
+      },
       { id: "mi13", invariant: "MI-13-orphan-remove", removed_name: "Charlie" },
       { id: "mi14", invariant: "MI-14", removed_name: "Dana", added_name: "Dane" },
     ];
@@ -565,9 +575,7 @@ describe("applyStaged live-scope", () => {
     };
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const syncDeps = deps({
-      readLivePendingSyncForApply: vi.fn(async () =>
-        pending({ triggeredReviewItems: [item] }),
-      ),
+      readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: [item] })),
     });
 
     const result = await applyStaged_unlocked(
@@ -595,9 +603,7 @@ describe("applyStaged live-scope", () => {
     };
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const syncDeps = deps({
-      readLivePendingSyncForApply: vi.fn(async () =>
-        pending({ triggeredReviewItems: [item] }),
-      ),
+      readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: [item] })),
     });
 
     const result = await applyStaged_unlocked(
@@ -606,9 +612,7 @@ describe("applyStaged live-scope", () => {
         driveFileId: "drive-file-1",
         sourceScope: "live",
         stagedId: "staged-live",
-        reviewerChoices: [
-          { item_id: "mi13", action: "independent", rename_value: "Ignored" },
-        ],
+        reviewerChoices: [{ item_id: "mi13", action: "independent", rename_value: "Ignored" }],
         appliedByEmail: "doug@fxav.test",
       },
       syncDeps,
@@ -628,9 +632,7 @@ describe("applyStaged live-scope", () => {
     };
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const syncDeps = deps({
-      readLivePendingSyncForApply: vi.fn(async () =>
-        pending({ triggeredReviewItems: [item] }),
-      ),
+      readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: [item] })),
     });
 
     const result = await applyStaged_unlocked(
@@ -699,9 +701,7 @@ describe("applyStaged live-scope", () => {
     };
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const syncDeps = deps({
-      readLivePendingSyncForApply: vi.fn(async () =>
-        pending({ triggeredReviewItems: [item] }),
-      ),
+      readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: [item] })),
     });
 
     const result = await applyStaged_unlocked(
@@ -730,13 +730,12 @@ describe("applyStaged live-scope", () => {
       spreadsheet_id: "sheet-1",
     };
     const tx = fakeTx() as LockedShowTx<FakeTx>;
-    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(
-      async () => ({ outcome: "applied" as const, showId: "show-1" }),
-    );
+    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(async () => ({
+      outcome: "applied" as const,
+      showId: "show-1",
+    }));
     const syncDeps = deps({
-      readLivePendingSyncForApply: vi.fn(async () =>
-        pending({ triggeredReviewItems: [item] }),
-      ),
+      readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: [item] })),
       runPhase2,
     });
 
@@ -759,9 +758,10 @@ describe("applyStaged live-scope", () => {
       linkedFolderItems: [],
       snapshot_status: "complete",
     });
-    expect(typeof (phase2Args?.parseResult.diagrams as { snapshot_revision_id?: unknown }).snapshot_revision_id).toBe(
-      "string",
-    );
+    expect(
+      typeof (phase2Args?.parseResult.diagrams as { snapshot_revision_id?: unknown })
+        .snapshot_revision_id,
+    ).toBe("string");
   });
 
   test("DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE retries before preserving prior diagrams", async () => {
@@ -772,14 +772,13 @@ describe("applyStaged live-scope", () => {
     };
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const retryEmbeddedRevisionAvailability = vi.fn(async () => false);
-    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(
-      async () => ({ outcome: "applied" as const, showId: "show-1" }),
-    );
+    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(async () => ({
+      outcome: "applied" as const,
+      showId: "show-1",
+    }));
     const priorDiagrams = { snapshot_revision_id: "prior-rev", snapshot_status: "complete" };
     const syncDeps = deps({
-      readLivePendingSyncForApply: vi.fn(async () =>
-        pending({ triggeredReviewItems: [item] }),
-      ),
+      readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: [item] })),
       readShowForApply: vi.fn(async () => ({
         showId: "show-1",
         lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
@@ -819,9 +818,7 @@ describe("applyStaged live-scope", () => {
     };
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const syncDeps = deps({
-      readLivePendingSyncForApply: vi.fn(async () =>
-        pending({ triggeredReviewItems: [item] }),
-      ),
+      readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: [item] })),
       retryEmbeddedRevisionAvailability: vi.fn(async () => {
         throw Object.assign(new Error("drive unavailable"), { status: 503 });
       }),
@@ -881,7 +878,6 @@ describe("applyStaged live-scope", () => {
     expect(syncDeps.deleteLivePendingSync).not.toHaveBeenCalled();
   });
 
-
   test("embedded revision retry success still requires re-stage instead of applying incomplete pins", async () => {
     const item: TriggeredReviewItem = {
       id: "no-revision",
@@ -890,13 +886,12 @@ describe("applyStaged live-scope", () => {
     };
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const priorDiagrams = { snapshot_revision_id: "prior-rev", snapshot_status: "complete" };
-    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(
-      async () => ({ outcome: "applied" as const, showId: "show-1" }),
-    );
+    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(async () => ({
+      outcome: "applied" as const,
+      showId: "show-1",
+    }));
     const syncDeps = deps({
-      readLivePendingSyncForApply: vi.fn(async () =>
-        pending({ triggeredReviewItems: [item] }),
-      ),
+      readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: [item] })),
       readShowForApply: vi.fn(async () => ({
         showId: "show-1",
         lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
@@ -935,9 +930,10 @@ describe("applyStaged live-scope", () => {
       reel_drive_file_id: "reel-1",
     };
     const tx = fakeTx() as LockedShowTx<FakeTx>;
-    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(
-      async () => ({ outcome: "applied" as const, showId: "show-1" }),
-    );
+    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(async () => ({
+      outcome: "applied" as const,
+      showId: "show-1",
+    }));
     const priorDiagrams = { snapshot_revision_id: "prior-rev", snapshot_status: "complete" };
     const syncDeps = deps({
       readLivePendingSyncForApply: vi.fn(async () =>
@@ -996,9 +992,10 @@ describe("applyStaged live-scope", () => {
       reel_drive_file_id: "reel-1",
     };
     const tx = fakeTx() as LockedShowTx<FakeTx>;
-    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(
-      async () => ({ outcome: "applied" as const, showId: "show-1" }),
-    );
+    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(async () => ({
+      outcome: "applied" as const,
+      showId: "show-1",
+    }));
     const syncDeps = deps({
       readLivePendingSyncForApply: vi.fn(async () =>
         pending({
@@ -1136,16 +1133,31 @@ describe("applyStaged live-scope", () => {
     expect(source).toContain("current_token_version + 1");
   });
 
-  test("wizard scope is explicitly deferred behind a 501 code", async () => {
+  test("wizard-scope Apply approves the staged row and manifest without Phase 2", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
-    const syncDeps = deps();
+    const readWizardPendingSyncForApply = vi.fn(async () =>
+      pending({
+        stagedId: "staged-wizard",
+        sourceKind: "onboarding_scan",
+        wizardSessionId: W1,
+      }),
+    );
+    const approveWizardPendingSync = vi.fn(async () => undefined);
+    const markWizardManifestApplied = vi.fn(async () => undefined);
+    const syncDeps = {
+      ...deps(),
+      readWizardPendingSyncForApply,
+      readActiveWizardSession: vi.fn(async () => W1),
+      approveWizardPendingSync,
+      markWizardManifestApplied,
+    } as ApplyStagedDeps;
 
     const result = await applyStaged_unlocked(
       tx,
       {
         driveFileId: "drive-file-1",
         sourceScope: "wizard",
-        wizardSessionId: "11111111-1111-4111-8111-111111111111",
+        wizardSessionId: W1,
         stagedId: "staged-wizard",
         reviewerChoices: [],
         appliedByEmail: "doug@fxav.test",
@@ -1154,9 +1166,55 @@ describe("applyStaged live-scope", () => {
     );
 
     expect(result).toEqual({
-      outcome: "wizard_deferred",
-      code: WIZARD_SCOPE_NOT_YET_IMPLEMENTED,
+      outcome: "wizard_applied",
+      wizardSessionId: W1,
+      stagedId: "staged-wizard",
     });
     expect(syncDeps.readLivePendingSyncForApply).not.toHaveBeenCalled();
+    expect(readWizardPendingSyncForApply).toHaveBeenCalledWith(tx, "drive-file-1", W1);
+    expect(approveWizardPendingSync).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        driveFileId: "drive-file-1",
+        wizardSessionId: W1,
+        stagedId: "staged-wizard",
+        appliedByEmail: "doug@fxav.test",
+        reviewerChoices: [],
+      }),
+    );
+    expect(markWizardManifestApplied).toHaveBeenCalledWith(tx, "drive-file-1", W1);
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+    expect(syncDeps.insertSyncAudit).not.toHaveBeenCalled();
+    expect(syncDeps.deleteLivePendingSync).not.toHaveBeenCalled();
+  });
+
+  test("wizard-scope Apply rejects stale wizard sessions without mutating", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = {
+      ...deps(),
+      readWizardPendingSyncForApply: vi.fn(async () =>
+        pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
+      ),
+      readActiveWizardSession: vi.fn(async () => W2),
+      approveWizardPendingSync: vi.fn(async () => undefined),
+      markWizardManifestApplied: vi.fn(async () => undefined),
+    } as ApplyStagedDeps;
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "wizard",
+        wizardSessionId: W1,
+        stagedId: "staged-wizard",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED });
+    expect(syncDeps.approveWizardPendingSync).not.toHaveBeenCalled();
+    expect(syncDeps.markWizardManifestApplied).not.toHaveBeenCalled();
   });
 });

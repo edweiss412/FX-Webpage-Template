@@ -8,10 +8,13 @@ import {
   INVALID_REVIEWER_ACTION,
   PENDING_SYNC_NOT_FOUND,
   STALE_DISCARD_REJECTED,
-  WIZARD_SCOPE_NOT_YET_IMPLEMENTED,
+  WIZARD_SESSION_SUPERSEDED,
   type DiscardStagedDeps,
   type PendingSyncForDiscard,
 } from "@/lib/sync/discardStaged";
+
+const W1 = "11111111-1111-4111-8111-111111111111";
+const W2 = "22222222-2222-4222-8222-222222222222";
 
 type FakeTx = SyncPipelineTx & {
   held: boolean;
@@ -101,11 +104,7 @@ describe("discardStaged live-scope", () => {
     expect(result).toEqual({ outcome: "discarded", variant: "try_again" });
     expect(syncDeps.readLivePendingSyncForDiscard).toHaveBeenCalledWith(tx, "drive-file-1");
     expect(syncDeps.restoreShowStatus).toHaveBeenCalledWith(tx, "drive-file-1", "ok", null);
-    expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(
-      tx,
-      "drive-file-1",
-      "staged-live",
-    );
+    expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
     expect(syncDeps.upsertLiveDeferral).not.toHaveBeenCalled();
   });
 
@@ -133,34 +132,41 @@ describe("discardStaged live-scope", () => {
   test.each([
     ["defer_until_modified", "defer_until_modified"],
     ["permanent_ignore", "permanent_ignore"],
-  ] as const)("first-seen %s writes live deferred_ingestions then deletes", async (variant, kind) => {
-    const tx = fakeTx() as LockedShowTx<FakeTx>;
-    const syncDeps = deps({ readShowForDiscard: vi.fn(async () => null) });
+  ] as const)(
+    "first-seen %s writes live deferred_ingestions then deletes",
+    async (variant, kind) => {
+      const tx = fakeTx() as LockedShowTx<FakeTx>;
+      const syncDeps = deps({ readShowForDiscard: vi.fn(async () => null) });
 
-    const result = await discardStaged_unlocked(
-      tx,
-      {
-        driveFileId: "drive-file-1",
-        sourceScope: "live",
-        stagedId: "staged-live",
-        discardedByEmail: "doug@fxav.test",
-        variant,
-      },
-      syncDeps,
-    );
+      const result = await discardStaged_unlocked(
+        tx,
+        {
+          driveFileId: "drive-file-1",
+          sourceScope: "live",
+          stagedId: "staged-live",
+          discardedByEmail: "doug@fxav.test",
+          variant,
+        },
+        syncDeps,
+      );
 
-    expect(result).toEqual({ outcome: "discarded", variant });
-    expect(syncDeps.upsertLiveDeferral).toHaveBeenCalledWith(
-      tx,
-      expect.objectContaining({
-        driveFileId: "drive-file-1",
-        deferredKind: kind,
-        wizardSessionId: null,
-        deferredByEmail: "doug@fxav.test",
-      }),
-    );
-    expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
-  });
+      expect(result).toEqual({ outcome: "discarded", variant });
+      expect(syncDeps.upsertLiveDeferral).toHaveBeenCalledWith(
+        tx,
+        expect.objectContaining({
+          driveFileId: "drive-file-1",
+          deferredKind: kind,
+          wizardSessionId: null,
+          deferredByEmail: "doug@fxav.test",
+        }),
+      );
+      expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(
+        tx,
+        "drive-file-1",
+        "staged-live",
+      );
+    },
+  );
 
   test("existing-show defer and permanent-ignore variants are rejected instead of silently ignored", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
@@ -225,27 +231,65 @@ describe("discardStaged live-scope", () => {
     expect(syncDeps.upsertLiveDeferral).not.toHaveBeenCalled();
   });
 
-  test("wizard scope is explicitly deferred behind a 501 code", async () => {
+  test("wizard-scope default discard deletes only the wizard pending row", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
-    const syncDeps = deps();
+    const readWizardPendingSyncForDiscard = vi.fn(async () =>
+      pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
+    );
+    const deleteWizardPendingSync = vi.fn(async () => undefined);
+    const syncDeps = {
+      ...deps(),
+      readWizardPendingSyncForDiscard,
+      readActiveWizardSession: vi.fn(async () => W1),
+      deleteWizardPendingSync,
+    } as DiscardStagedDeps;
 
     const result = await discardStaged_unlocked(
       tx,
       {
         driveFileId: "drive-file-1",
         sourceScope: "wizard",
-        wizardSessionId: "11111111-1111-4111-8111-111111111111",
+        wizardSessionId: W1,
         stagedId: "staged-wizard",
         variant: "try_again",
       },
       syncDeps,
     );
 
-    expect(result).toEqual({
-      outcome: "wizard_deferred",
-      code: WIZARD_SCOPE_NOT_YET_IMPLEMENTED,
-    });
+    expect(result).toEqual({ outcome: "discarded", variant: "try_again" });
     expect(syncDeps.readLivePendingSyncForDiscard).not.toHaveBeenCalled();
+    expect(readWizardPendingSyncForDiscard).toHaveBeenCalledWith(tx, "drive-file-1", W1);
+    expect(deleteWizardPendingSync).toHaveBeenCalledWith(tx, "drive-file-1", W1, "staged-wizard");
+    expect(syncDeps.deleteLivePendingSync).not.toHaveBeenCalled();
+  });
+
+  test("wizard-scope discard rejects stale wizard sessions without mutation", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = {
+      ...deps(),
+      readWizardPendingSyncForDiscard: vi.fn(async () =>
+        pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
+      ),
+      readActiveWizardSession: vi.fn(async () => W2),
+      deleteWizardPendingSync: vi.fn(async () => undefined),
+      upsertWizardDeferral: vi.fn(async () => undefined),
+    } as DiscardStagedDeps;
+
+    const result = await discardStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "wizard",
+        wizardSessionId: W1,
+        stagedId: "staged-wizard",
+        variant: "try_again",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED });
+    expect(syncDeps.deleteWizardPendingSync).not.toHaveBeenCalled();
+    expect(syncDeps.upsertWizardDeferral).not.toHaveBeenCalled();
   });
 
   test("unlocked entrypoint rejects a forced cast when the show advisory lock is not held", async () => {

@@ -28,7 +28,6 @@ const M6_SYNC_CODES = [
   "INVALID_REVIEWER_ACTION",
   "PENDING_SYNC_NOT_FOUND",
   "SHOW_BUSY_RETRY",
-  "WIZARD_SCOPE_NOT_YET_IMPLEMENTED",
   "SYNC_FILE_FAILED",
   "SYNC_INFRA_ERROR",
   "SYNC_STEP_TIMEOUT",
@@ -48,7 +47,7 @@ const M6_PIN2_EXTENSION_ROUTE_CODES = [
   "STAGED_PARSE_SOURCE_OUT_OF_SCOPE",
   "STAGED_PARSE_SUPERSEDED",
   "SYNC_INFRA_ERROR",
-  "WIZARD_SCOPE_NOT_YET_IMPLEMENTED",
+  "WIZARD_SESSION_SUPERSEDED",
 ] as const;
 
 describe("M6 sync message catalog", () => {
@@ -63,9 +62,9 @@ describe("M6 sync message catalog", () => {
   test.each(M6_PIN2_EXTENSION_ROUTE_CODES)(
     "%s emitted by Pin-2 extension routes is cataloged",
     (code) => {
-      const entry = (
-        MESSAGE_CATALOG as Record<string, { dougFacing: string | null } | undefined>
-      )[code];
+      const entry = (MESSAGE_CATALOG as Record<string, { dougFacing: string | null } | undefined>)[
+        code
+      ];
 
       expect(entry, `${code} missing from MESSAGE_CATALOG`).toBeDefined();
       expect(entry?.dougFacing, `${code} needs Doug-facing copy`).toEqual(expect.any(String));

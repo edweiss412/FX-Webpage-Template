@@ -21,16 +21,15 @@ const applyMock = vi.hoisted(() => ({
       | { outcome: "x"; code: string }
     >
   >(async () => ({
-      outcome: "applied",
-      showId: "show-1",
-      syncAuditId: "audit-1",
-      derivedSideEffects: { revokeFloorForNames: [] },
-    })),
+    outcome: "applied",
+    showId: "show-1",
+    syncAuditId: "audit-1",
+    derivedSideEffects: { revokeFloorForNames: [] },
+  })),
 }));
 
 vi.mock("@/lib/sync/applyStaged", () => ({
   applyStaged: applyMock.applyStaged,
-  WIZARD_SCOPE_NOT_YET_IMPLEMENTED: "WIZARD_SCOPE_NOT_YET_IMPLEMENTED",
 }));
 
 const supabaseMock = vi.hoisted(() => ({
@@ -72,18 +71,40 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
     supabaseMock.getUserThrows = null;
   });
 
-  test("wizard source_scope is a hard 501 guard before applyStaged", async () => {
+  test("wizard apply passes wizard_session_id and canonical admin email", async () => {
+    applyMock.applyStaged.mockResolvedValueOnce({
+      outcome: "wizard_applied",
+      wizardSessionId: "33333333-3333-4333-8333-333333333333",
+      stagedId: "22222222-2222-4222-8222-222222222222",
+    } as never);
+
     const response = await POST(
-      request({ source_scope: "wizard", staged_id: "22222222-2222-4222-8222-222222222222", choices: [] }),
+      request({
+        source_scope: "wizard",
+        wizard_session_id: "33333333-3333-4333-8333-333333333333",
+        staged_id: "22222222-2222-4222-8222-222222222222",
+        choices: [],
+      }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
-    expect(response.status).toBe(501);
+    expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      ok: false,
-      error: "WIZARD_SCOPE_NOT_YET_IMPLEMENTED",
+      ok: true,
+      result: {
+        outcome: "wizard_applied",
+        wizardSessionId: "33333333-3333-4333-8333-333333333333",
+        stagedId: "22222222-2222-4222-8222-222222222222",
+      },
     });
-    expect(applyMock.applyStaged).not.toHaveBeenCalled();
+    expect(applyMock.applyStaged).toHaveBeenCalledWith({
+      driveFileId: "drive-file-1",
+      sourceScope: "wizard",
+      wizardSessionId: "33333333-3333-4333-8333-333333333333",
+      stagedId: "22222222-2222-4222-8222-222222222222",
+      reviewerChoices: [],
+      appliedByEmail: "doug@fxav.test",
+    });
   });
 
   test("live apply passes canonical admin email and maps success", async () => {
@@ -144,7 +165,7 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
 
   test.each([
     ["PENDING_SYNC_NOT_FOUND", 404],
-    ["WIZARD_SCOPE_NOT_YET_IMPLEMENTED", 501],
+    ["WIZARD_SESSION_SUPERSEDED", 409],
     ["STAGED_PARSE_SUPERSEDED", 409],
     ["STAGED_PARSE_SOURCE_GONE", 409],
     ["STAGED_PARSE_SOURCE_OUT_OF_SCOPE", 409],
@@ -156,7 +177,11 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
     applyMock.applyStaged.mockResolvedValueOnce({ outcome: "x", code });
 
     const response = await POST(
-      request({ source_scope: "live", staged_id: "11111111-1111-4111-8111-111111111111", choices: [] }),
+      request({
+        source_scope: "live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
+        choices: [],
+      }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
@@ -168,7 +193,11 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
     supabaseMock.getUserThrows = new Error("network");
 
     const response = await POST(
-      request({ source_scope: "live", staged_id: "11111111-1111-4111-8111-111111111111", choices: [] }),
+      request({
+        source_scope: "live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
+        choices: [],
+      }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
@@ -181,7 +210,11 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
     supabaseMock.getUserError = { message: "auth unreachable" };
 
     const response = await POST(
-      request({ source_scope: "live", staged_id: "11111111-1111-4111-8111-111111111111", choices: [] }),
+      request({
+        source_scope: "live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
+        choices: [],
+      }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 

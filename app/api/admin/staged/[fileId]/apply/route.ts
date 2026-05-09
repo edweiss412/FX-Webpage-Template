@@ -2,11 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import {
-  applyStaged,
-  WIZARD_SCOPE_NOT_YET_IMPLEMENTED,
-  type ReviewerChoice,
-} from "@/lib/sync/applyStaged";
+import { applyStaged, type ReviewerChoice } from "@/lib/sync/applyStaged";
 
 type RouteContext = {
   params: Promise<{ fileId: string }>;
@@ -14,19 +10,16 @@ type RouteContext = {
 
 type ApplyRequestBody = {
   source_scope?: unknown;
+  wizard_session_id?: unknown;
   staged_id?: unknown;
   choices?: unknown;
 };
 
 function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value,
-  );
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
-async function readAdminEmail(): Promise<
-  { kind: "ok"; email: string } | { kind: "infra_error" }
-> {
+async function readAdminEmail(): Promise<{ kind: "ok"; email: string } | { kind: "infra_error" }> {
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
@@ -71,8 +64,6 @@ function isReviewerChoice(value: unknown): value is ReviewerChoice {
 
 function statusForCode(code: string): number {
   switch (code) {
-    case "WIZARD_SCOPE_NOT_YET_IMPLEMENTED":
-      return 501;
     case "PENDING_SYNC_NOT_FOUND":
       return 404;
     case "MISSING_REVIEWER_CHOICE":
@@ -99,17 +90,16 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
     return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
   }
 
-  if (body.source_scope === "wizard") {
-    // wizard-scope deferred to 6.8 coda
-    return NextResponse.json(
-      { ok: false, error: WIZARD_SCOPE_NOT_YET_IMPLEMENTED },
-      { status: 501 },
-    );
-  }
   if (
-    body.source_scope !== "live" ||
+    (body.source_scope !== "live" && body.source_scope !== "wizard") ||
     typeof body.staged_id !== "string" ||
     !isUuid(body.staged_id)
+  ) {
+    return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
+  }
+  if (
+    body.source_scope === "wizard" &&
+    (typeof body.wizard_session_id !== "string" || !isUuid(body.wizard_session_id))
   ) {
     return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
   }
@@ -123,17 +113,31 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
     return NextResponse.json({ ok: false, error: "SYNC_INFRA_ERROR" }, { status: 500 });
   }
 
-  const result = await applyStaged({
-    driveFileId: fileId,
-    sourceScope: "live",
-    stagedId: body.staged_id.toLowerCase(),
-    reviewerChoices: choices,
-    appliedByEmail: admin.email,
-  });
+  const result = await applyStaged(
+    body.source_scope === "wizard"
+      ? {
+          driveFileId: fileId,
+          sourceScope: "wizard",
+          wizardSessionId: (body.wizard_session_id as string).toLowerCase(),
+          stagedId: body.staged_id.toLowerCase(),
+          reviewerChoices: choices,
+          appliedByEmail: admin.email,
+        }
+      : {
+          driveFileId: fileId,
+          sourceScope: "live",
+          stagedId: body.staged_id.toLowerCase(),
+          reviewerChoices: choices,
+          appliedByEmail: admin.email,
+        },
+  );
   if ("skipped" in result) {
     return NextResponse.json({ ok: false, error: "SHOW_BUSY_RETRY" }, { status: 409 });
   }
   if (result.outcome === "applied") {
+    return NextResponse.json({ ok: true, result });
+  }
+  if (result.outcome === "wizard_applied") {
     return NextResponse.json({ ok: true, result });
   }
   if (result.outcome === "discarded") {
