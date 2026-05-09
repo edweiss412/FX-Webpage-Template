@@ -8,6 +8,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { Phase1Tx } from "@/lib/sync/phase1";
+import type { Phase2Tx } from "@/lib/sync/phase2";
 
 const infraMock = vi.hoisted(() => ({
   throwOnConstruct: false,
@@ -161,6 +162,90 @@ describe("sync Supabase infra-failure contract", () => {
           },
         }),
       ).rejects.toBeInstanceOf(Phase1InfraError);
+    });
+  });
+
+  describe("runPhase2", () => {
+    test("transaction-port throw → Phase2InfraError", async () => {
+      const { runPhase2, Phase2InfraError } = await import("@/lib/sync/phase2");
+      const tx = {
+        applyShowSnapshot: async () => {
+          throw new Error("META: simulated tx infrastructure fault");
+        },
+      } as unknown as Phase2Tx;
+
+      await expect(
+        runPhase2(tx, {
+          driveFileId: "file-1",
+          mode: "cron",
+          fileMeta: fileMeta(),
+          binding: { headRevisionId: "head-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
+          parseResult: {
+            show: {
+              title: "Show",
+              client_label: "Client",
+              client_contact: null,
+              template_version: "v4",
+              venue: null,
+              dates: {
+                travelIn: "2026-05-07",
+                set: "2026-05-08",
+                showDays: ["2026-05-09"],
+                travelOut: "2026-05-10",
+              },
+              schedule_phases: {},
+              event_details: {},
+              agenda_links: [],
+              coi_status: null,
+              po: null,
+              proposal: null,
+              invoice: null,
+              invoice_notes: null,
+            },
+            crewMembers: [
+              {
+                name: "Alice",
+                email: "alice@example.com",
+                phone: null,
+                role: "A1",
+                role_flags: ["A1"],
+                date_restriction: { kind: "none" },
+                stage_restriction: { kind: "none" },
+                flight_info: null,
+              },
+            ],
+            hotelReservations: [],
+            rooms: [
+              {
+                kind: "gs",
+                name: "General Session",
+                dimensions: null,
+                floor: null,
+                setup: null,
+                set_time: null,
+                show_time: null,
+                strike_time: null,
+                audio: null,
+                video: null,
+                lighting: null,
+                scenic: null,
+                power: null,
+                digital_signage: null,
+                other: null,
+                notes: null,
+              },
+            ],
+            transportation: null,
+            contacts: [],
+            pullSheet: null,
+            diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+            openingReel: null,
+            raw_unrecognized: [],
+            warnings: [],
+            hardErrors: [],
+          },
+        }),
+      ).rejects.toBeInstanceOf(Phase2InfraError);
     });
   });
 });
