@@ -10,7 +10,11 @@ function cellText(cell: XLSX.CellObject | undefined): string {
 }
 
 function isBlank(value: string): boolean {
-  return value.trim().length === 0;
+  return !/\S/.test(value);
+}
+
+function stripEdgeWhitespace(value: string): string {
+  return value.replace(/^\s+|\s+$/g, "");
 }
 
 function escapeCell(value: string): string {
@@ -28,7 +32,7 @@ function normalizeNewlines(value: string): string {
   if (shouldPreserveNewlines(normalized)) return normalized.replace(/\n/g, "&#10;");
   return normalized
     .split("\n")
-    .map((line) => line.trim())
+    .map(stripEdgeWhitespace)
     .filter((line) => line.length > 0)
     .join(" ");
 }
@@ -36,7 +40,7 @@ function normalizeNewlines(value: string): string {
 function shouldPreserveNewlines(value: string): boolean {
   if (value.startsWith("PULL SHEET/")) return true;
   if (/\*GETS RESET/.test(value)) return true;
-  const lines = value.split("\n").map((line) => line.trim());
+  const lines = value.split("\n").map(stripEdgeWhitespace);
   if (lines.some((line) => /^\(\d+\)\s+/.test(line))) return false;
   if (lines.length >= 3) return false;
   if (lines[1] && /^[A-Z][A-Za-z .'-]+,\s*[A-Z]{2}\s+\d{5}/.test(lines[1])) return false;
