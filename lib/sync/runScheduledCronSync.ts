@@ -1032,10 +1032,20 @@ export async function processOneFile_unlocked(
     throw error;
   }
 
-  const currentBinding = await withStepTimeout(
-    "reverifyBinding",
-    captureBinding(driveFileId, fileMeta),
-  );
+  let currentBinding: Phase1Binding;
+  try {
+    currentBinding = await withStepTimeout(
+      "reverifyBinding",
+      captureBinding(driveFileId, fileMeta),
+    );
+  } catch (error) {
+    if (isSourceGone(error)) {
+      const result = { outcome: "source_gone" as const, code: STAGED_PARSE_SOURCE_GONE };
+      await logSync(deps, driveFileId, result);
+      return result;
+    }
+    throw error;
+  }
   if (currentBinding.bindingToken !== binding.bindingToken) {
     const result = { outcome: "revision_race" as const, code: STAGED_PARSE_REVISION_RACE };
     await logSync(deps, driveFileId, result, {

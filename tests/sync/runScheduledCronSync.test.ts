@@ -351,6 +351,32 @@ describe("processOneFile", () => {
     expect(syncDeps.runPhase1).not.toHaveBeenCalled();
   });
 
+  test("spreadsheet file gone during final binding reverify is STAGED_PARSE_SOURCE_GONE", async () => {
+    const gone = new Error("Drive file file-1 not found") as Error & { code: number };
+    gone.code = 404;
+    const syncDeps = deps({
+      captureBinding: vi
+        .fn()
+        .mockResolvedValueOnce({
+          bindingToken: "token-1",
+          modifiedTime: "2026-05-08T12:00:00.000Z",
+        })
+        .mockRejectedValueOnce(gone),
+    });
+
+    const result = await processOneFile_unlocked(
+      tx() as LockedShowTx<PipelineTx>,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    expect(syncDeps.runPhase1).not.toHaveBeenCalled();
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+  });
+
   test("legacy markdown export failures are not spreadsheet revision races after amendment 6", async () => {
     const syncDeps = deps({
       fetchMarkdownAtRevision: vi.fn(async () => {
