@@ -92,6 +92,33 @@ describe("ReSyncButton", () => {
     resolve({ json: async () => ({ ok: true }) } as unknown as Response);
   });
 
+  test("success result renders a friendly summary line", async () => {
+    fetchMock.mockResolvedValue({
+      json: async () => ({ ok: true, result: { outcome: "skipped", reason: "watermark" } }),
+    } as unknown as Response);
+    const { getByTestId } = render(<ReSyncButton slug="my-show" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    await waitFor(() => {
+      expect(getByTestId("admin-resync-success").textContent ?? "").toContain(
+        "Nothing new from Drive",
+      );
+    });
+  });
+
+  test("success summary covers the 'stage' outcome", async () => {
+    fetchMock.mockResolvedValue({
+      json: async () => ({
+        ok: true,
+        result: { outcome: "stage", stagedId: "00000000-0000-4000-8000-000000000000" },
+      }),
+    } as unknown as Response);
+    const { getByTestId } = render(<ReSyncButton slug="my-show" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    await waitFor(() => {
+      expect(getByTestId("admin-resync-success").textContent ?? "").toContain("staged for review");
+    });
+  });
+
   test("INVARIANT 5: no raw error codes leak into the DOM after an error response", async () => {
     fetchMock.mockResolvedValue({
       json: async () => ({ ok: false, error: "SHOW_BUSY_RETRY" }),

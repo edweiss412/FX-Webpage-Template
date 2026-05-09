@@ -24,19 +24,56 @@ export type ReSyncButtonProps = {
   slug: string;
 };
 
+// Friendly summary of `runManualSyncForShow`'s ProcessOneFileResult shapes
+// (handoff §0 Pin-stop 2 contract). Plain-language so Doug doesn't read
+// the raw enum on success.
+function summarizeResult(result: unknown): string {
+  if (!result || typeof result !== "object") return "Sync complete.";
+  const outcome = (result as { outcome?: unknown }).outcome;
+  switch (outcome) {
+    case "applied":
+      return "Synced. Changes applied.";
+    case "stage":
+      return "Synced. New change staged for review.";
+    case "skipped":
+      return "Synced. Nothing new from Drive.";
+    case "asset_recovery":
+      return "Synced. Recovering linked assets in the background.";
+    case "hard_fail":
+      return "Synced, but the parse failed an invariant. Review staged details.";
+    case "stale":
+      return "Synced. A newer parse already won, no changes applied.";
+    case "revision_race":
+      return "Synced, but Drive changed mid-read. Will retry on next sync.";
+    case "source_gone":
+      return "Sheet is no longer available in Drive.";
+    case "parse_error":
+      return "Synced, but the parse encountered an error. Review staged details.";
+    default:
+      return "Sync complete.";
+  }
+}
+
 export function ReSyncButton({ slug }: ReSyncButtonProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const handleClick = async () => {
     if (pending) return;
     setErrorCode(null);
+    setSuccessMessage(null);
     setPending(true);
     try {
       const res = await fetch(`/api/admin/sync/${encodeURIComponent(slug)}`, { method: "POST" });
-      const json = (await res.json()) as { ok: boolean; error?: string };
+      const json = (await res.json()) as {
+        ok: boolean;
+        error?: string;
+        result?: unknown;
+      };
       if (json.ok) {
+        setSuccessMessage(summarizeResult(json.result));
         router.refresh();
       } else {
         setErrorCode(typeof json.error === "string" ? json.error : "SYNC_INFRA_ERROR");
@@ -55,6 +92,7 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
         onClick={handleClick}
         disabled={pending}
         data-testid="admin-resync-button"
+        aria-busy={pending}
         className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center self-start rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-60"
       >
         {pending ? "Syncing…" : "Re-sync from Drive"}
@@ -67,6 +105,15 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
         >
           <ErrorExplainer code={errorCode} surface="admin" />
         </div>
+      ) : null}
+      {successMessage && !errorCode ? (
+        <p
+          role="status"
+          data-testid="admin-resync-success"
+          className="rounded-sm border border-border bg-info-bg px-3 py-2 text-sm text-text-strong"
+        >
+          {successMessage}
+        </p>
       ) : null}
     </div>
   );

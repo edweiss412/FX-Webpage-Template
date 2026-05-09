@@ -68,6 +68,35 @@ const FIRST_SEEN_INVARIANTS = new Set<TriggeredReviewItem["invariant"]>([
 type ReviewerAction = ReviewerChoice["action"];
 type DiscardVariant = "try_again" | "defer_until_modified" | "permanent_ignore";
 
+// Plain-language label for each `pending_syncs.source_kind` enum value.
+// PRODUCT.md design principle 5 ("plain language, never technical chrome")
+// requires admin copy to read as English, not schema vocabulary.
+const SOURCE_LABELS: Record<"cron" | "push" | "manual" | "onboarding_scan", string> = {
+  cron: "Auto sync",
+  push: "Drive push",
+  manual: "Manual sync",
+  onboarding_scan: "Onboarding scan",
+};
+
+// Format a Drive timestamp as a friendly clock label. Falls back to the raw
+// ISO string only when parsing fails (the upstream column is `timestamptz
+// not null`, so this should not happen in practice).
+//
+// `suppressHydrationWarning` is set on the consuming `<time>` element
+// because Node and the browser may resolve the user's local TZ differently
+// during the first render — the hydrated client value is the one that
+// matters and the SSR flash is a few ms.
+function formatStagedAt(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso;
+  return new Date(ms).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function allowedActionsFor(item: TriggeredReviewItem): readonly ReviewerAction[] {
   if (ASSET_REVIEW_INVARIANTS.has(item.invariant)) return ["apply"];
   if (item.invariant === "MI-12") return ["rename", "reject"];
@@ -85,35 +114,44 @@ function expectedRenameValue(item: TriggeredReviewItem): string | null {
 }
 
 function describeItem(item: TriggeredReviewItem): string {
+  // No em dashes (DESIGN.md §9 absolute ban). Use periods, parens, or
+  // colons. Plain language; avoid leaking the MI-* invariant code into
+  // user copy where possible.
   switch (item.invariant) {
     case "FIRST_SEEN_REVIEW":
-      return "New show sheet — confirm before publishing.";
+      return "New show sheet. Confirm before publishing.";
     case "ONBOARDING_SCAN_REVIEW":
       return "Onboarding scan staged this sheet for review.";
     case "MI-6":
       return "A header cell drifted. Review the parse before applying.";
     case "MI-7":
-      return `Section "${item.section}" row count changed (${item.prior_count} → ${item.new_count}).`;
+      return `Section "${item.section}" row count changed. Was ${item.prior_count}, now ${item.new_count}.`;
     case "MI-7b":
       return `Section "${item.section}" row identity drifted (key: ${item.missingKey}).`;
     case "MI-8":
       return `Field "${item.field}" changed.`;
-    case "MI-8b":
-      return `Schedule note drifted (was ${item.prior ?? "—"} / now ${item.next ?? "—"}).`;
+    case "MI-8b": {
+      const prior = item.prior ?? "blank";
+      const next = item.next ?? "blank";
+      return `Schedule note drifted. Was ${prior}. Now ${next}.`;
+    }
     case "MI-8c":
-      return `Schedule debounce mode: ${item.mode}${item.details ? ` — ${item.details}` : ""}.`;
+      return `Schedule debounce mode: ${item.mode}${item.details ? ` (${item.details})` : ""}.`;
     case "MI-9":
       return `Lead role flag changed for "${item.crew_name}".`;
     case "MI-10":
       return "Crew table-anchor drift. Review before applying.";
-    case "MI-11":
-      return `Email changed for "${item.crew_name}" (was ${item.prior_email ?? "—"} / now ${item.new_email ?? "—"}).`;
+    case "MI-11": {
+      const prior = item.prior_email ?? "blank";
+      const next = item.new_email ?? "blank";
+      return `Email changed for "${item.crew_name}". Was ${prior}. Now ${next}.`;
+    }
     case "MI-12":
       return `Email "${item.email}" reassigned from "${item.removed_name}" to "${item.added_name}".`;
     case "MI-13":
-      return `Position swap: "${item.removed_name}" → "${item.added_name}".`;
+      return `Position swap: "${item.removed_name}" replaced by "${item.added_name}".`;
     case "MI-14":
-      return `Position swap: "${item.removed_name}" → "${item.added_name}".`;
+      return `Position swap: "${item.removed_name}" replaced by "${item.added_name}".`;
     case "MI-13-orphan-remove":
     case "MI-14-orphan-remove":
       return `Orphaned removal: "${item.removed_name}"${item.reason ? ` (${item.reason})` : ""}.`;
@@ -268,31 +306,44 @@ export function StagedReviewCard({ row, onMutated }: StagedReviewCardProps) {
       data-drive-file-id={row.driveFileId}
       className="rounded-md border border-border-strong bg-surface-raised p-tile-pad shadow-tile"
     >
-      <header className="mb-4">
-        <h3 className="text-base font-semibold text-text-strong">Staged review</h3>
-        <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-sm text-text-subtle">
-          <dt>Source</dt>
-          <dd data-testid="staged-source-kind">{row.sourceKind}</dd>
-          <dt>Staged at</dt>
-          <dd>
-            <time dateTime={row.stagedModifiedTime}>{row.stagedModifiedTime}</time>
-          </dd>
+      <header className="mb-4 space-y-1">
+        {/* Source kicker — replaces the buried `<dl>` source row. Plain
+            language label rather than the raw `cron`/`onboarding_scan`
+            enum so Doug doesn't have to translate schema vocabulary. */}
+        <p
+          className="text-xs font-medium uppercase tracking-wide text-text-subtle"
+          data-testid="staged-source-kind"
+        >
+          {SOURCE_LABELS[row.sourceKind]}
+        </p>
+        {/* Heading is the parse summary itself when available — that's
+            what Doug actually wants to recognize on a phone glance.
+            "Staged update" fallback covers rows where the page couldn't
+            derive a summary from `parse_result`. */}
+        <h3
+          className="text-base font-semibold text-text-strong"
+          data-testid="staged-parse-summary"
+        >
+          {row.parseSummaryLine ?? "Staged update"}
+        </h3>
+        {/* Time caption — formatted human-friendly; the ISO is preserved
+            in the `<time dateTime=...>` attribute for machines. */}
+        <p className="text-sm text-text-subtle">
+          Staged{" "}
+          <time dateTime={row.stagedModifiedTime} suppressHydrationWarning>
+            {formatStagedAt(row.stagedModifiedTime)}
+          </time>
           {row.baseModifiedTime ? (
             <>
-              <dt>Previous</dt>
-              <dd>
-                <time dateTime={row.baseModifiedTime}>{row.baseModifiedTime}</time>
-              </dd>
+              {", prior "}
+              <time dateTime={row.baseModifiedTime} suppressHydrationWarning>
+                {formatStagedAt(row.baseModifiedTime)}
+              </time>
             </>
           ) : null}
-        </dl>
-        {row.parseSummaryLine ? (
-          <p className="mt-3 text-sm text-text" data-testid="staged-parse-summary">
-            {row.parseSummaryLine}
-          </p>
-        ) : null}
+        </p>
         {row.warningSummary ? (
-          <p className="mt-2 text-sm text-warning-text" data-testid="staged-warning-summary">
+          <p className="text-sm text-warning-text" data-testid="staged-warning-summary">
             {row.warningSummary}
           </p>
         ) : null}
@@ -306,10 +357,21 @@ export function StagedReviewCard({ row, onMutated }: StagedReviewCardProps) {
               <li
                 key={item.id}
                 data-testid={`review-item-${item.id}`}
-                className="rounded-sm border border-border bg-surface p-3"
+                className="rounded-sm bg-surface-sunken p-3"
               >
-                <p className="text-sm text-text-strong">{describeItem(item)}</p>
-                <fieldset className="mt-2 space-y-1">
+                <p
+                  id={`item-${item.id}-desc`}
+                  className="text-sm text-text-strong"
+                >
+                  {describeItem(item)}
+                </p>
+                {/* Associate the visible description with the radio group
+                    so screen readers announce the change context, not
+                    just "Apply, radio button" with no antecedent. */}
+                <fieldset
+                  className="mt-2 space-y-2"
+                  aria-describedby={`item-${item.id}-desc`}
+                >
                   <legend className="sr-only">How should this change be applied?</legend>
                   {allowed.map((action) => {
                     const id = `item-${item.id}-${action}`;
@@ -353,12 +415,21 @@ export function StagedReviewCard({ row, onMutated }: StagedReviewCardProps) {
         </div>
       ) : null}
 
-      <div className="mt-4 flex flex-wrap gap-2">
+      {/* Action bar — three visual tiers so the destructive action does
+          not sit at the same affordance level as Apply / Discard. The
+          per-card "Apply" stays primary accent; "Retry on next sync"
+          and "Wait for next edit" are secondary outline buttons; the
+          permanent-ignore action is split below a divider with a
+          quieter affordance and an inline note explaining the
+          consequence. Mitigates impeccable critique P0 ("destructive
+          action visually identical to safe action"). */}
+      <div className="mt-6 flex flex-wrap gap-2">
         <button
           type="button"
           onClick={handleApply}
           disabled={pending}
           data-testid="staged-review-apply"
+          aria-busy={pending}
           className="min-h-tap-min min-w-tap-min rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
         >
           Apply
@@ -368,33 +439,45 @@ export function StagedReviewCard({ row, onMutated }: StagedReviewCardProps) {
           onClick={() => handleDiscard("try_again")}
           disabled={pending}
           data-testid="staged-review-discard-try-again"
+          aria-busy={pending}
           className="min-h-tap-min rounded-sm border border-border-strong bg-surface px-4 py-2 font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Discard
+          Retry on next sync
         </button>
         {isFirstSeen ? (
-          <>
-            <button
-              type="button"
-              onClick={() => handleDiscard("defer_until_modified")}
-              disabled={pending}
-              data-testid="staged-review-discard-defer"
-              className="min-h-tap-min rounded-sm border border-border-strong bg-surface px-4 py-2 font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Defer until edited
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDiscard("permanent_ignore")}
-              disabled={pending}
-              data-testid="staged-review-discard-ignore"
-              className="min-h-tap-min rounded-sm border border-border-strong bg-surface px-4 py-2 font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Ignore permanently
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={() => handleDiscard("defer_until_modified")}
+            disabled={pending}
+            data-testid="staged-review-discard-defer"
+            aria-busy={pending}
+            className="min-h-tap-min rounded-sm border border-border-strong bg-surface px-4 py-2 font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Wait for next edit
+          </button>
         ) : null}
       </div>
+      {isFirstSeen ? (
+        <div className="mt-4 border-t border-border pt-4">
+          <button
+            type="button"
+            onClick={() => handleDiscard("permanent_ignore")}
+            disabled={pending}
+            data-testid="staged-review-discard-ignore"
+            aria-busy={pending}
+            aria-describedby={`staged-${row.stagedId}-ignore-note`}
+            className="min-h-tap-min text-sm font-medium text-text-subtle underline underline-offset-4 transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-raised disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Stop showing this sheet
+          </button>
+          <p
+            id={`staged-${row.stagedId}-ignore-note`}
+            className="mt-1 text-xs text-text-subtle"
+          >
+            This sheet will not reappear until Doug clears it from settings.
+          </p>
+        </div>
+      ) : null}
     </article>
   );
 }
