@@ -1,4 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import {
@@ -244,5 +246,30 @@ describe("discardStaged live-scope", () => {
       code: WIZARD_SCOPE_NOT_YET_IMPLEMENTED,
     });
     expect(syncDeps.readLivePendingSyncForDiscard).not.toHaveBeenCalled();
+  });
+
+  test("unlocked entrypoint rejects a forced cast when the show advisory lock is not held", async () => {
+    const tx = fakeTx(false) as unknown as LockedShowTx<FakeTx>;
+
+    await expect(
+      discardStaged_unlocked(
+        tx,
+        {
+          driveFileId: "drive-file-1",
+          sourceScope: "live",
+          stagedId: "staged-live",
+          discardedByEmail: "doug@fxav.test",
+          variant: "try_again",
+        },
+        deps(),
+      ),
+    ).rejects.toMatchObject({ code: "LOCK_OWNERSHIP_ASSERTION_FAILED" });
+  });
+
+  test("outer wrapper uses admin blocking lock mode", () => {
+    const source = readFileSync(join(process.cwd(), "lib/sync/discardStaged.ts"), "utf8");
+
+    expect(source).toContain("withPostgresSyncPipelineLock(");
+    expect(source).toContain("{ tryOnly: false }");
   });
 });

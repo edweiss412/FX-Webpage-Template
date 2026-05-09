@@ -88,6 +88,7 @@ export type ApplyStagedResult =
       showId: string;
       syncAuditId: string | null;
       derivedSideEffects: { revokeFloorForNames: string[] };
+      adminAlertCode?: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | null;
     }
   | { outcome: "not_found"; code: typeof PENDING_SYNC_NOT_FOUND }
   | { outcome: "superseded"; code: typeof STAGED_PARSE_SUPERSEDED }
@@ -224,6 +225,9 @@ function validateReviewerChoices(
       return { outcome: "invalid_request", code: MISSING_REVIEWER_CHOICE };
     }
     if (!allowedActions(item).has(choice.action)) {
+      return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
+    }
+    if (choice.action !== "rename" && choice.rename_value !== undefined) {
       return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
     }
     if (choice.action === "rename" && choice.rename_value !== expectedRenameValue(item)) {
@@ -466,7 +470,7 @@ async function defaultBumpReviewerAuthFloors(
   await tx.queryOne<{ bumped: boolean }>(
     `
       update public.crew_member_auth
-         set revoked_below_version = greatest(revoked_below_version, current_token_version)
+         set revoked_below_version = greatest(revoked_below_version, current_token_version + 1)
        where show_id = $1::uuid
          and crew_name = any($2::text[])
       returning true as bumped
@@ -500,7 +504,8 @@ async function restoreDeleteAndIngest(
   code:
     | typeof STAGED_PARSE_SOURCE_GONE
     | typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE
-    | typeof STAGED_PARSE_OUTDATED,
+    | typeof STAGED_PARSE_OUTDATED
+    | typeof STAGED_PARSE_SUPERSEDED,
   deps: RequiredPick<
     ApplyStagedDeps,
     "restoreShowStatus" | "upsertLivePendingIngestion" | "deleteLivePendingSync"
@@ -764,13 +769,7 @@ export async function applyStaged_unlocked(
     },
   });
   if (phase2.outcome === "stale") {
-    await deps.restoreShowStatus(
-      tx,
-      pending.driveFileId,
-      pending.priorLastSyncStatus,
-      pending.priorLastSyncError,
-    );
-    await deps.deleteLivePendingSync(tx, pending.driveFileId, pending.stagedId);
+    await restoreDeleteAndIngest(tx, pending, show, STAGED_PARSE_SUPERSEDED, deps);
     return { outcome: "superseded", code: STAGED_PARSE_SUPERSEDED };
   }
 
@@ -779,13 +778,6 @@ export async function applyStaged_unlocked(
     phase2.showId,
     derivedSideEffects.revokeFloorForNames,
   );
-  if (assetAdjusted.adminAlertCode) {
-    await deps.upsertAdminAlert?.({
-      showId: phase2.showId,
-      code: assetAdjusted.adminAlertCode,
-      context: { drive_file_id: pending.driveFileId },
-    });
-  }
   const syncAuditId = await deps.insertSyncAudit(tx, {
     showId: phase2.showId,
     driveFileId: pending.driveFileId,
@@ -805,6 +797,7 @@ export async function applyStaged_unlocked(
     showId: phase2.showId,
     syncAuditId,
     derivedSideEffects,
+    adminAlertCode: assetAdjusted.adminAlertCode,
   };
 }
 
@@ -816,9 +809,18 @@ export async function applyStaged(
   if (args.sourceScope === "wizard") {
     return { outcome: "wizard_deferred", code: WIZARD_SCOPE_NOT_YET_IMPLEMENTED };
   }
-  return await withPostgresSyncPipelineLock(
+  const result = await withPostgresSyncPipelineLock(
     args.driveFileId,
     (tx) => applyStaged_unlocked(tx, args, deps),
     { tryOnly: false },
   );
+  if (!("skipped" in result) && result.outcome === "applied" && result.adminAlertCode) {
+    const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
+    await upsertAdminAlert({
+      showId: result.showId,
+      code: result.adminAlertCode,
+      context: { drive_file_id: args.driveFileId },
+    });
+  }
+  return result;
 }

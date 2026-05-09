@@ -1,4 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
@@ -168,7 +170,7 @@ describe("applyStaged live-scope", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       outcome: "applied",
       showId: "show-1",
       syncAuditId: "audit-1",
@@ -584,6 +586,38 @@ describe("applyStaged live-scope", () => {
     expect(syncDeps.runPhase2).not.toHaveBeenCalled();
   });
 
+  test("non-rename reviewer choices reject stray rename_value payloads", async () => {
+    const item: TriggeredReviewItem = {
+      id: "mi13",
+      invariant: "MI-13",
+      removed_name: "Old Person",
+      added_name: "New Person",
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ triggeredReviewItems: [item] }),
+      ),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [
+          { item_id: "mi13", action: "independent", rename_value: "Ignored" },
+        ],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "invalid_request", code: INVALID_REVIEWER_ACTION });
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+  });
+
   test("reject reviewer choice routes through discard semantics before Phase 2", async () => {
     const item: TriggeredReviewItem = {
       id: "mi12",
@@ -755,7 +789,7 @@ describe("applyStaged live-scope", () => {
       runPhase2,
     });
 
-    await applyStaged_unlocked(
+    const result = await applyStaged_unlocked(
       tx,
       {
         driveFileId: "drive-file-1",
@@ -770,11 +804,11 @@ describe("applyStaged live-scope", () => {
     expect(retryEmbeddedRevisionAvailability).toHaveBeenCalledWith("sheet-1");
     expect(runPhase2.mock.calls[0]?.[1]?.parseResult.diagrams).toBe(priorDiagrams);
     expect(runPhase2.mock.calls[0]?.[1]?.skipDiagramsWrite).toBe(true);
-    expect(syncDeps.upsertAdminAlert).toHaveBeenCalledWith({
-      showId: "show-1",
-      code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
-      context: { drive_file_id: "drive-file-1" },
+    expect(result).toMatchObject({
+      outcome: "applied",
+      adminAlertCode: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
     });
+    expect(syncDeps.upsertAdminAlert).not.toHaveBeenCalled();
   });
 
   test("embedded revision retry infra failures do not write alerts or consume the staged row", async () => {
@@ -886,11 +920,7 @@ describe("applyStaged live-scope", () => {
 
     expect(runPhase2.mock.calls[0]?.[1]?.parseResult.diagrams).toBe(priorDiagrams);
     expect(runPhase2.mock.calls[0]?.[1]?.skipDiagramsWrite).toBe(true);
-    expect(syncDeps.upsertAdminAlert).toHaveBeenCalledWith({
-      showId: "show-1",
-      code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
-      context: { drive_file_id: "drive-file-1" },
-    });
+    expect(syncDeps.upsertAdminAlert).not.toHaveBeenCalled();
   });
 
   test("embedded revision recovery composes with reel drift side effects", async () => {
@@ -1034,6 +1064,76 @@ describe("applyStaged live-scope", () => {
     expect(syncDeps.insertSyncAudit).not.toHaveBeenCalled();
     expect(syncDeps.bumpReviewerAuthFloors).not.toHaveBeenCalled();
     expect(syncDeps.upsertAdminAlert).not.toHaveBeenCalled();
+  });
+
+  test("first-seen Phase 2 stale routes recovery back to pending_ingestions", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () => pending({ baseModifiedTime: null })),
+      readShowForApply: vi.fn(async () => ({
+        showId: null,
+        lastSeenModifiedTime: null,
+        diagrams: null,
+      })),
+      runPhase2: vi.fn(async () => ({
+        outcome: "stale" as const,
+        code: "STALE_MANUAL_REPLAY_ABORTED" as const,
+      })),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "superseded", code: STAGED_PARSE_SUPERSEDED });
+    expect(syncDeps.restoreShowStatus).not.toHaveBeenCalled();
+    expect(syncDeps.upsertLivePendingIngestion).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        driveFileId: "drive-file-1",
+        lastErrorCode: STAGED_PARSE_SUPERSEDED,
+      }),
+    );
+    expect(syncDeps.deleteLivePendingSync).toHaveBeenCalledWith(tx, "drive-file-1", "staged-live");
+  });
+
+  test("unlocked entrypoint rejects a forced cast when the show advisory lock is not held", async () => {
+    const tx = fakeTx(false) as unknown as LockedShowTx<FakeTx>;
+
+    await expect(
+      applyStaged_unlocked(
+        tx,
+        {
+          driveFileId: "drive-file-1",
+          sourceScope: "live",
+          stagedId: "staged-live",
+          reviewerChoices: [],
+          appliedByEmail: "doug@fxav.test",
+        },
+        deps(),
+      ),
+    ).rejects.toMatchObject({ code: "LOCK_OWNERSHIP_ASSERTION_FAILED" });
+  });
+
+  test("outer wrapper uses admin blocking lock mode", () => {
+    const source = readFileSync(join(process.cwd(), "lib/sync/applyStaged.ts"), "utf8");
+
+    expect(source).toContain("withPostgresSyncPipelineLock(");
+    expect(source).toContain("{ tryOnly: false }");
+  });
+
+  test("auth floor bump invalidates current-version tokens", () => {
+    const source = readFileSync(join(process.cwd(), "lib/sync/applyStaged.ts"), "utf8");
+
+    expect(source).toContain("current_token_version + 1");
   });
 
   test("wizard scope is explicitly deferred behind a 501 code", async () => {

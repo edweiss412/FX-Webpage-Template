@@ -136,7 +136,6 @@ describe("POST /api/admin/sync/[slug]", () => {
     await expect(response.json()).resolves.toEqual({
       ok: false,
       error: syncResult.code,
-      result: syncResult,
     });
   });
 

@@ -72,7 +72,7 @@ export async function POST(_request: NextRequest, context: RouteContext): Promis
   }
   if ("code" in result) {
     return NextResponse.json(
-      { ok: false, error: result.code, result },
+      { ok: false, error: result.code },
       { status: statusForManualSyncCode(result.code) },
     );
   }
