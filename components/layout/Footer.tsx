@@ -53,7 +53,7 @@ export function Footer({ asOf }: FooterProps) {
   const year = new Date().getUTCFullYear();
   return (
     <footer data-testid="page-footer" className="mt-auto border-t border-border bg-bg">
-      <div className="mx-auto flex w-full max-w-[1200px] flex-col items-start gap-3 px-4 py-6 text-xs text-text-subtle sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-8 sm:py-7">
+      <div className="mx-auto flex w-full max-w-300 flex-col items-start gap-3 px-4 py-6 text-xs text-text-subtle sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-8 sm:py-7">
         <p data-testid="page-footer-as-of" className="min-w-0">
           {asOf ? (
             <>
