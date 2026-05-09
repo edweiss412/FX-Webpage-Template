@@ -365,6 +365,38 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug -> retry sync; Eric if persistent",
     helpfulContext: "A per-file sync step failed and was isolated from the rest of the folder run.",
   },
+  SYNC_INFRA_ERROR: {
+    code: "SYNC_INFRA_ERROR",
+    dougFacing: "A sync infrastructure step failed. The rest of the folder continued.",
+    crewFacing: null,
+    followUp: "Eric -> inspect sync_log payload",
+    helpfulContext:
+      "A database or Supabase boundary returned an infrastructure error. The structured log payload keeps the original operation and error class for debugging.",
+  },
+  SYNC_STEP_TIMEOUT: {
+    code: "SYNC_STEP_TIMEOUT",
+    dougFacing: "A Drive sync step timed out. We'll retry on the next run.",
+    crewFacing: null,
+    followUp: "Eric -> inspect Drive latency if recurring",
+    helpfulContext:
+      "A Drive read or enrichment step exceeded the per-step timeout while the show sync lock was held.",
+  },
+  DRIVE_METADATA_MISSING: {
+    code: "DRIVE_METADATA_MISSING",
+    dougFacing: "Google Drive did not return the sheet revision metadata we need to sync safely.",
+    crewFacing: null,
+    followUp: "Eric -> inspect Drive metadata response",
+    helpfulContext:
+      "The sync engine requires a head revision id so markdown export, enrichment, and final apply all describe the same sheet revision.",
+  },
+  LOCK_OWNERSHIP_ASSERTION_FAILED: {
+    code: "LOCK_OWNERSHIP_ASSERTION_FAILED",
+    dougFacing: "A sync attempted to write without proving it owned the show lock.",
+    crewFacing: null,
+    followUp: "Eric -> stop sync and inspect lock topology",
+    helpfulContext:
+      "Every show write must happen under exactly one advisory lock keyed by the Drive file id.",
+  },
   /**
    * R21 F2 (round-21 §B MEDIUM): leaked-link revocation failure.
    *

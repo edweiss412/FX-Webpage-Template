@@ -29,6 +29,10 @@ const M6_SYNC_CODES = [
   "PENDING_SYNC_NOT_FOUND",
   "SHOW_BUSY_RETRY",
   "SYNC_FILE_FAILED",
+  "SYNC_INFRA_ERROR",
+  "SYNC_STEP_TIMEOUT",
+  "DRIVE_METADATA_MISSING",
+  "LOCK_OWNERSHIP_ASSERTION_FAILED",
 ] as const;
 
 describe("M6 sync message catalog", () => {

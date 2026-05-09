@@ -10,7 +10,9 @@ import {
   type ProcessOneFileDeps,
   runScheduledCronSync,
   STAGED_PARSE_REVISION_RACE,
+  SYNC_INFRA_ERROR,
 } from "@/lib/sync/runScheduledCronSync";
+import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 
 type PipelineTx = Phase1Tx & Phase2Tx & {
   operations: string[];
@@ -325,5 +327,35 @@ describe("runScheduledCronSync", () => {
     expect(processOneFile).toHaveBeenCalledTimes(2);
     expect(result.processed[0]).toMatchObject({ driveFileId: "file-a" });
     expect(result.processed[1]).toMatchObject({ driveFileId: "file-b", result: { outcome: "applied" } });
+  });
+
+  test("classifies and logs per-file infrastructure failures without flattening to a generic code", async () => {
+    const logSync = vi.fn(async () => undefined);
+    const processOneFile = vi.fn(async () => {
+      throw new SyncInfraError("readShowGateRow", "returned_error", new Error("db offline"));
+    });
+
+    const result = await runScheduledCronSync({
+      folderId: "folder-1",
+      listFolder: vi.fn(async () => [fileMeta("file-a")]),
+      processOneFile,
+      logSync,
+    });
+
+    expect(result.processed).toEqual([
+      { driveFileId: "file-a", result: { outcome: "parse_error", code: SYNC_INFRA_ERROR } },
+    ]);
+    expect(logSync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driveFileId: "file-a",
+        outcome: "parse_error",
+        code: SYNC_INFRA_ERROR,
+        payload: expect.objectContaining({
+          name: "SyncInfraError",
+          operation: "readShowGateRow",
+          source: "returned_error",
+        }),
+      }),
+    );
   });
 });

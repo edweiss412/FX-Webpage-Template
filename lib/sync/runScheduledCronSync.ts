@@ -17,8 +17,15 @@ import {
   type LockedShowTx,
   withShowLock,
 } from "@/lib/sync/lockedShowTx";
-import { runPhase1, type Phase1Args, type Phase1Binding, type Phase1Tx } from "@/lib/sync/phase1";
 import {
+  Phase1InfraError,
+  runPhase1,
+  type Phase1Args,
+  type Phase1Binding,
+  type Phase1Tx,
+} from "@/lib/sync/phase1";
+import {
+  Phase2InfraError,
   runPhase2,
   type Phase2Args,
   type Phase2Mode,
@@ -28,13 +35,23 @@ import {
 import {
   perFileProcessor,
   type ResolvedSyncMode,
+  SyncInfraError,
   type SyncMode,
 } from "@/lib/sync/perFileProcessor";
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
 export const STAGED_PARSE_SOURCE_GONE = "STAGED_PARSE_SOURCE_GONE" as const;
 export const SYNC_FILE_FAILED = "SYNC_FILE_FAILED" as const;
+export const SYNC_INFRA_ERROR = "SYNC_INFRA_ERROR" as const;
+export const SYNC_STEP_TIMEOUT = "SYNC_STEP_TIMEOUT" as const;
+export const DRIVE_METADATA_MISSING = "DRIVE_METADATA_MISSING" as const;
 const DRIVE_SYNC_STEP_TIMEOUT_MS = 30_000;
+type SyncFailureCode =
+  | typeof SYNC_FILE_FAILED
+  | typeof SYNC_INFRA_ERROR
+  | typeof SYNC_STEP_TIMEOUT
+  | typeof DRIVE_METADATA_MISSING
+  | "LOCK_OWNERSHIP_ASSERTION_FAILED";
 
 export type SyncPipelineTx = LockableSyncTx & Phase1Tx & Phase2Tx;
 
@@ -47,7 +64,10 @@ export type ProcessOneFileResult =
   | { outcome: "stale"; code: string }
   | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
   | { outcome: "source_gone"; code: typeof STAGED_PARSE_SOURCE_GONE }
-  | { outcome: "parse_error"; code: typeof SYNC_FILE_FAILED }
+  | {
+      outcome: "parse_error";
+      code: SyncFailureCode;
+    }
   | ConcurrentSyncSkipped;
 
 export type SyncLogEntry = {
@@ -82,6 +102,7 @@ export type ProcessOneFileDeps = {
 export type RunScheduledCronSyncDeps = {
   folderId?: string;
   listFolder?: typeof listDriveFolder;
+  logSync?: (entry: SyncLogEntry) => Promise<void>;
   processOneFile?: (
     driveFileId: string,
     mode: "cron",
@@ -704,6 +725,24 @@ class PostgresPipelineTx implements SyncPipelineTx {
   }
 }
 
+class DriveMetadataMissingError extends Error {
+  readonly code = DRIVE_METADATA_MISSING;
+
+  constructor(driveFileId: string) {
+    super(`Drive file ${driveFileId} omitted headRevisionId`);
+    this.name = "DriveMetadataMissingError";
+  }
+}
+
+class SyncStepTimeoutError extends Error {
+  readonly code = SYNC_STEP_TIMEOUT;
+
+  constructor(label: string) {
+    super(`${label} timed out after ${DRIVE_SYNC_STEP_TIMEOUT_MS}ms`);
+    this.name = "SyncStepTimeoutError";
+  }
+}
+
 function envFolderId(): string {
   const folderId = process.env.GOOGLE_DRIVE_FOLDER_ID ?? process.env.DRIVE_FOLDER_ID;
   if (!folderId) {
@@ -739,7 +778,7 @@ async function withStepTimeout<T>(label: string, promise: Promise<T>): Promise<T
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const timer = new Promise<never>((_, reject) => {
     timeout = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${DRIVE_SYNC_STEP_TIMEOUT_MS}ms`));
+      reject(new SyncStepTimeoutError(label));
     }, DRIVE_SYNC_STEP_TIMEOUT_MS);
   });
 
@@ -768,7 +807,7 @@ async function defaultCaptureBinding(
   const metadata = await fetchDriveFileMetadata(driveFileId);
   const headRevisionId = metadata.headRevisionId;
   if (!headRevisionId) {
-    throw new Error(`Drive file ${driveFileId} omitted headRevisionId`);
+    throw new DriveMetadataMissingError(driveFileId);
   }
   void fileMeta;
   return {
@@ -832,6 +871,51 @@ async function logSync(
   if ("reason" in result) entry.code = result.reason;
   if (payload) entry.payload = payload;
   await deps.logSync?.(entry);
+}
+
+function errorPayload(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    const payload: Record<string, unknown> = {
+      name: error.name,
+      message: error.message,
+    };
+    if ("operation" in error && typeof error.operation === "string") {
+      payload.operation = error.operation;
+    }
+    if ("source" in error && typeof error.source === "string") {
+      payload.source = error.source;
+    }
+    if ("code" in error && typeof error.code === "string") {
+      payload.errorCode = error.code;
+    }
+    return payload;
+  }
+  return { message: String(error) };
+}
+
+function classifySyncFailure(error: unknown): SyncFailureCode {
+  if (
+    error instanceof SyncInfraError ||
+    error instanceof Phase1InfraError ||
+    error instanceof Phase2InfraError
+  ) {
+    return SYNC_INFRA_ERROR;
+  }
+  if (error instanceof SyncStepTimeoutError) {
+    return SYNC_STEP_TIMEOUT;
+  }
+  if (error instanceof DriveMetadataMissingError) {
+    return DRIVE_METADATA_MISSING;
+  }
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "LOCK_OWNERSHIP_ASSERTION_FAILED"
+  ) {
+    return "LOCK_OWNERSHIP_ASSERTION_FAILED";
+  }
+  return SYNC_FILE_FAILED;
 }
 
 export async function runPhase1_unlocked(
@@ -1019,13 +1103,20 @@ export async function runScheduledCronSync(
         driveFileId: file.driveFileId,
         result: await runOne(file.driveFileId, "cron", file),
       });
-    } catch {
+    } catch (error) {
+      const result = {
+        outcome: "parse_error" as const,
+        code: classifySyncFailure(error),
+      };
+      await deps.logSync?.({
+        driveFileId: file.driveFileId,
+        outcome: result.outcome,
+        code: result.code,
+        payload: errorPayload(error),
+      });
       processed.push({
         driveFileId: file.driveFileId,
-        result: {
-          outcome: "parse_error",
-          code: SYNC_FILE_FAILED,
-        },
+        result,
       });
     }
   }
