@@ -93,7 +93,74 @@ After Pin-stop 2, §B starts in parallel. The remaining §A work (Tasks 6.7 manu
 
 ### Pin contract subsections (filled in by Codex on each pin clear)
 
-(Empty until Codex pin-stops — appended in place under §0 per the M5 convention.)
+### Pinned contract @ a9dba49 (Pin-stop 1 — 2026-05-08)
+
+Tasks 6.1 + 6.2 shipped. Drive service-account client, folder listing, file metadata fetch, head markdown export, pinned revision markdown export.
+
+```ts
+// lib/drive/client
+export const GOOGLE_DRIVE_SCOPES: string[];
+export class DriveConfigError extends Error {}
+export function getDriveClient(): drive_v3.Drive;
+export function getDriveAuth(): InstanceType<typeof google.auth.GoogleAuth>;
+export function getDriveAccessToken(): Promise<string>;
+
+// lib/drive/list
+export const GOOGLE_SHEETS_MIME_TYPE: "application/vnd.google-apps.spreadsheet";
+export const DRIVE_LIST_FIELDS: string;
+export type DriveListedFile = {
+  driveFileId: string;
+  name: string;
+  mimeType: string;
+  modifiedTime: string;
+  parents: string[];
+  headRevisionId?: string;
+  md5Checksum?: string;
+};
+export type DriveListWarning = {
+  code: "UNEXPECTED_PARENT";
+  driveFileId: string;
+  folderId: string;
+  parents: string[];
+};
+export type ListFolderOptions = {
+  drive?: drive_v3.Drive;
+  onWarning?: (warning: DriveListWarning) => void;
+};
+export function listFolder(folderId: string, options?: ListFolderOptions): Promise<DriveListedFile[]>;
+
+// lib/drive/fetch
+export const MARKDOWN_EXPORT_MIME_TYPE: "text/markdown";
+export const DRIVE_FILE_METADATA_FIELDS: string;
+export type DriveFetchOptions = {
+  drive?: drive_v3.Drive;
+  fetch?: typeof fetch;
+  getAccessToken?: () => Promise<string>;
+};
+export class DriveFetchError extends Error {}
+export function fetchDriveFileMetadata(driveFileId: string, options?: DriveFetchOptions): Promise<DriveListedFile>;
+export function fetchSheetAsMarkdown(driveFileId: string, options?: DriveFetchOptions): Promise<string>;
+export function fetchSheetAsMarkdownAtRevision(
+  driveFileId: string,
+  revisionId: string,
+  options?: DriveFetchOptions,
+): Promise<string>;
+```
+
+**Codex deviations (Pin-stop 1):**
+
+1. **`revisions.export` does not exist in Drive REST v3.** Spec §5.2 / §5.3 + this handoff's §6 watchpoint 10 trigger class (b) referred to `revisions.export(driveFileId, R1, mimeType)` as the pinned-revision markdown primitive. Drive REST v3 only exposes `revisions.get` with an `exportLinks` map; the implementation calls `revisions.get(driveFileId, revisionId, { fields: "exportLinks" })` and then issues an authenticated `fetch()` against `exportLinks["text/markdown"]`. Fresh-eyes reviewer APPROVED this as the correct functional equivalent. **Watchpoint update for Pin-stop 2:** Task 6.6's same-revision binding test for trigger class (b) must exercise either (b1) `revisions.get` returns 404 OR returns a payload that lacks `text/markdown` in `exportLinks`, or (b2) the `fetch(exportLinks[...])` call returns 404. Both classify as `STAGED_PARSE_REVISION_RACE`. Update the failing-test fixture accordingly when wiring binding capture.
+
+2. **`text/markdown` export for Google Sheets via `exportLinks` is an unverified real-Drive contract.** Tests are mocked. If Sheets doesn't actually surface `text/markdown` in `exportLinks` against a live spreadsheet, the whole markdown-export strategy needs to switch (either to a different export MIME the parser handles, or to synthesized markdown via `spreadsheets.values.get` + table assembly). **Pin-stop 2 must include a real-Drive smoke check against a fixture sheet** before accepting `fetchSheetAsMarkdownAtRevision` as production-ready. If the smoke fails, raise as a Pin-stop-2-extension before resuming Tasks 6.7+.
+
+3. **`fetchSheetAsMarkdown()` (unpinned head export) is a footgun for production.** Sync paths MUST use `fetchSheetAsMarkdownAtRevision()` to honor the same-revision binding contract (handoff §6 watchpoint 10). The unpinned variant is acceptable only in tests / one-shot debug paths. **Pin-stop 2 enforcement:** add a static guard scanning `lib/sync/**` + `app/api/cron/**` + `app/api/drive/**` for `fetchSheetAsMarkdown(` callers (without `AtRevision`) and asserting zero matches; only `tests/**` and explicit `// not-subject-to-binding: <reason>` comments allowed.
+
+**Verification at Pin-stop 1 SHA `a9dba49`:**
+
+- `pnpm test` — 1763 passed, 5 skipped
+- `pnpm lint` — 0 errors, 0 warnings
+- `pnpm typecheck` — passed
+- Cross-model fresh-eyes review: APPROVED, recommended proceeding to Pin-stop 2.
 
 ---
 
