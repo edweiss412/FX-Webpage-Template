@@ -21,27 +21,57 @@ If 30 minutes is the budget: §1 + §2 + §5 are the highest-value. §3, §4, §
 
 ---
 
+## Priority — what to actually ask Doug
+
+Every question in this doc is tagged with one of three priorities. **Build defaults assume "calibration" and "observe" answers; only the BLOCKER set truly gates implementation.**
+
+| Tag | Meaning | Behavior |
+|---|---|---|
+| **[BLOCKER]** | We cannot reasonably assume the answer; getting it wrong wastes a whole milestone | Ask Doug directly before building the affected surface |
+| **[CALIBRATION]** | Default is defensible; Doug's answer tunes a constant or copy choice | Ship with default, retune after observation |
+| **[OBSERVE]** | Answerable from production logs / sync data once the system runs | Don't ask Doug at all — measure post-launch |
+
+### The seven BLOCKER questions
+
+If you only have 20 minutes with Doug, ask these. The rest can wait.
+
+1. **§1.1 — Drive structure mental model.** Does the "watched folder" concept slot into his existing structure or fight it? *Without this answer, the entire on-ramp UX is a guess.*
+2. **§1.2 — Ready-to-share moment.** Does "I shared the link" mean "this is final" or "here's a draft"? *Determines whether FIRST_SEEN_REVIEW auto-publishes or stages.*
+3. **§4.1 — Email vs SMS vs other primary channel.** *Picks the channel the push milestone implements first; wrong choice = wasted milestone.*
+4. **§5.1 — How does he flag issues currently?** Text? Email? In-person? *Determines whether the feedback path needs to feel like "texting Eric" or "filing a ticket."*
+5. **§6.1 — How many shows simultaneously?** *Sets the scope of coalescing/batching design — 3 shows vs 50 shows is a different system.*
+6. **§7.1 — Is FIRST_SEEN_REVIEW friction or value-add?** *Whole publishing-model UX rides on this; reversible but high-cost to relaunch.*
+7. **§7.3 — Live-edits-visible vs publish-gate preference for ongoing edits.** *Whole continuous-sync model rides on this; could imply a v2 publish-gate that we should know about now even if we don't build it day 1.*
+
+The remaining 18 questions inform tuning, copy, and post-launch iteration. Defaults in the spec / memo are defensible if Doug answers them in the unsurprising direction; observation post-launch will catch surprises faster than asking can.
+
+### Why distill?
+
+Surveys destroy signal. A 25-question conversation with Doug produces shallow agreement on most items and burns the budget for him to push back on the few that actually matter. The seven above are where his answers are load-bearing on irreversible-ish decisions; the rest are tunable knobs that the system itself will surface data on once it runs.
+
+---
+
 ## Open
 
 ### §1 — Publishing model and folder structure
 
 These determine whether the watched-folder + FIRST_SEEN_REVIEW design fits Doug's mental model or fights it.
 
-**§1.1 — What does Doug's current Drive structure look like?**
+**§1.1 — What does Doug's current Drive structure look like?** [BLOCKER]
 
 - Does he have separate folders for drafts vs. ready-to-share, or one folder for everything?
 - Where would the FXAV "watched folder" naturally fit? Would he need to reorganize, or does it slot into existing structure?
 - **Default if unanswered:** assume he creates a top-level "FXAV Live Shows" folder and drags ready sheets into it. Validate this assumption.
 - **Riding on this:** the entire watched-folder UX. If his current structure makes folder-move feel alien, we may need a different "publish" trigger (Apps Script button, cell flag, dashboard publish action).
 
-**§1.2 — Does Doug have a "ready to share" moment, or is it a gradual ramp?**
+**§1.2 — Does Doug have a "ready to share" moment, or is it a gradual ramp?** [BLOCKER]
 
 - Eric's outside-in observation: ~1 week before the show, Doug sends a link. Validate.
 - Is the moment of sharing tied to a specific event (e.g., "all confirmations in"), or a calendar countdown ("Wednesday before the show")?
 - Does he ever share early (placeholder) and finalize later, or always share late (mostly-final)?
 - **Riding on this:** whether FIRST_SEEN_REVIEW should auto-publish or require explicit Apply. If "I share = it's ready," auto-publish on first-seen is defensible. If "I share = here's a draft, will refine," the Apply gate stays.
 
-**§1.3 — Currently, when he shares the link with you, what do you do with it?**
+**§1.3 — Currently, when he shares the link with you, what do you do with it?** [CALIBRATION]
 
 - Do you import the data manually? Read it directly? Copy values into another tool?
 - This isn't a Doug question per se, but the answer informs whether the watched-folder concept replaces an existing flow or adds a new one.
@@ -51,25 +81,25 @@ These determine whether the watched-folder + FIRST_SEEN_REVIEW design fits Doug'
 
 These calibrate the MI staging gates and push-debounce window.
 
-**§2.1 — After he shares with you, does he edit live or batch updates?**
+**§2.1 — After he shares with you, does he edit live or batch updates?** [CALIBRATION]
 
 - "Live" = types changes as info arrives, expects them to propagate immediately.
 - "Batch" = collects changes through the day/week, finalizes in a single sitting.
 - Most operators are mixed. Listen for the proportions.
 - **Riding on this:** push-debounce window calibration (4 min default). Live editor = longer debounce ok; batch editor = shorter debounce ok.
 
-**§2.2 — Does he ever go back into "draft mode" on a published sheet?**
+**§2.2 — Does he ever go back into "draft mode" on a published sheet?** [CALIBRATION]
 
 - E.g., big restructure: swapping out the entire crew, redoing the schedule, replacing all hotels.
 - Or are post-share edits always additive / small (call time changes, one crew swap, fix a typo)?
 - **Riding on this:** MI-6 (crew shrinkage) and MI-7 (section shrinkage) thresholds. If big restructures are normal, those thresholds may be too tight; if always small, the thresholds are correctly conservative.
 
-**§2.3 — How often does he update a sheet in the days leading up to a show?**
+**§2.3 — How often does he update a sheet in the days leading up to a show?** [CALIBRATION]
 
 - Hourly? Daily? Once on Monday, once on Thursday?
 - **Riding on this:** push frequency calibration. Hourly editor + tier-1 push for MI-11 = potentially 5+ emails/day. Daily editor = 1 email max.
 
-**§2.4 — Multiple browser tabs or multiple devices?**
+**§2.4 — Multiple browser tabs or multiple devices?** [OBSERVE]
 
 - Does he edit on mobile sometimes? Phone Drive app? Desktop?
 - Does he ever have the sheet open in two tabs simultaneously?
@@ -79,32 +109,32 @@ These calibrate the MI staging gates and push-debounce window.
 
 These calibrate the staging gates we just ratified in amendments 7 and 8.
 
-**§3.1 — When updating a financial cell (PO#, Proposal $, Invoice), does he clear-and-retype or type-over?**
+**§3.1 — When updating a financial cell (PO#, Proposal $, Invoice), does he clear-and-retype or type-over?** [OBSERVE]
 
 - Clear-and-retype creates a transient empty state that MI-8 would otherwise stage.
 - Type-over (select-all and type new value) doesn't.
 - **Riding on this:** whether the MI-8 modtime debounce (amendment 7) is solving a real problem for Doug or an imagined one.
 
-**§3.2 — When editing crew, does he delete a row to retype it, or edit in place?**
+**§3.2 — When editing crew, does he delete a row to retype it, or edit in place?** [OBSERVE]
 
 - Delete-then-add could trip MI-12/MI-13/MI-14 rename detection on the same person.
 - Edit in place doesn't.
 - **Riding on this:** whether rename heuristics need to be tighter or looser. If he frequently delete-and-retypes, MI-12/13/14 will fire more often than necessary.
 
-**§3.3 — When an email changes, does he edit in place or delete the row and re-add with the new email?**
+**§3.3 — When an email changes, does he edit in place or delete the row and re-add with the new email?** [OBSERVE]
 
 - Edit-in-place fires MI-11 (auth-sensitive, kills active links).
 - Delete-and-re-add fires MI-12/13/14 depending on name match.
 - The two paths have different audit trails and reviewer surfaces.
 - **Riding on this:** the MI-11 vs MI-12 reviewer-action UX. Both stage; the difference is in the diff presentation.
 
-**§3.4 — How often do non-LEAD role flags change?**
+**§3.4 — How often do non-LEAD role flags change?** [OBSERVE]
 
 - E.g., department reassignments: A1 → V1, additions of BO/SHOP, etc.
 - Amendment 8 narrowed MI-9 to LEAD-bit only on the assumption that non-LEAD changes are routine and don't need approval. Validate.
 - **Riding on this:** whether the `ROLE_FLAGS_NOTICE` info-severity admin alert is the right tier, or whether non-LEAD changes should still stage.
 
-**§3.5 — Are LEAD toggles ever planned in advance, or do they come up unexpectedly?**
+**§3.5 — Are LEAD toggles ever planned in advance, or do they come up unexpectedly?** [CALIBRATION]
 
 - Planned (e.g., "I'm promoting John to LEAD next month") = staging is just confirmation.
 - Unexpected = staging is a real safety check.
@@ -114,30 +144,30 @@ These calibrate the staging gates we just ratified in amendments 7 and 8.
 
 These calibrate the push-notification design memo (`notification-design-memo.md`).
 
-**§4.1 — What's his attention surface?**
+**§4.1 — What's his attention surface?** [BLOCKER]
 
 - Email (always-on)? SMS? Slack? Phone notifications? "I just text Eric"?
 - If email: which client (Gmail web, Apple Mail, mobile)? Affects deliverability and whether reply-to-email feedback is realistic.
 - **Riding on this:** which channel the push-notification milestone implements first. Default: email. Validate before committing.
 
-**§4.2 — What time of day does his work day start?**
+**§4.2 — What time of day does his work day start?** [CALIBRATION]
 
 - Determines the daily-digest send time. Default 8am ET; could be 7am, 9am, 10am.
 - Does he have a "first thing in the morning, scan email" habit, or is email checked midday?
 - **Riding on this:** `DIGEST_HOUR_LOCAL` constant in the design memo.
 
-**§4.3 — Does Doug naturally hit reply on automated emails?**
+**§4.3 — Does Doug naturally hit reply on automated emails?** [OBSERVE]
 
 - Some operators always assume "noreply" and never try replying.
 - Others naturally hit reply with notes.
 - **Riding on this:** whether reply-to-email feedback (memo §6, third form) is worth building. If he never replies, build only the click-through form. Behavior question — observe after launch.
 
-**§4.4 — Would a confirmation email when a sheet auto-publishes for the first time feel useful or like spam?**
+**§4.4 — Would a confirmation email when a sheet auto-publishes for the first time feel useful or like spam?** [CALIBRATION]
 
 - "I just published Show X for crew" — paper trail for him? Or noise?
 - **Riding on this:** memo §5 quiet-success principle calibration.
 
-**§4.5 — One-click Apply-from-email — which staging classes does he want this for?**
+**§4.5 — One-click Apply-from-email — which staging classes does he want this for?** [CALIBRATION]
 
 - Default: low-stakes only (MI-6, MI-7, MI-8, MI-8b). Higher-stakes (MI-11 email change, renames) require dashboard click-through.
 - Does he want even higher convenience (one-click for everything)? Or even more friction (always require dashboard for any Apply)?
@@ -147,19 +177,19 @@ These calibrate the push-notification design memo (`notification-design-memo.md`
 
 These determine the two-way feedback design.
 
-**§5.1 — When something looks wrong on the sheet (parser misread, missing field), how does he tell you about it currently?**
+**§5.1 — When something looks wrong on the sheet (parser misread, missing field), how does he tell you about it currently?** [BLOCKER]
 
 - Text? Email? In-person? Slack?
 - The current dashboard "Report" button (M8) routes to GitHub Issues. Does that match how he'd naturally communicate?
 - **Riding on this:** whether the email reply-to-feedback path needs to feel like "texting Eric" or like "filing a ticket."
 
-**§5.2 — Would a structured "report a problem" form feel friction-y or natural?**
+**§5.2 — Would a structured "report a problem" form feel friction-y or natural?** [CALIBRATION]
 
 - Some operators prefer freeform text ("hey something's off").
 - Others prefer structured forms ("category: parse error / impact: high / sheet: <name>").
 - **Riding on this:** the report-form UX in M8. The current spec assumes structured form; calibrate.
 
-**§5.3 — Does he prefer to suggest changes to the system, or just report bugs?**
+**§5.3 — Does he prefer to suggest changes to the system, or just report bugs?** [CALIBRATION]
 
 - Reports = "this is wrong, fix it."
 - Suggestions = "what if this worked differently?"
@@ -170,13 +200,13 @@ These determine the two-way feedback design.
 
 These determine whether v1 can ship as-is or needs scope adjustments.
 
-**§6.1 — How many shows does he have in flight simultaneously?**
+**§6.1 — How many shows does he have in flight simultaneously?** [BLOCKER]
 
 - 1–3? 5–10? More?
 - Determines whether per-show coalescing (memo §4) is sufficient or whether cross-show batching is needed from day 1.
 - **Riding on this:** daily-digest design — does it consolidate across shows by default?
 
-**§6.2 — Does he review each show separately, or in a batch session?**
+**§6.2 — Does he review each show separately, or in a batch session?** [CALIBRATION]
 
 - Affects dashboard navigation patterns and whether "show X has 3 pending" notifications should aggregate or stay per-show.
 - **Riding on this:** dashboard list ordering + email digest grouping.
@@ -185,17 +215,17 @@ These determine whether v1 can ship as-is or needs scope adjustments.
 
 These are the "we already decided X, but let's double-check" questions. Often answered fastest.
 
-**§7.1 — Is the FIRST_SEEN_REVIEW gate friction or value-add?**
+**§7.1 — Is the FIRST_SEEN_REVIEW gate friction or value-add?** [BLOCKER]
 
 - We currently REQUIRE Apply on first-seen. Is that the right default, or does Doug just want sheets to go live the moment he drags them in?
 - **Riding on this:** whether FIRST_SEEN_REVIEW is a stage gate (current spec) or a notification-only event.
 
-**§7.2 — Should the system ever auto-revoke a signed link if the underlying crew row disappears?**
+**§7.2 — Should the system ever auto-revoke a signed link if the underlying crew row disappears?** [CALIBRATION]
 
 - The MI-11 email change path bumps auth floor. But what about MI-6 (crew member removed entirely)? Should their old links die immediately, or stay live until they hit the page and see "you're not on the crew list anymore"?
 - **Riding on this:** the §5.2 destructive-transaction crew-removal handler — currently uses floor-revocation; could be different.
 
-**§7.3 — How does Doug feel about crew seeing edits "live" vs after a delay?**
+**§7.3 — How does Doug feel about crew seeing edits "live" vs after a delay?** [BLOCKER]
 
 - Currently: edits propagate within ~5 min via cron + push.
 - Some operators prefer a deliberate "publish" gate even on existing shows. Does Doug?
