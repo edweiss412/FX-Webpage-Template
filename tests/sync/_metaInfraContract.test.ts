@@ -6,9 +6,28 @@
  * here as it ships.
  */
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { Phase1Tx } from "@/lib/sync/phase1";
 import type { Phase2Tx } from "@/lib/sync/phase2";
+
+const infraRegistry = [
+  {
+    helper: "perFileProcessor",
+    path: "lib/sync/perFileProcessor.ts",
+    contract: "Supabase returned/thrown errors become SyncInfraError",
+  },
+  {
+    helper: "readDriveFileIdForSlug",
+    path: "app/api/admin/sync/[slug]/route.ts",
+    contract: "Supabase returned/thrown slug lookup errors become SYNC_INFRA_ERROR",
+  },
+] as const;
+
+function read(path: string): string {
+  return readFileSync(join(process.cwd(), path), "utf8");
+}
 
 const infraMock = vi.hoisted(() => ({
   throwOnConstruct: false,
@@ -61,6 +80,16 @@ beforeEach(() => {
 });
 
 describe("sync Supabase infra-failure contract", () => {
+  test("every M6 Supabase helper registered here points at a real helper", () => {
+    for (const entry of infraRegistry) {
+      const source = read(entry.path);
+      expect(source, `${entry.helper} registry row points at missing source`).toContain(
+        entry.helper,
+      );
+      expect(entry.contract.length).toBeGreaterThan(0);
+    }
+  });
+
   describe("perFileProcessor", () => {
     test("service-role construction throw → SyncInfraError", async () => {
       infraMock.throwOnConstruct = true;

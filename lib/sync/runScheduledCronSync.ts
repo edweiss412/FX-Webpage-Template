@@ -751,10 +751,11 @@ function envFolderId(): string {
   return folderId;
 }
 
-async function withPostgresShowLock(
+export async function withPostgresSyncPipelineLock<R = ProcessOneFileResult>(
   driveFileId: string,
-  fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<ProcessOneFileResult> | ProcessOneFileResult,
-): Promise<ProcessOneFileResult | ConcurrentSyncSkipped> {
+  fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<R> | R,
+  options: { tryOnly?: boolean } = { tryOnly: true },
+): Promise<R | ConcurrentSyncSkipped> {
   const sql = postgres(databaseUrl(), {
     max: 1,
     idle_timeout: 1,
@@ -764,11 +765,11 @@ async function withPostgresShowLock(
   try {
     return (await sql.begin(async (rawTx) => {
       const tx = new PostgresPipelineTx(rawTx as unknown as PostgresTransaction);
-      return await withShowLock<SyncPipelineTx, ProcessOneFileResult>(driveFileId, fn, {
+      return await withShowLock<SyncPipelineTx, R>(driveFileId, fn, {
         tx,
-        tryOnly: true,
+        tryOnly: options.tryOnly ?? true,
       });
-    })) as ProcessOneFileResult | ConcurrentSyncSkipped;
+    })) as R | ConcurrentSyncSkipped;
   } finally {
     await sql.end({ timeout: 5 });
   }
@@ -944,7 +945,7 @@ export async function processOneFile(
   fileMeta: DriveListedFile,
   deps: ProcessOneFileDeps = {},
 ): Promise<ProcessOneFileResult> {
-  const lock = deps.withShowLock ?? withPostgresShowLock;
+  const lock = deps.withShowLock ?? withPostgresSyncPipelineLock;
   const result = await lock(
     driveFileId,
     (lockedTx) => processOneFile_unlocked(lockedTx, driveFileId, mode, fileMeta, deps),
