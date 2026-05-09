@@ -18,6 +18,12 @@ type ApplyRequestBody = {
   choices?: unknown;
 };
 
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
+}
+
 async function readAdminEmail(): Promise<
   { kind: "ok"; email: string } | { kind: "infra_error" }
 > {
@@ -100,7 +106,11 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
       { status: 501 },
     );
   }
-  if (body.source_scope !== "live" || typeof body.staged_id !== "string") {
+  if (
+    body.source_scope !== "live" ||
+    typeof body.staged_id !== "string" ||
+    !isUuid(body.staged_id)
+  ) {
     return NextResponse.json({ ok: false, error: "INVALID_REVIEWER_ACTION" }, { status: 400 });
   }
   const choices = Array.isArray(body.choices) ? body.choices : [];

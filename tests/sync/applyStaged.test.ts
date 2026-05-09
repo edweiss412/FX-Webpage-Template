@@ -553,6 +553,37 @@ describe("applyStaged live-scope", () => {
     ]);
   });
 
+  test("rename reviewer choices must match the staged added_name exactly", async () => {
+    const item: TriggeredReviewItem = {
+      id: "mi12",
+      invariant: "MI-12",
+      removed_name: "Bob",
+      added_name: "Robert",
+      email: "bob@test.test",
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ triggeredReviewItems: [item] }),
+      ),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "mi12", action: "rename", rename_value: "Bobby" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "invalid_request", code: INVALID_REVIEWER_ACTION });
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+  });
+
   test("reject reviewer choice routes through discard semantics before Phase 2", async () => {
     const item: TriggeredReviewItem = {
       id: "mi12",

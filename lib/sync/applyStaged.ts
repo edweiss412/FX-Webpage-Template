@@ -199,6 +199,13 @@ function allowedActions(item: TriggeredReviewItem): Set<ReviewerChoice["action"]
   return new Set(["apply"]);
 }
 
+function expectedRenameValue(item: TriggeredReviewItem): string | null {
+  if (item.invariant === "MI-12" || item.invariant === "MI-13" || item.invariant === "MI-14") {
+    return item.added_name;
+  }
+  return null;
+}
+
 function validateReviewerChoices(
   items: TriggeredReviewItem[],
   choices: ReviewerChoice[],
@@ -217,6 +224,9 @@ function validateReviewerChoices(
       return { outcome: "invalid_request", code: MISSING_REVIEWER_CHOICE };
     }
     if (!allowedActions(item).has(choice.action)) {
+      return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
+    }
+    if (choice.action === "rename" && choice.rename_value !== expectedRenameValue(item)) {
       return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
     }
   }

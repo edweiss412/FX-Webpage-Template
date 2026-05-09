@@ -11,6 +11,10 @@ type ShowSlugRow = {
   drive_file_id: string;
 };
 
+function statusForManualSyncCode(code: string): number {
+  return code === "SYNC_INFRA_ERROR" ? 500 : 409;
+}
+
 async function readDriveFileIdForSlug(slug: string): Promise<
   | { kind: "found"; driveFileId: string }
   | { kind: "not_found" }
@@ -65,6 +69,12 @@ export async function POST(_request: NextRequest, context: RouteContext): Promis
   }
   if ("skipped" in result) {
     return NextResponse.json({ ok: false, error: "SHOW_BUSY_RETRY" }, { status: 409 });
+  }
+  if ("code" in result) {
+    return NextResponse.json(
+      { ok: false, error: result.code, result },
+      { status: statusForManualSyncCode(result.code) },
+    );
   }
 
   return NextResponse.json({ ok: true, result });

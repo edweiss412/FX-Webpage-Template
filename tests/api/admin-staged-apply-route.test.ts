@@ -74,7 +74,7 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
 
   test("wizard source_scope is a hard 501 guard before applyStaged", async () => {
     const response = await POST(
-      request({ source_scope: "wizard", staged_id: "staged-wizard", choices: [] }),
+      request({ source_scope: "wizard", staged_id: "22222222-2222-4222-8222-222222222222", choices: [] }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
@@ -90,7 +90,7 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
     const response = await POST(
       request({
         source_scope: "live",
-        staged_id: "staged-live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
         choices: [{ item_id: "i1", action: "apply" }],
       }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
@@ -109,7 +109,7 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
     expect(applyMock.applyStaged).toHaveBeenCalledWith({
       driveFileId: "drive-file-1",
       sourceScope: "live",
-      stagedId: "staged-live",
+      stagedId: "11111111-1111-4111-8111-111111111111",
       reviewerChoices: [{ item_id: "i1", action: "apply" }],
       appliedByEmail: "doug@fxav.test",
     });
@@ -119,6 +119,20 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
     const response = await POST(request(null), {
       params: Promise.resolve({ fileId: "drive-file-1" }),
     });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "INVALID_REVIEWER_ACTION",
+    });
+    expect(applyMock.applyStaged).not.toHaveBeenCalled();
+  });
+
+  test("non-UUID staged_id returns INVALID_REVIEWER_ACTION before applyStaged", async () => {
+    const response = await POST(
+      request({ source_scope: "live", staged_id: "not-a-uuid", choices: [] }),
+      { params: Promise.resolve({ fileId: "drive-file-1" }) },
+    );
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
@@ -142,7 +156,7 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
     applyMock.applyStaged.mockResolvedValueOnce({ outcome: "x", code });
 
     const response = await POST(
-      request({ source_scope: "live", staged_id: "staged-live", choices: [] }),
+      request({ source_scope: "live", staged_id: "11111111-1111-4111-8111-111111111111", choices: [] }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
@@ -154,7 +168,7 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
     supabaseMock.getUserThrows = new Error("network");
 
     const response = await POST(
-      request({ source_scope: "live", staged_id: "staged-live", choices: [] }),
+      request({ source_scope: "live", staged_id: "11111111-1111-4111-8111-111111111111", choices: [] }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
@@ -167,7 +181,7 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
     supabaseMock.getUserError = { message: "auth unreachable" };
 
     const response = await POST(
-      request({ source_scope: "live", staged_id: "staged-live", choices: [] }),
+      request({ source_scope: "live", staged_id: "11111111-1111-4111-8111-111111111111", choices: [] }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 

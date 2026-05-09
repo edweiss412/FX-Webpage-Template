@@ -64,7 +64,7 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
 
   test("wizard source_scope is a hard 501 guard before discardStaged", async () => {
     const response = await POST(
-      request({ source_scope: "wizard", staged_id: "staged-wizard", variant: "try_again" }),
+      request({ source_scope: "wizard", staged_id: "22222222-2222-4222-8222-222222222222", variant: "try_again" }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
@@ -80,7 +80,7 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
     const response = await POST(
       request({
         source_scope: "live",
-        staged_id: "staged-live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
         variant: "defer_until_modified",
       }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
@@ -94,7 +94,7 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
     expect(discardMock.discardStaged).toHaveBeenCalledWith({
       driveFileId: "drive-file-1",
       sourceScope: "live",
-      stagedId: "staged-live",
+      stagedId: "11111111-1111-4111-8111-111111111111",
       discardedByEmail: "doug@fxav.test",
       variant: "defer_until_modified",
     });
@@ -113,11 +113,25 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
     expect(discardMock.discardStaged).not.toHaveBeenCalled();
   });
 
+  test("non-UUID staged_id returns INVALID_REVIEWER_ACTION before discardStaged", async () => {
+    const response = await POST(
+      request({ source_scope: "live", staged_id: "not-a-uuid", variant: "try_again" }),
+      { params: Promise.resolve({ fileId: "drive-file-1" }) },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "INVALID_REVIEWER_ACTION",
+    });
+    expect(discardMock.discardStaged).not.toHaveBeenCalled();
+  });
+
   test("invalid live discard variant is rejected instead of defaulting to try_again", async () => {
     const response = await POST(
       request({
         source_scope: "live",
-        staged_id: "staged-live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
         variant: "permanint_ignore",
       }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
@@ -140,7 +154,7 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
     discardMock.discardStaged.mockResolvedValueOnce({ outcome: "x", code });
 
     const response = await POST(
-      request({ source_scope: "live", staged_id: "staged-live", variant: "try_again" }),
+      request({ source_scope: "live", staged_id: "11111111-1111-4111-8111-111111111111", variant: "try_again" }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
@@ -152,7 +166,7 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
     supabaseMock.getUserThrows = new Error("network");
 
     const response = await POST(
-      request({ source_scope: "live", staged_id: "staged-live", variant: "try_again" }),
+      request({ source_scope: "live", staged_id: "11111111-1111-4111-8111-111111111111", variant: "try_again" }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
@@ -165,7 +179,7 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
     supabaseMock.getUserError = { message: "auth unreachable" };
 
     const response = await POST(
-      request({ source_scope: "live", staged_id: "staged-live", variant: "try_again" }),
+      request({ source_scope: "live", staged_id: "11111111-1111-4111-8111-111111111111", variant: "try_again" }),
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 

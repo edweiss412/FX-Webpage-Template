@@ -13,6 +13,9 @@ const syncMock = vi.hoisted(() => ({
   runManualSyncForShow: vi.fn<
     (driveFileId: string, mode: "manual") => Promise<
       | { outcome: "applied"; showId: string }
+      | { outcome: "parse_error"; code: "SYNC_INFRA_ERROR" | "DRIVE_METADATA_MISSING" }
+      | { outcome: "hard_fail"; code: string }
+      | { outcome: "stale"; code: string }
       | { outcome: "blocked"; code: "FINALIZE_OWNED_SHOW" }
     >
   >(async () => ({ outcome: "applied", showId: "show-1" })),
@@ -116,6 +119,24 @@ describe("POST /api/admin/sync/[slug]", () => {
     await expect(response.json()).resolves.toEqual({
       ok: false,
       error: "FINALIZE_OWNED_SHOW",
+    });
+  });
+
+  test.each([
+    [{ outcome: "parse_error" as const, code: "SYNC_INFRA_ERROR" as const }, 500],
+    [{ outcome: "parse_error" as const, code: "DRIVE_METADATA_MISSING" as const }, 409],
+    [{ outcome: "hard_fail" as const, code: "MI-1_VERSION_DETECTION_FAILED" }, 409],
+    [{ outcome: "stale" as const, code: "STALE_MANUAL_REPLAY_ABORTED" }, 409],
+  ])("maps failed manual sync result %j to ok false", async (syncResult, status) => {
+    syncMock.runManualSyncForShow.mockResolvedValueOnce(syncResult);
+
+    const response = await POST(request(), { params: Promise.resolve({ slug: "test-show" }) });
+
+    expect(response.status).toBe(status);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: syncResult.code,
+      result: syncResult,
     });
   });
 
