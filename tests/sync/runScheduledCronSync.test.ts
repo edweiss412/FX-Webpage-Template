@@ -10,6 +10,7 @@ import {
   type ProcessOneFileDeps,
   runScheduledCronSync,
   STAGED_PARSE_REVISION_RACE,
+  STAGED_PARSE_SOURCE_GONE,
   SYNC_INFRA_ERROR,
 } from "@/lib/sync/runScheduledCronSync";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
@@ -180,7 +181,7 @@ function tx(): PipelineTx {
 
 function deps(overrides: Partial<ProcessOneFileDeps> = {}) {
   const binding: Phase1Binding = {
-    headRevisionId: "head-1",
+    bindingToken: "token-1",
     modifiedTime: "2026-05-08T12:00:00.000Z",
   };
   const base = {
@@ -227,7 +228,7 @@ describe("processOneFile", () => {
     const result = await processOneFile_unlocked(fakeTx, "file-1", "cron", fileMeta("file-1"), syncDeps);
 
     expect(result).toEqual({ outcome: "applied", showId: "show-1" });
-    expect(syncDeps.fetchMarkdownAtRevision).toHaveBeenCalledWith("file-1", "head-1");
+    expect(syncDeps.fetchMarkdownAtRevision).toHaveBeenCalledWith("file-1", "token-1");
     expect(vi.mocked(syncDeps.parseSheet)).toHaveBeenCalledAfter(
       vi.mocked(syncDeps.fetchMarkdownAtRevision),
     );
@@ -244,16 +245,16 @@ describe("processOneFile", () => {
     );
   });
 
-  test("head revision drift after enrichment emits STAGED_PARSE_REVISION_RACE before Phase 1 writes", async () => {
+  test("post-enrichment spreadsheet binding-token drift emits STAGED_PARSE_REVISION_RACE before Phase 1 writes", async () => {
     const syncDeps = deps({
       captureBinding: vi
         .fn()
         .mockResolvedValueOnce({
-          headRevisionId: "head-before",
+          bindingToken: "token-before",
           modifiedTime: "2026-05-08T12:00:00.000Z",
         })
         .mockResolvedValueOnce({
-          headRevisionId: "head-after",
+          bindingToken: "token-after",
           modifiedTime: "2026-05-08T12:01:00.000Z",
         }),
     });
@@ -271,10 +272,10 @@ describe("processOneFile", () => {
     expect(syncDeps.runPhase2).not.toHaveBeenCalled();
   });
 
-  test("missing markdown export link at the bound revision is STAGED_PARSE_REVISION_RACE", async () => {
+  test("post-fetch spreadsheet binding-token mismatch is STAGED_PARSE_REVISION_RACE", async () => {
     const syncDeps = deps({
       fetchMarkdownAtRevision: vi.fn(async () => {
-        throw new Error("Drive revision rev-1 for file-1 did not include a markdown export link");
+        throw new Error("Drive revision token for file-1 changed during xlsx export");
       }),
     });
 
@@ -290,10 +291,10 @@ describe("processOneFile", () => {
     expect(syncDeps.parseSheet).not.toHaveBeenCalled();
   });
 
-  test("404 while fetching the bound markdown export URL is STAGED_PARSE_REVISION_RACE", async () => {
+  test("missing xlsx export link is STAGED_PARSE_REVISION_RACE", async () => {
     const syncDeps = deps({
       fetchMarkdownAtRevision: vi.fn(async () => {
-        throw new Error("Drive revision markdown export failed with HTTP 404");
+        throw new Error("Drive revision token head-1 for file-1 did not include an xlsx export link");
       }),
     });
 
@@ -307,6 +308,67 @@ describe("processOneFile", () => {
 
     expect(result).toEqual({ outcome: "revision_race", code: STAGED_PARSE_REVISION_RACE });
     expect(syncDeps.parseSheet).not.toHaveBeenCalled();
+  });
+
+  test("404 while fetching the xlsx export URL is STAGED_PARSE_REVISION_RACE", async () => {
+    const syncDeps = deps({
+      fetchMarkdownAtRevision: vi.fn(async () => {
+        throw new Error("Drive revision xlsx export failed with HTTP 404");
+      }),
+    });
+
+    const result = await processOneFile_unlocked(
+      tx() as LockedShowTx<PipelineTx>,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "revision_race", code: STAGED_PARSE_REVISION_RACE });
+    expect(syncDeps.parseSheet).not.toHaveBeenCalled();
+  });
+
+  test("spreadsheet file gone during xlsx fetch is STAGED_PARSE_SOURCE_GONE, not a race", async () => {
+    const gone = new Error("Drive file file-1 not found") as Error & { code: number };
+    gone.code = 404;
+    const syncDeps = deps({
+      fetchMarkdownAtRevision: vi.fn(async () => {
+        throw gone;
+      }),
+    });
+
+    const result = await processOneFile_unlocked(
+      tx() as LockedShowTx<PipelineTx>,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    expect(syncDeps.parseSheet).not.toHaveBeenCalled();
+    expect(syncDeps.runPhase1).not.toHaveBeenCalled();
+  });
+
+  test("legacy markdown export failures are not spreadsheet revision races after amendment 6", async () => {
+    const syncDeps = deps({
+      fetchMarkdownAtRevision: vi.fn(async () => {
+        throw new Error("Drive revision markdown export failed with HTTP 404");
+      }),
+    });
+
+    await expect(
+      processOneFile_unlocked(
+        tx() as LockedShowTx<PipelineTx>,
+        "file-1",
+        "cron",
+        fileMeta("file-1"),
+        syncDeps,
+      ),
+    ).rejects.toThrow(/markdown export failed/);
+    expect(syncDeps.parseSheet).not.toHaveBeenCalled();
+    expect(syncDeps.runPhase1).not.toHaveBeenCalled();
   });
 });
 

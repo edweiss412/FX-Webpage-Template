@@ -233,7 +233,7 @@ const baseArgs = {
   driveFileId: "file-1",
   mode: "cron" as const,
   fileMeta: fileMeta("2026-05-08T11:59:00.000Z"),
-  binding: { headRevisionId: "head-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
+  binding: { bindingToken: "token-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
   parseResult: parseResult(),
 };
 
@@ -326,7 +326,7 @@ describe("runPhase2 destructive snapshot", () => {
     await runWith(tx, {
       mode: "manual",
       fileMeta: fileMeta("2026-05-08T11:59:00.000Z"),
-      binding: { headRevisionId: "head-2", modifiedTime: "2026-05-08T12:05:00.000Z" },
+      binding: { bindingToken: "token-2", modifiedTime: "2026-05-08T12:05:00.000Z" },
     });
 
     expect(tx.shows.get("file-1")?.lastSeenModifiedTime).toBe("2026-05-08T12:05:00.000Z");

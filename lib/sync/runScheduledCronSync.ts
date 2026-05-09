@@ -807,7 +807,7 @@ async function defaultCaptureBinding(
   const metadata = await fetchDriveFileMetadata(driveFileId);
   void fileMeta;
   return {
-    headRevisionId: metadata.headRevisionId ?? metadata.modifiedTime,
+    bindingToken: metadata.headRevisionId ?? metadata.modifiedTime,
     modifiedTime: metadata.modifiedTime,
   };
 }
@@ -837,23 +837,27 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isRevisionRace(error: unknown): boolean {
+function isSpreadsheetBindingRace(error: unknown): boolean {
   const message = errorMessage(error);
-  if (errorCode(error) === 404 && /revision/i.test(message)) return true;
   return (
-    /did not include a markdown export link/i.test(message) ||
-    /markdown export failed with HTTP 404/i.test(message) ||
     /did not include an xlsx export link/i.test(message) ||
     /xlsx export failed with HTTP 404/i.test(message) ||
     /changed during xlsx export/i.test(message) ||
-    /bound revision token/i.test(message) ||
+    /bound revision token/i.test(message)
+  );
+}
+
+function isBinaryAssetRevisionRace(error: unknown): boolean {
+  const message = errorMessage(error);
+  if (errorCode(error) === 404 && /revision/i.test(message)) return true;
+  return (
     /bound revision/i.test(message)
   );
 }
 
 function isSourceGone(error: unknown): boolean {
   const code = errorCode(error);
-  return code === 404 && !isRevisionRace(error);
+  return code === 404 && !isSpreadsheetBindingRace(error) && !isBinaryAssetRevisionRace(error);
 }
 
 async function logSync(
@@ -981,17 +985,17 @@ export async function processOneFile_unlocked(
       "fetchMarkdownAtRevision",
       (deps.fetchMarkdownAtRevision ?? fetchSheetAsMarkdownAtRevision)(
         driveFileId,
-        binding.headRevisionId,
+        binding.bindingToken,
       ),
     );
   } catch (error) {
-    if (isRevisionRace(error)) {
+    if (isSpreadsheetBindingRace(error)) {
       const result = {
         outcome: "revision_race" as const,
         code: STAGED_PARSE_REVISION_RACE,
       };
       await logSync(deps, driveFileId, result, {
-        revisionId: binding.headRevisionId,
+        bindingToken: binding.bindingToken,
       });
       return result;
     }
@@ -1015,13 +1019,13 @@ export async function processOneFile_unlocked(
       ),
     );
   } catch (error) {
-    if (isRevisionRace(error)) {
+    if (isBinaryAssetRevisionRace(error)) {
       const result = {
         outcome: "revision_race" as const,
         code: STAGED_PARSE_REVISION_RACE,
       };
       await logSync(deps, driveFileId, result, {
-        revisionId: binding.headRevisionId,
+        bindingToken: binding.bindingToken,
       });
       return result;
     }
@@ -1032,11 +1036,11 @@ export async function processOneFile_unlocked(
     "reverifyBinding",
     captureBinding(driveFileId, fileMeta),
   );
-  if (currentBinding.headRevisionId !== binding.headRevisionId) {
+  if (currentBinding.bindingToken !== binding.bindingToken) {
     const result = { outcome: "revision_race" as const, code: STAGED_PARSE_REVISION_RACE };
     await logSync(deps, driveFileId, result, {
-      staged: binding.headRevisionId,
-      current: currentBinding.headRevisionId,
+      staged: binding.bindingToken,
+      current: currentBinding.bindingToken,
     });
     return result;
   }

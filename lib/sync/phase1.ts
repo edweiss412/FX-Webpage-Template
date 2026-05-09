@@ -5,7 +5,7 @@ import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { ResolvedSyncMode, SyncMode } from "@/lib/sync/perFileProcessor";
 
 export type Phase1Binding = {
-  headRevisionId: string;
+  bindingToken: string;
   modifiedTime: string;
 };
 

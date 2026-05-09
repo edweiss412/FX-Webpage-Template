@@ -95,7 +95,7 @@ describe("sync Supabase infra-failure contract", () => {
           driveFileId: "file-1",
           mode: "cron",
           fileMeta: fileMeta(),
-          binding: { headRevisionId: "head-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
+          binding: { bindingToken: "token-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
           parseResult: {
             show: {
               title: "Show",
@@ -179,7 +179,7 @@ describe("sync Supabase infra-failure contract", () => {
           driveFileId: "file-1",
           mode: "cron",
           fileMeta: fileMeta(),
-          binding: { headRevisionId: "head-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
+          binding: { bindingToken: "token-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
           parseResult: {
             show: {
               title: "Show",

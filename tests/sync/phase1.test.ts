@@ -229,7 +229,7 @@ const baseArgs = {
   driveFileId: "file-1",
   mode: "cron" as const,
   fileMeta: fileMeta(),
-  binding: { headRevisionId: "head-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
+  binding: { bindingToken: "token-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
 };
 
 async function runWith(tx: FakePhase1Tx, next: ParseResult, overrides = {}) {
