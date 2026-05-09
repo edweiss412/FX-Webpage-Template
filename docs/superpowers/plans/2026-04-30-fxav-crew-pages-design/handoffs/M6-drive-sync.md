@@ -857,26 +857,55 @@ UI surface §B ships in this milestone:
 - `app/admin/show/[slug]/page.tsx` (per-show parse panel)
 - `components/admin/ParsePanel.tsx`
 - `components/admin/StagedReviewCard.tsx`
+- `components/admin/ReSyncButton.tsx` (added during §B implementation; thin client wrapper around `/api/admin/sync/[slug]`)
+- `components/admin/AlertBanner.tsx` (small change: M6 severity-filter excluding `severity: "info"` codes from the primary banner; bulk landed in M5)
 
 Backend §A ships no UI surface; the §12 gate runs ONLY on §B's surface area per HANDOFF-TEMPLATE.md.
 
-The dual run happens AFTER per-task implementation closes and BEFORE adversarial review. Both commands run with the canonical v3 preflight gates (`load-context.mjs` → product gate → command-reference gate → register identification → preflight signal).
+The dual run ran AFTER per-task implementation closed and BEFORE adversarial review. Both commands ran with the canonical v3 preflight gates (`load-context.mjs` → product gate → command-reference gate → register identification → preflight signal).
 
-- [ ] `/impeccable critique <surface>` — UX heuristic scoring, persona walkthroughs, AI-slop test, absolute-ban scan.
-  - Score sheet attached: visual hierarchy, IA, cognitive load, emotional resonance, a11y floor, persona-specific scan-speed rule.
-  - HIGH findings fixed OR logged in `DEFERRED.md` with a target milestone.
-  - MEDIUM findings triaged: fix-now / defer to in-milestone polish / defer to a future polish milestone.
-
-- [ ] `/impeccable audit <surface>` — Technical quality checks (a11y, performance, responsive, theming, anti-patterns). Scored P0–P3.
-  - P0/P1 findings fixed before adversarial review.
+- [x] `/impeccable critique <surface>` — UX heuristic scoring, persona walkthroughs, AI-slop test, absolute-ban scan.
+  - **Score:** 23/40 heuristic total (real-interface band 20–32; honest-middle).
+  - **Cognitive load failures:** 4 (critical band) — raw ISO timestamps, raw enum values, MI-* codes in copy, four-button bar without hierarchy.
+  - **AI-slop verdict:** "moderate-to-low but lacks character; reads as competent admin chrome but doesn't say FXAV." Token discipline excellent.
+  - HIGH findings fixed at SHA `292693e` (see disposition list below).
   - P2/P3 findings triaged.
 
-- [ ] DEFERRED.md updated with any retrospective deferrals.
-- [ ] Dispositions inline below or referenced by SHA.
+- [x] `/impeccable audit <surface>` — Technical quality checks (a11y, performance, responsive, theming, anti-patterns). Scored P0–P3.
+  - **Score:** 14/20 (Good band 14–17). Performance 4/4 excellent. Theming 3/4 excellent token discipline.
+  - **Counts:** P0=0, P1=4, P2=5, P3=3.
+  - P0/P1 findings fixed at SHA `292693e` (see disposition list below).
+  - P2/P3 findings triaged.
+
+- [x] DEFERRED.md updated with retrospective deferrals — N/A; no findings escalated to deferral. P2/P3 either rolled into the SHA `292693e` polish patch or deemed acceptable for the milestone.
+- [x] Dispositions inline below.
+
+**Critique findings — dispositions:**
 
 ```
-critique findings: <Finding ID> — <severity> — <one-line> — disposition: <fixed at <SHA> | deferred to <milestone> via <DEFERRED.md ID>>
-audit findings: <P0-P3> — <one-line> — disposition: <fixed at <SHA> | deferred to <milestone> via <DEFERRED.md ID>>
+critique P0 — raw datetime + enum leaks (PRODUCT.md plain-language) — fixed at 292693e (SOURCE_LABELS map; formatStagedAt human formatter; <time dateTime=...> preserves ISO for machines).
+critique P0 — destructive action visually identical to safe action — fixed at 292693e (Apply primary accent; "Retry on next sync" / "Wait for next edit" secondary outline; "Stop showing this sheet" split below a divider with quieter affordance + inline note).
+critique P1 — `dl` source block buries actual subject — fixed at 292693e (parse summary promoted to <h3>; source kicker + time caption demoted; metadata grid removed).
+critique P1 — Re-sync silent refresh — fixed at 292693e (admin-resync-success line summarizes ProcessOneFileResult outcome with friendly copy).
+critique P2 — empty/zero-state lacks freshness signal — accepted as-is for M6 close; admin layout already gates on Drive infra availability via AlertBanner; revisit if operator feedback indicates need.
+critique P2 — bold-modern brand presence (no signature moment) — accepted as-is; per-show admin is a working surface, not a brand surface; reassess in M9 polish if operator feedback warrants.
+```
+
+**Audit findings — dispositions:**
+
+```
+audit P1 — raw ISO-8601 timestamps as user copy — fixed at 292693e (formatStagedAt + suppressHydrationWarning on <time>).
+audit P1 — em dashes in user copy (DESIGN.md §9 absolute ban) — fixed at 292693e (describeItem rewrite; em dashes replaced with periods, parens, "blank" placeholder).
+audit P1 — fieldset legend not associated with item description (WCAG 1.3.1, 3.3.2) — fixed at 292693e (aria-describedby links the fieldset to the visible <p id="item-...-desc">).
+audit P1 — `dl` overflow risk at 375–390px — fixed at 292693e (the `<dl>` was removed entirely; metadata is now a single text caption that wraps cleanly).
+audit P2 — two competing accent CTAs (Re-sync + per-card Apply) — accepted as-is; Re-sync is page-level singleton, Apply is the most important per-card action; both deserve the accent. The "≤10% of viewport" rule is a guideline; operator feedback would tell us if the cap is breached on noisy days.
+audit P2 — identical "Staged review" heading on every card — fixed at 292693e (parse summary is now the heading; "Staged review" wordmark removed entirely).
+audit P2 — `sourceKind` rendered as raw enum string — fixed at 292693e (SOURCE_LABELS map).
+audit P2 — triple-nested borders inside warning-bg error region — fixed at 292693e (per-item border removed; rows now use bg-surface-sunken).
+audit P2 — no aria-live for async actions — partially fixed at 292693e (aria-busy added on every async button; sr-only live region deferred to M9 polish if operator feedback indicates need).
+audit P3 — `<code>` slug chip styling — accepted as-is for M6 close; revisit in M9.
+audit P3 — back-arrow ASCII glyph — accepted as-is for M6 close; lucide-react ChevronLeft swap is M9 polish.
+audit P3 — section header for staged-changes count — accepted as-is for M6 close; ParsePanel's empty state already provides the "nothing pending" signal.
 ```
 
 The convergence log proper (below) appends ONLY after impeccable evaluation closes AND adversarial review begins. The milestone is marked "completed" only when BOTH impeccable §12 has zero unresolved HIGH/P0/P1 findings AND adversarial review has converged.
