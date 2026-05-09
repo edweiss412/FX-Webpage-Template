@@ -1127,6 +1127,14 @@ export async function processOneFile_unlocked(
     await logSync(deps, driveFileId, result);
     return result;
   }
+  if (phase1.outcome === "defer") {
+    const result = { outcome: "skipped" as const, reason: phase1.reason };
+    await logSync(deps, driveFileId, result, {
+      kind: "mi8_debounce_skip",
+      reason: phase1.reason,
+    });
+    return result;
+  }
 
   const phase2 = await runPhase2_unlocked(
     tx,

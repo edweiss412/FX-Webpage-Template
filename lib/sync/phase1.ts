@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { DriveListedFile } from "@/lib/drive/list";
 import { runInvariants } from "@/lib/parser/invariants";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import { MI8_DEBOUNCE_MS } from "@/lib/sync/constants";
 import type { ResolvedSyncMode, SyncMode } from "@/lib/sync/perFileProcessor";
 
 export type Phase1Binding = {
@@ -80,6 +81,10 @@ export type Phase1Result =
     }
   | {
       outcome: "pass";
+    }
+  | {
+      outcome: "defer";
+      reason: "mi8_modtime_unstable" | "mi8b_modtime_unstable";
     };
 
 export class Phase1InfraError extends Error {
@@ -113,6 +118,35 @@ function sourceKindForMode(mode: Phase1Args["mode"]): SyncMode {
 
 function hasLead(flags: readonly string[]): boolean {
   return flags.includes("LEAD");
+}
+
+function isMi8DebounceMode(mode: Phase1Args["mode"]): boolean {
+  return mode === "cron" || mode === "push" || mode === "recovery";
+}
+
+function isDriveModifiedTimeUnstable(fileMeta: DriveListedFile): boolean {
+  const modifiedMs = Date.parse(fileMeta.modifiedTime);
+  if (!Number.isFinite(modifiedMs)) return false;
+  return Date.now() - modifiedMs < MI8_DEBOUNCE_MS;
+}
+
+function mi8DebounceReason(
+  args: Phase1Args,
+  items: TriggeredReviewItem[],
+): Phase1Result | null {
+  if (!isMi8DebounceMode(args.mode)) return null;
+  if (!isDriveModifiedTimeUnstable(args.fileMeta)) return null;
+  if (items.length === 0) return null;
+  if (items.some((item) => item.invariant !== "MI-8" && item.invariant !== "MI-8b")) {
+    return null;
+  }
+  if (items.some((item) => item.invariant === "MI-8")) {
+    return { outcome: "defer", reason: "mi8_modtime_unstable" };
+  }
+  if (items.some((item) => item.invariant === "MI-8b")) {
+    return { outcome: "defer", reason: "mi8b_modtime_unstable" };
+  }
+  return null;
 }
 
 function withLeadToggleSafetyNet(
@@ -183,6 +217,9 @@ export async function runPhase1(tx: Phase1Tx, args: Phase1Args): Promise<Phase1R
     invariant.outcome === "stage"
       ? withLeadToggleSafetyNet(show?.priorParseResult ?? null, args.parseResult, invariant.triggeredItems)
       : [];
+  const debounce = mi8DebounceReason(args, invariantItems);
+  if (debounce) return debounce;
+
   const triggeredReviewItems = sentinel ? [sentinel] : invariantItems;
 
   if (triggeredReviewItems.length > 0) {

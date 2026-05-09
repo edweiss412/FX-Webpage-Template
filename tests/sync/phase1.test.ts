@@ -1,4 +1,4 @@
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type {
   ContactRow,
@@ -239,6 +239,10 @@ async function runWith(tx: FakePhase1Tx, next: ParseResult, overrides = {}) {
 }
 
 describe("runPhase1 routing and writes", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test("does not acquire advisory locks or open transaction boundaries", async () => {
     const tx = new FakePhase1Tx();
     tx.shows.set("file-1", {
@@ -357,6 +361,155 @@ describe("runPhase1 routing and writes", () => {
     });
     expect(tx.pendingSyncs).toEqual([]);
     expect(tx.pendingIngestions).toEqual([]);
+  });
+
+  test("cron MI-8 financial collapse defers while Drive modifiedTime is unstable", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-08T12:03:00.000Z"));
+    const tx = new FakePhase1Tx();
+    tx.shows.set("file-1", {
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      priorParseResult: parseResult(),
+    });
+
+    const result = await runWith(
+      tx,
+      parseResult({ show: { ...parseResult().show, po: null } }),
+      { fileMeta: fileMeta(), mode: "cron" },
+    );
+
+    expect(result).toEqual({ outcome: "defer", reason: "mi8_modtime_unstable" });
+    expect(tx.pendingSyncs).toEqual([]);
+    expect(tx.pendingIngestions).toEqual([]);
+    expect(tx.operations).toEqual(["readShow:file-1"]);
+  });
+
+  test("cron MI-8 financial collapse stages after Drive modifiedTime is stable", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-08T12:05:00.000Z"));
+    const tx = new FakePhase1Tx();
+    tx.shows.set("file-1", {
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      priorParseResult: parseResult(),
+    });
+
+    const result = await runWith(
+      tx,
+      parseResult({ show: { ...parseResult().show, po: null } }),
+      { fileMeta: fileMeta(), mode: "cron" },
+    );
+
+    expect(result.outcome).toBe("stage");
+    expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
+      expect.arrayContaining([expect.objectContaining({ invariant: "MI-8" })]),
+    );
+  });
+
+  test("cron MI-8b COI delta defers while Drive modifiedTime is unstable", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-08T12:03:00.000Z"));
+    const tx = new FakePhase1Tx();
+    tx.shows.set("file-1", {
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      priorParseResult: parseResult(),
+    });
+
+    const result = await runWith(
+      tx,
+      parseResult({ show: { ...parseResult().show, coi_status: "Approved" } }),
+      { fileMeta: fileMeta(), mode: "cron" },
+    );
+
+    expect(result).toEqual({ outcome: "defer", reason: "mi8b_modtime_unstable" });
+    expect(tx.pendingSyncs).toEqual([]);
+    expect(tx.operations).toEqual(["readShow:file-1"]);
+  });
+
+  test("cron MI-8b COI delta stages after Drive modifiedTime is stable", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-08T12:05:00.000Z"));
+    const tx = new FakePhase1Tx();
+    tx.shows.set("file-1", {
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      priorParseResult: parseResult(),
+    });
+
+    const result = await runWith(
+      tx,
+      parseResult({ show: { ...parseResult().show, coi_status: "Approved" } }),
+      { fileMeta: fileMeta(), mode: "cron" },
+    );
+
+    expect(result.outcome).toBe("stage");
+    expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
+      expect.arrayContaining([expect.objectContaining({ invariant: "MI-8b" })]),
+    );
+  });
+
+  test.each(["manual", "onboarding_scan"] as const)(
+    "%s mode bypasses MI-8 debounce even when Drive modifiedTime is young",
+    async (mode) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-05-08T12:03:00.000Z"));
+      const tx = new FakePhase1Tx();
+      tx.shows.set("file-1", {
+        driveFileId: "file-1",
+        lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+        lastSyncStatus: "ok",
+        lastSyncError: null,
+        priorParseResult: parseResult(),
+      });
+
+      const result = await runWith(
+        tx,
+        parseResult({ show: { ...parseResult().show, po: null } }),
+        { fileMeta: fileMeta(), mode },
+      );
+
+      expect(result.outcome).toBe("stage");
+      expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            invariant: mode === "onboarding_scan" ? "ONBOARDING_SCAN_REVIEW" : "MI-8",
+          }),
+        ]),
+      );
+    },
+  );
+
+  test("cron MI-8c structural pull-sheet collapse stages immediately despite young Drive modifiedTime", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-08T12:03:00.000Z"));
+    const tx = new FakePhase1Tx();
+    tx.shows.set("file-1", {
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      priorParseResult: parseResult(),
+    });
+
+    const result = await runWith(tx, parseResult({ pullSheet: null }), {
+      fileMeta: fileMeta(),
+      mode: "cron",
+    });
+
+    expect(result.outcome).toBe("stage");
+    expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual(
+      expect.arrayContaining([expect.objectContaining({ invariant: "MI-8c" })]),
+    );
   });
 
   test.each([

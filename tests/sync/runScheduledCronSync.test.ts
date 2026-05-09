@@ -245,6 +245,34 @@ describe("processOneFile", () => {
     );
   });
 
+  test("Phase 1 MI-8 debounce defer logs a skip without Phase 2 or watermark writes", async () => {
+    const fakeTx = tx() as LockedShowTx<PipelineTx>;
+    const syncDeps = deps({
+      runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase1");
+        return { outcome: "defer" as const, reason: "mi8_modtime_unstable" as const };
+      }),
+    });
+
+    const result = await processOneFile_unlocked(
+      fakeTx,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "skipped", reason: "mi8_modtime_unstable" });
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+    expect(fakeTx.operations).toEqual(["runPhase1"]);
+    expect(syncDeps.logSync).toHaveBeenCalledWith({
+      driveFileId: "file-1",
+      outcome: "skipped",
+      code: "mi8_modtime_unstable",
+      payload: { kind: "mi8_debounce_skip", reason: "mi8_modtime_unstable" },
+    });
+  });
+
   test("post-enrichment spreadsheet binding-token drift emits STAGED_PARSE_REVISION_RACE before Phase 1 writes", async () => {
     const syncDeps = deps({
       captureBinding: vi

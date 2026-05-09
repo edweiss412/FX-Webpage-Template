@@ -253,6 +253,7 @@ export type Phase1Binding = {
 export type Phase1Result =
   | { outcome: "hard_fail"; code: string; failedCodes: string[]; message: string }
   | { outcome: "stage"; triggeredReviewItems: TriggeredReviewItem[]; stagedId: string }
+  | { outcome: "defer"; reason: "mi8_modtime_unstable" | "mi8b_modtime_unstable" }
   | { outcome: "pass" };
 export function runPhase1(tx: Phase1Tx, args: Phase1Args): Promise<Phase1Result>;
 
@@ -319,6 +320,7 @@ export function GET(request: NextRequest): Promise<Response>;
   - post-enrichment token mismatch before Phase 1
 - Spreadsheet file 404 / source gone remains `STAGED_PARSE_SOURCE_GONE`.
 - Binary-asset enrichment retains full revision-pinning classification and does not inherit the spreadsheet modtime-CAS fallback.
+- Amendment 7 correction: automated modes (`cron`, `push`, `recovery`; asset-recovery does not enter Phase 1) defer MI-8 / MI-8b-only staging while Drive `modifiedTime` is younger than `MI8_DEBOUNCE_MS = 240_000`. Manual and onboarding modes bypass the debounce, and MI-8c remains immediate.
 
 **Structural guards shipped and passing:**
 
