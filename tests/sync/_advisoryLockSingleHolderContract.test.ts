@@ -38,8 +38,15 @@ const lockHolderRegistry = [
   {
     path: "lib/sync/runOnboardingScan.ts",
     holder: "runOnboardingScan",
-    layer: "does not acquire show advisory locks; wizard-session CAS and partial indexes provide isolation",
+    layer:
+      "does not acquire show advisory locks; wizard-session CAS and partial indexes provide isolation",
     key: "none",
+  },
+  {
+    path: "lib/sync/runPushSyncForShow.ts",
+    holder: "runPushSyncForShow",
+    layer: "delegates to processOneFile, which delegates to withShowLock; no second holder",
+    key: "hashtext('show:' || drive_file_id)",
   },
 ] as const;
 
@@ -89,6 +96,10 @@ describe("M6 advisory-lock single-holder contract", () => {
         expect.objectContaining({
           holder: "runOnboardingScan",
           layer: expect.stringContaining("does not acquire show advisory locks"),
+        }),
+        expect.objectContaining({
+          holder: "runPushSyncForShow",
+          layer: expect.stringContaining("delegates to processOneFile"),
         }),
       ]),
     );

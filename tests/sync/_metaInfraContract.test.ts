@@ -53,6 +53,16 @@ const infraRegistry = [
     path: "lib/drive/watch.ts",
     contract: "watch GC transaction-port faults become DriveWatchInfraError",
   },
+  {
+    helper: "runPushSyncForShow",
+    path: "lib/sync/runPushSyncForShow.ts",
+    contract: "shared processOneFile infra faults propagate",
+  },
+  {
+    helper: "handleDriveWebhook",
+    path: "app/api/drive/webhook/route.ts",
+    contract: "webhook transaction-port faults become DriveWebhookInfraError",
+  },
 ] as const;
 
 function read(path: string): string {
@@ -373,6 +383,54 @@ describe("sync Supabase infra-failure contract", () => {
           } as never,
         }),
       ).rejects.toBeInstanceOf(DriveWatchInfraError);
+    });
+  });
+
+  describe("Drive push webhook", () => {
+    test("runPushSyncForShow propagates shared pipeline infra faults", async () => {
+      const { runPushSyncForShow } = await import("@/lib/sync/runPushSyncForShow");
+      const { SyncInfraError } = await import("@/lib/sync/perFileProcessor");
+      const infraError = new SyncInfraError(
+        "META processOneFile",
+        "thrown_error",
+        new Error("META: simulated push pipeline fault"),
+      );
+
+      await expect(
+        runPushSyncForShow("file-1", {
+          fileMeta: fileMeta(),
+          processOneFile: async () => {
+            throw infraError;
+          },
+        }),
+      ).rejects.toBe(infraError);
+    });
+
+    test("handleDriveWebhook DB-port throw → DriveWebhookInfraError", async () => {
+      const { handleDriveWebhook, DriveWebhookInfraError } =
+        await import("@/app/api/drive/webhook/route");
+      const { NextRequest } = await import("next/server");
+
+      await expect(
+        handleDriveWebhook(
+          new NextRequest("https://crew.fxav.test/api/drive/webhook", {
+            method: "POST",
+            headers: {
+              "X-Goog-Channel-ID": "channel-1",
+              "X-Goog-Channel-Token": "secret-1",
+              "X-Goog-Resource-ID": "resource-1",
+              "X-Goog-Resource-State": "update",
+            },
+          }),
+          {
+            tx: {
+              readActiveWatchChannel: async () => {
+                throw new Error("META: simulated webhook lookup fault");
+              },
+            } as never,
+          },
+        ),
+      ).rejects.toBeInstanceOf(DriveWebhookInfraError);
     });
   });
 });
