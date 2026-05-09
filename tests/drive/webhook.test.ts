@@ -1,6 +1,16 @@
-import { describe, expect, test, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { DriveListedFile } from "@/lib/drive/list";
+
+const syncLogMock = vi.hoisted(() => ({
+  writeSyncLog: vi.fn(async () => undefined),
+}));
+
+vi.mock("@/lib/sync/syncLog", () => ({
+  writeSyncLog: syncLogMock.writeSyncLog,
+}));
 
 type ChannelRow = {
   id: string;
@@ -49,6 +59,10 @@ function listedFile(
 }
 
 describe("/api/drive/webhook", () => {
+  beforeEach(() => {
+    syncLogMock.writeSyncLog.mockClear();
+  });
+
   test.each([
     "X-Goog-Channel-ID",
     "X-Goog-Channel-Token",
@@ -167,6 +181,16 @@ describe("/api/drive/webhook", () => {
     expect(runPushSyncForShow).not.toHaveBeenCalled();
   });
 
+  test("default webhook alert writer coalesces repeated token-invalid alerts per channel", () => {
+    const source = readFileSync(
+      join(process.cwd(), "app/api/drive/webhook/route.ts"),
+      "utf8",
+    ).toLowerCase();
+
+    expect(source).toContain("context->>'channel_id' = $2");
+    expect(source).toContain("last_seen_at > now() - interval '1 hour'");
+  });
+
   test.each(["sync", "trash", "remove", "untrash"])(
     "resource state %s is acknowledged without push dispatch",
     async (state) => {
@@ -233,7 +257,10 @@ describe("/api/drive/webhook", () => {
 
     expect(listFolder).toHaveBeenCalledWith("folder-1");
     expect(runPushSyncForShow).toHaveBeenCalledTimes(2);
-    expect(runPushSyncForShow).toHaveBeenCalledWith("file-1", { fileMeta: file });
+    expect(runPushSyncForShow).toHaveBeenCalledWith("file-1", {
+      fileMeta: file,
+      logSync: syncLogMock.writeSyncLog,
+    });
   });
 
   test("background dispatch isolates one file failure from the rest of the folder", async () => {
@@ -272,6 +299,8 @@ describe("runPushSyncForShow", () => {
     });
 
     expect(result).toEqual({ outcome: "applied", showId: "show-1" });
-    expect(processOneFile).toHaveBeenCalledWith("file-1", "push", fileMeta);
+    expect(processOneFile).toHaveBeenCalledWith("file-1", "push", fileMeta, {
+      logSync: syncLogMock.writeSyncLog,
+    });
   });
 });

@@ -110,6 +110,7 @@ export type RunScheduledCronSyncDeps = {
     driveFileId: string,
     mode: "cron",
     fileMeta: DriveListedFile,
+    deps?: Pick<ProcessOneFileDeps, "logSync">,
   ) => Promise<ProcessOneFileResult>;
 };
 
@@ -1206,6 +1207,7 @@ export async function runScheduledCronSync(
   const folderId = deps.folderId ?? envFolderId();
   const listFolder = deps.listFolder ?? listDriveFolder;
   const runOne = deps.processOneFile ?? processOneFile;
+  const processDeps = deps.logSync ? { logSync: deps.logSync } : undefined;
   const files = await listFolder(folderId);
   const processed: RunScheduledCronSyncResult["processed"] = [];
 
@@ -1213,7 +1215,7 @@ export async function runScheduledCronSync(
     try {
       processed.push({
         driveFileId: file.driveFileId,
-        result: await runOne(file.driveFileId, "cron", file),
+        result: await runOne(file.driveFileId, "cron", file, processDeps),
       });
     } catch (error) {
       const result = {

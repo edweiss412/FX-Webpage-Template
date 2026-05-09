@@ -7,6 +7,7 @@ import {
   runPushSyncForShow as defaultRunPushSyncForShow,
   type RunPushSyncForShowDeps,
 } from "@/lib/sync/runPushSyncForShow";
+import { writeSyncLog } from "@/lib/sync/syncLog";
 
 export const WEBHOOK_HEADERS_MISSING = "WEBHOOK_HEADERS_MISSING" as const;
 export const WEBHOOK_CHANNEL_INACTIVE = "WEBHOOK_CHANNEL_INACTIVE" as const;
@@ -46,8 +47,9 @@ export type DriveWebhookDeps = {
   listFolder?: (folderId: string) => Promise<DriveListedFile[]>;
   runPushSyncForShow?: (
     driveFileId: string,
-    deps?: Pick<RunPushSyncForShowDeps, "fileMeta">,
+    deps?: Pick<RunPushSyncForShowDeps, "fileMeta" | "logSync">,
   ) => Promise<Awaited<ReturnType<typeof defaultRunPushSyncForShow>>>;
+  logSync?: RunPushSyncForShowDeps["logSync"];
   defer?: (task: () => Promise<void>) => void;
 };
 
@@ -93,10 +95,35 @@ class PostgresDriveWebhookTx implements DriveWebhookTx {
     };
   }
 
+  private async hasRecentTokenInvalidAlert(channelId: string): Promise<boolean> {
+    const rows = await this.sql.unsafe(
+      `
+        select id
+          from public.admin_alerts
+         where show_id is null
+           and code = $1
+           and context->>'channel_id' = $2
+           and resolved_at is null
+           and last_seen_at > now() - interval '1 hour'
+         limit 1
+      `,
+      [WEBHOOK_TOKEN_INVALID, channelId],
+    );
+    return rows.length > 0;
+  }
+
   async upsertAdminAlert(input: {
     code: typeof WEBHOOK_TOKEN_INVALID;
     context: Record<string, unknown>;
   }): Promise<void> {
+    const channelId = input.context.channel_id;
+    if (
+      input.code === WEBHOOK_TOKEN_INVALID &&
+      typeof channelId === "string" &&
+      (await this.hasRecentTokenInvalidAlert(channelId))
+    ) {
+      return;
+    }
     await defaultUpsertAdminAlert({ showId: null, code: input.code, context: input.context });
   }
 }
@@ -159,7 +186,7 @@ function classifyDispatchError(error: unknown): string {
 
 export async function dispatchDriveWebhookFiles(
   channel: DriveWebhookChannel,
-  deps: Pick<DriveWebhookDeps, "listFolder" | "runPushSyncForShow"> = {},
+  deps: Pick<DriveWebhookDeps, "listFolder" | "runPushSyncForShow" | "logSync"> = {},
 ): Promise<{
   dispatched: Array<{
     driveFileId: string;
@@ -170,11 +197,12 @@ export async function dispatchDriveWebhookFiles(
 }> {
   const listFolder = deps.listFolder ?? defaultListFolder;
   const runPushSyncForShow = deps.runPushSyncForShow ?? defaultRunPushSyncForShow;
+  const logSync = deps.logSync ?? writeSyncLog;
   const files = dedupeFiles(await listFolder(channel.watchedFolderId));
   const dispatched = [];
   for (const file of files) {
     try {
-      const result = await runPushSyncForShow(file.driveFileId, { fileMeta: file });
+      const result = await runPushSyncForShow(file.driveFileId, { fileMeta: file, logSync });
       dispatched.push({ driveFileId: file.driveFileId, result });
     } catch (error) {
       dispatched.push({

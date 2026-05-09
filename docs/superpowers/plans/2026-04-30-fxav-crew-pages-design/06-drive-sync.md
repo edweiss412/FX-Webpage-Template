@@ -49,6 +49,8 @@ Phase 1 decides one of three outcomes (hard fail / stage / pass). It must NEVER 
 
 **Routing precedence — explicit ordering, amendment-9 mode-aware (ratified 2026-05-09).** First-seen sheets MUST NOT shortcut past the MI hard-fail check. The canonical precedence is **MI hard-fail FIRST, then mode-aware first-seen branch SECOND** (per amendment 9 in `00-overview.md`):
 
+> **Deferred implementation note (2026-05-09):** Amendment 9 remains the ratified target contract, but implementation is deferred as `M6-D12` in `DEFERRED.md` after adversarial review round 3. Current M6 backend closeout must not claim the first-seen auto-publish / 24h unpublish-undo behavior until M6-D12 ships.
+
 1. Run §6.8 MI-1..MI-5b checks against the parse. If ANY fails → `hard_fail` outcome (UPSERT `pending_ingestions` for first-seen; status-only UPDATE on `shows` for existing). Do NOT emit any review-sentinel; the sheet is not parseable enough to review.
 2. Otherwise (MI-1..MI-5b all pass), evaluate `is_first_seen = (shows row does not exist)` AND `mode`:
    - **First-seen + `mode = 'onboarding_scan'`** (wizard discovery): `stage` outcome with `triggered_review_items` extended to include the `ONBOARDING_SCAN_REVIEW` sentinel, regardless of MI-6..MI-14. Wizard explicitly is "review what's in the folder before activating"; auto-applying contradicts that.

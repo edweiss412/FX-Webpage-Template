@@ -7,10 +7,15 @@ const cronMock = vi.hoisted(() => ({
   })),
   refreshWatchSubscriptions: vi.fn(async () => ({ refreshed: ["folder-1"] })),
   gcWatchChannels: vi.fn(async () => ({ stopped: ["channel-1"] })),
+  writeSyncLog: vi.fn(async () => undefined),
 }));
 
 vi.mock("@/lib/sync/runScheduledCronSync", () => ({
   runScheduledCronSync: cronMock.runScheduledCronSync,
+}));
+
+vi.mock("@/lib/sync/syncLog", () => ({
+  writeSyncLog: cronMock.writeSyncLog,
 }));
 
 vi.mock("@/lib/drive/watch", () => ({
@@ -23,6 +28,7 @@ describe("/api/cron/sync", () => {
 
   beforeEach(() => {
     cronMock.runScheduledCronSync.mockClear();
+    cronMock.writeSyncLog.mockClear();
     process.env.CRON_SECRET = "cron-test-secret";
   });
 
@@ -56,7 +62,7 @@ describe("/api/cron/sync", () => {
       ok: true,
       processed: [{ driveFileId: "file-1", result: { outcome: "applied", showId: "show-1" } }],
     });
-    expect(cronMock.runScheduledCronSync).toHaveBeenCalledOnce();
+    expect(cronMock.runScheduledCronSync).toHaveBeenCalledWith({ logSync: cronMock.writeSyncLog });
   });
 });
 

@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { CrewMemberRow, ParsedSheet, ParseResult, RoomRow } from "@/lib/parser/types";
 import type { Phase1PendingIngestionRow, Phase1PendingSyncRow, Phase1Tx } from "@/lib/sync/phase1";
+import type { RunOnboardingScanDeps } from "@/lib/sync/runOnboardingScan";
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 const W2 = "22222222-2222-4222-8222-222222222222";
@@ -220,9 +221,9 @@ async function runWith(
   tx: FakeOnboardingTx,
   files: DriveListedFile[],
   parseResults: Record<string, ParseResult>,
+  overrides: Partial<RunOnboardingScanDeps> = {},
 ) {
   vi.resetModules();
-  const runPhase2 = vi.fn();
   const { runOnboardingScan } = await import("@/lib/sync/runOnboardingScan");
   const result = await runOnboardingScan("folder-1", W1, {
     tx,
@@ -240,21 +241,20 @@ async function runWith(
       );
       return parseResults[driveFileId] ?? parseResult();
     }),
-    runPhase2,
+    ...overrides,
   });
-  return { result, runPhase2 };
+  return { result };
 }
 
 describe("runOnboardingScan", () => {
   test("runs Phase 1 only and stages wizard-scoped pending_syncs plus manifest rows", async () => {
     const tx = new FakeOnboardingTx();
 
-    const { result, runPhase2 } = await runWith(tx, [file("file-1")], {
+    const { result } = await runWith(tx, [file("file-1")], {
       "file-1": parseResult(),
     });
 
     expect(result).toMatchObject({ outcome: "completed" });
-    expect(runPhase2).not.toHaveBeenCalled();
     expect(tx.pendingSyncs).toMatchObject([
       {
         driveFileId: "file-1",
@@ -271,6 +271,37 @@ describe("runOnboardingScan", () => {
         mimeType: "application/vnd.google-apps.spreadsheet",
         name: "file-1.xlsx",
         status: "staged",
+      },
+    ]);
+  });
+
+  test("assert-fails unexpected Phase 1 defer outcomes instead of silently dropping the file", async () => {
+    const tx = new FakeOnboardingTx();
+
+    const { result } = await runWith(
+      tx,
+      [file("file-1")],
+      { "file-1": parseResult() },
+      {
+        runPhase1: vi.fn(async () => ({
+          outcome: "defer" as const,
+          reason: "mi8_modtime_unstable" as const,
+        })),
+      },
+    );
+
+    expect(result).toMatchObject({ outcome: "completed" });
+    expect(tx.manifest).toMatchObject([
+      {
+        driveFileId: "file-1",
+        status: "hard_failed",
+      },
+    ]);
+    expect(tx.syncLog).toEqual([
+      {
+        code: "onboarding_scan_unexpected_phase1_defer",
+        driveFileId: "file-1",
+        payload: { reason: "mi8_modtime_unstable" },
       },
     ]);
   });

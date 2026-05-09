@@ -68,6 +68,11 @@ const infraRegistry = [
     path: "lib/sync/discardStaged.ts",
     contract: "discard transaction-port faults propagate instead of becoming benign discard outcomes",
   },
+  {
+    helper: "writeSyncLog",
+    path: "lib/sync/syncLog.ts",
+    contract: "sync_log sink thrown SQL faults propagate to the route/orchestrator caller",
+  },
 ] as const;
 
 function read(path: string): string {

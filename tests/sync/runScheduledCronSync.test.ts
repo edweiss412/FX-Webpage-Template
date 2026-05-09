@@ -494,6 +494,21 @@ describe("runScheduledCronSync", () => {
     });
   });
 
+  test("passes the configured sync_log sink into each cron file pipeline", async () => {
+    const logSync = vi.fn(async () => undefined);
+    const file = fileMeta("file-a");
+    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-a" }));
+
+    await runScheduledCronSync({
+      folderId: "folder-1",
+      listFolder: vi.fn(async () => [file]),
+      processOneFile,
+      logSync,
+    });
+
+    expect(processOneFile).toHaveBeenCalledWith("file-a", "cron", file, { logSync });
+  });
+
   test("classifies and logs per-file infrastructure failures without flattening to a generic code", async () => {
     const logSync = vi.fn(async () => undefined);
     const processOneFile = vi.fn(async () => {

@@ -16,7 +16,6 @@ import {
   type Phase1PendingSyncRow,
   type Phase1Tx,
 } from "@/lib/sync/phase1";
-import type { runPhase2 } from "@/lib/sync/phase2";
 
 export const WIZARD_ISOLATION_INDEXES_MISSING = "WIZARD_ISOLATION_INDEXES_MISSING" as const;
 export const WIZARD_SESSION_SUPERSEDED_DURING_SCAN =
@@ -101,8 +100,6 @@ export type RunOnboardingScanDeps = {
   ) => Promise<ParseResult>;
   driveClient?: DriveClient;
   runPhase1?: typeof runPhase1;
-  // Explicitly injectable only so tests can assert onboarding never calls Phase 2.
-  runPhase2?: typeof runPhase2;
 };
 
 export class OnboardingScanInfraError extends Error {
@@ -413,14 +410,14 @@ class PostgresOnboardingScanTx implements OnboardingScanTx {
   async logSync(entry: { code: string; driveFileId?: string; payload?: Record<string, unknown> }) {
     await this.rows(
       `
-        insert into public.sync_log (drive_file_id, outcome, code, payload)
+        insert into public.sync_log (drive_file_id, status, message, parse_warnings)
         values ($1, $2, $3, $4::jsonb)
       `,
       [
         entry.driveFileId ?? null,
-        "onboarding_scan",
         entry.code,
-        JSON.stringify(entry.payload ?? {}),
+        `onboarding_scan:${entry.code}`,
+        JSON.stringify(entry.payload ? [{ ...entry.payload, code: entry.code }] : []),
       ],
     );
   }
@@ -589,6 +586,38 @@ async function scanWithTx(
         continue;
       }
 
+      if (result.outcome === "defer") {
+        await callTx("logSync", () =>
+          tx.logSync({
+            code: "onboarding_scan_unexpected_phase1_defer",
+            driveFileId: file.driveFileId,
+            payload: { reason: result.reason },
+          }),
+        );
+        const wrote = await callTx("upsertManifest", () =>
+          tx.upsertManifest({
+            folderId,
+            wizardSessionId,
+            driveFileId: file.driveFileId,
+            mimeType: file.mimeType,
+            name: file.name,
+            status: "hard_failed",
+          }),
+        );
+        if (!wrote) {
+          await callTx("logSync", () =>
+            tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
+          );
+          return {
+            outcome: "superseded",
+            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+            processed,
+          };
+        }
+        processed.push({ driveFileId: file.driveFileId, outcome: "hard_failed" });
+        continue;
+      }
+
       if (result.outcome === "hard_fail") {
         const wrote = await callTx("upsertManifest", () =>
           tx.upsertManifest({
@@ -653,7 +682,6 @@ export async function runOnboardingScan(
   wizardSessionId: string,
   deps: RunOnboardingScanDeps = {},
 ): Promise<OnboardingScanResult> {
-  void deps.runPhase2;
   if (deps.tx) {
     return await scanWithTx(folderId, wizardSessionId, deps.tx, deps);
   }
