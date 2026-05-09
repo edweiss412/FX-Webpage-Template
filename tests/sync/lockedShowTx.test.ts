@@ -43,8 +43,20 @@ describe("withShowLock", () => {
     expect(fn).toHaveBeenCalledOnce();
     const lockQueries = tx.queries.filter(({ sql }) => /pg_try_advisory_xact_lock/i.test(sql));
     expect(lockQueries).toHaveLength(1);
-    expect(lockQueries[0]?.sql).toContain("hashtext('show:' ||");
-    expect(lockQueries[0]?.params).toEqual(["drive-file-1"]);
+      expect(lockQueries[0]?.sql).toContain("hashtext('show:' ||");
+      expect(lockQueries[0]?.params).toEqual(["drive-file-1"]);
+    });
+
+  test("DEV assertion checks the exact show lock key, not any advisory lock", async () => {
+    const tx = fakeTx(true) as unknown as LockedShowTx<FakeTx>;
+
+    await assertShowLockHeld(tx, "drive-file-1");
+
+    const assertionSql = tx.queries.find(({ sql }) => /pg_locks/i.test(sql))?.sql ?? "";
+    expect(assertionSql).toContain("hashtext('show:' || $1)");
+    expect(assertionSql).toContain("classid = expected.expected_classid");
+    expect(assertionSql).toContain("objid = expected.expected_objid");
+    expect(assertionSql).toContain("objsubid = 1");
   });
 
   test("tryOnly returns CONCURRENT_SYNC_SKIPPED when the lock is busy", async () => {

@@ -358,6 +358,13 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug -> refresh the admin page",
     helpfulContext: null,
   },
+  SYNC_FILE_FAILED: {
+    code: "SYNC_FILE_FAILED",
+    dougFacing: "One sheet could not be synced. The other sheets continued.",
+    crewFacing: null,
+    followUp: "Doug -> retry sync; Eric if persistent",
+    helpfulContext: "A per-file sync step failed and was isolated from the rest of the folder run.",
+  },
   /**
    * R21 F2 (round-21 §B MEDIUM): leaked-link revocation failure.
    *

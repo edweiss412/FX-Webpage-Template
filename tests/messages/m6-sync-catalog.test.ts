@@ -28,6 +28,7 @@ const M6_SYNC_CODES = [
   "INVALID_REVIEWER_ACTION",
   "PENDING_SYNC_NOT_FOUND",
   "SHOW_BUSY_RETRY",
+  "SYNC_FILE_FAILED",
 ] as const;
 
 describe("M6 sync message catalog", () => {

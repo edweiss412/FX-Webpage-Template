@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -23,6 +23,21 @@ function read(path: string): string {
   return readFileSync(join(root, path), "utf8");
 }
 
+function tsFiles(path: string): string[] {
+  const absolute = join(root, path);
+  if (!statSync(absolute, { throwIfNoEntry: false })?.isDirectory()) return [];
+  const files: string[] = [];
+  for (const entry of readdirSync(absolute, { withFileTypes: true })) {
+    const child = join(path, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...tsFiles(child));
+    } else if (/\.(?:ts|tsx)$/.test(entry.name)) {
+      files.push(child);
+    }
+  }
+  return files;
+}
+
 describe("M6 advisory-lock single-holder contract", () => {
   test("every M6 sync lock path is registered with the drive_file_id hashkey", () => {
     expect(lockHolderRegistry).toEqual(
@@ -37,11 +52,25 @@ describe("M6 advisory-lock single-holder contract", () => {
         }),
       ]),
     );
+    for (const entry of lockHolderRegistry) {
+      expect(read(entry.path), `${entry.holder} registry row points at missing source`).toContain(
+        entry.holder,
+      );
+    }
   });
 
-  test("only lockedShowTx issues pg_advisory lock SQL in M6 sync code", () => {
-    const syncSources = ["lib/sync/lockedShowTx.ts", "lib/sync/runScheduledCronSync.ts"];
-    const holders = syncSources.filter((path) => /\bpg_(?:try_)?advisory_xact_lock\s*\(/i.test(read(path)));
+  test("only lockedShowTx issues pg_advisory lock SQL in M6 runtime-owned code", () => {
+    const runtimeSources = [
+      ...tsFiles("lib/sync"),
+      ...tsFiles("lib/drive"),
+      ...tsFiles("app/api/cron"),
+      ...tsFiles("app/api/drive"),
+      ...tsFiles("app/api/admin/sync"),
+      ...tsFiles("app/api/admin/staged"),
+    ];
+    const holders = runtimeSources
+      .filter((path) => /\bpg_(?:try_)?advisory_xact_lock\s*\(/i.test(read(path)))
+      .sort();
 
     expect(holders).toEqual(["lib/sync/lockedShowTx.ts"]);
     const source = read("lib/sync/lockedShowTx.ts");

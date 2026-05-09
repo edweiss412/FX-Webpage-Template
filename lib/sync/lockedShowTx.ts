@@ -117,13 +117,24 @@ export async function assertShowLockHeld<T extends LockableSyncTx>(
 ): Promise<void> {
   const result = await tx.queryOne<{ held: boolean }>(
     `
+      with k as (
+        select hashtext('show:' || $1)::bigint as kb
+      ),
+      expected as (
+        select ((kb >> 32) & x'FFFFFFFF'::bigint)::oid as expected_classid,
+               (kb & x'FFFFFFFF'::bigint)::oid         as expected_objid
+          from k
+      )
       select exists (
         select 1
-          from pg_locks
+          from pg_locks, expected
          where pid = pg_backend_pid()
            and locktype = 'advisory'
            and mode = 'ExclusiveLock'
            and granted
+           and classid = expected.expected_classid
+           and objid = expected.expected_objid
+           and objsubid = 1
       ) as held
     `,
     [driveFileId],

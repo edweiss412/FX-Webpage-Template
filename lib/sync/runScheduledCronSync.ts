@@ -33,6 +33,8 @@ import {
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
 export const STAGED_PARSE_SOURCE_GONE = "STAGED_PARSE_SOURCE_GONE" as const;
+export const SYNC_FILE_FAILED = "SYNC_FILE_FAILED" as const;
+const DRIVE_SYNC_STEP_TIMEOUT_MS = 30_000;
 
 export type SyncPipelineTx = LockableSyncTx & Phase1Tx & Phase2Tx;
 
@@ -45,7 +47,7 @@ export type ProcessOneFileResult =
   | { outcome: "stale"; code: string }
   | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
   | { outcome: "source_gone"; code: typeof STAGED_PARSE_SOURCE_GONE }
-  | { outcome: "parse_error"; code: string }
+  | { outcome: "parse_error"; code: typeof SYNC_FILE_FAILED }
   | ConcurrentSyncSkipped;
 
 export type SyncLogEntry = {
@@ -733,6 +735,21 @@ async function withPostgresShowLock(
   }
 }
 
+async function withStepTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timer = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${DRIVE_SYNC_STEP_TIMEOUT_MS}ms`));
+    }, DRIVE_SYNC_STEP_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([promise, timer]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 function toDriveFileMeta(file: DriveListedFile): DriveFileMeta {
   return {
     driveFileId: file.driveFileId,
@@ -749,10 +766,11 @@ async function defaultCaptureBinding(
   fileMeta: DriveListedFile,
 ): Promise<Phase1Binding> {
   const metadata = await fetchDriveFileMetadata(driveFileId);
-  const headRevisionId = metadata.headRevisionId ?? fileMeta.headRevisionId;
+  const headRevisionId = metadata.headRevisionId;
   if (!headRevisionId) {
     throw new Error(`Drive file ${driveFileId} omitted headRevisionId`);
   }
+  void fileMeta;
   return {
     headRevisionId,
     modifiedTime: metadata.modifiedTime,
@@ -857,9 +875,7 @@ export async function processOneFile_unlocked(
   fileMeta: DriveListedFile,
   deps: ProcessOneFileDeps = {},
 ): Promise<ProcessOneFileResult> {
-  if (process.env.NODE_ENV !== "production") {
-    await assertShowLockHeld(tx, driveFileId);
-  }
+  await assertShowLockHeld(tx, driveFileId);
 
   const gate = await (deps.perFileProcessor ?? perFileProcessor)(driveFileId, mode, fileMeta);
   if (gate.outcome === "skip") {
@@ -874,12 +890,15 @@ export async function processOneFile_unlocked(
   }
 
   const captureBinding = deps.captureBinding ?? defaultCaptureBinding;
-  const binding = await captureBinding(driveFileId, fileMeta);
+  const binding = await withStepTimeout("captureBinding", captureBinding(driveFileId, fileMeta));
   let markdown: string;
   try {
-    markdown = await (deps.fetchMarkdownAtRevision ?? fetchSheetAsMarkdownAtRevision)(
-      driveFileId,
-      binding.headRevisionId,
+    markdown = await withStepTimeout(
+      "fetchMarkdownAtRevision",
+      (deps.fetchMarkdownAtRevision ?? fetchSheetAsMarkdownAtRevision)(
+        driveFileId,
+        binding.headRevisionId,
+      ),
     );
   } catch (error) {
     if (isRevisionRace(error)) {
@@ -903,10 +922,13 @@ export async function processOneFile_unlocked(
   const parsed = (deps.parseSheet ?? parseMarkdownSheet)(markdown, fileMeta.name);
   let enriched: ParseResult;
   try {
-    enriched = await (deps.enrichWithDrivePins ?? enrichWithDrivePins)(
-      parsed,
-      deps.driveClient ?? defaultDriveClient(),
-      { driveFileId, fileMeta: toDriveFileMeta(fileMeta), binding },
+    enriched = await withStepTimeout(
+      "enrichWithDrivePins",
+      (deps.enrichWithDrivePins ?? enrichWithDrivePins)(
+        parsed,
+        deps.driveClient ?? defaultDriveClient(),
+        { driveFileId, fileMeta: toDriveFileMeta(fileMeta), binding },
+      ),
     );
   } catch (error) {
     if (isRevisionRace(error)) {
@@ -922,7 +944,10 @@ export async function processOneFile_unlocked(
     throw error;
   }
 
-  const currentBinding = await captureBinding(driveFileId, fileMeta);
+  const currentBinding = await withStepTimeout(
+    "reverifyBinding",
+    captureBinding(driveFileId, fileMeta),
+  );
   if (currentBinding.headRevisionId !== binding.headRevisionId) {
     const result = { outcome: "revision_race" as const, code: STAGED_PARSE_REVISION_RACE };
     await logSync(deps, driveFileId, result, {
@@ -984,7 +1009,7 @@ export async function runScheduledCronSync(
 ): Promise<RunScheduledCronSyncResult> {
   const folderId = deps.folderId ?? envFolderId();
   const listFolder = deps.listFolder ?? listDriveFolder;
-  const process = deps.processOneFile ?? processOneFile;
+  const runOne = deps.processOneFile ?? processOneFile;
   const files = await listFolder(folderId);
   const processed: RunScheduledCronSyncResult["processed"] = [];
 
@@ -992,14 +1017,14 @@ export async function runScheduledCronSync(
     try {
       processed.push({
         driveFileId: file.driveFileId,
-        result: await process(file.driveFileId, "cron", file),
+        result: await runOne(file.driveFileId, "cron", file),
       });
-    } catch (error) {
+    } catch {
       processed.push({
         driveFileId: file.driveFileId,
         result: {
           outcome: "parse_error",
-          code: error instanceof Error ? error.message : "SYNC_FILE_FAILED",
+          code: SYNC_FILE_FAILED,
         },
       });
     }
