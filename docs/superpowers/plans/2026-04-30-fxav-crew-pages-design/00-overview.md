@@ -20,7 +20,7 @@
 
 ## How to use this plan
 
-1. **Spec is canonical, with four ratified amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
+1. **Spec is canonical, with eight ratified amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
 
    **Ratified plan amendments to spec:**
    1. **§13.2.3 recovery lookup** — the spec specifies eventually-consistent code search via `octokit.rest.search.issuesAndPullRequests({q: '"<idempotency_key>" repo:<repo> in:body'})`. Adversarial-review rounds 6 + 10 demonstrated this is unsafe: GitHub's code-search index can lag tens of seconds, producing false-negative misses that drive `createIssue` and open duplicate issues. **The plan's Tasks 8.3d/8.3e supersede §13.2.3 on this single mechanism.** Revised contract:
@@ -91,6 +91,84 @@
       binding = full revision pinning. M6 Pin-stop 1.5 contract block (handoff §0) carries the
       production fetch primitive; M6 §6 watchpoint 10 carries the spreadsheet-vs-binary-asset
       asymmetry.
+
+   7. **Spec §6.8 MI-8 / MI-8b — empty/cleared-field collapse requires modtime-stable debounce**
+      _(applies to M6 onward; ratified 2026-05-09)_. The spec at §6.8 lines 1550 (MI-8) and 1551
+      (MI-8b) stages on any prior-non-empty → new-empty transition for financial fields (PO#,
+      Proposal, Invoice, Invoice Notes) and on any `coi_status` delta, without qualification. Two
+      timing facts about Google Drive's exposure of native Sheets edits drive this amendment:
+      - **Drive `files.get(modifiedTime)` for Workspace-native files** (Sheets, Docs, Slides)
+        refreshes on a ~3-minute aggregation/batching cadence — the first edit on a quiescent
+        file fires a push notification within seconds, but subsequent edits in the same active
+        session coalesce into the next ~3-min batch (community-confirmed across
+        `googleapis/google-api-go-client#444` and ~5y of consistent reports; not documented by
+        Google but no official rebuttal).
+      - **Mid-edit Doug behavior** — clearing a cell and retyping a corrected value within
+        seconds — commits the cleared cell on Enter/click-away, fires an autosave, and on a
+        previously-quiescent file fires a push notification carrying the empty-cell state within
+        seconds. The corrected value, committed 5–30s later, coalesces into the next ~3-min
+        batch. Without a debounce, the empty-state push triggers MI-8/MI-8b staging before the
+        corrected value arrives.
+
+      **The plan ratifies a modtime-stability debounce on MI-8 and MI-8b only, gated to automated
+      trigger modes:** Phase 1's MI-8 and MI-8b checks fire only when
+      `now() - file.modifiedTime ≥ MI8_DEBOUNCE_MS` (constant in `lib/sync/constants.ts`, value
+      `240_000` = 4 min — Drive's documented batching floor is ~180s, +60s safety margin). If
+      `file.modifiedTime` is younger than the threshold AND MI-8 or MI-8b would otherwise trip,
+      `runPhase1` returns `{ outcome: 'defer', reason: 'mi8_modtime_unstable' }` (or
+      `'mi8b_modtime_unstable'`) and the orchestrator skips this file for this run; the 5-min
+      cron tick (§5.1, strictly greater than `MI8_DEBOUNCE_MS`) re-evaluates against the
+      then-current modtime and content, by which time Drive's batching window has flushed and
+      the corrected value is visible. The debounce applies to **automated trigger modes only** —
+      `mode='cron'`, `mode='push'`, `mode='recovery'`, `mode='asset_recovery'`. **Manual and
+      onboarding modes** (`mode='manual'`, `mode='onboarding'`) bypass the debounce because an
+      explicit operator-triggered sync that catches an empty-cell transient should stage
+      normally so the operator can review and either approve or wait. All other invariants
+      (MI-1..MI-5b, MI-6, MI-7, MI-7b, MI-8c, MI-9, MI-11..MI-14) evaluate immediately in all
+      modes — only MI-8 (financial-field collapse) and MI-8b (COI delta) are debounce-gated,
+      because those are the only invariants whose trip is plausibly a mid-edit transient on a
+      single cell. MI-8c (pull-sheet structural collapse) is NOT debounce-gated: structural
+      sheet-shape changes are not cleared-and-retyped in seconds.
+
+      Tests: (a) `mode='cron'`, `modifiedTime = now - 60s`, parse trips MI-8 → returns `defer`
+      and writes nothing; (b) `mode='cron'`, `modifiedTime = now - 300s`, same parse → MI-8
+      stages normally; (c) same matrix for MI-8b COI deltas; (d) `mode='manual'`,
+      `modifiedTime = now - 10s`, MI-8 trip → stages immediately (debounce bypassed);
+      (e) `mode='cron'`, MI-8c trip with `modifiedTime = now - 10s` → stages immediately
+      (debounce does not apply to MI-8c).
+
+   8. **Spec §6.8 MI-9 — narrowed to capability-affecting flag changes (LEAD bit)**
+      _(applies to M6 onward; ratified 2026-05-09)_. The spec at §6.8 lines 1553 / 1558 stages
+      on **any** `role_flags` delta for an existing crew member, with the rationale "role gates
+      server-side data filtering." Three of the four §6.8 worked examples exercise the LEAD bit
+      specifically (LEAD-loss, LEAD-gain, additive non-LEAD); the fourth is a department change
+      (`A1` → `V1`). LEAD toggles are auth-sensitive: LEAD grants access to the internal ops
+      surface and `shows_internal` financials. Department-designation changes (`A1` ↔ `V1`,
+      `L1` ↔ `L2`, additive `BO`/`SHOP`/etc.) only change which scope tile the crew member sees
+      on their own page — a self-visible UI tweak, not a capability or auth event. Staging both
+      classes uniformly produces operator friction on routine department reassignments without a
+      corresponding security or correctness benefit.
+
+      **The plan ratifies a narrowed MI-9:** Phase 1's MI-9 check stages **only** when the
+      LEAD-bit set membership differs between `prior.role_flags` and `new.role_flags`
+      (i.e., `prior.includes('LEAD') !== new.includes('LEAD')`). All other `role_flags` deltas
+      auto-apply via Phase 2 UPSERT and emit a `ROLE_FLAGS_NOTICE` entry to `admin_alerts` at
+      **`info` severity** (visible in the alert feed but does not contribute to the dashboard's
+      action-required count or banner) so the change is auditable without blocking propagation.
+      **MI-10** (the LEAD-toggle documentation safety net) is now the canonical implementation
+      predicate, and MI-9 is implemented as `MI-10 || false` — i.e., MI-9 and MI-10 collapse
+      into a single LEAD-bit check. The §12.4 catalog gains `ROLE_FLAGS_NOTICE` (info severity,
+      no reviewer action) alongside `MI-9_ROLE_FLAGS_DELTA` (which is now reserved for the
+      LEAD-bit subset).
+
+      Tests: (a) `['A1']` → `['LEAD','A1']` stages with `MI-9_ROLE_FLAGS_DELTA` (LEAD-bit
+      changed); (b) `['LEAD','A1']` → `['LEAD','V1']` auto-applies and emits info-severity
+      `ROLE_FLAGS_NOTICE` (LEAD-bit unchanged, department changed); (c) `['A1']` →
+      `['A1','BO']` auto-applies and emits info-severity `ROLE_FLAGS_NOTICE` (additive
+      non-LEAD); (d) `['LEAD','A1']` → `['A1']` stages with `MI-9_ROLE_FLAGS_DELTA` (LEAD-bit
+      lost). The §6.8 derivation table and §12.4 catalog are patched in the spec to reflect the
+      narrowing. The `tests/messages/_metaAdminAlertCatalog.test.ts` registry (per AGENTS.md
+      §13 meta-test inventory) gains the `ROLE_FLAGS_NOTICE` row.
 
 2. **TDD is mandatory.** Every task starts with a failing test, then the minimal implementation, then a passing test, then a commit. Skipping the failing-test step means the test isn't actually covering what it claims.
 3. **Commit per task.** Commit messages take the form `feat(<area>): <one-line summary>` or `test(<area>): ...` — area names are `parser`, `db`, `sync`, `auth`, `crew-page`, `admin`, `report`, `onboarding`, `assets`, `infra`.
