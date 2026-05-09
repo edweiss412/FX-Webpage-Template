@@ -237,11 +237,13 @@ describe("discardStaged live-scope", () => {
       pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
     );
     const deleteWizardPendingSync = vi.fn(async () => undefined);
+    const markWizardManifestDiscarded = vi.fn(async () => true);
     const syncDeps = {
       ...deps(),
       readWizardPendingSyncForDiscard,
       readActiveWizardSession: vi.fn(async () => W1),
       deleteWizardPendingSync,
+      markWizardManifestDiscarded,
     } as DiscardStagedDeps;
 
     const result = await discardStaged_unlocked(
@@ -259,6 +261,12 @@ describe("discardStaged live-scope", () => {
     expect(result).toEqual({ outcome: "discarded", variant: "try_again" });
     expect(syncDeps.readLivePendingSyncForDiscard).not.toHaveBeenCalled();
     expect(readWizardPendingSyncForDiscard).toHaveBeenCalledWith(tx, "drive-file-1", W1);
+    expect(markWizardManifestDiscarded).toHaveBeenCalledWith(
+      tx,
+      "drive-file-1",
+      W1,
+      "discard_retryable",
+    );
     expect(deleteWizardPendingSync).toHaveBeenCalledWith(tx, "drive-file-1", W1, "staged-wizard");
     expect(syncDeps.deleteLivePendingSync).not.toHaveBeenCalled();
   });
@@ -273,6 +281,7 @@ describe("discardStaged live-scope", () => {
       readActiveWizardSession: vi.fn(async () => W2),
       deleteWizardPendingSync: vi.fn(async () => undefined),
       upsertWizardDeferral: vi.fn(async () => true),
+      markWizardManifestDiscarded: vi.fn(async () => true),
     } as DiscardStagedDeps;
 
     const result = await discardStaged_unlocked(
@@ -290,6 +299,7 @@ describe("discardStaged live-scope", () => {
     expect(result).toEqual({ outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED });
     expect(syncDeps.deleteWizardPendingSync).not.toHaveBeenCalled();
     expect(syncDeps.upsertWizardDeferral).not.toHaveBeenCalled();
+    expect(syncDeps.markWizardManifestDiscarded).not.toHaveBeenCalled();
   });
 
   test("wizard-scope deferral CAS supersession aborts before deleting pending_syncs", async () => {
@@ -302,6 +312,7 @@ describe("discardStaged live-scope", () => {
       readActiveWizardSession: vi.fn(async () => W1),
       deleteWizardPendingSync: vi.fn(async () => undefined),
       upsertWizardDeferral: vi.fn(async () => false),
+      markWizardManifestDiscarded: vi.fn(async () => true),
     } as DiscardStagedDeps;
 
     const result = await discardStaged_unlocked(
@@ -318,6 +329,93 @@ describe("discardStaged live-scope", () => {
 
     expect(result).toEqual({ outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED });
     expect(syncDeps.upsertWizardDeferral).toHaveBeenCalled();
+    expect(syncDeps.markWizardManifestDiscarded).not.toHaveBeenCalled();
+    expect(syncDeps.deleteWizardPendingSync).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ["defer_until_modified", "defer_until_modified"],
+    ["permanent_ignore", "permanent_ignore"],
+  ] as const)(
+    "wizard-scope %s records manifest discard status before deleting pending_syncs",
+    async (variant, manifestStatus) => {
+      const tx = fakeTx() as LockedShowTx<FakeTx>;
+      const syncDeps = {
+        ...deps(),
+        readWizardPendingSyncForDiscard: vi.fn(async () =>
+          pending({
+            stagedId: "staged-wizard",
+            sourceKind: "onboarding_scan",
+            wizardSessionId: W1,
+          }),
+        ),
+        readActiveWizardSession: vi.fn(async () => W1),
+        deleteWizardPendingSync: vi.fn(async () => undefined),
+        upsertWizardDeferral: vi.fn(async () => true),
+        markWizardManifestDiscarded: vi.fn(async () => true),
+      } as DiscardStagedDeps;
+
+      const result = await discardStaged_unlocked(
+        tx,
+        {
+          driveFileId: "drive-file-1",
+          sourceScope: "wizard",
+          wizardSessionId: W1,
+          stagedId: "staged-wizard",
+          variant,
+        },
+        syncDeps,
+      );
+
+      expect(result).toEqual({ outcome: "discarded", variant });
+      expect(syncDeps.upsertWizardDeferral).toHaveBeenCalled();
+      expect(syncDeps.markWizardManifestDiscarded).toHaveBeenCalledWith(
+        tx,
+        "drive-file-1",
+        W1,
+        manifestStatus,
+      );
+      expect(syncDeps.deleteWizardPendingSync).toHaveBeenCalledWith(
+        tx,
+        "drive-file-1",
+        W1,
+        "staged-wizard",
+      );
+    },
+  );
+
+  test("wizard-scope manifest CAS supersession aborts before deleting pending_syncs", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = {
+      ...deps(),
+      readWizardPendingSyncForDiscard: vi.fn(async () =>
+        pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
+      ),
+      readActiveWizardSession: vi.fn(async () => W1),
+      deleteWizardPendingSync: vi.fn(async () => undefined),
+      upsertWizardDeferral: vi.fn(async () => true),
+      markWizardManifestDiscarded: vi.fn(async () => false),
+    } as DiscardStagedDeps;
+
+    const result = await discardStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "wizard",
+        wizardSessionId: W1,
+        stagedId: "staged-wizard",
+        variant: "try_again",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED });
+    expect(syncDeps.markWizardManifestDiscarded).toHaveBeenCalledWith(
+      tx,
+      "drive-file-1",
+      W1,
+      "discard_retryable",
+    );
     expect(syncDeps.deleteWizardPendingSync).not.toHaveBeenCalled();
   });
 

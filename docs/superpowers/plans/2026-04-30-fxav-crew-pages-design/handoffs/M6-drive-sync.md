@@ -70,7 +70,7 @@ Two pin-stops. M5 had two; M6's contract topology is similar (low-level primitiv
 **Pin-stop 2** (target — Codex stops here and reports): full UI-consumable contract surface. Includes:
 
 - `lib/sync/perFileProcessor.ts` — `(driveFileId, mode, fileMeta) => { outcome: 'skip', reason } | { outcome: 'proceed', mode }` (mode-resolution shape that orchestrators forward to phase 1/2)
-- `lib/sync/phase1.ts` — `Phase1Result` discriminated union (`hard_fail` | `stage` | `pass`) + the `triggered_review_items[]` shape (every MI-* code; FIRST_SEEN_REVIEW + ONBOARDING_SCAN_REVIEW sentinels; the four asset-review variants)
+- `lib/sync/phase1.ts` — `Phase1Result` discriminated union (`hard_fail` | `stage` | `pass`) + the `triggered_review_items[]` shape (every MI-* code; legacy `FIRST_SEEN_REVIEW` until M6-D12 retires it; `ONBOARDING_SCAN_REVIEW`; the four asset-review variants)
 - `lib/sync/phase2.ts` — entry signature accepting `LockedShowTx<Tx>`
 - `lib/sync/lockedShowTx.ts` — `withShowLock(driveFileId, fn, opts?)` + branded `LockedShowTx<T>` type (the M6 invariant load-bearer for the single-holder rule)
 - `lib/sync/runScheduledCronSync.ts` — entry point + `processOneFile` / `processOneFile_unlocked` (the lock-owner split — same shape as the M5 Pin-2 advisory-lock helper but specialized for sync)
@@ -502,7 +502,7 @@ Verbatim from spec §17.1 (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-de
 - **AC-6.8** — older parse's UPDATE matches 0 rows under conditional WHERE → `STALE_WRITE_ABORTED`. [§A · 6.5]
 - **AC-6.9** — removed sheet → `last_sync_status = 'sheet_unavailable'`; `last_seen_modified_time` unchanged. [§A · 6.6]
 - **AC-6.10** — reappearance → status returns to `'ok'` (recovery mode). [§A · 6.5/6.6]
-- **AC-6.11** — first-seen sheet → `pending_syncs` row with `FIRST_SEEN_REVIEW`; no `shows` row until Apply. [§A · 6.4 + §B · ParsePanel render]
+- **AC-6.11** — AMENDED by overview Amendment 9. Current shipped code still follows the pre-amendment live first-seen staging behavior (`FIRST_SEEN_REVIEW`; no `shows` row until Apply) and must not be claimed as satisfying amended AC-6.11. Amendment 9 live first-seen auto-publish + 24h unpublish undo is deferred as M6-D12 in `DEFERRED.md`. Onboarding-scan first-seen review remains shipped. [§A · 6.4 + M6-D12 deferred]
 - **AC-6.12** — Realtime publish on `show:<id>` (M4 broadcast). [§A · 6.5/6.6]
 - **AC-6.13** — exactly one `active` watch row after onboarding; renewal cron creates fresh + supersedes prior when `expires_at < now + 24h`. [§A · 6.9]
 - **AC-6.14** — push happy path: edit → webhook → `last_seen_modified_time` advances within ~5s. [§A · 6.10]
@@ -529,8 +529,12 @@ Note: spec also enumerates partial AC-8.9..8.13 overlap for `sync_audit`-related
 - [ ] Amendment 3 — `lease_holder` ownership protocol — **N/A — only M8.**
 - [ ] Amendment 4 — `{v1, v2, v4}` parser registry — **N/A — only M1.**
 - [ ] Amendment 5 — v4 single-marker simplification — **N/A — only M1.**
+- [x] Amendment 6 — Sheets modtime-CAS binding — **IN SCOPE — shipped in Pin-stop 1.5 / Pin-stop 2.**
+- [x] Amendment 7 — MI-8 / MI-8b modtime-stable debounce — **IN SCOPE — shipped as Pin-stop 2 correction.**
+- [x] Amendment 8 — MI-9 LEAD-bit narrowing + `ROLE_FLAGS_NOTICE` — **IN SCOPE — shipped as Pin-stop 2 correction.**
+- [ ] Amendment 9 — first-seen auto-publish + 24h unpublish undo — **DEFERRED as M6-D12.** The plan text in `06-drive-sync.md` describes the ratified target contract, but this backend handoff explicitly does not close amended AC-6.11 until M6-D12 ships.
 
-M6 does not touch the report pipeline or the parser registry.
+M6 does not touch the report pipeline or the parser registry. Amendment 9 is ratified but explicitly deferred in this handoff; Tasks 6.8-6.10 and their review loop do not close amended AC-6.11.
 
 ## 4. Pre-handoff state
 

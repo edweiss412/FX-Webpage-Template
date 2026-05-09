@@ -80,18 +80,30 @@ describe("M6 pending-row partition scope contract", () => {
     }
   });
 
-  test("Discard wizard-scope SELECT, DELETE, and deferral writes carry wizard_session_id equality", () => {
+  test("Discard wizard-scope SELECT, DELETE, deferral, and manifest writes carry wizard_session_id equality", () => {
     const discardStaged = source("lib/sync/discardStaged.ts");
     const windows = [
       ...windowsAround(discardStaged, "from public\\.pending_syncs", 420),
       ...windowsAround(discardStaged, "delete from public\\.pending_syncs", 420),
       ...windowsAround(discardStaged, "insert into public\\.deferred_ingestions", 560),
+      ...windowsAround(discardStaged, "update public\\.onboarding_scan_manifest", 560),
     ].filter((sqlWindow) => sqlWindow.toLowerCase().includes("wizard_session_id ="));
 
-    expect(windows.length).toBeGreaterThanOrEqual(3);
+    expect(windows.length).toBeGreaterThanOrEqual(4);
     expect(discardStaged.toLowerCase()).toContain(
       "on conflict (drive_file_id, wizard_session_id) where wizard_session_id is not null",
     );
+  });
+
+  test("Discard wizard-scope manifest status update carries active-wizard-session CAS", () => {
+    const discardStaged = source("lib/sync/discardStaged.ts");
+    const windows = windowsAround(
+      discardStaged,
+      "update public\\.onboarding_scan_manifest",
+      720,
+    ).filter((sqlWindow) => sqlWindow.toLowerCase().includes("pending_wizard_session_id"));
+
+    expect(windows.length).toBeGreaterThanOrEqual(1);
   });
 
   test("Onboarding scan writes target only the wizard partition", () => {

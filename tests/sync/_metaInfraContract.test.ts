@@ -63,6 +63,11 @@ const infraRegistry = [
     path: "app/api/drive/webhook/route.ts",
     contract: "webhook transaction-port faults become DriveWebhookInfraError",
   },
+  {
+    helper: "discardStaged",
+    path: "lib/sync/discardStaged.ts",
+    contract: "discard transaction-port faults propagate instead of becoming benign discard outcomes",
+  },
 ] as const;
 
 function read(path: string): string {

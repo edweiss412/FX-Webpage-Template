@@ -14,6 +14,10 @@ export { INVALID_REVIEWER_ACTION, PENDING_SYNC_NOT_FOUND, WIZARD_SESSION_SUPERSE
 export const STALE_DISCARD_REJECTED = "STALE_DISCARD_REJECTED" as const;
 
 export type DiscardVariant = "try_again" | "defer_until_modified" | "permanent_ignore";
+type WizardDiscardManifestStatus =
+  | "discard_retryable"
+  | "defer_until_modified"
+  | "permanent_ignore";
 
 export type PendingSyncForDiscard = {
   driveFileId: string;
@@ -97,6 +101,12 @@ export type DiscardStagedDeps = {
   upsertWizardDeferral?: (
     tx: LockedShowTx<SyncPipelineTx>,
     row: WizardDeferralInput,
+  ) => Promise<boolean>;
+  markWizardManifestDiscarded?: (
+    tx: LockedShowTx<SyncPipelineTx>,
+    driveFileId: string,
+    wizardSessionId: string,
+    status: WizardDiscardManifestStatus,
   ) => Promise<boolean>;
   deleteWizardPendingSync?: (
     tx: LockedShowTx<SyncPipelineTx>,
@@ -310,6 +320,31 @@ async function defaultUpsertWizardDeferral(
   return Boolean(written?.upserted);
 }
 
+async function defaultMarkWizardManifestDiscarded(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  wizardSessionId: string,
+  status: WizardDiscardManifestStatus,
+): Promise<boolean> {
+  const updated = await tx.queryOne<{ updated: boolean } | null>(
+    `
+      update public.onboarding_scan_manifest
+         set status = $3,
+             transitioned_at = now()
+       where drive_file_id = $1
+         and wizard_session_id = $2::uuid
+         and exists (
+           select 1 from public.app_settings
+            where id = 'default'
+              and pending_wizard_session_id = $2::uuid
+         )
+      returning true as updated
+    `,
+    [driveFileId, wizardSessionId, status],
+  );
+  return Boolean(updated?.updated);
+}
+
 async function defaultDeleteWizardPendingSync(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
@@ -340,6 +375,8 @@ function depsWithDefaults(deps: DiscardStagedDeps): Required<DiscardStagedDeps> 
     deleteLivePendingSync: deps.deleteLivePendingSync ?? defaultDeleteLivePendingSync,
     upsertLiveDeferral: deps.upsertLiveDeferral ?? defaultUpsertLiveDeferral,
     upsertWizardDeferral: deps.upsertWizardDeferral ?? defaultUpsertWizardDeferral,
+    markWizardManifestDiscarded:
+      deps.markWizardManifestDiscarded ?? defaultMarkWizardManifestDiscarded,
     deleteWizardPendingSync: deps.deleteWizardPendingSync ?? defaultDeleteWizardPendingSync,
   };
 }
@@ -383,6 +420,15 @@ export async function discardStaged_unlocked(
       if (!wroteDeferral) {
         return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
       }
+    }
+    const markedManifest = await deps.markWizardManifestDiscarded(
+      tx,
+      pending.driveFileId,
+      args.wizardSessionId,
+      variant === "try_again" ? "discard_retryable" : variant,
+    );
+    if (!markedManifest) {
+      return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
     }
     await deps.deleteWizardPendingSync(
       tx,
