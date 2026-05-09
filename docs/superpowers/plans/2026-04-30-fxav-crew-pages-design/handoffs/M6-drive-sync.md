@@ -224,6 +224,120 @@ export function synthesizeMarkdownFromXlsx(buffer: ArrayBuffer): string;
 
 `fetchSheetAsMarkdownAtRevision`'s xlsx export path fails mid-flight: the captured token no longer matches before xlsx bytes are fetched, the xlsx export link is missing, the authenticated xlsx fetch returns 404, or the post-byte metadata re-read shows a token mismatch. All classify as `STAGED_PARSE_REVISION_RACE`.
 
+### Pinned contract @ c00ea3a (Pin-stop 2 — 2026-05-09)
+
+Tasks 6.3, 6.4, 6.5, and 6.6 backend engine surface shipped: gating, Phase 1, Phase 2, locked cron orchestration, cron routes, Vercel schedules, M6 message catalog entries, and structural meta-tests.
+
+```ts
+// lib/sync/perFileProcessor
+export type SyncMode = "cron" | "push" | "manual" | "onboarding_scan";
+export type ResolvedSyncMode = SyncMode | "recovery" | "asset_recovery";
+export type PerFileProcessorResult =
+  | { outcome: "skip"; reason: "deferred_permanent" | "deferred_modtime" | "watermark" | "partial_failure_restage_required" }
+  | { outcome: "proceed"; mode: ResolvedSyncMode };
+export class SyncInfraError extends Error {
+  readonly operation: string;
+  readonly source: "returned_error" | "thrown_error";
+}
+export function perFileProcessor(
+  driveFileId: string,
+  mode: SyncMode,
+  fileMeta: DriveListedFile,
+): Promise<PerFileProcessorResult>;
+
+// lib/sync/phase1
+export type Phase1Binding = {
+  bindingToken: string;
+  modifiedTime: string;
+};
+export type Phase1Result =
+  | { outcome: "hard_fail"; code: string; failedCodes: string[]; message: string }
+  | { outcome: "stage"; triggeredReviewItems: TriggeredReviewItem[]; stagedId: string }
+  | { outcome: "pass" };
+export function runPhase1(tx: Phase1Tx, args: Phase1Args): Promise<Phase1Result>;
+
+// lib/sync/phase2
+export type Phase2Mode = Exclude<ResolvedSyncMode, "asset_recovery">;
+export type Phase2Result =
+  | { outcome: "applied"; showId: string }
+  | { outcome: "stale"; code: "STALE_WRITE_ABORTED" | "STALE_PUSH_ABORTED" | "STALE_MANUAL_REPLAY_ABORTED" };
+export function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2Result>;
+
+// lib/sync/lockedShowTx
+export type LockedShowTx<T extends LockableSyncTx> = T & { readonly [lockedShowTxBrand]: true };
+export const CONCURRENT_SYNC_SKIPPED: "CONCURRENT_SYNC_SKIPPED";
+export function withShowLock<T extends LockableSyncTx, R>(
+  driveFileId: string,
+  fn: (tx: LockedShowTx<T>) => Promise<R> | R,
+  options?: WithShowLockOptions<T>,
+): Promise<R | ConcurrentSyncSkipped>;
+export function assertShowLockHeld<T extends LockableSyncTx>(
+  tx: LockedShowTx<T>,
+  driveFileId: string,
+): Promise<void>;
+
+// lib/sync/runScheduledCronSync
+export type ProcessOneFileResult =
+  | { outcome: "skipped"; reason: string }
+  | { outcome: "asset_recovery" }
+  | { outcome: "stage"; stagedId: string }
+  | { outcome: "hard_fail"; code: string }
+  | { outcome: "applied"; showId: string }
+  | { outcome: "stale"; code: string }
+  | { outcome: "revision_race"; code: "STAGED_PARSE_REVISION_RACE" }
+  | { outcome: "source_gone"; code: "STAGED_PARSE_SOURCE_GONE" }
+  | { outcome: "parse_error"; code: SyncFailureCode }
+  | ConcurrentSyncSkipped;
+export function processOneFile(
+  driveFileId: string,
+  mode: SyncMode,
+  fileMeta: DriveListedFile,
+  deps?: ProcessOneFileDeps,
+): Promise<ProcessOneFileResult>;
+export function processOneFile_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  mode: SyncMode,
+  fileMeta: DriveListedFile,
+  deps?: ProcessOneFileDeps,
+): Promise<ProcessOneFileResult>;
+export function runScheduledCronSync(deps?: RunScheduledCronSyncDeps): Promise<RunScheduledCronSyncResult>;
+
+// app/api/cron/sync/route
+export function GET(request: NextRequest): Promise<Response>;
+
+// app/api/cron/keepalive/route
+export function GET(request: NextRequest): Promise<Response>;
+```
+
+**Spreadsheet binding contract at Pin-stop 2:**
+
+- `Phase1Binding.bindingToken = metadata.headRevisionId ?? metadata.modifiedTime`.
+- Spreadsheet-level `STAGED_PARSE_REVISION_RACE` classes are exactly:
+  - post-fetch token mismatch from `fetchSheetAsMarkdownAtRevision`
+  - missing xlsx export link or xlsx fetch HTTP 404
+  - post-enrichment token mismatch before Phase 1
+- Spreadsheet file 404 / source gone remains `STAGED_PARSE_SOURCE_GONE`.
+- Binary-asset enrichment retains full revision-pinning classification and does not inherit the spreadsheet modtime-CAS fallback.
+
+**Structural guards shipped and passing:**
+
+- `tests/sync/_metaInfraContract.test.ts`
+- `tests/sync/_advisoryLockSingleHolderContract.test.ts`
+- `tests/sync/_phase2InvariantContract.test.ts`
+- `tests/sync/_partitionScopeContract.test.ts`
+- `tests/drive/no-unpinned-export.test.ts`
+- `tests/admin/no-inline-email-normalization.test.ts` now audits `lib/drive/**` and `lib/sync/**`.
+
+**Pin-stop 2 deviation / extension needed:**
+
+- `app/api/admin/sync/[slug]/route.ts` and `app/api/admin/staged/[fileId]/{apply,discard}/route.ts` are still absent at this pin. The current task list assigns those implementations to Task 6.7 and Task 6.11/6.12, but §0's Pin-stop 2 UI-consumable surface also lists their contracts. Treat this as a Pin-stop-2-extension before §B starts if the UI must consume live routes rather than the engine contracts above.
+
+**Verification at Pin-stop 2 code SHA `c00ea3a`:**
+
+- `pnpm test && pnpm lint && pnpm typecheck` — exits 0
+- Test count: 1900 passed, 5 skipped
+
 ---
 
 ## 1. Spec sections in scope
