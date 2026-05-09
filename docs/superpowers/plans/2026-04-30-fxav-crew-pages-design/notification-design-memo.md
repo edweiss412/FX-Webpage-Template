@@ -3,17 +3,21 @@
 > **Status:** Forward-looking design memo. Not yet a spec section, not yet a milestone plan. Captures design principles for whichever future milestone owns the push-notification surface.
 >
 > **Drafted:** 2026-05-09
-> **Updated:** 2026-05-09 with provisional answers to BLOCKER questions §1.1, §1.2, §4.1, §5.1, §6.1, §7.3 from `doug-validation-questions.md` (Eric, pending Doug confirmation).
-> **Source:** Conversation thread following ratification of plan amendments 7 + 8 (`00-overview.md`). Triggered by the observation that the spec currently has zero push surface — the dashboard is purely pull, and Doug's natural surface is Drive, not the dashboard.
+> **Updated:** 2026-05-09 with answers to all BLOCKER + CALIBRATION questions from `doug-validation-questions.md`. Multiple corrections vs. earlier-day Eric provisional answers (§4.1 expanded to multi-channel, §5.1 corrected — Doug has no existing feedback habit).
+> **Source:** Conversation thread following ratification of plan amendments 7 + 8 (`00-overview.md`) and 9 (FIRST_SEEN_REVIEW becomes auto-publish with 24h email-undo).
 > **Suggested home:** New milestone (M11+ or post-v1) once core sync + admin surfaces stabilize. Do NOT retrofit into M6–M10 — those have their own scope and ship priorities. This memo is the load-bearing context the future milestone-spec-author should read first.
 
 **Calibrated assumptions** (from validation doc, 2026-05-09):
 
-- **Channel:** email primary for v1; `lib/notify/` abstraction supports SMS as a second channel without re-architecting (build channel-agnostic from day 1, ship email-only).
-- **Show count:** 10–15 simultaneous shows is the realistic upper bound. Cross-show coalescing in the daily digest is **mandatory**, not optional.
-- **Feedback channel:** reply-to-email is the **primary** feedback path (matches Doug's existing "text or email Eric" habit). One-click "Report a problem" links and structured forms are secondary.
-- **Live-edits propagation:** confirmed — once a sheet is in the watched folder, edits flow live. No publish-gate layer; MI staging gates handle the suspicious-change carve-outs.
-- **Sharing-as-publishing:** "I shared the link" means final, not draft. Leans toward auto-publish-with-email-undo on FIRST_SEEN_REVIEW, but §7.1 is still open — final call deferred.
+- **Channel (§4.1):** Email primary for v1. **SMS is the FIRST follow-on channel** for v1+1 (not vague "someday" — Doug values it as a high-reach surface). Mobile push notifications (PWA) are channel #3, lower priority than SMS. `lib/notify/` abstraction is channel-agnostic from day 1 (`'email' | 'sms' | 'webhook'` enum) so SMS lands without re-architecting. Tier-1 (real-time push) events specifically may warrant SMS even in v1 for time-sensitivity — defer this scope decision to the push-surface milestone.
+- **Show count (§6.1):** 10–15 simultaneous shows is the realistic upper bound. Cross-show coalescing in the daily digest is **mandatory**, not optional. Per-show tier-2 emails are NEVER sent — only the cross-show digest.
+- **Feedback channel (§5.1, corrected):** Doug currently has **NO existing feedback habit** — he's the sole owner of his sheets and just edits them in place rather than telling a dev. This is "create a new behavior" not "match an existing habit." Reorder forms: (1) one-click "Report a problem" link is **most discoverable** for a non-dev with no prior habit, (2) reply-to-email is **lowest friction once known** but Doug needs to discover it works, (3) one-click Apply-from-email handles the convenience case. Match Doug's §5.2 / §5.3 answers — natural-language input + auto-attached structured context.
+- **Confirmation on first-publish (§4.4 + amendment 9):** Auto-publish on first-seen (per amendment 9) fires a **tier-1 `SHOW_FIRST_PUBLISHED` push** containing the parse summary AND a one-click 24h unpublish-undo button. This is the post-publish confirmation Doug asked for, doubling as the wrong-folder-mistake recovery surface.
+- **Live-edits propagation (§7.3):** Confirmed — once a sheet is in the watched folder, edits flow live. No publish-gate layer; MI staging gates handle the suspicious-change carve-outs.
+- **Sharing-as-publishing (§1.2 + §7.1):** "I shared the link" = final unless updates arrive. Folder IS the publish gate. Auto-publish on first-seen with 24h email-undo is now the canonical design (amendment 9, ratified 2026-05-09).
+- **Daily digest send time (§4.2):** Doug is an early riser → `DIGEST_HOUR_LOCAL = 7` (7am ET) bias earlier than 8am default. Refine when Doug confirms specific start time.
+- **One-click Apply scope (§4.5):** Prioritize convenience. Expand from low-stakes-only to all non-auth-sensitive stagings. Auth-sensitive (MI-11, MI-12/13/14) still requires dashboard click-through to see the diff before bumping auth floors.
+- **Per-show review (§6.2):** Doug reviews each show separately. Daily digest groups by show, not by item type.
 
 ---
 
@@ -111,15 +115,15 @@ Inverse-test for whether a push is well-calibrated: would Doug be surprised to r
 
 If we're already in Doug's email asking him to act, that's also the right surface for him to flag things back to us. Every push notification must carry a feedback affordance — Doug should never have to context-switch to the dashboard to tell us something looks wrong.
 
-**Three forms of feedback embedded in every push, ordered by Doug's existing habit (validated 2026-05-09 — his current channel for "something's wrong" is text or email to Eric, conversational not ticket-based):**
+**Three forms of feedback embedded in every push, ordered by discoverability for a non-dev with no prior habit (corrected 2026-05-09 — Doug is currently the sole owner of his sheets and doesn't have an existing dev-feedback habit; the design is "create a new behavior" not "match an existing one"):**
 
-1. **Reply-to-email feedback (PRIMARY).** Every push email's `Reply-To:` header points at an ingest address that lands the reply in `feedback_inbox` and (if the body exceeds a min-quality threshold) auto-promotes to a GitHub issue via the existing M8 `/api/report` pipeline. Doug hits reply with freeform notes from any mail client — exactly mirroring his current "text or email Eric" habit. **This is the form to optimize hardest;** it's the lowest-friction path AND matches what Doug already does. Works without clicking any link.
+1. **One-click "Report a problem" link (PRIMARY — most discoverable).** Every push email contains a clearly-labeled link / button → opens a freeform-text form with the show + staging + parse context auto-attached server-side. Doug types 1–2 sentences in natural language; submission lands as a GitHub issue via the existing M8 `/api/report` pipeline. **This is the form to optimize hardest** because it's the most visible affordance for a non-dev — clear button > implicit reply, and Doug doesn't need to discover anything to use it. The form ONLY asks for natural-language description; severity, category, and structured fields are auto-derived from context (per Doug-validation §5.2 — "Doug is a non-dev so natural-language description is more natural; the system needs full context to be useful").
 
-2. **One-click "Report a problem" link.** Secondary path for cases where reply isn't natural (e.g., a digest covering 5 shows where Doug wants to flag one specifically). Pre-filled form / GitHub issue with show + staging + parse context already attached. Doug clicks → optionally types 1–2 sentences → submits.
+2. **Reply-to-email feedback (SECONDARY — lowest friction once known).** Every push email's `Reply-To:` header points at an ingest address that lands the reply in `feedback_inbox` and (if the body exceeds a min-quality threshold) auto-promotes to a GitHub issue via the same M8 `/api/report` pipeline. Doug hits reply with freeform notes from any mail client. **Lowest friction path** — works without clicking any link, supports mobile mail clients with no JavaScript — but Doug has to discover that reply-to works. Worth supporting from day 1; don't bank on Doug discovering it organically. Behavior measurement post-launch (per `doug-validation-questions.md` §4.3 [OBSERVE]).
 
-3. **One-click "This is fine, apply" button.** Tertiary — for low-stakes stagings (non-auth-sensitive: MI-6, MI-7, MI-7b, MI-8, MI-8b, MI-8c), the email carries an Apply-from-email button using a signed action token (short-lived, one-shot). Higher-stakes stagings (MI-11 email change, MI-12/13/14 renames, FIRST_SEEN_REVIEW) still require dashboard click-through so Doug sees the diff. Use sparingly.
+3. **One-click "Apply from email" button (TERTIARY — convenience for the common case).** For non-auth-sensitive stagings (per Doug-validation §4.5 — "prioritize convenience"; expand scope from initial "low-stakes only" to **all** non-auth-sensitive: MI-6, MI-7, MI-7b, MI-8, MI-8b, MI-8c, MI-9 LEAD-bit), the email carries an Apply-from-email button using a signed action token (short-lived, one-shot). Auth-sensitive stagings (MI-11 email change, MI-12/13/14 renames) still require dashboard click-through so Doug sees the diff before bumping auth floors that kill active links. The 24h unpublish-undo button on `SHOW_FIRST_PUBLISHED` confirmations (per amendment 9) is a specific instance of this pattern.
 
-The integration with M8's report pipeline is the key insight: we already have a "feedback to dev" surface (GitHub Issues via `/api/report`). Extending it to accept email-originated reports is additive. Doug's mental model becomes "if something's off in the email, hit reply or click the button — same thing happens either way." Match his existing habit (reply-to-email) first; offer structure (forms, buttons) as fallback for cases where reply doesn't fit.
+The integration with M8's report pipeline is the key insight: we already have a "feedback to dev" surface (GitHub Issues via `/api/report`). Extending it to accept both click-through and reply-to-email submissions is additive. Doug's mental model becomes "if something's off in the email, click the button or hit reply — same thing happens either way." Build the explicit button first because it's discoverable; add reply-to-email as a power-user shortcut.
 
 ---
 
@@ -128,16 +132,20 @@ The integration with M8's report pipeline is the key insight: we already have a 
 **Schema additions:**
 
 ```sql
--- pending_syncs
+-- pending_syncs (push scheduling state)
 ALTER TABLE pending_syncs ADD COLUMN email_sent_at timestamptz;
 ALTER TABLE pending_syncs ADD COLUMN email_action_token uuid; -- for one-click Apply-from-email
 ALTER TABLE pending_syncs ADD COLUMN email_action_token_expires_at timestamptz;
+
+-- shows (24h unpublish-undo per amendment 9)
+ALTER TABLE shows ADD COLUMN unpublish_token uuid; -- minted on first-seen Phase 2 auto-apply; consumed on /unpublish redemption
+ALTER TABLE shows ADD COLUMN unpublish_token_expires_at timestamptz; -- = first-publish-time + 24h
 
 -- new table: push_log
 CREATE TABLE push_log (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   show_id uuid REFERENCES shows(id) ON DELETE CASCADE,
-  pending_syncs_id uuid, -- nullable; not all pushes are about stagings
+  pending_syncs_id uuid, -- nullable; not all pushes are about stagings (e.g., SHOW_FIRST_PUBLISHED)
   tier text NOT NULL CHECK (tier IN ('realtime', 'digest', 'promotion')),
   channel text NOT NULL CHECK (channel IN ('email', 'sms', 'webhook')),
   recipient text NOT NULL, -- email address or phone number
@@ -166,6 +174,7 @@ CREATE TABLE feedback_inbox (
 - `POST /api/push/scheduler` — cron-tick endpoint that evaluates `pending_syncs` rows against the push-debounce predicate and sends emails. Per-show advisory locked just like the sync routes.
 - `POST /api/email/inbound` — webhook endpoint for the email provider (Resend / Postmark / SES); ingests Doug's replies and creates `feedback_inbox` rows.
 - `GET /api/email/action/[token]` — handles one-click Apply-from-email; validates the signed token, runs the standard Apply path with the lock + Drive re-verify, redirects to the dashboard with a success/failure flash.
+- **`POST /api/show/[slug]/unpublish?token=<uuid>`** (per amendment 9) — handles the 24h unpublish-undo from a `SHOW_FIRST_PUBLISHED` confirmation email. Validates: token matches `shows.unpublish_token`, `unpublish_token_expires_at > now()`, token has not been consumed (single-use; first redemption clears it). On success: `UPDATE shows SET archived_at = now(), unpublish_token = NULL, unpublish_token_expires_at = NULL WHERE slug = $1`; revoke `link_sessions` issued during the publish window (`UPDATE link_sessions SET revoked_at = now() WHERE show_id = (SELECT id FROM shows WHERE slug = $1) AND issued_at >= shows.created_at`); INSERT `admin_alerts` `SHOW_UNPUBLISHED`. On token-consumed → 400 `UNPUBLISH_TOKEN_CONSUMED`. On token-expired → 400 `UNPUBLISH_TOKEN_EXPIRED`. Redirects to a confirmation page; no dashboard navigation required.
 
 **Email provider:** prefer a Vercel-Marketplace-native option for OIDC env auth. Resend has a Vercel integration. Postmark has good deliverability. SES is cheapest but requires more config. Decide at spec-write time; the provider is swappable as long as send + inbound webhook are abstracted in `lib/notify/`.
 
@@ -173,10 +182,11 @@ CREATE TABLE feedback_inbox (
 
 ```ts
 export const PUSH_DEBOUNCE_MS = 240_000; // 4 min — same as MI8_DEBOUNCE_MS
-export const DIGEST_HOUR_LOCAL = 8; // send daily digest at 8am operator-local
+export const DIGEST_HOUR_LOCAL = 7; // send daily digest at 7am operator-local (Doug is an early riser per §4.2)
 export const DIGEST_TIMEZONE = 'America/New_York'; // Doug's TZ; configurable per operator in v2
 export const PROMOTE_AFTER_HOURS = 24; // unactioned digest item escalates to realtime
 export const EMAIL_ACTION_TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+export const UNPUBLISH_UNDO_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h — amendment 9 first-publish unpublish window
 ```
 
 ---

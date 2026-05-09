@@ -249,17 +249,21 @@ These are the "we already decided X, but let's double-check" questions. Often an
 **Design follow-up:** Leans toward auto-publish on FIRST_SEEN_REVIEW (since Doug has already decided "this is ready" by moving it). However, §7.1 is still open and that's the canonical decision point. When §7.1 is decided, this answer informs the default direction. **Cross-link:** the related concern is "what if Doug drags the wrong file?" — caught by FIRST_SEEN_REVIEW today, would be uncaught with auto-publish. A possible compromise (auto-apply after a 4h email-delayed window with one-click cancel) preserves both the "trust the drag" UX and the "wrong-folder mistake" safety net. Capture for §7.1 deliberation.
 **Audit trail:** Conversation 2026-05-09; commit forthcoming.
 
-### §4.1 — Attention surface channel choice — answered 2026-05-09 (Eric, pending Doug confirmation)
+### §4.1 — Attention surface channel choice — answered 2026-05-09 (Eric provisional + Doug expansion same day)
 
-**Answer:** **Email is the primary channel** for v1. Doug edits documents on PC/laptop, so email is most accessible to him. Build the `lib/notify/` abstraction to support SMS as a second channel without re-architecting — but ship email-only first.
-**Design follow-up:** Update `notification-design-memo.md` Tier 1 / Tier 2 surface column to lock in "email" rather than equivocating across SMS/Slack/PWA. Keep the channel column as `text` enum in the `push_log` schema (`'email' | 'sms' | 'webhook'`) so SMS provider can land later without migration. Drop the "Slack/Teams" option from the alternatives — out of scope for v1 and not aligned with Doug's surface.
-**Audit trail:** Conversation 2026-05-09; commit forthcoming.
+**Eric's provisional answer (2026-05-09 morning):** Email primary; build SMS-ready abstraction.
+**Doug's actual answer (2026-05-09 same day):** Email, SMS, AND mobile notifications are all high-reach attention surfaces — value all three.
+**Reconciled answer:** Email remains v1 primary (Doug works on PC/laptop; quickest to ship). **SMS becomes the FIRST follow-on channel post-v1**, NOT a "maybe someday" — Doug values it as a high-reach surface. Mobile push notifications (PWA) are a third channel, lower priority than SMS for v1+1 scope. Channel-agnostic abstraction (`'email' | 'sms' | 'webhook'`) ships day 1.
+**Design follow-up:** Update `notification-design-memo.md` to reflect that SMS is a planned v1+1 deliverable, not a vague "follow-on." For tier-1 (real-time push) events specifically, consider whether SMS is the right channel from day 1 — auth-sensitive events (MI-11, renames) may warrant SMS even in v1 for time-sensitivity. Defer this decision; flag for the push-surface milestone.
+**Audit trail:** Conversation 2026-05-09; commit `c86a201` (initial Eric answer); commit forthcoming (Doug expansion).
 
-### §5.1 — Current feedback channel — answered 2026-05-09 (Eric, pending Doug confirmation)
+### §5.1 — Current feedback channel — answered 2026-05-09 (Eric provisional + Doug correction same day)
 
-**Answer:** When something looks wrong, Doug **adjusts the sheet directly first**, then **texts or emails** Eric (or whoever's running the show) if there's an adjustment that needs to be communicated before in-person contact. Current flow is conversational, not ticket-based.
-**Design follow-up:** **Reply-to-email feedback is the primary integration**, not a secondary nice-to-have. The notification-design-memo §6 currently lists three feedback forms with implicit priority on click-through forms; reorder so reply-to-email is form 1 (matches Doug's existing habit), one-click "Report a problem" link is form 2 (gives a structured path when reply is awkward), structured form is form 3 (deepest path, rarely needed). Update memo accordingly.
-**Audit trail:** Conversation 2026-05-09; commit forthcoming.
+**Eric's provisional answer (2026-05-09 morning):** Doug texts or emails Eric for last-minute adjustments before in-person contact.
+**Doug's actual answer (2026-05-09 same day):** Doug is the **SOLE owner of his sheets currently**. He **doesn't currently tell Eric when something looks wrong — he just edits the sheet directly** (because the sheet IS the source of truth and the only place anyone reads from). There is no existing dev-feedback habit to leverage.
+**Reconciled answer:** **No existing feedback channel exists between Doug and the dev.** This isn't a "match the existing habit" design problem — it's a "create a new behavior" design problem. Reply-to-email being "primary because Doug already replies to Eric" is incorrect; he doesn't have the habit yet.
+**Design follow-up:** **Reorder feedback forms** (reverses the prior commit's reordering): explicit one-click "Report a problem" link becomes form 1 (most discoverable surface for a non-dev with no prior habit — clear button > implicit reply); reply-to-email becomes form 2 (lowest friction once known but requires Doug to know it works); one-click "Apply from email" stays form 3 (specific use case — low-stakes Apply convenience). Match Doug's §5.2 + §5.3 answers — natural-language description with full context — by making the Report form accept freeform text + auto-attach the show/staging context.
+**Audit trail:** Conversation 2026-05-09; commit `c86a201` (Eric's incorrect provisional); commit forthcoming (Doug correction).
 
 ### §6.1 — Simultaneous show count — answered 2026-05-09 (Eric, pending Doug confirmation)
 
@@ -275,14 +279,126 @@ These are the "we already decided X, but let's double-check" questions. Often an
 
 ---
 
+### §1.3 — Currently when Doug shares the link, what happens? — answered 2026-05-09 (Eric, observable)
+
+**Answer:** Eric opens the shared Sheets link to view info. Has been making a copy to own Drive but easier to click Doug's link directly.
+**Design follow-up:** No design impact — context-only question. Confirms watched-folder doesn't disrupt an existing import flow because there isn't one to disrupt.
+**Audit trail:** Conversation 2026-05-09.
+
+### §2.1 — Live vs batch editing — answered 2026-05-09 (Eric)
+
+**Answer:** Probably live editing (info goes in as it arrives).
+**Design follow-up:** No change — confirms PUSH_DEBOUNCE_MS = 240_000 (4 min) is well-calibrated for live editing. Live editor + 4 min debounce = transients self-clear cleanly.
+**Audit trail:** Conversation 2026-05-09.
+
+### §2.2 — Draft mode on published sheets — answered 2026-05-09 (Eric)
+
+**Answer:** Doug doesn't go back into "draft mode" after sharing — post-share edits are additive / corrective, not big restructures.
+**Design follow-up:** Confirms MI-6 (crew shrinkage) and MI-7 (section shrinkage) thresholds are appropriately conservative for Doug's workflow. A >50% section drop or crew loss > 1 IS suspicious for him, not normal. No threshold tuning needed.
+**Audit trail:** Conversation 2026-05-09.
+
+### §2.3 — Update frequency leading up to a show — answered 2026-05-09 (Eric)
+
+**Answer:** As info comes in. No set schedule.
+**Design follow-up:** No tunable affected. Daily digest still appropriate for tier-2; tier-1 still real-time. Variable cadence is what daily digest handles.
+**Audit trail:** Conversation 2026-05-09.
+
+### §2.4 — Multi-tab / multi-device — answered 2026-05-09 (Eric)
+
+**Answer:** Doug edits on mobile sometimes; can have the sheet open in two tabs.
+**Design follow-up:** Mobile editing is more autosave-event-prone than desktop (cell-by-cell autosaves); validates the push-debounce rationale further. Two-tab editing is already handled by the spec's same-revision-binding contract — no change. Multi-device implies the future SMS channel (§4.1 expansion) is meaningful — Doug has phone in hand often.
+**Audit trail:** Conversation 2026-05-09.
+
+### §3.1 / §3.2 / §3.3 — Edit micro-behavior — answered 2026-05-09 (Eric, "could be either")
+
+**Answer:** Eric doesn't know whether Doug clears-and-retypes financial cells (§3.1), deletes-then-readds crew rows (§3.2), or edits emails in place (§3.3) — could be any of these depending on Doug's habits.
+**Design follow-up:** Confirms the [OBSERVE] tag — answerable from production sync logs once the system runs, not from conversation. Push-debounce + MI staging gates handle either pattern correctly. The MI-8 modtime debounce (amendment 7) covers §3.1 transients regardless of which pattern Doug uses.
+**Audit trail:** Conversation 2026-05-09.
+
+### §3.4 — Non-LEAD role flag change frequency — answered 2026-05-09 (Eric)
+
+**Answer:** Non-LEAD changes definitely happen, but roles are usually set up-front and stable through the show.
+**Design follow-up:** Validates amendment 8 (MI-9 narrowing). Non-LEAD changes happen but aren't frequent enough to justify staging them — the info-severity `ROLE_FLAGS_NOTICE` admin alert is the right calibration. Amendment 8 stands as written.
+**Audit trail:** Conversation 2026-05-09.
+
+### §3.5 — LEAD toggle predictability — answered 2026-05-09 (Eric)
+
+**Answer:** LEADs are usually decided when crew is determined (i.e., up-front, deliberately). Emergency upgrades are theoretically possible (e.g., a LEAD no-shows and a non-LEAD covers) but Eric can't recall it happening.
+**Design follow-up:** Validates the LEAD-toggle staging gate (MI-10 / narrowed MI-9). Predictable LEAD assignment + rare emergency changes = the gate is value-add (catches the emergency case), not friction (Doug is rarely making LEAD changes anyway). Amendment 8 stands.
+**Audit trail:** Conversation 2026-05-09.
+
+### §4.2 — Doug's work-day start time — answered 2026-05-09 (Eric)
+
+**Answer:** Doug is an early riser.
+**Design follow-up:** Daily digest send time should be early — `DIGEST_HOUR_LOCAL = 7` (7am ET) rather than 8am default. Refine to a specific hour when Doug confirms his actual start time, but bias earlier than the original spec default.
+**Audit trail:** Conversation 2026-05-09.
+
+### §4.3 — Reply-to-email behavior — answered 2026-05-09 (Eric)
+
+**Answer:** Eric doesn't know Doug's current behavior with automated emails, but reply-to-feedback could be a valuable feature.
+**Design follow-up:** [OBSERVE] confirmed — measure post-launch. Per §5.1 correction (no existing feedback habit), reply-to-email is form 2 not form 1 of the feedback affordances. Worth supporting from day 1 of the push surface but don't bank on Doug discovering it organically.
+**Audit trail:** Conversation 2026-05-09.
+
+### §4.4 — Confirmation email on auto-publish — answered 2026-05-09 (Doug)
+
+**Answer:** Yes, confirmation on publish is helpful.
+**Design follow-up:** **Confirmation-on-publish is required** for first-seen auto-applies (per amendment 9 — see below). Email lands within minutes of cron picking up the sheet, contains the parse summary, and includes the **24h unpublish-undo button** (§7.1 decision). Add to notification memo's tier-1 codes: `SHOW_FIRST_PUBLISHED` (new code, info-style but tier-1 because it's tied to a deliberate publish event Doug took action to trigger).
+**Audit trail:** Conversation 2026-05-09.
+
+### §4.5 — One-click Apply scope — answered 2026-05-09 (Eric)
+
+**Answer:** Prioritize convenience.
+**Design follow-up:** Expand one-click Apply scope from "low-stakes only" (MI-6, MI-7, MI-7b, MI-8, MI-8b, MI-8c) to include moderate-stakes events too. Auth-sensitive events (MI-11 email change, MI-12/13/14 renames) STILL require dashboard click-through because Doug needs to see the diff before bumping auth floors that kill active links — but everything else can be one-click. Update notification memo §6 form 3 to reflect.
+**Audit trail:** Conversation 2026-05-09.
+
+### §5.2 — Form vs freeform feedback — answered 2026-05-09 (Doug)
+
+**Answer:** Both. Doug is a non-dev so natural-language description is more natural for him; the system needs full context to be useful.
+**Design follow-up:** Report form is **freeform text input + auto-attached structured context**. Don't ask Doug to fill out structured fields (severity, category, etc.) — just give him a textbox and stamp the show/staging/parse context onto the submission server-side. The auto-attached context becomes part of the GitHub issue body, not the user-facing form.
+**Audit trail:** Conversation 2026-05-09.
+
+### §5.3 — Reports vs suggestions — answered 2026-05-09 (Doug)
+
+**Answer:** Both. If Doug buys into v1, he'll likely collaborate to improve it for his workflow.
+**Design follow-up:** Single "feedback" affordance covers both bug reports and feature suggestions — don't split into separate routes / forms. The dev can re-categorize at triage time. Doug shouldn't have to decide "is this a bug or a suggestion?" before submitting. GitHub issue triage uses labels for the categorization, not separate intake paths.
+**Audit trail:** Conversation 2026-05-09.
+
+### §6.2 — Per-show vs batch review — answered 2026-05-09 (Eric)
+
+**Answer:** Doug reviews each show separately.
+**Design follow-up:** Daily digest groups by show (subject: "Show X: 3 items / Show Y: 1 item / Show Z: 2 items"), not by item type. Each show's section is independently reviewable. Dashboard list orders by urgency per §6.1 follow-up but per-show review remains the per-row-click action.
+**Audit trail:** Conversation 2026-05-09.
+
+### §7.1 — FIRST_SEEN_REVIEW friction or value-add — answered 2026-05-09 (Doug + Eric sub-decision)
+
+**Answer:** Frictionless workflow if no issues. Sheets should go live the moment Doug drags them in. **The folder IS the publish gate.**
+**Sub-decision (Eric, same conversation):** Immediate publish + 24h email-undo. One-click "I made a mistake — unpublish" button valid for 24h that archives the show and revokes any signed links sent in the interim.
+**Design follow-up:** **Spec amendment 9** — replaces FIRST_SEEN_REVIEW staging with auto-apply on first-seen sheets that pass MI-1..MI-14. ONBOARDING_SCAN_REVIEW (wizard discovery) stays as-is — different semantic. New code `SHOW_FIRST_PUBLISHED` lands as a tier-1 confirmation event. New endpoint `POST /api/show/[slug]/unpublish?token=<signed>` handles the 24h undo. Notification memo schema sketch gains `shows.unpublish_token` + `shows.unpublish_token_expires_at` columns (per-publish-event, not per-staging — finalize at spec-write time).
+**Audit trail:** Conversation 2026-05-09. Amendment 9 in `00-overview.md`.
+
+### §7.2 — Auto-revoke on crew row removal — answered 2026-05-09 (Doug)
+
+**Answer:** Old invalid links should lead to a "not on crew list" page.
+**Design follow-up:** Confirms current spec design — crew removal triggers auth-floor revocation; old links 401/403 with "not on crew list" message via `lib/messages/lookup.ts`. No change. The §12.4 catalog already handles this via `validateLinkSession`'s 12-step validator and the standard auth-floor mechanism.
+**Audit trail:** Conversation 2026-05-09.
+
+### §7.3 — Live edits visibility on published sheets — answered 2026-05-09 (Doug, reconfirms Eric provisional)
+
+**Answer:** Maintain current convention. Once a sheet is shared with crew (= in the watched folder), edits flow live. No publish-gate layer on top of continuous sync.
+**Design follow-up:** No change. Already captured in initial answer (commit `c86a201`); Doug's reconfirmation locks it.
+**Audit trail:** Conversation 2026-05-09.
+
+---
+
 ## Open (priority subset)
 
-The remaining BLOCKER question, plus all CALIBRATION and OBSERVE questions, stay in the "Open" section above. Specifically:
+All BLOCKER and CALIBRATION questions answered as of 2026-05-09. The remaining open items are [OBSERVE] questions answerable from production logs once the system runs:
 
-- **§7.1 — FIRST_SEEN_REVIEW friction or value-add?** [BLOCKER, Eric thinking 2026-05-09]
-  - Connected to §1.2 (answered) — if "shared = final" then auto-publish is defensible, but the "wrong-folder mistake" failure mode argues for keeping the gate.
-  - Possible compromise: auto-apply after a 4h delay with email "Show X will publish in 4h — click here to cancel." Trusts the drag while preserving an undo window.
-  - Decide at next sit-down with Doug or by Eric judgment when push-notification milestone is specced.
+- **§3.1, §3.2, §3.3** — edit micro-behavior (clear-and-retype vs type-over patterns). Measure post-launch from sync log diffs.
+- **§4.3** — reply-to-email behavior. Measure post-launch from `feedback_inbox` ingestion volume.
+- **§2.4** — multi-tab / multi-device frequency. Measure post-launch from sync events.
+
+No further conversation needed before push-surface milestone is specced. The validated assumption set is sufficient.
 
 ---
 

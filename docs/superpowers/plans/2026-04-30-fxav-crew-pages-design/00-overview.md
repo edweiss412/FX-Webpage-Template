@@ -20,7 +20,7 @@
 
 ## How to use this plan
 
-1. **Spec is canonical, with eight ratified amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
+1. **Spec is canonical, with nine ratified amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
 
    **Ratified plan amendments to spec:**
    1. **§13.2.3 recovery lookup** — the spec specifies eventually-consistent code search via `octokit.rest.search.issuesAndPullRequests({q: '"<idempotency_key>" repo:<repo> in:body'})`. Adversarial-review rounds 6 + 10 demonstrated this is unsafe: GitHub's code-search index can lag tens of seconds, producing false-negative misses that drive `createIssue` and open duplicate issues. **The plan's Tasks 8.3d/8.3e supersede §13.2.3 on this single mechanism.** Revised contract:
@@ -169,6 +169,84 @@
       lost). The §6.8 derivation table and §12.4 catalog are patched in the spec to reflect the
       narrowing. The `tests/messages/_metaAdminAlertCatalog.test.ts` registry (per AGENTS.md
       §13 meta-test inventory) gains the `ROLE_FLAGS_NOTICE` row.
+
+   9. **Spec §5.2 / §6.8 — FIRST_SEEN_REVIEW becomes auto-publish with 24h email-undo**
+      _(applies to M6 onward; ratified 2026-05-09)_. The spec at §5.2 step 3 routes ALL
+      first-seen sheets to `pending_syncs` with a `FIRST_SEEN_REVIEW` sentinel, requiring a
+      dashboard Apply click before the show goes live for crew. Doug-validation §7.1
+      (`doug-validation-questions.md`, answered 2026-05-09 by Doug) confirms his preferred
+      workflow is "frictionless if no issues — sheets should go live the moment I drag them in.
+      The folder IS the publish gate." The dashboard-Apply gate adds a step Doug doesn't
+      naturally take (his surface is Drive, not the dashboard) and forces him to remember to
+      check a surface he doesn't visit.
+
+      **The plan ratifies a new first-seen routing precedence:**
+
+      1. **First-seen + MI-1..MI-5b hard fail** → UPSERT `pending_ingestions`, no auto-apply
+         (unchanged from current spec). The sheet is not parseable enough to publish.
+      2. **First-seen + MI-1..MI-5b pass + MI-6..MI-14 trip** → stage with the relevant MI
+         sentinel (e.g., `MI-6_CREW_SHRINKAGE`) — NOT with a `FIRST_SEEN_REVIEW` sentinel
+         (unchanged routing, but the FIRST_SEEN_REVIEW sentinel is no longer composed in).
+         These code paths already handle suspicious changes; first-seen status doesn't add
+         meaningful information once an MI invariant has tripped.
+      3. **First-seen + ALL MI-1..MI-14 pass** → **auto-apply via Phase 2** (NEW; replaces the
+         prior FIRST_SEEN_REVIEW staging path). Show goes live immediately. A new
+         `SHOW_FIRST_PUBLISHED` event lands in `admin_alerts` (info severity) AND fires a
+         tier-1 confirmation push (per future push-notification milestone — see
+         `notification-design-memo.md`) carrying a 24h unpublish-undo button.
+
+      **24h unpublish-undo contract.** Auto-publish is paired with an undo window so the
+      "wrong-folder mistake" failure mode (Doug accidentally drags an unrelated show sheet into
+      the watched folder) is recoverable without dashboard archaeology:
+
+      - On Phase 2 auto-apply for a first-seen sheet, write `shows.unpublish_token uuid` (random
+        UUID v4) AND `shows.unpublish_token_expires_at = now() + interval '24 hours'`. Token is
+        single-use; consumed on first redemption.
+      - The confirmation email contains a signed unpublish link
+        (`POST /api/show/[slug]/unpublish?token=<uuid>`). Endpoint validates: token matches the
+        stored row, token has not expired, token has not been consumed. On success: archives
+        the show (`shows.archived_at = now()`), revokes any signed `link_sessions` issued in
+        the 24h window for this show (`UPDATE link_sessions SET revoked_at = now() WHERE
+        show_id = $1 AND issued_at >= shows.created_at`), consumes the token (clears
+        `unpublish_token`), and emits a `SHOW_UNPUBLISHED` admin_alerts row.
+      - After 24h OR after first consumption, the unpublish path is closed; further wrong-publish
+        recovery requires going through the standard admin archive flow.
+      - **Wrong-folder mistake recovery cost** = clicking one button in an email Doug already
+        opened to read the confirmation. No dashboard navigation, no archive workflow knowledge
+        needed.
+
+      **ONBOARDING_SCAN_REVIEW unchanged.** Wizard-discovery first-seen (`mode='onboarding_scan'`)
+      keeps its stage-for-approval semantic. The wizard is explicitly a "review what's in the
+      folder before activating" flow; auto-applying the wizard's discovered sheets would
+      contradict the wizard's reason for existing. The two first-seen pathways are now
+      semantically distinct: deliberate folder-drop → auto-apply with undo; wizard scan → stage
+      for explicit confirmation.
+
+      **`FIRST_SEEN_REVIEW` code is retired.** No code path emits it under the new routing. The
+      §12.4 catalog row is replaced with a `~~FIRST_SEEN_REVIEW~~` retired row pointing at
+      `SHOW_FIRST_PUBLISHED` (the new info-severity confirmation) for migration context. The
+      `triggered_review_items` enum drops `FIRST_SEEN_REVIEW`; new code `SHOW_FIRST_PUBLISHED`
+      lands in the `admin_alerts` catalog (NOT in `triggered_review_items` — there's nothing to
+      review, just a "this happened" record). Tests in M6 Task 6.4 are updated: the
+      first-seen-MI-pass scenario asserts auto-apply (Phase 2 ran, `shows` row exists,
+      `unpublish_token` is non-null with 24h expiry) instead of asserting `pending_syncs` row
+      with `FIRST_SEEN_REVIEW` sentinel.
+
+      **Schema additions** (will land in whichever migration ships amendment 9 implementation,
+      likely M6 or a small standalone migration): `ALTER TABLE shows ADD COLUMN unpublish_token
+      uuid`, `ALTER TABLE shows ADD COLUMN unpublish_token_expires_at timestamptz`. Both NULL
+      after first consumption / expiry / for shows that never had auto-publish (e.g., wizard-
+      promoted shows, manual admin creates).
+
+      Tests: (a) first-seen + MI-1 fail → `pending_ingestions` UPSERT (regression — unchanged);
+      (b) first-seen + MI-6 trip → `pending_syncs` row with `MI-6_CREW_SHRINKAGE` (NOT
+      `FIRST_SEEN_REVIEW`); (c) first-seen + all MI pass → Phase 2 auto-apply, `shows` row
+      exists, `unpublish_token IS NOT NULL`, `SHOW_FIRST_PUBLISHED` admin_alerts row exists,
+      `pending_syncs` row does NOT exist; (d) `POST /api/show/[slug]/unpublish` with valid
+      token → show archived, `link_sessions` revoked, token consumed; (e) repeat call with
+      consumed token → 400 with `UNPUBLISH_TOKEN_CONSUMED`; (f) call after 24h → 400 with
+      `UNPUBLISH_TOKEN_EXPIRED`; (g) onboarding-scan first-seen + all MI pass → still stages
+      with `ONBOARDING_SCAN_REVIEW` (regression that the two pathways stay distinct).
 
 2. **TDD is mandatory.** Every task starts with a failing test, then the minimal implementation, then a passing test, then a commit. Skipping the failing-test step means the test isn't actually covering what it claims.
 3. **Commit per task.** Commit messages take the form `feat(<area>): <one-line summary>` or `test(<area>): ...` — area names are `parser`, `db`, `sync`, `auth`, `crew-page`, `admin`, `report`, `onboarding`, `assets`, `infra`.
