@@ -369,6 +369,7 @@ After §A and §B both complete:
 6. **Round-N review focus text leads with fresh-eyes audit** (`feedback_review_prompt_fresh_eyes_first.md`). Anchor the review prompt on the spec watchpoints in §6 above; prior-findings + commit SHAs go in a secondary checklist below.
 7. Convergence is logged at the bottom of this file.
 8. **Canonical invocation discipline.** Cross-CLI Codex reviews go through `/codex:adversarial-review` slash command with proper `CLAUDE_PLUGIN_DATA` per-session scoping + dynamic `CLAUDE_PLUGIN_ROOT` resolution. Do NOT raw-shell `node codex-companion.mjs`.
+   - **Codex → Claude CLI caveat (Pin-stop 1 discovery):** `claude --bare` skips OAuth/keychain reads and authenticates only via `ANTHROPIC_API_KEY` / `apiKeyHelper`. In this repo's current Claude Code setup (`authMethod: claude.ai`), `claude -p ... --bare` fails with `Not logged in`; use normal `claude -p ...` for cross-model review unless an API-key auth path is explicitly configured.
 9. **Class-sweep before patching findings; meta-contract test when bug class recurs.** Both rules are now load-bearing project invariants per AGENTS.md and the M5 retrospective. M6 §13 below pre-declares the meta-tests so the rule kicks in at plan time, not round 14.
 
 ## 11. Cross-milestone dependencies

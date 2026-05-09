@@ -33,10 +33,23 @@ function readServiceAccountCredentials(): ServiceAccountCredentials {
 }
 
 export function getDriveClient(): drive_v3.Drive {
-  const auth = new google.auth.GoogleAuth({
+  const auth = getDriveAuth();
+
+  return google.drive({ version: "v3", auth });
+}
+
+export function getDriveAuth(): InstanceType<typeof google.auth.GoogleAuth> {
+  return new google.auth.GoogleAuth({
     credentials: readServiceAccountCredentials(),
     scopes: GOOGLE_DRIVE_SCOPES,
   });
+}
 
-  return google.drive({ version: "v3", auth });
+export async function getDriveAccessToken(): Promise<string> {
+  const token = await getDriveAuth().getAccessToken();
+  if (!token) {
+    throw new DriveConfigError("Google service account did not return an access token");
+  }
+
+  return token;
 }

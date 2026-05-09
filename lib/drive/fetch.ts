@@ -1,5 +1,5 @@
 import type { drive_v3 } from "googleapis";
-import { getDriveClient } from "@/lib/drive/client";
+import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import type { DriveListedFile } from "@/lib/drive/list";
 
 export const MARKDOWN_EXPORT_MIME_TYPE = "text/markdown";
@@ -8,6 +8,8 @@ export const DRIVE_FILE_METADATA_FIELDS =
 
 export type DriveFetchOptions = {
   drive?: drive_v3.Drive;
+  fetch?: typeof fetch;
+  getAccessToken?: () => Promise<string>;
 };
 
 export class DriveFetchError extends Error {
@@ -78,14 +80,30 @@ export async function fetchSheetAsMarkdownAtRevision(
   options: DriveFetchOptions = {},
 ): Promise<string> {
   const drive = options.drive ?? getDriveClient();
-  const response = await drive.revisions.get(
-    {
-      fileId: driveFileId,
-      revisionId,
-      alt: "media",
+  const response = await drive.revisions.get({
+    fileId: driveFileId,
+    revisionId,
+    fields: "exportLinks",
+  });
+  const exportUrl = response.data.exportLinks?.[MARKDOWN_EXPORT_MIME_TYPE];
+  if (!exportUrl) {
+    throw new DriveFetchError(
+      `Drive revision ${revisionId} for ${driveFileId} did not include a markdown export link`,
+    );
+  }
+  const accessToken = await (options.getAccessToken ?? getDriveAccessToken)();
+  const fetchImpl = options.fetch ?? fetch;
+  const exportResponse = await fetchImpl(exportUrl, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      Accept: MARKDOWN_EXPORT_MIME_TYPE,
     },
-    { responseType: "text" },
-  );
+  });
+  if (!exportResponse.ok) {
+    throw new DriveFetchError(
+      `Drive revision markdown export failed with HTTP ${exportResponse.status}`,
+    );
+  }
 
-  return dataToString(response.data);
+  return exportResponse.text();
 }

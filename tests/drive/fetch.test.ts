@@ -61,22 +61,61 @@ describe("Drive fetch wrappers", () => {
     );
   });
 
-  test("fetchSheetAsMarkdownAtRevision pins the read to a specific revision", async () => {
-    const revisionsGet = vi.fn().mockResolvedValue({ data: Buffer.from("# Revision R1\n") });
-    const { fetchSheetAsMarkdownAtRevision } = await import("@/lib/drive/fetch");
+  test("fetchSheetAsMarkdownAtRevision resolves the revision export link and fetches markdown with auth", async () => {
+    const revisionsGet = vi.fn().mockResolvedValue({
+      data: {
+        exportLinks: {
+          "text/markdown": "https://docs.google.com/export/rev-1-markdown",
+          "application/pdf": "https://docs.google.com/export/rev-1-pdf",
+        },
+      },
+    });
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue("# Revision R1\n"),
+    });
+    const { fetchSheetAsMarkdownAtRevision, MARKDOWN_EXPORT_MIME_TYPE } = await import(
+      "@/lib/drive/fetch"
+    );
 
     const markdown = await fetchSheetAsMarkdownAtRevision("sheet-1", "rev-1", {
       drive: fakeDrive({ revisions: { get: revisionsGet } }),
+      fetch: fetchImpl,
+      getAccessToken: async () => "ya29.test-token",
     });
 
     expect(markdown).toBe("# Revision R1\n");
-    expect(revisionsGet).toHaveBeenCalledWith(
-      {
-        fileId: "sheet-1",
-        revisionId: "rev-1",
-        alt: "media",
+    expect(revisionsGet).toHaveBeenCalledWith({
+      fileId: "sheet-1",
+      revisionId: "rev-1",
+      fields: "exportLinks",
+    });
+    expect(fetchImpl).toHaveBeenCalledWith("https://docs.google.com/export/rev-1-markdown", {
+      headers: {
+        Authorization: "Bearer ya29.test-token",
+        Accept: MARKDOWN_EXPORT_MIME_TYPE,
       },
-      { responseType: "text" },
-    );
+    });
+  });
+
+  test("fetchSheetAsMarkdownAtRevision fails closed when the revision lacks a markdown export link", async () => {
+    const revisionsGet = vi.fn().mockResolvedValue({
+      data: {
+        exportLinks: {
+          "application/pdf": "https://docs.google.com/export/rev-1-pdf",
+        },
+      },
+    });
+    const fetchImpl = vi.fn();
+    const { fetchSheetAsMarkdownAtRevision } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchSheetAsMarkdownAtRevision("sheet-1", "rev-1", {
+        drive: fakeDrive({ revisions: { get: revisionsGet } }),
+        fetch: fetchImpl,
+        getAccessToken: async () => "ya29.test-token",
+      }),
+    ).rejects.toThrow(/markdown export link/);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 });

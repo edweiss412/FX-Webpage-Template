@@ -110,6 +110,12 @@ describe("listFolder", () => {
             modifiedTime: "2026-05-08T12:00:00.000Z",
             parents: ["other-folder"],
           },
+          {
+            id: "sheet-missing-parents",
+            name: "Missing Parents",
+            mimeType: "application/vnd.google-apps.spreadsheet",
+            modifiedTime: "2026-05-08T12:00:00.000Z",
+          },
         ],
       },
     });
@@ -124,6 +130,12 @@ describe("listFolder", () => {
       driveFileId: "sheet-bad",
       folderId: FOLDER_ID,
       parents: ["other-folder"],
+    });
+    expect(onWarning).toHaveBeenCalledWith({
+      code: "UNEXPECTED_PARENT",
+      driveFileId: "sheet-missing-parents",
+      folderId: FOLDER_ID,
+      parents: [],
     });
   });
 });
