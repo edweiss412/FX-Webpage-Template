@@ -33,6 +33,11 @@ const infraRegistry = [
     path: "app/api/admin/staged/[fileId]/discard/route.ts",
     contract: "Supabase returned/thrown admin-email lookup errors become SYNC_INFRA_ERROR",
   },
+  {
+    helper: "runOnboardingScan",
+    path: "lib/sync/runOnboardingScan.ts",
+    contract: "transaction-port faults become OnboardingScanInfraError",
+  },
 ] as const;
 
 function read(path: string): string {
@@ -285,6 +290,23 @@ describe("sync Supabase infra-failure contract", () => {
           },
         }),
       ).rejects.toBeInstanceOf(Phase2InfraError);
+    });
+  });
+
+  describe("runOnboardingScan", () => {
+    test("transaction-port throw → OnboardingScanInfraError", async () => {
+      const { runOnboardingScan, OnboardingScanInfraError } =
+        await import("@/lib/sync/runOnboardingScan");
+
+      await expect(
+        runOnboardingScan("folder-1", "11111111-1111-4111-8111-111111111111", {
+          tx: {
+            ensureWizardIsolationIndexes: async () => {
+              throw new Error("META: simulated onboarding transaction fault");
+            },
+          } as never,
+        }),
+      ).rejects.toBeInstanceOf(OnboardingScanInfraError);
     });
   });
 });

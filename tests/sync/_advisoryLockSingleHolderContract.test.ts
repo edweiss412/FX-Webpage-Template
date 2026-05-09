@@ -35,6 +35,12 @@ const lockHolderRegistry = [
     layer: "delegates to withPostgresSyncPipelineLock; discardStaged_unlocked never locks",
     key: "hashtext('show:' || drive_file_id)",
   },
+  {
+    path: "lib/sync/runOnboardingScan.ts",
+    holder: "runOnboardingScan",
+    layer: "does not acquire show advisory locks; wizard-session CAS and partial indexes provide isolation",
+    key: "none",
+  },
 ] as const;
 
 function read(path: string): string {
@@ -79,6 +85,10 @@ describe("M6 advisory-lock single-holder contract", () => {
         expect.objectContaining({
           holder: "discardStaged",
           layer: expect.stringContaining("discardStaged_unlocked never locks"),
+        }),
+        expect.objectContaining({
+          holder: "runOnboardingScan",
+          layer: expect.stringContaining("does not acquire show advisory locks"),
         }),
       ]),
     );

@@ -59,6 +59,25 @@ describe("M6 pending-row partition scope contract", () => {
     }
   });
 
+  test("Onboarding scan writes target only the wizard partition", () => {
+    const onboarding = source("lib/sync/runOnboardingScan.ts");
+    const windows = [
+      ...windowsAround(onboarding, "insert into public\\.pending_syncs", 900),
+      ...windowsAround(onboarding, "insert into public\\.pending_ingestions", 900),
+      ...windowsAround(onboarding, "insert into public\\.onboarding_scan_manifest", 900),
+    ];
+
+    expect(windows.length).toBeGreaterThanOrEqual(3);
+    for (const sqlWindow of windows) {
+      expect(sqlWindow.toLowerCase()).toContain("pending_wizard_session_id");
+      expect(sqlWindow.toLowerCase()).toContain("wizard_session_id");
+      expect(sqlWindow.toLowerCase()).not.toContain("wizard_session_id is null");
+    }
+    expect(onboarding.toLowerCase()).toContain(
+      "on conflict (drive_file_id, wizard_session_id) where wizard_session_id is not null",
+    );
+  });
+
   test("live upsert conflict targets have matching partial unique indexes", () => {
     const ddl = source("supabase/migrations/20260501001000_internal_and_admin.sql");
 
