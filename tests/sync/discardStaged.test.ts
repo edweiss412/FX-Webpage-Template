@@ -272,7 +272,7 @@ describe("discardStaged live-scope", () => {
       ),
       readActiveWizardSession: vi.fn(async () => W2),
       deleteWizardPendingSync: vi.fn(async () => undefined),
-      upsertWizardDeferral: vi.fn(async () => undefined),
+      upsertWizardDeferral: vi.fn(async () => true),
     } as DiscardStagedDeps;
 
     const result = await discardStaged_unlocked(
@@ -290,6 +290,35 @@ describe("discardStaged live-scope", () => {
     expect(result).toEqual({ outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED });
     expect(syncDeps.deleteWizardPendingSync).not.toHaveBeenCalled();
     expect(syncDeps.upsertWizardDeferral).not.toHaveBeenCalled();
+  });
+
+  test("wizard-scope deferral CAS supersession aborts before deleting pending_syncs", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = {
+      ...deps(),
+      readWizardPendingSyncForDiscard: vi.fn(async () =>
+        pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
+      ),
+      readActiveWizardSession: vi.fn(async () => W1),
+      deleteWizardPendingSync: vi.fn(async () => undefined),
+      upsertWizardDeferral: vi.fn(async () => false),
+    } as DiscardStagedDeps;
+
+    const result = await discardStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "wizard",
+        wizardSessionId: W1,
+        stagedId: "staged-wizard",
+        variant: "defer_until_modified",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED });
+    expect(syncDeps.upsertWizardDeferral).toHaveBeenCalled();
+    expect(syncDeps.deleteWizardPendingSync).not.toHaveBeenCalled();
   });
 
   test("unlocked entrypoint rejects a forced cast when the show advisory lock is not held", async () => {

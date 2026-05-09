@@ -161,7 +161,10 @@ describe("Drive watch lifecycle", () => {
       expiresAt: "2026-05-10T00:00:00.000Z",
     });
     const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
-    const subscribeToWatchedFolder = vi.fn(async () => ({ outcome: "active" as const, channelId: "new-channel" }));
+    const subscribeToWatchedFolder = vi.fn(async () => ({
+      outcome: "active" as const,
+      channelId: "new-channel",
+    }));
 
     const result = await refreshWatchSubscriptions({
       tx,
@@ -173,8 +176,12 @@ describe("Drive watch lifecycle", () => {
     expect(subscribeToWatchedFolder).toHaveBeenCalledWith("folder-1");
   });
 
-  test("gcWatchChannels stops superseded and orphaned channels, then marks them stopped", async () => {
+  test("gcWatchChannels stops superseded and orphaned channels and leaves orphan alerts for operator dismissal", async () => {
     const tx = new FakeWatchTx();
+    tx.alerts.push({
+      code: "WATCH_CHANNEL_ORPHANED",
+      context: { watched_folder_id: "folder-1", channel_id: "orphaned-channel" },
+    });
     tx.rows.push(
       {
         id: "superseded-channel",
@@ -199,9 +206,18 @@ describe("Drive watch lifecycle", () => {
     const result = await gcWatchChannels({ tx, stopChannel });
 
     expect(result).toEqual({ stopped: ["superseded-channel", "orphaned-channel"] });
-    expect(stopChannel).toHaveBeenCalledWith({ id: "superseded-channel", resourceId: "resource-1" });
+    expect(stopChannel).toHaveBeenCalledWith({
+      id: "superseded-channel",
+      resourceId: "resource-1",
+    });
     expect(stopChannel).toHaveBeenCalledWith({ id: "orphaned-channel", resourceId: null });
     expect(tx.rows.map((row) => row.status)).toEqual(["stopped", "stopped"]);
     expect(tx.operations).toContain("deleteOldStopped");
+    expect(tx.alerts).toEqual([
+      {
+        code: "WATCH_CHANNEL_ORPHANED",
+        context: { watched_folder_id: "folder-1", channel_id: "orphaned-channel" },
+      },
+    ]);
   });
 });

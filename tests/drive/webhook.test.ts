@@ -199,6 +199,7 @@ describe("/api/drive/webhook", () => {
 
   test("add/update notifications list the watched folder and dispatch each file once", async () => {
     const { handleDriveWebhook } = await import("@/app/api/drive/webhook/route");
+    const deferred: Array<() => Promise<void>> = [];
     const tx = {
       readActiveWatchChannel: vi.fn(async () => activeChannel()),
       upsertAdminAlert: vi.fn(async () => undefined),
@@ -216,20 +217,46 @@ describe("/api/drive/webhook", () => {
         tx,
         listFolder,
         runPushSyncForShow,
+        defer: (task) => deferred.push(task),
       },
     );
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       ok: true,
-      dispatched: [
-        { driveFileId: "file-1", result: { outcome: "applied", showId: "show-1" } },
-        { driveFileId: "file-2", result: { outcome: "applied", showId: "show-1" } },
-      ],
+      queued: true,
     });
+    expect(listFolder).not.toHaveBeenCalled();
+    expect(runPushSyncForShow).not.toHaveBeenCalled();
+
+    await deferred[0]?.();
+
     expect(listFolder).toHaveBeenCalledWith("folder-1");
     expect(runPushSyncForShow).toHaveBeenCalledTimes(2);
     expect(runPushSyncForShow).toHaveBeenCalledWith("file-1", { fileMeta: file });
+  });
+
+  test("background dispatch isolates one file failure from the rest of the folder", async () => {
+    const { dispatchDriveWebhookFiles } = await import("@/app/api/drive/webhook/route");
+    const fileA = listedFile("file-a");
+    const fileB = listedFile("file-b");
+    const runPushSyncForShow = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("file-a parse failed"))
+      .mockResolvedValueOnce({ outcome: "applied" as const, showId: "show-b" });
+
+    const result = await dispatchDriveWebhookFiles(activeChannel(), {
+      listFolder: vi.fn(async () => [fileA, fileB]),
+      runPushSyncForShow,
+    });
+
+    expect(result).toEqual({
+      dispatched: [
+        { driveFileId: "file-a", result: { outcome: "error", code: "SYNC_FILE_FAILED" } },
+        { driveFileId: "file-b", result: { outcome: "applied", showId: "show-b" } },
+      ],
+    });
+    expect(runPushSyncForShow).toHaveBeenCalledTimes(2);
   });
 });
 

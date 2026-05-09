@@ -1,5 +1,4 @@
 import type { DriveListedFile } from "@/lib/drive/list";
-import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { deriveSlug } from "@/lib/parser/slug";
 import type { ParseResult } from "@/lib/parser/types";
 import { applyParseResult, type ApplyParseResultTx } from "@/lib/sync/applyParseResult";
@@ -40,13 +39,22 @@ export type Phase2Args = {
   parseResult: ParseResult;
   binding: Phase1Binding;
   skipDiagramsWrite?: boolean;
-  upsertAdminAlert?: typeof defaultUpsertAdminAlert;
+};
+
+export type RoleFlagsNotice = {
+  showId: string;
+  code: "ROLE_FLAGS_NOTICE";
+  context: {
+    drive_file_id: string;
+    changes: Array<{ crew_name: string; prior_flags: string[]; new_flags: string[] }>;
+  };
 };
 
 export type Phase2Result =
   | {
       outcome: "applied";
       showId: string;
+      roleFlagsNotice?: RoleFlagsNotice;
     }
   | {
       outcome: "stale";
@@ -145,19 +153,22 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
     snapshot.previousCrewMembers,
     args.parseResult.crewMembers,
   );
-  if (roleFlagChanges.length > 0) {
-    const upsertAdminAlert = args.upsertAdminAlert ?? defaultUpsertAdminAlert;
-    await callTx("upsertAdminAlert", () =>
-      upsertAdminAlert({
-        showId: snapshot.showId,
-        code: "ROLE_FLAGS_NOTICE",
-        context: {
-          drive_file_id: args.driveFileId,
-          changes: roleFlagChanges,
-        },
-      }),
-    );
-  }
+  const roleFlagsNotice =
+    roleFlagChanges.length > 0
+      ? {
+          showId: snapshot.showId,
+          code: "ROLE_FLAGS_NOTICE" as const,
+          context: {
+            drive_file_id: args.driveFileId,
+            changes: roleFlagChanges,
+          },
+        }
+      : undefined;
 
-  return { outcome: "applied", showId: snapshot.showId };
+  const applied: Extract<Phase2Result, { outcome: "applied" }> = {
+    outcome: "applied",
+    showId: snapshot.showId,
+  };
+  if (roleFlagsNotice) applied.roleFlagsNotice = roleFlagsNotice;
+  return applied;
 }

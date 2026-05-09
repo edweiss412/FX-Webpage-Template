@@ -97,7 +97,7 @@ export type DiscardStagedDeps = {
   upsertWizardDeferral?: (
     tx: LockedShowTx<SyncPipelineTx>,
     row: WizardDeferralInput,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   deleteWizardPendingSync?: (
     tx: LockedShowTx<SyncPipelineTx>,
     driveFileId: string,
@@ -277,14 +277,19 @@ async function defaultUpsertLiveDeferral(
 async function defaultUpsertWizardDeferral(
   tx: LockedShowTx<SyncPipelineTx>,
   row: WizardDeferralInput,
-): Promise<void> {
-  await tx.queryOne<{ upserted: boolean }>(
+): Promise<boolean> {
+  const written = await tx.queryOne<{ upserted: boolean } | null>(
     `
       insert into public.deferred_ingestions (
         drive_file_id, deferred_kind, deferred_at_modified_time,
         deferred_by_email, reason, wizard_session_id
       )
-      values ($1, $2, $3::timestamptz, null, $4, $5::uuid)
+      select $1, $2, $3::timestamptz, null, $4, $5::uuid
+      where exists (
+        select 1 from public.app_settings
+         where id = 'default'
+           and pending_wizard_session_id = $5::uuid
+      )
       on conflict (drive_file_id, wizard_session_id) where wizard_session_id is not null
       do update set
         deferred_kind = excluded.deferred_kind,
@@ -302,6 +307,7 @@ async function defaultUpsertWizardDeferral(
       row.wizardSessionId,
     ],
   );
+  return Boolean(written?.upserted);
 }
 
 async function defaultDeleteWizardPendingSync(
@@ -365,7 +371,7 @@ export async function discardStaged_unlocked(
     }
     const variant = args.variant ?? "try_again";
     if (variant !== "try_again") {
-      await deps.upsertWizardDeferral(tx, {
+      const wroteDeferral = await deps.upsertWizardDeferral(tx, {
         driveFileId: pending.driveFileId,
         deferredKind: variant,
         deferredAtModifiedTime:
@@ -374,6 +380,9 @@ export async function discardStaged_unlocked(
         reason: `discard:${variant}`,
         wizardSessionId: args.wizardSessionId,
       });
+      if (!wroteDeferral) {
+        return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
+      }
     }
     await deps.deleteWizardPendingSync(
       tx,

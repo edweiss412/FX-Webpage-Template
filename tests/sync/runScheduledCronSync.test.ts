@@ -15,10 +15,11 @@ import {
 } from "@/lib/sync/runScheduledCronSync";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 
-type PipelineTx = Phase1Tx & Phase2Tx & {
-  operations: string[];
-  queryOne<T>(sql: string, params: unknown[]): Promise<T>;
-};
+type PipelineTx = Phase1Tx &
+  Phase2Tx & {
+    operations: string[];
+    queryOne<T>(sql: string, params: unknown[]): Promise<T>;
+  };
 
 function fileMeta(id: string, modifiedTime = "2026-05-08T12:00:00.000Z"): DriveListedFile {
   return {
@@ -208,16 +209,53 @@ function deps(overrides: Partial<ProcessOneFileDeps> = {}) {
 describe("processOneFile", () => {
   test("locked wrapper is the only advisory-lock holder and passes a branded tx to the unlocked pipeline", async () => {
     const fakeTx = tx();
+    const events: string[] = [];
     const withShowLock = vi.fn(async (driveFileId, fn) => {
       expect(driveFileId).toBe("file-1");
-      return fn(fakeTx as LockedShowTx<PipelineTx>);
+      events.push("lock:start");
+      const result = await fn(fakeTx as LockedShowTx<PipelineTx>);
+      events.push("lock:commit");
+      return result;
     });
-    const syncDeps = deps({ withShowLock });
+    const upsertAdminAlert = vi.fn(async () => {
+      events.push("alert:upsert");
+      return "alert-1";
+    });
+    const syncDeps = deps({
+      withShowLock,
+      upsertAdminAlert,
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        return {
+          outcome: "applied" as const,
+          showId: "show-1",
+          roleFlagsNotice: {
+            showId: "show-1",
+            code: "ROLE_FLAGS_NOTICE" as const,
+            context: { drive_file_id: "file-1", changes: [] },
+          },
+        };
+      }),
+    });
 
     const result = await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
 
-    expect(result).toEqual({ outcome: "applied", showId: "show-1" });
+    expect(result).toEqual({
+      outcome: "applied",
+      showId: "show-1",
+      roleFlagsNotice: {
+        showId: "show-1",
+        code: "ROLE_FLAGS_NOTICE",
+        context: { drive_file_id: "file-1", changes: [] },
+      },
+    });
     expect(withShowLock).toHaveBeenCalledOnce();
+    expect(upsertAdminAlert).toHaveBeenCalledWith({
+      showId: "show-1",
+      code: "ROLE_FLAGS_NOTICE",
+      context: { drive_file_id: "file-1", changes: [] },
+    });
+    expect(events).toEqual(["lock:start", "lock:commit", "alert:upsert"]);
     expect(vi.mocked(syncDeps.runPhase1)).toHaveBeenCalledBefore(vi.mocked(syncDeps.runPhase2));
   });
 
@@ -225,7 +263,13 @@ describe("processOneFile", () => {
     const fakeTx = tx() as LockedShowTx<PipelineTx>;
     const syncDeps = deps();
 
-    const result = await processOneFile_unlocked(fakeTx, "file-1", "cron", fileMeta("file-1"), syncDeps);
+    const result = await processOneFile_unlocked(
+      fakeTx,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      syncDeps,
+    );
 
     expect(result).toEqual({ outcome: "applied", showId: "show-1" });
     expect(syncDeps.fetchMarkdownAtRevision).toHaveBeenCalledWith("file-1", "token-1");
@@ -322,7 +366,9 @@ describe("processOneFile", () => {
   test("missing xlsx export link is STAGED_PARSE_REVISION_RACE", async () => {
     const syncDeps = deps({
       fetchMarkdownAtRevision: vi.fn(async () => {
-        throw new Error("Drive revision token head-1 for file-1 did not include an xlsx export link");
+        throw new Error(
+          "Drive revision token head-1 for file-1 did not include an xlsx export link",
+        );
       }),
     });
 
@@ -442,7 +488,10 @@ describe("runScheduledCronSync", () => {
     expect(result.processed).toHaveLength(2);
     expect(processOneFile).toHaveBeenCalledTimes(2);
     expect(result.processed[0]).toMatchObject({ driveFileId: "file-a" });
-    expect(result.processed[1]).toMatchObject({ driveFileId: "file-b", result: { outcome: "applied" } });
+    expect(result.processed[1]).toMatchObject({
+      driveFileId: "file-b",
+      result: { outcome: "applied" },
+    });
   });
 
   test("classifies and logs per-file infrastructure failures without flattening to a generic code", async () => {

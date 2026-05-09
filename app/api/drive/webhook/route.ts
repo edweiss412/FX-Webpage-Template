@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import postgres from "postgres";
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { listFolder as defaultListFolder, type DriveListedFile } from "@/lib/drive/list";
 import {
@@ -48,6 +48,7 @@ export type DriveWebhookDeps = {
     driveFileId: string,
     deps?: Pick<RunPushSyncForShowDeps, "fileMeta">,
   ) => Promise<Awaited<ReturnType<typeof defaultRunPushSyncForShow>>>;
+  defer?: (task: () => Promise<void>) => void;
 };
 
 type PostgresConnection = {
@@ -149,6 +150,50 @@ function dedupeFiles(files: DriveListedFile[]): DriveListedFile[] {
   return deduped;
 }
 
+function classifyDispatchError(error: unknown): string {
+  if (error && typeof error === "object" && "code" in error && typeof error.code === "string") {
+    return error.code;
+  }
+  return "SYNC_FILE_FAILED";
+}
+
+export async function dispatchDriveWebhookFiles(
+  channel: DriveWebhookChannel,
+  deps: Pick<DriveWebhookDeps, "listFolder" | "runPushSyncForShow"> = {},
+): Promise<{
+  dispatched: Array<{
+    driveFileId: string;
+    result:
+      | Awaited<ReturnType<typeof defaultRunPushSyncForShow>>
+      | { outcome: "error"; code: string };
+  }>;
+}> {
+  const listFolder = deps.listFolder ?? defaultListFolder;
+  const runPushSyncForShow = deps.runPushSyncForShow ?? defaultRunPushSyncForShow;
+  const files = dedupeFiles(await listFolder(channel.watchedFolderId));
+  const dispatched = [];
+  for (const file of files) {
+    try {
+      const result = await runPushSyncForShow(file.driveFileId, { fileMeta: file });
+      dispatched.push({ driveFileId: file.driveFileId, result });
+    } catch (error) {
+      dispatched.push({
+        driveFileId: file.driveFileId,
+        result: { outcome: "error" as const, code: classifyDispatchError(error) },
+      });
+    }
+  }
+  return { dispatched };
+}
+
+function deferWebhookDispatch(task: () => Promise<void>, deps: DriveWebhookDeps): void {
+  if (deps.defer) {
+    deps.defer(task);
+    return;
+  }
+  after(task);
+}
+
 export async function handleDriveWebhook(
   request: NextRequest,
   deps: DriveWebhookDeps = {},
@@ -194,16 +239,11 @@ export async function handleDriveWebhook(
       return NextResponse.json({ ok: true, ignored: resourceState });
     }
 
-    const listFolder = deps.listFolder ?? defaultListFolder;
-    const runPushSyncForShow = deps.runPushSyncForShow ?? defaultRunPushSyncForShow;
-    const files = dedupeFiles(await listFolder(channel.watchedFolderId));
-    const dispatched = [];
-    for (const file of files) {
-      const result = await runPushSyncForShow(file.driveFileId, { fileMeta: file });
-      dispatched.push({ driveFileId: file.driveFileId, result });
-    }
+    deferWebhookDispatch(async () => {
+      await dispatchDriveWebhookFiles(channel, deps);
+    }, deps);
 
-    return NextResponse.json({ ok: true, dispatched });
+    return NextResponse.json({ ok: true, queued: true });
   };
 
   if (deps.tx) return await run(deps.tx);

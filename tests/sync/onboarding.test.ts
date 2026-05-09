@@ -363,4 +363,34 @@ describe("runOnboardingScan", () => {
       }),
     ]);
   });
+
+  test("unexpected onboarding Phase 1 pass writes hard_failed manifest instead of fake staged row", async () => {
+    const tx = new FakeOnboardingTx();
+    const { runOnboardingScan } = await import("@/lib/sync/runOnboardingScan");
+
+    const result = await runOnboardingScan("folder-1", W1, {
+      tx,
+      listFolder: vi.fn(async () => [file("file-1")]),
+      captureBinding: vi.fn(async (_driveFileId: string, meta: DriveListedFile) => ({
+        bindingToken: meta.modifiedTime,
+        modifiedTime: meta.modifiedTime,
+      })),
+      fetchMarkdownAtRevision: vi.fn(async () => "markdown:file-1"),
+      parseSheet: vi.fn(() => ({ markdown: "markdown:file-1" }) as unknown as ParsedSheet),
+      enrichWithDrivePins: vi.fn(async () => parseResult()),
+      runPhase1: vi.fn(async () => ({ outcome: "pass" as const })),
+    });
+
+    expect(result).toMatchObject({ outcome: "completed" });
+    expect(tx.pendingSyncs).toEqual([]);
+    expect(tx.manifest).toEqual([
+      expect.objectContaining({ driveFileId: "file-1", status: "hard_failed" }),
+    ]);
+    expect(tx.syncLog).toEqual([
+      expect.objectContaining({
+        code: "onboarding_scan_unexpected_phase1_pass",
+        driveFileId: "file-1",
+      }),
+    ]);
+  });
 });

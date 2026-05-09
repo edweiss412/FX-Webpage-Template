@@ -9,7 +9,12 @@ import {
   type ConcurrentSyncSkipped,
   type LockedShowTx,
 } from "@/lib/sync/lockedShowTx";
-import { runPhase2, type Phase2Args, type Phase2Result } from "@/lib/sync/phase2";
+import {
+  runPhase2,
+  type Phase2Args,
+  type Phase2Result,
+  type RoleFlagsNotice,
+} from "@/lib/sync/phase2";
 import { type SyncPipelineTx, withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 
 export const PENDING_SYNC_NOT_FOUND = "PENDING_SYNC_NOT_FOUND" as const;
@@ -82,6 +87,7 @@ export type ApplyStagedResult =
       syncAuditId: string | null;
       derivedSideEffects: { revokeFloorForNames: string[] };
       adminAlertCode?: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | null;
+      roleFlagsNotice?: RoleFlagsNotice;
     }
   | { outcome: "not_found"; code: typeof PENDING_SYNC_NOT_FOUND }
   | { outcome: "superseded"; code: typeof STAGED_PARSE_SUPERSEDED }
@@ -169,7 +175,7 @@ export type ApplyStagedDeps = {
   ) => Promise<void>;
   upsertAdminAlert?: (input: {
     showId: string | null;
-    code: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE;
+    code: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | "ROLE_FLAGS_NOTICE";
     context: Record<string, unknown>;
   }) => Promise<unknown>;
   retryEmbeddedRevisionAvailability?: (spreadsheetId: string) => Promise<boolean>;
@@ -953,13 +959,15 @@ export async function applyStaged_unlocked(
   });
   await deps.deleteLivePendingSync(tx, pending.driveFileId, pending.stagedId);
 
-  return {
+  const applied: ApplyStagedResult = {
     outcome: "applied",
     showId: phase2.showId,
     syncAuditId,
     derivedSideEffects,
     adminAlertCode: assetAdjusted.adminAlertCode,
   };
+  if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
+  return applied;
 }
 
 export async function applyStaged(
@@ -978,6 +986,10 @@ export async function applyStaged(
       code: result.adminAlertCode,
       context: { drive_file_id: args.driveFileId },
     });
+  }
+  if (!("skipped" in result) && result.outcome === "applied" && result.roleFlagsNotice) {
+    const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
+    await upsertAdminAlert(result.roleFlagsNotice);
   }
   return result;
 }

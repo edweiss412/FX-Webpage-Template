@@ -89,11 +89,11 @@ function databaseUrl(): string {
 }
 
 function webhookPublicUrl(): string {
-  const configured = process.env.DRIVE_WEBHOOK_PUBLIC_URL;
+  const configured = process.env.DRIVE_WEBHOOK_BASE_URL;
   if (!configured) {
-    throw new Error("DRIVE_WEBHOOK_PUBLIC_URL is required for Drive watch subscriptions");
+    throw new Error("DRIVE_WEBHOOK_BASE_URL is required for Drive watch subscriptions");
   }
-  return configured;
+  return `${configured.replace(/\/+$/, "")}/api/drive/webhook`;
 }
 
 function randomSecret(): string {

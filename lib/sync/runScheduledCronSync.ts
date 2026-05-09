@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
@@ -30,6 +31,7 @@ import {
   type Phase2Args,
   type Phase2Mode,
   type Phase2Result,
+  type RoleFlagsNotice,
   type Phase2Tx,
 } from "@/lib/sync/phase2";
 import {
@@ -60,7 +62,7 @@ export type ProcessOneFileResult =
   | { outcome: "asset_recovery" }
   | { outcome: "stage"; stagedId: string }
   | { outcome: "hard_fail"; code: string }
-  | { outcome: "applied"; showId: string }
+  | { outcome: "applied"; showId: string; roleFlagsNotice?: RoleFlagsNotice }
   | { outcome: "stale"; code: string }
   | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
   | { outcome: "source_gone"; code: typeof STAGED_PARSE_SOURCE_GONE }
@@ -95,6 +97,7 @@ export type ProcessOneFileDeps = {
   driveClient?: DriveClient;
   runPhase1?: typeof runPhase1;
   runPhase2?: typeof runPhase2;
+  upsertAdminAlert?: typeof defaultUpsertAdminAlert;
   logSync?: (entry: SyncLogEntry) => Promise<void>;
   publishShowInvalidation?: (showId: string) => Promise<void>;
 };
@@ -926,9 +929,7 @@ function isSpreadsheetBindingRace(error: unknown): boolean {
 function isBinaryAssetRevisionRace(error: unknown): boolean {
   const message = errorMessage(error);
   if (errorCode(error) === 404 && /revision/i.test(message)) return true;
-  return (
-    /bound revision/i.test(message)
-  );
+  return /bound revision/i.test(message);
 }
 
 function isSourceGone(error: unknown): boolean {
@@ -971,6 +972,15 @@ function errorPayload(error: unknown): Record<string, unknown> {
     return payload;
   }
   return { message: String(error) };
+}
+
+async function emitDeferredRoleFlagsNotice(
+  result: ProcessOneFileResult,
+  deps: ProcessOneFileDeps,
+): Promise<void> {
+  if ("skipped" in result || result.outcome !== "applied" || !result.roleFlagsNotice) return;
+  const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
+  await upsertAdminAlert(result.roleFlagsNotice);
 }
 
 function classifySyncFailure(error: unknown): SyncFailureCode {
@@ -1021,14 +1031,14 @@ export async function processOneFile(
   deps: ProcessOneFileDeps = {},
 ): Promise<ProcessOneFileResult> {
   const lock = deps.withShowLock ?? withPostgresSyncPipelineLock;
-  const result = await lock(
-    driveFileId,
-    (lockedTx) => processOneFile_unlocked(lockedTx, driveFileId, mode, fileMeta, deps),
+  const result = await lock(driveFileId, (lockedTx) =>
+    processOneFile_unlocked(lockedTx, driveFileId, mode, fileMeta, deps),
   );
   if ("skipped" in result) {
     const skipped = { outcome: "skipped" as const, reason: CONCURRENT_SYNC_SKIPPED };
     await logSync(deps, driveFileId, skipped);
   }
+  await emitDeferredRoleFlagsNotice(result, deps);
   return result;
 }
 
@@ -1180,7 +1190,11 @@ export async function processOneFile_unlocked(
     return result;
   }
 
-  const result = { outcome: "applied" as const, showId: phase2.showId };
+  const result: ProcessOneFileResult = {
+    outcome: "applied" as const,
+    showId: phase2.showId,
+  };
+  if (phase2.roleFlagsNotice) result.roleFlagsNotice = phase2.roleFlagsNotice;
   await deps.publishShowInvalidation?.(phase2.showId);
   await logSync(deps, driveFileId, result);
   return result;

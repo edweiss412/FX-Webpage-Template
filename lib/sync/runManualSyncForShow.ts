@@ -1,4 +1,5 @@
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
+import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import type { DriveListedFile } from "@/lib/drive/list";
 import {
   assertShowLockHeld,
@@ -97,14 +98,19 @@ export async function runManualSyncForShow(
   deps: RunManualSyncForShowDeps = {},
 ): Promise<ManualSyncResult | ConcurrentSyncSkipped> {
   const withLock =
-    deps.withPipelineLock ??
-    ((id, fn) => withPostgresSyncPipelineLock(id, fn, { tryOnly: false }));
-  return await withLock(driveFileId, async (tx) => {
-    const isFinalizeOwned = await (deps.checkFinalizeOwnership ??
-      readFinalizeOwnershipGuard_unlocked)(tx, driveFileId);
+    deps.withPipelineLock ?? ((id, fn) => withPostgresSyncPipelineLock(id, fn, { tryOnly: false }));
+  const result = await withLock(driveFileId, async (tx) => {
+    const isFinalizeOwned = await (
+      deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
+    )(tx, driveFileId);
     if (isFinalizeOwned) {
       return { outcome: "blocked", code: FINALIZE_OWNED_SHOW };
     }
     return await runManualSyncForShow_unlocked(tx, driveFileId, mode, deps);
   });
+  if (!("skipped" in result) && result.outcome === "applied" && result.roleFlagsNotice) {
+    const upsertAdminAlert = deps.processDeps?.upsertAdminAlert ?? defaultUpsertAdminAlert;
+    await upsertAdminAlert(result.roleFlagsNotice);
+  }
+  return result;
 }

@@ -407,7 +407,7 @@ describe("runPhase2 destructive snapshot", () => {
       newFlags: ["A1", "BO"] as CrewMemberRow["role_flags"],
     },
   ])(
-    "auto-applied non-LEAD role flag changes emit ROLE_FLAGS_NOTICE info alert: $label",
+    "auto-applied non-LEAD role flag changes return deferred ROLE_FLAGS_NOTICE intent: $label",
     async ({ priorFlags, newFlags }) => {
       const tx = new FakePhase2Tx();
       tx.shows.set("file-1", {
@@ -419,25 +419,27 @@ describe("runPhase2 destructive snapshot", () => {
         crewNames: ["Alice"],
         crewMembers: [crewWithFlags("Alice", priorFlags)],
       });
-      const upsertAdminAlert = vi.fn(async () => "alert-1");
 
-      await runWith(tx, {
+      const result = await runWith(tx, {
         parseResult: parseResult({ crewMembers: [crewWithFlags("Alice", newFlags)] }),
-        upsertAdminAlert,
       });
 
-      expect(upsertAdminAlert).toHaveBeenCalledWith({
+      expect(result).toEqual({
+        outcome: "applied",
         showId: "show-1",
-        code: "ROLE_FLAGS_NOTICE",
-        context: {
-          drive_file_id: "file-1",
-          changes: [
-            {
-              crew_name: "Alice",
-              prior_flags: priorFlags,
-              new_flags: newFlags,
-            },
-          ],
+        roleFlagsNotice: {
+          showId: "show-1",
+          code: "ROLE_FLAGS_NOTICE",
+          context: {
+            drive_file_id: "file-1",
+            changes: [
+              {
+                crew_name: "Alice",
+                prior_flags: priorFlags,
+                new_flags: newFlags,
+              },
+            ],
+          },
         },
       });
     },

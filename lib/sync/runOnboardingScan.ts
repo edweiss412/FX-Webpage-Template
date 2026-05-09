@@ -523,7 +523,38 @@ async function scanWithTx(
         binding,
         wizardSessionId,
       });
-      if (result.outcome === "stage" || result.outcome === "pass") {
+      if (result.outcome === "pass") {
+        await callTx("logSync", () =>
+          tx.logSync({
+            code: "onboarding_scan_unexpected_phase1_pass",
+            driveFileId: file.driveFileId,
+          }),
+        );
+        const wrote = await callTx("upsertManifest", () =>
+          tx.upsertManifest({
+            folderId,
+            wizardSessionId,
+            driveFileId: file.driveFileId,
+            mimeType: file.mimeType,
+            name: file.name,
+            status: "hard_failed",
+          }),
+        );
+        if (!wrote) {
+          await callTx("logSync", () =>
+            tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
+          );
+          return {
+            outcome: "superseded",
+            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+            processed,
+          };
+        }
+        processed.push({ driveFileId: file.driveFileId, outcome: "hard_failed" });
+        continue;
+      }
+
+      if (result.outcome === "stage") {
         if (result.outcome === "stage" && result.stagedId.length === 0) {
           await callTx("logSync", () =>
             tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
