@@ -1142,8 +1142,8 @@ describe("applyStaged live-scope", () => {
         wizardSessionId: W1,
       }),
     );
-    const approveWizardPendingSync = vi.fn(async () => undefined);
-    const markWizardManifestApplied = vi.fn(async () => undefined);
+    const approveWizardPendingSync = vi.fn(async () => true);
+    const markWizardManifestApplied = vi.fn(async () => true);
     const syncDeps = {
       ...deps(),
       readWizardPendingSyncForApply,
@@ -1196,8 +1196,8 @@ describe("applyStaged live-scope", () => {
         pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
       ),
       readActiveWizardSession: vi.fn(async () => W2),
-      approveWizardPendingSync: vi.fn(async () => undefined),
-      markWizardManifestApplied: vi.fn(async () => undefined),
+      approveWizardPendingSync: vi.fn(async () => true),
+      markWizardManifestApplied: vi.fn(async () => true),
     } as ApplyStagedDeps;
 
     const result = await applyStaged_unlocked(
@@ -1215,6 +1215,36 @@ describe("applyStaged live-scope", () => {
 
     expect(result).toEqual({ outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED });
     expect(syncDeps.approveWizardPendingSync).not.toHaveBeenCalled();
+    expect(syncDeps.markWizardManifestApplied).not.toHaveBeenCalled();
+  });
+
+  test("wizard-scope Apply treats zero-row approval CAS as superseded without touching manifest", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = {
+      ...deps(),
+      readWizardPendingSyncForApply: vi.fn(async () =>
+        pending({ stagedId: "staged-wizard", sourceKind: "onboarding_scan", wizardSessionId: W1 }),
+      ),
+      readActiveWizardSession: vi.fn(async () => W1),
+      approveWizardPendingSync: vi.fn(async () => false),
+      markWizardManifestApplied: vi.fn(async () => true),
+    } as ApplyStagedDeps;
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "wizard",
+        wizardSessionId: W1,
+        stagedId: "staged-wizard",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED });
+    expect(syncDeps.approveWizardPendingSync).toHaveBeenCalled();
     expect(syncDeps.markWizardManifestApplied).not.toHaveBeenCalled();
   });
 });

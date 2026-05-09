@@ -123,12 +123,12 @@ export type ApplyStagedDeps = {
       appliedByEmail: string;
       reviewerChoices: ReviewerChoice[];
     },
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   markWizardManifestApplied?: (
     tx: LockedShowTx<SyncPipelineTx>,
     driveFileId: string,
     wizardSessionId: string,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   readShowForApply?: (
     tx: LockedShowTx<SyncPipelineTx>,
     driveFileId: string,
@@ -409,8 +409,8 @@ async function defaultReadActiveWizardSession(
 async function defaultApproveWizardPendingSync(
   tx: LockedShowTx<SyncPipelineTx>,
   row: Parameters<NonNullable<ApplyStagedDeps["approveWizardPendingSync"]>>[1],
-): Promise<void> {
-  await tx.queryOne<{ approved: boolean }>(
+): Promise<boolean> {
+  const approved = await tx.queryOne<{ approved: boolean } | null>(
     `
       update public.pending_syncs
          set wizard_approved = true,
@@ -421,6 +421,11 @@ async function defaultApproveWizardPendingSync(
        where drive_file_id = $1
          and wizard_session_id = $2::uuid
          and staged_id = $3::uuid
+         and exists (
+           select 1 from public.app_settings
+            where id = 'default'
+              and pending_wizard_session_id = $2::uuid
+         )
       returning true as approved
     `,
     [
@@ -431,24 +436,31 @@ async function defaultApproveWizardPendingSync(
       JSON.stringify(row.reviewerChoices),
     ],
   );
+  return Boolean(approved?.approved);
 }
 
 async function defaultMarkWizardManifestApplied(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
   wizardSessionId: string,
-): Promise<void> {
-  await tx.queryOne<{ applied: boolean }>(
+): Promise<boolean> {
+  const applied = await tx.queryOne<{ applied: boolean } | null>(
     `
       update public.onboarding_scan_manifest
          set status = 'applied',
              transitioned_at = now()
        where drive_file_id = $1
          and wizard_session_id = $2::uuid
+         and exists (
+           select 1 from public.app_settings
+            where id = 'default'
+              and pending_wizard_session_id = $2::uuid
+         )
       returning true as applied
     `,
     [driveFileId, wizardSessionId],
   );
+  return Boolean(applied?.applied);
 }
 
 async function defaultReadShowForApply(
@@ -845,14 +857,20 @@ export async function applyStaged_unlocked(
     }
     const validation = validateReviewerChoices(pending.triggeredReviewItems, args.reviewerChoices);
     if (!("ok" in validation)) return validation;
-    await deps.approveWizardPendingSync(tx, {
+    const approved = await deps.approveWizardPendingSync(tx, {
       driveFileId: pending.driveFileId,
       wizardSessionId: args.wizardSessionId,
       stagedId: pending.stagedId,
       appliedByEmail: args.appliedByEmail,
       reviewerChoices: validation.choices,
     });
-    await deps.markWizardManifestApplied(tx, pending.driveFileId, args.wizardSessionId);
+    if (!approved) return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
+    const manifestApplied = await deps.markWizardManifestApplied(
+      tx,
+      pending.driveFileId,
+      args.wizardSessionId,
+    );
+    if (!manifestApplied) return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
     return {
       outcome: "wizard_applied",
       wizardSessionId: args.wizardSessionId,

@@ -57,6 +57,16 @@ describe("M6 pending-row partition scope contract", () => {
     expect(windows.length).toBeGreaterThanOrEqual(3);
   });
 
+  test("Apply wizard-scope UPDATEs also carry active-wizard-session CAS", () => {
+    const applyStaged = source("lib/sync/applyStaged.ts");
+    const windows = [
+      ...windowsAround(applyStaged, "update public\\.pending_syncs", 720),
+      ...windowsAround(applyStaged, "update public\\.onboarding_scan_manifest", 720),
+    ].filter((sqlWindow) => sqlWindow.toLowerCase().includes("pending_wizard_session_id"));
+
+    expect(windows.length).toBeGreaterThanOrEqual(2);
+  });
+
   test("Discard live-scope SELECT and DELETE carry wizard_session_id IS NULL", () => {
     const discardStaged = source("lib/sync/discardStaged.ts");
     const windows = [

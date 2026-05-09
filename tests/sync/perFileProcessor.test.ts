@@ -38,7 +38,8 @@ function fileMeta(modifiedTime: string): DriveListedFile {
 function matches(row: Row, filters: Filter[]): boolean {
   return filters.every((filter) => {
     if (filter.kind === "eq") return row[filter.column] === filter.value;
-    if (filter.value === null) return row[filter.column] === null || row[filter.column] === undefined;
+    if (filter.value === null)
+      return row[filter.column] === null || row[filter.column] === undefined;
     return row[filter.column] === filter.value;
   });
 }
@@ -125,7 +126,9 @@ describe("perFileProcessor gating phase", () => {
     supabaseMock.client = fake.client;
     const { perFileProcessor } = await importProcessor();
 
-    await expect(perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:00:00.000Z"))).resolves.toEqual({
+    await expect(
+      perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:00:00.000Z")),
+    ).resolves.toEqual({
       outcome: "skip",
       reason: "deferred_permanent",
     });
@@ -140,7 +143,9 @@ describe("perFileProcessor gating phase", () => {
     supabaseMock.client = fake.client;
     const { perFileProcessor } = await importProcessor();
 
-    await expect(perFileProcessor("file-1", "manual", fileMeta("2026-05-08T12:00:00.000Z"))).resolves.toEqual({
+    await expect(
+      perFileProcessor("file-1", "manual", fileMeta("2026-05-08T12:00:00.000Z")),
+    ).resolves.toEqual({
       outcome: "proceed",
       mode: "manual",
     });
@@ -162,15 +167,19 @@ describe("perFileProcessor gating phase", () => {
     supabaseMock.client = fake.client;
     const { perFileProcessor } = await importProcessor();
 
-    await expect(perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:00:00.000Z"))).resolves.toEqual({
+    await expect(
+      perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:00:00.000Z")),
+    ).resolves.toEqual({
       outcome: "proceed",
       mode: "cron",
     });
-    expect(fake.calls.find((call) => call.table === "deferred_ingestions")?.filters).toContainEqual({
-      kind: "is",
-      column: "wizard_session_id",
-      value: null,
-    });
+    expect(fake.calls.find((call) => call.table === "deferred_ingestions")?.filters).toContainEqual(
+      {
+        kind: "is",
+        column: "wizard_session_id",
+        value: null,
+      },
+    );
   });
 
   test("defer-until-modified skips until Drive modifiedTime advances past the live deferral watermark", async () => {
@@ -187,7 +196,9 @@ describe("perFileProcessor gating phase", () => {
     supabaseMock.client = fake.client;
     const { perFileProcessor } = await importProcessor();
 
-    await expect(perFileProcessor("file-1", "push", fileMeta("2026-05-08T12:00:00.000Z"))).resolves.toEqual({
+    await expect(
+      perFileProcessor("file-1", "push", fileMeta("2026-05-08T12:00:00.000Z")),
+    ).resolves.toEqual({
       outcome: "skip",
       reason: "deferred_modtime",
     });
@@ -213,7 +224,9 @@ describe("perFileProcessor gating phase", () => {
     supabaseMock.client = fake.client;
     const { perFileProcessor } = await importProcessor();
 
-    await expect(perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:05:00.000Z"))).resolves.toEqual({
+    await expect(
+      perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:05:00.000Z")),
+    ).resolves.toEqual({
       outcome: "proceed",
       mode: "cron",
     });
@@ -225,9 +238,10 @@ describe("perFileProcessor gating phase", () => {
         deferred_at_modified_time: "2026-05-08T12:00:00.000Z",
       },
     ]);
-    expect(fake.calls.find((call) => call.table === "deferred_ingestions" && call.op === "delete")?.filters).toContainEqual(
-      { kind: "is", column: "wizard_session_id", value: null },
-    );
+    expect(
+      fake.calls.find((call) => call.table === "deferred_ingestions" && call.op === "delete")
+        ?.filters,
+    ).toContainEqual({ kind: "is", column: "wizard_session_id", value: null });
   });
 
   test("cron watermark uses greatest of show last_seen and live pending staged_modified_time", async () => {
@@ -256,11 +270,15 @@ describe("perFileProcessor gating phase", () => {
     supabaseMock.client = fake.client;
     const { perFileProcessor } = await importProcessor();
 
-    await expect(perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:10:00.000Z"))).resolves.toEqual({
+    await expect(
+      perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:10:00.000Z")),
+    ).resolves.toEqual({
       outcome: "skip",
       reason: "watermark",
     });
-    await expect(perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:11:00.000Z"))).resolves.toEqual({
+    await expect(
+      perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:11:00.000Z")),
+    ).resolves.toEqual({
       outcome: "proceed",
       mode: "cron",
     });
@@ -268,6 +286,28 @@ describe("perFileProcessor gating phase", () => {
       kind: "is",
       column: "wizard_session_id",
       value: null,
+    });
+  });
+
+  test("push duplicate watermark emits canonical WEBHOOK_NOOP_ALREADY_SYNCED reason", async () => {
+    const fake = createFakeSupabase({
+      shows: [
+        {
+          drive_file_id: "file-1",
+          last_sync_status: "ok",
+          last_seen_modified_time: "2026-05-08T12:00:00.000Z",
+          diagrams: { current: { snapshot_status: "complete" } },
+        },
+      ],
+    });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor } = await importProcessor();
+
+    await expect(
+      perFileProcessor("file-1", "push", fileMeta("2026-05-08T12:00:00.000Z")),
+    ).resolves.toEqual({
+      outcome: "skip",
+      reason: "WEBHOOK_NOOP_ALREADY_SYNCED",
     });
   });
 
@@ -285,7 +325,9 @@ describe("perFileProcessor gating phase", () => {
     supabaseMock.client = fake.client;
     const { perFileProcessor } = await importProcessor();
 
-    await expect(perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:00:00.000Z"))).resolves.toEqual({
+    await expect(
+      perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:00:00.000Z")),
+    ).resolves.toEqual({
       outcome: "proceed",
       mode: "recovery",
     });
@@ -305,11 +347,15 @@ describe("perFileProcessor gating phase", () => {
     supabaseMock.client = fake.client;
     const { perFileProcessor } = await importProcessor();
 
-    await expect(perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:00:00.000Z"))).resolves.toEqual({
+    await expect(
+      perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:00:00.000Z")),
+    ).resolves.toEqual({
       outcome: "proceed",
       mode: "asset_recovery",
     });
-    await expect(perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:01:00.000Z"))).resolves.toEqual({
+    await expect(
+      perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:01:00.000Z")),
+    ).resolves.toEqual({
       outcome: "proceed",
       mode: "cron",
     });
@@ -329,11 +375,15 @@ describe("perFileProcessor gating phase", () => {
     supabaseMock.client = fake.client;
     const { perFileProcessor } = await importProcessor();
 
-    await expect(perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:00:00.000Z"))).resolves.toEqual({
+    await expect(
+      perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:00:00.000Z")),
+    ).resolves.toEqual({
       outcome: "skip",
       reason: "partial_failure_restage_required",
     });
-    await expect(perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:01:00.000Z"))).resolves.toEqual({
+    await expect(
+      perFileProcessor("file-1", "cron", fileMeta("2026-05-08T12:01:00.000Z")),
+    ).resolves.toEqual({
       outcome: "proceed",
       mode: "cron",
     });

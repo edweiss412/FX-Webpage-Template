@@ -7,7 +7,12 @@ export type ResolvedSyncMode = SyncMode | "recovery" | "asset_recovery";
 export type PerFileProcessorResult =
   | {
       outcome: "skip";
-      reason: "deferred_permanent" | "deferred_modtime" | "watermark" | "partial_failure_restage_required";
+      reason:
+        | "deferred_permanent"
+        | "deferred_modtime"
+        | "watermark"
+        | "partial_failure_restage_required"
+        | "WEBHOOK_NOOP_ALREADY_SYNCED";
     }
   | {
       outcome: "proceed";
@@ -220,7 +225,10 @@ export async function perFileProcessor(
   }
 
   if (isAtOrBefore(fileMeta.modifiedTime, effectiveWatermark)) {
-    return { outcome: "skip", reason: "watermark" };
+    return {
+      outcome: "skip",
+      reason: mode === "push" ? "WEBHOOK_NOOP_ALREADY_SYNCED" : "watermark",
+    };
   }
 
   return { outcome: "proceed", mode };
