@@ -23,6 +23,11 @@ const infraRegistry = [
     path: "app/api/admin/sync/[slug]/route.ts",
     contract: "Supabase returned/thrown slug lookup errors become SYNC_INFRA_ERROR",
   },
+  {
+    helper: "readAdminEmail",
+    path: "app/api/admin/staged/[fileId]/apply/route.ts",
+    contract: "Supabase returned/thrown admin-email lookup errors become SYNC_INFRA_ERROR",
+  },
 ] as const;
 
 function read(path: string): string {

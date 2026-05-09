@@ -67,7 +67,7 @@ describe("upsertAdminAlert", () => {
   });
 
   test("production admin_alerts producers route through the coalescing helper", () => {
-    const files = ["lib/auth/validateGoogleSession.ts", "middleware.ts"];
+    const files = ["lib/auth/validateGoogleSession.ts", "middleware.ts", "lib/sync/applyStaged.ts"];
 
     for (const file of files) {
       const source = readFileSync(file, "utf8")
