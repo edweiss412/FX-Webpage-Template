@@ -38,6 +38,21 @@ const infraRegistry = [
     path: "lib/sync/runOnboardingScan.ts",
     contract: "transaction-port faults become OnboardingScanInfraError",
   },
+  {
+    helper: "subscribeToWatchedFolder",
+    path: "lib/drive/watch.ts",
+    contract: "watch transaction-port faults become DriveWatchInfraError",
+  },
+  {
+    helper: "refreshWatchSubscriptions",
+    path: "lib/drive/watch.ts",
+    contract: "watch renewal transaction-port faults become DriveWatchInfraError",
+  },
+  {
+    helper: "gcWatchChannels",
+    path: "lib/drive/watch.ts",
+    contract: "watch GC transaction-port faults become DriveWatchInfraError",
+  },
 ] as const;
 
 function read(path: string): string {
@@ -307,6 +322,57 @@ describe("sync Supabase infra-failure contract", () => {
           } as never,
         }),
       ).rejects.toBeInstanceOf(OnboardingScanInfraError);
+    });
+  });
+
+  describe("Drive watch lifecycle", () => {
+    test("subscribeToWatchedFolder DB-port throw → DriveWatchInfraError", async () => {
+      const { subscribeToWatchedFolder, DriveWatchInfraError } = await import("@/lib/drive/watch");
+
+      await expect(
+        subscribeToWatchedFolder("folder-1", {
+          tx: {
+            insertPending: async () => {
+              throw new Error("META: simulated watch insert fault");
+            },
+          } as never,
+          uuid: () => "channel-1",
+          webhookSecret: () => "secret-1",
+          watchFolder: async () => ({
+            id: "channel-1",
+            resourceId: "resource-1",
+            expiration: "2026-05-10T12:00:00.000Z",
+          }),
+        }),
+      ).rejects.toBeInstanceOf(DriveWatchInfraError);
+    });
+
+    test("refreshWatchSubscriptions DB-port throw → DriveWatchInfraError", async () => {
+      const { refreshWatchSubscriptions, DriveWatchInfraError } = await import("@/lib/drive/watch");
+
+      await expect(
+        refreshWatchSubscriptions({
+          tx: {
+            listExpiringActive: async () => {
+              throw new Error("META: simulated watch renewal fault");
+            },
+          } as never,
+        }),
+      ).rejects.toBeInstanceOf(DriveWatchInfraError);
+    });
+
+    test("gcWatchChannels DB-port throw → DriveWatchInfraError", async () => {
+      const { gcWatchChannels, DriveWatchInfraError } = await import("@/lib/drive/watch");
+
+      await expect(
+        gcWatchChannels({
+          tx: {
+            listGcCandidates: async () => {
+              throw new Error("META: simulated watch GC fault");
+            },
+          } as never,
+        }),
+      ).rejects.toBeInstanceOf(DriveWatchInfraError);
     });
   });
 });

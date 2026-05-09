@@ -5,7 +5,8 @@ export type AdminAlertCode =
   | "LEAKED_LINK_REVOCATION_FAILED"
   | "LEAKED_LINK_DETECTED"
   | "EMBEDDED_RECOVERY_REQUIRES_RESTAGE"
-  | "ROLE_FLAGS_NOTICE";
+  | "ROLE_FLAGS_NOTICE"
+  | "WATCH_CHANNEL_ORPHANED";
 
 export type UpsertAdminAlertInput = {
   showId: string | null;
