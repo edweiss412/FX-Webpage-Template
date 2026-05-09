@@ -569,7 +569,16 @@ async function applyAssetReviewEffects(
       ...(reelDrift ? [warning("REEL_DRIFTED")] : []),
     ];
     const openingReel = reelDrift ? null : pending.parseResult.openingReel;
-    if (!shouldMintSnapshot) return { parseResult: pending.parseResult, adminAlertCode: null };
+    if (!shouldMintSnapshot) {
+      return {
+        parseResult: {
+          ...pending.parseResult,
+          warnings,
+          openingReel,
+        },
+        adminAlertCode: null,
+      };
+    }
     return {
       parseResult: {
         ...pending.parseResult,

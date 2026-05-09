@@ -583,6 +583,54 @@ describe("applyStaged live-scope", () => {
     });
   });
 
+  test("REEL_DRIFT_PENDING clears the stale opening reel and persists a warning without diagram mutation", async () => {
+    const item: TriggeredReviewItem = {
+      id: "reel-drift",
+      invariant: "REEL_DRIFT_PENDING",
+      reel_drive_file_id: "reel-1",
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(
+      async () => ({ outcome: "applied" as const, showId: "show-1" }),
+    );
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({
+          triggeredReviewItems: [item],
+          parseResult: {
+            ...parseResult(),
+            openingReel: {
+              driveFileId: "reel-1",
+              drive_modified_time: "2026-05-08T10:00:00.000Z",
+              headRevisionId: "reel-head-1",
+              mimeType: "video/mp4",
+            },
+          },
+        }),
+      ),
+      runPhase2,
+    });
+
+    await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "reel-drift", action: "apply" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    const phase2Args = runPhase2.mock.calls[0]?.[1];
+    expect(phase2Args?.parseResult.openingReel).toBeNull();
+    expect(phase2Args?.parseResult.warnings).toContainEqual(
+      expect.objectContaining({ code: "REEL_DRIFTED" }),
+    );
+    expect(phase2Args?.parseResult.diagrams).toEqual(parseResult().diagrams);
+  });
+
   test("wizard scope is explicitly deferred behind a 501 code", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const syncDeps = deps();
