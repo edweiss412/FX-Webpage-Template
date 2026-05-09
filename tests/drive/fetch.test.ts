@@ -118,4 +118,28 @@ describe("Drive fetch wrappers", () => {
     ).rejects.toThrow(/markdown export link/);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  test("fetchSheetAsMarkdownAtRevision throws when the revision export endpoint fails", async () => {
+    const revisionsGet = vi.fn().mockResolvedValue({
+      data: {
+        exportLinks: {
+          "text/markdown": "https://docs.google.com/export/rev-1-markdown",
+        },
+      },
+    });
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 410,
+      text: vi.fn(),
+    });
+    const { fetchSheetAsMarkdownAtRevision } = await import("@/lib/drive/fetch");
+
+    await expect(
+      fetchSheetAsMarkdownAtRevision("sheet-1", "rev-1", {
+        drive: fakeDrive({ revisions: { get: revisionsGet } }),
+        fetch: fetchImpl,
+        getAccessToken: async () => "ya29.test-token",
+      }),
+    ).rejects.toThrow(/HTTP 410/);
+  });
 });

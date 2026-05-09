@@ -72,4 +72,28 @@ describe("getDriveClient", () => {
     expect(googleAuthMock).not.toHaveBeenCalled();
     expect(driveMock).not.toHaveBeenCalled();
   });
+
+  test("getDriveAccessToken returns the service-account access token", async () => {
+    googleAuthMock.mockImplementation(function GoogleAuth(options) {
+      return { kind: "auth", options, getAccessToken: async () => "ya29.live-token" };
+    });
+    const { getDriveAccessToken, GOOGLE_DRIVE_SCOPES } = await import("@/lib/drive/client");
+
+    await expect(getDriveAccessToken()).resolves.toBe("ya29.live-token");
+    expect(googleAuthMock).toHaveBeenCalledWith({
+      credentials: SERVICE_ACCOUNT,
+      scopes: GOOGLE_DRIVE_SCOPES,
+    });
+    expect(driveMock).not.toHaveBeenCalled();
+  });
+
+  test("getDriveAccessToken throws a config error when Google Auth returns no token", async () => {
+    googleAuthMock.mockImplementation(function GoogleAuth(options) {
+      return { kind: "auth", options, getAccessToken: async () => null };
+    });
+    const { getDriveAccessToken } = await import("@/lib/drive/client");
+
+    await expect(getDriveAccessToken()).rejects.toThrow(/access token/);
+    expect(driveMock).not.toHaveBeenCalled();
+  });
 });
