@@ -8,6 +8,7 @@ import {
   processOneFile,
   processOneFile_unlocked,
   type ProcessOneFileDeps,
+  revisionRaceCooldownSeconds,
   runScheduledCronSync,
   STAGED_PARSE_REVISION_RACE,
   STAGED_PARSE_SOURCE_GONE,
@@ -43,7 +44,22 @@ type PipelineTx = Phase1Tx &
       lastSeenModifiedTime: string;
     }>;
     alerts?: Array<{ showId: string | null; code: string; context: Record<string, unknown> }>;
+    nowMs?: number;
+    revisionRaceCooldowns?: Map<string, { retryCount: number; lastRaceAtMs: number }>;
     queryOne<T>(sql: string, params: unknown[]): Promise<T>;
+    readRevisionRaceCooldown(
+      driveFileId: string,
+      racedHeadRevisionId: string,
+    ): Promise<{
+      retryCount: number;
+      cooldownSeconds: number;
+      cooldownRemainingMs: number;
+    } | null>;
+    upsertRevisionRaceCooldown(
+      driveFileId: string,
+      racedHeadRevisionId: string,
+    ): Promise<{ retryCount: number; cooldownSeconds: number }>;
+    deleteRevisionRaceCooldowns(driveFileId: string): Promise<void>;
     markShowSheetUnavailable(
       driveFileId: string,
       code: string,
@@ -154,11 +170,47 @@ function parseResult(): ParseResult {
   };
 }
 
+function cooldownKey(driveFileId: string, revisionId: string): string {
+  return `${driveFileId}\0${revisionId}`;
+}
+
 function tx(): PipelineTx {
   return {
     operations: [],
+    nowMs: Date.parse("2026-05-08T12:00:00.000Z"),
+    revisionRaceCooldowns: new Map(),
     async queryOne<T>() {
       return { held: true, locked: true } as T;
+    },
+    async readRevisionRaceCooldown(driveFileId: string, racedHeadRevisionId: string) {
+      this.operations.push(`readRevisionRaceCooldown:${driveFileId}:${racedHeadRevisionId}`);
+      const row = this.revisionRaceCooldowns?.get(cooldownKey(driveFileId, racedHeadRevisionId));
+      if (!row || row.retryCount <= 0) return null;
+      const seconds = revisionRaceCooldownSeconds(row.retryCount);
+      const remaining = row.lastRaceAtMs + seconds * 1000 - (this.nowMs ?? Date.now());
+      if (remaining <= 0) return null;
+      return {
+        retryCount: row.retryCount,
+        cooldownSeconds: seconds,
+        cooldownRemainingMs: remaining,
+      };
+    },
+    async upsertRevisionRaceCooldown(driveFileId: string, racedHeadRevisionId: string) {
+      this.operations.push(`upsertRevisionRaceCooldown:${driveFileId}:${racedHeadRevisionId}`);
+      const key = cooldownKey(driveFileId, racedHeadRevisionId);
+      const existing = this.revisionRaceCooldowns?.get(key);
+      const retryCount = (existing?.retryCount ?? 0) + 1;
+      this.revisionRaceCooldowns?.set(key, {
+        retryCount,
+        lastRaceAtMs: this.nowMs ?? Date.now(),
+      });
+      return { retryCount, cooldownSeconds: revisionRaceCooldownSeconds(retryCount) };
+    },
+    async deleteRevisionRaceCooldowns(driveFileId: string) {
+      this.operations.push(`deleteRevisionRaceCooldowns:${driveFileId}`);
+      for (const key of [...(this.revisionRaceCooldowns?.keys() ?? [])]) {
+        if (key.startsWith(`${driveFileId}\0`)) this.revisionRaceCooldowns?.delete(key);
+      }
     },
     async readShowForPhase1() {
       this.operations.push("readShowForPhase1");
@@ -399,7 +451,8 @@ describe("processOneFile", () => {
 
     expect(result).toEqual({ outcome: "skipped", reason: "mi8_modtime_unstable" });
     expect(syncDeps.runPhase2).not.toHaveBeenCalled();
-    expect(fakeTx.operations).toEqual(["runPhase1"]);
+    expect(fakeTx.operations).toContain("runPhase1");
+    expect(fakeTx.operations).not.toContain("runPhase2");
     expect(syncDeps.logSync).toHaveBeenCalledWith({
       driveFileId: "file-1",
       outcome: "skipped",
@@ -492,6 +545,89 @@ describe("processOneFile", () => {
 
     expect(result).toEqual({ outcome: "revision_race", code: STAGED_PARSE_REVISION_RACE });
     expect(syncDeps.parseSheet).not.toHaveBeenCalled();
+  });
+
+  test("automatic revision races enter cooldown, skip repeated same-revision cron work, then clear on Phase 2 success", async () => {
+    const fakeTx = tx();
+    const file = { ...fileMeta("file-1"), headRevisionId: "token-1" };
+    const withShowLock = vi.fn(async (driveFileId, fn) => {
+      return await fn(fakeTx as LockedShowTx<PipelineTx>);
+    });
+    const syncDeps = deps({
+      withShowLock,
+      fetchMarkdownAtRevision: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("Drive revision token for file-1 changed during xlsx export"))
+        .mockResolvedValue("# v4\nShow"),
+    });
+
+    await expect(processOneFile("file-1", "cron", file, syncDeps)).resolves.toEqual({
+      outcome: "revision_race",
+      code: STAGED_PARSE_REVISION_RACE,
+    });
+    expect(fakeTx.revisionRaceCooldowns?.get(cooldownKey("file-1", "token-1"))).toMatchObject({
+      retryCount: 1,
+      lastRaceAtMs: fakeTx.nowMs,
+    });
+
+    await expect(processOneFile("file-1", "cron", file, syncDeps)).resolves.toEqual({
+      outcome: "revision_race_cooldown",
+      code: "STAGED_PARSE_REVISION_RACE_COOLDOWN",
+      cooldownRemainingMs: 60_000,
+      retryCount: 1,
+    });
+    expect(syncDeps.captureBinding).toHaveBeenCalledTimes(1);
+    expect(syncDeps.fetchMarkdownAtRevision).toHaveBeenCalledTimes(1);
+
+    fakeTx.nowMs = (fakeTx.nowMs ?? 0) + 60_001;
+    await expect(processOneFile("file-1", "cron", file, syncDeps)).resolves.toEqual({
+      outcome: "applied",
+      showId: "show-1",
+    });
+    expect(fakeTx.revisionRaceCooldowns?.has(cooldownKey("file-1", "token-1"))).toBe(false);
+    expect(fakeTx.operations).toContain("deleteRevisionRaceCooldowns:file-1");
+  });
+
+  test("revision-race cooldown backoff doubles and caps at ten minutes", () => {
+    expect([1, 2, 3, 4, 5, 6, 7].map(revisionRaceCooldownSeconds)).toEqual([
+      60, 120, 240, 480, 600, 600, 600,
+    ]);
+  });
+
+  test("manual and onboarding modes bypass automatic revision-race cooldown reads", async () => {
+    const fakeTx = tx();
+    await fakeTx.upsertRevisionRaceCooldown("file-1", "token-1");
+    const syncDeps = deps({
+      fetchMarkdownAtRevision: vi.fn(async () => "# v4\nShow"),
+    });
+
+    await expect(
+      processOneFile_unlocked(
+        fakeTx as LockedShowTx<PipelineTx>,
+        "file-1",
+        "manual",
+        { ...fileMeta("file-1"), headRevisionId: "token-1" },
+        syncDeps,
+      ),
+    ).resolves.toEqual({ outcome: "applied", showId: "show-1" });
+    await expect(
+      processOneFile_unlocked(
+        fakeTx as LockedShowTx<PipelineTx>,
+        "file-1",
+        "onboarding_scan",
+        { ...fileMeta("file-1"), headRevisionId: "token-1" },
+        deps({
+          fetchMarkdownAtRevision: vi.fn(async () => "# v4\nShow"),
+          runPhase1: vi.fn(async () => ({
+            outcome: "stage" as const,
+            stagedId: "staged-1",
+            triggeredReviewItems: [],
+          })),
+        }),
+      ),
+    ).resolves.toEqual({ outcome: "stage", stagedId: "staged-1" });
+
+    expect(fakeTx.operations).not.toContain("readRevisionRaceCooldown:file-1:token-1");
   });
 
   test("spreadsheet file gone during xlsx fetch is STAGED_PARSE_SOURCE_GONE, not a race", async () => {

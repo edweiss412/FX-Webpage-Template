@@ -49,6 +49,8 @@ import {
 } from "@/lib/sync/perFileProcessor";
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
+export const STAGED_PARSE_REVISION_RACE_COOLDOWN =
+  "STAGED_PARSE_REVISION_RACE_COOLDOWN" as const;
 export const STAGED_PARSE_SOURCE_GONE = "STAGED_PARSE_SOURCE_GONE" as const;
 export const SYNC_FILE_FAILED = "SYNC_FILE_FAILED" as const;
 export const SYNC_INFRA_ERROR = "SYNC_INFRA_ERROR" as const;
@@ -64,7 +66,29 @@ type SyncFailureCode =
   | typeof SHEET_UNAVAILABLE
   | "LOCK_OWNERSHIP_ASSERTION_FAILED";
 
-export type SyncPipelineTx = LockableSyncTx & Phase1Tx & Phase2Tx;
+export type RevisionRaceCooldown = {
+  retryCount: number;
+  cooldownSeconds: number;
+  cooldownRemainingMs: number;
+};
+
+export function revisionRaceCooldownSeconds(retryCount: number): number {
+  return Math.min(60 * 2 ** Math.max(retryCount - 1, 0), 600);
+}
+
+type RevisionRaceCooldownTx = {
+  readRevisionRaceCooldown(
+    driveFileId: string,
+    racedHeadRevisionId: string,
+  ): Promise<RevisionRaceCooldown | null>;
+  upsertRevisionRaceCooldown(
+    driveFileId: string,
+    racedHeadRevisionId: string,
+  ): Promise<{ retryCount: number; cooldownSeconds: number }>;
+  deleteRevisionRaceCooldowns(driveFileId: string): Promise<void>;
+};
+
+export type SyncPipelineTx = LockableSyncTx & Phase1Tx & Phase2Tx & Partial<RevisionRaceCooldownTx>;
 
 export type ProcessOneFileResult =
   | { outcome: "skipped"; reason: string }
@@ -74,6 +98,12 @@ export type ProcessOneFileResult =
   | { outcome: "applied"; showId: string; roleFlagsNotice?: RoleFlagsNotice }
   | { outcome: "stale"; code: string }
   | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
+  | {
+      outcome: "revision_race_cooldown";
+      code: typeof STAGED_PARSE_REVISION_RACE_COOLDOWN;
+      cooldownRemainingMs: number;
+      retryCount: number;
+    }
   | { outcome: "source_gone"; code: typeof STAGED_PARSE_SOURCE_GONE }
   | { outcome: "source_gone"; code: typeof SHEET_UNAVAILABLE }
   | {
@@ -535,6 +565,87 @@ class PostgresPipelineTx implements SyncPipelineTx {
       [input.showId, input.code, JSON.stringify(input.context)],
     );
     return row?.id ?? null;
+  }
+
+  async readRevisionRaceCooldown(
+    driveFileId: string,
+    racedHeadRevisionId: string,
+  ): Promise<RevisionRaceCooldown | null> {
+    const row = await this.one<{
+      retry_count: number;
+      cooldown_seconds: number;
+      cooldown_remaining_ms: number;
+    }>(
+      `
+        with cooldown as (
+          select
+            retry_count,
+            least((60 * power(2, greatest(retry_count - 1, 0)))::int, 600) as cooldown_seconds,
+            last_race_at
+          from public.revision_race_cooldowns
+         where drive_file_id = $1
+           and raced_head_revision_id = $2
+           and retry_count > 0
+         limit 1
+        )
+        select
+          retry_count,
+          cooldown_seconds,
+          greatest(
+            0,
+            ceil(extract(epoch from (last_race_at + cooldown_seconds * interval '1 second' - now())) * 1000)
+          )::bigint as cooldown_remaining_ms
+          from cooldown
+         where now() < last_race_at + cooldown_seconds * interval '1 second'
+      `,
+      [driveFileId, racedHeadRevisionId],
+    );
+    if (!row) return null;
+    return {
+      retryCount: row.retry_count,
+      cooldownSeconds: row.cooldown_seconds,
+      cooldownRemainingMs: Number(row.cooldown_remaining_ms),
+    };
+  }
+
+  async upsertRevisionRaceCooldown(
+    driveFileId: string,
+    racedHeadRevisionId: string,
+  ): Promise<{ retryCount: number; cooldownSeconds: number }> {
+    const row = await this.one<{ retry_count: number; cooldown_seconds: number }>(
+      `
+        with upserted as (
+          insert into public.revision_race_cooldowns (
+            drive_file_id, raced_head_revision_id, last_race_at, retry_count
+          )
+          values ($1, $2, now(), 1)
+          on conflict (drive_file_id, raced_head_revision_id)
+          do update set
+            last_race_at = now(),
+            retry_count = public.revision_race_cooldowns.retry_count + 1
+          returning retry_count
+        )
+        select
+          retry_count,
+          least((60 * power(2, greatest(retry_count - 1, 0)))::int, 600) as cooldown_seconds
+          from upserted
+      `,
+      [driveFileId, racedHeadRevisionId],
+    );
+    return {
+      retryCount: row?.retry_count ?? 1,
+      cooldownSeconds: row?.cooldown_seconds ?? revisionRaceCooldownSeconds(1),
+    };
+  }
+
+  async deleteRevisionRaceCooldowns(driveFileId: string): Promise<void> {
+    await this.rows(
+      `
+        delete from public.revision_race_cooldowns
+         where drive_file_id = $1
+      `,
+      [driveFileId],
+    );
   }
 
   async deleteWizardPendingSyncsExcept(wizardSessionId: string) {
@@ -1113,6 +1224,38 @@ async function emitDeferredRoleFlagsNotice(
   await upsertAdminAlert(result.roleFlagsNotice);
 }
 
+function shouldUseRevisionRaceCooldown(mode: SyncMode): boolean {
+  return mode === "cron" || mode === "push";
+}
+
+function listedRevisionToken(fileMeta: DriveListedFile): string {
+  return fileMeta.headRevisionId ?? fileMeta.modifiedTime;
+}
+
+async function checkRevisionRaceCooldown(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  racedHeadRevisionId: string,
+): Promise<Extract<ProcessOneFileResult, { outcome: "revision_race_cooldown" }> | null> {
+  if (!tx.readRevisionRaceCooldown) return null;
+  const cooldown = await tx.readRevisionRaceCooldown(driveFileId, racedHeadRevisionId);
+  if (!cooldown) return null;
+  return {
+    outcome: "revision_race_cooldown",
+    code: STAGED_PARSE_REVISION_RACE_COOLDOWN,
+    cooldownRemainingMs: cooldown.cooldownRemainingMs,
+    retryCount: cooldown.retryCount,
+  };
+}
+
+async function recordRevisionRaceCooldown(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  racedHeadRevisionId: string,
+): Promise<void> {
+  await tx.upsertRevisionRaceCooldown?.(driveFileId, racedHeadRevisionId);
+}
+
 export function classifySyncFailure(error: unknown): SyncFailureCode {
   if (
     error instanceof SyncInfraError ||
@@ -1291,8 +1434,31 @@ export async function processOneFile_unlocked(
     return result;
   }
 
+  if (shouldUseRevisionRaceCooldown(mode)) {
+    const cooldown = await checkRevisionRaceCooldown(tx, driveFileId, listedRevisionToken(fileMeta));
+    if (cooldown) {
+      await logSync(deps, driveFileId, cooldown, {
+        racedHeadRevisionId: listedRevisionToken(fileMeta),
+        cooldownRemainingMs: cooldown.cooldownRemainingMs,
+        retryCount: cooldown.retryCount,
+      });
+      return cooldown;
+    }
+  }
+
   const captureBinding = deps.captureBinding ?? defaultCaptureBinding;
   const binding = await withStepTimeout("captureBinding", captureBinding(driveFileId, fileMeta));
+  if (shouldUseRevisionRaceCooldown(mode) && binding.bindingToken !== listedRevisionToken(fileMeta)) {
+    const cooldown = await checkRevisionRaceCooldown(tx, driveFileId, binding.bindingToken);
+    if (cooldown) {
+      await logSync(deps, driveFileId, cooldown, {
+        racedHeadRevisionId: binding.bindingToken,
+        cooldownRemainingMs: cooldown.cooldownRemainingMs,
+        retryCount: cooldown.retryCount,
+      });
+      return cooldown;
+    }
+  }
   let markdown: string;
   try {
     markdown = await withStepTimeout(
@@ -1308,6 +1474,7 @@ export async function processOneFile_unlocked(
         outcome: "revision_race" as const,
         code: STAGED_PARSE_REVISION_RACE,
       };
+      await recordRevisionRaceCooldown(tx, driveFileId, binding.bindingToken);
       await logSync(deps, driveFileId, result, {
         bindingToken: binding.bindingToken,
       });
@@ -1350,6 +1517,7 @@ export async function processOneFile_unlocked(
         outcome: "revision_race" as const,
         code: STAGED_PARSE_REVISION_RACE,
       };
+      await recordRevisionRaceCooldown(tx, driveFileId, binding.bindingToken);
       await logSync(deps, driveFileId, result, {
         bindingToken: binding.bindingToken,
       });
@@ -1386,6 +1554,7 @@ export async function processOneFile_unlocked(
   }
   if (currentBinding.bindingToken !== binding.bindingToken) {
     const result = { outcome: "revision_race" as const, code: STAGED_PARSE_REVISION_RACE };
+    await recordRevisionRaceCooldown(tx, driveFileId, binding.bindingToken);
     await logSync(deps, driveFileId, result, {
       staged: binding.bindingToken,
       current: currentBinding.bindingToken,
@@ -1447,6 +1616,7 @@ export async function processOneFile_unlocked(
     showId: phase2.showId,
   };
   if (phase2.roleFlagsNotice) result.roleFlagsNotice = phase2.roleFlagsNotice;
+  await tx.deleteRevisionRaceCooldowns?.(driveFileId);
   await deps.publishShowInvalidation?.(phase2.showId);
   await logSync(deps, driveFileId, result);
   return result;
