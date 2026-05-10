@@ -1079,6 +1079,16 @@ The seven create / extend rows above are mandatory at M6 close. Empty rows silen
   - **Finding 1: `445d0b4`** `refactor(sync): move Drive ops outside per-show lock per spec §5.2`. Substantial restructure: 351-line diff in `lib/sync/runScheduledCronSync.ts`, plus updates to `runManualSyncForShow.ts` (35 lines), advisory-lock structural test, and tests for both. 376 insertions / 148 deletions across 5 files. Drive binding/export/parse/enrich now happen BEFORE the per-show lock acquires; Phase 1 + Phase 2 DB writes (and R3/R5 fetch-failure recovery mutations) happen inside a fresh locked transaction AFTER the Drive call completes. Preserves R3 (242bb55) + R5 F1 (55f8e57) + R6 (909dd06) recovery semantics — failure → status update + sync_log + admin alert + pending_ingestions row, all inside the new fresh-locked-tx pattern.
 - Verification: 36/36 R7 targeted tests pass on my orchestrator machine (codex sandbox saw 51/51 sync). pnpm typecheck + pnpm lint clean. Negative-regression: reverting only the production patch makes the new lock-boundary tests fail (proving they pin the §5.2 contract).
 
-### Round 8 — re-review against R7 fix (pending)
+### Round 8 — re-review against R7 fix (Codex via direct `codex exec`)
 
-(Pending — to dispatch after convergence log commits.)
+- Base: `afa0906` (milestone-base; full-milestone scope unchanged).
+- Head: `77f2c8c` (R7 fix-SHA convergence log commit).
+- Codex review: dispatched via direct `codex exec --sandbox read-only -c 'mcp_servers={}' < /dev/null`. Duration: ~3m. Verdict at `/tmp/m6-r8-verdict.json`.
+- Verdict: **needs-attention.** No regressions on R1-R6 fixes — fresh-eyes audit caught a NEW lock-window violation that R7 itself inadvertently introduced (1 finding, medium severity, surgical).
+- Findings (1, §A backend, **R7 regression**):
+  1. **[medium] R7 introduced regression — deferral auto-clear DELETE happens BEFORE the lock** — `lib/sync/perFileProcessor.ts:200`. After R7, `processOneFile` calls `prepareProcessOneFile` before acquiring `withShowLock`, and that prepare path invokes `perFileProcessor`. For an automatic cron/push run where a live `defer_until_modified` row has advanced, `perFileProcessor` DELETEs from `deferred_ingestions` BEFORE the per-show advisory lock is acquired. Breaks R7's OWN pattern (DB writes inside lock). Can race an admin discard/retry or another sync worker, allowing a sheet to be processed despite a newer serialized deferral decision. Recommendation: split the gate so the pre-lock phase is READ-ONLY, then re-read and clear `deferred_ingestions` INSIDE the locked transaction before Phase 1/2. Add a regression proving the deferral DELETE occurs only after `withShowLock` has entered. Extend the structural lock test to catch pre-lock DB writes, not just advisory SQL holders.
+- Routing: §A → direct `codex exec --sandbox workspace-write -c 'mcp_servers={}' < /dev/null`. Class-sweep critical: this is the second class-sweep gap on the lock-window class (R7 was the first). The structural test must extend beyond "advisory SQL holders" to catch any pre-lock DB write.
+
+### Round 9 — re-review against R8 fix (pending)
+
+(Pending — to dispatch after R8 fix SHA lands.)
