@@ -606,7 +606,7 @@ async function defaultBumpReviewerAuthFloors(
   await tx.queryOne<{ bumped: boolean }>(
     `
       update public.crew_member_auth
-         set revoked_below_version = greatest(revoked_below_version, current_token_version + 1)
+         set revoked_below_version = greatest(revoked_below_version, current_token_version)
        where show_id = $1::uuid
          and crew_name = any($2::text[])
       returning true as bumped
