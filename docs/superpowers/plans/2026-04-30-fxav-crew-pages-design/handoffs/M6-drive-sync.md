@@ -1094,6 +1094,18 @@ The seven create / extend rows above are mandatory at M6 close. Empty rows silen
   - **Meta-test: `0e20beb`** `test(sync): extend structural lock contract to catch pre-lock DB writes`. 67-line extension to `tests/sync/_advisoryLockSingleHolderContract.test.ts`. Asserts mutating SQL (DELETE / UPDATE / INSERT against deferred_ingestions, pending_syncs, pending_ingestions) only appears AFTER the lock acquisition in the call flow — not just advisory SQL holders. Closes the class-sweep gap that allowed R7 to introduce the deferral DELETE regression in the first place.
 - Verification: 48/48 R8 targeted tests pass on my orchestrator machine. pnpm typecheck + pnpm lint clean. Negative-regression: the new tests fail on pre-fix state, pass after restore (Codex confirmed).
 
-### Round 9 — re-review against R8 fix (pending)
+### Round 9 — re-review against R8 fix (Codex via direct `codex exec`, fourth account)
 
-(Pending — to dispatch after convergence log commits.)
+- Base: `afa0906` (milestone-base; full-milestone scope unchanged).
+- Head: `fc9b7c2` (R8 fix-SHA convergence log commit).
+- Codex review: dispatched via direct `codex exec --sandbox read-only -c 'mcp_servers={}' < /dev/null`. Duration: 3m. Verdict at `/tmp/m6-r9-verdict.json`.
+- Tooling note: third codex account hit usage limit after R8; user logged in with a fourth account. Four codex accounts exhausted across this session (initial + R3§A retry + R4 fix + R6 fix + R9 review).
+- Verdict: **needs-attention.** No regressions on R1-R8 fixes — fresh-eyes audit caught 2 NEW lock-window violations that R7 (architectural restructure) missed AND R8 (class-sweep meta-test) didn't catch either. Both findings are R7 class-sweep gaps on parallel surfaces.
+- Findings (2, §A backend):
+  1. **[high] Live Apply performs Drive work UNDER the show lock** — `lib/sync/applyStaged.ts:1083`. The LIVE Apply path enters `withPostgresSyncPipelineLock`, reaches `applyStaged_unlocked`, verifies the advisory lock, and THEN calls `deps.fetchDriveFileMetadata` while the lock is held. Asset-review Apply can also call `retryEmbeddedRevisionAvailability` from the same locked body before Phase 2. Violates R7/spec §5.2 lock-window contract on a surface R7 didn't touch. Note: R6 (909dd06) already moved the WIZARD Apply Drive call outside the lock per the R3/R4 outbox pattern — the live Apply branch needs the same treatment. Recommendation: mirror the wizard Apply shape — short locked preflight to read pending/show/folder state, release the lock, perform Drive metadata/revision checks outside the lock, then reacquire and re-read/CAS `pending_syncs.staged_id` plus `base_modified_time` before DB writes. Extend the structural lock test to reject Drive helpers inside locked bodies (not just mutating SQL).
+  2. **[medium] Manual `_unlocked` helper bakes in Drive-under-lock violation** — `lib/sync/runManualSyncForShow.ts:96`. `runManualSyncForShow_unlocked` accepts a `LockedShowTx`, asserts the lock is held, and then fetches Drive metadata before delegating to `processOneFile_unlocked`. Current route avoids this by prefetching through `runManualSyncForShow`, but the EXPORTED unlocked helper is explicitly intended for future lock-owning callers — bakes in the same Drive-under-lock violation. R8 structural guard only scans `runManualSyncForShow`, not this unlocked helper, so the gap is unprotected. Recommendation: change the unlocked helper to require a caller-provided `fileMeta` OR split it into pre-lock preparation plus locked DB body. Add `runManualSyncForShow_unlocked` to the lock-window structural sweep.
+- Routing: §A → direct `codex exec --sandbox workspace-write -c 'mcp_servers={}' < /dev/null`. Class-sweep critical: this is the THIRD round dealing with the lock-window class (R7 restructure → R8 R7-regression-repair → R9 more R7-class-sweep-gaps). The structural lock contract test must be extended yet again to cover Drive helpers inside locked bodies, applyStaged Apply path, and exported `_unlocked` helpers.
+
+### Round 10 — re-review against R9 fix (pending)
+
+(Pending — to dispatch after R9 fix SHAs land.)
