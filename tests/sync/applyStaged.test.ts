@@ -6,7 +6,9 @@ import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import {
+  applyStaged,
   applyStaged_unlocked,
+  EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
   INVALID_REVIEWER_ACTION,
   MISSING_REVIEWER_CHOICE,
   PENDING_SYNC_NOT_FOUND,
@@ -145,6 +147,12 @@ function deps(overrides: Partial<ApplyStagedDeps> = {}): ApplyStagedDeps {
     })),
     readWatchedFolderId: vi.fn(async () => "watched-folder"),
     fetchDriveFileMetadata: vi.fn(async () => driveMeta()),
+    liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
+    liveAssetReviewEffects: {
+      parseResult: parseResult(),
+      adminAlertCode: null,
+      skipDiagramsWrite: false,
+    },
     runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" })),
     insertSyncAudit: vi.fn(async () => "audit-1"),
     deleteLivePendingSync: vi.fn(async () => undefined),
@@ -157,6 +165,168 @@ function deps(overrides: Partial<ApplyStagedDeps> = {}): ApplyStagedDeps {
 }
 
 describe("applyStaged live-scope", () => {
+  test("wrapper performs live Drive metadata verification between two short show-lock windows", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const events: string[] = [];
+    let lockCount = 0;
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => {
+        lockCount += 1;
+        events.push(`lock:${lockCount}:start`);
+        const result = await fn(tx);
+        events.push(`lock:${lockCount}:commit`);
+        return result;
+      }),
+      readLivePendingSyncForApply: vi.fn(async () => {
+        events.push("readPending");
+        return pending();
+      }),
+      readShowForApply: vi.fn(async () => {
+        events.push("readShow");
+        return {
+          showId: "show-1",
+          lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
+          diagrams: { snapshot_revision_id: "rev-prior" },
+        };
+      }),
+      readWatchedFolderId: vi.fn(async () => {
+        events.push("readFolder");
+        return "watched-folder";
+      }),
+      fetchDriveFileMetadata: vi.fn(async () => {
+        events.push("fetchMeta");
+        return driveMeta();
+      }),
+      runPhase2: vi.fn(async () => {
+        events.push("phase2");
+        return { outcome: "applied" as const, showId: "show-1" };
+      }),
+    });
+
+    const result = await applyStaged(
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toMatchObject({ outcome: "applied", showId: "show-1" });
+    expect(events).toEqual([
+      "lock:1:start",
+      "readPending",
+      "readShow",
+      "readFolder",
+      "lock:1:commit",
+      "fetchMeta",
+      "lock:2:start",
+      "readPending",
+      "readShow",
+      "readFolder",
+      "phase2",
+      "lock:2:commit",
+    ]);
+  });
+
+  test("wrapper aborts live Apply when staged_id changes between Drive verification and locked CAS", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const pendingRows = [
+      pending(),
+      pending({ stagedId: "staged-from-concurrent-reviewer" }),
+    ];
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
+      readLivePendingSyncForApply: vi.fn(async () => pendingRows.shift() ?? null),
+      fetchDriveFileMetadata: vi.fn(async () => driveMeta()),
+    });
+
+    const result = await applyStaged(
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "superseded", code: STAGED_PARSE_SUPERSEDED });
+    expect(syncDeps.fetchDriveFileMetadata).toHaveBeenCalledOnce();
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+    expect(syncDeps.deleteLivePendingSync).not.toHaveBeenCalled();
+  });
+
+  test("wrapper performs asset-review revision retry outside both live Apply lock windows", async () => {
+    const item: TriggeredReviewItem = {
+      id: "no-revision",
+      invariant: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+      spreadsheet_id: "sheet-1",
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const events: string[] = [];
+    let lockCount = 0;
+    const priorDiagrams = {
+      snapshot_revision_id: "prior-rev",
+      snapshot_status: "complete",
+    } as unknown as ParseResult["diagrams"];
+    const syncDeps = deps({
+      withPipelineLock: vi.fn(async (_driveFileId, fn) => {
+        lockCount += 1;
+        events.push(`lock:${lockCount}:start`);
+        const result = await fn(tx);
+        events.push(`lock:${lockCount}:commit`);
+        return result;
+      }),
+      readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: [item] })),
+      readShowForApply: vi.fn(async () => ({
+        showId: "show-1",
+        lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
+        diagrams: priorDiagrams,
+      })),
+      fetchDriveFileMetadata: vi.fn(async () => {
+        events.push("fetchMeta");
+        return driveMeta();
+      }),
+      retryEmbeddedRevisionAvailability: vi.fn(async () => {
+        events.push("retryRevision");
+        return false;
+      }),
+    });
+
+    const result = await applyStaged(
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [{ item_id: "no-revision", action: "apply" }],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toMatchObject({
+      outcome: "applied",
+      adminAlertCode: EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
+    });
+    expect(events).toEqual([
+      "lock:1:start",
+      "lock:1:commit",
+      "fetchMeta",
+      "retryRevision",
+      "lock:2:start",
+      "lock:2:commit",
+    ]);
+    expect(syncDeps.retryEmbeddedRevisionAvailability).toHaveBeenCalledWith("sheet-1");
+    expect(syncDeps.runPhase2).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ skipDiagramsWrite: true }),
+    );
+  });
+
   test("runs Phase 2 from stored parse_result, audits, and deletes only the live pending row", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const syncDeps = deps();
@@ -270,6 +440,7 @@ describe("applyStaged live-scope", () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const goneDeps = deps({
       fetchDriveFileMetadata: vi.fn(async () => driveMeta({ trashed: true })),
+      liveDriveReverify: { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE },
     });
 
     const gone = await applyStaged_unlocked(
@@ -297,6 +468,7 @@ describe("applyStaged live-scope", () => {
       fetchDriveFileMetadata: vi.fn(async () => {
         throw transient;
       }),
+      liveDriveReverify: undefined,
     });
 
     const result = await applyStaged_unlocked(
@@ -329,6 +501,7 @@ describe("applyStaged live-scope", () => {
       readLivePendingSyncForApply: vi.fn(async () => pending({ baseModifiedTime: null })),
       readShowForApply: vi.fn(async () => firstSeen),
       fetchDriveFileMetadata: vi.fn(async () => driveMeta({ trashed: true })),
+      liveDriveReverify: { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE },
     });
 
     const gone = await applyStaged_unlocked(
@@ -357,6 +530,10 @@ describe("applyStaged live-scope", () => {
       readLivePendingSyncForApply: vi.fn(async () => pending({ baseModifiedTime: null })),
       readShowForApply: vi.fn(async () => firstSeen),
       fetchDriveFileMetadata: vi.fn(async () => driveMeta({ parents: ["other-folder"] })),
+      liveDriveReverify: {
+        outcome: "source_out_of_scope",
+        code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE,
+      },
     });
     const moved = await applyStaged_unlocked(
       tx,
@@ -387,6 +564,7 @@ describe("applyStaged live-scope", () => {
       fetchDriveFileMetadata: vi.fn(async () =>
         driveMeta({ modifiedTime: "2026-05-08T13:00:00.000Z" }),
       ),
+      liveDriveReverify: { outcome: "outdated", code: STAGED_PARSE_OUTDATED },
     });
 
     const result = await applyStaged_unlocked(
@@ -418,6 +596,7 @@ describe("applyStaged live-scope", () => {
       fetchDriveFileMetadata: vi.fn(async () =>
         driveMeta({ modifiedTime: "2026-05-08T13:00:00.000Z" }),
       ),
+      liveDriveReverify: { outcome: "outdated", code: STAGED_PARSE_OUTDATED },
     });
 
     const result = await applyStaged_unlocked(
@@ -448,6 +627,7 @@ describe("applyStaged live-scope", () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const syncDeps = deps({
       fetchDriveFileMetadata: vi.fn(async () => driveMeta({ modifiedTime: "not-a-date" })),
+      liveDriveReverify: undefined,
     });
 
     const result = await applyStaged_unlocked(
@@ -737,6 +917,20 @@ describe("applyStaged live-scope", () => {
     const syncDeps = deps({
       readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: [item] })),
       runPhase2,
+      liveAssetReviewEffects: {
+        parseResult: {
+          ...parseResult(),
+          diagrams: {
+            linkedFolder: null,
+            embeddedImages: [],
+            linkedFolderItems: [],
+            snapshot_revision_id: "snapshot-test-rev",
+            snapshot_status: "complete",
+          } as unknown as ParseResult["diagrams"],
+        },
+        adminAlertCode: null,
+        skipDiagramsWrite: false,
+      },
     });
 
     await applyStaged_unlocked(
@@ -776,7 +970,10 @@ describe("applyStaged live-scope", () => {
       outcome: "applied" as const,
       showId: "show-1",
     }));
-    const priorDiagrams = { snapshot_revision_id: "prior-rev", snapshot_status: "complete" };
+    const priorDiagrams = {
+      snapshot_revision_id: "prior-rev",
+      snapshot_status: "complete",
+    } as unknown as ParseResult["diagrams"];
     const syncDeps = deps({
       readLivePendingSyncForApply: vi.fn(async () => pending({ triggeredReviewItems: [item] })),
       readShowForApply: vi.fn(async () => ({
@@ -786,6 +983,21 @@ describe("applyStaged live-scope", () => {
       })),
       retryEmbeddedRevisionAvailability,
       runPhase2,
+      liveAssetReviewEffects: {
+        parseResult: {
+          ...parseResult(),
+          diagrams: priorDiagrams,
+          warnings: [
+            {
+              severity: "warn",
+              code: EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
+              message: EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
+            },
+          ],
+        },
+        adminAlertCode: EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
+        skipDiagramsWrite: true,
+      },
     });
 
     const result = await applyStaged_unlocked(
@@ -800,7 +1012,7 @@ describe("applyStaged live-scope", () => {
       syncDeps,
     );
 
-    expect(retryEmbeddedRevisionAvailability).toHaveBeenCalledWith("sheet-1");
+    expect(retryEmbeddedRevisionAvailability).not.toHaveBeenCalled();
     expect(runPhase2.mock.calls[0]?.[1]?.parseResult.diagrams).toBe(priorDiagrams);
     expect(runPhase2.mock.calls[0]?.[1]?.skipDiagramsWrite).toBe(true);
     expect(result).toMatchObject({
@@ -822,6 +1034,7 @@ describe("applyStaged live-scope", () => {
       retryEmbeddedRevisionAvailability: vi.fn(async () => {
         throw Object.assign(new Error("drive unavailable"), { status: 503 });
       }),
+      liveAssetReviewEffects: undefined,
     });
 
     const result = await applyStaged_unlocked(
@@ -859,6 +1072,7 @@ describe("applyStaged live-scope", () => {
         diagrams: null,
       })),
       retryEmbeddedRevisionAvailability: vi.fn(async () => false),
+      liveAssetReviewEffects: undefined,
     });
 
     const result = await applyStaged_unlocked(
@@ -885,7 +1099,10 @@ describe("applyStaged live-scope", () => {
       spreadsheet_id: "sheet-1",
     };
     const tx = fakeTx() as LockedShowTx<FakeTx>;
-    const priorDiagrams = { snapshot_revision_id: "prior-rev", snapshot_status: "complete" };
+    const priorDiagrams = {
+      snapshot_revision_id: "prior-rev",
+      snapshot_status: "complete",
+    } as unknown as ParseResult["diagrams"];
     const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(async () => ({
       outcome: "applied" as const,
       showId: "show-1",
@@ -899,6 +1116,21 @@ describe("applyStaged live-scope", () => {
       })),
       retryEmbeddedRevisionAvailability: vi.fn(async () => true),
       runPhase2,
+      liveAssetReviewEffects: {
+        parseResult: {
+          ...parseResult(),
+          diagrams: priorDiagrams,
+          warnings: [
+            {
+              severity: "warn",
+              code: EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
+              message: EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
+            },
+          ],
+        },
+        adminAlertCode: EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
+        skipDiagramsWrite: true,
+      },
     });
 
     await applyStaged_unlocked(
@@ -934,7 +1166,10 @@ describe("applyStaged live-scope", () => {
       outcome: "applied" as const,
       showId: "show-1",
     }));
-    const priorDiagrams = { snapshot_revision_id: "prior-rev", snapshot_status: "complete" };
+    const priorDiagrams = {
+      snapshot_revision_id: "prior-rev",
+      snapshot_status: "complete",
+    } as unknown as ParseResult["diagrams"];
     const syncDeps = deps({
       readLivePendingSyncForApply: vi.fn(async () =>
         pending({
@@ -957,6 +1192,23 @@ describe("applyStaged live-scope", () => {
       })),
       retryEmbeddedRevisionAvailability: vi.fn(async () => false),
       runPhase2,
+      liveAssetReviewEffects: {
+        parseResult: {
+          ...parseResult(),
+          openingReel: null,
+          diagrams: priorDiagrams,
+          warnings: [
+            { severity: "warn", code: "REEL_DRIFTED", message: "REEL_DRIFTED" },
+            {
+              severity: "warn",
+              code: EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
+              message: EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
+            },
+          ],
+        },
+        adminAlertCode: EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
+        skipDiagramsWrite: true,
+      },
     });
 
     await applyStaged_unlocked(
@@ -1012,6 +1264,15 @@ describe("applyStaged live-scope", () => {
         }),
       ),
       runPhase2,
+      liveAssetReviewEffects: {
+        parseResult: {
+          ...parseResult(),
+          openingReel: null,
+          warnings: [{ severity: "warn", code: "REEL_DRIFTED", message: "REEL_DRIFTED" }],
+        },
+        adminAlertCode: null,
+        skipDiagramsWrite: false,
+      },
     });
 
     await applyStaged_unlocked(
@@ -1123,7 +1384,7 @@ describe("applyStaged live-scope", () => {
   test("outer wrapper uses admin blocking lock mode", () => {
     const source = readFileSync(join(process.cwd(), "lib/sync/applyStaged.ts"), "utf8");
 
-    expect(source).toContain("withPostgresSyncPipelineLock(");
+    expect(source).toContain("?? withPostgresSyncPipelineLock");
     expect(source).toContain("{ tryOnly: false }");
   });
 

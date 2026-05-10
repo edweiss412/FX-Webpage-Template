@@ -187,6 +187,23 @@ function deps(triggeredReviewItems: TriggeredReviewItem[]): ApplyStagedDeps {
       headRevisionId: "head-1",
       trashed: false,
     })),
+    liveDriveReverify: {
+      outcome: "ok",
+      metadata: {
+        driveFileId: "drive-file-1",
+        name: "Show Sheet",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        parents: ["watched-folder"],
+        headRevisionId: "head-1",
+        trashed: false,
+      },
+    },
+    liveAssetReviewEffects: {
+      parseResult: parseResult(),
+      adminAlertCode: null,
+      skipDiagramsWrite: false,
+    },
     runPhase2: vi.fn(async () => ({
       outcome: "applied" as const,
       showId: "11111111-1111-4111-8111-111111111111",

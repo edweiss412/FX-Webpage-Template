@@ -94,6 +94,30 @@ type WizardDriveReverify =
       pendingFolderId: string | null;
     };
 
+type LiveDriveReverify =
+  | {
+      outcome: "ok";
+      metadata: DriveListedFile & { trashed?: boolean };
+    }
+  | {
+      outcome: "source_gone";
+      code: typeof STAGED_PARSE_SOURCE_GONE;
+    }
+  | {
+      outcome: "source_out_of_scope";
+      code: typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE;
+    }
+  | {
+      outcome: "outdated";
+      code: typeof STAGED_PARSE_OUTDATED;
+    };
+
+type LiveAssetReviewEffects = {
+  parseResult: Phase2Args["parseResult"];
+  adminAlertCode: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | null;
+  skipDiagramsWrite: boolean;
+};
+
 type PipelineLock = <R>(
   driveFileId: string,
   fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<R> | R,
@@ -185,7 +209,9 @@ export type ApplyStagedDeps = {
   fetchDriveFileMetadata?: (
     driveFileId: string,
   ) => Promise<DriveListedFile & { trashed?: boolean }>;
-  wizardDriveReverify?: WizardDriveReverify;
+  wizardDriveReverify?: WizardDriveReverify | undefined;
+  liveDriveReverify?: LiveDriveReverify | undefined;
+  liveAssetReviewEffects?: LiveAssetReviewEffects | undefined;
   withPipelineLock?: PipelineLock;
   runPhase2?: (tx: LockedShowTx<SyncPipelineTx>, args: Phase2Args) => Promise<Phase2Result>;
   insertSyncAudit?: (
@@ -850,6 +876,8 @@ type ApplyStagedDepsWithDefaults = RequiredPick<
   | "retryEmbeddedRevisionAvailability"
 > & {
   wizardDriveReverify?: WizardDriveReverify;
+  liveDriveReverify?: LiveDriveReverify;
+  liveAssetReviewEffects?: LiveAssetReviewEffects;
   withPipelineLock?: PipelineLock;
 };
 
@@ -881,6 +909,10 @@ function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
     retryEmbeddedRevisionAvailability:
       deps.retryEmbeddedRevisionAvailability ?? defaultRetryEmbeddedRevisionAvailability,
     ...(deps.wizardDriveReverify ? { wizardDriveReverify: deps.wizardDriveReverify } : {}),
+    ...(deps.liveDriveReverify ? { liveDriveReverify: deps.liveDriveReverify } : {}),
+    ...(deps.liveAssetReviewEffects
+      ? { liveAssetReviewEffects: deps.liveAssetReviewEffects }
+      : {}),
     ...(deps.withPipelineLock ? { withPipelineLock: deps.withPipelineLock } : {}),
   };
 }
@@ -1078,34 +1110,27 @@ export async function applyStaged_unlocked(
     return { outcome: "superseded", code: STAGED_PARSE_SUPERSEDED };
   }
 
-  let metadata: DriveListedFile & { trashed?: boolean };
-  try {
-    metadata = await deps.fetchDriveFileMetadata(args.driveFileId);
-  } catch (error) {
-    if (!isApplySourceGone(error)) {
-      return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
-    }
-    await restoreDeleteAndIngest(tx, pending, show, STAGED_PARSE_SOURCE_GONE, deps);
-    return { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE };
+  if (!deps.liveDriveReverify) {
+    return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
   }
-  if (isGone(metadata)) {
-    await restoreDeleteAndIngest(tx, pending, show, STAGED_PARSE_SOURCE_GONE, deps);
-    return { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE };
+  if (deps.liveDriveReverify.outcome === "source_gone") {
+    await restoreDeleteAndIngest(tx, pending, show, deps.liveDriveReverify.code, deps);
+    return { outcome: "source_gone", code: deps.liveDriveReverify.code };
+  }
+  if (deps.liveDriveReverify.outcome === "outdated") {
+    await restoreDeleteAndIngest(tx, pending, show, deps.liveDriveReverify.code, deps);
+    return { outcome: "outdated", code: deps.liveDriveReverify.code };
+  }
+  if (deps.liveDriveReverify.outcome === "source_out_of_scope") {
+    await restoreDeleteAndIngest(tx, pending, show, deps.liveDriveReverify.code, deps);
+    return { outcome: "source_out_of_scope", code: deps.liveDriveReverify.code };
   }
 
+  const metadata = deps.liveDriveReverify.metadata;
   const watchedFolderId = await deps.readWatchedFolderId(tx);
   if (watchedFolderId && !metadata.parents.includes(watchedFolderId)) {
     await restoreDeleteAndIngest(tx, pending, show, STAGED_PARSE_SOURCE_OUT_OF_SCOPE, deps);
     return { outcome: "source_out_of_scope", code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE };
-  }
-
-  if (!isValidTimestamp(metadata.modifiedTime)) {
-    return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
-  }
-
-  if (isAfter(metadata.modifiedTime, pending.stagedModifiedTime)) {
-    await restoreDeleteAndIngest(tx, pending, show, STAGED_PARSE_OUTDATED, deps);
-    return { outcome: "outdated", code: STAGED_PARSE_OUTDATED };
   }
 
   const validation = validateReviewerChoices(pending.triggeredReviewItems, args.reviewerChoices);
@@ -1127,12 +1152,8 @@ export async function applyStaged_unlocked(
     pending.triggeredReviewItems,
     validation.choices,
   );
-  const assetAdjusted = await applyAssetReviewEffects(
-    pending,
-    show,
-    deps.retryEmbeddedRevisionAvailability,
-  );
-  if (!("parseResult" in assetAdjusted)) return assetAdjusted;
+  const assetAdjusted = deps.liveAssetReviewEffects;
+  if (!assetAdjusted) return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
 
   const phase2 = await deps.runPhase2(tx, {
     driveFileId: pending.driveFileId,
@@ -1183,6 +1204,75 @@ type WizardApplyPreflight =
       pendingFolderId: string | null;
     }
   | ApplyStagedResult;
+
+type LiveApplyPreflight =
+  | {
+      outcome: "ok";
+      pending: PendingSyncForApply;
+      show: ShowForApply | null;
+      watchedFolderId: string | null;
+    }
+  | ApplyStagedResult;
+
+async function readLiveApplyPreflight(
+  tx: LockedShowTx<SyncPipelineTx>,
+  args: Extract<ApplyStagedArgs, { sourceScope: "live" }>,
+  deps: ReturnType<typeof depsWithDefaults>,
+): Promise<LiveApplyPreflight> {
+  await assertShowLockHeld(tx, args.driveFileId);
+
+  const pending = await deps.readLivePendingSyncForApply(tx, args.driveFileId);
+  if (!pending) return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+  if (pending.stagedId !== args.stagedId) {
+    return { outcome: "superseded", code: STAGED_PARSE_SUPERSEDED };
+  }
+
+  const show = await deps.readShowForApply(tx, args.driveFileId);
+  if (!sameTimestamp(show?.lastSeenModifiedTime ?? null, pending.baseModifiedTime)) {
+    return { outcome: "superseded", code: STAGED_PARSE_SUPERSEDED };
+  }
+
+  const validation = validateReviewerChoices(pending.triggeredReviewItems, args.reviewerChoices);
+  if (!("ok" in validation)) return validation;
+
+  const watchedFolderId = await deps.readWatchedFolderId(tx);
+  return { outcome: "ok", pending, show, watchedFolderId };
+}
+
+async function verifyLiveApplyDriveScope(
+  driveFileId: string,
+  pending: PendingSyncForApply,
+  watchedFolderId: string | null,
+  fetchMetadata: NonNullable<ApplyStagedDeps["fetchDriveFileMetadata"]>,
+): Promise<LiveDriveReverify | { outcome: "infra_error"; code: typeof SYNC_INFRA_ERROR }> {
+  let metadata: DriveListedFile & { trashed?: boolean };
+  try {
+    metadata = await fetchMetadata(driveFileId);
+  } catch (error) {
+    if (!isApplySourceGone(error)) {
+      return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
+    }
+    return { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE };
+  }
+
+  if (isGone(metadata)) {
+    return { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE };
+  }
+
+  if (watchedFolderId && !metadata.parents.includes(watchedFolderId)) {
+    return { outcome: "source_out_of_scope", code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE };
+  }
+
+  if (!isValidTimestamp(metadata.modifiedTime)) {
+    return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
+  }
+
+  if (isAfter(metadata.modifiedTime, pending.stagedModifiedTime)) {
+    return { outcome: "outdated", code: STAGED_PARSE_OUTDATED };
+  }
+
+  return { outcome: "ok", metadata };
+}
 
 async function readWizardApplyPreflight(
   tx: LockedShowTx<SyncPipelineTx>,
@@ -1255,6 +1345,51 @@ async function verifyWizardApplyDriveScope(
   return { outcome: "ok", metadata, pendingFolderId };
 }
 
+async function applyLiveWithDriveReverify(
+  args: Extract<ApplyStagedArgs, { sourceScope: "live" }>,
+  injectedDeps: ApplyStagedDeps,
+): Promise<ApplyStagedResult | ConcurrentSyncSkipped> {
+  const deps = depsWithDefaults(injectedDeps);
+  const withPipelineLock = deps.withPipelineLock ?? withPostgresSyncPipelineLock;
+
+  const preflight = await withPipelineLock(
+    args.driveFileId,
+    (tx) => readLiveApplyPreflight(tx, args, deps),
+    { tryOnly: false },
+  );
+  if ("skipped" in preflight || preflight.outcome !== "ok") return preflight;
+
+  const reverify = await verifyLiveApplyDriveScope(
+    args.driveFileId,
+    preflight.pending,
+    preflight.watchedFolderId,
+    deps.fetchDriveFileMetadata,
+  );
+  if (reverify.outcome === "infra_error") return reverify;
+
+  let liveAssetReviewEffects: LiveAssetReviewEffects | undefined;
+  if (reverify.outcome === "ok") {
+    const assetAdjusted = await applyAssetReviewEffects(
+      preflight.pending,
+      preflight.show,
+      deps.retryEmbeddedRevisionAvailability,
+    );
+    if (!("parseResult" in assetAdjusted)) return assetAdjusted;
+    liveAssetReviewEffects = assetAdjusted;
+  }
+
+  return await withPipelineLock(
+    args.driveFileId,
+    (tx) =>
+      applyStaged_unlocked(tx, args, {
+        ...injectedDeps,
+        liveDriveReverify: reverify,
+        ...(liveAssetReviewEffects ? { liveAssetReviewEffects } : {}),
+      }),
+    { tryOnly: false },
+  );
+}
+
 async function applyWizardWithDriveReverify(
   args: Extract<ApplyStagedArgs, { sourceScope: "wizard" }>,
   injectedDeps: ApplyStagedDeps,
@@ -1292,26 +1427,25 @@ export async function applyStaged(
   args: ApplyStagedArgs,
   deps: ApplyStagedDeps = {},
 ): Promise<ApplyStagedResult | ConcurrentSyncSkipped> {
+  if (args.sourceScope === "live") {
+    const result = await applyLiveWithDriveReverify(args, deps);
+    if (!("skipped" in result) && result.outcome === "applied" && result.adminAlertCode) {
+      const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
+      await upsertAdminAlert({
+        showId: result.showId,
+        code: result.adminAlertCode,
+        context: { drive_file_id: args.driveFileId },
+      });
+    }
+    if (!("skipped" in result) && result.outcome === "applied" && result.roleFlagsNotice) {
+      const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
+      await upsertAdminAlert(result.roleFlagsNotice);
+    }
+    return result;
+  }
+
   if (args.sourceScope === "wizard") {
     return await applyWizardWithDriveReverify(args, deps);
   }
-
-  const result = await withPostgresSyncPipelineLock(
-    args.driveFileId,
-    (tx) => applyStaged_unlocked(tx, args, deps),
-    { tryOnly: false },
-  );
-  if (!("skipped" in result) && result.outcome === "applied" && result.adminAlertCode) {
-    const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
-    await upsertAdminAlert({
-      showId: result.showId,
-      code: result.adminAlertCode,
-      context: { drive_file_id: args.driveFileId },
-    });
-  }
-  if (!("skipped" in result) && result.outcome === "applied" && result.roleFlagsNotice) {
-    const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
-    await upsertAdminAlert(result.roleFlagsNotice);
-  }
-  return result;
+  throw new Error(`unsupported Apply source scope: ${(args as { sourceScope: string }).sourceScope}`);
 }
