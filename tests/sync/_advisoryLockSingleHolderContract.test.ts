@@ -20,7 +20,8 @@ const lockHolderRegistry = [
   {
     path: "lib/sync/runManualSyncForShow.ts",
     holder: "runManualSyncForShow",
-    layer: "fetches Drive metadata before delegating final DB writes to withPostgresSyncPipelineLock",
+    layer:
+      "fetches Drive metadata before delegating final DB writes to withPostgresSyncPipelineLock",
     key: "hashtext('show:' || drive_file_id)",
   },
   {
@@ -67,6 +68,33 @@ function tsFiles(path: string): string[] {
   }
   return files;
 }
+
+function functionText(source: string, functionName: string): string {
+  const start = source.search(new RegExp(`(?:export\\s+)?async\\s+function\\s+${functionName}\\b`));
+  if (start < 0) throw new Error(`${functionName} not found`);
+  const bodyStart = source.indexOf("{", start);
+  if (bodyStart < 0) throw new Error(`${functionName} body not found`);
+  let depth = 0;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    const char = source[index];
+    if (char === "{") depth += 1;
+    if (char === "}") depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`${functionName} body did not close`);
+}
+
+const protectedPreLockMutationPatterns = [
+  {
+    label: "Supabase mutator chain",
+    pattern: /\.(?:delete|insert|update|upsert)\s*\(/i,
+  },
+  {
+    label: "protected SQL mutation",
+    pattern:
+      /\b(?:delete\s+from|insert\s+into|update)\s+(?:public\.)?(?:deferred_ingestions|pending_syncs|pending_ingestions|shows|crew_members|crew_member_auth)\b/i,
+  },
+] as const;
 
 describe("M6 advisory-lock single-holder contract", () => {
   test("every M6 sync lock path is registered with the drive_file_id hashkey", () => {
@@ -127,5 +155,43 @@ describe("M6 advisory-lock single-holder contract", () => {
     const source = read("lib/sync/lockedShowTx.ts");
     expect(source).toContain("hashtext('show:' ||");
     expect(source).not.toMatch(/show_id|slug/i);
+  });
+
+  test("registered pre-lock sync gates are read-only for protected per-show tables", () => {
+    const runScheduledCronSync = read("lib/sync/runScheduledCronSync.ts");
+    const runPushSyncForShow = read("lib/sync/runPushSyncForShow.ts");
+    const runManualSyncForShow = read("lib/sync/runManualSyncForShow.ts");
+    const runOnboardingScan = read("lib/sync/runOnboardingScan.ts");
+    const surfaces = [
+      {
+        label: "cron/push/manual processOneFile prepareProcessOneFile",
+        source: functionText(runScheduledCronSync, "prepareProcessOneFile"),
+      },
+      {
+        label: "cron/push automatic perFileProcessor gate module",
+        source: read("lib/sync/perFileProcessor.ts"),
+      },
+      {
+        label: "push duplicate preflight",
+        source: functionText(runPushSyncForShow, "readPushDuplicatePreflight"),
+      },
+      {
+        label: "manual sync pre-lock wrapper",
+        source: functionText(runManualSyncForShow, "runManualSyncForShow"),
+      },
+      {
+        label: "onboarding Drive/parser preparation",
+        source: functionText(runOnboardingScan, "prepareOnboardingFiles"),
+      },
+    ];
+
+    for (const surface of surfaces) {
+      for (const mutation of protectedPreLockMutationPatterns) {
+        expect(
+          surface.source,
+          `${surface.label} must not contain pre-lock ${mutation.label}`,
+        ).not.toMatch(mutation.pattern);
+      }
+    }
   });
 });
