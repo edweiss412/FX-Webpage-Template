@@ -226,6 +226,10 @@ class FakeOnboardingTx implements Phase1Tx {
     this.adminAlerts.push(input);
     return "alert-1";
   }
+
+  async queryOne<T>() {
+    return { held: true, locked: true } as T;
+  }
 }
 
 async function runWith(
@@ -446,6 +450,76 @@ describe("runOnboardingScan", () => {
         code: "onboarding_scan_unexpected_phase1_pass",
         driveFileId: "file-1",
       }),
+    ]);
+  });
+
+  test("serializes concurrent wizard pending writes for the same drive_file_id with the show advisory lock", async () => {
+    vi.resetModules();
+    const { runOnboardingScan } = await import("@/lib/sync/runOnboardingScan");
+    const tx1 = new FakeOnboardingTx();
+    const tx2 = new FakeOnboardingTx();
+    const events: string[] = [];
+    let held = false;
+    let releaseCurrent!: () => void;
+    const waiters: Array<() => void> = [];
+    const releaseFirst = new Promise<void>((resolve) => {
+      releaseCurrent = resolve;
+    });
+    let firstStarted = false;
+
+    const withShowLock = vi.fn(async (driveFileId: string, fn: (lockedTx: unknown) => Promise<unknown>, options?: { tx?: unknown }) => {
+      events.push(`request:${driveFileId}`);
+      if (held) {
+        events.push(`wait:${driveFileId}`);
+        await new Promise<void>((resolve) => waiters.push(resolve));
+      }
+      held = true;
+      events.push(`start:${driveFileId}`);
+      try {
+        if (!firstStarted) {
+          firstStarted = true;
+          await releaseFirst;
+        }
+        return await fn(options?.tx);
+      } finally {
+        events.push(`commit:${driveFileId}`);
+        held = false;
+        waiters.shift()?.();
+      }
+    });
+
+    const scanDeps = (tx: FakeOnboardingTx) =>
+      ({
+        tx,
+        withShowLock,
+        listFolder: vi.fn(async () => [file("file-1")]),
+        captureBinding: vi.fn(async (_driveFileId: string, meta: DriveListedFile) => ({
+          bindingToken: meta.modifiedTime,
+          modifiedTime: meta.modifiedTime,
+        })),
+        fetchMarkdownAtRevision: vi.fn(async () => "markdown:file-1"),
+        parseSheet: vi.fn(() => ({ markdown: "markdown:file-1" }) as unknown as ParsedSheet),
+        enrichWithDrivePins: vi.fn(async () => parseResult()),
+      }) as unknown as RunOnboardingScanDeps;
+
+    const first = runOnboardingScan("folder-1", W1, scanDeps(tx1));
+    await vi.waitFor(() => expect(events).toContain("start:file-1"));
+    const second = runOnboardingScan("folder-1", W1, scanDeps(tx2));
+    await vi.waitFor(() => expect(events).toContain("wait:file-1"));
+    releaseCurrent();
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ outcome: "completed" }),
+      expect.objectContaining({ outcome: "completed" }),
+    ]);
+    expect(events).toEqual([
+      "request:file-1",
+      "start:file-1",
+      "request:file-1",
+      "wait:file-1",
+      "commit:file-1",
+      "start:file-1",
+      "commit:file-1",
     ]);
   });
 });

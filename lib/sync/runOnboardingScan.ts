@@ -10,6 +10,12 @@ import {
   type DriveFileMeta,
 } from "@/lib/sync/enrichWithDrivePins";
 import {
+  type ConcurrentSyncSkipped,
+  type LockedShowTx,
+  type LockableSyncTx,
+  withShowLock as defaultWithShowLock,
+} from "@/lib/sync/lockedShowTx";
+import {
   Phase1InfraError,
   runPhase1,
   type Phase1Binding,
@@ -51,7 +57,8 @@ export type OnboardingManifestRow = {
 
 export type WizardIsolationIndexProbe = { ok: true } | { ok: false; missing: string[] };
 
-export type OnboardingScanTx = Phase1Tx & {
+export type OnboardingScanTx = Phase1Tx &
+  LockableSyncTx & {
   ensureWizardIsolationIndexes(): Promise<WizardIsolationIndexProbe>;
   upsertManifest(row: OnboardingManifestRow): Promise<boolean>;
   logSync(entry: {
@@ -111,6 +118,11 @@ export type RunOnboardingScanDeps = {
   ) => Promise<ParseResult>;
   driveClient?: DriveClient;
   runPhase1?: typeof runPhase1;
+  withShowLock?: <R>(
+    driveFileId: string,
+    fn: (tx: LockedShowTx<OnboardingScanTx>) => Promise<R> | R,
+    options?: Parameters<typeof defaultWithShowLock<OnboardingScanTx, R>>[2],
+  ) => Promise<R | ConcurrentSyncSkipped>;
 };
 
 export class OnboardingScanInfraError extends Error {
@@ -213,6 +225,10 @@ class PostgresOnboardingScanTx implements OnboardingScanTx {
   private async one<T>(sql: string, params: unknown[] = []): Promise<T | null> {
     const rows = await this.rows<T>(sql, params);
     return rows[0] ?? null;
+  }
+
+  async queryOne<T>(sql: string, params: unknown[]): Promise<T> {
+    return (await this.one<T>(sql, params)) as T;
   }
 
   async ensureWizardIsolationIndexes(): Promise<WizardIsolationIndexProbe> {
@@ -467,36 +483,57 @@ async function withDefaultTx<R>(
   }
 }
 
-async function scanWithTx(
+type OnboardingScanStep = { kind: "continue" } | { kind: "stop"; result: OnboardingScanResult };
+
+async function scanPreparedFileWithTx(
   folderId: string,
   wizardSessionId: string,
-  tx: OnboardingScanTx,
-  preparedFiles: PreparedOnboardingFile[],
-  deps: Pick<RunOnboardingScanDeps, "runPhase1">,
-): Promise<OnboardingScanResult> {
-  const probe = await callTx("ensureWizardIsolationIndexes", () =>
-    tx.ensureWizardIsolationIndexes(),
-  );
-  if (!probe.ok) {
-    await callTx("logSync", () =>
-      tx.logSync({
-        code: "onboarding_scan_aborted_migration_state",
-        payload: { missing_indexes: probe.missing },
+  tx: LockedShowTx<OnboardingScanTx>,
+  prepared: PreparedOnboardingFile,
+  processed: ProcessedOnboardingFile[],
+  runPhase1Impl: typeof runPhase1,
+): Promise<OnboardingScanStep> {
+  const file = prepared.file;
+  if (prepared.kind === "non_sheet") {
+    const wrote = await callTx("upsertManifest", () =>
+      tx.upsertManifest({
+        folderId,
+        wizardSessionId,
+        driveFileId: file.driveFileId,
+        mimeType: file.mimeType,
+        name: file.name,
+        status: "skipped_non_sheet",
       }),
     );
-    return {
-      outcome: "schema_missing",
-      code: WIZARD_ISOLATION_INDEXES_MISSING,
-      missingIndexes: probe.missing,
-    };
+    if (!wrote) {
+      await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
+      return {
+        kind: "stop",
+        result: { outcome: "superseded", code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN, processed },
+      };
+    }
+    processed.push({ driveFileId: file.driveFileId, outcome: "skipped_non_sheet" });
+    return { kind: "continue" };
   }
 
-  const processed: ProcessedOnboardingFile[] = [];
-  const runPhase1Impl = deps.runPhase1 ?? runPhase1;
-
-  for (const prepared of preparedFiles) {
-    const file = prepared.file;
-    if (prepared.kind === "non_sheet") {
+  try {
+    const binding = prepared.binding;
+    const parseResult = prepared.parseResult;
+    const result = await runPhase1Impl(tx, {
+      driveFileId: file.driveFileId,
+      mode: "onboarding_scan",
+      fileMeta: file,
+      parseResult,
+      binding,
+      wizardSessionId,
+    });
+    if (result.outcome === "pass") {
+      await callTx("logSync", () =>
+        tx.logSync({
+          code: "onboarding_scan_unexpected_phase1_pass",
+          driveFileId: file.driveFileId,
+        }),
+      );
       const wrote = await callTx("upsertManifest", () =>
         tx.upsertManifest({
           folderId,
@@ -504,196 +541,209 @@ async function scanWithTx(
           driveFileId: file.driveFileId,
           mimeType: file.mimeType,
           name: file.name,
-          status: "skipped_non_sheet",
+          status: "hard_failed",
         }),
       );
       if (!wrote) {
-        await callTx("logSync", () => tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }));
-        return { outcome: "superseded", code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN, processed };
+        await callTx("logSync", () =>
+          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
+        );
+        return {
+          kind: "stop",
+          result: {
+            outcome: "superseded",
+            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+            processed,
+          },
+        };
       }
-      processed.push({ driveFileId: file.driveFileId, outcome: "skipped_non_sheet" });
-      continue;
+      processed.push({ driveFileId: file.driveFileId, outcome: "hard_failed" });
+      return { kind: "continue" };
     }
 
-    let parseResult: ParseResult;
-    let binding: Phase1Binding;
-    try {
-      binding = prepared.binding;
-      parseResult = prepared.parseResult;
-      const result = await runPhase1Impl(tx, {
-        driveFileId: file.driveFileId,
-        mode: "onboarding_scan",
-        fileMeta: file,
-        parseResult,
-        binding,
-        wizardSessionId,
-      });
-      if (result.outcome === "pass") {
+    if (result.outcome === "stage") {
+      if (result.stagedId.length === 0) {
         await callTx("logSync", () =>
-          tx.logSync({
-            code: "onboarding_scan_unexpected_phase1_pass",
-            driveFileId: file.driveFileId,
-          }),
+          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
         );
-        const wrote = await callTx("upsertManifest", () =>
-          tx.upsertManifest({
-            folderId,
-            wizardSessionId,
-            driveFileId: file.driveFileId,
-            mimeType: file.mimeType,
-            name: file.name,
-            status: "hard_failed",
-          }),
-        );
-        if (!wrote) {
-          await callTx("logSync", () =>
-            tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-          );
-          return {
+        return {
+          kind: "stop",
+          result: {
             outcome: "superseded",
             code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
             processed,
-          };
-        }
-        processed.push({ driveFileId: file.driveFileId, outcome: "hard_failed" });
-        continue;
-      }
-
-      if (result.outcome === "stage") {
-        if (result.outcome === "stage" && result.stagedId.length === 0) {
-          await callTx("logSync", () =>
-            tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-          );
-          return {
-            outcome: "superseded",
-            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
-            processed,
-          };
-        }
-        const wrote = await callTx("upsertManifest", () =>
-          tx.upsertManifest({
-            folderId,
-            wizardSessionId,
-            driveFileId: file.driveFileId,
-            mimeType: file.mimeType,
-            name: file.name,
-            status: "staged",
-          }),
-        );
-        if (!wrote) {
-          await callTx("logSync", () =>
-            tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-          );
-          return {
-            outcome: "superseded",
-            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
-            processed,
-          };
-        }
-        processed.push({ driveFileId: file.driveFileId, outcome: "staged" });
-        continue;
-      }
-
-      if (result.outcome === "defer") {
-        await callTx("logSync", () =>
-          tx.logSync({
-            code: "onboarding_scan_unexpected_phase1_defer",
-            driveFileId: file.driveFileId,
-            payload: { reason: result.reason },
-          }),
-        );
-        const wrote = await callTx("upsertManifest", () =>
-          tx.upsertManifest({
-            folderId,
-            wizardSessionId,
-            driveFileId: file.driveFileId,
-            mimeType: file.mimeType,
-            name: file.name,
-            status: "hard_failed",
-          }),
-        );
-        if (!wrote) {
-          await callTx("logSync", () =>
-            tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-          );
-          return {
-            outcome: "superseded",
-            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
-            processed,
-          };
-        }
-        processed.push({ driveFileId: file.driveFileId, outcome: "hard_failed" });
-        continue;
-      }
-
-      if (result.outcome === "hard_fail") {
-        const wrote = await callTx("upsertManifest", () =>
-          tx.upsertManifest({
-            folderId,
-            wizardSessionId,
-            driveFileId: file.driveFileId,
-            mimeType: file.mimeType,
-            name: file.name,
-            status: "hard_failed",
-          }),
-        );
-        if (!wrote) {
-          await callTx("logSync", () =>
-            tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
-          );
-          return {
-            outcome: "superseded",
-            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
-            processed,
-          };
-        }
-        processed.push({ driveFileId: file.driveFileId, outcome: "hard_failed" });
-        continue;
-      }
-    } catch (error) {
-      const cause = unwrapCause(error);
-      const state = sqlState(cause);
-      const kind = liveRowConflictKind(state);
-      if (!kind) {
-        if (error instanceof Phase1InfraError) {
-          throw new OnboardingScanInfraError(error.operation, error.cause);
-        }
-        throw error;
-      }
-      await callTx("logSync", () =>
-        tx.logSync({
-          code: "onboarding_scan_live_row_conflict",
-          driveFileId: file.driveFileId,
-          payload: { drive_file_id: file.driveFileId, sqlstate: state, kind },
-        }),
-      );
-      await callTx("upsertAdminAlert", () =>
-        tx.upsertAdminAlert({
-          showId: null,
-          code: LIVE_ROW_CONFLICT,
-          context: {
-            drive_file_id: file.driveFileId,
-            file_name: file.name,
-            folder_id: folderId,
-            wizard_session_id: wizardSessionId,
-            sqlstate: state,
-            kind,
           },
-        }),
-      );
-      await callTx("upsertManifest", () =>
+        };
+      }
+      const wrote = await callTx("upsertManifest", () =>
         tx.upsertManifest({
           folderId,
           wizardSessionId,
           driveFileId: file.driveFileId,
           mimeType: file.mimeType,
           name: file.name,
-          status: "live_row_conflict",
+          status: "staged",
         }),
       );
-      processed.push({ driveFileId: file.driveFileId, outcome: "live_row_conflict" });
-      continue;
+      if (!wrote) {
+        await callTx("logSync", () =>
+          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
+        );
+        return {
+          kind: "stop",
+          result: {
+            outcome: "superseded",
+            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+            processed,
+          },
+        };
+      }
+      processed.push({ driveFileId: file.driveFileId, outcome: "staged" });
+      return { kind: "continue" };
     }
+
+    if (result.outcome === "defer") {
+      await callTx("logSync", () =>
+        tx.logSync({
+          code: "onboarding_scan_unexpected_phase1_defer",
+          driveFileId: file.driveFileId,
+          payload: { reason: result.reason },
+        }),
+      );
+      const wrote = await callTx("upsertManifest", () =>
+        tx.upsertManifest({
+          folderId,
+          wizardSessionId,
+          driveFileId: file.driveFileId,
+          mimeType: file.mimeType,
+          name: file.name,
+          status: "hard_failed",
+        }),
+      );
+      if (!wrote) {
+        await callTx("logSync", () =>
+          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
+        );
+        return {
+          kind: "stop",
+          result: {
+            outcome: "superseded",
+            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+            processed,
+          },
+        };
+      }
+      processed.push({ driveFileId: file.driveFileId, outcome: "hard_failed" });
+      return { kind: "continue" };
+    }
+
+    if (result.outcome === "hard_fail") {
+      const wrote = await callTx("upsertManifest", () =>
+        tx.upsertManifest({
+          folderId,
+          wizardSessionId,
+          driveFileId: file.driveFileId,
+          mimeType: file.mimeType,
+          name: file.name,
+          status: "hard_failed",
+        }),
+      );
+      if (!wrote) {
+        await callTx("logSync", () =>
+          tx.logSync({ code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN }),
+        );
+        return {
+          kind: "stop",
+          result: {
+            outcome: "superseded",
+            code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+            processed,
+          },
+        };
+      }
+      processed.push({ driveFileId: file.driveFileId, outcome: "hard_failed" });
+      return { kind: "continue" };
+    }
+  } catch (error) {
+    const cause = unwrapCause(error);
+    const state = sqlState(cause);
+    const kind = liveRowConflictKind(state);
+    if (!kind) {
+      if (error instanceof Phase1InfraError) {
+        throw new OnboardingScanInfraError(error.operation, error.cause);
+      }
+      throw error;
+    }
+    await callTx("logSync", () =>
+      tx.logSync({
+        code: "onboarding_scan_live_row_conflict",
+        driveFileId: file.driveFileId,
+        payload: { drive_file_id: file.driveFileId, sqlstate: state, kind },
+      }),
+    );
+    await callTx("upsertAdminAlert", () =>
+      tx.upsertAdminAlert({
+        showId: null,
+        code: LIVE_ROW_CONFLICT,
+        context: {
+          drive_file_id: file.driveFileId,
+          file_name: file.name,
+          folder_id: folderId,
+          wizard_session_id: wizardSessionId,
+          sqlstate: state,
+          kind,
+        },
+      }),
+    );
+    await callTx("upsertManifest", () =>
+      tx.upsertManifest({
+        folderId,
+        wizardSessionId,
+        driveFileId: file.driveFileId,
+        mimeType: file.mimeType,
+        name: file.name,
+        status: "live_row_conflict",
+      }),
+    );
+    processed.push({ driveFileId: file.driveFileId, outcome: "live_row_conflict" });
+    return { kind: "continue" };
+  }
+
+  return { kind: "continue" };
+}
+
+async function scanPreparedFiles(
+  folderId: string,
+  wizardSessionId: string,
+  preparedFiles: PreparedOnboardingFile[],
+  deps: Pick<RunOnboardingScanDeps, "runPhase1" | "withShowLock">,
+  withTx: <R>(fn: (tx: OnboardingScanTx) => Promise<R>) => Promise<R>,
+): Promise<OnboardingScanResult> {
+  const processed: ProcessedOnboardingFile[] = [];
+  const runPhase1Impl = deps.runPhase1 ?? runPhase1;
+  const lock = deps.withShowLock ?? defaultWithShowLock;
+
+  for (const prepared of preparedFiles) {
+    const step = await withTx(async (tx) => {
+      const locked = await lock(
+        prepared.file.driveFileId,
+        (lockedTx) =>
+          scanPreparedFileWithTx(
+            folderId,
+            wizardSessionId,
+            lockedTx,
+            prepared,
+            processed,
+            runPhase1Impl,
+          ),
+        { tx, tryOnly: false },
+      );
+      if ("skipped" in locked) {
+        throw new OnboardingScanInfraError("withShowLock", locked);
+      }
+      return locked;
+    });
+    if (step.kind === "stop") return step.result;
   }
 
   return { outcome: "completed", processed };
@@ -763,9 +813,11 @@ export async function runOnboardingScan(
 
   const preparedFiles = await prepareOnboardingFiles(folderId, deps);
   if (deps.tx) {
-    return await scanWithTx(folderId, wizardSessionId, deps.tx, preparedFiles, deps);
+    return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, async (fn) =>
+      fn(deps.tx as OnboardingScanTx),
+    );
   }
-  return await withDefaultTx(folderId, wizardSessionId, (tx) =>
-    scanWithTx(folderId, wizardSessionId, tx, preparedFiles, deps),
+  return await scanPreparedFiles(folderId, wizardSessionId, preparedFiles, deps, (fn) =>
+    withDefaultTx(folderId, wizardSessionId, fn),
   );
 }
