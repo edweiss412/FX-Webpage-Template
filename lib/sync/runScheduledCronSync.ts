@@ -1,5 +1,8 @@
 import postgres from "postgres";
-import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import {
+  upsertAdminAlert as defaultUpsertAdminAlert,
+  type UpsertAdminAlertInput,
+} from "@/lib/adminAlerts/upsertAdminAlert";
 import {
   getActiveWatchedFolderId,
   type ActiveWatchedFolderResult,
@@ -51,12 +54,14 @@ export const SYNC_FILE_FAILED = "SYNC_FILE_FAILED" as const;
 export const SYNC_INFRA_ERROR = "SYNC_INFRA_ERROR" as const;
 export const SYNC_STEP_TIMEOUT = "SYNC_STEP_TIMEOUT" as const;
 export const DRIVE_METADATA_MISSING = "DRIVE_METADATA_MISSING" as const;
+export const SHEET_UNAVAILABLE = "SHEET_UNAVAILABLE" as const;
 const DRIVE_SYNC_STEP_TIMEOUT_MS = 30_000;
 type SyncFailureCode =
   | typeof SYNC_FILE_FAILED
   | typeof SYNC_INFRA_ERROR
   | typeof SYNC_STEP_TIMEOUT
   | typeof DRIVE_METADATA_MISSING
+  | typeof SHEET_UNAVAILABLE
   | "LOCK_OWNERSHIP_ASSERTION_FAILED";
 
 export type SyncPipelineTx = LockableSyncTx & Phase1Tx & Phase2Tx;
@@ -70,6 +75,7 @@ export type ProcessOneFileResult =
   | { outcome: "stale"; code: string }
   | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
   | { outcome: "source_gone"; code: typeof STAGED_PARSE_SOURCE_GONE }
+  | { outcome: "source_gone"; code: typeof SHEET_UNAVAILABLE }
   | {
       outcome: "parse_error";
       code: SyncFailureCode;
@@ -81,6 +87,22 @@ export type SyncLogEntry = {
   outcome: string;
   code?: string;
   payload?: Record<string, unknown>;
+};
+
+export type CronLiveShowRow = {
+  showId: string;
+  driveFileId: string;
+  lastSeenModifiedTime: string | null;
+  wizardSessionId: string | null;
+};
+
+type CronRecoveryTx = SyncPipelineTx & {
+  markShowSheetUnavailable(
+    driveFileId: string,
+    code: typeof SHEET_UNAVAILABLE,
+  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+  insertSyncLog(entry: SyncLogEntry, showId?: string | null): Promise<void>;
+  upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
 };
 
 export type ProcessOneFileDeps = {
@@ -111,6 +133,12 @@ export type RunScheduledCronSyncDeps = {
   getActiveWatchedFolderId?: () => Promise<ActiveWatchedFolderResult>;
   listFolder?: typeof listDriveFolder;
   logSync?: (entry: SyncLogEntry) => Promise<void>;
+  listLiveShows?: () => Promise<CronLiveShowRow[]>;
+  withShowLock?: <R>(
+    driveFileId: string,
+    fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<R> | R,
+    options?: Parameters<typeof withShowLock<SyncPipelineTx, R>>[2],
+  ) => Promise<R | ConcurrentSyncSkipped>;
   processOneFile?: (
     driveFileId: string,
     mode: "cron",
@@ -440,6 +468,48 @@ class PostgresPipelineTx implements SyncPipelineTx {
       `,
       [driveFileId],
     );
+  }
+
+  async markShowSheetUnavailable(driveFileId: string, code: typeof SHEET_UNAVAILABLE) {
+    const row = await this.one<{ id: string; last_seen_modified_time: string | null }>(
+      `
+        update public.shows
+           set last_sync_status = 'sheet_unavailable',
+               last_sync_error = $2,
+               last_synced_at = now()
+         where drive_file_id = $1
+         returning id, last_seen_modified_time
+      `,
+      [driveFileId, code],
+    );
+    return {
+      showId: row?.id ?? null,
+      lastSeenModifiedTime: row?.last_seen_modified_time ?? null,
+    };
+  }
+
+  async insertSyncLog(entry: SyncLogEntry, showId?: string | null) {
+    await this.rows(
+      `
+        insert into public.sync_log (show_id, drive_file_id, status, message, parse_warnings)
+        values ($1::uuid, $2, $3, $4, $5::jsonb)
+      `,
+      [
+        showId ?? null,
+        entry.driveFileId,
+        entry.code ?? entry.outcome,
+        entry.code ? `${entry.outcome}:${entry.code}` : entry.outcome,
+        JSON.stringify(entry.payload ? [{ ...entry.payload, outcome: entry.outcome }] : []),
+      ],
+    );
+  }
+
+  async upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null> {
+    const row = await this.one<{ id: string }>(
+      "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id",
+      [input.showId, input.code, JSON.stringify(input.context)],
+    );
+    return row?.id ?? null;
   }
 
   async deleteWizardPendingSyncsExcept(wizardSessionId: string) {
@@ -917,6 +987,29 @@ function defaultDriveClient(): DriveClient {
   };
 }
 
+async function listPostgresLiveShows(): Promise<CronLiveShowRow[]> {
+  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+  try {
+    const rows = (await sql.unsafe(`
+      select id, drive_file_id, last_seen_modified_time
+        from public.shows
+       where drive_file_id is not null
+    `)) as Array<{
+      id: string;
+      drive_file_id: string;
+      last_seen_modified_time: string | null;
+    }>;
+    return rows.map((row) => ({
+      showId: row.id,
+      driveFileId: row.drive_file_id,
+      lastSeenModifiedTime: row.last_seen_modified_time,
+      wizardSessionId: null,
+    }));
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
 function errorCode(error: unknown): number | null {
   if (!error || typeof error !== "object") return null;
   const candidate = error as { code?: unknown; status?: unknown; response?: { status?: unknown } };
@@ -1034,6 +1127,40 @@ export async function runPhase2_unlocked(
   deps: ProcessOneFileDeps = {},
 ): Promise<Phase2Result> {
   return await (deps.runPhase2 ?? runPhase2)(tx, args);
+}
+
+async function markMissingShow_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  show: CronLiveShowRow,
+): Promise<{ outcome: "source_gone"; code: typeof SHEET_UNAVAILABLE }> {
+  await assertShowLockHeld(tx, show.driveFileId);
+  const recoveryTx = tx as LockedShowTx<CronRecoveryTx>;
+  const updated = await recoveryTx.markShowSheetUnavailable(show.driveFileId, SHEET_UNAVAILABLE);
+  const showId = updated.showId ?? show.showId;
+  const previousLastSeenModifiedTime =
+    updated.lastSeenModifiedTime ?? show.lastSeenModifiedTime ?? null;
+  const payload = {
+    driveFileId: show.driveFileId,
+    previousLastSeenModifiedTime,
+  };
+  await recoveryTx.insertSyncLog(
+    {
+      driveFileId: show.driveFileId,
+      outcome: "error",
+      code: SHEET_UNAVAILABLE,
+      payload,
+    },
+    showId,
+  );
+  await recoveryTx.upsertAdminAlert({
+    showId,
+    code: "SHEET_UNAVAILABLE",
+    context: {
+      drive_file_id: show.driveFileId,
+      previous_last_seen_modified_time: previousLastSeenModifiedTime,
+    },
+  });
+  return { outcome: "source_gone", code: SHEET_UNAVAILABLE };
 }
 
 export async function processOneFile(
@@ -1249,6 +1376,33 @@ export async function runScheduledCronSync(
   const processDeps = deps.logSync ? { logSync: deps.logSync } : undefined;
   const files = await listFolder(folderId);
   const processed: RunScheduledCronSyncResult["processed"] = [];
+  const listedDriveFileIds = new Set(files.map((file) => file.driveFileId));
+  const liveShows = deps.listLiveShows
+    ? await deps.listLiveShows()
+    : deps.listFolder
+      ? []
+      : await listPostgresLiveShows();
+  const missingShows = liveShows.filter(
+    (show) => show.wizardSessionId === null && !listedDriveFileIds.has(show.driveFileId),
+  );
+  const lockMissingShow = deps.withShowLock ?? withPostgresSyncPipelineLock;
+
+  for (const show of missingShows) {
+    const result = await lockMissingShow(show.driveFileId, (lockedTx) =>
+      markMissingShow_unlocked(lockedTx, show),
+    );
+    if ("skipped" in result) {
+      processed.push({
+        driveFileId: show.driveFileId,
+        result,
+      });
+      continue;
+    }
+    processed.push({
+      driveFileId: show.driveFileId,
+      result,
+    });
+  }
 
   for (const file of files) {
     try {

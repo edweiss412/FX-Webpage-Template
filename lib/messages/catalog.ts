@@ -399,6 +399,15 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "The sync engine requires a head revision id so markdown export, enrichment, and final apply all describe the same sheet revision.",
   },
+  SHEET_UNAVAILABLE: {
+    code: "SHEET_UNAVAILABLE",
+    dougFacing:
+      "A previously synced show sheet is no longer in the watched Drive folder. It will stay visible, but automatic sync is paused until the sheet is restored.",
+    crewFacing: null,
+    followUp: "Eric -> confirm whether the Sheet was moved or deleted, then restore it or archive the show",
+    helpfulContext:
+      "Cron compares the watched folder listing to the live shows already known by the app. This alert means a live show's source Sheet was missing from the latest folder listing or disappeared during fetch.",
+  },
   LOCK_OWNERSHIP_ASSERTION_FAILED: {
     code: "LOCK_OWNERSHIP_ASSERTION_FAILED",
     dougFacing: "A sync attempted to write without proving it owned the show lock.",

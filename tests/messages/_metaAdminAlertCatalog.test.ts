@@ -60,6 +60,7 @@ const ADMIN_ALERTS_CODES = [
   "EMBEDDED_RECOVERY_REQUIRES_RESTAGE", // M6 asset recovery alert
   "LIVE_ROW_CONFLICT", //             M6 live-row conflict recovery
   "ROLE_FLAGS_NOTICE", //             M6 auto-applied non-LEAD role_flags change
+  "SHEET_UNAVAILABLE", //             M6 cron/fetch source missing recovery
 ] as const;
 
 const ADMIN_ALERTS_WRITE_SITES: Record<
@@ -97,6 +98,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   ROLE_FLAGS_NOTICE: {
     path: "lib/sync/runScheduledCronSync.ts",
     pattern: /upsertAdminAlert\(result\.roleFlagsNotice\)/,
+  },
+  SHEET_UNAVAILABLE: {
+    path: "lib/sync/runScheduledCronSync.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"SHEET_UNAVAILABLE"/,
   },
 };
 

@@ -18,7 +18,43 @@ import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 type PipelineTx = Phase1Tx &
   Phase2Tx & {
     operations: string[];
+    shows?: Map<
+      string,
+      {
+        showId: string;
+        driveFileId: string;
+        lastSeenModifiedTime: string | null;
+        lastSyncStatus: string | null;
+        lastSyncError: string | null;
+      }
+    >;
+    syncLog?: Array<{
+      driveFileId: string | null;
+      outcome: string;
+      code?: string;
+      payload?: Record<string, unknown>;
+      showId?: string | null;
+    }>;
+    alerts?: Array<{ showId: string | null; code: string; context: Record<string, unknown> }>;
     queryOne<T>(sql: string, params: unknown[]): Promise<T>;
+    markShowSheetUnavailable(
+      driveFileId: string,
+      code: string,
+    ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+    insertSyncLog(
+      entry: {
+        driveFileId: string | null;
+        outcome: string;
+        code?: string;
+        payload?: Record<string, unknown>;
+      },
+      showId?: string | null,
+    ): Promise<void>;
+    upsertAdminAlert(input: {
+      showId: string | null;
+      code: string;
+      context: Record<string, unknown>;
+    }): Promise<string | null>;
   };
 
 function fileMeta(id: string, modifiedTime = "2026-05-08T12:00:00.000Z"): DriveListedFile {
@@ -176,6 +212,35 @@ function tx(): PipelineTx {
     },
     async upsertShowsInternal() {
       this.operations.push("upsertShowsInternal");
+    },
+    async markShowSheetUnavailable(driveFileId: string, code: string) {
+      this.operations.push(`markShowSheetUnavailable:${driveFileId}`);
+      const show = this.shows?.get(driveFileId);
+      if (!show) return { showId: null, lastSeenModifiedTime: null };
+      show.lastSyncStatus = "sheet_unavailable";
+      show.lastSyncError = code;
+      return { showId: show.showId, lastSeenModifiedTime: show.lastSeenModifiedTime };
+    },
+    async insertSyncLog(
+      entry: {
+        driveFileId: string | null;
+        outcome: string;
+        code?: string;
+        payload?: Record<string, unknown>;
+      },
+      showId?: string | null,
+    ) {
+      this.operations.push(`insertSyncLog:${entry.driveFileId ?? "global"}`);
+      this.syncLog?.push(showId === undefined ? entry : { ...entry, showId });
+    },
+    async upsertAdminAlert(input: {
+      showId: string | null;
+      code: string;
+      context: Record<string, unknown>;
+    }) {
+      this.operations.push(`upsertAdminAlert:${input.code}`);
+      this.alerts?.push(input);
+      return "alert-1";
     },
   };
 }
@@ -605,5 +670,111 @@ describe("runScheduledCronSync", () => {
         }),
       }),
     );
+  });
+
+  test("marks live shows missing from the watched folder as sheet_unavailable without advancing watermark", async () => {
+    const fakeTx = tx();
+    fakeTx.shows = new Map([
+      [
+        "file-a",
+        {
+          showId: "show-a",
+          driveFileId: "file-a",
+          lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+          lastSyncStatus: "ok",
+          lastSyncError: null,
+        },
+      ],
+    ]);
+    fakeTx.syncLog = [];
+    fakeTx.alerts = [];
+    const lockEvents: string[] = [];
+    const withShowLock = vi.fn(async (driveFileId, fn) => {
+      lockEvents.push(`lock:${driveFileId}`);
+      return await fn(fakeTx as LockedShowTx<PipelineTx>);
+    });
+    const processOneFile = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-b" }));
+
+    const result = await runScheduledCronSync({
+      folderId: "folder-1",
+      listFolder: vi.fn(async () => [fileMeta("file-b")]),
+      processOneFile,
+      withShowLock,
+      listLiveShows: vi.fn(async () => [
+        {
+          showId: "show-a",
+          driveFileId: "file-a",
+          lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+          wizardSessionId: null,
+        },
+      ]),
+    });
+
+    expect(result.processed).toEqual([
+      { driveFileId: "file-a", result: { outcome: "source_gone", code: "SHEET_UNAVAILABLE" } },
+      { driveFileId: "file-b", result: { outcome: "applied", showId: "show-b" } },
+    ]);
+    expect(lockEvents).toEqual(["lock:file-a"]);
+    expect(fakeTx.shows.get("file-a")).toMatchObject({
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "sheet_unavailable",
+      lastSyncError: "SHEET_UNAVAILABLE",
+    });
+    expect(fakeTx.syncLog).toEqual([
+      {
+        driveFileId: "file-a",
+        outcome: "error",
+        code: "SHEET_UNAVAILABLE",
+        payload: {
+          driveFileId: "file-a",
+          previousLastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+        },
+        showId: "show-a",
+      },
+    ]);
+    expect(fakeTx.alerts).toEqual([
+      {
+        showId: "show-a",
+        code: "SHEET_UNAVAILABLE",
+        context: {
+          drive_file_id: "file-a",
+          previous_last_seen_modified_time: "2026-05-08T11:00:00.000Z",
+        },
+      },
+    ]);
+  });
+
+  test("folder diff ignores wizard-scoped rows when detecting removed live sheets", async () => {
+    const fakeTx = tx();
+    fakeTx.shows = new Map();
+    fakeTx.syncLog = [];
+    fakeTx.alerts = [];
+    const withShowLock = vi.fn(async (driveFileId, fn) => {
+      return await fn(fakeTx as LockedShowTx<PipelineTx>);
+    });
+
+    await runScheduledCronSync({
+      folderId: "folder-1",
+      listFolder: vi.fn(async () => [fileMeta("file-b")]),
+      processOneFile: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-b" })),
+      withShowLock,
+      listLiveShows: vi.fn(async () => [
+        {
+          showId: "wizard-show",
+          driveFileId: "wizard-file",
+          lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
+          wizardSessionId: "11111111-1111-4111-8111-111111111111",
+        },
+      ]),
+    });
+
+    expect(withShowLock).not.toHaveBeenCalledWith(
+      "wizard-file",
+      expect.any(Function),
+      expect.anything(),
+    );
+    expect(fakeTx.operations).not.toContain("markShowSheetUnavailable:wizard-file");
+    expect(fakeTx.syncLog).toEqual([]);
+    expect(fakeTx.alerts).toEqual([]);
   });
 });
