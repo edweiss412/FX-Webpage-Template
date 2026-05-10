@@ -349,17 +349,37 @@ export const MESSAGE_CATALOG = {
   },
   MISSING_REVIEWER_CHOICE: {
     code: "MISSING_REVIEWER_CHOICE",
-    dougFacing: "Choose how to handle every review item before applying.",
+    dougFacing:
+      "We need your decision for every item — looks like one was skipped. Refresh and try again.",
     crewFacing: null,
-    followUp: "Doug -> complete all review choices",
-    helpfulContext: null,
+    followUp: "Doug → refresh admin",
+    helpfulContext:
+      "When you Apply a sheet, every triggered review item needs your decision. Your submission was missing a decision for at least one item — usually because the form's state got out of sync with the items the server was tracking. Refresh the admin page (the panel will re-render with the current items) and re-submit your decisions.",
+  },
+  EXTRA_REVIEWER_CHOICE: {
+    code: "EXTRA_REVIEWER_CHOICE",
+    dougFacing:
+      "Something doesn't match between what you reviewed and what we have on file. Refresh and try again.",
+    crewFacing: null,
+    followUp: "Doug → refresh admin",
+    helpfulContext:
+      "Your Apply submission carried a decision for an item the server isn't tracking — usually because the staged parse you were viewing was replaced between when the page loaded and when you clicked Apply. Refresh the admin page so the panel re-renders against the current staged parse, then re-submit your decisions.",
+  },
+  DUPLICATE_REVIEWER_CHOICE: {
+    code: "DUPLICATE_REVIEWER_CHOICE",
+    dougFacing: "We got the same decision twice for one item. Refresh and try again.",
+    crewFacing: null,
+    followUp: "Doug → refresh admin",
+    helpfulContext:
+      "Your Apply submission carried two decisions for the same item id. The form should normally prevent this; you've reached this code via a stale or duplicated form state. Refresh the admin page and re-submit your decisions cleanly.",
   },
   INVALID_REVIEWER_ACTION: {
     code: "INVALID_REVIEWER_ACTION",
-    dougFacing: "One review choice was not valid. Refresh and try again.",
+    dougFacing: "That action isn't valid for this item. Refresh and try again.",
     crewFacing: null,
-    followUp: "Doug -> refresh and retry",
-    helpfulContext: null,
+    followUp: "Doug → refresh admin",
+    helpfulContext:
+      "Each review item has a fixed list of valid decisions (apply / reject / rename / independent, depending on the item's invariant). Your submission carried an action value that isn't in the allowed list for one of the items — usually because the form was hand-edited or the page is running a stale build. Refresh the admin page and re-submit using the form controls.",
   },
   PENDING_SYNC_NOT_FOUND: {
     code: "PENDING_SYNC_NOT_FOUND",

@@ -25,6 +25,8 @@ const M6_SYNC_CODES = [
   "LINKED_ASSET_DRIFTED",
   "REEL_DRIFTED",
   "MISSING_REVIEWER_CHOICE",
+  "EXTRA_REVIEWER_CHOICE",
+  "DUPLICATE_REVIEWER_CHOICE",
   "INVALID_REVIEWER_ACTION",
   "PENDING_SYNC_NOT_FOUND",
   "SHOW_BUSY_RETRY",
@@ -39,6 +41,8 @@ const M6_SYNC_CODES = [
 const M6_PIN2_EXTENSION_ROUTE_CODES = [
   "FINALIZE_OWNED_SHOW",
   "MISSING_REVIEWER_CHOICE",
+  "EXTRA_REVIEWER_CHOICE",
+  "DUPLICATE_REVIEWER_CHOICE",
   "INVALID_REVIEWER_ACTION",
   "PENDING_SYNC_NOT_FOUND",
   "SHOW_BUSY_RETRY",
@@ -71,4 +75,37 @@ describe("M6 sync message catalog", () => {
       expect(entry?.dougFacing, `${code} needs Doug-facing copy`).toEqual(expect.any(String));
     },
   );
+
+  test("reviewer-choice validation entries match §12.4 copy and helpful context", () => {
+    expect(MESSAGE_CATALOG.MISSING_REVIEWER_CHOICE).toMatchObject({
+      dougFacing:
+        "We need your decision for every item — looks like one was skipped. Refresh and try again.",
+      crewFacing: null,
+      followUp: "Doug → refresh admin",
+      helpfulContext:
+        "When you Apply a sheet, every triggered review item needs your decision. Your submission was missing a decision for at least one item — usually because the form's state got out of sync with the items the server was tracking. Refresh the admin page (the panel will re-render with the current items) and re-submit your decisions.",
+    });
+    expect(MESSAGE_CATALOG.EXTRA_REVIEWER_CHOICE).toMatchObject({
+      dougFacing:
+        "Something doesn't match between what you reviewed and what we have on file. Refresh and try again.",
+      crewFacing: null,
+      followUp: "Doug → refresh admin",
+      helpfulContext:
+        "Your Apply submission carried a decision for an item the server isn't tracking — usually because the staged parse you were viewing was replaced between when the page loaded and when you clicked Apply. Refresh the admin page so the panel re-renders against the current staged parse, then re-submit your decisions.",
+    });
+    expect(MESSAGE_CATALOG.DUPLICATE_REVIEWER_CHOICE).toMatchObject({
+      dougFacing: "We got the same decision twice for one item. Refresh and try again.",
+      crewFacing: null,
+      followUp: "Doug → refresh admin",
+      helpfulContext:
+        "Your Apply submission carried two decisions for the same item id. The form should normally prevent this; you've reached this code via a stale or duplicated form state. Refresh the admin page and re-submit your decisions cleanly.",
+    });
+    expect(MESSAGE_CATALOG.INVALID_REVIEWER_ACTION).toMatchObject({
+      dougFacing: "That action isn't valid for this item. Refresh and try again.",
+      crewFacing: null,
+      followUp: "Doug → refresh admin",
+      helpfulContext:
+        "Each review item has a fixed list of valid decisions (apply / reject / rename / independent, depending on the item's invariant). Your submission carried an action value that isn't in the allowed list for one of the items — usually because the form was hand-edited or the page is running a stale build. Refresh the admin page and re-submit using the form controls.",
+    });
+  });
 });
