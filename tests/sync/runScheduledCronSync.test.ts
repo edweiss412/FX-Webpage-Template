@@ -653,13 +653,13 @@ describe("processOneFile", () => {
     await expect(processOneFile("file-1", "cron", file, syncDeps)).resolves.toEqual({
       outcome: "revision_race_cooldown",
       code: "STAGED_PARSE_REVISION_RACE_COOLDOWN",
-      cooldownRemainingMs: 60_000,
+      cooldownRemainingMs: 120_000,
       retryCount: 1,
     });
     expect(syncDeps.captureBinding).toHaveBeenCalledTimes(1);
     expect(syncDeps.fetchMarkdownAtRevision).toHaveBeenCalledTimes(1);
 
-    fakeTx.nowMs = (fakeTx.nowMs ?? 0) + 60_001;
+    fakeTx.nowMs = (fakeTx.nowMs ?? 0) + 120_001;
     await expect(processOneFile("file-1", "cron", file, syncDeps)).resolves.toEqual({
       outcome: "applied",
       showId: "show-1",
@@ -669,9 +669,17 @@ describe("processOneFile", () => {
   });
 
   test("revision-race cooldown backoff doubles and caps at ten minutes", () => {
-    expect([1, 2, 3, 4, 5, 6, 7].map(revisionRaceCooldownSeconds)).toEqual([
-      60, 120, 240, 480, 600, 600, 600,
+    // Spec §5.2 says: cooldown_seconds = LEAST(60 * (2 ^ retry_count), 600).
+    expect([0, 1, 2, 3, 4, 5].map(revisionRaceCooldownSeconds)).toEqual([
+      60, 120, 240, 480, 600, 600,
     ]);
+  });
+
+  test("revision-race cooldown SQL mirrors the spec retry_count exponent", () => {
+    const source = readFileSync("lib/sync/runScheduledCronSync.ts", "utf8");
+
+    expect(source).toContain("power(2, retry_count)");
+    expect(source).not.toContain("greatest(retry_count - 1, 0)");
   });
 
   test("manual and onboarding modes bypass automatic revision-race cooldown reads", async () => {

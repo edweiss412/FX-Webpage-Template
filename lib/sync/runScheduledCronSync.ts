@@ -73,7 +73,7 @@ export type RevisionRaceCooldown = {
 };
 
 export function revisionRaceCooldownSeconds(retryCount: number): number {
-  return Math.min(60 * 2 ** Math.max(retryCount - 1, 0), 600);
+  return Math.min(60 * 2 ** retryCount, 600);
 }
 
 type RevisionRaceCooldownTx = {
@@ -580,7 +580,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
         with cooldown as (
           select
             retry_count,
-            least((60 * power(2, greatest(retry_count - 1, 0)))::int, 600) as cooldown_seconds,
+            least((60 * power(2, retry_count))::int, 600) as cooldown_seconds,
             last_race_at
           from public.revision_race_cooldowns
          where drive_file_id = $1
@@ -627,7 +627,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
         )
         select
           retry_count,
-          least((60 * power(2, greatest(retry_count - 1, 0)))::int, 600) as cooldown_seconds
+          least((60 * power(2, retry_count))::int, 600) as cooldown_seconds
           from upserted
       `,
       [driveFileId, racedHeadRevisionId],
