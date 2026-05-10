@@ -176,7 +176,7 @@ function cooldownKey(driveFileId: string, revisionId: string): string {
   return `${driveFileId}\0${revisionId}`;
 }
 
-function processOneFileUnlockedSource() {
+function functionSource(functionName: string) {
   const sourceText = readFileSync("lib/sync/runScheduledCronSync.ts", "utf8");
   const sourceFile = ts.createSourceFile(
     "runScheduledCronSync.ts",
@@ -189,7 +189,7 @@ function processOneFileUnlockedSource() {
   const visit = (node: ts.Node): void => {
     if (
       ts.isFunctionDeclaration(node) &&
-      node.name?.text === "processOneFile_unlocked" &&
+      node.name?.text === functionName &&
       node.body
     ) {
       body = node.body;
@@ -198,7 +198,7 @@ function processOneFileUnlockedSource() {
     ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  if (!body) throw new Error("processOneFile_unlocked not found");
+  if (!body) throw new Error(`${functionName} not found`);
   return { body, sourceFile, sourceText };
 }
 
@@ -387,8 +387,8 @@ function deps(overrides: Partial<ProcessOneFileDeps> = {}) {
 }
 
 describe("processOneFile", () => {
-  test("Drive-fetch pipeline steps are structurally routed through locked recovery", () => {
-    const { body, sourceFile } = processOneFileUnlockedSource();
+  test("Drive-fetch pipeline steps are structurally prepared before locked recovery", () => {
+    const { body, sourceFile } = functionSource("prepareProcessOneFile");
     const expectedLabels = new Set([
       "captureBinding",
       "fetchMarkdownAtRevision",
@@ -416,10 +416,10 @@ describe("processOneFile", () => {
           unguarded.push(`${label}: no try/catch`);
         } else if (
           tryStatement &&
-          !tryStatement.catchClause?.block.getText(sourceFile).includes("handleFetchFailure_unlocked") &&
+          !tryStatement.catchClause?.block.getText(sourceFile).includes('kind: "fetch_failure"') &&
           !allowlisted
         ) {
-          unguarded.push(`${label}: catch does not call handleFetchFailure_unlocked`);
+          unguarded.push(`${label}: catch does not prepare locked fetch failure recovery`);
         }
       }
       ts.forEachChild(node, visit);
@@ -481,6 +481,79 @@ describe("processOneFile", () => {
     expect(events).toEqual(["lock:start", "lock:commit", "alert:upsert"]);
     expect(vi.mocked(syncDeps.runPhase1)).toHaveBeenCalledBefore(vi.mocked(syncDeps.runPhase2));
   });
+
+  test.each(["cron", "push", "manual"] as const)(
+    "%s Drive prep finishes before the advisory lock opens",
+    async (mode) => {
+      const fakeTx = tx();
+      const events: string[] = [];
+      const withShowLock = vi.fn(async (_driveFileId, fn) => {
+        events.push("lock:start");
+        const result = await fn(fakeTx as LockedShowTx<PipelineTx>);
+        events.push("lock:commit");
+        return result;
+      });
+      const syncDeps = deps({
+        withShowLock,
+        perFileProcessor: vi.fn(async () => ({ outcome: "proceed" as const, mode })),
+        captureBinding: vi
+          .fn()
+          .mockImplementationOnce(async () => {
+            events.push("capture:initial");
+            return {
+              bindingToken: "token-1",
+              modifiedTime: "2026-05-08T12:00:00.000Z",
+            };
+          })
+          .mockImplementationOnce(async () => {
+            events.push("capture:reverify");
+            return {
+              bindingToken: "token-1",
+              modifiedTime: "2026-05-08T12:00:00.000Z",
+            };
+          }),
+        fetchMarkdownAtRevision: vi.fn(async () => {
+          events.push("fetch");
+          return "# v4\nShow";
+        }),
+        parseSheet: vi.fn(() => {
+          events.push("parse");
+          return parsedSheet();
+        }),
+        enrichWithDrivePins: vi.fn(async () => {
+          events.push("enrich");
+          return parseResult();
+        }),
+        runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+          events.push("phase1");
+          (lockedTx as PipelineTx).operations.push("runPhase1");
+          return { outcome: "pass" as const };
+        }),
+        runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
+          events.push("phase2");
+          (lockedTx as PipelineTx).operations.push("runPhase2");
+          return { outcome: "applied" as const, showId: "show-1" };
+        }),
+      });
+
+      await expect(processOneFile("file-1", mode, fileMeta("file-1"), syncDeps)).resolves.toEqual({
+        outcome: "applied",
+        showId: "show-1",
+      });
+
+      expect(events).toEqual([
+        "capture:initial",
+        "fetch",
+        "parse",
+        "enrich",
+        "capture:reverify",
+        "lock:start",
+        "phase1",
+        "phase2",
+        "lock:commit",
+      ]);
+    },
+  );
 
   test("same revision binding gates parse/enrich/phase1/phase2 and publishes after apply", async () => {
     const fakeTx = tx() as LockedShowTx<PipelineTx>;
@@ -635,6 +708,7 @@ describe("processOneFile", () => {
     });
     const syncDeps = deps({
       withShowLock,
+      readRevisionRaceCooldown: fakeTx.readRevisionRaceCooldown.bind(fakeTx),
       fetchMarkdownAtRevision: vi
         .fn()
         .mockRejectedValueOnce(new Error("Drive revision token for file-1 changed during xlsx export"))

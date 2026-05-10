@@ -1,5 +1,4 @@
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
-import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import type { DriveListedFile } from "@/lib/drive/list";
 import {
   assertShowLockHeld,
@@ -7,6 +6,7 @@ import {
   type LockedShowTx,
 } from "@/lib/sync/lockedShowTx";
 import {
+  processOneFile as defaultProcessOneFile,
   processOneFile_unlocked as defaultProcessOneFile_unlocked,
   type ProcessOneFileDeps,
   type ProcessOneFileResult,
@@ -37,6 +37,12 @@ export type RunManualSyncForShowDeps = {
     fileMeta: DriveListedFile,
     deps?: ProcessOneFileDeps,
   ) => Promise<ProcessOneFileResult>;
+  processOneFile?: (
+    driveFileId: string,
+    mode: Extract<SyncMode, "manual">,
+    fileMeta: DriveListedFile,
+    deps?: ProcessOneFileDeps,
+  ) => Promise<ManualSyncResult | ConcurrentSyncSkipped>;
   withPipelineLock?: (
     driveFileId: string,
     fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<ManualSyncResult> | ManualSyncResult,
@@ -97,20 +103,21 @@ export async function runManualSyncForShow(
   mode: Extract<SyncMode, "manual"> = "manual",
   deps: RunManualSyncForShowDeps = {},
 ): Promise<ManualSyncResult | ConcurrentSyncSkipped> {
+  const fileMeta = await (deps.fetchDriveFileMetadata ?? fetchDriveFileMetadata)(driveFileId);
   const withLock =
     deps.withPipelineLock ?? ((id, fn) => withPostgresSyncPipelineLock(id, fn, { tryOnly: false }));
-  const result = await withLock(driveFileId, async (tx) => {
-    const isFinalizeOwned = await (
-      deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
-    )(tx, driveFileId);
-    if (isFinalizeOwned) {
-      return { outcome: "blocked", code: FINALIZE_OWNED_SHOW };
-    }
-    return await runManualSyncForShow_unlocked(tx, driveFileId, mode, deps);
+  const runOne = deps.processOneFile ?? defaultProcessOneFile;
+  return await runOne(driveFileId, mode, fileMeta, {
+    ...(deps.processDeps ?? {}),
+    withShowLock: async (id, fn) =>
+      (await withLock(id, async (tx) => {
+        const isFinalizeOwned = await (
+          deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
+        )(tx, driveFileId);
+        if (isFinalizeOwned) {
+          return { outcome: "blocked", code: FINALIZE_OWNED_SHOW };
+        }
+        return await fn(tx);
+      })) as ProcessOneFileResult | ConcurrentSyncSkipped,
   });
-  if (!("skipped" in result) && result.outcome === "applied" && result.roleFlagsNotice) {
-    const upsertAdminAlert = deps.processDeps?.upsertAdminAlert ?? defaultUpsertAdminAlert;
-    await upsertAdminAlert(result.roleFlagsNotice);
-  }
-  return result;
 }

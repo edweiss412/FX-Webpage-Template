@@ -157,6 +157,10 @@ export type ProcessOneFileDeps = {
   driveClient?: DriveClient;
   runPhase1?: typeof runPhase1;
   runPhase2?: typeof runPhase2;
+  readRevisionRaceCooldown?: (
+    driveFileId: string,
+    racedHeadRevisionId: string,
+  ) => Promise<RevisionRaceCooldown | null>;
   upsertAdminAlert?: typeof defaultUpsertAdminAlert;
   logSync?: (entry: SyncLogEntry) => Promise<void>;
   publishShowInvalidation?: (showId: string) => Promise<void>;
@@ -1071,6 +1075,58 @@ export async function withPostgresSyncPipelineLock<R = ProcessOneFileResult>(
   }
 }
 
+async function readPostgresRevisionRaceCooldown(
+  driveFileId: string,
+  racedHeadRevisionId: string,
+): Promise<RevisionRaceCooldown | null> {
+  const sql = postgres(databaseUrl(), {
+    max: 1,
+    idle_timeout: 1,
+    prepare: false,
+  });
+
+  try {
+    const rows = (await sql.unsafe(
+      `
+        with cooldown as (
+          select
+            retry_count,
+            least((60 * power(2, retry_count))::int, 600) as cooldown_seconds,
+            last_race_at
+          from public.revision_race_cooldowns
+         where drive_file_id = $1
+           and raced_head_revision_id = $2
+           and retry_count > 0
+         limit 1
+        )
+        select
+          retry_count,
+          cooldown_seconds,
+          greatest(
+            0,
+            ceil(extract(epoch from (last_race_at + cooldown_seconds * interval '1 second' - now())) * 1000)
+          )::bigint as cooldown_remaining_ms
+          from cooldown
+         where now() < last_race_at + cooldown_seconds * interval '1 second'
+      `,
+      [driveFileId, racedHeadRevisionId],
+    )) as Array<{
+      retry_count: number;
+      cooldown_seconds: number;
+      cooldown_remaining_ms: number;
+    }>;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      retryCount: row.retry_count,
+      cooldownSeconds: row.cooldown_seconds,
+      cooldownRemainingMs: Number(row.cooldown_remaining_ms),
+    };
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
 async function withStepTimeout<T>(label: string, promise: Promise<T>): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const timer = new Promise<never>((_, reject) => {
@@ -1240,12 +1296,12 @@ function fallbackBindingFromListedFile(fileMeta: DriveListedFile): Phase1Binding
 }
 
 async function checkRevisionRaceCooldown(
-  tx: LockedShowTx<SyncPipelineTx>,
+  readCooldown: ((driveFileId: string, racedHeadRevisionId: string) => Promise<RevisionRaceCooldown | null>) | undefined,
   driveFileId: string,
   racedHeadRevisionId: string,
 ): Promise<Extract<ProcessOneFileResult, { outcome: "revision_race_cooldown" }> | null> {
-  if (!tx.readRevisionRaceCooldown) return null;
-  const cooldown = await tx.readRevisionRaceCooldown(driveFileId, racedHeadRevisionId);
+  if (!readCooldown) return null;
+  const cooldown = await readCooldown(driveFileId, racedHeadRevisionId);
   if (!cooldown) return null;
   return {
     outcome: "revision_race_cooldown",
@@ -1408,9 +1464,15 @@ export async function processOneFile(
   fileMeta: DriveListedFile,
   deps: ProcessOneFileDeps = {},
 ): Promise<ProcessOneFileResult> {
+  const prepared = await prepareProcessOneFile(driveFileId, mode, fileMeta, deps);
+  if (prepared.kind === "skip") {
+    await logSync(deps, driveFileId, prepared.result, prepared.payload);
+    return prepared.result;
+  }
+
   const lock = deps.withShowLock ?? withPostgresSyncPipelineLock;
   const result = await lock(driveFileId, (lockedTx) =>
-    processOneFile_unlocked(lockedTx, driveFileId, mode, fileMeta, deps),
+    processOneFile_unlocked(lockedTx, driveFileId, mode, fileMeta, deps, prepared),
   );
   if ("skipped" in result) {
     const skipped = { outcome: "skipped" as const, reason: CONCURRENT_SYNC_SKIPPED };
@@ -1420,36 +1482,80 @@ export async function processOneFile(
   return result;
 }
 
-export async function processOneFile_unlocked(
-  tx: LockedShowTx<SyncPipelineTx>,
+type PreparedProcessOneFile =
+  | {
+      kind: "skip";
+      result: Extract<ProcessOneFileResult, { outcome: "skipped" }>;
+      payload?: Record<string, unknown>;
+    }
+  | { kind: "asset_recovery"; result: Extract<ProcessOneFileResult, { outcome: "asset_recovery" }> }
+  | {
+      kind: "revision_race_cooldown";
+      result: Extract<ProcessOneFileResult, { outcome: "revision_race_cooldown" }>;
+      payload: Record<string, unknown>;
+    }
+  | {
+      kind: "revision_race";
+      result: Extract<ProcessOneFileResult, { outcome: "revision_race" }>;
+      racedHeadRevisionId: string;
+      payload: Record<string, unknown>;
+    }
+  | {
+      kind: "fetch_failure";
+      binding: Phase1Binding;
+      error: unknown;
+      code: typeof STAGED_PARSE_SOURCE_GONE | SyncFailureCode;
+    }
+  | {
+      kind: "ready";
+      resolvedMode: Exclude<ResolvedSyncMode, "asset_recovery">;
+      binding: Phase1Binding;
+      parseResult: ParseResult;
+    };
+
+function defaultCooldownReader(
+  deps: ProcessOneFileDeps,
+):
+  | ((driveFileId: string, racedHeadRevisionId: string) => Promise<RevisionRaceCooldown | null>)
+  | undefined {
+  if (deps.readRevisionRaceCooldown) return deps.readRevisionRaceCooldown;
+  if (deps.withShowLock) return undefined;
+  return readPostgresRevisionRaceCooldown;
+}
+
+async function prepareProcessOneFile(
   driveFileId: string,
   mode: SyncMode,
   fileMeta: DriveListedFile,
-  deps: ProcessOneFileDeps = {},
-): Promise<ProcessOneFileResult> {
-  await assertShowLockHeld(tx, driveFileId);
-
+  deps: ProcessOneFileDeps,
+  readCooldown: (
+    (driveFileId: string, racedHeadRevisionId: string) => Promise<RevisionRaceCooldown | null>
+  ) | undefined = defaultCooldownReader(deps),
+): Promise<PreparedProcessOneFile> {
   const gate = await (deps.perFileProcessor ?? perFileProcessor)(driveFileId, mode, fileMeta);
   if (gate.outcome === "skip") {
-    const result = { outcome: "skipped" as const, reason: gate.reason };
-    await logSync(deps, driveFileId, result);
-    return result;
+    return { kind: "skip", result: { outcome: "skipped", reason: gate.reason } };
   }
   if (gate.mode === "asset_recovery") {
-    const result = { outcome: "asset_recovery" as const };
-    await logSync(deps, driveFileId, result);
-    return result;
+    return { kind: "asset_recovery", result: { outcome: "asset_recovery" } };
   }
 
   if (shouldUseRevisionRaceCooldown(mode)) {
-    const cooldown = await checkRevisionRaceCooldown(tx, driveFileId, listedRevisionToken(fileMeta));
+    const cooldown = await checkRevisionRaceCooldown(
+      readCooldown,
+      driveFileId,
+      listedRevisionToken(fileMeta),
+    );
     if (cooldown) {
-      await logSync(deps, driveFileId, cooldown, {
-        racedHeadRevisionId: listedRevisionToken(fileMeta),
-        cooldownRemainingMs: cooldown.cooldownRemainingMs,
-        retryCount: cooldown.retryCount,
-      });
-      return cooldown;
+      return {
+        kind: "revision_race_cooldown",
+        result: cooldown,
+        payload: {
+          racedHeadRevisionId: listedRevisionToken(fileMeta),
+          cooldownRemainingMs: cooldown.cooldownRemainingMs,
+          retryCount: cooldown.retryCount,
+        },
+      };
     }
   }
 
@@ -1458,37 +1564,28 @@ export async function processOneFile_unlocked(
   try {
     binding = await withStepTimeout("captureBinding", captureBinding(driveFileId, fileMeta));
   } catch (error) {
-    const fallbackBinding = fallbackBindingFromListedFile(fileMeta);
-    if (isSourceGone(error)) {
-      return await handleFetchFailure_unlocked(
-        tx,
-        driveFileId,
-        fileMeta,
-        fallbackBinding,
-        error,
-        STAGED_PARSE_SOURCE_GONE,
-      );
-    }
-    return await handleFetchFailure_unlocked(
-      tx,
-      driveFileId,
-      fileMeta,
-      fallbackBinding,
+    return {
+      kind: "fetch_failure",
+      binding: fallbackBindingFromListedFile(fileMeta),
       error,
-      classifySyncFailure(error),
-    );
+      code: isSourceGone(error) ? STAGED_PARSE_SOURCE_GONE : classifySyncFailure(error),
+    };
   }
   if (shouldUseRevisionRaceCooldown(mode) && binding.bindingToken !== listedRevisionToken(fileMeta)) {
-    const cooldown = await checkRevisionRaceCooldown(tx, driveFileId, binding.bindingToken);
+    const cooldown = await checkRevisionRaceCooldown(readCooldown, driveFileId, binding.bindingToken);
     if (cooldown) {
-      await logSync(deps, driveFileId, cooldown, {
-        racedHeadRevisionId: binding.bindingToken,
-        cooldownRemainingMs: cooldown.cooldownRemainingMs,
-        retryCount: cooldown.retryCount,
-      });
-      return cooldown;
+      return {
+        kind: "revision_race_cooldown",
+        result: cooldown,
+        payload: {
+          racedHeadRevisionId: binding.bindingToken,
+          cooldownRemainingMs: cooldown.cooldownRemainingMs,
+          retryCount: cooldown.retryCount,
+        },
+      };
     }
   }
+
   let markdown: string;
   try {
     markdown = await withStepTimeout(
@@ -1500,34 +1597,19 @@ export async function processOneFile_unlocked(
     );
   } catch (error) {
     if (isSpreadsheetBindingRace(error)) {
-      const result = {
-        outcome: "revision_race" as const,
-        code: STAGED_PARSE_REVISION_RACE,
+      return {
+        kind: "revision_race",
+        result: { outcome: "revision_race", code: STAGED_PARSE_REVISION_RACE },
+        racedHeadRevisionId: binding.bindingToken,
+        payload: { bindingToken: binding.bindingToken },
       };
-      await recordRevisionRaceCooldown(tx, driveFileId, binding.bindingToken);
-      await logSync(deps, driveFileId, result, {
-        bindingToken: binding.bindingToken,
-      });
-      return result;
     }
-    if (isSourceGone(error)) {
-      return await handleFetchFailure_unlocked(
-        tx,
-        driveFileId,
-        fileMeta,
-        binding,
-        error,
-        STAGED_PARSE_SOURCE_GONE,
-      );
-    }
-    return await handleFetchFailure_unlocked(
-      tx,
-      driveFileId,
-      fileMeta,
+    return {
+      kind: "fetch_failure",
       binding,
       error,
-      classifySyncFailure(error),
-    );
+      code: isSourceGone(error) ? STAGED_PARSE_SOURCE_GONE : classifySyncFailure(error),
+    };
   }
 
   const parsed = (deps.parseSheet ?? parseMarkdownSheet)(markdown, fileMeta.name);
@@ -1543,24 +1625,19 @@ export async function processOneFile_unlocked(
     );
   } catch (error) {
     if (isBinaryAssetRevisionRace(error)) {
-      const result = {
-        outcome: "revision_race" as const,
-        code: STAGED_PARSE_REVISION_RACE,
+      return {
+        kind: "revision_race",
+        result: { outcome: "revision_race", code: STAGED_PARSE_REVISION_RACE },
+        racedHeadRevisionId: binding.bindingToken,
+        payload: { bindingToken: binding.bindingToken },
       };
-      await recordRevisionRaceCooldown(tx, driveFileId, binding.bindingToken);
-      await logSync(deps, driveFileId, result, {
-        bindingToken: binding.bindingToken,
-      });
-      return result;
     }
-    return await handleFetchFailure_unlocked(
-      tx,
-      driveFileId,
-      fileMeta,
+    return {
+      kind: "fetch_failure",
       binding,
       error,
-      classifySyncFailure(error),
-    );
+      code: classifySyncFailure(error),
+    };
   }
 
   let currentBinding: Phase1Binding;
@@ -1570,44 +1647,88 @@ export async function processOneFile_unlocked(
       captureBinding(driveFileId, fileMeta),
     );
   } catch (error) {
-    if (isSourceGone(error)) {
-      return await handleFetchFailure_unlocked(
-        tx,
-        driveFileId,
-        fileMeta,
-        binding,
-        error,
-        STAGED_PARSE_SOURCE_GONE,
-      );
-    }
+    return {
+      kind: "fetch_failure",
+      binding,
+      error,
+      code: isSourceGone(error) ? STAGED_PARSE_SOURCE_GONE : classifySyncFailure(error),
+    };
+  }
+  if (currentBinding.bindingToken !== binding.bindingToken) {
+    return {
+      kind: "revision_race",
+      result: { outcome: "revision_race", code: STAGED_PARSE_REVISION_RACE },
+      racedHeadRevisionId: binding.bindingToken,
+      payload: {
+        staged: binding.bindingToken,
+        current: currentBinding.bindingToken,
+      },
+    };
+  }
+
+  return {
+    kind: "ready",
+    resolvedMode: gate.mode as Exclude<ResolvedSyncMode, "asset_recovery">,
+    binding,
+    parseResult: enriched,
+  };
+}
+
+export async function processOneFile_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  mode: SyncMode,
+  fileMeta: DriveListedFile,
+  deps: ProcessOneFileDeps = {},
+  prepared?: PreparedProcessOneFile,
+): Promise<ProcessOneFileResult> {
+  await assertShowLockHeld(tx, driveFileId);
+  const pipeline =
+    prepared ??
+    (await prepareProcessOneFile(
+      driveFileId,
+      mode,
+      fileMeta,
+      deps,
+      tx.readRevisionRaceCooldown?.bind(tx),
+    ));
+
+  if (pipeline.kind === "skip") {
+    await logSync(deps, driveFileId, pipeline.result, pipeline.payload);
+    return pipeline.result;
+  }
+  if (pipeline.kind === "asset_recovery") {
+    await logSync(deps, driveFileId, pipeline.result);
+    return pipeline.result;
+  }
+  if (pipeline.kind === "revision_race_cooldown") {
+    await logSync(deps, driveFileId, pipeline.result, pipeline.payload);
+    return pipeline.result;
+  }
+  if (pipeline.kind === "revision_race") {
+    await recordRevisionRaceCooldown(tx, driveFileId, pipeline.racedHeadRevisionId);
+    await logSync(deps, driveFileId, pipeline.result, pipeline.payload);
+    return pipeline.result;
+  }
+  if (pipeline.kind === "fetch_failure") {
     return await handleFetchFailure_unlocked(
       tx,
       driveFileId,
       fileMeta,
-      binding,
-      error,
-      classifySyncFailure(error),
+      pipeline.binding,
+      pipeline.error,
+      pipeline.code,
     );
   }
-  if (currentBinding.bindingToken !== binding.bindingToken) {
-    const result = { outcome: "revision_race" as const, code: STAGED_PARSE_REVISION_RACE };
-    await recordRevisionRaceCooldown(tx, driveFileId, binding.bindingToken);
-    await logSync(deps, driveFileId, result, {
-      staged: binding.bindingToken,
-      current: currentBinding.bindingToken,
-    });
-    return result;
-  }
 
-  const resolvedMode = gate.mode as Exclude<ResolvedSyncMode, "asset_recovery">;
   const phase1 = await runPhase1_unlocked(
     tx,
     {
       driveFileId,
-      mode: resolvedMode,
+      mode: pipeline.resolvedMode,
       fileMeta,
-      parseResult: enriched,
-      binding,
+      parseResult: pipeline.parseResult,
+      binding: pipeline.binding,
     },
     deps,
   );
@@ -1634,10 +1755,10 @@ export async function processOneFile_unlocked(
     tx,
     {
       driveFileId,
-      mode: resolvedMode as Phase2Mode,
+      mode: pipeline.resolvedMode as Phase2Mode,
       fileMeta,
-      parseResult: enriched,
-      binding,
+      parseResult: pipeline.parseResult,
+      binding: pipeline.binding,
     },
     deps,
   );

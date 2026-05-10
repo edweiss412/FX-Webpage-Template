@@ -106,40 +106,66 @@ describe("runManualSyncForShow", () => {
     ).rejects.toMatchObject({ code: "LOCK_OWNERSHIP_ASSERTION_FAILED" });
   });
 
-  test("outer wrapper checks FINALIZE_OWNED_SHOW inside the caller-owned lock before Drive work", async () => {
+  test("outer wrapper fetches Drive metadata before the blocking lock, then checks FINALIZE_OWNED_SHOW inside it", async () => {
     const tx = fakeTx(true) as LockedShowTx<FakeTx>;
-    const checkFinalizeOwnership = vi.fn(async () => true);
-    const fetchDriveFileMetadata = vi.fn(async () => fileMeta("drive-file-1"));
-    const withPipelineLock = vi.fn(async (_driveFileId, fn) => fn(tx));
+    const events: string[] = [];
+    const checkFinalizeOwnership = vi.fn(async () => {
+      events.push("guard");
+      return true;
+    });
+    const fetchDriveFileMetadata = vi.fn(async () => {
+      events.push("fetchMeta");
+      return fileMeta("drive-file-1");
+    });
+    const withPipelineLock = vi.fn(async (_driveFileId, fn) => {
+      events.push("lock:start");
+      const result = await fn(tx);
+      events.push("lock:commit");
+      return result;
+    });
+    const processOneFile = vi.fn(async (_driveFileId, _mode, _fileMeta, processDeps) => {
+      events.push("process:start");
+      return await processDeps?.withShowLock?.("drive-file-1", async () => {
+        events.push("process:locked");
+        return { outcome: "applied" as const, showId: "show-1" };
+      });
+    });
 
     const result = await runManualSyncForShow("drive-file-1", "manual", {
       checkFinalizeOwnership,
       fetchDriveFileMetadata,
       withPipelineLock,
+      processOneFile,
     });
 
     expect(result).toEqual({ outcome: "blocked", code: FINALIZE_OWNED_SHOW });
+    expect(events).toEqual(["fetchMeta", "process:start", "lock:start", "guard", "lock:commit"]);
     expect(withPipelineLock).toHaveBeenCalledWith("drive-file-1", expect.any(Function));
     expect(checkFinalizeOwnership).toHaveBeenCalledWith(tx, "drive-file-1");
-    expect(fetchDriveFileMetadata).not.toHaveBeenCalled();
+    expect(fetchDriveFileMetadata).toHaveBeenCalledWith("drive-file-1");
   });
 
   test("outer wrapper is the only lock holder for a legitimate manual sync", async () => {
     const tx = fakeTx(true) as LockedShowTx<FakeTx>;
     const withPipelineLock = vi.fn(async (_driveFileId, fn) => fn(tx));
-    const processOneFile_unlocked = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" }));
+    const processOneFile = vi.fn(async (_driveFileId, _mode, _fileMeta, processDeps) =>
+      processDeps?.withShowLock?.("drive-file-1", async () => ({
+        outcome: "applied" as const,
+        showId: "show-1",
+      })),
+    );
 
     const result = await runManualSyncForShow("drive-file-1", "manual", {
       checkFinalizeOwnership: async () => false,
       fetchDriveFileMetadata: async () => fileMeta("drive-file-1"),
       withPipelineLock,
-      processOneFile_unlocked,
+      processOneFile,
     });
 
     expect(result).toEqual({ outcome: "applied", showId: "show-1" });
     expect(withPipelineLock).toHaveBeenCalledOnce();
     expect(withPipelineLock.mock.calls[0]?.[0]).toBe("drive-file-1");
-    expect(processOneFile_unlocked).toHaveBeenCalledOnce();
+    expect(processOneFile).toHaveBeenCalledOnce();
   });
 
   test("default manual lock acquisition uses the admin blocking lock mode", () => {

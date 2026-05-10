@@ -14,13 +14,13 @@ const lockHolderRegistry = [
   {
     path: "lib/sync/runScheduledCronSync.ts",
     holder: "processOneFile",
-    layer: "delegates to withShowLock; processOneFile_unlocked never locks",
+    layer: "prepares Drive data before withShowLock; processOneFile_unlocked never locks",
     key: "hashtext('show:' || drive_file_id)",
   },
   {
     path: "lib/sync/runManualSyncForShow.ts",
     holder: "runManualSyncForShow",
-    layer: "delegates to withPostgresSyncPipelineLock; runManualSyncForShow_unlocked never locks",
+    layer: "fetches Drive metadata before delegating final DB writes to withPostgresSyncPipelineLock",
     key: "hashtext('show:' || drive_file_id)",
   },
   {
@@ -78,11 +78,11 @@ describe("M6 advisory-lock single-holder contract", () => {
         }),
         expect.objectContaining({
           holder: "processOneFile",
-          layer: expect.stringContaining("delegates to withShowLock"),
+          layer: expect.stringContaining("prepares Drive data before withShowLock"),
         }),
         expect.objectContaining({
           holder: "runManualSyncForShow",
-          layer: expect.stringContaining("runManualSyncForShow_unlocked never locks"),
+          layer: expect.stringContaining("Drive metadata before"),
         }),
         expect.objectContaining({
           holder: "applyStaged",
