@@ -35,7 +35,7 @@ export class SyncInfraError extends Error {
 
 type SyncSupabaseClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
-type DeferredIngestionRow = {
+export type DeferredIngestionRow = {
   deferred_kind: "defer_until_modified" | "permanent_ignore";
   deferred_at_modified_time: string | null;
 };
@@ -118,26 +118,6 @@ async function readLiveDeferral(
   }
 }
 
-async function deleteLiveDeferral(
-  supabase: SyncSupabaseClient,
-  driveFileId: string,
-): Promise<void> {
-  try {
-    const { data, error } = await supabase
-      .from("deferred_ingestions")
-      .delete()
-      .eq("drive_file_id", driveFileId)
-      .is("wizard_session_id", null);
-    void data;
-    if (error) {
-      throw new SyncInfraError("deleteLiveDeferral", "returned_error", error);
-    }
-  } catch (cause) {
-    if (cause instanceof SyncInfraError) throw cause;
-    throw new SyncInfraError("deleteLiveDeferral", "thrown_error", cause);
-  }
-}
-
 async function readShowGateRow(
   supabase: SyncSupabaseClient,
   driveFileId: string,
@@ -197,7 +177,6 @@ export async function perFileProcessor(
     if (!isAfter(fileMeta.modifiedTime, liveDeferral.deferred_at_modified_time)) {
       return { outcome: "skip", reason: "deferred_modtime" };
     }
-    await deleteLiveDeferral(supabase, driveFileId);
   }
 
   const [show, pendingSync] = await Promise.all([

@@ -204,7 +204,7 @@ describe("perFileProcessor gating phase", () => {
     });
   });
 
-  test("advancing past a live defer-until-modified watermark deletes only the live deferral", async () => {
+  test("advancing past a live defer-until-modified watermark leaves auto-clear for the locked phase", async () => {
     const fake = createFakeSupabase({
       deferred_ingestions: [
         {
@@ -233,15 +233,20 @@ describe("perFileProcessor gating phase", () => {
     expect(fake.db.deferred_ingestions).toEqual([
       {
         drive_file_id: "file-1",
+        wizard_session_id: null,
+        deferred_kind: "defer_until_modified",
+        deferred_at_modified_time: "2026-05-08T12:00:00.000Z",
+      },
+      {
+        drive_file_id: "file-1",
         wizard_session_id: "11111111-1111-4111-8111-111111111111",
         deferred_kind: "defer_until_modified",
         deferred_at_modified_time: "2026-05-08T12:00:00.000Z",
       },
     ]);
-    expect(
-      fake.calls.find((call) => call.table === "deferred_ingestions" && call.op === "delete")
-        ?.filters,
-    ).toContainEqual({ kind: "is", column: "wizard_session_id", value: null });
+    expect(fake.calls).not.toContainEqual(
+      expect.objectContaining({ table: "deferred_ingestions", op: "delete" }),
+    );
   });
 
   test("cron watermark uses greatest of show last_seen and live pending staged_modified_time", async () => {

@@ -45,6 +45,12 @@ type PipelineTx = Phase1Tx &
       lastErrorMessage: string;
       lastSeenModifiedTime: string;
     }>;
+    deferredIngestions?: Array<{
+      driveFileId: string;
+      wizardSessionId: string | null;
+      deferredKind: "defer_until_modified" | "permanent_ignore";
+      deferredAtModifiedTime: string | null;
+    }>;
     alerts?: Array<{ showId: string | null; code: string; context: Record<string, unknown> }>;
     nowMs?: number;
     revisionRaceCooldowns?: Map<string, { retryCount: number; lastRaceAtMs: number }>;
@@ -62,6 +68,11 @@ type PipelineTx = Phase1Tx &
       racedHeadRevisionId: string,
     ): Promise<{ retryCount: number; cooldownSeconds: number }>;
     deleteRevisionRaceCooldowns(driveFileId: string): Promise<void>;
+    readLiveDeferral(driveFileId: string): Promise<{
+      deferred_kind: "defer_until_modified" | "permanent_ignore";
+      deferred_at_modified_time: string | null;
+    } | null>;
+    deleteLiveDeferral(driveFileId: string): Promise<void>;
     markShowSheetUnavailable(
       driveFileId: string,
       code: string,
@@ -187,11 +198,7 @@ function functionSource(functionName: string) {
   );
   let body: ts.Block | null = null;
   const visit = (node: ts.Node): void => {
-    if (
-      ts.isFunctionDeclaration(node) &&
-      node.name?.text === functionName &&
-      node.body
-    ) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === functionName && node.body) {
       body = node.body;
       return;
     }
@@ -248,6 +255,27 @@ function tx(): PipelineTx {
       for (const key of [...(this.revisionRaceCooldowns?.keys() ?? [])]) {
         if (key.startsWith(`${driveFileId}\0`)) this.revisionRaceCooldowns?.delete(key);
       }
+    },
+    async readLiveDeferral(driveFileId: string) {
+      this.operations.push(`readLiveDeferral:${driveFileId}`);
+      const row =
+        this.deferredIngestions?.find(
+          (candidate) =>
+            candidate.driveFileId === driveFileId && candidate.wizardSessionId === null,
+        ) ?? null;
+      if (!row) return null;
+      return {
+        deferred_kind: row.deferredKind,
+        deferred_at_modified_time: row.deferredAtModifiedTime,
+      };
+    },
+    async deleteLiveDeferral(driveFileId: string) {
+      this.operations.push(`deleteLiveDeferral:${driveFileId}`);
+      if (!this.deferredIngestions) return;
+      this.deferredIngestions = this.deferredIngestions.filter(
+        (candidate) =>
+          !(candidate.driveFileId === driveFileId && candidate.wizardSessionId === null),
+      );
     },
     async readShowForPhase1() {
       this.operations.push("readShowForPhase1");
@@ -555,6 +583,64 @@ describe("processOneFile", () => {
     },
   );
 
+  test("advanced defer-until-modified auto-clear rechecks and deletes inside the locked transaction before Phase 1", async () => {
+    const fakeTx = tx();
+    fakeTx.deferredIngestions = [
+      {
+        driveFileId: "file-1",
+        wizardSessionId: null,
+        deferredKind: "defer_until_modified",
+        deferredAtModifiedTime: "2026-05-08T12:00:00.000Z",
+      },
+      {
+        driveFileId: "file-1",
+        wizardSessionId: "11111111-1111-4111-8111-111111111111",
+        deferredKind: "defer_until_modified",
+        deferredAtModifiedTime: "2026-05-08T12:00:00.000Z",
+      },
+    ];
+    const events: string[] = [];
+    const withShowLock = vi.fn(async (_driveFileId, fn) => {
+      events.push("lock:start");
+      const result = await fn(fakeTx as LockedShowTx<PipelineTx>);
+      events.push("lock:commit");
+      return result;
+    });
+    const syncDeps = deps({
+      withShowLock,
+      perFileProcessor: vi.fn(async () => ({ outcome: "proceed" as const, mode: "cron" as const })),
+      runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+        events.push("phase1");
+        (lockedTx as PipelineTx).operations.push("runPhase1");
+        return { outcome: "pass" as const };
+      }),
+    });
+
+    await expect(
+      processOneFile("file-1", "cron", fileMeta("file-1", "2026-05-08T12:05:00.000Z"), syncDeps),
+    ).resolves.toEqual({
+      outcome: "applied",
+      showId: "show-1",
+    });
+
+    expect(events).toEqual(["lock:start", "phase1", "lock:commit"]);
+    expect(fakeTx.operations.indexOf("readLiveDeferral:file-1")).toBeGreaterThan(-1);
+    expect(fakeTx.operations.indexOf("deleteLiveDeferral:file-1")).toBeGreaterThan(
+      fakeTx.operations.indexOf("readLiveDeferral:file-1"),
+    );
+    expect(fakeTx.operations.indexOf("runPhase1")).toBeGreaterThan(
+      fakeTx.operations.indexOf("deleteLiveDeferral:file-1"),
+    );
+    expect(fakeTx.deferredIngestions).toEqual([
+      {
+        driveFileId: "file-1",
+        wizardSessionId: "11111111-1111-4111-8111-111111111111",
+        deferredKind: "defer_until_modified",
+        deferredAtModifiedTime: "2026-05-08T12:00:00.000Z",
+      },
+    ]);
+  });
+
   test("same revision binding gates parse/enrich/phase1/phase2 and publishes after apply", async () => {
     const fakeTx = tx() as LockedShowTx<PipelineTx>;
     const syncDeps = deps();
@@ -711,7 +797,9 @@ describe("processOneFile", () => {
       readRevisionRaceCooldown: fakeTx.readRevisionRaceCooldown.bind(fakeTx),
       fetchMarkdownAtRevision: vi
         .fn()
-        .mockRejectedValueOnce(new Error("Drive revision token for file-1 changed during xlsx export"))
+        .mockRejectedValueOnce(
+          new Error("Drive revision token for file-1 changed during xlsx export"),
+        )
         .mockResolvedValue("# v4\nShow"),
     });
 
@@ -864,7 +952,13 @@ describe("processOneFile", () => {
       }),
     });
 
-    const result = await processOneFile_unlocked(fakeTx, "file-1", "cron", fileMeta("file-1"), syncDeps);
+    const result = await processOneFile_unlocked(
+      fakeTx,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      syncDeps,
+    );
 
     expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
     expect(fakeTx.shows.get("file-1")).toMatchObject({
@@ -916,7 +1010,13 @@ describe("processOneFile", () => {
       }),
     });
 
-    const result = await processOneFile_unlocked(fakeTx, "file-1", "cron", fileMeta("file-1"), syncDeps);
+    const result = await processOneFile_unlocked(
+      fakeTx,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      syncDeps,
+    );
 
     expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
     expect(fakeTx.shows.get("file-1")).toMatchObject({
@@ -1046,7 +1146,13 @@ describe("processOneFile", () => {
       }),
     });
 
-    const result = await processOneFile_unlocked(fakeTx, "file-1", "cron", fileMeta("file-1"), syncDeps);
+    const result = await processOneFile_unlocked(
+      fakeTx,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      syncDeps,
+    );
 
     expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
     expect(fakeTx.shows.get("file-1")).toMatchObject({
@@ -1128,7 +1234,13 @@ describe("processOneFile", () => {
       }),
     });
 
-    const result = await processOneFile_unlocked(fakeTx, "file-1", "cron", fileMeta("file-1"), syncDeps);
+    const result = await processOneFile_unlocked(
+      fakeTx,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      syncDeps,
+    );
 
     expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
     expect(fakeTx.shows.get("file-1")).toMatchObject({
@@ -1156,7 +1268,13 @@ describe("processOneFile", () => {
       }),
     });
 
-    const result = await processOneFile_unlocked(fakeTx, "file-new", "cron", fileMeta("file-new"), syncDeps);
+    const result = await processOneFile_unlocked(
+      fakeTx,
+      "file-new",
+      "cron",
+      fileMeta("file-new"),
+      syncDeps,
+    );
 
     expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
     expect(fakeTx.pendingIngestions).toEqual([
@@ -1204,7 +1322,13 @@ describe("processOneFile", () => {
       }),
     });
 
-    const result = await processOneFile_unlocked(fakeTx, "file-1", "cron", fileMeta("file-1"), syncDeps);
+    const result = await processOneFile_unlocked(
+      fakeTx,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      syncDeps,
+    );
 
     expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
     expect(fakeTx.operations).not.toContain("markShowDriveError:file-1");

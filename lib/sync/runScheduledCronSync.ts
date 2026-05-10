@@ -42,6 +42,7 @@ import {
   type Phase2Tx,
 } from "@/lib/sync/phase2";
 import {
+  type DeferredIngestionRow,
   perFileProcessor,
   type ResolvedSyncMode,
   SyncInfraError,
@@ -49,8 +50,7 @@ import {
 } from "@/lib/sync/perFileProcessor";
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
-export const STAGED_PARSE_REVISION_RACE_COOLDOWN =
-  "STAGED_PARSE_REVISION_RACE_COOLDOWN" as const;
+export const STAGED_PARSE_REVISION_RACE_COOLDOWN = "STAGED_PARSE_REVISION_RACE_COOLDOWN" as const;
 export const STAGED_PARSE_SOURCE_GONE = "STAGED_PARSE_SOURCE_GONE" as const;
 export const SYNC_FILE_FAILED = "SYNC_FILE_FAILED" as const;
 export const SYNC_INFRA_ERROR = "SYNC_INFRA_ERROR" as const;
@@ -88,7 +88,16 @@ type RevisionRaceCooldownTx = {
   deleteRevisionRaceCooldowns(driveFileId: string): Promise<void>;
 };
 
-export type SyncPipelineTx = LockableSyncTx & Phase1Tx & Phase2Tx & Partial<RevisionRaceCooldownTx>;
+type LiveDeferralTx = {
+  readLiveDeferral(driveFileId: string): Promise<DeferredIngestionRow | null>;
+  deleteLiveDeferral(driveFileId: string): Promise<void>;
+};
+
+export type SyncPipelineTx = LockableSyncTx &
+  Phase1Tx &
+  Phase2Tx &
+  Partial<RevisionRaceCooldownTx> &
+  Partial<LiveDeferralTx>;
 
 export type ProcessOneFileResult =
   | { outcome: "skipped"; reason: string }
@@ -647,6 +656,31 @@ class PostgresPipelineTx implements SyncPipelineTx {
       `
         delete from public.revision_race_cooldowns
          where drive_file_id = $1
+      `,
+      [driveFileId],
+    );
+  }
+
+  async readLiveDeferral(driveFileId: string): Promise<DeferredIngestionRow | null> {
+    const row = await this.one<DeferredIngestionRow>(
+      `
+        select deferred_kind, deferred_at_modified_time
+          from public.deferred_ingestions
+         where drive_file_id = $1
+           and wizard_session_id is null
+         limit 1
+      `,
+      [driveFileId],
+    );
+    return row;
+  }
+
+  async deleteLiveDeferral(driveFileId: string): Promise<void> {
+    await this.rows(
+      `
+        delete from public.deferred_ingestions
+         where drive_file_id = $1
+           and wizard_session_id is null
       `,
       [driveFileId],
     );
@@ -1284,6 +1318,20 @@ function shouldUseRevisionRaceCooldown(mode: SyncMode): boolean {
   return mode === "cron" || mode === "push";
 }
 
+function timestampMs(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function modifiedTimeAdvanced(left: string, right: string | null | undefined): boolean {
+  const leftMs = timestampMs(left);
+  const rightMs = timestampMs(right);
+  if (leftMs === null) return false;
+  if (rightMs === null) return true;
+  return leftMs > rightMs;
+}
+
 function listedRevisionToken(fileMeta: DriveListedFile): string {
   return fileMeta.headRevisionId ?? fileMeta.modifiedTime;
 }
@@ -1296,7 +1344,9 @@ function fallbackBindingFromListedFile(fileMeta: DriveListedFile): Phase1Binding
 }
 
 async function checkRevisionRaceCooldown(
-  readCooldown: ((driveFileId: string, racedHeadRevisionId: string) => Promise<RevisionRaceCooldown | null>) | undefined,
+  readCooldown:
+    | ((driveFileId: string, racedHeadRevisionId: string) => Promise<RevisionRaceCooldown | null>)
+    | undefined,
   driveFileId: string,
   racedHeadRevisionId: string,
 ): Promise<Extract<ProcessOneFileResult, { outcome: "revision_race_cooldown" }> | null> {
@@ -1317,6 +1367,27 @@ async function recordRevisionRaceCooldown(
   racedHeadRevisionId: string,
 ): Promise<void> {
   await tx.upsertRevisionRaceCooldown?.(driveFileId, racedHeadRevisionId);
+}
+
+async function recheckLiveDeferralAfterLock(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  mode: SyncMode,
+  fileMeta: DriveListedFile,
+): Promise<Extract<ProcessOneFileResult, { outcome: "skipped" }> | null> {
+  if (mode !== "cron" && mode !== "push") return null;
+  if (!tx.readLiveDeferral || !tx.deleteLiveDeferral) return null;
+
+  const liveDeferral = await tx.readLiveDeferral(driveFileId);
+  if (liveDeferral?.deferred_kind === "permanent_ignore") {
+    return { outcome: "skipped", reason: "deferred_permanent" };
+  }
+  if (liveDeferral?.deferred_kind !== "defer_until_modified") return null;
+  if (!modifiedTimeAdvanced(fileMeta.modifiedTime, liveDeferral.deferred_at_modified_time)) {
+    return { outcome: "skipped", reason: "deferred_modtime" };
+  }
+  await tx.deleteLiveDeferral(driveFileId);
+  return null;
 }
 
 export function classifySyncFailure(error: unknown): SyncFailureCode {
@@ -1405,8 +1476,8 @@ async function handleFetchFailure_unlocked(
   const existingPending = await tx.readLivePendingSync(driveFileId);
   const result =
     code === STAGED_PARSE_SOURCE_GONE
-      ? ({ outcome: "source_gone" as const, code })
-      : ({ outcome: "parse_error" as const, code });
+      ? { outcome: "source_gone" as const, code }
+      : { outcome: "parse_error" as const, code };
   if (existingPending) return result;
 
   const show = await tx.readShowForPhase1(driveFileId);
@@ -1528,9 +1599,9 @@ async function prepareProcessOneFile(
   mode: SyncMode,
   fileMeta: DriveListedFile,
   deps: ProcessOneFileDeps,
-  readCooldown: (
-    (driveFileId: string, racedHeadRevisionId: string) => Promise<RevisionRaceCooldown | null>
-  ) | undefined = defaultCooldownReader(deps),
+  readCooldown:
+    | ((driveFileId: string, racedHeadRevisionId: string) => Promise<RevisionRaceCooldown | null>)
+    | undefined = defaultCooldownReader(deps),
 ): Promise<PreparedProcessOneFile> {
   const gate = await (deps.perFileProcessor ?? perFileProcessor)(driveFileId, mode, fileMeta);
   if (gate.outcome === "skip") {
@@ -1571,8 +1642,15 @@ async function prepareProcessOneFile(
       code: isSourceGone(error) ? STAGED_PARSE_SOURCE_GONE : classifySyncFailure(error),
     };
   }
-  if (shouldUseRevisionRaceCooldown(mode) && binding.bindingToken !== listedRevisionToken(fileMeta)) {
-    const cooldown = await checkRevisionRaceCooldown(readCooldown, driveFileId, binding.bindingToken);
+  if (
+    shouldUseRevisionRaceCooldown(mode) &&
+    binding.bindingToken !== listedRevisionToken(fileMeta)
+  ) {
+    const cooldown = await checkRevisionRaceCooldown(
+      readCooldown,
+      driveFileId,
+      binding.bindingToken,
+    );
     if (cooldown) {
       return {
         kind: "revision_race_cooldown",
@@ -1692,6 +1770,12 @@ export async function processOneFile_unlocked(
       deps,
       tx.readRevisionRaceCooldown?.bind(tx),
     ));
+
+  const lockedDeferralSkip = await recheckLiveDeferralAfterLock(tx, driveFileId, mode, fileMeta);
+  if (lockedDeferralSkip) {
+    await logSync(deps, driveFileId, lockedDeferralSkip);
+    return lockedDeferralSkip;
+  }
 
   if (pipeline.kind === "skip") {
     await logSync(deps, driveFileId, pipeline.result, pipeline.payload);
