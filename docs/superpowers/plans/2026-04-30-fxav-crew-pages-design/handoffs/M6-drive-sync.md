@@ -1127,6 +1127,15 @@ The seven create / extend rows above are mandatory at M6 close. Empty rows silen
   - **`3b2a128`** `fix(sync): emit distinct extra/duplicate reviewer-choice codes from validateReviewerChoices`. Validator now classifies extra (item ID not in pending) → EXTRA_REVIEWER_CHOICE, duplicate (item ID appears more than once) → DUPLICATE_REVIEWER_CHOICE, INVALID_REVIEWER_ACTION reserved for unknown action verbs only. 89-line test addition covers all 4 reviewer-choice cases as separate tests.
 - Verification: 107/107 R10 targeted tests pass on my orchestrator machine. pnpm typecheck + pnpm lint clean. Codex confirmed §4.6 does NOT classify malformed reviewer-choice submissions as `admin_alerts` producers (no upsertAdminAlert call needed); R2 catalog meta-test passed and would catch any catalog/producer mismatch for the new codes.
 
-### Round 11 — re-review against R10 fix (pending)
+### Round 11 — re-review against R10 fix (Codex via direct `codex exec`)
 
-(Pending — to dispatch after convergence log commits.)
+- Base: `afa0906`. Head: `973897d` (R10 fix-SHAs convergence log commit).
+- Codex review duration: 3m. Verdict at `/tmp/m6-r11-verdict.json`.
+- Verdict: **needs-attention.** No regressions on R1-R10 fixes — fresh-eyes audit caught 1 NEW finding. Same class as R3 F2 (cron folder-diff), R6 (wizard Apply reverify), R9 F1 (live Apply reverify) — "verify sheet is in scope before processing" — but on the manual re-sync surface that prior class-sweeps missed.
+- Findings (1, §A backend):
+  1. **[high] Manual re-sync bypasses watched-folder scope check** — `lib/sync/runManualSyncForShow.ts:106`. §5.2 says the manual single-show path replaces folder listing with `files.get(...)` and must return WITHOUT processing if the file is not in the configured watched folder. Current wrapper fetches Drive metadata, then immediately delegates to `processOneFile` without reading `app_settings.watched_folder_id` or checking `fileMeta.parents`. Because `perFileProcessor` bypasses automatic gates for `manual`, an admin Re-sync can Phase 2-apply a show whose sheet was moved out of the watched folder but remains readable by the service account, violating the folder-as-publish-gate contract. Recommendation: add a manual preflight that resolves the active watched folder and rejects metadata whose `parents` excludes it before Phase 1/2 processing; record the specified error/status under the per-show lock; add regression tests for out-of-folder and 404 manual re-sync cases.
+- Routing: §A → direct `codex exec --sandbox workspace-write -c 'mcp_servers={}' < /dev/null`. Class-sweep mandate (yet another surface in the "scope check" class): every entrypoint that processes a single sheet by ID without the cron folder listing — manual re-sync (named), maybe push (verify it gates on watched folder), maybe webhook handlers, maybe asset-recovery flows.
+
+### Round 12 — re-review against R11 fix (pending)
+
+(Pending — to dispatch after R11 fix SHA lands.)
