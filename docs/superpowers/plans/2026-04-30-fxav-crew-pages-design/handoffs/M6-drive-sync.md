@@ -1113,6 +1113,15 @@ The seven create / extend rows above are mandatory at M6 close. Empty rows silen
 - Verification: 81/81 R9 targeted tests pass on my orchestrator machine. pnpm typecheck + pnpm lint clean. Codex breadth gate (~25s) shows only the 3 documented pre-existing fetch-failed suites.
 - Methodology note: this round used a **deeper class-sweep mandate** (code-shape based, not entry-point-name-list based — see `feedback_class_sweep_must_be_code_shape_not_name_list.md`). Codex independently found `processOneFile_unlocked` as a third surface beyond the two named in R9's findings, validating the approach. The structural test (8772f0f) walks the entire subtree rather than scanning named files, which should prevent future class-sweep gaps for this class.
 
-### Round 10 — re-review against R9 fix (pending)
+### Round 10 — re-review against R9 fix (Codex via direct `codex exec`)
 
-(Pending — to dispatch after convergence log commits.)
+- Base: `afa0906`. Head: `fb2b81d` (R9 fix-SHAs convergence log commit).
+- Codex review duration: 5m. Verdict at `/tmp/m6-r10-verdict.json`.
+- Verdict: **needs-attention.** No regressions on R1-R9 fixes — fresh-eyes audit caught 1 NEW finding in a DIFFERENT class (message catalog correctness, not lock-window). Lock-window class is now stable; fresh-eyes is moving to other surfaces.
+- Findings (1, §A backend):
+  1. **[medium] Apply collapses extra/duplicate reviewer choices into the wrong code (§6.8.2/§12.4 violation)** — `lib/sync/applyStaged.ts:312`. Spec §6.8.2 requires distinct server outcomes for reviewer-choice validation: missing → `MISSING_REVIEWER_CHOICE`, extra → `EXTRA_REVIEWER_CHOICE`, duplicate → `DUPLICATE_REVIEWER_CHOICE`, invalid action → `INVALID_REVIEWER_ACTION`. Current validator maps duplicate item IDs and extra choices to `INVALID_REVIEWER_ACTION`; `lib/messages/catalog.ts` doesn't define `EXTRA_REVIEWER_CHOICE` or `DUPLICATE_REVIEWER_CHOICE` rows from §12.4. Doug sees wrong recovery copy for stale or duplicated Apply payloads; route doesn't emit the canonical codes the spec promises. Recommendation: add `EXTRA_REVIEWER_CHOICE` and `DUPLICATE_REVIEWER_CHOICE` constants/result union/status handling, return those exact codes from `validateReviewerChoices`, add §12.4 catalog entries with helpful context, extend `applyStaged` + M6 catalog tests for missing/extra/duplicate/invalid as separate cases.
+- Routing: §A → direct `codex exec --sandbox workspace-write -c 'mcp_servers={}' < /dev/null`. Surgical fix — well-scoped to the validator + catalog + tests. The R2 catalog meta-test (extended at 720f692) should automatically catch missing producer-write-site for the new codes.
+
+### Round 11 — re-review against R10 fix (pending)
+
+(Pending — to dispatch after R10 fix SHA lands.)
