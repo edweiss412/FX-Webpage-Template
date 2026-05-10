@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { DriveListedFile } from "@/lib/drive/list";
+import { SyncInfraError } from "@/lib/sync/perFileProcessor";
 
 const syncLogMock = vi.hoisted(() => ({
   writeSyncLog: vi.fn(async () => undefined),
@@ -263,27 +264,93 @@ describe("/api/drive/webhook", () => {
     });
   });
 
+  test("successful background dispatch keeps using the durable sync_log sink per file", async () => {
+    const { dispatchDriveWebhookFiles } = await import("@/app/api/drive/webhook/route");
+    const file = listedFile("file-a");
+    const logSync = vi.fn(async () => undefined);
+    const runPushSyncForShow = vi.fn(async (driveFileId: string, deps) => {
+      await deps?.logSync?.({ driveFileId, outcome: "applied" });
+      return { outcome: "applied" as const, showId: "show-a" };
+    });
+
+    const result = await dispatchDriveWebhookFiles(activeChannel(), {
+      listFolder: vi.fn(async () => [file]),
+      runPushSyncForShow,
+      logSync,
+    });
+
+    expect(result).toEqual({
+      dispatched: [{ driveFileId: "file-a", result: { outcome: "applied", showId: "show-a" } }],
+    });
+    expect(logSync).toHaveBeenCalledWith({ driveFileId: "file-a", outcome: "applied" });
+  });
+
   test("background dispatch isolates one file failure from the rest of the folder", async () => {
     const { dispatchDriveWebhookFiles } = await import("@/app/api/drive/webhook/route");
     const fileA = listedFile("file-a");
     const fileB = listedFile("file-b");
+    const logSync = vi.fn(async () => undefined);
     const runPushSyncForShow = vi
       .fn()
-      .mockRejectedValueOnce(new Error("file-a parse failed"))
+      .mockRejectedValueOnce(
+        new SyncInfraError("readShowGateRow", "returned_error", new Error("db offline")),
+      )
       .mockResolvedValueOnce({ outcome: "applied" as const, showId: "show-b" });
 
     const result = await dispatchDriveWebhookFiles(activeChannel(), {
       listFolder: vi.fn(async () => [fileA, fileB]),
       runPushSyncForShow,
+      logSync,
     });
 
     expect(result).toEqual({
       dispatched: [
-        { driveFileId: "file-a", result: { outcome: "error", code: "SYNC_FILE_FAILED" } },
+        { driveFileId: "file-a", result: { outcome: "error", code: "SYNC_INFRA_ERROR" } },
         { driveFileId: "file-b", result: { outcome: "applied", showId: "show-b" } },
       ],
     });
     expect(runPushSyncForShow).toHaveBeenCalledTimes(2);
+    expect(logSync).toHaveBeenCalledWith({
+      driveFileId: "file-a",
+      outcome: "error",
+      code: "SYNC_INFRA_ERROR",
+      payload: expect.objectContaining({
+        name: "SyncInfraError",
+        message: expect.stringContaining("readShowGateRow"),
+        operation: "readShowGateRow",
+      }),
+    });
+  });
+
+  test("background folder listing failure is written to sync_log before the task settles", async () => {
+    const { dispatchDriveWebhookFiles } = await import("@/app/api/drive/webhook/route");
+    const logSync = vi.fn(async () => undefined);
+    const listError = new SyncInfraError(
+      "listFolder",
+      "thrown_error",
+      new Error("drive unavailable"),
+    );
+
+    const result = await dispatchDriveWebhookFiles(activeChannel(), {
+      listFolder: vi.fn(async () => {
+        throw listError;
+      }),
+      runPushSyncForShow: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-a" })),
+      logSync,
+    });
+
+    expect(result).toEqual({
+      dispatched: [{ driveFileId: null, result: { outcome: "error", code: "SYNC_INFRA_ERROR" } }],
+    });
+    expect(logSync).toHaveBeenCalledWith({
+      driveFileId: null,
+      outcome: "error",
+      code: "SYNC_INFRA_ERROR",
+      payload: expect.objectContaining({
+        name: "SyncInfraError",
+        operation: "listFolder",
+      }),
+    });
   });
 });
 

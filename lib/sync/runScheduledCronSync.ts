@@ -966,7 +966,7 @@ async function logSync(
   await deps.logSync?.(entry);
 }
 
-function errorPayload(error: unknown): Record<string, unknown> {
+export function errorPayload(error: unknown): Record<string, unknown> {
   if (error instanceof Error) {
     const payload: Record<string, unknown> = {
       name: error.name,
@@ -995,7 +995,7 @@ async function emitDeferredRoleFlagsNotice(
   await upsertAdminAlert(result.roleFlagsNotice);
 }
 
-function classifySyncFailure(error: unknown): SyncFailureCode {
+export function classifySyncFailure(error: unknown): SyncFailureCode {
   if (
     error instanceof SyncInfraError ||
     error instanceof Phase1InfraError ||

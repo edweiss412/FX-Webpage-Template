@@ -4,6 +4,11 @@ import { after, NextResponse, type NextRequest } from "next/server";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { listFolder as defaultListFolder, type DriveListedFile } from "@/lib/drive/list";
 import {
+  classifySyncFailure,
+  errorPayload,
+  type SyncLogEntry,
+} from "@/lib/sync/runScheduledCronSync";
+import {
   runPushSyncForShow as defaultRunPushSyncForShow,
   type RunPushSyncForShowDeps,
 } from "@/lib/sync/runPushSyncForShow";
@@ -177,19 +182,12 @@ function dedupeFiles(files: DriveListedFile[]): DriveListedFile[] {
   return deduped;
 }
 
-function classifyDispatchError(error: unknown): string {
-  if (error && typeof error === "object" && "code" in error && typeof error.code === "string") {
-    return error.code;
-  }
-  return "SYNC_FILE_FAILED";
-}
-
 export async function dispatchDriveWebhookFiles(
   channel: DriveWebhookChannel,
   deps: Pick<DriveWebhookDeps, "listFolder" | "runPushSyncForShow" | "logSync"> = {},
 ): Promise<{
   dispatched: Array<{
-    driveFileId: string;
+    driveFileId: string | null;
     result:
       | Awaited<ReturnType<typeof defaultRunPushSyncForShow>>
       | { outcome: "error"; code: string };
@@ -198,16 +196,36 @@ export async function dispatchDriveWebhookFiles(
   const listFolder = deps.listFolder ?? defaultListFolder;
   const runPushSyncForShow = deps.runPushSyncForShow ?? defaultRunPushSyncForShow;
   const logSync = deps.logSync ?? writeSyncLog;
-  const files = dedupeFiles(await listFolder(channel.watchedFolderId));
+  let files: DriveListedFile[];
+  try {
+    files = dedupeFiles(await listFolder(channel.watchedFolderId));
+  } catch (error) {
+    const code = classifySyncFailure(error);
+    const entry: SyncLogEntry = {
+      driveFileId: null,
+      outcome: "error",
+      code,
+      payload: errorPayload(error),
+    };
+    await logSync(entry);
+    return { dispatched: [{ driveFileId: null, result: { outcome: "error", code } }] };
+  }
   const dispatched = [];
   for (const file of files) {
     try {
       const result = await runPushSyncForShow(file.driveFileId, { fileMeta: file, logSync });
       dispatched.push({ driveFileId: file.driveFileId, result });
     } catch (error) {
+      const code = classifySyncFailure(error);
+      await logSync({
+        driveFileId: file.driveFileId,
+        outcome: "error",
+        code,
+        payload: errorPayload(error),
+      });
       dispatched.push({
         driveFileId: file.driveFileId,
-        result: { outcome: "error" as const, code: classifyDispatchError(error) },
+        result: { outcome: "error" as const, code },
       });
     }
   }
