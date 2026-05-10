@@ -1,4 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import ts from "typescript";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
@@ -172,6 +174,41 @@ function parseResult(): ParseResult {
 
 function cooldownKey(driveFileId: string, revisionId: string): string {
   return `${driveFileId}\0${revisionId}`;
+}
+
+function processOneFileUnlockedSource() {
+  const sourceText = readFileSync("lib/sync/runScheduledCronSync.ts", "utf8");
+  const sourceFile = ts.createSourceFile(
+    "runScheduledCronSync.ts",
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  let body: ts.Block | null = null;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isFunctionDeclaration(node) &&
+      node.name?.text === "processOneFile_unlocked" &&
+      node.body
+    ) {
+      body = node.body;
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  if (!body) throw new Error("processOneFile_unlocked not found");
+  return { body, sourceFile, sourceText };
+}
+
+function closestTry(node: ts.Node): ts.TryStatement | null {
+  let current: ts.Node | undefined = node.parent;
+  while (current) {
+    if (ts.isTryStatement(current)) return current;
+    current = current.parent;
+  }
+  return null;
 }
 
 function tx(): PipelineTx {
@@ -350,6 +387,49 @@ function deps(overrides: Partial<ProcessOneFileDeps> = {}) {
 }
 
 describe("processOneFile", () => {
+  test("Drive-fetch pipeline steps are structurally routed through locked recovery", () => {
+    const { body, sourceFile } = processOneFileUnlockedSource();
+    const expectedLabels = new Set([
+      "captureBinding",
+      "fetchMarkdownAtRevision",
+      "enrichWithDrivePins",
+      "reverifyBinding",
+    ]);
+    const seenLabels = new Set<string>();
+    const unguarded: string[] = [];
+    const visit = (node: ts.Node): void => {
+      const firstArg = ts.isCallExpression(node) ? node.arguments[0] : undefined;
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === "withStepTimeout" &&
+        firstArg &&
+        ts.isStringLiteral(firstArg) &&
+        expectedLabels.has(firstArg.text)
+      ) {
+        const label = firstArg.text;
+        seenLabels.add(label);
+        const tryStatement = closestTry(node);
+        const nodeText = node.getFullText(sourceFile);
+        const allowlisted = /drive-fetch-recovery-allowlist/.test(nodeText);
+        if (!tryStatement && !allowlisted) {
+          unguarded.push(`${label}: no try/catch`);
+        } else if (
+          tryStatement &&
+          !tryStatement.catchClause?.block.getText(sourceFile).includes("handleFetchFailure_unlocked") &&
+          !allowlisted
+        ) {
+          unguarded.push(`${label}: catch does not call handleFetchFailure_unlocked`);
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(body);
+
+    expect([...seenLabels].sort()).toEqual([...expectedLabels].sort());
+    expect(unguarded).toEqual([]);
+  });
+
   test("locked wrapper is the only advisory-lock holder and passes a branded tx to the unlocked pipeline", async () => {
     const fakeTx = tx();
     const events: string[] = [];
@@ -676,6 +756,168 @@ describe("processOneFile", () => {
     expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
     expect(syncDeps.runPhase1).not.toHaveBeenCalled();
     expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+  });
+
+  test("existing show source-gone during initial binding capture is handled inside the lock", async () => {
+    const fakeTx = tx() as LockedShowTx<PipelineTx>;
+    fakeTx.shows = new Map([
+      [
+        "file-1",
+        {
+          showId: "show-1",
+          driveFileId: "file-1",
+          lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+          lastSyncStatus: "ok",
+          lastSyncError: null,
+        },
+      ],
+    ]);
+    fakeTx.syncLog = [];
+    fakeTx.alerts = [];
+    const gone = new Error("Drive file file-1 not found") as Error & { code: number };
+    gone.code = 404;
+    const syncDeps = deps({
+      captureBinding: vi.fn(async () => {
+        throw gone;
+      }),
+    });
+
+    const result = await processOneFile_unlocked(fakeTx, "file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    expect(fakeTx.shows.get("file-1")).toMatchObject({
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "sheet_unavailable",
+      lastSyncError: STAGED_PARSE_SOURCE_GONE,
+    });
+    expect(fakeTx.syncLog).toEqual([
+      expect.objectContaining({
+        showId: "show-1",
+        driveFileId: "file-1",
+        outcome: "error",
+        code: STAGED_PARSE_SOURCE_GONE,
+      }),
+    ]);
+    expect(fakeTx.alerts).toEqual([
+      {
+        showId: "show-1",
+        code: "SHEET_UNAVAILABLE",
+        context: {
+          drive_file_id: "file-1",
+          failure_code: STAGED_PARSE_SOURCE_GONE,
+          previous_last_seen_modified_time: "2026-05-08T11:00:00.000Z",
+        },
+      },
+    ]);
+    expect(syncDeps.fetchMarkdownAtRevision).not.toHaveBeenCalled();
+    expect(syncDeps.runPhase1).not.toHaveBeenCalled();
+  });
+
+  test("existing show non-gone initial binding capture failure becomes drive_error inside the lock", async () => {
+    const fakeTx = tx() as LockedShowTx<PipelineTx>;
+    fakeTx.shows = new Map([
+      [
+        "file-1",
+        {
+          showId: "show-1",
+          driveFileId: "file-1",
+          lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+          lastSyncStatus: "ok",
+          lastSyncError: null,
+        },
+      ],
+    ]);
+    fakeTx.syncLog = [];
+    const syncDeps = deps({
+      captureBinding: vi.fn(async () => {
+        throw new Error("Drive metadata failed with HTTP 500");
+      }),
+    });
+
+    const result = await processOneFile_unlocked(fakeTx, "file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+    expect(fakeTx.shows.get("file-1")).toMatchObject({
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "drive_error",
+      lastSyncError: "SYNC_FILE_FAILED",
+    });
+    expect(fakeTx.syncLog).toEqual([
+      expect.objectContaining({
+        showId: "show-1",
+        driveFileId: "file-1",
+        outcome: "error",
+        code: "SYNC_FILE_FAILED",
+      }),
+    ]);
+    expect(syncDeps.fetchMarkdownAtRevision).not.toHaveBeenCalled();
+    expect(syncDeps.runPhase1).not.toHaveBeenCalled();
+  });
+
+  test("first-seen source-gone during initial binding capture writes live pending_ingestions with listed modtime", async () => {
+    const fakeTx = tx() as LockedShowTx<PipelineTx>;
+    fakeTx.readShowForPhase1 = vi.fn(async () => null);
+    fakeTx.pendingIngestions = [];
+    const gone = new Error("Drive file file-new not found") as Error & { code: number };
+    gone.code = 404;
+    const syncDeps = deps({
+      captureBinding: vi.fn(async () => {
+        throw gone;
+      }),
+    });
+
+    const result = await processOneFile_unlocked(
+      fakeTx,
+      "file-new",
+      "cron",
+      fileMeta("file-new", "2026-05-08T12:34:00.000Z"),
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    expect(fakeTx.pendingIngestions).toEqual([
+      {
+        driveFileId: "file-new",
+        driveFileName: "file-new Sheet",
+        lastErrorCode: STAGED_PARSE_SOURCE_GONE,
+        lastErrorMessage: "Drive file file-new not found",
+        lastSeenModifiedTime: "2026-05-08T12:34:00.000Z",
+      },
+    ]);
+    expect(syncDeps.fetchMarkdownAtRevision).not.toHaveBeenCalled();
+    expect(syncDeps.runPhase1).not.toHaveBeenCalled();
+  });
+
+  test("first-seen non-gone initial binding capture failure writes live pending_ingestions with listed modtime", async () => {
+    const fakeTx = tx() as LockedShowTx<PipelineTx>;
+    fakeTx.readShowForPhase1 = vi.fn(async () => null);
+    fakeTx.pendingIngestions = [];
+    const syncDeps = deps({
+      captureBinding: vi.fn(async () => {
+        throw new Error("Drive metadata failed with HTTP 500");
+      }),
+    });
+
+    const result = await processOneFile_unlocked(
+      fakeTx,
+      "file-new",
+      "cron",
+      fileMeta("file-new", "2026-05-08T12:34:00.000Z"),
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+    expect(fakeTx.pendingIngestions).toEqual([
+      {
+        driveFileId: "file-new",
+        driveFileName: "file-new Sheet",
+        lastErrorCode: "SYNC_FILE_FAILED",
+        lastErrorMessage: "Drive metadata failed with HTTP 500",
+        lastSeenModifiedTime: "2026-05-08T12:34:00.000Z",
+      },
+    ]);
+    expect(syncDeps.fetchMarkdownAtRevision).not.toHaveBeenCalled();
+    expect(syncDeps.runPhase1).not.toHaveBeenCalled();
   });
 
   test("legacy markdown export failures become locked fetch failures, not spreadsheet revision races", async () => {

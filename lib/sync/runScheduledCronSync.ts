@@ -1232,6 +1232,13 @@ function listedRevisionToken(fileMeta: DriveListedFile): string {
   return fileMeta.headRevisionId ?? fileMeta.modifiedTime;
 }
 
+function fallbackBindingFromListedFile(fileMeta: DriveListedFile): Phase1Binding {
+  return {
+    bindingToken: listedRevisionToken(fileMeta),
+    modifiedTime: fileMeta.modifiedTime,
+  };
+}
+
 async function checkRevisionRaceCooldown(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
@@ -1447,7 +1454,30 @@ export async function processOneFile_unlocked(
   }
 
   const captureBinding = deps.captureBinding ?? defaultCaptureBinding;
-  const binding = await withStepTimeout("captureBinding", captureBinding(driveFileId, fileMeta));
+  let binding: Phase1Binding;
+  try {
+    binding = await withStepTimeout("captureBinding", captureBinding(driveFileId, fileMeta));
+  } catch (error) {
+    const fallbackBinding = fallbackBindingFromListedFile(fileMeta);
+    if (isSourceGone(error)) {
+      return await handleFetchFailure_unlocked(
+        tx,
+        driveFileId,
+        fileMeta,
+        fallbackBinding,
+        error,
+        STAGED_PARSE_SOURCE_GONE,
+      );
+    }
+    return await handleFetchFailure_unlocked(
+      tx,
+      driveFileId,
+      fileMeta,
+      fallbackBinding,
+      error,
+      classifySyncFailure(error),
+    );
+  }
   if (shouldUseRevisionRaceCooldown(mode) && binding.bindingToken !== listedRevisionToken(fileMeta)) {
     const cooldown = await checkRevisionRaceCooldown(tx, driveFileId, binding.bindingToken);
     if (cooldown) {
@@ -1523,7 +1553,14 @@ export async function processOneFile_unlocked(
       });
       return result;
     }
-    throw error;
+    return await handleFetchFailure_unlocked(
+      tx,
+      driveFileId,
+      fileMeta,
+      binding,
+      error,
+      classifySyncFailure(error),
+    );
   }
 
   let currentBinding: Phase1Binding;
