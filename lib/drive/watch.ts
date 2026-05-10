@@ -55,6 +55,7 @@ export type SubscribeResult =
 
 export type SubscribeDeps = {
   tx?: WatchTx;
+  withTx?: <R>(fn: (tx: WatchTx) => Promise<R>) => Promise<R>;
   uuid?: () => string;
   webhookSecret?: () => string;
   watchFolder?: (args: {
@@ -307,32 +308,20 @@ async function defaultStopChannel(channel: {
 async function subscribeWithTx(
   tx: WatchTx,
   folderId: string,
-  deps: SubscribeDeps,
+  channelId: string,
+  webhookSecret: string,
 ): Promise<SubscribeResult> {
-  const channelId = (deps.uuid ?? randomUUID)();
-  const webhookSecret = (deps.webhookSecret ?? randomSecret)();
   await callWatchTx("drive_watch_channels.insert_pending", () =>
     tx.insertPending({ id: channelId, watchedFolderId: folderId, webhookSecret }),
   );
+  return { outcome: "active", channelId };
+}
 
-  let watch: { id: string; resourceId: string; expiration: string };
-  try {
-    watch = await (deps.watchFolder ?? defaultWatchFolder)({
-      folderId,
-      channelId,
-      webhookSecret,
-    });
-  } catch {
-    await callWatchTx("drive_watch_channels.mark_orphaned", () => tx.markOrphaned(channelId));
-    await callWatchTx("admin_alerts.upsert_watch_orphaned", () =>
-      tx.upsertAdminAlert({
-        code: WATCH_CHANNEL_ORPHANED,
-        context: { watched_folder_id: folderId, channel_id: channelId },
-      }),
-    );
-    return { outcome: "orphaned", channelId };
-  }
-
+async function activateWithTx(
+  tx: WatchTx,
+  folderId: string,
+  watch: { id: string; resourceId: string; expiration: string },
+): Promise<SubscribeResult> {
   await callWatchTx("drive_watch_channels.activate_pending", () =>
     tx.activatePending({
       id: watch.id,
@@ -344,12 +333,67 @@ async function subscribeWithTx(
   return { outcome: "active", channelId: watch.id };
 }
 
+async function markWatchOrphanedWithTx(
+  tx: WatchTx,
+  pendingChannelId: string,
+  context: Record<string, unknown>,
+): Promise<void> {
+  await callWatchTx("drive_watch_channels.mark_orphaned", () => tx.markOrphaned(pendingChannelId));
+  await callWatchTx("admin_alerts.upsert_watch_orphaned", () =>
+    tx.upsertAdminAlert({
+      code: WATCH_CHANNEL_ORPHANED,
+      context,
+    }),
+  );
+}
+
 export async function subscribeToWatchedFolder(
   folderId: string,
   deps: SubscribeDeps = {},
 ): Promise<SubscribeResult> {
-  if (deps.tx) return await subscribeWithTx(deps.tx, folderId, deps);
-  return await withDefaultTx((tx) => subscribeWithTx(tx, folderId, deps));
+  const channelId = (deps.uuid ?? randomUUID)();
+  const webhookSecret = (deps.webhookSecret ?? randomSecret)();
+  const runTx =
+    deps.withTx ??
+    (deps.tx
+      ? async <R>(fn: (tx: WatchTx) => Promise<R>) => fn(deps.tx as WatchTx)
+      : withDefaultTx);
+
+  await runTx((tx) => subscribeWithTx(tx, folderId, channelId, webhookSecret));
+
+  let watch: { id: string; resourceId: string; expiration: string };
+  try {
+    watch = await (deps.watchFolder ?? defaultWatchFolder)({
+      folderId,
+      channelId,
+      webhookSecret,
+    });
+  } catch {
+    await runTx((tx) =>
+      markWatchOrphanedWithTx(tx, channelId, {
+        watched_folder_id: folderId,
+        channel_id: channelId,
+        reason: "watch_create_failed",
+      }),
+    );
+    return { outcome: "orphaned", channelId };
+  }
+
+  try {
+    return await runTx((tx) => activateWithTx(tx, folderId, watch));
+  } catch {
+    await runTx((tx) =>
+      markWatchOrphanedWithTx(tx, channelId, {
+        watched_folder_id: folderId,
+        channel_id: watch.id,
+        requested_channel_id: channelId,
+        resource_id: watch.resourceId,
+        expiration: watch.expiration,
+        reason: "activate_failed_after_watch_created",
+      }),
+    );
+    return { outcome: "orphaned", channelId: watch.id };
+  }
 }
 
 export async function refreshWatchSubscriptions(

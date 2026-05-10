@@ -89,6 +89,15 @@ type ProcessedOnboardingFile = Extract<
   { outcome: "completed" }
 >["processed"][number];
 
+type PreparedOnboardingFile =
+  | { file: DriveListedFile; kind: "non_sheet" }
+  | {
+      file: DriveListedFile;
+      kind: "sheet";
+      binding: Phase1Binding;
+      parseResult: ParseResult;
+    };
+
 export type RunOnboardingScanDeps = {
   tx?: OnboardingScanTx;
   listFolder?: (folderId: string) => Promise<DriveListedFile[]>;
@@ -462,7 +471,8 @@ async function scanWithTx(
   folderId: string,
   wizardSessionId: string,
   tx: OnboardingScanTx,
-  deps: RunOnboardingScanDeps,
+  preparedFiles: PreparedOnboardingFile[],
+  deps: Pick<RunOnboardingScanDeps, "runPhase1">,
 ): Promise<OnboardingScanResult> {
   const probe = await callTx("ensureWizardIsolationIndexes", () =>
     tx.ensureWizardIsolationIndexes(),
@@ -481,18 +491,12 @@ async function scanWithTx(
     };
   }
 
-  const listFolder = deps.listFolder ?? listDriveFolder;
-  const files = await listFolder(folderId);
   const processed: ProcessedOnboardingFile[] = [];
-  const captureBinding = deps.captureBinding ?? defaultCaptureBinding;
-  const fetchMarkdownAtRevision = deps.fetchMarkdownAtRevision ?? fetchSheetAsMarkdownAtRevision;
-  const parseSheet = deps.parseSheet ?? parseMarkdownSheet;
-  const enrich = deps.enrichWithDrivePins ?? enrichWithDrivePins;
-  const driveClient = deps.driveClient ?? defaultDriveClient();
   const runPhase1Impl = deps.runPhase1 ?? runPhase1;
 
-  for (const file of files) {
-    if (!isSpreadsheet(file)) {
+  for (const prepared of preparedFiles) {
+    const file = prepared.file;
+    if (prepared.kind === "non_sheet") {
       const wrote = await callTx("upsertManifest", () =>
         tx.upsertManifest({
           folderId,
@@ -514,14 +518,8 @@ async function scanWithTx(
     let parseResult: ParseResult;
     let binding: Phase1Binding;
     try {
-      binding = await captureBinding(file.driveFileId, file);
-      const markdown = await fetchMarkdownAtRevision(file.driveFileId, binding.bindingToken);
-      const parsed = parseSheet(markdown, file.name);
-      parseResult = await enrich(parsed, driveClient, {
-        driveFileId: file.driveFileId,
-        fileMeta: toDriveFileMeta(file),
-        binding,
-      });
+      binding = prepared.binding;
+      parseResult = prepared.parseResult;
       const result = await runPhase1Impl(tx, {
         driveFileId: file.driveFileId,
         mode: "onboarding_scan",
@@ -701,15 +699,48 @@ async function scanWithTx(
   return { outcome: "completed", processed };
 }
 
+async function prepareOnboardingFiles(
+  folderId: string,
+  deps: RunOnboardingScanDeps,
+): Promise<PreparedOnboardingFile[]> {
+  const listFolder = deps.listFolder ?? listDriveFolder;
+  const files = await listFolder(folderId);
+  const prepared: PreparedOnboardingFile[] = [];
+  const captureBinding = deps.captureBinding ?? defaultCaptureBinding;
+  const fetchMarkdownAtRevision = deps.fetchMarkdownAtRevision ?? fetchSheetAsMarkdownAtRevision;
+  const parseSheet = deps.parseSheet ?? parseMarkdownSheet;
+  const enrich = deps.enrichWithDrivePins ?? enrichWithDrivePins;
+  const driveClient = deps.driveClient ?? defaultDriveClient();
+
+  for (const file of files) {
+    if (!isSpreadsheet(file)) {
+      prepared.push({ file, kind: "non_sheet" });
+      continue;
+    }
+    const binding = await captureBinding(file.driveFileId, file);
+    const markdown = await fetchMarkdownAtRevision(file.driveFileId, binding.bindingToken);
+    const parsed = parseSheet(markdown, file.name);
+    const parseResult = await enrich(parsed, driveClient, {
+      driveFileId: file.driveFileId,
+      fileMeta: toDriveFileMeta(file),
+      binding,
+    });
+    prepared.push({ file, kind: "sheet", binding, parseResult });
+  }
+
+  return prepared;
+}
+
 export async function runOnboardingScan(
   folderId: string,
   wizardSessionId: string,
   deps: RunOnboardingScanDeps = {},
 ): Promise<OnboardingScanResult> {
+  const preparedFiles = await prepareOnboardingFiles(folderId, deps);
   if (deps.tx) {
-    return await scanWithTx(folderId, wizardSessionId, deps.tx, deps);
+    return await scanWithTx(folderId, wizardSessionId, deps.tx, preparedFiles, deps);
   }
   return await withDefaultTx(folderId, wizardSessionId, (tx) =>
-    scanWithTx(folderId, wizardSessionId, tx, deps),
+    scanWithTx(folderId, wizardSessionId, tx, preparedFiles, deps),
   );
 }

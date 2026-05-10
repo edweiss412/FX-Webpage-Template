@@ -145,7 +145,101 @@ describe("Drive watch lifecycle", () => {
     expect(tx.alerts).toEqual([
       {
         code: "WATCH_CHANNEL_ORPHANED",
-        context: { watched_folder_id: "folder-1", channel_id: "new-channel" },
+        context: {
+          watched_folder_id: "folder-1",
+          channel_id: "new-channel",
+          reason: "watch_create_failed",
+        },
+      },
+    ]);
+  });
+
+  test("subscription failure commits pending before Drive call then marks orphaned in a later phase", async () => {
+    const tx = new FakeWatchTx();
+    const events: string[] = [];
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+
+    const result = await subscribeToWatchedFolder("folder-1", {
+      withTx: async (fn) => {
+        events.push("tx:start");
+        const value = await fn(tx);
+        events.push("tx:commit");
+        return value;
+      },
+      uuid: () => "new-channel",
+      webhookSecret: () => "secret-1",
+      watchFolder: vi.fn(async () => {
+        events.push("drive:watch");
+        expect(tx.rows).toEqual([
+          expect.objectContaining({ id: "new-channel", status: "pending" }),
+        ]);
+        expect(events).toEqual(["tx:start", "tx:commit", "drive:watch"]);
+        throw new Error("Drive unavailable");
+      }),
+    });
+
+    expect(result).toEqual({ outcome: "orphaned", channelId: "new-channel" });
+    expect(tx.rows).toEqual([expect.objectContaining({ id: "new-channel", status: "orphaned" })]);
+    expect(events).toEqual([
+      "tx:start",
+      "tx:commit",
+      "drive:watch",
+      "tx:start",
+      "tx:commit",
+    ]);
+    expect(tx.alerts).toEqual([
+      {
+        code: "WATCH_CHANNEL_ORPHANED",
+        context: {
+          watched_folder_id: "folder-1",
+          channel_id: "new-channel",
+          reason: "watch_create_failed",
+        },
+      },
+    ]);
+  });
+
+  test("activation failure after Drive succeeds records the Google channel id in the orphan alert", async () => {
+    class ActivationFailsTx extends FakeWatchTx {
+      override async activatePending(row: {
+        id: string;
+        watchedFolderId: string;
+        resourceId: string;
+        expiresAt: string;
+      }) {
+        this.operations.push(`activatePending:${row.id}`);
+        throw new Error("database unavailable after Drive watch");
+      }
+    }
+    const tx = new ActivationFailsTx();
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+
+    const result = await subscribeToWatchedFolder("folder-1", {
+      withTx: async (fn) => fn(tx),
+      uuid: () => "requested-channel",
+      webhookSecret: () => "secret-1",
+      watchFolder: vi.fn(async () => ({
+        id: "google-channel",
+        resourceId: "resource-1",
+        expiration: "2026-05-10T13:00:00.000Z",
+      })),
+    });
+
+    expect(result).toEqual({ outcome: "orphaned", channelId: "google-channel" });
+    expect(tx.rows).toEqual([
+      expect.objectContaining({ id: "requested-channel", status: "orphaned" }),
+    ]);
+    expect(tx.alerts).toEqual([
+      {
+        code: "WATCH_CHANNEL_ORPHANED",
+        context: {
+          watched_folder_id: "folder-1",
+          channel_id: "google-channel",
+          requested_channel_id: "requested-channel",
+          resource_id: "resource-1",
+          expiration: "2026-05-10T13:00:00.000Z",
+          reason: "activate_failed_after_watch_created",
+        },
       },
     ]);
   });
@@ -219,5 +313,42 @@ describe("Drive watch lifecycle", () => {
         context: { watched_folder_id: "folder-1", channel_id: "orphaned-channel" },
       },
     ]);
+  });
+});
+
+describe("Drive transaction-boundary class sweep", () => {
+  test("Drive API calls are not lexically inside DB transaction callbacks", () => {
+    const offenders: string[] = [];
+    const transactionScopedFunctions = [
+      { path: "lib/drive/watch.ts", name: "withDefaultTx" },
+      { path: "lib/drive/watch.ts", name: "subscribeWithTx" },
+      { path: "lib/drive/watch.ts", name: "activateWithTx" },
+      { path: "lib/drive/watch.ts", name: "markWatchOrphanedWithTx" },
+      { path: "lib/sync/runScheduledCronSync.ts", name: "withPostgresSyncPipelineLock" },
+      { path: "lib/sync/runOnboardingScan.ts", name: "withDefaultTx" },
+      { path: "lib/sync/runOnboardingScan.ts", name: "scanWithTx" },
+    ];
+    const driveCallPattern =
+      /\b(?:watchFolder|defaultWatchFolder|files\.watch|getDriveClient\(\)\.(?:files|channels)|fetchDriveFileMetadata|fetchSheetAsMarkdownAtRevision|listDriveFolder)\b/;
+
+    function functionBody(source: string, name: string): string {
+      const start = source.indexOf(`function ${name}`);
+      expect(start, `${name} missing from transaction-boundary registry`).toBeGreaterThanOrEqual(0);
+      const open = source.indexOf("{", start);
+      let depth = 0;
+      for (let index = open; index < source.length; index += 1) {
+        if (source[index] === "{") depth += 1;
+        if (source[index] === "}") depth -= 1;
+        if (depth === 0) return source.slice(open, index + 1);
+      }
+      throw new Error(`Could not parse function body for ${name}`);
+    }
+
+    for (const entry of transactionScopedFunctions) {
+      const source = readFileSync(join(process.cwd(), entry.path), "utf8");
+      if (driveCallPattern.test(functionBody(source, entry.name))) offenders.push(entry.path);
+    }
+
+    expect(offenders).toEqual([]);
   });
 });
