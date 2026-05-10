@@ -362,6 +362,7 @@ describe("runPushSyncForShow", () => {
 
     const result = await runPushSyncForShow("file-1", {
       fileMeta,
+      readPushDuplicatePreflight: vi.fn(async () => ({ outcome: "proceed" as const })),
       processOneFile,
     });
 
