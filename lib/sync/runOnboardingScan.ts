@@ -699,6 +699,26 @@ async function scanWithTx(
   return { outcome: "completed", processed };
 }
 
+async function verifyOnboardingScanReady(
+  tx: OnboardingScanTx,
+): Promise<Extract<OnboardingScanResult, { outcome: "schema_missing" }> | null> {
+  const probe = await callTx("ensureWizardIsolationIndexes", () =>
+    tx.ensureWizardIsolationIndexes(),
+  );
+  if (probe.ok) return null;
+  await callTx("logSync", () =>
+    tx.logSync({
+      code: "onboarding_scan_aborted_migration_state",
+      payload: { missing_indexes: probe.missing },
+    }),
+  );
+  return {
+    outcome: "schema_missing",
+    code: WIZARD_ISOLATION_INDEXES_MISSING,
+    missingIndexes: probe.missing,
+  };
+}
+
 async function prepareOnboardingFiles(
   folderId: string,
   deps: RunOnboardingScanDeps,
@@ -736,6 +756,11 @@ export async function runOnboardingScan(
   wizardSessionId: string,
   deps: RunOnboardingScanDeps = {},
 ): Promise<OnboardingScanResult> {
+  const readiness = deps.tx
+    ? await verifyOnboardingScanReady(deps.tx)
+    : await withDefaultTx(folderId, wizardSessionId, verifyOnboardingScanReady);
+  if (readiness) return readiness;
+
   const preparedFiles = await prepareOnboardingFiles(folderId, deps);
   if (deps.tx) {
     return await scanWithTx(folderId, wizardSessionId, deps.tx, preparedFiles, deps);
