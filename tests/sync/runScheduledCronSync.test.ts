@@ -7,8 +7,9 @@ import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import type { Phase1Binding, Phase1Tx } from "@/lib/sync/phase1";
 import type { Phase2Tx } from "@/lib/sync/phase2";
 import {
+  prepareProcessOneFile,
   processOneFile,
-  processOneFile_unlocked,
+  processOneFile_unlocked as processOneFile_unlockedRaw,
   type ProcessOneFileDeps,
   revisionRaceCooldownSeconds,
   runScheduledCronSync,
@@ -412,6 +413,23 @@ function deps(overrides: Partial<ProcessOneFileDeps> = {}) {
   } satisfies ProcessOneFileDeps;
 
   return { ...base, ...overrides };
+}
+
+async function processOneFile_unlocked(
+  lockedTx: LockedShowTx<PipelineTx>,
+  driveFileId: string,
+  mode: Parameters<typeof processOneFile>[1],
+  file: DriveListedFile,
+  syncDeps: ProcessOneFileDeps,
+) {
+  const prepared = await prepareProcessOneFile(
+    driveFileId,
+    mode,
+    file,
+    syncDeps,
+    lockedTx.readRevisionRaceCooldown?.bind(lockedTx),
+  );
+  return await processOneFile_unlockedRaw(lockedTx, driveFileId, mode, file, syncDeps, prepared);
 }
 
 describe("processOneFile", () => {

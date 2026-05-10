@@ -71,18 +71,24 @@ function fakeTx(held = true): FakeTx {
 }
 
 describe("runManualSyncForShow", () => {
-  test("_unlocked uses the caller-owned locked tx and dispatches to processOneFile_unlocked", async () => {
+  test("_unlocked uses caller-provided fileMeta and never performs Drive metadata fetch inside the lock", async () => {
     const tx = fakeTx(true) as LockedShowTx<FakeTx>;
     const fetchDriveFileMetadata = vi.fn(async () => fileMeta("drive-file-1"));
     const processOneFile_unlocked = vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" }));
 
-    const result = await runManualSyncForShow_unlocked(tx, "drive-file-1", "manual", {
-      fetchDriveFileMetadata,
-      processOneFile_unlocked,
-    });
+    const result = await runManualSyncForShow_unlocked(
+      tx,
+      "drive-file-1",
+      "manual",
+      fileMeta("drive-file-1"),
+      {
+        fetchDriveFileMetadata,
+        processOneFile_unlocked,
+      },
+    );
 
     expect(result).toEqual({ outcome: "applied", showId: "show-1" });
-    expect(fetchDriveFileMetadata).toHaveBeenCalledWith("drive-file-1");
+    expect(fetchDriveFileMetadata).not.toHaveBeenCalled();
     expect(processOneFile_unlocked).toHaveBeenCalledWith(
       tx,
       "drive-file-1",
@@ -99,8 +105,7 @@ describe("runManualSyncForShow", () => {
     const tx = fakeTx(false) as unknown as LockedShowTx<FakeTx>;
 
     await expect(
-      runManualSyncForShow_unlocked(tx, "drive-file-1", "manual", {
-        fetchDriveFileMetadata: async () => fileMeta("drive-file-1"),
+      runManualSyncForShow_unlocked(tx, "drive-file-1", "manual", fileMeta("drive-file-1"), {
         processOneFile_unlocked: async () => ({ outcome: "applied", showId: "show-1" }),
       }),
     ).rejects.toMatchObject({ code: "LOCK_OWNERSHIP_ASSERTION_FAILED" });
@@ -179,7 +184,7 @@ describe("runManualSyncForShow", () => {
 
     function compileOnly() {
       // @ts-expect-error TS2345: callers must obtain LockedShowTx from withShowLock.
-      void runManualSyncForShow_unlocked(rawTx, "drive-file-1");
+      void runManualSyncForShow_unlocked(rawTx, "drive-file-1", "manual", fileMeta("drive-file-1"));
     }
 
     expect(compileOnly).toBeTypeOf("function");

@@ -89,11 +89,11 @@ async function readFinalizeOwnershipGuard_unlocked(
 export async function runManualSyncForShow_unlocked(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
-  mode: Extract<SyncMode, "manual"> = "manual",
+  mode: Extract<SyncMode, "manual">,
+  fileMeta: DriveListedFile,
   deps: RunManualSyncForShowDeps = {},
 ): Promise<ProcessOneFileResult> {
   await assertShowLockHeld(tx, driveFileId);
-  const fileMeta = await (deps.fetchDriveFileMetadata ?? fetchDriveFileMetadata)(driveFileId);
   const runUnlocked = deps.processOneFile_unlocked ?? defaultProcessOneFile_unlocked;
   return await runUnlocked(tx, driveFileId, mode, fileMeta, deps.processDeps ?? {});
 }

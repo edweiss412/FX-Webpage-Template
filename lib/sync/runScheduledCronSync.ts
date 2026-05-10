@@ -1553,7 +1553,7 @@ export async function processOneFile(
   return result;
 }
 
-type PreparedProcessOneFile =
+export type PreparedProcessOneFile =
   | {
       kind: "skip";
       result: Extract<ProcessOneFileResult, { outcome: "skipped" }>;
@@ -1594,7 +1594,7 @@ function defaultCooldownReader(
   return readPostgresRevisionRaceCooldown;
 }
 
-async function prepareProcessOneFile(
+export async function prepareProcessOneFile(
   driveFileId: string,
   mode: SyncMode,
   fileMeta: DriveListedFile,
@@ -1761,15 +1761,14 @@ export async function processOneFile_unlocked(
   prepared?: PreparedProcessOneFile,
 ): Promise<ProcessOneFileResult> {
   await assertShowLockHeld(tx, driveFileId);
-  const pipeline =
-    prepared ??
-    (await prepareProcessOneFile(
-      driveFileId,
-      mode,
-      fileMeta,
-      deps,
-      tx.readRevisionRaceCooldown?.bind(tx),
-    ));
+  if (!prepared) {
+    throw new SyncInfraError(
+      "processOneFile_unlocked",
+      "thrown_error",
+      new Error("prepared process data is required before acquiring the show lock"),
+    );
+  }
+  const pipeline = prepared;
 
   const lockedDeferralSkip = await recheckLiveDeferralAfterLock(tx, driveFileId, mode, fileMeta);
   if (lockedDeferralSkip) {
