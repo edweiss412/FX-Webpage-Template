@@ -15,7 +15,11 @@ import {
   type Phase2Result,
   type RoleFlagsNotice,
 } from "@/lib/sync/phase2";
-import { type SyncPipelineTx, withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
+import {
+  STAGED_PARSE_REVISION_RACE,
+  type SyncPipelineTx,
+  withPostgresSyncPipelineLock,
+} from "@/lib/sync/runScheduledCronSync";
 
 export const PENDING_SYNC_NOT_FOUND = "PENDING_SYNC_NOT_FOUND" as const;
 export const STAGED_PARSE_SUPERSEDED = "STAGED_PARSE_SUPERSEDED" as const;
@@ -63,6 +67,39 @@ type LivePendingIngestionInput = {
   lastSeenModifiedTime: string | null;
 };
 
+type WizardPendingIngestionInput = LivePendingIngestionInput & {
+  wizardSessionId: string;
+  pendingFolderId: string | null;
+};
+
+type WizardDriveReverify =
+  | {
+      outcome: "ok";
+      metadata: DriveListedFile & { trashed?: boolean };
+      pendingFolderId: string | null;
+    }
+  | {
+      outcome: "source_gone";
+      code: typeof STAGED_PARSE_SOURCE_GONE;
+      pendingFolderId: string | null;
+    }
+  | {
+      outcome: "source_out_of_scope";
+      code: typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE;
+      pendingFolderId: string | null;
+    }
+  | {
+      outcome: "revision_race";
+      code: typeof STAGED_PARSE_REVISION_RACE;
+      pendingFolderId: string | null;
+    };
+
+type PipelineLock = <R>(
+  driveFileId: string,
+  fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<R> | R,
+  options?: { tryOnly?: boolean },
+) => Promise<R | ConcurrentSyncSkipped>;
+
 export type ApplyStagedArgs =
   | {
       driveFileId: string;
@@ -94,6 +131,7 @@ export type ApplyStagedResult =
   | { outcome: "source_gone"; code: typeof STAGED_PARSE_SOURCE_GONE }
   | { outcome: "source_out_of_scope"; code: typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE }
   | { outcome: "outdated"; code: typeof STAGED_PARSE_OUTDATED }
+  | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
   | {
       outcome: "invalid_request";
       code: typeof MISSING_REVIEWER_CHOICE | typeof INVALID_REVIEWER_ACTION;
@@ -129,14 +167,26 @@ export type ApplyStagedDeps = {
     driveFileId: string,
     wizardSessionId: string,
   ) => Promise<boolean>;
+  upsertWizardPendingIngestion?: (
+    tx: LockedShowTx<SyncPipelineTx>,
+    row: WizardPendingIngestionInput,
+  ) => Promise<boolean>;
+  markWizardManifestHardFailed?: (
+    tx: LockedShowTx<SyncPipelineTx>,
+    driveFileId: string,
+    wizardSessionId: string,
+  ) => Promise<boolean>;
   readShowForApply?: (
     tx: LockedShowTx<SyncPipelineTx>,
     driveFileId: string,
   ) => Promise<ShowForApply | null>;
   readWatchedFolderId?: (tx: LockedShowTx<SyncPipelineTx>) => Promise<string | null>;
+  readPendingFolderId?: (tx: LockedShowTx<SyncPipelineTx>) => Promise<string | null>;
   fetchDriveFileMetadata?: (
     driveFileId: string,
   ) => Promise<DriveListedFile & { trashed?: boolean }>;
+  wizardDriveReverify?: WizardDriveReverify;
+  withPipelineLock?: PipelineLock;
   runPhase2?: (tx: LockedShowTx<SyncPipelineTx>, args: Phase2Args) => Promise<Phase2Result>;
   insertSyncAudit?: (
     tx: LockedShowTx<SyncPipelineTx>,
@@ -463,6 +513,74 @@ async function defaultMarkWizardManifestApplied(
   return Boolean(applied?.applied);
 }
 
+async function defaultUpsertWizardPendingIngestion(
+  tx: LockedShowTx<SyncPipelineTx>,
+  row: WizardPendingIngestionInput,
+): Promise<boolean> {
+  const upserted = await tx.queryOne<{ upserted: boolean } | null>(
+    `
+      insert into public.pending_ingestions (
+        drive_file_id, drive_file_name, last_error_code, last_error_message,
+        last_warnings, wizard_session_id, discovered_during_folder_id,
+        last_seen_modified_time
+      )
+      select $1, $2, $3, $4, $5::jsonb, $6::uuid, $7, $8::timestamptz
+      where exists (
+        select 1 from public.app_settings
+         where id = 'default'
+           and pending_wizard_session_id = $6::uuid
+      )
+      on conflict (drive_file_id, wizard_session_id) where wizard_session_id is not null
+      do update set
+        drive_file_name = excluded.drive_file_name,
+        last_attempt_at = now(),
+        attempt_count = public.pending_ingestions.attempt_count + 1,
+        last_error_code = excluded.last_error_code,
+        last_error_message = excluded.last_error_message,
+        last_warnings = excluded.last_warnings,
+        discovered_during_folder_id = excluded.discovered_during_folder_id,
+        last_seen_modified_time = excluded.last_seen_modified_time
+       where public.pending_ingestions.wizard_session_id = $6::uuid
+      returning true as upserted
+    `,
+    [
+      row.driveFileId,
+      row.driveFileName,
+      row.lastErrorCode,
+      row.lastErrorMessage,
+      JSON.stringify(row.lastWarnings),
+      row.wizardSessionId,
+      row.pendingFolderId,
+      row.lastSeenModifiedTime,
+    ],
+  );
+  return Boolean(upserted?.upserted);
+}
+
+async function defaultMarkWizardManifestHardFailed(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  wizardSessionId: string,
+): Promise<boolean> {
+  const updated = await tx.queryOne<{ updated: boolean } | null>(
+    `
+      update public.onboarding_scan_manifest
+         set status = 'hard_failed',
+             transitioned_at = now()
+       where drive_file_id = $1
+         and wizard_session_id = $2::uuid
+         and exists (
+           select 1 from public.app_settings
+            where id = 'default'
+              and pending_wizard_session_id = $2::uuid
+         )
+      returning true as updated
+    `,
+    [driveFileId, wizardSessionId],
+  );
+  return Boolean(updated?.updated);
+}
+
 async function defaultReadShowForApply(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
@@ -496,6 +614,16 @@ async function defaultReadWatchedFolderId(
     [],
   );
   return row?.watched_folder_id ?? null;
+}
+
+async function defaultReadPendingFolderId(
+  tx: LockedShowTx<SyncPipelineTx>,
+): Promise<string | null> {
+  const row = await tx.queryOne<{ pending_folder_id: string | null } | null>(
+    "select pending_folder_id from public.app_settings where id = 'default' limit 1",
+    [],
+  );
+  return row?.pending_folder_id ?? null;
 }
 
 async function defaultDeleteLivePendingSync(
@@ -667,21 +795,50 @@ async function restoreDeleteAndIngest(
   await deps.deleteLivePendingSync(tx, pending.driveFileId, pending.stagedId);
 }
 
+async function recordWizardApplyHardFail(
+  tx: LockedShowTx<SyncPipelineTx>,
+  pending: PendingSyncForApply,
+  reverify: Extract<WizardDriveReverify, { outcome: "source_gone" | "source_out_of_scope" }>,
+  deps: RequiredPick<
+    ApplyStagedDeps,
+    "upsertWizardPendingIngestion" | "markWizardManifestHardFailed"
+  >,
+): Promise<boolean> {
+  if (!pending.wizardSessionId) return false;
+  const ingested = await deps.upsertWizardPendingIngestion(tx, {
+    driveFileId: pending.driveFileId,
+    driveFileName: pending.parseResult.show.title,
+    lastErrorCode: reverify.code,
+    lastErrorMessage: reverify.code,
+    lastWarnings: pending.parseResult.warnings,
+    lastSeenModifiedTime: pending.stagedModifiedTime,
+    wizardSessionId: pending.wizardSessionId,
+    pendingFolderId: reverify.pendingFolderId,
+  });
+  if (!ingested) return false;
+  return await deps.markWizardManifestHardFailed(
+    tx,
+    pending.driveFileId,
+    pending.wizardSessionId,
+  );
+}
+
 type RequiredPick<T, K extends keyof T> = {
   [P in K]-?: NonNullable<T[P]>;
 };
 
-function depsWithDefaults(
-  deps: ApplyStagedDeps,
-): RequiredPick<
+type ApplyStagedDepsWithDefaults = RequiredPick<
   ApplyStagedDeps,
   | "readLivePendingSyncForApply"
   | "readWizardPendingSyncForApply"
   | "readActiveWizardSession"
   | "approveWizardPendingSync"
   | "markWizardManifestApplied"
+  | "upsertWizardPendingIngestion"
+  | "markWizardManifestHardFailed"
   | "readShowForApply"
   | "readWatchedFolderId"
+  | "readPendingFolderId"
   | "fetchDriveFileMetadata"
   | "runPhase2"
   | "insertSyncAudit"
@@ -689,9 +846,14 @@ function depsWithDefaults(
   | "restoreShowStatus"
   | "upsertLivePendingIngestion"
   | "bumpReviewerAuthFloors"
+  | "upsertAdminAlert"
   | "retryEmbeddedRevisionAvailability"
-> &
-  Pick<ApplyStagedDeps, "upsertAdminAlert"> {
+> & {
+  wizardDriveReverify?: WizardDriveReverify;
+  withPipelineLock?: PipelineLock;
+};
+
+function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
   return {
     readLivePendingSyncForApply:
       deps.readLivePendingSyncForApply ?? defaultReadLivePendingSyncForApply,
@@ -700,8 +862,13 @@ function depsWithDefaults(
     readActiveWizardSession: deps.readActiveWizardSession ?? defaultReadActiveWizardSession,
     approveWizardPendingSync: deps.approveWizardPendingSync ?? defaultApproveWizardPendingSync,
     markWizardManifestApplied: deps.markWizardManifestApplied ?? defaultMarkWizardManifestApplied,
+    upsertWizardPendingIngestion:
+      deps.upsertWizardPendingIngestion ?? defaultUpsertWizardPendingIngestion,
+    markWizardManifestHardFailed:
+      deps.markWizardManifestHardFailed ?? defaultMarkWizardManifestHardFailed,
     readShowForApply: deps.readShowForApply ?? defaultReadShowForApply,
     readWatchedFolderId: deps.readWatchedFolderId ?? defaultReadWatchedFolderId,
+    readPendingFolderId: deps.readPendingFolderId ?? defaultReadPendingFolderId,
     fetchDriveFileMetadata: deps.fetchDriveFileMetadata ?? fetchDriveFileMetadata,
     runPhase2: deps.runPhase2 ?? runPhase2,
     insertSyncAudit: deps.insertSyncAudit ?? defaultInsertSyncAudit,
@@ -713,6 +880,8 @@ function depsWithDefaults(
     upsertAdminAlert: deps.upsertAdminAlert ?? defaultUpsertAdminAlert,
     retryEmbeddedRevisionAvailability:
       deps.retryEmbeddedRevisionAvailability ?? defaultRetryEmbeddedRevisionAvailability,
+    ...(deps.wizardDriveReverify ? { wizardDriveReverify: deps.wizardDriveReverify } : {}),
+    ...(deps.withPipelineLock ? { withPipelineLock: deps.withPipelineLock } : {}),
   };
 }
 
@@ -857,6 +1026,25 @@ export async function applyStaged_unlocked(
     }
     const validation = validateReviewerChoices(pending.triggeredReviewItems, args.reviewerChoices);
     if (!("ok" in validation)) return validation;
+    if (deps.wizardDriveReverify && deps.wizardDriveReverify.outcome !== "ok") {
+      if (
+        deps.wizardDriveReverify.outcome === "source_gone" ||
+        deps.wizardDriveReverify.outcome === "source_out_of_scope"
+      ) {
+        const recovered = await recordWizardApplyHardFail(
+          tx,
+          pending,
+          deps.wizardDriveReverify,
+          deps,
+        );
+        if (!recovered) return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
+        if (deps.wizardDriveReverify.outcome === "source_gone") {
+          return { outcome: "source_gone", code: deps.wizardDriveReverify.code };
+        }
+        return { outcome: "source_out_of_scope", code: deps.wizardDriveReverify.code };
+      }
+      return { outcome: "revision_race", code: deps.wizardDriveReverify.code };
+    }
     const approved = await deps.approveWizardPendingSync(tx, {
       driveFileId: pending.driveFileId,
       wizardSessionId: args.wizardSessionId,
@@ -988,10 +1176,126 @@ export async function applyStaged_unlocked(
   return applied;
 }
 
+type WizardApplyPreflight =
+  | {
+      outcome: "ok";
+      pending: PendingSyncForApply;
+      pendingFolderId: string | null;
+    }
+  | ApplyStagedResult;
+
+async function readWizardApplyPreflight(
+  tx: LockedShowTx<SyncPipelineTx>,
+  args: Extract<ApplyStagedArgs, { sourceScope: "wizard" }>,
+  deps: ReturnType<typeof depsWithDefaults>,
+): Promise<WizardApplyPreflight> {
+  await assertShowLockHeld(tx, args.driveFileId);
+
+  const pending = await deps.readWizardPendingSyncForApply(
+    tx,
+    args.driveFileId,
+    args.wizardSessionId,
+  );
+  if (!pending) return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+
+  const activeWizardSession = await deps.readActiveWizardSession(tx);
+  if (
+    activeWizardSession !== args.wizardSessionId ||
+    pending.wizardSessionId !== args.wizardSessionId
+  ) {
+    return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
+  }
+  if (pending.stagedId !== args.stagedId) {
+    return { outcome: "superseded", code: STAGED_PARSE_SUPERSEDED };
+  }
+
+  const validation = validateReviewerChoices(pending.triggeredReviewItems, args.reviewerChoices);
+  if (!("ok" in validation)) return validation;
+
+  const pendingFolderId = await deps.readPendingFolderId(tx);
+  return { outcome: "ok", pending, pendingFolderId };
+}
+
+async function verifyWizardApplyDriveScope(
+  driveFileId: string,
+  pending: PendingSyncForApply,
+  pendingFolderId: string | null,
+  fetchMetadata: NonNullable<ApplyStagedDeps["fetchDriveFileMetadata"]>,
+): Promise<WizardDriveReverify | { outcome: "infra_error"; code: typeof SYNC_INFRA_ERROR }> {
+  let metadata: DriveListedFile & { trashed?: boolean };
+  try {
+    metadata = await fetchMetadata(driveFileId);
+  } catch (error) {
+    if (!isApplySourceGone(error)) {
+      return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
+    }
+    return { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE, pendingFolderId };
+  }
+
+  if (isGone(metadata)) {
+    return { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE, pendingFolderId };
+  }
+
+  if (!pendingFolderId || !metadata.parents.includes(pendingFolderId)) {
+    return {
+      outcome: "source_out_of_scope",
+      code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE,
+      pendingFolderId,
+    };
+  }
+
+  if (!isValidTimestamp(metadata.modifiedTime)) {
+    return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
+  }
+
+  if (!sameTimestamp(metadata.modifiedTime, pending.stagedModifiedTime)) {
+    return { outcome: "revision_race", code: STAGED_PARSE_REVISION_RACE, pendingFolderId };
+  }
+
+  return { outcome: "ok", metadata, pendingFolderId };
+}
+
+async function applyWizardWithDriveReverify(
+  args: Extract<ApplyStagedArgs, { sourceScope: "wizard" }>,
+  injectedDeps: ApplyStagedDeps,
+): Promise<ApplyStagedResult | ConcurrentSyncSkipped> {
+  const deps = depsWithDefaults(injectedDeps);
+  const withPipelineLock = deps.withPipelineLock ?? withPostgresSyncPipelineLock;
+
+  const preflight = await withPipelineLock(
+    args.driveFileId,
+    (tx) => readWizardApplyPreflight(tx, args, deps),
+    { tryOnly: false },
+  );
+  if ("skipped" in preflight || preflight.outcome !== "ok") return preflight;
+
+  const reverify = await verifyWizardApplyDriveScope(
+    args.driveFileId,
+    preflight.pending,
+    preflight.pendingFolderId,
+    deps.fetchDriveFileMetadata,
+  );
+  if (reverify.outcome === "infra_error") return reverify;
+
+  return await withPipelineLock(
+    args.driveFileId,
+    (tx) =>
+      applyStaged_unlocked(tx, args, {
+        ...injectedDeps,
+        wizardDriveReverify: reverify,
+      }),
+    { tryOnly: false },
+  );
+}
+
 export async function applyStaged(
   args: ApplyStagedArgs,
   deps: ApplyStagedDeps = {},
 ): Promise<ApplyStagedResult | ConcurrentSyncSkipped> {
+  if (args.sourceScope === "wizard") {
+    return await applyWizardWithDriveReverify(args, deps);
+  }
+
   const result = await withPostgresSyncPipelineLock(
     args.driveFileId,
     (tx) => applyStaged_unlocked(tx, args, deps),
