@@ -1122,6 +1122,11 @@ The seven create / extend rows above are mandatory at M6 close. Empty rows silen
   1. **[medium] Apply collapses extra/duplicate reviewer choices into the wrong code (§6.8.2/§12.4 violation)** — `lib/sync/applyStaged.ts:312`. Spec §6.8.2 requires distinct server outcomes for reviewer-choice validation: missing → `MISSING_REVIEWER_CHOICE`, extra → `EXTRA_REVIEWER_CHOICE`, duplicate → `DUPLICATE_REVIEWER_CHOICE`, invalid action → `INVALID_REVIEWER_ACTION`. Current validator maps duplicate item IDs and extra choices to `INVALID_REVIEWER_ACTION`; `lib/messages/catalog.ts` doesn't define `EXTRA_REVIEWER_CHOICE` or `DUPLICATE_REVIEWER_CHOICE` rows from §12.4. Doug sees wrong recovery copy for stale or duplicated Apply payloads; route doesn't emit the canonical codes the spec promises. Recommendation: add `EXTRA_REVIEWER_CHOICE` and `DUPLICATE_REVIEWER_CHOICE` constants/result union/status handling, return those exact codes from `validateReviewerChoices`, add §12.4 catalog entries with helpful context, extend `applyStaged` + M6 catalog tests for missing/extra/duplicate/invalid as separate cases.
 - Routing: §A → direct `codex exec --sandbox workspace-write -c 'mcp_servers={}' < /dev/null`. Surgical fix — well-scoped to the validator + catalog + tests. The R2 catalog meta-test (extended at 720f692) should automatically catch missing producer-write-site for the new codes.
 
+- Fix SHAs:
+  - **`f714119`** `feat(messages): add EXTRA_REVIEWER_CHOICE + DUPLICATE_REVIEWER_CHOICE codes per §12.4`. New catalog entries with helpful context per spec.
+  - **`3b2a128`** `fix(sync): emit distinct extra/duplicate reviewer-choice codes from validateReviewerChoices`. Validator now classifies extra (item ID not in pending) → EXTRA_REVIEWER_CHOICE, duplicate (item ID appears more than once) → DUPLICATE_REVIEWER_CHOICE, INVALID_REVIEWER_ACTION reserved for unknown action verbs only. 89-line test addition covers all 4 reviewer-choice cases as separate tests.
+- Verification: 107/107 R10 targeted tests pass on my orchestrator machine. pnpm typecheck + pnpm lint clean. Codex confirmed §4.6 does NOT classify malformed reviewer-choice submissions as `admin_alerts` producers (no upsertAdminAlert call needed); R2 catalog meta-test passed and would catch any catalog/producer mismatch for the new codes.
+
 ### Round 11 — re-review against R10 fix (pending)
 
-(Pending — to dispatch after R10 fix SHA lands.)
+(Pending — to dispatch after convergence log commits.)
