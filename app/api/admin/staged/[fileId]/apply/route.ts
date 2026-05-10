@@ -67,6 +67,8 @@ function statusForCode(code: string): number {
     case "PENDING_SYNC_NOT_FOUND":
       return 404;
     case "MISSING_REVIEWER_CHOICE":
+    case "EXTRA_REVIEWER_CHOICE":
+    case "DUPLICATE_REVIEWER_CHOICE":
     case "INVALID_REVIEWER_ACTION":
       return 400;
     case "SYNC_INFRA_ERROR":

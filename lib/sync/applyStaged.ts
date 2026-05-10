@@ -27,6 +27,8 @@ export const STAGED_PARSE_SOURCE_GONE = "STAGED_PARSE_SOURCE_GONE" as const;
 export const STAGED_PARSE_SOURCE_OUT_OF_SCOPE = "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" as const;
 export const STAGED_PARSE_OUTDATED = "STAGED_PARSE_OUTDATED" as const;
 export const MISSING_REVIEWER_CHOICE = "MISSING_REVIEWER_CHOICE" as const;
+export const EXTRA_REVIEWER_CHOICE = "EXTRA_REVIEWER_CHOICE" as const;
+export const DUPLICATE_REVIEWER_CHOICE = "DUPLICATE_REVIEWER_CHOICE" as const;
 export const INVALID_REVIEWER_ACTION = "INVALID_REVIEWER_ACTION" as const;
 export const WIZARD_SESSION_SUPERSEDED = "WIZARD_SESSION_SUPERSEDED" as const;
 export const EMBEDDED_RECOVERY_REQUIRES_RESTAGE = "EMBEDDED_RECOVERY_REQUIRES_RESTAGE" as const;
@@ -158,7 +160,11 @@ export type ApplyStagedResult =
   | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
   | {
       outcome: "invalid_request";
-      code: typeof MISSING_REVIEWER_CHOICE | typeof INVALID_REVIEWER_ACTION;
+      code:
+        | typeof MISSING_REVIEWER_CHOICE
+        | typeof EXTRA_REVIEWER_CHOICE
+        | typeof DUPLICATE_REVIEWER_CHOICE
+        | typeof INVALID_REVIEWER_ACTION;
     }
   | { outcome: "infra_error"; code: typeof SYNC_INFRA_ERROR }
   | { outcome: "discarded"; variant: "try_again" }
@@ -309,10 +315,14 @@ function validateReviewerChoices(
   items: TriggeredReviewItem[],
   choices: ReviewerChoice[],
 ): { ok: true; choices: ReviewerChoice[] } | ApplyStagedResult {
+  const itemIds = new Set(items.map((item) => item.id));
   const byId = new Map<string, ReviewerChoice>();
   for (const choice of choices) {
     if (byId.has(choice.item_id)) {
-      return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
+      return { outcome: "invalid_request", code: DUPLICATE_REVIEWER_CHOICE };
+    }
+    if (!itemIds.has(choice.item_id)) {
+      return { outcome: "invalid_request", code: EXTRA_REVIEWER_CHOICE };
     }
     byId.set(choice.item_id, choice);
   }
@@ -329,12 +339,6 @@ function validateReviewerChoices(
       return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
     }
     if (choice.action === "rename" && choice.rename_value !== expectedRenameValue(item)) {
-      return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
-    }
-  }
-
-  for (const choice of choices) {
-    if (!items.some((item) => item.id === choice.item_id)) {
       return { outcome: "invalid_request", code: INVALID_REVIEWER_ACTION };
     }
   }

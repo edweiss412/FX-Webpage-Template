@@ -8,7 +8,9 @@ import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import {
   applyStaged,
   applyStaged_unlocked,
+  DUPLICATE_REVIEWER_CHOICE,
   EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
+  EXTRA_REVIEWER_CHOICE,
   INVALID_REVIEWER_ACTION,
   MISSING_REVIEWER_CHOICE,
   PENDING_SYNC_NOT_FOUND,
@@ -648,7 +650,7 @@ describe("applyStaged live-scope", () => {
     expect(syncDeps.runPhase2).not.toHaveBeenCalled();
   });
 
-  test("reviewer choices are complete and asset-review items are apply-only", async () => {
+  test("missing reviewer choice returns MISSING_REVIEWER_CHOICE", async () => {
     const assetItem: TriggeredReviewItem = {
       id: "asset-1",
       invariant: "DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING",
@@ -673,8 +675,87 @@ describe("applyStaged live-scope", () => {
       syncDeps,
     );
     expect(missing).toEqual({ outcome: "invalid_request", code: MISSING_REVIEWER_CHOICE });
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+  });
 
-    const invalid = await applyStaged_unlocked(
+  test("extra reviewer choice returns EXTRA_REVIEWER_CHOICE", async () => {
+    const assetItem: TriggeredReviewItem = {
+      id: "asset-1",
+      invariant: "DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING",
+      drift_count: 1,
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ triggeredReviewItems: [assetItem] }),
+      ),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [
+          { item_id: "asset-1", action: "apply" },
+          { item_id: "stale-item", action: "apply" },
+        ],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "invalid_request", code: EXTRA_REVIEWER_CHOICE });
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+  });
+
+  test("duplicate reviewer choice returns DUPLICATE_REVIEWER_CHOICE", async () => {
+    const assetItem: TriggeredReviewItem = {
+      id: "asset-1",
+      invariant: "DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING",
+      drift_count: 1,
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ triggeredReviewItems: [assetItem] }),
+      ),
+    });
+
+    const result = await applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "live",
+        stagedId: "staged-live",
+        reviewerChoices: [
+          { item_id: "asset-1", action: "apply" },
+          { item_id: "asset-1", action: "apply" },
+        ],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "invalid_request", code: DUPLICATE_REVIEWER_CHOICE });
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+  });
+
+  test("invalid reviewer action returns INVALID_REVIEWER_ACTION", async () => {
+    const assetItem: TriggeredReviewItem = {
+      id: "asset-1",
+      invariant: "DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING",
+      drift_count: 1,
+    };
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const syncDeps = deps({
+      readLivePendingSyncForApply: vi.fn(async () =>
+        pending({ triggeredReviewItems: [assetItem] }),
+      ),
+    });
+
+    const result = await applyStaged_unlocked(
       tx,
       {
         driveFileId: "drive-file-1",
@@ -685,7 +766,9 @@ describe("applyStaged live-scope", () => {
       },
       syncDeps,
     );
-    expect(invalid).toEqual({ outcome: "invalid_request", code: INVALID_REVIEWER_ACTION });
+
+    expect(result).toEqual({ outcome: "invalid_request", code: INVALID_REVIEWER_ACTION });
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
   });
 
   test("auth-sensitive review choices derive revoked-below-version floor bumps", async () => {
