@@ -1064,6 +1064,17 @@ The seven create / extend rows above are mandatory at M6 close. Empty rows silen
   - **Finding 1: `909dd06`** `fix(sync): add wizard-scope Drive trust-boundary reverify on Apply (AC-6.26)`. Added Drive metadata reverify in the wizard-source branch BEFORE approval — fetches current Drive metadata, compares parents against `app_settings.pending_folder_id` (NOT watched_folder_id, per spec wizard-scope rule), handles 404→`STAGED_PARSE_SOURCE_GONE` + manifest hard_failed, moved→`STAGED_PARSE_SOURCE_OUT_OF_SCOPE` + manifest hard_failed, modtime drift→`STAGED_PARSE_REVISION_RACE` per Amendment 6. 591-line diff (316 production / 281 test, 4 new tests covering all 4 branches). Negative-regression: 3 of 4 tests fail when production hunk reverted (positive case still passes; failure cases need the new reverify path). Drive call happens OUTSIDE the lock per R3/R4 outbox pattern; recovery DB writes inside fresh transaction.
 - Verification: 36/36 R6 targeted tests pass on my orchestrator machine (codex sandbox confirmed same — only the 3 pre-existing fetch-failed suites fail in breadth gate). Typecheck + lint clean.
 
-### Round 7 — re-review against R6 fix (pending)
+### Round 7 — re-review against R6 fix (Codex via direct `codex exec`)
 
-(Pending — to dispatch after convergence log commits.)
+- Base: `afa0906` (milestone-base; full-milestone scope unchanged).
+- Head: `2f255da` (R6 fix-SHA convergence log commit).
+- Codex review: dispatched via direct `codex exec --sandbox read-only -c 'mcp_servers={}' < /dev/null`. Duration: ~5m. Verdict at `/tmp/m6-r7-verdict.json`.
+- Verdict: **needs-attention.** No regressions on R1-R6 fixes — fresh-eyes audit surfaced just **ONE** new finding (same as R6). Convergence holding at 1 finding/round. The finding is about pre-existing M6 architecture, not anything R1-R6 introduced.
+- Findings (1, §A backend, ARCHITECTURAL):
+  1. **[medium] Sync holds advisory lock ACROSS Drive fetch and parse — violates §5.2 lock-window contract** — `lib/sync/runScheduledCronSync.ts:1412`. `processOneFile` acquires `withPostgresSyncPipelineLock` BEFORE entering `processOneFile_unlocked`, and the locked body then performs `captureBinding` and `fetchSheetAsMarkdownAtRevision` BEFORE Phase 1/2 writes. Spec §5.2 (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md:1040`) explicitly says lock-before-fetch is NOT used and fetch/parse happen BEFORE the advisory lock. Holding the DB transaction and show lock across slow external Drive calls can make push/cron skip or admin paths block for the duration of network/export work, violating the intended monotonic-guard design. Recommendation: split the pipeline so Drive binding/export/parse/enrich/reverify happen BEFORE opening the per-show transaction; keep Phase 1/Phase 2 DB writes and fetch-failure recovery mutations inside a fresh locked transaction. Add a regression that proves Drive fetch/parse dependencies run before `withShowLock` is entered.
+- **Important interaction with prior fixes:** This finding requires careful coordination with R3 (242bb55 — locked Drive fetch-failure handler) and R5 F1 (55f8e57 — initial captureBinding wrapped in locked recovery). The R3/R5 fixes added MORE behavior INSIDE the existing locked block. The R7 fix needs to RESTRUCTURE: move the Drive ops OUT of the lock per §5.2, but preserve the R3/R5 recovery semantics (the failure-recovery DB writes — status update, sync_log, admin alert, pending_ingestions row — still happen inside a fresh locked transaction, just AFTER the Drive call completes/fails outside the lock).
+- Routing: §A → direct `codex exec --sandbox workspace-write -c 'mcp_servers={}' < /dev/null`. Class-sweep critical: every Drive ops + lock interaction in the per-file pipeline (cron, push, manual, onboarding) must be audited.
+
+### Round 8 — re-review against R7 fix (pending)
+
+(Pending — to dispatch after R7 fix SHA lands.)
