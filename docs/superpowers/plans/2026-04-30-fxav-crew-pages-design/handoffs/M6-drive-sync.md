@@ -1075,6 +1075,10 @@ The seven create / extend rows above are mandatory at M6 close. Empty rows silen
 - **Important interaction with prior fixes:** This finding requires careful coordination with R3 (242bb55 — locked Drive fetch-failure handler) and R5 F1 (55f8e57 — initial captureBinding wrapped in locked recovery). The R3/R5 fixes added MORE behavior INSIDE the existing locked block. The R7 fix needs to RESTRUCTURE: move the Drive ops OUT of the lock per §5.2, but preserve the R3/R5 recovery semantics (the failure-recovery DB writes — status update, sync_log, admin alert, pending_ingestions row — still happen inside a fresh locked transaction, just AFTER the Drive call completes/fails outside the lock).
 - Routing: §A → direct `codex exec --sandbox workspace-write -c 'mcp_servers={}' < /dev/null`. Class-sweep critical: every Drive ops + lock interaction in the per-file pipeline (cron, push, manual, onboarding) must be audited.
 
+- Fix SHA:
+  - **Finding 1: `445d0b4`** `refactor(sync): move Drive ops outside per-show lock per spec §5.2`. Substantial restructure: 351-line diff in `lib/sync/runScheduledCronSync.ts`, plus updates to `runManualSyncForShow.ts` (35 lines), advisory-lock structural test, and tests for both. 376 insertions / 148 deletions across 5 files. Drive binding/export/parse/enrich now happen BEFORE the per-show lock acquires; Phase 1 + Phase 2 DB writes (and R3/R5 fetch-failure recovery mutations) happen inside a fresh locked transaction AFTER the Drive call completes. Preserves R3 (242bb55) + R5 F1 (55f8e57) + R6 (909dd06) recovery semantics — failure → status update + sync_log + admin alert + pending_ingestions row, all inside the new fresh-locked-tx pattern.
+- Verification: 36/36 R7 targeted tests pass on my orchestrator machine (codex sandbox saw 51/51 sync). pnpm typecheck + pnpm lint clean. Negative-regression: reverting only the production patch makes the new lock-boundary tests fail (proving they pin the §5.2 contract).
+
 ### Round 8 — re-review against R7 fix (pending)
 
-(Pending — to dispatch after R7 fix SHA lands.)
+(Pending — to dispatch after convergence log commits.)
