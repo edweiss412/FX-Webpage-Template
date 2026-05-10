@@ -663,6 +663,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
   }
 
   async provisionAddedCrewAuth(showId: string, names: string[]) {
+    if (names.length === 0) return;
     for (const name of names) {
       await this.rows(
         `
@@ -673,6 +674,16 @@ class PostgresPipelineTx implements SyncPipelineTx {
         [showId, name],
       );
     }
+    await this.rows(
+      `
+        update public.crew_member_auth
+           set current_token_version = max_issued_version,
+               revoked_below_version = max_issued_version
+         where show_id = $1
+           and crew_name = any($2)
+      `,
+      [showId, names],
+    );
   }
 
   async revokeRemovedCrewAuth(showId: string, names: string[]) {
