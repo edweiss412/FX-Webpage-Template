@@ -35,9 +35,20 @@ type PipelineTx = Phase1Tx &
       payload?: Record<string, unknown>;
       showId?: string | null;
     }>;
+    pendingIngestions?: Array<{
+      driveFileId: string;
+      driveFileName: string;
+      lastErrorCode: string;
+      lastErrorMessage: string;
+      lastSeenModifiedTime: string;
+    }>;
     alerts?: Array<{ showId: string | null; code: string; context: Record<string, unknown> }>;
     queryOne<T>(sql: string, params: unknown[]): Promise<T>;
     markShowSheetUnavailable(
+      driveFileId: string,
+      code: string,
+    ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+    markShowDriveError(
       driveFileId: string,
       code: string,
     ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
@@ -163,8 +174,15 @@ function tx(): PipelineTx {
       this.operations.push("readLivePendingSync");
       return null;
     },
-    async upsertLivePendingIngestion() {
+    async upsertLivePendingIngestion(row) {
       this.operations.push("upsertLivePendingIngestion");
+      this.pendingIngestions?.push({
+        driveFileId: row.driveFileId,
+        driveFileName: row.driveFileName,
+        lastErrorCode: row.lastErrorCode,
+        lastErrorMessage: row.lastErrorMessage,
+        lastSeenModifiedTime: row.lastSeenModifiedTime,
+      });
     },
     async deleteLivePendingIngestion() {
       this.operations.push("deleteLivePendingIngestion");
@@ -218,6 +236,14 @@ function tx(): PipelineTx {
       const show = this.shows?.get(driveFileId);
       if (!show) return { showId: null, lastSeenModifiedTime: null };
       show.lastSyncStatus = "sheet_unavailable";
+      show.lastSyncError = code;
+      return { showId: show.showId, lastSeenModifiedTime: show.lastSeenModifiedTime };
+    },
+    async markShowDriveError(driveFileId: string, code: string) {
+      this.operations.push(`markShowDriveError:${driveFileId}`);
+      const show = this.shows?.get(driveFileId);
+      if (!show) return { showId: null, lastSeenModifiedTime: null };
+      show.lastSyncStatus = "drive_error";
       show.lastSyncError = code;
       return { showId: show.showId, lastSeenModifiedTime: show.lastSeenModifiedTime };
     },
@@ -516,7 +542,7 @@ describe("processOneFile", () => {
     expect(syncDeps.runPhase2).not.toHaveBeenCalled();
   });
 
-  test("legacy markdown export failures are not spreadsheet revision races after amendment 6", async () => {
+  test("legacy markdown export failures become locked fetch failures, not spreadsheet revision races", async () => {
     const syncDeps = deps({
       fetchMarkdownAtRevision: vi.fn(async () => {
         throw new Error("Drive revision markdown export failed with HTTP 404");
@@ -531,9 +557,199 @@ describe("processOneFile", () => {
         fileMeta("file-1"),
         syncDeps,
       ),
-    ).rejects.toThrow(/markdown export failed/);
+    ).resolves.toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
     expect(syncDeps.parseSheet).not.toHaveBeenCalled();
     expect(syncDeps.runPhase1).not.toHaveBeenCalled();
+  });
+
+  test("existing show source-gone during fetch is handled inside the lock as sheet_unavailable", async () => {
+    const fakeTx = tx() as LockedShowTx<PipelineTx>;
+    fakeTx.shows = new Map([
+      [
+        "file-1",
+        {
+          showId: "show-1",
+          driveFileId: "file-1",
+          lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+          lastSyncStatus: "ok",
+          lastSyncError: null,
+        },
+      ],
+    ]);
+    fakeTx.syncLog = [];
+    fakeTx.alerts = [];
+    const gone = new Error("Drive file file-1 not found") as Error & { code: number };
+    gone.code = 404;
+    const syncDeps = deps({
+      fetchMarkdownAtRevision: vi.fn(async () => {
+        throw gone;
+      }),
+    });
+
+    const result = await processOneFile_unlocked(fakeTx, "file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    expect(fakeTx.shows.get("file-1")).toMatchObject({
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "sheet_unavailable",
+      lastSyncError: STAGED_PARSE_SOURCE_GONE,
+    });
+    expect(fakeTx.syncLog).toEqual([
+      expect.objectContaining({
+        showId: "show-1",
+        driveFileId: "file-1",
+        outcome: "error",
+        code: STAGED_PARSE_SOURCE_GONE,
+      }),
+    ]);
+    expect(fakeTx.alerts).toEqual([
+      {
+        showId: "show-1",
+        code: "SHEET_UNAVAILABLE",
+        context: {
+          drive_file_id: "file-1",
+          failure_code: STAGED_PARSE_SOURCE_GONE,
+          previous_last_seen_modified_time: "2026-05-08T11:00:00.000Z",
+        },
+      },
+    ]);
+  });
+
+  test("first-seen source-gone during fetch writes live pending_ingestions", async () => {
+    const fakeTx = tx() as LockedShowTx<PipelineTx>;
+    fakeTx.readShowForPhase1 = vi.fn(async () => null);
+    fakeTx.pendingIngestions = [];
+    const gone = new Error("Drive file file-new not found") as Error & { code: number };
+    gone.code = 404;
+    const syncDeps = deps({
+      fetchMarkdownAtRevision: vi.fn(async () => {
+        throw gone;
+      }),
+    });
+
+    const result = await processOneFile_unlocked(
+      fakeTx,
+      "file-new",
+      "cron",
+      fileMeta("file-new", "2026-05-08T12:00:00.000Z"),
+      syncDeps,
+    );
+
+    expect(result).toEqual({ outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE });
+    expect(fakeTx.pendingIngestions).toEqual([
+      {
+        driveFileId: "file-new",
+        driveFileName: "file-new Sheet",
+        lastErrorCode: STAGED_PARSE_SOURCE_GONE,
+        lastErrorMessage: "Drive file file-new not found",
+        lastSeenModifiedTime: "2026-05-08T12:00:00.000Z",
+      },
+    ]);
+  });
+
+  test("existing show non-gone Drive fetch failure becomes drive_error inside the lock", async () => {
+    const fakeTx = tx() as LockedShowTx<PipelineTx>;
+    fakeTx.shows = new Map([
+      [
+        "file-1",
+        {
+          showId: "show-1",
+          driveFileId: "file-1",
+          lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+          lastSyncStatus: "ok",
+          lastSyncError: null,
+        },
+      ],
+    ]);
+    fakeTx.syncLog = [];
+    const syncDeps = deps({
+      fetchMarkdownAtRevision: vi.fn(async () => {
+        throw new Error("Drive revision markdown export failed with HTTP 500");
+      }),
+    });
+
+    const result = await processOneFile_unlocked(fakeTx, "file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+    expect(fakeTx.shows.get("file-1")).toMatchObject({
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "drive_error",
+      lastSyncError: "SYNC_FILE_FAILED",
+    });
+    expect(fakeTx.syncLog).toEqual([
+      expect.objectContaining({
+        showId: "show-1",
+        driveFileId: "file-1",
+        outcome: "error",
+        code: "SYNC_FILE_FAILED",
+      }),
+    ]);
+  });
+
+  test("first-seen non-gone Drive fetch failure writes live pending_ingestions", async () => {
+    const fakeTx = tx() as LockedShowTx<PipelineTx>;
+    fakeTx.readShowForPhase1 = vi.fn(async () => null);
+    fakeTx.pendingIngestions = [];
+    const syncDeps = deps({
+      fetchMarkdownAtRevision: vi.fn(async () => {
+        throw new Error("Drive revision markdown export failed with HTTP 500");
+      }),
+    });
+
+    const result = await processOneFile_unlocked(fakeTx, "file-new", "cron", fileMeta("file-new"), syncDeps);
+
+    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+    expect(fakeTx.pendingIngestions).toEqual([
+      expect.objectContaining({
+        driveFileId: "file-new",
+        driveFileName: "file-new Sheet",
+        lastErrorCode: "SYNC_FILE_FAILED",
+        lastErrorMessage: "Drive revision markdown export failed with HTTP 500",
+      }),
+    ]);
+  });
+
+  test("live pending_syncs stage wins over fetch-failure state", async () => {
+    const fakeTx = tx() as LockedShowTx<PipelineTx>;
+    fakeTx.shows = new Map([
+      [
+        "file-1",
+        {
+          showId: "show-1",
+          driveFileId: "file-1",
+          lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+          lastSyncStatus: "pending_review",
+          lastSyncError: null,
+        },
+      ],
+    ]);
+    fakeTx.pendingIngestions = [];
+    fakeTx.syncLog = [];
+    fakeTx.readLivePendingSync = vi.fn(async () => ({
+      driveFileId: "file-1",
+      wizardSessionId: null,
+      baseModifiedTime: "2026-05-08T11:00:00.000Z",
+      stagedModifiedTime: "2026-05-08T12:00:00.000Z",
+      parseResult: parseResult(),
+      triggeredReviewItems: [],
+      priorLastSyncStatus: "ok",
+      priorLastSyncError: null,
+      stagedId: "staged-1",
+      sourceKind: "cron",
+      warningSummary: "",
+    }));
+    const syncDeps = deps({
+      fetchMarkdownAtRevision: vi.fn(async () => {
+        throw new Error("Drive revision markdown export failed with HTTP 500");
+      }),
+    });
+
+    const result = await processOneFile_unlocked(fakeTx, "file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    expect(result).toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+    expect(fakeTx.operations).not.toContain("markShowDriveError:file-1");
+    expect(fakeTx.operations).not.toContain("upsertLivePendingIngestion");
+    expect(fakeTx.pendingIngestions).toEqual([]);
   });
 });
 

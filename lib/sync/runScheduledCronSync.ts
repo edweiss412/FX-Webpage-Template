@@ -99,7 +99,11 @@ export type CronLiveShowRow = {
 type CronRecoveryTx = SyncPipelineTx & {
   markShowSheetUnavailable(
     driveFileId: string,
-    code: typeof SHEET_UNAVAILABLE,
+    code: typeof SHEET_UNAVAILABLE | typeof STAGED_PARSE_SOURCE_GONE,
+  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+  markShowDriveError(
+    driveFileId: string,
+    code: string,
   ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
   insertSyncLog(entry: SyncLogEntry, showId?: string | null): Promise<void>;
   upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
@@ -470,11 +474,32 @@ class PostgresPipelineTx implements SyncPipelineTx {
     );
   }
 
-  async markShowSheetUnavailable(driveFileId: string, code: typeof SHEET_UNAVAILABLE) {
+  async markShowSheetUnavailable(
+    driveFileId: string,
+    code: typeof SHEET_UNAVAILABLE | typeof STAGED_PARSE_SOURCE_GONE,
+  ) {
     const row = await this.one<{ id: string; last_seen_modified_time: string | null }>(
       `
         update public.shows
            set last_sync_status = 'sheet_unavailable',
+               last_sync_error = $2,
+               last_synced_at = now()
+         where drive_file_id = $1
+         returning id, last_seen_modified_time
+      `,
+      [driveFileId, code],
+    );
+    return {
+      showId: row?.id ?? null,
+      lastSeenModifiedTime: row?.last_seen_modified_time ?? null,
+    };
+  }
+
+  async markShowDriveError(driveFileId: string, code: string) {
+    const row = await this.one<{ id: string; last_seen_modified_time: string | null }>(
+      `
+        update public.shows
+           set last_sync_status = 'drive_error',
                last_sync_error = $2,
                last_synced_at = now()
          where drive_file_id = $1
@@ -1163,6 +1188,70 @@ async function markMissingShow_unlocked(
   return { outcome: "source_gone", code: SHEET_UNAVAILABLE };
 }
 
+async function handleFetchFailure_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  fileMeta: DriveListedFile,
+  binding: Phase1Binding,
+  error: unknown,
+  code: typeof STAGED_PARSE_SOURCE_GONE | SyncFailureCode,
+): Promise<ProcessOneFileResult> {
+  const existingPending = await tx.readLivePendingSync(driveFileId);
+  const result =
+    code === STAGED_PARSE_SOURCE_GONE
+      ? ({ outcome: "source_gone" as const, code })
+      : ({ outcome: "parse_error" as const, code });
+  if (existingPending) return result;
+
+  const show = await tx.readShowForPhase1(driveFileId);
+  const recoveryTx = tx as LockedShowTx<CronRecoveryTx>;
+  if (show) {
+    const updated =
+      code === STAGED_PARSE_SOURCE_GONE
+        ? await recoveryTx.markShowSheetUnavailable(driveFileId, code)
+        : await recoveryTx.markShowDriveError(driveFileId, code);
+    const showId = updated.showId;
+    const previousLastSeenModifiedTime =
+      updated.lastSeenModifiedTime ?? show.lastSeenModifiedTime ?? null;
+    await recoveryTx.insertSyncLog(
+      {
+        driveFileId,
+        outcome: "error",
+        code,
+        payload: {
+          driveFileId,
+          message: errorMessage(error),
+          previousLastSeenModifiedTime,
+        },
+      },
+      showId,
+    );
+    if (code === STAGED_PARSE_SOURCE_GONE) {
+      await recoveryTx.upsertAdminAlert({
+        showId,
+        code: "SHEET_UNAVAILABLE",
+        context: {
+          drive_file_id: driveFileId,
+          failure_code: code,
+          previous_last_seen_modified_time: previousLastSeenModifiedTime,
+        },
+      });
+    }
+    return result;
+  }
+
+  await tx.upsertLivePendingIngestion({
+    driveFileId,
+    wizardSessionId: null,
+    driveFileName: fileMeta.name,
+    lastErrorCode: code,
+    lastErrorMessage: errorMessage(error),
+    lastWarnings: [],
+    lastSeenModifiedTime: binding.modifiedTime,
+  });
+  return result;
+}
+
 export async function processOneFile(
   driveFileId: string,
   mode: SyncMode,
@@ -1225,11 +1314,23 @@ export async function processOneFile_unlocked(
       return result;
     }
     if (isSourceGone(error)) {
-      const result = { outcome: "source_gone" as const, code: STAGED_PARSE_SOURCE_GONE };
-      await logSync(deps, driveFileId, result);
-      return result;
+      return await handleFetchFailure_unlocked(
+        tx,
+        driveFileId,
+        fileMeta,
+        binding,
+        error,
+        STAGED_PARSE_SOURCE_GONE,
+      );
     }
-    throw error;
+    return await handleFetchFailure_unlocked(
+      tx,
+      driveFileId,
+      fileMeta,
+      binding,
+      error,
+      classifySyncFailure(error),
+    );
   }
 
   const parsed = (deps.parseSheet ?? parseMarkdownSheet)(markdown, fileMeta.name);
@@ -1265,11 +1366,23 @@ export async function processOneFile_unlocked(
     );
   } catch (error) {
     if (isSourceGone(error)) {
-      const result = { outcome: "source_gone" as const, code: STAGED_PARSE_SOURCE_GONE };
-      await logSync(deps, driveFileId, result);
-      return result;
+      return await handleFetchFailure_unlocked(
+        tx,
+        driveFileId,
+        fileMeta,
+        binding,
+        error,
+        STAGED_PARSE_SOURCE_GONE,
+      );
     }
-    throw error;
+    return await handleFetchFailure_unlocked(
+      tx,
+      driveFileId,
+      fileMeta,
+      binding,
+      error,
+      classifySyncFailure(error),
+    );
   }
   if (currentBinding.bindingToken !== binding.bindingToken) {
     const result = { outcome: "revision_race" as const, code: STAGED_PARSE_REVISION_RACE };
