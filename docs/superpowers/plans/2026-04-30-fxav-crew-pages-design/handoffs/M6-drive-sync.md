@@ -1049,6 +1049,17 @@ The seven create / extend rows above are mandatory at M6 close. Empty rows silen
 - Verification: per-finding targeted vitest paths green (49/49 tests across runScheduledCronSync, webhook, runPushSyncForShow). pnpm typecheck + pnpm lint clean. Codex breadth gate: 3 pre-existing fetch-failed suites + 2 NEW Drive suites failed in Codex's sandbox due to `oauth2.googleapis.com` DNS isolation — verified locally that those Drive suites pass on a real network (`tests/drive/realDriveMarkdownSmoke.test.ts` + `tests/drive/round-trip-fixture.test.ts` 2/2 pass).
 - Tooling note: had a 30+ min false-start on the R5 §A fix dispatch tracking down a misdiagnosed "codex hang." Real cause was missing `< /dev/null` on `codex exec` (codex CLI sat waiting for stdin EOF in non-interactive context). Captured in `feedback_codex_exec_needs_stdin_closed.md` (supersedes earlier `feedback_codex_hang_caused_by_orphan_mcp.md` which was wrong). Subsequent retries with `< /dev/null` worked but slow — the API took ~10 min for the heavy 3-finding fix. Network-bytes monitor is the right "still working vs hung" signal, not CPU%.
 
-### Round 6 — re-review against R5 fixes (pending)
+### Round 6 — re-review against R5 fixes (Codex via direct `codex exec`, third account)
 
-(Pending — to dispatch after convergence log commits.)
+- Base: `afa0906` (milestone-base; full-milestone scope unchanged).
+- Head: `b95e258` (R5 fix-SHAs convergence log commit).
+- Codex review: dispatched via direct `codex exec --sandbox read-only -c 'mcp_servers={}' < /dev/null`. Duration: 5m 1s. Verdict at `/tmp/m6-r6-verdict.json`.
+- Verdict: **needs-attention.** No regressions on R1-R5 fixes — fresh-eyes audit surfaced just **ONE** new finding. Significant convergence signal: after 5 rounds of 3 findings each, R6 found just 1. Each prior round's fix has held up across 5 subsequent fresh-eyes passes.
+- Tooling note: hit codex usage limit on second account; user logged in with a third account before R6 could complete.
+- Findings (1, §A backend):
+  1. **[high] Wizard Apply approves rows without Drive reverify (AC-6.26 violation)** — `lib/sync/applyStaged.ts:841`. The wizard-source branch reads staged row, validates wizard session, then calls `approveWizardPendingSync` and `markWizardManifestApplied` WITHOUT fetching current Drive metadata or checking the file still belongs to `app_settings.pending_folder_id`. Live branch DOES reverify later in the same file. AC-6.26 + M6 plan require the same trust-boundary check for onboarding rows, pinned to `pending_folder_id` (NOT watched_folder_id). Sheet moved out of candidate folder or deleted after scan can be marked applied in the wizard, instead of returning STAGED_PARSE_SOURCE_OUT_OF_SCOPE / STAGED_PARSE_SOURCE_GONE and blocking finalize via wizard-scoped hard-fail state. Recommendation: add wizard-scope Drive metadata reverify before approval, compare parents against `pending_folder_id`, handle deleted/out-of-scope/outdated rows by writing wizard partition recovery state and marking `onboarding_scan_manifest` `hard_failed`. Add regression tests for valid pending-folder, moved, and deleted wizard Apply cases.
+- Routing: §A → direct `codex exec --sandbox workspace-write -c 'mcp_servers={}' < /dev/null`. Class-sweep: every Apply path that approves rows without re-checking Drive scope.
+
+### Round 7 — re-review against R6 fix (pending)
+
+(Pending — to dispatch after R6 fix SHA lands.)
