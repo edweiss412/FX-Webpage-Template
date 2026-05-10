@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
 import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
@@ -58,6 +59,7 @@ export type OnboardingScanTx = Phase1Tx & {
     driveFileId?: string;
     payload?: Record<string, unknown>;
   }): Promise<void>;
+  upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
 };
 
 export type OnboardingScanResult =
@@ -421,6 +423,14 @@ class PostgresOnboardingScanTx implements OnboardingScanTx {
       ],
     );
   }
+
+  async upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null> {
+    const row = await this.one<{ id: string }>(
+      "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id",
+      [input.showId, input.code, JSON.stringify(input.context)],
+    );
+    return row?.id ?? null;
+  }
 }
 
 async function withDefaultTx<R>(
@@ -657,6 +667,20 @@ async function scanWithTx(
           code: "onboarding_scan_live_row_conflict",
           driveFileId: file.driveFileId,
           payload: { drive_file_id: file.driveFileId, sqlstate: state, kind },
+        }),
+      );
+      await callTx("upsertAdminAlert", () =>
+        tx.upsertAdminAlert({
+          showId: null,
+          code: LIVE_ROW_CONFLICT,
+          context: {
+            drive_file_id: file.driveFileId,
+            file_name: file.name,
+            folder_id: folderId,
+            wizard_session_id: wizardSessionId,
+            sqlstate: state,
+            kind,
+          },
         }),
       );
       await callTx("upsertManifest", () =>

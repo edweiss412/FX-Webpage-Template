@@ -44,6 +44,8 @@
  *     - "I changed dougFacing to null in the catalog for a code that's
  *       still in use as an admin_alerts code" → existing row fails.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 
@@ -51,6 +53,7 @@ import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 // admin_alerts.upsert call. Keep in sync with grep findings.
 const ADMIN_ALERTS_CODES = [
   "LEAKED_LINK_REVOCATION_FAILED", // middleware.ts:upsertRevocationFailureAlert
+  "LEAKED_LINK_DETECTED", //          middleware.ts:upsertLeakedLinkDetectedAlert
   "AMBIGUOUS_EMAIL_BINDING", //       lib/auth/validateGoogleSession.ts
   "WATCH_CHANNEL_ORPHANED", //        M6 watch subscription recovery
   "WEBHOOK_TOKEN_INVALID", //         M6 Drive webhook verification failure
@@ -58,6 +61,44 @@ const ADMIN_ALERTS_CODES = [
   "LIVE_ROW_CONFLICT", //             M6 live-row conflict recovery
   "ROLE_FLAGS_NOTICE", //             M6 auto-applied non-LEAD role_flags change
 ] as const;
+
+const ADMIN_ALERTS_WRITE_SITES: Record<
+  (typeof ADMIN_ALERTS_CODES)[number],
+  { path: string; pattern: RegExp }
+> = {
+  LEAKED_LINK_REVOCATION_FAILED: {
+    path: "middleware.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"LEAKED_LINK_REVOCATION_FAILED"/,
+  },
+  LEAKED_LINK_DETECTED: {
+    path: "middleware.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"LEAKED_LINK_DETECTED"/,
+  },
+  AMBIGUOUS_EMAIL_BINDING: {
+    path: "lib/auth/validateGoogleSession.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"AMBIGUOUS_EMAIL_BINDING"/,
+  },
+  WATCH_CHANNEL_ORPHANED: {
+    path: "lib/drive/watch.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*WATCH_CHANNEL_ORPHANED/,
+  },
+  WEBHOOK_TOKEN_INVALID: {
+    path: "app/api/drive/webhook/route.ts",
+    pattern: /tx\.upsertAdminAlert\(\{[\s\S]*code:\s*WEBHOOK_TOKEN_INVALID/,
+  },
+  EMBEDDED_RECOVERY_REQUIRES_RESTAGE: {
+    path: "lib/sync/applyStaged.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*result\.adminAlertCode/,
+  },
+  LIVE_ROW_CONFLICT: {
+    path: "lib/sync/runOnboardingScan.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*LIVE_ROW_CONFLICT/,
+  },
+  ROLE_FLAGS_NOTICE: {
+    path: "lib/sync/runScheduledCronSync.ts",
+    pattern: /upsertAdminAlert\(result\.roleFlagsNotice\)/,
+  },
+};
 
 describe("META admin_alerts catalog contract", () => {
   test.each(ADMIN_ALERTS_CODES)(
@@ -90,6 +131,19 @@ describe("META admin_alerts catalog contract", () => {
       ).toBe(true);
     }
   });
+
+  test.each(ADMIN_ALERTS_CODES)(
+    "registered producer code %s has a production admin_alerts write site",
+    (code) => {
+      const writeSite = ADMIN_ALERTS_WRITE_SITES[code];
+      expect(writeSite, `${code} is registered without a write-site assertion`).toBeDefined();
+      const source = readFileSync(join(process.cwd(), writeSite.path), "utf8");
+      expect(
+        source,
+        `${code} is registered as an admin_alerts producer, but ${writeSite.path} does not contain the expected upsertAdminAlert write site`,
+      ).toMatch(writeSite.pattern);
+    },
+  );
 
   test("ROLE_FLAGS_NOTICE is info severity; existing admin alerts remain warning by default", () => {
     const entries = MESSAGE_CATALOG as Record<

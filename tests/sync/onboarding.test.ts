@@ -105,6 +105,8 @@ class FakeOnboardingTx implements Phase1Tx {
   pendingIngestions: Array<Phase1PendingIngestionRow & { discoveredDuringFolderId: string }> = [];
   manifest: FakeManifest[] = [];
   syncLog: Array<{ code: string; driveFileId?: string; payload?: Record<string, unknown> }> = [];
+  adminAlerts: Array<{ showId: string | null; code: string; context: Record<string, unknown> }> =
+    [];
   operations: string[] = [];
   superseded = false;
   conflictOnPendingSync: "42P10" | "23505" | null = null;
@@ -214,6 +216,15 @@ class FakeOnboardingTx implements Phase1Tx {
 
   async logSync(entry: { code: string; driveFileId?: string; payload?: Record<string, unknown> }) {
     this.syncLog.push(entry);
+  }
+
+  async upsertAdminAlert(input: {
+    showId: string | null;
+    code: string;
+    context: Record<string, unknown>;
+  }): Promise<string | null> {
+    this.adminAlerts.push(input);
+    return "alert-1";
   }
 }
 
@@ -392,6 +403,19 @@ describe("runOnboardingScan", () => {
         driveFileId: "file-1",
         payload: expect.objectContaining({ sqlstate: "42P10", kind: "invalid_arbiter_inference" }),
       }),
+    ]);
+    expect(tx.adminAlerts).toEqual([
+      {
+        showId: null,
+        code: "LIVE_ROW_CONFLICT",
+        context: expect.objectContaining({
+          drive_file_id: "file-1",
+          file_name: "file-1.xlsx",
+          sqlstate: "42P10",
+          kind: "invalid_arbiter_inference",
+          wizard_session_id: W1,
+        }),
+      },
     ]);
   });
 
