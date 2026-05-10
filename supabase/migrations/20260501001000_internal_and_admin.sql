@@ -254,8 +254,11 @@ create table public.deferred_ingestions (
   deferred_kind text not null check (deferred_kind in ('defer_until_modified', 'permanent_ignore')),
   deferred_at_modified_time timestamptz,
   deferred_at timestamptz not null default now(),
-  deferred_by_email text not null,
-  reason text
+  deferred_by_email text,
+  reason text,
+  constraint deferred_ingestions_deferred_by_scope_check check (
+    wizard_session_id is not null or deferred_by_email is not null
+  )
 );
 create unique index deferred_ingestions_live_drive_file_idx
   on public.deferred_ingestions (drive_file_id) where wizard_session_id is null;

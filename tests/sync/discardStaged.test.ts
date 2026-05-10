@@ -28,6 +28,9 @@ function fakeTx(held = true): FakeTx {
     async queryOne<T>(sql: string, params: unknown[]) {
       this.queryOneCalls.push({ sql, params });
       if (/pg_locks/i.test(sql)) return { held: this.held } as T;
+      if (/insert into public\.deferred_ingestions/i.test(sql)) {
+        return { upserted: true } as T;
+      }
       throw new Error(`unexpected SQL in fakeTx: ${sql}`);
     },
     async readShowForPhase1() {
@@ -384,6 +387,51 @@ describe("discardStaged live-scope", () => {
     },
   );
 
+  test.each(["defer_until_modified", "permanent_ignore"] as const)(
+    "wizard-scope %s production deferral adapter inserts without an operator email",
+    async (variant) => {
+      const tx = fakeTx() as LockedShowTx<FakeTx>;
+      const syncDeps = {
+        ...deps(),
+        readWizardPendingSyncForDiscard: vi.fn(async () =>
+          pending({
+            stagedId: "staged-wizard",
+            sourceKind: "onboarding_scan",
+            wizardSessionId: W1,
+          }),
+        ),
+        readActiveWizardSession: vi.fn(async () => W1),
+        markWizardManifestDiscarded: vi.fn(async () => true),
+        deleteWizardPendingSync: vi.fn(async () => undefined),
+      } as DiscardStagedDeps;
+
+      const result = await discardStaged_unlocked(
+        tx,
+        {
+          driveFileId: "drive-file-1",
+          sourceScope: "wizard",
+          wizardSessionId: W1,
+          stagedId: "staged-wizard",
+          variant,
+        },
+        syncDeps,
+      );
+
+      expect(result).toEqual({ outcome: "discarded", variant });
+      const deferralInsert = tx.queryOneCalls.find((call) =>
+        call.sql.includes("insert into public.deferred_ingestions"),
+      );
+      expect(deferralInsert?.sql).toContain("select $1, $2, $3::timestamptz, null, $4, $5::uuid");
+      expect(deferralInsert?.params).toEqual([
+        "drive-file-1",
+        variant,
+        variant === "defer_until_modified" ? "2026-05-08T12:00:00.000Z" : null,
+        `discard:${variant}`,
+        W1,
+      ]);
+    },
+  );
+
   test("wizard-scope manifest CAS supersession aborts before deleting pending_syncs", async () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const syncDeps = {
@@ -442,5 +490,36 @@ describe("discardStaged live-scope", () => {
 
     expect(source).toContain("withPostgresSyncPipelineLock(");
     expect(source).toContain("{ tryOnly: false }");
+  });
+
+  test("deferred_ingestions schema allows null operator email only for wizard-scoped rows", () => {
+    const initialSchema = readFileSync(
+      join(process.cwd(), "supabase/migrations/20260501001000_internal_and_admin.sql"),
+      "utf8",
+    );
+    const compatibilityMigration = readFileSync(
+      join(
+        process.cwd(),
+        "supabase/migrations/20260510015836_allow_wizard_deferred_operator_null.sql",
+      ),
+      "utf8",
+    );
+
+    expect(initialSchema).toContain("deferred_by_email text,");
+    expect(initialSchema).toContain("constraint deferred_ingestions_deferred_by_scope_check");
+    expect(initialSchema.replace(/\s+/g, " ")).toContain(
+      "wizard_session_id is not null or deferred_by_email is not null",
+    );
+    expect(compatibilityMigration).toContain("alter column deferred_by_email drop not null");
+    expect(compatibilityMigration.replace(/\s+/g, " ")).toContain(
+      "check (wizard_session_id is not null or deferred_by_email is not null)",
+    );
+
+    const source = readFileSync(join(process.cwd(), "lib/sync/discardStaged.ts"), "utf8");
+    const wizardNullEmailInsert = source.match(
+      /select \$1, \$2, \$3::timestamptz, null, \$4, \$5::uuid[\s\S]*?pending_wizard_session_id = \$5::uuid/,
+    );
+    expect(wizardNullEmailInsert).not.toBeNull();
+    expect(source).not.toMatch(/values \([^)]*null[^)]*, null\)/i);
   });
 });
