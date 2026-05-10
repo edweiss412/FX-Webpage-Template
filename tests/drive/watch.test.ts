@@ -63,6 +63,7 @@ class FakeWatchTx {
   }
 
   async listExpiringActive(thresholdIso: string) {
+    this.operations.push("listExpiringActive");
     const threshold = Date.parse(thresholdIso);
     return this.rows.filter(
       (row) =>
@@ -71,10 +72,12 @@ class FakeWatchTx {
   }
 
   async listGcCandidates() {
+    this.operations.push("listGcCandidates");
     return this.rows.filter((row) => row.status === "superseded" || row.status === "orphaned");
   }
 
   async markStopped(id: string) {
+    this.operations.push(`markStopped:${id}`);
     const row = this.rows.find((existing) => existing.id === id);
     if (row) row.status = "stopped";
   }
@@ -160,7 +163,7 @@ describe("Drive watch lifecycle", () => {
     const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
 
     const result = await subscribeToWatchedFolder("folder-1", {
-      withTx: async (fn) => {
+      withTx: async <R,>(fn: (tx: FakeWatchTx) => Promise<R>) => {
         events.push("tx:start");
         const value = await fn(tx);
         events.push("tx:commit");
@@ -270,6 +273,75 @@ describe("Drive watch lifecycle", () => {
     expect(subscribeToWatchedFolder).toHaveBeenCalledWith("folder-1");
   });
 
+  test("refreshWatchSubscriptions commits the candidate query before Drive renewal", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "due-channel",
+      status: "active",
+      watchedFolderId: "folder-1",
+      webhookSecret: "old-secret",
+      resourceId: "resource-1",
+      expiresAt: "2026-05-10T00:00:00.000Z",
+    });
+    const events: string[] = [];
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+    const subscribeToWatchedFolder = vi.fn(async () => {
+      events.push("drive:subscribe");
+      expect(events).toEqual(["tx:start", "tx:commit", "drive:subscribe"]);
+      return { outcome: "active" as const, channelId: "new-channel" };
+    });
+
+    const result = await refreshWatchSubscriptions({
+      withTx: async <R,>(fn: (tx: FakeWatchTx) => Promise<R>) => {
+        events.push("tx:start");
+        const value = await fn(tx);
+        events.push("tx:commit");
+        return value;
+      },
+      now: () => tx.now,
+      subscribeToWatchedFolder,
+    } as unknown as Parameters<typeof refreshWatchSubscriptions>[0]);
+
+    expect(result).toEqual({ refreshed: ["folder-1"] });
+    expect(tx.operations).toEqual(["listExpiringActive"]);
+    expect(events).toEqual(["tx:start", "tx:commit", "drive:subscribe"]);
+  });
+
+  test("refreshWatchSubscriptions leaves DB state unchanged when Drive renewal fails after candidate commit", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "due-channel",
+      status: "active",
+      watchedFolderId: "folder-1",
+      webhookSecret: "old-secret",
+      resourceId: "resource-1",
+      expiresAt: "2026-05-10T00:00:00.000Z",
+    });
+    const before = structuredClone(tx.rows);
+    const events: string[] = [];
+    const { refreshWatchSubscriptions } = await import("@/lib/drive/watch");
+
+    await expect(
+      refreshWatchSubscriptions({
+        withTx: async <R,>(fn: (tx: FakeWatchTx) => Promise<R>) => {
+          events.push("tx:start");
+          const value = await fn(tx);
+          events.push("tx:commit");
+          return value;
+        },
+        now: () => tx.now,
+        subscribeToWatchedFolder: vi.fn(async () => {
+          events.push("drive:subscribe");
+          throw new Error("Drive refresh failed");
+        }),
+      } as unknown as Parameters<typeof refreshWatchSubscriptions>[0]),
+    ).rejects.toThrow("Drive refresh failed");
+
+    expect(tx.rows).toEqual(before);
+    expect(tx.operations).toEqual(["listExpiringActive"]);
+    expect(events).toEqual(["tx:start", "tx:commit", "drive:subscribe"]);
+  });
+
   test("gcWatchChannels stops superseded and orphaned channels and leaves orphan alerts for operator dismissal", async () => {
     const tx = new FakeWatchTx();
     tx.alerts.push({
@@ -314,10 +386,55 @@ describe("Drive watch lifecycle", () => {
       },
     ]);
   });
+
+  test("gcWatchChannels stops Drive channels outside transactions and marks rows in fresh transactions", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "superseded-channel",
+      status: "superseded",
+      watchedFolderId: "folder-1",
+      webhookSecret: "secret-1",
+      resourceId: "resource-1",
+      expiresAt: "2026-05-10T00:00:00.000Z",
+    });
+    const events: string[] = [];
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+    const stopChannel = vi.fn(async () => {
+      events.push("drive:stop");
+      expect(events).toEqual(["tx:start", "tx:commit", "drive:stop"]);
+    });
+
+    const result = await gcWatchChannels({
+      withTx: async <R,>(fn: (tx: FakeWatchTx) => Promise<R>) => {
+        events.push("tx:start");
+        const value = await fn(tx);
+        events.push("tx:commit");
+        return value;
+      },
+      stopChannel,
+    } as unknown as Parameters<typeof gcWatchChannels>[0]);
+
+    expect(result).toEqual({ stopped: ["superseded-channel"] });
+    expect(tx.rows).toEqual([expect.objectContaining({ status: "stopped" })]);
+    expect(tx.operations).toEqual([
+      "listGcCandidates",
+      "markStopped:superseded-channel",
+      "deleteOldStopped",
+    ]);
+    expect(events).toEqual([
+      "tx:start",
+      "tx:commit",
+      "drive:stop",
+      "tx:start",
+      "tx:commit",
+      "tx:start",
+      "tx:commit",
+    ]);
+  });
 });
 
 describe("Drive transaction-boundary class sweep", () => {
-  test("Drive API calls are not lexically inside DB transaction callbacks", () => {
+  test("Drive API calls are not reachable from DB transaction callbacks", () => {
     const offenders: string[] = [];
     const transactionScopedFunctions = [
       { path: "lib/drive/watch.ts", name: "withDefaultTx" },
@@ -326,7 +443,7 @@ describe("Drive transaction-boundary class sweep", () => {
       { path: "lib/drive/watch.ts", name: "markWatchOrphanedWithTx" },
       { path: "lib/sync/runScheduledCronSync.ts", name: "withPostgresSyncPipelineLock" },
       { path: "lib/sync/runOnboardingScan.ts", name: "withDefaultTx" },
-      { path: "lib/sync/runOnboardingScan.ts", name: "scanWithTx" },
+      { path: "lib/sync/runOnboardingScan.ts", name: "scanPreparedFileWithTx" },
     ];
     const driveCallPattern =
       /\b(?:watchFolder|defaultWatchFolder|files\.watch|getDriveClient\(\)\.(?:files|channels)|fetchDriveFileMetadata|fetchSheetAsMarkdownAtRevision|listDriveFolder)\b/;
@@ -350,5 +467,13 @@ describe("Drive transaction-boundary class sweep", () => {
     }
 
     expect(offenders).toEqual([]);
+
+    const watchSource = readFileSync(join(process.cwd(), "lib/drive/watch.ts"), "utf8");
+    expect(watchSource).not.toMatch(
+      /withDefaultTx\(\(tx\)\s*=>\s*refreshWatchSubscriptions\(\{\s*\.\.\.deps,\s*tx\s*\}\)\)/,
+    );
+    expect(watchSource).not.toMatch(
+      /withDefaultTx\(\(tx\)\s*=>\s*gcWatchChannels\(\{\s*\.\.\.deps,\s*tx\s*\}\)\)/,
+    );
   });
 });

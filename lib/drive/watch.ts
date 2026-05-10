@@ -67,12 +67,14 @@ export type SubscribeDeps = {
 
 export type RefreshDeps = {
   tx?: WatchTx;
+  withTx?: <R>(fn: (tx: WatchTx) => Promise<R>) => Promise<R>;
   now?: () => Date;
   subscribeToWatchedFolder?: (folderId: string) => Promise<SubscribeResult>;
 };
 
 export type GcDeps = {
   tx?: WatchTx;
+  withTx?: <R>(fn: (tx: WatchTx) => Promise<R>) => Promise<R>;
   stopChannel?: (channel: { id: string; resourceId: string | null }) => Promise<void>;
 };
 
@@ -267,6 +269,16 @@ async function withDefaultTx<R>(fn: (tx: WatchTx) => Promise<R>): Promise<R> {
   }
 }
 
+function watchTxRunner(deps: {
+  tx?: WatchTx;
+  withTx?: <R>(fn: (tx: WatchTx) => Promise<R>) => Promise<R>;
+}): <R>(fn: (tx: WatchTx) => Promise<R>) => Promise<R> {
+  return (
+    deps.withTx ??
+    (deps.tx ? async <R>(fn: (tx: WatchTx) => Promise<R>) => fn(deps.tx as WatchTx) : withDefaultTx)
+  );
+}
+
 async function defaultWatchFolder(args: {
   folderId: string;
   channelId: string;
@@ -399,15 +411,13 @@ export async function subscribeToWatchedFolder(
 export async function refreshWatchSubscriptions(
   deps: RefreshDeps = {},
 ): Promise<{ refreshed: string[] }> {
-  if (!deps.tx) {
-    return await withDefaultTx((tx) => refreshWatchSubscriptions({ ...deps, tx }));
-  }
-
-  const tx = deps.tx;
+  const runTx = watchTxRunner(deps);
   const now = deps.now ?? (() => new Date());
   const threshold = new Date(now().getTime() + 24 * 60 * 60 * 1000).toISOString();
-  const due = await callWatchTx("drive_watch_channels.list_expiring_active", () =>
-    tx.listExpiringActive(threshold),
+  const due = await runTx((tx) =>
+    callWatchTx("drive_watch_channels.list_expiring_active", () =>
+      tx.listExpiringActive(threshold),
+    ),
   );
   const subscribe =
     deps.subscribeToWatchedFolder ?? ((folderId) => subscribeToWatchedFolder(folderId));
@@ -420,14 +430,10 @@ export async function refreshWatchSubscriptions(
 }
 
 export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: string[] }> {
-  if (!deps.tx) {
-    return await withDefaultTx((tx) => gcWatchChannels({ ...deps, tx }));
-  }
-
-  const tx = deps.tx;
+  const runTx = watchTxRunner(deps);
   const stopChannel = deps.stopChannel ?? defaultStopChannel;
-  const candidates = await callWatchTx("drive_watch_channels.list_gc_candidates", () =>
-    tx.listGcCandidates(),
+  const candidates = await runTx((tx) =>
+    callWatchTx("drive_watch_channels.list_gc_candidates", () => tx.listGcCandidates()),
   );
   const stopped: string[] = [];
   for (const channel of candidates) {
@@ -436,9 +442,13 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
     } catch {
       // Best-effort cleanup: Drive may already have dropped an orphaned channel.
     }
-    await callWatchTx("drive_watch_channels.mark_stopped", () => tx.markStopped(channel.id));
+    await runTx((tx) =>
+      callWatchTx("drive_watch_channels.mark_stopped", () => tx.markStopped(channel.id)),
+    );
     stopped.push(channel.id);
   }
-  await callWatchTx("drive_watch_channels.delete_old_stopped", () => tx.deleteOldStopped());
+  await runTx((tx) =>
+    callWatchTx("drive_watch_channels.delete_old_stopped", () => tx.deleteOldStopped()),
+  );
   return { stopped };
 }
