@@ -372,6 +372,24 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug -> review the reel before applying",
     helpfulContext: null,
   },
+  OPENING_REEL_PERMISSION_DENIED: {
+    code: "OPENING_REEL_PERMISSION_DENIED",
+    dougFacing:
+      "The opening reel can no longer be accessed. The show will publish without the video until access is restored and re-synced.",
+    crewFacing: null,
+    followUp: "Doug -> restore Drive access to the reel, then sync again",
+    helpfulContext:
+      "Apply clears all opening-reel pins when Drive returns permission denied so the crew page falls back to text only.",
+  },
+  OPENING_REEL_NOT_VIDEO: {
+    code: "OPENING_REEL_NOT_VIDEO",
+    dougFacing:
+      "The opening reel link points to a non-video file. The show will publish without the video.",
+    crewFacing: null,
+    followUp: "Doug -> replace the opening reel link with a video file and sync again",
+    helpfulContext:
+      "The reel route only serves Drive files whose MIME type starts with video/.",
+  },
   MISSING_REVIEWER_CHOICE: {
     code: "MISSING_REVIEWER_CHOICE",
     dougFacing:

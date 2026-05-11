@@ -113,6 +113,12 @@ const infraRegistry = [
     contract:
       "reel asset route destructures Supabase show reads and Drive metadata/media reads; unavailable or drifted reels map to 410",
   },
+  {
+    helper: "verifyReelOnApply",
+    path: "lib/sync/verifyReelOnApply.ts",
+    contract:
+      "apply-time reel re-verification uses an explicit Drive port; Drive permission and drift faults become warning-coded results",
+  },
 ] as const;
 
 function read(path: string): string {

@@ -16,6 +16,10 @@ import {
   type RoleFlagsNotice,
 } from "@/lib/sync/phase2";
 import {
+  verifyReelOnApply as defaultVerifyReelOnApply,
+  type VerifyReelOnApplyResult,
+} from "@/lib/sync/verifyReelOnApply";
+import {
   STAGED_PARSE_REVISION_RACE,
   type SyncPipelineTx,
   withPostgresSyncPipelineLock,
@@ -218,6 +222,9 @@ export type ApplyStagedDeps = {
   wizardDriveReverify?: WizardDriveReverify | undefined;
   liveDriveReverify?: LiveDriveReverify | undefined;
   liveAssetReviewEffects?: LiveAssetReviewEffects | undefined;
+  verifyReelOnApply?: (
+    openingReel: Phase2Args["parseResult"]["openingReel"],
+  ) => Promise<VerifyReelOnApplyResult>;
   withPipelineLock?: PipelineLock;
   runPhase2?: (tx: LockedShowTx<SyncPipelineTx>, args: Phase2Args) => Promise<Phase2Result>;
   insertSyncAudit?: (
@@ -878,6 +885,7 @@ type ApplyStagedDepsWithDefaults = RequiredPick<
   | "bumpReviewerAuthFloors"
   | "upsertAdminAlert"
   | "retryEmbeddedRevisionAvailability"
+  | "verifyReelOnApply"
 > & {
   wizardDriveReverify?: WizardDriveReverify;
   liveDriveReverify?: LiveDriveReverify;
@@ -912,6 +920,7 @@ function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
     upsertAdminAlert: deps.upsertAdminAlert ?? defaultUpsertAdminAlert,
     retryEmbeddedRevisionAvailability:
       deps.retryEmbeddedRevisionAvailability ?? defaultRetryEmbeddedRevisionAvailability,
+    verifyReelOnApply: deps.verifyReelOnApply ?? defaultVerifyReelOnApply,
     ...(deps.wizardDriveReverify ? { wizardDriveReverify: deps.wizardDriveReverify } : {}),
     ...(deps.liveDriveReverify ? { liveDriveReverify: deps.liveDriveReverify } : {}),
     ...(deps.liveAssetReviewEffects
@@ -940,6 +949,7 @@ async function applyAssetReviewEffects(
   pending: PendingSyncForApply,
   show: ShowForApply | null,
   retryEmbeddedRevisionAvailability: (spreadsheetId: string) => Promise<boolean>,
+  verifyReelOnApply: NonNullable<ApplyStagedDeps["verifyReelOnApply"]>,
 ): Promise<
   | {
       parseResult: Phase2Args["parseResult"];
@@ -966,12 +976,19 @@ async function applyAssetReviewEffects(
     (item) => item.invariant === "REEL_DRIFT_PENDING",
   );
   const hasUnavailable = Boolean(unavailable);
+  const reelVerification = reelDrift
+    ? {
+        openingReel: null,
+        warningCode: "REEL_DRIFTED" as const,
+        driftReason: "REVISION_MISMATCH" as const,
+      }
+    : await verifyReelOnApply(pending.parseResult.openingReel);
   const warnings = [
     ...pending.parseResult.warnings,
     ...(linkedDrift ? [warning("LINKED_ASSET_DRIFTED")] : []),
-    ...(reelDrift ? [warning("REEL_DRIFTED")] : []),
+    ...(reelVerification.warningCode ? [warning(reelVerification.warningCode)] : []),
   ];
-  const openingReel = reelDrift ? null : pending.parseResult.openingReel;
+  const openingReel = reelVerification.openingReel;
   if (!hasUnavailable) {
     const shouldMintSnapshot = noneFound || linkedDrift;
     if (!shouldMintSnapshot) {
@@ -1377,6 +1394,7 @@ async function applyLiveWithDriveReverify(
       preflight.pending,
       preflight.show,
       deps.retryEmbeddedRevisionAvailability,
+      deps.verifyReelOnApply,
     );
     if (!("parseResult" in assetAdjusted)) return assetAdjusted;
     liveAssetReviewEffects = assetAdjusted;
