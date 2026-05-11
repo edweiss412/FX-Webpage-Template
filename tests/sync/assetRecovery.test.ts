@@ -233,6 +233,42 @@ describe("assetRecovery", () => {
     expect(removed).toEqual(uploads.map((upload) => upload.path));
   });
 
+  test("no-op after canonical upload removes uploaded recovery bytes", async () => {
+    const { storagePort, uploads, removed } = storage();
+    let lockCount = 0;
+
+    const result = await assetRecovery(showId, {
+      readPreviewShow: async () => ({ showId, driveFileId, diagrams: partialDiagrams() }),
+      withShowLock: async (_driveFileId, fn) => {
+        lockCount += 1;
+        return await fn({
+          readLockedShow: async () => ({
+            showId,
+            driveFileId,
+            diagrams:
+              lockCount === 1
+                ? partialDiagrams()
+                : { ...partialDiagrams(), snapshot_status: "complete" },
+          }),
+          updateRecoveredDiagrams: async () => {
+            throw new Error("no-op recovery must not update diagrams");
+          },
+          upsertRecoveryCooldown: async () => undefined,
+          deleteRecoveryCooldown: async () => undefined,
+          upsertAdminAlert: async () => undefined,
+        });
+      },
+      storage: storagePort,
+      drive: {
+        fetchEmbeddedImageBytes: async () => new TextEncoder().encode("embedded-bytes"),
+        fetchLinkedRevisionBytes: async () => new TextEncoder().encode("linked-bytes"),
+      },
+    });
+
+    expect(result).toEqual({ outcome: "no_op" });
+    expect(removed).toEqual(uploads.map((upload) => upload.path));
+  });
+
   test("busy show lock returns concurrent sync skipped", async () => {
     const result = await assetRecovery(showId, {
       readPreviewShow: async () => ({ showId, driveFileId, diagrams: partialDiagrams() }),

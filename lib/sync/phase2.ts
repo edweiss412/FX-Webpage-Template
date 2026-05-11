@@ -177,6 +177,9 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
     args.snapshotAssetsForApply &&
     diagramAssetCount(args.parseResult.diagrams) > 0
   ) {
+    // Apply snapshots bytes before commit so approved JSONB never points at
+    // missing objects; recovery uses a lock-free pre-pass because it repairs an
+    // already-live partial snapshot instead of publishing a new approved one.
     const snapshot = await callTx("snapshotAssetsForApply", () =>
       args.snapshotAssetsForApply!({
         driveFileId: args.driveFileId,

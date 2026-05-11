@@ -472,10 +472,11 @@ export async function assetRecovery(
     );
 
     if (isConcurrentSyncSkipped(locked)) {
+      await Promise.all(uploadedPaths.map((path) => deps.storage.remove?.(path)));
       return { outcome: "skipped", code: CONCURRENT_SYNC_SKIPPED };
     }
 
-    if (locked.outcome === "revision_drift") {
+    if (locked.outcome === "revision_drift" || locked.outcome === "no_op") {
       await Promise.all(uploadedPaths.map((path) => deps.storage.remove?.(path)));
     }
 

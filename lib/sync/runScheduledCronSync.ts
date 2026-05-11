@@ -2067,6 +2067,8 @@ export async function processOneFile_unlocked(
       binding: pipeline.binding,
       ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
       ...(snapshotAssetsForApplyForShowId ? { snapshotAssetsForApplyForShowId } : {}),
+      // Cron just captured the reel tuple during this same Drive-read pass; manual Apply
+      // re-verifies because review latency creates the drift window.
       verifyReelOnApply: false,
     },
     deps,

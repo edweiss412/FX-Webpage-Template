@@ -30,6 +30,8 @@ const statusMock = vi.hoisted(() => ({
     promote_started_at: new Date().toISOString(),
     claim_token: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
   } as LedgerRow | null,
+  showError: null as null | { message: string },
+  ledgerError: null as null | { message: string },
   writes: 0,
 }));
 
@@ -47,12 +49,18 @@ vi.mock("@/lib/supabase/server", () => ({
             eq: () => ({
               maybeSingle: async () => ({
                 data: table === "pending_snapshot_uploads" ? statusMock.ledger : statusMock.show,
-                error: null,
+                error:
+                  table === "pending_snapshot_uploads"
+                    ? statusMock.ledgerError
+                    : statusMock.showError,
               }),
             }),
             maybeSingle: async () => ({
               data: table === "pending_snapshot_uploads" ? statusMock.ledger : statusMock.show,
-              error: null,
+              error:
+                table === "pending_snapshot_uploads"
+                  ? statusMock.ledgerError
+                  : statusMock.showError,
             }),
           }),
         }),
@@ -91,6 +99,8 @@ beforeEach(() => {
     promote_started_at: new Date().toISOString(),
     claim_token: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
   };
+  statusMock.showError = null;
+  statusMock.ledgerError = null;
   statusMock.writes = 0;
 });
 
@@ -159,5 +169,18 @@ describe("GET /api/admin/show/[slug]/apply/[applyId]/status", () => {
 
     statusMock.ledger = { ...statusMock.ledger!, show_id: "other-show" };
     expect((await getStatus()).status).toBe(404);
+  });
+
+  test("Supabase returned errors surface as infra faults instead of not-found", async () => {
+    statusMock.showError = { message: "db unavailable" };
+    let response = await getStatus();
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "SYNC_INFRA_ERROR" });
+
+    statusMock.showError = null;
+    statusMock.ledgerError = { message: "db unavailable" };
+    response = await getStatus();
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "SYNC_INFRA_ERROR" });
   });
 });

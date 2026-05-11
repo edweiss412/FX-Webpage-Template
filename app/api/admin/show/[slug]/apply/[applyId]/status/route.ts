@@ -85,7 +85,10 @@ export async function GET(_request: NextRequest, context: RouteContext): Promise
       .eq("slug", slug)
       .maybeSingle()) as { data: ShowRow | null; error: unknown };
 
-    if (showError || !show) {
+    if (showError) {
+      return NextResponse.json({ error: "SYNC_INFRA_ERROR" }, { status: 500 });
+    }
+    if (!show) {
       return NextResponse.json({ error: "APPLY_STATUS_NOT_FOUND" }, { status: 404 });
     }
 
@@ -96,7 +99,10 @@ export async function GET(_request: NextRequest, context: RouteContext): Promise
       .eq("show_id", show.id)
       .maybeSingle()) as { data: LedgerRow | null; error: unknown };
 
-    if (ledgerError || !ledger || ledger.show_id !== show.id) {
+    if (ledgerError) {
+      return NextResponse.json({ error: "SYNC_INFRA_ERROR" }, { status: 500 });
+    }
+    if (!ledger || ledger.show_id !== show.id) {
       return NextResponse.json({ error: "APPLY_STATUS_NOT_FOUND" }, { status: 404 });
     }
 
