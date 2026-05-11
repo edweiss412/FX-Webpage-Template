@@ -127,11 +127,18 @@ function hasUsablePin(row: ReelRow): row is UsableReelRow {
 }
 
 function drifted(row: UsableReelRow, current: DriveMetadata): boolean {
-  return Boolean(
-    current.trashed ||
-    current.headRevisionId !== row.opening_reel_head_revision_id ||
-    current.modifiedTime !== row.opening_reel_drive_modified_time,
-  );
+  if (current.trashed) return true;
+  if (current.headRevisionId !== row.opening_reel_head_revision_id) return true;
+  // Codex R7 P1: modtime comparison must be instant-equal, not string-
+  // equal. Postgres normalizes the persisted `::timestamptz` value
+  // (often `+00:00` suffix), while Drive returns `.000Z`. Both
+  // represent the same instant but are byte-distinct strings — a
+  // strict string compare yields a false-positive drift.
+  if (!current.modifiedTime) return true;
+  const driveMs = Date.parse(current.modifiedTime);
+  const pinMs = Date.parse(row.opening_reel_drive_modified_time);
+  if (!Number.isFinite(driveMs) || !Number.isFinite(pinMs)) return true;
+  return driveMs !== pinMs;
 }
 
 function isPermissionDenied(error: unknown): boolean {

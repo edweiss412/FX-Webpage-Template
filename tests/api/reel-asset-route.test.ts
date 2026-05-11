@@ -260,6 +260,36 @@ describe("/api/asset/reel/[show]", () => {
     expect(routeMock.googleCalls).toBe(0);
   });
 
+  test("Codex R7 P1: modtime equality is instant-based (Postgres `+00:00` vs Drive `.000Z` both pass)", async () => {
+    // Postgres `timestamptz` normalizes to ISO-with-offset (e.g.,
+    // `2026-05-01T00:00:00+00:00`) while Drive returns `.000Z`. Both
+    // represent the same instant. The route MUST treat them as
+    // identical, not 410-drift.
+    routeMock.show = {
+      ...routeMock.show,
+      opening_reel_drive_modified_time: "2026-05-01T00:00:00+00:00",
+    };
+    routeMock.current = {
+      ...routeMock.current,
+      modifiedTime: "2026-05-01T00:00:00.000Z",
+    };
+    const res = await getReel();
+    expect(res.status).toBe(200);
+  });
+
+  test("Codex R7 P1: modtime drift still trips on a genuinely different instant", async () => {
+    routeMock.show = {
+      ...routeMock.show,
+      opening_reel_drive_modified_time: "2026-05-01T00:00:00+00:00",
+    };
+    routeMock.current = {
+      ...routeMock.current,
+      modifiedTime: "2026-05-02T00:00:00.000Z", // 24h later — real drift
+    };
+    const res = await getReel();
+    expect(res.status).toBe(410);
+  });
+
   test("Codex R6 P1: exact-revision branch rejects an oversized buffered Uint8Array via the byte ceiling", async () => {
     // Drive size pre-flight is null so we pass the metadata gate, then
     // the revision branch hands back a buffered (non-stream) payload

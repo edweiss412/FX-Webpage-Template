@@ -14,12 +14,16 @@
  *     or resizing the sheet reflows pages cleanly. The previous
  *     `window.innerWidth - 32` math went stale on rotate AND was off
  *     by the 32px of inner padding the sheet's body carries.
- *   - **Windowed render.** Only the active page (and one neighbor on
- *     each side) renders the heavy text + annotation layers; the rest
- *     get a canvas-only render so a 40-page run-of-show book doesn't
- *     instantiate 40 text-layer DOM trees on first paint. Page
- *     activation comes from `IntersectionObserver` so the user always
- *     gets the rich text layer for the page they're looking at.
+ *   - **Windowed render (Codex R7 P1).** Only the active page (and one
+ *     neighbor on each side) mounts a real `react-pdf` `<Page>` — the
+ *     rest render a stable-height placeholder div so the scroll
+ *     surface stays accurate AND the IntersectionObserver still fires.
+ *     A 40-page run-of-show book therefore paints at most three PDF
+ *     canvases at any time, not 40. The placeholder height starts at a
+ *     letter-paper ratio and updates to the first measured `<Page>`'s
+ *     height as soon as it renders. Page activation comes from
+ *     `IntersectionObserver` so the user always gets the rich rendered
+ *     page they're looking at within ±1 of the scroll position.
  *   - **Page counter.** Sticky `Page X of Y` indicator at the top of
  *     the viewer so crew know their position in long agendas.
  *   - **Auto-dark.** Pages auto-invert under `prefers-color-scheme:
@@ -56,12 +60,22 @@ function prefersDarkAtMount(): boolean {
   return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
+// Letter-paper aspect ratio (11 / 8.5) is a reasonable default
+// placeholder height per page before the first `<Page>` reports its
+// rendered viewport. Once the first page renders, `pageHeight` switches
+// to the measured value so the scroll surface stays accurate for
+// off-window placeholders.
+const LETTER_RATIO = 11 / 8.5;
+
 export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const pageRefs = useRef<Array<HTMLDivElement | null>>([]);
   const [numPages, setNumPages] = useState<number | null>(null);
   const [activePage, setActivePage] = useState(1);
   const [containerWidth, setContainerWidth] = useState<number>(MAX_PAGE_WIDTH);
+  const [pageHeight, setPageHeight] = useState<number>(
+    Math.round(MAX_PAGE_WIDTH * LETTER_RATIO),
+  );
   const [error, setError] = useState<Error | null>(null);
   const [inverted, setInverted] = useState(prefersDarkAtMount);
 
@@ -71,11 +85,26 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
   useEffect(() => {
     const node = containerRef.current;
     if (!node) return;
-    const update = () => setContainerWidth(Math.min(node.clientWidth, MAX_PAGE_WIDTH));
+    const update = () => {
+      const w = Math.min(node.clientWidth, MAX_PAGE_WIDTH);
+      setContainerWidth(w);
+      // Rescale the placeholder height with the new width so off-window
+      // sentinels keep their letter-paper aspect ratio until the first
+      // actual `<Page>` renders and reports its real height.
+      setPageHeight((prev) => {
+        // If we've already captured a measured height, scale it
+        // proportionally to the new width; otherwise use letter ratio.
+        const ratio = prev > 0 ? prev / containerWidth : LETTER_RATIO;
+        return Math.round(w * ratio);
+      });
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(node);
     return () => observer.disconnect();
+    // containerWidth intentionally excluded — using `prev` from the
+    // setter handles the latest captured value.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // IntersectionObserver to track the active page. The threshold-50%
@@ -172,7 +201,7 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
           {numPages !== null
             ? Array.from({ length: numPages }, (_v, i) => {
                 const pageNumber = i + 1;
-                const isRich = Math.abs(pageNumber - activePage) <= ACTIVE_WINDOW;
+                const inWindow = Math.abs(pageNumber - activePage) <= ACTIVE_WINDOW;
                 return (
                   <div
                     key={`page-${pageNumber}`}
@@ -180,14 +209,36 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
                       pageRefs.current[i] = node;
                     }}
                     data-page={pageNumber}
+                    data-in-window={inWindow ? "true" : "false"}
                     className={`mb-4 ${inverted ? "filter-[invert(1)_hue-rotate(180deg)]" : ""}`}
+                    style={inWindow ? undefined : { width: containerWidth, height: pageHeight }}
                   >
-                    <Page
-                      pageNumber={pageNumber}
-                      width={containerWidth}
-                      renderTextLayer={isRich}
-                      renderAnnotationLayer={isRich}
-                    />
+                    {inWindow ? (
+                      <Page
+                        pageNumber={pageNumber}
+                        width={containerWidth}
+                        renderTextLayer
+                        renderAnnotationLayer
+                        onRenderSuccess={(page: { height: number }) => {
+                          if (page?.height && Math.abs(page.height - pageHeight) > 1) {
+                            setPageHeight(page.height);
+                          }
+                        }}
+                      />
+                    ) : (
+                      // Codex R7 P1: off-window pages must NOT mount a
+                      // react-pdf `<Page>` — the canvas render fires
+                      // regardless of `renderTextLayer/renderAnnotationLayer`
+                      // gating, so a 40-page PDF would otherwise paint 40
+                      // canvases on open. Render a stable-height
+                      // placeholder so scroll position + IntersectionObserver
+                      // still work; swap to a real `<Page>` once this slot
+                      // enters the active window.
+                      <div
+                        aria-hidden="true"
+                        className="size-full rounded-sm bg-surface-sunken"
+                      />
+                    )}
                   </div>
                 );
               })
