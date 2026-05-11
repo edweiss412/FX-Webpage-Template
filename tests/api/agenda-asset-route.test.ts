@@ -159,6 +159,7 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/pdf");
     expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     const body = new Uint8Array(await res.arrayBuffer());
     expect(new TextDecoder().decode(body)).toContain("%PDF-1.7");
     expect(routeMock.filesGetCalls.map((c) => c.fileId)).toContain(agendaFileId);

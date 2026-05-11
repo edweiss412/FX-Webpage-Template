@@ -17,6 +17,16 @@ import {
 
 const CACHE_CONTROL = "private, max-age=0, must-revalidate";
 const MAX_REEL_FALLBACK_BYTES = 512 * 1024 * 1024;
+// Codex R8 P1: explicit allowlist of inert browser-supported video
+// MIMEs. The previous `mime.startsWith("video/")` prefix gate let any
+// `video/*` value flow through. An allowlist rejects pathological /
+// hostile MIMEs that browsers might sniff or treat unexpectedly.
+const ALLOWED_REEL_MIMES = new Set([
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/ogg",
+]);
 
 type RouteContext = {
   params: Promise<{ show: string }>;
@@ -122,7 +132,12 @@ function hasUsablePin(row: ReelRow): row is UsableReelRow {
     row.opening_reel_drive_file_id &&
     row.opening_reel_drive_modified_time &&
     row.opening_reel_head_revision_id &&
-    row.opening_reel_mime_type?.startsWith("video/"),
+    row.opening_reel_mime_type &&
+    // Codex R8 P1: enforce the explicit video-MIME allowlist BEFORE
+    // serving. The previous `startsWith("video/")` prefix gate let any
+    // `video/*` value through; the allowlist rejects pathological /
+    // hostile MIMEs that browsers might sniff or treat unexpectedly.
+    ALLOWED_REEL_MIMES.has(row.opening_reel_mime_type.toLowerCase()),
   );
 }
 
@@ -245,6 +260,10 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         headers: {
           "Cache-Control": CACHE_CONTROL,
           "Content-Type": row.opening_reel_mime_type,
+          // Codex R8 P1: nosniff so the browser does NOT sniff the
+          // bytes and infer a different MIME than the allowlisted
+          // video type we asserted at `hasUsablePin`.
+          "X-Content-Type-Options": "nosniff",
         },
       });
     } catch (revisionsError) {
@@ -272,6 +291,8 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
           "Cache-Control": CACHE_CONTROL,
           "Content-Type": row.opening_reel_mime_type,
           "Content-Length": String(result.totalBytes),
+          // Codex R8 P1: nosniff parity with the exact-revision branch.
+          "X-Content-Type-Options": "nosniff",
         },
       });
     }

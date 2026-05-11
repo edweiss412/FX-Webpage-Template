@@ -202,6 +202,10 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       const headers: Record<string, string> = {
         "Cache-Control": CACHE_CONTROL,
         "Content-Type": PDF_MIME,
+        // Codex R8 P2: nosniff so the browser does NOT sniff the body
+        // and reinterpret it as something other than application/pdf.
+        // Parity with the diagram + reel asset routes.
+        "X-Content-Type-Options": "nosniff",
       };
       if (Number.isFinite(reportedSize)) {
         headers["Content-Length"] = String(reportedSize);

@@ -189,6 +189,7 @@ describe("/api/asset/reel/[show]", () => {
     await expect(response.text()).resolves.toBe("reel-bytes");
     expect(response.headers.get("content-type")).toBe("video/mp4");
     expect(response.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
     expect(routeMock.driveCalls).toEqual(["files.metadata", "revisions.media"]);
   });
 
@@ -288,6 +289,21 @@ describe("/api/asset/reel/[show]", () => {
     };
     const res = await getReel();
     expect(res.status).toBe(410);
+  });
+
+  test("Codex R8 P1: non-allowlisted video MIME → 410 (no fallback to broad prefix gate)", async () => {
+    routeMock.show = { ...routeMock.show, opening_reel_mime_type: "video/x-flv" };
+    const res = await getReel();
+    expect(res.status).toBe(410);
+    expect(routeMock.driveCalls).toEqual([]);
+  });
+
+  test("Codex R8 P1: fallback md5 branch response carries nosniff", async () => {
+    routeMock.revisionError = { code: 404 };
+    routeMock.fallbackBytes = new TextEncoder().encode("reel-bytes");
+    const res = await getReel();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
   test("Codex R6 P1: exact-revision branch rejects an oversized buffered Uint8Array via the byte ceiling", async () => {
