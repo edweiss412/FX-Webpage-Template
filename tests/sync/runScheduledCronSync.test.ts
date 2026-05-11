@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import path from "node:path";
 import ts from "typescript";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
@@ -13,6 +14,8 @@ import {
   type ProcessOneFileDeps,
   revisionRaceCooldownSeconds,
   runScheduledCronSync,
+  insertFirstSeenShowWithSlugRetry,
+  MAX_SHOW_SLUG_INSERT_ATTEMPTS,
   STAGED_PARSE_REVISION_RACE,
   STAGED_PARSE_SOURCE_GONE,
   SYNC_INFRA_ERROR,
@@ -208,6 +211,64 @@ function functionSource(functionName: string) {
   visit(sourceFile);
   if (!body) throw new Error(`${functionName} not found`);
   return { body, sourceFile, sourceText };
+}
+
+function classMethodSource(
+  className: string,
+  methodName: string,
+): { method: ts.MethodDeclaration; sourceFile: ts.SourceFile; sourceText: string } {
+  const sourceText = readFileSync("lib/sync/runScheduledCronSync.ts", "utf8");
+  const sourceFile = ts.createSourceFile(
+    "runScheduledCronSync.ts",
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  let method: ts.MethodDeclaration | null = null;
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isClassDeclaration(node) &&
+      node.name?.text === className
+    ) {
+      for (const member of node.members) {
+        if (
+          ts.isMethodDeclaration(member) &&
+          ts.isIdentifier(member.name) &&
+          member.name.text === methodName
+        ) {
+          method = member;
+          return;
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  const found = method;
+  if (!found) throw new Error(`${className}.${methodName} not found`);
+  return { method: found, sourceFile, sourceText };
+}
+
+function pgUniqueViolation(message = "duplicate key value violates unique constraint") {
+  const error = new Error(message) as Error & { code: string };
+  error.code = "23505";
+  return error;
+}
+
+function filesUnder(dirs: string[], pattern: RegExp) {
+  const files: string[] = [];
+  const visit = (entry: string): void => {
+    if (!existsSync(entry)) return;
+    const stats = statSync(entry);
+    if (stats.isDirectory()) {
+      for (const child of readdirSync(entry)) visit(path.join(entry, child));
+      return;
+    }
+    if (pattern.test(entry)) files.push(entry);
+  };
+  for (const dir of dirs) visit(dir);
+  return files;
 }
 
 function closestTry(node: ts.Node): ts.TryStatement | null {
@@ -433,6 +494,118 @@ async function processOneFile_unlocked(
 }
 
 describe("processOneFile", () => {
+  test("production Phase 2 adapter preserves immutable slugs when updating existing shows", () => {
+    const { method, sourceFile } = classMethodSource("PostgresPipelineTx", "applyShowSnapshot");
+    const source = method.getText(sourceFile);
+
+    expect(source).not.toMatch(/update\s+public\.shows[\s\S]*?\bset\s+slug\s*=/i);
+  });
+
+  test("first-seen show insert keeps the derived slug when it is unique", async () => {
+    const inserted = await insertFirstSeenShowWithSlugRetry({
+      baseSlug: "client-show-2026-05",
+      insert: async (slug) => ({ id: "show-1", slug }),
+    });
+
+    expect(inserted).toEqual({ id: "show-1", slug: "client-show-2026-05" });
+  });
+
+  test("first-seen show insert retries slug collisions with numeric suffixes", async () => {
+    const attempted: string[] = [];
+
+    const inserted = await insertFirstSeenShowWithSlugRetry({
+      baseSlug: "client-show-2026-05",
+      insert: async (slug) => {
+        attempted.push(slug);
+        if (attempted.length < 3) throw pgUniqueViolation();
+        return { id: "show-1", slug };
+      },
+    });
+
+    expect(attempted).toEqual([
+      "client-show-2026-05",
+      "client-show-2026-05-2",
+      "client-show-2026-05-3",
+    ]);
+    expect(inserted).toEqual({ id: "show-1", slug: "client-show-2026-05-3" });
+  });
+
+  test("first-seen show insert stops after the bounded slug-collision retry budget", async () => {
+    const attempted: string[] = [];
+
+    await expect(
+      insertFirstSeenShowWithSlugRetry({
+        baseSlug: "client-show-2026-05",
+        maxAttempts: 3,
+        insert: async (slug) => {
+          attempted.push(slug);
+          throw pgUniqueViolation();
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "SHOW_SLUG_COLLISION_RETRY_EXHAUSTED",
+    });
+    expect(attempted).toEqual([
+      "client-show-2026-05",
+      "client-show-2026-05-2",
+      "client-show-2026-05-3",
+    ]);
+    expect(MAX_SHOW_SLUG_INSERT_ATTEMPTS).toBeGreaterThanOrEqual(5);
+  });
+
+  test("production SQL adapter writes parse_error for existing-show hard failures", () => {
+    const { method, sourceFile } = classMethodSource("PostgresPipelineTx", "updateShowParseError");
+    const source = method.getText(sourceFile);
+
+    expect(source).toContain("last_sync_status = 'parse_error'");
+    expect(source).not.toContain("last_sync_status = 'hard_fail'");
+    expect(source).toContain("last_sync_error = $2");
+    expect(source).toContain("[driveFileId, error.code]");
+  });
+
+  test("production last_sync_status literal writes stay inside the spec enum", () => {
+    const allowed = new Set([
+      "ok",
+      "parse_error",
+      "drive_error",
+      "sheet_unavailable",
+      "pending_review",
+      "pending",
+    ]);
+    const files = filesUnder(
+      ["lib/sync", "lib/asset", "lib/assets", "supabase/migrations"],
+      /\.(ts|tsx|sql)$/,
+    );
+    const violations: string[] = [];
+
+    for (const file of files) {
+      const source = readFileSync(file, "utf8");
+      const directPattern = /last_sync_status\s*=\s*(['"])(.*?)\1/gi;
+      for (const match of source.matchAll(directPattern)) {
+        const value = match[2];
+        if (!value) continue;
+        if (!allowed.has(value)) {
+          violations.push(`${file}: invalid last_sync_status literal ${value}`);
+        }
+      }
+      const casePattern = /last_sync_status\s*=\s*case\b([\s\S]*?)\bend/gi;
+      for (const match of source.matchAll(casePattern)) {
+        const assignment = match[1];
+        if (!assignment) continue;
+        const branchPattern = /(?:then|else)\s*(['"])(.*?)\1/gi;
+        for (const branch of assignment.matchAll(branchPattern)) {
+          const value = branch[2];
+          if (!value) continue;
+          if (!allowed.has(value)) {
+            violations.push(`${file}: invalid last_sync_status literal ${value}`);
+          }
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
   test("Drive-fetch pipeline steps are structurally prepared before locked recovery", () => {
     const { body, sourceFile } = functionSource("prepareProcessOneFile");
     const expectedLabels = new Set([
