@@ -175,6 +175,60 @@ function withLeadToggleSafetyNet(
   return items;
 }
 
+function warningCount(parseResult: ParseResult, code: string): number {
+  return parseResult.warnings.filter((warning) => warning.code === code).length;
+}
+
+function hasWarning(parseResult: ParseResult, code: string): boolean {
+  return warningCount(parseResult, code) > 0;
+}
+
+function syncLayerReviewItems(
+  args: Phase1Args,
+  parseResult: ParseResult,
+  show: Phase1ShowRow | null,
+): TriggeredReviewItem[] {
+  const items: TriggeredReviewItem[] = [];
+
+  if (hasWarning(parseResult, "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE")) {
+    items.push({
+      id: randomUUID(),
+      invariant: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+      spreadsheet_id: args.driveFileId,
+    });
+  }
+
+  if (hasWarning(parseResult, "DIAGRAMS_EMBEDDED_NONE_FOUND")) {
+    items.push({
+      id: randomUUID(),
+      invariant: "DIAGRAMS_EMBEDDED_NONE_FOUND",
+      spreadsheet_id: args.driveFileId,
+    });
+  }
+
+  const linkedFolderDriftCount = warningCount(parseResult, "DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING");
+  if (linkedFolderDriftCount > 0) {
+    items.push({
+      id: randomUUID(),
+      invariant: "DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING",
+      drift_count: linkedFolderDriftCount,
+    });
+  }
+
+  if (hasWarning(parseResult, "REEL_DRIFT_PENDING")) {
+    items.push({
+      id: randomUUID(),
+      invariant: "REEL_DRIFT_PENDING",
+      reel_drive_file_id:
+        parseResult.openingReel?.driveFileId ??
+        show?.priorParseResult.openingReel?.driveFileId ??
+        args.driveFileId,
+    });
+  }
+
+  return items;
+}
+
 function sentinelFor(args: Phase1Args, show: Phase1ShowRow | null): TriggeredReviewItem | null {
   if (args.mode === "onboarding_scan") {
     return { id: randomUUID(), invariant: "ONBOARDING_SCAN_REVIEW" };
@@ -227,10 +281,12 @@ export async function runPhase1(tx: Phase1Tx, args: Phase1Args): Promise<Phase1R
           invariant.triggeredItems,
         )
       : [];
-  const debounce = mi8DebounceReason(args, invariantItems);
+  const syncLayerItems = syncLayerReviewItems(args, args.parseResult, show);
+  const reviewItems = [...invariantItems, ...syncLayerItems];
+  const debounce = mi8DebounceReason(args, reviewItems);
   if (debounce) return debounce;
 
-  const triggeredReviewItems = sentinel ? [sentinel] : invariantItems;
+  const triggeredReviewItems = sentinel ? [sentinel, ...reviewItems] : reviewItems;
 
   if (triggeredReviewItems.length > 0) {
     const existingPending = await callTx("readLivePendingSync", () =>
