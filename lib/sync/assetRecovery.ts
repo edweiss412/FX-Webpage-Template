@@ -3,6 +3,7 @@ import postgres from "postgres";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { bytesFromNodeStream, bytesFromWebStream } from "@/lib/sync/boundedBytes";
 import {
   CONCURRENT_SYNC_SKIPPED,
   type ConcurrentSyncSkipped,
@@ -42,7 +43,11 @@ export type AssetRecoveryShow = {
 
 export type AssetRecoveryTx = {
   readLockedShow(showId: string): Promise<AssetRecoveryShow | null>;
-  updateRecoveredDiagrams(showId: string, diagrams: PersistedDiagrams): Promise<void>;
+  updateRecoveredDiagrams(
+    showId: string,
+    diagrams: PersistedDiagrams,
+    expectedSnapshotRevisionId: string,
+  ): Promise<boolean>;
   upsertRecoveryCooldown(showId: string, previewRevisionId: string): Promise<void>;
   deleteRecoveryCooldown(showId: string, snapshotRevisionId?: string): Promise<void>;
   upsertAdminAlert(showId: string, code: string, context?: Record<string, unknown>): Promise<void>;
@@ -312,7 +317,19 @@ export async function assetRecovery(
       }
 
       const recovered = applyVerifiedAssets(lockedDiagrams, verified);
-      await tx.updateRecoveredDiagrams(showId, recovered);
+      const updated = await tx.updateRecoveredDiagrams(
+        showId,
+        recovered,
+        previewDiagrams.snapshot_revision_id,
+      );
+      if (!updated) {
+        await tx.upsertRecoveryCooldown(showId, previewDiagrams.snapshot_revision_id);
+        return {
+          outcome: "revision_drift",
+          code: ASSET_RECOVERY_REVISION_DRIFT,
+          previewRevisionId: previewDiagrams.snapshot_revision_id,
+        } satisfies AssetRecoveryResult;
+      }
 
       if (recovered.snapshot_status === "partial_failure_restage_required") {
         await tx.upsertAdminAlert(showId, EMBEDDED_RECOVERY_REQUIRES_RESTAGE, {
@@ -379,8 +396,12 @@ class AssetRecoveryPostgresTx implements AssetRecoveryTx, LockableSyncTx {
     return { showId: row.show_id, driveFileId: row.drive_file_id, diagrams: row.diagrams };
   }
 
-  async updateRecoveredDiagrams(showId: string, diagrams: PersistedDiagrams): Promise<void> {
-    await this.tx.unsafe(
+  async updateRecoveredDiagrams(
+    showId: string,
+    diagrams: PersistedDiagrams,
+    expectedSnapshotRevisionId: string,
+  ): Promise<boolean> {
+    const rows = await this.tx.unsafe(
       `
         update public.shows
            set diagrams = case
@@ -388,9 +409,15 @@ class AssetRecoveryPostgresTx implements AssetRecoveryTx, LockableSyncTx {
              else $2::jsonb
            end
          where id = $1::uuid
+           and coalesce(
+             diagrams->'current'->>'snapshot_revision_id',
+             diagrams->>'snapshot_revision_id'
+           ) = $3
+         returning id
       `,
-      [showId, JSON.stringify(diagrams)] as never[],
+      [showId, JSON.stringify(diagrams), expectedSnapshotRevisionId] as never[],
     );
+    return rows.length > 0;
   }
 
   async upsertRecoveryCooldown(showId: string, previewRevisionId: string): Promise<void> {
@@ -524,8 +551,8 @@ function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
         const response = await fetch(entry.contentUrl, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!response.ok) return null;
-        return new Uint8Array(await response.arrayBuffer());
+        if (!response.ok || !response.body) return null;
+        return await bytesFromWebStream(response.body, MAX_RECOVERY_SINGLE_BYTES);
       },
       async fetchLinkedRevisionBytes(entry) {
         const { data } = await drive.revisions.get(
@@ -534,8 +561,17 @@ function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
             revisionId: entry.headRevisionId,
             alt: "media",
           },
-          { responseType: "arraybuffer" },
+          { responseType: "stream" },
         );
+        if (data instanceof ReadableStream) {
+          return await bytesFromWebStream(data, MAX_RECOVERY_SINGLE_BYTES);
+        }
+        if (data && typeof data === "object" && "pipe" in data) {
+          return await bytesFromNodeStream(
+            data as NodeJS.ReadableStream,
+            MAX_RECOVERY_SINGLE_BYTES,
+          );
+        }
         return bytesFrom(data);
       },
     },

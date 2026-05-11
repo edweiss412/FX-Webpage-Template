@@ -12,6 +12,7 @@ type PendingPromotionRow = {
   snapshot_revision_id: string;
   asset_count: number;
   expected_asset_count?: number;
+  claim_token?: string | null;
 };
 
 export type PromoteSnapshotStorage = {
@@ -114,15 +115,45 @@ export async function promoteSnapshotUpload(
 
   const storage = deps.storage ?? defaultStorage();
   return await withPromoteLock(initial.show_id, async (tx) => {
+    const clearRolledBack = async (row: PendingPromotionRow): Promise<void> => {
+      await tx.queryOne<{ ok: boolean }>(
+        `
+          with cleared_show as (
+            update public.shows s
+               set diagrams = jsonb_set(s.diagrams, '{pending}', 'null'::jsonb)
+             where s.id = $1::uuid
+               and s.diagrams->'pending'->>'snapshot_revision_id' = $2
+             returning s.id
+          ),
+          cleared_ledger as (
+            update public.pending_snapshot_uploads p
+               set promote_started_at = null,
+                   claim_token = null,
+                   claimed_at = null,
+                   claim_expires_at = now()
+             where p.id = $3::uuid
+               and p.delete_started_at is null
+               and p.promoted_at is null
+             returning p.id
+          )
+          select true as ok
+        `,
+        [row.show_id, row.snapshot_revision_id, row.id],
+      );
+    };
     const row = await tx.queryOne<(PendingPromotionRow & { promoted_at: string | null }) | null>(
       `
         update public.pending_snapshot_uploads
-           set promote_started_at = coalesce(promote_started_at, now())
+           set claim_token = gen_random_uuid(),
+               claimed_at = now(),
+               claim_expires_at = now() + interval '5 minutes',
+               promote_started_at = now()
          where snapshot_revision_id = $1::uuid
            and claim_token is null
            and delete_started_at is null
+           and promote_started_at is null
          returning id::text, show_id::text, drive_file_id, temp_prefix, snapshot_revision_id::text,
-                   promoted_at::text, asset_count
+                   promoted_at::text, asset_count, claim_token::text
       `,
       [snapshotRevisionId],
     );
@@ -172,6 +203,7 @@ export async function promoteSnapshotUpload(
       const canonicalPaths = await storage.list(canonical);
       if (canonicalPaths.length !== expectedAssetCount) {
         await rollback();
+        await clearRolledBack(row);
         return { outcome: "manifest_mismatch", snapshotRevisionId };
       }
 
@@ -202,23 +234,26 @@ export async function promoteSnapshotUpload(
                  claim_token = null,
                  claimed_at = null,
                  claim_expires_at = null
-            from update_show
+           from update_show
            where p.snapshot_revision_id = $1::uuid
+             and p.claim_token = $2::uuid
            returning p.id
         )
         select exists(select 1 from update_ledger) as updated
       `,
-        [snapshotRevisionId],
+        [snapshotRevisionId, row.claim_token],
       );
 
       if (!cutover?.updated) {
         await rollback();
+        await clearRolledBack(row);
         return { outcome: "no_pending_payload", snapshotRevisionId };
       }
       return { outcome: "promoted", snapshotRevisionId };
     } catch (error) {
       try {
         await rollback();
+        await clearRolledBack(row);
       } catch (rollbackError) {
         await tx.queryOne<{ ok: boolean }>(
           `

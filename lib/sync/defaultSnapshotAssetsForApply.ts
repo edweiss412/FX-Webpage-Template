@@ -1,6 +1,7 @@
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import type { ParseResult } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { bytesFromNodeStream, bytesFromWebStream } from "@/lib/sync/boundedBytes";
 import {
   snapshotAssets,
   type PendingSnapshotUploadRow,
@@ -8,6 +9,7 @@ import {
 } from "@/lib/sync/snapshotAssets";
 
 const DIAGRAM_BUCKET = "diagram-snapshots";
+const MAX_SINGLE_ASSET_BYTES = 50 * 1024 * 1024;
 
 export type SnapshotAssetsApplyTx = {
   insertPendingSnapshotUpload(row: PendingSnapshotUploadRow): Promise<void>;
@@ -56,8 +58,8 @@ export function makeSnapshotAssetsForApply(
           const response = await fetch(entry.contentUrl, {
             headers: { Authorization: `Bearer ${token}` },
           });
-          if (!response.ok) return null;
-          return new Uint8Array(await response.arrayBuffer());
+          if (!response.ok || !response.body) return null;
+          return await bytesFromWebStream(response.body, MAX_SINGLE_ASSET_BYTES);
         },
         async fetchLinkedRevisionBytes(entry) {
           const { data } = await drive.revisions.get(
@@ -66,8 +68,14 @@ export function makeSnapshotAssetsForApply(
               revisionId: entry.headRevisionId,
               alt: "media",
             },
-            { responseType: "arraybuffer" },
+            { responseType: "stream" },
           );
+          if (data instanceof ReadableStream) {
+            return await bytesFromWebStream(data, MAX_SINGLE_ASSET_BYTES);
+          }
+          if (data && typeof data === "object" && "pipe" in data) {
+            return await bytesFromNodeStream(data as NodeJS.ReadableStream, MAX_SINGLE_ASSET_BYTES);
+          }
           return bytesFrom(data);
         },
       },

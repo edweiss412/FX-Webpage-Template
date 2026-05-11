@@ -33,7 +33,7 @@ export type DiagramGcTx = {
 };
 
 export type DiagramGcStorage = {
-  list(prefix: string): Promise<string[]>;
+  list(prefix: string): Promise<Array<string | { path: string; createdAt?: string | null }>>;
   remove(path: string): Promise<void>;
   removePrefix(prefix: string): Promise<void>;
 };
@@ -80,13 +80,18 @@ function suppressOrphanDeletion(show: DiagramGcShow): boolean {
 function defaultStorage(): DiagramGcStorage {
   const supabase = createSupabaseServiceRoleClient();
   const bucket = supabase.storage.from(DIAGRAM_BUCKET);
-  const listPaths = async (prefix: string): Promise<string[]> => {
+  const listPaths = async (
+    prefix: string,
+  ): Promise<Array<{ path: string; createdAt?: string | null }>> => {
     const objectPrefix = prefix.startsWith(`${DIAGRAM_BUCKET}/`)
       ? prefix.slice(DIAGRAM_BUCKET.length + 1)
       : prefix;
     const { data, error } = await bucket.list(objectPrefix);
     if (error) throw error;
-    return (data ?? []).map((entry) => `${prefix}${entry.name}`);
+    return (data ?? []).map((entry) => ({
+      path: `${prefix}${entry.name}`,
+      createdAt: "created_at" in entry ? (entry.created_at as string | null) : null,
+    }));
   };
   return {
     list: listPaths,
@@ -100,8 +105,10 @@ function defaultStorage(): DiagramGcStorage {
     async removePrefix(prefix) {
       const paths = await listPaths(prefix);
       if (paths.length === 0) return;
-      const objectPaths = paths.map((path) =>
-        path.startsWith(`${DIAGRAM_BUCKET}/`) ? path.slice(DIAGRAM_BUCKET.length + 1) : path,
+      const objectPaths = paths.map((entry) =>
+        entry.path.startsWith(`${DIAGRAM_BUCKET}/`)
+          ? entry.path.slice(DIAGRAM_BUCKET.length + 1)
+          : entry.path,
       );
       const { error } = await bucket.remove(objectPaths);
       if (error) throw error;
@@ -169,6 +176,7 @@ function defaultTx(): DiagramGcTx {
                    claim_expires_at = $1::timestamptz + interval '15 minutes'
              where p.promoted_at is null
                and p.promote_started_at is null
+               and p.uploaded_at < $1::timestamptz - interval '1 hour'
                and (p.claim_token is null or p.claim_expires_at < $1::timestamptz)
                and not exists (
                  select 1
@@ -294,9 +302,20 @@ export async function runDiagramGc(args?: Partial<RunDiagramGcArgs>): Promise<Di
       ].filter((revision): revision is string => Boolean(revision)),
     );
     const paths = await storage.list(showPrefix(show.showId));
-    for (const path of paths) {
+    for (const entry of paths) {
+      const path = typeof entry === "string" ? entry : entry.path;
+      const createdAt = typeof entry === "string" ? null : entry.createdAt;
       const revision = revisionFromPath(show.showId, path);
       if (!revision || revision === "_pending" || retained.has(revision)) continue;
+      if (createdAt) {
+        const created = Date.parse(createdAt);
+        if (
+          Number.isFinite(created) &&
+          now.getTime() - created < show.cutoffDays * 24 * 60 * 60 * 1000
+        ) {
+          continue;
+        }
+      }
       await storage.remove(path);
       orphanBlobsDeleted += 1;
     }

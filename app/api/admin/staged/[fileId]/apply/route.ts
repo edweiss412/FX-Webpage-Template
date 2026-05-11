@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -89,6 +89,16 @@ function snapshotRevisionId(result: unknown, fallback: string): string {
   return fallback;
 }
 
+function scheduleAfterResponse(task: () => Promise<unknown>): void {
+  try {
+    after(() => {
+      void task();
+    });
+  } catch {
+    void task();
+  }
+}
+
 export async function POST(request: NextRequest, context: RouteContext): Promise<Response> {
   await requireAdmin();
   const { fileId } = await context.params;
@@ -150,9 +160,12 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
   if (result.outcome === "applied") {
     const snapshotId = snapshotRevisionId(result, body.staged_id.toLowerCase());
     if (result.snapshotRevisionId) {
-      void promoteSnapshotUpload(result.snapshotRevisionId).catch((error) => {
-        console.error("[/api/admin/staged/[fileId]/apply] snapshot promotion failed", error);
-      });
+      scheduleAfterResponse(
+        async () =>
+          await promoteSnapshotUpload(result.snapshotRevisionId!).catch((error) => {
+            console.error("[/api/admin/staged/[fileId]/apply] snapshot promotion failed", error);
+          }),
+      );
     }
     return NextResponse.json(
       {

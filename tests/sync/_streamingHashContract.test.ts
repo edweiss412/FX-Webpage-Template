@@ -7,11 +7,23 @@ const root = process.cwd();
 describe("M7 streaming/hash contract", () => {
   test("diagram snapshotting hashes bytes without Buffer.concat", () => {
     const snapshotAssets = readFileSync(join(root, "lib/sync/snapshotAssets.ts"), "utf8");
+    const defaultSnapshotAssets = readFileSync(
+      join(root, "lib/sync/defaultSnapshotAssetsForApply.ts"),
+      "utf8",
+    );
     const assetRecovery = readFileSync(join(root, "lib/sync/assetRecovery.ts"), "utf8");
     const sha256 = readFileSync(join(root, "lib/crypto/sha256.ts"), "utf8");
 
-    expect(`${snapshotAssets}\n${assetRecovery}\n${sha256}`).toContain("createHash");
+    expect(`${snapshotAssets}\n${defaultSnapshotAssets}\n${assetRecovery}\n${sha256}`).toContain(
+      "createHash",
+    );
     expect(snapshotAssets).not.toContain("Buffer.concat");
+    expect(defaultSnapshotAssets).not.toContain("Buffer.concat");
     expect(assetRecovery).not.toContain("Buffer.concat");
+    expect(snapshotAssets).not.toContain("arrayBuffer()");
+    expect(defaultSnapshotAssets).not.toContain("arrayBuffer()");
+    expect(assetRecovery).not.toContain("arrayBuffer()");
+    expect(defaultSnapshotAssets).not.toContain('responseType: "arraybuffer"');
+    expect(assetRecovery).not.toContain('responseType: "arraybuffer"');
   });
 });

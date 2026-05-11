@@ -68,6 +68,7 @@ describe("assetRecovery", () => {
           readLockedShow: async () => ({ showId, driveFileId, diagrams: partialDiagrams() }),
           updateRecoveredDiagrams: async (_showId, diagrams) => {
             persisted = diagrams;
+            return true;
           },
           upsertRecoveryCooldown: async () => undefined,
           deleteRecoveryCooldown: async () => undefined,
@@ -123,6 +124,7 @@ describe("assetRecovery", () => {
           readLockedShow: async () => ({ showId, driveFileId, diagrams }),
           updateRecoveredDiagrams: async (_showId, next) => {
             expect(next.snapshot_status).toBe("partial_failure_restage_required");
+            return true;
           },
           upsertRecoveryCooldown: async () => undefined,
           deleteRecoveryCooldown: async () => undefined,

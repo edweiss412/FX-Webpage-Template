@@ -13,12 +13,12 @@ const applyMock = vi.hoisted(() => ({
   applyStaged: vi.fn<
     (args: unknown) => Promise<
       | {
-        outcome: "applied";
-        showId: string;
-        snapshotRevisionId?: string;
-        syncAuditId: string;
-        derivedSideEffects: { revokeFloorForNames: string[] };
-      }
+          outcome: "applied";
+          showId: string;
+          snapshotRevisionId?: string;
+          syncAuditId: string;
+          derivedSideEffects: { revokeFloorForNames: string[] };
+        }
       | { outcome: "x"; code: string }
     >
   >(async () => ({
@@ -32,6 +32,10 @@ const applyMock = vi.hoisted(() => ({
 
 vi.mock("@/lib/sync/applyStaged", () => ({
   applyStaged: applyMock.applyStaged,
+}));
+
+vi.mock("@/lib/sync/promoteSnapshot", () => ({
+  promoteSnapshotUpload: async () => ({ outcome: "promoted", snapshotRevisionId: "snapshot-1" }),
 }));
 
 const supabaseMock = vi.hoisted(() => ({
