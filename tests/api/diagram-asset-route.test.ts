@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 
@@ -82,7 +82,7 @@ vi.mock("@/lib/supabase/server", () => ({
     },
     storage: {
       from: (bucket: string) => ({
-        download: async (path: string) => {
+        createSignedUrl: async (path: string) => {
           routeMock.storageDownloads.push(`${bucket}/${path}`);
           if (routeMock.storageError) {
             return { data: null, error: routeMock.storageError };
@@ -91,9 +91,9 @@ vi.mock("@/lib/supabase/server", () => ({
             return { data: null, error: { message: "not found" } };
           }
           return {
-            data: new Blob([routeMock.storageBytes as BlobPart], {
-              type: "image/png",
-            }),
+            data: {
+              signedUrl: `https://test.supabase.local/object/sign/${bucket}/${path}`,
+            },
             error: null,
           };
         },
@@ -101,6 +101,33 @@ vi.mock("@/lib/supabase/server", () => ({
     },
   }),
 }));
+
+// Mock global fetch so the route's signed-URL streaming fetch is
+// answered by the test fixture's stored bytes. The route gates on
+// `Content-Length` for the byte ceiling pre-flight, so we set that
+// header from `routeMock.storageBytes.byteLength`. The body is the
+// raw bytes wrapped in a Response.
+const originalFetch = globalThis.fetch;
+beforeEach(() => {
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (!url.includes("supabase.local/object/sign/")) {
+      if (originalFetch) return originalFetch(input);
+      throw new Error("unmocked fetch");
+    }
+    if (!routeMock.storageBytes) {
+      return new Response(null, { status: 404 });
+    }
+    const bytes = routeMock.storageBytes;
+    return new Response(bytes as BlobPart, {
+      status: 200,
+      headers: { "content-length": String(bytes.byteLength) },
+    });
+  }) as typeof fetch;
+});
+afterAll(() => {
+  globalThis.fetch = originalFetch;
+});
 
 function currentDiagrams(): PersistedDiagrams {
   return {

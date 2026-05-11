@@ -144,24 +144,39 @@ export async function GET(
       return gone();
     }
 
-    const { data, error } = await supabase.storage.from(DIAGRAM_BUCKET).download(path);
-    if (error) {
-      if (isStorageNotFound(error)) return gone();
+    // Codex R11 P1: do NOT use `supabase.storage.from(...).download()` —
+    // that materializes the whole Blob in memory BEFORE the byte
+    // ceiling can run. Instead mint a short-lived signed URL (the
+    // ledger row stays auth-gated by the route's own admin / link /
+    // google chain above) and fetch it streaming so the byte ceiling
+    // enforces during the fetch via `boundedPassThroughWeb`.
+    const signed = await supabase.storage
+      .from(DIAGRAM_BUCKET)
+      .createSignedUrl(path, 60);
+    if (signed.error) {
+      if (isStorageNotFound(signed.error)) return gone();
       return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
     }
-    if (!data) {
+    if (!signed.data?.signedUrl) {
       return gone();
     }
 
-    // Codex R4 P2: route-level byte ceiling. Reject oversized objects
-    // before serving + wrap the body stream in a bounded pass-through
-    // so an oversized object whose size is unknown (or wrong) still
-    // fails closed at the cap mid-stream.
-    if (typeof data.size === "number" && data.size > MAX_DIAGRAM_BYTES) {
+    const fetchRes = await fetch(signed.data.signedUrl);
+    if (!fetchRes.ok || !fetchRes.body) {
+      if (fetchRes.status === 404) return gone();
+      return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
+    }
+    // Codex R4 P2 + R11 P1: route-level byte ceiling. Reject oversized
+    // objects from the `Content-Length` pre-flight (still bounds before
+    // any bytes flow) AND wrap the body stream in a bounded pass-
+    // through so an oversized object whose size header is missing /
+    // wrong still fails closed at the cap mid-stream.
+    const declaredSize = Number(fetchRes.headers.get("content-length"));
+    if (Number.isFinite(declaredSize) && declaredSize > MAX_DIAGRAM_BYTES) {
       return gone();
     }
     const boundedBody = boundedPassThroughWeb(
-      data.stream() as ReadableStream<Uint8Array>,
+      fetchRes.body as ReadableStream<Uint8Array>,
       MAX_DIAGRAM_BYTES,
     );
     return new Response(boundedBody, {
