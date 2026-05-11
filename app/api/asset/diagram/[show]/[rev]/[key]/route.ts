@@ -1,14 +1,21 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
-import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
-import { validateLinkSession } from "@/lib/auth/validateLinkSession";
+import { validateCrewAssetSession } from "@/lib/auth/validateCrewAssetSession";
 import { resolveCurrentDiagrams } from "@/lib/data/diagrams";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { boundedPassThroughWeb, ByteLimitExceededError } from "@/lib/sync/boundedBytes";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CACHE_CONTROL = "private, max-age=0, must-revalidate";
 const DIAGRAM_BUCKET = "diagram-snapshots";
+// Codex R4 P2 close-out: route-level cap on the Storage object served.
+// Diagrams persisted via Apply / asset_recovery already have per-asset
+// caps upstream; this is defense-in-depth so a bucket drift / manual
+// upload to the canonical prefix can never let an oversized object
+// reach the client. 50MB is comfortably above the typical 1-5MB
+// embedded image while still bounding worker memory.
+const MAX_DIAGRAM_BYTES = 50 * 1024 * 1024;
 
 type RouteParams = {
   show: string;
@@ -21,10 +28,6 @@ type ShowRow = {
   published: boolean | null;
   diagrams: unknown;
 };
-
-type AuthorizeResult =
-  | { ok: true; isAdmin: boolean }
-  | { ok: false; response: Response };
 
 type AssetEntry = {
   snapshotPath: string | null;
@@ -64,48 +67,6 @@ function isStorageNotFound(error: unknown): boolean {
   );
 }
 
-async function authorize(request: NextRequest, showId: string): Promise<AuthorizeResult> {
-  const admin = await isAdminSession(request);
-  if (admin.ok) return { ok: true, isAdmin: true };
-  if (admin.reason === "infra_error") {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 }),
-    };
-  }
-
-  const link = await validateLinkSession(request, { showId });
-  if (link.kind === "success") {
-    return link.viewer.showId === showId
-      ? { ok: true, isAdmin: false }
-      : { ok: false, response: new Response(null, { status: 403 }) };
-  }
-  if (link.kind === "terminal_failure") {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: link.code }, { status: link.status }),
-    };
-  }
-  if (link.priorFailure?.status === 410) {
-    return { ok: false, response: gone() };
-  }
-
-  const google = await validateGoogleSession(request, { showId });
-  if (google.kind === "success") {
-    return google.viewer.showId === showId
-      ? { ok: true, isAdmin: false }
-      : { ok: false, response: new Response(null, { status: 403 }) };
-  }
-  if (google.kind === "terminal_failure") {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: google.code }, { status: google.status }),
-    };
-  }
-
-  return { ok: false, response: new Response(null, { status: 401 }) };
-}
-
 export async function GET(
   request: NextRequest,
   context: { params: Promise<RouteParams> },
@@ -116,30 +77,42 @@ export async function GET(
     return gone();
   }
 
-  const auth = await authorize(request, show);
-  if (!auth.ok) return auth.response;
+  // Codex R4 P1: admin check FIRST (no side effects).
+  const admin = await isAdminSession(request);
+  if (!admin.ok && admin.reason === "infra_error") {
+    return NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
+  }
+  const isAdmin = admin.ok;
 
+  let supabase: ReturnType<typeof createSupabaseServiceRoleClient>;
   let showResult: { data: ShowRow | null; error: unknown };
   try {
-    const supabase = createSupabaseServiceRoleClient();
+    supabase = createSupabaseServiceRoleClient();
     showResult = (await supabase
       .from("shows")
       .select("id,published,diagrams")
       .eq("id", show)
       .maybeSingle()) as { data: ShowRow | null; error: unknown };
+  } catch {
+    return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
+  }
+  if (showResult.error) {
+    return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
+  }
+  if (!showResult.data) {
+    return gone();
+  }
+  // Codex R4 P1: published gate BEFORE link/google validators so an
+  // unpublished-show request never refreshes link_sessions.last_active_at.
+  if (!isAdmin && showResult.data.published !== true) {
+    return gone();
+  }
+  if (!isAdmin) {
+    const session = await validateCrewAssetSession(request, show);
+    if (!session.ok) return session.response;
+  }
 
-    if (showResult.error) {
-      return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
-    }
-    if (!showResult.data) {
-      return gone();
-    }
-    // Published gate: non-admin viewers cannot reach assets on unpublished
-    // shows. Matches the page-level gate at app/show/[slug]/page.tsx.
-    if (!auth.isAdmin && showResult.data.published !== true) {
-      return gone();
-    }
-
+  try {
     const diagrams = resolveCurrentDiagrams(showResult.data.diagrams);
     if (!diagrams || diagrams.snapshot_revision_id !== rev) {
       return gone();
@@ -161,13 +134,25 @@ export async function GET(
       return gone();
     }
 
-    return new Response(data, {
+    // Codex R4 P2: route-level byte ceiling. Reject oversized objects
+    // before serving + wrap the body stream in a bounded pass-through
+    // so an oversized object whose size is unknown (or wrong) still
+    // fails closed at the cap mid-stream.
+    if (typeof data.size === "number" && data.size > MAX_DIAGRAM_BYTES) {
+      return gone();
+    }
+    const boundedBody = boundedPassThroughWeb(
+      data.stream() as ReadableStream<Uint8Array>,
+      MAX_DIAGRAM_BYTES,
+    );
+    return new Response(boundedBody, {
       headers: {
         "Cache-Control": CACHE_CONTROL,
         "Content-Type": asset.mimeType,
       },
     });
-  } catch {
+  } catch (caught) {
+    if (caught instanceof ByteLimitExceededError) return gone();
     return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
   }
 }

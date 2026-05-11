@@ -3,8 +3,7 @@ import { Readable } from "node:stream";
 import { NextResponse, type NextRequest } from "next/server";
 import { getDriveClient } from "@/lib/drive/client";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
-import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
-import { validateLinkSession } from "@/lib/auth/validateLinkSession";
+import { validateCrewAssetSession } from "@/lib/auth/validateCrewAssetSession";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import {
   ByteLimitExceededError,
@@ -30,10 +29,6 @@ type ReelRow = {
   opening_reel_head_revision_id: string | null;
   opening_reel_mime_type: string | null;
 };
-
-type AuthorizeResult =
-  | { ok: true; isAdmin: boolean }
-  | { ok: false; response: Response };
 
 type DriveMetadata = {
   modifiedTime?: string | null;
@@ -116,48 +111,6 @@ async function chunkedHashFrom(data: unknown): Promise<ChunkedHashResult> {
   };
 }
 
-async function authorize(request: NextRequest, showId: string): Promise<AuthorizeResult> {
-  const admin = await isAdminSession(request);
-  if (admin.ok) return { ok: true, isAdmin: true };
-  if (admin.reason === "infra_error") {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 }),
-    };
-  }
-
-  const link = await validateLinkSession(request, { showId });
-  if (link.kind === "success") {
-    return link.viewer.showId === showId
-      ? { ok: true, isAdmin: false }
-      : { ok: false, response: new Response(null, { status: 403 }) };
-  }
-  if (link.kind === "terminal_failure") {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: link.code }, { status: link.status }),
-    };
-  }
-  if (link.priorFailure?.status === 410) {
-    return { ok: false, response: gone() };
-  }
-
-  const google = await validateGoogleSession(request, { showId });
-  if (google.kind === "success") {
-    return google.viewer.showId === showId
-      ? { ok: true, isAdmin: false }
-      : { ok: false, response: new Response(null, { status: 403 }) };
-  }
-  if (google.kind === "terminal_failure") {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: google.code }, { status: google.status }),
-    };
-  }
-
-  return { ok: false, response: new Response(null, { status: 401 }) };
-}
-
 function hasUsablePin(row: ReelRow): row is UsableReelRow {
   return Boolean(
     row.opening_reel_drive_file_id &&
@@ -200,35 +153,51 @@ function isRevisionFallbackAllowed(error: unknown): boolean {
 
 export async function GET(request: NextRequest, context: RouteContext): Promise<Response> {
   const { show } = await context.params;
-  const auth = await authorize(request, show);
-  if (!auth.ok) return auth.response;
 
+  // Codex R4 P1: admin check FIRST (no side effects).
+  const admin = await isAdminSession(request);
+  if (!admin.ok && admin.reason === "infra_error") {
+    return NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
+  }
+  const isAdmin = admin.ok;
+
+  let supabase: ReturnType<typeof createSupabaseServiceRoleClient>;
+  let lookup: { data: ReelRow | null; error: unknown };
   try {
-    const supabase = createSupabaseServiceRoleClient();
-    const { data: row, error } = (await supabase
+    supabase = createSupabaseServiceRoleClient();
+    lookup = (await supabase
       .from("shows")
       .select(
         "published,opening_reel_drive_file_id,opening_reel_drive_modified_time,opening_reel_head_revision_id,opening_reel_mime_type",
       )
       .eq("id", show)
       .maybeSingle()) as { data: ReelRow | null; error: unknown };
-    // Codex R2 P1: Supabase returned-error must NOT be collapsed into the
-    // benign-absence 410 path — surface as 500 with the cataloged code per
-    // AGENTS.md §1.9.
-    if (error) {
-      return NextResponse.json({ error: "REEL_ASSET_LOOKUP_FAILED" }, { status: 500 });
-    }
-    if (!row) {
-      return gone();
-    }
-    // Published gate: non-admin viewers cannot reach assets on unpublished
-    // shows. Matches the page-level gate at app/show/[slug]/page.tsx.
-    if (!auth.isAdmin && row.published !== true) {
-      return gone();
-    }
-    if (!hasUsablePin(row)) {
-      return gone();
-    }
+  } catch {
+    return NextResponse.json({ error: "REEL_ASSET_LOOKUP_FAILED" }, { status: 500 });
+  }
+  // Codex R2 P1: Supabase returned-error must NOT be collapsed into the
+  // benign-absence 410 path — surface as 500 per AGENTS.md §1.9.
+  if (lookup.error) {
+    return NextResponse.json({ error: "REEL_ASSET_LOOKUP_FAILED" }, { status: 500 });
+  }
+  const row = lookup.data;
+  if (!row) {
+    return gone();
+  }
+  // Codex R4 P1: published gate BEFORE link/google validators so an
+  // unpublished-show request never refreshes link_sessions.last_active_at.
+  if (!isAdmin && row.published !== true) {
+    return gone();
+  }
+  if (!isAdmin) {
+    const session = await validateCrewAssetSession(request, show);
+    if (!session.ok) return session.response;
+  }
+  if (!hasUsablePin(row)) {
+    return gone();
+  }
+
+  try {
 
     const drive = getDriveClient() as unknown as ReelDriveClient;
     const { data: current } = (await drive.files.get({

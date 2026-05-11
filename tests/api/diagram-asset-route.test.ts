@@ -31,6 +31,8 @@ const routeMock = vi.hoisted(() => ({
     },
   } as MockLinkResult,
   google: { kind: "continue" as const },
+  linkCalls: 0,
+  googleCalls: 0,
   published: true as boolean | null,
   diagrams: null as unknown,
   storageBytes: new TextEncoder().encode("diagram-bytes") as Uint8Array | null,
@@ -44,11 +46,17 @@ vi.mock("@/lib/auth/isAdminSession", () => ({
 }));
 
 vi.mock("@/lib/auth/validateLinkSession", () => ({
-  validateLinkSession: async () => routeMock.link,
+  validateLinkSession: async () => {
+    routeMock.linkCalls += 1;
+    return routeMock.link;
+  },
 }));
 
 vi.mock("@/lib/auth/validateGoogleSession", () => ({
-  validateGoogleSession: async () => routeMock.google,
+  validateGoogleSession: async () => {
+    routeMock.googleCalls += 1;
+    return routeMock.google;
+  },
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -79,7 +87,7 @@ vi.mock("@/lib/supabase/server", () => ({
             return { data: null, error: { message: "not found" } };
           }
           return {
-            data: new Blob([new TextDecoder().decode(routeMock.storageBytes)], {
+            data: new Blob([routeMock.storageBytes], {
               type: "image/png",
             }),
             error: null,
@@ -145,6 +153,8 @@ beforeEach(() => {
     viewer: { kind: "crew", showId, crewMemberId: "crew-1" },
   };
   routeMock.google = { kind: "continue" };
+  routeMock.linkCalls = 0;
+  routeMock.googleCalls = 0;
   routeMock.published = true;
   routeMock.diagrams = diagramsWithPending();
   routeMock.storageBytes = new TextEncoder().encode("diagram-bytes");
@@ -219,11 +229,29 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     expect(routeMock.storageDownloads).toEqual([]);
   });
 
+  test("Codex R4 P1: unpublished show + non-admin → 410 WITHOUT calling link/google validators (no last_active_at refresh)", async () => {
+    routeMock.published = false;
+    const res = await getDiagram();
+    expect(res.status).toBe(410);
+    // The validators have side effects (validateLinkSession refreshes
+    // link_sessions.last_active_at). Asserting zero calls pins the
+    // page-level gate ordering into the asset route.
+    expect(routeMock.linkCalls).toBe(0);
+    expect(routeMock.googleCalls).toBe(0);
+  });
+
   test("Codex R1 P1 class-sweep: admin viewer on unpublished show → 200 (admin sees drafts)", async () => {
     routeMock.admin = { ok: true } as never;
     routeMock.link = { kind: "continue" };
     routeMock.published = false;
     const res = await getDiagram();
     expect(res.status).toBe(200);
+  });
+
+  test("Codex R4 P2: oversized Storage object → 410 (route-level byte ceiling)", async () => {
+    // 60MB blob — over the 50MB MAX_DIAGRAM_BYTES route cap.
+    routeMock.storageBytes = new Uint8Array(60 * 1024 * 1024);
+    const res = await getDiagram();
+    expect(res.status).toBe(410);
   });
 });
