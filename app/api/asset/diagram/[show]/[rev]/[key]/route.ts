@@ -200,6 +200,25 @@ export async function GET(
       await fetchRes.body.cancel().catch(() => undefined);
       return gone();
     }
+    // Codex R21 P1: on a 206 response, `content-length` is only the
+    // slice size — the FULL object size lives in `Content-Range: bytes
+    // <s>-<e>/<total>`. Without this gate, a 60MB diagram could be
+    // fetched 5MB at a time through repeated Range requests, defeating
+    // the route-level 50MB cap. Parse the total and reject when it
+    // exceeds the cap regardless of slice size.
+    if (fetchRes.status === 206) {
+      const cr = fetchRes.headers.get("content-range");
+      if (cr) {
+        const match = cr.match(/^bytes \d+-\d+\/(\d+)$/);
+        if (match) {
+          const total = Number(match[1]);
+          if (Number.isFinite(total) && total > MAX_DIAGRAM_BYTES) {
+            await fetchRes.body.cancel().catch(() => undefined);
+            return gone();
+          }
+        }
+      }
+    }
     const boundedBody = boundedPassThroughWeb(
       fetchRes.body as ReadableStream<Uint8Array>,
       MAX_DIAGRAM_BYTES,

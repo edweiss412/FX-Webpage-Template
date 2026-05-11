@@ -40,6 +40,11 @@ const routeMock = vi.hoisted(() => ({
   // When set, the upstream fetch mock returns 416 with this
   // Content-Range header so route 416 forwarding (R20 P2) is testable.
   fetch416ContentRange: null as string | null,
+  // When set on a 206 response, overrides the synthetic Content-Range
+  // total — used to simulate an oversized canonical object whose slice
+  // would pass the slice-level Content-Length gate but whose full size
+  // exceeds the route's MAX_DIAGRAM_BYTES cap (Codex R21 P1).
+  fetch206TotalSizeOverride: null as number | null,
   published: true as boolean | null,
   diagrams: null as unknown,
   storageBytes: new TextEncoder().encode("diagram-bytes") as Uint8Array | null,
@@ -139,11 +144,15 @@ beforeEach(() => {
       });
     }
     if (rangeHeader) {
+      const total =
+        routeMock.fetch206TotalSizeOverride !== null
+          ? routeMock.fetch206TotalSizeOverride
+          : bytes.byteLength;
       return new Response(bytes as BlobPart, {
         status: 206,
         headers: {
           "content-length": String(bytes.byteLength),
-          "content-range": `bytes 0-${bytes.byteLength - 1}/${bytes.byteLength}`,
+          "content-range": `bytes 0-${bytes.byteLength - 1}/${total}`,
         },
       });
     }
@@ -222,6 +231,7 @@ beforeEach(() => {
   routeMock.peek = { kind: "none" };
   routeMock.lastFetchRange = null;
   routeMock.fetch416ContentRange = null;
+  routeMock.fetch206TotalSizeOverride = null;
   routeMock.published = true;
   routeMock.diagrams = diagramsWithPending();
   routeMock.storageBytes = new TextEncoder().encode("diagram-bytes");
@@ -375,6 +385,16 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     const res = await getDiagram(currentRev, assetKey, { headers: { Range: "bytes=-4" } });
     expect(res.status).toBe(206);
     expect(routeMock.lastFetchRange).toBe("bytes=-4");
+  });
+
+  test("Codex R21 P1: 206 response gates on TOTAL object size (from Content-Range), not slice size", async () => {
+    // Slice is tiny (the small fixture body) but Content-Range claims
+    // the full object is 60MB — over the 50MB MAX_DIAGRAM_BYTES cap.
+    // The route MUST 410 instead of forwarding the slice (which would
+    // let an oversized canonical object be fetched piecemeal).
+    routeMock.fetch206TotalSizeOverride = 60 * 1024 * 1024;
+    const res = await getDiagram(currentRev, assetKey, { headers: { Range: "bytes=0-3" } });
+    expect(res.status).toBe(410);
   });
 
   test("Codex R20 P2: upstream 416 forwards Content-Range to the client", async () => {
