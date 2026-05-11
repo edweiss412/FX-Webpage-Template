@@ -226,6 +226,45 @@ describe("DiagramsTile", () => {
     expect(screen.queryByTestId("gallery-stub")).toBeNull();
   });
 
+  test("Codex R13 P1: persisted SVG entry maps to available:false (no <img>, placeholder instead)", () => {
+    render(
+      <DiagramsTile
+        showId={SHOW_ID}
+        diagrams={diagrams({
+          embeddedImages: [
+            {
+              sheetTab: "DIAGRAMS",
+              objectId: "obj-1",
+              mimeType: "image/svg+xml",
+              sheetsRevisionId: "sheet-rev-1",
+              embeddedFingerprint: "fp",
+              recovery_disposition: "normal",
+              snapshotPath: `diagram-snapshots/shows/${SHOW_ID}/${REV}/embedded-obj-1.svg`,
+            },
+            {
+              sheetTab: "DIAGRAMS",
+              objectId: "obj-2",
+              mimeType: "image/png",
+              sheetsRevisionId: "sheet-rev-1",
+              embeddedFingerprint: "fp",
+              recovery_disposition: "normal",
+              snapshotPath: `diagram-snapshots/shows/${SHOW_ID}/${REV}/embedded-obj-2.png`,
+            },
+          ],
+        })}
+        agendaLinks={[]}
+      />,
+    );
+    const items = JSON.parse(
+      screen.getByTestId("gallery-stub").getAttribute("data-items") ?? "[]",
+    ) as { key: string; available: boolean }[];
+    // SVG entry MUST be unavailable (proxy would 410); raster entry
+    // stays available. Tile + route use the unified MIME allowlist at
+    // lib/data/diagrams.ts:isAllowedDiagramMime.
+    expect(items[0]?.available).toBe(false);
+    expect(items[1]?.available).toBe(true);
+  });
+
   test("crew DOM emitted by the tile contains NO drive.google.com substring", () => {
     const { container } = render(
       <DiagramsTile

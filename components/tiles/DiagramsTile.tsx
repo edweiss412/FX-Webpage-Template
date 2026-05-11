@@ -40,6 +40,7 @@
 import { Section } from "@/components/atoms/Section";
 import { Gallery, type GalleryItem } from "@/components/diagrams/Gallery";
 import { AgendaEmbed, type AgendaLink } from "@/components/agenda/AgendaEmbed";
+import { isAllowedDiagramMime } from "@/lib/data/diagrams";
 import type {
   PersistedDiagrams,
   PersistedEmbeddedImage,
@@ -67,7 +68,11 @@ function embeddedItem(entry: PersistedEmbeddedImage, ordinal: number): GalleryIt
   return {
     key: keyFromPath(entry.snapshotPath, entry.objectId),
     alt: entry.alt && entry.alt.length > 0 ? entry.alt : `Diagram ${ordinal}`,
-    available: entry.snapshotPath !== null,
+    // Codex R13 P1: availability MUST gate on the same MIME allowlist
+    // the asset route uses. Without this, a persisted `image/svg+xml`
+    // entry with a non-null snapshotPath would render as `<img>` here
+    // but always 410 at the proxy → broken image with no admin signal.
+    available: entry.snapshotPath !== null && isAllowedDiagramMime(entry.mimeType),
   };
 }
 
@@ -75,7 +80,10 @@ function linkedItem(entry: PersistedLinkedFolderItem, ordinal: number): GalleryI
   return {
     key: keyFromPath(entry.snapshotPath, entry.driveFileId),
     alt: entry.alt && entry.alt.length > 0 ? entry.alt : `Diagram ${ordinal}`,
-    available: entry.snapshotPath !== null,
+    // Codex R13 P1: see embeddedItem above. Same MIME allowlist gates
+    // availability so a linked-folder SVG entry never renders as a
+    // broken proxy URL on the crew page.
+    available: entry.snapshotPath !== null && isAllowedDiagramMime(entry.mimeType),
   };
 }
 

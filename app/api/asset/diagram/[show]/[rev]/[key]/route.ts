@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { validateCrewAssetSession } from "@/lib/auth/validateCrewAssetSession";
-import { resolveCurrentDiagrams } from "@/lib/data/diagrams";
+import { isAllowedDiagramMime, resolveCurrentDiagrams } from "@/lib/data/diagrams";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { boundedPassThroughWeb, ByteLimitExceededError } from "@/lib/sync/boundedBytes";
@@ -16,20 +16,6 @@ const DIAGRAM_BUCKET = "diagram-snapshots";
 // reach the client. 50MB is comfortably above the typical 1-5MB
 // embedded image while still bounding worker memory.
 const MAX_DIAGRAM_BYTES = 50 * 1024 * 1024;
-// Codex R6 P1 close-out: same-origin active-content gate. SVG (and any
-// XML/script-bearing image MIME) renders as a script surface when
-// loaded as a top-level same-origin document. Drive can hand back any
-// `image/*` MIME if a linked-folder file or embedded object is an SVG;
-// whitelist only inert raster formats here. The persisted MIME is
-// reflected into the Response — so we MUST reject before reflecting.
-const ALLOWED_DIAGRAM_MIMES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/jpg",
-  "image/webp",
-  "image/gif",
-]);
-
 type RouteParams = {
   show: string;
   rev: string;
@@ -137,10 +123,12 @@ export async function GET(
     if (!asset || !path) {
       return gone();
     }
-    // Codex R6 P1: MIME allowlist BEFORE serving. SVG (and any non-raster
+    // Codex R6 P1 + R13 P1: shared allowlist from `lib/data/diagrams.ts`
+    // so the page tile projection (DiagramsTile) and this route never
+    // drift on which MIMEs are renderable. SVG (and any non-raster
     // image MIME) is rejected so the proxy cannot become a same-origin
     // active-content surface for a malicious Drive file.
-    if (!ALLOWED_DIAGRAM_MIMES.has(asset.mimeType.toLowerCase())) {
+    if (!isAllowedDiagramMime(asset.mimeType)) {
       return gone();
     }
 
@@ -163,6 +151,9 @@ export async function GET(
 
     const fetchRes = await fetch(signed.data.signedUrl);
     if (!fetchRes.ok || !fetchRes.body) {
+      // Codex R13 P1: cancel the upstream body on early return so the
+      // Supabase Storage socket is released instead of left to GC.
+      await fetchRes.body?.cancel().catch(() => undefined);
       if (fetchRes.status === 404) return gone();
       return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
     }
@@ -173,6 +164,9 @@ export async function GET(
     // wrong still fails closed at the cap mid-stream.
     const declaredSize = Number(fetchRes.headers.get("content-length"));
     if (Number.isFinite(declaredSize) && declaredSize > MAX_DIAGRAM_BYTES) {
+      // Codex R13 P1: cancel upstream body when oversized pre-flight
+      // rejects — no bytes have flowed yet but the response was opened.
+      await fetchRes.body.cancel().catch(() => undefined);
       return gone();
     }
     const boundedBody = boundedPassThroughWeb(

@@ -82,29 +82,35 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
   // Track the parent container's actual width via ResizeObserver. The
   // dependency array is empty because we want to attach once on mount;
   // the observer fires on every resize after.
+  // Codex R13 P2: track the PREVIOUS actual width in a ref so the
+  // placeholder-height ratio calculation always uses the last observed
+  // width — not the mount-time `containerWidth` state captured by the
+  // effect closure. Without this, a rotation/sheet-resize made the
+  // ratio compute `prev / staleWidth`, distorting placeholder heights
+  // and breaking the windowing scroll/IO contract.
+  const prevWidthRef = useRef<number>(MAX_PAGE_WIDTH);
+
   useEffect(() => {
     const node = containerRef.current;
     if (!node) return;
     const update = () => {
       const w = Math.min(node.clientWidth, MAX_PAGE_WIDTH);
       setContainerWidth(w);
-      // Rescale the placeholder height with the new width so off-window
-      // sentinels keep their letter-paper aspect ratio until the first
-      // actual `<Page>` renders and reports its real height.
+      // Rescale the placeholder height proportionally. The ratio uses
+      // the LAST observed width (from the ref), not the closure-time
+      // state. After update, the ref advances to the new width so the
+      // next resize event computes from current.
       setPageHeight((prev) => {
-        // If we've already captured a measured height, scale it
-        // proportionally to the new width; otherwise use letter ratio.
-        const ratio = prev > 0 ? prev / containerWidth : LETTER_RATIO;
+        const baseWidth = prevWidthRef.current;
+        const ratio = prev > 0 && baseWidth > 0 ? prev / baseWidth : LETTER_RATIO;
         return Math.round(w * ratio);
       });
+      prevWidthRef.current = w;
     };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(node);
     return () => observer.disconnect();
-    // containerWidth intentionally excluded — using `prev` from the
-    // setter handles the latest captured value.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // IntersectionObserver to track the active page. The threshold-50%
