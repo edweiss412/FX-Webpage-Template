@@ -1155,6 +1155,16 @@ The seven create / extend rows above are mandatory at M6 close. Empty rows silen
 - Verification: 38/38 phase1 tests + 17/17 StagedReviewCard tests pass on my orchestrator machine. pnpm typecheck + pnpm lint clean. Negative-regression confirmed (exactly 1 test, the new one, fails on pre-fix code).
 - Note: this is the FIRST §B UI finding across 12 review rounds. Up to now every finding has been §A backend. Convergence loop is now hitting different surfaces.
 
-### Round 13 — re-review against R12 fix (pending)
+### Round 13 — re-review against R12 fix (Codex via direct `codex exec`)
 
-(Pending — to dispatch after convergence log commits.)
+- Base: `afa0906`. Head: `a63ada7` (R12 review + fix convergence log commit).
+- Codex review duration: 5m. Verdict at `/tmp/m6-r13-verdict.json`.
+- Verdict: **needs-attention.** No regressions on R1-R12 fixes — fresh-eyes audit caught 2 NEW spec-contract violations, both §A backend.
+- Findings (2, §A backend):
+  1. **[high] Phase 2 rewrites immutable show slugs** — `lib/sync/runScheduledCronSync.ts:778`. Production Phase 2 adapter updates existing shows with `set slug = $2`, while `lib/sync/phase2.ts` derives a fresh slug on every successful parse. Spec says a show slug is derived on FIRST successful parse and immutable thereafter, with collisions resolved by suffix. Title/date edits silently change crew/admin URLs (real user-visible regression). First-seen shows with duplicate derived slugs hit the unique `shows.slug` constraint because no collision retry exists. Recommendation: preserve existing `shows.slug` on update, derive slug only for inserts, implement suffix retry or equivalent collision handling for new shows inside locked Phase 2 path. Add regression tests for existing-show slug immutability and duplicate first-seen slug collisions.
+  2. **[medium] Existing-show hard failures persist invalid sync status** — `lib/sync/runScheduledCronSync.ts:498`. `updateShowParseError()` writes `last_sync_status = 'hard_fail'` for existing-show invariant failures, but spec status set uses `parse_error` (does NOT include `hard_fail`). Phase 1 fake transaction test expects `parse_error` — tested behavior diverges from production SQL adapter. Once stored, invalid status can persist through pending-review restore paths via `prior_last_sync_status`. Recommendation: change production adapter to persist `last_sync_status = 'parse_error'` and keep hard-fail code/message in `last_sync_error`; add a production-adapter or structural regression test proving no SQL writes unsupported `last_sync_status` values.
+- Routing: §A → direct `codex exec --sandbox workspace-write -c 'mcp_servers={}' < /dev/null`.
+
+### Round 14 — re-review against R13 fix (pending)
+
+(Pending — to dispatch after R13 fix SHAs land.)
