@@ -81,10 +81,12 @@ import { buildRightNowContext } from "@/components/right-now/buildRightNowContex
 import { AudioScopeTile } from "@/components/tiles/AudioScopeTile";
 import { ContactsTile } from "@/components/tiles/ContactsTile";
 import { CrewTile } from "@/components/tiles/CrewTile";
+import { DiagramsTile } from "@/components/tiles/DiagramsTile";
 import { FinancialsTile } from "@/components/tiles/FinancialsTile";
 import { LightingScopeTile } from "@/components/tiles/LightingScopeTile";
 import { LodgingTile } from "@/components/tiles/LodgingTile";
 import { NotesTile } from "@/components/tiles/NotesTile";
+import { OpeningReelTile } from "@/components/tiles/OpeningReelTile";
 import { PackListTile } from "@/components/tiles/PackListTile";
 import { ScheduleTile } from "@/components/tiles/ScheduleTile";
 import { ShowStatusTile } from "@/components/tiles/ShowStatusTile";
@@ -661,8 +663,34 @@ export default async function ShowPage({ params }: PageProps) {
                 {/*
                   ShowStatusTile (Task 4.8 / AC-4.1) — public, every-crew
                   surface. Renders coi_status + dress code + venue notes.
+                  Opening-reel rendering moved to OpeningReelTile at M7
+                  Task 7.9 (AC-7.3 / AC-7.25).
                 */}
                 <ShowStatusTile show={data.show} />
+                {/*
+                  OpeningReelTile (M7 Task 7.9 / AC-7.3 / AC-7.25).
+                  Renders the §10 URL-stripped opening_reel status AND
+                  the inline <video src="/api/asset/reel/<show>"> when
+                  all four shows.opening_reel_* pin columns are
+                  non-NULL. Whole-tile-missing per §8.3 when neither
+                  applies (e.g., text-only "TBD" cell + no pins).
+                */}
+                <OpeningReelTile
+                  showId={showId}
+                  eventDetails={data.show.event_details}
+                  hasVideo={data.openingReelHasVideo}
+                />
+                {/*
+                  DiagramsTile (M7 Task 7.9 / §10 / AC-7.1 / AC-7.2 /
+                  AC-7.2b / AC-7.4 / AC-7.7). Embedded-first gallery +
+                  inline PDF.js agenda embed. Whole-tile-missing per
+                  §8.3 when both lists are empty.
+                */}
+                <DiagramsTile
+                  showId={showId}
+                  diagrams={data.diagrams}
+                  agendaLinks={data.show.agenda_links}
+                />
                 {/*
                   FinancialsTile (Task 4.8 / AC-4.2) — LEAD/admin only.
                   Defense in depth: the projection already gates by
