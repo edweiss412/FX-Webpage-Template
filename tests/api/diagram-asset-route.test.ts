@@ -57,6 +57,10 @@ const routeMock = vi.hoisted(() => ({
   storageError: null as unknown,
   storageDownloads: [] as string[],
   fromCalls: [] as string[],
+  // Codex R24 P1: tracks whether the route issued a HEAD-method fetch
+  // against the signed URL (HEAD path verifies object existence without
+  // body bytes).
+  lastHeadFetch: false as boolean,
 }));
 
 vi.mock("@/lib/auth/isAdminSession", () => ({
@@ -134,6 +138,17 @@ beforeEach(() => {
       return new Response(null, { status: 404 });
     }
     const bytes = routeMock.storageBytes;
+    // Codex R24 P1: HEAD path needs Content-Length echoed back (and no
+    // body). Mock responds to HEAD with the same headers GET would emit
+    // but with a null body — matches Supabase Storage's signed-URL HEAD
+    // behavior.
+    if (init?.method === "HEAD") {
+      routeMock.lastHeadFetch = true;
+      return new Response(null, {
+        status: 200,
+        headers: { "content-length": String(bytes.byteLength) },
+      });
+    }
     // Capture Range header forwarded to the upstream fetch so tests can
     // assert the route forwards it correctly.
     const rangeHeader =
@@ -268,6 +283,7 @@ beforeEach(() => {
   routeMock.storageError = null;
   routeMock.storageDownloads = [];
   routeMock.fromCalls = [];
+  routeMock.lastHeadFetch = false;
 });
 
 describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
@@ -528,7 +544,7 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
   });
 
-  test("Codex R23 P2: HEAD returns 200 metadata headers without minting signed URL", async () => {
+  test("Codex R24 P1: HEAD returns 200 metadata headers AND verifies storage object exists (issues HEAD-method fetch, not body fetch)", async () => {
     const res = await headDiagram();
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
@@ -538,9 +554,13 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     const body = await res.arrayBuffer();
     expect(body.byteLength).toBe(0);
-    // HEAD must NOT mint a signed URL — that would cost a Storage RPC.
-    expect(routeMock.storageDownloads).toEqual([]);
-    // HEAD must NOT issue the upstream signed-URL fetch.
+    // R24 P1: HEAD MUST mint a signed URL + verify the canonical object
+    // exists via an upstream HEAD-method fetch (no body bytes). Without
+    // this, HEAD reports 200 for a deleted/replaced object that GET
+    // would 410 on — a HEAD/GET parity violation.
+    expect(routeMock.storageDownloads.length).toBe(1);
+    expect(routeMock.lastHeadFetch).toBe(true);
+    // HEAD must NOT issue a body-bearing GET fetch.
     expect(routeMock.lastFetchRange).toBeNull();
   });
 
@@ -569,5 +589,81 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     const res = await headDiagram(currentRev, assetKey, { headers: { Range: "bytes=0-10, 20-30" } });
     expect(res.status).toBe(416);
     expect(routeMock.storageDownloads).toEqual([]);
+  });
+
+  // ───────────────────────────────────────────────────────────────
+  // Codex R24 P1 — HEAD/GET parity contract
+  //
+  // Per RFC 9110 §9.3.2, HEAD MUST return the same status as GET would
+  // for the same input. The parity block below exercises every known
+  // failure-mode input class and asserts HEAD.status === GET.status.
+  // Adding a new failure mode requires adding a row here (so future
+  // HEAD modifications can't silently break parity).
+  // ───────────────────────────────────────────────────────────────
+
+  test("Codex R24 P1: HEAD on missing storage object → 410 (matches GET)", async () => {
+    routeMock.storageBytes = null;
+    const head = await headDiagram();
+    const get = await getDiagram();
+    expect(head.status).toBe(410);
+    expect(get.status).toBe(410);
+  });
+
+  test("Codex R24 P1: HEAD on oversized storage object → 410 (matches GET)", async () => {
+    // 60MB blob — over MAX_DIAGRAM_BYTES (50MB) cap.
+    routeMock.storageBytes = new Uint8Array(60 * 1024 * 1024);
+    const head = await headDiagram();
+    const get = await getDiagram();
+    expect(head.status).toBe(410);
+    expect(get.status).toBe(410);
+  });
+
+  test("Codex R24 P1: HEAD pre-flights unsatisfiable Range (bytes=-0 with known size) → 416 (matches GET)", async () => {
+    routeMock.storageBytes = new Uint8Array(10);
+    const head = await headDiagram(currentRev, assetKey, { headers: { Range: "bytes=-0" } });
+    expect(head.status).toBe(416);
+    expect(head.headers.get("content-range")).toBe("bytes */10");
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — unpublished show", async () => {
+    routeMock.published = false;
+    const head = await headDiagram();
+    const get = await getDiagram();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(410);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — stale revision", async () => {
+    const head = await headDiagram("44444444-4444-4444-8444-444444444444");
+    const get = await getDiagram("44444444-4444-4444-8444-444444444444");
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(410);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — unauthenticated", async () => {
+    routeMock.link = { kind: "continue" };
+    const head = await headDiagram();
+    const get = await getDiagram();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(401);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — cross-show viewer", async () => {
+    routeMock.link = {
+      kind: "success",
+      viewer: { kind: "crew", showId: "other-show", crewMemberId: "crew-1" },
+    };
+    const head = await headDiagram();
+    const get = await getDiagram();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(403);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — Storage signedUrl returns 'not found' error", async () => {
+    routeMock.storageError = { message: "Object not found", status: 404 };
+    const head = await headDiagram();
+    const get = await getDiagram();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(410);
   });
 });

@@ -582,4 +582,76 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(res.headers.get("content-range")).toBe("bytes */10");
     expect(routeMock.filesGetCalls.filter((c) => c.alt === "media")).toEqual([]);
   });
+
+  // ───────────────────────────────────────────────────────────────
+  // Codex R24 P1 — HEAD/GET parity contract pin (RFC 9110 §9.3.2)
+  // Every failure-mode input row asserts HEAD.status === GET.status.
+  // ───────────────────────────────────────────────────────────────
+
+  test("Codex R24 P1: HEAD/GET parity — unauthenticated", async () => {
+    routeMock.link = { kind: "continue" };
+    const head = await headAgenda();
+    routeMock.linkCalls = 0;
+    const get = await getAgenda();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(401);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — cross-show viewer", async () => {
+    routeMock.link = {
+      kind: "success",
+      viewer: { kind: "crew", showId: "other-show", crewMemberId: "crew-1" },
+    };
+    const head = await headAgenda();
+    const get = await getAgenda();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(403);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — unpublished show", async () => {
+    routeMock.showRow = {
+      id: showId,
+      published: false,
+      agenda_links: [{ label: "Agenda", fileId: agendaFileId }],
+    };
+    const head = await headAgenda();
+    const get = await getAgenda();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(410);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — fileId not in agenda_links", async () => {
+    const head = await headAgenda(otherFileId);
+    const get = await getAgenda(otherFileId);
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(410);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — non-PDF MIME → 410", async () => {
+    routeMock.driveMeta = { mimeType: "image/png", trashed: false };
+    const head = await headAgenda();
+    const get = await getAgenda();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(410);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — oversized Drive size pre-flight → 410", async () => {
+    routeMock.driveMeta = {
+      mimeType: "application/pdf",
+      trashed: false,
+      size: String(60 * 1024 * 1024),
+    };
+    const head = await headAgenda();
+    const get = await getAgenda();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(410);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — Drive metadata 404 → 410", async () => {
+    routeMock.driveError = Object.assign(new Error("not found"), { code: 404 });
+    const head = await headAgenda();
+    const get = await getAgenda();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(410);
+  });
 });

@@ -668,4 +668,72 @@ describe("/api/asset/reel/[show]", () => {
     expect(res.status).toBe(416);
     expect(routeMock.driveCalls.includes("revisions.media")).toBe(false);
   });
+
+  // ───────────────────────────────────────────────────────────────
+  // Codex R24 P1 — HEAD/GET parity contract pin (RFC 9110 §9.3.2)
+  // Every deterministic failure-mode input asserts HEAD == GET.
+  // Note: revisions-GC'd → md5-fallback divergence is a flake-class
+  // condition (HEAD cannot predict it without an upstream media call),
+  // so it is intentionally excluded from this parity pin.
+  // ───────────────────────────────────────────────────────────────
+
+  test("Codex R24 P1: HEAD/GET parity — unauthenticated", async () => {
+    routeMock.link = { kind: "continue" };
+    const head = await headReel();
+    routeMock.linkCalls = 0;
+    const get = await getReel();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(401);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — cross-show viewer", async () => {
+    routeMock.link = {
+      kind: "success",
+      viewer: { kind: "crew", showId: "other-show", crewMemberId: "crew-1" },
+    };
+    const head = await headReel();
+    const get = await getReel();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(403);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — unpublished show", async () => {
+    routeMock.show = { ...routeMock.show, published: false };
+    const head = await headReel();
+    const get = await getReel();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(410);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — non-allowlisted MIME", async () => {
+    routeMock.show = { ...routeMock.show, opening_reel_mime_type: "video/x-flv" };
+    const head = await headReel();
+    const get = await getReel();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(410);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — drift (modtime/headRev mismatch)", async () => {
+    routeMock.current = { ...routeMock.current, headRevisionId: "newer-rev" };
+    const head = await headReel();
+    const get = await getReel();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(410);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — oversized Drive size pre-flight", async () => {
+    routeMock.current = { ...routeMock.current, size: String(513 * 1024 * 1024) };
+    const head = await headReel();
+    const get = await getReel();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(410);
+  });
+
+  test("Codex R24 P1: HEAD/GET parity — Supabase returned-error → 500", async () => {
+    routeMock.supabaseError = { code: "PGRST500", message: "infra fault" };
+    const head = await headReel();
+    const get = await getReel();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(500);
+  });
 });

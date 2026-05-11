@@ -152,11 +152,23 @@ async function authorizeDiagramRequest(
   return { ok: true, asset, storageObjectPath, supabase };
 }
 
-// Codex R23 P2: explicit HEAD handler. Without this, Next's App Router
-// auto-implements HEAD by running GET and stripping the body — which
-// runs the full Supabase Storage signed-URL + fetch + stream open just
-// to discard the bytes. HEAD now returns metadata-only headers after
-// the same auth chain.
+// Codex R24 P1: HEAD/GET parity contract.
+//
+// Per RFC 9110 §9.3.2, HEAD "is identical to GET except that the server
+// MUST NOT send content in the response" — meaning a HEAD response MUST
+// return the SAME STATUS that GET would have produced for the same
+// input. The R23 HEAD implementation returned 200 from DB-manifest
+// state alone, so a deleted/replaced canonical Storage object would
+// produce HEAD-200 but GET-410. That is a HEAD/GET parity violation.
+//
+// HEAD now mints the same signed URL GET would and issues an upstream
+// HEAD fetch to verify (a) the object exists and (b) its size is within
+// the route cap, returning the same 410/416/500 classes GET would. The
+// route never opens the upstream BODY stream — the HEAD response is
+// strictly metadata-only.
+//
+// The HEAD/GET parity invariant is pinned by the per-route parity test
+// block; modifying HEAD without keeping parity will fail those tests.
 export async function HEAD(
   request: NextRequest,
   context: { params: Promise<RouteParams> },
@@ -178,16 +190,73 @@ export async function HEAD(
     });
   }
 
-  return new Response(null, {
-    status: 200,
-    headers: {
+  // Codex R24 P1: verify the canonical storage object exists + fits the
+  // byte cap before reporting 200. Without this check, HEAD returns
+  // success for an asset whose bytes GET cannot deliver.
+  try {
+    const signed = await authz.supabase.storage
+      .from(DIAGRAM_BUCKET)
+      .createSignedUrl(authz.storageObjectPath, 60);
+    if (signed.error) {
+      if (isStorageNotFound(signed.error)) return gone();
+      return infraError("DIAGRAM_ASSET_LOOKUP_FAILED");
+    }
+    if (!signed.data?.signedUrl) return gone();
+
+    // Upstream HEAD: probe existence + size without transferring bytes.
+    const headRes = await fetch(signed.data.signedUrl, { method: "HEAD" });
+    if (!headRes.ok) {
+      if (headRes.status === 404 || headRes.status === 410) return gone();
+      return infraError("DIAGRAM_ASSET_LOOKUP_FAILED");
+    }
+    const sizeStr = headRes.headers.get("content-length");
+    const declaredSize = sizeStr ? Number(sizeStr) : NaN;
+    if (Number.isFinite(declaredSize) && declaredSize > MAX_DIAGRAM_BYTES) {
+      return gone();
+    }
+
+    // Pre-flight Range satisfiability now that we know the size. Matches
+    // GET's R20 behavior (Drive 416 forwards Content-Range total).
+    if (rangeHeader && Number.isFinite(declaredSize)) {
+      const suffixMatch = rangeHeader.match(/^bytes=-(\d+)$/);
+      const explicitMatch = rangeHeader.match(/^bytes=(\d+)-(\d*)$/);
+      let unsatisfiable = false;
+      if (suffixMatch) {
+        const suffix = Number(suffixMatch[1]);
+        if (!Number.isFinite(suffix) || suffix <= 0) unsatisfiable = true;
+        if (declaredSize === 0) unsatisfiable = true;
+      } else if (explicitMatch) {
+        const start = Number(explicitMatch[1]);
+        const end = explicitMatch[2] ? Number(explicitMatch[2]) : declaredSize - 1;
+        if (!Number.isFinite(start) || !Number.isFinite(end)) unsatisfiable = true;
+        else if (start > end || start >= declaredSize) unsatisfiable = true;
+      }
+      if (unsatisfiable) {
+        return new Response(null, {
+          status: 416,
+          headers: {
+            "Accept-Ranges": "bytes",
+            "Cache-Control": CACHE_CONTROL,
+            "Content-Range": `bytes */${declaredSize}`,
+          },
+        });
+      }
+    }
+
+    const headers: Record<string, string> = {
       "Cache-Control": CACHE_CONTROL,
       "Content-Type": authz.asset.mimeType,
       "X-Content-Type-Options": "nosniff",
       "Accept-Ranges": "bytes",
       Vary: "Range",
-    },
-  });
+    };
+    if (Number.isFinite(declaredSize)) {
+      headers["Content-Length"] = String(declaredSize);
+    }
+    return new Response(null, { status: 200, headers });
+  } catch {
+    return infraError("DIAGRAM_ASSET_LOOKUP_FAILED");
+  }
 }
 
 export async function GET(
