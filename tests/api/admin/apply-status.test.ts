@@ -163,6 +163,25 @@ describe("GET /api/admin/show/[slug]/apply/[applyId]/status", () => {
     });
   });
 
+  test("GC-claimed rows no longer referenced by pending report rolled_back", async () => {
+    statusMock.ledger = {
+      ...statusMock.ledger!,
+      promoted_at: null,
+      promote_started_at: null,
+      claim_token: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    };
+    statusMock.show = {
+      id: showId,
+      diagrams: { current: {}, pending: { revision_id: "newer-rev" } },
+    };
+
+    await expect((await getStatus()).json()).resolves.toMatchObject({
+      status: "rolled_back",
+      snapshot_revision_id: applyId,
+    });
+  });
+
+
   test("non-admin and show-mismatch requests do not expose ledger state", async () => {
     statusMock.requireAdmin.mockRejectedValueOnce(new Error("forbidden"));
     expect((await getStatus()).status).toBe(403);

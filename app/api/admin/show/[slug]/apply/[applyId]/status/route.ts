@@ -55,7 +55,7 @@ function statusFor(row: LedgerRow, show: ShowRow): Record<string, unknown> {
     return { status: "pending", ...base };
   }
 
-  if (!row.claim_token && pendingRevision(show.diagrams) !== row.snapshot_revision_id) {
+  if (!row.promote_started_at && pendingRevision(show.diagrams) !== row.snapshot_revision_id) {
     return { status: "rolled_back", ...base };
   }
 

@@ -57,6 +57,19 @@ describe("verifyReelOnApply", () => {
     });
   });
 
+  test("transient Drive metadata failures throw instead of clearing reel pins", async () => {
+    const failure = new Error("drive timeout");
+
+    await expect(
+      verifyReelOnApply(staged, {
+        getFileMetadata: async () => {
+          throw failure;
+        },
+      }),
+    ).rejects.toBe(failure);
+  });
+
+
   test("non-video MIME clears all reel columns with OPENING_REEL_NOT_VIDEO", async () => {
     const result = await verifyReelOnApply(staged, {
       getFileMetadata: async () => ({
