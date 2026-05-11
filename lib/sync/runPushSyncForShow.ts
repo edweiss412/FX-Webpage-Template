@@ -1,3 +1,4 @@
+import { getActiveWatchedFolderId } from "@/lib/appSettings/getWatchedFolderId";
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -5,6 +6,9 @@ import {
   processOneFile,
   type ProcessOneFileDeps,
   type ProcessOneFileResult,
+  SHEET_UNAVAILABLE,
+  STAGED_PARSE_SOURCE_GONE,
+  SYNC_INFRA_ERROR,
 } from "@/lib/sync/runScheduledCronSync";
 import { writeSyncLog } from "@/lib/sync/syncLog";
 import { SyncInfraError } from "@/lib/sync/perFileProcessor";
@@ -23,6 +27,7 @@ type PushDuplicatePendingSyncRow = {
 
 export type RunPushSyncForShowDeps = {
   fileMeta?: DriveListedFile;
+  getActiveWatchedFolderId?: typeof getActiveWatchedFolderId;
   fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
   readPushDuplicatePreflight?: (
     driveFileId: string,
@@ -36,6 +41,18 @@ export type RunPushSyncForShowDeps = {
   ) => Promise<ProcessOneFileResult>;
   logSync?: ProcessOneFileDeps["logSync"];
 };
+
+function driveErrorStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const candidate = error as { code?: unknown; status?: unknown; response?: { status?: unknown } };
+  const value = candidate.code ?? candidate.status ?? candidate.response?.status;
+  return typeof value === "number" ? value : null;
+}
+
+function isDriveSourceGone(error: unknown): boolean {
+  const status = driveErrorStatus(error);
+  return status === 404 || status === 410;
+}
 
 function timestampMs(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -102,13 +119,67 @@ async function readPushDuplicatePreflight(
   }
 }
 
+async function fetchScopedPushFileMeta(
+  driveFileId: string,
+  deps: RunPushSyncForShowDeps,
+  logSync: NonNullable<RunPushSyncForShowDeps["logSync"]>,
+): Promise<DriveListedFile | Extract<ProcessOneFileResult, { outcome: "source_gone" | "parse_error" }>> {
+  const folderResult = await (deps.getActiveWatchedFolderId ?? getActiveWatchedFolderId)();
+  if ("kind" in folderResult) {
+    const result = { outcome: "parse_error" as const, code: SYNC_INFRA_ERROR };
+    await logSync({
+      driveFileId,
+      outcome: result.outcome,
+      code: result.code,
+      payload: {
+        kind: "push_no_watched_folder_scope",
+        reason: folderResult.kind,
+      },
+    });
+    return result;
+  }
+
+  let fileMeta: DriveListedFile;
+  try {
+    fileMeta = await (deps.fetchDriveFileMetadata ?? fetchDriveFileMetadata)(driveFileId);
+  } catch (error) {
+    const result = isDriveSourceGone(error)
+      ? { outcome: "source_gone" as const, code: STAGED_PARSE_SOURCE_GONE }
+      : { outcome: "parse_error" as const, code: SYNC_INFRA_ERROR };
+    await logSync({
+      driveFileId,
+      outcome: result.outcome === "source_gone" ? "error" : result.outcome,
+      code: result.code,
+    });
+    return result;
+  }
+
+  const watchedFolderId = folderResult.folderId;
+  if (!fileMeta.parents.includes(watchedFolderId)) {
+    const result = { outcome: "source_gone" as const, code: SHEET_UNAVAILABLE };
+    await logSync({
+      driveFileId,
+      outcome: "error",
+      code: result.code,
+      payload: {
+        kind: "push_source_out_of_scope",
+        watchedFolderId,
+        parents: fileMeta.parents,
+      },
+    });
+    return result;
+  }
+
+  return fileMeta;
+}
+
 export async function runPushSyncForShow(
   driveFileId: string,
   deps: RunPushSyncForShowDeps = {},
 ): Promise<ProcessOneFileResult> {
-  const fileMeta =
-    deps.fileMeta ?? (await (deps.fetchDriveFileMetadata ?? fetchDriveFileMetadata)(driveFileId));
   const logSync = deps.logSync ?? writeSyncLog;
+  const fileMeta = deps.fileMeta ?? (await fetchScopedPushFileMeta(driveFileId, deps, logSync));
+  if ("outcome" in fileMeta) return fileMeta;
   const preflight = await (deps.readPushDuplicatePreflight ?? readPushDuplicatePreflight)(
     driveFileId,
     fileMeta,
