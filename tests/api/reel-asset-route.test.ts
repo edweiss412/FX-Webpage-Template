@@ -356,12 +356,31 @@ describe("/api/asset/reel/[show]", () => {
     expect(res.headers.get("accept-ranges")).toBe("bytes");
   });
 
-  test("Codex R14 P1: Range request that loses Pattern A → 410 (no md5-fallback for partial)", async () => {
+  test("Codex R15 P1: Range request that loses Pattern A → 206 from md5-verified fallback", async () => {
+    // 10-byte body so `bytes=0-9` slices the whole thing.
+    routeMock.fallbackBytes = new TextEncoder().encode("reel-bytes"); // length 10
+    routeMock.current = {
+      ...routeMock.current,
+      md5Checksum: md5(routeMock.fallbackBytes),
+    };
     routeMock.revisionError = { code: 404 };
-    const res = await getReel({ headers: { Range: "bytes=0-9" } });
-    expect(res.status).toBe(410);
-    // Must NOT have called the fallback files.media branch.
-    expect(routeMock.driveCalls).toEqual(["files.metadata", "revisions.media"]);
+    const res = await getReel({ headers: { Range: "bytes=0-4" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("content-range")).toMatch(/^bytes 0-4\/10$/);
+    expect(res.headers.get("content-length")).toBe("5");
+    expect(routeMock.driveCalls).toEqual(["files.metadata", "revisions.media", "files.media"]);
+  });
+
+  test("Codex R15 P1: Range request beyond body via fallback → 416 (no body slice)", async () => {
+    routeMock.fallbackBytes = new TextEncoder().encode("reel-bytes");
+    routeMock.current = {
+      ...routeMock.current,
+      md5Checksum: md5(routeMock.fallbackBytes),
+    };
+    routeMock.revisionError = { code: 404 };
+    const res = await getReel({ headers: { Range: "bytes=100-200" } });
+    expect(res.status).toBe(416);
+    expect(res.headers.get("content-range")).toBe("bytes */10");
   });
 
   test("Codex R8 P1: non-allowlisted video MIME → 410 (no fallback to broad prefix gate)", async () => {

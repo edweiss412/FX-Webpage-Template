@@ -93,6 +93,40 @@ type ReelDriveClient = {
 // surface than v1 needs.
 const SINGLE_RANGE_RE = /^bytes=\d+-\d*$/;
 
+type ParsedRange = { start: number; end: number };
+
+function parseSingleRange(
+  header: string,
+  totalBytes: number,
+): ParsedRange | "unsatisfiable" | null {
+  if (!SINGLE_RANGE_RE.test(header)) return null;
+  const match = /^bytes=(\d+)-(\d*)$/.exec(header);
+  if (!match) return null;
+  const start = Number(match[1]);
+  const end = match[2] ? Number(match[2]) : totalBytes - 1;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  if (start > end || start >= totalBytes) return "unsatisfiable";
+  return { start, end: Math.min(end, totalBytes - 1) };
+}
+
+function sliceChunks(chunks: Uint8Array[], start: number, end: number): Uint8Array[] {
+  const result: Uint8Array[] = [];
+  let cursor = 0;
+  for (const chunk of chunks) {
+    const chunkStart = cursor;
+    const chunkEnd = cursor + chunk.byteLength;
+    cursor = chunkEnd;
+    if (chunkEnd <= start) continue;
+    if (chunkStart > end) break;
+    const localStart = Math.max(0, start - chunkStart);
+    const localEnd = Math.min(chunk.byteLength, end - chunkStart + 1);
+    if (localEnd > localStart) {
+      result.push(chunk.subarray(localStart, localEnd));
+    }
+  }
+  return result;
+}
+
 function pickStringHeader(headers: ReelDriveResponse["headers"], name: string): string | null {
   if (!headers) return null;
   const value = headers[name] ?? headers[name.toLowerCase()];
@@ -319,12 +353,6 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       if (contentLength) responseHeaders["Content-Length"] = contentLength;
       return new Response(stream, { status: driveStatus, headers: responseHeaders });
     } catch (revisionsError) {
-      // Codex R14 P1: Range requests have no Range-capable fallback.
-      // The md5 fallback below requires hashing the FULL body — which
-      // is incompatible with a partial-range client. 410 instead so
-      // the browser gives up gracefully rather than receiving full
-      // bytes when it asked for a slice.
-      if (rangeHeader) return gone();
       if (!isRevisionFallbackAllowed(revisionsError)) throw revisionsError;
       const { data } = (await drive.files.get(
         {
@@ -344,6 +372,44 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       const result = await chunkedHashFrom(data);
       if (!current.md5Checksum || result.md5Hex !== current.md5Checksum) {
         return gone();
+      }
+      // Codex R15 P1: the fallback path now serves Range too. Native
+      // <video preload="metadata"> issues Range on every load; without
+      // Range support on this branch a reel that depends on the
+      // fallback (Pattern A revision GC'd / 404) would fail to load
+      // entirely. After md5 verify, slice the already-buffered chunks
+      // to satisfy the requested range and return 206.
+      if (rangeHeader) {
+        const parsed = parseSingleRange(rangeHeader, result.totalBytes);
+        if (parsed === "unsatisfiable") {
+          return new Response(null, {
+            status: 416,
+            headers: {
+              "Accept-Ranges": "bytes",
+              "Cache-Control": CACHE_CONTROL,
+              "Content-Range": `bytes */${result.totalBytes}`,
+            },
+          });
+        }
+        if (parsed) {
+          const sliced = sliceChunks(result.chunks, parsed.start, parsed.end);
+          const sliceLength = parsed.end - parsed.start + 1;
+          return new Response(webStreamFromChunks(sliced), {
+            status: 206,
+            headers: {
+              "Cache-Control": CACHE_CONTROL,
+              "Content-Type": row.opening_reel_mime_type,
+              "Content-Length": String(sliceLength),
+              "Content-Range": `bytes ${parsed.start}-${parsed.end}/${result.totalBytes}`,
+              "X-Content-Type-Options": "nosniff",
+              "Accept-Ranges": "bytes",
+            },
+          });
+        }
+        // Range header was present but failed the format gate. The
+        // route-level malformed-range check already 416'd before this
+        // branch; reaching here means the parsed gate disagreed — fall
+        // through to the full-body response.
       }
       return new Response(webStreamFromChunks(result.chunks), {
         headers: {
