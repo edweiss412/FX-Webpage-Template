@@ -15,6 +15,7 @@ describe("Vercel cron schedules", () => {
         { path: "/api/cron/refresh-watch", schedule: "0 * * * *" },
         { path: "/api/cron/gc-watch", schedule: "15 * * * *" },
         { path: "/api/cron/asset-recovery", schedule: "*/15 * * * *" },
+        { path: "/api/cron/diagram-gc", schedule: "30 * * * *" },
       ]),
     );
   });

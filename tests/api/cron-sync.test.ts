@@ -10,6 +10,11 @@ const cronMock = vi.hoisted(() => ({
   runAssetRecoveryCron: vi.fn(async () => ({
     processed: [{ showId: "show-1", result: { outcome: "recovered", snapshotRevisionId: "rev-1" } }],
   })),
+  runDiagramGc: vi.fn(async () => ({
+    orphanBlobsDeleted: 1,
+    pendingPrefixesDeleted: 2,
+    promotedRowsDeleted: 3,
+  })),
   writeSyncLog: vi.fn(async () => undefined),
 }));
 
@@ -28,6 +33,10 @@ vi.mock("@/lib/drive/watch", () => ({
 
 vi.mock("@/lib/sync/assetRecovery", () => ({
   runAssetRecoveryCron: cronMock.runAssetRecoveryCron,
+}));
+
+vi.mock("@/lib/sync/diagramGc", () => ({
+  runDiagramGc: cronMock.runDiagramGc,
 }));
 
 describe("/api/cron/sync", () => {
@@ -228,5 +237,49 @@ describe("/api/cron/asset-recovery", () => {
       ],
     });
     expect(cronMock.runAssetRecoveryCron).toHaveBeenCalledOnce();
+  });
+});
+
+describe("/api/cron/diagram-gc", () => {
+  const originalSecret = process.env.CRON_SECRET;
+
+  beforeEach(() => {
+    cronMock.runDiagramGc.mockClear();
+    process.env.CRON_SECRET = "cron-test-secret";
+  });
+
+  afterEach(() => {
+    if (originalSecret === undefined) {
+      delete process.env.CRON_SECRET;
+    } else {
+      process.env.CRON_SECRET = originalSecret;
+    }
+  });
+
+  test("GET rejects requests without the Vercel cron auth header", async () => {
+    const { GET } = await import("@/app/api/cron/diagram-gc/route");
+
+    const response = await GET(new NextRequest("https://crew.fxav.test/api/cron/diagram-gc"));
+
+    expect(response.status).toBe(401);
+    expect(cronMock.runDiagramGc).not.toHaveBeenCalled();
+  });
+
+  test("GET runs diagram GC and returns a machine-readable summary", async () => {
+    const { GET } = await import("@/app/api/cron/diagram-gc/route");
+
+    const response = await GET(
+      new NextRequest("https://crew.fxav.test/api/cron/diagram-gc", {
+        headers: { authorization: "Bearer cron-test-secret" },
+      }),
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      orphanBlobsDeleted: 1,
+      pendingPrefixesDeleted: 2,
+      promotedRowsDeleted: 3,
+    });
+    expect(cronMock.runDiagramGc).toHaveBeenCalledOnce();
   });
 });

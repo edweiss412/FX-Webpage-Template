@@ -119,6 +119,17 @@ const infraRegistry = [
     contract:
       "apply-time reel re-verification uses an explicit Drive port; Drive permission and drift faults become warning-coded results",
   },
+  {
+    helper: "runDiagramGc",
+    path: "lib/sync/diagramGc.ts",
+    contract:
+      "diagram GC uses explicit tx/storage ports; Supabase/storage boundary faults surface at the caller-owned port layer",
+  },
+  {
+    helper: "runDiagramGc",
+    path: "app/api/cron/diagram-gc/route.ts",
+    contract: "diagram GC cron route delegates to the registered backend scheduler surface",
+  },
 ] as const;
 
 function read(path: string): string {

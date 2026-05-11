@@ -29,7 +29,11 @@ describe("M7 storage write surface contract", () => {
       .filter((path) => readFileSync(join(root, path), "utf8").includes("diagram-snapshots/shows"))
       .sort();
 
-    expect(surfaces).toEqual(["lib/sync/assetRecovery.ts", "lib/sync/snapshotAssets.ts"]);
+    expect(surfaces).toEqual([
+      "lib/sync/assetRecovery.ts",
+      "lib/sync/diagramGc.ts",
+      "lib/sync/snapshotAssets.ts",
+    ]);
     for (const surface of surfaces) {
       expect(ALLOWED_STORAGE_PATH_SURFACES).toContain(
         surface as (typeof ALLOWED_STORAGE_PATH_SURFACES)[number],
