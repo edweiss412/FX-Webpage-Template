@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
 import { validateLinkSession } from "@/lib/auth/validateLinkSession";
+import { resolveCurrentDiagrams } from "@/lib/data/diagrams";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
@@ -15,13 +16,9 @@ type RouteParams = {
   key: string;
 };
 
-type DiagramsPayload =
-  | PersistedDiagrams
-  | { current?: PersistedDiagrams | null; pending?: unknown };
-
 type ShowRow = {
   id: string;
-  diagrams: DiagramsPayload | null;
+  diagrams: unknown;
 };
 
 type AssetEntry = {
@@ -31,12 +28,6 @@ type AssetEntry = {
 
 function gone(): Response {
   return new Response(null, { status: 410, headers: { "Cache-Control": CACHE_CONTROL } });
-}
-
-function currentDiagrams(diagrams: DiagramsPayload | null): PersistedDiagrams | null {
-  if (!diagrams) return null;
-  if ("snapshot_revision_id" in diagrams) return diagrams;
-  return diagrams.current ?? null;
 }
 
 function canonicalPath(showId: string, rev: string, key: string): string {
@@ -126,7 +117,7 @@ export async function GET(
       return gone();
     }
 
-    const diagrams = currentDiagrams(showResult.data.diagrams);
+    const diagrams = resolveCurrentDiagrams(showResult.data.diagrams);
     if (!diagrams || diagrams.snapshot_revision_id !== rev) {
       return gone();
     }
