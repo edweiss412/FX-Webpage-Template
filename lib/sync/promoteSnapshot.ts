@@ -11,6 +11,7 @@ type PendingPromotionRow = {
   temp_prefix: string;
   snapshot_revision_id: string;
   asset_count: number;
+  expected_asset_count?: number;
 };
 
 export type PromoteSnapshotStorage = {
@@ -82,9 +83,20 @@ async function readRow(snapshotRevisionId: string): Promise<PendingPromotionRow 
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
   try {
     const rows = await sql<PendingPromotionRow[]>`
-      select id::text, show_id::text, drive_file_id, temp_prefix, snapshot_revision_id::text, asset_count
-        from public.pending_snapshot_uploads
-       where snapshot_revision_id = ${snapshotRevisionId}::uuid
+      select p.id::text, p.show_id::text, p.drive_file_id, p.temp_prefix,
+             p.snapshot_revision_id::text, p.asset_count,
+             (
+               select count(*)::int
+                 from jsonb_array_elements(coalesce(s.diagrams->'pending'->'embeddedImages', '[]'::jsonb)) e
+                where e->>'snapshotPath' is not null
+             ) + (
+               select count(*)::int
+                 from jsonb_array_elements(coalesce(s.diagrams->'pending'->'linkedFolderItems', '[]'::jsonb)) l
+                where l->>'snapshotPath' is not null
+             ) as expected_asset_count
+        from public.pending_snapshot_uploads p
+        left join public.shows s on s.id = p.show_id
+       where p.snapshot_revision_id = ${snapshotRevisionId}::uuid
        limit 1
     `;
     return rows[0] ?? null;
@@ -109,18 +121,37 @@ export async function promoteSnapshotUpload(
          where snapshot_revision_id = $1::uuid
            and claim_token is null
            and delete_started_at is null
-         returning id::text, show_id::text, drive_file_id, temp_prefix, snapshot_revision_id::text, promoted_at::text
-                 , asset_count
+         returning id::text, show_id::text, drive_file_id, temp_prefix, snapshot_revision_id::text,
+                   promoted_at::text, asset_count
       `,
       [snapshotRevisionId],
     );
 
     if (!row) return { outcome: "not_found" };
     if (row.promoted_at) return { outcome: "already_promoted", snapshotRevisionId };
+    const expected = await tx.queryOne<{ count: number }>(
+      `
+        select (
+          select count(*)::int
+            from public.shows s,
+                 jsonb_array_elements(coalesce(s.diagrams->'pending'->'embeddedImages', '[]'::jsonb)) e
+           where s.id = $1::uuid
+             and e->>'snapshotPath' is not null
+        ) + (
+          select count(*)::int
+            from public.shows s,
+                 jsonb_array_elements(coalesce(s.diagrams->'pending'->'linkedFolderItems', '[]'::jsonb)) l
+           where s.id = $1::uuid
+             and l->>'snapshotPath' is not null
+        ) as count
+      `,
+      [row.show_id],
+    );
 
     const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
     const paths = await storage.list(row.temp_prefix);
-    if (paths.length !== row.asset_count) {
+    const expectedAssetCount = expected.count;
+    if (paths.length !== expectedAssetCount) {
       return { outcome: "manifest_mismatch", snapshotRevisionId };
     }
 
@@ -139,7 +170,7 @@ export async function promoteSnapshotUpload(
       }
 
       const canonicalPaths = await storage.list(canonical);
-      if (canonicalPaths.length !== row.asset_count) {
+      if (canonicalPaths.length !== expectedAssetCount) {
         await rollback();
         return { outcome: "manifest_mismatch", snapshotRevisionId };
       }
@@ -240,6 +271,14 @@ export async function repairSnapshotRollback(
 
   const storage = deps.storage ?? defaultStorage();
   return await withPromoteLock(row.show_id, async (tx) => {
+    const locked = await tx.queryOne<{ promoted_at: string | null } | null>(
+      "select promoted_at::text from public.pending_snapshot_uploads where id = $1::uuid",
+      [ledgerId],
+    );
+    if (!locked) return { outcome: "not_found" };
+    if (locked.promoted_at) {
+      return { outcome: "not_stuck", snapshotRevisionId: row.snapshot_revision_id };
+    }
     const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
     for (const path of await storage.list(canonical)) {
       await storage.move(path, `${row.temp_prefix}${basename(path)}`);
@@ -259,6 +298,7 @@ export async function repairSnapshotRollback(
                  claimed_at = null,
                  claim_expires_at = null
            where p.id = $2::uuid
+             and promoted_at is null
            returning p.id
         )
         select true as ok

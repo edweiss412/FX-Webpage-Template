@@ -222,6 +222,7 @@ export type EmbeddedImageStub = {
   objectId: string; // Sheets API object id
   mimeType: string;
   alt?: string;
+  contentUrl?: string | null;
   sheetsRevisionId: string; // spreadsheet headRevisionId at extraction time (immutable approval token)
   embeddedFingerprint: string | null; // base64url(SHA-256(<full image bytes>)). NOT an ETag. null forces restage-only recovery
   // per-entry recovery disposition. 'normal' allows asset_recovery retries;

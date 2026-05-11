@@ -17,6 +17,7 @@ import {
   type DriveClient,
   type DriveFileMeta,
 } from "@/lib/sync/enrichWithDrivePins";
+import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import {
   assertShowLockHeld,
   CONCURRENT_SYNC_SKIPPED,
@@ -94,9 +95,22 @@ type LiveDeferralTx = {
   deleteLiveDeferral(driveFileId: string): Promise<void>;
 };
 
+type SnapshotApplyTx = {
+  readShowId?(driveFileId: string): Promise<string | null>;
+  insertPendingSnapshotUpload(row: {
+    showId: string;
+    driveFileId: string;
+    tempPrefix: string;
+    snapshotRevisionId: string;
+    assetCount: number;
+  }): Promise<void>;
+  markPendingSnapshotDeleteStarted?(snapshotRevisionId: string): Promise<void>;
+};
+
 export type SyncPipelineTx = LockableSyncTx &
   Phase1Tx &
   Phase2Tx &
+  Partial<SnapshotApplyTx> &
   Partial<RevisionRaceCooldownTx> &
   Partial<LiveDeferralTx>;
 
@@ -294,6 +308,47 @@ class PostgresPipelineTx implements SyncPipelineTx {
     if (!row?.diagrams || typeof row.diagrams !== "object") return null;
     if ("current" in row.diagrams) return (row.diagrams as { current?: unknown }).current ?? null;
     return row.diagrams;
+  }
+
+  async readShowId(driveFileId: string): Promise<string | null> {
+    const row = await this.one<{ id: string }>(
+      "select id from public.shows where drive_file_id = $1 limit 1",
+      [driveFileId],
+    );
+    return row?.id ?? null;
+  }
+
+  async insertPendingSnapshotUpload(row: {
+    showId: string;
+    driveFileId: string;
+    tempPrefix: string;
+    snapshotRevisionId: string;
+    assetCount: number;
+  }): Promise<void> {
+    await this.rows(
+      `
+        insert into public.pending_snapshot_uploads (
+          show_id, drive_file_id, temp_prefix, snapshot_revision_id, asset_count
+        )
+        values ($1::uuid, $2, $3, $4::uuid, $5)
+      `,
+      [row.showId, row.driveFileId, row.tempPrefix, row.snapshotRevisionId, row.assetCount],
+    );
+  }
+
+  async markPendingSnapshotDeleteStarted(snapshotRevisionId: string): Promise<void> {
+    await this.rows(
+      `
+        update public.pending_snapshot_uploads
+           set claim_token = coalesce(claim_token, gen_random_uuid()),
+               claimed_at = coalesce(claimed_at, now()),
+               claim_expires_at = coalesce(claim_expires_at, now()),
+               delete_started_at = now()
+         where snapshot_revision_id = $1::uuid
+           and promoted_at is null
+      `,
+      [snapshotRevisionId],
+    );
   }
 
   async readShowForPhase1(driveFileId: string) {
@@ -1920,6 +1975,13 @@ export async function processOneFile_unlocked(
     return result;
   }
 
+  const snapshotAssetsForApply = await (async () => {
+    if (!tx.insertPendingSnapshotUpload) return undefined;
+    const showId = await tx.readShowId?.(driveFileId);
+    return showId
+      ? makeSnapshotAssetsForApply(showId, tx as Parameters<typeof makeSnapshotAssetsForApply>[1])
+      : undefined;
+  })();
   const phase2 = await runPhase2_unlocked(
     tx,
     {
@@ -1928,6 +1990,7 @@ export async function processOneFile_unlocked(
       fileMeta,
       parseResult: pipeline.parseResult,
       binding: pipeline.binding,
+      ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
     },
     deps,
   );

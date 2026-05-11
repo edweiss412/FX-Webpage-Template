@@ -24,6 +24,7 @@ import {
   type SyncPipelineTx,
   withPostgresSyncPipelineLock,
 } from "@/lib/sync/runScheduledCronSync";
+import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 
 export const PENDING_SYNC_NOT_FOUND = "PENDING_SYNC_NOT_FOUND" as const;
 export const STAGED_PARSE_SUPERSEDED = "STAGED_PARSE_SUPERSEDED" as const;
@@ -1171,12 +1172,20 @@ export async function applyStaged_unlocked(
   const assetAdjusted = deps.liveAssetReviewEffects;
   if (!assetAdjusted) return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
 
+  const snapshotAssetsForApply =
+    show?.showId && tx.insertPendingSnapshotUpload
+      ? makeSnapshotAssetsForApply(
+          show.showId,
+          tx as Parameters<typeof makeSnapshotAssetsForApply>[1],
+        )
+      : undefined;
   const phase2 = await deps.runPhase2(tx, {
     driveFileId: pending.driveFileId,
     mode: "manual",
     fileMeta: metadata,
     parseResult: assetAdjusted.parseResult,
     skipDiagramsWrite: assetAdjusted.skipDiagramsWrite,
+    ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
     binding: {
       bindingToken: pending.stagedModifiedTime,
       modifiedTime: pending.stagedModifiedTime,

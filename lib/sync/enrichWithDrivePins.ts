@@ -165,7 +165,11 @@ async function extractEmbeddedImages(
   for (const object of keptObjects) {
     let bytes: Uint8Array | null = null;
     if (object.contentUrl && driveClient.getEmbeddedImageBytes) {
-      bytes = await driveClient.getEmbeddedImageBytes(ctx.driveFileId, object.objectId, object.contentUrl);
+      bytes = await driveClient.getEmbeddedImageBytes(
+        ctx.driveFileId,
+        object.objectId,
+        object.contentUrl,
+      );
     }
 
     if (!bytes) {
@@ -182,6 +186,7 @@ async function extractEmbeddedImages(
       objectId: object.objectId,
       mimeType: object.mimeType,
       ...(object.alt ? { alt: object.alt } : {}),
+      contentUrl: object.contentUrl ?? null,
       sheetsRevisionId,
       embeddedFingerprint: bytes ? sha256Base64Url(bytes) : null,
       recovery_disposition: bytes ? "normal" : "restage_required",

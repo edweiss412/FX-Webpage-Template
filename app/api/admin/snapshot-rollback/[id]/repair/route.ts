@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { AdminInfraError, requireAdmin } from "@/lib/auth/requireAdmin";
 import { repairSnapshotRollback } from "@/lib/sync/promoteSnapshot";
-import { withShowLock } from "@/lib/sync/lockedShowTx";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -43,14 +42,7 @@ export async function POST(_request: NextRequest, context: RouteContext): Promis
       return NextResponse.json({ error: "APPLY_STATUS_NOT_FOUND" }, { status: 404 });
     }
 
-    const result = await withShowLock(
-      data.drive_file_id,
-      async () => await repairSnapshotRollback(id),
-      { tryOnly: false },
-    );
-    if ("skipped" in result) {
-      return NextResponse.json({ error: "SHOW_BUSY_RETRY" }, { status: 409 });
-    }
+    const result = await repairSnapshotRollback(id);
     if (result.outcome === "not_stuck") {
       return NextResponse.json({ error: "PENDING_SNAPSHOT_NOT_STUCK" }, { status: 409 });
     }
