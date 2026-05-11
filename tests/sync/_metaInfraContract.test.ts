@@ -107,6 +107,12 @@ const infraRegistry = [
     contract:
       "apply-promotion status route destructures Supabase show and ledger reads; faults become 404/500 discriminated responses",
   },
+  {
+    helper: "CACHE_CONTROL",
+    path: "app/api/asset/reel/[show]/route.ts",
+    contract:
+      "reel asset route destructures Supabase show reads and Drive metadata/media reads; unavailable or drifted reels map to 410",
+  },
 ] as const;
 
 function read(path: string): string {
