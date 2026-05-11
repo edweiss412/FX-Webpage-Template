@@ -208,6 +208,56 @@ type PostgresTransaction = {
   unsafe(sql: string, params?: unknown[]): Promise<unknown[]>;
 };
 
+export const MAX_SHOW_SLUG_INSERT_ATTEMPTS = 20;
+
+export class ShowSlugCollisionRetryExhaustedError extends Error {
+  readonly code = "SHOW_SLUG_COLLISION_RETRY_EXHAUSTED";
+  override readonly cause: unknown;
+
+  constructor(baseSlug: string, attempts: number, cause: unknown) {
+    super(`Could not allocate a unique show slug for ${baseSlug} after ${attempts} attempts`);
+    this.name = "ShowSlugCollisionRetryExhaustedError";
+    this.cause = cause;
+  }
+}
+
+function isPostgresUniqueViolation(cause: unknown): boolean {
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    (cause as { code?: unknown }).code === "23505"
+  );
+}
+
+function slugCandidateForAttempt(baseSlug: string, attempt: number): string {
+  return attempt === 1 ? baseSlug : `${baseSlug}-${attempt}`;
+}
+
+export async function insertFirstSeenShowWithSlugRetry<T>(args: {
+  baseSlug: string;
+  insert: (slug: string) => Promise<T | null>;
+  maxAttempts?: number;
+}): Promise<T | null> {
+  const maxAttempts = args.maxAttempts ?? MAX_SHOW_SLUG_INSERT_ATTEMPTS;
+  let lastUniqueViolation: unknown = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await args.insert(slugCandidateForAttempt(args.baseSlug, attempt));
+    } catch (cause) {
+      if (!isPostgresUniqueViolation(cause)) throw cause;
+      lastUniqueViolation = cause;
+    }
+  }
+
+  throw new ShowSlugCollisionRetryExhaustedError(
+    args.baseSlug,
+    maxAttempts,
+    lastUniqueViolation,
+  );
+}
+
 function databaseUrl(): string {
   const configured = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
   if (configured) return configured;
@@ -724,15 +774,14 @@ class PostgresPipelineTx implements SyncPipelineTx {
       : [];
     const stalePredicate =
       args.staleGuard === "strict_less_than"
-        ? "(last_seen_modified_time is null or last_seen_modified_time < $16::timestamptz)"
-        : "(last_seen_modified_time is null or last_seen_modified_time <= $16::timestamptz)";
-    const skipDiagramsStalePredicate =
-      args.staleGuard === "strict_less_than"
         ? "(last_seen_modified_time is null or last_seen_modified_time < $15::timestamptz)"
         : "(last_seen_modified_time is null or last_seen_modified_time <= $15::timestamptz)";
-    const params = [
+    const skipDiagramsStalePredicate =
+      args.staleGuard === "strict_less_than"
+        ? "(last_seen_modified_time is null or last_seen_modified_time < $14::timestamptz)"
+        : "(last_seen_modified_time is null or last_seen_modified_time <= $14::timestamptz)";
+    const updateParams = [
       args.driveFileId,
-      args.slug,
       args.parseResult.show.title,
       args.parseResult.show.client_label,
       JSON.stringify(args.parseResult.show.client_contact),
@@ -752,7 +801,6 @@ class PostgresPipelineTx implements SyncPipelineTx {
     ];
     const skipDiagramsParams = [
       args.driveFileId,
-      args.slug,
       args.parseResult.show.title,
       args.parseResult.show.client_label,
       JSON.stringify(args.parseResult.show.client_contact),
@@ -769,21 +817,65 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.parseResult.show.coi_status,
       JSON.stringify(args.parseResult.pullSheet),
     ];
+    const insertParamsForSlug = (slug: string) => [
+      args.driveFileId,
+      slug,
+      args.parseResult.show.title,
+      args.parseResult.show.client_label,
+      JSON.stringify(args.parseResult.show.client_contact),
+      args.parseResult.show.template_version,
+      JSON.stringify(args.parseResult.show.venue),
+      JSON.stringify(args.parseResult.show.dates),
+      JSON.stringify(args.parseResult.show.event_details),
+      JSON.stringify(args.parseResult.show.agenda_links),
+      JSON.stringify(args.parseResult.diagrams),
+      args.parseResult.openingReel?.driveFileId ?? null,
+      args.parseResult.openingReel?.drive_modified_time ?? null,
+      args.parseResult.openingReel?.headRevisionId ?? null,
+      args.parseResult.openingReel?.mimeType ?? null,
+      args.modifiedTime,
+      args.parseResult.show.coi_status,
+      JSON.stringify(args.parseResult.pullSheet),
+    ];
 
     const updated = existing
       ? await this.one<{ id: string }>(
           args.skipDiagramsWrite
             ? `
             update public.shows
-               set slug = $2,
-                   title = $3,
-                   client_label = $4,
-                   client_contact = $5::jsonb,
-                   template_version = $6,
-                   venue = $7::jsonb,
-                   dates = $8::jsonb,
-                   event_details = $9::jsonb,
-                   agenda_links = $10::jsonb,
+               set title = $2,
+                   client_label = $3,
+                   client_contact = $4::jsonb,
+                   template_version = $5,
+                   venue = $6::jsonb,
+                   dates = $7::jsonb,
+                   event_details = $8::jsonb,
+                   agenda_links = $9::jsonb,
+                   opening_reel_drive_file_id = $10,
+                   opening_reel_drive_modified_time = $11::timestamptz,
+                   opening_reel_head_revision_id = $12,
+                   opening_reel_mime_type = $13,
+                   last_seen_modified_time = $14::timestamptz,
+                   coi_status = $15,
+                   pull_sheet = $16::jsonb,
+                   last_synced_at = now(),
+                   last_sync_status = 'ok',
+                   last_sync_error = null
+             where drive_file_id = $1
+               and ${skipDiagramsStalePredicate}
+             returning id
+          `
+            : `
+            update public.shows
+               set title = $2,
+                   client_label = $3,
+                   client_contact = $4::jsonb,
+                   template_version = $5,
+                   venue = $6::jsonb,
+                   dates = $7::jsonb,
+                   event_details = $8::jsonb,
+                   agenda_links = $9::jsonb,
+                   diagrams = $10::jsonb,
                    opening_reel_drive_file_id = $11,
                    opening_reel_drive_modified_time = $12::timestamptz,
                    opening_reel_head_revision_id = $13,
@@ -795,55 +887,33 @@ class PostgresPipelineTx implements SyncPipelineTx {
                    last_sync_status = 'ok',
                    last_sync_error = null
              where drive_file_id = $1
-               and ${skipDiagramsStalePredicate}
-             returning id
-          `
-            : `
-            update public.shows
-               set slug = $2,
-                   title = $3,
-                   client_label = $4,
-                   client_contact = $5::jsonb,
-                   template_version = $6,
-                   venue = $7::jsonb,
-                   dates = $8::jsonb,
-                   event_details = $9::jsonb,
-                   agenda_links = $10::jsonb,
-                   diagrams = $11::jsonb,
-                   opening_reel_drive_file_id = $12,
-                   opening_reel_drive_modified_time = $13::timestamptz,
-                   opening_reel_head_revision_id = $14,
-                   opening_reel_mime_type = $15,
-                   last_seen_modified_time = $16::timestamptz,
-                   coi_status = $17,
-                   pull_sheet = $18::jsonb,
-                   last_synced_at = now(),
-                   last_sync_status = 'ok',
-                   last_sync_error = null
-             where drive_file_id = $1
                and ${stalePredicate}
              returning id
           `,
-          args.skipDiagramsWrite ? skipDiagramsParams : params,
+          args.skipDiagramsWrite ? skipDiagramsParams : updateParams,
         )
-      : await this.one<{ id: string }>(
-          `
-            insert into public.shows (
-              drive_file_id, slug, title, client_label, client_contact, template_version,
-              venue, dates, event_details, agenda_links, diagrams,
-              opening_reel_drive_file_id, opening_reel_drive_modified_time,
-              opening_reel_head_revision_id, opening_reel_mime_type,
-              last_seen_modified_time, coi_status, pull_sheet,
-              last_synced_at, last_sync_status, last_sync_error
-            )
-            values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
-                    $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
-                    $14, $15, $16::timestamptz, $17, $18::jsonb, now(), 'ok', null)
-            on conflict (drive_file_id) do nothing
-            returning id
-          `,
-          params,
-        );
+      : await insertFirstSeenShowWithSlugRetry({
+          baseSlug: args.slug,
+          insert: async (slug) =>
+            await this.one<{ id: string }>(
+              `
+                insert into public.shows (
+                  drive_file_id, slug, title, client_label, client_contact, template_version,
+                  venue, dates, event_details, agenda_links, diagrams,
+                  opening_reel_drive_file_id, opening_reel_drive_modified_time,
+                  opening_reel_head_revision_id, opening_reel_mime_type,
+                  last_seen_modified_time, coi_status, pull_sheet,
+                  last_synced_at, last_sync_status, last_sync_error
+                )
+                values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
+                        $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
+                        $14, $15, $16::timestamptz, $17, $18::jsonb, now(), 'ok', null)
+                on conflict (drive_file_id) do nothing
+                returning id
+              `,
+              insertParamsForSlug(slug),
+            ),
+        });
 
     if (!updated) return { outcome: "stale" as const };
     return {
