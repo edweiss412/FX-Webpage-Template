@@ -65,6 +65,10 @@ const ADMIN_ALERTS_CODES = [
   "PENDING_SNAPSHOT_PROMOTE_STUCK", // M7 diagram GC promotion-stuck repair signal
   "PENDING_SNAPSHOT_ROLLBACK_STUCK", // M7 promoter rollback-stuck repair signal
   "PENDING_SNAPSHOT_DELETE_STUCK", //   M7 diagram GC delete-stuck repair signal
+  "OPENING_REEL_PERMISSION_DENIED", //  M7 apply-time reel 403 warning
+  "OPENING_REEL_NOT_VIDEO", //          M7 apply-time reel MIME warning
+  "REEL_DRIFTED", //                    M7 apply-time reel drift warning
+  "LINKED_ASSET_DRIFTED", //            M7 linked diagram drift warning
 ] as const;
 
 const ADMIN_ALERTS_WRITE_SITES: Record<
@@ -122,6 +126,22 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   PENDING_SNAPSHOT_DELETE_STUCK: {
     path: "lib/sync/diagramGc.ts",
     pattern: /'PENDING_SNAPSHOT_DELETE_STUCK'/,
+  },
+  OPENING_REEL_PERMISSION_DENIED: {
+    path: "lib/sync/applyStaged.ts",
+    pattern: /adminAlertCodes[\s\S]*reelVerification\.warningCode/,
+  },
+  OPENING_REEL_NOT_VIDEO: {
+    path: "lib/sync/applyStaged.ts",
+    pattern: /adminAlertCodes[\s\S]*reelVerification\.warningCode/,
+  },
+  REEL_DRIFTED: {
+    path: "lib/sync/applyStaged.ts",
+    pattern: /"REEL_DRIFTED"/,
+  },
+  LINKED_ASSET_DRIFTED: {
+    path: "lib/sync/applyStaged.ts",
+    pattern: /"LINKED_ASSET_DRIFTED"/,
   },
 };
 

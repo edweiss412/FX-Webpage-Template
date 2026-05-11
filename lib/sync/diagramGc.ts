@@ -176,6 +176,7 @@ function defaultTx(): DiagramGcTx {
                    claim_expires_at = $1::timestamptz + interval '15 minutes'
              where p.promoted_at is null
                and p.promote_started_at is null
+               and p.delete_started_at is null
                and p.uploaded_at < $1::timestamptz - interval '1 hour'
                and (p.claim_token is null or p.claim_expires_at < $1::timestamptz)
                and not exists (

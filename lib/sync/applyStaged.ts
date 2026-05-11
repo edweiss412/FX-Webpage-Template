@@ -122,6 +122,13 @@ type LiveDriveReverify =
 type LiveAssetReviewEffects = {
   parseResult: Phase2Args["parseResult"];
   adminAlertCode: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | null;
+  adminAlertCodes?: Array<
+    | typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE
+    | "OPENING_REEL_PERMISSION_DENIED"
+    | "OPENING_REEL_NOT_VIDEO"
+    | "REEL_DRIFTED"
+    | "LINKED_ASSET_DRIFTED"
+  >;
   skipDiagramsWrite: boolean;
 };
 
@@ -155,6 +162,7 @@ export type ApplyStagedResult =
       syncAuditId: string | null;
       derivedSideEffects: { revokeFloorForNames: string[] };
       adminAlertCode?: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | null;
+      adminAlertCodes?: LiveAssetReviewEffects["adminAlertCodes"];
       roleFlagsNotice?: RoleFlagsNotice;
       snapshotRevisionId?: string;
     }
@@ -266,7 +274,13 @@ export type ApplyStagedDeps = {
   ) => Promise<void>;
   upsertAdminAlert?: (input: {
     showId: string | null;
-    code: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | "ROLE_FLAGS_NOTICE";
+    code:
+      | typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE
+      | "ROLE_FLAGS_NOTICE"
+      | "OPENING_REEL_PERMISSION_DENIED"
+      | "OPENING_REEL_NOT_VIDEO"
+      | "REEL_DRIFTED"
+      | "LINKED_ASSET_DRIFTED";
     context: Record<string, unknown>;
   }) => Promise<unknown>;
   retryEmbeddedRevisionAvailability?: (spreadsheetId: string) => Promise<boolean>;
@@ -950,6 +964,7 @@ async function applyAssetReviewEffects(
   | {
       parseResult: Phase2Args["parseResult"];
       adminAlertCode: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | null;
+      adminAlertCodes?: NonNullable<LiveAssetReviewEffects["adminAlertCodes"]>;
       skipDiagramsWrite: boolean;
     }
   | ApplyStagedResult
@@ -984,6 +999,10 @@ async function applyAssetReviewEffects(
     ...(linkedDrift ? [warning("LINKED_ASSET_DRIFTED")] : []),
     ...(reelVerification.warningCode ? [warning(reelVerification.warningCode)] : []),
   ];
+  const adminAlertCodes: LiveAssetReviewEffects["adminAlertCodes"] = [
+    ...(linkedDrift ? ["LINKED_ASSET_DRIFTED" as const] : []),
+    ...(reelVerification.warningCode ? [reelVerification.warningCode] : []),
+  ];
   const openingReel = reelVerification.openingReel;
   if (!hasUnavailable) {
     const shouldMintSnapshot = noneFound || linkedDrift;
@@ -995,6 +1014,7 @@ async function applyAssetReviewEffects(
           openingReel,
         },
         adminAlertCode: null,
+        adminAlertCodes,
         skipDiagramsWrite: false,
       };
     }
@@ -1017,6 +1037,7 @@ async function applyAssetReviewEffects(
         } as Phase2Args["parseResult"]["diagrams"],
       },
       adminAlertCode: null,
+      adminAlertCodes,
       skipDiagramsWrite: false,
     };
   }
@@ -1044,6 +1065,7 @@ async function applyAssetReviewEffects(
       ] as Phase2Args["parseResult"]["warnings"],
     },
     adminAlertCode: EMBEDDED_RECOVERY_REQUIRES_RESTAGE,
+    adminAlertCodes: [EMBEDDED_RECOVERY_REQUIRES_RESTAGE, ...adminAlertCodes],
     skipDiagramsWrite: true,
   };
 }
@@ -1217,6 +1239,7 @@ export async function applyStaged_unlocked(
     syncAuditId,
     derivedSideEffects,
     adminAlertCode: assetAdjusted.adminAlertCode,
+    adminAlertCodes: assetAdjusted.adminAlertCodes,
   };
   if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
   if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;
@@ -1463,6 +1486,17 @@ export async function applyStaged(
         code: result.adminAlertCode,
         context: { drive_file_id: args.driveFileId },
       });
+    }
+    if (!("skipped" in result) && result.outcome === "applied") {
+      const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
+      for (const code of result.adminAlertCodes ?? []) {
+        if (code === result.adminAlertCode) continue;
+        await upsertAdminAlert({
+          showId: result.showId,
+          code,
+          context: { drive_file_id: args.driveFileId },
+        });
+      }
     }
     if (!("skipped" in result) && result.outcome === "applied" && result.roleFlagsNotice) {
       const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;

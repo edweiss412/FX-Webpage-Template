@@ -324,6 +324,7 @@ export async function repairSnapshotRollback(
           update public.shows s
              set diagrams = jsonb_set(s.diagrams, '{pending}', 'null'::jsonb)
            where s.id = $1::uuid
+             and s.diagrams->'pending'->>'snapshot_revision_id' = $3
            returning s.id
         ),
         cleared_ledger as (
@@ -338,7 +339,7 @@ export async function repairSnapshotRollback(
         )
         select true as ok
       `,
-      [row.show_id, ledgerId],
+      [row.show_id, ledgerId, row.snapshot_revision_id],
     );
     return { outcome: "repaired", snapshotRevisionId: row.snapshot_revision_id };
   });

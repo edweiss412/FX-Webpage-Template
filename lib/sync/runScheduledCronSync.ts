@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { google } from "googleapis";
 import {
   upsertAdminAlert as defaultUpsertAdminAlert,
   type UpsertAdminAlertInput,
@@ -9,6 +10,7 @@ import {
 } from "@/lib/appSettings/getWatchedFolderId";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { fetchDriveFileMetadata, fetchSheetAsMarkdownAtRevision } from "@/lib/drive/fetch";
+import { getDriveAccessToken, getDriveAuth } from "@/lib/drive/client";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
@@ -16,7 +18,10 @@ import {
   enrichWithDrivePins,
   type DriveClient,
   type DriveFileMeta,
+  type SpreadsheetEmbeddedObject,
+  type SpreadsheetSheet,
 } from "@/lib/sync/enrichWithDrivePins";
+import { bytesFromWebStream } from "@/lib/sync/boundedBytes";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
 import {
   assertShowLockHeld,
@@ -1347,6 +1352,58 @@ function defaultDriveClient(): DriveClient {
         folderId,
         files: (await listDriveFolder(folderId)).map(toDriveFileMeta),
       };
+    },
+    async listSpreadsheetSheets(spreadsheetId) {
+      const sheetsClient = google.sheets({ version: "v4", auth: getDriveAuth() });
+      const response = await sheetsClient.spreadsheets.get({
+        spreadsheetId,
+        fields:
+          "sheets(properties(title),drawings(objectId,imageProperties(contentUrl),embeddedObject(description,title)))",
+      });
+      return ((response.data.sheets ?? []) as unknown[]).map((sheet) => {
+        const record = sheet as {
+          properties?: { title?: string | null };
+          drawings?: Array<{
+            objectId?: string | null;
+            imageProperties?: { contentUrl?: string | null };
+            embeddedObject?: { title?: string | null; description?: string | null };
+          }>;
+        };
+        const embeddedObjects: SpreadsheetEmbeddedObject[] = (record.drawings ?? [])
+          .filter((drawing) => drawing.objectId)
+          .map((drawing) => {
+            const alt =
+              drawing.embeddedObject?.title ?? drawing.embeddedObject?.description ?? null;
+            return {
+              objectId: drawing.objectId!,
+              mimeType: "image/png",
+              ...(alt ? { alt } : {}),
+              contentUrl: drawing.imageProperties?.contentUrl ?? null,
+            };
+          });
+        return {
+          title: record.properties?.title ?? "",
+          embeddedObjects,
+        } satisfies SpreadsheetSheet;
+      });
+    },
+    async getEmbeddedImageBytes(_spreadsheetId, _objectId, contentUrl) {
+      if (!contentUrl) return null;
+      const token = await getDriveAccessToken();
+      const response = await fetch(contentUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok || !response.body) return null;
+      return await bytesFromWebStream(response.body, 50 * 1024 * 1024);
+    },
+    async getSpreadsheetRevisionId(spreadsheetId) {
+      const drive = google.drive({ version: "v3", auth: getDriveAuth() });
+      const response = await drive.revisions.list({
+        fileId: spreadsheetId,
+        fields: "revisions(id,modifiedTime)",
+      });
+      const revisions = response.data.revisions ?? [];
+      return revisions.at(-1)?.id ?? null;
     },
   };
 }
