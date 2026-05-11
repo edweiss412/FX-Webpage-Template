@@ -443,7 +443,7 @@ begin
 
     if v_existing_show_id is not null then
       update dev.shows
-         set last_sync_status = 'hard_fail',
+         set last_sync_status = 'parse_error',
              last_sync_error = p_hard_error_code
        where id = v_existing_show_id;
     end if;
@@ -482,7 +482,7 @@ begin
 
     if v_existing_show_id is not null then
       update dev.shows
-         set last_sync_status = case when p_outcome = 'stage' then 'staged' else 'pass' end,
+         set last_sync_status = case when p_outcome = 'stage' then 'pending_review' else 'ok' end,
              last_sync_error = null
        where id = v_existing_show_id;
     end if;

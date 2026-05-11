@@ -545,7 +545,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
     await this.rows(
       `
         update public.shows
-           set last_sync_status = 'hard_fail',
+           set last_sync_status = 'parse_error',
                last_sync_error = $2,
                last_synced_at = now()
          where drive_file_id = $1
