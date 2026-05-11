@@ -43,6 +43,8 @@ function makeData(crewMembers: ShowForViewer["crewMembers"]): ShowForViewer {
     pullSheet: null,
     viewerName: null,
     viewerVersionToken: "",
+    diagrams: null,
+    openingReelHasVideo: false,
   };
 }
 

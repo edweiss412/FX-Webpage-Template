@@ -45,10 +45,13 @@
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { deriveSchedulePhases } from "@/lib/parser";
 import { normalizeDateRestriction } from "@/lib/data/normalizeDateRestriction";
+import { resolveCurrentDiagrams } from "@/lib/data/diagrams";
+import { projectOpeningReelHasVideo } from "@/lib/data/openingReel";
 import type {
   ContactRow,
   DateRestriction,
   HotelReservationRow,
+  PersistedDiagrams,
   PullSheetCase,
   RoleFlag,
   RoomRow,
@@ -118,6 +121,29 @@ export type ShowForViewer = {
   transportation: TransportationRow | null;
   contacts: ContactRow[];
   pullSheet: PullSheetCase[] | null;
+  /**
+   * Resolved `shows.diagrams.current` sub-payload OR `null`. The crew
+   * gallery (DiagramsTile / Gallery) reads this and emits asset URLs of
+   * the form `/api/asset/diagram/<show>/<bare-uuid>/<key>` where the
+   * bare-UUID rev segment IS `diagrams.snapshot_revision_id`. The route
+   * literal-equality-compares against the same field, so prior-revision
+   * URLs naturally 410 (§7.3, M7 §6 watchpoint 12 + 13).
+   *
+   * The `pending` sub-payload is the cutover staging slot for the
+   * post-commit promoter and is NEVER read by the crew page or the
+   * route — `resolveCurrentDiagrams()` enforces this gate.
+   */
+  diagrams: PersistedDiagrams | null;
+  /**
+   * `true` iff ALL FOUR `shows.opening_reel_*` pin columns are non-NULL
+   * AND `opening_reel_mime_type.startsWith('video/')`. The crew page
+   * renders the inline `<video src="/api/asset/reel/<show>">` ONLY when
+   * this is true; drift cases (any pin NULL) fall back to text-only
+   * without ever calling the route (AC-7.24 / AC-7.25). The boolean is
+   * the only opening-reel projection — the four raw pin columns stay
+   * server-internal so the crew DOM never carries `https://drive...`.
+   */
+  openingReelHasVideo: boolean;
   financials?: FinancialsRow;
   /**
    * Resolved viewer name for the active crew / admin_preview viewer, or
@@ -425,6 +451,18 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
   }
   const viewerVersionToken: string = typeof versionRpc.data === "string" ? versionRpc.data : "";
 
+  const diagrams = resolveCurrentDiagrams(showRowDb.diagrams);
+  const openingReelHasVideo = projectOpeningReelHasVideo({
+    opening_reel_drive_file_id:
+      (showRowDb.opening_reel_drive_file_id as string | null | undefined) ?? null,
+    opening_reel_drive_modified_time:
+      (showRowDb.opening_reel_drive_modified_time as string | null | undefined) ?? null,
+    opening_reel_head_revision_id:
+      (showRowDb.opening_reel_head_revision_id as string | null | undefined) ?? null,
+    opening_reel_mime_type:
+      (showRowDb.opening_reel_mime_type as string | null | undefined) ?? null,
+  });
+
   return {
     show,
     crewMembers,
@@ -435,6 +473,8 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     pullSheet,
     viewerName,
     viewerVersionToken,
+    diagrams,
+    openingReelHasVideo,
     ...(financials ? { financials } : {}),
   };
 }
