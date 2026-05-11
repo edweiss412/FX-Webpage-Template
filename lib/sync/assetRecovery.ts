@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import postgres from "postgres";
-import { getDriveClient } from "@/lib/drive/client";
+import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import {
@@ -518,8 +518,14 @@ function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
       },
     },
     drive: {
-      async fetchEmbeddedImageBytes() {
-        return null;
+      async fetchEmbeddedImageBytes(entry) {
+        if (!entry.contentUrl) return null;
+        const token = await getDriveAccessToken();
+        const response = await fetch(entry.contentUrl, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) return null;
+        return new Uint8Array(await response.arrayBuffer());
       },
       async fetchLinkedRevisionBytes(entry) {
         const { data } = await drive.revisions.get(
