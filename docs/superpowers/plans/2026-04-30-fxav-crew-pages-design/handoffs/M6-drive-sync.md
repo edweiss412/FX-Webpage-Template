@@ -1171,6 +1171,29 @@ The seven create / extend rows above are mandatory at M6 close. Empty rows silen
   - **`6659403`** `test(sync): structural sweep for last_sync_status enum compliance`. New 174-line test that walks every site writing `last_sync_status` and asserts only spec-defined enum values appear. Closes the class so future writes can't silently introduce invalid statuses.
 - Verification: 41/41 R13 targeted tests pass on my orchestrator machine. pnpm typecheck + pnpm lint clean. Negative-regression confirmed.
 
-### Round 14 — re-review against R13 fix (pending)
+### Round 14 — re-review against R13 fix (Codex via direct `codex exec`)
 
-(Pending — to dispatch after convergence log commits.)
+- Base: `afa0906`. Head: `97b44b4` (R13 fix-SHAs convergence log commit).
+- Codex review duration: 6m. Verdict at `/tmp/m6-r14-verdict.json`.
+- Verdict: **APPROVE.** Fresh-eyes review found R1-R13 fixes intact and NO new high/medium-severity issues in the M6 diff. Zero findings.
+
+```json
+{"verdict":"approve","summary":"R14 fresh-eyes review found the R1-R13 fixes intact and no new high- or medium-severity issues in the M6 diff.","findings":[]}
+```
+
+## 🎉 M6 convergence complete
+
+M6 is approved. Final stats:
+
+- **14 review rounds** (R1 needs-attention → R14 APPROVE).
+- **31 fixes landed** across 31 commits (30 §A backend + 1 §B UI).
+- **4 structural meta-tests** prevent the recurring classes from regressing:
+  - `tests/sync/_advisoryLockSingleHolderContract.test.ts` (lock-window — R8 + R9 extension)
+  - `tests/sync/_scopeCheckContract.test.ts` (sheet-scope check — R11)
+  - `tests/messages/_metaAdminAlertCatalog.test.ts` (producer-write-site — R2 + R10 extension)
+  - structural sweep for `last_sync_status` enum compliance (R13, embedded in `runScheduledCronSync.test.ts`)
+- **Convergence trajectory:** R1-R5: 3 findings each → R6-R8: 1/1/1 → R9: 2 (R7 class-sweep gaps) → R10-R12: 1/1/1 → R13: 2 (last spec-contract gaps) → R14: 0 ✅
+- **Tooling cost:** 5 codex accounts exhausted (initial + 4 logins during the loop). One ~30-min false start chasing a misdiagnosed serena MCP red herring before isolating the actual bug (missing `< /dev/null` on direct `codex exec`).
+- **Memory updates:** `feedback_codex_exec_needs_stdin_closed.md` (real cause of all "codex hangs"), `feedback_codex_hang_caused_by_orphan_mcp.md` (deprecated wrong hypothesis), `feedback_class_sweep_must_be_code_swape_not_name_list.md` (deeper class-sweep mandate that found 4 additional parallel surfaces beyond named instances across R7+R9+R11), `feedback_detect_codex_hangs_via_log_growth.md` (monitor methodology).
+
+Per the handoff §10 exit criteria, M6 §A backend convergence loop is closed. DEFERRED.md M6-D12 (Amendment 9 auto-publish + 24h-undo) remains open as the explicit deferred follow-up.
