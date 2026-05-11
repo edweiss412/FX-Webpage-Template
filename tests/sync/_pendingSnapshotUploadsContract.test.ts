@@ -66,4 +66,14 @@ describe("M7 pending_snapshot_uploads state-transition contract", () => {
       /delete\s+from\s+public\.pending_snapshot_uploads[\s\S]*delete_started_at\s+is\s+not\s+null/i,
     );
   });
+
+  test("GC has a rename-retry path for unclaimed rows still referenced by pending diagrams", () => {
+    const source = readFileSync(join(root, "lib/sync/diagramGc.ts"), "utf8");
+
+    expect(source).toContain("listPendingPromotionRetries");
+    expect(source).toMatch(
+      /s\.diagrams->'pending'->>'snapshot_revision_id'\s*=\s*p\.snapshot_revision_id::text/,
+    );
+    expect(source).toMatch(/await promoteSnapshotUpload\(snapshotRevisionId\)/);
+  });
 });

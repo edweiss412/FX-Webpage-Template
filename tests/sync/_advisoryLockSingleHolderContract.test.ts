@@ -63,8 +63,8 @@ const lockHolderRegistry = [
   {
     path: "lib/sync/promoteSnapshot.ts",
     holder: "promoteSnapshotUpload",
-    layer: "delegates all promote-family lock acquisition to withPromoteLock",
-    key: "hashtext('promote:' || show_id)",
+    layer: "acquires promote: first through withPromoteLock, then show: through withShowLock",
+    key: "hashtext('promote:' || show_id) -> hashtext('show:' || drive_file_id)",
   },
   {
     path: "lib/sync/promoteSnapshot.ts",
@@ -289,8 +289,8 @@ describe("M6 advisory-lock single-holder contract", () => {
         }),
         expect.objectContaining({
           holder: "promoteSnapshotUpload",
-          layer: expect.stringContaining("withPromoteLock"),
-          key: "hashtext('promote:' || show_id)",
+          layer: expect.stringContaining("promote: first"),
+          key: "hashtext('promote:' || show_id) -> hashtext('show:' || drive_file_id)",
         }),
         expect.objectContaining({
           holder: "repairSnapshotRollback",
@@ -331,6 +331,13 @@ describe("M6 advisory-lock single-holder contract", () => {
     const source = read("lib/sync/promoteSnapshot.ts");
     expect(source).toMatch(
       /withPromoteLock\(\s*row\.show_id[\s\S]*withShowLock\(\s*row\.drive_file_id/,
+    );
+  });
+
+  test("snapshot promotion keeps the mandated promote-then-show lock order", () => {
+    const source = read("lib/sync/promoteSnapshot.ts");
+    expect(source).toMatch(
+      /withPromoteLock\(\s*initial\.show_id[\s\S]*withShowLock\(\s*row\.drive_file_id/,
     );
   });
 

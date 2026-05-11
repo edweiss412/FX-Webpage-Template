@@ -19,6 +19,10 @@ describe("M7 streaming/hash contract", () => {
     expect(defaultSnapshotAssets).toContain("readBoundedNodeStream");
     expect(assetRecovery).toContain("readBoundedWebStream");
     expect(assetRecovery).toContain("readBoundedNodeStream");
+    expect(assetRecovery).toContain("mkdtemp");
+    expect(assetRecovery).toContain("writeFile");
+    expect(assetRecovery).toContain("readFile(asset.tempPath)");
+    expect(assetRecovery).toContain("rm(verifiedRun.tmpDir");
     expect(snapshotAssets).not.toContain("Buffer.concat");
     expect(defaultSnapshotAssets).not.toContain("Buffer.concat");
     expect(assetRecovery).not.toContain("Buffer.concat");

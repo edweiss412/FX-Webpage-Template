@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import postgres from "postgres";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
@@ -81,7 +84,12 @@ type VerifiedAsset = {
   id: string;
   path: string;
   contentType: string;
-  bytes: Uint8Array;
+  tempPath: string;
+};
+
+type VerifiedAssetRun = {
+  tmpDir: string;
+  assets: VerifiedAsset[];
 };
 
 export type AssetRecoveryResult =
@@ -198,7 +206,7 @@ async function collectVerifiedAssets(
   showId: string,
   diagrams: PersistedDiagrams,
   deps: Pick<AssetRecoveryDeps, "drive">,
-): Promise<VerifiedAsset[] | typeof ASSET_RECOVERY_BYTES_EXCEEDED> {
+): Promise<VerifiedAssetRun | typeof ASSET_RECOVERY_BYTES_EXCEEDED> {
   const unresolvedCount =
     diagrams.embeddedImages.filter((entry) => !entry.snapshotPath).length +
     diagrams.linkedFolderItems.filter((entry) => !entry.snapshotPath).length;
@@ -207,6 +215,7 @@ async function collectVerifiedAssets(
     return ASSET_RECOVERY_BYTES_EXCEEDED;
   }
 
+  const tmpDir = await mkdtemp(join(tmpdir(), "asset-recovery-"));
   const verified: VerifiedAsset[] = [];
   let totalBytes = 0;
   const acceptBytes = (asset: RecoveryAssetBytes): boolean => {
@@ -226,14 +235,19 @@ async function collectVerifiedAssets(
     }
 
     const bytes = await deps.drive.fetchEmbeddedImageBytes(entry);
-    if (bytes && !acceptBytes(bytes)) return ASSET_RECOVERY_BYTES_EXCEEDED;
+    if (bytes && !acceptBytes(bytes)) {
+      await rm(tmpDir, { recursive: true, force: true });
+      return ASSET_RECOVERY_BYTES_EXCEEDED;
+    }
     if (bytes && recoverySha256(bytes) === entry.embeddedFingerprint) {
+      const tempPath = join(tmpDir, `embedded-${entry.objectId}.${extForMime(entry.mimeType)}`);
+      await writeFile(tempPath, recoveryBytes(bytes));
       verified.push({
         kind: "embedded",
         id: entry.objectId,
         path: assetPath(showId, diagrams.snapshot_revision_id, entry),
         contentType: entry.mimeType,
-        bytes: recoveryBytes(bytes),
+        tempPath,
       });
     }
   }
@@ -241,19 +255,24 @@ async function collectVerifiedAssets(
   for (const entry of diagrams.linkedFolderItems) {
     if (entry.snapshotPath) continue;
     const bytes = await deps.drive.fetchLinkedRevisionBytes(entry);
-    if (bytes && !acceptBytes(bytes)) return ASSET_RECOVERY_BYTES_EXCEEDED;
+    if (bytes && !acceptBytes(bytes)) {
+      await rm(tmpDir, { recursive: true, force: true });
+      return ASSET_RECOVERY_BYTES_EXCEEDED;
+    }
     if (bytes && recoveryMd5(bytes) === entry.md5Checksum) {
+      const tempPath = join(tmpDir, `linked-${entry.driveFileId}.${extForMime(entry.mimeType)}`);
+      await writeFile(tempPath, recoveryBytes(bytes));
       verified.push({
         kind: "linked",
         id: entry.driveFileId,
         path: assetPath(showId, diagrams.snapshot_revision_id, entry),
         contentType: entry.mimeType,
-        bytes: recoveryBytes(bytes),
+        tempPath,
       });
     }
   }
 
-  return verified;
+  return { tmpDir, assets: verified };
 }
 
 function applyVerifiedAssets(
@@ -309,95 +328,98 @@ export async function assetRecovery(
     return { outcome: "drift_cooldown", code: ASSET_RECOVERY_DRIFT_COOLDOWN };
   }
 
-  const verified = await collectVerifiedAssets(showId, previewDiagrams, deps);
-  if (verified === ASSET_RECOVERY_BYTES_EXCEEDED) {
+  const verifiedRun = await collectVerifiedAssets(showId, previewDiagrams, deps);
+  if (verifiedRun === ASSET_RECOVERY_BYTES_EXCEEDED) {
     await deps.upsertAdminAlert?.(showId, ASSET_RECOVERY_BYTES_EXCEEDED, {
       snapshotRevisionId: previewDiagrams.snapshot_revision_id,
     });
     return { outcome: "bytes_exceeded", code: ASSET_RECOVERY_BYTES_EXCEEDED };
   }
 
-  const locked = await deps.withShowLock<AssetRecoveryResult>(
-    previewShow.driveFileId,
-    async (tx) => {
-      const lockedShow = await tx.readLockedShow(showId);
-      const lockedDiagrams = lockedShow ? unwrapDiagrams(lockedShow.diagrams) : null;
-      if (!lockedDiagrams || lockedDiagrams.snapshot_status !== "partial_failure") {
-        return { outcome: "no_op" } satisfies AssetRecoveryResult;
-      }
-
-      if (lockedDiagrams.snapshot_revision_id !== previewDiagrams.snapshot_revision_id) {
-        await tx.upsertRecoveryCooldown(showId, previewDiagrams.snapshot_revision_id);
-        await tx.upsertAdminAlert(showId, ASSET_RECOVERY_REVISION_DRIFT, {
-          snapshotRevisionId: previewDiagrams.snapshot_revision_id,
-          currentSnapshotRevisionId: lockedDiagrams.snapshot_revision_id,
-        });
-        return {
-          outcome: "revision_drift",
-          code: ASSET_RECOVERY_REVISION_DRIFT,
-          previewRevisionId: previewDiagrams.snapshot_revision_id,
-        } satisfies AssetRecoveryResult;
-      }
-
-      for (const asset of verified) {
-        await deps.storage.upload(asset.path, asset.bytes, { contentType: asset.contentType });
-      }
-
-      const recovered = applyVerifiedAssets(lockedDiagrams, verified);
-      const updated = await tx.updateRecoveredDiagrams(
-        showId,
-        recovered,
-        previewDiagrams.snapshot_revision_id,
-      );
-      if (!updated) {
-        await tx.upsertRecoveryCooldown(showId, previewDiagrams.snapshot_revision_id);
-        await tx.upsertAdminAlert(showId, ASSET_RECOVERY_REVISION_DRIFT, {
-          snapshotRevisionId: previewDiagrams.snapshot_revision_id,
-        });
-        return {
-          outcome: "revision_drift",
-          code: ASSET_RECOVERY_REVISION_DRIFT,
-          previewRevisionId: previewDiagrams.snapshot_revision_id,
-        } satisfies AssetRecoveryResult;
-      }
-
-      if (recovered.snapshot_status === "partial_failure_restage_required") {
-        await tx.upsertAdminAlert(showId, EMBEDDED_RECOVERY_REQUIRES_RESTAGE, {
-          snapshotRevisionId: recovered.snapshot_revision_id,
-        });
-      }
-
-      if (recovered.snapshot_status !== "partial_failure") {
-        await tx.deleteRecoveryCooldown(showId, recovered.snapshot_revision_id);
-        if (recovered.snapshot_revision_id !== previewDiagrams.snapshot_revision_id) {
-          await tx.deleteRecoveryCooldown(showId, previewDiagrams.snapshot_revision_id);
+  try {
+    const locked = await deps.withShowLock<AssetRecoveryResult>(
+      previewShow.driveFileId,
+      async (tx) => {
+        const lockedShow = await tx.readLockedShow(showId);
+        const lockedDiagrams = lockedShow ? unwrapDiagrams(lockedShow.diagrams) : null;
+        if (!lockedDiagrams || lockedDiagrams.snapshot_status !== "partial_failure") {
+          return { outcome: "no_op" } satisfies AssetRecoveryResult;
         }
-      }
 
-      if (recovered.snapshot_status === "complete") {
+        if (lockedDiagrams.snapshot_revision_id !== previewDiagrams.snapshot_revision_id) {
+          await tx.upsertRecoveryCooldown(showId, previewDiagrams.snapshot_revision_id);
+          await tx.upsertAdminAlert(showId, ASSET_RECOVERY_REVISION_DRIFT, {
+            snapshotRevisionId: previewDiagrams.snapshot_revision_id,
+            currentSnapshotRevisionId: lockedDiagrams.snapshot_revision_id,
+          });
+          return {
+            outcome: "revision_drift",
+            code: ASSET_RECOVERY_REVISION_DRIFT,
+            previewRevisionId: previewDiagrams.snapshot_revision_id,
+          } satisfies AssetRecoveryResult;
+        }
+
+        for (const asset of verifiedRun.assets) {
+          await deps.storage.upload(asset.path, await readFile(asset.tempPath), {
+            contentType: asset.contentType,
+          });
+        }
+
+        const recovered = applyVerifiedAssets(lockedDiagrams, verifiedRun.assets);
+        const updated = await tx.updateRecoveredDiagrams(
+          showId,
+          recovered,
+          previewDiagrams.snapshot_revision_id,
+        );
+        if (!updated) {
+          await tx.upsertRecoveryCooldown(showId, previewDiagrams.snapshot_revision_id);
+          await tx.upsertAdminAlert(showId, ASSET_RECOVERY_REVISION_DRIFT, {
+            snapshotRevisionId: previewDiagrams.snapshot_revision_id,
+          });
+          return {
+            outcome: "revision_drift",
+            code: ASSET_RECOVERY_REVISION_DRIFT,
+            previewRevisionId: previewDiagrams.snapshot_revision_id,
+          } satisfies AssetRecoveryResult;
+        }
+
+        if (recovered.snapshot_status === "partial_failure_restage_required") {
+          await tx.upsertAdminAlert(showId, EMBEDDED_RECOVERY_REQUIRES_RESTAGE, {
+            snapshotRevisionId: recovered.snapshot_revision_id,
+          });
+        }
+
+        if (recovered.snapshot_status !== "partial_failure") {
+          await tx.deleteRecoveryCooldown(showId);
+        }
+
+        if (recovered.snapshot_status === "complete") {
+          return {
+            outcome: "recovered",
+            snapshotRevisionId: recovered.snapshot_revision_id,
+          } satisfies AssetRecoveryResult;
+        }
+        if (recovered.snapshot_status === "partial_failure_restage_required") {
+          return {
+            outcome: "restage_required",
+            snapshotRevisionId: recovered.snapshot_revision_id,
+          } satisfies AssetRecoveryResult;
+        }
         return {
-          outcome: "recovered",
+          outcome: "partial_failure",
           snapshotRevisionId: recovered.snapshot_revision_id,
         } satisfies AssetRecoveryResult;
-      }
-      if (recovered.snapshot_status === "partial_failure_restage_required") {
-        return {
-          outcome: "restage_required",
-          snapshotRevisionId: recovered.snapshot_revision_id,
-        } satisfies AssetRecoveryResult;
-      }
-      return {
-        outcome: "partial_failure",
-        snapshotRevisionId: recovered.snapshot_revision_id,
-      } satisfies AssetRecoveryResult;
-    },
-  );
+      },
+    );
 
-  if (isConcurrentSyncSkipped(locked)) {
-    return { outcome: "skipped", code: CONCURRENT_SYNC_SKIPPED };
+    if (isConcurrentSyncSkipped(locked)) {
+      return { outcome: "skipped", code: CONCURRENT_SYNC_SKIPPED };
+    }
+
+    return locked;
+  } finally {
+    await rm(verifiedRun.tmpDir, { recursive: true, force: true });
   }
-
-  return locked;
 }
 
 class AssetRecoveryPostgresTx implements AssetRecoveryTx, LockableSyncTx {

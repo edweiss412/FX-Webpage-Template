@@ -1,5 +1,6 @@
 import postgres from "postgres";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { promoteSnapshotUpload as defaultPromoteSnapshotUpload } from "@/lib/sync/promoteSnapshot";
 
 const DIAGRAM_BUCKET = "diagram-snapshots";
 
@@ -27,6 +28,7 @@ export type DiagramGcTx = {
   claimPendingRows(now: Date): Promise<DiagramGcPendingRow[]>;
   markPendingDeleteStarted?(id: string, claimToken: string, now: Date): Promise<void>;
   deletePendingRow(id: string, claimToken: string): Promise<void>;
+  listPendingPromotionRetries?(now: Date): Promise<string[]>;
   deletePromotedRows(now: Date): Promise<number>;
   emitStuckAlerts?(now: Date): Promise<void>;
   upsertAdminAlert?(showId: string, code: string, context?: Record<string, unknown>): Promise<void>;
@@ -48,6 +50,7 @@ export type RunDiagramGcArgs = {
   now?: Date;
   tx: DiagramGcTx;
   storage: DiagramGcStorage;
+  promoteSnapshotUpload?: (snapshotRevisionId: string) => Promise<unknown>;
 };
 
 function databaseUrl(): string {
@@ -226,6 +229,23 @@ function defaultTx(): DiagramGcTx {
         [id, claimToken],
       );
     },
+    async listPendingPromotionRetries(now) {
+      const retryRows = await rows<{ snapshot_revision_id: string }>(
+        `
+          select p.snapshot_revision_id::text
+            from public.pending_snapshot_uploads p
+            join public.shows s on s.id = p.show_id
+           where p.promoted_at is null
+             and p.promote_started_at is null
+             and p.delete_started_at is null
+             and p.claim_token is null
+             and p.uploaded_at < $1::timestamptz - interval '1 minute'
+             and s.diagrams->'pending'->>'snapshot_revision_id' = p.snapshot_revision_id::text
+        `,
+        [now.toISOString()],
+      );
+      return retryRows.map((row) => row.snapshot_revision_id);
+    },
     async deletePromotedRows(now) {
       const deleted = await rows<{ count: string }>(
         `
@@ -291,6 +311,7 @@ function defaultTx(): DiagramGcTx {
 export async function runDiagramGc(args?: Partial<RunDiagramGcArgs>): Promise<DiagramGcResult> {
   const tx = args?.tx ?? defaultTx();
   const storage = args?.storage ?? defaultStorage();
+  const promoteSnapshotUpload = args?.promoteSnapshotUpload ?? defaultPromoteSnapshotUpload;
   const now = args?.now ?? new Date();
   let orphanBlobsDeleted = 0;
   let pendingPrefixesDeleted = 0;
@@ -330,6 +351,10 @@ export async function runDiagramGc(args?: Partial<RunDiagramGcArgs>): Promise<Di
     await storage.removePrefix(row.tempPrefix);
     await tx.deletePendingRow(row.id, row.claimToken);
     pendingPrefixesDeleted += 1;
+  }
+
+  for (const snapshotRevisionId of (await tx.listPendingPromotionRetries?.(now)) ?? []) {
+    await promoteSnapshotUpload(snapshotRevisionId);
   }
 
   const promotedRowsDeleted = await tx.deletePromotedRows(now);

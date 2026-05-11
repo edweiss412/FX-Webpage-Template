@@ -129,9 +129,9 @@ export async function promoteSnapshotUpload(
   if (!initial) return { outcome: "not_found" };
 
   const storage = deps.storage ?? defaultStorage();
-  return await withPromoteLock(initial.show_id, async (tx) => {
+  return await withPromoteLock(initial.show_id, async (promoteTx) => {
     const clearRolledBack = async (row: PendingPromotionRow): Promise<void> => {
-      await tx.queryOne<{ ok: boolean }>(
+      await promoteTx.queryOne<{ ok: boolean }>(
         `
           with cleared_show as (
             update public.shows s
@@ -157,7 +157,9 @@ export async function promoteSnapshotUpload(
         [row.show_id, row.snapshot_revision_id, row.id, row.claim_token],
       );
     };
-    const row = await tx.queryOne<(PendingPromotionRow & { promoted_at: string | null }) | null>(
+    const row = await promoteTx.queryOne<
+      (PendingPromotionRow & { promoted_at: string | null }) | null
+    >(
       `
         update public.pending_snapshot_uploads
            set claim_token = gen_random_uuid(),
@@ -176,8 +178,11 @@ export async function promoteSnapshotUpload(
 
     if (!row) return { outcome: "not_found" };
     if (row.promoted_at) return { outcome: "already_promoted", snapshotRevisionId };
-    const expected = await tx.queryOne<{ count: number }>(
-      `
+    const promoted = await withShowLock(
+      row.drive_file_id,
+      async (tx) => {
+        const expected = await tx.queryOne<{ count: number }>(
+          `
         select (
           select count(*)::int
             from public.shows s,
@@ -192,39 +197,39 @@ export async function promoteSnapshotUpload(
              and l->>'snapshotPath' is not null
         ) as count
       `,
-      [row.show_id],
-    );
+          [row.show_id],
+        );
 
-    const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
-    const paths = await storage.list(row.temp_prefix);
-    const expectedAssetCount = expected.count;
-    if (paths.length !== expectedAssetCount) {
-      return { outcome: "manifest_mismatch", snapshotRevisionId };
-    }
+        const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
+        const paths = await storage.list(row.temp_prefix);
+        const expectedAssetCount = expected.count;
+        if (paths.length !== expectedAssetCount) {
+          return { outcome: "manifest_mismatch", snapshotRevisionId };
+        }
 
-    const renamed: Array<{ from: string; to: string }> = [];
-    const rollback = async (): Promise<void> => {
-      for (const entry of renamed.toReversed()) {
-        await storage.move(entry.to, entry.from);
-      }
-    };
+        const renamed: Array<{ from: string; to: string }> = [];
+        const rollback = async (): Promise<void> => {
+          for (const entry of renamed.toReversed()) {
+            await storage.move(entry.to, entry.from);
+          }
+        };
 
-    try {
-      for (const path of paths) {
-        const to = `${canonical}${basename(path)}`;
-        await storage.move(path, to);
-        renamed.push({ from: path, to });
-      }
+        try {
+          for (const path of paths) {
+            const to = `${canonical}${basename(path)}`;
+            await storage.move(path, to);
+            renamed.push({ from: path, to });
+          }
 
-      const canonicalPaths = await storage.list(canonical);
-      if (canonicalPaths.length !== expectedAssetCount) {
-        await rollback();
-        await clearRolledBack(row);
-        return { outcome: "manifest_mismatch", snapshotRevisionId };
-      }
+          const canonicalPaths = await storage.list(canonical);
+          if (canonicalPaths.length !== expectedAssetCount) {
+            await rollback();
+            await clearRolledBack(row);
+            return { outcome: "manifest_mismatch", snapshotRevisionId };
+          }
 
-      const cutover = await tx.queryOne<{ updated: boolean }>(
-        `
+          const cutover = await tx.queryOne<{ updated: boolean }>(
+            `
         with target as (
           select s.id
             from public.shows s
@@ -257,39 +262,46 @@ export async function promoteSnapshotUpload(
         )
         select exists(select 1 from update_ledger) as updated
       `,
-        [snapshotRevisionId, row.claim_token],
-      );
+            [snapshotRevisionId, row.claim_token],
+          );
 
-      if (!cutover?.updated) {
-        await rollback();
-        await clearRolledBack(row);
-        return { outcome: "no_pending_payload", snapshotRevisionId };
-      }
-      return { outcome: "promoted", snapshotRevisionId };
-    } catch (error) {
-      try {
-        await rollback();
-        await clearRolledBack(row);
-      } catch (rollbackError) {
-        await tx.queryOne<{ ok: boolean }>(
-          `
-            select public.upsert_admin_alert(
-              $1::uuid,
-              'PENDING_SNAPSHOT_ROLLBACK_STUCK',
-              $2::jsonb
-            ) is not null as ok
-          `,
-          [
-            row.show_id,
-            JSON.stringify({
-              snapshot_revision_id: row.snapshot_revision_id,
-              error: storageErrorMessage(rollbackError),
-            }),
-          ],
-        );
-      }
-      throw error;
+          if (!cutover?.updated) {
+            await rollback();
+            await clearRolledBack(row);
+            return { outcome: "no_pending_payload", snapshotRevisionId };
+          }
+          return { outcome: "promoted", snapshotRevisionId };
+        } catch (error) {
+          try {
+            await rollback();
+            await clearRolledBack(row);
+          } catch (rollbackError) {
+            await tx.queryOne<{ ok: boolean }>(
+              `
+              select public.upsert_admin_alert(
+                $1::uuid,
+                'PENDING_SNAPSHOT_ROLLBACK_STUCK',
+                $2::jsonb
+              ) is not null as ok
+            `,
+              [
+                row.show_id,
+                JSON.stringify({
+                  snapshot_revision_id: row.snapshot_revision_id,
+                  error: storageErrorMessage(rollbackError),
+                }),
+              ],
+            );
+          }
+          throw error;
+        }
+      },
+      { tx: promoteTx, assertInDev: false },
+    );
+    if ("skipped" in promoted) {
+      return { outcome: "manifest_mismatch" as const, snapshotRevisionId };
     }
+    return promoted as PromoteSnapshotResult;
   });
 }
 

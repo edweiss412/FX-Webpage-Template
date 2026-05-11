@@ -95,7 +95,7 @@ beforeEach(() => {
 });
 
 describe("GET /api/admin/show/[slug]/apply/[applyId]/status", () => {
-  test("reports pending, promoted, rolled_back, and stuck states without writes", async () => {
+  test("reports pending, promoted, and stuck states without writes", async () => {
     await expect((await getStatus()).json()).resolves.toMatchObject({
       status: "pending",
       snapshot_revision_id: applyId,
@@ -116,17 +116,6 @@ describe("GET /api/admin/show/[slug]/apply/[applyId]/status", () => {
     statusMock.ledger = {
       ...statusMock.ledger!,
       promoted_at: null,
-      promote_started_at: null,
-      claim_token: null,
-    };
-    statusMock.show = { id: showId, diagrams: { current: {}, pending: null } };
-    await expect((await getStatus()).json()).resolves.toMatchObject({
-      status: "rolled_back",
-      snapshot_revision_id: applyId,
-    });
-
-    statusMock.ledger = {
-      ...statusMock.ledger!,
       promote_started_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
       claim_token: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     };
@@ -144,6 +133,24 @@ describe("GET /api/admin/show/[slug]/apply/[applyId]/status", () => {
     });
 
     expect(statusMock.writes).toBe(0);
+  });
+
+  test("never-promoted rows overwritten by a newer pending snapshot remain pending, not rolled back", async () => {
+    statusMock.ledger = {
+      ...statusMock.ledger!,
+      promoted_at: null,
+      promote_started_at: null,
+      claim_token: null,
+    };
+    statusMock.show = {
+      id: showId,
+      diagrams: { current: {}, pending: { revision_id: "newer-rev" } },
+    };
+
+    await expect((await getStatus()).json()).resolves.toMatchObject({
+      status: "pending",
+      snapshot_revision_id: applyId,
+    });
   });
 
   test("non-admin and show-mismatch requests do not expose ledger state", async () => {

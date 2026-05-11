@@ -23,16 +23,7 @@ type LedgerRow = {
   claim_token: string | null;
 };
 
-function revision(diagrams: unknown, key: "current" | "pending"): string | null {
-  if (!diagrams || typeof diagrams !== "object") return null;
-  const payload = (diagrams as Record<string, unknown>)[key];
-  if (!payload || typeof payload !== "object") return null;
-  const record = payload as Record<string, unknown>;
-  const value = key === "current" ? record.snapshot_revision_id : record.revision_id;
-  return typeof value === "string" ? value : null;
-}
-
-function statusFor(row: LedgerRow, show: ShowRow): Record<string, unknown> {
+function statusFor(row: LedgerRow): Record<string, unknown> {
   const base = {
     snapshot_revision_id: row.snapshot_revision_id,
     ledger_row_id: row.id,
@@ -52,14 +43,6 @@ function statusFor(row: LedgerRow, show: ShowRow): Record<string, unknown> {
       };
     }
     return { status: "pending", ...base };
-  }
-
-  if (
-    !row.promoted_at &&
-    !row.claim_token &&
-    revision(show.diagrams, "pending") !== row.snapshot_revision_id
-  ) {
-    return { status: "rolled_back", ...base };
   }
 
   return { status: "pending", ...base };
@@ -103,7 +86,7 @@ export async function GET(_request: NextRequest, context: RouteContext): Promise
       return NextResponse.json({ error: "APPLY_STATUS_NOT_FOUND" }, { status: 404 });
     }
 
-    return NextResponse.json(statusFor(ledger, show));
+    return NextResponse.json(statusFor(ledger));
   } catch {
     return NextResponse.json({ error: "SYNC_INFRA_ERROR" }, { status: 500 });
   }

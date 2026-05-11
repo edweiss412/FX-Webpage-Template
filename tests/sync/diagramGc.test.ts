@@ -115,4 +115,26 @@ describe("runDiagramGc", () => {
     expect(result.pendingPrefixesDeleted).toBe(1);
     expect(result.promotedRowsDeleted).toBe(2);
   });
+
+  test("retries unclaimed pending promotions that are still referenced by the show", async () => {
+    const retried: string[] = [];
+
+    const result = await runDiagramGc({
+      now: new Date("2026-05-10T00:00:00.000Z"),
+      storage: storage([]).storage,
+      tx: {
+        listShows: async () => [],
+        claimPendingRows: async () => [],
+        listPendingPromotionRetries: async () => [currentRev],
+        deletePendingRow: async () => undefined,
+        deletePromotedRows: async () => 0,
+      },
+      promoteSnapshotUpload: async (snapshotRevisionId) => {
+        retried.push(snapshotRevisionId);
+      },
+    });
+
+    expect(retried).toEqual([currentRev]);
+    expect(result.pendingPrefixesDeleted).toBe(0);
+  });
 });
