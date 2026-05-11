@@ -10,6 +10,7 @@ type PendingPromotionRow = {
   drive_file_id: string;
   temp_prefix: string;
   snapshot_revision_id: string;
+  asset_count: number;
 };
 
 export type PromoteSnapshotStorage = {
@@ -21,11 +22,18 @@ export type PromoteSnapshotResult =
   | { outcome: "promoted"; snapshotRevisionId: string }
   | { outcome: "already_promoted"; snapshotRevisionId: string }
   | { outcome: "not_found" }
+  | { outcome: "manifest_mismatch"; snapshotRevisionId: string }
   | { outcome: "no_pending_payload"; snapshotRevisionId: string };
 
 export type PromoteSnapshotDeps = {
   storage?: PromoteSnapshotStorage;
 };
+
+export type RepairSnapshotRollbackResult =
+  | { outcome: "repaired"; snapshotRevisionId: string }
+  | { outcome: "not_found" }
+  | { outcome: "not_stuck"; snapshotRevisionId: string }
+  | { outcome: "promote_in_flight"; snapshotRevisionId: string };
 
 function databaseUrl(): string {
   const configured = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -42,6 +50,10 @@ function canonicalPrefix(showId: string, snapshotRevisionId: string): string {
 
 function basename(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
+}
+
+function storageErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function defaultStorage(): PromoteSnapshotStorage {
@@ -70,7 +82,7 @@ async function readRow(snapshotRevisionId: string): Promise<PendingPromotionRow 
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
   try {
     const rows = await sql<PendingPromotionRow[]>`
-      select id::text, show_id::text, drive_file_id, temp_prefix, snapshot_revision_id::text
+      select id::text, show_id::text, drive_file_id, temp_prefix, snapshot_revision_id::text, asset_count
         from public.pending_snapshot_uploads
        where snapshot_revision_id = ${snapshotRevisionId}::uuid
        limit 1
@@ -89,32 +101,50 @@ export async function promoteSnapshotUpload(
   if (!initial) return { outcome: "not_found" };
 
   const storage = deps.storage ?? defaultStorage();
-  const row = await withPromoteLock(initial.show_id, async (tx) => {
-    const locked = await tx.queryOne<(PendingPromotionRow & { promoted_at: string | null }) | null>(
+  return await withPromoteLock(initial.show_id, async (tx) => {
+    const row = await tx.queryOne<(PendingPromotionRow & { promoted_at: string | null }) | null>(
       `
         update public.pending_snapshot_uploads
            set promote_started_at = coalesce(promote_started_at, now())
          where snapshot_revision_id = $1::uuid
+           and claim_token is null
+           and delete_started_at is null
          returning id::text, show_id::text, drive_file_id, temp_prefix, snapshot_revision_id::text, promoted_at::text
+                 , asset_count
       `,
       [snapshotRevisionId],
     );
-    return locked;
-  });
 
-  if (!row) return { outcome: "not_found" };
-  if (row.promoted_at) return { outcome: "already_promoted", snapshotRevisionId };
+    if (!row) return { outcome: "not_found" };
+    if (row.promoted_at) return { outcome: "already_promoted", snapshotRevisionId };
 
-  const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
-  const paths = await storage.list(row.temp_prefix);
-  for (const path of paths) {
-    await storage.move(path, `${canonical}${basename(path)}`);
-  }
+    const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
+    const paths = await storage.list(row.temp_prefix);
+    if (paths.length !== row.asset_count) {
+      return { outcome: "manifest_mismatch", snapshotRevisionId };
+    }
 
-  const cutover = await withPromoteLock(
-    row.show_id,
-    async (tx) =>
-      await tx.queryOne<{ updated: boolean }>(
+    const renamed: Array<{ from: string; to: string }> = [];
+    const rollback = async (): Promise<void> => {
+      for (const entry of renamed.toReversed()) {
+        await storage.move(entry.to, entry.from);
+      }
+    };
+
+    try {
+      for (const path of paths) {
+        const to = `${canonical}${basename(path)}`;
+        await storage.move(path, to);
+        renamed.push({ from: path, to });
+      }
+
+      const canonicalPaths = await storage.list(canonical);
+      if (canonicalPaths.length !== row.asset_count) {
+        await rollback();
+        return { outcome: "manifest_mismatch", snapshotRevisionId };
+      }
+
+      const cutover = await tx.queryOne<{ updated: boolean }>(
         `
         with target as (
           select s.id
@@ -126,9 +156,10 @@ export async function promoteSnapshotUpload(
         ),
         update_show as (
           update public.shows s
-             set diagrams = jsonb_build_object(
-               'current', s.diagrams->'pending',
-               'pending', null
+             set diagrams = jsonb_set(
+               jsonb_set(s.diagrams, '{current}', s.diagrams->'pending'),
+               '{pending}',
+               'null'::jsonb
              )
             from target
            where s.id = target.id
@@ -147,11 +178,93 @@ export async function promoteSnapshotUpload(
         select exists(select 1 from update_ledger) as updated
       `,
         [snapshotRevisionId],
-      ),
-  );
+      );
 
-  if (!cutover?.updated) {
-    return { outcome: "no_pending_payload", snapshotRevisionId };
+      if (!cutover?.updated) {
+        await rollback();
+        return { outcome: "no_pending_payload", snapshotRevisionId };
+      }
+      return { outcome: "promoted", snapshotRevisionId };
+    } catch (error) {
+      try {
+        await rollback();
+      } catch (rollbackError) {
+        await tx.queryOne<{ ok: boolean }>(
+          `
+            select public.upsert_admin_alert(
+              $1::uuid,
+              'PENDING_SNAPSHOT_ROLLBACK_STUCK',
+              $2::jsonb
+            ) is not null as ok
+          `,
+          [
+            row.show_id,
+            JSON.stringify({
+              snapshot_revision_id: row.snapshot_revision_id,
+              error: storageErrorMessage(rollbackError),
+            }),
+          ],
+        );
+      }
+      throw error;
+    }
+  });
+}
+
+export async function repairSnapshotRollback(
+  ledgerId: string,
+  deps: PromoteSnapshotDeps = {},
+): Promise<RepairSnapshotRollbackResult> {
+  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+  let row: (PendingPromotionRow & { promote_started_at: string | null }) | null;
+  try {
+    const rows = await sql<(PendingPromotionRow & { promote_started_at: string | null })[]>`
+      select id::text, show_id::text, drive_file_id, temp_prefix, snapshot_revision_id::text,
+             asset_count, promote_started_at::text
+        from public.pending_snapshot_uploads
+       where id = ${ledgerId}::uuid
+       limit 1
+    `;
+    row = rows[0] ?? null;
+  } finally {
+    await sql.end({ timeout: 5 });
   }
-  return { outcome: "promoted", snapshotRevisionId };
+  if (!row) return { outcome: "not_found" };
+  if (!row.promote_started_at) {
+    return { outcome: "not_stuck", snapshotRevisionId: row.snapshot_revision_id };
+  }
+  const started = Date.parse(row.promote_started_at);
+  if (Number.isFinite(started) && Date.now() - started < 15 * 60 * 1000) {
+    return { outcome: "promote_in_flight", snapshotRevisionId: row.snapshot_revision_id };
+  }
+
+  const storage = deps.storage ?? defaultStorage();
+  return await withPromoteLock(row.show_id, async (tx) => {
+    const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
+    for (const path of await storage.list(canonical)) {
+      await storage.move(path, `${row.temp_prefix}${basename(path)}`);
+    }
+    await tx.queryOne<{ ok: boolean }>(
+      `
+        with cleared_show as (
+          update public.shows s
+             set diagrams = jsonb_set(s.diagrams, '{pending}', 'null'::jsonb)
+           where s.id = $1::uuid
+           returning s.id
+        ),
+        cleared_ledger as (
+          update public.pending_snapshot_uploads p
+             set promote_started_at = null,
+                 claim_token = null,
+                 claimed_at = null,
+                 claim_expires_at = null
+           where p.id = $2::uuid
+           returning p.id
+        )
+        select true as ok
+      `,
+      [row.show_id, ledgerId],
+    );
+    return { outcome: "repaired", snapshotRevisionId: row.snapshot_revision_id };
+  });
 }

@@ -190,6 +190,32 @@ describe("assetRecovery", () => {
     expect(result).toEqual({ outcome: "skipped", code: CONCURRENT_SYNC_SKIPPED });
   });
 
+  test("active drift cooldown returns before Drive fetches or lock acquisition", async () => {
+    const result = await assetRecovery(showId, {
+      now: () => new Date("2026-05-10T00:01:00.000Z"),
+      readPreviewShow: async () => ({ showId, driveFileId, diagrams: partialDiagrams() }),
+      readRecoveryCooldown: async () => ({
+        lastDriftAt: "2026-05-10T00:00:30.000Z",
+        retryCount: 2,
+      }),
+      withShowLock: async () => {
+        throw new Error("cooldown gate must not acquire the show lock");
+      },
+      storage: storage().storagePort,
+      drive: {
+        fetchEmbeddedImageBytes: async () => {
+          throw new Error("cooldown gate must not fetch Drive bytes");
+        },
+        fetchLinkedRevisionBytes: async () => null,
+      },
+    });
+
+    expect(result).toEqual({
+      outcome: "drift_cooldown",
+      code: "ASSET_RECOVERY_DRIFT_COOLDOWN",
+    });
+  });
+
   test("entry-count byte ceiling aborts before Drive fetches or lock acquisition and alerts", async () => {
     const alerts: string[] = [];
     const diagrams: PersistedDiagrams = {

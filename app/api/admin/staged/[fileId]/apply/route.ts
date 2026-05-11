@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { applyStaged, type ReviewerChoice } from "@/lib/sync/applyStaged";
+import { promoteSnapshotUpload } from "@/lib/sync/promoteSnapshot";
 
 type RouteContext = {
   params: Promise<{ fileId: string }>;
@@ -148,6 +149,11 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
   }
   if (result.outcome === "applied") {
     const snapshotId = snapshotRevisionId(result, body.staged_id.toLowerCase());
+    if (result.snapshotRevisionId) {
+      void promoteSnapshotUpload(result.snapshotRevisionId).catch((error) => {
+        console.error("[/api/admin/staged/[fileId]/apply] snapshot promotion failed", error);
+      });
+    }
     return NextResponse.json(
       {
         ok: true,

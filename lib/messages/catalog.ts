@@ -449,6 +449,22 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "A pending snapshot upload row is marked for deletion but the storage prefix has not been reclaimed.",
   },
+  PENDING_SNAPSHOT_NOT_STUCK: {
+    code: "PENDING_SNAPSHOT_NOT_STUCK",
+    dougFacing: "That diagram snapshot does not need repair.",
+    crewFacing: null,
+    followUp: "Doug -> refresh the admin view",
+    helpfulContext:
+      "The repair endpoint only accepts pending snapshot rows that started promotion and exceeded the repair threshold.",
+  },
+  PENDING_SNAPSHOT_PROMOTE_IN_FLIGHT: {
+    code: "PENDING_SNAPSHOT_PROMOTE_IN_FLIGHT",
+    dougFacing: "That diagram snapshot is still being promoted. Check again in a few minutes.",
+    crewFacing: null,
+    followUp: "Doug -> wait, then refresh",
+    helpfulContext:
+      "Promotion repair is blocked until the promote_started_at threshold has elapsed.",
+  },
   MISSING_REVIEWER_CHOICE: {
     code: "MISSING_REVIEWER_CHOICE",
     dougFacing:

@@ -58,6 +58,16 @@ function findAsset(diagrams: PersistedDiagrams, expectedPath: string): AssetEntr
   return null;
 }
 
+function isStorageNotFound(error: unknown): boolean {
+  const candidate = error as { statusCode?: unknown; status?: unknown; message?: unknown };
+  return (
+    candidate.statusCode === 404 ||
+    candidate.status === 404 ||
+    (typeof candidate.message === "string" &&
+      /not found|not exist|no such/i.test(candidate.message))
+  );
+}
+
 async function authorize(request: NextRequest, showId: string): Promise<Response | null> {
   const admin = await isAdminSession(request);
   if (admin.ok) return null;
@@ -130,6 +140,7 @@ export async function GET(
 
     const { data, error } = await supabase.storage.from(DIAGRAM_BUCKET).download(path);
     if (error) {
+      if (isStorageNotFound(error)) return gone();
       return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
     }
     if (!data) {

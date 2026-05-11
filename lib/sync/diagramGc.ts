@@ -1,3 +1,8 @@
+import postgres from "postgres";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+
+const DIAGRAM_BUCKET = "diagram-snapshots";
+
 export type DiagramGcShow = {
   showId: string;
   archived: boolean;
@@ -20,8 +25,10 @@ export type DiagramGcPendingRow = {
 export type DiagramGcTx = {
   listShows(): Promise<DiagramGcShow[]>;
   claimPendingRows(now: Date): Promise<DiagramGcPendingRow[]>;
+  markPendingDeleteStarted?(id: string, claimToken: string, now: Date): Promise<void>;
   deletePendingRow(id: string, claimToken: string): Promise<void>;
   deletePromotedRows(now: Date): Promise<number>;
+  emitStuckAlerts?(now: Date): Promise<void>;
   upsertAdminAlert?(showId: string, code: string, context?: Record<string, unknown>): Promise<void>;
 };
 
@@ -159,11 +166,16 @@ function defaultTx(): DiagramGcTx {
             update public.pending_snapshot_uploads p
                set claim_token = gen_random_uuid(),
                    claimed_at = $1::timestamptz,
-                   claim_expires_at = $1::timestamptz + interval '15 minutes',
-                   delete_started_at = coalesce(delete_started_at, $1::timestamptz)
+                   claim_expires_at = $1::timestamptz + interval '15 minutes'
              where p.promoted_at is null
                and p.promote_started_at is null
                and (p.claim_token is null or p.claim_expires_at < $1::timestamptz)
+               and not exists (
+                 select 1
+                   from public.shows s
+                  where s.id = p.show_id
+                    and s.diagrams->'pending'->>'snapshot_revision_id' = p.snapshot_revision_id::text
+               )
              returning p.*
           )
           select c.id::text,
@@ -186,6 +198,17 @@ function defaultTx(): DiagramGcTx {
         claimToken: row.claim_token,
       }));
     },
+    async markPendingDeleteStarted(id, claimToken, now) {
+      await rows(
+        `
+          update public.pending_snapshot_uploads
+             set delete_started_at = $3::timestamptz
+           where id = $1::uuid
+             and claim_token = $2::uuid
+        `,
+        [id, claimToken, now.toISOString()],
+      );
+    },
     async deletePendingRow(id, claimToken) {
       await rows(
         "delete from public.pending_snapshot_uploads where id = $1::uuid and claim_token = $2::uuid",
@@ -198,7 +221,7 @@ function defaultTx(): DiagramGcTx {
           with deleted as (
             delete from public.pending_snapshot_uploads
              where promoted_at is not null
-               and promoted_at < $1::timestamptz - interval '7 days'
+               and promoted_at < $1::timestamptz - interval '24 hours'
              returning 1
           )
           select count(*)::text from deleted
@@ -213,6 +236,42 @@ function defaultTx(): DiagramGcTx {
           select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)
         `,
         [showId, code, JSON.stringify(context ?? {})],
+      );
+    },
+    async emitStuckAlerts(now) {
+      await rows(
+        `
+          insert into public.admin_alerts (show_id, code, context)
+          select show_id,
+                 'PENDING_SNAPSHOT_PROMOTE_STUCK',
+                 jsonb_build_object(
+                   'snapshot_revision_id', snapshot_revision_id,
+                   'promote_started_at', promote_started_at
+                 )
+            from public.pending_snapshot_uploads
+           where promote_started_at is not null
+             and promoted_at is null
+             and promote_started_at < $1::timestamptz - interval '15 minutes'
+          on conflict do nothing
+        `,
+        [now.toISOString()],
+      );
+      await rows(
+        `
+          insert into public.admin_alerts (show_id, code, context)
+          select show_id,
+                 'PENDING_SNAPSHOT_DELETE_STUCK',
+                 jsonb_build_object(
+                   'snapshot_revision_id', snapshot_revision_id,
+                   'delete_started_at', delete_started_at
+                 )
+            from public.pending_snapshot_uploads
+           where delete_started_at is not null
+             and promoted_at is null
+             and claim_expires_at < $1::timestamptz
+          on conflict do nothing
+        `,
+        [now.toISOString()],
       );
     },
   };
@@ -245,12 +304,14 @@ export async function runDiagramGc(args?: Partial<RunDiagramGcArgs>): Promise<Di
 
   for (const row of await tx.claimPendingRows(now)) {
     if (row.pendingRevisionId === row.snapshotRevisionId) continue;
+    await tx.markPendingDeleteStarted?.(row.id, row.claimToken, now);
     await storage.removePrefix(row.tempPrefix);
     await tx.deletePendingRow(row.id, row.claimToken);
     pendingPrefixesDeleted += 1;
   }
 
   const promotedRowsDeleted = await tx.deletePromotedRows(now);
+  await tx.emitStuckAlerts?.(now);
 
   return {
     orphanBlobsDeleted,
@@ -258,7 +319,3 @@ export async function runDiagramGc(args?: Partial<RunDiagramGcArgs>): Promise<Di
     promotedRowsDeleted,
   };
 }
-import postgres from "postgres";
-import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
-
-const DIAGRAM_BUCKET = "diagram-snapshots";

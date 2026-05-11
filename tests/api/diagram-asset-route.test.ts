@@ -187,7 +187,7 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
 
     routeMock.storageBytes = null;
     const missing = await getDiagram();
-    expect(missing.status).toBe(500);
+    expect(missing.status).toBe(410);
   });
 
   test("maps cross-show and revoked sessions to 403 and 410", async () => {

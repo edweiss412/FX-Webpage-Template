@@ -50,6 +50,11 @@ export type AssetRecoveryTx = {
 
 export type AssetRecoveryDeps = {
   readPreviewShow(showId: string): Promise<AssetRecoveryShow | null>;
+  readRecoveryCooldown?(
+    showId: string,
+    snapshotRevisionId: string,
+  ): Promise<{ lastDriftAt: string; retryCount: number } | null>;
+  now?: () => Date;
   withShowLock<R>(
     driveFileId: string,
     fn: (tx: AssetRecoveryTx) => Promise<R>,
@@ -77,6 +82,7 @@ export type AssetRecoveryResult =
       code: typeof ASSET_RECOVERY_REVISION_DRIFT;
       previewRevisionId: string;
     }
+  | { outcome: "drift_cooldown"; code: typeof ASSET_RECOVERY_DRIFT_COOLDOWN }
   | { outcome: "bytes_exceeded"; code: typeof ASSET_RECOVERY_BYTES_EXCEEDED }
   | { outcome: "no_op" };
 
@@ -254,6 +260,13 @@ function isConcurrentSyncSkipped(
   return "skipped" in result && result.skipped === CONCURRENT_SYNC_SKIPPED;
 }
 
+function cooldownActive(cooldown: { lastDriftAt: string; retryCount: number }, now: Date): boolean {
+  const lastDrift = Date.parse(cooldown.lastDriftAt);
+  if (!Number.isFinite(lastDrift)) return false;
+  const seconds = Math.min(60 * 2 ** cooldown.retryCount, 600);
+  return now.getTime() < lastDrift + seconds * 1000;
+}
+
 export async function assetRecovery(
   showId: string,
   deps: AssetRecoveryDeps,
@@ -262,6 +275,10 @@ export async function assetRecovery(
   const previewDiagrams = previewShow ? unwrapDiagrams(previewShow.diagrams) : null;
   if (!previewShow || !previewDiagrams || previewDiagrams.snapshot_status !== "partial_failure") {
     return { outcome: "no_op" };
+  }
+  const cooldown = await deps.readRecoveryCooldown?.(showId, previewDiagrams.snapshot_revision_id);
+  if (cooldown && cooldownActive(cooldown, deps.now?.() ?? new Date())) {
+    return { outcome: "drift_cooldown", code: ASSET_RECOVERY_DRIFT_COOLDOWN };
   }
 
   const verified = await collectVerifiedAssets(showId, previewDiagrams, deps);
@@ -449,11 +466,31 @@ async function defaultReadPreviewShow(showId: string): Promise<AssetRecoveryShow
   return { showId: data.id, driveFileId: data.drive_file_id, diagrams: data.diagrams };
 }
 
+async function defaultReadRecoveryCooldown(
+  showId: string,
+  snapshotRevisionId: string,
+): Promise<{ lastDriftAt: string; retryCount: number } | null> {
+  const supabase = createSupabaseServiceRoleClient();
+  const { data, error } = (await supabase
+    .from("recovery_drift_cooldowns")
+    .select("last_drift_at,retry_count")
+    .eq("show_id", showId)
+    .eq("preview_revision_id", snapshotRevisionId)
+    .maybeSingle()) as {
+    data: { last_drift_at: string; retry_count: number } | null;
+    error: unknown;
+  };
+  if (error) throw error;
+  if (!data) return null;
+  return { lastDriftAt: data.last_drift_at, retryCount: data.retry_count };
+}
+
 function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
   const storageClient = createSupabaseServiceRoleClient().storage.from("diagram-snapshots");
   const drive = getDriveClient();
   return assetRecovery(showId, {
     readPreviewShow: defaultReadPreviewShow,
+    readRecoveryCooldown: defaultReadRecoveryCooldown,
     async withShowLock<R>(driveFileId: string, fn: (tx: AssetRecoveryTx) => Promise<R>) {
       const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
       try {

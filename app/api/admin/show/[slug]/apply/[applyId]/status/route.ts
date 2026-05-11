@@ -1,5 +1,4 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { AdminInfraError, requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
@@ -104,30 +103,7 @@ export async function GET(_request: NextRequest, context: RouteContext): Promise
       return NextResponse.json({ error: "APPLY_STATUS_NOT_FOUND" }, { status: 404 });
     }
 
-    const status = statusFor(ledger, show);
-    if (status.status === "stuck_admin_repair_required") {
-      await upsertAdminAlert({
-        showId: show.id,
-        code: "PENDING_SNAPSHOT_PROMOTE_STUCK",
-        context: {
-          snapshot_revision_id: ledger.snapshot_revision_id,
-          ledger_row_id: ledger.id,
-          promote_started_at: ledger.promote_started_at,
-        },
-      });
-    }
-    if (status.status === "rolled_back") {
-      await upsertAdminAlert({
-        showId: show.id,
-        code: "PENDING_SNAPSHOT_ROLLBACK_STUCK",
-        context: {
-          snapshot_revision_id: ledger.snapshot_revision_id,
-          ledger_row_id: ledger.id,
-        },
-      });
-    }
-
-    return NextResponse.json(status);
+    return NextResponse.json(statusFor(ledger, show));
   } catch {
     return NextResponse.json({ error: "SYNC_INFRA_ERROR" }, { status: 500 });
   }

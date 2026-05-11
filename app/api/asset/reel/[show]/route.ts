@@ -127,6 +127,29 @@ function drifted(row: UsableReelRow, current: DriveMetadata): boolean {
   );
 }
 
+function isPermissionDenied(error: unknown): boolean {
+  const candidate = error as {
+    code?: unknown;
+    status?: unknown;
+    errors?: Array<{ reason?: unknown }>;
+  };
+  return (
+    candidate.code === 403 ||
+    candidate.status === 403 ||
+    (candidate.errors ?? []).some((entry) => entry.reason === "permissionDenied")
+  );
+}
+
+function isRevisionFallbackAllowed(error: unknown): boolean {
+  const candidate = error as { code?: unknown; status?: unknown };
+  return (
+    candidate.code === 404 ||
+    candidate.status === 404 ||
+    candidate.code === 410 ||
+    candidate.status === 410
+  );
+}
+
 export async function GET(request: NextRequest, context: RouteContext): Promise<Response> {
   const { show } = await context.params;
   const rejected = await authorize(request, show);
@@ -169,7 +192,8 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
           "Content-Type": row.opening_reel_mime_type,
         },
       });
-    } catch {
+    } catch (error) {
+      if (!isRevisionFallbackAllowed(error)) throw error;
       const { data } = (await drive.files.get({
         fileId: row.opening_reel_drive_file_id,
         alt: "media",
@@ -185,7 +209,8 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         },
       });
     }
-  } catch {
+  } catch (error) {
+    if (isPermissionDenied(error)) return gone();
     return NextResponse.json({ error: "REEL_ASSET_LOOKUP_FAILED" }, { status: 500 });
   }
 }

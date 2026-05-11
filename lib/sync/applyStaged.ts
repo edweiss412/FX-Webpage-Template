@@ -24,7 +24,6 @@ import {
   type SyncPipelineTx,
   withPostgresSyncPipelineLock,
 } from "@/lib/sync/runScheduledCronSync";
-import { promoteSnapshotUpload as defaultPromoteSnapshotUpload } from "@/lib/sync/promoteSnapshot";
 
 export const PENDING_SYNC_NOT_FOUND = "PENDING_SYNC_NOT_FOUND" as const;
 export const STAGED_PARSE_SUPERSEDED = "STAGED_PARSE_SUPERSEDED" as const;
@@ -227,7 +226,6 @@ export type ApplyStagedDeps = {
   verifyReelOnApply?: (
     openingReel: Phase2Args["parseResult"]["openingReel"],
   ) => Promise<VerifyReelOnApplyResult>;
-  promoteSnapshotUpload?: typeof defaultPromoteSnapshotUpload;
   withPipelineLock?: PipelineLock;
   runPhase2?: (tx: LockedShowTx<SyncPipelineTx>, args: Phase2Args) => Promise<Phase2Result>;
   insertSyncAudit?: (
@@ -890,7 +888,6 @@ type ApplyStagedDepsWithDefaults = RequiredPick<
   liveDriveReverify?: LiveDriveReverify;
   liveAssetReviewEffects?: LiveAssetReviewEffects;
   withPipelineLock?: PipelineLock;
-  promoteSnapshotUpload?: typeof defaultPromoteSnapshotUpload;
 };
 
 function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
@@ -921,7 +918,6 @@ function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
     retryEmbeddedRevisionAvailability:
       deps.retryEmbeddedRevisionAvailability ?? defaultRetryEmbeddedRevisionAvailability,
     verifyReelOnApply: deps.verifyReelOnApply ?? defaultVerifyReelOnApply,
-    ...(deps.promoteSnapshotUpload ? { promoteSnapshotUpload: deps.promoteSnapshotUpload } : {}),
     ...(deps.wizardDriveReverify ? { wizardDriveReverify: deps.wizardDriveReverify } : {}),
     ...(deps.liveDriveReverify ? { liveDriveReverify: deps.liveDriveReverify } : {}),
     ...(deps.liveAssetReviewEffects ? { liveAssetReviewEffects: deps.liveAssetReviewEffects } : {}),
@@ -1462,9 +1458,6 @@ export async function applyStaged(
     if (!("skipped" in result) && result.outcome === "applied" && result.roleFlagsNotice) {
       const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
       await upsertAdminAlert(result.roleFlagsNotice);
-    }
-    if (!("skipped" in result) && result.outcome === "applied" && result.snapshotRevisionId) {
-      await (deps.promoteSnapshotUpload ?? defaultPromoteSnapshotUpload)(result.snapshotRevisionId);
     }
     return result;
   }
