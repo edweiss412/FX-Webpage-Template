@@ -81,9 +81,7 @@ function statusForCode(code: string): number {
 
 function scheduleAfterResponse(task: () => Promise<unknown>): void {
   try {
-    after(() => {
-      void task();
-    });
+    after(task);
   } catch {
     void task();
   }

@@ -2067,6 +2067,7 @@ export async function processOneFile_unlocked(
       binding: pipeline.binding,
       ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
       ...(snapshotAssetsForApplyForShowId ? { snapshotAssetsForApplyForShowId } : {}),
+      verifyReelOnApply: false,
     },
     deps,
   );

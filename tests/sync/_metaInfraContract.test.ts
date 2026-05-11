@@ -86,6 +86,12 @@ const infraRegistry = [
       "asset snapshotting uses explicit tx/storage/drive ports; Supabase boundary faults surface at the caller-owned port layer",
   },
   {
+    helper: "promoteSnapshotUpload",
+    path: "lib/sync/promoteSnapshot.ts",
+    contract:
+      "snapshot promotion uses explicit storage and Postgres boundaries; returned storage errors throw instead of silently continuing",
+  },
+  {
     helper: "assetRecovery",
     path: "lib/sync/assetRecovery.ts",
     contract:
