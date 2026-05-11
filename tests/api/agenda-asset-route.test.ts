@@ -313,6 +313,12 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(res.headers.get("accept-ranges")).toBe("bytes");
   });
 
+  test("Codex R19 P2: Drive metadata 404 (deleted file) → 410, not AGENDA_ASSET_LOOKUP_FAILED 500", async () => {
+    routeMock.driveError = Object.assign(new Error("not found"), { code: 404 });
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+  });
+
   test("Codex R18 P1: pre-flight unsatisfiable Range (bytes=-0 with known size) → 416 (no media call)", async () => {
     routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: "10" };
     const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=-0" } });

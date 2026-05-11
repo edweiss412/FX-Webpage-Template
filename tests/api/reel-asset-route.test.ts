@@ -350,6 +350,50 @@ describe("/api/asset/reel/[show]", () => {
     expect(res.headers.get("accept-ranges")).toBe("bytes");
   });
 
+  test("Codex R19 P1: Drive metadata 404 → 410 (drift contract — not REEL_ASSET_LOOKUP_FAILED 500)", async () => {
+    // Reel pinned to a now-deleted Drive file. Metadata `files.get`
+    // throws { code: 404 }. Per AC-7.24's single-410 drift contract,
+    // the route MUST surface 410, NOT 500.
+    routeMock.show = { ...routeMock.show };
+    // Override the drive client to throw on the metadata files.get.
+    // The mock's `get` handler doesn't currently throw — we override
+    // by setting `current` to a value AND mutating revisionError isn't
+    // enough. Use a vi.doMock-style override: hook the drive client.
+    const originalCurrent = routeMock.current;
+    const driveCallsBefore = routeMock.driveCalls.length;
+    const { GET } = await import("@/app/api/asset/reel/[show]/route");
+    // Replace the drive client mock for this test by temporarily
+    // routing files.get(metadata) to throw 404. Since the existing
+    // mock doesn't expose a per-call hook, we simulate by setting an
+    // empty `current` that makes drifted() trip — but that's not the
+    // same code path. Instead, lean on the route's existing outer
+    // catch by having the metadata fetch reject. We attach a getter
+    // that throws when accessed.
+    Object.defineProperty(routeMock, "current", {
+      get() {
+        const err: unknown = Object.assign(new Error("not found"), { code: 404 });
+        throw err;
+      },
+      configurable: true,
+    });
+    try {
+      const res = await GET(
+        new NextRequest(`https://crew.fxav.test/api/asset/reel/${showId}`),
+        { params: Promise.resolve({ show: showId }) },
+      );
+      expect(res.status).toBe(410);
+      // The metadata path WAS attempted (counted), then the error
+      // surfaced from the route — not the fallback flow.
+      expect(routeMock.driveCalls.length).toBeGreaterThan(driveCallsBefore);
+    } finally {
+      Object.defineProperty(routeMock, "current", {
+        value: originalCurrent,
+        writable: true,
+        configurable: true,
+      });
+    }
+  });
+
   test("Codex R18 P1: pre-flight unsatisfiable Range (bytes=-0 with finite size) → 416 (no Drive call)", async () => {
     routeMock.current = { ...routeMock.current, size: "10" };
     const res = await getReel({ headers: { Range: "bytes=-0" } });

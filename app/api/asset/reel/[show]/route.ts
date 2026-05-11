@@ -252,6 +252,16 @@ function isRangeNotSatisfiable(error: unknown): boolean {
   return candidate.code === 416 || candidate.status === 416;
 }
 
+function isNotFoundOrGone(error: unknown): boolean {
+  const candidate = error as { code?: unknown; status?: unknown };
+  return (
+    candidate.code === 404 ||
+    candidate.status === 404 ||
+    candidate.code === 410 ||
+    candidate.status === 410
+  );
+}
+
 function rangeNotSatisfiable(totalBytes: number | null): Response {
   const headers: Record<string, string> = {
     "Accept-Ranges": "bytes",
@@ -467,6 +477,16 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
   } catch (caught) {
     if (caught instanceof ByteLimitExceededError) return gone();
     if (isPermissionDenied(caught)) return gone();
+    // Codex R18 P1 (defense-in-depth): a 416 surfacing here means
+    // pre-flight + per-branch catches didn't intercept; still return
+    // 416 with size context dropped (we don't have it at this layer).
+    if (isRangeNotSatisfiable(caught)) return rangeNotSatisfiable(null);
+    // Codex R19 P1: 404/410 from the metadata files.get path (or any
+    // other drift surface that throws) is a normal drift signal per
+    // AC-7.24's single-410 contract — NOT an infra failure. Returning
+    // 500 here would surface as a user-visible server error for a
+    // reel that's simply been deleted / unshared.
+    if (isNotFoundOrGone(caught)) return gone();
     return NextResponse.json({ error: "REEL_ASSET_LOOKUP_FAILED" }, { status: 500 });
   }
 }

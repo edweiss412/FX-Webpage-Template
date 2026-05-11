@@ -337,6 +337,12 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     if (isRangeNotSatisfiable(err)) {
       return rangeNotSatisfiable(null);
     }
+    // Codex R19 P2: 404/410 from metadata files.get is a normal
+    // asset-unavailable signal for a deleted / un-shared agenda link
+    // — fail closed as 410, not 500. The inner media-fetch catch
+    // already handles 404; this picks up the metadata-call path AND
+    // any other 404/410 surface that bubbles past the inner catches.
+    if (isNotFound(err)) return gone();
     return NextResponse.json({ error: "AGENDA_ASSET_LOOKUP_FAILED" }, { status: 500 });
   }
 }
