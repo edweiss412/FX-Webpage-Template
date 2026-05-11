@@ -50,6 +50,20 @@ const MAX_AGENDA_BYTES = 50 * 1024 * 1024;
 // punctuation so an attacker can't reach beyond a valid file-id substring.
 const DRIVE_FILE_ID_RE = /^[A-Za-z0-9_-]{10,128}$/;
 
+// Codex R16 P1: single-range only. Multi-range / malformed → 416.
+const SINGLE_RANGE_RE = /^bytes=\d+-\d*$/;
+
+function pickStringHeader(
+  headers: Record<string, string | string[] | undefined> | undefined,
+  name: string,
+): string | null {
+  if (!headers) return null;
+  const value = headers[name] ?? headers[name.toLowerCase()];
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && typeof value[0] === "string") return value[0];
+  return null;
+}
+
 type RouteContext = {
   params: Promise<{ show: string; id: string }>;
 };
@@ -173,8 +187,15 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
             alt?: "media";
             supportsAllDrives?: boolean;
           },
-          options?: { responseType: "stream" },
-        ): Promise<{ data: unknown }>;
+          options?: {
+            responseType: "stream";
+            headers?: Record<string, string>;
+          },
+        ): Promise<{
+          data: unknown;
+          status?: number;
+          headers?: Record<string, string | string[] | undefined>;
+        }>;
       };
     };
 
@@ -198,11 +219,27 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       return gone();
     }
 
+    // Codex R16 P1: parse + forward Range. PDF.js issues Range
+    // requests for incremental loading; without 206, mobile clients
+    // pull the full PDF on every load.
+    const rangeHeader = request.headers.get("range");
+    if (rangeHeader && !SINGLE_RANGE_RE.test(rangeHeader)) {
+      return new Response(null, {
+        status: 416,
+        headers: { "Accept-Ranges": "bytes", "Cache-Control": CACHE_CONTROL },
+      });
+    }
+
     try {
-      const bytesResult = (await drive.files.get(
+      const driveOpts: {
+        responseType: "stream";
+        headers?: Record<string, string>;
+      } = { responseType: "stream" };
+      if (rangeHeader) driveOpts.headers = { Range: rangeHeader };
+      const bytesResult = await drive.files.get(
         { fileId: id, alt: "media", supportsAllDrives: true },
-        { responseType: "stream" },
-      )) as { data: unknown };
+        driveOpts,
+      );
       // Codex R2 P2: stream straight through with a bounded passthrough.
       // No buffering, no double-copy. The Response body is a Web stream
       // backed by the Drive Node stream wrapped in a byte-limit
@@ -215,11 +252,24 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         // and reinterpret it as something other than application/pdf.
         // Parity with the diagram + reel asset routes.
         "X-Content-Type-Options": "nosniff",
+        // Codex R16 P1: advertise Range support on every success
+        // response so PDF.js + browser video clients know subsequent
+        // fetches may use Range.
+        "Accept-Ranges": "bytes",
       };
-      if (Number.isFinite(reportedSize)) {
+      // Drive's response carries Content-Range / Content-Length on 206
+      // partials and Content-Length on full 200s. Forward verbatim
+      // when present so the client knows the exact byte slice.
+      const contentRange = pickStringHeader(bytesResult.headers, "content-range");
+      const driveContentLength = pickStringHeader(bytesResult.headers, "content-length");
+      if (contentRange) headers["Content-Range"] = contentRange;
+      if (driveContentLength) {
+        headers["Content-Length"] = driveContentLength;
+      } else if (Number.isFinite(reportedSize)) {
         headers["Content-Length"] = String(reportedSize);
       }
-      return new Response(stream, { headers });
+      const driveStatus = typeof bytesResult.status === "number" ? bytesResult.status : 200;
+      return new Response(stream, { status: driveStatus, headers });
     } catch (err) {
       if (err instanceof ByteLimitExceededError) return gone();
       if (isNotFound(err) || isPermissionDenied(err)) return gone();

@@ -49,6 +49,10 @@ const routeMock = vi.hoisted(() => ({
     alt: string | undefined;
     supportsAllDrives?: boolean;
   }[],
+  lastMediaOptions: null as null | {
+    responseType: "stream";
+    headers?: Record<string, string>;
+  },
 }));
 
 vi.mock("@/lib/auth/isAdminSession", () => ({
@@ -85,24 +89,40 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/drive/client", () => ({
   getDriveClient: () => ({
     files: {
-      async get(args: {
-        fileId: string;
-        fields?: string;
-        alt?: string;
-        supportsAllDrives?: boolean;
-      }) {
+      async get(
+        args: {
+          fileId: string;
+          fields?: string;
+          alt?: string;
+          supportsAllDrives?: boolean;
+        },
+        options?: { responseType: "stream"; headers?: Record<string, string> },
+      ) {
         routeMock.filesGetCalls.push({
           fileId: args.fileId,
           alt: args.alt,
           ...(args.supportsAllDrives === undefined ? {} : { supportsAllDrives: args.supportsAllDrives }),
         });
+        routeMock.lastMediaOptions = options ?? null;
         if (routeMock.driveError) throw routeMock.driveError;
         if (args.alt === "media") {
           if (!routeMock.driveBytes) {
             const err: unknown = Object.assign(new Error("not found"), { code: 404 });
             throw err;
           }
-          return { data: routeMock.driveBytes };
+          // Mimic Drive: if a Range header was forwarded, return 206
+          // with synthetic Content-Range; otherwise full 200.
+          if (options?.headers?.Range) {
+            return {
+              data: routeMock.driveBytes,
+              status: 206,
+              headers: {
+                "content-range": `bytes 0-9/${routeMock.driveBytes.byteLength}`,
+                "content-length": String(routeMock.driveBytes.byteLength),
+              },
+            };
+          }
+          return { data: routeMock.driveBytes, status: 200 };
         }
         return { data: routeMock.driveMeta ?? {} };
       },
@@ -110,11 +130,16 @@ vi.mock("@/lib/drive/client", () => ({
   }),
 }));
 
-async function getAgenda(fileId = agendaFileId): Promise<Response> {
+async function getAgenda(
+  fileId = agendaFileId,
+  init?: { headers?: Record<string, string> },
+): Promise<Response> {
   const { GET } = await import("@/app/api/asset/agenda/[show]/[id]/route");
-  return GET(new NextRequest(`https://crew.fxav.test/api/asset/agenda/${showId}/${fileId}`), {
-    params: Promise.resolve({ show: showId, id: fileId }),
-  });
+  const url = `https://crew.fxav.test/api/asset/agenda/${showId}/${fileId}`;
+  const req = init?.headers
+    ? new NextRequest(url, { headers: init.headers })
+    : new NextRequest(url);
+  return GET(req, { params: Promise.resolve({ show: showId, id: fileId }) });
 }
 
 beforeEach(() => {
@@ -137,6 +162,7 @@ beforeEach(() => {
   routeMock.driveBytes = new TextEncoder().encode("%PDF-1.7 fixture bytes");
   routeMock.driveError = null;
   routeMock.filesGetCalls = [];
+  routeMock.lastMediaOptions = null;
 });
 
 describe("/api/asset/agenda/[show]/[id]", () => {
@@ -271,6 +297,27 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(res.status).toBe(410);
     // Only the metadata call should have fired; no media fetch.
     expect(routeMock.filesGetCalls.map((c) => c.alt ?? "metadata")).toEqual(["metadata"]);
+  });
+
+  test("Codex R16 P1: success response advertises Accept-Ranges: bytes", async () => {
+    const res = await getAgenda();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
+  });
+
+  test("Codex R16 P1: Range request forwards to Drive and returns 206 with Content-Range", async () => {
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(206);
+    expect(routeMock.lastMediaOptions?.headers?.Range).toBe("bytes=0-9");
+    expect(res.headers.get("content-range")).toMatch(/^bytes 0-9\/\d+$/);
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
+  });
+
+  test("Codex R16 P1: malformed/multi-range request → 416 (no Drive media call)", async () => {
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-10, 20-30" } });
+    expect(res.status).toBe(416);
+    // Only the metadata fetch should have fired; media must NOT be called.
+    expect(routeMock.filesGetCalls.filter((c) => c.alt === "media")).toEqual([]);
   });
 
   test("Codex R14 P1: Drive metadata + media calls include supportsAllDrives: true", async () => {
