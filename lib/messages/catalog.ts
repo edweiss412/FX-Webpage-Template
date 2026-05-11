@@ -228,6 +228,22 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "Asset recovery skipped this pass because the same show/revision recently drifted; manual re-sync bypasses the cooldown gate.",
   },
+  ADMIN_FORBIDDEN: {
+    code: "ADMIN_FORBIDDEN",
+    dougFacing: "Your admin session cannot access this action. Sign in again and retry.",
+    crewFacing: null,
+    followUp: "Doug -> sign in again",
+    helpfulContext:
+      "Admin-only endpoints return this when the request does not carry a valid admin session.",
+  },
+  APPLY_STATUS_NOT_FOUND: {
+    code: "APPLY_STATUS_NOT_FOUND",
+    dougFacing: "That apply job is no longer available. Refresh the show and check the current status.",
+    crewFacing: null,
+    followUp: "Doug -> refresh the admin view",
+    helpfulContext:
+      "The apply-status endpoint could not find the requested show, apply id, or pending sync row.",
+  },
   STAGED_PARSE_REVISION_RACE: {
     code: "STAGED_PARSE_REVISION_RACE",
     dougFacing:
@@ -389,6 +405,22 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug -> replace the opening reel link with a video file and sync again",
     helpfulContext:
       "The reel route only serves Drive files whose MIME type starts with video/.",
+  },
+  DIAGRAM_ASSET_LOOKUP_FAILED: {
+    code: "DIAGRAM_ASSET_LOOKUP_FAILED",
+    dougFacing: "A diagram could not be loaded. Refresh and try again.",
+    crewFacing: "This diagram could not be loaded. Ask Doug if it keeps happening.",
+    followUp: "Doug -> retry; if persistent, Eric",
+    helpfulContext:
+      "The diagram asset route could not resolve or stream the stored immutable diagram revision.",
+  },
+  REEL_ASSET_LOOKUP_FAILED: {
+    code: "REEL_ASSET_LOOKUP_FAILED",
+    dougFacing: "The opening reel could not be loaded. Refresh and try again.",
+    crewFacing: "This video could not be loaded. Ask Doug if it keeps happening.",
+    followUp: "Doug -> retry; if persistent, Eric",
+    helpfulContext:
+      "The reel asset route could not resolve or stream the immutable Drive revision for the show.",
   },
   MISSING_REVIEWER_CHOICE: {
     code: "MISSING_REVIEWER_CHOICE",

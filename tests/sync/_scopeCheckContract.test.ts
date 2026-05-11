@@ -42,6 +42,14 @@ const INTENTIONAL_EXCEPTIONS = new Map<string, string>([
     "lib/sync/runOnboardingScan.ts::getFile",
     "asset metadata lookup during onboarding enrichment, not sheet admission by drive_file_id",
   ],
+  [
+    "lib/sync/verifyReelOnApply.ts::getFileMetadata",
+    "opening-reel metadata re-verification during apply; this does not admit a sheet by drive_file_id",
+  ],
+  [
+    "app/api/asset/reel/[show]/route.ts::GET",
+    "opening-reel asset route streams a persisted immutable revision; this does not process sheets",
+  ],
 ]);
 
 function walkTsFiles(dir: string): string[] {

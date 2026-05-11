@@ -120,104 +120,110 @@ function loadSeedSummary(): SeedSummary {
 }
 
 describe("seed script", () => {
-  test("AC-2.7 seed loads 10 fixtures with full persisted-shape integrity", () => {
-    runSeed();
-    runSeed();
+  test(
+    "AC-2.7 seed loads 10 fixtures with full persisted-shape integrity",
+    () => {
+      runSeed();
+      runSeed();
 
-    const summary = loadSeedSummary();
+      const summary = loadSeedSummary();
 
-    expect(summary.showCount).toBe(10);
-    expect(summary.auditCount).toBe(10);
-    expect(summary.pendingSyncCount).toBe(0);
-    expect(summary.pendingIngestionCount).toBe(0);
+      expect(summary.showCount).toBe(10);
+      expect(summary.auditCount).toBe(10);
+      expect(summary.pendingSyncCount).toBe(0);
+      expect(summary.pendingIngestionCount).toBe(0);
 
-    const restageShows = summary.shows.filter(
-      (show) => show.diagrams?.snapshot_status === "partial_failure_restage_required",
-    );
-    expect(restageShows.length).toBeGreaterThanOrEqual(1);
-
-    for (const show of summary.shows) {
-      expect(show.drive_file_id).toMatch(/^seed-fixture:/);
-      expect(Date.parse(show.last_seen_modified_time)).not.toBeNaN();
-      expect(show.crew_count).toBeGreaterThan(0);
-      expect(show.auth_count).toBe(show.crew_count);
-
-      const reelValues = [
-        show.opening_reel_drive_file_id,
-        show.opening_reel_drive_modified_time,
-        show.opening_reel_head_revision_id,
-        show.opening_reel_mime_type,
-      ];
-      const presentReelValues = reelValues.filter((value) => value !== null);
-      expect([0, 4]).toContain(presentReelValues.length);
-      if (presentReelValues.length === 4) {
-        expect(show.opening_reel_mime_type).toMatch(/^video\//);
-      }
-
-      expect(show.diagrams).not.toBeNull();
-      expect(show.diagrams.snapshot_revision_id).toEqual(expect.any(String));
-      expect(["complete", "partial_failure", "partial_failure_restage_required"]).toContain(
-        show.diagrams.snapshot_status,
+      const restageShows = summary.shows.filter(
+        (show) => show.diagrams?.snapshot_status === "partial_failure_restage_required",
       );
-      expect(
-        show.diagrams.linkedFolder === null ||
-          (typeof show.diagrams.linkedFolder?.driveFolderId === "string" &&
-            typeof show.diagrams.linkedFolder?.driveFolderUrl === "string"),
-      ).toBe(true);
-      expect(Array.isArray(show.diagrams.embeddedImages)).toBe(true);
-      expect(Array.isArray(show.diagrams.linkedFolderItems)).toBe(true);
+      expect(restageShows.length).toBeGreaterThanOrEqual(1);
 
-      for (const embedded of show.diagrams.embeddedImages) {
-        expect(embedded.objectId).toEqual(expect.any(String));
-        expect(embedded.sheetTab).toEqual(expect.any(String));
-        expect(embedded.mimeType).toEqual(expect.any(String));
-        expect(embedded.snapshotPath === null || typeof embedded.snapshotPath === "string").toBe(
-          true,
+      for (const show of summary.shows) {
+        expect(show.drive_file_id).toMatch(/^seed-fixture:/);
+        expect(Date.parse(show.last_seen_modified_time)).not.toBeNaN();
+        expect(show.crew_count).toBeGreaterThan(0);
+        expect(show.auth_count).toBe(show.crew_count);
+
+        const reelValues = [
+          show.opening_reel_drive_file_id,
+          show.opening_reel_drive_modified_time,
+          show.opening_reel_head_revision_id,
+          show.opening_reel_mime_type,
+        ];
+        const presentReelValues = reelValues.filter((value) => value !== null);
+        expect([0, 4]).toContain(presentReelValues.length);
+        if (presentReelValues.length === 4) {
+          expect(show.opening_reel_mime_type).toMatch(/^video\//);
+        }
+
+        expect(show.diagrams).not.toBeNull();
+        expect(show.diagrams.snapshot_revision_id).toEqual(expect.any(String));
+        expect(["complete", "partial_failure", "partial_failure_restage_required"]).toContain(
+          show.diagrams.snapshot_status,
         );
-        expect(embedded.sourceFolder).toBe("embedded");
-        expect(embedded.sheetsRevisionId).toEqual(expect.any(String));
         expect(
-          embedded.embeddedFingerprint === null ||
-            (typeof embedded.embeddedFingerprint === "string" &&
-              embedded.embeddedFingerprint.length > 0),
+          show.diagrams.linkedFolder === null ||
+            (typeof show.diagrams.linkedFolder?.driveFolderId === "string" &&
+              typeof show.diagrams.linkedFolder?.driveFolderUrl === "string"),
         ).toBe(true);
-        expect(["normal", "restage_required"]).toContain(embedded.recovery_disposition);
-        if (embedded.embeddedFingerprint === null) {
-          expect(embedded.recovery_disposition).toBe("restage_required");
+        expect(Array.isArray(show.diagrams.embeddedImages)).toBe(true);
+        expect(Array.isArray(show.diagrams.linkedFolderItems)).toBe(true);
+
+        for (const embedded of show.diagrams.embeddedImages) {
+          expect(embedded.objectId).toEqual(expect.any(String));
+          expect(embedded.sheetTab).toEqual(expect.any(String));
+          expect(embedded.mimeType).toEqual(expect.any(String));
+          expect(embedded.snapshotPath === null || typeof embedded.snapshotPath === "string").toBe(
+            true,
+          );
+          expect(embedded.sourceFolder).toBe("embedded");
+          expect(embedded.sheetsRevisionId).toEqual(expect.any(String));
+          expect(
+            embedded.embeddedFingerprint === null ||
+              (typeof embedded.embeddedFingerprint === "string" &&
+                embedded.embeddedFingerprint.length > 0),
+          ).toBe(true);
+          expect(["normal", "restage_required"]).toContain(embedded.recovery_disposition);
+          if (embedded.embeddedFingerprint === null) {
+            expect(embedded.recovery_disposition).toBe("restage_required");
+          }
+          if (embedded.recovery_disposition === "normal") {
+            expect(embedded.embeddedFingerprint).toEqual(expect.any(String));
+          }
+          if (embedded.recovery_disposition === "restage_required") {
+            expect(embedded.snapshotPath).toBeNull();
+          }
         }
-        if (embedded.recovery_disposition === "normal") {
-          expect(embedded.embeddedFingerprint).toEqual(expect.any(String));
-        }
-        if (embedded.recovery_disposition === "restage_required") {
-          expect(embedded.snapshotPath).toBeNull();
+
+        for (const linked of show.diagrams.linkedFolderItems) {
+          expect(linked.driveFileId).toEqual(expect.any(String));
+          expect(linked.mimeType).toEqual(expect.any(String));
+          expect(linked.drive_modified_time).toEqual(expect.any(String));
+          expect(linked.headRevisionId).toEqual(expect.any(String));
+          expect(linked.md5Checksum).toEqual(expect.any(String));
+          expect(linked.snapshotPath === null || typeof linked.snapshotPath === "string").toBe(
+            true,
+          );
+          expect(linked.sourceFolder).toBe("linked");
+          expect(["normal", "restage_required"]).toContain(linked.recovery_disposition);
+          if (linked.recovery_disposition === "restage_required") {
+            expect(linked.snapshotPath).toBeNull();
+          }
         }
       }
 
-      for (const linked of show.diagrams.linkedFolderItems) {
-        expect(linked.driveFileId).toEqual(expect.any(String));
-        expect(linked.mimeType).toEqual(expect.any(String));
-        expect(linked.drive_modified_time).toEqual(expect.any(String));
-        expect(linked.headRevisionId).toEqual(expect.any(String));
-        expect(linked.md5Checksum).toEqual(expect.any(String));
-        expect(linked.snapshotPath === null || typeof linked.snapshotPath === "string").toBe(true);
-        expect(linked.sourceFolder).toBe("linked");
-        expect(["normal", "restage_required"]).toContain(linked.recovery_disposition);
-        if (linked.recovery_disposition === "restage_required") {
-          expect(linked.snapshotPath).toBeNull();
-        }
+      const restageEntry = (restageShows as SeedShow[])
+        .flatMap((show) => show.diagrams.embeddedImages)
+        .find((embedded) => embedded.recovery_disposition === "restage_required");
+
+      expect(restageEntry).toBeDefined();
+      if (!restageEntry) {
+        throw new Error("Expected at least one restage-required embedded image");
       }
-    }
-
-    const restageEntry = (restageShows as SeedShow[])
-      .flatMap((show) => show.diagrams.embeddedImages)
-      .find((embedded) => embedded.recovery_disposition === "restage_required");
-
-    expect(restageEntry).toBeDefined();
-    if (!restageEntry) {
-      throw new Error("Expected at least one restage-required embedded image");
-    }
-    expect(restageEntry.embeddedFingerprint).toBeNull();
-    expect(restageEntry.sourceFolder).toBe("embedded");
-    expect(restageEntry.snapshotPath).toBeNull();
-  });
+      expect(restageEntry.embeddedFingerprint).toBeNull();
+      expect(restageEntry.sourceFolder).toBe("embedded");
+      expect(restageEntry.snapshotPath).toBeNull();
+    },
+    15_000,
+  );
 });

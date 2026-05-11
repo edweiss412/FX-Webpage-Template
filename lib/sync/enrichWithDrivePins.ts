@@ -118,7 +118,9 @@ async function extractEmbeddedImages(
   if (!driveClient.listSpreadsheetSheets) return [];
 
   const sheets = await driveClient.listSpreadsheetSheets(ctx.driveFileId);
-  const diagramsSheet = sheets.find((sheet) => sheet.title.toLowerCase() === "diagrams");
+  const diagramsSheet = sheets.find(
+    (sheet) => sheet.title.localeCompare("diagrams", undefined, { sensitivity: "accent" }) === 0,
+  );
   if (!diagramsSheet) {
     warnings.push(warning("DIAGRAMS_TAB_MISSING", "No DIAGRAMS tab was found in the spreadsheet."));
     return [];
