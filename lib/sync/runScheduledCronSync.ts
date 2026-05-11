@@ -41,6 +41,7 @@ import {
   type RoleFlagsNotice,
   type Phase2Tx,
 } from "@/lib/sync/phase2";
+import { promoteSnapshotUpload as defaultPromoteSnapshotUpload } from "@/lib/sync/promoteSnapshot";
 import {
   type DeferredIngestionRow,
   perFileProcessor,
@@ -104,7 +105,12 @@ export type ProcessOneFileResult =
   | { outcome: "asset_recovery" }
   | { outcome: "stage"; stagedId: string }
   | { outcome: "hard_fail"; code: string }
-  | { outcome: "applied"; showId: string; roleFlagsNotice?: RoleFlagsNotice }
+  | {
+      outcome: "applied";
+      showId: string;
+      roleFlagsNotice?: RoleFlagsNotice;
+      snapshotRevisionId?: string;
+    }
   | { outcome: "stale"; code: string }
   | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
   | {
@@ -166,6 +172,7 @@ export type ProcessOneFileDeps = {
   driveClient?: DriveClient;
   runPhase1?: typeof runPhase1;
   runPhase2?: typeof runPhase2;
+  promoteSnapshotUpload?: typeof defaultPromoteSnapshotUpload;
   readRevisionRaceCooldown?: (
     driveFileId: string,
     racedHeadRevisionId: string,
@@ -251,11 +258,7 @@ export async function insertFirstSeenShowWithSlugRetry<T>(args: {
     }
   }
 
-  throw new ShowSlugCollisionRetryExhaustedError(
-    args.baseSlug,
-    maxAttempts,
-    lastUniqueViolation,
-  );
+  throw new ShowSlugCollisionRetryExhaustedError(args.baseSlug, maxAttempts, lastUniqueViolation);
 }
 
 function databaseUrl(): string {
@@ -281,6 +284,16 @@ class PostgresPipelineTx implements SyncPipelineTx {
   private async one<T>(sql: string, params: unknown[] = []): Promise<T | null> {
     const rows = await this.rows<T>(sql, params);
     return rows[0] ?? null;
+  }
+
+  async readCurrentDiagrams(driveFileId: string): Promise<unknown> {
+    const row = await this.one<{ diagrams: unknown }>(
+      "select diagrams from public.shows where drive_file_id = $1 limit 1",
+      [driveFileId],
+    );
+    if (!row?.diagrams || typeof row.diagrams !== "object") return null;
+    if ("current" in row.diagrams) return (row.diagrams as { current?: unknown }).current ?? null;
+    return row.diagrams;
   }
 
   async readShowForPhase1(driveFileId: string) {
@@ -1619,6 +1632,9 @@ export async function processOneFile(
     const skipped = { outcome: "skipped" as const, reason: CONCURRENT_SYNC_SKIPPED };
     await logSync(deps, driveFileId, skipped);
   }
+  if (!("skipped" in result) && result.outcome === "applied" && result.snapshotRevisionId) {
+    await (deps.promoteSnapshotUpload ?? defaultPromoteSnapshotUpload)(result.snapshotRevisionId);
+  }
   await emitDeferredRoleFlagsNotice(result, deps);
   return result;
 }
@@ -1927,6 +1943,7 @@ export async function processOneFile_unlocked(
     showId: phase2.showId,
   };
   if (phase2.roleFlagsNotice) result.roleFlagsNotice = phase2.roleFlagsNotice;
+  if (phase2.snapshotRevisionId) result.snapshotRevisionId = phase2.snapshotRevisionId;
   await tx.deleteRevisionRaceCooldowns?.(driveFileId);
   await deps.publishShowInvalidation?.(phase2.showId);
   await logSync(deps, driveFileId, result);

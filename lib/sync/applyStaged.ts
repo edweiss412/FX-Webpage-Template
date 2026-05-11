@@ -24,6 +24,7 @@ import {
   type SyncPipelineTx,
   withPostgresSyncPipelineLock,
 } from "@/lib/sync/runScheduledCronSync";
+import { promoteSnapshotUpload as defaultPromoteSnapshotUpload } from "@/lib/sync/promoteSnapshot";
 
 export const PENDING_SYNC_NOT_FOUND = "PENDING_SYNC_NOT_FOUND" as const;
 export const STAGED_PARSE_SUPERSEDED = "STAGED_PARSE_SUPERSEDED" as const;
@@ -155,6 +156,7 @@ export type ApplyStagedResult =
       derivedSideEffects: { revokeFloorForNames: string[] };
       adminAlertCode?: typeof EMBEDDED_RECOVERY_REQUIRES_RESTAGE | null;
       roleFlagsNotice?: RoleFlagsNotice;
+      snapshotRevisionId?: string;
     }
   | { outcome: "not_found"; code: typeof PENDING_SYNC_NOT_FOUND }
   | { outcome: "superseded"; code: typeof STAGED_PARSE_SUPERSEDED }
@@ -225,6 +227,7 @@ export type ApplyStagedDeps = {
   verifyReelOnApply?: (
     openingReel: Phase2Args["parseResult"]["openingReel"],
   ) => Promise<VerifyReelOnApplyResult>;
+  promoteSnapshotUpload?: typeof defaultPromoteSnapshotUpload;
   withPipelineLock?: PipelineLock;
   runPhase2?: (tx: LockedShowTx<SyncPipelineTx>, args: Phase2Args) => Promise<Phase2Result>;
   insertSyncAudit?: (
@@ -853,11 +856,7 @@ async function recordWizardApplyHardFail(
     pendingFolderId: reverify.pendingFolderId,
   });
   if (!ingested) return false;
-  return await deps.markWizardManifestHardFailed(
-    tx,
-    pending.driveFileId,
-    pending.wizardSessionId,
-  );
+  return await deps.markWizardManifestHardFailed(tx, pending.driveFileId, pending.wizardSessionId);
 }
 
 type RequiredPick<T, K extends keyof T> = {
@@ -891,6 +890,7 @@ type ApplyStagedDepsWithDefaults = RequiredPick<
   liveDriveReverify?: LiveDriveReverify;
   liveAssetReviewEffects?: LiveAssetReviewEffects;
   withPipelineLock?: PipelineLock;
+  promoteSnapshotUpload?: typeof defaultPromoteSnapshotUpload;
 };
 
 function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
@@ -921,11 +921,10 @@ function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
     retryEmbeddedRevisionAvailability:
       deps.retryEmbeddedRevisionAvailability ?? defaultRetryEmbeddedRevisionAvailability,
     verifyReelOnApply: deps.verifyReelOnApply ?? defaultVerifyReelOnApply,
+    ...(deps.promoteSnapshotUpload ? { promoteSnapshotUpload: deps.promoteSnapshotUpload } : {}),
     ...(deps.wizardDriveReverify ? { wizardDriveReverify: deps.wizardDriveReverify } : {}),
     ...(deps.liveDriveReverify ? { liveDriveReverify: deps.liveDriveReverify } : {}),
-    ...(deps.liveAssetReviewEffects
-      ? { liveAssetReviewEffects: deps.liveAssetReviewEffects }
-      : {}),
+    ...(deps.liveAssetReviewEffects ? { liveAssetReviewEffects: deps.liveAssetReviewEffects } : {}),
     ...(deps.withPipelineLock ? { withPipelineLock: deps.withPipelineLock } : {}),
   };
 }
@@ -1215,6 +1214,7 @@ export async function applyStaged_unlocked(
     adminAlertCode: assetAdjusted.adminAlertCode,
   };
   if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
+  if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;
   return applied;
 }
 
@@ -1463,11 +1463,16 @@ export async function applyStaged(
       const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
       await upsertAdminAlert(result.roleFlagsNotice);
     }
+    if (!("skipped" in result) && result.outcome === "applied" && result.snapshotRevisionId) {
+      await (deps.promoteSnapshotUpload ?? defaultPromoteSnapshotUpload)(result.snapshotRevisionId);
+    }
     return result;
   }
 
   if (args.sourceScope === "wizard") {
     return await applyWizardWithDriveReverify(args, deps);
   }
-  throw new Error(`unsupported Apply source scope: ${(args as { sourceScope: string }).sourceScope}`);
+  throw new Error(
+    `unsupported Apply source scope: ${(args as { sourceScope: string }).sourceScope}`,
+  );
 }

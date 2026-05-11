@@ -15,7 +15,9 @@ type RouteParams = {
   key: string;
 };
 
-type DiagramsPayload = PersistedDiagrams | { current?: PersistedDiagrams | null; pending?: unknown };
+type DiagramsPayload =
+  | PersistedDiagrams
+  | { current?: PersistedDiagrams | null; pending?: unknown };
 
 type ShowRow = {
   id: string;
@@ -107,7 +109,10 @@ export async function GET(
       .eq("id", show)
       .maybeSingle()) as { data: ShowRow | null; error: unknown };
 
-    if (showResult.error || !showResult.data) {
+    if (showResult.error) {
+      return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
+    }
+    if (!showResult.data) {
       return gone();
     }
 
@@ -124,7 +129,10 @@ export async function GET(
     }
 
     const { data, error } = await supabase.storage.from(DIAGRAM_BUCKET).download(path);
-    if (error || !data) {
+    if (error) {
+      return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
+    }
+    if (!data) {
       return gone();
     }
 

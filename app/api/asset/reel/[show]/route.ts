@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Readable } from "node:stream";
 import { NextResponse, type NextRequest } from "next/server";
 import { getDriveClient } from "@/lib/drive/client";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
@@ -35,18 +36,17 @@ type UsableReelRow = {
 
 type ReelDriveClient = {
   files: {
-    get(args: {
-      fileId: string;
-      fields?: string;
-      alt?: "media";
-    }): Promise<{ data: unknown }>;
+    get(args: { fileId: string; fields?: string; alt?: "media" }): Promise<{ data: unknown }>;
   };
   revisions: {
-    get(args: {
-      fileId: string;
-      revisionId: string;
-      alt: "media";
-    }): Promise<{ data: unknown }>;
+    get(
+      args: {
+        fileId: string;
+        revisionId: string;
+        alt: "media";
+      },
+      options?: { responseType: "stream" },
+    ): Promise<{ data: unknown }>;
   };
 };
 
@@ -73,6 +73,12 @@ function responseBody(bytes: Uint8Array): ArrayBuffer {
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
   return copy.buffer;
+}
+
+function streamBody(data: unknown): BodyInit {
+  if (data instanceof Readable) return Readable.toWeb(data) as ReadableStream;
+  if (data instanceof ReadableStream) return data;
+  return responseBody(bytesFrom(data));
 }
 
 async function authorize(request: NextRequest, showId: string): Promise<Response | null> {
@@ -107,17 +113,17 @@ async function authorize(request: NextRequest, showId: string): Promise<Response
 function hasUsablePin(row: ReelRow): row is UsableReelRow {
   return Boolean(
     row.opening_reel_drive_file_id &&
-      row.opening_reel_drive_modified_time &&
-      row.opening_reel_head_revision_id &&
-      row.opening_reel_mime_type?.startsWith("video/"),
+    row.opening_reel_drive_modified_time &&
+    row.opening_reel_head_revision_id &&
+    row.opening_reel_mime_type?.startsWith("video/"),
   );
 }
 
 function drifted(row: UsableReelRow, current: DriveMetadata): boolean {
   return Boolean(
     current.trashed ||
-      current.headRevisionId !== row.opening_reel_head_revision_id ||
-      current.modifiedTime !== row.opening_reel_drive_modified_time,
+    current.headRevisionId !== row.opening_reel_head_revision_id ||
+    current.modifiedTime !== row.opening_reel_drive_modified_time,
   );
 }
 
@@ -149,12 +155,15 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     }
 
     try {
-      const { data } = (await drive.revisions.get({
-        fileId: row.opening_reel_drive_file_id,
-        revisionId: row.opening_reel_head_revision_id,
-        alt: "media",
-      })) as { data: unknown };
-      return new Response(responseBody(bytesFrom(data)), {
+      const { data } = (await drive.revisions.get(
+        {
+          fileId: row.opening_reel_drive_file_id,
+          revisionId: row.opening_reel_head_revision_id,
+          alt: "media",
+        },
+        { responseType: "stream" },
+      )) as { data: unknown };
+      return new Response(streamBody(data), {
         headers: {
           "Cache-Control": CACHE_CONTROL,
           "Content-Type": row.opening_reel_mime_type,

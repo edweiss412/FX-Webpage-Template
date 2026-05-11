@@ -35,6 +35,14 @@ const statusMock = vi.hoisted(() => ({
 
 vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdmin: statusMock.requireAdmin,
+  AdminInfraError: class AdminInfraError extends Error {},
+}));
+
+vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({
+  upsertAdminAlert: async () => {
+    statusMock.writes += 1;
+    return "alert-1";
+  },
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -94,7 +102,7 @@ beforeEach(() => {
 });
 
 describe("GET /api/admin/show/[slug]/apply/[applyId]/status", () => {
-  test("reports pending, promoted, rolled_back, and stuck states without writes", async () => {
+  test("reports pending, promoted, rolled_back, and stuck states with repair alerts for stuck states", async () => {
     await expect((await getStatus()).json()).resolves.toMatchObject({
       status: "pending",
       snapshot_revision_id: applyId,
@@ -131,7 +139,10 @@ describe("GET /api/admin/show/[slug]/apply/[applyId]/status", () => {
     };
     statusMock.show = {
       id: showId,
-      diagrams: { current: { snapshot_revision_id: "prior-rev" }, pending: { revision_id: applyId } },
+      diagrams: {
+        current: { snapshot_revision_id: "prior-rev" },
+        pending: { revision_id: applyId },
+      },
     };
     await expect((await getStatus()).json()).resolves.toMatchObject({
       status: "stuck_admin_repair_required",
@@ -139,7 +150,7 @@ describe("GET /api/admin/show/[slug]/apply/[applyId]/status", () => {
       diagnostics: { promote_started_at: statusMock.ledger.promote_started_at },
     });
 
-    expect(statusMock.writes).toBe(0);
+    expect(statusMock.writes).toBe(2);
   });
 
   test("non-admin and show-mismatch requests do not expose ledger state", async () => {

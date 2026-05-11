@@ -19,14 +19,11 @@ export type PendingSnapshotUploadRow = {
 
 export type SnapshotAssetsTx = {
   insertPendingSnapshotUpload(row: PendingSnapshotUploadRow): Promise<void>;
+  markPendingSnapshotDeleteStarted?(snapshotRevisionId: string): Promise<void>;
 };
 
 export type SnapshotAssetsStorage = {
-  upload(
-    path: string,
-    bytes: Uint8Array,
-    options: { contentType: string },
-  ): Promise<void>;
+  upload(path: string, bytes: Uint8Array, options: { contentType: string }): Promise<void>;
 };
 
 export type SnapshotAssetsDrive = {
@@ -88,12 +85,15 @@ function statusFor(
   embeddedImages: PersistedEmbeddedImage[],
   linkedFolderItems: PersistedLinkedFolderItem[],
 ): PendingDiagramsPayload["snapshot_status"] {
-  const unresolved = [...embeddedImages, ...linkedFolderItems].filter((entry) => !entry.snapshotPath);
+  const unresolved = [...embeddedImages, ...linkedFolderItems].filter(
+    (entry) => !entry.snapshotPath,
+  );
   if (unresolved.length === 0) return "complete";
   if (
     unresolved.length > 0 &&
     unresolved.every(
-      (entry) => "recovery_disposition" in entry && entry.recovery_disposition === "restage_required",
+      (entry) =>
+        "recovery_disposition" in entry && entry.recovery_disposition === "restage_required",
     )
   ) {
     return "partial_failure_restage_required";
@@ -108,8 +108,7 @@ export async function snapshotAssets(args: SnapshotAssetsArgs): Promise<Snapshot
   const temp = tempPrefix(args.showId, runUuid);
   const canonical = canonicalPrefix(args.showId, snapshotRevisionId);
   const warnings: ParseWarning[] = [];
-  const assetCount =
-    args.diagrams.embeddedImages.length + args.diagrams.linkedFolderItems.length;
+  const assetCount = args.diagrams.embeddedImages.length + args.diagrams.linkedFolderItems.length;
 
   await args.tx.insertPendingSnapshotUpload({
     showId: args.showId,
@@ -120,55 +119,60 @@ export async function snapshotAssets(args: SnapshotAssetsArgs): Promise<Snapshot
   });
 
   const embeddedImages: PersistedEmbeddedImage[] = [];
-  for (const entry of args.diagrams.embeddedImages) {
-    const assetKey = `embedded-${entry.objectId}.${extForMime(entry.mimeType)}`;
-    let snapshotPath: string | null = null;
+  try {
+    for (const entry of args.diagrams.embeddedImages) {
+      const assetKey = `embedded-${entry.objectId}.${extForMime(entry.mimeType)}`;
+      let snapshotPath: string | null = null;
 
-    if (entry.embeddedFingerprint && entry.recovery_disposition !== "restage_required") {
-      const bytes = await args.drive.fetchEmbeddedImageBytes(entry);
-      if (bytes && sha256Base64Url(bytes) === entry.embeddedFingerprint) {
+      if (entry.embeddedFingerprint && entry.recovery_disposition !== "restage_required") {
+        const bytes = await args.drive.fetchEmbeddedImageBytes(entry);
+        if (bytes && sha256Base64Url(bytes) === entry.embeddedFingerprint) {
+          await args.storage.upload(`${temp}${assetKey}`, bytes, { contentType: entry.mimeType });
+          snapshotPath = `${canonical}${assetKey}`;
+        } else {
+          warnings.push(
+            warning("EMBEDDED_ASSET_DRIFTED", `Embedded diagram ${entry.objectId} drifted.`),
+          );
+        }
+      }
+
+      embeddedImages.push({ ...entry, snapshotPath });
+    }
+
+    const linkedFolderItems: PersistedLinkedFolderItem[] = [];
+    for (const entry of args.diagrams.linkedFolderItems) {
+      const assetKey = `folder-${entry.driveFileId}.${extForMime(entry.mimeType)}`;
+      let snapshotPath: string | null = null;
+      const bytes = await args.drive.fetchLinkedRevisionBytes(entry);
+      if (bytes && md5Hex(bytes) === entry.md5Checksum) {
         await args.storage.upload(`${temp}${assetKey}`, bytes, { contentType: entry.mimeType });
         snapshotPath = `${canonical}${assetKey}`;
       } else {
         warnings.push(
-          warning("EMBEDDED_ASSET_DRIFTED", `Embedded diagram ${entry.objectId} drifted.`),
+          warning("LINKED_ASSET_DRIFTED", `Linked diagram ${entry.driveFileId} drifted.`),
         );
       }
+      linkedFolderItems.push({ ...entry, snapshotPath });
     }
 
-    embeddedImages.push({ ...entry, snapshotPath });
+    const pending: PendingDiagramsPayload = {
+      revision_id: snapshotRevisionId,
+      snapshot_revision_id: snapshotRevisionId,
+      snapshot_status: statusFor(embeddedImages, linkedFolderItems),
+      linkedFolder: args.diagrams.linkedFolder,
+      embeddedImages,
+      linkedFolderItems,
+    };
+
+    return {
+      snapshotRevisionId,
+      runUuid,
+      tempPrefix: temp,
+      pending,
+      warnings,
+    };
+  } catch (error) {
+    await args.tx.markPendingSnapshotDeleteStarted?.(snapshotRevisionId);
+    throw error;
   }
-
-  const linkedFolderItems: PersistedLinkedFolderItem[] = [];
-  for (const entry of args.diagrams.linkedFolderItems) {
-    const assetKey = `folder-${entry.driveFileId}.${extForMime(entry.mimeType)}`;
-    let snapshotPath: string | null = null;
-    const bytes = await args.drive.fetchLinkedRevisionBytes(entry);
-    if (bytes && md5Hex(bytes) === entry.md5Checksum) {
-      await args.storage.upload(`${temp}${assetKey}`, bytes, { contentType: entry.mimeType });
-      snapshotPath = `${canonical}${assetKey}`;
-    } else {
-      warnings.push(
-        warning("LINKED_ASSET_DRIFTED", `Linked diagram ${entry.driveFileId} drifted.`),
-      );
-    }
-    linkedFolderItems.push({ ...entry, snapshotPath });
-  }
-
-  const pending: PendingDiagramsPayload = {
-    revision_id: snapshotRevisionId,
-    snapshot_revision_id: snapshotRevisionId,
-    snapshot_status: statusFor(embeddedImages, linkedFolderItems),
-    linkedFolder: args.diagrams.linkedFolder,
-    embeddedImages,
-    linkedFolderItems,
-  };
-
-  return {
-    snapshotRevisionId,
-    runUuid,
-    tempPrefix: temp,
-    pending,
-    warnings,
-  };
 }

@@ -6,6 +6,7 @@ const root = process.cwd();
 
 const ALLOWED_STORAGE_PATH_SURFACES = [
   "lib/sync/snapshotAssets.ts",
+  "lib/sync/promoteSnapshot.ts",
   "lib/sync/diagramGc.ts",
   "lib/sync/assetRecovery.ts",
   "app/api/admin/snapshot-rollback/[id]/repair/route.ts",
@@ -32,6 +33,7 @@ describe("M7 storage write surface contract", () => {
     expect(surfaces).toEqual([
       "lib/sync/assetRecovery.ts",
       "lib/sync/diagramGc.ts",
+      "lib/sync/promoteSnapshot.ts",
       "lib/sync/snapshotAssets.ts",
     ]);
     for (const surface of surfaces) {

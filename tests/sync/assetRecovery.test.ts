@@ -5,6 +5,7 @@ import type { PersistedDiagrams } from "@/lib/parser/types";
 import {
   CONCURRENT_SYNC_SKIPPED,
   assetRecovery,
+  runAssetRecoveryCron,
   type AssetRecoveryStorage,
 } from "@/lib/sync/assetRecovery";
 
@@ -217,5 +218,23 @@ describe("assetRecovery", () => {
 
     expect(result).toEqual({ outcome: "bytes_exceeded", code: "ASSET_RECOVERY_BYTES_EXCEEDED" });
     expect(alerts).toEqual(["ASSET_RECOVERY_BYTES_EXCEEDED"]);
+  });
+
+  test("cron enumerates recoverable shows and invokes recovery for each show", async () => {
+    const recovered: string[] = [];
+
+    const result = await runAssetRecoveryCron({
+      listRecoverableShows: async () => ["show-a", "show-b"],
+      recover: async (id) => {
+        recovered.push(id);
+        return { outcome: "no_op" };
+      },
+    });
+
+    expect(recovered).toEqual(["show-a", "show-b"]);
+    expect(result.processed).toEqual([
+      { showId: "show-a", result: { outcome: "no_op" } },
+      { showId: "show-b", result: { outcome: "no_op" } },
+    ]);
   });
 });

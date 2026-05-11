@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import { AdminInfraError, requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 const STUCK_AFTER_MS = 15 * 60 * 1000;
@@ -54,7 +55,11 @@ function statusFor(row: LedgerRow, show: ShowRow): Record<string, unknown> {
     return { status: "pending", ...base };
   }
 
-  if (!row.promoted_at && !row.claim_token && revision(show.diagrams, "pending") !== row.snapshot_revision_id) {
+  if (
+    !row.promoted_at &&
+    !row.claim_token &&
+    revision(show.diagrams, "pending") !== row.snapshot_revision_id
+  ) {
     return { status: "rolled_back", ...base };
   }
 
@@ -64,7 +69,10 @@ function statusFor(row: LedgerRow, show: ShowRow): Record<string, unknown> {
 export async function GET(_request: NextRequest, context: RouteContext): Promise<Response> {
   try {
     await requireAdmin();
-  } catch {
+  } catch (error) {
+    if (error instanceof AdminInfraError) {
+      return NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
+    }
     return NextResponse.json({ error: "ADMIN_FORBIDDEN" }, { status: 403 });
   }
 
@@ -87,9 +95,7 @@ export async function GET(_request: NextRequest, context: RouteContext): Promise
 
     const { data: ledger, error: ledgerError } = (await supabase
       .from("pending_snapshot_uploads")
-      .select(
-        "id,show_id,snapshot_revision_id,promoted_at,promote_started_at,claim_token",
-      )
+      .select("id,show_id,snapshot_revision_id,promoted_at,promote_started_at,claim_token")
       .eq("snapshot_revision_id", applyId)
       .eq("show_id", show.id)
       .maybeSingle()) as { data: LedgerRow | null; error: unknown };
@@ -98,7 +104,30 @@ export async function GET(_request: NextRequest, context: RouteContext): Promise
       return NextResponse.json({ error: "APPLY_STATUS_NOT_FOUND" }, { status: 404 });
     }
 
-    return NextResponse.json(statusFor(ledger, show));
+    const status = statusFor(ledger, show);
+    if (status.status === "stuck_admin_repair_required") {
+      await upsertAdminAlert({
+        showId: show.id,
+        code: "PENDING_SNAPSHOT_PROMOTE_STUCK",
+        context: {
+          snapshot_revision_id: ledger.snapshot_revision_id,
+          ledger_row_id: ledger.id,
+          promote_started_at: ledger.promote_started_at,
+        },
+      });
+    }
+    if (status.status === "rolled_back") {
+      await upsertAdminAlert({
+        showId: show.id,
+        code: "PENDING_SNAPSHOT_ROLLBACK_STUCK",
+        context: {
+          snapshot_revision_id: ledger.snapshot_revision_id,
+          ledger_row_id: ledger.id,
+        },
+      });
+    }
+
+    return NextResponse.json(status);
   } catch {
     return NextResponse.json({ error: "SYNC_INFRA_ERROR" }, { status: 500 });
   }

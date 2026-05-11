@@ -62,6 +62,8 @@ const ADMIN_ALERTS_CODES = [
   "LIVE_ROW_CONFLICT", //             M6 live-row conflict recovery
   "ROLE_FLAGS_NOTICE", //             M6 auto-applied non-LEAD role_flags change
   "SHEET_UNAVAILABLE", //             M6 cron/fetch source missing recovery
+  "PENDING_SNAPSHOT_PROMOTE_STUCK", // M7 apply-status promotion repair signal
+  "PENDING_SNAPSHOT_ROLLBACK_STUCK", // M7 apply-status rollback repair signal
 ] as const;
 
 const ADMIN_ALERTS_WRITE_SITES: Record<
@@ -107,6 +109,14 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   SHEET_UNAVAILABLE: {
     path: "lib/sync/runScheduledCronSync.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"SHEET_UNAVAILABLE"/,
+  },
+  PENDING_SNAPSHOT_PROMOTE_STUCK: {
+    path: "app/api/admin/show/[slug]/apply/[applyId]/status/route.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"PENDING_SNAPSHOT_PROMOTE_STUCK"/,
+  },
+  PENDING_SNAPSHOT_ROLLBACK_STUCK: {
+    path: "app/api/admin/show/[slug]/apply/[applyId]/status/route.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"PENDING_SNAPSHOT_ROLLBACK_STUCK"/,
   },
 };
 

@@ -54,6 +54,18 @@ const lockHolderRegistry = [
     layer: "prepares verified asset bytes before delegating final DB writes to withShowLock",
     key: "hashtext('show:' || drive_file_id)",
   },
+  {
+    path: "lib/sync/lockedPromoteTx.ts",
+    holder: "withPromoteLock",
+    layer: "JS-side transaction wrapper for post-commit storage promotion",
+    key: "hashtext('promote:' || show_id)",
+  },
+  {
+    path: "lib/sync/promoteSnapshot.ts",
+    holder: "promoteSnapshotUpload",
+    layer: "delegates all promote-family lock acquisition to withPromoteLock",
+    key: "hashtext('promote:' || show_id)",
+  },
 ] as const;
 
 function read(path: string): string {
@@ -265,6 +277,15 @@ describe("M6 advisory-lock single-holder contract", () => {
           layer: expect.stringContaining("before delegating final DB writes to withShowLock"),
           key: "hashtext('show:' || drive_file_id)",
         }),
+        expect.objectContaining({
+          holder: "withPromoteLock",
+          key: "hashtext('promote:' || show_id)",
+        }),
+        expect.objectContaining({
+          holder: "promoteSnapshotUpload",
+          layer: expect.stringContaining("withPromoteLock"),
+          key: "hashtext('promote:' || show_id)",
+        }),
       ]),
     );
     for (const entry of lockHolderRegistry) {
@@ -287,10 +308,11 @@ describe("M6 advisory-lock single-holder contract", () => {
       .filter((path) => /\bpg_(?:try_)?advisory_xact_lock\s*\(/i.test(read(path)))
       .sort();
 
-    expect(holders).toEqual(["lib/sync/lockedShowTx.ts"]);
+    expect(holders).toEqual(["lib/sync/lockedPromoteTx.ts", "lib/sync/lockedShowTx.ts"]);
     const source = read("lib/sync/lockedShowTx.ts");
     expect(source).toContain("hashtext('show:' ||");
     expect(source).not.toMatch(/show_id|slug/i);
+    expect(read("lib/sync/lockedPromoteTx.ts")).toContain("hashtext('promote:' ||");
   });
 
   test("registered pre-lock sync gates are read-only for protected per-show tables", () => {

@@ -43,6 +43,16 @@ function permissionDenied(error: unknown): boolean {
   );
 }
 
+function definitiveGone(error: unknown): boolean {
+  const candidate = error as { code?: unknown; status?: unknown };
+  return (
+    candidate.code === 404 ||
+    candidate.status === 404 ||
+    candidate.code === 410 ||
+    candidate.status === 410
+  );
+}
+
 function defaultDrive(): VerifyReelOnApplyDrive {
   return {
     async getFileMetadata(fileId) {
@@ -74,7 +84,10 @@ export async function verifyReelOnApply(
     if (permissionDenied(error)) {
       return drift("PERMISSION_DENIED", "OPENING_REEL_PERMISSION_DENIED");
     }
-    return drift("TRASHED", "REEL_DRIFTED");
+    if (definitiveGone(error)) {
+      return drift("TRASHED", "REEL_DRIFTED");
+    }
+    throw error;
   }
 
   if (current.trashed) return drift("TRASHED", "REEL_DRIFTED");

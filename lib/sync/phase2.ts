@@ -13,6 +13,7 @@ export type StaleWriteCode =
   | "STALE_MANUAL_REPLAY_ABORTED";
 
 export type Phase2Tx = ApplyParseResultTx & {
+  readCurrentDiagrams?(driveFileId: string): Promise<unknown>;
   applyShowSnapshot(args: {
     driveFileId: string;
     modifiedTime: string;
@@ -60,6 +61,7 @@ export type Phase2Result =
       outcome: "applied";
       showId: string;
       roleFlagsNotice?: RoleFlagsNotice;
+      snapshotRevisionId?: string;
     }
   | {
       outcome: "stale";
@@ -136,17 +138,26 @@ function diagramAssetCount(diagrams: ParseResult["diagrams"]): number {
 
 export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2Result> {
   let parseResult = args.parseResult;
-  if (!args.skipDiagramsWrite && args.snapshotAssetsForApply && diagramAssetCount(args.parseResult.diagrams) > 0) {
+  let snapshotRevisionId: string | undefined;
+  if (
+    !args.skipDiagramsWrite &&
+    args.snapshotAssetsForApply &&
+    diagramAssetCount(args.parseResult.diagrams) > 0
+  ) {
     const snapshot = await callTx("snapshotAssetsForApply", () =>
       args.snapshotAssetsForApply!({
         driveFileId: args.driveFileId,
         diagrams: args.parseResult.diagrams,
       }),
     );
+    snapshotRevisionId = snapshot.snapshotRevisionId;
+    const current = tx.readCurrentDiagrams
+      ? await callTx("readCurrentDiagrams", () => tx.readCurrentDiagrams!(args.driveFileId))
+      : null;
     parseResult = {
       ...args.parseResult,
       diagrams: {
-        current: null,
+        current,
         pending: snapshot.pending,
       } as unknown as ParseResult["diagrams"],
       warnings: [...args.parseResult.warnings, ...snapshot.warnings],
@@ -196,6 +207,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
     outcome: "applied",
     showId: snapshot.showId,
   };
+  if (snapshotRevisionId) applied.snapshotRevisionId = snapshotRevisionId;
   if (roleFlagsNotice) applied.roleFlagsNotice = roleFlagsNotice;
   return applied;
 }

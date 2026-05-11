@@ -126,9 +126,12 @@ function diagramsWithPending(): { current: PersistedDiagrams; pending: Persisted
 
 async function getDiagram(rev = currentRev, key = assetKey): Promise<Response> {
   const { GET } = await import("@/app/api/asset/diagram/[show]/[rev]/[key]/route");
-  return await GET(new NextRequest(`https://crew.fxav.test/api/asset/diagram/${showId}/${rev}/${key}`), {
-    params: Promise.resolve({ show: showId, rev, key }),
-  });
+  return await GET(
+    new NextRequest(`https://crew.fxav.test/api/asset/diagram/${showId}/${rev}/${key}`),
+    {
+      params: Promise.resolve({ show: showId, rev, key }),
+    },
+  );
 }
 
 beforeEach(() => {
@@ -184,7 +187,7 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
 
     routeMock.storageBytes = null;
     const missing = await getDiagram();
-    expect(missing.status).toBe(410);
+    expect(missing.status).toBe(500);
   });
 
   test("maps cross-show and revoked sessions to 403 and 410", async () => {

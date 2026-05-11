@@ -238,7 +238,8 @@ export const MESSAGE_CATALOG = {
   },
   APPLY_STATUS_NOT_FOUND: {
     code: "APPLY_STATUS_NOT_FOUND",
-    dougFacing: "That apply job is no longer available. Refresh the show and check the current status.",
+    dougFacing:
+      "That apply job is no longer available. Refresh the show and check the current status.",
     crewFacing: null,
     followUp: "Doug -> refresh the admin view",
     helpfulContext:
@@ -403,8 +404,7 @@ export const MESSAGE_CATALOG = {
       "The opening reel link points to a non-video file. The show will publish without the video.",
     crewFacing: null,
     followUp: "Doug -> replace the opening reel link with a video file and sync again",
-    helpfulContext:
-      "The reel route only serves Drive files whose MIME type starts with video/.",
+    helpfulContext: "The reel route only serves Drive files whose MIME type starts with video/.",
   },
   DIAGRAM_ASSET_LOOKUP_FAILED: {
     code: "DIAGRAM_ASSET_LOOKUP_FAILED",
@@ -421,6 +421,33 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug -> retry; if persistent, Eric",
     helpfulContext:
       "The reel asset route could not resolve or stream the immutable Drive revision for the show.",
+  },
+  PENDING_SNAPSHOT_ROLLBACK_STUCK: {
+    code: "PENDING_SNAPSHOT_ROLLBACK_STUCK",
+    dougFacing:
+      "A diagram snapshot rollback is stuck. Use the repair action before applying this show again.",
+    crewFacing: null,
+    followUp: "Doug -> run snapshot repair; if persistent, Eric",
+    helpfulContext:
+      "A pending diagram snapshot entered rollback cleanup but did not finish deleting its temporary prefix.",
+  },
+  PENDING_SNAPSHOT_PROMOTE_STUCK: {
+    code: "PENDING_SNAPSHOT_PROMOTE_STUCK",
+    dougFacing:
+      "A diagram snapshot promotion is stuck. Use the repair action so the approved diagrams can go live.",
+    crewFacing: null,
+    followUp: "Doug -> run snapshot repair",
+    helpfulContext:
+      "A pending diagram snapshot started promotion but did not complete the storage move and current/pending cutover.",
+  },
+  PENDING_SNAPSHOT_DELETE_STUCK: {
+    code: "PENDING_SNAPSHOT_DELETE_STUCK",
+    dougFacing:
+      "Old diagram snapshot cleanup is stuck. Crew pages are still protected, but storage cleanup needs repair.",
+    crewFacing: null,
+    followUp: "Doug -> run snapshot repair; if persistent, Eric",
+    helpfulContext:
+      "A pending snapshot upload row is marked for deletion but the storage prefix has not been reclaimed.",
   },
   MISSING_REVIEWER_CHOICE: {
     code: "MISSING_REVIEWER_CHOICE",
@@ -499,7 +526,8 @@ export const MESSAGE_CATALOG = {
     dougFacing:
       "A previously synced show sheet is no longer in the watched Drive folder. It will stay visible, but automatic sync is paused until the sheet is restored.",
     crewFacing: null,
-    followUp: "Eric -> confirm whether the Sheet was moved or deleted, then restore it or archive the show",
+    followUp:
+      "Eric -> confirm whether the Sheet was moved or deleted, then restore it or archive the show",
     helpfulContext:
       "Cron compares the watched folder listing to the live shows already known by the app. This alert means a live show's source Sheet was missing from the latest folder listing or disappeared during fetch.",
   },

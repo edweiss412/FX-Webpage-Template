@@ -1,8 +1,13 @@
 import { createHash } from "node:crypto";
+import postgres from "postgres";
+import { getDriveClient } from "@/lib/drive/client";
 import type { PersistedDiagrams } from "@/lib/parser/types";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import {
   CONCURRENT_SYNC_SKIPPED,
   type ConcurrentSyncSkipped,
+  type LockableSyncTx,
+  withShowLock,
 } from "@/lib/sync/lockedShowTx";
 
 export { CONCURRENT_SYNC_SKIPPED };
@@ -10,22 +15,23 @@ export { CONCURRENT_SYNC_SKIPPED };
 export const ASSET_RECOVERY_BYTES_EXCEEDED = "ASSET_RECOVERY_BYTES_EXCEEDED";
 export const ASSET_RECOVERY_REVISION_DRIFT = "ASSET_RECOVERY_REVISION_DRIFT";
 export const ASSET_RECOVERY_DRIFT_COOLDOWN = "ASSET_RECOVERY_DRIFT_COOLDOWN";
-export const EMBEDDED_RECOVERY_REQUIRES_RESTAGE =
-  "EMBEDDED_RECOVERY_REQUIRES_RESTAGE";
+export const EMBEDDED_RECOVERY_REQUIRES_RESTAGE = "EMBEDDED_RECOVERY_REQUIRES_RESTAGE";
 
 const MAX_RECOVERY_ENTRIES = 60;
+const MAX_RECOVERY_SINGLE_BYTES = 50 * 1024 * 1024;
+const MAX_RECOVERY_TOTAL_BYTES = 3 * 1024 * 1024 * 1024;
 
 export type AssetRecoveryStorage = {
-  upload(
-    path: string,
-    bytes: Uint8Array,
-    options: { contentType: string },
-  ): Promise<void>;
+  upload(path: string, bytes: Uint8Array, options: { contentType: string }): Promise<void>;
 };
 
 export type AssetRecoveryDrive = {
-  fetchEmbeddedImageBytes(entry: PersistedDiagrams["embeddedImages"][number]): Promise<Uint8Array | null>;
-  fetchLinkedRevisionBytes(entry: PersistedDiagrams["linkedFolderItems"][number]): Promise<Uint8Array | null>;
+  fetchEmbeddedImageBytes(
+    entry: PersistedDiagrams["embeddedImages"][number],
+  ): Promise<Uint8Array | null>;
+  fetchLinkedRevisionBytes(
+    entry: PersistedDiagrams["linkedFolderItems"][number],
+  ): Promise<Uint8Array | null>;
 };
 
 export type AssetRecoveryShow = {
@@ -50,11 +56,7 @@ export type AssetRecoveryDeps = {
   ): Promise<R | ConcurrentSyncSkipped>;
   storage: AssetRecoveryStorage;
   drive: AssetRecoveryDrive;
-  upsertAdminAlert?(
-    showId: string,
-    code: string,
-    context?: Record<string, unknown>,
-  ): Promise<void>;
+  upsertAdminAlert?(showId: string, code: string, context?: Record<string, unknown>): Promise<void>;
 };
 
 type VerifiedAsset = {
@@ -82,9 +84,25 @@ export type AssetRecoveryCronResult = {
   processed: Array<{ showId: string; result: AssetRecoveryResult }>;
 };
 
-function unwrapDiagrams(
-  diagrams: AssetRecoveryShow["diagrams"],
-): PersistedDiagrams | null {
+export type AssetRecoveryCronDeps = {
+  listRecoverableShows?: () => Promise<string[]>;
+  recover?: (showId: string) => Promise<AssetRecoveryResult>;
+};
+
+type PostgresTransaction = {
+  unsafe(sql: string, params?: unknown[]): Promise<unknown[]>;
+};
+
+function databaseUrl(): string {
+  const configured = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+  if (configured) return configured;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("runAssetRecoveryCron requires DATABASE_URL in production");
+  }
+  return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+}
+
+function unwrapDiagrams(diagrams: AssetRecoveryShow["diagrams"]): PersistedDiagrams | null {
   if ("snapshot_revision_id" in diagrams) return diagrams;
   return diagrams.current ?? null;
 }
@@ -108,10 +126,20 @@ function md5Hex(bytes: Uint8Array): string {
   return createHash("md5").update(bytes).digest("hex");
 }
 
+function bytesFrom(data: unknown): Uint8Array {
+  if (data instanceof Uint8Array) return data;
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (Buffer.isBuffer(data)) return new Uint8Array(data);
+  if (typeof data === "string") return new TextEncoder().encode(data);
+  return new Uint8Array();
+}
+
 function assetPath(
   showId: string,
   snapshotRevisionId: string,
-  asset: PersistedDiagrams["embeddedImages"][number] | PersistedDiagrams["linkedFolderItems"][number],
+  asset:
+    | PersistedDiagrams["embeddedImages"][number]
+    | PersistedDiagrams["linkedFolderItems"][number],
 ): string {
   const prefix = canonicalPrefix(showId, snapshotRevisionId);
   if ("objectId" in asset) {
@@ -120,9 +148,7 @@ function assetPath(
   return `${prefix}folder-${asset.driveFileId}.${extForMime(asset.mimeType)}`;
 }
 
-function snapshotStatus(
-  diagrams: PersistedDiagrams,
-): PersistedDiagrams["snapshot_status"] {
+function snapshotStatus(diagrams: PersistedDiagrams): PersistedDiagrams["snapshot_status"] {
   const unresolved = [...diagrams.embeddedImages, ...diagrams.linkedFolderItems].filter(
     (entry) => !entry.snapshotPath,
   );
@@ -130,8 +156,7 @@ function snapshotStatus(
   if (
     unresolved.every(
       (entry) =>
-        "recovery_disposition" in entry &&
-        entry.recovery_disposition === "restage_required",
+        "recovery_disposition" in entry && entry.recovery_disposition === "restage_required",
     )
   ) {
     return "partial_failure_restage_required";
@@ -153,6 +178,13 @@ async function collectVerifiedAssets(
   }
 
   const verified: VerifiedAsset[] = [];
+  let totalBytes = 0;
+  const acceptBytes = (bytes: Uint8Array): boolean => {
+    if (bytes.byteLength > MAX_RECOVERY_SINGLE_BYTES) return false;
+    if (totalBytes + bytes.byteLength > MAX_RECOVERY_TOTAL_BYTES) return false;
+    totalBytes += bytes.byteLength;
+    return true;
+  };
   for (const entry of diagrams.embeddedImages) {
     if (
       entry.snapshotPath ||
@@ -163,6 +195,7 @@ async function collectVerifiedAssets(
     }
 
     const bytes = await deps.drive.fetchEmbeddedImageBytes(entry);
+    if (bytes && !acceptBytes(bytes)) return ASSET_RECOVERY_BYTES_EXCEEDED;
     if (bytes && sha256Base64Url(bytes) === entry.embeddedFingerprint) {
       verified.push({
         kind: "embedded",
@@ -177,6 +210,7 @@ async function collectVerifiedAssets(
   for (const entry of diagrams.linkedFolderItems) {
     if (entry.snapshotPath) continue;
     const bytes = await deps.drive.fetchLinkedRevisionBytes(entry);
+    if (bytes && !acceptBytes(bytes)) return ASSET_RECOVERY_BYTES_EXCEEDED;
     if (bytes && md5Hex(bytes) === entry.md5Checksum) {
       verified.push({
         kind: "linked",
@@ -238,56 +272,62 @@ export async function assetRecovery(
     return { outcome: "bytes_exceeded", code: ASSET_RECOVERY_BYTES_EXCEEDED };
   }
 
-  const locked = await deps.withShowLock<AssetRecoveryResult>(previewShow.driveFileId, async (tx) => {
-    const lockedShow = await tx.readLockedShow(showId);
-    const lockedDiagrams = lockedShow ? unwrapDiagrams(lockedShow.diagrams) : null;
-    if (!lockedDiagrams || lockedDiagrams.snapshot_status !== "partial_failure") {
-      return { outcome: "no_op" } satisfies AssetRecoveryResult;
-    }
+  const locked = await deps.withShowLock<AssetRecoveryResult>(
+    previewShow.driveFileId,
+    async (tx) => {
+      const lockedShow = await tx.readLockedShow(showId);
+      const lockedDiagrams = lockedShow ? unwrapDiagrams(lockedShow.diagrams) : null;
+      if (!lockedDiagrams || lockedDiagrams.snapshot_status !== "partial_failure") {
+        return { outcome: "no_op" } satisfies AssetRecoveryResult;
+      }
 
-    if (lockedDiagrams.snapshot_revision_id !== previewDiagrams.snapshot_revision_id) {
-      await tx.upsertRecoveryCooldown(showId, previewDiagrams.snapshot_revision_id);
+      if (lockedDiagrams.snapshot_revision_id !== previewDiagrams.snapshot_revision_id) {
+        await tx.upsertRecoveryCooldown(showId, previewDiagrams.snapshot_revision_id);
+        return {
+          outcome: "revision_drift",
+          code: ASSET_RECOVERY_REVISION_DRIFT,
+          previewRevisionId: previewDiagrams.snapshot_revision_id,
+        } satisfies AssetRecoveryResult;
+      }
+
+      for (const asset of verified) {
+        await deps.storage.upload(asset.path, asset.bytes, { contentType: asset.contentType });
+      }
+
+      const recovered = applyVerifiedAssets(lockedDiagrams, verified);
+      await tx.updateRecoveredDiagrams(showId, recovered);
+
+      if (recovered.snapshot_status === "partial_failure_restage_required") {
+        await tx.upsertAdminAlert(showId, EMBEDDED_RECOVERY_REQUIRES_RESTAGE, {
+          snapshotRevisionId: recovered.snapshot_revision_id,
+        });
+      }
+
+      if (recovered.snapshot_status !== "partial_failure") {
+        await tx.deleteRecoveryCooldown(showId, recovered.snapshot_revision_id);
+        if (recovered.snapshot_revision_id !== previewDiagrams.snapshot_revision_id) {
+          await tx.deleteRecoveryCooldown(showId, previewDiagrams.snapshot_revision_id);
+        }
+      }
+
+      if (recovered.snapshot_status === "complete") {
+        return {
+          outcome: "recovered",
+          snapshotRevisionId: recovered.snapshot_revision_id,
+        } satisfies AssetRecoveryResult;
+      }
+      if (recovered.snapshot_status === "partial_failure_restage_required") {
+        return {
+          outcome: "restage_required",
+          snapshotRevisionId: recovered.snapshot_revision_id,
+        } satisfies AssetRecoveryResult;
+      }
       return {
-        outcome: "revision_drift",
-        code: ASSET_RECOVERY_REVISION_DRIFT,
-        previewRevisionId: previewDiagrams.snapshot_revision_id,
-      } satisfies AssetRecoveryResult;
-    }
-
-    for (const asset of verified) {
-      await deps.storage.upload(asset.path, asset.bytes, { contentType: asset.contentType });
-    }
-
-    const recovered = applyVerifiedAssets(lockedDiagrams, verified);
-    await tx.updateRecoveredDiagrams(showId, recovered);
-
-    if (recovered.snapshot_status === "partial_failure_restage_required") {
-      await tx.upsertAdminAlert(showId, EMBEDDED_RECOVERY_REQUIRES_RESTAGE, {
-        snapshotRevisionId: recovered.snapshot_revision_id,
-      });
-    }
-
-    if (recovered.snapshot_status !== "partial_failure") {
-      await tx.deleteRecoveryCooldown(showId, recovered.snapshot_revision_id);
-    }
-
-    if (recovered.snapshot_status === "complete") {
-      return {
-        outcome: "recovered",
+        outcome: "partial_failure",
         snapshotRevisionId: recovered.snapshot_revision_id,
       } satisfies AssetRecoveryResult;
-    }
-    if (recovered.snapshot_status === "partial_failure_restage_required") {
-      return {
-        outcome: "restage_required",
-        snapshotRevisionId: recovered.snapshot_revision_id,
-      } satisfies AssetRecoveryResult;
-    }
-    return {
-      outcome: "partial_failure",
-      snapshotRevisionId: recovered.snapshot_revision_id,
-    } satisfies AssetRecoveryResult;
-  });
+    },
+  );
 
   if (isConcurrentSyncSkipped(locked)) {
     return { outcome: "skipped", code: CONCURRENT_SYNC_SKIPPED };
@@ -296,9 +336,177 @@ export async function assetRecovery(
   return locked;
 }
 
-export async function runAssetRecoveryCron(): Promise<AssetRecoveryCronResult> {
-  // not-subject-to-meta: temporary Task 7.4 scheduler shell; concrete Supabase
-  // read/write ports are exercised through assetRecovery until the route is
-  // wired to the production Drive/Storage adapters.
-  return { processed: [] };
+class AssetRecoveryPostgresTx implements AssetRecoveryTx, LockableSyncTx {
+  constructor(private readonly tx: PostgresTransaction) {}
+
+  async queryOne<T>(sql: string, params: unknown[]): Promise<T> {
+    const rows = await this.tx.unsafe(sql, params as never[]);
+    return rows[0] as T;
+  }
+
+  async readLockedShow(showId: string): Promise<AssetRecoveryShow | null> {
+    const row = await this.queryOne<{
+      show_id: string;
+      drive_file_id: string;
+      diagrams: AssetRecoveryShow["diagrams"];
+    } | null>(
+      `
+        select id::text as show_id, drive_file_id, diagrams
+          from public.shows
+         where id = $1::uuid
+         for update
+      `,
+      [showId],
+    );
+    if (!row) return null;
+    return { showId: row.show_id, driveFileId: row.drive_file_id, diagrams: row.diagrams };
+  }
+
+  async updateRecoveredDiagrams(showId: string, diagrams: PersistedDiagrams): Promise<void> {
+    await this.tx.unsafe(
+      `
+        update public.shows
+           set diagrams = case
+             when diagrams ? 'current' then jsonb_set(diagrams, '{current}', $2::jsonb)
+             else $2::jsonb
+           end
+         where id = $1::uuid
+      `,
+      [showId, JSON.stringify(diagrams)] as never[],
+    );
+  }
+
+  async upsertRecoveryCooldown(showId: string, previewRevisionId: string): Promise<void> {
+    await this.tx.unsafe(
+      `
+        insert into public.recovery_drift_cooldowns (
+          show_id, preview_revision_id, last_drift_at, retry_count
+        )
+        values ($1::uuid, $2::uuid, now(), 1)
+        on conflict (show_id, preview_revision_id)
+        do update set last_drift_at = now(),
+                      retry_count = public.recovery_drift_cooldowns.retry_count + 1
+      `,
+      [showId, previewRevisionId] as never[],
+    );
+  }
+
+  async deleteRecoveryCooldown(showId: string, snapshotRevisionId?: string): Promise<void> {
+    await this.tx.unsafe(
+      snapshotRevisionId
+        ? `
+          delete from public.recovery_drift_cooldowns
+           where show_id = $1::uuid
+             and preview_revision_id = $2::uuid
+        `
+        : `
+          delete from public.recovery_drift_cooldowns
+           where show_id = $1::uuid
+        `,
+      (snapshotRevisionId ? [showId, snapshotRevisionId] : [showId]) as never[],
+    );
+  }
+
+  async upsertAdminAlert(
+    showId: string,
+    code: string,
+    context?: Record<string, unknown>,
+  ): Promise<void> {
+    await this.tx.unsafe("select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)", [
+      showId,
+      code,
+      JSON.stringify(context ?? {}),
+    ] as never[]);
+  }
+}
+
+async function defaultListRecoverableShows(): Promise<string[]> {
+  const supabase = createSupabaseServiceRoleClient();
+  const { data, error } = await supabase.from("shows").select("id,diagrams");
+  if (error) throw error;
+  return (data ?? [])
+    .filter((row) => {
+      const diagrams = row.diagrams as AssetRecoveryShow["diagrams"] | null;
+      const current = diagrams ? unwrapDiagrams(diagrams) : null;
+      return current?.snapshot_status === "partial_failure";
+    })
+    .map((row) => (typeof row.id === "string" ? row.id : null))
+    .filter((id): id is string => Boolean(id));
+}
+
+async function defaultReadPreviewShow(showId: string): Promise<AssetRecoveryShow | null> {
+  const supabase = createSupabaseServiceRoleClient();
+  const { data, error } = (await supabase
+    .from("shows")
+    .select("id,drive_file_id,diagrams")
+    .eq("id", showId)
+    .maybeSingle()) as {
+    data: { id: string; drive_file_id: string; diagrams: AssetRecoveryShow["diagrams"] } | null;
+    error: unknown;
+  };
+  if (error) throw error;
+  if (!data) return null;
+  return { showId: data.id, driveFileId: data.drive_file_id, diagrams: data.diagrams };
+}
+
+function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
+  const storageClient = createSupabaseServiceRoleClient().storage.from("diagram-snapshots");
+  const drive = getDriveClient();
+  return assetRecovery(showId, {
+    readPreviewShow: defaultReadPreviewShow,
+    async withShowLock<R>(driveFileId: string, fn: (tx: AssetRecoveryTx) => Promise<R>) {
+      const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+      try {
+        return (await sql.begin(async (rawTx) => {
+          const tx = new AssetRecoveryPostgresTx(rawTx as unknown as PostgresTransaction);
+          return await withShowLock<AssetRecoveryPostgresTx, R>(driveFileId, fn, {
+            tx,
+            tryOnly: true,
+          });
+        })) as R | ConcurrentSyncSkipped;
+      } finally {
+        await sql.end({ timeout: 5 });
+      }
+    },
+    storage: {
+      async upload(path, bytes, options) {
+        const objectPath = path.startsWith("diagram-snapshots/")
+          ? path.slice("diagram-snapshots/".length)
+          : path;
+        const { error } = await storageClient.upload(objectPath, bytes, {
+          contentType: options.contentType,
+          upsert: true,
+        });
+        if (error) throw error;
+      },
+    },
+    drive: {
+      async fetchEmbeddedImageBytes() {
+        return null;
+      },
+      async fetchLinkedRevisionBytes(entry) {
+        const { data } = await drive.revisions.get(
+          {
+            fileId: entry.driveFileId,
+            revisionId: entry.headRevisionId,
+            alt: "media",
+          },
+          { responseType: "arraybuffer" },
+        );
+        return bytesFrom(data);
+      },
+    },
+  });
+}
+
+export async function runAssetRecoveryCron(
+  deps: AssetRecoveryCronDeps = {},
+): Promise<AssetRecoveryCronResult> {
+  const listRecoverableShows = deps.listRecoverableShows ?? defaultListRecoverableShows;
+  const recover = deps.recover ?? defaultRecover;
+  const processed: AssetRecoveryCronResult["processed"] = [];
+  for (const showId of await listRecoverableShows()) {
+    processed.push({ showId, result: await recover(showId) });
+  }
+  return { processed };
 }
