@@ -23,9 +23,11 @@
  * link with a fileId; remaining links (e.g., a separate Drive folder
  * with appendices) wait for M9 polish.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { FileText, X } from "lucide-react";
+
+import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 
 // Defer pdfjs entirely until the sheet opens. Without `next/dynamic`,
 // importing AgendaPdfViewer at module top would pull `react-pdf` +
@@ -36,7 +38,11 @@ const AgendaPdfViewer = dynamic(
   () => import("@/components/agenda/AgendaPdfViewer").then((m) => m.AgendaPdfViewer),
   {
     ssr: false,
-    loading: () => <div className="py-8 text-sm text-text-subtle">Loading agenda…</div>,
+    loading: () => (
+      <div role="status" aria-live="polite" className="py-8 text-sm text-text-subtle">
+        Loading agenda…
+      </div>
+    ),
   },
 );
 
@@ -69,12 +75,12 @@ export function AgendaEmbed({ showId, agendaLinks }: AgendaEmbedProps) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 self-start rounded-sm border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text-strong shadow-(--shadow-tile) hover:border-border-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        className="inline-flex min-h-tap-min items-center gap-2 self-start rounded-sm border border-border bg-surface-raised px-3 py-2 text-sm font-medium text-text-strong shadow-(--shadow-tile) hover:border-border-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
       >
         <FileText aria-hidden="true" className="size-4 text-accent-on-bg" />
         Open agenda
         {primary.label ? (
-          <span className="text-text-subtle">— {primary.label}</span>
+          <span className="text-text-subtle">· {primary.label}</span>
         ) : null}
       </button>
       {open ? (
@@ -97,6 +103,11 @@ function AgendaSheet({
   label: string;
   onClose: () => void;
 }) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+
+  useDialogFocus(dialogRef, closeRef);
+
   useEffect(() => {
     const original = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -115,9 +126,10 @@ function AgendaSheet({
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
-      aria-label={`${label} — agenda`}
+      aria-label={`${label} agenda`}
       data-testid="agenda-sheet"
       data-pdf-src={src}
       className="fixed inset-0 z-50 flex flex-col bg-bg"
@@ -128,6 +140,7 @@ function AgendaSheet({
           <span className="text-sm font-semibold text-text-strong">{label}</span>
         </div>
         <button
+          ref={closeRef}
           type="button"
           onClick={onClose}
           aria-label="Close agenda"

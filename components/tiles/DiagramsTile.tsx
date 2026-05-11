@@ -92,13 +92,19 @@ export function DiagramsTile({ showId, diagrams, agendaLinks }: DiagramsTileProp
 
   if (!hasItems && !hasAgendaPdf) return null;
 
+  // Heading mirrors content state: diagrams + agenda together get the
+  // combined label; either alone gets the single-domain label so the
+  // tile name doesn't lie about its contents.
+  const heading =
+    hasItems && hasAgendaPdf ? "Diagrams & agenda" : hasItems ? "Diagrams" : "Agenda";
+
   return (
     <Section
       testId="diagrams-tile"
-      heading="Diagrams"
+      heading={heading}
       headingTone="eyebrow"
       variant="primary"
-      ariaLabel="Diagrams and agenda"
+      ariaLabel={heading}
       bodyAs="div"
     >
       {hasItems && diagrams ? (
@@ -108,7 +114,13 @@ export function DiagramsTile({ showId, diagrams, agendaLinks }: DiagramsTileProp
           items={items}
         />
       ) : null}
-      {hasAgendaPdf ? <AgendaEmbed showId={showId} agendaLinks={agendaLinks} /> : null}
+      {hasItems && hasAgendaPdf ? (
+        <div className="mt-3 border-t border-border pt-3">
+          <AgendaEmbed showId={showId} agendaLinks={agendaLinks} />
+        </div>
+      ) : hasAgendaPdf ? (
+        <AgendaEmbed showId={showId} agendaLinks={agendaLinks} />
+      ) : null}
     </Section>
   );
 }

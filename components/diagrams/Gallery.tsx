@@ -87,7 +87,7 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
           <li
             key={item.key}
             data-testid={`diagram-slot-${i}`}
-            data-unavailable={item.available ? undefined : "true"}
+            {...(item.available ? {} : { "data-unavailable": "true" })}
             className="aspect-square overflow-hidden rounded-sm border border-border bg-surface-sunken"
           >
             {item.available ? (
@@ -106,12 +106,11 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
                 />
               </button>
             ) : (
-              <div
-                aria-label={`${item.alt || `Diagram ${i + 1}`} — unavailable`}
-                className="flex size-full flex-col items-center justify-center gap-1 text-text-faint"
-              >
+              <div className="flex size-full flex-col items-center justify-center gap-1 text-text-subtle">
                 <ImageOff aria-hidden="true" className="size-5" />
-                <span className="sr-only">Image unavailable</span>
+                <span className="sr-only">
+                  {`${item.alt || `Diagram ${i + 1}`} — image unavailable`}
+                </span>
               </div>
             )}
           </li>
@@ -121,7 +120,7 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
         <button
           type="button"
           onClick={() => setExpanded((prev) => !prev)}
-          className="inline-flex items-center gap-1 self-start rounded-sm px-1 py-0.5 text-sm font-medium text-accent-on-bg focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          className="inline-flex min-h-tap-min items-center gap-1 self-start rounded-sm px-3 py-2 text-sm font-medium text-accent-on-bg hover:bg-surface-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           aria-expanded={expanded}
         >
           {expanded ? (
