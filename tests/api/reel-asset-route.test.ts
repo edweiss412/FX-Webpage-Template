@@ -42,11 +42,19 @@ const routeMock = vi.hoisted(() => ({
     headRevisionId: "reel-rev-1",
     md5Checksum: "",
     trashed: false,
+    size: "100",
+  } as {
+    modifiedTime: string;
+    headRevisionId: string;
+    md5Checksum: string;
+    trashed: boolean;
+    size: string | null;
   },
   revisionBytes: new TextEncoder().encode("reel-bytes") as Uint8Array | null,
   revisionError: null as unknown,
   fallbackBytes: new TextEncoder().encode("reel-bytes") as Uint8Array,
   driveCalls: [] as string[],
+  supabaseError: null as unknown,
 }));
 
 function md5(bytes: Uint8Array): string {
@@ -70,7 +78,10 @@ vi.mock("@/lib/supabase/server", () => ({
     from: () => ({
       select: () => ({
         eq: () => ({
-          maybeSingle: async () => ({ data: routeMock.show, error: null }),
+          maybeSingle: async () =>
+            routeMock.supabaseError
+              ? { data: null, error: routeMock.supabaseError }
+              : { data: routeMock.show, error: null },
         }),
       }),
     }),
@@ -123,11 +134,13 @@ beforeEach(() => {
     headRevisionId: "reel-rev-1",
     md5Checksum: md5(new TextEncoder().encode("reel-bytes")),
     trashed: false,
+    size: "10",
   };
   routeMock.revisionBytes = new TextEncoder().encode("reel-bytes");
   routeMock.revisionError = null;
   routeMock.fallbackBytes = new TextEncoder().encode("reel-bytes");
   routeMock.driveCalls = [];
+  routeMock.supabaseError = null;
 });
 
 describe("/api/asset/reel/[show]", () => {
@@ -195,6 +208,32 @@ describe("/api/asset/reel/[show]", () => {
     routeMock.link = { kind: "continue" };
     routeMock.show = { ...routeMock.show, published: false };
     const res = await getReel();
+    expect(res.status).toBe(200);
+  });
+
+  test("Codex R2 P1: Supabase returned-error surfaces as 500 (not benign 410)", async () => {
+    routeMock.supabaseError = { code: "PGRST500", message: "infra fault" };
+    const res = await getReel();
+    expect(res.status).toBe(500);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("REEL_ASSET_LOOKUP_FAILED");
+    expect(routeMock.driveCalls).toEqual([]);
+  });
+
+  test("Codex R2 P1: oversized Drive `size` pre-flight → 410 (no media call)", async () => {
+    routeMock.current = {
+      ...routeMock.current,
+      size: String(513 * 1024 * 1024),
+    };
+    const res = await getReel();
+    expect(res.status).toBe(410);
+    expect(routeMock.driveCalls).toEqual(["files.metadata"]);
+  });
+
+  test("Codex R2 P1: undefined/non-numeric `size` falls through to stream gate", async () => {
+    routeMock.current = { ...routeMock.current, size: null };
+    const res = await getReel();
+    // Stream is bounded by boundedWebStreamFromNode + cap; a small body still flows.
     expect(res.status).toBe(200);
   });
 });

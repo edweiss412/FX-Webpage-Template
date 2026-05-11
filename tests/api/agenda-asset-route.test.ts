@@ -32,7 +32,11 @@ const routeMock = vi.hoisted(() => ({
     published: boolean | null;
     agenda_links: { label?: string; fileId?: string; url?: string }[];
   },
-  driveMeta: null as null | { mimeType?: string | null; trashed?: boolean | null },
+  driveMeta: null as null | {
+    mimeType?: string | null;
+    trashed?: boolean | null;
+    size?: string | null;
+  },
   driveBytes: null as null | Uint8Array,
   driveError: null as unknown,
   filesGetCalls: [] as { fileId: string; alt: string | undefined }[],
@@ -226,5 +230,23 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     };
     const res = await getAgenda();
     expect(res.status).toBe(200);
+  });
+
+  test("Codex R2 P1: oversized Drive `size` pre-flight → 410 (no media call)", async () => {
+    routeMock.driveMeta = {
+      mimeType: "application/pdf",
+      trashed: false,
+      size: String(51 * 1024 * 1024),
+    };
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+    // Only the metadata call should have fired; no media fetch.
+    expect(routeMock.filesGetCalls.map((c) => c.alt ?? "metadata")).toEqual(["metadata"]);
+  });
+
+  test("Codex R2 P2: response body is a streamable Web ReadableStream (no buffered copy)", async () => {
+    const res = await getAgenda();
+    expect(res.status).toBe(200);
+    expect(res.body).toBeInstanceOf(ReadableStream);
   });
 });

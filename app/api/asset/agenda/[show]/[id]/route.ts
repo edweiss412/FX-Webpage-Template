@@ -37,8 +37,9 @@ import { validateLinkSession } from "@/lib/auth/validateLinkSession";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import {
   ByteLimitExceededError,
-  readBoundedNodeStream,
-  readBoundedWebStream,
+  boundedPassThroughWeb,
+  boundedWebStreamFromNode,
+  webStreamFromBytes,
 } from "@/lib/sync/boundedBytes";
 
 const CACHE_CONTROL = "private, max-age=0, must-revalidate";
@@ -63,7 +64,35 @@ type AgendaShowRow = {
 type DriveMetadata = {
   mimeType?: string | null;
   trashed?: boolean | null;
+  /**
+   * Drive-reported file size in bytes (as a string per Drive v3 API).
+   * Used for the pre-flight size gate so an oversized PDF never starts
+   * streaming.
+   */
+  size?: string | null;
 };
+
+function bytesFromInputData(data: unknown): Uint8Array {
+  if (data instanceof Uint8Array) return data;
+  if (data instanceof ArrayBuffer) return new Uint8Array(data);
+  if (Buffer.isBuffer(data)) return new Uint8Array(data);
+  if (typeof data === "string") return new TextEncoder().encode(data);
+  return new Uint8Array();
+}
+
+function pdfStreamFromInput(data: unknown): ReadableStream<Uint8Array> {
+  if (data instanceof Readable) {
+    return boundedWebStreamFromNode(data, MAX_AGENDA_BYTES);
+  }
+  if (data instanceof ReadableStream) {
+    return boundedPassThroughWeb(data as ReadableStream<Uint8Array>, MAX_AGENDA_BYTES);
+  }
+  const bytes = bytesFromInputData(data);
+  if (bytes.byteLength > MAX_AGENDA_BYTES) {
+    throw new ByteLimitExceededError(MAX_AGENDA_BYTES);
+  }
+  return webStreamFromBytes(bytes);
+}
 
 type AuthorizeResult =
   | { ok: true; isAdmin: boolean }
@@ -133,41 +162,6 @@ async function authorize(request: NextRequest, showId: string): Promise<Authoriz
   return { ok: false, response: new Response(null, { status: 401 }) };
 }
 
-async function bytesFromStream(data: unknown): Promise<Uint8Array> {
-  if (data instanceof Readable) {
-    return (await readBoundedNodeStream(data, MAX_AGENDA_BYTES)).bytes;
-  }
-  if (data instanceof ReadableStream) {
-    return (await readBoundedWebStream(data, MAX_AGENDA_BYTES)).bytes;
-  }
-  if (data instanceof Uint8Array) {
-    if (data.byteLength > MAX_AGENDA_BYTES) {
-      throw new ByteLimitExceededError(MAX_AGENDA_BYTES);
-    }
-    return data;
-  }
-  if (data instanceof ArrayBuffer) {
-    if (data.byteLength > MAX_AGENDA_BYTES) {
-      throw new ByteLimitExceededError(MAX_AGENDA_BYTES);
-    }
-    return new Uint8Array(data);
-  }
-  if (Buffer.isBuffer(data)) {
-    if (data.byteLength > MAX_AGENDA_BYTES) {
-      throw new ByteLimitExceededError(MAX_AGENDA_BYTES);
-    }
-    return new Uint8Array(data);
-  }
-  if (typeof data === "string") {
-    const bytes = new TextEncoder().encode(data);
-    if (bytes.byteLength > MAX_AGENDA_BYTES) {
-      throw new ByteLimitExceededError(MAX_AGENDA_BYTES);
-    }
-    return bytes;
-  }
-  return new Uint8Array();
-}
-
 export async function GET(request: NextRequest, context: RouteContext): Promise<Response> {
   const { show, id } = await context.params;
 
@@ -213,10 +207,17 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
 
     const metaResult = (await drive.files.get({
       fileId: id,
-      fields: "mimeType,trashed",
+      fields: "mimeType,trashed,size",
     })) as { data: DriveMetadata };
     const meta = metaResult.data;
     if (meta.trashed || meta.mimeType !== PDF_MIME) {
+      return gone();
+    }
+    // Codex R2 P1: pre-flight size gate before initiating the stream.
+    // Drive reports `size` as a string on binary files; reject before
+    // any byte fetch so an oversized PDF never starts flowing.
+    const reportedSize = meta.size != null ? Number(meta.size) : NaN;
+    if (Number.isFinite(reportedSize) && reportedSize > MAX_AGENDA_BYTES) {
       return gone();
     }
 
@@ -225,19 +226,19 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         { fileId: id, alt: "media" },
         { responseType: "stream" },
       )) as { data: unknown };
-      const bytes = await bytesFromStream(bytesResult.data);
-      if (bytes.byteLength === 0) {
-        return gone();
+      // Codex R2 P2: stream straight through with a bounded passthrough.
+      // No buffering, no double-copy. The Response body is a Web stream
+      // backed by the Drive Node stream wrapped in a byte-limit
+      // transform; oversized payloads fail closed mid-stream.
+      const stream = pdfStreamFromInput(bytesResult.data);
+      const headers: Record<string, string> = {
+        "Cache-Control": CACHE_CONTROL,
+        "Content-Type": PDF_MIME,
+      };
+      if (Number.isFinite(reportedSize)) {
+        headers["Content-Length"] = String(reportedSize);
       }
-      const buffer = new ArrayBuffer(bytes.byteLength);
-      new Uint8Array(buffer).set(bytes);
-      return new Response(buffer, {
-        headers: {
-          "Cache-Control": CACHE_CONTROL,
-          "Content-Type": PDF_MIME,
-          "Content-Length": String(bytes.byteLength),
-        },
-      });
+      return new Response(stream, { headers });
     } catch (err) {
       if (err instanceof ByteLimitExceededError) return gone();
       if (isNotFound(err) || isPermissionDenied(err)) return gone();

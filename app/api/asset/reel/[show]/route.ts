@@ -8,6 +8,9 @@ import { validateLinkSession } from "@/lib/auth/validateLinkSession";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import {
   ByteLimitExceededError,
+  boundedWebStreamFromNode,
+  boundedPassThroughWeb,
+  webStreamFromBytes,
   readBoundedNodeStream,
   readBoundedWebStream,
 } from "@/lib/sync/boundedBytes";
@@ -36,6 +39,12 @@ type DriveMetadata = {
   trashed?: boolean | null;
   headRevisionId?: string | null;
   md5Checksum?: string | null;
+  /**
+   * Drive-reported file size in bytes (as a string per the Drive v3 API).
+   * Used for the pre-flight size gate so an oversized reel never starts
+   * streaming.
+   */
+  size?: string | null;
 };
 
 type UsableReelRow = ReelRow & {
@@ -81,18 +90,6 @@ function bytesFrom(data: unknown): Uint8Array {
   if (typeof data === "string") return new TextEncoder().encode(data);
   if (Buffer.isBuffer(data)) return new Uint8Array(data);
   return new Uint8Array();
-}
-
-function responseBody(bytes: Uint8Array): ArrayBuffer {
-  const copy = new Uint8Array(bytes.byteLength);
-  copy.set(bytes);
-  return copy.buffer;
-}
-
-function streamBody(data: unknown): BodyInit {
-  if (data instanceof Readable) return Readable.toWeb(data) as ReadableStream;
-  if (data instanceof ReadableStream) return data;
-  return responseBody(bytesFrom(data));
 }
 
 async function boundedBytesFrom(data: unknown): Promise<Uint8Array> {
@@ -201,7 +198,13 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       )
       .eq("id", show)
       .maybeSingle()) as { data: ReelRow | null; error: unknown };
-    if (error || !row) {
+    // Codex R2 P1: Supabase returned-error must NOT be collapsed into the
+    // benign-absence 410 path — surface as 500 with the cataloged code per
+    // AGENTS.md §1.9.
+    if (error) {
+      return NextResponse.json({ error: "REEL_ASSET_LOOKUP_FAILED" }, { status: 500 });
+    }
+    if (!row) {
       return gone();
     }
     // Published gate: non-admin viewers cannot reach assets on unpublished
@@ -216,9 +219,16 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     const drive = getDriveClient() as unknown as ReelDriveClient;
     const { data: current } = (await drive.files.get({
       fileId: row.opening_reel_drive_file_id,
-      fields: "modifiedTime,trashed,headRevisionId,md5Checksum",
+      fields: "modifiedTime,trashed,headRevisionId,md5Checksum,size",
     })) as { data: DriveMetadata };
     if (drifted(row, current)) {
+      return gone();
+    }
+    // Codex R2 P1: pre-flight size gate. Drive reports `size` as a string
+    // on binary files; reject before initiating any stream so a 1GB reel
+    // can never start flowing through the worker.
+    const reportedSize = current.size != null ? Number(current.size) : NaN;
+    if (Number.isFinite(reportedSize) && reportedSize > MAX_REEL_FALLBACK_BYTES) {
       return gone();
     }
 
@@ -231,14 +241,18 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         },
         { responseType: "stream" },
       )) as { data: unknown };
-      return new Response(streamBody(data), {
+      // Wrap in a bounded pass-through so even if Drive reports `size`
+      // wrong (or omits it for an unusual content type), the worker
+      // fails closed at the cap instead of streaming unbounded bytes.
+      const stream = boundedStreamFrom(data);
+      return new Response(stream, {
         headers: {
           "Cache-Control": CACHE_CONTROL,
           "Content-Type": row.opening_reel_mime_type,
         },
       });
-    } catch (error) {
-      if (!isRevisionFallbackAllowed(error)) throw error;
+    } catch (revisionsError) {
+      if (!isRevisionFallbackAllowed(revisionsError)) throw revisionsError;
       const { data } = (await drive.files.get(
         {
           fileId: row.opening_reel_drive_file_id,
@@ -246,20 +260,35 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         },
         { responseType: "stream" },
       )) as { data: unknown };
+      // md5 fallback path: buffer is unavoidable (we must hash the body
+      // before serving), but we no-copy the response by handing the
+      // buffered Uint8Array to a ReadableStream wrapper instead of an
+      // extra ArrayBuffer allocation.
       const bytes = await boundedBytesFrom(data);
       if (!current.md5Checksum || md5Hex(bytes) !== current.md5Checksum) {
         return gone();
       }
-      return new Response(responseBody(bytes), {
+      return new Response(webStreamFromBytes(bytes), {
         headers: {
           "Cache-Control": CACHE_CONTROL,
           "Content-Type": row.opening_reel_mime_type,
+          "Content-Length": String(bytes.byteLength),
         },
       });
     }
-  } catch (error) {
-    if (error instanceof ByteLimitExceededError) return gone();
-    if (isPermissionDenied(error)) return gone();
+  } catch (caught) {
+    if (caught instanceof ByteLimitExceededError) return gone();
+    if (isPermissionDenied(caught)) return gone();
     return NextResponse.json({ error: "REEL_ASSET_LOOKUP_FAILED" }, { status: 500 });
   }
+}
+
+function boundedStreamFrom(data: unknown): ReadableStream<Uint8Array> {
+  if (data instanceof Readable) {
+    return boundedWebStreamFromNode(data, MAX_REEL_FALLBACK_BYTES);
+  }
+  if (data instanceof ReadableStream) {
+    return boundedPassThroughWeb(data as ReadableStream<Uint8Array>, MAX_REEL_FALLBACK_BYTES);
+  }
+  return webStreamFromBytes(bytesFrom(data));
 }
