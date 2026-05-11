@@ -5,17 +5,23 @@ const showId = "11111111-1111-4111-8111-111111111111";
 const currentRev = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const oldRev = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-function storage(paths: string[]): { storage: DiagramGcStorage; deleted: string[] } {
+type StoredPath = string | { path: string; createdAt?: string | null };
+
+function pathOf(entry: StoredPath): string {
+  return typeof entry === "string" ? entry : entry.path;
+}
+
+function storage(paths: StoredPath[]): { storage: DiagramGcStorage; deleted: string[] } {
   const deleted: string[] = [];
   return {
     deleted,
     storage: {
       async list(prefix) {
-        return paths.filter((path) => path.startsWith(prefix));
+        return paths.filter((entry) => pathOf(entry).startsWith(prefix));
       },
       async removePrefix(prefix) {
-        for (const path of paths.filter((item) => item.startsWith(prefix))) {
-          deleted.push(path);
+        for (const entry of paths.filter((item) => pathOf(item).startsWith(prefix))) {
+          deleted.push(pathOf(entry));
         }
       },
       async remove(path) {
@@ -29,7 +35,10 @@ describe("runDiagramGc", () => {
   test("deletes old orphan revisions for complete shows", async () => {
     const { storage: storagePort, deleted } = storage([
       `diagram-snapshots/shows/${showId}/${currentRev}/current.png`,
-      `diagram-snapshots/shows/${showId}/${oldRev}/old.png`,
+      {
+        path: `diagram-snapshots/shows/${showId}/${oldRev}/old.png`,
+        createdAt: "2026-05-01T00:00:00.000Z",
+      },
     ]);
 
     const result = await runDiagramGc({
@@ -54,6 +63,58 @@ describe("runDiagramGc", () => {
 
     expect(deleted).toEqual([`diagram-snapshots/shows/${showId}/${oldRev}/old.png`]);
     expect(result.orphanBlobsDeleted).toBe(1);
+  });
+
+  test("retains orphan blobs when storage listing omits created_at", async () => {
+    const { storage: storagePort, deleted } = storage([
+      `diagram-snapshots/shows/${showId}/${oldRev}/old.png`,
+    ]);
+
+    const result = await runDiagramGc({
+      now: new Date("2026-05-10T00:00:00.000Z"),
+      storage: storagePort,
+      tx: {
+        listShows: async () => [
+          {
+            showId,
+            archived: false,
+            currentRevisionId: currentRev,
+            snapshotStatus: "complete",
+            retainedRevisionIds: [],
+            cutoffDays: 7,
+          },
+        ],
+        claimPendingRows: async () => [],
+        deletePromotedRows: async () => 0,
+        deletePendingRow: async () => undefined,
+      },
+    });
+
+    expect(deleted).toEqual([]);
+    expect(result.orphanBlobsDeleted).toBe(0);
+  });
+
+  test("closes the default transaction port when GC fails before return", async () => {
+    let closed = false;
+
+    await expect(
+      runDiagramGc({
+        storage: storage([]).storage,
+        tx: {
+          listShows: async () => {
+            throw new Error("list failed");
+          },
+          claimPendingRows: async () => [],
+          deletePromotedRows: async () => 0,
+          deletePendingRow: async () => undefined,
+          close: async () => {
+            closed = true;
+          },
+        },
+      }),
+    ).rejects.toThrow("list failed");
+
+    expect(closed).toBe(true);
   });
 
   test("suppresses orphan deletion while the current snapshot is incomplete", async () => {

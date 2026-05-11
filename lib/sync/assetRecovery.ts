@@ -107,6 +107,7 @@ export type AssetRecoveryResult =
     }
   | { outcome: "drift_cooldown"; code: typeof ASSET_RECOVERY_DRIFT_COOLDOWN }
   | { outcome: "bytes_exceeded"; code: typeof ASSET_RECOVERY_BYTES_EXCEEDED }
+  | { outcome: "infra_error"; code: "SYNC_INFRA_ERROR" }
   | { outcome: "no_op" };
 
 export type AssetRecoveryCronResult = {
@@ -664,7 +665,17 @@ export async function runAssetRecoveryCron(
   const recover = deps.recover ?? defaultRecover;
   const processed: AssetRecoveryCronResult["processed"] = [];
   for (const showId of await listRecoverableShows()) {
-    processed.push({ showId, result: await recover(showId) });
+    try {
+      processed.push({ showId, result: await recover(showId) });
+    } catch (error) {
+      processed.push({
+        showId,
+        result:
+          error instanceof ByteLimitExceededError
+            ? { outcome: "bytes_exceeded", code: ASSET_RECOVERY_BYTES_EXCEEDED }
+            : { outcome: "infra_error", code: "SYNC_INFRA_ERROR" },
+      });
+    }
   }
   return { processed };
 }

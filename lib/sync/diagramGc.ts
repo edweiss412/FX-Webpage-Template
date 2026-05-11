@@ -32,6 +32,7 @@ export type DiagramGcTx = {
   deletePromotedRows(now: Date): Promise<number>;
   emitStuckAlerts?(now: Date): Promise<void>;
   upsertAdminAlert?(showId: string, code: string, context?: Record<string, unknown>): Promise<void>;
+  close?(): Promise<void>;
 };
 
 export type DiagramGcStorage = {
@@ -311,6 +312,9 @@ function defaultTx(): DiagramGcTx {
         [now.toISOString()],
       );
     },
+    async close() {
+      await sql.end({ timeout: 5 });
+    },
   };
 }
 
@@ -322,53 +326,56 @@ export async function runDiagramGc(args?: Partial<RunDiagramGcArgs>): Promise<Di
   let orphanBlobsDeleted = 0;
   let pendingPrefixesDeleted = 0;
 
-  for (const show of await tx.listShows()) {
-    if (suppressOrphanDeletion(show)) continue;
-    const retained = new Set(
-      [
-        show.currentRevisionId,
-        ...show.retainedRevisionIds,
-        ...(show.inFlightRevisionIds ?? []),
-      ].filter((revision): revision is string => Boolean(revision)),
-    );
-    const paths = await storage.list(showPrefix(show.showId));
-    for (const entry of paths) {
-      const path = typeof entry === "string" ? entry : entry.path;
-      const createdAt = typeof entry === "string" ? null : entry.createdAt;
-      const revision = revisionFromPath(show.showId, path);
-      if (!revision || revision === "_pending" || retained.has(revision)) continue;
-      if (createdAt) {
+  try {
+    for (const show of await tx.listShows()) {
+      if (suppressOrphanDeletion(show)) continue;
+      const retained = new Set(
+        [
+          show.currentRevisionId,
+          ...show.retainedRevisionIds,
+          ...(show.inFlightRevisionIds ?? []),
+        ].filter((revision): revision is string => Boolean(revision)),
+      );
+      const paths = await storage.list(showPrefix(show.showId));
+      for (const entry of paths) {
+        const path = typeof entry === "string" ? entry : entry.path;
+        const createdAt = typeof entry === "string" ? null : entry.createdAt;
+        const revision = revisionFromPath(show.showId, path);
+        if (!revision || revision === "_pending" || retained.has(revision)) continue;
+        if (!createdAt) continue;
         const created = Date.parse(createdAt);
         if (
-          Number.isFinite(created) &&
+          !Number.isFinite(created) ||
           now.getTime() - created < show.cutoffDays * 24 * 60 * 60 * 1000
         ) {
           continue;
         }
+        await storage.remove(path);
+        orphanBlobsDeleted += 1;
       }
-      await storage.remove(path);
-      orphanBlobsDeleted += 1;
     }
+
+    for (const row of await tx.claimPendingRows(now)) {
+      if (row.pendingRevisionId === row.snapshotRevisionId) continue;
+      await tx.markPendingDeleteStarted?.(row.id, row.claimToken, now);
+      await storage.removePrefix(row.tempPrefix);
+      await tx.deletePendingRow(row.id, row.claimToken);
+      pendingPrefixesDeleted += 1;
+    }
+
+    for (const snapshotRevisionId of (await tx.listPendingPromotionRetries?.(now)) ?? []) {
+      await promoteSnapshotUpload(snapshotRevisionId);
+    }
+
+    const promotedRowsDeleted = await tx.deletePromotedRows(now);
+    await tx.emitStuckAlerts?.(now);
+
+    return {
+      orphanBlobsDeleted,
+      pendingPrefixesDeleted,
+      promotedRowsDeleted,
+    };
+  } finally {
+    await tx.close?.();
   }
-
-  for (const row of await tx.claimPendingRows(now)) {
-    if (row.pendingRevisionId === row.snapshotRevisionId) continue;
-    await tx.markPendingDeleteStarted?.(row.id, row.claimToken, now);
-    await storage.removePrefix(row.tempPrefix);
-    await tx.deletePendingRow(row.id, row.claimToken);
-    pendingPrefixesDeleted += 1;
-  }
-
-  for (const snapshotRevisionId of (await tx.listPendingPromotionRetries?.(now)) ?? []) {
-    await promoteSnapshotUpload(snapshotRevisionId);
-  }
-
-  const promotedRowsDeleted = await tx.deletePromotedRows(now);
-  await tx.emitStuckAlerts?.(now);
-
-  return {
-    orphanBlobsDeleted,
-    pendingPrefixesDeleted,
-    promotedRowsDeleted,
-  };
 }

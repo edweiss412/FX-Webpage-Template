@@ -282,4 +282,23 @@ describe("assetRecovery", () => {
       { showId: "show-b", result: { outcome: "no_op" } },
     ]);
   });
+
+  test("cron records one show failure and continues to later recoveries", async () => {
+    const recovered: string[] = [];
+
+    const result = await runAssetRecoveryCron({
+      listRecoverableShows: async () => ["show-a", "show-b"],
+      recover: async (id) => {
+        recovered.push(id);
+        if (id === "show-a") throw new Error("recovery failed");
+        return { outcome: "no_op" };
+      },
+    });
+
+    expect(recovered).toEqual(["show-a", "show-b"]);
+    expect(result.processed).toEqual([
+      { showId: "show-a", result: { outcome: "infra_error", code: "SYNC_INFRA_ERROR" } },
+      { showId: "show-b", result: { outcome: "no_op" } },
+    ]);
+  });
 });
