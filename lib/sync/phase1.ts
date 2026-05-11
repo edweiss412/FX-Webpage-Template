@@ -108,7 +108,14 @@ async function callTx<T>(operation: string, fn: () => Promise<T>): Promise<T> {
 }
 
 function warningSummary(parseResult: ParseResult): string {
-  return parseResult.warnings.map((warning) => warning.code).join(", ");
+  // §12.4 / AGENTS.md invariant 5: never render raw error codes to Doug. Use
+  // the parser's already-filled-in human-readable `message` and drop
+  // admin-log-only "info" warnings (e.g., TYPO_NORMALIZED) which are not
+  // surfaced to operators per §12.4.
+  return parseResult.warnings
+    .filter((warning) => warning.severity === "warn")
+    .map((warning) => warning.message)
+    .join("; ");
 }
 
 function sourceKindForMode(mode: Phase1Args["mode"]): SyncMode {

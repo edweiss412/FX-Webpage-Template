@@ -315,6 +315,51 @@ describe("runPhase1 routing and writes", () => {
     expect(tx.pendingIngestions).toEqual([]);
   });
 
+  test("warningSummary renders human messages, never raw parser codes (no-raw-error-codes invariant 5)", async () => {
+    const tx = new FakePhase1Tx();
+    const withWarnings = parseResult({
+      warnings: [
+        {
+          severity: "info",
+          code: "TYPO_NORMALIZED",
+          message: "Typo alias 'Hotal' normalized to canonical 'Hotel'",
+          blockRef: { kind: "venue" },
+        },
+        {
+          severity: "warn",
+          code: "UNKNOWN_FIELD",
+          message: "Unrecognized venue row label: 'CONTACT'",
+          blockRef: { kind: "venue" },
+        },
+        {
+          severity: "warn",
+          code: "UNKNOWN_ROLE_TOKEN",
+          message: "Unknown role token 'XR' for 'Calvin Saller' — dropped",
+          blockRef: { kind: "crew" },
+        },
+      ],
+    });
+
+    const result = await runWith(tx, withWarnings);
+    expect(result.outcome).toBe("stage");
+
+    const summary = tx.pendingSyncs[0]?.warningSummary ?? "";
+    expect(summary, "summary must include the parser's human message").toContain(
+      "Unrecognized venue row label: 'CONTACT'",
+    );
+    expect(summary, "summary must include the second human message").toContain(
+      "Unknown role token 'XR' for 'Calvin Saller' — dropped",
+    );
+    // Admin-log-only info severity (TYPO_NORMALIZED) is filtered before reaching Doug.
+    expect(summary, "TYPO_NORMALIZED severity=info is filtered").not.toContain(
+      "Hotal",
+    );
+    // No raw parser code strings ever leak through.
+    expect(summary).not.toContain("UNKNOWN_FIELD");
+    expect(summary).not.toContain("UNKNOWN_ROLE_TOKEN");
+    expect(summary).not.toContain("TYPO_NORMALIZED");
+  });
+
   test("onboarding-scan parseable sheets stage with ONBOARDING_SCAN_REVIEW", async () => {
     const tx = new FakePhase1Tx();
 
