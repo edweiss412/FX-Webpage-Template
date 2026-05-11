@@ -13,16 +13,18 @@ const applyMock = vi.hoisted(() => ({
   applyStaged: vi.fn<
     (args: unknown) => Promise<
       | {
-          outcome: "applied";
-          showId: string;
-          syncAuditId: string;
-          derivedSideEffects: { revokeFloorForNames: string[] };
-        }
+        outcome: "applied";
+        showId: string;
+        snapshotRevisionId?: string;
+        syncAuditId: string;
+        derivedSideEffects: { revokeFloorForNames: string[] };
+      }
       | { outcome: "x"; code: string }
     >
   >(async () => ({
     outcome: "applied",
     showId: "show-1",
+    snapshotRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     syncAuditId: "audit-1",
     derivedSideEffects: { revokeFloorForNames: [] },
   })),
@@ -88,14 +90,12 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({
       ok: true,
-      result: {
-        outcome: "wizard_applied",
-        wizardSessionId: "33333333-3333-4333-8333-333333333333",
-        stagedId: "22222222-2222-4222-8222-222222222222",
-      },
+      status: "apply_committed_pending_promote",
+      apply_id: "22222222-2222-4222-8222-222222222222",
+      snapshot_revision_id: "22222222-2222-4222-8222-222222222222",
     });
     expect(applyMock.applyStaged).toHaveBeenCalledWith({
       driveFileId: "drive-file-1",
@@ -117,15 +117,12 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({
       ok: true,
-      result: {
-        outcome: "applied",
-        showId: "show-1",
-        syncAuditId: "audit-1",
-        derivedSideEffects: { revokeFloorForNames: [] },
-      },
+      status: "apply_committed_pending_promote",
+      apply_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      snapshot_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     });
     expect(applyMock.applyStaged).toHaveBeenCalledWith({
       driveFileId: "drive-file-1",

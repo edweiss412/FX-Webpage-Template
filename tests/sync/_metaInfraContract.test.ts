@@ -101,6 +101,12 @@ const infraRegistry = [
     contract:
       "diagram asset route destructures Supabase row and Storage download results; missing bytes map to 410",
   },
+  {
+    helper: "STUCK_AFTER_MS",
+    path: "app/api/admin/show/[slug]/apply/[applyId]/status/route.ts",
+    contract:
+      "apply-promotion status route destructures Supabase show and ledger reads; faults become 404/500 discriminated responses",
+  },
 ] as const;
 
 function read(path: string): string {
