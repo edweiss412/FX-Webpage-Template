@@ -53,6 +53,10 @@ const routeMock = vi.hoisted(() => ({
     responseType: "stream";
     headers?: Record<string, string>;
   },
+  // When true, the 206 media response omits the `content-length` header
+  // so the route's R20 P1 fallback (derive slice length from
+  // Content-Range) is exercised.
+  omit206ContentLength: false as boolean,
 }));
 
 vi.mock("@/lib/auth/isAdminSession", () => ({
@@ -113,14 +117,13 @@ vi.mock("@/lib/drive/client", () => ({
           // Mimic Drive: if a Range header was forwarded, return 206
           // with synthetic Content-Range; otherwise full 200.
           if (options?.headers?.Range) {
-            return {
-              data: routeMock.driveBytes,
-              status: 206,
-              headers: {
-                "content-range": `bytes 0-9/${routeMock.driveBytes.byteLength}`,
-                "content-length": String(routeMock.driveBytes.byteLength),
-              },
+            const headers: Record<string, string> = {
+              "content-range": `bytes 0-9/${routeMock.driveBytes.byteLength}`,
             };
+            if (!routeMock.omit206ContentLength) {
+              headers["content-length"] = String(routeMock.driveBytes.byteLength);
+            }
+            return { data: routeMock.driveBytes, status: 206, headers };
           }
           return { data: routeMock.driveBytes, status: 200 };
         }
@@ -163,6 +166,7 @@ beforeEach(() => {
   routeMock.driveError = null;
   routeMock.filesGetCalls = [];
   routeMock.lastMediaOptions = null;
+  routeMock.omit206ContentLength = false;
 });
 
 describe("/api/asset/agenda/[show]/[id]", () => {
@@ -317,6 +321,42 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     routeMock.driveError = Object.assign(new Error("not found"), { code: 404 });
     const res = await getAgenda();
     expect(res.status).toBe(410);
+  });
+
+  test("Codex R20 P1: Drive metadata 410 (gone) → 410 (matches 404 behavior)", async () => {
+    routeMock.driveError = Object.assign(new Error("gone"), { code: 410 });
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+  });
+
+  test("Codex R20 P1: 206 without upstream Content-Length derives slice length from Content-Range (not full file size)", async () => {
+    // Body is 22 bytes (`%PDF-1.7 fixture bytes`). Metadata size is
+    // not set (no `size` field), so the route only falls back to
+    // reportedSize on 200s. On 206 without `content-length`, the
+    // route derives the slice length from `Content-Range: bytes 0-9/N`
+    // = 10 bytes.
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false };
+    routeMock.omit206ContentLength = true;
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("content-range")).toMatch(/^bytes 0-9\//);
+    // Content-Length must be 10 (slice), NEVER 22 (full body).
+    expect(res.headers.get("content-length")).toBe("10");
+  });
+
+  test("Codex R20 P1: 200 with metadata size still gets metadata-derived Content-Length", async () => {
+    // Sanity check: when there's no Range header (full 200 response)
+    // AND upstream lacks content-length, the route falls back to
+    // `reportedSize` from metadata. This is the only path that uses
+    // metadata size — the 206 path must never.
+    routeMock.driveMeta = {
+      mimeType: "application/pdf",
+      trashed: false,
+      size: "22",
+    };
+    const res = await getAgenda();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-length")).toBe("22");
   });
 
   test("Codex R18 P1: pre-flight unsatisfiable Range (bytes=-0 with known size) → 416 (no media call)", async () => {

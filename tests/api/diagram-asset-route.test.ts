@@ -37,6 +37,9 @@ const routeMock = vi.hoisted(() => ({
     | { kind: "none" }
     | { kind: "envelope"; showId: string },
   lastFetchRange: null as string | null,
+  // When set, the upstream fetch mock returns 416 with this
+  // Content-Range header so route 416 forwarding (R20 P2) is testable.
+  fetch416ContentRange: null as string | null,
   published: true as boolean | null,
   diagrams: null as unknown,
   storageBytes: new TextEncoder().encode("diagram-bytes") as Uint8Array | null,
@@ -129,6 +132,12 @@ beforeEach(() => {
           (init?.headers as Record<string, string> | undefined)?.range ??
           null;
     routeMock.lastFetchRange = rangeHeader;
+    if (routeMock.fetch416ContentRange !== null) {
+      return new Response(null, {
+        status: 416,
+        headers: { "content-range": routeMock.fetch416ContentRange },
+      });
+    }
     if (rangeHeader) {
       return new Response(bytes as BlobPart, {
         status: 206,
@@ -212,6 +221,7 @@ beforeEach(() => {
   routeMock.googleCalls = 0;
   routeMock.peek = { kind: "none" };
   routeMock.lastFetchRange = null;
+  routeMock.fetch416ContentRange = null;
   routeMock.published = true;
   routeMock.diagrams = diagramsWithPending();
   routeMock.storageBytes = new TextEncoder().encode("diagram-bytes");
@@ -365,6 +375,14 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     const res = await getDiagram(currentRev, assetKey, { headers: { Range: "bytes=-4" } });
     expect(res.status).toBe(206);
     expect(routeMock.lastFetchRange).toBe("bytes=-4");
+  });
+
+  test("Codex R20 P2: upstream 416 forwards Content-Range to the client", async () => {
+    routeMock.fetch416ContentRange = "bytes */100";
+    const res = await getDiagram(currentRev, assetKey, { headers: { Range: "bytes=200-300" } });
+    expect(res.status).toBe(416);
+    expect(res.headers.get("content-range")).toBe("bytes */100");
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
   });
 
   test("Codex R17 P1: malformed/multi-range request → 416 (no upstream fetch)", async () => {

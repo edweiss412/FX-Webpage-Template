@@ -174,10 +174,17 @@ export async function GET(
       await fetchRes.body?.cancel().catch(() => undefined);
       if (fetchRes.status === 404) return gone();
       if (fetchRes.status === 416) {
-        return new Response(null, {
-          status: 416,
-          headers: { "Accept-Ranges": "bytes", "Cache-Control": CACHE_CONTROL },
-        });
+        // Codex R20 P2: forward upstream Content-Range on 416. Clients
+        // use `bytes */N` to recover from stale / overlarge range
+        // requests; dropping it forces them to re-request a full
+        // object just to learn the byte count.
+        const upstreamRange = fetchRes.headers.get("content-range");
+        const headers: Record<string, string> = {
+          "Accept-Ranges": "bytes",
+          "Cache-Control": CACHE_CONTROL,
+        };
+        if (upstreamRange) headers["Content-Range"] = upstreamRange;
+        return new Response(null, { status: 416, headers });
       }
       return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
     }

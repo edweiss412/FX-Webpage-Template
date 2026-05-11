@@ -127,9 +127,14 @@ function isPermissionDenied(error: unknown): boolean {
   );
 }
 
-function isNotFound(error: unknown): boolean {
+function isNotFoundOrGone(error: unknown): boolean {
   const candidate = error as { code?: unknown; status?: unknown };
-  return candidate.code === 404 || candidate.status === 404;
+  return (
+    candidate.code === 404 ||
+    candidate.status === 404 ||
+    candidate.code === 410 ||
+    candidate.status === 410
+  );
 }
 
 function isRangeNotSatisfiable(error: unknown): boolean {
@@ -312,13 +317,28 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       // when present so the client knows the exact byte slice.
       const contentRange = pickStringHeader(bytesResult.headers, "content-range");
       const driveContentLength = pickStringHeader(bytesResult.headers, "content-length");
+      const driveStatus = typeof bytesResult.status === "number" ? bytesResult.status : 200;
       if (contentRange) headers["Content-Range"] = contentRange;
+      // Codex R20 P1: Content-Length must reflect THIS response's byte
+      // count, not the full file size. Reporting the full size on a
+      // 206 partial tells PDF.js a 10-byte slice is the entire file —
+      // it stalls or corrupts the incremental load.
       if (driveContentLength) {
         headers["Content-Length"] = driveContentLength;
-      } else if (Number.isFinite(reportedSize)) {
+      } else if (driveStatus === 206 && contentRange) {
+        // Derive slice length from `Content-Range: bytes <s>-<e>/<total>`
+        // when upstream omitted Content-Length.
+        const match = contentRange.match(/^bytes (\d+)-(\d+)\//);
+        if (match) {
+          const sliceLen = Number(match[2]) - Number(match[1]) + 1;
+          if (Number.isFinite(sliceLen) && sliceLen >= 0) {
+            headers["Content-Length"] = String(sliceLen);
+          }
+        }
+      } else if (driveStatus === 200 && Number.isFinite(reportedSize)) {
+        // Only use metadata size on a FULL 200 response. Never on 206.
         headers["Content-Length"] = String(reportedSize);
       }
-      const driveStatus = typeof bytesResult.status === "number" ? bytesResult.status : 200;
       return new Response(stream, { status: driveStatus, headers });
     } catch (err) {
       if (err instanceof ByteLimitExceededError) return gone();
@@ -328,7 +348,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       if (isRangeNotSatisfiable(err)) {
         return rangeNotSatisfiable(Number.isFinite(reportedSize) ? reportedSize : null);
       }
-      if (isNotFound(err) || isPermissionDenied(err)) return gone();
+      if (isNotFoundOrGone(err) || isPermissionDenied(err)) return gone();
       throw err;
     }
   } catch (err) {
@@ -342,7 +362,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     // — fail closed as 410, not 500. The inner media-fetch catch
     // already handles 404; this picks up the metadata-call path AND
     // any other 404/410 surface that bubbles past the inner catches.
-    if (isNotFound(err)) return gone();
+    if (isNotFoundOrGone(err)) return gone();
     return NextResponse.json({ error: "AGENDA_ASSET_LOOKUP_FAILED" }, { status: 500 });
   }
 }
