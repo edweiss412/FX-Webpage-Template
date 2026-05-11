@@ -27,11 +27,14 @@ const routeMock = vi.hoisted(() => ({
     viewer: { kind: "crew" as const, showId: "", crewMemberId: "crew-1" },
   } as MockLinkResult,
   google: { kind: "continue" as const },
-  showRow: null as null | { id: string; agenda_links: { fileId?: string; url?: string }[] },
+  showRow: null as null | {
+    id: string;
+    agenda_links: { label?: string; fileId?: string; url?: string }[];
+  },
   driveMeta: null as null | { mimeType?: string | null; trashed?: boolean | null },
   driveBytes: null as null | Uint8Array,
   driveError: null as unknown,
-  filesGetCalls: [] as { fileId: string; alt?: string }[],
+  filesGetCalls: [] as { fileId: string; alt: string | undefined }[],
 }));
 
 vi.mock("@/lib/auth/isAdminSession", () => ({

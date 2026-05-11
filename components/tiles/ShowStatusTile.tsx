@@ -1,33 +1,22 @@
 /**
  * components/tiles/ShowStatusTile.tsx — show-status tile (M4 Task 4.8;
- * spec §4.4 + §8.1; closes AC-4.1; extended in Task 4.14 to surface
- * opening_reel + a curated set of optional event_details fields).
+ * spec §4.4 + §8.1; closes AC-4.1; extended in Task 4.14 to surface a
+ * curated set of optional event_details fields).
  *
  * Surfaces the public, every-crew-member-sees-it status fields:
  *   - coi_status (Certificate of Insurance) — explicit per AC-4.1.
  *   - dress code — venue / event-details lookup.
  *   - venue notes — show.venue.notes (when present).
- *   - opening_reel — §10 URL-stripped text-only render. M4 ships TEXT
- *     ONLY (`Opening reel: <stripped value>`); inline <video> ships in
- *     M7 Task 7.6. Crew DOM MUST NEVER contain raw URL or Google document
- *     host substrings — see
- *     `lib/visibility/openingReelText.ts` + `lib/visibility/emptyState.ts`.
  *   - power / internet / keynote_requirements — generic optional event
  *     details. Hidden when null/empty/`TBD`/`N/A`/`TBA` per the per-field
  *     predicate table.
  *
- * Rendering note (Task 4.14 review fix-round): opening-reel, power, and
- * internet rows all use the same `<dt>label</dt><dd>bare value</dd>`
- * pattern — the `<dt>` carries the human-readable label; the `<dd>`
- * holds the value with NO inline label prefix. Earlier drafts repeated
- * the label inside `<dd>` ("Opening reel: YES"), which was redundant
- * with the `<dt>` and inconsistent with the Internet row. Spec §10's
- * literal phrase `Opening reel: <stripped value>` is still satisfied —
- * the rendered text content (combined `<dt>` + `<dd>` siblings) reads
- * "Opening reel YES" because dt/dd are sibling block elements; tests
- * assert the value via the testid-scoped `<dd>` rather than via the
- * literal "Opening reel: " prefix substring. Do NOT re-add the inline
- * prefix in a future "make it match the spec" pass.
+ * `opening_reel` USED to live here in M4 (URL-stripped text only) but
+ * was carved out to `components/tiles/OpeningReelTile.tsx` at M7 Task
+ * 7.9 so the inline `<video>` element ships alongside its text status
+ * inside one dedicated tile (AC-7.3 + AC-7.25 scope guard). The
+ * URL-strip render contract still lives in
+ * `lib/visibility/openingReelText.ts`; OpeningReelTile consumes it.
  *
  * The dress code lives in `show.event_details` as a free-text key/value
  * map (lib/parser/blocks/event.ts:88+). Different fixtures use different
@@ -44,9 +33,8 @@
  *
  * `coi_status` is rendered inside an element with
  * `data-testid="coi-status"` so AC-4.1 can assert the visible value
- * without scanning prose. Opening reel + power are likewise testid-scoped
- * so AC-4.5 (`tests/e2e/empty-state.spec.ts`) can assert their visibility
- * without scanning sibling tiles.
+ * without scanning prose. Power is likewise testid-scoped so the e2e
+ * suite can assert visibility without scanning sibling tiles.
  *
  * Server Component (no `'use client'`).
  */
@@ -54,8 +42,7 @@ import type { ShowRow } from "@/lib/parser/types";
 import { Section } from "@/components/atoms/Section";
 import { KeyValue } from "@/components/atoms/KeyValue";
 import { EmptyState } from "@/components/atoms/EmptyState";
-import { shouldHideOpeningReel, shouldHideGenericOptional } from "@/lib/visibility/emptyState";
-import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
+import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 
 type ShowStatusTileProps = {
   show: Pick<ShowRow, "coi_status" | "venue" | "event_details">;
@@ -101,16 +88,10 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
 
   // Per-field empty-state dispatch (Task 4.14). The predicate table
   // lives in `lib/visibility/emptyState.ts`; tiles MUST NOT inline
-  // string-list checks. opening_reel uses §10-aware semantics
-  // (preserves `N/A`/`MAYBE`/`TBA`/`BACKUP ONLY`); generic-optional
-  // fields hide the universal `TBD`/`N/A`/`TBA` sentinels.
+  // string-list checks. opening_reel was carved out to OpeningReelTile
+  // at M7 Task 7.9; remaining generic-optional fields hide the universal
+  // `TBD`/`N/A`/`TBA` sentinels.
   const eventDetails = show.event_details ?? {};
-  const rawOpeningReel = eventDetails["opening_reel"] ?? null;
-  const openingReelHidden = shouldHideOpeningReel(rawOpeningReel);
-  // §10 URL-strip render contract: never expose Drive/Docs URLs to the
-  // crew DOM. The strip is the ONLY render path for opening_reel.
-  const openingReelText = openingReelHidden ? null : stripOpeningReelText(rawOpeningReel);
-
   const rawPower = eventDetails["power"] ?? null;
   const powerHidden = shouldHideGenericOptional(rawPower);
   const power = powerHidden ? null : (rawPower ?? "").trim();
@@ -123,8 +104,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
   const keynoteHidden = shouldHideGenericOptional(rawKeynote);
   const keynote = keynoteHidden ? null : (rawKeynote ?? "").trim();
 
-  const allEmpty =
-    !coi && !dress && !venueNotes && !openingReelText && !power && !internet && !keynote;
+  const allEmpty = !coi && !dress && !venueNotes && !power && !internet && !keynote;
 
   return (
     <Section
@@ -157,21 +137,6 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
 
           {dress ? <KeyValue label="Dress code" value={dress} /> : null}
           {venueNotes ? <KeyValue label="Venue notes" value={venueNotes} /> : null}
-          {/*
-            Opening reel — §10 URL-stripped text-only line. The
-            `data-testid` lets AC-4.5 e2e assertions scope to this row
-            without scanning sibling tiles. M4 emits TEXT only; M7
-            Task 7.6 will add the inline <video src="/api/asset/reel/…">
-            element when the post-Apply pin columns are non-NULL.
-          */}
-          {openingReelText ? (
-            <div data-testid="opening-reel" className="flex flex-col gap-1">
-              <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
-                Opening reel
-              </dt>
-              <dd className="text-sm/snug text-text">{openingReelText}</dd>
-            </div>
-          ) : null}
           {power ? (
             <div data-testid="power" className="flex flex-col gap-1">
               <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
