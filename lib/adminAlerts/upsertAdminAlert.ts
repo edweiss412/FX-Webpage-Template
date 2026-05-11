@@ -2,6 +2,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 export type AdminAlertCode =
   | "AMBIGUOUS_EMAIL_BINDING"
+  | "ASSET_RECOVERY_BYTES_EXCEEDED"
   | "LEAKED_LINK_REVOCATION_FAILED"
   | "LEAKED_LINK_DETECTED"
   | "EMBEDDED_RECOVERY_REQUIRES_RESTAGE"

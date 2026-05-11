@@ -48,6 +48,12 @@ const lockHolderRegistry = [
     layer: "delegates to processOneFile, which delegates to withShowLock; no second holder",
     key: "hashtext('show:' || drive_file_id)",
   },
+  {
+    path: "lib/sync/assetRecovery.ts",
+    holder: "assetRecovery",
+    layer: "prepares verified asset bytes before delegating final DB writes to withShowLock",
+    key: "hashtext('show:' || drive_file_id)",
+  },
 ] as const;
 
 function read(path: string): string {
@@ -253,6 +259,11 @@ describe("M6 advisory-lock single-holder contract", () => {
         expect.objectContaining({
           holder: "runPushSyncForShow",
           layer: expect.stringContaining("delegates to processOneFile"),
+        }),
+        expect.objectContaining({
+          holder: "assetRecovery",
+          layer: expect.stringContaining("before delegating final DB writes to withShowLock"),
+          key: "hashtext('show:' || drive_file_id)",
         }),
       ]),
     );

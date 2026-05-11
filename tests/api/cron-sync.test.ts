@@ -7,6 +7,9 @@ const cronMock = vi.hoisted(() => ({
   })),
   refreshWatchSubscriptions: vi.fn(async () => ({ refreshed: ["folder-1"] })),
   gcWatchChannels: vi.fn(async () => ({ stopped: ["channel-1"] })),
+  runAssetRecoveryCron: vi.fn(async () => ({
+    processed: [{ showId: "show-1", result: { outcome: "recovered", snapshotRevisionId: "rev-1" } }],
+  })),
   writeSyncLog: vi.fn(async () => undefined),
 }));
 
@@ -21,6 +24,10 @@ vi.mock("@/lib/sync/syncLog", () => ({
 vi.mock("@/lib/drive/watch", () => ({
   refreshWatchSubscriptions: cronMock.refreshWatchSubscriptions,
   gcWatchChannels: cronMock.gcWatchChannels,
+}));
+
+vi.mock("@/lib/sync/assetRecovery", () => ({
+  runAssetRecoveryCron: cronMock.runAssetRecoveryCron,
 }));
 
 describe("/api/cron/sync", () => {
@@ -177,5 +184,49 @@ describe("/api/cron/gc-watch", () => {
 
     await expect(response.json()).resolves.toEqual({ ok: true, stopped: ["channel-1"] });
     expect(cronMock.gcWatchChannels).toHaveBeenCalledOnce();
+  });
+});
+
+describe("/api/cron/asset-recovery", () => {
+  const originalSecret = process.env.CRON_SECRET;
+
+  beforeEach(() => {
+    cronMock.runAssetRecoveryCron.mockClear();
+    process.env.CRON_SECRET = "cron-test-secret";
+  });
+
+  afterEach(() => {
+    if (originalSecret === undefined) {
+      delete process.env.CRON_SECRET;
+    } else {
+      process.env.CRON_SECRET = originalSecret;
+    }
+  });
+
+  test("GET rejects requests without the Vercel cron auth header", async () => {
+    const { GET } = await import("@/app/api/cron/asset-recovery/route");
+
+    const response = await GET(new NextRequest("https://crew.fxav.test/api/cron/asset-recovery"));
+
+    expect(response.status).toBe(401);
+    expect(cronMock.runAssetRecoveryCron).not.toHaveBeenCalled();
+  });
+
+  test("GET runs asset recovery and returns a machine-readable summary", async () => {
+    const { GET } = await import("@/app/api/cron/asset-recovery/route");
+
+    const response = await GET(
+      new NextRequest("https://crew.fxav.test/api/cron/asset-recovery", {
+        headers: { authorization: "Bearer cron-test-secret" },
+      }),
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      processed: [
+        { showId: "show-1", result: { outcome: "recovered", snapshotRevisionId: "rev-1" } },
+      ],
+    });
+    expect(cronMock.runAssetRecoveryCron).toHaveBeenCalledOnce();
   });
 });

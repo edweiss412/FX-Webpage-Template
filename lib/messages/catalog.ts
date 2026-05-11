@@ -203,6 +203,31 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "The per-show advisory lock was busy, so this attempt skipped instead of waiting.",
   },
+  ASSET_RECOVERY_BYTES_EXCEEDED: {
+    code: "ASSET_RECOVERY_BYTES_EXCEEDED",
+    dougFacing:
+      "This show's diagram set is too large to recover automatically. Crew may see placeholders for missing diagrams.",
+    crewFacing: null,
+    followUp: "Doug -> trim the gallery or ask Eric if the recovery ceiling needs to be raised",
+    helpfulContext:
+      "Asset recovery stops above 60 images, above 50MB for one image, or above 3GB per run so the per-show lock stays short.",
+  },
+  ASSET_RECOVERY_REVISION_DRIFT: {
+    code: "ASSET_RECOVERY_REVISION_DRIFT",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext:
+      "Asset recovery raced a newer Apply and aborted without mutating the show; the next cron pass re-evaluates the current revision after cooldown.",
+  },
+  ASSET_RECOVERY_DRIFT_COOLDOWN: {
+    code: "ASSET_RECOVERY_DRIFT_COOLDOWN",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext:
+      "Asset recovery skipped this pass because the same show/revision recently drifted; manual re-sync bypasses the cooldown gate.",
+  },
   STAGED_PARSE_REVISION_RACE: {
     code: "STAGED_PARSE_REVISION_RACE",
     dougFacing:

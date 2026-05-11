@@ -84,6 +84,17 @@ const infraRegistry = [
     contract:
       "asset snapshotting uses explicit tx/storage/drive ports; Supabase boundary faults surface at the caller-owned port layer",
   },
+  {
+    helper: "assetRecovery",
+    path: "lib/sync/assetRecovery.ts",
+    contract:
+      "asset recovery uses explicit tx/storage/drive ports; Supabase boundary faults surface at the caller-owned port layer",
+  },
+  {
+    helper: "runAssetRecoveryCron",
+    path: "app/api/cron/asset-recovery/route.ts",
+    contract: "cron route delegates to the registered asset-recovery scheduler surface",
+  },
 ] as const;
 
 function read(path: string): string {

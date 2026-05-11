@@ -1,0 +1,304 @@
+import { createHash } from "node:crypto";
+import type { PersistedDiagrams } from "@/lib/parser/types";
+import {
+  CONCURRENT_SYNC_SKIPPED,
+  type ConcurrentSyncSkipped,
+} from "@/lib/sync/lockedShowTx";
+
+export { CONCURRENT_SYNC_SKIPPED };
+
+export const ASSET_RECOVERY_BYTES_EXCEEDED = "ASSET_RECOVERY_BYTES_EXCEEDED";
+export const ASSET_RECOVERY_REVISION_DRIFT = "ASSET_RECOVERY_REVISION_DRIFT";
+export const ASSET_RECOVERY_DRIFT_COOLDOWN = "ASSET_RECOVERY_DRIFT_COOLDOWN";
+export const EMBEDDED_RECOVERY_REQUIRES_RESTAGE =
+  "EMBEDDED_RECOVERY_REQUIRES_RESTAGE";
+
+const MAX_RECOVERY_ENTRIES = 60;
+
+export type AssetRecoveryStorage = {
+  upload(
+    path: string,
+    bytes: Uint8Array,
+    options: { contentType: string },
+  ): Promise<void>;
+};
+
+export type AssetRecoveryDrive = {
+  fetchEmbeddedImageBytes(entry: PersistedDiagrams["embeddedImages"][number]): Promise<Uint8Array | null>;
+  fetchLinkedRevisionBytes(entry: PersistedDiagrams["linkedFolderItems"][number]): Promise<Uint8Array | null>;
+};
+
+export type AssetRecoveryShow = {
+  showId: string;
+  driveFileId: string;
+  diagrams: PersistedDiagrams | { current?: PersistedDiagrams | null; pending?: unknown };
+};
+
+export type AssetRecoveryTx = {
+  readLockedShow(showId: string): Promise<AssetRecoveryShow | null>;
+  updateRecoveredDiagrams(showId: string, diagrams: PersistedDiagrams): Promise<void>;
+  upsertRecoveryCooldown(showId: string, previewRevisionId: string): Promise<void>;
+  deleteRecoveryCooldown(showId: string, snapshotRevisionId?: string): Promise<void>;
+  upsertAdminAlert(showId: string, code: string, context?: Record<string, unknown>): Promise<void>;
+};
+
+export type AssetRecoveryDeps = {
+  readPreviewShow(showId: string): Promise<AssetRecoveryShow | null>;
+  withShowLock<R>(
+    driveFileId: string,
+    fn: (tx: AssetRecoveryTx) => Promise<R>,
+  ): Promise<R | ConcurrentSyncSkipped>;
+  storage: AssetRecoveryStorage;
+  drive: AssetRecoveryDrive;
+  upsertAdminAlert?(
+    showId: string,
+    code: string,
+    context?: Record<string, unknown>,
+  ): Promise<void>;
+};
+
+type VerifiedAsset = {
+  kind: "embedded" | "linked";
+  id: string;
+  path: string;
+  contentType: string;
+  bytes: Uint8Array;
+};
+
+export type AssetRecoveryResult =
+  | { outcome: "recovered"; snapshotRevisionId: string }
+  | { outcome: "restage_required"; snapshotRevisionId: string }
+  | { outcome: "partial_failure"; snapshotRevisionId: string }
+  | { outcome: "skipped"; code: typeof CONCURRENT_SYNC_SKIPPED }
+  | {
+      outcome: "revision_drift";
+      code: typeof ASSET_RECOVERY_REVISION_DRIFT;
+      previewRevisionId: string;
+    }
+  | { outcome: "bytes_exceeded"; code: typeof ASSET_RECOVERY_BYTES_EXCEEDED }
+  | { outcome: "no_op" };
+
+export type AssetRecoveryCronResult = {
+  processed: Array<{ showId: string; result: AssetRecoveryResult }>;
+};
+
+function unwrapDiagrams(
+  diagrams: AssetRecoveryShow["diagrams"],
+): PersistedDiagrams | null {
+  if ("snapshot_revision_id" in diagrams) return diagrams;
+  return diagrams.current ?? null;
+}
+
+function extForMime(mimeType: string): string {
+  if (mimeType === "image/jpeg") return "jpg";
+  if (mimeType === "image/webp") return "webp";
+  if (mimeType === "image/gif") return "gif";
+  return "png";
+}
+
+function canonicalPrefix(showId: string, snapshotRevisionId: string): string {
+  return `diagram-snapshots/shows/${showId}/${snapshotRevisionId}/`;
+}
+
+function sha256Base64Url(bytes: Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("base64url");
+}
+
+function md5Hex(bytes: Uint8Array): string {
+  return createHash("md5").update(bytes).digest("hex");
+}
+
+function assetPath(
+  showId: string,
+  snapshotRevisionId: string,
+  asset: PersistedDiagrams["embeddedImages"][number] | PersistedDiagrams["linkedFolderItems"][number],
+): string {
+  const prefix = canonicalPrefix(showId, snapshotRevisionId);
+  if ("objectId" in asset) {
+    return `${prefix}embedded-${asset.objectId}.${extForMime(asset.mimeType)}`;
+  }
+  return `${prefix}folder-${asset.driveFileId}.${extForMime(asset.mimeType)}`;
+}
+
+function snapshotStatus(
+  diagrams: PersistedDiagrams,
+): PersistedDiagrams["snapshot_status"] {
+  const unresolved = [...diagrams.embeddedImages, ...diagrams.linkedFolderItems].filter(
+    (entry) => !entry.snapshotPath,
+  );
+  if (unresolved.length === 0) return "complete";
+  if (
+    unresolved.every(
+      (entry) =>
+        "recovery_disposition" in entry &&
+        entry.recovery_disposition === "restage_required",
+    )
+  ) {
+    return "partial_failure_restage_required";
+  }
+  return "partial_failure";
+}
+
+async function collectVerifiedAssets(
+  showId: string,
+  diagrams: PersistedDiagrams,
+  deps: Pick<AssetRecoveryDeps, "drive">,
+): Promise<VerifiedAsset[] | typeof ASSET_RECOVERY_BYTES_EXCEEDED> {
+  const unresolvedCount =
+    diagrams.embeddedImages.filter((entry) => !entry.snapshotPath).length +
+    diagrams.linkedFolderItems.filter((entry) => !entry.snapshotPath).length;
+
+  if (unresolvedCount > MAX_RECOVERY_ENTRIES) {
+    return ASSET_RECOVERY_BYTES_EXCEEDED;
+  }
+
+  const verified: VerifiedAsset[] = [];
+  for (const entry of diagrams.embeddedImages) {
+    if (
+      entry.snapshotPath ||
+      entry.recovery_disposition === "restage_required" ||
+      !entry.embeddedFingerprint
+    ) {
+      continue;
+    }
+
+    const bytes = await deps.drive.fetchEmbeddedImageBytes(entry);
+    if (bytes && sha256Base64Url(bytes) === entry.embeddedFingerprint) {
+      verified.push({
+        kind: "embedded",
+        id: entry.objectId,
+        path: assetPath(showId, diagrams.snapshot_revision_id, entry),
+        contentType: entry.mimeType,
+        bytes,
+      });
+    }
+  }
+
+  for (const entry of diagrams.linkedFolderItems) {
+    if (entry.snapshotPath) continue;
+    const bytes = await deps.drive.fetchLinkedRevisionBytes(entry);
+    if (bytes && md5Hex(bytes) === entry.md5Checksum) {
+      verified.push({
+        kind: "linked",
+        id: entry.driveFileId,
+        path: assetPath(showId, diagrams.snapshot_revision_id, entry),
+        contentType: entry.mimeType,
+        bytes,
+      });
+    }
+  }
+
+  return verified;
+}
+
+function applyVerifiedAssets(
+  diagrams: PersistedDiagrams,
+  verified: VerifiedAsset[],
+): PersistedDiagrams {
+  const paths = new Map(verified.map((asset) => [`${asset.kind}:${asset.id}`, asset.path]));
+  const next: PersistedDiagrams = {
+    ...diagrams,
+    embeddedImages: diagrams.embeddedImages.map((entry) => ({
+      ...entry,
+      snapshotPath: entry.snapshotPath ?? paths.get(`embedded:${entry.objectId}`) ?? null,
+    })),
+    linkedFolderItems: diagrams.linkedFolderItems.map((entry) => ({
+      ...entry,
+      snapshotPath: entry.snapshotPath ?? paths.get(`linked:${entry.driveFileId}`) ?? null,
+    })),
+  };
+
+  return {
+    ...next,
+    snapshot_status: snapshotStatus(next),
+  };
+}
+
+function isConcurrentSyncSkipped(
+  result: AssetRecoveryResult | ConcurrentSyncSkipped,
+): result is ConcurrentSyncSkipped {
+  return "skipped" in result && result.skipped === CONCURRENT_SYNC_SKIPPED;
+}
+
+export async function assetRecovery(
+  showId: string,
+  deps: AssetRecoveryDeps,
+): Promise<AssetRecoveryResult> {
+  const previewShow = await deps.readPreviewShow(showId);
+  const previewDiagrams = previewShow ? unwrapDiagrams(previewShow.diagrams) : null;
+  if (!previewShow || !previewDiagrams || previewDiagrams.snapshot_status !== "partial_failure") {
+    return { outcome: "no_op" };
+  }
+
+  const verified = await collectVerifiedAssets(showId, previewDiagrams, deps);
+  if (verified === ASSET_RECOVERY_BYTES_EXCEEDED) {
+    await deps.upsertAdminAlert?.(showId, ASSET_RECOVERY_BYTES_EXCEEDED, {
+      snapshotRevisionId: previewDiagrams.snapshot_revision_id,
+    });
+    return { outcome: "bytes_exceeded", code: ASSET_RECOVERY_BYTES_EXCEEDED };
+  }
+
+  const locked = await deps.withShowLock<AssetRecoveryResult>(previewShow.driveFileId, async (tx) => {
+    const lockedShow = await tx.readLockedShow(showId);
+    const lockedDiagrams = lockedShow ? unwrapDiagrams(lockedShow.diagrams) : null;
+    if (!lockedDiagrams || lockedDiagrams.snapshot_status !== "partial_failure") {
+      return { outcome: "no_op" } satisfies AssetRecoveryResult;
+    }
+
+    if (lockedDiagrams.snapshot_revision_id !== previewDiagrams.snapshot_revision_id) {
+      await tx.upsertRecoveryCooldown(showId, previewDiagrams.snapshot_revision_id);
+      return {
+        outcome: "revision_drift",
+        code: ASSET_RECOVERY_REVISION_DRIFT,
+        previewRevisionId: previewDiagrams.snapshot_revision_id,
+      } satisfies AssetRecoveryResult;
+    }
+
+    for (const asset of verified) {
+      await deps.storage.upload(asset.path, asset.bytes, { contentType: asset.contentType });
+    }
+
+    const recovered = applyVerifiedAssets(lockedDiagrams, verified);
+    await tx.updateRecoveredDiagrams(showId, recovered);
+
+    if (recovered.snapshot_status === "partial_failure_restage_required") {
+      await tx.upsertAdminAlert(showId, EMBEDDED_RECOVERY_REQUIRES_RESTAGE, {
+        snapshotRevisionId: recovered.snapshot_revision_id,
+      });
+    }
+
+    if (recovered.snapshot_status !== "partial_failure") {
+      await tx.deleteRecoveryCooldown(showId, recovered.snapshot_revision_id);
+    }
+
+    if (recovered.snapshot_status === "complete") {
+      return {
+        outcome: "recovered",
+        snapshotRevisionId: recovered.snapshot_revision_id,
+      } satisfies AssetRecoveryResult;
+    }
+    if (recovered.snapshot_status === "partial_failure_restage_required") {
+      return {
+        outcome: "restage_required",
+        snapshotRevisionId: recovered.snapshot_revision_id,
+      } satisfies AssetRecoveryResult;
+    }
+    return {
+      outcome: "partial_failure",
+      snapshotRevisionId: recovered.snapshot_revision_id,
+    } satisfies AssetRecoveryResult;
+  });
+
+  if (isConcurrentSyncSkipped(locked)) {
+    return { outcome: "skipped", code: CONCURRENT_SYNC_SKIPPED };
+  }
+
+  return locked;
+}
+
+export async function runAssetRecoveryCron(): Promise<AssetRecoveryCronResult> {
+  // not-subject-to-meta: temporary Task 7.4 scheduler shell; concrete Supabase
+  // read/write ports are exercised through assetRecovery until the route is
+  // wired to the production Drive/Storage adapters.
+  return { processed: [] };
+}

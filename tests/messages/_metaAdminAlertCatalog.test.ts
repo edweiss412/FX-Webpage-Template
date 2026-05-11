@@ -55,6 +55,7 @@ const ADMIN_ALERTS_CODES = [
   "LEAKED_LINK_REVOCATION_FAILED", // middleware.ts:upsertRevocationFailureAlert
   "LEAKED_LINK_DETECTED", //          middleware.ts:upsertLeakedLinkDetectedAlert
   "AMBIGUOUS_EMAIL_BINDING", //       lib/auth/validateGoogleSession.ts
+  "ASSET_RECOVERY_BYTES_EXCEEDED", //  M7 asset recovery byte ceiling
   "WATCH_CHANNEL_ORPHANED", //        M6 watch subscription recovery
   "WEBHOOK_TOKEN_INVALID", //         M6 Drive webhook verification failure
   "EMBEDDED_RECOVERY_REQUIRES_RESTAGE", // M6 asset recovery alert
@@ -78,6 +79,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   AMBIGUOUS_EMAIL_BINDING: {
     path: "lib/auth/validateGoogleSession.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"AMBIGUOUS_EMAIL_BINDING"/,
+  },
+  ASSET_RECOVERY_BYTES_EXCEEDED: {
+    path: "lib/sync/assetRecovery.ts",
+    pattern: /upsertAdminAlert\?\.\([\s\S]*ASSET_RECOVERY_BYTES_EXCEEDED/,
   },
   WATCH_CHANNEL_ORPHANED: {
     path: "lib/drive/watch.ts",
