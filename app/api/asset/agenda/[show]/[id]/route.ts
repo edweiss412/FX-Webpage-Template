@@ -50,8 +50,11 @@ const MAX_AGENDA_BYTES = 50 * 1024 * 1024;
 // punctuation so an attacker can't reach beyond a valid file-id substring.
 const DRIVE_FILE_ID_RE = /^[A-Za-z0-9_-]{10,128}$/;
 
-// Codex R16 P1: single-range only. Multi-range / malformed → 416.
-const SINGLE_RANGE_RE = /^bytes=\d+-\d*$/;
+// Codex R16 P1 + R17 P2: single-range only. Two valid shapes:
+//   - `bytes=<start>-<optional end>`
+//   - `bytes=-<suffix>` (last N bytes; PDF.js may use this)
+// Multi-range / malformed → 416.
+const SINGLE_RANGE_RE = /^bytes=(?:\d+-\d*|-\d+)$/;
 
 function pickStringHeader(
   headers: Record<string, string | string[] | undefined> | undefined,

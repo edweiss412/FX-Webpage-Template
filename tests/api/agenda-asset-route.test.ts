@@ -313,6 +313,12 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(res.headers.get("accept-ranges")).toBe("bytes");
   });
 
+  test("Codex R17 P2: suffix Range (bytes=-N) forwards verbatim to Drive", async () => {
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=-10" } });
+    expect(res.status).toBe(206);
+    expect(routeMock.lastMediaOptions?.headers?.Range).toBe("bytes=-10");
+  });
+
   test("Codex R16 P1: malformed/multi-range request → 416 (no Drive media call)", async () => {
     const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-10, 20-30" } });
     expect(res.status).toBe(416);

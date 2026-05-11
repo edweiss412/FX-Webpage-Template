@@ -9,6 +9,11 @@ import { boundedPassThroughWeb, ByteLimitExceededError } from "@/lib/sync/bounde
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CACHE_CONTROL = "private, max-age=0, must-revalidate";
 const DIAGRAM_BUCKET = "diagram-snapshots";
+// Codex R17 P1: single-range only. Two valid shapes (RFC 7233):
+//   - `bytes=<start>-<optional end>`
+//   - `bytes=-<suffix>` (last N bytes)
+// Multi-range / malformed → 416.
+const SINGLE_RANGE_RE = /^bytes=(?:\d+-\d*|-\d+)$/;
 // Codex R4 P2 close-out: route-level cap on the Storage object served.
 // Diagrams persisted via Apply / asset_recovery already have per-asset
 // caps upstream; this is defense-in-depth so a bucket drift / manual
@@ -149,12 +154,31 @@ export async function GET(
       return gone();
     }
 
-    const fetchRes = await fetch(signed.data.signedUrl);
+    // Codex R17 P1: parse + forward Range. Crew clients may issue
+    // Range for resumable downloads of large diagram bytes; the prior
+    // implementation always returned 200, defeating the proxy's Range
+    // discipline pinned for reel + agenda.
+    const rangeHeader = request.headers.get("range");
+    if (rangeHeader && !SINGLE_RANGE_RE.test(rangeHeader)) {
+      return new Response(null, {
+        status: 416,
+        headers: { "Accept-Ranges": "bytes", "Cache-Control": CACHE_CONTROL },
+      });
+    }
+
+    const fetchHeaders: HeadersInit = rangeHeader ? { Range: rangeHeader } : {};
+    const fetchRes = await fetch(signed.data.signedUrl, { headers: fetchHeaders });
     if (!fetchRes.ok || !fetchRes.body) {
       // Codex R13 P1: cancel the upstream body on early return so the
       // Supabase Storage socket is released instead of left to GC.
       await fetchRes.body?.cancel().catch(() => undefined);
       if (fetchRes.status === 404) return gone();
+      if (fetchRes.status === 416) {
+        return new Response(null, {
+          status: 416,
+          headers: { "Accept-Ranges": "bytes", "Cache-Control": CACHE_CONTROL },
+        });
+      }
       return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
     }
     // Codex R4 P2 + R11 P1: route-level byte ceiling. Reject oversized
@@ -173,16 +197,27 @@ export async function GET(
       fetchRes.body as ReadableStream<Uint8Array>,
       MAX_DIAGRAM_BYTES,
     );
+    // Pass through upstream status (200 or 206) and the Content-Range /
+    // Content-Length headers Supabase Storage emits on partial responses.
+    const responseHeaders: Record<string, string> = {
+      "Cache-Control": CACHE_CONTROL,
+      "Content-Type": asset.mimeType,
+      // Defense-in-depth: browsers MUST NOT sniff the body and infer
+      // a different MIME than the allowlisted raster type we asserted
+      // above. Without this header a `.png` whose bytes look like
+      // SVG could still be interpreted as XML.
+      "X-Content-Type-Options": "nosniff",
+      // Codex R17 P1: advertise Range support on every success so
+      // clients know subsequent fetches may use Range.
+      "Accept-Ranges": "bytes",
+    };
+    const upstreamContentRange = fetchRes.headers.get("content-range");
+    const upstreamContentLength = fetchRes.headers.get("content-length");
+    if (upstreamContentRange) responseHeaders["Content-Range"] = upstreamContentRange;
+    if (upstreamContentLength) responseHeaders["Content-Length"] = upstreamContentLength;
     return new Response(boundedBody, {
-      headers: {
-        "Cache-Control": CACHE_CONTROL,
-        "Content-Type": asset.mimeType,
-        // Defense-in-depth: browsers MUST NOT sniff the body and infer
-        // a different MIME than the allowlisted raster type we asserted
-        // above. Without this header a `.png` whose bytes look like
-        // SVG could still be interpreted as XML.
-        "X-Content-Type-Options": "nosniff",
-      },
+      status: fetchRes.status === 206 ? 206 : 200,
+      headers: responseHeaders,
     });
   } catch (caught) {
     if (caught instanceof ByteLimitExceededError) return gone();

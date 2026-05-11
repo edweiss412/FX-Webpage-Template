@@ -36,6 +36,7 @@ const routeMock = vi.hoisted(() => ({
   peek: { kind: "none" } as
     | { kind: "none" }
     | { kind: "envelope"; showId: string },
+  lastFetchRange: null as string | null,
   published: true as boolean | null,
   diagrams: null as unknown,
   storageBytes: new TextEncoder().encode("diagram-bytes") as Uint8Array | null,
@@ -109,7 +110,7 @@ vi.mock("@/lib/supabase/server", () => ({
 // raw bytes wrapped in a Response.
 const originalFetch = globalThis.fetch;
 beforeEach(() => {
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input.toString();
     if (!url.includes("supabase.local/object/sign/")) {
       if (originalFetch) return originalFetch(input);
@@ -119,6 +120,24 @@ beforeEach(() => {
       return new Response(null, { status: 404 });
     }
     const bytes = routeMock.storageBytes;
+    // Capture Range header forwarded to the upstream fetch so tests can
+    // assert the route forwards it correctly.
+    const rangeHeader =
+      init?.headers && typeof (init.headers as Headers).get === "function"
+        ? (init.headers as Headers).get("Range")
+        : (init?.headers as Record<string, string> | undefined)?.Range ??
+          (init?.headers as Record<string, string> | undefined)?.range ??
+          null;
+    routeMock.lastFetchRange = rangeHeader;
+    if (rangeHeader) {
+      return new Response(bytes as BlobPart, {
+        status: 206,
+        headers: {
+          "content-length": String(bytes.byteLength),
+          "content-range": `bytes 0-${bytes.byteLength - 1}/${bytes.byteLength}`,
+        },
+      });
+    }
     return new Response(bytes as BlobPart, {
       status: 200,
       headers: { "content-length": String(bytes.byteLength) },
@@ -166,14 +185,19 @@ function diagramsWithPending(): { current: PersistedDiagrams; pending: Persisted
   };
 }
 
-async function getDiagram(rev = currentRev, key = assetKey): Promise<Response> {
+async function getDiagram(
+  rev = currentRev,
+  key = assetKey,
+  init?: { headers?: Record<string, string> },
+): Promise<Response> {
   const { GET } = await import("@/app/api/asset/diagram/[show]/[rev]/[key]/route");
-  return await GET(
-    new NextRequest(`https://crew.fxav.test/api/asset/diagram/${showId}/${rev}/${key}`),
-    {
-      params: Promise.resolve({ show: showId, rev, key }),
-    },
-  );
+  const url = `https://crew.fxav.test/api/asset/diagram/${showId}/${rev}/${key}`;
+  const req = init?.headers
+    ? new NextRequest(url, { headers: init.headers })
+    : new NextRequest(url);
+  return await GET(req, {
+    params: Promise.resolve({ show: showId, rev, key }),
+  });
 }
 
 beforeEach(() => {
@@ -187,6 +211,7 @@ beforeEach(() => {
   routeMock.linkCalls = 0;
   routeMock.googleCalls = 0;
   routeMock.peek = { kind: "none" };
+  routeMock.lastFetchRange = null;
   routeMock.published = true;
   routeMock.diagrams = diagramsWithPending();
   routeMock.storageBytes = new TextEncoder().encode("diagram-bytes");
@@ -320,6 +345,34 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     routeMock.diagrams = { current: tampered, pending: null };
     const res = await getDiagram();
     expect(res.status).toBe(410);
+  });
+
+  test("Codex R17 P1: success response advertises Accept-Ranges: bytes", async () => {
+    const res = await getDiagram();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
+  });
+
+  test("Codex R17 P1: Range request forwards to upstream fetch and returns 206 with Content-Range", async () => {
+    const res = await getDiagram(currentRev, assetKey, { headers: { Range: "bytes=0-3" } });
+    expect(res.status).toBe(206);
+    expect(routeMock.lastFetchRange).toBe("bytes=0-3");
+    expect(res.headers.get("content-range")).toMatch(/^bytes 0-/);
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
+  });
+
+  test("Codex R17 P1: suffix Range (bytes=-N) forwards verbatim to upstream", async () => {
+    const res = await getDiagram(currentRev, assetKey, { headers: { Range: "bytes=-4" } });
+    expect(res.status).toBe(206);
+    expect(routeMock.lastFetchRange).toBe("bytes=-4");
+  });
+
+  test("Codex R17 P1: malformed/multi-range request → 416 (no upstream fetch)", async () => {
+    const res = await getDiagram(currentRev, assetKey, {
+      headers: { Range: "bytes=0-10, 20-30" },
+    });
+    expect(res.status).toBe(416);
+    expect(routeMock.lastFetchRange).toBeNull();
   });
 
   test("Codex R6 P1: served raster MIME carries X-Content-Type-Options: nosniff", async () => {

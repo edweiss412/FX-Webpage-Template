@@ -350,6 +350,26 @@ describe("/api/asset/reel/[show]", () => {
     expect(res.headers.get("accept-ranges")).toBe("bytes");
   });
 
+  test("Codex R17 P1: suffix Range (bytes=-N) forwards verbatim to Drive revisions.get", async () => {
+    const res = await getReel({ headers: { Range: "bytes=-4" } });
+    expect(res.status).toBe(206);
+    expect(routeMock.lastRevisionsOptions?.headers?.Range).toBe("bytes=-4");
+  });
+
+  test("Codex R17 P1: suffix Range honored on the md5-verified fallback path too", async () => {
+    routeMock.fallbackBytes = new TextEncoder().encode("reel-bytes"); // length 10
+    routeMock.current = {
+      ...routeMock.current,
+      md5Checksum: md5(routeMock.fallbackBytes),
+    };
+    routeMock.revisionError = { code: 404 };
+    const res = await getReel({ headers: { Range: "bytes=-3" } });
+    // last 3 bytes of "reel-bytes" → "tes" — start=7, end=9, len=3.
+    expect(res.status).toBe(206);
+    expect(res.headers.get("content-range")).toBe("bytes 7-9/10");
+    expect(res.headers.get("content-length")).toBe("3");
+  });
+
   test("Codex R14 P1: malformed/multi-range request → 416 (no Drive call)", async () => {
     const res = await getReel({ headers: { Range: "bytes=0-10, 20-30" } });
     expect(res.status).toBe(416);

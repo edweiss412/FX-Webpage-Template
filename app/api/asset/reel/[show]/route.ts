@@ -87,11 +87,12 @@ type ReelDriveClient = {
   };
 };
 
-// Single-range only. Multi-range (`bytes=0-100,200-300`) and any
-// other shape are rejected — implementing multi-range responses would
-// require us to assemble a multipart/byteranges body, which is more
-// surface than v1 needs.
-const SINGLE_RANGE_RE = /^bytes=\d+-\d*$/;
+// Single-range only. Two valid shapes per RFC 7233:
+//   - `bytes=<start>-<optional end>` — explicit start, optional end
+//   - `bytes=-<suffix>` — last N bytes (suffix range; common for
+//     video clients fetching trailing metadata)
+// Multi-range (`bytes=0-100,200-300`) and other shapes are rejected.
+const SINGLE_RANGE_RE = /^bytes=(?:\d+-\d*|-\d+)$/;
 
 type ParsedRange = { start: number; end: number };
 
@@ -100,6 +101,15 @@ function parseSingleRange(
   totalBytes: number,
 ): ParsedRange | "unsatisfiable" | null {
   if (!SINGLE_RANGE_RE.test(header)) return null;
+  // Suffix range: `bytes=-N` = last N bytes.
+  const suffixMatch = /^bytes=-(\d+)$/.exec(header);
+  if (suffixMatch) {
+    const suffix = Number(suffixMatch[1]);
+    if (!Number.isFinite(suffix) || suffix <= 0) return "unsatisfiable";
+    if (totalBytes === 0) return "unsatisfiable";
+    const start = Math.max(0, totalBytes - suffix);
+    return { start, end: totalBytes - 1 };
+  }
   const match = /^bytes=(\d+)-(\d*)$/.exec(header);
   if (!match) return null;
   const start = Number(match[1]);
