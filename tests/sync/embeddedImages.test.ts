@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { ParsedSheet } from "@/lib/parser/types";
 import { sha256Base64Url } from "@/lib/crypto/sha256";
 import {
@@ -52,8 +54,12 @@ const baseCtx = {
   },
 };
 
-function clientWithEmbedded(objects: Array<{ objectId: string; bytes?: string; alt?: string }> = []) {
-  const bytesByObject = new Map(objects.map((object) => [object.objectId, object.bytes ?? object.objectId]));
+function clientWithEmbedded(
+  objects: Array<{ objectId: string; bytes?: string; alt?: string }> = [],
+) {
+  const bytesByObject = new Map(
+    objects.map((object) => [object.objectId, object.bytes ?? object.objectId]),
+  );
   return {
     ...mockDriveClient,
     async listSpreadsheetSheets() {
@@ -92,6 +98,14 @@ describe("sha256Base64Url", () => {
 });
 
 describe("embedded image extraction in enrichWithDrivePins", () => {
+  test("production Sheets client requests and preserves drawing MIME type", () => {
+    const source = readFileSync(join(process.cwd(), "lib/sync/runScheduledCronSync.ts"), "utf8");
+
+    expect(source).toContain("imageProperties(contentUrl,mimeType)");
+    expect(source).toContain("drawing.imageProperties?.mimeType");
+    expect(source).not.toMatch(/mimeType:\s*"image\/png"/);
+  });
+
   test("extracts DIAGRAMS tab embedded images case-insensitively with revision id and content fingerprint", async () => {
     const result = await enrichWithDrivePins(
       emptyParsed(),
@@ -168,7 +182,9 @@ describe("embedded image extraction in enrichWithDrivePins", () => {
 
     expect(result.diagrams.embeddedImages).toEqual([]);
     expect(revisionCalls).toBe(0);
-    expect(result.warnings).toContainEqual(expect.objectContaining({ code: "DIAGRAMS_TAB_MISSING" }));
+    expect(result.warnings).toContainEqual(
+      expect.objectContaining({ code: "DIAGRAMS_TAB_MISSING" }),
+    );
   });
 
   test("restage-only fallback preserves the placeholder entry when content URL is missing", async () => {

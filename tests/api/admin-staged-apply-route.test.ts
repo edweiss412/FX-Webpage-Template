@@ -94,12 +94,15 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
       { params: Promise.resolve({ fileId: "drive-file-1" }) },
     );
 
-    expect(response.status).toBe(202);
+    expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       ok: true,
-      status: "apply_committed_pending_promote",
-      apply_id: "22222222-2222-4222-8222-222222222222",
-      snapshot_revision_id: "22222222-2222-4222-8222-222222222222",
+      status: "applied",
+      result: {
+        outcome: "wizard_applied",
+        wizardSessionId: "33333333-3333-4333-8333-333333333333",
+        stagedId: "22222222-2222-4222-8222-222222222222",
+      },
     });
     expect(applyMock.applyStaged).toHaveBeenCalledWith({
       driveFileId: "drive-file-1",
@@ -134,6 +137,36 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
       stagedId: "11111111-1111-4111-8111-111111111111",
       reviewerChoices: [{ item_id: "i1", action: "apply" }],
       appliedByEmail: "doug@fxav.test",
+    });
+  });
+
+  test("live apply without a snapshot row returns terminal applied instead of a poll id", async () => {
+    applyMock.applyStaged.mockResolvedValueOnce({
+      outcome: "applied",
+      showId: "show-1",
+      syncAuditId: "audit-1",
+      derivedSideEffects: { revokeFloorForNames: [] },
+    });
+
+    const response = await POST(
+      request({
+        source_scope: "live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
+        choices: [],
+      }),
+      { params: Promise.resolve({ fileId: "drive-file-1" }) },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      status: "applied",
+      result: {
+        outcome: "applied",
+        showId: "show-1",
+        syncAuditId: "audit-1",
+        derivedSideEffects: { revokeFloorForNames: [] },
+      },
     });
   });
 

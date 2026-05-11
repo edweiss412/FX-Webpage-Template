@@ -38,7 +38,7 @@ function statusFor(row: LedgerRow, show: ShowRow): Record<string, unknown> {
     ledger_row_id: row.id,
   };
 
-  if (row.promoted_at && revision(show.diagrams, "current") === row.snapshot_revision_id) {
+  if (row.promoted_at) {
     return { status: "promoted", ...base };
   }
 

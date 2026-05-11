@@ -79,16 +79,6 @@ function statusForCode(code: string): number {
   }
 }
 
-function snapshotRevisionId(result: unknown, fallback: string): string {
-  const candidate = result as {
-    snapshotRevisionId?: unknown;
-    snapshot_revision_id?: unknown;
-  };
-  if (typeof candidate.snapshotRevisionId === "string") return candidate.snapshotRevisionId;
-  if (typeof candidate.snapshot_revision_id === "string") return candidate.snapshot_revision_id;
-  return fallback;
-}
-
 function scheduleAfterResponse(task: () => Promise<unknown>): void {
   try {
     after(() => {
@@ -158,7 +148,6 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
     return NextResponse.json({ ok: false, error: "SHOW_BUSY_RETRY" }, { status: 409 });
   }
   if (result.outcome === "applied") {
-    const snapshotId = snapshotRevisionId(result, body.staged_id.toLowerCase());
     if (result.snapshotRevisionId) {
       scheduleAfterResponse(
         async () =>
@@ -166,27 +155,33 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
             console.error("[/api/admin/staged/[fileId]/apply] snapshot promotion failed", error);
           }),
       );
+      return NextResponse.json(
+        {
+          ok: true,
+          status: "apply_committed_pending_promote",
+          apply_id: result.snapshotRevisionId,
+          snapshot_revision_id: result.snapshotRevisionId,
+        },
+        { status: 202 },
+      );
     }
     return NextResponse.json(
       {
         ok: true,
-        status: "apply_committed_pending_promote",
-        apply_id: snapshotId,
-        snapshot_revision_id: snapshotId,
+        status: "applied",
+        result,
       },
-      { status: 202 },
+      { status: 200 },
     );
   }
   if (result.outcome === "wizard_applied") {
-    const snapshotId = snapshotRevisionId(result, result.stagedId);
     return NextResponse.json(
       {
         ok: true,
-        status: "apply_committed_pending_promote",
-        apply_id: snapshotId,
-        snapshot_revision_id: snapshotId,
+        status: "applied",
+        result,
       },
-      { status: 202 },
+      { status: 200 },
     );
   }
   if (result.outcome === "discarded") {

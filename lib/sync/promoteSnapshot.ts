@@ -19,6 +19,7 @@ type PendingPromotionRow = {
 export type PromoteSnapshotStorage = {
   list(prefix: string): Promise<string[]>;
   move(fromPath: string, toPath: string): Promise<void>;
+  removePrefix?(prefix: string): Promise<void>;
 };
 
 export type PromoteSnapshotResult =
@@ -77,6 +78,19 @@ function defaultStorage(): PromoteSnapshotStorage {
         : toPath;
       const { error } = await bucket.move(fromObject, toObject);
       if (error) throw error;
+    },
+    async removePrefix(prefix) {
+      const objectPrefix = prefix.startsWith(`${DIAGRAM_BUCKET}/`)
+        ? prefix.slice(DIAGRAM_BUCKET.length + 1)
+        : prefix;
+      const { data, error } = await bucket.list(objectPrefix);
+      if (error) throw error;
+      const objectPaths = (data ?? [])
+        .filter((entry) => entry.name)
+        .map((entry) => `${objectPrefix}${entry.name}`);
+      if (objectPaths.length === 0) return;
+      const { error: removeError } = await bucket.remove(objectPaths);
+      if (removeError) throw removeError;
     },
   };
 }
@@ -284,11 +298,21 @@ export async function repairSnapshotRollback(
   deps: PromoteSnapshotDeps = {},
 ): Promise<RepairSnapshotRollbackResult> {
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
-  let row: (PendingPromotionRow & { promote_started_at: string | null }) | null;
+  let row:
+    | (PendingPromotionRow & {
+        promote_started_at: string | null;
+        delete_started_at: string | null;
+      })
+    | null;
   try {
-    const rows = await sql<(PendingPromotionRow & { promote_started_at: string | null })[]>`
+    const rows = await sql<
+      (PendingPromotionRow & {
+        promote_started_at: string | null;
+        delete_started_at: string | null;
+      })[]
+    >`
       select id::text, show_id::text, drive_file_id, temp_prefix, snapshot_revision_id::text,
-             asset_count, promote_started_at::text
+             asset_count, promote_started_at::text, delete_started_at::text
         from public.pending_snapshot_uploads
        where id = ${ledgerId}::uuid
        limit 1
@@ -298,11 +322,11 @@ export async function repairSnapshotRollback(
     await sql.end({ timeout: 5 });
   }
   if (!row) return { outcome: "not_found" };
-  if (!row.promote_started_at) {
+  if (!row.promote_started_at && !row.delete_started_at) {
     return { outcome: "not_stuck", snapshotRevisionId: row.snapshot_revision_id };
   }
-  const started = Date.parse(row.promote_started_at);
-  if (Number.isFinite(started) && Date.now() - started < 15 * 60 * 1000) {
+  const started = Date.parse(row.promote_started_at ?? row.delete_started_at ?? "");
+  if (row.promote_started_at && Number.isFinite(started) && Date.now() - started < 15 * 60 * 1000) {
     return { outcome: "promote_in_flight", snapshotRevisionId: row.snapshot_revision_id };
   }
 
@@ -319,6 +343,23 @@ export async function repairSnapshotRollback(
         if (locked.promoted_at) {
           return {
             outcome: "not_stuck",
+            snapshotRevisionId: row.snapshot_revision_id,
+          } satisfies RepairSnapshotRollbackResult;
+        }
+        if (row.delete_started_at && !row.promote_started_at) {
+          await storage.removePrefix?.(row.temp_prefix);
+          await tx.queryOne<{ ok: boolean }>(
+            `
+              delete from public.pending_snapshot_uploads
+               where id = $1::uuid
+                 and promoted_at is null
+                 and delete_started_at is not null
+              returning true as ok
+            `,
+            [ledgerId],
+          );
+          return {
+            outcome: "repaired",
             snapshotRevisionId: row.snapshot_revision_id,
           } satisfies RepairSnapshotRollbackResult;
         }

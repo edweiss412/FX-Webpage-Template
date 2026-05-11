@@ -66,7 +66,8 @@ const infraRegistry = [
   {
     helper: "discardStaged",
     path: "lib/sync/discardStaged.ts",
-    contract: "discard transaction-port faults propagate instead of becoming benign discard outcomes",
+    contract:
+      "discard transaction-port faults propagate instead of becoming benign discard outcomes",
   },
   {
     helper: "writeSyncLog",
@@ -106,6 +107,12 @@ const infraRegistry = [
     path: "app/api/admin/show/[slug]/apply/[applyId]/status/route.ts",
     contract:
       "apply-promotion status route destructures Supabase show and ledger reads; faults become 404/500 discriminated responses",
+  },
+  {
+    helper: "repairSnapshotRollback",
+    path: "app/api/admin/snapshot-rollback/[id]/repair/route.ts",
+    contract:
+      "snapshot rollback repair route destructures Supabase ledger reads; faults become 404/500 discriminated responses before delegated repair",
   },
   {
     helper: "CACHE_CONTROL",

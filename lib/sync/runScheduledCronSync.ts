@@ -1358,14 +1358,14 @@ function defaultDriveClient(): DriveClient {
       const response = await sheetsClient.spreadsheets.get({
         spreadsheetId,
         fields:
-          "sheets(properties(title),drawings(objectId,imageProperties(contentUrl),embeddedObject(description,title)))",
+          "sheets(properties(title),drawings(objectId,imageProperties(contentUrl,mimeType),embeddedObject(description,title)))",
       });
       return ((response.data.sheets ?? []) as unknown[]).map((sheet) => {
         const record = sheet as {
           properties?: { title?: string | null };
           drawings?: Array<{
             objectId?: string | null;
-            imageProperties?: { contentUrl?: string | null };
+            imageProperties?: { contentUrl?: string | null; mimeType?: string | null };
             embeddedObject?: { title?: string | null; description?: string | null };
           }>;
         };
@@ -1376,7 +1376,7 @@ function defaultDriveClient(): DriveClient {
               drawing.embeddedObject?.title ?? drawing.embeddedObject?.description ?? null;
             return {
               objectId: drawing.objectId!,
-              mimeType: "image/png",
+              mimeType: drawing.imageProperties?.mimeType ?? "image/png",
               ...(alt ? { alt } : {}),
               contentUrl: drawing.imageProperties?.contentUrl ?? null,
             };

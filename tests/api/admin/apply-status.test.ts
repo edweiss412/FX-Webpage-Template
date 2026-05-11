@@ -105,7 +105,7 @@ describe("GET /api/admin/show/[slug]/apply/[applyId]/status", () => {
     statusMock.ledger = { ...statusMock.ledger!, promoted_at: new Date().toISOString() };
     statusMock.show = {
       id: showId,
-      diagrams: { current: { snapshot_revision_id: applyId }, pending: null },
+      diagrams: { current: { snapshot_revision_id: "newer-rev" }, pending: null },
     };
     await expect((await getStatus()).json()).resolves.toMatchObject({
       status: "promoted",

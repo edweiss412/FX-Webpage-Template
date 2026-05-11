@@ -54,4 +54,16 @@ describe("M7 pending_snapshot_uploads state-transition contract", () => {
       /where\s+p\.snapshot_revision_id\s*=\s*\$1::uuid[\s\S]*and\s+p\.claim_token\s*=\s*\$2::uuid/i,
     );
   });
+
+  test("admin repair covers delete_started rows that GC cannot reclaim", () => {
+    const source = readFileSync(join(root, "lib/sync/promoteSnapshot.ts"), "utf8");
+
+    expect(source).toContain("delete_started_at::text");
+    expect(source).toMatch(
+      /row\.delete_started_at[\s\S]*storage\.removePrefix\?\.\(row\.temp_prefix\)/,
+    );
+    expect(source).toMatch(
+      /delete\s+from\s+public\.pending_snapshot_uploads[\s\S]*delete_started_at\s+is\s+not\s+null/i,
+    );
+  });
 });
