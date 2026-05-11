@@ -1143,6 +1143,18 @@ The seven create / extend rows above are mandatory at M6 close. Empty rows silen
 - Verification: 97 tests pass per Codex; 11/11 R11 targeted tests pass on my orchestrator machine. pnpm typecheck + pnpm lint clean. Negative-regression confirmed.
 - Methodology note: code-shape class-sweep (per `feedback_class_sweep_must_be_code_shape_not_name_list.md`) found `runPushSyncForShow` metadata fallback as a parallel surface beyond the named manual re-sync. Validates the deeper-mandate approach a third time (R7→R9→R11 each had at least one parallel surface independently surfaced by Codex).
 
-### Round 12 — re-review against R11 fix (pending)
+### Round 12 — re-review against R11 fix (Codex via direct `codex exec`)
+
+- Base: `afa0906`. Head: `3d82eb7` (R11 fix-SHAs convergence log commit).
+- Codex review duration: 3m. Verdict at `/tmp/m6-r12-verdict.json`.
+- Verdict: **needs-attention.** No regressions on R1-R11 fixes — fresh-eyes audit caught 1 NEW finding, the FIRST §B UI finding of the entire convergence loop. Routes to me (Opus) per AGENTS.md UI invariant.
+- Findings (1, §B UI — handled inline by Opus, NOT routed to Codex):
+  1. **[medium] Raw parser warning codes render in staged review UI** — `components/admin/StagedReviewCard.tsx:347` (rendering surface) + `lib/sync/phase1.ts:110` (builder). The card renders `row.warningSummary` verbatim; `warningSummary` is built as `parseResult.warnings.map((w) => w.code).join(", ")`. Doug sees raw codes (`UNKNOWN_FIELD`, `UNKNOWN_ROLE_TOKEN`, etc.). Violates AGENTS.md invariant 5 (no raw error codes in user-visible UI) + §12.4 catalog contract for parser soft warnings.
+- Fix SHA:
+  - **`d95f64a`** `fix(sync): render parser warnings as human messages, drop raw codes`. Changed `warningSummary` builder in `lib/sync/phase1.ts` to use the parser's already-built `message` field (which has context filled in: "Unrecognized venue row label: 'CONTACT'", "Unknown role token 'XR' for 'Calvin Saller' — dropped") and filter `severity === "info"` warnings (admin-log-only like TYPO_NORMALIZED). 53-line diff with 38/38 phase1 tests passing including a new regression test that asserts the summary contains parser human messages and never contains raw code strings.
+- Verification: 38/38 phase1 tests + 17/17 StagedReviewCard tests pass on my orchestrator machine. pnpm typecheck + pnpm lint clean. Negative-regression confirmed (exactly 1 test, the new one, fails on pre-fix code).
+- Note: this is the FIRST §B UI finding across 12 review rounds. Up to now every finding has been §A backend. Convergence loop is now hitting different surfaces.
+
+### Round 13 — re-review against R12 fix (pending)
 
 (Pending — to dispatch after convergence log commits.)
