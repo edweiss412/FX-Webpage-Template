@@ -350,6 +350,23 @@ describe("/api/asset/reel/[show]", () => {
     expect(res.headers.get("accept-ranges")).toBe("bytes");
   });
 
+  test("Codex R18 P1: pre-flight unsatisfiable Range (bytes=-0 with finite size) → 416 (no Drive call)", async () => {
+    routeMock.current = { ...routeMock.current, size: "10" };
+    const res = await getReel({ headers: { Range: "bytes=-0" } });
+    expect(res.status).toBe(416);
+    expect(res.headers.get("content-range")).toBe("bytes */10");
+    // Only metadata fetched; revisions.media MUST NOT fire.
+    expect(routeMock.driveCalls).toEqual(["files.metadata"]);
+  });
+
+  test("Codex R18 P1: Drive 416 thrown from revisions.get → 416 response (not 500)", async () => {
+    routeMock.current = { ...routeMock.current, size: null };
+    routeMock.revisionError = { code: 416 };
+    const res = await getReel({ headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(416);
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
+  });
+
   test("Codex R17 P1: suffix Range (bytes=-N) forwards verbatim to Drive revisions.get", async () => {
     const res = await getReel({ headers: { Range: "bytes=-4" } });
     expect(res.status).toBe(206);

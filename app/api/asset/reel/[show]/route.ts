@@ -247,6 +247,20 @@ function isRevisionFallbackAllowed(error: unknown): boolean {
   );
 }
 
+function isRangeNotSatisfiable(error: unknown): boolean {
+  const candidate = error as { code?: unknown; status?: unknown };
+  return candidate.code === 416 || candidate.status === 416;
+}
+
+function rangeNotSatisfiable(totalBytes: number | null): Response {
+  const headers: Record<string, string> = {
+    "Accept-Ranges": "bytes",
+    "Cache-Control": CACHE_CONTROL,
+  };
+  if (totalBytes !== null) headers["Content-Range"] = `bytes */${totalBytes}`;
+  return new Response(null, { status: 416, headers });
+}
+
 export async function GET(request: NextRequest, context: RouteContext): Promise<Response> {
   const { show } = await context.params;
 
@@ -321,10 +335,17 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     // ranges → 416.
     const rangeHeader = request.headers.get("range");
     if (rangeHeader && !SINGLE_RANGE_RE.test(rangeHeader)) {
-      return new Response(null, {
-        status: 416,
-        headers: { "Accept-Ranges": "bytes", "Cache-Control": CACHE_CONTROL },
-      });
+      return rangeNotSatisfiable(Number.isFinite(reportedSize) ? reportedSize : null);
+    }
+    // Codex R18 P1: pre-flight Range against the known size so a
+    // syntactically valid but unsatisfiable range (`bytes=-0`,
+    // start≥size, start>end) returns 416 BEFORE we call Drive — and
+    // we don't end up mapping a Drive 416 into a 500.
+    if (rangeHeader && Number.isFinite(reportedSize)) {
+      const parsed = parseSingleRange(rangeHeader, reportedSize);
+      if (parsed === "unsatisfiable") {
+        return rangeNotSatisfiable(reportedSize);
+      }
     }
 
     try {
@@ -363,6 +384,13 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       if (contentLength) responseHeaders["Content-Length"] = contentLength;
       return new Response(stream, { status: driveStatus, headers: responseHeaders });
     } catch (revisionsError) {
+      // Codex R18 P1: Drive 416 means the requested Range is
+      // unsatisfiable (e.g., past the end of the file). Return 416 to
+      // the client — NOT a generic 500. Surface size context when
+      // metadata gave it.
+      if (isRangeNotSatisfiable(revisionsError)) {
+        return rangeNotSatisfiable(Number.isFinite(reportedSize) ? reportedSize : null);
+      }
       if (!isRevisionFallbackAllowed(revisionsError)) throw revisionsError;
       const { data } = (await drive.files.get(
         {

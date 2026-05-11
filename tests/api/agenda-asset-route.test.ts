@@ -313,6 +313,24 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(res.headers.get("accept-ranges")).toBe("bytes");
   });
 
+  test("Codex R18 P1: pre-flight unsatisfiable Range (bytes=-0 with known size) → 416 (no media call)", async () => {
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: "10" };
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=-0" } });
+    expect(res.status).toBe(416);
+    expect(res.headers.get("content-range")).toBe("bytes */10");
+    // Only metadata fetched; media MUST NOT fire.
+    expect(routeMock.filesGetCalls.filter((c) => c.alt === "media")).toEqual([]);
+  });
+
+  test("Codex R18 P1: Drive 416 thrown from media fetch → 416 response (not 500)", async () => {
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: null };
+    // Force the media call to throw 416 by simulating Drive's behavior.
+    routeMock.driveError = Object.assign(new Error("range not satisfiable"), { code: 416 });
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(416);
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
+  });
+
   test("Codex R17 P2: suffix Range (bytes=-N) forwards verbatim to Drive", async () => {
     const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=-10" } });
     expect(res.status).toBe(206);

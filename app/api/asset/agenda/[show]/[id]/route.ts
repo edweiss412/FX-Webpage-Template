@@ -132,6 +132,46 @@ function isNotFound(error: unknown): boolean {
   return candidate.code === 404 || candidate.status === 404;
 }
 
+function isRangeNotSatisfiable(error: unknown): boolean {
+  const candidate = error as { code?: unknown; status?: unknown };
+  return candidate.code === 416 || candidate.status === 416;
+}
+
+function rangeNotSatisfiable(totalBytes: number | null): Response {
+  const headers: Record<string, string> = {
+    "Accept-Ranges": "bytes",
+    "Cache-Control": CACHE_CONTROL,
+  };
+  if (totalBytes !== null) headers["Content-Range"] = `bytes */${totalBytes}`;
+  return new Response(null, { status: 416, headers });
+}
+
+// Mirrors the reel route's parser. Two valid shapes: `bytes=N-M?` and
+// `bytes=-N`. Used for pre-flight size-aware unsatisfiability checks
+// so a syntactically valid but out-of-range request returns 416
+// BEFORE we call Drive (avoiding the Drive-416 → 500 mapping that
+// Codex R18 flagged).
+function parseSingleRangeAgenda(
+  header: string,
+  totalBytes: number,
+): "unsatisfiable" | { start: number; end: number } | null {
+  if (!SINGLE_RANGE_RE.test(header)) return null;
+  const suffixMatch = header.match(/^bytes=-(\d+)$/);
+  if (suffixMatch) {
+    const suffix = Number(suffixMatch[1]);
+    if (!Number.isFinite(suffix) || suffix <= 0) return "unsatisfiable";
+    if (totalBytes === 0) return "unsatisfiable";
+    return { start: Math.max(0, totalBytes - suffix), end: totalBytes - 1 };
+  }
+  const matched = header.match(/^bytes=(\d+)-(\d*)$/);
+  if (!matched) return null;
+  const start = Number(matched[1]);
+  const end = matched[2] ? Number(matched[2]) : totalBytes - 1;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  if (start > end || start >= totalBytes) return "unsatisfiable";
+  return { start, end: Math.min(end, totalBytes - 1) };
+}
+
 export async function GET(request: NextRequest, context: RouteContext): Promise<Response> {
   const { show, id } = await context.params;
 
@@ -227,10 +267,17 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     // pull the full PDF on every load.
     const rangeHeader = request.headers.get("range");
     if (rangeHeader && !SINGLE_RANGE_RE.test(rangeHeader)) {
-      return new Response(null, {
-        status: 416,
-        headers: { "Accept-Ranges": "bytes", "Cache-Control": CACHE_CONTROL },
-      });
+      return rangeNotSatisfiable(Number.isFinite(reportedSize) ? reportedSize : null);
+    }
+    // Codex R18 P1: pre-flight Range against the known size so a
+    // syntactically valid but unsatisfiable range (`bytes=-0`,
+    // start≥size, start>end) returns 416 BEFORE we call Drive — and
+    // we don't end up mapping a Drive 416 into a 500.
+    if (rangeHeader && Number.isFinite(reportedSize)) {
+      const parsed = parseSingleRangeAgenda(rangeHeader, reportedSize);
+      if (parsed === "unsatisfiable") {
+        return rangeNotSatisfiable(reportedSize);
+      }
     }
 
     try {
@@ -275,12 +322,21 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       return new Response(stream, { status: driveStatus, headers });
     } catch (err) {
       if (err instanceof ByteLimitExceededError) return gone();
+      // Codex R18 P1: Drive 416 means the requested Range is
+      // unsatisfiable. Return 416 to the client (with size context if
+      // we have it from the metadata pre-flight) — NOT a 500.
+      if (isRangeNotSatisfiable(err)) {
+        return rangeNotSatisfiable(Number.isFinite(reportedSize) ? reportedSize : null);
+      }
       if (isNotFound(err) || isPermissionDenied(err)) return gone();
       throw err;
     }
   } catch (err) {
     if (err instanceof ByteLimitExceededError) return gone();
     if (isPermissionDenied(err)) return gone();
+    if (isRangeNotSatisfiable(err)) {
+      return rangeNotSatisfiable(null);
+    }
     return NextResponse.json({ error: "AGENDA_ASSET_LOOKUP_FAILED" }, { status: 500 });
   }
 }
