@@ -1,5 +1,7 @@
+import { getActiveWatchedFolderId } from "@/lib/appSettings/getWatchedFolderId";
 import { fetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { DriveListedFile } from "@/lib/drive/list";
+import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
 import {
   assertShowLockHeld,
   type ConcurrentSyncSkipped,
@@ -11,6 +13,9 @@ import {
   type ProcessOneFileDeps,
   type ProcessOneFileResult,
   type SyncPipelineTx,
+  SHEET_UNAVAILABLE,
+  STAGED_PARSE_SOURCE_GONE,
+  SYNC_INFRA_ERROR,
   withPostgresSyncPipelineLock,
 } from "@/lib/sync/runScheduledCronSync";
 import type { SyncMode } from "@/lib/sync/perFileProcessor";
@@ -23,12 +28,14 @@ export type FinalizeOwnedShowResult = {
 };
 
 export type ManualSyncResult = ProcessOneFileResult | FinalizeOwnedShowResult;
+type ManualLockResult = ManualSyncResult | { outcome: "proceed" };
 
 export type RunManualSyncForShowDeps = {
   checkFinalizeOwnership?: (
     tx: LockedShowTx<SyncPipelineTx>,
     driveFileId: string,
   ) => Promise<boolean>;
+  getActiveWatchedFolderId?: typeof getActiveWatchedFolderId;
   fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
   processOneFile_unlocked?: (
     tx: LockedShowTx<SyncPipelineTx>,
@@ -43,12 +50,46 @@ export type RunManualSyncForShowDeps = {
     fileMeta: DriveListedFile,
     deps?: ProcessOneFileDeps,
   ) => Promise<ManualSyncResult | ConcurrentSyncSkipped>;
-  withPipelineLock?: (
+  withPipelineLock?: <R extends ManualLockResult>(
     driveFileId: string,
-    fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<ManualSyncResult> | ManualSyncResult,
-  ) => Promise<ManualSyncResult | ConcurrentSyncSkipped>;
+    fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<R> | R,
+  ) => Promise<R | ConcurrentSyncSkipped>;
   processDeps?: ProcessOneFileDeps;
 };
+
+type ManualRecoveryTx = SyncPipelineTx & {
+  markShowSheetUnavailable(
+    driveFileId: string,
+    code: typeof SHEET_UNAVAILABLE | typeof STAGED_PARSE_SOURCE_GONE,
+  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+  markShowDriveError(
+    driveFileId: string,
+    code: string,
+  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+  insertSyncLog(entry: {
+    driveFileId: string | null;
+    outcome: string;
+    code?: string;
+    payload?: Record<string, unknown>;
+  }, showId?: string | null): Promise<void>;
+  upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
+};
+
+function driveErrorStatus(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const candidate = error as { code?: unknown; status?: unknown; response?: { status?: unknown } };
+  const value = candidate.code ?? candidate.status ?? candidate.response?.status;
+  return typeof value === "number" ? value : null;
+}
+
+function isDriveSourceGone(error: unknown): boolean {
+  const status = driveErrorStatus(error);
+  return status === 404 || status === 410;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 async function readFinalizeOwnershipGuard_unlocked(
   tx: LockedShowTx<SyncPipelineTx>,
@@ -86,6 +127,73 @@ async function readFinalizeOwnershipGuard_unlocked(
   return Boolean(row.first_seen_owned || row.existing_show_owned);
 }
 
+async function markManualSheetUnavailable_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  code: typeof SHEET_UNAVAILABLE | typeof STAGED_PARSE_SOURCE_GONE,
+  error?: unknown,
+): Promise<Extract<ProcessOneFileResult, { outcome: "source_gone" }>> {
+  await assertShowLockHeld(tx, driveFileId);
+  const recoveryTx = tx as LockedShowTx<ManualRecoveryTx>;
+  const updated = await recoveryTx.markShowSheetUnavailable(driveFileId, code);
+  const showId = updated.showId;
+  const previousLastSeenModifiedTime = updated.lastSeenModifiedTime ?? null;
+  const payload: Record<string, unknown> = {
+    driveFileId,
+    previousLastSeenModifiedTime,
+  };
+  if (error) payload.message = errorMessage(error);
+
+  await recoveryTx.insertSyncLog(
+    {
+      driveFileId,
+      outcome: "error",
+      code,
+      payload,
+    },
+    showId,
+  );
+
+  await recoveryTx.upsertAdminAlert({
+    showId,
+    code: "SHEET_UNAVAILABLE",
+    context: {
+      drive_file_id: driveFileId,
+      ...(code === STAGED_PARSE_SOURCE_GONE ? { failure_code: code } : {}),
+      previous_last_seen_modified_time: previousLastSeenModifiedTime,
+    },
+  });
+
+  return { outcome: "source_gone", code };
+}
+
+async function markManualDriveError_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  reason: string,
+  error?: unknown,
+): Promise<Extract<ProcessOneFileResult, { outcome: "parse_error" }>> {
+  await assertShowLockHeld(tx, driveFileId);
+  const recoveryTx = tx as LockedShowTx<ManualRecoveryTx>;
+  const updated = await recoveryTx.markShowDriveError(driveFileId, SYNC_INFRA_ERROR);
+  const payload: Record<string, unknown> = {
+    driveFileId,
+    reason,
+    previousLastSeenModifiedTime: updated.lastSeenModifiedTime ?? null,
+  };
+  if (error) payload.message = errorMessage(error);
+  await recoveryTx.insertSyncLog(
+    {
+      driveFileId,
+      outcome: "parse_error",
+      code: SYNC_INFRA_ERROR,
+      payload,
+    },
+    updated.showId,
+  );
+  return { outcome: "parse_error", code: SYNC_INFRA_ERROR };
+}
+
 export async function runManualSyncForShow_unlocked(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
@@ -103,10 +211,79 @@ export async function runManualSyncForShow(
   mode: Extract<SyncMode, "manual"> = "manual",
   deps: RunManualSyncForShowDeps = {},
 ): Promise<ManualSyncResult | ConcurrentSyncSkipped> {
-  const fileMeta = await (deps.fetchDriveFileMetadata ?? fetchDriveFileMetadata)(driveFileId);
   const withLock =
     deps.withPipelineLock ?? ((id, fn) => withPostgresSyncPipelineLock(id, fn, { tryOnly: false }));
   const runOne = deps.processOneFile ?? defaultProcessOneFile;
+
+  const preflight = await withLock(driveFileId, async (tx) => {
+    const isFinalizeOwned = await (
+      deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
+    )(tx, driveFileId);
+    if (isFinalizeOwned) {
+      return { outcome: "blocked" as const, code: FINALIZE_OWNED_SHOW };
+    }
+    return { outcome: "proceed" as const };
+  });
+  if ("skipped" in preflight) return preflight;
+  if (preflight.outcome === "blocked") return preflight;
+
+  const folderResult = await (deps.getActiveWatchedFolderId ?? getActiveWatchedFolderId)();
+  if ("kind" in folderResult) {
+    return await withLock(driveFileId, async (tx) => {
+      const isFinalizeOwned = await (
+        deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
+      )(tx, driveFileId);
+      if (isFinalizeOwned) {
+        return { outcome: "blocked" as const, code: FINALIZE_OWNED_SHOW };
+      }
+      return await markManualDriveError_unlocked(tx, driveFileId, folderResult.kind);
+    });
+  }
+
+  const watchedFolderId = folderResult.folderId;
+  let fileMeta: DriveListedFile;
+  try {
+    fileMeta = await (deps.fetchDriveFileMetadata ?? fetchDriveFileMetadata)(driveFileId);
+  } catch (error) {
+    if (!isDriveSourceGone(error)) {
+      return await withLock(driveFileId, async (tx) => {
+        const isFinalizeOwned = await (
+          deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
+        )(tx, driveFileId);
+        if (isFinalizeOwned) {
+          return { outcome: "blocked" as const, code: FINALIZE_OWNED_SHOW };
+        }
+        return await markManualDriveError_unlocked(tx, driveFileId, "drive_metadata_fetch_failed", error);
+      });
+    }
+    return await withLock(driveFileId, async (tx) => {
+      const isFinalizeOwned = await (
+        deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
+      )(tx, driveFileId);
+      if (isFinalizeOwned) {
+        return { outcome: "blocked" as const, code: FINALIZE_OWNED_SHOW };
+      }
+      return await markManualSheetUnavailable_unlocked(
+        tx,
+        driveFileId,
+        STAGED_PARSE_SOURCE_GONE,
+        error,
+      );
+    });
+  }
+
+  if (!fileMeta.parents.includes(watchedFolderId)) {
+    return await withLock(driveFileId, async (tx) => {
+      const isFinalizeOwned = await (
+        deps.checkFinalizeOwnership ?? readFinalizeOwnershipGuard_unlocked
+      )(tx, driveFileId);
+      if (isFinalizeOwned) {
+        return { outcome: "blocked" as const, code: FINALIZE_OWNED_SHOW };
+      }
+      return await markManualSheetUnavailable_unlocked(tx, driveFileId, SHEET_UNAVAILABLE);
+    });
+  }
+
   return await runOne(driveFileId, mode, fileMeta, {
     ...(deps.processDeps ?? {}),
     withShowLock: async (id, fn) =>
