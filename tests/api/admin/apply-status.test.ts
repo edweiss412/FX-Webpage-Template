@@ -135,7 +135,7 @@ describe("GET /api/admin/show/[slug]/apply/[applyId]/status", () => {
     expect(statusMock.writes).toBe(0);
   });
 
-  test("never-promoted rows overwritten by a newer pending snapshot remain pending, not rolled back", async () => {
+  test("never-promoted rows no longer referenced by pending report rolled_back", async () => {
     statusMock.ledger = {
       ...statusMock.ledger!,
       promoted_at: null,
@@ -148,7 +148,7 @@ describe("GET /api/admin/show/[slug]/apply/[applyId]/status", () => {
     };
 
     await expect((await getStatus()).json()).resolves.toMatchObject({
-      status: "pending",
+      status: "rolled_back",
       snapshot_revision_id: applyId,
     });
   });

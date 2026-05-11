@@ -23,7 +23,17 @@ type LedgerRow = {
   claim_token: string | null;
 };
 
-function statusFor(row: LedgerRow): Record<string, unknown> {
+function pendingRevision(diagrams: unknown): string | null {
+  if (!diagrams || typeof diagrams !== "object") return null;
+  const pending = (diagrams as Record<string, unknown>).pending;
+  if (!pending || typeof pending !== "object") return null;
+  const value =
+    (pending as Record<string, unknown>).snapshot_revision_id ??
+    (pending as Record<string, unknown>).revision_id;
+  return typeof value === "string" ? value : null;
+}
+
+function statusFor(row: LedgerRow, show: ShowRow): Record<string, unknown> {
   const base = {
     snapshot_revision_id: row.snapshot_revision_id,
     ledger_row_id: row.id,
@@ -43,6 +53,10 @@ function statusFor(row: LedgerRow): Record<string, unknown> {
       };
     }
     return { status: "pending", ...base };
+  }
+
+  if (!row.claim_token && pendingRevision(show.diagrams) !== row.snapshot_revision_id) {
+    return { status: "rolled_back", ...base };
   }
 
   return { status: "pending", ...base };
@@ -86,7 +100,7 @@ export async function GET(_request: NextRequest, context: RouteContext): Promise
       return NextResponse.json({ error: "APPLY_STATUS_NOT_FOUND" }, { status: 404 });
     }
 
-    return NextResponse.json(statusFor(ledger));
+    return NextResponse.json(statusFor(ledger, show));
   } catch {
     return NextResponse.json({ error: "SYNC_INFRA_ERROR" }, { status: 500 });
   }

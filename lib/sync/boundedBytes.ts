@@ -14,6 +14,10 @@ export type BoundedByteResult = {
   md5Hex: string;
 };
 
+export type BoundedReadOptions = {
+  onChunk?: (byteLength: number) => void;
+};
+
 function finalizeChunks(chunks: Uint8Array[], total: number): Uint8Array {
   const out = new Uint8Array(total);
   let offset = 0;
@@ -27,6 +31,7 @@ function finalizeChunks(chunks: Uint8Array[], total: number): Uint8Array {
 export async function readBoundedWebStream(
   stream: ReadableStream<Uint8Array>,
   limitBytes: number,
+  options: BoundedReadOptions = {},
 ): Promise<BoundedByteResult> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
@@ -41,6 +46,12 @@ export async function readBoundedWebStream(
       if (total > limitBytes) {
         await reader.cancel();
         throw new ByteLimitExceededError(limitBytes);
+      }
+      try {
+        options.onChunk?.(value.byteLength);
+      } catch (error) {
+        await reader.cancel();
+        throw error;
       }
       sha256.update(value);
       md5.update(value);
@@ -66,6 +77,7 @@ export async function bytesFromWebStream(
 export async function readBoundedNodeStream(
   stream: Readable | NodeJS.ReadableStream,
   limitBytes: number,
+  options: BoundedReadOptions = {},
 ): Promise<BoundedByteResult> {
   const chunks: Uint8Array[] = [];
   const sha256 = createHash("sha256");
@@ -77,6 +89,12 @@ export async function readBoundedNodeStream(
     if (total > limitBytes) {
       if ("destroy" in stream) stream.destroy(new ByteLimitExceededError(limitBytes));
       throw new ByteLimitExceededError(limitBytes);
+    }
+    try {
+      options.onChunk?.(bytes.byteLength);
+    } catch (error) {
+      if ("destroy" in stream) stream.destroy(error instanceof Error ? error : undefined);
+      throw error;
     }
     sha256.update(bytes);
     md5.update(bytes);

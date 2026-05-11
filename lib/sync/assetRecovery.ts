@@ -8,6 +8,7 @@ import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import {
+  ByteLimitExceededError,
   readBoundedNodeStream,
   readBoundedWebStream,
   type BoundedByteResult,
@@ -37,9 +38,11 @@ export type AssetRecoveryStorage = {
 export type AssetRecoveryDrive = {
   fetchEmbeddedImageBytes(
     entry: PersistedDiagrams["embeddedImages"][number],
+    options?: { onChunk?: (byteLength: number) => void },
   ): Promise<RecoveryAssetBytes | null>;
   fetchLinkedRevisionBytes(
     entry: PersistedDiagrams["linkedFolderItems"][number],
+    options?: { onChunk?: (byteLength: number) => void },
   ): Promise<RecoveryAssetBytes | null>;
 };
 
@@ -218,11 +221,21 @@ async function collectVerifiedAssets(
   const tmpDir = await mkdtemp(join(tmpdir(), "asset-recovery-"));
   const verified: VerifiedAsset[] = [];
   let totalBytes = 0;
+  const acceptChunk = (byteLength: number): void => {
+    if (totalBytes + byteLength > MAX_RECOVERY_TOTAL_BYTES) {
+      throw new ByteLimitExceededError(MAX_RECOVERY_TOTAL_BYTES);
+    }
+    totalBytes += byteLength;
+  };
   const acceptBytes = (asset: RecoveryAssetBytes): boolean => {
     const byteLength = recoveryBytes(asset).byteLength;
     if (byteLength > MAX_RECOVERY_SINGLE_BYTES) return false;
+    if (asset instanceof Uint8Array) {
+      if (totalBytes + byteLength > MAX_RECOVERY_TOTAL_BYTES) return false;
+      totalBytes += byteLength;
+      return true;
+    }
     if (totalBytes + byteLength > MAX_RECOVERY_TOTAL_BYTES) return false;
-    totalBytes += byteLength;
     return true;
   };
   for (const entry of diagrams.embeddedImages) {
@@ -234,7 +247,7 @@ async function collectVerifiedAssets(
       continue;
     }
 
-    const bytes = await deps.drive.fetchEmbeddedImageBytes(entry);
+    const bytes = await deps.drive.fetchEmbeddedImageBytes(entry, { onChunk: acceptChunk });
     if (bytes && !acceptBytes(bytes)) {
       await rm(tmpDir, { recursive: true, force: true });
       return ASSET_RECOVERY_BYTES_EXCEEDED;
@@ -254,7 +267,7 @@ async function collectVerifiedAssets(
 
   for (const entry of diagrams.linkedFolderItems) {
     if (entry.snapshotPath) continue;
-    const bytes = await deps.drive.fetchLinkedRevisionBytes(entry);
+    const bytes = await deps.drive.fetchLinkedRevisionBytes(entry, { onChunk: acceptChunk });
     if (bytes && !acceptBytes(bytes)) {
       await rm(tmpDir, { recursive: true, force: true });
       return ASSET_RECOVERY_BYTES_EXCEEDED;
@@ -597,16 +610,16 @@ function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
       },
     },
     drive: {
-      async fetchEmbeddedImageBytes(entry) {
+      async fetchEmbeddedImageBytes(entry, options) {
         if (!entry.contentUrl) return null;
         const token = await getDriveAccessToken();
         const response = await fetch(entry.contentUrl, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!response.ok || !response.body) return null;
-        return await readBoundedWebStream(response.body, MAX_RECOVERY_SINGLE_BYTES);
+        return await readBoundedWebStream(response.body, MAX_RECOVERY_SINGLE_BYTES, options);
       },
-      async fetchLinkedRevisionBytes(entry) {
+      async fetchLinkedRevisionBytes(entry, options) {
         const { data } = await drive.revisions.get(
           {
             fileId: entry.driveFileId,
@@ -616,12 +629,13 @@ function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
           { responseType: "stream" },
         );
         if (data instanceof ReadableStream) {
-          return await readBoundedWebStream(data, MAX_RECOVERY_SINGLE_BYTES);
+          return await readBoundedWebStream(data, MAX_RECOVERY_SINGLE_BYTES, options);
         }
         if (data && typeof data === "object" && "pipe" in data) {
           return await readBoundedNodeStream(
             data as NodeJS.ReadableStream,
             MAX_RECOVERY_SINGLE_BYTES,
+            options,
           );
         }
         return bytesFrom(data);

@@ -217,7 +217,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         { responseType: "stream" },
       )) as { data: unknown };
       const bytes = await boundedBytesFrom(data);
-      if (current.md5Checksum && md5Hex(bytes) !== current.md5Checksum) {
+      if (!current.md5Checksum || md5Hex(bytes) !== current.md5Checksum) {
         return gone();
       }
       return new Response(responseBody(bytes), {
