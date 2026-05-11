@@ -496,7 +496,7 @@ The seven create / extend rows above are mandatory at M7 close. Empty rows silen
 
 **Backend result.** M7 backend is approved by cross-model adversarial review. Frontend/UI work remains pending in the separate Task 7.9 session and must run the impeccable v3 critique/audit gate before any UI closeout.
 
-### Frontend convergence — 2026-05-11 (impeccable §12 complete, awaiting adversarial review)
+### Frontend convergence — 2026-05-10 → 2026-05-11 (impeccable §12 complete, UI-session adversarial review converged at R26 APPROVE)
 
 **Scope.** Task 7.9 UI surface — `components/tiles/DiagramsTile.tsx`, `components/tiles/OpeningReelTile.tsx`, `components/diagrams/Gallery.tsx`, `components/diagrams/GalleryLightbox.tsx`, `components/agenda/AgendaEmbed.tsx`, `components/agenda/AgendaPdfViewer.tsx`, plus the supporting `app/api/asset/agenda/[show]/[id]/route.ts` proxy + `lib/data/diagrams.ts` + `lib/data/openingReel.ts` + `lib/a11y/dialogFocus.ts` helpers, page mount in `app/show/[slug]/page.tsx`, and structural meta-test extensions.
 
@@ -549,13 +549,13 @@ The seven create / extend rows above are mandatory at M7 close. Empty rows silen
 - `pnpm typecheck`: passed.
 - `pnpm test:e2e --project=mobile-safari`: **NOT YET RUN** in this session (Playwright requires a running dev server; deferred to CI). The existing `tests/e2e/empty-state.spec.ts` opening-reel suite is expected to remain green because the inner `data-testid="opening-reel"` selector is preserved on the new OpeningReelTile text row. The new `[data-testid=opening-reel-tile]` outer scope element is what AC-7.25 was always specifying.
 
-**Frontend result.** M7 Task 7.9 UI surface ships with the §12 quality gate closed (zero P0/P1). Awaiting cross-model adversarial review (Codex) per ROUTING.md M7 row's split-mode contract. Frontend HEAD will be `c569c72` plus this convergence-log doc commit; the adversarial-review base is `3034b5c` (backend close-out) so the diff covers the full Opus coda.
+**Frontend result.** M7 Task 7.9 UI surface ships with the §12 quality gate closed (zero P0/P1) AND the UI-session cross-model adversarial review converged at R26 APPROVE per the subsection below. Frontend HEAD is `4808576` (the R20-R26 convergence-log commit on top of the code-changing fixes); the adversarial-review base was `3034b5c` (backend close-out) so the diff covered the full Opus coda. A SEPARATE full-M7 adversarial review against `ae6f0b8` (M6 close → current HEAD) is still pending and is the trigger for marking M7 closed.
 
-### UI-session adversarial review (Task 7.9 Opus coda) — 2026-05-10 → 2026-05-11 (R1→R26, APPROVE at R26)
+#### UI-session adversarial review (Task 7.9 Opus coda) — R1→R26, APPROVE at R26
 
-**Scope.** This entry records ONLY the UI-session-scoped review of the Opus coda. Base for every round was `3034b5c` (backend close-out), so the diff covered only Task 7.9's UI surface + the asset routes the UI coda touched / added. The backend convergence (Tasks 7.1-7.8) had its OWN separate R1-R16 chain (commits `21dfd28`..`9fa3e27`, separately converged before `3034b5c`). A SEPARATE full-M7 adversarial review against `ae6f0b8` (M6 close → current HEAD) is still pending and is the trigger for marking M7 closed.
+**Scope.** UI-session-scoped diff against `3034b5c` (backend close-out) — Task 7.9's UI surface + the asset routes the UI coda touched / added. The backend convergence (Tasks 7.1-7.8) had its OWN separate R1-R16 chain (commits `21dfd28`..`9fa3e27`, separately converged before `3034b5c`).
 
-**Outcome (UI session).** Cross-model review converged to APPROVE at R26 (`review-mp1t5rch-2qik83`). The 26 rounds spanned two sessions (a conversation compaction occurred mid-R19); R1 fix landed at commit `907eb6c`, R26 SHIP attested through commit `4808576`. The chain surfaced 6 consecutive HTTP-semantics findings (R20-R25) on the asset proxy surface — twice triggering the AGENTS.md "Same-vector recurrence → comprehensive re-analysis" rule. Both structural passes were necessary to converge.
+**Outcome.** Cross-model review converged to APPROVE at R26 (`review-mp1t5rch-2qik83`). The 26 rounds spanned two sessions (a conversation compaction occurred mid-R19); R1 fix landed at commit `907eb6c`, R26 APPROVE attests through commit `4808576`. The chain surfaced 6 consecutive HTTP-semantics findings (R20-R25) on the asset proxy surface — twice triggering the AGENTS.md "Same-vector recurrence → comprehensive re-analysis" rule. Both structural passes were necessary to converge.
 
 **Round-by-round commits.** R1-R19 are documented inline in each fix commit message (`907eb6c` "close Codex R1 …" through `57ab26f` "close Codex R13 …" etc — `git log 3034b5c..HEAD -- 'app/api/asset/**' 'components/**' 'lib/auth/**' 'lib/data/**' 'tests/api/**' 'tests/components/**'` enumerates them in order). R20-R26 below records the rounds that triggered the AGENTS.md same-vector-recurrence rule and the two structural passes it forced:
 
