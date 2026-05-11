@@ -43,6 +43,9 @@ export async function POST(_request: NextRequest, context: RouteContext): Promis
     }
 
     const result = await repairSnapshotRollback(id);
+    if (result.outcome === "not_found") {
+      return NextResponse.json({ error: "APPLY_STATUS_NOT_FOUND" }, { status: 404 });
+    }
     if (result.outcome === "not_stuck") {
       return NextResponse.json({ error: "PENDING_SNAPSHOT_NOT_STUCK" }, { status: 409 });
     }

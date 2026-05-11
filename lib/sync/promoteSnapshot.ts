@@ -293,6 +293,7 @@ export async function promoteSnapshotUpload(
                 }),
               ],
             );
+            return { outcome: "manifest_mismatch" as const, snapshotRevisionId };
           }
           throw error;
         }

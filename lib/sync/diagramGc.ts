@@ -91,10 +91,16 @@ function defaultStorage(): DiagramGcStorage {
       : prefix;
     const { data, error } = await bucket.list(objectPrefix);
     if (error) throw error;
-    return (data ?? []).map((entry) => ({
-      path: `${prefix}${entry.name}`,
-      createdAt: "created_at" in entry ? (entry.created_at as string | null) : null,
-    }));
+    const entries: Array<{ path: string; createdAt?: string | null }> = [];
+    for (const entry of data ?? []) {
+      const createdAt = "created_at" in entry ? (entry.created_at as string | null) : null;
+      if ("id" in entry && entry.id) {
+        entries.push({ path: `${prefix}${entry.name}`, createdAt });
+      } else {
+        entries.push(...(await listPaths(`${prefix}${entry.name}/`)));
+      }
+    }
+    return entries;
   };
   return {
     list: listPaths,
@@ -272,35 +278,35 @@ function defaultTx(): DiagramGcTx {
     async emitStuckAlerts(now) {
       await rows(
         `
-          insert into public.admin_alerts (show_id, code, context)
-          select show_id,
+          select public.upsert_admin_alert(
+                 show_id,
                  'PENDING_SNAPSHOT_PROMOTE_STUCK',
                  jsonb_build_object(
                    'snapshot_revision_id', snapshot_revision_id,
                    'promote_started_at', promote_started_at
                  )
+                 )
             from public.pending_snapshot_uploads
            where promote_started_at is not null
              and promoted_at is null
              and promote_started_at < $1::timestamptz - interval '15 minutes'
-          on conflict do nothing
         `,
         [now.toISOString()],
       );
       await rows(
         `
-          insert into public.admin_alerts (show_id, code, context)
-          select show_id,
+          select public.upsert_admin_alert(
+                 show_id,
                  'PENDING_SNAPSHOT_DELETE_STUCK',
                  jsonb_build_object(
                    'snapshot_revision_id', snapshot_revision_id,
                    'delete_started_at', delete_started_at
                  )
+                 )
             from public.pending_snapshot_uploads
            where delete_started_at is not null
              and promoted_at is null
              and claim_expires_at < $1::timestamptz
-          on conflict do nothing
         `,
         [now.toISOString()],
       );

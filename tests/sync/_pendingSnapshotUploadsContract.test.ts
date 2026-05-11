@@ -76,4 +76,10 @@ describe("M7 pending_snapshot_uploads state-transition contract", () => {
     );
     expect(source).toMatch(/await promoteSnapshotUpload\(snapshotRevisionId\)/);
   });
+
+  test("GC production storage listing recurses into revision directories", () => {
+    const source = readFileSync(join(root, "lib/sync/diagramGc.ts"), "utf8");
+
+    expect(source).toContain("entries.push(...(await listPaths(`${prefix}${entry.name}/`)))");
+  });
 });
