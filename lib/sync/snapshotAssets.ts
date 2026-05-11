@@ -8,6 +8,7 @@ import type {
   PersistedLinkedFolderItem,
 } from "@/lib/parser/types";
 import { sha256Base64Url } from "@/lib/crypto/sha256";
+import type { BoundedByteResult } from "@/lib/sync/boundedBytes";
 
 export type PendingSnapshotUploadRow = {
   showId: string;
@@ -26,9 +27,11 @@ export type SnapshotAssetsStorage = {
   upload(path: string, bytes: Uint8Array, options: { contentType: string }): Promise<void>;
 };
 
+export type SnapshotAssetBytes = Uint8Array | BoundedByteResult;
+
 export type SnapshotAssetsDrive = {
-  fetchEmbeddedImageBytes(entry: EmbeddedImageStub): Promise<Uint8Array | null>;
-  fetchLinkedRevisionBytes(entry: LinkedFolderItemStub): Promise<Uint8Array | null>;
+  fetchEmbeddedImageBytes(entry: EmbeddedImageStub): Promise<SnapshotAssetBytes | null>;
+  fetchLinkedRevisionBytes(entry: LinkedFolderItemStub): Promise<SnapshotAssetBytes | null>;
 };
 
 export type PendingDiagramsPayload = {
@@ -67,6 +70,18 @@ function extForMime(mimeType: string): string {
 
 function md5Hex(bytes: Uint8Array): string {
   return createHash("md5").update(bytes).digest("hex");
+}
+
+function bytePayload(asset: SnapshotAssetBytes): Uint8Array {
+  return asset instanceof Uint8Array ? asset : asset.bytes;
+}
+
+function assetSha256(asset: SnapshotAssetBytes): string {
+  return asset instanceof Uint8Array ? sha256Base64Url(asset) : asset.sha256Base64Url;
+}
+
+function assetMd5(asset: SnapshotAssetBytes): string {
+  return asset instanceof Uint8Array ? md5Hex(asset) : asset.md5Hex;
 }
 
 function warning(code: string, message: string): ParseWarning {
@@ -126,8 +141,10 @@ export async function snapshotAssets(args: SnapshotAssetsArgs): Promise<Snapshot
 
       if (entry.embeddedFingerprint && entry.recovery_disposition !== "restage_required") {
         const bytes = await args.drive.fetchEmbeddedImageBytes(entry);
-        if (bytes && sha256Base64Url(bytes) === entry.embeddedFingerprint) {
-          await args.storage.upload(`${temp}${assetKey}`, bytes, { contentType: entry.mimeType });
+        if (bytes && assetSha256(bytes) === entry.embeddedFingerprint) {
+          await args.storage.upload(`${temp}${assetKey}`, bytePayload(bytes), {
+            contentType: entry.mimeType,
+          });
           snapshotPath = `${canonical}${assetKey}`;
         } else {
           warnings.push(
@@ -144,8 +161,10 @@ export async function snapshotAssets(args: SnapshotAssetsArgs): Promise<Snapshot
       const assetKey = `folder-${entry.driveFileId}.${extForMime(entry.mimeType)}`;
       let snapshotPath: string | null = null;
       const bytes = await args.drive.fetchLinkedRevisionBytes(entry);
-      if (bytes && md5Hex(bytes) === entry.md5Checksum) {
-        await args.storage.upload(`${temp}${assetKey}`, bytes, { contentType: entry.mimeType });
+      if (bytes && assetMd5(bytes) === entry.md5Checksum) {
+        await args.storage.upload(`${temp}${assetKey}`, bytePayload(bytes), {
+          contentType: entry.mimeType,
+        });
         snapshotPath = `${canonical}${assetKey}`;
       } else {
         warnings.push(

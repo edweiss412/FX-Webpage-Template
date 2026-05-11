@@ -14,4 +14,44 @@ describe("M7 pending_snapshot_uploads state-transition contract", () => {
     expect(source).not.toMatch(/for\s*\([^)]*embeddedImages[\s\S]*insertPendingSnapshotUpload/);
     expect(source).not.toMatch(/for\s*\([^)]*linkedFolderItems[\s\S]*insertPendingSnapshotUpload/);
   });
+
+  test("promotion claims only unclaimed, unpromoted, non-delete, non-promoting rows", () => {
+    const source = readFileSync(join(root, "lib/sync/promoteSnapshot.ts"), "utf8");
+
+    expect(source).toMatch(
+      /set\s+claim_token\s*=\s*gen_random_uuid\(\)[\s\S]*claim_expires_at\s*=\s*now\(\)\s*\+\s*interval '5 minutes'[\s\S]*promote_started_at\s*=\s*now\(\)/i,
+    );
+    expect(source).toMatch(
+      /where\s+snapshot_revision_id\s*=\s*\$1::uuid[\s\S]*and\s+claim_token\s+is\s+null[\s\S]*and\s+delete_started_at\s+is\s+null[\s\S]*and\s+promote_started_at\s+is\s+null/i,
+    );
+  });
+
+  test("GC reclaims only expired claims outside delete and promote windows", () => {
+    const source = readFileSync(join(root, "lib/sync/diagramGc.ts"), "utf8");
+
+    expect(source).toMatch(/claim_expires_at\s*<\s*\$1::timestamptz/i);
+    expect(source).toMatch(/promoted_at\s+is\s+null/i);
+    expect(source).toMatch(/delete_started_at\s+is\s+null/i);
+    expect(source).toMatch(/promote_started_at\s+is\s+null/i);
+  });
+
+  test("GC delete transition requires claim ownership and pending promotion exclusion", () => {
+    const source = readFileSync(join(root, "lib/sync/diagramGc.ts"), "utf8");
+
+    expect(source).toMatch(/set\s+delete_started_at\s*=\s*\$3::timestamptz/i);
+    expect(source).toMatch(/where\s+id\s*=\s*\$1::uuid[\s\S]*and\s+claim_token\s*=\s*\$2::uuid/i);
+    expect(source).toMatch(/and\s+promoted_at\s+is\s+null/i);
+    expect(source).toMatch(/and\s+promote_started_at\s+is\s+null/i);
+  });
+
+  test("successful promotion clears claim state only for the caller's claim token", () => {
+    const source = readFileSync(join(root, "lib/sync/promoteSnapshot.ts"), "utf8");
+
+    expect(source).toMatch(
+      /set\s+promoted_at\s*=\s*now\(\)[\s\S]*claim_token\s*=\s*null[\s\S]*claimed_at\s*=\s*null[\s\S]*claim_expires_at\s*=\s*null/i,
+    );
+    expect(source).toMatch(
+      /where\s+p\.snapshot_revision_id\s*=\s*\$1::uuid[\s\S]*and\s+p\.claim_token\s*=\s*\$2::uuid/i,
+    );
+  });
 });

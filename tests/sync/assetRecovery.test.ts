@@ -146,6 +146,7 @@ describe("assetRecovery", () => {
   test("revision drift after lock acquisition writes cooldown and does not upload", async () => {
     const { storagePort, uploads } = storage();
     const cooldowns: unknown[] = [];
+    const alerts: unknown[] = [];
     const result = await assetRecovery(showId, {
       readPreviewShow: async () => ({ showId, driveFileId, diagrams: partialDiagrams() }),
       withShowLock: async (_driveFileId, fn) =>
@@ -160,7 +161,7 @@ describe("assetRecovery", () => {
           },
           upsertRecoveryCooldown: async (...args) => void cooldowns.push(args),
           deleteRecoveryCooldown: async () => undefined,
-          upsertAdminAlert: async () => undefined,
+          upsertAdminAlert: async (...args) => void alerts.push(args),
         }),
       storage: storagePort,
       drive: {
@@ -176,6 +177,16 @@ describe("assetRecovery", () => {
     });
     expect(uploads).toEqual([]);
     expect(cooldowns).toEqual([[showId, snapshotRevisionId]]);
+    expect(alerts).toEqual([
+      [
+        showId,
+        "ASSET_RECOVERY_REVISION_DRIFT",
+        {
+          currentSnapshotRevisionId: "newer-rev",
+          snapshotRevisionId,
+        },
+      ],
+    ]);
   });
 
   test("busy show lock returns concurrent sync skipped", async () => {
@@ -193,6 +204,7 @@ describe("assetRecovery", () => {
   });
 
   test("active drift cooldown returns before Drive fetches or lock acquisition", async () => {
+    const alerts: unknown[] = [];
     const result = await assetRecovery(showId, {
       now: () => new Date("2026-05-10T00:01:00.000Z"),
       readPreviewShow: async () => ({ showId, driveFileId, diagrams: partialDiagrams() }),
@@ -200,6 +212,7 @@ describe("assetRecovery", () => {
         lastDriftAt: "2026-05-10T00:00:30.000Z",
         retryCount: 2,
       }),
+      upsertAdminAlert: async (...args) => void alerts.push(args),
       withShowLock: async () => {
         throw new Error("cooldown gate must not acquire the show lock");
       },
@@ -216,6 +229,7 @@ describe("assetRecovery", () => {
       outcome: "drift_cooldown",
       code: "ASSET_RECOVERY_DRIFT_COOLDOWN",
     });
+    expect(alerts).toEqual([[showId, "ASSET_RECOVERY_DRIFT_COOLDOWN", { snapshotRevisionId }]]);
   });
 
   test("entry-count byte ceiling aborts before Drive fetches or lock acquisition and alerts", async () => {

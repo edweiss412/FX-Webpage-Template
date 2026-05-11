@@ -1,7 +1,7 @@
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import type { ParseResult } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
-import { bytesFromNodeStream, bytesFromWebStream } from "@/lib/sync/boundedBytes";
+import { readBoundedNodeStream, readBoundedWebStream } from "@/lib/sync/boundedBytes";
 import {
   snapshotAssets,
   type PendingSnapshotUploadRow,
@@ -59,7 +59,7 @@ export function makeSnapshotAssetsForApply(
             headers: { Authorization: `Bearer ${token}` },
           });
           if (!response.ok || !response.body) return null;
-          return await bytesFromWebStream(response.body, MAX_SINGLE_ASSET_BYTES);
+          return await readBoundedWebStream(response.body, MAX_SINGLE_ASSET_BYTES);
         },
         async fetchLinkedRevisionBytes(entry) {
           const { data } = await drive.revisions.get(
@@ -71,10 +71,13 @@ export function makeSnapshotAssetsForApply(
             { responseType: "stream" },
           );
           if (data instanceof ReadableStream) {
-            return await bytesFromWebStream(data, MAX_SINGLE_ASSET_BYTES);
+            return await readBoundedWebStream(data, MAX_SINGLE_ASSET_BYTES);
           }
           if (data && typeof data === "object" && "pipe" in data) {
-            return await bytesFromNodeStream(data as NodeJS.ReadableStream, MAX_SINGLE_ASSET_BYTES);
+            return await readBoundedNodeStream(
+              data as NodeJS.ReadableStream,
+              MAX_SINGLE_ASSET_BYTES,
+            );
           }
           return bytesFrom(data);
         },

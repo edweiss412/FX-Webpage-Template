@@ -1208,6 +1208,7 @@ export async function applyStaged_unlocked(
     parseResult: assetAdjusted.parseResult,
     skipDiagramsWrite: assetAdjusted.skipDiagramsWrite,
     ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
+    verifyReelOnApply: false,
     binding: {
       bindingToken: pending.stagedModifiedTime,
       modifiedTime: pending.stagedModifiedTime,

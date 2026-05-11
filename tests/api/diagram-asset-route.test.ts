@@ -172,6 +172,9 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
 
     const pendingResponse = await getDiagram(pendingRev, "embedded-pending-only.png");
     expect(pendingResponse.status).toBe(410);
+    expect(pendingResponse.headers.get("cache-control")).toBe(
+      "private, max-age=0, must-revalidate",
+    );
   });
 
   test("rejects r-prefixed and non-uuid revisions with 410", async () => {

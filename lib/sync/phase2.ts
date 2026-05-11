@@ -5,6 +5,11 @@ import { applyParseResult, type ApplyParseResultTx } from "@/lib/sync/applyParse
 import type { Phase1Binding } from "@/lib/sync/phase1";
 import type { ResolvedSyncMode } from "@/lib/sync/perFileProcessor";
 import type { SnapshotAssetsResult } from "@/lib/sync/snapshotAssets";
+import {
+  verifyReelOnApply as defaultVerifyReelOnApply,
+  type ReelWarningCode,
+  type VerifyReelOnApplyResult,
+} from "@/lib/sync/verifyReelOnApply";
 
 export type Phase2Mode = Exclude<ResolvedSyncMode, "asset_recovery">;
 export type StaleWriteCode =
@@ -45,6 +50,9 @@ export type Phase2Args = {
     driveFileId: string;
     diagrams: ParseResult["diagrams"];
   }) => Promise<SnapshotAssetsResult>;
+  verifyReelOnApply?:
+    | false
+    | ((staged: ParseResult["openingReel"]) => Promise<VerifyReelOnApplyResult>);
 };
 
 export type RoleFlagsNotice = {
@@ -136,9 +144,27 @@ function diagramAssetCount(diagrams: ParseResult["diagrams"]): number {
   return diagrams.embeddedImages.length + diagrams.linkedFolderItems.length;
 }
 
+function reelWarning(code: ReelWarningCode): ParseResult["warnings"][number] {
+  return { severity: "warn", code, message: code };
+}
+
 export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2Result> {
   let parseResult = args.parseResult;
   let snapshotRevisionId: string | undefined;
+  const verifyReelOnApply =
+    args.verifyReelOnApply === false ? null : (args.verifyReelOnApply ?? defaultVerifyReelOnApply);
+  if (verifyReelOnApply && parseResult.openingReel) {
+    const reel = await callTx("verifyReelOnApply", () =>
+      verifyReelOnApply(parseResult.openingReel),
+    );
+    parseResult = {
+      ...parseResult,
+      openingReel: reel.openingReel,
+      warnings: reel.warningCode
+        ? [...parseResult.warnings, reelWarning(reel.warningCode)]
+        : parseResult.warnings,
+    };
+  }
   if (
     !args.skipDiagramsWrite &&
     args.snapshotAssetsForApply &&

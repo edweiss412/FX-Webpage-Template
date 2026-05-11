@@ -1,9 +1,14 @@
 import { createHash } from "node:crypto";
 import postgres from "postgres";
+import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
 import type { PersistedDiagrams } from "@/lib/parser/types";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
-import { bytesFromNodeStream, bytesFromWebStream } from "@/lib/sync/boundedBytes";
+import {
+  readBoundedNodeStream,
+  readBoundedWebStream,
+  type BoundedByteResult,
+} from "@/lib/sync/boundedBytes";
 import {
   CONCURRENT_SYNC_SKIPPED,
   type ConcurrentSyncSkipped,
@@ -29,11 +34,13 @@ export type AssetRecoveryStorage = {
 export type AssetRecoveryDrive = {
   fetchEmbeddedImageBytes(
     entry: PersistedDiagrams["embeddedImages"][number],
-  ): Promise<Uint8Array | null>;
+  ): Promise<RecoveryAssetBytes | null>;
   fetchLinkedRevisionBytes(
     entry: PersistedDiagrams["linkedFolderItems"][number],
-  ): Promise<Uint8Array | null>;
+  ): Promise<RecoveryAssetBytes | null>;
 };
+
+type RecoveryAssetBytes = Uint8Array | BoundedByteResult;
 
 export type AssetRecoveryShow = {
   showId: string;
@@ -137,6 +144,18 @@ function md5Hex(bytes: Uint8Array): string {
   return createHash("md5").update(bytes).digest("hex");
 }
 
+function recoveryBytes(asset: RecoveryAssetBytes): Uint8Array {
+  return asset instanceof Uint8Array ? asset : asset.bytes;
+}
+
+function recoverySha256(asset: RecoveryAssetBytes): string {
+  return asset instanceof Uint8Array ? sha256Base64Url(asset) : asset.sha256Base64Url;
+}
+
+function recoveryMd5(asset: RecoveryAssetBytes): string {
+  return asset instanceof Uint8Array ? md5Hex(asset) : asset.md5Hex;
+}
+
 function bytesFrom(data: unknown): Uint8Array {
   if (data instanceof Uint8Array) return data;
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
@@ -190,10 +209,11 @@ async function collectVerifiedAssets(
 
   const verified: VerifiedAsset[] = [];
   let totalBytes = 0;
-  const acceptBytes = (bytes: Uint8Array): boolean => {
-    if (bytes.byteLength > MAX_RECOVERY_SINGLE_BYTES) return false;
-    if (totalBytes + bytes.byteLength > MAX_RECOVERY_TOTAL_BYTES) return false;
-    totalBytes += bytes.byteLength;
+  const acceptBytes = (asset: RecoveryAssetBytes): boolean => {
+    const byteLength = recoveryBytes(asset).byteLength;
+    if (byteLength > MAX_RECOVERY_SINGLE_BYTES) return false;
+    if (totalBytes + byteLength > MAX_RECOVERY_TOTAL_BYTES) return false;
+    totalBytes += byteLength;
     return true;
   };
   for (const entry of diagrams.embeddedImages) {
@@ -207,13 +227,13 @@ async function collectVerifiedAssets(
 
     const bytes = await deps.drive.fetchEmbeddedImageBytes(entry);
     if (bytes && !acceptBytes(bytes)) return ASSET_RECOVERY_BYTES_EXCEEDED;
-    if (bytes && sha256Base64Url(bytes) === entry.embeddedFingerprint) {
+    if (bytes && recoverySha256(bytes) === entry.embeddedFingerprint) {
       verified.push({
         kind: "embedded",
         id: entry.objectId,
         path: assetPath(showId, diagrams.snapshot_revision_id, entry),
         contentType: entry.mimeType,
-        bytes,
+        bytes: recoveryBytes(bytes),
       });
     }
   }
@@ -222,13 +242,13 @@ async function collectVerifiedAssets(
     if (entry.snapshotPath) continue;
     const bytes = await deps.drive.fetchLinkedRevisionBytes(entry);
     if (bytes && !acceptBytes(bytes)) return ASSET_RECOVERY_BYTES_EXCEEDED;
-    if (bytes && md5Hex(bytes) === entry.md5Checksum) {
+    if (bytes && recoveryMd5(bytes) === entry.md5Checksum) {
       verified.push({
         kind: "linked",
         id: entry.driveFileId,
         path: assetPath(showId, diagrams.snapshot_revision_id, entry),
         contentType: entry.mimeType,
-        bytes,
+        bytes: recoveryBytes(bytes),
       });
     }
   }
@@ -283,6 +303,9 @@ export async function assetRecovery(
   }
   const cooldown = await deps.readRecoveryCooldown?.(showId, previewDiagrams.snapshot_revision_id);
   if (cooldown && cooldownActive(cooldown, deps.now?.() ?? new Date())) {
+    await deps.upsertAdminAlert?.(showId, ASSET_RECOVERY_DRIFT_COOLDOWN, {
+      snapshotRevisionId: previewDiagrams.snapshot_revision_id,
+    });
     return { outcome: "drift_cooldown", code: ASSET_RECOVERY_DRIFT_COOLDOWN };
   }
 
@@ -305,6 +328,10 @@ export async function assetRecovery(
 
       if (lockedDiagrams.snapshot_revision_id !== previewDiagrams.snapshot_revision_id) {
         await tx.upsertRecoveryCooldown(showId, previewDiagrams.snapshot_revision_id);
+        await tx.upsertAdminAlert(showId, ASSET_RECOVERY_REVISION_DRIFT, {
+          snapshotRevisionId: previewDiagrams.snapshot_revision_id,
+          currentSnapshotRevisionId: lockedDiagrams.snapshot_revision_id,
+        });
         return {
           outcome: "revision_drift",
           code: ASSET_RECOVERY_REVISION_DRIFT,
@@ -324,6 +351,9 @@ export async function assetRecovery(
       );
       if (!updated) {
         await tx.upsertRecoveryCooldown(showId, previewDiagrams.snapshot_revision_id);
+        await tx.upsertAdminAlert(showId, ASSET_RECOVERY_REVISION_DRIFT, {
+          snapshotRevisionId: previewDiagrams.snapshot_revision_id,
+        });
         return {
           outcome: "revision_drift",
           code: ASSET_RECOVERY_REVISION_DRIFT,
@@ -552,7 +582,7 @@ function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!response.ok || !response.body) return null;
-        return await bytesFromWebStream(response.body, MAX_RECOVERY_SINGLE_BYTES);
+        return await readBoundedWebStream(response.body, MAX_RECOVERY_SINGLE_BYTES);
       },
       async fetchLinkedRevisionBytes(entry) {
         const { data } = await drive.revisions.get(
@@ -564,16 +594,23 @@ function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
           { responseType: "stream" },
         );
         if (data instanceof ReadableStream) {
-          return await bytesFromWebStream(data, MAX_RECOVERY_SINGLE_BYTES);
+          return await readBoundedWebStream(data, MAX_RECOVERY_SINGLE_BYTES);
         }
         if (data && typeof data === "object" && "pipe" in data) {
-          return await bytesFromNodeStream(
+          return await readBoundedNodeStream(
             data as NodeJS.ReadableStream,
             MAX_RECOVERY_SINGLE_BYTES,
           );
         }
         return bytesFrom(data);
       },
+    },
+    upsertAdminAlert: async (alertShowId, code, context) => {
+      await defaultUpsertAdminAlert({
+        showId: alertShowId,
+        code: code as Parameters<typeof defaultUpsertAdminAlert>[0]["code"],
+        context: context ?? {},
+      });
     },
   });
 }

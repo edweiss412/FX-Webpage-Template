@@ -214,6 +214,8 @@ function defaultTx(): DiagramGcTx {
              set delete_started_at = $3::timestamptz
            where id = $1::uuid
              and claim_token = $2::uuid
+             and promoted_at is null
+             and promote_started_at is null
         `,
         [id, claimToken, now.toISOString()],
       );

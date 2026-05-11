@@ -30,7 +30,7 @@ type AssetEntry = {
 };
 
 function gone(): Response {
-  return new Response(null, { status: 410 });
+  return new Response(null, { status: 410, headers: { "Cache-Control": CACHE_CONTROL } });
 }
 
 function currentDiagrams(diagrams: DiagramsPayload | null): PersistedDiagrams | null {

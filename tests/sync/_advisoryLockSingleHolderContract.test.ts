@@ -66,6 +66,12 @@ const lockHolderRegistry = [
     layer: "delegates all promote-family lock acquisition to withPromoteLock",
     key: "hashtext('promote:' || show_id)",
   },
+  {
+    path: "lib/sync/promoteSnapshot.ts",
+    holder: "repairSnapshotRollback",
+    layer: "acquires promote: first through withPromoteLock, then show: through withShowLock",
+    key: "hashtext('promote:' || show_id) -> hashtext('show:' || drive_file_id)",
+  },
 ] as const;
 
 function read(path: string): string {
@@ -286,6 +292,11 @@ describe("M6 advisory-lock single-holder contract", () => {
           layer: expect.stringContaining("withPromoteLock"),
           key: "hashtext('promote:' || show_id)",
         }),
+        expect.objectContaining({
+          holder: "repairSnapshotRollback",
+          layer: expect.stringContaining("promote: first"),
+          key: "hashtext('promote:' || show_id) -> hashtext('show:' || drive_file_id)",
+        }),
       ]),
     );
     for (const entry of lockHolderRegistry) {
@@ -303,6 +314,7 @@ describe("M6 advisory-lock single-holder contract", () => {
       ...tsFiles("app/api/drive"),
       ...tsFiles("app/api/admin/sync"),
       ...tsFiles("app/api/admin/staged"),
+      ...tsFiles("app/api/admin/snapshot-rollback"),
     ];
     const holders = runtimeSources
       .filter((path) => /\bpg_(?:try_)?advisory_xact_lock\s*\(/i.test(read(path)))
@@ -313,6 +325,13 @@ describe("M6 advisory-lock single-holder contract", () => {
     expect(source).toContain("hashtext('show:' ||");
     expect(source).not.toMatch(/show_id|slug/i);
     expect(read("lib/sync/lockedPromoteTx.ts")).toContain("hashtext('promote:' ||");
+  });
+
+  test("snapshot rollback repair keeps the mandated promote-then-show lock order", () => {
+    const source = read("lib/sync/promoteSnapshot.ts");
+    expect(source).toMatch(
+      /withPromoteLock\(\s*row\.show_id[\s\S]*withShowLock\(\s*row\.drive_file_id/,
+    );
   });
 
   test("registered pre-lock sync gates are read-only for protected per-show tables", () => {

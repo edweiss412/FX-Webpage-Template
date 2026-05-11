@@ -214,17 +214,19 @@ export const MESSAGE_CATALOG = {
   },
   ASSET_RECOVERY_REVISION_DRIFT: {
     code: "ASSET_RECOVERY_REVISION_DRIFT",
-    dougFacing: null,
+    dougFacing:
+      "Diagram recovery raced a newer approved snapshot and paused briefly before retrying.",
     crewFacing: null,
-    followUp: null,
+    followUp: "Doug -> no action unless this repeats; Eric -> inspect recovery cooldowns",
     helpfulContext:
       "Asset recovery raced a newer Apply and aborted without mutating the show; the next cron pass re-evaluates the current revision after cooldown.",
   },
   ASSET_RECOVERY_DRIFT_COOLDOWN: {
     code: "ASSET_RECOVERY_DRIFT_COOLDOWN",
-    dougFacing: null,
+    dougFacing:
+      "Diagram recovery is backing off because this snapshot recently changed during repair.",
     crewFacing: null,
-    followUp: null,
+    followUp: "Doug -> wait for the next sync or run a manual re-sync",
     helpfulContext:
       "Asset recovery skipped this pass because the same show/revision recently drifted; manual re-sync bypasses the cooldown gate.",
   },

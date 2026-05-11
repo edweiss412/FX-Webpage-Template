@@ -56,6 +56,8 @@ const ADMIN_ALERTS_CODES = [
   "LEAKED_LINK_DETECTED", //          middleware.ts:upsertLeakedLinkDetectedAlert
   "AMBIGUOUS_EMAIL_BINDING", //       lib/auth/validateGoogleSession.ts
   "ASSET_RECOVERY_BYTES_EXCEEDED", //  M7 asset recovery byte ceiling
+  "ASSET_RECOVERY_REVISION_DRIFT", //  M7 asset recovery stale-preview cooldown
+  "ASSET_RECOVERY_DRIFT_COOLDOWN", //  M7 asset recovery cooldown skip
   "WATCH_CHANNEL_ORPHANED", //        M6 watch subscription recovery
   "WEBHOOK_TOKEN_INVALID", //         M6 Drive webhook verification failure
   "EMBEDDED_RECOVERY_REQUIRES_RESTAGE", // M6 asset recovery alert
@@ -90,6 +92,14 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   ASSET_RECOVERY_BYTES_EXCEEDED: {
     path: "lib/sync/assetRecovery.ts",
     pattern: /upsertAdminAlert\?\.\([\s\S]*ASSET_RECOVERY_BYTES_EXCEEDED/,
+  },
+  ASSET_RECOVERY_REVISION_DRIFT: {
+    path: "lib/sync/assetRecovery.ts",
+    pattern: /upsertAdminAlert\([\s\S]*ASSET_RECOVERY_REVISION_DRIFT/,
+  },
+  ASSET_RECOVERY_DRIFT_COOLDOWN: {
+    path: "lib/sync/assetRecovery.ts",
+    pattern: /upsertAdminAlert\?\.\([\s\S]*ASSET_RECOVERY_DRIFT_COOLDOWN/,
   },
   WATCH_CHANNEL_ORPHANED: {
     path: "lib/drive/watch.ts",

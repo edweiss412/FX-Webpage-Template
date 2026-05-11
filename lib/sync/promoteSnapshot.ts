@@ -1,6 +1,7 @@
 import postgres from "postgres";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { withPromoteLock } from "@/lib/sync/lockedPromoteTx";
+import { withShowLock } from "@/lib/sync/lockedShowTx";
 
 const DIAGRAM_BUCKET = "diagram-snapshots";
 
@@ -134,11 +135,12 @@ export async function promoteSnapshotUpload(
              where p.id = $3::uuid
                and p.delete_started_at is null
                and p.promoted_at is null
+               and p.claim_token = $4::uuid
              returning p.id
           )
           select true as ok
         `,
-        [row.show_id, row.snapshot_revision_id, row.id],
+        [row.show_id, row.snapshot_revision_id, row.id, row.claim_token],
       );
     };
     const row = await tx.queryOne<(PendingPromotionRow & { promoted_at: string | null }) | null>(
@@ -305,42 +307,58 @@ export async function repairSnapshotRollback(
   }
 
   const storage = deps.storage ?? defaultStorage();
-  return await withPromoteLock(row.show_id, async (tx) => {
-    const locked = await tx.queryOne<{ promoted_at: string | null } | null>(
-      "select promoted_at::text from public.pending_snapshot_uploads where id = $1::uuid",
-      [ledgerId],
+  return await withPromoteLock(row.show_id, async (promoteTx) => {
+    const repaired = await withShowLock(
+      row.drive_file_id,
+      async (tx) => {
+        const locked = await tx.queryOne<{ promoted_at: string | null } | null>(
+          "select promoted_at::text from public.pending_snapshot_uploads where id = $1::uuid",
+          [ledgerId],
+        );
+        if (!locked) return { outcome: "not_found" } satisfies RepairSnapshotRollbackResult;
+        if (locked.promoted_at) {
+          return {
+            outcome: "not_stuck",
+            snapshotRevisionId: row.snapshot_revision_id,
+          } satisfies RepairSnapshotRollbackResult;
+        }
+        const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
+        for (const path of await storage.list(canonical)) {
+          await storage.move(path, `${row.temp_prefix}${basename(path)}`);
+        }
+        await tx.queryOne<{ ok: boolean }>(
+          `
+            with cleared_show as (
+              update public.shows s
+                 set diagrams = jsonb_set(s.diagrams, '{pending}', 'null'::jsonb)
+               where s.id = $1::uuid
+                 and s.diagrams->'pending'->>'snapshot_revision_id' = $3
+               returning s.id
+            ),
+            cleared_ledger as (
+              update public.pending_snapshot_uploads p
+                 set promote_started_at = null,
+                     claim_token = null,
+                     claimed_at = null,
+                     claim_expires_at = null
+               where p.id = $2::uuid
+                 and promoted_at is null
+               returning p.id
+            )
+            select true as ok
+          `,
+          [row.show_id, ledgerId, row.snapshot_revision_id],
+        );
+        return {
+          outcome: "repaired",
+          snapshotRevisionId: row.snapshot_revision_id,
+        } satisfies RepairSnapshotRollbackResult;
+      },
+      { tx: promoteTx, assertInDev: false },
     );
-    if (!locked) return { outcome: "not_found" };
-    if (locked.promoted_at) {
-      return { outcome: "not_stuck", snapshotRevisionId: row.snapshot_revision_id };
+    if ("skipped" in repaired) {
+      return { outcome: "promote_in_flight", snapshotRevisionId: row.snapshot_revision_id };
     }
-    const canonical = canonicalPrefix(row.show_id, row.snapshot_revision_id);
-    for (const path of await storage.list(canonical)) {
-      await storage.move(path, `${row.temp_prefix}${basename(path)}`);
-    }
-    await tx.queryOne<{ ok: boolean }>(
-      `
-        with cleared_show as (
-          update public.shows s
-             set diagrams = jsonb_set(s.diagrams, '{pending}', 'null'::jsonb)
-           where s.id = $1::uuid
-             and s.diagrams->'pending'->>'snapshot_revision_id' = $3
-           returning s.id
-        ),
-        cleared_ledger as (
-          update public.pending_snapshot_uploads p
-             set promote_started_at = null,
-                 claim_token = null,
-                 claimed_at = null,
-                 claim_expires_at = null
-           where p.id = $2::uuid
-             and promoted_at is null
-           returning p.id
-        )
-        select true as ok
-      `,
-      [row.show_id, ledgerId, row.snapshot_revision_id],
-    );
-    return { outcome: "repaired", snapshotRevisionId: row.snapshot_revision_id };
+    return repaired;
   });
 }

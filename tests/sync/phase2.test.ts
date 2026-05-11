@@ -359,6 +359,31 @@ describe("runPhase2 destructive snapshot", () => {
     expect(tx.shows.get("file-1")?.lastSeenModifiedTime).toBe("2026-05-08T12:05:00.000Z");
   });
 
+  test("cron phase2 re-verifies opening reel pins before writing the live snapshot", async () => {
+    const tx = new FakePhase2Tx();
+    const result = await runWith(tx, {
+      parseResult: parseResult({
+        openingReel: {
+          driveFileId: "reel-1",
+          drive_modified_time: "2026-05-08T12:00:00.000Z",
+          headRevisionId: "rev-1",
+          mimeType: "video/mp4",
+        },
+      }),
+      verifyReelOnApply: async () => ({
+        openingReel: null,
+        warningCode: "REEL_DRIFTED" as const,
+        driftReason: "REVISION_MISMATCH" as const,
+      }),
+    });
+
+    expect(result).toMatchObject({ outcome: "applied" });
+    expect(tx.lastShowSnapshotArgs?.parseResult.openingReel).toBeNull();
+    expect(tx.lastShowSnapshotArgs?.parseResult.warnings).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: "REEL_DRIFTED" })]),
+    );
+  });
+
   test("crew members are deleted before upsert to avoid same-email rename collisions", async () => {
     const tx = new FakePhase2Tx();
     tx.shows.set("file-1", {
