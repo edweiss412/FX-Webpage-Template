@@ -51,12 +51,28 @@ type UsableReelRow = ReelRow & {
   opening_reel_mime_type: string;
 };
 
+type ReelDriveOptions = {
+  responseType: "stream";
+  headers?: Record<string, string>;
+};
+
+type ReelDriveResponse = {
+  data: unknown;
+  status?: number;
+  headers?: Record<string, string | string[] | undefined>;
+};
+
 type ReelDriveClient = {
   files: {
     get(
-      args: { fileId: string; fields?: string; alt?: "media" },
-      options?: { responseType: "stream" },
-    ): Promise<{ data: unknown }>;
+      args: {
+        fileId: string;
+        fields?: string;
+        alt?: "media";
+        supportsAllDrives?: boolean;
+      },
+      options?: ReelDriveOptions,
+    ): Promise<ReelDriveResponse>;
   };
   revisions: {
     get(
@@ -64,11 +80,26 @@ type ReelDriveClient = {
         fileId: string;
         revisionId: string;
         alt: "media";
+        supportsAllDrives?: boolean;
       },
-      options?: { responseType: "stream" },
-    ): Promise<{ data: unknown }>;
+      options?: ReelDriveOptions,
+    ): Promise<ReelDriveResponse>;
   };
 };
+
+// Single-range only. Multi-range (`bytes=0-100,200-300`) and any
+// other shape are rejected — implementing multi-range responses would
+// require us to assemble a multipart/byteranges body, which is more
+// surface than v1 needs.
+const SINGLE_RANGE_RE = /^bytes=\d+-\d*$/;
+
+function pickStringHeader(headers: ReelDriveResponse["headers"], name: string): string | null {
+  if (!headers) return null;
+  const value = headers[name] ?? headers[name.toLowerCase()];
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && typeof value[0] === "string") return value[0];
+  return null;
+}
 
 function gone(): Response {
   return new Response(null, {
@@ -221,9 +252,12 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
   try {
 
     const drive = getDriveClient() as unknown as ReelDriveClient;
+    // Codex R14 P1: `supportsAllDrives: true` so reels in Shared
+    // Drives resolve instead of 404ing on the metadata + media calls.
     const { data: current } = (await drive.files.get({
       fileId: row.opening_reel_drive_file_id,
       fields: "modifiedTime,trashed,headRevisionId,md5Checksum,size",
+      supportsAllDrives: true,
     })) as { data: DriveMetadata };
     if (drifted(row, current)) {
       return gone();
@@ -236,35 +270,67 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       return gone();
     }
 
+    // Codex R14 P1: parse + forward Range request. `<video preload=
+    // "metadata">` and any user-initiated seek issues `Range: bytes=
+    // start-end`; without 206 + Content-Range, every seek pulls a
+    // full-object transfer. Single-range only; multi-range / malformed
+    // ranges → 416.
+    const rangeHeader = request.headers.get("range");
+    if (rangeHeader && !SINGLE_RANGE_RE.test(rangeHeader)) {
+      return new Response(null, {
+        status: 416,
+        headers: { "Accept-Ranges": "bytes", "Cache-Control": CACHE_CONTROL },
+      });
+    }
+
     try {
-      const { data } = (await drive.revisions.get(
+      const revOpts: ReelDriveOptions = { responseType: "stream" };
+      if (rangeHeader) revOpts.headers = { Range: rangeHeader };
+      const revRes = (await drive.revisions.get(
         {
           fileId: row.opening_reel_drive_file_id,
           revisionId: row.opening_reel_head_revision_id,
           alt: "media",
+          supportsAllDrives: true,
         },
-        { responseType: "stream" },
-      )) as { data: unknown };
+        revOpts,
+      )) as ReelDriveResponse;
       // Wrap in a bounded pass-through so even if Drive reports `size`
       // wrong (or omits it for an unusual content type), the worker
       // fails closed at the cap instead of streaming unbounded bytes.
-      const stream = boundedStreamFrom(data);
-      return new Response(stream, {
-        headers: {
-          "Cache-Control": CACHE_CONTROL,
-          "Content-Type": row.opening_reel_mime_type,
-          // Codex R8 P1: nosniff so the browser does NOT sniff the
-          // bytes and infer a different MIME than the allowlisted
-          // video type we asserted at `hasUsablePin`.
-          "X-Content-Type-Options": "nosniff",
-        },
-      });
+      const stream = boundedStreamFrom(revRes.data);
+      // Drive returns 200 (full body) or 206 (partial). Forward verbatim.
+      const driveStatus = typeof revRes.status === "number" ? revRes.status : 200;
+      const responseHeaders: Record<string, string> = {
+        "Cache-Control": CACHE_CONTROL,
+        "Content-Type": row.opening_reel_mime_type,
+        // Codex R8 P1: nosniff so the browser does NOT sniff the
+        // bytes and infer a different MIME than the allowlisted
+        // video type we asserted at `hasUsablePin`.
+        "X-Content-Type-Options": "nosniff",
+        // Codex R14 P1: advertise Range support on every response so
+        // clients know they may issue Range on subsequent fetches
+        // (e.g., `<video>` seeks).
+        "Accept-Ranges": "bytes",
+      };
+      const contentRange = pickStringHeader(revRes.headers, "content-range");
+      const contentLength = pickStringHeader(revRes.headers, "content-length");
+      if (contentRange) responseHeaders["Content-Range"] = contentRange;
+      if (contentLength) responseHeaders["Content-Length"] = contentLength;
+      return new Response(stream, { status: driveStatus, headers: responseHeaders });
     } catch (revisionsError) {
+      // Codex R14 P1: Range requests have no Range-capable fallback.
+      // The md5 fallback below requires hashing the FULL body — which
+      // is incompatible with a partial-range client. 410 instead so
+      // the browser gives up gracefully rather than receiving full
+      // bytes when it asked for a slice.
+      if (rangeHeader) return gone();
       if (!isRevisionFallbackAllowed(revisionsError)) throw revisionsError;
       const { data } = (await drive.files.get(
         {
           fileId: row.opening_reel_drive_file_id,
           alt: "media",
+          supportsAllDrives: true,
         },
         { responseType: "stream" },
       )) as { data: unknown };
@@ -286,6 +352,11 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
           "Content-Length": String(result.totalBytes),
           // Codex R8 P1: nosniff parity with the exact-revision branch.
           "X-Content-Type-Options": "nosniff",
+          // Codex R14 P1: advertise Range support so subsequent
+          // client seeks may try a Range request (Pattern A handles
+          // those; this fallback path doesn't support Range, but
+          // signaling the capability is correct here).
+          "Accept-Ranges": "bytes",
         },
       });
     }

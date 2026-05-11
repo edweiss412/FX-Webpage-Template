@@ -167,15 +167,24 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     const drive = getDriveClient() as unknown as {
       files: {
         get(
-          args: { fileId: string; fields?: string; alt?: "media" },
+          args: {
+            fileId: string;
+            fields?: string;
+            alt?: "media";
+            supportsAllDrives?: boolean;
+          },
           options?: { responseType: "stream" },
         ): Promise<{ data: unknown }>;
       };
     };
 
+    // Codex R14 P1: `supportsAllDrives: true` so files in Shared Drives
+    // (the same surface M6 sync uses for show sheets) resolve instead
+    // of returning 404 here.
     const metaResult = (await drive.files.get({
       fileId: id,
       fields: "mimeType,trashed,size",
+      supportsAllDrives: true,
     })) as { data: DriveMetadata };
     const meta = metaResult.data;
     if (meta.trashed || meta.mimeType !== PDF_MIME) {
@@ -191,7 +200,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
 
     try {
       const bytesResult = (await drive.files.get(
-        { fileId: id, alt: "media" },
+        { fileId: id, alt: "media", supportsAllDrives: true },
         { responseType: "stream" },
       )) as { data: unknown };
       // Codex R2 P2: stream straight through with a bounded passthrough.

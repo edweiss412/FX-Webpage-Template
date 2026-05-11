@@ -60,6 +60,16 @@ const routeMock = vi.hoisted(() => ({
   fallbackBytes: new TextEncoder().encode("reel-bytes") as Uint8Array,
   driveCalls: [] as string[],
   supabaseError: null as unknown,
+  lastDriveArgs: null as null | {
+    fileId: string;
+    fields?: string;
+    alt?: string;
+    supportsAllDrives?: boolean;
+  },
+  lastRevisionsOptions: null as null | {
+    responseType: "stream";
+    headers?: Record<string, string>;
+  },
 }));
 
 function md5(bytes: Uint8Array): string {
@@ -103,27 +113,53 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/drive/client", () => ({
   getDriveClient: () => ({
     files: {
-      get: async (args: { fileId: string; fields?: string; alt?: string }) => {
+      get: async (
+        args: { fileId: string; fields?: string; alt?: string; supportsAllDrives?: boolean },
+      ) => {
         routeMock.driveCalls.push(args.alt === "media" ? "files.media" : "files.metadata");
+        routeMock.lastDriveArgs = args;
         if (args.alt === "media") return { data: routeMock.fallbackBytes };
         return { data: routeMock.current };
       },
     },
     revisions: {
-      get: async () => {
+      get: async (
+        _args: {
+          fileId: string;
+          revisionId: string;
+          alt: "media";
+          supportsAllDrives?: boolean;
+        },
+        options?: { responseType: "stream"; headers?: Record<string, string> },
+      ) => {
         routeMock.driveCalls.push("revisions.media");
+        routeMock.lastRevisionsOptions = options ?? null;
         if (routeMock.revisionError) throw routeMock.revisionError;
-        return { data: routeMock.revisionBytes };
+        // Mimic Drive's behavior: if Range header is present, return 206
+        // with synthetic Content-Range; otherwise full 200.
+        if (options?.headers?.Range) {
+          return {
+            data: routeMock.revisionBytes,
+            status: 206,
+            headers: {
+              "content-range": `bytes 0-9/${routeMock.revisionBytes?.byteLength ?? 0}`,
+              "content-length": String(routeMock.revisionBytes?.byteLength ?? 0),
+            },
+          };
+        }
+        return { data: routeMock.revisionBytes, status: 200 };
       },
     },
   }),
 }));
 
-async function getReel(): Promise<Response> {
+async function getReel(init?: { headers?: Record<string, string> }): Promise<Response> {
   const { GET } = await import("@/app/api/asset/reel/[show]/route");
-  return await GET(new NextRequest(`https://crew.fxav.test/api/asset/reel/${showId}`), {
-    params: Promise.resolve({ show: showId }),
-  });
+  const url = `https://crew.fxav.test/api/asset/reel/${showId}`;
+  const req = init?.headers
+    ? new NextRequest(url, { headers: init.headers })
+    : new NextRequest(url);
+  return await GET(req, { params: Promise.resolve({ show: showId }) });
 }
 
 beforeEach(() => {
@@ -156,6 +192,8 @@ beforeEach(() => {
   routeMock.linkCalls = 0;
   routeMock.googleCalls = 0;
   routeMock.peek = { kind: "none" };
+  routeMock.lastDriveArgs = null;
+  routeMock.lastRevisionsOptions = null;
 });
 
 describe("/api/asset/reel/[show]", () => {
@@ -291,6 +329,39 @@ describe("/api/asset/reel/[show]", () => {
     };
     const res = await getReel();
     expect(res.status).toBe(410);
+  });
+
+  test("Codex R14 P1: metadata + media calls include supportsAllDrives: true (Shared Drive compat)", async () => {
+    await getReel();
+    expect(routeMock.lastDriveArgs?.supportsAllDrives).toBe(true);
+  });
+
+  test("Codex R14 P1: success response advertises Accept-Ranges: bytes", async () => {
+    const res = await getReel();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
+  });
+
+  test("Codex R14 P1: Range request forwards to Drive and returns 206 with Content-Range", async () => {
+    const res = await getReel({ headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(206);
+    expect(routeMock.lastRevisionsOptions?.headers?.Range).toBe("bytes=0-9");
+    expect(res.headers.get("content-range")).toMatch(/^bytes 0-9\//);
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
+  });
+
+  test("Codex R14 P1: malformed/multi-range request → 416 (no Drive call)", async () => {
+    const res = await getReel({ headers: { Range: "bytes=0-10, 20-30" } });
+    expect(res.status).toBe(416);
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
+  });
+
+  test("Codex R14 P1: Range request that loses Pattern A → 410 (no md5-fallback for partial)", async () => {
+    routeMock.revisionError = { code: 404 };
+    const res = await getReel({ headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(410);
+    // Must NOT have called the fallback files.media branch.
+    expect(routeMock.driveCalls).toEqual(["files.metadata", "revisions.media"]);
   });
 
   test("Codex R8 P1: non-allowlisted video MIME → 410 (no fallback to broad prefix gate)", async () => {

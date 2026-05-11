@@ -44,7 +44,11 @@ const routeMock = vi.hoisted(() => ({
   },
   driveBytes: null as null | Uint8Array,
   driveError: null as unknown,
-  filesGetCalls: [] as { fileId: string; alt: string | undefined }[],
+  filesGetCalls: [] as {
+    fileId: string;
+    alt: string | undefined;
+    supportsAllDrives?: boolean;
+  }[],
 }));
 
 vi.mock("@/lib/auth/isAdminSession", () => ({
@@ -81,8 +85,17 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/drive/client", () => ({
   getDriveClient: () => ({
     files: {
-      async get(args: { fileId: string; fields?: string; alt?: string }) {
-        routeMock.filesGetCalls.push({ fileId: args.fileId, alt: args.alt });
+      async get(args: {
+        fileId: string;
+        fields?: string;
+        alt?: string;
+        supportsAllDrives?: boolean;
+      }) {
+        routeMock.filesGetCalls.push({
+          fileId: args.fileId,
+          alt: args.alt,
+          ...(args.supportsAllDrives === undefined ? {} : { supportsAllDrives: args.supportsAllDrives }),
+        });
         if (routeMock.driveError) throw routeMock.driveError;
         if (args.alt === "media") {
           if (!routeMock.driveBytes) {
@@ -258,6 +271,13 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(res.status).toBe(410);
     // Only the metadata call should have fired; no media fetch.
     expect(routeMock.filesGetCalls.map((c) => c.alt ?? "metadata")).toEqual(["metadata"]);
+  });
+
+  test("Codex R14 P1: Drive metadata + media calls include supportsAllDrives: true", async () => {
+    await getAgenda();
+    // Both the metadata fetch (no alt) and the media fetch (alt=media)
+    // must set the flag so files in Shared Drives resolve.
+    expect(routeMock.filesGetCalls.every((c) => c.supportsAllDrives === true)).toBe(true);
   });
 
   test("Codex R2 P2: response body is a streamable Web ReadableStream (no buffered copy)", async () => {
