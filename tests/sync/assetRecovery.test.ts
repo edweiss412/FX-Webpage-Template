@@ -175,7 +175,10 @@ describe("assetRecovery", () => {
       code: "ASSET_RECOVERY_REVISION_DRIFT",
       previewRevisionId: snapshotRevisionId,
     });
-    expect(uploads).toEqual([]);
+    expect(uploads.map((upload) => upload.path)).toEqual([
+      "diagram-snapshots/shows/11111111-1111-4111-8111-111111111111/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/embedded-embedded-1.png",
+      "diagram-snapshots/shows/11111111-1111-4111-8111-111111111111/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/folder-linked-1.jpg",
+    ]);
     expect(cooldowns).toEqual([[showId, snapshotRevisionId]]);
     expect(alerts).toEqual([
       [

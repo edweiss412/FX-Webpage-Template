@@ -6,7 +6,11 @@ import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
 import { validateLinkSession } from "@/lib/auth/validateLinkSession";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
-import { readBoundedNodeStream, readBoundedWebStream } from "@/lib/sync/boundedBytes";
+import {
+  ByteLimitExceededError,
+  readBoundedNodeStream,
+  readBoundedWebStream,
+} from "@/lib/sync/boundedBytes";
 
 const CACHE_CONTROL = "private, max-age=0, must-revalidate";
 const MAX_REEL_FALLBACK_BYTES = 512 * 1024 * 1024;
@@ -228,6 +232,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       });
     }
   } catch (error) {
+    if (error instanceof ByteLimitExceededError) return gone();
     if (isPermissionDenied(error)) return gone();
     return NextResponse.json({ error: "REEL_ASSET_LOOKUP_FAILED" }, { status: 500 });
   }

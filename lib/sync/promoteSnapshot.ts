@@ -121,6 +121,28 @@ async function readRow(snapshotRevisionId: string): Promise<PendingPromotionRow 
   }
 }
 
+async function emitRollbackStuckAlert(
+  showId: string,
+  snapshotRevisionId: string,
+  error: unknown,
+): Promise<void> {
+  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+  try {
+    await sql`
+      select public.upsert_admin_alert(
+        ${showId}::uuid,
+        'PENDING_SNAPSHOT_ROLLBACK_STUCK',
+        ${JSON.stringify({
+          snapshot_revision_id: snapshotRevisionId,
+          error: storageErrorMessage(error),
+        })}::jsonb
+      )
+    `;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
 export async function promoteSnapshotUpload(
   snapshotRevisionId: string,
   deps: PromoteSnapshotDeps = {},
@@ -277,22 +299,7 @@ export async function promoteSnapshotUpload(
             await rollback();
             await clearRolledBack(row);
           } catch (rollbackError) {
-            await tx.queryOne<{ ok: boolean }>(
-              `
-              select public.upsert_admin_alert(
-                $1::uuid,
-                'PENDING_SNAPSHOT_ROLLBACK_STUCK',
-                $2::jsonb
-              ) is not null as ok
-            `,
-              [
-                row.show_id,
-                JSON.stringify({
-                  snapshot_revision_id: row.snapshot_revision_id,
-                  error: storageErrorMessage(rollbackError),
-                }),
-              ],
-            );
+            await emitRollbackStuckAlert(row.show_id, row.snapshot_revision_id, rollbackError);
             return { outcome: "manifest_mismatch" as const, snapshotRevisionId };
           }
           throw error;

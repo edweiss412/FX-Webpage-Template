@@ -238,51 +238,57 @@ async function collectVerifiedAssets(
     if (totalBytes + byteLength > MAX_RECOVERY_TOTAL_BYTES) return false;
     return true;
   };
-  for (const entry of diagrams.embeddedImages) {
-    if (
-      entry.snapshotPath ||
-      entry.recovery_disposition === "restage_required" ||
-      !entry.embeddedFingerprint
-    ) {
-      continue;
+  try {
+    for (const entry of diagrams.embeddedImages) {
+      if (
+        entry.snapshotPath ||
+        entry.recovery_disposition === "restage_required" ||
+        !entry.embeddedFingerprint
+      ) {
+        continue;
+      }
+
+      const bytes = await deps.drive.fetchEmbeddedImageBytes(entry, { onChunk: acceptChunk });
+      if (bytes && !acceptBytes(bytes)) {
+        await rm(tmpDir, { recursive: true, force: true });
+        return ASSET_RECOVERY_BYTES_EXCEEDED;
+      }
+      if (bytes && recoverySha256(bytes) === entry.embeddedFingerprint) {
+        const tempPath = join(tmpDir, `embedded-${entry.objectId}.${extForMime(entry.mimeType)}`);
+        await writeFile(tempPath, recoveryBytes(bytes));
+        verified.push({
+          kind: "embedded",
+          id: entry.objectId,
+          path: assetPath(showId, diagrams.snapshot_revision_id, entry),
+          contentType: entry.mimeType,
+          tempPath,
+        });
+      }
     }
 
-    const bytes = await deps.drive.fetchEmbeddedImageBytes(entry, { onChunk: acceptChunk });
-    if (bytes && !acceptBytes(bytes)) {
-      await rm(tmpDir, { recursive: true, force: true });
-      return ASSET_RECOVERY_BYTES_EXCEEDED;
+    for (const entry of diagrams.linkedFolderItems) {
+      if (entry.snapshotPath) continue;
+      const bytes = await deps.drive.fetchLinkedRevisionBytes(entry, { onChunk: acceptChunk });
+      if (bytes && !acceptBytes(bytes)) {
+        await rm(tmpDir, { recursive: true, force: true });
+        return ASSET_RECOVERY_BYTES_EXCEEDED;
+      }
+      if (bytes && recoveryMd5(bytes) === entry.md5Checksum) {
+        const tempPath = join(tmpDir, `linked-${entry.driveFileId}.${extForMime(entry.mimeType)}`);
+        await writeFile(tempPath, recoveryBytes(bytes));
+        verified.push({
+          kind: "linked",
+          id: entry.driveFileId,
+          path: assetPath(showId, diagrams.snapshot_revision_id, entry),
+          contentType: entry.mimeType,
+          tempPath,
+        });
+      }
     }
-    if (bytes && recoverySha256(bytes) === entry.embeddedFingerprint) {
-      const tempPath = join(tmpDir, `embedded-${entry.objectId}.${extForMime(entry.mimeType)}`);
-      await writeFile(tempPath, recoveryBytes(bytes));
-      verified.push({
-        kind: "embedded",
-        id: entry.objectId,
-        path: assetPath(showId, diagrams.snapshot_revision_id, entry),
-        contentType: entry.mimeType,
-        tempPath,
-      });
-    }
-  }
-
-  for (const entry of diagrams.linkedFolderItems) {
-    if (entry.snapshotPath) continue;
-    const bytes = await deps.drive.fetchLinkedRevisionBytes(entry, { onChunk: acceptChunk });
-    if (bytes && !acceptBytes(bytes)) {
-      await rm(tmpDir, { recursive: true, force: true });
-      return ASSET_RECOVERY_BYTES_EXCEEDED;
-    }
-    if (bytes && recoveryMd5(bytes) === entry.md5Checksum) {
-      const tempPath = join(tmpDir, `linked-${entry.driveFileId}.${extForMime(entry.mimeType)}`);
-      await writeFile(tempPath, recoveryBytes(bytes));
-      verified.push({
-        kind: "linked",
-        id: entry.driveFileId,
-        path: assetPath(showId, diagrams.snapshot_revision_id, entry),
-        contentType: entry.mimeType,
-        tempPath,
-      });
-    }
+  } catch (error) {
+    await rm(tmpDir, { recursive: true, force: true });
+    if (error instanceof ByteLimitExceededError) return ASSET_RECOVERY_BYTES_EXCEEDED;
+    throw error;
   }
 
   return { tmpDir, assets: verified };
@@ -350,6 +356,12 @@ export async function assetRecovery(
   }
 
   try {
+    for (const asset of verifiedRun.assets) {
+      await deps.storage.upload(asset.path, await readFile(asset.tempPath), {
+        contentType: asset.contentType,
+      });
+    }
+
     const locked = await deps.withShowLock<AssetRecoveryResult>(
       previewShow.driveFileId,
       async (tx) => {
@@ -370,12 +382,6 @@ export async function assetRecovery(
             code: ASSET_RECOVERY_REVISION_DRIFT,
             previewRevisionId: previewDiagrams.snapshot_revision_id,
           } satisfies AssetRecoveryResult;
-        }
-
-        for (const asset of verifiedRun.assets) {
-          await deps.storage.upload(asset.path, await readFile(asset.tempPath), {
-            contentType: asset.contentType,
-          });
         }
 
         const recovered = applyVerifiedAssets(lockedDiagrams, verifiedRun.assets);
