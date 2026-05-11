@@ -57,6 +57,10 @@ const routeMock = vi.hoisted(() => ({
   // so the route's R20 P1 fallback (derive slice length from
   // Content-Range) is exercised.
   omit206ContentLength: false as boolean,
+  // When set, overrides the synthetic 206 Content-Range total — used
+  // to simulate Drive returning a 206 whose total size exceeds the
+  // route's MAX_AGENDA_BYTES cap (Codex R22 P1).
+  agenda206TotalOverride: null as number | null,
 }));
 
 vi.mock("@/lib/auth/isAdminSession", () => ({
@@ -117,8 +121,12 @@ vi.mock("@/lib/drive/client", () => ({
           // Mimic Drive: if a Range header was forwarded, return 206
           // with synthetic Content-Range; otherwise full 200.
           if (options?.headers?.Range) {
+            const total =
+              routeMock.agenda206TotalOverride !== null
+                ? routeMock.agenda206TotalOverride
+                : routeMock.driveBytes.byteLength;
             const headers: Record<string, string> = {
-              "content-range": `bytes 0-9/${routeMock.driveBytes.byteLength}`,
+              "content-range": `bytes 0-9/${total}`,
             };
             if (!routeMock.omit206ContentLength) {
               headers["content-length"] = String(routeMock.driveBytes.byteLength);
@@ -167,6 +175,7 @@ beforeEach(() => {
   routeMock.filesGetCalls = [];
   routeMock.lastMediaOptions = null;
   routeMock.omit206ContentLength = false;
+  routeMock.agenda206TotalOverride = null;
 });
 
 describe("/api/asset/agenda/[show]/[id]", () => {
@@ -326,6 +335,17 @@ describe("/api/asset/agenda/[show]/[id]", () => {
   test("Codex R20 P1: Drive metadata 410 (gone) → 410 (matches 404 behavior)", async () => {
     routeMock.driveError = Object.assign(new Error("gone"), { code: 410 });
     const res = await getAgenda();
+    expect(res.status).toBe(410);
+  });
+
+  test("Codex R22 P1: 206 response gates on TOTAL size from Content-Range (cap bypass closed)", async () => {
+    // Drive metadata `size` is null (so the pre-flight cap doesn't
+    // trigger), but the 206 response's Content-Range claims a 60MB
+    // total — over the 50MB MAX_AGENDA_BYTES cap. Route MUST 410
+    // instead of forwarding the slice.
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: null };
+    routeMock.agenda206TotalOverride = 60 * 1024 * 1024;
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
     expect(res.status).toBe(410);
   });
 

@@ -318,6 +318,27 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       const contentRange = pickStringHeader(bytesResult.headers, "content-range");
       const driveContentLength = pickStringHeader(bytesResult.headers, "content-length");
       const driveStatus = typeof bytesResult.status === "number" ? bytesResult.status : 200;
+      // Codex R22 P1: on 206, gate on the TOTAL size from Content-Range,
+      // not just the slice length. A 60MB PDF with bad/missing metadata
+      // `size` could otherwise be fetched piecemeal via repeated <50MB
+      // Range slices, bypassing MAX_AGENDA_BYTES entirely.
+      if (driveStatus === 206 && contentRange) {
+        const totalMatch = contentRange.match(/^bytes \d+-\d+\/(\d+)$/);
+        if (totalMatch) {
+          const total = Number(totalMatch[1]);
+          if (Number.isFinite(total) && total > MAX_AGENDA_BYTES) {
+            // The data stream is a Node Readable we haven't piped yet;
+            // destroy it explicitly to release the upstream socket.
+            const data = bytesResult.data;
+            if (data instanceof Readable) {
+              data.destroy();
+            } else if (data instanceof ReadableStream) {
+              await (data as ReadableStream<Uint8Array>).cancel().catch(() => undefined);
+            }
+            return gone();
+          }
+        }
+      }
       if (contentRange) headers["Content-Range"] = contentRange;
       // Codex R20 P1: Content-Length must reflect THIS response's byte
       // count, not the full file size. Reporting the full size on a

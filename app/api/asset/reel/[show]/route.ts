@@ -370,12 +370,36 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         },
         revOpts,
       )) as ReelDriveResponse;
+      // Drive returns 200 (full body) or 206 (partial). Forward verbatim.
+      const driveStatus = typeof revRes.status === "number" ? revRes.status : 200;
+      const contentRange = pickStringHeader(revRes.headers, "content-range");
+      const contentLength = pickStringHeader(revRes.headers, "content-length");
+      // Codex R22 P1: on 206, gate on TOTAL size from Content-Range,
+      // not just the slice length. The metadata pre-flight (`reportedSize`)
+      // protects when Drive metadata `size` is finite, but null/wrong
+      // metadata could otherwise let a 600MB reel be fetched piecemeal
+      // in <512MB Range slices, bypassing MAX_REEL_FALLBACK_BYTES.
+      if (driveStatus === 206 && contentRange) {
+        const totalMatch = contentRange.match(/^bytes \d+-\d+\/(\d+)$/);
+        if (totalMatch) {
+          const total = Number(totalMatch[1]);
+          if (Number.isFinite(total) && total > MAX_REEL_FALLBACK_BYTES) {
+            // Destroy the upstream Node stream before returning so the
+            // Drive socket is released, not left to GC.
+            const data = revRes.data;
+            if (data instanceof Readable) {
+              data.destroy();
+            } else if (data instanceof ReadableStream) {
+              await (data as ReadableStream<Uint8Array>).cancel().catch(() => undefined);
+            }
+            return gone();
+          }
+        }
+      }
       // Wrap in a bounded pass-through so even if Drive reports `size`
       // wrong (or omits it for an unusual content type), the worker
       // fails closed at the cap instead of streaming unbounded bytes.
       const stream = boundedStreamFrom(revRes.data);
-      // Drive returns 200 (full body) or 206 (partial). Forward verbatim.
-      const driveStatus = typeof revRes.status === "number" ? revRes.status : 200;
       const responseHeaders: Record<string, string> = {
         "Cache-Control": CACHE_CONTROL,
         "Content-Type": row.opening_reel_mime_type,
@@ -388,8 +412,6 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         // (e.g., `<video>` seeks).
         "Accept-Ranges": "bytes",
       };
-      const contentRange = pickStringHeader(revRes.headers, "content-range");
-      const contentLength = pickStringHeader(revRes.headers, "content-length");
       if (contentRange) responseHeaders["Content-Range"] = contentRange;
       if (contentLength) responseHeaders["Content-Length"] = contentLength;
       return new Response(stream, { status: driveStatus, headers: responseHeaders });

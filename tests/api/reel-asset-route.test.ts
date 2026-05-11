@@ -70,6 +70,10 @@ const routeMock = vi.hoisted(() => ({
     responseType: "stream";
     headers?: Record<string, string>;
   },
+  // When set, overrides the synthetic 206 Content-Range total — used
+  // to simulate Drive returning a 206 whose total size exceeds
+  // MAX_REEL_FALLBACK_BYTES (Codex R22 P1 cap-bypass close-out).
+  reel206TotalOverride: null as number | null,
 }));
 
 function md5(bytes: Uint8Array): string {
@@ -138,11 +142,15 @@ vi.mock("@/lib/drive/client", () => ({
         // Mimic Drive's behavior: if Range header is present, return 206
         // with synthetic Content-Range; otherwise full 200.
         if (options?.headers?.Range) {
+          const total =
+            routeMock.reel206TotalOverride !== null
+              ? routeMock.reel206TotalOverride
+              : routeMock.revisionBytes?.byteLength ?? 0;
           return {
             data: routeMock.revisionBytes,
             status: 206,
             headers: {
-              "content-range": `bytes 0-9/${routeMock.revisionBytes?.byteLength ?? 0}`,
+              "content-range": `bytes 0-9/${total}`,
               "content-length": String(routeMock.revisionBytes?.byteLength ?? 0),
             },
           };
@@ -194,6 +202,7 @@ beforeEach(() => {
   routeMock.peek = { kind: "none" };
   routeMock.lastDriveArgs = null;
   routeMock.lastRevisionsOptions = null;
+  routeMock.reel206TotalOverride = null;
 });
 
 describe("/api/asset/reel/[show]", () => {
@@ -392,6 +401,17 @@ describe("/api/asset/reel/[show]", () => {
         configurable: true,
       });
     }
+  });
+
+  test("Codex R22 P1: 206 response gates on TOTAL size from Content-Range (cap bypass closed)", async () => {
+    // Drive metadata `size` is null (so the pre-flight cap doesn't
+    // trigger), but the 206 Content-Range claims a 600MB total — over
+    // the 512MB MAX_REEL_FALLBACK_BYTES cap. The route MUST 410
+    // instead of forwarding the slice.
+    routeMock.current = { ...routeMock.current, size: null };
+    routeMock.reel206TotalOverride = 600 * 1024 * 1024;
+    const res = await getReel({ headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(410);
   });
 
   test("Codex R18 P1: pre-flight unsatisfiable Range (bytes=-0 with finite size) → 416 (no Drive call)", async () => {
