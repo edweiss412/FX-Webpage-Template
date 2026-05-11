@@ -105,6 +105,10 @@ function isImageLike(object: SpreadsheetEmbeddedObject): boolean {
   return object.mimeType.startsWith("image/");
 }
 
+function isImageMimeType(mimeType: string): boolean {
+  return mimeType.startsWith("image/");
+}
+
 async function extractEmbeddedImages(
   parsed: ParsedSheet,
   driveClient: DriveClient,
@@ -202,6 +206,8 @@ export async function enrichWithDrivePins(
   driveClient: DriveClient,
   ctx: EnrichContext,
 ): Promise<ParseResult> {
+  const warnings = [...parsed.warnings];
+
   let openingReel: OpeningReelPinned | null = null;
   if (parsed.openingReel) {
     const reelMeta = await driveClient.getFile(parsed.openingReel.driveFileId);
@@ -215,21 +221,36 @@ export async function enrichWithDrivePins(
     }
   }
 
+  const embeddedImages = await extractEmbeddedImages(parsed, driveClient, ctx, warnings);
+
   let linkedFolderItems: LinkedFolderItemStub[] = [];
   if (parsed.diagrams.linkedFolder) {
     const listing = await driveClient.listFolder(parsed.diagrams.linkedFolder.driveFolderId);
-    linkedFolderItems = listing.files.map((f) => ({
+    const residualBudget = Math.max(0, MAX_TOTAL_DIAGRAM_ITEMS - embeddedImages.length);
+    const imageFiles = listing.files
+      .filter((file) => isImageMimeType(file.mimeType))
+      .toSorted((a, b) => (a.name ?? a.driveFileId).localeCompare(b.name ?? b.driveFileId));
+    const keptFiles = imageFiles.slice(0, residualBudget);
+    const droppedCount = imageFiles.length - keptFiles.length;
+    if (droppedCount > 0) {
+      warnings.push(
+        warning(
+          "LINKED_FOLDER_OVERFLOW_TRUNCATED",
+          `Linked DIAGRAMS folder has ${imageFiles.length} images; dropped ${droppedCount} over the ${MAX_TOTAL_DIAGRAM_ITEMS} item combined cap.`,
+        ),
+      );
+    }
+
+    linkedFolderItems = keptFiles.map((f) => ({
       driveFileId: f.driveFileId,
       mimeType: f.mimeType,
+      ...(f.name ? { alt: f.name } : {}),
       drive_modified_time: f.modifiedTime,
       headRevisionId: f.headRevisionId,
       md5Checksum: f.md5Checksum,
       snapshotPath: null,
     }));
   }
-
-  const warnings = [...parsed.warnings];
-  const embeddedImages = await extractEmbeddedImages(parsed, driveClient, ctx, warnings);
 
   return {
     show: parsed.show,

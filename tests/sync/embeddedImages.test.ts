@@ -224,3 +224,105 @@ describe("embedded image extraction in enrichWithDrivePins", () => {
     );
   });
 });
+
+describe("linked-folder freezing in enrichWithDrivePins", () => {
+  test("captures only image files with immutable Drive revision and md5 pins", async () => {
+    const client: DriveClient = {
+      ...mockDriveClient,
+      async listFolder(folderId) {
+        return {
+          folderId,
+          files: [
+            {
+              driveFileId: "image-1",
+              name: "A ballroom.png",
+              mimeType: "image/png",
+              modifiedTime: "2026-04-01T00:00:00.000Z",
+              headRevisionId: "rev-image-1",
+              md5Checksum: "a".repeat(32),
+            },
+            {
+              driveFileId: "pdf-1",
+              name: "Not a diagram.pdf",
+              mimeType: "application/pdf",
+              modifiedTime: "2026-04-02T00:00:00.000Z",
+              headRevisionId: "rev-pdf-1",
+              md5Checksum: "b".repeat(32),
+            },
+          ],
+        };
+      },
+    };
+    const parsed = emptyParsed({
+      diagrams: {
+        linkedFolder: {
+          driveFolderId: "folder-1",
+          driveFolderUrl: "https://drive.google.com/drive/folders/folder-1",
+        },
+        embeddedImages: [],
+        linkedFolderItems: [],
+      },
+    });
+
+    const result = await enrichWithDrivePins(parsed, client, baseCtx);
+
+    expect(result.diagrams.linkedFolderItems).toEqual([
+      {
+        driveFileId: "image-1",
+        mimeType: "image/png",
+        alt: "A ballroom.png",
+        drive_modified_time: "2026-04-01T00:00:00.000Z",
+        headRevisionId: "rev-image-1",
+        md5Checksum: "a".repeat(32),
+        snapshotPath: null,
+      },
+    ]);
+  });
+
+  test("uses the residual combined cap after embedded images and emits linked overflow warning", async () => {
+    const linkedFiles = Array.from({ length: 78 }, (_, index) => ({
+      driveFileId: `linked-${index + 1}`,
+      name: `Linked ${String(index + 1).padStart(2, "0")}.png`,
+      mimeType: "image/png",
+      modifiedTime: "2026-04-01T00:00:00.000Z",
+      headRevisionId: `rev-linked-${index + 1}`,
+      md5Checksum: String(index + 1).padStart(32, "0"),
+    }));
+    const client: DriveClient = {
+      ...clientWithEmbedded(
+        Array.from({ length: 58 }, (_, index) => ({
+          objectId: `embedded-${index + 1}`,
+          bytes: `embedded-bytes-${index + 1}`,
+        })),
+      ),
+      async listFolder(folderId) {
+        return { folderId, files: linkedFiles };
+      },
+    };
+    const parsed = emptyParsed({
+      diagrams: {
+        linkedFolder: {
+          driveFolderId: "folder-1",
+          driveFolderUrl: "https://drive.google.com/drive/folders/folder-1",
+        },
+        embeddedImages: [],
+        linkedFolderItems: [],
+      },
+    });
+
+    const result = await enrichWithDrivePins(parsed, client, baseCtx);
+
+    expect(result.diagrams.embeddedImages).toHaveLength(58);
+    expect(result.diagrams.linkedFolderItems).toHaveLength(2);
+    expect(result.diagrams.linkedFolderItems.map((item) => item.driveFileId)).toEqual([
+      "linked-1",
+      "linked-2",
+    ]);
+    expect(result.warnings).toContainEqual(
+      expect.objectContaining({
+        code: "LINKED_FOLDER_OVERFLOW_TRUNCATED",
+        message: expect.stringContaining("76"),
+      }),
+    );
+  });
+});
