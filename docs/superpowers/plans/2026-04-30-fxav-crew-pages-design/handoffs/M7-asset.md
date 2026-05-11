@@ -392,4 +392,54 @@ The seven create / extend rows above are mandatory at M7 close. Empty rows silen
 
 ## Convergence log
 
-_Empty — populated by the adversarial reviewer per §10._
+### Backend-only convergence — 2026-05-11
+
+**Scope.** This log covers M7 backend work only: Tasks 7.1-7.8 plus backend repair/status/cron/asset routes and structural meta-tests. Task 7.9 UI remains carved off to the separate Opus/impeccable frontend session per §6 watchpoint 24 / §12. Review scope stayed anchored to the milestone base `ae6f0b8..HEAD` every round; no round was narrowed to only the previous round's fixes.
+
+**Reviewer.** Cross-model adversarial review was run with Opus / Claude Code against the full current backend diff. Later rounds used a bounded Bash-only prompt because ordinary Claude invocations intermittently produced blank output; blank/malformed invocations were discarded and not counted as approvals.
+
+**Final backend HEAD.** `d8394eb test(sync): harden M7 residual review risks`
+
+**Backend closure commits after the initial implementation / exit-check sweep.**
+
+| Round | Verdict | Main classes reviewed / repaired | Closure SHA |
+| --- | --- | --- | --- |
+| R1 | NEEDS_ATTENTION | Missing post-commit promotion, current/pending cutover breakage, cron no-ops, absent `promote:` lock family, repair endpoint gap, streaming/cap gaps, catalog/admin-alert gaps, infra-error masking. | `21dfd28` |
+| R2 | NEEDS_ATTENTION | Promotion lock not held across the storage rename window, missing manifest pre/post checks and reverse rollback, blocking 202 path, malformed repair UUID/gates, cooldown/GC lifecycle collapse, GET status writes. | `44c330a` |
+| R3 | NEEDS_ATTENTION | Production embedded byte fetching and recovery/snapshot fetch parity. | `2f70ec8`, `f43cd72` |
+| R4 | NEEDS_ATTENTION | Bounded asset reads, durable async promoter scheduling, storage/ledger safety around promotion. | `8fa23c2` |
+| R5 | NEEDS_ATTENTION | Drift/admin-alert emission and tighter ledger claim predicates. | `9240f73` |
+| R6 | NEEDS_ATTENTION | Asset caps, pending-upload guard predicates, repair lock topology/meta coverage, cache-control and drift-code observability gaps. | `f0c9c37` |
+| R7 | NEEDS_ATTENTION | Apply-status no-snapshot handling, embedded MIME preservation, delete-started recovery path, missing infra registry row. | `cf91480` |
+| R8 | NEEDS_ATTENTION | RENAME-RETRY / stuck-pre-claim recovery, rolled-back status semantics, recovery cooldown deletion, recovery buffering and promoter/recovery races. | `46d4ce2` |
+| R9 | NEEDS_ATTENTION | First-apply / first-cron snapshot creation, ledger-vs-current pending revision races, manifest-mismatch cleanup, reel fallback cap. | `4c0d59d` |
+| R10 | NEEDS_ATTENTION | Rollback-stuck alerts being lost on transaction rollback, recursive Storage listing for GC, repair/GC claim predicates. | `4f3b0f6` |
+| R11 | NEEDS_ATTENTION | `after()`/runtime lifetime scheduling, Drive work inside lock windows, infra-contract registry for promoter, status surfacing for rollback-stuck rows. | `2c3204d` |
+| R12 | NEEDS_ATTENTION | Reel fallback fail-close on missing md5, rolled-back status exposure, catalog shape, handoff-vs-implementation lock-topology documentation. | `1d5d5f7` |
+| R13 | NEEDS_ATTENTION | Recovery byte-cap exception containment, recovery uploads under the show lock, reel cap error mapping, per-show cron containment. | `a9a1bd0` |
+| R14 | NEEDS_ATTENTION | Diagram-GC missing-`createdAt` retention, `runAssetRecoveryCron` per-show exception containment, default diagram-GC postgres pool close. | `430dd9f` |
+| R15 | NEEDS_ATTENTION | Recovery drift uploads before lock/gate cleanup, missing M7 warning catalog rows, paginated Storage listing, admin route infra classification, pending-revision predicate parity. | `c844fe1` |
+| R16 | NEEDS_ATTENTION | Apply-status Supabase call-boundary violation, recovery `no_op` uploaded-byte cleanup, cron reel reverify / Apply lock-window tradeoff documentation. | `9fa3e27` |
+| R17 | APPROVED | No P0/P1 findings. Residual P2s requested for triage before final close. | No code commit |
+| R18 | APPROVED | Fresh full-backend review after selected P2 hardening; no P0/P1 findings. | `d8394eb` |
+
+**Selected P2 hardening before final approval.** The backend session addressed the actionable low-risk P2s before R18: apply-status no longer classifies GC-claimed never-promoted rows as `rolled_back` solely because `claim_token` is absent; `verifyReelOnApply` now has regression coverage for transient Drive metadata failures preserving reel pins; snapshot rollback repair now has functional API tests for success, not-stuck / promote-in-flight conflicts, and Supabase returned errors; `promoteSnapshotUpload` now has a functional test pinning lock order, temp-to-canonical moves, and cutover.
+
+**Accepted/deferred P2 residuals after R18.**
+
+- `lib/sync/assetRecovery.ts` cumulative byte accounting is conservative for stream-path entries and can trip roughly one 50 MB entry early.
+- `lib/sync/promoteSnapshot.ts` contains an unreachable repair `promote_in_flight` defensive branch after the blocking `withShowLock` path.
+- `repairSnapshotRollback` uses pre-lock row fields for branch selection; current predicates make the race non-corrupting, but a re-select inside the promote lock would be cleaner.
+- `defaultListRecoverableShows` scans all show rows / `diagrams` JSONB on each recovery cron tick; acceptable for current scale, should become a DB-side JSONB filter or RPC before larger fan-out.
+- Reel route responses do not support Range / Content-Length, and the fallback md5 path buffers up to the documented 512 MB cap.
+- Snapshot rollback repair returns `APPLY_STATUS_NOT_FOUND` for a missing ledger UUID; cosmetic operator-code mismatch only.
+
+**Final backend verification.**
+
+- `pnpm test`: 158 files passed, 1 skipped; 2300 tests passed, 5 skipped.
+- `pnpm lint`: passed.
+- `pnpm typecheck`: passed.
+- `git diff --check`: passed.
+- `git status --short`: clean before this convergence-log doc update.
+
+**Backend result.** M7 backend is approved by cross-model adversarial review. Frontend/UI work remains pending in the separate Task 7.9 session and must run the impeccable v3 critique/audit gate before any UI closeout.
