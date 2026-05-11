@@ -736,4 +736,28 @@ describe("/api/asset/reel/[show]", () => {
     expect(head.status).toBe(get.status);
     expect(head.status).toBe(500);
   });
+
+  // Codex R25 P1: HEAD/GET parity for success-path inputs.
+  test("Codex R25 P1: HEAD/GET parity — satisfiable explicit Range → both 206", async () => {
+    routeMock.current = { ...routeMock.current, size: "10" };
+    const head = await headReel({ headers: { Range: "bytes=0-4" } });
+    const get = await getReel({ headers: { Range: "bytes=0-4" } });
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(206);
+  });
+
+  test("Codex R25 P1: HEAD/GET parity — satisfiable suffix Range → both 206", async () => {
+    routeMock.current = { ...routeMock.current, size: "10" };
+    const head = await headReel({ headers: { Range: "bytes=-4" } });
+    const get = await getReel({ headers: { Range: "bytes=-4" } });
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(206);
+  });
+
+  test("Codex R25 P1: HEAD/GET parity — no Range → both 200", async () => {
+    const head = await headReel();
+    const get = await getReel();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(200);
+  });
 });

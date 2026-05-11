@@ -169,19 +169,40 @@ beforeEach(() => {
         routeMock.fetch206TotalSizeOverride !== null
           ? routeMock.fetch206TotalSizeOverride
           : bytes.byteLength;
+      // Codex R25 P1: realistic upstream behavior — when a Range is
+      // forwarded, slice the body and report slice-length Content-Length,
+      // not full-body length. Without this the GET path would emit
+      // Content-Length=13 while HEAD computes slice-length 4, and the
+      // HEAD/GET parity tests would falsely flag a route bug.
+      // Parse the requested Range to compute slice bounds.
+      let sliceStart = 0;
+      let sliceEnd = bytes.byteLength - 1;
+      const suffixMatch = rangeHeader.match(/^bytes=-(\d+)$/);
+      const explicitMatch = rangeHeader.match(/^bytes=(\d+)-(\d*)$/);
+      if (suffixMatch) {
+        const suffix = Number(suffixMatch[1]);
+        sliceStart = Math.max(0, bytes.byteLength - suffix);
+        sliceEnd = bytes.byteLength - 1;
+      } else if (explicitMatch) {
+        sliceStart = Number(explicitMatch[1]);
+        sliceEnd = explicitMatch[2]
+          ? Math.min(Number(explicitMatch[2]), bytes.byteLength - 1)
+          : bytes.byteLength - 1;
+      }
+      const slice = bytes.subarray(sliceStart, sliceEnd + 1);
       const headers: Record<string, string> = {
-        "content-length": String(bytes.byteLength),
+        "content-length": String(slice.byteLength),
       };
       if (!routeMock.fetch206OmitContentRange) {
         if (routeMock.fetch206UseStarTotal) {
-          headers["content-range"] = `bytes 0-${bytes.byteLength - 1}/*`;
+          headers["content-range"] = `bytes ${sliceStart}-${sliceEnd}/*`;
         } else if (routeMock.fetch206UseMalformedTotal) {
-          headers["content-range"] = `bytes 0-${bytes.byteLength - 1}/not-a-number`;
+          headers["content-range"] = `bytes ${sliceStart}-${sliceEnd}/not-a-number`;
         } else {
-          headers["content-range"] = `bytes 0-${bytes.byteLength - 1}/${total}`;
+          headers["content-range"] = `bytes ${sliceStart}-${sliceEnd}/${total}`;
         }
       }
-      return new Response(bytes as BlobPart, { status: 206, headers });
+      return new Response(slice as BlobPart, { status: 206, headers });
     }
     return new Response(bytes as BlobPart, {
       status: 200,
@@ -665,5 +686,39 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     const get = await getDiagram();
     expect(head.status).toBe(get.status);
     expect(head.status).toBe(410);
+  });
+
+  // ───────────────────────────────────────────────────────────────
+  // Codex R25 P1 — HEAD/GET parity for SUCCESS-PATH inputs
+  // R24's parity block covered only failure modes; satisfiable Range
+  // is a success-path divergence (HEAD-200 vs GET-206) that the R23/R24
+  // audits both missed. Adding parametrized success-path coverage here
+  // closes the structural gap.
+  // ───────────────────────────────────────────────────────────────
+
+  test("Codex R25 P1: HEAD/GET parity — satisfiable explicit Range → both 206 with matching Content-Range", async () => {
+    const head = await headDiagram(currentRev, assetKey, { headers: { Range: "bytes=0-3" } });
+    const get = await getDiagram(currentRev, assetKey, { headers: { Range: "bytes=0-3" } });
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(206);
+    expect(head.headers.get("content-range")).toBe(get.headers.get("content-range"));
+    expect(head.headers.get("content-length")).toBe(get.headers.get("content-length"));
+  });
+
+  test("Codex R25 P1: HEAD/GET parity — satisfiable suffix Range → both 206", async () => {
+    // diagram-bytes is 13 bytes, suffix -4 → bytes 9-12
+    const head = await headDiagram(currentRev, assetKey, { headers: { Range: "bytes=-4" } });
+    const get = await getDiagram(currentRev, assetKey, { headers: { Range: "bytes=-4" } });
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(206);
+    expect(head.headers.get("content-length")).toBe(get.headers.get("content-length"));
+  });
+
+  test("Codex R25 P1: HEAD/GET parity — no Range → both 200 with full Content-Length", async () => {
+    const head = await headDiagram();
+    const get = await getDiagram();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(200);
+    expect(head.headers.get("content-length")).toBe(get.headers.get("content-length"));
   });
 });

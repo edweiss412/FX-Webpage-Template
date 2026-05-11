@@ -654,4 +654,28 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(head.status).toBe(get.status);
     expect(head.status).toBe(410);
   });
+
+  // Codex R25 P1: HEAD/GET parity for success-path inputs.
+  test("Codex R25 P1: HEAD/GET parity — satisfiable explicit Range → both 206", async () => {
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: "22" };
+    const head = await headAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
+    const get = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(206);
+  });
+
+  test("Codex R25 P1: HEAD/GET parity — satisfiable suffix Range → both 206", async () => {
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: "22" };
+    const head = await headAgenda(agendaFileId, { headers: { Range: "bytes=-10" } });
+    const get = await getAgenda(agendaFileId, { headers: { Range: "bytes=-10" } });
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(206);
+  });
+
+  test("Codex R25 P1: HEAD/GET parity — no Range → both 200", async () => {
+    const head = await headAgenda();
+    const get = await getAgenda();
+    expect(head.status).toBe(get.status);
+    expect(head.status).toBe(200);
+  });
 });

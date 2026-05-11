@@ -30,6 +30,7 @@
  * Server Component (no `'use client'`).
  */
 import { Section } from "@/components/atoms/Section";
+import { OpeningReelVideo } from "@/components/tiles/OpeningReelVideo";
 import { shouldHideOpeningReel } from "@/lib/visibility/emptyState";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 
@@ -70,28 +71,14 @@ export function OpeningReelTile({ showId, eventDetails, hasVideo }: OpeningReelT
       bodyAs="div"
     >
       {hasVideo ? (
-        // 16:9 media frame. The native `controls` chrome carries play /
-        // pause / scrub / fullscreen — "earned familiarity" per product
-        // register; custom video chrome would just reinvent worse.
-        // `preload="metadata"` keeps initial bandwidth small on mobile.
-        // `playsInline` lets iOS play inline rather than commandeering
-        // fullscreen. No autoplay — crew opts in by tapping play.
-        <div className="overflow-hidden rounded-sm bg-surface-sunken">
-          <video
-            className="block aspect-video w-full"
-            controls
-            preload="metadata"
-            playsInline
-            src={`/api/asset/reel/${showId}`}
-          >
-            {/* Fallback text inside <video> renders only if the browser
-                cannot play the element at all; the route returns 410 +
-                no body when the pin tuple is invalid, and the tile gates
-                on `hasVideo` so this fallback is a defensive belt. */}
-            Your browser can&apos;t play this video. Try opening the page in
-            Safari or Chrome.
-          </video>
-        </div>
+        // 16:9 media frame, delegated to a client component so the
+        // `onError` handler can swap to the AC-7.21 placeholder when the
+        // route returns 410 (post-Apply runtime drift) or any other
+        // media error. The server-render gate (`hasVideo`) still
+        // suppresses the whole element when pin columns are NULL —
+        // this client component only handles errors AFTER the page
+        // renders against valid pin state.
+        <OpeningReelVideo showId={showId} />
       ) : null}
       {hasText ? (
         // Inner `opening-reel` testid preserves M4 AC-4.5 e2e scoping

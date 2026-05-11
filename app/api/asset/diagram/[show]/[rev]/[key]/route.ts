@@ -217,6 +217,10 @@ export async function HEAD(
 
     // Pre-flight Range satisfiability now that we know the size. Matches
     // GET's R20 behavior (Drive 416 forwards Content-Range total).
+    // Codex R25 P1: a SATISFIABLE Range request must produce a 206
+    // status + Content-Range, not 200 — otherwise HEAD diverges from
+    // GET (which would forward the Range and serve 206).
+    let satisfiableRange: { start: number; end: number } | null = null;
     if (rangeHeader && Number.isFinite(declaredSize)) {
       const suffixMatch = rangeHeader.match(/^bytes=-(\d+)$/);
       const explicitMatch = rangeHeader.match(/^bytes=(\d+)-(\d*)$/);
@@ -224,12 +228,17 @@ export async function HEAD(
       if (suffixMatch) {
         const suffix = Number(suffixMatch[1]);
         if (!Number.isFinite(suffix) || suffix <= 0) unsatisfiable = true;
-        if (declaredSize === 0) unsatisfiable = true;
+        else if (declaredSize === 0) unsatisfiable = true;
+        else {
+          const start = Math.max(0, declaredSize - suffix);
+          satisfiableRange = { start, end: declaredSize - 1 };
+        }
       } else if (explicitMatch) {
         const start = Number(explicitMatch[1]);
         const end = explicitMatch[2] ? Number(explicitMatch[2]) : declaredSize - 1;
         if (!Number.isFinite(start) || !Number.isFinite(end)) unsatisfiable = true;
         else if (start > end || start >= declaredSize) unsatisfiable = true;
+        else satisfiableRange = { start, end: Math.min(end, declaredSize - 1) };
       }
       if (unsatisfiable) {
         return new Response(null, {
@@ -250,6 +259,12 @@ export async function HEAD(
       "Accept-Ranges": "bytes",
       Vary: "Range",
     };
+    if (satisfiableRange) {
+      const sliceLen = satisfiableRange.end - satisfiableRange.start + 1;
+      headers["Content-Length"] = String(sliceLen);
+      headers["Content-Range"] = `bytes ${satisfiableRange.start}-${satisfiableRange.end}/${declaredSize}`;
+      return new Response(null, { status: 206, headers });
+    }
     if (Number.isFinite(declaredSize)) {
       headers["Content-Length"] = String(declaredSize);
     }

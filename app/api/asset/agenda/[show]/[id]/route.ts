@@ -303,11 +303,17 @@ export async function HEAD(request: NextRequest, context: RouteContext): Promise
   if (rangeHeader && !SINGLE_RANGE_RE.test(rangeHeader)) {
     return rangeNotSatisfiable(Number.isFinite(authz.reportedSize) ? authz.reportedSize : null);
   }
+  // Codex R25 P1: SATISFIABLE single-range HEAD MUST return 206 with
+  // Content-Range and slice Content-Length so HEAD and GET produce the
+  // same status for the same Range input (HEAD/GET parity, RFC 9110
+  // §9.3.2). The R23 helper only handled unsatisfiable + malformed.
+  let satisfiableRange: { start: number; end: number } | null = null;
   if (rangeHeader && Number.isFinite(authz.reportedSize)) {
     const parsed = parseSingleRangeAgenda(rangeHeader, authz.reportedSize);
     if (parsed === "unsatisfiable") {
       return rangeNotSatisfiable(authz.reportedSize);
     }
+    if (parsed) satisfiableRange = parsed;
   }
 
   const headers: Record<string, string> = {
@@ -317,6 +323,12 @@ export async function HEAD(request: NextRequest, context: RouteContext): Promise
     "Accept-Ranges": "bytes",
     Vary: "Range",
   };
+  if (satisfiableRange && Number.isFinite(authz.reportedSize)) {
+    const sliceLen = satisfiableRange.end - satisfiableRange.start + 1;
+    headers["Content-Length"] = String(sliceLen);
+    headers["Content-Range"] = `bytes ${satisfiableRange.start}-${satisfiableRange.end}/${authz.reportedSize}`;
+    return new Response(null, { status: 206, headers });
+  }
   if (Number.isFinite(authz.reportedSize)) {
     headers["Content-Length"] = String(authz.reportedSize);
   }
