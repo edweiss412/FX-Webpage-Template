@@ -127,6 +127,12 @@ const infraRegistry = [
       "reel asset route destructures Supabase show reads and Drive metadata/media reads; unavailable or drifted reels map to 410",
   },
   {
+    helper: "PDF_MIME",
+    path: "app/api/asset/agenda/[show]/[id]/route.ts",
+    contract:
+      "agenda asset route destructures Supabase show reads and Drive metadata/media reads; non-PDF or drifted files map to 410; infra faults surface as 500 with AGENDA_ASSET_LOOKUP_FAILED",
+  },
+  {
     helper: "verifyReelOnApply",
     path: "lib/sync/verifyReelOnApply.ts",
     contract:

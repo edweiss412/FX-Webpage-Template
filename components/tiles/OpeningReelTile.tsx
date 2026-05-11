@@ -15,7 +15,8 @@
  *     The strip is mandatory on every render of the cell value — even on
  *     drift (when the 4 pin columns are NULL but the cell still carries a
  *     URL substring), the stripped text is what crew sees. Crew DOM MUST
- *     NOT contain `https://` or `drive.google.com` for this cell ever.
+ *     NOT contain `https://` or the Drive/Docs host substrings for this
+ *     cell ever (see lib/visibility/openingReelText.ts for the regex).
  *   - The inline `<video src="/api/asset/reel/<show>">` element when AND
  *     ONLY WHEN `hasVideo` is true. The boolean is derived in
  *     `lib/data/openingReel.ts:projectOpeningReelHasVideo` from all four

@@ -50,6 +50,10 @@ const INTENTIONAL_EXCEPTIONS = new Map<string, string>([
     "app/api/asset/reel/[show]/route.ts::GET",
     "opening-reel asset route streams a persisted immutable revision; this does not process sheets",
   ],
+  [
+    "app/api/asset/agenda/[show]/[id]/route.ts::GET",
+    "agenda PDF asset route streams bytes for a fileId already bound to shows.agenda_links; this does not admit or process sheets",
+  ],
 ]);
 
 function walkTsFiles(dir: string): string[] {

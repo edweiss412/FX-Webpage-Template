@@ -485,6 +485,14 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "The reel asset route could not resolve or stream the immutable Drive revision for the show.",
   },
+  AGENDA_ASSET_LOOKUP_FAILED: {
+    code: "AGENDA_ASSET_LOOKUP_FAILED",
+    dougFacing: "The agenda PDF could not be loaded. Refresh and try again.",
+    crewFacing: "This agenda could not be loaded. Ask Doug if it keeps happening.",
+    followUp: "Doug -> retry; if persistent, Eric",
+    helpfulContext:
+      "The agenda asset route could not resolve or stream the linked Drive PDF for the show.",
+  },
   PENDING_SNAPSHOT_ROLLBACK_STUCK: {
     code: "PENDING_SNAPSHOT_ROLLBACK_STUCK",
     dougFacing:

@@ -14,10 +14,10 @@
  * 410 from the route — the sheet's `<AgendaPdfViewer>` surfaces a
  * graceful retry/"Open in Drive" fallback when the PDF can't load.
  *
- * Crew DOM hygiene: the AgendaEmbed never carries a `drive.google.com`
- * substring. The proxy URL is what every byte fetch references; the
- * sheet itself renders the file id only inside the `/api/asset/agenda/`
- * path, never as a Drive host.
+ * Crew DOM hygiene: the AgendaEmbed never carries a raw Drive/Docs
+ * host substring. The proxy URL is what every byte fetch references;
+ * the sheet itself renders the file id only inside the
+ * `/api/asset/agenda/` path, never as a Drive host.
  *
  * Multi-doc support is a v2 candidate. v1 surfaces the FIRST agenda
  * link with a fileId; remaining links (e.g., a separate Drive folder
