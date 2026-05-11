@@ -136,7 +136,16 @@ export function boundedPassThroughNode(
         chunk instanceof Uint8Array ? chunk.byteLength : Buffer.from(chunk as Buffer).byteLength;
       total += len;
       if (total > limitBytes) {
-        callback(new ByteLimitExceededError(limitBytes));
+        // Codex R12 P1: destroy the UPSTREAM source explicitly before
+        // erroring the transform. Without this, the transform errors
+        // out but `input` keeps reading bytes from the wire (Drive
+        // socket stays open), leaking memory + sockets under repeated
+        // oversized requests.
+        const err = new ByteLimitExceededError(limitBytes);
+        if (typeof (input as Readable).destroy === "function") {
+          (input as Readable).destroy(err);
+        }
+        callback(err);
         return;
       }
       callback(null, chunk);

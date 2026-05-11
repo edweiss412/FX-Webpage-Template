@@ -66,6 +66,18 @@ describe("boundedPassThroughNode", () => {
     const bounded = boundedPassThroughNode(source, 10);
     await expect(drain(bounded)).rejects.toBeInstanceOf(ByteLimitExceededError);
   });
+
+  test("Codex R12 P1: destroys the UPSTREAM source on cap breach (no socket leak)", async () => {
+    // Use a real Readable so the `destroyed` property is observable.
+    // (Readable.from(...) sources do expose `destroyed`.)
+    const source = Readable.from([chunkOf(0x00, 6), chunkOf(0x00, 6), chunkOf(0x00, 6)]);
+    const bounded = boundedPassThroughNode(source, 10);
+    await expect(drain(bounded)).rejects.toBeInstanceOf(ByteLimitExceededError);
+    // The upstream source MUST be destroyed; otherwise Drive sockets
+    // (or any real upstream Node Readable) keep reading bytes past the
+    // cap, leaking memory + descriptors.
+    expect(source.destroyed).toBe(true);
+  });
 });
 
 describe("readChunkedHashBoundedNodeStream (Codex R3 P1)", () => {
