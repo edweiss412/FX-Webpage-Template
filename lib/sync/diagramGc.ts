@@ -90,16 +90,23 @@ function defaultStorage(): DiagramGcStorage {
     const objectPrefix = prefix.startsWith(`${DIAGRAM_BUCKET}/`)
       ? prefix.slice(DIAGRAM_BUCKET.length + 1)
       : prefix;
-    const { data, error } = await bucket.list(objectPrefix);
-    if (error) throw error;
     const entries: Array<{ path: string; createdAt?: string | null }> = [];
-    for (const entry of data ?? []) {
-      const createdAt = "created_at" in entry ? (entry.created_at as string | null) : null;
-      if ("id" in entry && entry.id) {
-        entries.push({ path: `${prefix}${entry.name}`, createdAt });
-      } else {
-        entries.push(...(await listPaths(`${prefix}${entry.name}/`)));
+    const pageSize = 100;
+    let offset = 0;
+    while (true) {
+      const { data, error } = await bucket.list(objectPrefix, { limit: pageSize, offset });
+      if (error) throw error;
+      const page = data ?? [];
+      for (const entry of page) {
+        const createdAt = "created_at" in entry ? (entry.created_at as string | null) : null;
+        if ("id" in entry && entry.id) {
+          entries.push({ path: `${prefix}${entry.name}`, createdAt });
+        } else {
+          entries.push(...(await listPaths(`${prefix}${entry.name}/`)));
+        }
       }
+      if (page.length < pageSize) break;
+      offset += page.length;
     }
     return entries;
   };
@@ -192,8 +199,11 @@ function defaultTx(): DiagramGcTx {
                and not exists (
                  select 1
                    from public.shows s
-                  where s.id = p.show_id
-                    and s.diagrams->'pending'->>'snapshot_revision_id' = p.snapshot_revision_id::text
+	                  where s.id = p.show_id
+	                    and coalesce(
+	                      s.diagrams->'pending'->>'revision_id',
+	                      s.diagrams->'pending'->>'snapshot_revision_id'
+	                    ) = p.snapshot_revision_id::text
                )
              returning p.*
           )
@@ -201,7 +211,10 @@ function defaultTx(): DiagramGcTx {
                  c.show_id::text,
                  c.temp_prefix,
                  c.snapshot_revision_id::text,
-                 s.diagrams->'pending'->>'snapshot_revision_id' as pending_revision_id,
+	                 coalesce(
+	                   s.diagrams->'pending'->>'revision_id',
+	                   s.diagrams->'pending'->>'snapshot_revision_id'
+	                 ) as pending_revision_id,
                  c.claim_token::text
             from claimed c
             join public.shows s on s.id = c.show_id
@@ -247,7 +260,10 @@ function defaultTx(): DiagramGcTx {
              and p.delete_started_at is null
              and p.claim_token is null
              and p.uploaded_at < $1::timestamptz - interval '1 minute'
-             and s.diagrams->'pending'->>'snapshot_revision_id' = p.snapshot_revision_id::text
+	             and coalesce(
+	               s.diagrams->'pending'->>'revision_id',
+	               s.diagrams->'pending'->>'snapshot_revision_id'
+	             ) = p.snapshot_revision_id::text
         `,
         [now.toISOString()],
       );

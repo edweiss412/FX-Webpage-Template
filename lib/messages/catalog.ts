@@ -408,6 +408,67 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug -> replace the opening reel link with a video file and sync again",
     helpfulContext: "The reel route only serves Drive files whose MIME type starts with video/.",
   },
+  DIAGRAMS_TAB_MISSING: {
+    code: "DIAGRAMS_TAB_MISSING",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: "none",
+    helpfulContext: null,
+  },
+  DIAGRAMS_EMBEDDED_NONE_FOUND: {
+    code: "DIAGRAMS_EMBEDDED_NONE_FOUND",
+    dougFacing:
+      "The DIAGRAMS tab returned no embedded images. Confirm before replacing the current gallery, or paste in the images and sync again.",
+    crewFacing: null,
+    followUp: "Doug -> confirm the empty gallery or add images",
+    helpfulContext:
+      "A sheet that appears configured for embedded diagrams produced zero embedded objects and no linked-folder URL. Existing approved galleries stay live until an operator confirms the empty result.",
+  },
+  DIAGRAMS_EMBEDDED_CAP_EXCEEDED: {
+    code: "DIAGRAMS_EMBEDDED_CAP_EXCEEDED",
+    dougFacing:
+      "The DIAGRAMS tab has more than 60 images. Only the first 60 will be shown to crew.",
+    crewFacing: null,
+    followUp: "Doug -> trim the gallery if the omitted images matter",
+    helpfulContext:
+      "The embedded diagram extractor caps galleries at 60 images to keep sync and storage bounded.",
+  },
+  DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE: {
+    code: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+    dougFacing:
+      "This sheet's diagrams could not be safely captured this sync. The previous version of those images is still showing.",
+    crewFacing: null,
+    followUp: "Eric -> inspect Drive revisions; Doug -> optionally report",
+    helpfulContext:
+      "Drive did not return a usable spreadsheet revision token for embedded-image freezing. Apply preserves the prior approved diagram snapshot instead of replacing it with an unsafe result.",
+  },
+  DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE: {
+    code: "DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE",
+    dougFacing:
+      "An image embedded in the DIAGRAMS tab could not be downloaded. Crew see a placeholder where it should be.",
+    crewFacing: null,
+    followUp: "Doug -> re-paste the image, or tell Eric if it keeps happening",
+    helpfulContext:
+      "The Sheets API described an embedded image, but its download URL was inaccessible to the service account.",
+  },
+  LINKED_FOLDER_OVERFLOW_TRUNCATED: {
+    code: "LINKED_FOLDER_OVERFLOW_TRUNCATED",
+    dougFacing:
+      "The linked diagram folder has more images than this release can publish. Crew see the first 60 images.",
+    crewFacing: null,
+    followUp: "Doug -> trim or split the folder if omitted images matter",
+    helpfulContext:
+      "Linked-folder diagram freezing caps the combined embedded and linked gallery at 60 assets.",
+  },
+  EMBEDDED_ASSET_DRIFTED: {
+    code: "EMBEDDED_ASSET_DRIFTED",
+    dougFacing:
+      "An embedded diagram changed after staging. Crew see a placeholder for that image until a new sheet edit re-stages it.",
+    crewFacing: null,
+    followUp: "Doug -> re-edit the sheet to re-stage the diagram",
+    helpfulContext:
+      "Apply re-checks the spreadsheet revision, object id, and embedded-image fingerprint before downloading bytes. A mismatch leaves the prior approved content live and marks the image for recovery or re-stage.",
+  },
   DIAGRAM_ASSET_LOOKUP_FAILED: {
     code: "DIAGRAM_ASSET_LOOKUP_FAILED",
     dougFacing: "A diagram could not be loaded. Refresh and try again.",

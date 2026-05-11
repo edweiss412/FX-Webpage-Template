@@ -158,8 +158,11 @@ export async function promoteSnapshotUpload(
           with cleared_show as (
             update public.shows s
                set diagrams = jsonb_set(s.diagrams, '{pending}', 'null'::jsonb)
-             where s.id = $1::uuid
-               and s.diagrams->'pending'->>'snapshot_revision_id' = $2
+	             where s.id = $1::uuid
+	               and coalesce(
+	                 s.diagrams->'pending'->>'revision_id',
+	                 s.diagrams->'pending'->>'snapshot_revision_id'
+	               ) = $2
              returning s.id
           ),
           cleared_ledger as (
@@ -258,7 +261,10 @@ export async function promoteSnapshotUpload(
             from public.shows s
             join public.pending_snapshot_uploads p on p.show_id = s.id
            where p.snapshot_revision_id = $1::uuid
-             and s.diagrams->'pending'->>'snapshot_revision_id' = p.snapshot_revision_id::text
+             and coalesce(
+               s.diagrams->'pending'->>'revision_id',
+               s.diagrams->'pending'->>'snapshot_revision_id'
+             ) = p.snapshot_revision_id::text
            for update of s, p
         ),
         update_show as (
@@ -394,7 +400,10 @@ export async function repairSnapshotRollback(
               update public.shows s
                  set diagrams = jsonb_set(s.diagrams, '{pending}', 'null'::jsonb)
                where s.id = $1::uuid
-                 and s.diagrams->'pending'->>'snapshot_revision_id' = $3
+                 and coalesce(
+                   s.diagrams->'pending'->>'revision_id',
+                   s.diagrams->'pending'->>'snapshot_revision_id'
+                 ) = $3
                returning s.id
             ),
             cleared_ledger as (

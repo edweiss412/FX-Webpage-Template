@@ -31,6 +31,16 @@ const REQUIRED_M5_CODES = [
   "TILE_SERVER_RENDER_FAILED",
 ] as const satisfies readonly MessageCode[];
 
+const REQUIRED_M7_WARNING_CODES = [
+  "DIAGRAMS_TAB_MISSING",
+  "DIAGRAMS_EMBEDDED_NONE_FOUND",
+  "DIAGRAMS_EMBEDDED_CAP_EXCEEDED",
+  "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+  "DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE",
+  "LINKED_FOLDER_OVERFLOW_TRUNCATED",
+  "EMBEDDED_ASSET_DRIFTED",
+] as const satisfies readonly MessageCode[];
+
 function walkFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
     const path = join(dir, entry);
@@ -76,6 +86,12 @@ describe("message catalog", () => {
   test("contains every required M5 auth/admin-alert code", () => {
     expect(Object.keys(MESSAGE_CATALOG).sort()).toEqual(
       expect.arrayContaining([...REQUIRED_M5_CODES].sort()),
+    );
+  });
+
+  test("contains every M7 linked-asset warning producer code", () => {
+    expect(Object.keys(MESSAGE_CATALOG).sort()).toEqual(
+      expect.arrayContaining([...REQUIRED_M7_WARNING_CODES].sort()),
     );
   });
 

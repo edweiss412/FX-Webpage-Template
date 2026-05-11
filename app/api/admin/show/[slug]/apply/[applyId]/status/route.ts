@@ -28,8 +28,8 @@ function pendingRevision(diagrams: unknown): string | null {
   const pending = (diagrams as Record<string, unknown>).pending;
   if (!pending || typeof pending !== "object") return null;
   const value =
-    (pending as Record<string, unknown>).snapshot_revision_id ??
-    (pending as Record<string, unknown>).revision_id;
+    (pending as Record<string, unknown>).revision_id ??
+    (pending as Record<string, unknown>).snapshot_revision_id;
   return typeof value === "string" ? value : null;
 }
 

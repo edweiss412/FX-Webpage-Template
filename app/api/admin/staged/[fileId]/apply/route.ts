@@ -1,5 +1,5 @@
 import { after, NextResponse, type NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { AdminInfraError, requireAdmin } from "@/lib/auth/requireAdmin";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { applyStaged, type ReviewerChoice } from "@/lib/sync/applyStaged";
@@ -88,7 +88,17 @@ function scheduleAfterResponse(task: () => Promise<unknown>): void {
 }
 
 export async function POST(request: NextRequest, context: RouteContext): Promise<Response> {
-  await requireAdmin();
+  try {
+    await requireAdmin();
+  } catch (error) {
+    if (error instanceof AdminInfraError) {
+      return NextResponse.json(
+        { ok: false, error: "ADMIN_SESSION_LOOKUP_FAILED" },
+        { status: 500 },
+      );
+    }
+    return NextResponse.json({ ok: false, error: "ADMIN_FORBIDDEN" }, { status: 403 });
+  }
   const { fileId } = await context.params;
 
   let body: ApplyRequestBody;

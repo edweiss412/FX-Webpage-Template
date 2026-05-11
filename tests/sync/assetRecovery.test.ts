@@ -48,12 +48,16 @@ function partialDiagrams(): PersistedDiagrams {
 
 function storage() {
   const uploads: Array<{ path: string; contentType: string }> = [];
+  const removed: string[] = [];
   const storagePort: AssetRecoveryStorage = {
     async upload(path, _bytes, options) {
       uploads.push({ path, contentType: options.contentType });
     },
+    async remove(path) {
+      removed.push(path);
+    },
   };
-  return { storagePort, uploads };
+  return { storagePort, uploads, removed };
 }
 
 describe("assetRecovery", () => {
@@ -143,7 +147,7 @@ describe("assetRecovery", () => {
     expect(alerts).toEqual(["EMBEDDED_RECOVERY_REQUIRES_RESTAGE"]);
   });
 
-  test("revision drift after lock acquisition writes cooldown and does not upload", async () => {
+  test("revision drift detected under lock writes cooldown before any canonical upload", async () => {
     const { storagePort, uploads } = storage();
     const cooldowns: unknown[] = [];
     const alerts: unknown[] = [];
@@ -175,10 +179,7 @@ describe("assetRecovery", () => {
       code: "ASSET_RECOVERY_REVISION_DRIFT",
       previewRevisionId: snapshotRevisionId,
     });
-    expect(uploads.map((upload) => upload.path)).toEqual([
-      "diagram-snapshots/shows/11111111-1111-4111-8111-111111111111/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/embedded-embedded-1.png",
-      "diagram-snapshots/shows/11111111-1111-4111-8111-111111111111/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/folder-linked-1.jpg",
-    ]);
+    expect(uploads).toEqual([]);
     expect(cooldowns).toEqual([[showId, snapshotRevisionId]]);
     expect(alerts).toEqual([
       [
@@ -190,6 +191,46 @@ describe("assetRecovery", () => {
         },
       ],
     ]);
+  });
+
+  test("revision drift after canonical upload removes uploaded recovery bytes", async () => {
+    const { storagePort, uploads, removed } = storage();
+    let lockCount = 0;
+
+    const result = await assetRecovery(showId, {
+      readPreviewShow: async () => ({ showId, driveFileId, diagrams: partialDiagrams() }),
+      withShowLock: async (_driveFileId, fn) => {
+        lockCount += 1;
+        return await fn({
+          readLockedShow: async () => ({
+            showId,
+            driveFileId,
+            diagrams:
+              lockCount === 1
+                ? partialDiagrams()
+                : { ...partialDiagrams(), snapshot_revision_id: "newer-rev" },
+          }),
+          updateRecoveredDiagrams: async () => {
+            throw new Error("drifted recovery must not update diagrams");
+          },
+          upsertRecoveryCooldown: async () => undefined,
+          deleteRecoveryCooldown: async () => undefined,
+          upsertAdminAlert: async () => undefined,
+        });
+      },
+      storage: storagePort,
+      drive: {
+        fetchEmbeddedImageBytes: async () => new TextEncoder().encode("embedded-bytes"),
+        fetchLinkedRevisionBytes: async () => new TextEncoder().encode("linked-bytes"),
+      },
+    });
+
+    expect(result).toEqual({
+      outcome: "revision_drift",
+      code: "ASSET_RECOVERY_REVISION_DRIFT",
+      previewRevisionId: snapshotRevisionId,
+    });
+    expect(removed).toEqual(uploads.map((upload) => upload.path));
   });
 
   test("busy show lock returns concurrent sync skipped", async () => {

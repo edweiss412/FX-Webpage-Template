@@ -72,7 +72,7 @@ describe("M7 pending_snapshot_uploads state-transition contract", () => {
 
     expect(source).toContain("listPendingPromotionRetries");
     expect(source).toMatch(
-      /s\.diagrams->'pending'->>'snapshot_revision_id'\s*=\s*p\.snapshot_revision_id::text/,
+      /coalesce\([\s\S]*s\.diagrams->'pending'->>'revision_id'[\s\S]*s\.diagrams->'pending'->>'snapshot_revision_id'[\s\S]*\)\s*=\s*p\.snapshot_revision_id::text/,
     );
     expect(source).toMatch(/await promoteSnapshotUpload\(snapshotRevisionId\)/);
   });
@@ -81,5 +81,13 @@ describe("M7 pending_snapshot_uploads state-transition contract", () => {
     const source = readFileSync(join(root, "lib/sync/diagramGc.ts"), "utf8");
 
     expect(source).toContain("entries.push(...(await listPaths(`${prefix}${entry.name}/`)))");
+  });
+
+  test("GC production storage listing paginates Supabase Storage pages", () => {
+    const source = readFileSync(join(root, "lib/sync/diagramGc.ts"), "utf8");
+
+    expect(source).toMatch(/const\s+pageSize\s*=\s*100/);
+    expect(source).toMatch(/bucket\.list\(objectPrefix,\s*\{\s*limit:\s*pageSize,\s*offset\s*\}/);
+    expect(source).toMatch(/offset\s*\+=\s*page\.length/);
   });
 });

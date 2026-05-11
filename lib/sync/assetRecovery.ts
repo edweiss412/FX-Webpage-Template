@@ -33,6 +33,7 @@ const MAX_RECOVERY_TOTAL_BYTES = 3 * 1024 * 1024 * 1024;
 
 export type AssetRecoveryStorage = {
   upload(path: string, bytes: Uint8Array, options: { contentType: string }): Promise<void>;
+  remove?(path: string): Promise<void>;
 };
 
 export type AssetRecoveryDrive = {
@@ -318,10 +319,13 @@ function applyVerifiedAssets(
   };
 }
 
-function isConcurrentSyncSkipped(
-  result: AssetRecoveryResult | ConcurrentSyncSkipped,
-): result is ConcurrentSyncSkipped {
-  return "skipped" in result && result.skipped === CONCURRENT_SYNC_SKIPPED;
+function isConcurrentSyncSkipped(result: unknown): result is ConcurrentSyncSkipped {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    "skipped" in result &&
+    result.skipped === CONCURRENT_SYNC_SKIPPED
+  );
 }
 
 function cooldownActive(cooldown: { lastDriftAt: string; retryCount: number }, now: Date): boolean {
@@ -357,10 +361,45 @@ export async function assetRecovery(
   }
 
   try {
+    const preUploadGate = await deps.withShowLock<AssetRecoveryResult | { outcome: "ready" }>(
+      previewShow.driveFileId,
+      async (tx) => {
+        const lockedShow = await tx.readLockedShow(showId);
+        const lockedDiagrams = lockedShow ? unwrapDiagrams(lockedShow.diagrams) : null;
+        if (!lockedDiagrams || lockedDiagrams.snapshot_status !== "partial_failure") {
+          return { outcome: "no_op" } satisfies AssetRecoveryResult;
+        }
+
+        if (lockedDiagrams.snapshot_revision_id !== previewDiagrams.snapshot_revision_id) {
+          await tx.upsertRecoveryCooldown(showId, previewDiagrams.snapshot_revision_id);
+          await tx.upsertAdminAlert(showId, ASSET_RECOVERY_REVISION_DRIFT, {
+            snapshotRevisionId: previewDiagrams.snapshot_revision_id,
+            currentSnapshotRevisionId: lockedDiagrams.snapshot_revision_id,
+          });
+          return {
+            outcome: "revision_drift",
+            code: ASSET_RECOVERY_REVISION_DRIFT,
+            previewRevisionId: previewDiagrams.snapshot_revision_id,
+          } satisfies AssetRecoveryResult;
+        }
+
+        return { outcome: "ready" as const };
+      },
+    );
+
+    if (isConcurrentSyncSkipped(preUploadGate)) {
+      return { outcome: "skipped", code: CONCURRENT_SYNC_SKIPPED };
+    }
+    if (preUploadGate.outcome !== "ready") {
+      return preUploadGate;
+    }
+
+    const uploadedPaths: string[] = [];
     for (const asset of verifiedRun.assets) {
       await deps.storage.upload(asset.path, await readFile(asset.tempPath), {
         contentType: asset.contentType,
       });
+      uploadedPaths.push(asset.path);
     }
 
     const locked = await deps.withShowLock<AssetRecoveryResult>(
@@ -434,6 +473,10 @@ export async function assetRecovery(
 
     if (isConcurrentSyncSkipped(locked)) {
       return { outcome: "skipped", code: CONCURRENT_SYNC_SKIPPED };
+    }
+
+    if (locked.outcome === "revision_drift") {
+      await Promise.all(uploadedPaths.map((path) => deps.storage.remove?.(path)));
     }
 
     return locked;
@@ -613,6 +656,13 @@ function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
           contentType: options.contentType,
           upsert: true,
         });
+        if (error) throw error;
+      },
+      async remove(path) {
+        const objectPath = path.startsWith("diagram-snapshots/")
+          ? path.slice("diagram-snapshots/".length)
+          : path;
+        const { error } = await storageClient.remove([objectPath]);
         if (error) throw error;
       },
     },

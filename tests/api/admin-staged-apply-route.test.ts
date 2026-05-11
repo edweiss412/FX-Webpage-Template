@@ -2,10 +2,14 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const adminMock = vi.hoisted(() => ({
+  AdminInfraError: class AdminInfraError extends Error {
+    readonly code = "ADMIN_SESSION_LOOKUP_FAILED";
+  },
   requireAdmin: vi.fn(async () => undefined),
 }));
 
 vi.mock("@/lib/auth/requireAdmin", () => ({
+  AdminInfraError: adminMock.AdminInfraError,
   requireAdmin: adminMock.requireAdmin,
 }));
 
@@ -138,6 +142,43 @@ describe("POST /api/admin/staged/[fileId]/apply", () => {
       reviewerChoices: [{ item_id: "i1", action: "apply" }],
       appliedByEmail: "doug@fxav.test",
     });
+  });
+
+  test("admin infra failures return ADMIN_SESSION_LOOKUP_FAILED", async () => {
+    adminMock.requireAdmin.mockRejectedValueOnce(new adminMock.AdminInfraError("rpc failed"));
+
+    const response = await POST(
+      request({
+        source_scope: "live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
+        choices: [],
+      }),
+      { params: Promise.resolve({ fileId: "drive-file-1" }) },
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
+    expect(applyMock.applyStaged).not.toHaveBeenCalled();
+  });
+
+  test("non-admin failures return ADMIN_FORBIDDEN", async () => {
+    adminMock.requireAdmin.mockRejectedValueOnce(new Error("forbidden"));
+
+    const response = await POST(
+      request({
+        source_scope: "live",
+        staged_id: "11111111-1111-4111-8111-111111111111",
+        choices: [],
+      }),
+      { params: Promise.resolve({ fileId: "drive-file-1" }) },
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: "ADMIN_FORBIDDEN" });
+    expect(applyMock.applyStaged).not.toHaveBeenCalled();
   });
 
   test("live apply without a snapshot row returns terminal applied instead of a poll id", async () => {
