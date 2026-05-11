@@ -1197,3 +1197,15 @@ M6 is approved. Final stats:
 - **Memory updates:** `feedback_codex_exec_needs_stdin_closed.md` (real cause of all "codex hangs"), `feedback_codex_hang_caused_by_orphan_mcp.md` (deprecated wrong hypothesis), `feedback_class_sweep_must_be_code_swape_not_name_list.md` (deeper class-sweep mandate that found 4 additional parallel surfaces beyond named instances across R7+R9+R11), `feedback_detect_codex_hangs_via_log_growth.md` (monitor methodology).
 
 Per the handoff §10 exit criteria, M6 §A backend convergence loop is closed. DEFERRED.md M6-D12 (Amendment 9 auto-publish + 24h-undo) remains open as the explicit deferred follow-up.
+
+### Cross-model verification (Claude Sonnet 4.6 via feature-dev:code-reviewer agent)
+
+After Codex's R14 APPROVE, dispatched a Claude-side independent review as a second-opinion cross-validation. The Claude reviewer investigated four threads beyond Codex's audit (`logSync` guard at runScheduledCronSync.ts:1347, `listPostgresLiveShows` query shape, `processOneFile` ConcurrentSyncSkipped return path, `provisionAddedCrewAuth` semantics) plus the broader M6 surface.
+
+```
+VERDICT: approve
+SUMMARY: All open review threads resolved cleanly — logSync guard, ConcurrentSyncSkipped return path, listPostgresLiveShows query shape, and provisionAddedCrewAuth semantics are all correct; no high-confidence issues found.
+FINDINGS: none
+```
+
+**Both models (Codex GPT-5.5 + Claude Sonnet 4.6) independently APPROVED M6.** Strong cross-model agreement on convergence — the milestone is genuinely converged, not an artifact of single-model blind spots.
