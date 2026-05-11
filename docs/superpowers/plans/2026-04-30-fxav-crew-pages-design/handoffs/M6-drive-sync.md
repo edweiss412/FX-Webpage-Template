@@ -1165,6 +1165,12 @@ The seven create / extend rows above are mandatory at M6 close. Empty rows silen
   2. **[medium] Existing-show hard failures persist invalid sync status** — `lib/sync/runScheduledCronSync.ts:498`. `updateShowParseError()` writes `last_sync_status = 'hard_fail'` for existing-show invariant failures, but spec status set uses `parse_error` (does NOT include `hard_fail`). Phase 1 fake transaction test expects `parse_error` — tested behavior diverges from production SQL adapter. Once stored, invalid status can persist through pending-review restore paths via `prior_last_sync_status`. Recommendation: change production adapter to persist `last_sync_status = 'parse_error'` and keep hard-fail code/message in `last_sync_error`; add a production-adapter or structural regression test proving no SQL writes unsupported `last_sync_status` values.
 - Routing: §A → direct `codex exec --sandbox workspace-write -c 'mcp_servers={}' < /dev/null`.
 
+- Fix SHAs:
+  - **`a693e6b`** `fix(sync): preserve immutable show slug + retry first-seen collisions`. 188-line diff. Production Phase 2 adapter now: (a) preserves `shows.slug` on UPDATE for existing shows, (b) derives slug only on INSERT, (c) retries with suffix on unique-violation collision. Title/date edits no longer change crew/admin URLs.
+  - **`c1ff8f2`** `fix(sync): persist last_sync_status='parse_error' for existing-show hard failures`. Tiny 4-line fix: production adapter now persists `parse_error` (matching spec enum + Phase 1 fake test) and keeps the hard-fail code/message in `last_sync_error`. Also includes a related migration fix.
+  - **`6659403`** `test(sync): structural sweep for last_sync_status enum compliance`. New 174-line test that walks every site writing `last_sync_status` and asserts only spec-defined enum values appear. Closes the class so future writes can't silently introduce invalid statuses.
+- Verification: 41/41 R13 targeted tests pass on my orchestrator machine. pnpm typecheck + pnpm lint clean. Negative-regression confirmed.
+
 ### Round 14 — re-review against R13 fix (pending)
 
-(Pending — to dispatch after R13 fix SHAs land.)
+(Pending — to dispatch after convergence log commits.)
