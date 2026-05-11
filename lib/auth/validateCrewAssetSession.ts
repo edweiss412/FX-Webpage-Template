@@ -19,7 +19,10 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
-import { validateLinkSession } from "@/lib/auth/validateLinkSession";
+import {
+  peekLinkSessionShow,
+  validateLinkSession,
+} from "@/lib/auth/validateLinkSession";
 
 const CACHE_CONTROL_PRIVATE = "private, max-age=0, must-revalidate";
 
@@ -47,6 +50,18 @@ export async function validateCrewAssetSession(
   request: NextRequest,
   showId: string,
 ): Promise<CrewAssetSessionResult> {
+  // Codex R5 P1 close-out: non-destructive cookie envelope peek BEFORE
+  // the link validator. `validateLinkSession` DELETES the link_sessions
+  // row when the cookie's show_id doesn't match the requested showId —
+  // a cross-show asset hit (e.g., a misshared URL) would otherwise wipe
+  // a crew member's valid session for the show they actually belong to.
+  // `lib/auth/resolveShowViewer.ts` uses this same pre-validator boundary;
+  // the asset routes adopt it via this helper.
+  const peek = peekLinkSessionShow(request);
+  if (peek.kind === "envelope" && peek.showId !== showId) {
+    return { ok: false, response: new Response(null, { status: 403 }) };
+  }
+
   const link = await validateLinkSession(request, { showId });
   if (link.kind === "success") {
     return link.viewer.showId === showId

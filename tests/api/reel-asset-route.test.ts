@@ -30,6 +30,11 @@ const routeMock = vi.hoisted(() => ({
     },
   } as MockLinkResult,
   google: { kind: "continue" as const },
+  linkCalls: 0,
+  googleCalls: 0,
+  peek: { kind: "none" } as
+    | { kind: "none" }
+    | { kind: "envelope"; showId: string },
   show: {
     published: true,
     opening_reel_drive_file_id: "reel-file-1",
@@ -66,11 +71,18 @@ vi.mock("@/lib/auth/isAdminSession", () => ({
 }));
 
 vi.mock("@/lib/auth/validateLinkSession", () => ({
-  validateLinkSession: async () => routeMock.link,
+  validateLinkSession: async () => {
+    routeMock.linkCalls += 1;
+    return routeMock.link;
+  },
+  peekLinkSessionShow: () => routeMock.peek,
 }));
 
 vi.mock("@/lib/auth/validateGoogleSession", () => ({
-  validateGoogleSession: async () => routeMock.google,
+  validateGoogleSession: async () => {
+    routeMock.googleCalls += 1;
+    return routeMock.google;
+  },
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -141,6 +153,9 @@ beforeEach(() => {
   routeMock.fallbackBytes = new TextEncoder().encode("reel-bytes");
   routeMock.driveCalls = [];
   routeMock.supabaseError = null;
+  routeMock.linkCalls = 0;
+  routeMock.googleCalls = 0;
+  routeMock.peek = { kind: "none" };
 });
 
 describe("/api/asset/reel/[show]", () => {
@@ -235,5 +250,13 @@ describe("/api/asset/reel/[show]", () => {
     const res = await getReel();
     // Stream is bounded by boundedWebStreamFromNode + cap; a small body still flows.
     expect(res.status).toBe(200);
+  });
+
+  test("Codex R5 P1: cross-show cookie envelope → 403 WITHOUT calling destructive validateLinkSession", async () => {
+    routeMock.peek = { kind: "envelope", showId: "other-show-id" };
+    const res = await getReel();
+    expect(res.status).toBe(403);
+    expect(routeMock.linkCalls).toBe(0);
+    expect(routeMock.googleCalls).toBe(0);
   });
 });

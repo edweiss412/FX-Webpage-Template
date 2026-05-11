@@ -27,6 +27,11 @@ const routeMock = vi.hoisted(() => ({
     viewer: { kind: "crew" as const, showId: "", crewMemberId: "crew-1" },
   } as MockLinkResult,
   google: { kind: "continue" as const },
+  linkCalls: 0,
+  googleCalls: 0,
+  peek: { kind: "none" } as
+    | { kind: "none" }
+    | { kind: "envelope"; showId: string },
   showRow: null as null | {
     id: string;
     published: boolean | null;
@@ -46,10 +51,17 @@ vi.mock("@/lib/auth/isAdminSession", () => ({
   isAdminSession: async () => routeMock.admin,
 }));
 vi.mock("@/lib/auth/validateLinkSession", () => ({
-  validateLinkSession: async () => routeMock.link,
+  validateLinkSession: async () => {
+    routeMock.linkCalls += 1;
+    return routeMock.link;
+  },
+  peekLinkSessionShow: () => routeMock.peek,
 }));
 vi.mock("@/lib/auth/validateGoogleSession", () => ({
-  validateGoogleSession: async () => routeMock.google,
+  validateGoogleSession: async () => {
+    routeMock.googleCalls += 1;
+    return routeMock.google;
+  },
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -100,6 +112,9 @@ beforeEach(() => {
     viewer: { kind: "crew", showId, crewMemberId: "crew-1" },
   };
   routeMock.google = { kind: "continue" };
+  routeMock.linkCalls = 0;
+  routeMock.googleCalls = 0;
+  routeMock.peek = { kind: "none" };
   routeMock.showRow = {
     id: showId,
     published: true,
@@ -248,5 +263,13 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     const res = await getAgenda();
     expect(res.status).toBe(200);
     expect(res.body).toBeInstanceOf(ReadableStream);
+  });
+
+  test("Codex R5 P1: cross-show cookie envelope → 403 WITHOUT calling destructive validateLinkSession", async () => {
+    routeMock.peek = { kind: "envelope", showId: "other-show-id" };
+    const res = await getAgenda();
+    expect(res.status).toBe(403);
+    expect(routeMock.linkCalls).toBe(0);
+    expect(routeMock.googleCalls).toBe(0);
   });
 });

@@ -33,6 +33,9 @@ const routeMock = vi.hoisted(() => ({
   google: { kind: "continue" as const },
   linkCalls: 0,
   googleCalls: 0,
+  peek: { kind: "none" } as
+    | { kind: "none" }
+    | { kind: "envelope"; showId: string },
   published: true as boolean | null,
   diagrams: null as unknown,
   storageBytes: new TextEncoder().encode("diagram-bytes") as Uint8Array | null,
@@ -50,6 +53,7 @@ vi.mock("@/lib/auth/validateLinkSession", () => ({
     routeMock.linkCalls += 1;
     return routeMock.link;
   },
+  peekLinkSessionShow: () => routeMock.peek,
 }));
 
 vi.mock("@/lib/auth/validateGoogleSession", () => ({
@@ -87,7 +91,7 @@ vi.mock("@/lib/supabase/server", () => ({
             return { data: null, error: { message: "not found" } };
           }
           return {
-            data: new Blob([routeMock.storageBytes], {
+            data: new Blob([routeMock.storageBytes as BlobPart], {
               type: "image/png",
             }),
             error: null,
@@ -155,6 +159,7 @@ beforeEach(() => {
   routeMock.google = { kind: "continue" };
   routeMock.linkCalls = 0;
   routeMock.googleCalls = 0;
+  routeMock.peek = { kind: "none" };
   routeMock.published = true;
   routeMock.diagrams = diagramsWithPending();
   routeMock.storageBytes = new TextEncoder().encode("diagram-bytes");
@@ -253,5 +258,16 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     routeMock.storageBytes = new Uint8Array(60 * 1024 * 1024);
     const res = await getDiagram();
     expect(res.status).toBe(410);
+  });
+
+  test("Codex R5 P1: cross-show cookie envelope → 403 WITHOUT calling destructive validateLinkSession", async () => {
+    // Crew member has a valid show-A link cookie but hits show-B's
+    // asset URL. The route must 403 BEFORE running validateLinkSession
+    // (which would DELETE the show-A session row).
+    routeMock.peek = { kind: "envelope", showId: "other-show-id" };
+    const res = await getDiagram();
+    expect(res.status).toBe(403);
+    expect(routeMock.linkCalls).toBe(0);
+    expect(routeMock.googleCalls).toBe(0);
   });
 });
