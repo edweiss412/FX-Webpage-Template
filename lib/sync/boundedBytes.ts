@@ -204,3 +204,72 @@ export function webStreamFromBytes(bytes: Uint8Array): ReadableStream<Uint8Array
     },
   });
 }
+
+export type ChunkedHashResult = {
+  chunks: Uint8Array[];
+  totalBytes: number;
+  sha256Base64Url: string;
+  md5Hex: string;
+};
+
+/**
+ * Read a bounded Node stream, hashing chunks as they flow AND retaining
+ * a single reference to each chunk in a `Uint8Array[]`. The caller can
+ * then verify the hash and, on success, hand the chunks to
+ * `webStreamFromChunks(...)` for the Response body — total in-memory
+ * residency stays at 1x the body size (no `finalizeChunks` contiguous-
+ * copy step like `readBoundedNodeStream`).
+ *
+ * Codex R3 P1 close-out: the reel fallback path uses this so a
+ * near-cap (512MB) reel never requires 2x memory just to hash-verify
+ * before serving.
+ */
+export async function readChunkedHashBoundedNodeStream(
+  stream: Readable | NodeJS.ReadableStream,
+  limitBytes: number,
+  options: BoundedReadOptions = {},
+): Promise<ChunkedHashResult> {
+  const chunks: Uint8Array[] = [];
+  const sha256 = createHash("sha256");
+  const md5 = createHash("md5");
+  let total = 0;
+  for await (const chunk of stream) {
+    const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk as ArrayBuffer);
+    total += bytes.byteLength;
+    if (total > limitBytes) {
+      if ("destroy" in stream) stream.destroy(new ByteLimitExceededError(limitBytes));
+      throw new ByteLimitExceededError(limitBytes);
+    }
+    try {
+      options.onChunk?.(bytes.byteLength);
+    } catch (error) {
+      if ("destroy" in stream) stream.destroy(error instanceof Error ? error : undefined);
+      throw error;
+    }
+    sha256.update(bytes);
+    md5.update(bytes);
+    chunks.push(bytes);
+  }
+  return {
+    chunks,
+    totalBytes: total,
+    sha256Base64Url: sha256.digest("base64url"),
+    md5Hex: md5.digest("hex"),
+  };
+}
+
+/**
+ * Build a Web ReadableStream from a pre-buffered chunk list. Each chunk
+ * is enqueued in order; the underlying memory is referenced (no copy),
+ * so total residency stays at the chunk list's byte count.
+ */
+export function webStreamFromChunks(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(chunk);
+      }
+      controller.close();
+    },
+  });
+}

@@ -11,8 +11,9 @@ import {
   boundedWebStreamFromNode,
   boundedPassThroughWeb,
   webStreamFromBytes,
-  readBoundedNodeStream,
-  readBoundedWebStream,
+  webStreamFromChunks,
+  readChunkedHashBoundedNodeStream,
+  type ChunkedHashResult,
 } from "@/lib/sync/boundedBytes";
 
 const CACHE_CONTROL = "private, max-age=0, must-revalidate";
@@ -80,10 +81,6 @@ function gone(): Response {
   });
 }
 
-function md5Hex(bytes: Uint8Array): string {
-  return createHash("md5").update(bytes).digest("hex");
-}
-
 function bytesFrom(data: unknown): Uint8Array {
   if (data instanceof Uint8Array) return data;
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
@@ -92,14 +89,31 @@ function bytesFrom(data: unknown): Uint8Array {
   return new Uint8Array();
 }
 
-async function boundedBytesFrom(data: unknown): Promise<Uint8Array> {
+async function chunkedHashFrom(data: unknown): Promise<ChunkedHashResult> {
   if (data instanceof Readable) {
-    return (await readBoundedNodeStream(data, MAX_REEL_FALLBACK_BYTES)).bytes;
+    return readChunkedHashBoundedNodeStream(data, MAX_REEL_FALLBACK_BYTES);
   }
   if (data instanceof ReadableStream) {
-    return (await readBoundedWebStream(data, MAX_REEL_FALLBACK_BYTES)).bytes;
+    // Convert Web → Node so we can reuse the chunked-hash helper without
+    // double-buffering through `readBoundedWebStream`'s finalize step.
+    // The cross-realm cast is required because `node:stream`'s
+    // `Readable.fromWeb` expects the Node-flavored web ReadableStream
+    // type rather than lib.dom's, but they're structurally identical.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nodeStream = Readable.fromWeb(data as any);
+    return readChunkedHashBoundedNodeStream(nodeStream, MAX_REEL_FALLBACK_BYTES);
   }
-  return bytesFrom(data);
+  // Non-stream input (test fixture etc): wrap as a single-chunk result so
+  // the caller's stream-builder path stays uniform.
+  const bytes = bytesFrom(data);
+  const md5 = createHash("md5").update(bytes).digest("hex");
+  const sha256 = createHash("sha256").update(bytes).digest("base64url");
+  return {
+    chunks: bytes.byteLength > 0 ? [bytes] : [],
+    totalBytes: bytes.byteLength,
+    md5Hex: md5,
+    sha256Base64Url: sha256,
+  };
 }
 
 async function authorize(request: NextRequest, showId: string): Promise<AuthorizeResult> {
@@ -260,19 +274,22 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         },
         { responseType: "stream" },
       )) as { data: unknown };
-      // md5 fallback path: buffer is unavoidable (we must hash the body
-      // before serving), but we no-copy the response by handing the
-      // buffered Uint8Array to a ReadableStream wrapper instead of an
-      // extra ArrayBuffer allocation.
-      const bytes = await boundedBytesFrom(data);
-      if (!current.md5Checksum || md5Hex(bytes) !== current.md5Checksum) {
+      // Codex R3 P1: md5 fallback must hash before serving, but
+      // `readBoundedNodeStream` finalized a 2nd contiguous Uint8Array
+      // for every chunk it had already buffered — 2x in-memory cost.
+      // `readChunkedHashBoundedNodeStream` retains a single chunk[]
+      // reference, computes the hash during the read, and hands the
+      // chunks straight to `webStreamFromChunks` for the Response —
+      // residency stays at 1x the body size.
+      const result = await chunkedHashFrom(data);
+      if (!current.md5Checksum || result.md5Hex !== current.md5Checksum) {
         return gone();
       }
-      return new Response(webStreamFromBytes(bytes), {
+      return new Response(webStreamFromChunks(result.chunks), {
         headers: {
           "Cache-Control": CACHE_CONTROL,
           "Content-Type": row.opening_reel_mime_type,
-          "Content-Length": String(bytes.byteLength),
+          "Content-Length": String(result.totalBytes),
         },
       });
     }
