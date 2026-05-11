@@ -22,7 +22,11 @@ import type {
   OpeningReelPinned,
   LinkedFolderItemStub,
   EmbeddedImageStub,
+  ParseWarning,
 } from "@/lib/parser/types";
+import { sha256Base64Url } from "@/lib/crypto/sha256";
+
+export const MAX_TOTAL_DIAGRAM_ITEMS = 60;
 
 /**
  * Drive file metadata returned by DriveClient.getFile() and listFolder().
@@ -45,6 +49,18 @@ export type DriveFolderListing = {
   files: DriveFileMeta[];
 };
 
+export type SpreadsheetEmbeddedObject = {
+  objectId: string;
+  mimeType: string;
+  alt?: string;
+  contentUrl?: string | null;
+};
+
+export type SpreadsheetSheet = {
+  title: string;
+  embeddedObjects?: SpreadsheetEmbeddedObject[];
+};
+
 export interface DriveClient {
   /** Drive `files.get` — returns metadata for a single file by ID. */
   getFile(fileId: string): Promise<DriveFileMeta>;
@@ -55,7 +71,22 @@ export interface DriveClient {
    * are unavailable (forces restage-only recovery per types.ts:215-217).
    * M3 mock returns null; M7 implements real byte capture.
    */
-  getEmbeddedImageBytes?: (spreadsheetId: string, objectId: string) => Promise<Uint8Array | null>;
+  getEmbeddedImageBytes?: (
+    spreadsheetId: string,
+    objectId: string,
+    contentUrl?: string,
+  ) => Promise<Uint8Array | null>;
+  /**
+   * Sheets API `spreadsheets.get` projection used to resolve the DIAGRAMS tab
+   * and its floating embedded objects. Optional so older tests/mocks can omit
+   * it and get the honest "no embedded images" state.
+   */
+  listSpreadsheetSheets?: (spreadsheetId: string) => Promise<SpreadsheetSheet[]>;
+  /**
+   * Drive revision lookup for the spreadsheet itself. Called only after at
+   * least one embedded image-like object is resolved.
+   */
+  getSpreadsheetRevisionId?: (spreadsheetId: string) => Promise<string | null>;
 }
 
 export type EnrichContext = {
@@ -65,6 +96,95 @@ export type EnrichContext = {
    *  fetched this before calling parseSheet, so we pass it through). */
   fileMeta: DriveFileMeta;
 };
+
+function warning(code: string, message: string): ParseWarning {
+  return { severity: "warn", code, message };
+}
+
+function isImageLike(object: SpreadsheetEmbeddedObject): boolean {
+  return object.mimeType.startsWith("image/");
+}
+
+async function extractEmbeddedImages(
+  parsed: ParsedSheet,
+  driveClient: DriveClient,
+  ctx: EnrichContext,
+  warnings: ParseWarning[],
+): Promise<EmbeddedImageStub[]> {
+  if (!driveClient.listSpreadsheetSheets) return [];
+
+  const sheets = await driveClient.listSpreadsheetSheets(ctx.driveFileId);
+  const diagramsSheet = sheets.find((sheet) => sheet.title.toLowerCase() === "diagrams");
+  if (!diagramsSheet) {
+    warnings.push(warning("DIAGRAMS_TAB_MISSING", "No DIAGRAMS tab was found in the spreadsheet."));
+    return [];
+  }
+
+  const imageObjects = (diagramsSheet.embeddedObjects ?? []).filter(isImageLike);
+  if (imageObjects.length === 0) {
+    if (!parsed.diagrams.linkedFolder) {
+      warnings.push(
+        warning(
+          "DIAGRAMS_EMBEDDED_NONE_FOUND",
+          "DIAGRAMS tab was found, but no embedded images or linked folder were found.",
+        ),
+      );
+    }
+    return [];
+  }
+
+  const keptObjects = imageObjects.slice(0, MAX_TOTAL_DIAGRAM_ITEMS);
+  const droppedCount = imageObjects.length - keptObjects.length;
+  if (droppedCount > 0) {
+    warnings.push(
+      warning(
+        "DIAGRAMS_EMBEDDED_CAP_EXCEEDED",
+        `DIAGRAMS tab has ${imageObjects.length} embedded images; dropped ${droppedCount} over the ${MAX_TOTAL_DIAGRAM_ITEMS} item cap.`,
+      ),
+    );
+  }
+
+  const sheetsRevisionId = await driveClient.getSpreadsheetRevisionId?.(ctx.driveFileId);
+  if (!sheetsRevisionId) {
+    warnings.push(
+      warning(
+        "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+        "Embedded diagrams were found, but the spreadsheet revision token was unavailable.",
+      ),
+    );
+    return [];
+  }
+
+  const embeddedImages: EmbeddedImageStub[] = [];
+  for (const object of keptObjects) {
+    let bytes: Uint8Array | null = null;
+    if (object.contentUrl && driveClient.getEmbeddedImageBytes) {
+      bytes = await driveClient.getEmbeddedImageBytes(ctx.driveFileId, object.objectId, object.contentUrl);
+    }
+
+    if (!bytes) {
+      warnings.push(
+        warning(
+          "DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE",
+          `Embedded diagram ${object.objectId} could not be downloaded.`,
+        ),
+      );
+    }
+
+    embeddedImages.push({
+      sheetTab: diagramsSheet.title,
+      objectId: object.objectId,
+      mimeType: object.mimeType,
+      ...(object.alt ? { alt: object.alt } : {}),
+      sheetsRevisionId,
+      embeddedFingerprint: bytes ? sha256Base64Url(bytes) : null,
+      recovery_disposition: bytes ? "normal" : "restage_required",
+      snapshotPath: null,
+    });
+  }
+
+  return embeddedImages;
+}
 
 /**
  * Phase-1 enrichment.
@@ -108,15 +228,8 @@ export async function enrichWithDrivePins(
     }));
   }
 
-  // M3 ships embeddedImages: []. M7 (Task 7.1) populates this via Sheets API
-  // + drive.images.contentUrl byte capture. Anti-pattern guard: do NOT
-  // synthesize embedded images here; an empty list is the honest M3 state.
-  const embeddedImages: EmbeddedImageStub[] = [];
-
-  // Acknowledge ctx so it's wired through the pipeline; M6/M7 will use
-  // ctx.driveFileId/ctx.fileMeta to populate fields the parser cannot know
-  // (e.g. the show's own headRevisionId for the parse_result audit).
-  void ctx;
+  const warnings = [...parsed.warnings];
+  const embeddedImages = await extractEmbeddedImages(parsed, driveClient, ctx, warnings);
 
   return {
     show: parsed.show,
@@ -133,7 +246,7 @@ export async function enrichWithDrivePins(
     },
     openingReel,
     raw_unrecognized: parsed.raw_unrecognized,
-    warnings: parsed.warnings,
+    warnings,
     hardErrors: parsed.hardErrors,
   };
 }
