@@ -74,9 +74,14 @@ export async function validateCrewAssetSession(
       response: NextResponse.json({ error: link.code }, { status: link.status }),
     };
   }
-  if (link.priorFailure?.status === 410) {
-    return { ok: false, response: gone() };
-  }
+
+  // Codex R9 P1: a recoverable 410 from the link branch is PROVISIONAL —
+  // a crew member with a stale revoked link cookie may still hold a valid
+  // Google session for the same show, in which case the page resolver
+  // (`lib/auth/resolveShowViewer.ts`) lets them through. The asset routes
+  // MUST mirror that fallthrough: save the link's 410 fallback response
+  // and only return it if Google ALSO fails.
+  const linkFallback410 = link.priorFailure?.status === 410 ? gone() : null;
 
   const google = await validateGoogleSession(request, { showId });
   if (google.kind === "success") {
@@ -91,5 +96,11 @@ export async function validateCrewAssetSession(
     };
   }
 
+  // Google didn't authenticate. If the link branch carried a 410 prior
+  // failure, surface it now (the link revocation IS the user-visible
+  // reason); otherwise generic 401.
+  if (linkFallback410) {
+    return { ok: false, response: linkFallback410 };
+  }
   return { ok: false, response: new Response(null, { status: 401 }) };
 }

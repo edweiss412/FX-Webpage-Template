@@ -286,4 +286,25 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
   });
+
+  test("Codex R9 P1: stale revoked link cookie does NOT block a valid Google session", async () => {
+    // The crew member has a stale link cookie (revoked, prior 410) AND a
+    // valid Google session for this show. The page resolver lets them
+    // through; the asset route MUST mirror that fallthrough.
+    routeMock.link = {
+      kind: "continue",
+      clearCookie: true,
+      priorFailure: { status: 410, code: "LINK_NO_CREW_MATCH" },
+    };
+    routeMock.google = {
+      kind: "success" as const,
+      viewer: { kind: "crew", showId, crewMemberId: "crew-1" },
+    } as never;
+    const res = await getDiagram();
+    expect(res.status).toBe(200);
+    // Sanity: both validators were exercised — the helper didn't
+    // short-circuit on the link 410.
+    expect(routeMock.linkCalls).toBeGreaterThan(0);
+    expect(routeMock.googleCalls).toBeGreaterThan(0);
+  });
 });
