@@ -550,3 +550,35 @@ The seven create / extend rows above are mandatory at M7 close. Empty rows silen
 - `pnpm test:e2e --project=mobile-safari`: **NOT YET RUN** in this session (Playwright requires a running dev server; deferred to CI). The existing `tests/e2e/empty-state.spec.ts` opening-reel suite is expected to remain green because the inner `data-testid="opening-reel"` selector is preserved on the new OpeningReelTile text row. The new `[data-testid=opening-reel-tile]` outer scope element is what AC-7.25 was always specifying.
 
 **Frontend result.** M7 Task 7.9 UI surface ships with the §12 quality gate closed (zero P0/P1). Awaiting cross-model adversarial review (Codex) per ROUTING.md M7 row's split-mode contract. Frontend HEAD will be `c569c72` plus this convergence-log doc commit; the adversarial-review base is `3034b5c` (backend close-out) so the diff covers the full Opus coda.
+
+### Adversarial review convergence — 2026-05-11 (R20→R26, APPROVE/SHIP at R26)
+
+**Outcome.** Cross-model adversarial review converged to SHIP at R26 (`review-mp1t5rch-2qik83`) after 7 rounds. Base for every round was `3034b5c` (backend close-out) per the full-milestone-scope rule. The chain surfaced 6 consecutive HTTP-semantics findings (R20-R25) on the asset proxy surface — twice triggering the AGENTS.md "Same-vector recurrence → comprehensive re-analysis" rule. Both structural passes were necessary to converge.
+
+**Round-by-round commits:**
+
+| Round | Codex job id | Verdict + summary | Fix commit |
+| --- | --- | --- | --- |
+| R20 | `review-mp1hgni7-htvzwd` | NO-SHIP: Drive 416 → 500 mapping (Range unsatisfiable not surfaced as 416). | (pre-R23 patches) |
+| R21 | `review-mp1p370o-dq0tkq` | NO-SHIP: diagram 206 cap-bypass via piecemeal Range. | (pre-R23 patches) |
+| R22 | `review-mp1pbiex-9yxdhm` | NO-SHIP: R21 fix didn't reach agenda + reel (class-sweep miss). | `9945396` |
+| R23 | `review-mp1pk5us-5tttkp` | NO-SHIP: 206 fail-closed + HEAD + Cache-Control + Vary still missing across the surface. | `51ba0c8` (RFC 7233/9110/9111 comprehensive audit + patches; +41 tests) |
+| R24 | `review-mp1sg3vh-c7xlh6` | NEEDS-ATTENTION: diagram HEAD reports 200 for storage-missing/over-cap objects (HEAD/GET parity violation). | `02dda36` (structural HEAD/GET parity contract + per-route parity test blocks for failure modes; +22 tests) |
+| R25 | `review-mp1sqtcu-np9oo8` | NO-SHIP: HEAD-200 vs GET-206 on satisfiable Range (R24 parity block parametrized only over failure modes); reel post-Apply drift renders broken `<video>` instead of AC-7.21 placeholder. | `68bfa48` (HEAD computes 206 + Content-Range from known size; new `OpeningReelVideo` client component swaps to placeholder on media error; +12 tests) |
+| R26 | `review-mp1t5rch-2qik83` | **SHIP / APPROVE** — no material findings. Branch ships. | — |
+
+**Structural lessons (added to AGENTS.md):**
+
+1. **AGENTS.md §1 line 75 — Same-vector recurrence rule.** 3 consecutive rounds on the same vector → comprehensive re-analysis required before next review fires. If the round AFTER the comprehensive pass still surfaces the same-vector class, the analysis is structurally incomplete — stop patching, deep-dive spec + diff together until convergence is structural. M7 Task 7.9 R20-R22 (per-instance) → R23 (structural #1) → R24 still found gap → R25 (structural #2 — extended success-path coverage) → R26 SHIP. The rule earned its keep here: each successive structural pass NARROWED the gap class (per-instance → failure-mode parametrization → success-mode parametrization) rather than chasing individual instances.
+2. **Memory: "No pause after comprehensive re-analysis audit"** (`feedback_no_pause_after_audit.md`). Codified after I paused for confirmation post-R23 audit. Subsequent rounds proceeded directly: audit → patch → review.
+
+**Final HEAD.** R26 verdict commit is `68bfa48`. The full convergence chain (R23/R24/R25 patches) lives in: `51ba0c8`, `02dda36`, `68bfa48` + meta updates `9945396`, `c069893` (AGENTS.md rule).
+
+**Tests added during convergence (cumulative):**
+
+- `tests/api/agenda-asset-route.test.ts`: +13 R23 + +7 R24 + +3 R25 (23 new).
+- `tests/api/reel-asset-route.test.ts`: +15 R23 + +7 R24 + +3 R25 (25 new).
+- `tests/api/diagram-asset-route.test.ts`: +13 R23 + +8 R24 + +3 R25 (24 new).
+- `tests/components/tiles/OpeningReelVideo.test.tsx`: +3 R25 (new file).
+
+**Net delta from R23 first comprehensive audit through R26 SHIP:** +75 tests, +1262 / -42 lines of code across 9 files. Two new AGENTS.md rules, one new feedback memory.
