@@ -114,6 +114,17 @@ function gone(): Response {
   return new Response(null, { status: 410, headers: { "Cache-Control": CACHE_CONTROL } });
 }
 
+// Codex R23 P2: every error shape carries Cache-Control so auth/infra
+// failures are not cached by a private intermediary (browser HTTP cache,
+// service worker). Per RFC 9111 §5.2 — `private, max-age=0,
+// must-revalidate` matches the rest of the asset proxy surface.
+function infraError(code: string): Response {
+  return NextResponse.json(
+    { error: code },
+    { status: 500, headers: { "Cache-Control": CACHE_CONTROL } },
+  );
+}
+
 function isPermissionDenied(error: unknown): boolean {
   const candidate = error as {
     code?: unknown;
@@ -177,17 +188,33 @@ function parseSingleRangeAgenda(
   return { start, end: Math.min(end, totalBytes - 1) };
 }
 
-export async function GET(request: NextRequest, context: RouteContext): Promise<Response> {
+type AgendaAuthSuccess = {
+  ok: true;
+  show: string;
+  id: string;
+  meta: DriveMetadata;
+  reportedSize: number;
+  drive: ReturnType<typeof getDriveClient>;
+};
+
+// Codex R23 P2: auth + Drive metadata phase shared between GET and
+// HEAD so HEAD short-circuits before opening a media stream. The
+// helper also runs the Drive metadata get (size + MIME + trashed)
+// because HEAD needs Content-Length/Content-Type from it and GET needs
+// the same data for the pre-flight Range checks.
+async function authorizeAgendaRequest(
+  request: NextRequest,
+  context: RouteContext,
+): Promise<AgendaAuthSuccess | { ok: false; response: Response }> {
   const { show, id } = await context.params;
 
   if (!DRIVE_FILE_ID_RE.test(id)) {
-    return gone();
+    return { ok: false, response: gone() };
   }
 
-  // Codex R4 P1: admin check FIRST (no side effects).
   const admin = await isAdminSession(request);
   if (!admin.ok && admin.reason === "infra_error") {
-    return NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
+    return { ok: false, response: infraError("ADMIN_SESSION_LOOKUP_FAILED") };
   }
   const isAdmin = admin.ok;
 
@@ -201,10 +228,129 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       .eq("id", show)
       .maybeSingle()) as { data: AgendaShowRow | null; error: unknown };
   } catch {
-    return NextResponse.json({ error: "AGENDA_ASSET_LOOKUP_FAILED" }, { status: 500 });
+    return { ok: false, response: infraError("AGENDA_ASSET_LOOKUP_FAILED") };
   }
   if (lookup.error) {
-    return NextResponse.json({ error: "AGENDA_ASSET_LOOKUP_FAILED" }, { status: 500 });
+    return { ok: false, response: infraError("AGENDA_ASSET_LOOKUP_FAILED") };
+  }
+  const data = lookup.data;
+  if (!data) return { ok: false, response: gone() };
+  if (!isAdmin && data.published !== true) return { ok: false, response: gone() };
+  if (!isAdmin) {
+    const session = await validateCrewAssetSession(request, show);
+    if (!session.ok) return { ok: false, response: session.response };
+  }
+
+  const matched = (data.agenda_links ?? []).some((entry) => entry.fileId === id);
+  if (!matched) return { ok: false, response: gone() };
+
+  const drive = getDriveClient() as unknown as {
+    files: {
+      get(
+        args: {
+          fileId: string;
+          fields?: string;
+          alt?: "media";
+          supportsAllDrives?: boolean;
+        },
+        options?: {
+          responseType: "stream";
+          headers?: Record<string, string>;
+        },
+      ): Promise<{
+        data: unknown;
+        status?: number;
+        headers?: Record<string, string | string[] | undefined>;
+      }>;
+    };
+  };
+
+  let meta: DriveMetadata;
+  try {
+    const metaResult = (await drive.files.get({
+      fileId: id,
+      fields: "mimeType,trashed,size",
+      supportsAllDrives: true,
+    })) as { data: DriveMetadata };
+    meta = metaResult.data;
+  } catch (err) {
+    if (isNotFoundOrGone(err) || isPermissionDenied(err)) {
+      return { ok: false, response: gone() };
+    }
+    return { ok: false, response: infraError("AGENDA_ASSET_LOOKUP_FAILED") };
+  }
+  if (meta.trashed || meta.mimeType !== PDF_MIME) {
+    return { ok: false, response: gone() };
+  }
+  const reportedSize = meta.size != null ? Number(meta.size) : NaN;
+  if (Number.isFinite(reportedSize) && reportedSize > MAX_AGENDA_BYTES) {
+    return { ok: false, response: gone() };
+  }
+
+  return { ok: true, show, id, meta, reportedSize, drive: drive as ReturnType<typeof getDriveClient> };
+}
+
+// Codex R23 P2: explicit HEAD handler. Next's App Router auto-implements
+// HEAD by running GET and stripping the body — which means a HEAD probe
+// would still call Drive `alt: "media"` and open the byte stream. HEAD
+// now returns metadata-only headers after the same auth chain + Drive
+// metadata lookup, never opens the media stream.
+export async function HEAD(request: NextRequest, context: RouteContext): Promise<Response> {
+  const authz = await authorizeAgendaRequest(request, context);
+  if (!authz.ok) return authz.response;
+
+  const rangeHeader = request.headers.get("range");
+  if (rangeHeader && !SINGLE_RANGE_RE.test(rangeHeader)) {
+    return rangeNotSatisfiable(Number.isFinite(authz.reportedSize) ? authz.reportedSize : null);
+  }
+  if (rangeHeader && Number.isFinite(authz.reportedSize)) {
+    const parsed = parseSingleRangeAgenda(rangeHeader, authz.reportedSize);
+    if (parsed === "unsatisfiable") {
+      return rangeNotSatisfiable(authz.reportedSize);
+    }
+  }
+
+  const headers: Record<string, string> = {
+    "Cache-Control": CACHE_CONTROL,
+    "Content-Type": PDF_MIME,
+    "X-Content-Type-Options": "nosniff",
+    "Accept-Ranges": "bytes",
+    Vary: "Range",
+  };
+  if (Number.isFinite(authz.reportedSize)) {
+    headers["Content-Length"] = String(authz.reportedSize);
+  }
+  return new Response(null, { status: 200, headers });
+}
+
+export async function GET(request: NextRequest, context: RouteContext): Promise<Response> {
+  const { show, id } = await context.params;
+
+  if (!DRIVE_FILE_ID_RE.test(id)) {
+    return gone();
+  }
+
+  // Codex R4 P1: admin check FIRST (no side effects).
+  const admin = await isAdminSession(request);
+  if (!admin.ok && admin.reason === "infra_error") {
+    return infraError("ADMIN_SESSION_LOOKUP_FAILED");
+  }
+  const isAdmin = admin.ok;
+
+  let supabase: ReturnType<typeof createSupabaseServiceRoleClient>;
+  let lookup: { data: AgendaShowRow | null; error: unknown };
+  try {
+    supabase = createSupabaseServiceRoleClient();
+    lookup = (await supabase
+      .from("shows")
+      .select("id,published,agenda_links")
+      .eq("id", show)
+      .maybeSingle()) as { data: AgendaShowRow | null; error: unknown };
+  } catch {
+    return infraError("AGENDA_ASSET_LOOKUP_FAILED");
+  }
+  if (lookup.error) {
+    return infraError("AGENDA_ASSET_LOOKUP_FAILED");
   }
   const data = lookup.data;
   if (!data) {
@@ -311,6 +457,11 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         // response so PDF.js + browser video clients know subsequent
         // fetches may use Range.
         "Accept-Ranges": "bytes",
+        // Codex R23 P2: same URL serves both 200 and 206 depending on
+        // the `Range` request header; an HTTP cache (even a private
+        // one) MUST key responses on Range to avoid serving a 206 slice
+        // to a later request that did NOT send Range. Per RFC 9111 §4.1.
+        Vary: "Range",
       };
       // Drive's response carries Content-Range / Content-Length on 206
       // partials and Content-Length on full 200s. Forward verbatim
@@ -318,25 +469,29 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       const contentRange = pickStringHeader(bytesResult.headers, "content-range");
       const driveContentLength = pickStringHeader(bytesResult.headers, "content-length");
       const driveStatus = typeof bytesResult.status === "number" ? bytesResult.status : 200;
-      // Codex R22 P1: on 206, gate on the TOTAL size from Content-Range,
-      // not just the slice length. A 60MB PDF with bad/missing metadata
-      // `size` could otherwise be fetched piecemeal via repeated <50MB
-      // Range slices, bypassing MAX_AGENDA_BYTES entirely.
-      if (driveStatus === 206 && contentRange) {
-        const totalMatch = contentRange.match(/^bytes \d+-\d+\/(\d+)$/);
-        if (totalMatch) {
-          const total = Number(totalMatch[1]);
-          if (Number.isFinite(total) && total > MAX_AGENDA_BYTES) {
-            // The data stream is a Node Readable we haven't piped yet;
-            // destroy it explicitly to release the upstream socket.
-            const data = bytesResult.data;
-            if (data instanceof Readable) {
-              data.destroy();
-            } else if (data instanceof ReadableStream) {
-              await (data as ReadableStream<Uint8Array>).cancel().catch(() => undefined);
-            }
-            return gone();
+      // Codex R22 P1 + R23 P1: on 206, gate on the TOTAL size from
+      // Content-Range, not just the slice length. A 60MB PDF with
+      // bad/missing metadata `size` could otherwise be fetched piecemeal
+      // via repeated <50MB Range slices, bypassing MAX_AGENDA_BYTES.
+      //
+      // R23 P1 hardening: the original guard only ran when Content-Range
+      // matched the numeric-total regex. RFC 7233 / 9110 §14.4 allows
+      // `Content-Range: bytes <s>-<e>/*` (unknown total), and Drive (or
+      // any upstream) may omit Content-Range entirely on a 206. The old
+      // code silently fell through and served the slice in those cases.
+      // Fail-closed unless we can affirmatively prove total <= cap;
+      // destroy the upstream Node stream to release the socket.
+      if (driveStatus === 206) {
+        const totalMatch = contentRange?.match(/^bytes \d+-\d+\/(\d+)$/);
+        const total = totalMatch ? Number(totalMatch[1]) : NaN;
+        if (!Number.isFinite(total) || total > MAX_AGENDA_BYTES) {
+          const data = bytesResult.data;
+          if (data instanceof Readable) {
+            data.destroy();
+          } else if (data instanceof ReadableStream) {
+            await (data as ReadableStream<Uint8Array>).cancel().catch(() => undefined);
           }
+          return gone();
         }
       }
       if (contentRange) headers["Content-Range"] = contentRange;
@@ -384,6 +539,6 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     // already handles 404; this picks up the metadata-call path AND
     // any other 404/410 surface that bubbles past the inner catches.
     if (isNotFoundOrGone(err)) return gone();
-    return NextResponse.json({ error: "AGENDA_ASSET_LOOKUP_FAILED" }, { status: 500 });
+    return infraError("AGENDA_ASSET_LOOKUP_FAILED");
   }
 }

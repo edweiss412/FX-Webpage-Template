@@ -25,12 +25,31 @@ import {
 } from "@/lib/auth/validateLinkSession";
 
 const CACHE_CONTROL_PRIVATE = "private, max-age=0, must-revalidate";
+const PRIVATE_HEADERS = { "Cache-Control": CACHE_CONTROL_PRIVATE };
 
 function gone(): Response {
   return new Response(null, {
     status: 410,
-    headers: { "Cache-Control": CACHE_CONTROL_PRIVATE },
+    headers: PRIVATE_HEADERS,
   });
+}
+
+function forbidden(): Response {
+  return new Response(null, {
+    status: 403,
+    headers: PRIVATE_HEADERS,
+  });
+}
+
+function unauthorized(): Response {
+  return new Response(null, {
+    status: 401,
+    headers: PRIVATE_HEADERS,
+  });
+}
+
+function terminalFailure(code: string, status: number): Response {
+  return NextResponse.json({ error: code }, { status, headers: PRIVATE_HEADERS });
 }
 
 export type CrewAssetSessionResult =
@@ -71,12 +90,12 @@ export async function validateCrewAssetSession(
     if (link.kind === "success") {
       return link.viewer.showId === showId
         ? { ok: true }
-        : { ok: false, response: new Response(null, { status: 403 }) };
+        : { ok: false, response: forbidden() };
     }
     if (link.kind === "terminal_failure") {
       return {
         ok: false,
-        response: NextResponse.json({ error: link.code }, { status: link.status }),
+        response: terminalFailure(link.code, link.status),
       };
     }
 
@@ -93,12 +112,12 @@ export async function validateCrewAssetSession(
   if (google.kind === "success") {
     return google.viewer.showId === showId
       ? { ok: true }
-      : { ok: false, response: new Response(null, { status: 403 }) };
+      : { ok: false, response: forbidden() };
   }
   if (google.kind === "terminal_failure") {
     return {
       ok: false,
-      response: NextResponse.json({ error: google.code }, { status: google.status }),
+      response: terminalFailure(google.code, google.status),
     };
   }
 
@@ -112,7 +131,7 @@ export async function validateCrewAssetSession(
     return { ok: false, response: linkFallback410 };
   }
   if (crossShowLinkCookie) {
-    return { ok: false, response: new Response(null, { status: 403 }) };
+    return { ok: false, response: forbidden() };
   }
-  return { ok: false, response: new Response(null, { status: 401 }) };
+  return { ok: false, response: unauthorized() };
 }

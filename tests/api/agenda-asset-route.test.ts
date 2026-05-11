@@ -61,6 +61,14 @@ const routeMock = vi.hoisted(() => ({
   // to simulate Drive returning a 206 whose total size exceeds the
   // route's MAX_AGENDA_BYTES cap (Codex R22 P1).
   agenda206TotalOverride: null as number | null,
+  // Codex R23 P1 controls: simulate misbehaving upstream that omits
+  // Content-Range on 206 (omit206ContentRange) or sends the
+  // RFC-7233-legal "unknown total" form `bytes 0-9/*` (use206StarTotal)
+  // or sends a malformed total that doesn't match the numeric regex
+  // (use206MalformedTotal). All three must fail-closed at the route.
+  omit206ContentRange: false as boolean,
+  use206StarTotal: false as boolean,
+  use206MalformedTotal: false as boolean,
 }));
 
 vi.mock("@/lib/auth/isAdminSession", () => ({
@@ -125,9 +133,16 @@ vi.mock("@/lib/drive/client", () => ({
               routeMock.agenda206TotalOverride !== null
                 ? routeMock.agenda206TotalOverride
                 : routeMock.driveBytes.byteLength;
-            const headers: Record<string, string> = {
-              "content-range": `bytes 0-9/${total}`,
-            };
+            const headers: Record<string, string> = {};
+            if (!routeMock.omit206ContentRange) {
+              if (routeMock.use206StarTotal) {
+                headers["content-range"] = `bytes 0-9/*`;
+              } else if (routeMock.use206MalformedTotal) {
+                headers["content-range"] = `bytes 0-9/not-a-number`;
+              } else {
+                headers["content-range"] = `bytes 0-9/${total}`;
+              }
+            }
             if (!routeMock.omit206ContentLength) {
               headers["content-length"] = String(routeMock.driveBytes.byteLength);
             }
@@ -176,7 +191,22 @@ beforeEach(() => {
   routeMock.lastMediaOptions = null;
   routeMock.omit206ContentLength = false;
   routeMock.agenda206TotalOverride = null;
+  routeMock.omit206ContentRange = false;
+  routeMock.use206StarTotal = false;
+  routeMock.use206MalformedTotal = false;
 });
+
+async function headAgenda(
+  fileId = agendaFileId,
+  init?: { headers?: Record<string, string> },
+): Promise<Response> {
+  const { HEAD } = await import("@/app/api/asset/agenda/[show]/[id]/route");
+  const url = `https://crew.fxav.test/api/asset/agenda/${showId}/${fileId}`;
+  const req = init?.headers
+    ? new NextRequest(url, { headers: init.headers })
+    : new NextRequest(url);
+  return HEAD(req, { params: Promise.resolve({ show: showId, id: fileId }) });
+}
 
 describe("/api/asset/agenda/[show]/[id]", () => {
   test("rejects unauthenticated requests before any Drive call", async () => {
@@ -431,5 +461,125 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     const res = await getAgenda();
     expect(res.status).toBe(403);
     expect(routeMock.linkCalls).toBe(0);
+  });
+
+  // ───────────────────────────────────────────────────────────────
+  // Codex R23 — RFC 7233 / 9110 / 9111 comprehensive sweep
+  // ───────────────────────────────────────────────────────────────
+
+  test("Codex R23 P1: 206 with `bytes 0-9/*` total → fail-closed 410 (no body served)", async () => {
+    // RFC 7233 / 9110 §14.4 allows `Content-Range: bytes <s>-<e>/*`
+    // (unknown total). The prior cap-gate only ran when the regex
+    // matched a numeric total — so a `*` total slipped through and
+    // could be used to extract an oversized object piecemeal. With
+    // R23 P1, any 206 without a parseable numeric total MUST fail
+    // closed.
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: null };
+    routeMock.use206StarTotal = true;
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(410);
+  });
+
+  test("Codex R23 P1: 206 without any Content-Range header → fail-closed 410", async () => {
+    // If upstream omits Content-Range entirely on a 206, route MUST
+    // fail closed since the total size cannot be verified against the
+    // cap.
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: null };
+    routeMock.omit206ContentRange = true;
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(410);
+  });
+
+  test("Codex R23 P1: 206 with malformed (non-numeric) total → fail-closed 410", async () => {
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: null };
+    routeMock.use206MalformedTotal = true;
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(410);
+  });
+
+  test("Codex R23 P2: Vary: Range present on 200 success", async () => {
+    const res = await getAgenda();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("vary")).toBe("Range");
+  });
+
+  test("Codex R23 P2: Vary: Range present on 206 partial", async () => {
+    const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("vary")).toBe("Range");
+  });
+
+  test("Codex R23 P2: 500 infra-error response carries private Cache-Control", async () => {
+    routeMock.driveError = new Error("drive blew up");
+    const res = await getAgenda();
+    expect(res.status).toBe(500);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+  });
+
+  test("Codex R23 P2: 401 (unauthenticated) response carries private Cache-Control", async () => {
+    routeMock.link = { kind: "continue" };
+    const res = await getAgenda();
+    expect(res.status).toBe(401);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+  });
+
+  test("Codex R23 P2: 403 (cross-show) response carries private Cache-Control", async () => {
+    routeMock.link = {
+      kind: "success",
+      viewer: { kind: "crew", showId: "other-show", crewMemberId: "crew-1" },
+    };
+    const res = await getAgenda();
+    expect(res.status).toBe(403);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+  });
+
+  test("Codex R23 P2: HEAD returns 200 metadata headers without opening media stream", async () => {
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: "22" };
+    const res = await headAgenda();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/pdf");
+    expect(res.headers.get("content-length")).toBe("22");
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
+    expect(res.headers.get("vary")).toBe("Range");
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    // Body MUST be empty for HEAD.
+    const body = await res.arrayBuffer();
+    expect(body.byteLength).toBe(0);
+    // Most important: HEAD must NOT call drive.files.get with alt=media.
+    expect(routeMock.filesGetCalls.filter((c) => c.alt === "media")).toEqual([]);
+  });
+
+  test("Codex R23 P2: HEAD runs same auth chain → 401 when unauthenticated", async () => {
+    routeMock.link = { kind: "continue" };
+    const res = await headAgenda();
+    expect(res.status).toBe(401);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+    expect(routeMock.filesGetCalls).toEqual([]);
+  });
+
+  test("Codex R23 P2: HEAD on unpublished show → 410 (no media call)", async () => {
+    routeMock.showRow = {
+      id: showId,
+      published: false,
+      agenda_links: [{ label: "Agenda", fileId: agendaFileId }],
+    };
+    const res = await headAgenda();
+    expect(res.status).toBe(410);
+    expect(routeMock.filesGetCalls.filter((c) => c.alt === "media")).toEqual([]);
+  });
+
+  test("Codex R23 P2: HEAD with malformed Range → 416 (no media call)", async () => {
+    const res = await headAgenda(agendaFileId, { headers: { Range: "bytes=0-10, 20-30" } });
+    expect(res.status).toBe(416);
+    expect(routeMock.filesGetCalls.filter((c) => c.alt === "media")).toEqual([]);
+  });
+
+  test("Codex R23 P2: HEAD with unsatisfiable Range (known size) → 416 + Content-Range", async () => {
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: "10" };
+    const res = await headAgenda(agendaFileId, { headers: { Range: "bytes=-0" } });
+    expect(res.status).toBe(416);
+    expect(res.headers.get("content-range")).toBe("bytes */10");
+    expect(routeMock.filesGetCalls.filter((c) => c.alt === "media")).toEqual([]);
   });
 });

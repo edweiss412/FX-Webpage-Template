@@ -152,6 +152,15 @@ function gone(): Response {
   });
 }
 
+// Codex R23 P2: every error shape carries Cache-Control so auth/infra
+// failures are not cached by a private intermediary. Per RFC 9111 §5.2.
+function infraError(code: string): Response {
+  return NextResponse.json(
+    { error: code },
+    { status: 500, headers: { "Cache-Control": CACHE_CONTROL } },
+  );
+}
+
 function bytesFrom(data: unknown): Uint8Array {
   if (data instanceof Uint8Array) return data;
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
@@ -271,13 +280,27 @@ function rangeNotSatisfiable(totalBytes: number | null): Response {
   return new Response(null, { status: 416, headers });
 }
 
-export async function GET(request: NextRequest, context: RouteContext): Promise<Response> {
+type ReelAuthSuccess = {
+  ok: true;
+  row: UsableReelRow;
+  current: DriveMetadata;
+  reportedSize: number;
+  drive: ReelDriveClient;
+};
+
+// Codex R23 P2: auth + Drive metadata + drift check shared between GET
+// and HEAD. HEAD short-circuits before opening revisions.get media
+// stream; both paths share the same single set of admin/link/google +
+// published gate + drift decisions.
+async function authorizeReelRequest(
+  request: NextRequest,
+  context: RouteContext,
+): Promise<ReelAuthSuccess | { ok: false; response: Response }> {
   const { show } = await context.params;
 
-  // Codex R4 P1: admin check FIRST (no side effects).
   const admin = await isAdminSession(request);
   if (!admin.ok && admin.reason === "infra_error") {
-    return NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
+    return { ok: false, response: infraError("ADMIN_SESSION_LOOKUP_FAILED") };
   }
   const isAdmin = admin.ok;
 
@@ -293,12 +316,103 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       .eq("id", show)
       .maybeSingle()) as { data: ReelRow | null; error: unknown };
   } catch {
-    return NextResponse.json({ error: "REEL_ASSET_LOOKUP_FAILED" }, { status: 500 });
+    return { ok: false, response: infraError("REEL_ASSET_LOOKUP_FAILED") };
+  }
+  if (lookup.error) {
+    return { ok: false, response: infraError("REEL_ASSET_LOOKUP_FAILED") };
+  }
+  const row = lookup.data;
+  if (!row) return { ok: false, response: gone() };
+  if (!isAdmin && row.published !== true) return { ok: false, response: gone() };
+  if (!isAdmin) {
+    const session = await validateCrewAssetSession(request, show);
+    if (!session.ok) return { ok: false, response: session.response };
+  }
+  if (!hasUsablePin(row)) return { ok: false, response: gone() };
+
+  const drive = getDriveClient() as unknown as ReelDriveClient;
+  let current: DriveMetadata;
+  try {
+    const meta = (await drive.files.get({
+      fileId: row.opening_reel_drive_file_id,
+      fields: "modifiedTime,trashed,headRevisionId,md5Checksum,size",
+      supportsAllDrives: true,
+    })) as { data: DriveMetadata };
+    current = meta.data;
+  } catch (err) {
+    if (isPermissionDenied(err)) return { ok: false, response: gone() };
+    if (isNotFoundOrGone(err)) return { ok: false, response: gone() };
+    return { ok: false, response: infraError("REEL_ASSET_LOOKUP_FAILED") };
+  }
+  if (drifted(row, current)) return { ok: false, response: gone() };
+  const reportedSize = current.size != null ? Number(current.size) : NaN;
+  if (Number.isFinite(reportedSize) && reportedSize > MAX_REEL_FALLBACK_BYTES) {
+    return { ok: false, response: gone() };
+  }
+
+  return { ok: true, row, current, reportedSize, drive };
+}
+
+// Codex R23 P2: explicit HEAD handler so the proxy answers HEAD
+// metadata-only without opening the revisions.get media stream that
+// Next's auto-HEAD-via-GET would. Same auth chain + drift contract as
+// GET; metadata pre-flight serves Content-Length when Drive reports it.
+export async function HEAD(request: NextRequest, context: RouteContext): Promise<Response> {
+  const authz = await authorizeReelRequest(request, context);
+  if (!authz.ok) return authz.response;
+
+  const rangeHeader = request.headers.get("range");
+  if (rangeHeader && !SINGLE_RANGE_RE.test(rangeHeader)) {
+    return rangeNotSatisfiable(Number.isFinite(authz.reportedSize) ? authz.reportedSize : null);
+  }
+  if (rangeHeader && Number.isFinite(authz.reportedSize)) {
+    const parsed = parseSingleRange(rangeHeader, authz.reportedSize);
+    if (parsed === "unsatisfiable") {
+      return rangeNotSatisfiable(authz.reportedSize);
+    }
+  }
+
+  const headers: Record<string, string> = {
+    "Cache-Control": CACHE_CONTROL,
+    "Content-Type": authz.row.opening_reel_mime_type,
+    "X-Content-Type-Options": "nosniff",
+    "Accept-Ranges": "bytes",
+    Vary: "Range",
+  };
+  if (Number.isFinite(authz.reportedSize)) {
+    headers["Content-Length"] = String(authz.reportedSize);
+  }
+  return new Response(null, { status: 200, headers });
+}
+
+export async function GET(request: NextRequest, context: RouteContext): Promise<Response> {
+  const { show } = await context.params;
+
+  // Codex R4 P1: admin check FIRST (no side effects).
+  const admin = await isAdminSession(request);
+  if (!admin.ok && admin.reason === "infra_error") {
+    return infraError("ADMIN_SESSION_LOOKUP_FAILED");
+  }
+  const isAdmin = admin.ok;
+
+  let supabase: ReturnType<typeof createSupabaseServiceRoleClient>;
+  let lookup: { data: ReelRow | null; error: unknown };
+  try {
+    supabase = createSupabaseServiceRoleClient();
+    lookup = (await supabase
+      .from("shows")
+      .select(
+        "published,opening_reel_drive_file_id,opening_reel_drive_modified_time,opening_reel_head_revision_id,opening_reel_mime_type",
+      )
+      .eq("id", show)
+      .maybeSingle()) as { data: ReelRow | null; error: unknown };
+  } catch {
+    return infraError("REEL_ASSET_LOOKUP_FAILED");
   }
   // Codex R2 P1: Supabase returned-error must NOT be collapsed into the
   // benign-absence 410 path — surface as 500 per AGENTS.md §1.9.
   if (lookup.error) {
-    return NextResponse.json({ error: "REEL_ASSET_LOOKUP_FAILED" }, { status: 500 });
+    return infraError("REEL_ASSET_LOOKUP_FAILED");
   }
   const row = lookup.data;
   if (!row) {
@@ -374,26 +488,30 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       const driveStatus = typeof revRes.status === "number" ? revRes.status : 200;
       const contentRange = pickStringHeader(revRes.headers, "content-range");
       const contentLength = pickStringHeader(revRes.headers, "content-length");
-      // Codex R22 P1: on 206, gate on TOTAL size from Content-Range,
-      // not just the slice length. The metadata pre-flight (`reportedSize`)
-      // protects when Drive metadata `size` is finite, but null/wrong
-      // metadata could otherwise let a 600MB reel be fetched piecemeal
-      // in <512MB Range slices, bypassing MAX_REEL_FALLBACK_BYTES.
-      if (driveStatus === 206 && contentRange) {
-        const totalMatch = contentRange.match(/^bytes \d+-\d+\/(\d+)$/);
-        if (totalMatch) {
-          const total = Number(totalMatch[1]);
-          if (Number.isFinite(total) && total > MAX_REEL_FALLBACK_BYTES) {
-            // Destroy the upstream Node stream before returning so the
-            // Drive socket is released, not left to GC.
-            const data = revRes.data;
-            if (data instanceof Readable) {
-              data.destroy();
-            } else if (data instanceof ReadableStream) {
-              await (data as ReadableStream<Uint8Array>).cancel().catch(() => undefined);
-            }
-            return gone();
+      // Codex R22 P1 + R23 P1: on 206, gate on TOTAL size from
+      // Content-Range, not just the slice length. The metadata pre-flight
+      // (`reportedSize`) protects when Drive metadata `size` is finite,
+      // but null/wrong metadata could otherwise let a 600MB reel be
+      // fetched piecemeal in <512MB Range slices, bypassing
+      // MAX_REEL_FALLBACK_BYTES.
+      //
+      // R23 P1 hardening: the original guard only ran when Content-Range
+      // matched the numeric-total regex. RFC 7233 / 9110 §14.4 allows
+      // `Content-Range: bytes <s>-<e>/*` (unknown total), and Drive may
+      // omit Content-Range entirely on 206. Fail-closed unless we can
+      // affirmatively prove total <= cap; destroy upstream stream so the
+      // Drive socket is released.
+      if (driveStatus === 206) {
+        const totalMatch = contentRange?.match(/^bytes \d+-\d+\/(\d+)$/);
+        const total = totalMatch ? Number(totalMatch[1]) : NaN;
+        if (!Number.isFinite(total) || total > MAX_REEL_FALLBACK_BYTES) {
+          const data = revRes.data;
+          if (data instanceof Readable) {
+            data.destroy();
+          } else if (data instanceof ReadableStream) {
+            await (data as ReadableStream<Uint8Array>).cancel().catch(() => undefined);
           }
+          return gone();
         }
       }
       // Wrap in a bounded pass-through so even if Drive reports `size`
@@ -411,6 +529,11 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         // clients know they may issue Range on subsequent fetches
         // (e.g., `<video>` seeks).
         "Accept-Ranges": "bytes",
+        // Codex R23 P2: same URL serves both 200 and 206 depending on
+        // the `Range` request header; an HTTP cache (even a private
+        // one) MUST key responses on Range to avoid serving a 206 slice
+        // to a later request that did NOT send Range. Per RFC 9111 §4.1.
+        Vary: "Range",
       };
       if (contentRange) responseHeaders["Content-Range"] = contentRange;
       if (contentLength) responseHeaders["Content-Length"] = contentLength;
@@ -473,6 +596,10 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
               "Content-Range": `bytes ${parsed.start}-${parsed.end}/${result.totalBytes}`,
               "X-Content-Type-Options": "nosniff",
               "Accept-Ranges": "bytes",
+              // Codex R23 P2: Vary: Range on every success response so
+              // a private HTTP cache won't serve this 206 slice to a
+              // later non-Range request. Per RFC 9111 §4.1.
+              Vary: "Range",
             },
           });
         }
@@ -493,6 +620,10 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
           // those; this fallback path doesn't support Range, but
           // signaling the capability is correct here).
           "Accept-Ranges": "bytes",
+          // Codex R23 P2: Vary: Range on every success response so
+          // a private HTTP cache won't serve this full 200 to a later
+          // request that sent Range. Per RFC 9111 §4.1.
+          Vary: "Range",
         },
       });
     }
@@ -509,7 +640,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
     // 500 here would surface as a user-visible server error for a
     // reel that's simply been deleted / unshared.
     if (isNotFoundOrGone(caught)) return gone();
-    return NextResponse.json({ error: "REEL_ASSET_LOOKUP_FAILED" }, { status: 500 });
+    return infraError("REEL_ASSET_LOOKUP_FAILED");
   }
 }
 

@@ -74,6 +74,13 @@ const routeMock = vi.hoisted(() => ({
   // to simulate Drive returning a 206 whose total size exceeds
   // MAX_REEL_FALLBACK_BYTES (Codex R22 P1 cap-bypass close-out).
   reel206TotalOverride: null as number | null,
+  // Codex R23 P1 controls: simulate misbehaving upstream that omits
+  // Content-Range on 206 (omit206ContentRange) or sends the
+  // RFC-7233-legal "unknown total" form `bytes 0-9/*` (use206StarTotal)
+  // or sends a malformed total (use206MalformedTotal).
+  omit206ContentRange: false as boolean,
+  use206StarTotal: false as boolean,
+  use206MalformedTotal: false as boolean,
 }));
 
 function md5(bytes: Uint8Array): string {
@@ -146,14 +153,19 @@ vi.mock("@/lib/drive/client", () => ({
             routeMock.reel206TotalOverride !== null
               ? routeMock.reel206TotalOverride
               : routeMock.revisionBytes?.byteLength ?? 0;
-          return {
-            data: routeMock.revisionBytes,
-            status: 206,
-            headers: {
-              "content-range": `bytes 0-9/${total}`,
-              "content-length": String(routeMock.revisionBytes?.byteLength ?? 0),
-            },
+          const headers: Record<string, string> = {
+            "content-length": String(routeMock.revisionBytes?.byteLength ?? 0),
           };
+          if (!routeMock.omit206ContentRange) {
+            if (routeMock.use206StarTotal) {
+              headers["content-range"] = `bytes 0-9/*`;
+            } else if (routeMock.use206MalformedTotal) {
+              headers["content-range"] = `bytes 0-9/not-a-number`;
+            } else {
+              headers["content-range"] = `bytes 0-9/${total}`;
+            }
+          }
+          return { data: routeMock.revisionBytes, status: 206, headers };
         }
         return { data: routeMock.revisionBytes, status: 200 };
       },
@@ -203,7 +215,19 @@ beforeEach(() => {
   routeMock.lastDriveArgs = null;
   routeMock.lastRevisionsOptions = null;
   routeMock.reel206TotalOverride = null;
+  routeMock.omit206ContentRange = false;
+  routeMock.use206StarTotal = false;
+  routeMock.use206MalformedTotal = false;
 });
+
+async function headReel(init?: { headers?: Record<string, string> }): Promise<Response> {
+  const { HEAD } = await import("@/app/api/asset/reel/[show]/route");
+  const url = `https://crew.fxav.test/api/asset/reel/${showId}`;
+  const req = init?.headers
+    ? new NextRequest(url, { headers: init.headers })
+    : new NextRequest(url);
+  return await HEAD(req, { params: Promise.resolve({ show: showId }) });
+}
 
 describe("/api/asset/reel/[show]", () => {
   test("rejects unauthenticated requests before Drive metadata", async () => {
@@ -512,5 +536,136 @@ describe("/api/asset/reel/[show]", () => {
     routeMock.revisionBytes = new Uint8Array(513 * 1024 * 1024);
     const res = await getReel();
     expect(res.status).toBe(410);
+  });
+
+  // ───────────────────────────────────────────────────────────────
+  // Codex R23 — RFC 7233 / 9110 / 9111 comprehensive sweep
+  // ───────────────────────────────────────────────────────────────
+
+  test("Codex R23 P1: 206 with `bytes 0-9/*` total → fail-closed 410", async () => {
+    routeMock.current = { ...routeMock.current, size: null };
+    routeMock.use206StarTotal = true;
+    const res = await getReel({ headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(410);
+  });
+
+  test("Codex R23 P1: 206 without any Content-Range header → fail-closed 410", async () => {
+    routeMock.current = { ...routeMock.current, size: null };
+    routeMock.omit206ContentRange = true;
+    const res = await getReel({ headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(410);
+  });
+
+  test("Codex R23 P1: 206 with malformed (non-numeric) total → fail-closed 410", async () => {
+    routeMock.current = { ...routeMock.current, size: null };
+    routeMock.use206MalformedTotal = true;
+    const res = await getReel({ headers: { Range: "bytes=0-9" } });
+    expect(res.status).toBe(410);
+  });
+
+  test("Codex R23 P2: Vary: Range present on 200 exact-revision success", async () => {
+    const res = await getReel();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("vary")).toBe("Range");
+  });
+
+  test("Codex R23 P2: Vary: Range present on 206 exact-revision partial", async () => {
+    routeMock.current = { ...routeMock.current, size: "10" };
+    const res = await getReel({ headers: { Range: "bytes=0-4" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("vary")).toBe("Range");
+  });
+
+  test("Codex R23 P2: Vary: Range present on md5-fallback 200", async () => {
+    routeMock.fallbackBytes = new TextEncoder().encode("reel-bytes");
+    routeMock.current = {
+      ...routeMock.current,
+      md5Checksum: md5(routeMock.fallbackBytes),
+    };
+    routeMock.revisionError = { code: 404 };
+    const res = await getReel();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("vary")).toBe("Range");
+  });
+
+  test("Codex R23 P2: Vary: Range present on md5-fallback 206", async () => {
+    routeMock.fallbackBytes = new TextEncoder().encode("reel-bytes");
+    routeMock.current = {
+      ...routeMock.current,
+      md5Checksum: md5(routeMock.fallbackBytes),
+    };
+    routeMock.revisionError = { code: 404 };
+    const res = await getReel({ headers: { Range: "bytes=0-4" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("vary")).toBe("Range");
+  });
+
+  test("Codex R23 P2: 500 (Supabase returned-error) response carries private Cache-Control", async () => {
+    routeMock.supabaseError = { code: "PGRST500", message: "infra fault" };
+    const res = await getReel();
+    expect(res.status).toBe(500);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+  });
+
+  test("Codex R23 P2: 401 unauthenticated response carries private Cache-Control", async () => {
+    routeMock.link = { kind: "continue" };
+    const res = await getReel();
+    expect(res.status).toBe(401);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+  });
+
+  test("Codex R23 P2: 403 cross-show response carries private Cache-Control", async () => {
+    routeMock.link = {
+      kind: "success",
+      viewer: { kind: "crew", showId: "other-show", crewMemberId: "crew-1" },
+    };
+    const res = await getReel();
+    expect(res.status).toBe(403);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+  });
+
+  test("Codex R23 P2: HEAD returns 200 metadata headers without opening revisions.media", async () => {
+    routeMock.current = { ...routeMock.current, size: "10" };
+    const res = await headReel();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("video/mp4");
+    expect(res.headers.get("content-length")).toBe("10");
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
+    expect(res.headers.get("vary")).toBe("Range");
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    const body = await res.arrayBuffer();
+    expect(body.byteLength).toBe(0);
+    // HEAD must NOT open the revision media stream nor the files.media
+    // fallback — only the metadata fetch fires.
+    expect(routeMock.driveCalls).toEqual(["files.metadata"]);
+  });
+
+  test("Codex R23 P2: HEAD runs same auth chain → 401 when unauthenticated", async () => {
+    routeMock.link = { kind: "continue" };
+    const res = await headReel();
+    expect(res.status).toBe(401);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+    expect(routeMock.driveCalls).toEqual([]);
+  });
+
+  test("Codex R23 P2: HEAD on unpublished show → 410 (no Drive call)", async () => {
+    routeMock.show = { ...routeMock.show, published: false };
+    const res = await headReel();
+    expect(res.status).toBe(410);
+    expect(routeMock.driveCalls).toEqual([]);
+  });
+
+  test("Codex R23 P2: HEAD on drift → 410 (no revisions.media)", async () => {
+    routeMock.current = { ...routeMock.current, headRevisionId: "newer-rev" };
+    const res = await headReel();
+    expect(res.status).toBe(410);
+    expect(routeMock.driveCalls).toEqual(["files.metadata"]);
+  });
+
+  test("Codex R23 P2: HEAD with malformed Range → 416 (no revisions.media)", async () => {
+    const res = await headReel({ headers: { Range: "bytes=0-10, 20-30" } });
+    expect(res.status).toBe(416);
+    expect(routeMock.driveCalls.includes("revisions.media")).toBe(false);
   });
 });

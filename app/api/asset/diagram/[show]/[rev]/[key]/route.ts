@@ -42,6 +42,16 @@ function gone(): Response {
   return new Response(null, { status: 410, headers: { "Cache-Control": CACHE_CONTROL } });
 }
 
+// Codex R23 P2: every error shape carries the same private-revalidate
+// Cache-Control as success/410 — auth and infra failures MUST NOT be
+// cached by a private intermediary (browser HTTP cache, service worker).
+function infraError(code: string): Response {
+  return NextResponse.json(
+    { error: code },
+    { status: 500, headers: { "Cache-Control": CACHE_CONTROL } },
+  );
+}
+
 function canonicalPath(showId: string, rev: string, key: string): string {
   return `${DIAGRAM_BUCKET}/shows/${showId}/${rev}/${key}`;
 }
@@ -71,20 +81,31 @@ function isStorageNotFound(error: unknown): boolean {
   );
 }
 
-export async function GET(
-  request: NextRequest,
-  context: { params: Promise<RouteParams> },
-): Promise<Response> {
-  const { show, rev, key } = await context.params;
+type DiagramAuthSuccess = {
+  ok: true;
+  asset: AssetEntry;
+  storageObjectPath: string;
+  supabase: ReturnType<typeof createSupabaseServiceRoleClient>;
+};
 
+// Codex R23 P2: auth + lookup phase shared between GET and the explicit
+// HEAD handler so HEAD returns the same admin/link/google decisions as
+// GET would, without falling through to Next's default
+// HEAD-via-GET implementation (which would open the upstream Supabase
+// Storage media stream just to discard the body). The function does NOT
+// call createSignedUrl — that's GET-only since HEAD has no body.
+async function authorizeDiagramRequest(
+  request: NextRequest,
+  params: RouteParams,
+): Promise<DiagramAuthSuccess | { ok: false; response: Response }> {
+  const { show, rev, key } = params;
   if (rev.includes("=") || !UUID_RE.test(rev)) {
-    return gone();
+    return { ok: false, response: gone() };
   }
 
-  // Codex R4 P1: admin check FIRST (no side effects).
   const admin = await isAdminSession(request);
   if (!admin.ok && admin.reason === "infra_error") {
-    return NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
+    return { ok: false, response: infraError("ADMIN_SESSION_LOOKUP_FAILED") };
   }
   const isAdmin = admin.ok;
 
@@ -98,57 +119,93 @@ export async function GET(
       .eq("id", show)
       .maybeSingle()) as { data: ShowRow | null; error: unknown };
   } catch {
-    return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
+    return { ok: false, response: infraError("DIAGRAM_ASSET_LOOKUP_FAILED") };
   }
   if (showResult.error) {
-    return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
+    return { ok: false, response: infraError("DIAGRAM_ASSET_LOOKUP_FAILED") };
   }
   if (!showResult.data) {
-    return gone();
+    return { ok: false, response: gone() };
   }
-  // Codex R4 P1: published gate BEFORE link/google validators so an
-  // unpublished-show request never refreshes link_sessions.last_active_at.
   if (!isAdmin && showResult.data.published !== true) {
-    return gone();
+    return { ok: false, response: gone() };
   }
   if (!isAdmin) {
     const session = await validateCrewAssetSession(request, show);
-    if (!session.ok) return session.response;
+    if (!session.ok) return { ok: false, response: session.response };
   }
 
+  const diagrams = resolveCurrentDiagrams(showResult.data.diagrams);
+  if (!diagrams || diagrams.snapshot_revision_id !== rev) {
+    return { ok: false, response: gone() };
+  }
+  const expectedPath = canonicalPath(show, rev, key);
+  const asset = findAsset(diagrams, expectedPath);
+  const storageObjectPath = asset?.snapshotPath ? objectPath(asset.snapshotPath) : null;
+  if (!asset || !storageObjectPath) {
+    return { ok: false, response: gone() };
+  }
+  if (!isAllowedDiagramMime(asset.mimeType)) {
+    return { ok: false, response: gone() };
+  }
+
+  return { ok: true, asset, storageObjectPath, supabase };
+}
+
+// Codex R23 P2: explicit HEAD handler. Without this, Next's App Router
+// auto-implements HEAD by running GET and stripping the body — which
+// runs the full Supabase Storage signed-URL + fetch + stream open just
+// to discard the bytes. HEAD now returns metadata-only headers after
+// the same auth chain.
+export async function HEAD(
+  request: NextRequest,
+  context: { params: Promise<RouteParams> },
+): Promise<Response> {
+  const params = await context.params;
+  const authz = await authorizeDiagramRequest(request, params);
+  if (!authz.ok) return authz.response;
+
+  // RFC 9110 §14.1.2: malformed Range MAY be ignored (treated as full),
+  // but route policy is to reject so GET and HEAD behave identically.
+  const rangeHeader = request.headers.get("range");
+  if (rangeHeader && !SINGLE_RANGE_RE.test(rangeHeader)) {
+    return new Response(null, {
+      status: 416,
+      headers: {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": CACHE_CONTROL,
+      },
+    });
+  }
+
+  return new Response(null, {
+    status: 200,
+    headers: {
+      "Cache-Control": CACHE_CONTROL,
+      "Content-Type": authz.asset.mimeType,
+      "X-Content-Type-Options": "nosniff",
+      "Accept-Ranges": "bytes",
+      Vary: "Range",
+    },
+  });
+}
+
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<RouteParams> },
+): Promise<Response> {
+  const params = await context.params;
+  const authz = await authorizeDiagramRequest(request, params);
+  if (!authz.ok) return authz.response;
+  const { asset, storageObjectPath, supabase } = authz;
+
   try {
-    const diagrams = resolveCurrentDiagrams(showResult.data.diagrams);
-    if (!diagrams || diagrams.snapshot_revision_id !== rev) {
-      return gone();
-    }
-
-    const expectedPath = canonicalPath(show, rev, key);
-    const asset = findAsset(diagrams, expectedPath);
-    const path = asset?.snapshotPath ? objectPath(asset.snapshotPath) : null;
-    if (!asset || !path) {
-      return gone();
-    }
-    // Codex R6 P1 + R13 P1: shared allowlist from `lib/data/diagrams.ts`
-    // so the page tile projection (DiagramsTile) and this route never
-    // drift on which MIMEs are renderable. SVG (and any non-raster
-    // image MIME) is rejected so the proxy cannot become a same-origin
-    // active-content surface for a malicious Drive file.
-    if (!isAllowedDiagramMime(asset.mimeType)) {
-      return gone();
-    }
-
-    // Codex R11 P1: do NOT use `supabase.storage.from(...).download()` —
-    // that materializes the whole Blob in memory BEFORE the byte
-    // ceiling can run. Instead mint a short-lived signed URL (the
-    // ledger row stays auth-gated by the route's own admin / link /
-    // google chain above) and fetch it streaming so the byte ceiling
-    // enforces during the fetch via `boundedPassThroughWeb`.
     const signed = await supabase.storage
       .from(DIAGRAM_BUCKET)
-      .createSignedUrl(path, 60);
+      .createSignedUrl(storageObjectPath, 60);
     if (signed.error) {
       if (isStorageNotFound(signed.error)) return gone();
-      return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
+      return infraError("DIAGRAM_ASSET_LOOKUP_FAILED");
     }
     if (!signed.data?.signedUrl) {
       return gone();
@@ -186,7 +243,7 @@ export async function GET(
         if (upstreamRange) headers["Content-Range"] = upstreamRange;
         return new Response(null, { status: 416, headers });
       }
-      return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
+      return infraError("DIAGRAM_ASSET_LOOKUP_FAILED");
     }
     // Codex R4 P2 + R11 P1: route-level byte ceiling. Reject oversized
     // objects from the `Content-Length` pre-flight (still bounds before
@@ -200,23 +257,28 @@ export async function GET(
       await fetchRes.body.cancel().catch(() => undefined);
       return gone();
     }
-    // Codex R21 P1: on a 206 response, `content-length` is only the
-    // slice size — the FULL object size lives in `Content-Range: bytes
-    // <s>-<e>/<total>`. Without this gate, a 60MB diagram could be
-    // fetched 5MB at a time through repeated Range requests, defeating
-    // the route-level 50MB cap. Parse the total and reject when it
-    // exceeds the cap regardless of slice size.
+    // Codex R21 P1 + R23 P1: on a 206 response, `content-length` is
+    // only the slice size — the FULL object size lives in
+    // `Content-Range: bytes <s>-<e>/<total>`. Without this gate, a 60MB
+    // diagram could be fetched 5MB at a time through repeated Range
+    // requests, defeating the route-level 50MB cap.
+    //
+    // R23 P1 hardening: the original guard only rejected when
+    // Content-Range matched the numeric-total regex AND total > cap.
+    // RFC 7233 / 9110 §14.4 allows `Content-Range: bytes <s>-<e>/*`
+    // (unknown total), and a misbehaving upstream may omit the header
+    // entirely or send a malformed value — in any of those cases the
+    // old code silently fell through and served the slice. For a
+    // route-level cap to be a real ceiling, fail-closed unless we can
+    // affirmatively prove total <= cap. Cancel the upstream body to
+    // release the socket and return 410.
     if (fetchRes.status === 206) {
       const cr = fetchRes.headers.get("content-range");
-      if (cr) {
-        const match = cr.match(/^bytes \d+-\d+\/(\d+)$/);
-        if (match) {
-          const total = Number(match[1]);
-          if (Number.isFinite(total) && total > MAX_DIAGRAM_BYTES) {
-            await fetchRes.body.cancel().catch(() => undefined);
-            return gone();
-          }
-        }
+      const match = cr ? cr.match(/^bytes \d+-\d+\/(\d+)$/) : null;
+      const total = match ? Number(match[1]) : NaN;
+      if (!Number.isFinite(total) || total > MAX_DIAGRAM_BYTES) {
+        await fetchRes.body.cancel().catch(() => undefined);
+        return gone();
       }
     }
     const boundedBody = boundedPassThroughWeb(
@@ -236,6 +298,11 @@ export async function GET(
       // Codex R17 P1: advertise Range support on every success so
       // clients know subsequent fetches may use Range.
       "Accept-Ranges": "bytes",
+      // Codex R23 P2: same URL serves both 200 and 206 depending on
+      // the `Range` request header; an HTTP cache (even a private
+      // one) MUST key responses on Range to avoid serving a 206 slice
+      // to a later request that did NOT send Range. Per RFC 9111 §4.1.
+      Vary: "Range",
     };
     const upstreamContentRange = fetchRes.headers.get("content-range");
     const upstreamContentLength = fetchRes.headers.get("content-length");
@@ -247,6 +314,6 @@ export async function GET(
     });
   } catch (caught) {
     if (caught instanceof ByteLimitExceededError) return gone();
-    return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
+    return infraError("DIAGRAM_ASSET_LOOKUP_FAILED");
   }
 }

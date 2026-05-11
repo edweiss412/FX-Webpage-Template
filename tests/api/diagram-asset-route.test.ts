@@ -45,6 +45,12 @@ const routeMock = vi.hoisted(() => ({
   // would pass the slice-level Content-Length gate but whose full size
   // exceeds the route's MAX_DIAGRAM_BYTES cap (Codex R21 P1).
   fetch206TotalSizeOverride: null as number | null,
+  // Codex R23 P1 controls: simulate misbehaving upstream that omits
+  // Content-Range on 206 / sends `bytes 0-9/*` unknown-total / sends
+  // a malformed total.
+  fetch206OmitContentRange: false as boolean,
+  fetch206UseStarTotal: false as boolean,
+  fetch206UseMalformedTotal: false as boolean,
   published: true as boolean | null,
   diagrams: null as unknown,
   storageBytes: new TextEncoder().encode("diagram-bytes") as Uint8Array | null,
@@ -148,13 +154,19 @@ beforeEach(() => {
         routeMock.fetch206TotalSizeOverride !== null
           ? routeMock.fetch206TotalSizeOverride
           : bytes.byteLength;
-      return new Response(bytes as BlobPart, {
-        status: 206,
-        headers: {
-          "content-length": String(bytes.byteLength),
-          "content-range": `bytes 0-${bytes.byteLength - 1}/${total}`,
-        },
-      });
+      const headers: Record<string, string> = {
+        "content-length": String(bytes.byteLength),
+      };
+      if (!routeMock.fetch206OmitContentRange) {
+        if (routeMock.fetch206UseStarTotal) {
+          headers["content-range"] = `bytes 0-${bytes.byteLength - 1}/*`;
+        } else if (routeMock.fetch206UseMalformedTotal) {
+          headers["content-range"] = `bytes 0-${bytes.byteLength - 1}/not-a-number`;
+        } else {
+          headers["content-range"] = `bytes 0-${bytes.byteLength - 1}/${total}`;
+        }
+      }
+      return new Response(bytes as BlobPart, { status: 206, headers });
     }
     return new Response(bytes as BlobPart, {
       status: 200,
@@ -218,6 +230,21 @@ async function getDiagram(
   });
 }
 
+async function headDiagram(
+  rev = currentRev,
+  key = assetKey,
+  init?: { headers?: Record<string, string> },
+): Promise<Response> {
+  const { HEAD } = await import("@/app/api/asset/diagram/[show]/[rev]/[key]/route");
+  const url = `https://crew.fxav.test/api/asset/diagram/${showId}/${rev}/${key}`;
+  const req = init?.headers
+    ? new NextRequest(url, { headers: init.headers })
+    : new NextRequest(url);
+  return await HEAD(req, {
+    params: Promise.resolve({ show: showId, rev, key }),
+  });
+}
+
 beforeEach(() => {
   vi.resetModules();
   routeMock.admin = { ok: false, reason: "not_admin" };
@@ -232,6 +259,9 @@ beforeEach(() => {
   routeMock.lastFetchRange = null;
   routeMock.fetch416ContentRange = null;
   routeMock.fetch206TotalSizeOverride = null;
+  routeMock.fetch206OmitContentRange = false;
+  routeMock.fetch206UseStarTotal = false;
+  routeMock.fetch206UseMalformedTotal = false;
   routeMock.published = true;
   routeMock.diagrams = diagramsWithPending();
   routeMock.storageBytes = new TextEncoder().encode("diagram-bytes");
@@ -438,5 +468,106 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     // short-circuit on the link 410.
     expect(routeMock.linkCalls).toBeGreaterThan(0);
     expect(routeMock.googleCalls).toBeGreaterThan(0);
+  });
+
+  // ───────────────────────────────────────────────────────────────
+  // Codex R23 — RFC 7233 / 9110 / 9111 comprehensive sweep
+  // ───────────────────────────────────────────────────────────────
+
+  test("Codex R23 P1: 206 with `bytes 0-N/*` total → fail-closed 410", async () => {
+    routeMock.fetch206UseStarTotal = true;
+    const res = await getDiagram(currentRev, assetKey, { headers: { Range: "bytes=0-3" } });
+    expect(res.status).toBe(410);
+  });
+
+  test("Codex R23 P1: 206 without any Content-Range header → fail-closed 410", async () => {
+    routeMock.fetch206OmitContentRange = true;
+    const res = await getDiagram(currentRev, assetKey, { headers: { Range: "bytes=0-3" } });
+    expect(res.status).toBe(410);
+  });
+
+  test("Codex R23 P1: 206 with malformed (non-numeric) total → fail-closed 410", async () => {
+    routeMock.fetch206UseMalformedTotal = true;
+    const res = await getDiagram(currentRev, assetKey, { headers: { Range: "bytes=0-3" } });
+    expect(res.status).toBe(410);
+  });
+
+  test("Codex R23 P2: Vary: Range present on 200 success", async () => {
+    const res = await getDiagram();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("vary")).toBe("Range");
+  });
+
+  test("Codex R23 P2: Vary: Range present on 206 partial", async () => {
+    const res = await getDiagram(currentRev, assetKey, { headers: { Range: "bytes=0-3" } });
+    expect(res.status).toBe(206);
+    expect(res.headers.get("vary")).toBe("Range");
+  });
+
+  test("Codex R23 P2: 500 infra-error response carries private Cache-Control", async () => {
+    routeMock.storageError = { message: "infra exploded" };
+    const res = await getDiagram();
+    expect(res.status).toBe(500);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+  });
+
+  test("Codex R23 P2: 401 unauthenticated response carries private Cache-Control", async () => {
+    routeMock.link = { kind: "continue" };
+    const res = await getDiagram();
+    expect(res.status).toBe(401);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+  });
+
+  test("Codex R23 P2: 403 cross-show response carries private Cache-Control", async () => {
+    routeMock.link = {
+      kind: "success",
+      viewer: { kind: "crew", showId: "other-show", crewMemberId: "crew-1" },
+    };
+    const res = await getDiagram();
+    expect(res.status).toBe(403);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+  });
+
+  test("Codex R23 P2: HEAD returns 200 metadata headers without minting signed URL", async () => {
+    const res = await headDiagram();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(res.headers.get("accept-ranges")).toBe("bytes");
+    expect(res.headers.get("vary")).toBe("Range");
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    const body = await res.arrayBuffer();
+    expect(body.byteLength).toBe(0);
+    // HEAD must NOT mint a signed URL — that would cost a Storage RPC.
+    expect(routeMock.storageDownloads).toEqual([]);
+    // HEAD must NOT issue the upstream signed-URL fetch.
+    expect(routeMock.lastFetchRange).toBeNull();
+  });
+
+  test("Codex R23 P2: HEAD runs same auth chain → 401 when unauthenticated", async () => {
+    routeMock.link = { kind: "continue" };
+    const res = await headDiagram();
+    expect(res.status).toBe(401);
+    expect(res.headers.get("cache-control")).toBe("private, max-age=0, must-revalidate");
+    expect(routeMock.storageDownloads).toEqual([]);
+  });
+
+  test("Codex R23 P2: HEAD on unpublished show → 410 (no storage call)", async () => {
+    routeMock.published = false;
+    const res = await headDiagram();
+    expect(res.status).toBe(410);
+    expect(routeMock.storageDownloads).toEqual([]);
+  });
+
+  test("Codex R23 P2: HEAD on stale rev → 410", async () => {
+    const res = await headDiagram("44444444-4444-4444-8444-444444444444", assetKey);
+    expect(res.status).toBe(410);
+    expect(routeMock.storageDownloads).toEqual([]);
+  });
+
+  test("Codex R23 P2: HEAD with malformed Range → 416", async () => {
+    const res = await headDiagram(currentRev, assetKey, { headers: { Range: "bytes=0-10, 20-30" } });
+    expect(res.status).toBe(416);
+    expect(routeMock.storageDownloads).toEqual([]);
   });
 });
