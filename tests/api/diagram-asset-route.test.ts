@@ -270,4 +270,20 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     expect(routeMock.linkCalls).toBe(0);
     expect(routeMock.googleCalls).toBe(0);
   });
+
+  test("Codex R6 P1: persisted SVG MIME → 410 (no same-origin active content)", async () => {
+    // Mutate the diagram entry's MIME to SVG. The route MUST reject —
+    // SVG can carry script when loaded as a same-origin top-level doc.
+    const tampered = currentDiagrams();
+    (tampered.embeddedImages[0] as { mimeType: string }).mimeType = "image/svg+xml";
+    routeMock.diagrams = { current: tampered, pending: null };
+    const res = await getDiagram();
+    expect(res.status).toBe(410);
+  });
+
+  test("Codex R6 P1: served raster MIME carries X-Content-Type-Options: nosniff", async () => {
+    const res = await getDiagram();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  });
 });

@@ -16,6 +16,19 @@ const DIAGRAM_BUCKET = "diagram-snapshots";
 // reach the client. 50MB is comfortably above the typical 1-5MB
 // embedded image while still bounding worker memory.
 const MAX_DIAGRAM_BYTES = 50 * 1024 * 1024;
+// Codex R6 P1 close-out: same-origin active-content gate. SVG (and any
+// XML/script-bearing image MIME) renders as a script surface when
+// loaded as a top-level same-origin document. Drive can hand back any
+// `image/*` MIME if a linked-folder file or embedded object is an SVG;
+// whitelist only inert raster formats here. The persisted MIME is
+// reflected into the Response — so we MUST reject before reflecting.
+const ALLOWED_DIAGRAM_MIMES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "image/gif",
+]);
 
 type RouteParams = {
   show: string;
@@ -124,6 +137,12 @@ export async function GET(
     if (!asset || !path) {
       return gone();
     }
+    // Codex R6 P1: MIME allowlist BEFORE serving. SVG (and any non-raster
+    // image MIME) is rejected so the proxy cannot become a same-origin
+    // active-content surface for a malicious Drive file.
+    if (!ALLOWED_DIAGRAM_MIMES.has(asset.mimeType.toLowerCase())) {
+      return gone();
+    }
 
     const { data, error } = await supabase.storage.from(DIAGRAM_BUCKET).download(path);
     if (error) {
@@ -149,6 +168,11 @@ export async function GET(
       headers: {
         "Cache-Control": CACHE_CONTROL,
         "Content-Type": asset.mimeType,
+        // Defense-in-depth: browsers MUST NOT sniff the body and infer
+        // a different MIME than the allowlisted raster type we asserted
+        // above. Without this header a `.png` whose bytes look like
+        // SVG could still be interpreted as XML.
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (caught) {

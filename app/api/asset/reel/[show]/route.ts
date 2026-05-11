@@ -98,9 +98,15 @@ async function chunkedHashFrom(data: unknown): Promise<ChunkedHashResult> {
     const nodeStream = Readable.fromWeb(data as any);
     return readChunkedHashBoundedNodeStream(nodeStream, MAX_REEL_FALLBACK_BYTES);
   }
-  // Non-stream input (test fixture etc): wrap as a single-chunk result so
-  // the caller's stream-builder path stays uniform.
+  // Non-stream input (test fixture, or a runtime adapter that ignores
+  // `responseType: "stream"`): wrap as a single-chunk result. Codex R6
+  // P1: the byte ceiling MUST hold here too — without it, a runtime
+  // that returns a buffered Uint8Array would let an oversized reel
+  // slip past the cap.
   const bytes = bytesFrom(data);
+  if (bytes.byteLength > MAX_REEL_FALLBACK_BYTES) {
+    throw new ByteLimitExceededError(MAX_REEL_FALLBACK_BYTES);
+  }
   const md5 = createHash("md5").update(bytes).digest("hex");
   const sha256 = createHash("sha256").update(bytes).digest("base64url");
   return {
@@ -276,5 +282,14 @@ function boundedStreamFrom(data: unknown): ReadableStream<Uint8Array> {
   if (data instanceof ReadableStream) {
     return boundedPassThroughWeb(data as ReadableStream<Uint8Array>, MAX_REEL_FALLBACK_BYTES);
   }
-  return webStreamFromBytes(bytesFrom(data));
+  // Codex R6 P1: a runtime adapter that ignores `responseType: "stream"`
+  // and hands back buffered bytes (Uint8Array / ArrayBuffer / Buffer /
+  // string) must still respect the byte ceiling. Without this check,
+  // an oversized buffered reel would slip past `boundedStreamFrom` and
+  // be served unbounded.
+  const bytes = bytesFrom(data);
+  if (bytes.byteLength > MAX_REEL_FALLBACK_BYTES) {
+    throw new ByteLimitExceededError(MAX_REEL_FALLBACK_BYTES);
+  }
+  return webStreamFromBytes(bytes);
 }

@@ -259,4 +259,19 @@ describe("/api/asset/reel/[show]", () => {
     expect(routeMock.linkCalls).toBe(0);
     expect(routeMock.googleCalls).toBe(0);
   });
+
+  test("Codex R6 P1: exact-revision branch rejects an oversized buffered Uint8Array via the byte ceiling", async () => {
+    // Drive size pre-flight is null so we pass the metadata gate, then
+    // the revision branch hands back a buffered (non-stream) payload
+    // larger than MAX_REEL_FALLBACK_BYTES. The non-stream fallback in
+    // `boundedStreamFrom` must throw `ByteLimitExceededError` and the
+    // route catch must surface 410, not 200.
+    routeMock.current = { ...routeMock.current, size: null };
+    // 513MB - 1 byte over the 512MB cap. Node 20's mmap-backed
+    // Uint8Array allocation is near-instant; pages fault in only when
+    // touched, and the route never reads the contents.
+    routeMock.revisionBytes = new Uint8Array(513 * 1024 * 1024);
+    const res = await getReel();
+    expect(res.status).toBe(410);
+  });
 });
