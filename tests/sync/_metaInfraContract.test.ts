@@ -78,6 +78,12 @@ const infraRegistry = [
     path: "lib/appSettings/getWatchedFolderId.ts",
     contract: "app_settings watched-folder lookup faults become typed infra_error results",
   },
+  {
+    helper: "snapshotAssets",
+    path: "lib/sync/snapshotAssets.ts",
+    contract:
+      "asset snapshotting uses explicit tx/storage/drive ports; Supabase boundary faults surface at the caller-owned port layer",
+  },
 ] as const;
 
 function read(path: string): string {

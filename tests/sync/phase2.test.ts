@@ -139,6 +139,9 @@ class FakePhase2Tx {
   showsInternal: unknown = null;
   pendingIngestions = new Set<string>();
   operations: string[] = [];
+  lastShowSnapshotArgs: {
+    parseResult: ParseResult;
+  } | null = null;
 
   async applyShowSnapshot(args: {
     driveFileId: string;
@@ -147,6 +150,7 @@ class FakePhase2Tx {
     parseResult: ParseResult;
     slug: string;
   }) {
+    this.lastShowSnapshotArgs = { parseResult: args.parseResult };
     this.operations.push(`applyShowSnapshot:${args.staleGuard}`);
     const show = this.shows.get(args.driveFileId);
     const incoming = Date.parse(args.modifiedTime);
@@ -510,5 +514,74 @@ describe("runPhase2 destructive snapshot", () => {
     await runWith(tx);
 
     expect(tx.operations.join("\n")).not.toMatch(/pg_.*advisory|BEGIN|COMMIT|ROLLBACK/i);
+  });
+
+  test("snapshots diagram assets before writing the pending diagrams sub-payload", async () => {
+    const tx = new FakePhase2Tx();
+    let snapshotCallCount = 0;
+    const linkedItem = {
+      driveFileId: "linked-1",
+      mimeType: "image/png",
+      drive_modified_time: "2026-05-01T00:00:00.000Z",
+      headRevisionId: "rev-linked-1",
+      md5Checksum: "a".repeat(32),
+      snapshotPath: null,
+    };
+    const result = await runWith(tx, {
+      parseResult: parseResult({
+        diagrams: {
+          linkedFolder: null,
+          embeddedImages: [],
+          linkedFolderItems: [linkedItem],
+        },
+      }),
+      snapshotAssetsForApply: async (snapshotArgs: { diagrams: ParseResult["diagrams"] }) => {
+        snapshotCallCount += 1;
+        expect(snapshotArgs.diagrams.linkedFolderItems).toEqual([linkedItem]);
+        return {
+          snapshotRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          runUuid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          tempPrefix:
+            "diagram-snapshots/shows/show-1/_pending/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb/",
+          warnings: [],
+          pending: {
+            revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            snapshot_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            snapshot_status: "complete",
+            linkedFolder: null,
+            embeddedImages: [],
+            linkedFolderItems: [
+              {
+                ...linkedItem,
+                snapshotPath:
+                  "diagram-snapshots/shows/show-1/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/folder-linked-1.png",
+              },
+            ],
+          },
+        };
+      },
+    });
+
+    expect(result).toMatchObject({ outcome: "applied" });
+    expect(snapshotCallCount).toBe(1);
+    expect(tx.lastShowSnapshotArgs?.parseResult.diagrams).toEqual({
+      current: null,
+      pending: {
+        revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        snapshot_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        snapshot_status: "complete",
+        linkedFolder: null,
+        embeddedImages: [],
+        linkedFolderItems: [
+          {
+            ...linkedItem,
+            snapshotPath:
+              "diagram-snapshots/shows/show-1/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/folder-linked-1.png",
+          },
+        ],
+      },
+    });
+    const written = tx.operations.find((operation) => operation.startsWith("applyShowSnapshot"));
+    expect(written).toContain("strict_less_than");
   });
 });

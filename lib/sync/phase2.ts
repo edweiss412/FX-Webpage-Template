@@ -4,6 +4,7 @@ import type { ParseResult } from "@/lib/parser/types";
 import { applyParseResult, type ApplyParseResultTx } from "@/lib/sync/applyParseResult";
 import type { Phase1Binding } from "@/lib/sync/phase1";
 import type { ResolvedSyncMode } from "@/lib/sync/perFileProcessor";
+import type { SnapshotAssetsResult } from "@/lib/sync/snapshotAssets";
 
 export type Phase2Mode = Exclude<ResolvedSyncMode, "asset_recovery">;
 export type StaleWriteCode =
@@ -39,6 +40,10 @@ export type Phase2Args = {
   parseResult: ParseResult;
   binding: Phase1Binding;
   skipDiagramsWrite?: boolean;
+  snapshotAssetsForApply?: (args: {
+    driveFileId: string;
+    diagrams: ParseResult["diagrams"];
+  }) => Promise<SnapshotAssetsResult>;
 };
 
 export type RoleFlagsNotice = {
@@ -125,14 +130,36 @@ function nonLeadRoleFlagChanges(
   return changes;
 }
 
+function diagramAssetCount(diagrams: ParseResult["diagrams"]): number {
+  return diagrams.embeddedImages.length + diagrams.linkedFolderItems.length;
+}
+
 export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2Result> {
+  let parseResult = args.parseResult;
+  if (!args.skipDiagramsWrite && args.snapshotAssetsForApply && diagramAssetCount(args.parseResult.diagrams) > 0) {
+    const snapshot = await callTx("snapshotAssetsForApply", () =>
+      args.snapshotAssetsForApply!({
+        driveFileId: args.driveFileId,
+        diagrams: args.parseResult.diagrams,
+      }),
+    );
+    parseResult = {
+      ...args.parseResult,
+      diagrams: {
+        current: null,
+        pending: snapshot.pending,
+      } as unknown as ParseResult["diagrams"],
+      warnings: [...args.parseResult.warnings, ...snapshot.warnings],
+    };
+  }
+
   const snapshot = await callTx("applyShowSnapshot", () =>
     tx.applyShowSnapshot({
       driveFileId: args.driveFileId,
       modifiedTime: args.binding.modifiedTime,
       staleGuard: staleGuardForMode(args.mode),
-      parseResult: args.parseResult,
-      slug: deriveSlug(args.parseResult, []),
+      parseResult,
+      slug: deriveSlug(parseResult, []),
       skipDiagramsWrite: args.skipDiagramsWrite ?? false,
     }),
   );
@@ -144,14 +171,14 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   await callTx("applyParseResult", () =>
     applyParseResult(tx, {
       driveFileId: args.driveFileId,
-      parseResult: args.parseResult,
+      parseResult,
       snapshot,
     }),
   );
 
   const roleFlagChanges = nonLeadRoleFlagChanges(
     snapshot.previousCrewMembers,
-    args.parseResult.crewMembers,
+    parseResult.crewMembers,
   );
   const roleFlagsNotice =
     roleFlagChanges.length > 0
