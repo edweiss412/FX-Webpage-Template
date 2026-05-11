@@ -142,6 +142,7 @@ class FakePhase2Tx {
   lastShowSnapshotArgs: {
     parseResult: ParseResult;
   } | null = null;
+  diagramSnapshot: ParseResult["diagrams"] | null = null;
 
   async applyShowSnapshot(args: {
     driveFileId: string;
@@ -183,6 +184,11 @@ class FakePhase2Tx {
       previousCrewNames,
       previousCrewMembers,
     };
+  }
+
+  async applyDiagramSnapshot(_driveFileId: string, diagrams: ParseResult["diagrams"]) {
+    this.operations.push("applyDiagramSnapshot");
+    this.diagramSnapshot = diagrams;
   }
 
   async deleteCrewMembersNotIn(showId: string, names: string[]) {
@@ -382,6 +388,52 @@ describe("runPhase2 destructive snapshot", () => {
     expect(tx.lastShowSnapshotArgs?.parseResult.warnings).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: "REEL_DRIFTED" })]),
     );
+  });
+
+  test("first-seen shows snapshot diagrams after the show id exists", async () => {
+    const tx = new FakePhase2Tx();
+    const result = await runWith(tx, {
+      parseResult: parseResult({
+        diagrams: {
+          linkedFolder: null,
+          embeddedImages: [
+            {
+              sheetTab: "DIAGRAMS",
+              objectId: "obj-1",
+              mimeType: "image/png",
+              sheetsRevisionId: "sheet-rev-1",
+              embeddedFingerprint: "fingerprint",
+              recovery_disposition: "normal",
+              snapshotPath: null,
+            },
+          ],
+          linkedFolderItems: [],
+        },
+      }),
+      snapshotAssetsForApplyForShowId: (showId: string) => async () => ({
+        snapshotRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        runUuid: "run-1",
+        tempPrefix: `diagram-snapshots/shows/${showId}/_pending/run-1/`,
+        warnings: [],
+        pending: {
+          revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          snapshot_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          snapshot_status: "complete",
+          linkedFolder: null,
+          embeddedImages: [],
+          linkedFolderItems: [],
+        },
+      }),
+    });
+
+    expect(result).toMatchObject({
+      outcome: "applied",
+      snapshotRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
+    expect(tx.diagramSnapshot).toMatchObject({
+      current: null,
+      pending: { snapshot_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+    });
   });
 
   test("crew members are deleted before upsert to avoid same-email rename collisions", async () => {

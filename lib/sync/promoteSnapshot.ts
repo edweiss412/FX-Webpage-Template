@@ -204,6 +204,7 @@ export async function promoteSnapshotUpload(
         const paths = await storage.list(row.temp_prefix);
         const expectedAssetCount = expected.count;
         if (paths.length !== expectedAssetCount) {
+          await clearRolledBack(row);
           return { outcome: "manifest_mismatch", snapshotRevisionId };
         }
 

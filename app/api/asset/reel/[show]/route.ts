@@ -6,8 +6,10 @@ import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
 import { validateLinkSession } from "@/lib/auth/validateLinkSession";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { readBoundedNodeStream, readBoundedWebStream } from "@/lib/sync/boundedBytes";
 
 const CACHE_CONTROL = "private, max-age=0, must-revalidate";
+const MAX_REEL_FALLBACK_BYTES = 512 * 1024 * 1024;
 
 type RouteContext = {
   params: Promise<{ show: string }>;
@@ -36,7 +38,10 @@ type UsableReelRow = {
 
 type ReelDriveClient = {
   files: {
-    get(args: { fileId: string; fields?: string; alt?: "media" }): Promise<{ data: unknown }>;
+    get(
+      args: { fileId: string; fields?: string; alt?: "media" },
+      options?: { responseType: "stream" },
+    ): Promise<{ data: unknown }>;
   };
   revisions: {
     get(
@@ -79,6 +84,16 @@ function streamBody(data: unknown): BodyInit {
   if (data instanceof Readable) return Readable.toWeb(data) as ReadableStream;
   if (data instanceof ReadableStream) return data;
   return responseBody(bytesFrom(data));
+}
+
+async function boundedBytesFrom(data: unknown): Promise<Uint8Array> {
+  if (data instanceof Readable) {
+    return (await readBoundedNodeStream(data, MAX_REEL_FALLBACK_BYTES)).bytes;
+  }
+  if (data instanceof ReadableStream) {
+    return (await readBoundedWebStream(data, MAX_REEL_FALLBACK_BYTES)).bytes;
+  }
+  return bytesFrom(data);
 }
 
 async function authorize(request: NextRequest, showId: string): Promise<Response | null> {
@@ -194,11 +209,14 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       });
     } catch (error) {
       if (!isRevisionFallbackAllowed(error)) throw error;
-      const { data } = (await drive.files.get({
-        fileId: row.opening_reel_drive_file_id,
-        alt: "media",
-      })) as { data: unknown };
-      const bytes = bytesFrom(data);
+      const { data } = (await drive.files.get(
+        {
+          fileId: row.opening_reel_drive_file_id,
+          alt: "media",
+        },
+        { responseType: "stream" },
+      )) as { data: unknown };
+      const bytes = await boundedBytesFrom(data);
       if (current.md5Checksum && md5Hex(bytes) !== current.md5Checksum) {
         return gone();
       }

@@ -37,6 +37,7 @@ export type Phase2Tx = ApplyParseResultTx & {
         outcome: "stale";
       }
   >;
+  applyDiagramSnapshot?(driveFileId: string, diagrams: ParseResult["diagrams"]): Promise<void>;
 };
 
 export type Phase2Args = {
@@ -47,6 +48,12 @@ export type Phase2Args = {
   binding: Phase1Binding;
   skipDiagramsWrite?: boolean;
   snapshotAssetsForApply?: (args: {
+    driveFileId: string;
+    diagrams: ParseResult["diagrams"];
+  }) => Promise<SnapshotAssetsResult>;
+  snapshotAssetsForApplyForShowId?: (
+    showId: string,
+  ) => (args: {
     driveFileId: string;
     diagrams: ParseResult["diagrams"];
   }) => Promise<SnapshotAssetsResult>;
@@ -203,6 +210,34 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
 
   if (snapshot.outcome === "stale") {
     return { outcome: "stale", code: staleCodeForMode(args.mode) };
+  }
+
+  if (
+    !snapshotRevisionId &&
+    !args.skipDiagramsWrite &&
+    args.snapshotAssetsForApplyForShowId &&
+    tx.applyDiagramSnapshot &&
+    diagramAssetCount(parseResult.diagrams) > 0
+  ) {
+    const snapshotAssetsForApply = args.snapshotAssetsForApplyForShowId(snapshot.showId);
+    const snapshotAssets = await callTx("snapshotAssetsForApply", () =>
+      snapshotAssetsForApply({
+        driveFileId: args.driveFileId,
+        diagrams: parseResult.diagrams,
+      }),
+    );
+    snapshotRevisionId = snapshotAssets.snapshotRevisionId;
+    parseResult = {
+      ...parseResult,
+      diagrams: {
+        current: null,
+        pending: snapshotAssets.pending,
+      } as unknown as ParseResult["diagrams"],
+      warnings: [...parseResult.warnings, ...snapshotAssets.warnings],
+    };
+    await callTx("applyDiagramSnapshot", () =>
+      tx.applyDiagramSnapshot!(args.driveFileId, parseResult.diagrams),
+    );
   }
 
   await callTx("applyParseResult", () =>

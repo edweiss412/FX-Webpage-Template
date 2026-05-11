@@ -323,6 +323,20 @@ class PostgresPipelineTx implements SyncPipelineTx {
     return row?.id ?? null;
   }
 
+  async applyDiagramSnapshot(
+    driveFileId: string,
+    diagrams: ParseResult["diagrams"],
+  ): Promise<void> {
+    await this.rows(
+      `
+        update public.shows
+           set diagrams = $2::jsonb
+         where drive_file_id = $1
+      `,
+      [driveFileId, JSON.stringify(diagrams)],
+    );
+  }
+
   async insertPendingSnapshotUpload(row: {
     showId: string;
     driveFileId: string;
@@ -2039,6 +2053,10 @@ export async function processOneFile_unlocked(
       ? makeSnapshotAssetsForApply(showId, tx as Parameters<typeof makeSnapshotAssetsForApply>[1])
       : undefined;
   })();
+  const snapshotAssetsForApplyForShowId = tx.insertPendingSnapshotUpload
+    ? (showId: string) =>
+        makeSnapshotAssetsForApply(showId, tx as Parameters<typeof makeSnapshotAssetsForApply>[1])
+    : undefined;
   const phase2 = await runPhase2_unlocked(
     tx,
     {
@@ -2048,6 +2066,7 @@ export async function processOneFile_unlocked(
       parseResult: pipeline.parseResult,
       binding: pipeline.binding,
       ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
+      ...(snapshotAssetsForApplyForShowId ? { snapshotAssetsForApplyForShowId } : {}),
     },
     deps,
   );
