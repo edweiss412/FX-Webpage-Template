@@ -551,28 +551,30 @@ The seven create / extend rows above are mandatory at M7 close. Empty rows silen
 
 **Frontend result.** M7 Task 7.9 UI surface ships with the §12 quality gate closed (zero P0/P1). Awaiting cross-model adversarial review (Codex) per ROUTING.md M7 row's split-mode contract. Frontend HEAD will be `c569c72` plus this convergence-log doc commit; the adversarial-review base is `3034b5c` (backend close-out) so the diff covers the full Opus coda.
 
-### Adversarial review convergence — 2026-05-11 (R20→R26, APPROVE/SHIP at R26)
+### UI-session adversarial review (Task 7.9 Opus coda) — 2026-05-10 → 2026-05-11 (R1→R26, APPROVE at R26)
 
-**Outcome.** Cross-model adversarial review converged to SHIP at R26 (`review-mp1t5rch-2qik83`) after 7 rounds. Base for every round was `3034b5c` (backend close-out) per the full-milestone-scope rule. The chain surfaced 6 consecutive HTTP-semantics findings (R20-R25) on the asset proxy surface — twice triggering the AGENTS.md "Same-vector recurrence → comprehensive re-analysis" rule. Both structural passes were necessary to converge.
+**Scope.** This entry records ONLY the UI-session-scoped review of the Opus coda. Base for every round was `3034b5c` (backend close-out), so the diff covered only Task 7.9's UI surface + the asset routes the UI coda touched / added. The backend convergence (Tasks 7.1-7.8) had its OWN separate R1-R16 chain (commits `21dfd28`..`9fa3e27`, separately converged before `3034b5c`). A SEPARATE full-M7 adversarial review against `ae6f0b8` (M6 close → current HEAD) is still pending and is the trigger for marking M7 closed.
 
-**Round-by-round commits:**
+**Outcome (UI session).** Cross-model review converged to APPROVE at R26 (`review-mp1t5rch-2qik83`). The 26 rounds spanned two sessions (a conversation compaction occurred mid-R19); R1 fix landed at commit `907eb6c`, R26 SHIP attested through commit `4808576`. The chain surfaced 6 consecutive HTTP-semantics findings (R20-R25) on the asset proxy surface — twice triggering the AGENTS.md "Same-vector recurrence → comprehensive re-analysis" rule. Both structural passes were necessary to converge.
+
+**Round-by-round commits.** R1-R19 are documented inline in each fix commit message (`907eb6c` "close Codex R1 …" through `57ab26f` "close Codex R13 …" etc — `git log 3034b5c..HEAD -- 'app/api/asset/**' 'components/**' 'lib/auth/**' 'lib/data/**' 'tests/api/**' 'tests/components/**'` enumerates them in order). R20-R26 below records the rounds that triggered the AGENTS.md same-vector-recurrence rule and the two structural passes it forced:
 
 | Round | Codex job id | Verdict + summary | Fix commit |
 | --- | --- | --- | --- |
-| R20 | `review-mp1hgni7-htvzwd` | NO-SHIP: Drive 416 → 500 mapping (Range unsatisfiable not surfaced as 416). | (pre-R23 patches) |
-| R21 | `review-mp1p370o-dq0tkq` | NO-SHIP: diagram 206 cap-bypass via piecemeal Range. | (pre-R23 patches) |
+| R20 | `review-mp1hgni7-htvzwd` | NO-SHIP: Drive 416 → 500 mapping (Range unsatisfiable not surfaced as 416). | `3b8efca` |
+| R21 | `review-mp1p370o-dq0tkq` | NO-SHIP: diagram 206 cap-bypass via piecemeal Range. | `752260e` |
 | R22 | `review-mp1pbiex-9yxdhm` | NO-SHIP: R21 fix didn't reach agenda + reel (class-sweep miss). | `9945396` |
 | R23 | `review-mp1pk5us-5tttkp` | NO-SHIP: 206 fail-closed + HEAD + Cache-Control + Vary still missing across the surface. | `51ba0c8` (RFC 7233/9110/9111 comprehensive audit + patches; +41 tests) |
 | R24 | `review-mp1sg3vh-c7xlh6` | NEEDS-ATTENTION: diagram HEAD reports 200 for storage-missing/over-cap objects (HEAD/GET parity violation). | `02dda36` (structural HEAD/GET parity contract + per-route parity test blocks for failure modes; +22 tests) |
 | R25 | `review-mp1sqtcu-np9oo8` | NO-SHIP: HEAD-200 vs GET-206 on satisfiable Range (R24 parity block parametrized only over failure modes); reel post-Apply drift renders broken `<video>` instead of AC-7.21 placeholder. | `68bfa48` (HEAD computes 206 + Content-Range from known size; new `OpeningReelVideo` client component swaps to placeholder on media error; +12 tests) |
-| R26 | `review-mp1t5rch-2qik83` | **SHIP / APPROVE** — no material findings. Branch ships. | — |
+| R26 | `review-mp1t5rch-2qik83` | **APPROVE** — no material findings on the UI-session diff against `3034b5c`. | — |
 
 **Structural lessons (added to AGENTS.md):**
 
 1. **AGENTS.md §1 line 75 — Same-vector recurrence rule.** 3 consecutive rounds on the same vector → comprehensive re-analysis required before next review fires. If the round AFTER the comprehensive pass still surfaces the same-vector class, the analysis is structurally incomplete — stop patching, deep-dive spec + diff together until convergence is structural. M7 Task 7.9 R20-R22 (per-instance) → R23 (structural #1) → R24 still found gap → R25 (structural #2 — extended success-path coverage) → R26 SHIP. The rule earned its keep here: each successive structural pass NARROWED the gap class (per-instance → failure-mode parametrization → success-mode parametrization) rather than chasing individual instances.
 2. **Memory: "No pause after comprehensive re-analysis audit"** (`feedback_no_pause_after_audit.md`). Codified after I paused for confirmation post-R23 audit. Subsequent rounds proceeded directly: audit → patch → review.
 
-**Final HEAD.** R26 verdict commit is `68bfa48`. The full convergence chain (R23/R24/R25 patches) lives in: `51ba0c8`, `02dda36`, `68bfa48` + meta updates `9945396`, `c069893` (AGENTS.md rule).
+**Final UI-session HEAD.** R26 attests through commit `4808576` (this convergence-log entry); the last code-changing fix landed at `68bfa48`. The R20-R26 chain lives across `3b8efca`, `752260e`, `9945396`, `51ba0c8`, `02dda36`, `68bfa48` + `c069893` (AGENTS.md rule codification). **A full-M7 adversarial review against `ae6f0b8..HEAD` is still pending** — it is what closes the milestone.
 
 **Tests added during convergence (cumulative):**
 
