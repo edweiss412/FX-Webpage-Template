@@ -95,6 +95,12 @@ const infraRegistry = [
     path: "app/api/cron/asset-recovery/route.ts",
     contract: "cron route delegates to the registered asset-recovery scheduler surface",
   },
+  {
+    helper: "DIAGRAM_BUCKET",
+    path: "app/api/asset/diagram/[show]/[rev]/[key]/route.ts",
+    contract:
+      "diagram asset route destructures Supabase row and Storage download results; missing bytes map to 410",
+  },
 ] as const;
 
 function read(path: string): string {
