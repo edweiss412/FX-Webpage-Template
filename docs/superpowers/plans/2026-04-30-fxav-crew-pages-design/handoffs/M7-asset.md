@@ -222,6 +222,8 @@ M7 has not yet been implemented; no prior M7 convergence log exists. Watchpoints
 
     **Recommended disposition: (a) — carve Task 7.9 to Opus as a coda within M7.** Backend tasks ship under Codex per ROUTING.md spirit; UI ships under Opus per the hard rule; the milestone closes when both sides converge. The user-provided handoff brief said "no UI surface in M7" — that brief was consistent with ROUTING.md's "lives in M4 tiles" wording but did NOT reflect the plan's Task 7.9 reality. Surface this at kickoff.
 
+25. **Phase 1 warning → TriggeredReviewItem bridge (full-M7 R1 HIGH `review-mp1uaqca-jbmciz`).** The four sync-layer-appended asset-review variants (`DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE`, `DIAGRAMS_EMBEDDED_NONE_FOUND`, `DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING`, `REEL_DRIFT_PENDING`) MUST be promoted from Phase 1 `parseResult.warnings` into `pending_syncs.triggered_review_items` before the pass/stage decision. Otherwise Apply auto-runs and bypasses the preserve / empty-gallery / linked-folder drift / reel-drift branches in `applyStaged`. Future changes touching `lib/parser/types.ts` asset-review variants or `lib/sync/phase1.ts` MUST extend `tests/sync/_phase1WarningBridgeContract.test.ts`.
+
 ## 7. Test commands
 
 - **Pre-flight and final gate**: `pnpm test && pnpm lint && pnpm typecheck`. Do NOT parallelize `pnpm test` with Playwright.
@@ -424,6 +426,8 @@ For each candidate class below, **create / extend / N/A — <reason>**:
 
 - [x] **`r=`-prefixed URL rejection** — **CREATE `tests/api/asset/_revUrlShapeContract.test.ts`** (NEW M7-introduced class — corresponds to §6 watchpoint 12 / Task 7.5). Asserts every URL emitted by gallery / agenda / tile components AND every URL accepted by `/api/asset/diagram/[show]/[rev]/[key]` route uses a BARE UUID for `[rev]`. Two arms: (a) component-emission scan — grep `components/diagrams/**` + `components/tiles/DiagramsTile.tsx` + `components/agenda/**` for `/api/asset/diagram/` and verify the template literal interpolates a bare UUID (`${rev}`, not `r=${rev}`). (b) route-rejection runtime test — request `/api/asset/diagram/<show>/r=<uuid>/<key>` and assert 410.
 
+- [x] **Phase 1 warning → review-item bridge** — **CREATE `tests/sync/_phase1WarningBridgeContract.test.ts`** (NEW full-M7 R1-introduced class). Static-analysis test reads the `TriggeredReviewItem` union comment in `lib/parser/types.ts` and enumerates every variant marked sync-layer-appended; then asserts `lib/sync/phase1.ts` has an explicit `syncLayerReviewItems` bridge path and call site for each. This prevents future asset-review warning variants from silently falling through Phase 1 as `pass` and bypassing `applyStaged`'s preserve / empty / drift contracts.
+
 - [N/A] **Sentinel hiding in optional text** — `tests/components/tiles/_metaSentinelHidingContract.test.ts`. **N/A — M7 backend doesn't render tile-shape optional text. If Task 7.9 ships in M7 (per §6.24 resolution), Opus's UI work owns this consideration; the existing M4 meta-test already covers the tile-render contract.**
 
 - [N/A] **No-inline-email-normalization** — `tests/admin/no-inline-email-normalization.test.ts`. **N/A for M7's new surfaces — M7 does NOT read emails from any source.** The existing M6-extended glob covers `lib/sync/**`; M7's new files under `lib/sync/` are automatically covered, but they have no email-reading surface so the test passes trivially.
@@ -575,6 +579,14 @@ The seven create / extend rows above are mandatory at M7 close. Empty rows silen
 2. **Memory: "No pause after comprehensive re-analysis audit"** (`feedback_no_pause_after_audit.md`). Codified after I paused for confirmation post-R23 audit. Subsequent rounds proceeded directly: audit → patch → review.
 
 **Final UI-session HEAD.** R26 attests through commit `4808576` (this convergence-log entry); the last code-changing fix landed at `68bfa48`. The R20-R26 chain lives across `3b8efca`, `752260e`, `9945396`, `51ba0c8`, `02dda36`, `68bfa48` + `c069893` (AGENTS.md rule codification). **A full-M7 adversarial review against `ae6f0b8..HEAD` is still pending** — it is what closes the milestone.
+
+#### Full-M7 adversarial review — R1 bridge fix
+
+| Round | Codex job id | Verdict + summary | Resolution commit |
+| --- | --- | --- | --- |
+| R1 | `review-mp1uaqca-jbmciz` | HIGH: four sync-layer-owned asset-review `TriggeredReviewItem` codes were present as Phase 1 warnings but not promoted into `triggeredReviewItems`; Phase 1 could return `pass`, causing Apply to auto-run and bypass the preserve / empty-gallery / linked-folder drift / reel-drift branches in `applyStaged`. | `9ab1088`, `250838a` |
+
+**R1 resolution.** `lib/sync/phase1.ts` now composes `syncLayerReviewItems(args, args.parseResult, show)` with `runInvariants` output before the pass/stage decision. `tests/sync/phase1WarningBridge.test.ts` pins one positive staging case per asset-review code, and `tests/sync/_phase1WarningBridgeContract.test.ts` structurally guards the sync-layer-appended variant list from `lib/parser/types.ts`.
 
 **Tests added during convergence (cumulative):**
 
