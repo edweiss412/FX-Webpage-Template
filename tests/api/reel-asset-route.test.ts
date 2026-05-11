@@ -253,12 +253,14 @@ describe("/api/asset/reel/[show]", () => {
     expect(res.status).toBe(200);
   });
 
-  test("Codex R5 P1: cross-show cookie envelope → 403 WITHOUT calling destructive validateLinkSession", async () => {
+  test("Codex R5 P1 + R10 P1: cross-show cookie envelope → 403 WITHOUT calling destructive validateLinkSession", async () => {
+    // Cross-show peek skips destructive link validator. Route still
+    // attempts Google fallthrough (R10 P1); when Google also fails,
+    // final response is 403.
     routeMock.peek = { kind: "envelope", showId: "other-show-id" };
     const res = await getReel();
     expect(res.status).toBe(403);
     expect(routeMock.linkCalls).toBe(0);
-    expect(routeMock.googleCalls).toBe(0);
   });
 
   test("Codex R7 P1: modtime equality is instant-based (Postgres `+00:00` vs Drive `.000Z` both pass)", async () => {

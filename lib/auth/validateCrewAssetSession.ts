@@ -50,38 +50,44 @@ export async function validateCrewAssetSession(
   request: NextRequest,
   showId: string,
 ): Promise<CrewAssetSessionResult> {
-  // Codex R5 P1 close-out: non-destructive cookie envelope peek BEFORE
+  // Codex R5 P1 + R10 P1: non-destructive cookie envelope peek BEFORE
   // the link validator. `validateLinkSession` DELETES the link_sessions
   // row when the cookie's show_id doesn't match the requested showId —
   // a cross-show asset hit (e.g., a misshared URL) would otherwise wipe
   // a crew member's valid session for the show they actually belong to.
-  // `lib/auth/resolveShowViewer.ts` uses this same pre-validator boundary;
-  // the asset routes adopt it via this helper.
+  //
+  // R10 refinement: a cross-show link cookie MUST still allow Google
+  // fallthrough. A user can have a stale show-A link cookie AND a valid
+  // show-B Google session; under `admin OR link OR google` the Google
+  // branch must rescue them. We skip the destructive validateLinkSession
+  // on cross-show, but still run validateGoogleSession. If Google also
+  // fails, we surface 403 to indicate the cross-show diagnostic.
   const peek = peekLinkSessionShow(request);
-  if (peek.kind === "envelope" && peek.showId !== showId) {
-    return { ok: false, response: new Response(null, { status: 403 }) };
-  }
+  const crossShowLinkCookie = peek.kind === "envelope" && peek.showId !== showId;
 
-  const link = await validateLinkSession(request, { showId });
-  if (link.kind === "success") {
-    return link.viewer.showId === showId
-      ? { ok: true }
-      : { ok: false, response: new Response(null, { status: 403 }) };
-  }
-  if (link.kind === "terminal_failure") {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: link.code }, { status: link.status }),
-    };
-  }
+  let linkFallback410: Response | null = null;
+  if (!crossShowLinkCookie) {
+    const link = await validateLinkSession(request, { showId });
+    if (link.kind === "success") {
+      return link.viewer.showId === showId
+        ? { ok: true }
+        : { ok: false, response: new Response(null, { status: 403 }) };
+    }
+    if (link.kind === "terminal_failure") {
+      return {
+        ok: false,
+        response: NextResponse.json({ error: link.code }, { status: link.status }),
+      };
+    }
 
-  // Codex R9 P1: a recoverable 410 from the link branch is PROVISIONAL —
-  // a crew member with a stale revoked link cookie may still hold a valid
-  // Google session for the same show, in which case the page resolver
-  // (`lib/auth/resolveShowViewer.ts`) lets them through. The asset routes
-  // MUST mirror that fallthrough: save the link's 410 fallback response
-  // and only return it if Google ALSO fails.
-  const linkFallback410 = link.priorFailure?.status === 410 ? gone() : null;
+    // Codex R9 P1: a recoverable 410 from the link branch is PROVISIONAL —
+    // a crew member with a stale revoked link cookie may still hold a valid
+    // Google session for the same show, in which case the page resolver
+    // (`lib/auth/resolveShowViewer.ts`) lets them through. The asset routes
+    // MUST mirror that fallthrough: save the link's 410 fallback response
+    // and only return it if Google ALSO fails.
+    linkFallback410 = link.priorFailure?.status === 410 ? gone() : null;
+  }
 
   const google = await validateGoogleSession(request, { showId });
   if (google.kind === "success") {
@@ -96,11 +102,17 @@ export async function validateCrewAssetSession(
     };
   }
 
-  // Google didn't authenticate. If the link branch carried a 410 prior
-  // failure, surface it now (the link revocation IS the user-visible
-  // reason); otherwise generic 401.
+  // Google didn't authenticate. Resolve the right failure code:
+  //   - link 410 fallback was saved → surface it (the link revocation
+  //     is the user-visible reason).
+  //   - cross-show cookie envelope detected → 403 (matches the page
+  //     resolver's `cross_show_link_session` diagnostic shape).
+  //   - otherwise → generic 401.
   if (linkFallback410) {
     return { ok: false, response: linkFallback410 };
+  }
+  if (crossShowLinkCookie) {
+    return { ok: false, response: new Response(null, { status: 403 }) };
   }
   return { ok: false, response: new Response(null, { status: 401 }) };
 }

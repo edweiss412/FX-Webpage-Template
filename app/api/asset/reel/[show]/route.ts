@@ -4,6 +4,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getDriveClient } from "@/lib/drive/client";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
 import { validateCrewAssetSession } from "@/lib/auth/validateCrewAssetSession";
+import { isAllowedReelMime } from "@/lib/data/openingReel";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import {
   ByteLimitExceededError,
@@ -17,16 +18,6 @@ import {
 
 const CACHE_CONTROL = "private, max-age=0, must-revalidate";
 const MAX_REEL_FALLBACK_BYTES = 512 * 1024 * 1024;
-// Codex R8 P1: explicit allowlist of inert browser-supported video
-// MIMEs. The previous `mime.startsWith("video/")` prefix gate let any
-// `video/*` value flow through. An allowlist rejects pathological /
-// hostile MIMEs that browsers might sniff or treat unexpectedly.
-const ALLOWED_REEL_MIMES = new Set([
-  "video/mp4",
-  "video/webm",
-  "video/quicktime",
-  "video/ogg",
-]);
 
 type RouteContext = {
   params: Promise<{ show: string }>;
@@ -133,11 +124,13 @@ function hasUsablePin(row: ReelRow): row is UsableReelRow {
     row.opening_reel_drive_modified_time &&
     row.opening_reel_head_revision_id &&
     row.opening_reel_mime_type &&
-    // Codex R8 P1: enforce the explicit video-MIME allowlist BEFORE
-    // serving. The previous `startsWith("video/")` prefix gate let any
-    // `video/*` value through; the allowlist rejects pathological /
-    // hostile MIMEs that browsers might sniff or treat unexpectedly.
-    ALLOWED_REEL_MIMES.has(row.opening_reel_mime_type.toLowerCase()),
+    // Codex R8 P1 + R10 P2: shared allowlist from `lib/data/openingReel.ts`
+    // so the page projection (`projectOpeningReelHasVideo`) and this
+    // route never drift on which MIMEs are renderable. Without the
+    // unified gate, a persisted `video/x-flv` would make the page emit
+    // <video> while this route 410s — a broken player with no admin
+    // warning.
+    isAllowedReelMime(row.opening_reel_mime_type),
   );
 }
 

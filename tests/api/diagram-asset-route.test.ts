@@ -260,15 +260,29 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     expect(res.status).toBe(410);
   });
 
-  test("Codex R5 P1: cross-show cookie envelope → 403 WITHOUT calling destructive validateLinkSession", async () => {
+  test("Codex R5 P1 + R10 P1: cross-show cookie envelope → 403 WITHOUT calling destructive validateLinkSession", async () => {
     // Crew member has a valid show-A link cookie but hits show-B's
-    // asset URL. The route must 403 BEFORE running validateLinkSession
-    // (which would DELETE the show-A session row).
+    // asset URL. The route must NOT call validateLinkSession (which
+    // would DELETE the show-A session row). The route STILL runs
+    // validateGoogleSession so a same-show Google session can rescue
+    // the request (R10 P1 fix); when Google also fails, the final
+    // response is 403 (cross-show diagnostic).
     routeMock.peek = { kind: "envelope", showId: "other-show-id" };
     const res = await getDiagram();
     expect(res.status).toBe(403);
     expect(routeMock.linkCalls).toBe(0);
-    expect(routeMock.googleCalls).toBe(0);
+  });
+
+  test("Codex R10 P1: cross-show link cookie + valid same-show Google session → 200", async () => {
+    routeMock.peek = { kind: "envelope", showId: "other-show-id" };
+    routeMock.google = {
+      kind: "success" as const,
+      viewer: { kind: "crew", showId, crewMemberId: "crew-1" },
+    } as never;
+    const res = await getDiagram();
+    expect(res.status).toBe(200);
+    expect(routeMock.linkCalls).toBe(0);
+    expect(routeMock.googleCalls).toBeGreaterThan(0);
   });
 
   test("Codex R6 P1: persisted SVG MIME → 410 (no same-origin active content)", async () => {
