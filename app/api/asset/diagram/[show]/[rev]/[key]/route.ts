@@ -18,8 +18,13 @@ type RouteParams = {
 
 type ShowRow = {
   id: string;
+  published: boolean | null;
   diagrams: unknown;
 };
+
+type AuthorizeResult =
+  | { ok: true; isAdmin: boolean }
+  | { ok: false; response: Response };
 
 type AssetEntry = {
   snapshotPath: string | null;
@@ -59,33 +64,46 @@ function isStorageNotFound(error: unknown): boolean {
   );
 }
 
-async function authorize(request: NextRequest, showId: string): Promise<Response | null> {
+async function authorize(request: NextRequest, showId: string): Promise<AuthorizeResult> {
   const admin = await isAdminSession(request);
-  if (admin.ok) return null;
+  if (admin.ok) return { ok: true, isAdmin: true };
   if (admin.reason === "infra_error") {
-    return NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 }),
+    };
   }
 
   const link = await validateLinkSession(request, { showId });
   if (link.kind === "success") {
-    return link.viewer.showId === showId ? null : new Response(null, { status: 403 });
+    return link.viewer.showId === showId
+      ? { ok: true, isAdmin: false }
+      : { ok: false, response: new Response(null, { status: 403 }) };
   }
   if (link.kind === "terminal_failure") {
-    return NextResponse.json({ error: link.code }, { status: link.status });
+    return {
+      ok: false,
+      response: NextResponse.json({ error: link.code }, { status: link.status }),
+    };
   }
   if (link.priorFailure?.status === 410) {
-    return gone();
+    return { ok: false, response: gone() };
   }
 
   const google = await validateGoogleSession(request, { showId });
   if (google.kind === "success") {
-    return google.viewer.showId === showId ? null : new Response(null, { status: 403 });
+    return google.viewer.showId === showId
+      ? { ok: true, isAdmin: false }
+      : { ok: false, response: new Response(null, { status: 403 }) };
   }
   if (google.kind === "terminal_failure") {
-    return NextResponse.json({ error: google.code }, { status: google.status });
+    return {
+      ok: false,
+      response: NextResponse.json({ error: google.code }, { status: google.status }),
+    };
   }
 
-  return new Response(null, { status: 401 });
+  return { ok: false, response: new Response(null, { status: 401 }) };
 }
 
 export async function GET(
@@ -98,15 +116,15 @@ export async function GET(
     return gone();
   }
 
-  const rejected = await authorize(request, show);
-  if (rejected) return rejected;
+  const auth = await authorize(request, show);
+  if (!auth.ok) return auth.response;
 
   let showResult: { data: ShowRow | null; error: unknown };
   try {
     const supabase = createSupabaseServiceRoleClient();
     showResult = (await supabase
       .from("shows")
-      .select("id,diagrams")
+      .select("id,published,diagrams")
       .eq("id", show)
       .maybeSingle()) as { data: ShowRow | null; error: unknown };
 
@@ -114,6 +132,11 @@ export async function GET(
       return NextResponse.json({ error: "DIAGRAM_ASSET_LOOKUP_FAILED" }, { status: 500 });
     }
     if (!showResult.data) {
+      return gone();
+    }
+    // Published gate: non-admin viewers cannot reach assets on unpublished
+    // shows. Matches the page-level gate at app/show/[slug]/page.tsx.
+    if (!auth.isAdmin && showResult.data.published !== true) {
       return gone();
     }
 

@@ -29,6 +29,7 @@ const routeMock = vi.hoisted(() => ({
   google: { kind: "continue" as const },
   showRow: null as null | {
     id: string;
+    published: boolean | null;
     agenda_links: { label?: string; fileId?: string; url?: string }[];
   },
   driveMeta: null as null | { mimeType?: string | null; trashed?: boolean | null },
@@ -97,6 +98,7 @@ beforeEach(() => {
   routeMock.google = { kind: "continue" };
   routeMock.showRow = {
     id: showId,
+    published: true,
     agenda_links: [{ label: "Agenda", fileId: agendaFileId }],
   };
   routeMock.driveMeta = { mimeType: "application/pdf", trashed: false };
@@ -190,5 +192,39 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     routeMock.driveError = Object.assign(new Error("kaboom"), { code: 500 });
     const res = await getAgenda();
     expect(res.status).toBe(500);
+  });
+
+  test("Codex R1 P1: non-admin viewer on unpublished show → 410 (no Drive call)", async () => {
+    routeMock.showRow = {
+      id: showId,
+      published: false,
+      agenda_links: [{ label: "Agenda", fileId: agendaFileId }],
+    };
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+    expect(routeMock.filesGetCalls).toEqual([]);
+  });
+
+  test("Codex R1 P1: non-admin viewer on null-published show → 410 (no Drive call)", async () => {
+    routeMock.showRow = {
+      id: showId,
+      published: null,
+      agenda_links: [{ label: "Agenda", fileId: agendaFileId }],
+    };
+    const res = await getAgenda();
+    expect(res.status).toBe(410);
+    expect(routeMock.filesGetCalls).toEqual([]);
+  });
+
+  test("Codex R1 P1: admin viewer on unpublished show → 200 (admin sees drafts)", async () => {
+    routeMock.admin = { ok: true } as never;
+    routeMock.link = { kind: "continue" };
+    routeMock.showRow = {
+      id: showId,
+      published: false,
+      agenda_links: [{ label: "Agenda", fileId: agendaFileId }],
+    };
+    const res = await getAgenda();
+    expect(res.status).toBe(200);
   });
 });

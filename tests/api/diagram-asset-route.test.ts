@@ -31,6 +31,7 @@ const routeMock = vi.hoisted(() => ({
     },
   } as MockLinkResult,
   google: { kind: "continue" as const },
+  published: true as boolean | null,
   diagrams: null as unknown,
   storageBytes: new TextEncoder().encode("diagram-bytes") as Uint8Array | null,
   storageError: null as unknown,
@@ -58,7 +59,9 @@ vi.mock("@/lib/supabase/server", () => ({
         select: () => ({
           eq: () => ({
             maybeSingle: async () => ({
-              data: routeMock.diagrams ? { id: showId, diagrams: routeMock.diagrams } : null,
+              data: routeMock.diagrams
+                ? { id: showId, published: routeMock.published, diagrams: routeMock.diagrams }
+                : null,
               error: null,
             }),
           }),
@@ -142,6 +145,7 @@ beforeEach(() => {
     viewer: { kind: "crew", showId, crewMemberId: "crew-1" },
   };
   routeMock.google = { kind: "continue" };
+  routeMock.published = true;
   routeMock.diagrams = diagramsWithPending();
   routeMock.storageBytes = new TextEncoder().encode("diagram-bytes");
   routeMock.storageError = null;
@@ -206,5 +210,20 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
       priorFailure: { status: 410, code: "LINK_NO_CREW_MATCH" },
     };
     await expect(getDiagram()).resolves.toMatchObject({ status: 410 });
+  });
+
+  test("Codex R1 P1 class-sweep: non-admin viewer on unpublished show → 410 (no Storage call)", async () => {
+    routeMock.published = false;
+    const res = await getDiagram();
+    expect(res.status).toBe(410);
+    expect(routeMock.storageDownloads).toEqual([]);
+  });
+
+  test("Codex R1 P1 class-sweep: admin viewer on unpublished show → 200 (admin sees drafts)", async () => {
+    routeMock.admin = { ok: true } as never;
+    routeMock.link = { kind: "continue" };
+    routeMock.published = false;
+    const res = await getDiagram();
+    expect(res.status).toBe(200);
   });
 });

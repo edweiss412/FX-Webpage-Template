@@ -20,11 +20,16 @@ type RouteContext = {
 };
 
 type ReelRow = {
+  published: boolean | null;
   opening_reel_drive_file_id: string | null;
   opening_reel_drive_modified_time: string | null;
   opening_reel_head_revision_id: string | null;
   opening_reel_mime_type: string | null;
 };
+
+type AuthorizeResult =
+  | { ok: true; isAdmin: boolean }
+  | { ok: false; response: Response };
 
 type DriveMetadata = {
   modifiedTime?: string | null;
@@ -33,7 +38,7 @@ type DriveMetadata = {
   md5Checksum?: string | null;
 };
 
-type UsableReelRow = {
+type UsableReelRow = ReelRow & {
   opening_reel_drive_file_id: string;
   opening_reel_drive_modified_time: string;
   opening_reel_head_revision_id: string;
@@ -100,33 +105,46 @@ async function boundedBytesFrom(data: unknown): Promise<Uint8Array> {
   return bytesFrom(data);
 }
 
-async function authorize(request: NextRequest, showId: string): Promise<Response | null> {
+async function authorize(request: NextRequest, showId: string): Promise<AuthorizeResult> {
   const admin = await isAdminSession(request);
-  if (admin.ok) return null;
+  if (admin.ok) return { ok: true, isAdmin: true };
   if (admin.reason === "infra_error") {
-    return NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 });
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "ADMIN_SESSION_LOOKUP_FAILED" }, { status: 500 }),
+    };
   }
 
   const link = await validateLinkSession(request, { showId });
   if (link.kind === "success") {
-    return link.viewer.showId === showId ? null : new Response(null, { status: 403 });
+    return link.viewer.showId === showId
+      ? { ok: true, isAdmin: false }
+      : { ok: false, response: new Response(null, { status: 403 }) };
   }
   if (link.kind === "terminal_failure") {
-    return NextResponse.json({ error: link.code }, { status: link.status });
+    return {
+      ok: false,
+      response: NextResponse.json({ error: link.code }, { status: link.status }),
+    };
   }
   if (link.priorFailure?.status === 410) {
-    return gone();
+    return { ok: false, response: gone() };
   }
 
   const google = await validateGoogleSession(request, { showId });
   if (google.kind === "success") {
-    return google.viewer.showId === showId ? null : new Response(null, { status: 403 });
+    return google.viewer.showId === showId
+      ? { ok: true, isAdmin: false }
+      : { ok: false, response: new Response(null, { status: 403 }) };
   }
   if (google.kind === "terminal_failure") {
-    return NextResponse.json({ error: google.code }, { status: google.status });
+    return {
+      ok: false,
+      response: NextResponse.json({ error: google.code }, { status: google.status }),
+    };
   }
 
-  return new Response(null, { status: 401 });
+  return { ok: false, response: new Response(null, { status: 401 }) };
 }
 
 function hasUsablePin(row: ReelRow): row is UsableReelRow {
@@ -171,19 +189,27 @@ function isRevisionFallbackAllowed(error: unknown): boolean {
 
 export async function GET(request: NextRequest, context: RouteContext): Promise<Response> {
   const { show } = await context.params;
-  const rejected = await authorize(request, show);
-  if (rejected) return rejected;
+  const auth = await authorize(request, show);
+  if (!auth.ok) return auth.response;
 
   try {
     const supabase = createSupabaseServiceRoleClient();
     const { data: row, error } = (await supabase
       .from("shows")
       .select(
-        "opening_reel_drive_file_id,opening_reel_drive_modified_time,opening_reel_head_revision_id,opening_reel_mime_type",
+        "published,opening_reel_drive_file_id,opening_reel_drive_modified_time,opening_reel_head_revision_id,opening_reel_mime_type",
       )
       .eq("id", show)
       .maybeSingle()) as { data: ReelRow | null; error: unknown };
-    if (error || !row || !hasUsablePin(row)) {
+    if (error || !row) {
+      return gone();
+    }
+    // Published gate: non-admin viewers cannot reach assets on unpublished
+    // shows. Matches the page-level gate at app/show/[slug]/page.tsx.
+    if (!auth.isAdmin && row.published !== true) {
+      return gone();
+    }
+    if (!hasUsablePin(row)) {
       return gone();
     }
 

@@ -5,6 +5,7 @@ import { NextRequest } from "next/server";
 const showId = "11111111-1111-4111-8111-111111111111";
 
 type MockReelRow = {
+  published: boolean | null;
   opening_reel_drive_file_id: string | null;
   opening_reel_drive_modified_time: string | null;
   opening_reel_head_revision_id: string | null;
@@ -30,6 +31,7 @@ const routeMock = vi.hoisted(() => ({
   } as MockLinkResult,
   google: { kind: "continue" as const },
   show: {
+    published: true,
     opening_reel_drive_file_id: "reel-file-1",
     opening_reel_drive_modified_time: "2026-05-01T00:00:00.000Z",
     opening_reel_head_revision_id: "reel-rev-1",
@@ -110,6 +112,7 @@ beforeEach(() => {
   };
   routeMock.google = { kind: "continue" };
   routeMock.show = {
+    published: true,
     opening_reel_drive_file_id: "reel-file-1",
     opening_reel_drive_modified_time: "2026-05-01T00:00:00.000Z",
     opening_reel_head_revision_id: "reel-rev-1",
@@ -178,5 +181,20 @@ describe("/api/asset/reel/[show]", () => {
 
     expect(drifted.status).toBe(410);
     expect(routeMock.driveCalls).toEqual(["files.metadata", "revisions.media", "files.media"]);
+  });
+
+  test("Codex R1 P1 class-sweep: non-admin viewer on unpublished show → 410 (no Drive call)", async () => {
+    routeMock.show = { ...routeMock.show, published: false };
+    const res = await getReel();
+    expect(res.status).toBe(410);
+    expect(routeMock.driveCalls).toEqual([]);
+  });
+
+  test("Codex R1 P1 class-sweep: admin viewer on unpublished show → 200 (admin sees drafts)", async () => {
+    routeMock.admin = { ok: true } as never;
+    routeMock.link = { kind: "continue" };
+    routeMock.show = { ...routeMock.show, published: false };
+    const res = await getReel();
+    expect(res.status).toBe(200);
   });
 });
