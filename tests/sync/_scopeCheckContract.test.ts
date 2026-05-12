@@ -51,8 +51,16 @@ const INTENTIONAL_EXCEPTIONS = new Map<string, string>([
     "opening-reel asset route streams a persisted immutable revision; this does not process sheets",
   ],
   [
+    "app/api/asset/reel/[show]/route.ts::authorizeReelRequest",
+    "reel-route auth helper extracted from GET; looks up metadata for a persisted opening_reel_drive_file_id pin and does not admit sheets",
+  ],
+  [
     "app/api/asset/agenda/[show]/[id]/route.ts::GET",
     "agenda PDF asset route streams bytes for a fileId already bound to shows.agenda_links; this does not admit or process sheets",
+  ],
+  [
+    "app/api/asset/agenda/[show]/[id]/route.ts::authorizeAgendaRequest",
+    "agenda-route auth helper extracted from GET; looks up metadata for a fileId already bound to shows.agenda_links and does not admit sheets",
   ],
 ]);
 
