@@ -9,11 +9,15 @@ function source(path: string): string {
 function syncLayerAppendedReviewItems(): string[] {
   const normalizedTypes = source("lib/parser/types.ts").replace(/^\s*\/\/\s?/gm, "");
   const match = normalizedTypes.match(
-    /includes asset-review items \(([^)]+)\) that the\s+SYNC layer \(NOT runInvariants\) appends/s,
+    /includes asset-review items \(([^)]+)\) that the[\s\S]*?SYNC layer \(NOT runInvariants\) appends/,
   );
-  expect(match).not.toBeNull();
+  const capturedCodes = match?.[1];
+  expect(capturedCodes).toBeDefined();
+  if (!capturedCodes) {
+    throw new Error("Missing sync-layer-appended TriggeredReviewItem comment in lib/parser/types.ts");
+  }
 
-  return match![1]
+  return capturedCodes
     .split(",")
     .map((code) => code.trim())
     .filter(Boolean);
