@@ -1154,9 +1154,9 @@ The plan ratifies **three** amendments to §13.2.3. All three must land together
    - **Every** URL-writing tail UPDATE (whether from the original worker or a retry) carries `AND lease_holder = $myToken`.
    - On 0-row tail UPDATE: orphan-cleanup branch closes the GH issue with state_reason `not_planned` and adds the `fxav-orphan-lost-lease` label, then INSERTs `admin_alerts` coded `REPORT_ORPHANED_LOST_LEASE`. : if the row was reaped between createIssue and the tail UPDATE, the re-SELECT returns null and the route returns 410 `REPORT_HORIZON_EXPIRED`.
 
-- [ ] **Step 1: Read the existing §13.2.3 text** at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md:2050-2086` to confirm what's being replaced; also locate the `reports` table schema mention in §4 to confirm where the `lease_holder` column declaration lands.
-- [ ] **Step 2: Author the spec patch** that incorporates all three amendments above. Add a sentence pointing back to the plan: "See `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/08-bug-report.md` Tasks 8.1, 8.3b, 8.3d, 8.3e, 8.3f for the full implementation contract and regression-test list."
-- [ ] **Step 3a: Author the verification script** at `scripts/verify-spec-amendment-3.sh`. The script asserts each invariant below with EXACT match counts (not just "at least one"), exits non-zero if any assertion fails, and is wired into the project's CI as a `pnpm verify:spec-amendment` task. Concrete script body:
+- [x] **Step 1: Read the existing §13.2.3 text** at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md:2050-2086` to confirm what's being replaced; also locate the `reports` table schema mention in §4 to confirm where the `lease_holder` column declaration lands.
+- [x] **Step 2: Author the spec patch** that incorporates all three amendments above. Add a sentence pointing back to the plan: "See `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/08-bug-report.md` Tasks 8.1, 8.3b, 8.3d, 8.3e, 8.3f for the full implementation contract and regression-test list."
+- [x] **Step 3a: Author the verification script** at `scripts/verify-spec-amendment-3.sh`. The script asserts each invariant below with EXACT match counts (not just "at least one"), exits non-zero if any assertion fails, and is wired into the project's CI as a `pnpm verify:spec-amendment` task. Concrete script body:
 
   ```bash
   #!/usr/bin/env bash
@@ -1277,13 +1277,13 @@ The plan ratifies **three** amendments to §13.2.3. All three must land together
 
   Make the script executable (`chmod +x scripts/verify-spec-amendment-3.sh`) and add a `verify:spec-amendment` script in `package.json` that runs it. Wire into CI alongside `pnpm test`.
 
-- [ ] **Step 3b: Run the verification script** against the patched spec:
+- [x] **Step 3b: Run the verification script** against the patched spec:
   ```bash
   pnpm verify:spec-amendment
   ```
   Iterate on the spec patch until every `must_be_zero` and `must_be_at_least` assertion in `scripts/verify-spec-amendment-3.sh` passes. The script's exit code is the commit gate — Step 5's commit MUST fail if any assertion fails. The exact-count assertions (e.g. `lease_holder uuid` ≥2 matches; `AND lease_holder =` ≥2 matches) catch partial patches that mention an invariant in only one location.
-- [ ] **Step 4: Update** the plan's "How to use this plan" amendment block to remove the "NOT yet patched into the spec" caveat and replace with "Patched into the spec by Task 8.3g."
-- [ ] **Step 5: Commit** as `spec: align §13.2.3 with plan amendments 1+2+3`. This is a SPEC change; commit message reflects that. Land before any M8 task is merged.
+- [x] **Step 4: Update** the plan's "How to use this plan" amendment block to remove the "NOT yet patched into the spec" caveat and replace with "Patched into the spec by Task 8.3g."
+- [x] **Step 5: Commit** as `spec: align §13.2.3 with plan amendments 1+2+3`. This is a SPEC change; commit message reflects that. Land before any M8 task is merged.
 
 ### Task 8.4: Footer "Something looks wrong?" + admin "Report this" buttons (§13.1)
 

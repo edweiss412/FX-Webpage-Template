@@ -10,6 +10,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
+    "verify:spec-amendment": "scripts/verify-spec-amendment-3.sh",
     "db:seed": "pnpm dlx tsx supabase/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
