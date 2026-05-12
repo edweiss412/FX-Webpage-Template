@@ -9,6 +9,7 @@ import {
 import {
   GitHubIssueInfraError,
   LookupInconclusive,
+  closeIssueAsOrphan,
   createIssue,
   findIssueByMarker,
 } from "@/lib/github/issues";
@@ -72,6 +73,36 @@ describe("META reports infra-failure contract", () => {
     await expect(
       createIssue(
         { title: "Bug", body: "Body", labels: ["bug-report"] },
+        {
+          octokit,
+          env: {
+            GITHUB_API_TOKEN: "ghp_test",
+            GITHUB_REPO: "edweiss412/FX-Webpage-Template",
+            GITHUB_BOT_LOGIN: "fxav-bot",
+          },
+        },
+      ),
+    ).rejects.toBeInstanceOf(GitHubIssueInfraError);
+  });
+
+  test("closeIssueAsOrphan wraps Octokit update throws as GitHubIssueInfraError", async () => {
+    const octokit = {
+      rest: {
+        issues: {
+          update: async () => {
+            throw new Error("META: simulated issue-update infrastructure fault");
+          },
+        },
+      },
+    };
+
+    await expect(
+      closeIssueAsOrphan(
+        {
+          htmlUrl: "https://github.com/edweiss412/FX-Webpage-Template/issues/99",
+          issueNumber: 99,
+          labels: ["bug-report"],
+        },
         {
           octokit,
           env: {

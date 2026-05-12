@@ -152,17 +152,17 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
 
 **The retry path holds NO row-level lock during GitHub I/O.** The original submission's tail UPDATE — `UPDATE reports SET github_issue_url = $url WHERE id = $row` — must be free to land at any time. If the retry path were to take a `SELECT FOR UPDATE` and then call `findIssueByMarker` while holding the row lock, the original tail UPDATE would block, the URL would stay NULL during the retry's lookup, and the retry's late-success guard (Task 8.3e) would have nothing to detect. The only serialized step in the retry is the conditional lease-claim UPDATE itself; everything else uses unlocked SELECTs and lock-free GitHub calls.
 
-- [ ] **Step 1: Failing test (AC-8.11)** — mock GitHub returning 5xx after row reservation. Row stays NULL. First retry within lease window → 409 `IDEMPOTENCY_IN_FLIGHT`. After lease expiry, retry triggers `reconcileBeforeCreate(key)` → `findIssueByMarker` returns null cleanly (no issue exists) → re-call `createIssue` → exactly one issue ever exists; row gets the URL. **Additional regression:** start the original submission's tail `UPDATE` AFTER the retry's lease-expired SELECT — assert the tail update is not blocked (no row lock held by the retry during the lookup) and that the late-success guard in 8.3e fires correctly.
-- [ ] **Step 2: Run** — FAIL.
-- [ ] **Step 3: Implement** the retry branch in `submit` — the canonical algorithm lives in **Task 8.3e's pseudocode** (the `expiredLeaseRetry` function). 8.3c's contribution is the AC-8.11 test coverage and the lock-free transaction-boundary contract; the actual retry implementation must use the `lease_holder` rotation and `AND lease_holder = $myToken` tail-UPDATE fencing as spelled out in 8.3e. **Do not implement an alternative SQL flow here** — both tasks share the single canonical helper at `lib/reports/submit.ts:expiredLeaseRetry`. The contract this task adds:
+- [x] **Step 1: Failing test (AC-8.11)** — mock GitHub returning 5xx after row reservation. Row stays NULL. First retry within lease window → 409 `IDEMPOTENCY_IN_FLIGHT`. After lease expiry, retry triggers `reconcileBeforeCreate(key)` → `findIssueByMarker` returns null cleanly (no issue exists) → re-call `createIssue` → exactly one issue ever exists; row gets the URL. **Additional regression:** start the original submission's tail `UPDATE` AFTER the retry's lease-expired SELECT — assert the tail update is not blocked (no row lock held by the retry during the lookup) and that the late-success guard in 8.3e fires correctly.
+- [x] **Step 2: Run** — FAIL.
+- [x] **Step 3: Implement** the retry branch in `submit` — the canonical algorithm lives in **Task 8.3e's pseudocode** (the `expiredLeaseRetry` function). 8.3c's contribution is the AC-8.11 test coverage and the lock-free transaction-boundary contract; the actual retry implementation must use the `lease_holder` rotation and `AND lease_holder = $myToken` tail-UPDATE fencing as spelled out in 8.3e. **Do not implement an alternative SQL flow here** — both tasks share the single canonical helper at `lib/reports/submit.ts:expiredLeaseRetry`. The contract this task adds:
   - **Transaction boundary contract** — the retry path must use only single-statement transactions (Tx2/Tx3/Tx5 in the 8.3e pseudocode). NO `SELECT FOR UPDATE`. NO long-held row lock. GitHub I/O happens between transactions, never inside one.
   - **Lease-ownership contract** — every URL-writing tail UPDATE includes `AND lease_holder = $myToken`. This is the fence; it makes lease theft detectable by both the original worker and any retry.
   - **Recovery contract** — the only function that authorizes `createIssue` is the same `expiredLeaseRetry` helper, after `reconcileBeforeCreate` returns null AND the lease-claim UPDATE returns 1 row.
 
   These contracts are statically asserted by the test suite per the AC-8.11 / AC-8.13 requirements: test cases call `expiredLeaseRetry` and inspect both the SQL log (Postgres `auto_explain` or `pg-mem` query trace) and the GitHub mock invocation log to verify the contract holds.
 
-- [ ] **Step 4: Run** — PASS.
-- [ ] **Step 5: Commit** `feat(reports): 5xx retry — lock-free search-then-recover (AC-8.11)`.
+- [x] **Step 4: Run** — PASS.
+- [x] **Step 5: Commit** `feat(reports): 5xx retry — lock-free search-then-recover (AC-8.11)`.
 
 ### Task 8.3d: Unknown-outcome reconciliation — single authoritative lookup, fail-closed (AC-8.12)
 

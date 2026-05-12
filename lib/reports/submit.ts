@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 
 import postgres from "postgres";
 
-import { closeIssueAsOrphan, createIssue, type CreatedIssue } from "@/lib/github/issues";
+import {
+  closeIssueAsOrphan,
+  createIssue,
+  findIssueByMarker,
+  type CreatedIssue,
+} from "@/lib/github/issues";
 import { acquireReportLease, type ReportLeaseDb } from "@/lib/reports/leaseProtocol";
 import { enforceQuota, type QuotaResult, type ReportQuotaKind } from "@/lib/reports/rateLimit";
 
@@ -124,6 +129,14 @@ function dispatchExisting(row: ExistingReportRow | null): ReservationResult | nu
   return { state: "expired_pending_recovery" };
 }
 
+function inFlightResponse(): SubmitReportResult {
+  return { status: 409, body: { ok: false, code: "IDEMPOTENCY_IN_FLIGHT" } };
+}
+
+function horizonExpiredResponse(): SubmitReportResult {
+  return { status: 410, body: { ok: false, code: "REPORT_HORIZON_EXPIRED" } };
+}
+
 async function readExistingReport(
   db: ReportLeaseDb,
   idempotencyKey: string,
@@ -236,6 +249,141 @@ async function writeIssueUrl(
   return rows.length === 1;
 }
 
+async function reconcileBeforeCreate(
+  idempotencyKey: string,
+  cutoffIso: string,
+): Promise<{ htmlUrl: string } | null> {
+  return await findIssueByMarker(idempotencyKey, cutoffIso);
+}
+
+async function writeRecoveredIssueUrl(
+  db: ReportLeaseDb,
+  idempotencyKey: string,
+  issueUrl: string,
+): Promise<boolean> {
+  const { rows } = await db.query(
+    `UPDATE reports
+        SET github_issue_url = $1
+      WHERE idempotency_key = $2::uuid
+        AND github_issue_url IS NULL
+        AND created_at >= now() - interval '24 hours'
+      RETURNING id`,
+    [issueUrl, idempotencyKey],
+  );
+  return rows.length === 1;
+}
+
+async function dispatchAfterMissedRecovery(
+  db: ReportLeaseDb,
+  auth: ReportAuthContext,
+  idempotencyKey: string,
+): Promise<SubmitReportResult> {
+  const { rows } = await db.query(
+    `SELECT github_issue_url,
+            (processing_lease_until > now()) AS lease_live,
+            (created_at >= now() - interval '24 hours') AS within_horizon
+       FROM reports
+      WHERE idempotency_key = $1::uuid`,
+    [idempotencyKey],
+  );
+  const row = rows[0] as
+    | { github_issue_url: string | null; lease_live: boolean; within_horizon: boolean }
+    | undefined;
+
+  if (!row || !row.within_horizon) return horizonExpiredResponse();
+  if (row.github_issue_url) return { status: 200, body: successBody(auth, "recovered", row.github_issue_url) };
+  if (row.lease_live) return inFlightResponse();
+  return inFlightResponse();
+}
+
+async function expiredLeaseRetry(
+  db: ReportLeaseDb,
+  auth: ReportAuthContext,
+  body: RequestBody,
+  depth = 0,
+): Promise<SubmitReportResult> {
+  if (depth >= 3) {
+    return { status: 503, body: { ok: false, code: "REPORT_LEASE_THRASHING" } };
+  }
+
+  const { rows: ageRows } = await db.query(
+    `SELECT show_id,
+            (created_at >= now() - interval '24 hours') AS within_horizon,
+            to_char((now() - interval '24 hours') AT TIME ZONE 'UTC',
+                    'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS cutoff_iso
+       FROM reports
+      WHERE idempotency_key = $1::uuid`,
+    [body.idempotency_key],
+  );
+  const ageRow = ageRows[0] as
+    | { show_id: string | null; within_horizon: boolean; cutoff_iso: string }
+    | undefined;
+  if (!ageRow || !ageRow.within_horizon) return horizonExpiredResponse();
+
+  const found = await reconcileBeforeCreate(body.idempotency_key, ageRow.cutoff_iso);
+  if (found) {
+    const wroteRecovered = await writeRecoveredIssueUrl(db, body.idempotency_key, found.htmlUrl);
+    if (wroteRecovered) {
+      return { status: 200, body: successBody(auth, "recovered", found.htmlUrl) };
+    }
+    return await dispatchAfterMissedRecovery(db, auth, body.idempotency_key);
+  }
+
+  const retryLeaseHolder = randomUUID();
+  const { rows: claimRows } = await db.query(
+    `UPDATE reports
+        SET processing_lease_until = now() + interval '90 seconds',
+            lease_holder = $2::uuid
+      WHERE idempotency_key = $1::uuid
+        AND (processing_lease_until IS NULL OR processing_lease_until <= now())
+        AND github_issue_url IS NULL
+        AND created_at >= now() - interval '24 hours'
+      RETURNING id, lease_holder`,
+    [body.idempotency_key, retryLeaseHolder],
+  );
+
+  if (claimRows.length === 0) {
+    const { rows: stateRows } = await db.query(
+      `SELECT github_issue_url,
+              (processing_lease_until > now()) AS lease_live,
+              (created_at >= now() - interval '24 hours') AS within_horizon
+         FROM reports
+        WHERE idempotency_key = $1::uuid`,
+      [body.idempotency_key],
+    );
+    const state = stateRows[0] as
+      | { github_issue_url: string | null; lease_live: boolean; within_horizon: boolean }
+      | undefined;
+    if (!state || !state.within_horizon) return horizonExpiredResponse();
+    if (state.github_issue_url) {
+      return { status: 200, body: successBody(auth, "recovered", state.github_issue_url) };
+    }
+    if (state.lease_live) return inFlightResponse();
+    return await expiredLeaseRetry(db, auth, body, depth + 1);
+  }
+
+  let issue: CreatedIssue;
+  try {
+    issue = await createIssue(issueInput(auth, body));
+  } catch {
+    return { status: 502, body: { ok: false, code: "REPORT_LOOKUP_INCONCLUSIVE" } };
+  }
+
+  const wroteUrl = await writeIssueUrl(db, body.idempotency_key, issue.htmlUrl, retryLeaseHolder);
+  if (!wroteUrl) {
+    return await handleTailUpdateMiss(
+      db,
+      auth,
+      body.idempotency_key,
+      issue,
+      retryLeaseHolder,
+      ageRow.show_id ?? body.show_id,
+    );
+  }
+
+  return { status: 201, body: successBody(auth, "created", issue.htmlUrl) };
+}
+
 export async function handleTailUpdateMiss(
   db: ReportLeaseDb,
   auth: ReportAuthContext,
@@ -301,8 +449,11 @@ export async function submitReport(
     if (reservation.state === "duplicate") {
       return { status: 200, body: successBody(auth, "duplicate", reservation.url) };
     }
-    if (reservation.state === "in_flight" || reservation.state === "expired_pending_recovery") {
-      return { status: 409, body: { ok: false, code: "IDEMPOTENCY_IN_FLIGHT" } };
+    if (reservation.state === "in_flight") {
+      return inFlightResponse();
+    }
+    if (reservation.state === "expired_pending_recovery") {
+      return await expiredLeaseRetry(postgresAdapter(sql), auth, body);
     }
 
     let issue: CreatedIssue;
