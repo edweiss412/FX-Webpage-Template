@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 const root = process.cwd();
-const DRIVE_API_SURFACES = ["lib/sync", "lib/drive", "app/api/asset"] as const;
+const DRIVE_API_SURFACES = ["lib/sync", "lib/drive", "app/api"] as const;
 
 function tsFiles(path: string): string[] {
   const absolute = join(root, path);
@@ -39,6 +39,7 @@ function resolveObjectArgument(source: string, callArgsIndex: number): string | 
   if (!afterOpenParen) return null;
 
   const token = afterOpenParen[1];
+  if (!token) return null;
   const tokenIndex = callArgsIndex + afterOpenParen.index! + afterOpenParen[0].lastIndexOf(token);
   if (token === "{") return extractBalancedObject(source, tokenIndex);
 
@@ -48,7 +49,7 @@ function resolveObjectArgument(source: string, callArgsIndex: number): string | 
       .matchAll(new RegExp(`(?:const|let)\\s+${token}\\b[^=]*=\\s*\\{`, "g")),
   ];
   const declaration = declarations.at(-1);
-  if (!declaration?.index) return null;
+  if (declaration?.index == null) return null;
   const openBraceIndex = declaration.index + declaration[0].lastIndexOf("{");
   return extractBalancedObject(source, openBraceIndex);
 }
@@ -58,14 +59,13 @@ describe("Shared Drive support contract", () => {
     const violations: string[] = [];
     for (const path of DRIVE_API_SURFACES.flatMap(tsFiles).sort()) {
       const source = readFileSync(join(root, path), "utf8");
-      for (const match of source.matchAll(/drive\.(revisions|files)\.(get|list)\s*\(/g)) {
+      for (const match of source.matchAll(/\.(files|revisions)\.(get|list)\s*\(/g)) {
         const object = resolveObjectArgument(source, match.index + match[0].length);
         const callSite = `${path}:${lineNumber(source, match.index)}`;
         if (!object?.match(/\bsupportsAllDrives\s*:\s*true\b/)) {
           violations.push(`${callSite} missing supportsAllDrives: true`);
         }
         if (
-          match[1] === "files" &&
           match[2] === "list" &&
           !object?.match(/\bincludeItemsFromAllDrives\s*:\s*true\b/)
         ) {
@@ -75,5 +75,20 @@ describe("Shared Drive support contract", () => {
     }
 
     expect(violations).toEqual([]);
+  });
+
+  test("inline getDriveClient files.get calls are covered by the Shared Drive contract", () => {
+    const path = "lib/sync/verifyReelOnApply.ts";
+    const source = readFileSync(join(root, path), "utf8");
+    const match = [...source.matchAll(/\bgetDriveClient\(\)\.(files|revisions)\.(get|list)\s*\(/g)].find(
+      (candidate) => candidate[1] === "files" && candidate[2] === "get",
+    );
+
+    expect(match, "expected live getDriveClient().files.get inline-callee fixture").toBeDefined();
+    const object = resolveObjectArgument(source, match!.index! + match![0].length);
+
+    // Negative regression confirmation: removing this flag from the live
+    // getDriveClient().files.get call makes this test fail.
+    expect(object).toMatch(/\bsupportsAllDrives\s*:\s*true\b/);
   });
 });
