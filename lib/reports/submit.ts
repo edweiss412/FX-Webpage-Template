@@ -6,6 +6,8 @@ import {
   closeIssueAsOrphan,
   createIssue,
   findIssueByMarker,
+  LookupInconclusive,
+  type LookupInconclusiveCode,
   type CreatedIssue,
 } from "@/lib/github/issues";
 import { acquireReportLease, type ReportLeaseDb } from "@/lib/reports/leaseProtocol";
@@ -135,6 +137,13 @@ function inFlightResponse(): SubmitReportResult {
 
 function horizonExpiredResponse(): SubmitReportResult {
   return { status: 410, body: { ok: false, code: "REPORT_HORIZON_EXPIRED" } };
+}
+
+function lookupAlertCode(code: LookupInconclusiveCode): string {
+  if (code === "BOT_LOGIN_MISSING") return "GITHUB_BOT_LOGIN_MISSING";
+  if (code === "DUPLICATE_LIVE_MATCHES") return "REPORT_DUPLICATE_LIVE_MATCHES";
+  if (code === "OPEN_ISSUE_WITH_ORPHAN_LABEL") return "REPORT_OPEN_ORPHAN_LABEL";
+  return "REPORT_LOOKUP_INCONCLUSIVE";
 }
 
 async function readExistingReport(
@@ -296,6 +305,95 @@ async function dispatchAfterMissedRecovery(
   return inFlightResponse();
 }
 
+async function upsertAdminAlert(
+  db: ReportLeaseDb,
+  showId: string | null,
+  code: string,
+  context: Record<string, unknown>,
+): Promise<void> {
+  await db.query(
+    `INSERT INTO admin_alerts (show_id, code, context)
+     VALUES ($1::uuid, $2, $3::jsonb)
+     ON CONFLICT (coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL
+     DO UPDATE SET
+       last_seen_at = now(),
+       occurrence_count = admin_alerts.occurrence_count + 1,
+       context = EXCLUDED.context`,
+    [showId, code, context],
+  );
+}
+
+async function upsertStateGatedLookupAlert(
+  db: ReportLeaseDb,
+  idempotencyKey: string,
+  code: string,
+  context: Record<string, unknown>,
+): Promise<boolean> {
+  const { rows } = await db.query(
+    `INSERT INTO admin_alerts (show_id, code, context)
+     SELECT r.show_id, $2, $3::jsonb
+       FROM reports r
+      WHERE r.idempotency_key = $1::uuid
+        AND r.github_issue_url IS NULL
+        AND (r.processing_lease_until IS NULL OR r.processing_lease_until <= now())
+        AND r.created_at >= now() - interval '24 hours'
+     ON CONFLICT (coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL
+     DO UPDATE SET
+       last_seen_at = now(),
+       occurrence_count = admin_alerts.occurrence_count + 1,
+       context = EXCLUDED.context
+     RETURNING id`,
+    [idempotencyKey, code, context],
+  );
+  return rows.length > 0;
+}
+
+async function handleLookupInconclusive(
+  db: ReportLeaseDb,
+  auth: ReportAuthContext,
+  body: RequestBody,
+  error: LookupInconclusive,
+): Promise<SubmitReportResult> {
+  const context = {
+    idempotency_key: body.idempotency_key,
+    reason: error.reason,
+    code: error.code,
+  };
+
+  if (error.code === "BOT_LOGIN_MISSING") {
+    await upsertAdminAlert(db, null, "GITHUB_BOT_LOGIN_MISSING", context);
+  }
+
+  const { rows } = await db.query(
+    `SELECT github_issue_url,
+            show_id,
+            (processing_lease_until > now()) AS lease_live,
+            (created_at >= now() - interval '24 hours') AS within_horizon
+       FROM reports
+      WHERE idempotency_key = $1::uuid`,
+    [body.idempotency_key],
+  );
+  const state = rows[0] as
+    | {
+        github_issue_url: string | null;
+        show_id: string | null;
+        lease_live: boolean;
+        within_horizon: boolean;
+      }
+    | undefined;
+
+  if (!state || !state.within_horizon) return horizonExpiredResponse();
+  if (state.github_issue_url) {
+    return { status: 200, body: successBody(auth, "recovered", state.github_issue_url) };
+  }
+  if (state.lease_live) return inFlightResponse();
+
+  const alertCode =
+    error.code === "BOT_LOGIN_MISSING" ? "REPORT_LOOKUP_INCONCLUSIVE" : lookupAlertCode(error.code);
+  await upsertStateGatedLookupAlert(db, body.idempotency_key, alertCode, context);
+  return { status: 502, body: { ok: false, code: "REPORT_LOOKUP_INCONCLUSIVE" } };
+}
+
 async function expiredLeaseRetry(
   db: ReportLeaseDb,
   auth: ReportAuthContext,
@@ -320,7 +418,15 @@ async function expiredLeaseRetry(
     | undefined;
   if (!ageRow || !ageRow.within_horizon) return horizonExpiredResponse();
 
-  const found = await reconcileBeforeCreate(body.idempotency_key, ageRow.cutoff_iso);
+  let found: { htmlUrl: string } | null;
+  try {
+    found = await reconcileBeforeCreate(body.idempotency_key, ageRow.cutoff_iso);
+  } catch (error) {
+    if (error instanceof LookupInconclusive) {
+      return await handleLookupInconclusive(db, auth, body, error);
+    }
+    throw error;
+  }
   if (found) {
     const wroteRecovered = await writeRecoveredIssueUrl(db, body.idempotency_key, found.htmlUrl);
     if (wroteRecovered) {
@@ -414,14 +520,14 @@ export async function handleTailUpdateMiss(
        context = EXCLUDED.context`,
     [
       row?.show_id ?? fallbackShowId,
-      JSON.stringify({
+      {
         idempotency_key: key,
         orphan_url: newIssue.htmlUrl,
         orphan_issue_number: newIssue.issueNumber,
         lease_holder: myLeaseHolder,
         row_reaped: !row,
         stored_url: row?.github_issue_url ?? null,
-      }),
+      },
     ],
   );
 

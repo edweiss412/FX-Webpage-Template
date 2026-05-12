@@ -180,7 +180,7 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
 - **Recovery horizon = 24 hours.** Reports whose lease expired more than 24h ago are out of scope for retry-driven recovery; the 8.3f reaper cron deletes their orphan rows. The reaper window is aligned with the recovery window so the contracts can't drift.
 - **Required env var:** `GITHUB_BOT_LOGIN` — the GitHub username the PAT belongs to. Documented in `.env.local.example` and §14.3 (added to the env-var table). Without it, `findIssueByMarker` throws `LookupInconclusive` (the misconfiguration is loud, not silent).
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
   - **AC-8.12 (recovered case)** — original GitHub `createIssue` succeeded with the body marker `<!-- fxav-report-id: <key> -->`; the response was dropped (timeout). DB row stays NULL. Retry after lease expiry calls `findIssueByMarker(key)` → list endpoint returns the recently-created issue → marker scan locates it → UPDATE row → 200. Exactly one issue ever exists.
   - **No labels created or required** — assert `octokit.rest.issues.create` is called with the static label set ONLY (`bug-report`, `reporter:admin`/`reporter:crew`, area labels). NEVER a `fxav-idem:*` per-key label.
   - **List endpoint authoritative within window** — synthesize an issue created 1 hour ago by the bot whose body carries the marker. `findIssueByMarker` returns it. Synthesize an issue created 25 hours ago (outside window) — `findIssueByMarker` returns null even though `since=<T-24h>` matched it on last-updated time. **There is no fallback search outside the window.**
@@ -248,8 +248,8 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
   - **Normalized createIssue/findIssueByMarker shapes:** assert that the values bound to `reports.github_issue_url` are populated from the SAME field across both create and recovery paths. Specifically: after a brand-new createIssue, `reports.github_issue_url` equals `octokit.rest.issues.create response.data.html_url`. After a recovery via findIssueByMarker, `reports.github_issue_url` equals `octokit.rest.issues.listForRepo[i].html_url`. Case A's comparison `row.github_issue_url === newIssue.htmlUrl` is therefore well-defined regardless of which path wrote the URL. Without 's normalization, `newIssue.url` (undefined) would never match `row.github_issue_url` (the actual html_url), making Case A unreachable and treating every recovered live issue as an orphan to close.
   - **Recovered after lease expiry, before reaper:** synthesize the unknown-outcome path with the original GH call succeeding 23 hours ago; row still has `github_issue_url IS NULL`. Retry runs at T+23h, `findIssueByMarker` returns the issue (still within the 24h window), recovery succeeds. Then advance clock to T+25h and run the reaper — the row is now resolved (URL set), so the reaper does NOT delete it.
   - **Stale orphan past the horizon:** synthesize an unknown-outcome row at T-30h with `github_issue_url IS NULL` and lease expired. The reaper at T runs and DELETEs the row, logging `STALE_ORPHAN_REPORT`. The associated GitHub issue (if it exists) is left untouched; admin sees the audit log entry.
-- [ ] **Step 2: Run** — FAIL.
-- [ ] **Step 3: Implement.**
+- [x] **Step 2: Run** — FAIL.
+- [x] **Step 3: Implement.**
   - Modify `lib/github/issues.ts`:
 
     ```ts
@@ -562,8 +562,8 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
     - `REPORT_OPEN_ORPHAN_LABEL` — admin-only `admin_alerts` banner: "An open GitHub issue carries the orphan-cleanup label. This shouldn't happen — please review and either reclose the issue or remove the label." Context includes the issue URL.
     - `REPORT_LEASE_THRASHING` — admin-only `admin_alerts` banner: "A bug-report retry is repeatedly observing lease churn (>3 immediate-reclaim cycles in one request). Likely indicates a deeper concurrency issue or an adversarial pattern; please investigate." Surfaced when `expiredLeaseRetry` recurses past depth 3. Client receives 503 with this code.
 
-- [ ] **Step 4: Run** — PASS.
-- [ ] **Step 5: Commit** `feat(reports): single-path fail-closed recovery + bot-login env`.
+- [x] **Step 4: Run** — PASS.
+- [x] **Step 5: Commit** `feat(reports): single-path fail-closed recovery + bot-login env`.
 
 ### Task 8.3e: Concurrent-retry race (AC-8.13) + late-success guard
 

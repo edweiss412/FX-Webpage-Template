@@ -219,6 +219,16 @@ function candidateFromIssue(issue: IssueLike, marker: string, cutoffMs: number):
   }
   if (!issue.body.includes(marker)) return null;
 
+  if (issue.state !== "open" && issue.state !== "closed") {
+    throw new LookupInconclusive("SHAPE_ERROR", "marker-bearing issue.state is not open/closed");
+  }
+  if (!Array.isArray(issue.labels)) {
+    throw new LookupInconclusive("SHAPE_ERROR", "marker-bearing issue.labels is not an array");
+  }
+  if (typeof issue.html_url !== "string") {
+    throw new LookupInconclusive("SHAPE_ERROR", "marker-bearing issue.html_url is not a string");
+  }
+
   const labels = labelNames(issue.labels);
   if (issue.state === "closed" && issue.state_reason === "not_planned") return null;
   if (issue.state === "open" && labels.includes(ORPHAN_LABEL)) {
@@ -226,9 +236,6 @@ function candidateFromIssue(issue: IssueLike, marker: string, cutoffMs: number):
       "OPEN_ISSUE_WITH_ORPHAN_LABEL",
       "open marker-bearing issue carries orphan cleanup label",
     );
-  }
-  if (typeof issue.html_url !== "string") {
-    throw new LookupInconclusive("SHAPE_ERROR", "marker-bearing issue.html_url is not a string");
   }
   return { htmlUrl: issue.html_url };
 }

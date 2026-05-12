@@ -247,6 +247,23 @@ describe("GitHub Issues client", () => {
     ).rejects.toMatchObject({ code: "DUPLICATE_LIVE_MATCHES" });
   });
 
+  test("findIssueByMarker fails closed on malformed marker-bearing candidate fields", async () => {
+    for (const malformed of [
+      issue({ html_url: null }),
+      issue({ state: "mystery" }),
+      issue({ labels: "not-an-array" }),
+    ]) {
+      const { octokit } = octokitWithPages([[malformed]]);
+
+      await expect(
+        findIssueByMarker("018f2f4c-8f54-4c28-9f56-f0f1b2c3d4e5", "2026-05-11T12:00:00Z", {
+          octokit,
+          env: repoEnv,
+        }),
+      ).rejects.toMatchObject({ code: "SHAPE_ERROR" });
+    }
+  });
+
   test("findIssueByMarker fails closed on missing bot login and pagination errors", async () => {
     const { octokit } = octokitWithPages([[]]);
 

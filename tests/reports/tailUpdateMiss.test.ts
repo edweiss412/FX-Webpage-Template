@@ -55,6 +55,11 @@ function alertCall(calls: Array<{ sql: string; params: readonly unknown[] }>) {
   return call!;
 }
 
+function contextParam(value: unknown): Record<string, unknown> {
+  if (typeof value === "string") return JSON.parse(value) as Record<string, unknown>;
+  return value as Record<string, unknown>;
+}
+
 describe("handleTailUpdateMiss orphan cleanup", () => {
   beforeEach(() => {
     githubMock.closeIssueAsOrphan.mockClear();
@@ -89,7 +94,7 @@ describe("handleTailUpdateMiss orphan cleanup", () => {
     expect(call.sql).toMatch(/REPORT_ORPHANED_LOST_LEASE/);
     expect(call.sql).toMatch(/ON\s+CONFLICT\s+\(coalesce\(show_id::text,\s*''\),\s*code\)\s+WHERE\s+resolved_at\s+IS\s+NULL/i);
     expect(call.params[0]).toBe(showA);
-    expect(JSON.parse(String(call.params[1]))).toMatchObject({
+    expect(contextParam(call.params[1])).toMatchObject({
       idempotency_key: key,
       orphan_url: myIssue.htmlUrl,
       lease_holder: leaseHolder,
@@ -107,7 +112,7 @@ describe("handleTailUpdateMiss orphan cleanup", () => {
 
     const call = alertCall(calls);
     expect(call.params[0]).toBe(showA);
-    expect(JSON.parse(String(call.params[1]))).toMatchObject({ row_reaped: false });
+    expect(contextParam(call.params[1])).toMatchObject({ row_reaped: false });
   });
 
   test("closes this worker's issue and preserves fallback show keying when the row was reaped", async () => {
@@ -120,6 +125,6 @@ describe("handleTailUpdateMiss orphan cleanup", () => {
 
     const call = alertCall(calls);
     expect(call.params[0]).toBe(showB);
-    expect(JSON.parse(String(call.params[1]))).toMatchObject({ row_reaped: true });
+    expect(contextParam(call.params[1])).toMatchObject({ row_reaped: true });
   });
 });

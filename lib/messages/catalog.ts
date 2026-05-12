@@ -714,6 +714,44 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "Two retries of the same bug-report submission both succeeded in creating GitHub issues. We auto-closed the duplicate. Click through to confirm.",
   },
+  REPORT_LOOKUP_INCONCLUSIVE: {
+    code: "REPORT_LOOKUP_INCONCLUSIVE",
+    dougFacing:
+      "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
+    crewFacing:
+      "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
+    followUp: "Eric -> review GitHub issue lookup and retry state",
+    helpfulContext:
+      "The bug-report recovery path could not conclusively list recent GitHub issues for this idempotency key, so it refused to create a duplicate issue.",
+  },
+  REPORT_HORIZON_EXPIRED: {
+    code: "REPORT_HORIZON_EXPIRED",
+    dougFacing:
+      "This report attempt has expired (older than 24 hours). If the issue still applies, please file a fresh report.",
+    crewFacing:
+      "This report attempt has expired. Please open a fresh report if the issue still applies.",
+    followUp: "Doug or crew -> start a fresh report if still needed",
+    helpfulContext:
+      "Bug-report retry recovery only runs within 24 hours of the original attempt. Older unresolved rows are handled by the reaper.",
+  },
+  REPORT_DUPLICATE_LIVE_MATCHES: {
+    code: "REPORT_DUPLICATE_LIVE_MATCHES",
+    dougFacing:
+      "Multiple live GitHub issues were found for one report submission. Recovery is paused until Eric reviews the duplicates.",
+    crewFacing: null,
+    followUp: "Eric -> inspect duplicate report issues and close the incorrect one",
+    helpfulContext:
+      "The recovery scan found more than one non-orphan issue with the same bug-report marker. The system fails closed instead of choosing a winner.",
+  },
+  REPORT_OPEN_ORPHAN_LABEL: {
+    code: "REPORT_OPEN_ORPHAN_LABEL",
+    dougFacing:
+      "An open GitHub issue carries the orphan-cleanup label. Eric needs to review and either re-close the issue or remove the label.",
+    crewFacing: null,
+    followUp: "Eric -> inspect the labeled issue",
+    helpfulContext:
+      "Orphan cleanup should close issues with state_reason=not_planned. Seeing the orphan label on an open issue indicates manual intervention or an unexpected GitHub state.",
+  },
   GITHUB_BOT_LOGIN_MISSING: {
     code: "GITHUB_BOT_LOGIN_MISSING",
     dougFacing:

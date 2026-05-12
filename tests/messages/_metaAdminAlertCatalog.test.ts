@@ -74,6 +74,10 @@ const ADMIN_ALERTS_CODES = [
   "REEL_DRIFTED", //                    M7 apply-time reel drift warning
   "LINKED_ASSET_DRIFTED", //            M7 linked diagram drift warning
   "REPORT_ORPHANED_LOST_LEASE", //      M8 bug-report lost-lease orphan cleanup
+  "REPORT_LOOKUP_INCONCLUSIVE", //      M8 bug-report lookup fail-closed recovery
+  "GITHUB_BOT_LOGIN_MISSING", //        M8 bug-report recovery bot config
+  "REPORT_DUPLICATE_LIVE_MATCHES", //   M8 duplicate live marker fail-closed recovery
+  "REPORT_OPEN_ORPHAN_LABEL", //        M8 impossible open orphan state
 ] as const;
 
 const ADMIN_ALERTS_WRITE_SITES: Record<
@@ -167,6 +171,22 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   REPORT_ORPHANED_LOST_LEASE: {
     path: "lib/reports/submit.ts",
     pattern: /INSERT\s+INTO\s+admin_alerts[\s\S]*REPORT_ORPHANED_LOST_LEASE/,
+  },
+  REPORT_LOOKUP_INCONCLUSIVE: {
+    path: "lib/reports/submit.ts",
+    pattern: /REPORT_LOOKUP_INCONCLUSIVE/,
+  },
+  GITHUB_BOT_LOGIN_MISSING: {
+    path: "lib/reports/submit.ts",
+    pattern: /GITHUB_BOT_LOGIN_MISSING/,
+  },
+  REPORT_DUPLICATE_LIVE_MATCHES: {
+    path: "lib/reports/submit.ts",
+    pattern: /REPORT_DUPLICATE_LIVE_MATCHES/,
+  },
+  REPORT_OPEN_ORPHAN_LABEL: {
+    path: "lib/reports/submit.ts",
+    pattern: /REPORT_OPEN_ORPHAN_LABEL/,
   },
 };
 
