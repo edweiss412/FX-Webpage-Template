@@ -226,6 +226,8 @@ M7 has not yet been implemented; no prior M7 convergence log exists. Watchpoints
 
 26. **Shared Drive parity across Drive API calls (full-M7 R3 HIGH `review-mp1vwj2p-wgwmma`; R2 finding `review-mp1vferp-te7o36` was a false positive on the revisions.* surface — see R3.1 in the convergence log).** Drive v3 exposes `supportsAllDrives: true` / `includeItemsFromAllDrives: true` only on `files.*`, `drives.*`, `permissions.*` and similar file-level surfaces; `revisions.*` calls do NOT accept these params (`@googleapis/drive` typings reject them; the REST API silently ignores them — revisions inherit access from the parent file's grant). The legitimate gap closed in this milestone was R3's `verifyReelOnApply` inline-callee `getDriveClient().files.get(...)` without `supportsAllDrives: true`. Future changes touching `*.files.get/list` MUST run `rg -n "\\.files\\.(get|list)\\s*\\(" lib app` and keep `tests/sync/_sharedDriveSupportContract.test.ts` green; for `files.list`, both `supportsAllDrives: true` and `includeItemsFromAllDrives: true` are required. **Do NOT add either flag to `revisions.*` calls** — typecheck will fail (without an `as` cast) and the meta-test deliberately excludes that surface.
 
+27. **HTTP Range HEAD/GET parity must distinguish known-size from unknown-size upstreams (UI-session R20-R25 + full-M7 R6).** R20-R25 closed the known-size class: when the proxy has a finite object size, satisfiable Range returns 206 consistently across HEAD and GET, and unsatisfiable/malformed Range fails closed. Full-M7 R6 closes the unknown-size class from R5 Finding 1 (`review-mp1wyu1z-zexvxr`): when Drive/Supabase omits size metadata (`null`, `undefined`, no `Content-Length`, or `NaN`), GET strips Range before fetching bytes and returns 200 full body, matching HEAD's 200/no-`Content-Range` response. Asset proxies now fail closed on unverifiable 206 totals and avoid manufacturing partial responses when upstream omits size.
+
 ## 7. Test commands
 
 - **Pre-flight and final gate**: `pnpm test && pnpm lint && pnpm typecheck`. Do NOT parallelize `pnpm test` with Playwright.
@@ -584,7 +586,7 @@ The seven create / extend rows above are mandatory at M7 close. Empty rows silen
 
 **Final UI-session HEAD.** R26 attests through commit `4808576` (this convergence-log entry); the last code-changing fix landed at `68bfa48`. The R20-R26 chain lives across `3b8efca`, `752260e`, `9945396`, `51ba0c8`, `02dda36`, `68bfa48` + `c069893` (AGENTS.md rule codification). **A full-M7 adversarial review against `ae6f0b8..HEAD` is still pending** — it is what closes the milestone.
 
-#### Full-M7 adversarial review — R1/R2/R3 fixes
+#### Full-M7 adversarial review — R1/R2/R3/R6 fixes
 
 | Round | Codex job id | Verdict + summary | Resolution commit |
 | --- | --- | --- | --- |
@@ -592,6 +594,8 @@ The seven create / extend rows above are mandatory at M7 close. Empty rows silen
 | R2 | `review-mp1vferp-te7o36` | HIGH (later determined FALSE POSITIVE on the `revisions.*` surface — see R3.1): claimed Shared Drive support was missing from sync-layer `drive.revisions.get/list` calls. Drive v3 does not accept `supportsAllDrives` on `revisions.*`; the @googleapis/drive typings reject it. Initial fix landed at `de0c855` / `8cf5b11`. | superseded by R3.1 |
 | R3 | `review-mp1vwj2p-wgwmma` | HIGH: `verifyReelOnApply` used inline-callee `getDriveClient().files.get(...)` without `supportsAllDrives: true`, and the R2 meta-test only matched literal `drive.files/revisions.*` call shapes. Legitimate finding on the `files.get` surface. | `83d97d6`, `34ff690`, R3.1 corrective revert below |
 | R3.1 | orchestrator-driven (no Codex round) | Cleanup after typecheck-failure surfacing the R2 false positive. `pnpm typecheck` failed across the 4 R2-modified files: `'supportsAllDrives' does not exist in type 'Params$Resource$Revisions$Get'` (and `...$List`). Drive v3 REST API spec confirms `revisions.*` does not accept the flag (revisions inherit access from the parent file's grant). Partial revert kept R3's legitimate `verifyReelOnApply` `files.get` fix; reverted R2's `revisions.*` flag adds across `applyStaged.ts`, `assetRecovery.ts`, `defaultSnapshotAssetsForApply.ts`, `runScheduledCronSync.ts`. Meta-test `_sharedDriveSupportContract` narrowed to `files.(get|list)` only (revisions.* deliberately excluded). Pre-existing `_scopeCheckContract` failure (asset-route auth-helper refactor invalidated `GET`-keyed exceptions) also fixed in this cleanup. Cross-model loop paused at this clean baseline. | this commit set |
+| R5 | `review-mp1wyu1z-zexvxr` | HIGH Finding 2: reel `revisions.get` was passed `supportsAllDrives`, which Drive v3 revisions APIs do not accept. | `fcd6588` |
+| R6 | `review-mp1wyu1z-zexvxr` Finding 1 follow-up | HIGH Finding 1: HEAD/GET Range parity still broke when upstream size was unknown; HEAD returned 200/no `Content-Range`, while GET forwarded Range and could return 206. | this commit set |
 
 **R1 resolution.** `lib/sync/phase1.ts` now composes `syncLayerReviewItems(args, args.parseResult, show)` with `runInvariants` output before the pass/stage decision. `tests/sync/phase1WarningBridge.test.ts` pins one positive staging case per asset-review code, and `tests/sync/_phase1WarningBridgeContract.test.ts` structurally guards the sync-layer-appended variant list from `lib/parser/types.ts`.
 
