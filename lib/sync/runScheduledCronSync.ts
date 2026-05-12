@@ -1415,6 +1415,7 @@ function defaultDriveClient(): DriveClient {
       const response = await drive.revisions.list({
         fileId: spreadsheetId,
         fields: "revisions(id,modifiedTime)",
+        supportsAllDrives: true,
       });
       const revisions = response.data.revisions ?? [];
       return revisions.at(-1)?.id ?? null;

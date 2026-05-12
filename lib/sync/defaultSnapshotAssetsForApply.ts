@@ -67,6 +67,7 @@ export function makeSnapshotAssetsForApply(
               fileId: entry.driveFileId,
               revisionId: entry.headRevisionId,
               alt: "media",
+              supportsAllDrives: true,
             },
             { responseType: "stream" },
           );
