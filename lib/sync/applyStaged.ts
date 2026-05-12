@@ -945,8 +945,6 @@ async function defaultRetryEmbeddedRevisionAvailability(spreadsheetId: string): 
   const response = await drive.revisions.list({
     fileId: spreadsheetId,
     fields: "revisions(id)",
-    supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
   });
   return (response.data.revisions ?? []).some((revision: { id?: string | null }) =>
     Boolean(revision.id),

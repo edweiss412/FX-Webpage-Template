@@ -683,7 +683,6 @@ function defaultRecover(showId: string): Promise<AssetRecoveryResult> {
             fileId: entry.driveFileId,
             revisionId: entry.headRevisionId,
             alt: "media",
-            supportsAllDrives: true,
           },
           { responseType: "stream" },
         );

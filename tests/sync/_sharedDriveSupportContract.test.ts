@@ -55,18 +55,25 @@ function resolveObjectArgument(source: string, callArgsIndex: number): string | 
 }
 
 describe("Shared Drive support contract", () => {
-  test("every Drive files/revisions get/list call opts into Shared Drive support", () => {
+  // Scope: Drive v3 API exposes `supportsAllDrives` / `includeItemsFromAllDrives`
+  // only on file-level surfaces (`files.*`, `drives.*`, `permissions.*`, etc.).
+  // `revisions.*` inherits access from the parent file's own `supportsAllDrives`
+  // grant and does NOT accept these params (the @googleapis/drive typings reject
+  // them; the REST API silently ignores them). This contract therefore asserts
+  // the Shared Drive flags ONLY on `files.(get|list)` call sites — adding the
+  // flag to `revisions.*` would break typecheck without changing semantics.
+  test("every Drive files get/list call opts into Shared Drive support", () => {
     const violations: string[] = [];
     for (const path of DRIVE_API_SURFACES.flatMap(tsFiles).sort()) {
       const source = readFileSync(join(root, path), "utf8");
-      for (const match of source.matchAll(/\.(files|revisions)\.(get|list)\s*\(/g)) {
+      for (const match of source.matchAll(/\.files\.(get|list)\s*\(/g)) {
         const object = resolveObjectArgument(source, match.index + match[0].length);
         const callSite = `${path}:${lineNumber(source, match.index)}`;
         if (!object?.match(/\bsupportsAllDrives\s*:\s*true\b/)) {
           violations.push(`${callSite} missing supportsAllDrives: true`);
         }
         if (
-          match[2] === "list" &&
+          match[1] === "list" &&
           !object?.match(/\bincludeItemsFromAllDrives\s*:\s*true\b/)
         ) {
           violations.push(`${callSite} missing includeItemsFromAllDrives: true`);
