@@ -61,6 +61,7 @@ const routeMock = vi.hoisted(() => ({
   // against the signed URL (HEAD path verifies object existence without
   // body bytes).
   lastHeadFetch: false as boolean,
+  omitHeadContentLength: false as boolean,
 }));
 
 vi.mock("@/lib/auth/isAdminSession", () => ({
@@ -144,9 +145,13 @@ beforeEach(() => {
     // behavior.
     if (init?.method === "HEAD") {
       routeMock.lastHeadFetch = true;
+      const headers: Record<string, string> = {};
+      if (!routeMock.omitHeadContentLength) {
+        headers["content-length"] = String(bytes.byteLength);
+      }
       return new Response(null, {
         status: 200,
-        headers: { "content-length": String(bytes.byteLength) },
+        headers,
       });
     }
     // Capture Range header forwarded to the upstream fetch so tests can
@@ -305,6 +310,7 @@ beforeEach(() => {
   routeMock.storageDownloads = [];
   routeMock.fromCalls = [];
   routeMock.lastHeadFetch = false;
+  routeMock.omitHeadContentLength = false;
 });
 
 describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
@@ -720,5 +726,23 @@ describe("/api/asset/diagram/[show]/[rev]/[key]", () => {
     expect(head.status).toBe(get.status);
     expect(head.status).toBe(200);
     expect(head.headers.get("content-length")).toBe(get.headers.get("content-length"));
+  });
+
+  test("Codex R6 P1: HEAD/GET parity — unknown upstream size strips Range and returns full 200", async () => {
+    routeMock.omitHeadContentLength = true;
+    const range = { Range: "bytes=0-3" };
+
+    const head = await headDiagram(currentRev, assetKey, { headers: range });
+    routeMock.lastFetchRange = null;
+    routeMock.lastHeadFetch = false;
+    const get = await getDiagram(currentRev, assetKey, { headers: range });
+
+    expect(head.status).toBe(get.status);
+    expect(get.status).toBe(200);
+    expect(head.headers.get("content-range")).toBeNull();
+    expect(get.headers.get("content-range")).toBeNull();
+    expect(routeMock.lastHeadFetch).toBe(true);
+    expect(routeMock.lastFetchRange).toBeNull();
+    await expect(get.text()).resolves.toBe("diagram-bytes");
   });
 });

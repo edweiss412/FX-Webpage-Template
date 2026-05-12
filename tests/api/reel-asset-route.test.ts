@@ -428,11 +428,11 @@ describe("/api/asset/reel/[show]", () => {
   });
 
   test("Codex R22 P1: 206 response gates on TOTAL size from Content-Range (cap bypass closed)", async () => {
-    // Drive metadata `size` is null (so the pre-flight cap doesn't
-    // trigger), but the 206 Content-Range claims a 600MB total — over
-    // the 512MB MAX_REEL_FALLBACK_BYTES cap. The route MUST 410
-    // instead of forwarding the slice.
-    routeMock.current = { ...routeMock.current, size: null };
+    // Drive metadata `size` is finite and under cap, but the 206
+    // Content-Range claims a 600MB total — over the 512MB
+    // MAX_REEL_FALLBACK_BYTES cap. The route MUST 410 instead of
+    // forwarding the slice.
+    routeMock.current = { ...routeMock.current, size: "10" };
     routeMock.reel206TotalOverride = 600 * 1024 * 1024;
     const res = await getReel({ headers: { Range: "bytes=0-9" } });
     expect(res.status).toBe(410);
@@ -448,7 +448,7 @@ describe("/api/asset/reel/[show]", () => {
   });
 
   test("Codex R18 P1: Drive 416 thrown from revisions.get → 416 response (not 500)", async () => {
-    routeMock.current = { ...routeMock.current, size: null };
+    routeMock.current = { ...routeMock.current, size: "10" };
     routeMock.revisionError = { code: 416 };
     const res = await getReel({ headers: { Range: "bytes=0-9" } });
     expect(res.status).toBe(416);
@@ -529,7 +529,7 @@ describe("/api/asset/reel/[show]", () => {
     // larger than MAX_REEL_FALLBACK_BYTES. The non-stream fallback in
     // `boundedStreamFrom` must throw `ByteLimitExceededError` and the
     // route catch must surface 410, not 200.
-    routeMock.current = { ...routeMock.current, size: null };
+    routeMock.current = { ...routeMock.current, size: "10" };
     // 513MB - 1 byte over the 512MB cap. Node 20's mmap-backed
     // Uint8Array allocation is near-instant; pages fault in only when
     // touched, and the route never reads the contents.
@@ -543,21 +543,21 @@ describe("/api/asset/reel/[show]", () => {
   // ───────────────────────────────────────────────────────────────
 
   test("Codex R23 P1: 206 with `bytes 0-9/*` total → fail-closed 410", async () => {
-    routeMock.current = { ...routeMock.current, size: null };
+    routeMock.current = { ...routeMock.current, size: "10" };
     routeMock.use206StarTotal = true;
     const res = await getReel({ headers: { Range: "bytes=0-9" } });
     expect(res.status).toBe(410);
   });
 
   test("Codex R23 P1: 206 without any Content-Range header → fail-closed 410", async () => {
-    routeMock.current = { ...routeMock.current, size: null };
+    routeMock.current = { ...routeMock.current, size: "10" };
     routeMock.omit206ContentRange = true;
     const res = await getReel({ headers: { Range: "bytes=0-9" } });
     expect(res.status).toBe(410);
   });
 
   test("Codex R23 P1: 206 with malformed (non-numeric) total → fail-closed 410", async () => {
-    routeMock.current = { ...routeMock.current, size: null };
+    routeMock.current = { ...routeMock.current, size: "10" };
     routeMock.use206MalformedTotal = true;
     const res = await getReel({ headers: { Range: "bytes=0-9" } });
     expect(res.status).toBe(410);
@@ -759,5 +759,45 @@ describe("/api/asset/reel/[show]", () => {
     const get = await getReel();
     expect(head.status).toBe(get.status);
     expect(head.status).toBe(200);
+  });
+
+  test("Codex R6 P1: HEAD/GET parity — Pattern A unknown Drive size strips Range and returns full 200", async () => {
+    routeMock.current = { ...routeMock.current, size: null };
+    const range = { Range: "bytes=0-4" };
+
+    const head = await headReel({ headers: range });
+    routeMock.driveCalls = [];
+    routeMock.lastRevisionsOptions = null;
+    const get = await getReel({ headers: range });
+
+    expect(head.status).toBe(get.status);
+    expect(get.status).toBe(200);
+    expect(head.headers.get("content-range")).toBeNull();
+    expect(get.headers.get("content-range")).toBeNull();
+    expect(routeMock.lastRevisionsOptions?.headers).toBeUndefined();
+    await expect(get.text()).resolves.toBe("reel-bytes");
+  });
+
+  test("Codex R6 P1: HEAD/GET parity — Pattern B fallback unknown Drive size strips Range and returns full 200", async () => {
+    routeMock.current = { ...routeMock.current, size: null };
+    routeMock.revisionError = { code: 404 };
+    routeMock.fallbackBytes = new TextEncoder().encode("reel-bytes");
+    routeMock.current = {
+      ...routeMock.current,
+      md5Checksum: md5(routeMock.fallbackBytes),
+    };
+    const range = { Range: "bytes=0-4" };
+
+    const head = await headReel({ headers: range });
+    routeMock.driveCalls = [];
+    routeMock.lastRevisionsOptions = null;
+    const get = await getReel({ headers: range });
+
+    expect(head.status).toBe(get.status);
+    expect(get.status).toBe(200);
+    expect(head.headers.get("content-range")).toBeNull();
+    expect(get.headers.get("content-range")).toBeNull();
+    expect(routeMock.lastRevisionsOptions?.headers).toBeUndefined();
+    await expect(get.text()).resolves.toBe("reel-bytes");
   });
 });

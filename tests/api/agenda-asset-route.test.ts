@@ -184,7 +184,7 @@ beforeEach(() => {
     published: true,
     agenda_links: [{ label: "Agenda", fileId: agendaFileId }],
   };
-  routeMock.driveMeta = { mimeType: "application/pdf", trashed: false };
+  routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: "22" };
   routeMock.driveBytes = new TextEncoder().encode("%PDF-1.7 fixture bytes");
   routeMock.driveError = null;
   routeMock.filesGetCalls = [];
@@ -369,11 +369,11 @@ describe("/api/asset/agenda/[show]/[id]", () => {
   });
 
   test("Codex R22 P1: 206 response gates on TOTAL size from Content-Range (cap bypass closed)", async () => {
-    // Drive metadata `size` is null (so the pre-flight cap doesn't
-    // trigger), but the 206 response's Content-Range claims a 60MB
-    // total — over the 50MB MAX_AGENDA_BYTES cap. Route MUST 410
-    // instead of forwarding the slice.
-    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: null };
+    // Drive metadata `size` is finite and under cap, but the 206
+    // response's Content-Range claims a 60MB total — over the 50MB
+    // MAX_AGENDA_BYTES cap. Route MUST 410 instead of forwarding the
+    // slice.
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: "22" };
     routeMock.agenda206TotalOverride = 60 * 1024 * 1024;
     const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
     expect(res.status).toBe(410);
@@ -381,11 +381,11 @@ describe("/api/asset/agenda/[show]/[id]", () => {
 
   test("Codex R20 P1: 206 without upstream Content-Length derives slice length from Content-Range (not full file size)", async () => {
     // Body is 22 bytes (`%PDF-1.7 fixture bytes`). Metadata size is
-    // not set (no `size` field), so the route only falls back to
-    // reportedSize on 200s. On 206 without `content-length`, the
-    // route derives the slice length from `Content-Range: bytes 0-9/N`
-    // = 10 bytes.
-    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false };
+    // known, so the route forwards Range. On 206 without
+    // `content-length`, the route derives the slice length from
+    // `Content-Range: bytes 0-9/N` = 10 bytes instead of the full
+    // metadata size.
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: "22" };
     routeMock.omit206ContentLength = true;
     const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
     expect(res.status).toBe(206);
@@ -419,7 +419,7 @@ describe("/api/asset/agenda/[show]/[id]", () => {
   });
 
   test("Codex R18 P1: Drive 416 thrown from media fetch → 416 response (not 500)", async () => {
-    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: null };
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: "22" };
     // Force the media call to throw 416 by simulating Drive's behavior.
     routeMock.driveError = Object.assign(new Error("range not satisfiable"), { code: 416 });
     const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
@@ -474,7 +474,7 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     // could be used to extract an oversized object piecemeal. With
     // R23 P1, any 206 without a parseable numeric total MUST fail
     // closed.
-    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: null };
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: "22" };
     routeMock.use206StarTotal = true;
     const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
     expect(res.status).toBe(410);
@@ -484,14 +484,14 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     // If upstream omits Content-Range entirely on a 206, route MUST
     // fail closed since the total size cannot be verified against the
     // cap.
-    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: null };
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: "22" };
     routeMock.omit206ContentRange = true;
     const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
     expect(res.status).toBe(410);
   });
 
   test("Codex R23 P1: 206 with malformed (non-numeric) total → fail-closed 410", async () => {
-    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: null };
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: "22" };
     routeMock.use206MalformedTotal = true;
     const res = await getAgenda(agendaFileId, { headers: { Range: "bytes=0-9" } });
     expect(res.status).toBe(410);
@@ -677,5 +677,23 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     const get = await getAgenda();
     expect(head.status).toBe(get.status);
     expect(head.status).toBe(200);
+  });
+
+  test("Codex R6 P1: HEAD/GET parity — unknown Drive size strips Range and returns full 200", async () => {
+    routeMock.driveMeta = { mimeType: "application/pdf", trashed: false, size: null };
+    const range = { Range: "bytes=0-9" };
+
+    const head = await headAgenda(agendaFileId, { headers: range });
+    routeMock.filesGetCalls = [];
+    routeMock.lastMediaOptions = null;
+    const get = await getAgenda(agendaFileId, { headers: range });
+
+    expect(head.status).toBe(get.status);
+    expect(get.status).toBe(200);
+    expect(head.headers.get("content-range")).toBeNull();
+    expect(get.headers.get("content-range")).toBeNull();
+    expect(routeMock.lastMediaOptions?.headers).toBeUndefined();
+    const body = new TextDecoder().decode(new Uint8Array(await get.arrayBuffer()));
+    expect(body).toBe("%PDF-1.7 fixture bytes");
   });
 });
