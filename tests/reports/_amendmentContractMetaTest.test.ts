@@ -4,6 +4,10 @@ import { describe, expect, test } from "vitest";
 
 const REPORT_SOURCE = readFileSync(join(process.cwd(), "lib/reports/submit.ts"), "utf8");
 const GITHUB_SOURCE = readFileSync(join(process.cwd(), "lib/github/issues.ts"), "utf8");
+const REAPER_SOURCE = readFileSync(
+  join(process.cwd(), "app/api/cron/report-reaper/route.ts"),
+  "utf8",
+);
 
 function urlWritingUpdates(source: string): string[] {
   const matches = source.match(/UPDATE\s+reports[\s\S]*?SET\s+github_issue_url[\s\S]*?(?:RETURNING|;)/gi);
@@ -32,6 +36,9 @@ describe("META §13.2.3 amendment structural contract", () => {
 
   test("report horizon comparisons are DB-time based, not Date.now-derived", () => {
     expect(REPORT_SOURCE).not.toMatch(/Date\.now\(\)/);
+    expect(REAPER_SOURCE).not.toMatch(/Date\.now\(\)/);
     expect(REPORT_SOURCE).toMatch(/created_at\s*>=\s*now\(\)\s*-\s*interval\s*'24 hours'/i);
+    expect(REAPER_SOURCE).toMatch(/created_at\s*<\s*now\(\)\s*-\s*interval\s*'24 hours'/i);
+    expect(REAPER_SOURCE).toMatch(/processing_lease_until\s*<\s*now\(\)/i);
   });
 });

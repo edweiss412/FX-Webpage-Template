@@ -1112,13 +1112,13 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
 
 The reaper uses **`reports.created_at`** as the horizon, NOT `processing_lease_until`. observed that the prior draft's lease-based predicate misaligns with the row-age horizon enforced by `expiredLeaseRetry`. A retry that refreshes the lease 23 hours after creation could push `processing_lease_until` past the 24h mark, leaving the row alive for roughly another day under the lease-based predicate even though `expiredLeaseRetry` is already returning 410 `REPORT_HORIZON_EXPIRED`. Aligning both gates on the same `reports.created_at` cutoff makes the horizon enforceable end-to-end.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
   - **Live-lease row is PRESERVED:** synthesize a `reports` row with `github_issue_url IS NULL`, `created_at = now - interval '25 hours'`, AND `processing_lease_until = now + interval '5 minutes'` (a retry just refreshed the lease). Run the reaper. Assert the row IS NOT DELETEd — the `AND processing_lease_until < now` clause skips it. The retry holding this lease will eventually finish, advance state, or let the lease expire; only after the lease expires (and the row is still unresolved past the horizon) does the next reaper run delete it.
   - **Expired-lease, past-horizon row IS deleted:** synthesize `created_at = now - interval '25 hours'` AND `processing_lease_until = now - interval '10 minutes'` (lease expired). Run the reaper. Row IS DELETEd. `STALE_ORPHAN_REPORT` audit entry is written.
   - **No false delete on resolved row:** synthesize a row with `github_issue_url IS NOT NULL` and `created_at = now - interval '30 days'`. Reaper does NOT delete it (resolved rows are forensic data, kept indefinitely or per a separate retention policy out of v1 scope).
   - **Boundary checks (created_at side):** `created_at = now - interval '23 hours 30 minutes'` AND lease expired → row preserved. `created_at = now - interval '24 hours 1 minute'` AND lease expired → row deleted. The boundary is `now - interval '24 hours'` (strictly less than).
   - **Reaper / retry consistency:** for any row that's BOTH past-horizon AND lease-expired-and-unresolved, `expiredLeaseRetry` returns 410 `REPORT_HORIZON_EXPIRED` AND the reaper's predicate matches it on the same UTC timestamp. For any row that's past-horizon BUT lease-live, `expiredLeaseRetry` would also return 410 (entry-time `created_at` check) but the reaper does NOT match (live lease) — the divergence is intentional: the retry can't make progress and the reaper waits for the worker to release the row.
-- [ ] **Step 2: Implement** the daily cron (e.g. `0 6 * * *`) calling:
+- [x] **Step 2: Implement** the daily cron (e.g. `0 6 * * *`) calling:
 
   ```sql
   DELETE FROM reports
@@ -1132,8 +1132,8 @@ The reaper uses **`reports.created_at`** as the horizon, NOT `processing_lease_u
 
   For each returned row, INSERT a structured audit log entry (e.g., a row in `sync_log` with `status = 'STALE_ORPHAN_REPORT'`, or a dedicated `admin_alerts` row coded `STALE_ORPHAN_REPORT` if Eric should be paged on this).
 
-- [ ] **Step 3: Run** — PASS.
-- [ ] **Step 4: Commit** `feat(reports): daily orphan reaper on created_at horizon`.
+- [x] **Step 3: Run** — PASS.
+- [x] **Step 4: Commit** `feat(reports): daily orphan reaper on created_at horizon`.
 
 ### Task 8.3g: Spec patch — sync §13.2.3 with plan amendments (recovery + reaper + lease_holder)
 
