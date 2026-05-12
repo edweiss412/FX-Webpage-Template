@@ -1,10 +1,13 @@
 import { describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
+import type { UnpublishShowResult } from "@/lib/sync/unpublishShow";
 
-const routeMock = vi.hoisted(() => ({
-  result: { outcome: "success" as const, status: 200 as const, showId: "show-1" },
-  calls: [] as Array<{ slug: string; token: string }>,
-}));
+const routeMock = vi.hoisted(
+  (): { result: UnpublishShowResult; calls: Array<{ slug: string; token: string }> } => ({
+    result: { outcome: "success", status: 200, showId: "show-1" },
+    calls: [],
+  }),
+);
 
 vi.mock("@/lib/sync/unpublishShow", () => ({
   unpublishShow: async (args: { slug: string; token: string }) => {

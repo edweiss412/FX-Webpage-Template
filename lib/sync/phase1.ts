@@ -232,7 +232,7 @@ function syncLayerReviewItems(
   return items;
 }
 
-function sentinelFor(args: Phase1Args, show: Phase1ShowRow | null): TriggeredReviewItem | null {
+function sentinelFor(args: Phase1Args, _show: Phase1ShowRow | null): TriggeredReviewItem | null {
   if (args.mode === "onboarding_scan") {
     return { id: randomUUID(), invariant: "ONBOARDING_SCAN_REVIEW" };
   }
