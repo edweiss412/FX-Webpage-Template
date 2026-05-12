@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const authMock = vi.hoisted(() => ({
   validateLinkSession: vi.fn(async (): Promise<unknown> => ({ kind: "continue" as const })),
   validateGoogleSession: vi.fn(async (): Promise<unknown> => ({ kind: "continue" as const })),
+  submitReport: vi.fn(async () => ({ status: 501, body: { ok: false, code: "NOT_IMPLEMENTED" } })),
   requireAdmin: vi.fn(async () => {
     throw new Error("forbidden");
   }),
@@ -28,7 +29,7 @@ vi.mock("@/lib/reports/submit", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/reports/submit")>();
   return {
     ...actual,
-    submitReport: async () => ({ status: 501, body: { ok: false, code: "NOT_IMPLEMENTED" } }),
+    submitReport: authMock.submitReport,
   };
 });
 
@@ -56,7 +57,40 @@ describe("POST /api/report auth skeleton", () => {
     authMock.requireAdmin.mockReset();
     authMock.validateLinkSession.mockResolvedValue({ kind: "continue" });
     authMock.validateGoogleSession.mockResolvedValue({ kind: "continue" });
+    authMock.submitReport.mockResolvedValue({
+      status: 501,
+      body: { ok: false, code: "NOT_IMPLEMENTED" },
+    });
     authMock.requireAdmin.mockRejectedValue(new Error("forbidden"));
+  });
+
+  test("rejects malformed or non-v4 idempotency keys before auth or DB work", async () => {
+    for (const idempotencyKey of [
+      "not-a-uuid",
+      "018f2f4c-8f54-1c28-9f56-f0f1b2c3d4e5",
+      "018f2f4c-8f54-4c28-7f56-f0f1b2c3d4e5",
+    ]) {
+      const response = await POST(request({ ...validBody, idempotency_key: idempotencyKey }));
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({ ok: false });
+    }
+
+    expect(authMock.validateLinkSession).not.toHaveBeenCalled();
+    expect(authMock.validateGoogleSession).not.toHaveBeenCalled();
+    expect(authMock.requireAdmin).not.toHaveBeenCalled();
+    expect(authMock.submitReport).not.toHaveBeenCalled();
+  });
+
+  test("rejects malformed show IDs before auth or DB work", async () => {
+    const response = await POST(request({ ...validBody, show_id: "not-a-uuid" }));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ ok: false });
+    expect(authMock.validateLinkSession).not.toHaveBeenCalled();
+    expect(authMock.validateGoogleSession).not.toHaveBeenCalled();
+    expect(authMock.requireAdmin).not.toHaveBeenCalled();
+    expect(authMock.submitReport).not.toHaveBeenCalled();
   });
 
   test("returns 401 when link, Google, and admin auth all reject", async () => {

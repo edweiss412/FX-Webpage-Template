@@ -5,18 +5,34 @@ import { validateGoogleSession } from "@/lib/auth/validateGoogleSession";
 import { validateLinkSession } from "@/lib/auth/validateLinkSession";
 import { submitReport, type ReportAuthContext, type RequestBody } from "@/lib/reports/submit";
 
+const UUID_V4_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function errorJson(status: number, body: Record<string, unknown>) {
   return NextResponse.json(body, { status });
+}
+
+function isUuidV4(value: unknown): value is string {
+  return typeof value === "string" && UUID_V4_PATTERN.test(value);
 }
 
 async function readRequestBody(req: Request): Promise<RequestBody | null> {
   try {
     const body = (await req.json()) as Partial<RequestBody>;
-    if (typeof body.show_id !== "string" || body.show_id.length === 0) return null;
+    if (!isUuidV4(body.idempotency_key) || !isUuidV4(body.show_id)) return null;
     return body as RequestBody;
   } catch {
     return null;
   }
+}
+
+function isInvalidUuidError(error: unknown): boolean {
+  let current: unknown = error;
+  while (current && typeof current === "object") {
+    if ("code" in current && current.code === "22P02") return true;
+    current = "cause" in current ? current.cause : null;
+  }
+  return false;
 }
 
 async function authenticateReportRequest(
@@ -77,6 +93,12 @@ export async function POST(req: Request): Promise<Response> {
   const auth = await authenticateReportRequest(req, body);
   if (!auth.ok) return errorJson(auth.status, auth.body);
 
-  const result = await submitReport(auth.auth, body);
+  let result;
+  try {
+    result = await submitReport(auth.auth, body);
+  } catch (error) {
+    if (isInvalidUuidError(error)) return errorJson(400, { ok: false });
+    throw error;
+  }
   return errorJson(result.status, result.body);
 }

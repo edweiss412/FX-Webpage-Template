@@ -40,7 +40,7 @@ export class LookupInconclusive extends Error {
 }
 
 export class GitHubIssueInfraError extends Error {
-  readonly operation: "createIssue";
+  readonly operation: "createIssue" | "closeIssueAsOrphan";
   readonly source: "returned_error" | "thrown_error";
   override readonly cause: unknown;
 
@@ -74,9 +74,10 @@ type IssueLike = {
 
 type IssuesOctokit = {
   rest: {
-        issues: {
+    issues: {
       create?: (params: Record<string, unknown>) => Promise<{ data: unknown }>;
       listForRepo?: (params: Record<string, unknown>) => Promise<{ data: unknown }>;
+      update?: (params: Record<string, unknown>) => Promise<{ data: unknown }>;
     };
   };
 };
@@ -124,6 +125,11 @@ function labelsWithReserved(labels: string[]): string[] {
   return labels.includes(FXAV_APP_REPORT_LABEL) ? labels : [...labels, FXAV_APP_REPORT_LABEL];
 }
 
+function labelsWithOrphan(labels: string[]): string[] {
+  const withReport = labelsWithReserved(labels);
+  return withReport.includes(ORPHAN_LABEL) ? withReport : [...withReport, ORPHAN_LABEL];
+}
+
 function issueMarker(idempotencyKey: string): string {
   return `<!-- fxav-report-id: ${idempotencyKey} -->`;
 }
@@ -163,6 +169,31 @@ export async function createIssue(
     return assertIssueCreateShape(response.data);
   } catch (cause) {
     throw new GitHubIssueInfraError("createIssue", cause);
+  }
+}
+
+export async function closeIssueAsOrphan(issue: CreatedIssue, deps?: IssuesDeps): Promise<void> {
+  const { owner, repo } = parseRepo(envFromDeps(deps));
+  const octokit = octokitFromDeps(deps);
+  const update = octokit.rest.issues.update;
+  if (!update) {
+    throw new GitHubIssueInfraError(
+      "closeIssueAsOrphan",
+      new Error("octokit.rest.issues.update is missing"),
+    );
+  }
+
+  try {
+    await update({
+      owner,
+      repo,
+      issue_number: issue.issueNumber,
+      state: "closed",
+      state_reason: "not_planned",
+      labels: labelsWithOrphan(issue.labels),
+    });
+  } catch (cause) {
+    throw new GitHubIssueInfraError("closeIssueAsOrphan", cause);
   }
 }
 

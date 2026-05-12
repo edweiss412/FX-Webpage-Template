@@ -5,6 +5,7 @@ import {
   ORPHAN_LABEL,
   GitHubIssueInfraError,
   LookupInconclusive,
+  closeIssueAsOrphan,
   createIssue,
   findIssueByMarker,
 } from "@/lib/github/issues";
@@ -103,6 +104,40 @@ describe("GitHub Issues client", () => {
     await expect(
       createIssue({ title: "Bug", body: "Body", labels: ["bug-report"] }, { octokit, env: repoEnv }),
     ).rejects.toBeInstanceOf(GitHubIssueInfraError);
+  });
+
+  test("closeIssueAsOrphan closes and labels the issue in one issues.update call", async () => {
+    const updateCalls: unknown[] = [];
+    const octokit = {
+      rest: {
+        issues: {
+          update: async (params: unknown) => {
+            updateCalls.push(params);
+            return { data: {} };
+          },
+        },
+      },
+    };
+
+    await closeIssueAsOrphan(
+      {
+        htmlUrl: "https://github.com/edweiss412/FX-Webpage-Template/issues/7",
+        issueNumber: 7,
+        labels: ["bug-report", FXAV_APP_REPORT_LABEL],
+      },
+      { octokit, env: repoEnv },
+    );
+
+    expect(updateCalls).toEqual([
+      {
+        owner: "edweiss412",
+        repo: "FX-Webpage-Template",
+        issue_number: 7,
+        state: "closed",
+        state_reason: "not_planned",
+        labels: ["bug-report", FXAV_APP_REPORT_LABEL, ORPHAN_LABEL],
+      },
+    ]);
   });
 
   test("findIssueByMarker uses listForRepo creator/since/state/reserved-label filters and paginates", async () => {

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import postgres from "postgres";
 
-import { createIssue, type CreatedIssue } from "@/lib/github/issues";
+import { closeIssueAsOrphan, createIssue, type CreatedIssue } from "@/lib/github/issues";
 import { acquireReportLease, type ReportLeaseDb } from "@/lib/reports/leaseProtocol";
 import { enforceQuota, type QuotaResult, type ReportQuotaKind } from "@/lib/reports/rateLimit";
 
@@ -241,6 +241,8 @@ export async function handleTailUpdateMiss(
   auth: ReportAuthContext,
   key: string,
   newIssue: CreatedIssue,
+  myLeaseHolder: string,
+  fallbackShowId: string | null,
 ): Promise<SubmitReportResult> {
   const { rows } = await db.query(
     `SELECT github_issue_url, show_id
@@ -249,10 +251,33 @@ export async function handleTailUpdateMiss(
     [key],
   );
   const row = rows[0] as { github_issue_url: string | null; show_id: string | null } | undefined;
-  if (!row) return { status: 410, body: { ok: false, code: "REPORT_HORIZON_EXPIRED" } };
-  if (row.github_issue_url === newIssue.htmlUrl) {
+  if (row?.github_issue_url === newIssue.htmlUrl) {
     return { status: 200, body: successBody(auth, "recovered", newIssue.htmlUrl) };
   }
+
+  await closeIssueAsOrphan(newIssue);
+  await db.query(
+    `INSERT INTO admin_alerts (show_id, code, context)
+     VALUES ($1, 'REPORT_ORPHANED_LOST_LEASE', $2::jsonb)
+     ON CONFLICT (coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL
+     DO UPDATE SET
+       last_seen_at = now(),
+       occurrence_count = admin_alerts.occurrence_count + 1,
+       context = EXCLUDED.context`,
+    [
+      row?.show_id ?? fallbackShowId,
+      JSON.stringify({
+        idempotency_key: key,
+        orphan_url: newIssue.htmlUrl,
+        orphan_issue_number: newIssue.issueNumber,
+        lease_holder: myLeaseHolder,
+        row_reaped: !row,
+        stored_url: row?.github_issue_url ?? null,
+      }),
+    ],
+  );
+
+  if (!row) return { status: 410, body: { ok: false, code: "REPORT_HORIZON_EXPIRED" } };
   if (row.github_issue_url) {
     return { status: 200, body: successBody(auth, "recovered", row.github_issue_url) };
   }
@@ -294,7 +319,16 @@ export async function submitReport(
       issue.htmlUrl,
       reservation.leaseHolder,
     );
-    if (!wroteUrl) return await handleTailUpdateMiss(db, auth, body.idempotency_key, issue);
+    if (!wroteUrl) {
+      return await handleTailUpdateMiss(
+        db,
+        auth,
+        body.idempotency_key,
+        issue,
+        reservation.leaseHolder,
+        body.show_id,
+      );
+    }
 
     return { status: 201, body: successBody(auth, "created", issue.htmlUrl) };
   } finally {
