@@ -739,7 +739,7 @@ export default async function ShowPage({ params }: PageProps) {
           })()}
         </section>
       </main>
-      <Footer asOf={null} />
+      <Footer asOf={null} showId={showId} showSlug={slug} />
     </>
   );
 }

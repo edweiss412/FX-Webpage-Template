@@ -25,6 +25,7 @@
  * Server Component — interactivity is delegated to the ThemeToggle island.
  */
 import { ThemeToggle } from "./ThemeToggle";
+import { ReportButton } from "@/components/shared/ReportButton";
 
 type FooterProps = {
   /**
@@ -33,6 +34,26 @@ type FooterProps = {
    * so the slot still exists for layout consistency.
    */
   asOf?: string | null;
+  /**
+   * Show id — when provided, the footer mounts a "Something looks wrong?"
+   * ReportButton scoped to this show (M8 Task 8.4 §B). Crew members on
+   * the venue floor file bug reports from this slot; the modal it opens
+   * owns the idempotency-key + sessionStorage lifecycle.
+   *
+   * When null/absent, the report slot renders nothing — the footer is
+   * also used in contexts (none today, but defensively) where no show
+   * is in scope.
+   */
+  showId?: string | null;
+  /** Crew page slug — used to derive a stable surfaceId for sessionStorage. */
+  showSlug?: string | null;
+  /**
+   * Optional context the ReportModal autocaptures into the submit body.
+   * The crew page passes viewerVisibleSection / lastSyncTimestamp /
+   * staleTier / rightNowState; staged-review surfaces pass parse-shape
+   * context. Forwarded verbatim into POST /api/report.
+   */
+  reportAutocapture?: React.ComponentProps<typeof ReportButton>["autocapture"];
 };
 
 /** Render an ISO timestamp as a short "as of …" line. */
@@ -49,8 +70,12 @@ function formatAsOf(iso: string): string {
   });
 }
 
-export function Footer({ asOf }: FooterProps) {
+export function Footer({ asOf, showId, showSlug, reportAutocapture }: FooterProps) {
   const year = new Date().getUTCFullYear();
+  // surfaceId scope: one stable id per crew-page slug so sessionStorage
+  // hydration finds the right persisted attempt across tab refresh.
+  // Falls back to a generic id when no slug is in scope (defensive).
+  const reportSurfaceId = showSlug ? `footer-crew-${showSlug}` : "footer-crew";
   return (
     <footer data-testid="page-footer" className="mt-auto border-t border-border bg-bg">
       <div className="mx-auto flex w-full max-w-300 flex-col items-start gap-3 px-4 py-6 text-xs text-text-subtle sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-8 sm:py-7">
@@ -73,6 +98,14 @@ export function Footer({ asOf }: FooterProps) {
           </span>{" "}
           <span className="font-regular tabular-nums">{year}</span>
         </p>
+        {showId ? (
+          <ReportButton
+            surface="crew"
+            surfaceId={reportSurfaceId}
+            showId={showId}
+            {...(reportAutocapture ? { autocapture: reportAutocapture } : {})}
+          />
+        ) : null}
         {/*
           Theme toggle. Client island — see ThemeToggle.tsx for the
           dataset/localStorage handshake and the no-FOUC contract with

@@ -50,6 +50,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
+import { ReportButton } from "@/components/shared/ReportButton";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 import type { ReviewerChoice } from "@/lib/sync/applyStaged";
 
@@ -194,9 +195,19 @@ export type StagedReviewCardProps = {
   row: StagedRow;
   /** Callback invoked after a successful Apply or Discard, before router.refresh(). */
   onMutated?: () => void;
+  /**
+   * Show id — when provided, the card surfaces an admin "Report this"
+   * affordance (M8 Task 8.4 §B) scoped to this staged row. Doug uses it
+   * when a staged parse looks wrong and needs a GitHub issue filed. The
+   * modal it opens owns the idempotency-key + sessionStorage lifecycle.
+   *
+   * When absent, the report button is omitted — admin contexts without
+   * a show in scope (none today, but defensively) don't render it.
+   */
+  showId?: string;
 };
 
-export function StagedReviewCard({ row, onMutated }: StagedReviewCardProps) {
+export function StagedReviewCard({ row, onMutated, showId }: StagedReviewCardProps) {
   // Items with a single allowed action default to that action so an
   // operator can apply immediately. Multi-action items (MI-12 / MI-13 /
   // MI-14) start unset and force an explicit choice.
@@ -476,6 +487,28 @@ export function StagedReviewCard({ row, onMutated }: StagedReviewCardProps) {
           >
             This sheet will not reappear until Doug clears it from settings.
           </p>
+        </div>
+      ) : null}
+      {showId ? (
+        <div className="mt-4 border-t border-border pt-4">
+          <ReportButton
+            surface="admin"
+            surfaceId={`admin-staged-${row.stagedId}`}
+            showId={showId}
+            variant="text"
+            label="Report this parse"
+            autocapture={{
+              fieldRef: {
+                stagedId: row.stagedId,
+                driveFileId: row.driveFileId,
+                sourceKind: row.sourceKind,
+                stagedModifiedTime: row.stagedModifiedTime,
+                baseModifiedTime: row.baseModifiedTime,
+              },
+              parseWarnings: row.triggeredReviewItems,
+              rawSnippet: row.parseSummaryLine ?? row.warningSummary,
+            }}
+          />
         </div>
       ) : null}
     </article>

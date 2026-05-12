@@ -21,9 +21,15 @@ export type ParsePanelProps = {
   rows: StagedRow[];
   /** Forwarded to every card; the page binds this to router.refresh. */
   onMutated?: () => void;
+  /**
+   * Show id — forwarded to every card so the per-row admin "Report this"
+   * affordance (M8 Task 8.4 §B) is scoped to this show. Optional for
+   * back-compat with admin contexts that don't surface the reporter.
+   */
+  showId?: string;
 };
 
-export function ParsePanel({ rows, onMutated }: ParsePanelProps) {
+export function ParsePanel({ rows, onMutated, showId }: ParsePanelProps) {
   if (rows.length === 0) {
     return (
       <section
@@ -54,19 +60,21 @@ export function ParsePanel({ rows, onMutated }: ParsePanelProps) {
         Staged Drive parses
       </h2>
       <ul className="space-y-section-gap">
-        {rows.map((row) =>
-          // exactOptionalPropertyTypes: only forward `onMutated` when defined
-          // so we don't widen the card's prop type to allow `undefined`.
-          onMutated ? (
+        {rows.map((row) => {
+          // exactOptionalPropertyTypes: build the props object explicitly so
+          // optional fields are only included when defined, avoiding the
+          // `undefined`-widening that strict exact-optional types reject.
+          const cardProps: React.ComponentProps<typeof StagedReviewCard> = {
+            row,
+            ...(onMutated ? { onMutated } : {}),
+            ...(showId ? { showId } : {}),
+          };
+          return (
             <li key={row.stagedId}>
-              <StagedReviewCard row={row} onMutated={onMutated} />
+              <StagedReviewCard {...cardProps} />
             </li>
-          ) : (
-            <li key={row.stagedId}>
-              <StagedReviewCard row={row} />
-            </li>
-          ),
-        )}
+          );
+        })}
       </ul>
     </section>
   );

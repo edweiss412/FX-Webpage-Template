@@ -141,7 +141,7 @@ export default async function AdminShowPage({
 
       <ReSyncButton slug={show.slug} />
 
-      <ParsePanel rows={rows} />
+      <ParsePanel rows={rows} showId={show.id} />
     </main>
   );
 }

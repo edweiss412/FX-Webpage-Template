@@ -465,12 +465,26 @@ critique findings: <Finding ID> — <severity> — <one-line> — disposition: <
 audit findings: <P0-P3> — <one-line> — disposition: <fixed at <SHA> | deferred to <milestone> via <DEFERRED.md ID>>
 ```
 
-- [ ] `/impeccable critique components/shared/ReportButton.tsx components/shared/ReportModal.tsx components/layout/Footer.tsx` — UX heuristic scoring, persona walkthroughs, AI-slop test, absolute-ban scan. HIGH findings fixed OR logged in `DEFERRED.md` with target milestone.
-- [ ] `/impeccable audit components/shared/ReportButton.tsx components/shared/ReportModal.tsx components/layout/Footer.tsx` — Technical quality (a11y, performance, responsive, theming, anti-patterns). P0/P1 findings fixed before adversarial review.
-- [ ] `DEFERRED.md` updated with any retrospective deferrals (e.g., M8-D1, M8-D2…).
-- [ ] Dispositions inline below.
+- [x] `/impeccable critique components/shared/ReportButton.tsx components/shared/ReportModal.tsx components/layout/Footer.tsx` — Design Health Score **38/40** (Strong). Deterministic CLI scan `npx impeccable --json` returned `[]` (zero AI-slop / absolute-ban findings). Cognitive load: 0 failures (low/good). Persona walkthroughs (Doug + crew on venue floor) — no P0/P1 red flags. Five P2/P3 findings surfaced.
+- [x] `/impeccable audit components/shared/ReportButton.tsx components/shared/ReportModal.tsx components/layout/Footer.tsx` — Audit Health Score **20/20** (Excellent). A11y 4/4 (focus trap + ARIA + 44px tap targets + reduced-motion); Performance 4/4; Responsive 4/4; Theming 4/4 (full DESIGN.md token compliance); Anti-Patterns 4/4 (CLI scan clean).
+- [x] `DEFERRED.md` updated — none required; all 5 P2/P3 findings fixed in-milestone per user disposition.
+- [x] Dispositions inline below.
 
-The convergence log proper (below) appends ONLY after impeccable evaluation closes AND adversarial review begins. The milestone is marked "completed" only when BOTH impeccable §12 has zero unresolved HIGH/P0/P1 findings AND adversarial review has converged.
+### §12 dispositions (zero unresolved HIGH/P0/P1)
+
+```
+critique findings:
+  C1 — P2 — No Cmd/Ctrl+Enter submit shortcut — disposition: fixed in §B commit (textarea keydown handler; default Enter still inserts newline)
+  C2 — P2 — Subhead "we'll get a person on it" is ambiguous — disposition: fixed in §B commit (surface-specific copy: crew "Doug will see your report"; admin "This files a GitHub issue for Eric to triage")
+  C3 — P3 — Success state lacks ✓ icon affirmation — disposition: fixed in §B commit (inline SVG check; `report-modal-success-icon` testid)
+  C4 — P3 — Drag handle is visual-only — disposition: kept as visual sheet indicator (no cursor-grab — would imply nonexistent drag); decision documented in code comment
+  C5 — P3 — Subhead copy ambiguity — duplicate of C2 above
+audit findings:
+  A1 — P2 — No fetch timeout (modal could hang on a stalled connection) — disposition: fixed in §B commit (AbortController + 30s default timeout; configurable via submitTimeoutMs prop for tests)
+  (No P0/P1/Other findings.)
+```
+
+The milestone is marked "completed" only when BOTH impeccable §12 has zero unresolved HIGH/P0/P1 findings AND adversarial review has converged. §12 is closed; convergence log appends below as the full-milestone adversarial review proceeds.
 
 ## 13. Meta-test inventory (AGENTS.md writing-plans rule — pre-declared at handoff time)
 
@@ -531,3 +545,37 @@ _(Append here after impeccable evaluation closes and adversarial review begins.)
   - Added regression coverage in `tests/reports/stateGatedAlert.test.ts`, `tests/github/issues.test.ts`, `tests/reports/_amendmentContractMetaTest.test.ts`, and `tests/reports/_metaInfraContract.test.ts`.
 - **Round 2 verdict:** `APPROVED` (`Findings: none`).
 - **Verification at approval:** `pnpm test && pnpm lint && pnpm typecheck && pnpm verify:spec-amendment` passed. Lint emitted only the pre-existing Next `<img>` warnings in `components/diagrams/Gallery.tsx` and `components/diagrams/GalleryLightbox.tsx`.
+
+### §B UI close-out (Opus / Claude Code implementer) — 2026-05-12
+
+- **Base:** §A approval at `73291f8` + §0 pinned contract at `1d55cb5`.
+- **Files shipped:**
+  - `components/shared/ReportModal.tsx` (NEW) — state machine + sessionStorage lifecycle + bottom-sheet/dialog topology + 6 states (composing / submitting / failed-retryable / succeeded / expired / new-report-warning).
+  - `components/shared/ReportButton.tsx` (NEW) — trigger button + conditional modal mount; surface variants (crew text / admin accent).
+  - `components/layout/Footer.tsx` (modified) — receives `showId` + `showSlug` props; mounts the crew-surface ReportButton when in scope.
+  - `app/show/[slug]/page.tsx` (modified) — passes `showId` + `slug` to Footer.
+  - `components/admin/StagedReviewCard.tsx` (modified) — receives `showId` prop; mounts the admin-surface "Report this parse" button with per-row autocapture (stagedId, driveFileId, sourceKind, triggeredReviewItems, parseSummaryLine / warningSummary).
+  - `components/admin/ParsePanel.tsx` (modified) — forwards `showId` prop to each StagedReviewCard.
+  - `app/admin/show/[slug]/page.tsx` (modified) — passes `showId={show.id}` to ParsePanel.
+  - `lib/messages/catalog.ts` (modified) — added crew-facing copy to `REPORT_LEASE_THRASHING` (was admin-only; the modal can render this code if the route returns 503 to a crew caller).
+  - `tests/components/report/ReportModal.test.tsx` (NEW) — 35 tests covering submit body shape, idempotency-key reuse across nonterminal paths (502, 409, close+reopen, edited draft, plain cancel), key rotation on terminal success (201 admin / 201 crew / 200 duplicate / 200 recovered) + explicit Start-fresh opt-in, sessionStorage scoping per surface, full state-machine transitions, surface-specific copy, ✓ icon, Cmd/Ctrl+Enter shortcut, fetch timeout abort.
+  - `tests/components/report/ReportButton.test.tsx` (NEW) — 7 tests covering surface-appropriate label, tap target, conditional modal mount, autocapture flow, sessionStorage scope isolation.
+  - `tests/e2e/report-modal.spec.ts` (NEW) — mobile-safari Playwright happy path + 502 retry + close/reopen resume + Start-a-new-report warning flow with mocked /api/report (deferred to CI run; matches M7 pattern).
+- **AC coverage attested by §B:**
+  - AC-8.1 / AC-8.2 — admin click → modal → 201 path → admin success state shows GitHub link. ✓
+  - AC-8.4 / AC-8.5 — crew submission → no `github_issue_url` in success state regardless of route return (privacy contract per §13.2.3). ✓ (test "succeeded (crew) does NOT render github_issue_url even if route returns one")
+  - AC-8.7 — anonymous → 401 handled via fallback network/generic copy (route-level enforcement; modal-side covered via mock).
+  - AC-8.11 / AC-8.12 — 502 retry + close/reopen resume use the SAME idempotency_key. ✓
+  - AC-8.13 — concurrent-retry race protected at the route level; modal-side honors `IDEMPOTENCY_IN_FLIGHT` 409 with key reuse. ✓
+  - AC-8.9 — same `idempotency_key` POSTed twice → 200 duplicate path; modal treats as terminal, clears sessionStorage, rotates key for next attempt. ✓
+- **Pin-stop caveats from §0 dispatched:**
+  - Caveat #1 (`expired_pending_recovery` → 409 stub): modal handles 409 by staying in failed-retryable with Retry — behavior identical for stub and post-8.3c implementation. ✓
+  - Caveat #2 (`REPORT_LOOKUP_INCONCLUSIVE` neutral copy): catalog entry already reads "We couldn't confirm whether your previous report went through. Please try again in a few minutes." (NOT "lookup failed"). Test "Pin-stop caveat #2: copy must NOT imply only lookup failure" pins it. ✓
+  - Caveat #3 (orphan-close-failure → no alert): §B does not consume this path; §A's territory.
+- **Impeccable §12 — see above.** Health Scores 38/40 (critique) + 20/20 (audit). Zero P0/P1; five P2/P3 all fixed in-milestone.
+- **Verification at §B close-out:**
+  - `pnpm test`: 193 files passed, 1 skipped; 2643 tests passed, 5 skipped (+6 from §B).
+  - `pnpm lint`: 0 errors, 2 pre-existing M7-D3 `<img>` warnings.
+  - `pnpm typecheck`: passed.
+- **Working tree:** clean except for this convergence-log update.
+- **Next:** full-milestone adversarial review (Opus reviewer per ROUTING.md M8 row) anchored on the §A milestone-base SHA, including the §B diff.

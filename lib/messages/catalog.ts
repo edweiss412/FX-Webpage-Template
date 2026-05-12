@@ -793,7 +793,8 @@ export const MESSAGE_CATALOG = {
     code: "REPORT_LEASE_THRASHING",
     dougFacing:
       "Bug-report processing is thrashing on this show - retries are racing against leases. Check Eric's status; this usually means the lease window needs tuning.",
-    crewFacing: null,
+    crewFacing:
+      "We're hitting heavy contention on the report system. Please try again in a moment.",
     followUp: "Eric -> tune lease window",
     helpfulContext:
       "Bug-report submissions for this show are racing against their own leases - too many retries firing inside the lease window.",
