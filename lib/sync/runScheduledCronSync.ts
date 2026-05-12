@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import postgres from "postgres";
 import { google } from "googleapis";
 import {
@@ -199,6 +200,8 @@ export type ProcessOneFileDeps = {
   upsertAdminAlert?: typeof defaultUpsertAdminAlert;
   logSync?: (entry: SyncLogEntry) => Promise<void>;
   publishShowInvalidation?: (showId: string) => Promise<void>;
+  createUnpublishToken?: () => string;
+  now?: () => Date;
 };
 
 export type RunScheduledCronSyncDeps = {
@@ -885,6 +888,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.modifiedTime,
       args.parseResult.show.coi_status,
       JSON.stringify(args.parseResult.pullSheet),
+      args.autoPublishFirstSeen?.unpublishToken ?? null,
+      args.autoPublishFirstSeen?.unpublishTokenExpiresAt ?? null,
     ];
     const skipDiagramsParams = [
       args.driveFileId,
@@ -990,11 +995,13 @@ class PostgresPipelineTx implements SyncPipelineTx {
                   opening_reel_drive_file_id, opening_reel_drive_modified_time,
                   opening_reel_head_revision_id, opening_reel_mime_type,
                   last_seen_modified_time, coi_status, pull_sheet,
+                  unpublish_token, unpublish_token_expires_at,
                   last_synced_at, last_sync_status, last_sync_error
                 )
                 values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
                         $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
-                        $14, $15, $16::timestamptz, $17, $18::jsonb, now(), 'ok', null)
+                        $14, $15, $16::timestamptz, $17, $18::jsonb,
+                        $19::uuid, $20::timestamptz, now(), 'ok', null)
                 on conflict (drive_file_id) do nothing
                 returning id
               `,
@@ -1523,6 +1530,43 @@ async function emitDeferredRoleFlagsNotice(
   await upsertAdminAlert(result.roleFlagsNotice);
 }
 
+function addHours(date: Date, hours: number): Date {
+  return new Date(date.getTime() + hours * 60 * 60 * 1000);
+}
+
+function showDateForAlert(parseResult: ParseResult): string | null {
+  return (
+    parseResult.show.dates.showDays[0] ??
+    parseResult.show.dates.set ??
+    parseResult.show.dates.travelIn ??
+    null
+  );
+}
+
+async function emitFirstPublishedNotice(args: {
+  result: Extract<ProcessOneFileResult, { outcome: "applied" }>;
+  deps: ProcessOneFileDeps;
+  driveFileId: string;
+  fileMeta: DriveListedFile;
+  parseResult: ParseResult;
+  unpublishToken: string;
+  unpublishTokenExpiresAt: string;
+}): Promise<void> {
+  const upsertAdminAlert = args.deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
+  await upsertAdminAlert({
+    showId: args.result.showId,
+    code: "SHOW_FIRST_PUBLISHED",
+    context: {
+      drive_file_id: args.driveFileId,
+      sheet_name: args.fileMeta.name,
+      crew_count: args.parseResult.crewMembers.length,
+      show_date: showDateForAlert(args.parseResult),
+      unpublish_token: args.unpublishToken,
+      unpublish_token_expires_at: args.unpublishTokenExpiresAt,
+    },
+  });
+}
+
 function shouldUseRevisionRaceCooldown(mode: SyncMode): boolean {
   return mode === "cron" || mode === "push";
 }
@@ -2045,6 +2089,13 @@ export async function processOneFile_unlocked(
     });
     return result;
   }
+  const autoPublishFirstSeen =
+    phase1.outcome === "auto_publish_ready"
+      ? {
+          unpublishToken: (deps.createUnpublishToken ?? randomUUID)(),
+          unpublishTokenExpiresAt: addHours((deps.now ?? (() => new Date()))(), 24).toISOString(),
+        }
+      : undefined;
 
   const snapshotAssetsForApply = await (async () => {
     if (!tx.insertPendingSnapshotUpload) return undefined;
@@ -2070,6 +2121,7 @@ export async function processOneFile_unlocked(
       // Cron just captured the reel tuple during this same Drive-read pass; manual Apply
       // re-verifies because review latency creates the drift window.
       verifyReelOnApply: false,
+      ...(autoPublishFirstSeen ? { autoPublishFirstSeen } : {}),
     },
     deps,
   );
@@ -2088,6 +2140,17 @@ export async function processOneFile_unlocked(
   if (phase2.snapshotRevisionId) result.snapshotRevisionId = phase2.snapshotRevisionId;
   await tx.deleteRevisionRaceCooldowns?.(driveFileId);
   await deps.publishShowInvalidation?.(phase2.showId);
+  if (autoPublishFirstSeen) {
+    await emitFirstPublishedNotice({
+      result,
+      deps,
+      driveFileId,
+      fileMeta,
+      parseResult: pipeline.parseResult,
+      unpublishToken: autoPublishFirstSeen.unpublishToken,
+      unpublishTokenExpiresAt: autoPublishFirstSeen.unpublishTokenExpiresAt,
+    });
+  }
   await logSync(deps, driveFileId, result);
   return result;
 }

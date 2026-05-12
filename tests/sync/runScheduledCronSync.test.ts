@@ -701,6 +701,62 @@ describe("processOneFile", () => {
     expect(vi.mocked(syncDeps.runPhase1)).toHaveBeenCalledBefore(vi.mocked(syncDeps.runPhase2));
   });
 
+  test("first-seen auto-publish stamps 24h unpublish token, alerts, and invalidates under the show lock", async () => {
+    const fakeTx = tx();
+    const events: string[] = [];
+    const withShowLock = vi.fn(async (driveFileId, fn) => {
+      expect(driveFileId).toBe("file-1");
+      events.push("lock:start");
+      const result = await fn(fakeTx as LockedShowTx<PipelineTx>);
+      events.push("lock:commit");
+      return result;
+    });
+    const upsertAdminAlert = vi.fn(async () => {
+      events.push("alert:first-published");
+      return "alert-1";
+    });
+    const publishShowInvalidation = vi.fn(async () => {
+      events.push("broadcast");
+    });
+    const syncDeps = deps({
+      withShowLock,
+      upsertAdminAlert,
+      publishShowInvalidation,
+      createUnpublishToken: () => "11111111-1111-4111-8111-111111111111",
+      now: () => new Date("2026-05-08T12:00:00.000Z"),
+      runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase1");
+        return { outcome: "auto_publish_ready" as const };
+      }),
+      runPhase2: vi.fn(async (lockedTx: Phase2Tx, args) => {
+        (lockedTx as PipelineTx).operations.push("runPhase2");
+        expect(args.autoPublishFirstSeen).toEqual({
+          unpublishToken: "11111111-1111-4111-8111-111111111111",
+          unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z",
+        });
+        return { outcome: "applied" as const, showId: "show-1" };
+      }),
+    });
+
+    const result = await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
+
+    expect(result).toEqual({ outcome: "applied", showId: "show-1" });
+    expect(upsertAdminAlert).toHaveBeenCalledWith({
+      showId: "show-1",
+      code: "SHOW_FIRST_PUBLISHED",
+      context: {
+        drive_file_id: "file-1",
+        sheet_name: "file-1 Sheet",
+        crew_count: 1,
+        show_date: "2026-05-09",
+        unpublish_token: "11111111-1111-4111-8111-111111111111",
+        unpublish_token_expires_at: "2026-05-09T12:00:00.000Z",
+      },
+    });
+    expect(publishShowInvalidation).toHaveBeenCalledWith("show-1");
+    expect(events).toEqual(["lock:start", "broadcast", "alert:first-published", "lock:commit"]);
+  });
+
   test.each(["cron", "push", "manual"] as const)(
     "%s Drive prep finishes before the advisory lock opens",
     async (mode) => {

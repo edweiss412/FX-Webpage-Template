@@ -26,6 +26,10 @@ export type Phase2Tx = ApplyParseResultTx & {
     parseResult: ParseResult;
     slug: string;
     skipDiagramsWrite?: boolean;
+    autoPublishFirstSeen?: {
+      unpublishToken: string;
+      unpublishTokenExpiresAt: string;
+    };
   }): Promise<
     | {
         outcome: "updated";
@@ -60,6 +64,10 @@ export type Phase2Args = {
   verifyReelOnApply?:
     | false
     | ((staged: ParseResult["openingReel"]) => Promise<VerifyReelOnApplyResult>);
+  autoPublishFirstSeen?: {
+    unpublishToken: string;
+    unpublishTokenExpiresAt: string;
+  };
 };
 
 export type RoleFlagsNotice = {
@@ -208,6 +216,7 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       parseResult,
       slug: deriveSlug(parseResult, []),
       skipDiagramsWrite: args.skipDiagramsWrite ?? false,
+      ...(args.autoPublishFirstSeen ? { autoPublishFirstSeen: args.autoPublishFirstSeen } : {}),
     }),
   );
 
