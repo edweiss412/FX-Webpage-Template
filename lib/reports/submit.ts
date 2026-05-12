@@ -348,6 +348,89 @@ async function upsertStateGatedLookupAlert(
   return rows.length > 0;
 }
 
+type StateGatedAlertState = {
+  show_id: string | null;
+  github_issue_url: string | null;
+  lease_live: boolean;
+  within_horizon: boolean;
+};
+
+async function readStateGatedAlertState(
+  db: ReportLeaseDb,
+  idempotencyKey: string,
+): Promise<StateGatedAlertState | null> {
+  const { rows } = await db.query(
+    `SELECT show_id,
+            github_issue_url,
+            (processing_lease_until > now()) AS lease_live,
+            (created_at >= now() - interval '24 hours') AS within_horizon
+       FROM reports
+      WHERE idempotency_key = $1::uuid`,
+    [idempotencyKey],
+  );
+  return (rows[0] as StateGatedAlertState | undefined) ?? null;
+}
+
+function resultForStateGatedAlertState(
+  auth: ReportAuthContext,
+  state: StateGatedAlertState | null,
+): SubmitReportResult | null {
+  if (!state || !state.within_horizon) return horizonExpiredResponse();
+  if (state.github_issue_url) {
+    return { status: 200, body: successBody(auth, "recovered", state.github_issue_url) };
+  }
+  if (state.lease_live) return inFlightResponse();
+  return null;
+}
+
+export async function resolveStateGatedAlert(
+  db: ReportLeaseDb,
+  auth: ReportAuthContext,
+  idempotencyKey: string,
+  opts: {
+    alertCode: string;
+    responseCode: string;
+    responseStatus: 502 | 503;
+    context: Record<string, unknown>;
+    fallbackShowId?: string | null;
+  },
+): Promise<SubmitReportResult> {
+  const firstGate = await upsertStateGatedLookupAlert(
+    db,
+    idempotencyKey,
+    opts.alertCode,
+    opts.context,
+  );
+  if (firstGate) return { status: opts.responseStatus, body: { ok: false, code: opts.responseCode } };
+
+  const firstState = await readStateGatedAlertState(db, idempotencyKey);
+  const firstResult = resultForStateGatedAlertState(auth, firstState);
+  if (firstResult) return firstResult;
+
+  const secondGate = await upsertStateGatedLookupAlert(db, idempotencyKey, opts.alertCode, {
+    ...opts.context,
+    raced_back: true,
+  });
+  if (secondGate) {
+    return { status: opts.responseStatus, body: { ok: false, code: opts.responseCode } };
+  }
+
+  const secondState = await readStateGatedAlertState(db, idempotencyKey);
+  const secondResult = resultForStateGatedAlertState(auth, secondState);
+  if (secondResult) return secondResult;
+
+  await upsertAdminAlert(
+    db,
+    secondState?.show_id ?? firstState?.show_id ?? opts.fallbackShowId ?? null,
+    opts.alertCode,
+    {
+      ...opts.context,
+      raced_back_twice: true,
+    },
+  );
+  return { status: opts.responseStatus, body: { ok: false, code: opts.responseCode } };
+}
+
 async function handleLookupInconclusive(
   db: ReportLeaseDb,
   auth: ReportAuthContext,
@@ -390,8 +473,13 @@ async function handleLookupInconclusive(
 
   const alertCode =
     error.code === "BOT_LOGIN_MISSING" ? "REPORT_LOOKUP_INCONCLUSIVE" : lookupAlertCode(error.code);
-  await upsertStateGatedLookupAlert(db, body.idempotency_key, alertCode, context);
-  return { status: 502, body: { ok: false, code: "REPORT_LOOKUP_INCONCLUSIVE" } };
+  return await resolveStateGatedAlert(db, auth, body.idempotency_key, {
+    alertCode,
+    responseCode: "REPORT_LOOKUP_INCONCLUSIVE",
+    responseStatus: 502,
+    context,
+    fallbackShowId: state.show_id,
+  });
 }
 
 async function expiredLeaseRetry(
@@ -423,11 +511,16 @@ async function expiredLeaseRetry(
       return { status: 200, body: successBody(auth, "recovered", state.github_issue_url) };
     }
     if (state.lease_live) return inFlightResponse();
-    await upsertStateGatedLookupAlert(db, body.idempotency_key, "REPORT_LEASE_THRASHING", {
-      idempotency_key: body.idempotency_key,
-      depth,
+    return await resolveStateGatedAlert(db, auth, body.idempotency_key, {
+      alertCode: "REPORT_LEASE_THRASHING",
+      responseCode: "REPORT_LEASE_THRASHING",
+      responseStatus: 503,
+      context: {
+        idempotency_key: body.idempotency_key,
+        depth,
+      },
+      fallbackShowId: state.show_id,
     });
-    return { status: 503, body: { ok: false, code: "REPORT_LEASE_THRASHING" } };
   }
 
   const { rows: ageRows } = await db.query(

@@ -14,6 +14,7 @@ import {
   findIssueByMarker,
 } from "@/lib/github/issues";
 import { ReportQuotaInfraError, enforceQuota } from "@/lib/reports/rateLimit";
+import { resolveStateGatedAlert } from "@/lib/reports/submit";
 
 function throwingDb() {
   return {
@@ -142,5 +143,21 @@ describe("META reports infra-failure contract", () => {
     await expect(enforceQuota(throwingDb(), "crew", "crew-1")).rejects.toBeInstanceOf(
       ReportQuotaInfraError,
     );
+  });
+
+  test("resolveStateGatedAlert propagates DB throws instead of silently returning success", async () => {
+    await expect(
+      resolveStateGatedAlert(
+        throwingDb(),
+        { kind: "admin" },
+        baseAcquireInput.idempotencyKey,
+        {
+          alertCode: "REPORT_LOOKUP_INCONCLUSIVE",
+          responseCode: "REPORT_LOOKUP_INCONCLUSIVE",
+          responseStatus: 502,
+          context: { idempotency_key: baseAcquireInput.idempotencyKey },
+        },
+      ),
+    ).rejects.toThrow("META: simulated reports DB infrastructure fault");
   });
 });

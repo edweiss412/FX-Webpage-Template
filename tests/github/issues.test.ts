@@ -297,4 +297,23 @@ describe("GitHub Issues client", () => {
       }),
     ).rejects.toMatchObject({ code: "PAGINATION_ERROR" });
   });
+
+  test("missing GITHUB_REPO fails closed instead of falling back to a default repository", async () => {
+    const { octokit, listCalls } = octokitWithPages([[]]);
+
+    await expect(
+      findIssueByMarker("018f2f4c-8f54-4c28-9f56-f0f1b2c3d4e5", "2026-05-11T12:00:00Z", {
+        octokit,
+        env: { ...repoEnv, GITHUB_REPO: "" },
+      }),
+    ).rejects.toMatchObject({ code: "SHAPE_ERROR" });
+    expect(listCalls).toEqual([]);
+
+    await expect(
+      createIssue(
+        { title: "Bug", body: "Body", labels: ["bug-report"] },
+        { octokit, env: { ...repoEnv, GITHUB_REPO: "" } },
+      ),
+    ).rejects.toMatchObject({ code: "SHAPE_ERROR" });
+  });
 });

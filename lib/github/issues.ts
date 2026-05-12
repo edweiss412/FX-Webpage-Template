@@ -3,7 +3,6 @@ import { Octokit } from "@octokit/rest";
 export const FXAV_APP_REPORT_LABEL = "fxav-app:report";
 export const ORPHAN_LABEL = "fxav-orphan-lost-lease";
 
-const DEFAULT_GITHUB_REPO = "edweiss412/FX-Webpage-Template";
 const PAGE_SIZE = 100;
 const PAGE_BOUND = 1000;
 
@@ -96,7 +95,10 @@ function envFromDeps(deps?: IssuesDeps): GitHubEnv {
 }
 
 function parseRepo(env: GitHubEnv): { owner: string; repo: string } {
-  const repoValue = env.GITHUB_REPO?.trim() || DEFAULT_GITHUB_REPO;
+  const repoValue = env.GITHUB_REPO?.trim();
+  if (!repoValue) {
+    throw new LookupInconclusive("SHAPE_ERROR", "GITHUB_REPO env var is unset");
+  }
   const [owner, repo] = repoValue.split("/");
   if (!owner || !repo || repoValue.split("/").length !== 2) {
     throw new LookupInconclusive("SHAPE_ERROR", `invalid GITHUB_REPO: ${repoValue}`);

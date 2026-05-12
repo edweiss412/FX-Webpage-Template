@@ -41,4 +41,14 @@ describe("META §13.2.3 amendment structural contract", () => {
     expect(REAPER_SOURCE).toMatch(/created_at\s*<\s*now\(\)\s*-\s*interval\s*'24 hours'/i);
     expect(REAPER_SOURCE).toMatch(/processing_lease_until\s*<\s*now\(\)/i);
   });
+
+  test("LookupInconclusive and thrashing alerts use shared 2-gate reconciliation", () => {
+    expect(REPORT_SOURCE).toMatch(/export\s+async\s+function\s+resolveStateGatedAlert/);
+    expect(REPORT_SOURCE.match(/resolveStateGatedAlert\(/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+    expect(REPORT_SOURCE).toMatch(/raced_back:\s*true/);
+    expect(REPORT_SOURCE).toMatch(/raced_back_twice:\s*true/);
+    expect(REPORT_SOURCE).not.toMatch(
+      /await\s+upsertStateGatedLookupAlert\([\s\S]*?;\s*return\s+\{\s*status:\s*(?:502|503)/,
+    );
+  });
 });
