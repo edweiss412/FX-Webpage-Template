@@ -571,7 +571,7 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
 
 **This task uses the same `reconcileBeforeCreate` flow defined in Task 8.3d** — single-path `findIssueByMarker` against the immediately-consistent list endpoint, fail-closed on inconclusive results. The lease-claim UPDATE is the only serialized step. **`LookupInconclusive` errors NEVER authorize `createIssue`** — they return 502 to the client and leave the row unresolved for the next retry. closed the recovery design here: code search is no longer used; the 24h horizon is the single recovery contract.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
   - **AC-8.13: lease contention** — two concurrent retries of the same idempotency_key after lease expiry. The first acquires the lease via the conditional UPDATE; the second's UPDATE matches 0 rows and the route returns 409 `IDEMPOTENCY_IN_FLIGHT`. Exactly one issue ever exists.
   - **Late-success race:** simulate the following interleaving:
     1. Original submission charged quota, set lease, called GitHub. The HTTP response was lost (we didn't UPDATE the row with `github_issue_url`); GitHub created the issue.
@@ -599,8 +599,8 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
   - **Reaped-before-reselect classification:** synthesize a row at `created_at = now - interval '23 hours 59 minutes'` (passes entry check). Inject a delay before the lease-claim UPDATE that crosses both T+24h AND a reaper run that deletes the row. The lease-claim UPDATE matches 0 rows; the subsequent re-SELECT returns null. Assert: route returns 410 `REPORT_HORIZON_EXPIRED`, NOT 409 `IDEMPOTENCY_IN_FLIGHT`. `createIssue` was NEVER called.
   - **Past-horizon-after-claim-fail classification:** synthesize a row at `created_at = now - interval '23 hours 59 minutes'` whose lease IS held by another retry (live lease until T+30s, where T is our claim attempt). Wall-clock crosses T+24h between our entry check and our claim UPDATE. Our claim's `created_at >= now - 24h` clause now rejects us. Re-SELECT finds the row (not reaped — the live lease blocks the reaper) but `created_at` is past horizon. Assert: route returns 410 `REPORT_HORIZON_EXPIRED`, NOT 409. `createIssue` was NEVER called.
   - **Genuine contention classification:** synthesize a row at `created_at = now - interval '1 hour'` whose lease IS live (held by another retry). Our claim fails (lease-expired clause). Re-SELECT returns the row with NULL url and live lease. `created_at` is well within horizon. Assert: route returns 409 `IDEMPOTENCY_IN_FLIGHT`.
-- [ ] **Step 2: Run** — FAIL.
-- [ ] **Step 3: Implement** the lock-free retry flow per Task 8.3c's transaction boundaries, using `reconcileBeforeCreate` as the single recovery entry point. \*\*\*\* before any GitHub call, the retry consults the row's `created_at` and rejects if it falls outside the 24h horizon. Pseudocode (`db.query` is a generic Postgres client method like `pg.Pool.query`; substitute the actual library call at implementation time):
+- [x] **Step 2: Run** — FAIL.
+- [x] **Step 3: Implement** the lock-free retry flow per Task 8.3c's transaction boundaries, using `reconcileBeforeCreate` as the single recovery entry point. \*\*\*\* before any GitHub call, the retry consults the row's `created_at` and rejects if it falls outside the 24h horizon. Pseudocode (`db.query` is a generic Postgres client method like `pg.Pool.query`; substitute the actual library call at implementation time):
 
   ```ts
   async function expiredLeaseRetry(key: string, depth: number = 0): Promise<Response> {
@@ -1103,8 +1103,8 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
 
   **There is no body-search fallback**. The single recovery path is `findIssueByMarker` against the immediately-consistent list endpoint, with fail-closed semantics on inconclusive results. That single contract closes AC-8.12 — eventually-consistent code search is no longer part of the design.
 
-- [ ] **Step 4: Run** — PASS.
-- [ ] **Step 5: Commit** `feat(reports): concurrent-retry race + late-success guard via unified reconcile (AC-8.13)`.
+- [x] **Step 4: Run** — PASS.
+- [x] **Step 5: Commit** `feat(reports): concurrent-retry race + late-success guard via unified reconcile (AC-8.13)`.
 
 ### Task 8.3f: Daily reaper cron for orphan rows — `created_at` horizon
 

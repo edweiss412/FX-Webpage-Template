@@ -127,4 +127,22 @@ describe("handleTailUpdateMiss orphan cleanup", () => {
     expect(call.params[0]).toBe(showB);
     expect(contextParam(call.params[1])).toMatchObject({ row_reaped: true });
   });
+
+  test("still upserts the orphan alert when the GitHub close call fails", async () => {
+    githubMock.closeIssueAsOrphan.mockRejectedValueOnce(new Error("GitHub close failed"));
+    const winningUrl = "https://github.com/edweiss412/FX-Webpage-Template/issues/13";
+    const { db, calls } = fakeDb({ github_issue_url: winningUrl, show_id: showA });
+
+    const result = await handleTailUpdateMiss(db, { kind: "admin" }, key, myIssue, leaseHolder, showB);
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, status: "recovered", github_issue_url: winningUrl },
+    });
+    const call = alertCall(calls);
+    expect(contextParam(call.params[1])).toMatchObject({
+      orphan_close_failed: true,
+      row_reaped: false,
+    });
+  });
 });

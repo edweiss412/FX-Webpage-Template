@@ -401,6 +401,32 @@ async function expiredLeaseRetry(
   depth = 0,
 ): Promise<SubmitReportResult> {
   if (depth >= 3) {
+    const { rows } = await db.query(
+      `SELECT show_id,
+              github_issue_url,
+              (processing_lease_until > now()) AS lease_live,
+              (created_at >= now() - interval '24 hours') AS within_horizon
+         FROM reports
+        WHERE idempotency_key = $1::uuid`,
+      [body.idempotency_key],
+    );
+    const state = rows[0] as
+      | {
+          show_id: string | null;
+          github_issue_url: string | null;
+          lease_live: boolean;
+          within_horizon: boolean;
+        }
+      | undefined;
+    if (!state || !state.within_horizon) return horizonExpiredResponse();
+    if (state.github_issue_url) {
+      return { status: 200, body: successBody(auth, "recovered", state.github_issue_url) };
+    }
+    if (state.lease_live) return inFlightResponse();
+    await upsertStateGatedLookupAlert(db, body.idempotency_key, "REPORT_LEASE_THRASHING", {
+      idempotency_key: body.idempotency_key,
+      depth,
+    });
     return { status: 503, body: { ok: false, code: "REPORT_LEASE_THRASHING" } };
   }
 
@@ -509,7 +535,15 @@ export async function handleTailUpdateMiss(
     return { status: 200, body: successBody(auth, "recovered", newIssue.htmlUrl) };
   }
 
-  await closeIssueAsOrphan(newIssue);
+  let orphanCloseFailure: { name: string; message: string } | null = null;
+  try {
+    await closeIssueAsOrphan(newIssue);
+  } catch (error) {
+    orphanCloseFailure = {
+      name: error instanceof Error ? error.name : "UnknownError",
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
   await db.query(
     `INSERT INTO admin_alerts (show_id, code, context)
      VALUES ($1, 'REPORT_ORPHANED_LOST_LEASE', $2::jsonb)
@@ -527,6 +561,8 @@ export async function handleTailUpdateMiss(
         lease_holder: myLeaseHolder,
         row_reaped: !row,
         stored_url: row?.github_issue_url ?? null,
+        orphan_close_failed: orphanCloseFailure !== null,
+        orphan_close_error: orphanCloseFailure,
       },
     ],
   );
