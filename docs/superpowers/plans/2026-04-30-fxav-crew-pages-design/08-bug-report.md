@@ -18,9 +18,9 @@ Spec context: §13 entire section, §17.1 milestone 8.
 
 **Files:** Create: `lib/github/issues.ts`. Test: `tests/github/issues.test.ts` (mocked).
 
-- [ ] **Step 1: Failing tests** — `createIssue({title, body, labels})` calls Octokit with the configured repo and token. `findIssueByMarker(idempotencyKey)` paginates `issues.listForRepo({creator: GITHUB_BOT_LOGIN, since: <T-24h>, state: 'all'})` and returns the matching issue url or null; throws `LookupInconclusive` on pagination errors or missing config (per Task 8.3d).
-- [ ] **Step 2: Implement** with `@octokit/rest`. Use the env vars `GITHUB_API_TOKEN` and `GITHUB_REPO`.
-- [ ] **Step 3: Commit** `feat(github): issues client + marker search (§13.2.3)`.
+- [x] **Step 1: Failing tests** — `createIssue({title, body, labels})` calls Octokit with the configured repo and token. `findIssueByMarker(idempotencyKey)` paginates `issues.listForRepo({creator: GITHUB_BOT_LOGIN, since: <T-24h>, state: 'all'})` and returns the matching issue url or null; throws `LookupInconclusive` on pagination errors or missing config (per Task 8.3d).
+- [x] **Step 2: Implement** with `@octokit/rest`. Use the env vars `GITHUB_API_TOKEN` and `GITHUB_REPO`.
+- [x] **Step 3: Commit** `feat(github): issues client + marker search (§13.2.3)`.
 
 ### Task 8.3: `/api/report` skeleton + auth + anonymous rejection (AC-8.7)
 
