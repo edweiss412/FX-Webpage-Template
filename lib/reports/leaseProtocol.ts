@@ -32,6 +32,7 @@ export type AcquiredReportLease =
 export type LeaseMutationResult = { extended: true } | { extended: false };
 export type LeaseReleaseResult = { released: true } | { released: false };
 
+// not-subject-to-meta: typed error class only; infra behavior is covered by acquire/extend/release registry rows.
 export class ReportLeaseInfraError extends Error {
   readonly operation: "acquire" | "extend" | "release";
   readonly source: "returned_error" | "thrown_error";

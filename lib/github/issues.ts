@@ -1,6 +1,8 @@
 import { Octokit } from "@octokit/rest";
 
+// not-subject-to-meta: pure label constant; no infra call.
 export const FXAV_APP_REPORT_LABEL = "fxav-app:report";
+// not-subject-to-meta: pure label constant; no infra call.
 export const ORPHAN_LABEL = "fxav-orphan-lost-lease";
 
 const PAGE_SIZE = 100;
@@ -24,6 +26,7 @@ export type LookupInconclusiveCode =
   | "DUPLICATE_LIVE_MATCHES"
   | "OPEN_ISSUE_WITH_ORPHAN_LABEL";
 
+// not-subject-to-meta: typed error class only; infra behavior is covered by findIssueByMarker registry rows.
 export class LookupInconclusive extends Error {
   readonly code: LookupInconclusiveCode;
   readonly reason: string;
@@ -38,6 +41,7 @@ export class LookupInconclusive extends Error {
   }
 }
 
+// not-subject-to-meta: typed error class only; infra behavior is covered by createIssue/closeIssueAsOrphan registry rows.
 export class GitHubIssueInfraError extends Error {
   readonly operation: "createIssue" | "closeIssueAsOrphan";
   readonly source: "returned_error" | "thrown_error";

@@ -15,6 +15,7 @@ export type QuotaResult = {
   limit: number;
 };
 
+// not-subject-to-meta: typed error class only; infra behavior is covered by enforceQuota/reserveQuota registry rows.
 export class ReportQuotaInfraError extends Error {
   readonly operation: "enforceQuota" | "reserveQuota";
   readonly source: "thrown_error";
@@ -61,6 +62,11 @@ function postgresTxAdapter(tx: { unsafe: (sql: string, params?: never[]) => Prom
   };
 }
 
+type ReserveQuotaSql = {
+  begin: <T>(fn: (tx: { unsafe: (sql: string, params?: never[]) => Promise<unknown[]> }) => Promise<T>) => Promise<T>;
+  end: (opts?: { timeout?: number }) => Promise<void>;
+};
+
 export async function enforceQuota(
   db: ReportQuotaDb,
   kind: ReportQuotaKind,
@@ -86,8 +92,13 @@ export async function enforceQuota(
   }
 }
 
-export async function reserveQuota(kind: ReportQuotaKind, identity: string): Promise<QuotaResult> {
-  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+export async function reserveQuota(
+  kind: ReportQuotaKind,
+  identity: string,
+  deps: { sql?: ReserveQuotaSql } = {},
+): Promise<QuotaResult> {
+  const sql =
+    deps.sql ?? (postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false }) as ReserveQuotaSql);
   try {
     return await sql.begin(async (tx) => {
       const result = await enforceQuota(postgresTxAdapter(tx), kind, identity);
