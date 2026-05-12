@@ -285,7 +285,7 @@ describe("runPhase1 routing and writes", () => {
         ],
       }),
     ],
-  ])("first-seen %s hard-fails into pending_ingestions before FIRST_SEEN_REVIEW", async (code, next) => {
+  ])("first-seen %s hard-fails into pending_ingestions before auto-publish", async (code, next) => {
     const tx = new FakePhase1Tx();
 
     const result = await runWith(tx, next);
@@ -303,21 +303,52 @@ describe("runPhase1 routing and writes", () => {
     expect(tx.pendingSyncs).toEqual([]);
   });
 
-  test("first-seen parseable sheets stage with FIRST_SEEN_REVIEW", async () => {
+  test("first-seen parseable live sheets return auto_publish_ready without staging", async () => {
     const tx = new FakePhase1Tx();
 
     const result = await runWith(tx, parseResult());
 
+    expect(result).toEqual({ outcome: "auto_publish_ready" });
+    expect(tx.pendingSyncs).toEqual([]);
+    expect(tx.pendingIngestions).toEqual([]);
+  });
+
+  test("first-seen live sheets with sync-layer review items stage without FIRST_SEEN_REVIEW", async () => {
+    const tx = new FakePhase1Tx();
+
+    const result = await runWith(
+      tx,
+      parseResult({
+        warnings: [
+          {
+            severity: "warn",
+            code: "DIAGRAMS_EMBEDDED_NONE_FOUND",
+            message: "No embedded diagrams were found.",
+          },
+        ],
+      }),
+    );
+
     expect(result.outcome).toBe("stage");
     expect(tx.pendingSyncs[0]?.triggeredReviewItems).toEqual([
-      expect.objectContaining({ invariant: "FIRST_SEEN_REVIEW" }),
+      expect.objectContaining({ invariant: "DIAGRAMS_EMBEDDED_NONE_FOUND" }),
     ]);
-    expect(tx.pendingIngestions).toEqual([]);
+    expect(tx.pendingSyncs[0]?.triggeredReviewItems).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ invariant: "FIRST_SEEN_REVIEW" })]),
+    );
   });
 
   test("warningSummary renders human messages, never raw parser codes (no-raw-error-codes invariant 5)", async () => {
     const tx = new FakePhase1Tx();
+    tx.shows.set("file-1", {
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      priorParseResult: parseResult(),
+    });
     const withWarnings = parseResult({
+      show: { ...parseResult().show, po: null },
       warnings: [
         {
           severity: "info",

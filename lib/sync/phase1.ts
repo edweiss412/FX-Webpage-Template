@@ -83,6 +83,9 @@ export type Phase1Result =
       outcome: "pass";
     }
   | {
+      outcome: "auto_publish_ready";
+    }
+  | {
       outcome: "defer";
       reason: "mi8_modtime_unstable" | "mi8b_modtime_unstable";
     };
@@ -233,9 +236,6 @@ function sentinelFor(args: Phase1Args, show: Phase1ShowRow | null): TriggeredRev
   if (args.mode === "onboarding_scan") {
     return { id: randomUUID(), invariant: "ONBOARDING_SCAN_REVIEW" };
   }
-  if (!show) {
-    return { id: randomUUID(), invariant: "FIRST_SEEN_REVIEW" };
-  }
   return null;
 }
 
@@ -316,6 +316,10 @@ export async function runPhase1(tx: Phase1Tx, args: Phase1Args): Promise<Phase1R
       await callTx("updateShowPendingReview", () => tx.updateShowPendingReview(args.driveFileId));
     }
     return { outcome: "stage", triggeredReviewItems, stagedId: upserted.stagedId };
+  }
+
+  if (!show && args.mode !== "onboarding_scan") {
+    return { outcome: "auto_publish_ready" };
   }
 
   return { outcome: "pass" };
