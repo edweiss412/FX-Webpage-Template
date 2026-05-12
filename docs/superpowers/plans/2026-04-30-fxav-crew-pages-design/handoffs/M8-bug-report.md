@@ -69,6 +69,46 @@ After Pin-stop 1 clears, Opus starts Task 8.4 in parallel. Codex continues with 
 - Push notification / email surface — DEFERRED to M11+ (per `DEFERRED.md` M6-D1; spec §13.2 has zero push surface in v1).
 - Operator-log structured sink — **M5-D9 / M5-D10 / M5-D11 are the inherited decision** (see §6 watchpoint 11.6 + §11(d) below). All three M5 deferrals routed the structured operator-log sink to "M6 (drive-sync) or M8 (bug-report) — whichever lands the sink first." M6 / M6.5 / M7 did NOT land it. **M8 inherits the decision: either land the sink in this milestone (and resolve all three deferrals at close), or push to M9+ explicitly and document why.** The decision MUST be surfaced at kickoff and recorded in §11(d); silently deferring without a documented disposition is the failure mode.
 
+### Pinned contract @ `1d55cb5` (Pin-stop 1, 2026-05-12)
+
+Codex closed Tasks 8.1, 8.2, 8.3, 8.3a, 8.3b at SHA `1d55cb5` (final commit `fix(reports): close pin-stop review findings`; preceded by the 5 plan-canonical task commits `f4b7be8` → `a7834ce`). Adversarial-review round 2 returned APPROVED with no blocking findings. `pnpm test && pnpm lint && pnpm typecheck` exited 0 at the pin SHA (182 files / 2570 tests pass; 0 lint errors; 2 pre-existing M7 `<img>` warnings deferred via M7-D3). Pin SHA → Opus rebases §B against `1d55cb5`.
+
+```ts
+export type RequestBody = {
+  idempotency_key: string; // UUID v4; route rejects malformed/non-v4 as 400
+  show_id: string; // UUID v4; route rejects malformed/non-v4 as 400
+  message?: string | null;
+  surface?: string | null;
+  reporter_role?: string | null;
+  crewPreview?: Record<string, unknown> | null;
+  fieldRef?: Record<string, unknown> | null;
+  parseWarnings?: unknown[] | null;
+  rawSnippet?: string | null;
+  viewerVisibleSection?: string | null;
+  userAgent?: string | null;
+  lastSyncTimestamp?: string | null;
+  staleTier?: string | null;
+  rightNowState?: Record<string, unknown> | null;
+};
+
+export type SuccessResponse = {
+  ok: true;
+  status: "created" | "duplicate" | "recovered";
+  github_issue_url?: string; // admin only; omitted for crew responses per §13.2.3 privacy
+};
+
+export type ErrorResponse = {
+  ok: false;
+  code?: string;
+};
+```
+
+**Pin-stop 1 caveats for §B (Opus's ReportButton/ReportModal work consumes these — handle accordingly):**
+
+1. **`expired_pending_recovery` → 409 `IDEMPOTENCY_IN_FLIGHT` is the Pin-stop stub.** Until Task 8.3c lands, a retry whose lease has expired and whose row is still unresolved returns 409 (not the eventual 502 `REPORT_LOOKUP_INCONCLUSIVE` / 410 `REPORT_HORIZON_EXPIRED` differentiation). §B modal handles 409 by keeping the modal in `failed-retryable` and offering Resume — this behavior is correct for both the Pin-stop stub and the post-8.3c full implementation, so §B does NOT need to wait.
+2. **Create-time GitHub failures currently return `REPORT_LOOKUP_INCONCLUSIVE`.** Reviewer approved this for the Pin-stop but flagged that §B user-facing copy should be neutral ("we couldn't confirm whether your report went through, please try again") rather than implying only lookup failure ("our recovery lookup failed"). When §B wires `lib/messages/lookup.ts` for `REPORT_LOOKUP_INCONCLUSIVE`, the catalog entry must read as a generic "outcome unknown — retry safely" message, not as a recovery-specific message. This matches the catalog copy already in §12.4 reference ("We couldn't confirm whether your previous report went through. Please try again in a few minutes.").
+3. **Orphan-close-failure → no alert (non-blocking hardening deferred).** If the orphan-cleanup `octokit.issues.update` itself fails (network error mid-close), the `admin_alerts.REPORT_ORPHANED_LOST_LEASE` UPSERT is currently NOT written. Approved as non-blocking for Pin-stop 1. Will be revisited in a later task or in the convergence loop; §B does not consume this path.
+
 ---
 
 ## 1. Spec sections in scope
