@@ -10,19 +10,6 @@ When picking up a deferred item:
 
 ---
 
-## In progress
-
-### M6-D12 — Amendment 9 first-seen auto-publish + 24h unpublish undo
-
-**Status:** **In progress in M6.5 — final closure SHA to be backfilled by orchestrator after verification and cross-model review.**
-
-**Source:** M6 §A adversarial review round 3, 2026-05-09
-**Description:** Retire live-path `FIRST_SEEN_REVIEW` emission for first-seen sheets in `cron`, `push`, and `manual` modes. Auto-apply first-seen live sheets when MI-1..MI-14 all pass; continue hard-failing MI-1..MI-5b to `pending_ingestions` and staging MI-6..MI-14 trips with the specific MI sentinel. Add `shows.unpublish_token` and `shows.unpublish_token_expires_at`. Emit `SHOW_FIRST_PUBLISHED` after auto-publish. Implement `POST /api/show/[slug]/unpublish?token=...` with token consumed, expired, and success branches; emit `SHOW_UNPUBLISHED` and revoke affected links on success. Keep onboarding-scan first-seen sheets in explicit-review mode with `ONBOARDING_SCAN_REVIEW`.
-**Why deferred:** Amendment 9 was ratified after the Pin-stop 2 extension code path and is larger than the Tasks 6.8-6.10 review-repair scope. The M6 backend followed the pre-amendment live first-seen staging behavior and could not be reported as satisfying amended AC-6.11 until this coda.
-**Suggested home:** M6.5 backend coda.
-
----
-
 ## Open
 
 ### M6-D1 — Push notification surface (operator-facing)
@@ -230,6 +217,14 @@ When picking up a deferred item:
 ---
 
 ## Resolved
+
+### M6-D12 — Amendment 9 first-seen auto-publish + 24h unpublish undo
+
+**Status:** **Resolved at SHA `badbb15` (M6.5 coda — Amendment 9 first-seen auto-publish + 24h unpublish undo)**. Cross-model adversarial review APPROVED. M6 amended AC-6.11 now satisfied.
+
+**Source:** M6 §A adversarial review round 3, 2026-05-09
+**Description:** Retire live-path `FIRST_SEEN_REVIEW` emission for first-seen sheets in `cron`, `push`, and `manual` modes. Auto-apply first-seen live sheets when MI-1..MI-14 all pass; continue hard-failing MI-1..MI-5b to `pending_ingestions` and staging MI-6..MI-14 trips with the specific MI sentinel. Add `shows.unpublish_token` and `shows.unpublish_token_expires_at`. Emit `SHOW_FIRST_PUBLISHED` after auto-publish. Implement `POST /api/show/[slug]/unpublish?token=...` with token consumed, expired, and success branches; emit `SHOW_UNPUBLISHED` and revoke affected links on success. Keep onboarding-scan first-seen sheets in explicit-review mode with `ONBOARDING_SCAN_REVIEW`.
+**Resolution:** Shipped in M6.5 coda (see `handoffs/M6.5-amendment-9.md`). Schema columns added with paired-NULL CHECK; live-path FIRST_SEEN_REVIEW retired and replaced with `auto_publish_ready` branch in Phase1Result; auto-publish wired through phase2 under the per-show advisory lock with 24h undo token, SHOW_FIRST_PUBLISHED emission, and Realtime broadcast invalidation; POST /api/show/[slug]/unpublish route handles success/expired/consumed/not-found branches with idempotent re-attempt + link revocation + SHOW_UNPUBLISHED emission. Onboarding-scan ONBOARDING_SCAN_REVIEW preserved per the exception. Meta-test registries (Supabase call-boundary, advisory-lock single-holder, admin_alert catalog) extended.
 
 ### M2-D6 — App-side advisory-lock helper shape deferred to consumer milestones
 
