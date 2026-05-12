@@ -44,8 +44,22 @@ export type SubmitReportResult = {
 };
 
 export async function submitReport(
-  _auth: ReportAuthContext,
+  auth: ReportAuthContext,
   _body: RequestBody,
 ): Promise<SubmitReportResult> {
+  const quotaKind: ReportQuotaKind = auth.kind === "admin" ? "admin" : "crew";
+  const quotaIdentity = auth.kind === "admin" ? "admin" : auth.crewMemberId;
+  const quota = await reserveQuota(quotaKind, quotaIdentity);
+  if (!quota.allowed) {
+    return {
+      status: 429,
+      body: {
+        ok: false,
+        code: quotaKind === "admin" ? "REPORT_RATE_LIMITED_ADMIN" : "REPORT_RATE_LIMITED_CREW",
+      },
+    };
+  }
+
   return { status: 501, body: { ok: false, code: "NOT_IMPLEMENTED" } };
 }
+import { reserveQuota, type ReportQuotaKind } from "@/lib/reports/rateLimit";

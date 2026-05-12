@@ -12,6 +12,7 @@ import {
   createIssue,
   findIssueByMarker,
 } from "@/lib/github/issues";
+import { ReportQuotaInfraError, enforceQuota } from "@/lib/reports/rateLimit";
 
 function throwingDb() {
   return {
@@ -104,5 +105,11 @@ describe("META reports infra-failure contract", () => {
         },
       }),
     ).rejects.toBeInstanceOf(LookupInconclusive);
+  });
+
+  test("enforceQuota throws ReportQuotaInfraError on DB throw", async () => {
+    await expect(enforceQuota(throwingDb(), "crew", "crew-1")).rejects.toBeInstanceOf(
+      ReportQuotaInfraError,
+    );
   });
 });

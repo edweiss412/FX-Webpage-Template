@@ -38,14 +38,14 @@ This is the smallest TDD slice — auth gate only, no GH integration, no quota, 
 
 **Files:** Create: `lib/reports/rateLimit.ts`. Modify: `lib/reports/submit.ts`. Test: `tests/reports/quota.test.ts`.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
   - AC-8.3: synthesize 10 admin rows in current `hour_bucket`, then 11th request → 429 with `REPORT_RATE_LIMITED_ADMIN`.
   - AC-8.6: 4th crew submission in 1h from same `crew_members.id` → 429 with `REPORT_RATE_LIMITED_CREW`.
   - AC-8.10: spawn 4 concurrent crew submissions from same `crew_members.id` against an empty bucket → exactly 3 succeed (HTTP 201/202), 4th returns 429. The atomic `INSERT .. ON CONFLICT (kind, identity, hour_bucket) DO UPDATE SET count = count + 1 RETURNING count` guarantees no race.
-- [ ] **Step 2: Run** — FAIL (no quota path yet).
-- [ ] **Step 3: Implement** `enforceQuota(tx, kind, identity)` that runs the atomic UPSERT, ROLLBACKs on `count > limit`, and returns `{ allowed: boolean, count: number }`. Wire into the route between auth and the (still-stubbed) issue create.
-- [ ] **Step 4: Run** — PASS.
-- [ ] **Step 5: Commit** `feat(reports): atomic quota reservation (AC-8.3, AC-8.6, AC-8.10)`.
+- [x] **Step 2: Run** — FAIL (no quota path yet).
+- [x] **Step 3: Implement** `enforceQuota(tx, kind, identity)` that runs the atomic UPSERT, ROLLBACKs on `count > limit`, and returns `{ allowed: boolean, count: number }`. Wire into the route between auth and the (still-stubbed) issue create.
+- [x] **Step 4: Run** — PASS.
+- [x] **Step 5: Commit** `feat(reports): atomic quota reservation (AC-8.3, AC-8.6, AC-8.10)`.
 
 ### Task 8.3b: Happy-path idempotency + reservation (AC-8.1..8.5, AC-8.9, first-submit race)
 
