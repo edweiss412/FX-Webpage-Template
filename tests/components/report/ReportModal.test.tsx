@@ -698,10 +698,21 @@ describe("E. State machine transitions", () => {
     expect(errText).not.toMatch(/AbortError|aborted/);
   });
 
-  test("subhead copy is surface-specific", () => {
-    const { container, unmount } = render(<ReportModal {...defaultProps()} />);
-    expect(container.textContent).toContain("Doug will see your report");
-    unmount();
+  test("crew subhead matches spec §13.1 channel-boundary contract (R2 M2)", () => {
+    // Spec §13.1 (line 2982): the modal MUST tell the crew member that
+    // reports go to the developer, NOT Doug, and that show-content
+    // questions belong in a direct message to Doug. Asserting both
+    // halves pins the contract — a regression that inverts the wording
+    // (the impeccable §12 C2 disposition's original "Doug will see your
+    // report") will fail BOTH assertions, not just one.
+    const { container } = render(<ReportModal {...defaultProps()} />);
+    expect(container.textContent).toContain("goes to the developer, not Doug");
+    expect(container.textContent).toContain("message Doug directly");
+    // Negative-regression: the inverted wording MUST NOT appear.
+    expect(container.textContent).not.toContain("Doug will see your report");
+  });
+
+  test("admin subhead names the GitHub-issue destination", () => {
     render(<ReportModal {...defaultProps({ surface: "admin" })} />);
     expect(screen.getByText(/files a GitHub issue/)).toBeTruthy();
   });

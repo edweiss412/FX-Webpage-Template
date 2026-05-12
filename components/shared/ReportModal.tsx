@@ -368,12 +368,17 @@ export function ReportModal(props: ReportModalProps) {
 
   const heading = surface === "crew" ? "Something looks wrong?" : "Report this";
   const placeholder = "What's off? Be as brief as you like.";
-  // Surface-specific subhead — the prior generic "we'll get a person on
-  // it" left the audience ambiguous (FXAV team? Eric? Doug?). Per-surface
-  // copy names the recipient so the user knows where the report goes.
+  // Surface-specific subhead. Crew copy is verbatim from spec §13.1
+  // (line 2982): the modal must explicitly tell the crew member that
+  // reports go to the developer (not Doug) and that show-content
+  // questions belong in a direct message to Doug. This is the
+  // channel-boundary contract — without it the bug-report flow drifts
+  // into a PM/content-escalation path the spec is preventing. The
+  // earlier "Doug will see your report" wording (impeccable §12 C2
+  // disposition) inverted the contract; corrected at R2 M2.
   const subhead =
     surface === "crew"
-      ? "Doug will see your report."
+      ? "This goes to the developer, not Doug. For show-content questions, message Doug directly."
       : "This files a GitHub issue for Eric to triage.";
   const submitLabel = showResumeBanner ? "Resume submission" : "Submit";
 
