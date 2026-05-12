@@ -75,12 +75,15 @@ type ReelDriveClient = {
     ): Promise<ReelDriveResponse>;
   };
   revisions: {
+    // Drive v3 does NOT accept supportsAllDrives on revisions.* — revisions
+    // inherit access from the parent file's grant (R3.1 in M7 handoff).
+    // The type intentionally omits the field so future contributors can't
+    // re-add it without a type error.
     get(
       args: {
         fileId: string;
         revisionId: string;
         alt: "media";
-        supportsAllDrives?: boolean;
       },
       options?: ReelDriveOptions,
     ): Promise<ReelDriveResponse>;
@@ -491,7 +494,6 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
           fileId: row.opening_reel_drive_file_id,
           revisionId: row.opening_reel_head_revision_id,
           alt: "media",
-          supportsAllDrives: true,
         },
         revOpts,
       )) as ReelDriveResponse;

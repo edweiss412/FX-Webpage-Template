@@ -61,7 +61,9 @@ describe("Shared Drive support contract", () => {
   // grant and does NOT accept these params (the @googleapis/drive typings reject
   // them; the REST API silently ignores them). This contract therefore asserts
   // the Shared Drive flags ONLY on `files.(get|list)` call sites — adding the
-  // flag to `revisions.*` would break typecheck without changing semantics.
+  // flag to `revisions.*` would break typecheck without changing semantics. The
+  // companion negative test below asserts no `revisions.*` call carries the
+  // flags so the false-positive class from R2 (closed at R3.1) can't recur.
   test("every Drive files get/list call opts into Shared Drive support", () => {
     const violations: string[] = [];
     for (const path of DRIVE_API_SURFACES.flatMap(tsFiles).sort()) {
@@ -77,6 +79,33 @@ describe("Shared Drive support contract", () => {
           !object?.match(/\bincludeItemsFromAllDrives\s*:\s*true\b/)
         ) {
           violations.push(`${callSite} missing includeItemsFromAllDrives: true`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  test("no Drive revisions.* call carries supportsAllDrives or includeItemsFromAllDrives", () => {
+    // Negative regression for R3.1: Drive v3 rejects these params on
+    // revisions.*. Re-adding them would compile only behind an `as` cast
+    // (silently ignored at runtime) and would lock in a contract-violating
+    // pattern. The first arm above only asserts files.* PRESENCE; this
+    // arm asserts revisions.* ABSENCE so the false-positive class can't
+    // sneak back in via a different callee shape.
+    const violations: string[] = [];
+    for (const path of DRIVE_API_SURFACES.flatMap(tsFiles).sort()) {
+      const source = readFileSync(join(root, path), "utf8");
+      for (const match of source.matchAll(/\.revisions\.(get|list)\s*\(/g)) {
+        const object = resolveObjectArgument(source, match.index + match[0].length);
+        const callSite = `${path}:${lineNumber(source, match.index)}`;
+        if (object?.match(/\bsupportsAllDrives\b/)) {
+          violations.push(`${callSite} contains supportsAllDrives (invalid on revisions.*)`);
+        }
+        if (object?.match(/\bincludeItemsFromAllDrives\b/)) {
+          violations.push(
+            `${callSite} contains includeItemsFromAllDrives (invalid on revisions.*)`,
+          );
         }
       }
     }
