@@ -561,7 +561,7 @@ Verbatim from spec §17.1 (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-de
 - **AC-6.8** — older parse's UPDATE matches 0 rows under conditional WHERE → `STALE_WRITE_ABORTED`. [§A · 6.5]
 - **AC-6.9** — removed sheet → `last_sync_status = 'sheet_unavailable'`; `last_seen_modified_time` unchanged. [§A · 6.6]
 - **AC-6.10** — reappearance → status returns to `'ok'` (recovery mode). [§A · 6.5/6.6]
-- **AC-6.11** — AMENDED by overview Amendment 9. Current shipped code still follows the pre-amendment live first-seen staging behavior (`FIRST_SEEN_REVIEW`; no `shows` row until Apply) and must not be claimed as satisfying amended AC-6.11. Amendment 9 live first-seen auto-publish + 24h unpublish undo is deferred as M6-D12 in `DEFERRED.md`. Onboarding-scan first-seen review remains shipped. [§A · 6.4 + M6-D12 deferred]
+- **AC-6.11** — AMENDED by overview Amendment 9. Original M6 shipped the pre-amendment live first-seen staging behavior (`FIRST_SEEN_REVIEW`; no `shows` row until Apply) and therefore did not close amended AC-6.11. M6.5 closes Amendment 9 / M6-D12 with live first-seen auto-publish + 24h unpublish undo while preserving onboarding-scan first-seen review. See `M6.5-amendment-9.md`. [§A · 6.4 + M6.5 closure]
 - **AC-6.12** — Realtime publish on `show:<id>` (M4 broadcast). [§A · 6.5/6.6]
 - **AC-6.13** — exactly one `active` watch row after onboarding; renewal cron creates fresh + supersedes prior when `expires_at < now + 24h`. [§A · 6.9]
 - **AC-6.14** — push happy path: edit → webhook → `last_seen_modified_time` advances within ~5s. [§A · 6.10]
@@ -591,9 +591,9 @@ Note: spec also enumerates partial AC-8.9..8.13 overlap for `sync_audit`-related
 - [x] Amendment 6 — Sheets modtime-CAS binding — **IN SCOPE — shipped in Pin-stop 1.5 / Pin-stop 2.**
 - [x] Amendment 7 — MI-8 / MI-8b modtime-stable debounce — **IN SCOPE — shipped as Pin-stop 2 correction.**
 - [x] Amendment 8 — MI-9 LEAD-bit narrowing + `ROLE_FLAGS_NOTICE` — **IN SCOPE — shipped as Pin-stop 2 correction.**
-- [ ] Amendment 9 — first-seen auto-publish + 24h unpublish undo — **DEFERRED as M6-D12.** The plan text in `06-drive-sync.md` describes the ratified target contract, but this backend handoff explicitly does not close amended AC-6.11 until M6-D12 ships.
+- [x] Amendment 9 — first-seen auto-publish + 24h unpublish undo — **Satisfied via the M6.5 backend coda.** The plan text in `06-drive-sync.md` describes the ratified target contract; original M6 deferred it as M6-D12, and `M6.5-amendment-9.md` records the closure scope.
 
-M6 does not touch the report pipeline or the parser registry. Amendment 9 is ratified but explicitly deferred in this handoff; Tasks 6.8-6.10 and their review loop do not close amended AC-6.11.
+M6 does not touch the report pipeline or the parser registry. Amendment 9 was ratified after the M6 convergence loop and is closed by the M6.5 backend coda, not by the original Tasks 6.8-6.10 review loop.
 
 Post-extension status: Task 6.8, the wizard-scope Apply/Discard coda for Tasks 6.11/6.12, Task 6.9, and Task 6.10 are pinned in §0 at `ddafda3` and supersede the temporary 501 wizard-scope contract from `2ae73ae`.
 
