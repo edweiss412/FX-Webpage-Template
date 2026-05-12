@@ -31,6 +31,12 @@ type CheckExpectation = {
 
 const requiredChecks: CheckExpectation[] = [
   {
+    table: "shows",
+    constraint: "shows_unpublish_token_pair_check",
+    definition:
+      "CHECK ((((unpublish_token IS NULL) AND (unpublish_token_expires_at IS NULL)) OR ((unpublish_token IS NOT NULL) AND (unpublish_token_expires_at IS NOT NULL))))",
+  },
+  {
     table: "crew_members",
     constraint: "crew_members_email_canonical",
     definition: "CHECK (((email IS NULL) OR (email = lower(TRIM(BOTH FROM email)))))",
@@ -113,6 +119,11 @@ const requiredIndexes: IndexExpectation[] = [
     name: "crew_members_show_email_unique",
     definition:
       "CREATE UNIQUE INDEX crew_members_show_email_unique ON public.crew_members USING btree (show_id, email) WHERE (email IS NOT NULL)",
+  },
+  {
+    name: "shows_unpublish_token_key",
+    definition:
+      "CREATE UNIQUE INDEX shows_unpublish_token_key ON public.shows USING btree (unpublish_token) WHERE (unpublish_token IS NOT NULL)",
   },
   {
     name: "transportation_show_id_key",
@@ -304,6 +315,8 @@ function col(
 }
 
 const requiredColumns: ColumnExpectation[] = [
+  col("shows", "unpublish_token", "uuid", "YES", null),
+  col("shows", "unpublish_token_expires_at", "timestamp with time zone", "YES", null),
   col("shows", "opening_reel_drive_file_id", "text", "YES", null),
   col("shows", "opening_reel_drive_modified_time", "timestamp with time zone", "YES", null),
   col("shows", "opening_reel_head_revision_id", "text", "YES", null),
