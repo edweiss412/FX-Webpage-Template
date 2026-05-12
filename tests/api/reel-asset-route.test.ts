@@ -774,7 +774,11 @@ describe("/api/asset/reel/[show]", () => {
     expect(get.status).toBe(200);
     expect(head.headers.get("content-range")).toBeNull();
     expect(get.headers.get("content-range")).toBeNull();
-    expect(routeMock.lastRevisionsOptions?.headers).toBeUndefined();
+    // TS narrows lastRevisionsOptions to `null` after the reset above; widen on read.
+    const postGetOptionsA = routeMock.lastRevisionsOptions as
+      | { responseType: "stream"; headers?: Record<string, string> }
+      | null;
+    expect(postGetOptionsA?.headers).toBeUndefined();
     await expect(get.text()).resolves.toBe("reel-bytes");
   });
 
@@ -797,7 +801,10 @@ describe("/api/asset/reel/[show]", () => {
     expect(get.status).toBe(200);
     expect(head.headers.get("content-range")).toBeNull();
     expect(get.headers.get("content-range")).toBeNull();
-    expect(routeMock.lastRevisionsOptions?.headers).toBeUndefined();
+    const postGetOptionsB = routeMock.lastRevisionsOptions as
+      | { responseType: "stream"; headers?: Record<string, string> }
+      | null;
+    expect(postGetOptionsB?.headers).toBeUndefined();
     await expect(get.text()).resolves.toBe("reel-bytes");
   });
 });

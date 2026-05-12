@@ -692,7 +692,11 @@ describe("/api/asset/agenda/[show]/[id]", () => {
     expect(get.status).toBe(200);
     expect(head.headers.get("content-range")).toBeNull();
     expect(get.headers.get("content-range")).toBeNull();
-    expect(routeMock.lastMediaOptions?.headers).toBeUndefined();
+    // TS narrows lastMediaOptions to `null` after the reset above; widen on read.
+    const postGetOptions = routeMock.lastMediaOptions as
+      | { responseType: "stream"; headers?: Record<string, string> }
+      | null;
+    expect(postGetOptions?.headers).toBeUndefined();
     const body = new TextDecoder().decode(new Uint8Array(await get.arrayBuffer()));
     expect(body).toBe("%PDF-1.7 fixture bytes");
   });
