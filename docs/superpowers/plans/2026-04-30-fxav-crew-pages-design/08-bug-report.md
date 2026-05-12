@@ -1356,8 +1356,8 @@ In every other case — network error, 502 from `/api/report`, 409 `IDEMPOTENCY_
 
 **Files:** Test: `tests/messages/codes-coverage.test.ts`.
 
-- [ ] **Step 1: Failing test (AC-8.8)** — every code that appears in the app's source code (e.g., a `code: 'LINK_EXPIRED'` literal, an admin-alert insert, a thrown error with a known code) must map to a row in `lib/messages/catalog.ts`. Two-way assertion: every code in code → in catalog; every code in catalog → emitted from at least one synthesizable scenario. Same test scope as AC-X.1; this task is the M8 deliverable that AC-X.1 will exercise more thoroughly in cross-cutting.
-- [ ] **Step 2: Implement** by extending Task 9.4's catalog with the §12.4 codes, then running a static-analysis test that diffs the two sets. The catalog itself is the single source of truth (per §12.4 final paragraph).
-- [ ] **Step 3: Commit** `test(messages): error-code catalog coverage (AC-8.8)`.
+- [x] **Step 1: Failing test (AC-8.8)** — every code that appears in the app's source code (e.g., a `code: 'LINK_EXPIRED'` literal, an admin-alert insert, a thrown error with a known code) must map to a row in `lib/messages/catalog.ts`. Two-way assertion: every code in code → in catalog; every code in catalog → emitted from at least one synthesizable scenario. Same test scope as AC-X.1; this task is the M8 deliverable that AC-X.1 will exercise more thoroughly in cross-cutting.
+- [x] **Step 2: Implement** by extending Task 9.4's catalog with the §12.4 codes, then running a static-analysis test that diffs the two sets. The catalog itself is the single source of truth (per §12.4 final paragraph).
+- [x] **Step 3: Commit** `test(messages): error-code catalog coverage (AC-8.8)`.
 
 ---

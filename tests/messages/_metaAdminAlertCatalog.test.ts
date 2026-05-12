@@ -78,6 +78,7 @@ const ADMIN_ALERTS_CODES = [
   "GITHUB_BOT_LOGIN_MISSING", //        M8 bug-report recovery bot config
   "REPORT_DUPLICATE_LIVE_MATCHES", //   M8 duplicate live marker fail-closed recovery
   "REPORT_OPEN_ORPHAN_LABEL", //        M8 impossible open orphan state
+  "REPORT_LEASE_THRASHING", //          M8 repeated retry/lease race fail-closed recovery
 ] as const;
 
 const ADMIN_ALERTS_WRITE_SITES: Record<
@@ -187,6 +188,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   REPORT_OPEN_ORPHAN_LABEL: {
     path: "lib/reports/submit.ts",
     pattern: /REPORT_OPEN_ORPHAN_LABEL/,
+  },
+  REPORT_LEASE_THRASHING: {
+    path: "lib/reports/submit.ts",
+    pattern: /REPORT_LEASE_THRASHING/,
   },
 };
 

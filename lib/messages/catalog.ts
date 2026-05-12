@@ -714,6 +714,34 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "Two retries of the same bug-report submission both succeeded in creating GitHub issues. We auto-closed the duplicate. Click through to confirm.",
   },
+  IDEMPOTENCY_IN_FLIGHT: {
+    code: "IDEMPOTENCY_IN_FLIGHT",
+    dougFacing:
+      "That report is already being processed. Wait a moment, then refresh if the issue does not appear.",
+    crewFacing:
+      "That report is already being processed. Wait a moment, then try again if needed.",
+    followUp: "Doug or crew -> wait for the in-flight report attempt to finish",
+    helpfulContext:
+      "A report with the same idempotency key currently has a live processing lease. The backend returns a conflict instead of creating a duplicate GitHub issue.",
+  },
+  REPORT_RATE_LIMITED_ADMIN: {
+    code: "REPORT_RATE_LIMITED_ADMIN",
+    dougFacing:
+      "Too many admin bug reports were sent recently. Wait a bit, then try again.",
+    crewFacing: null,
+    followUp: "Doug -> retry after the rate-limit window",
+    helpfulContext:
+      "Admin bug-report submissions are rate-limited separately from crew submissions to protect GitHub and the app from accidental repeated sends.",
+  },
+  REPORT_RATE_LIMITED_CREW: {
+    code: "REPORT_RATE_LIMITED_CREW",
+    dougFacing: null,
+    crewFacing:
+      "Too many reports were sent recently. Please wait a bit, then try again.",
+    followUp: "Crew -> retry after the rate-limit window",
+    helpfulContext:
+      "Crew bug-report submissions are rate-limited per reporter so repeated taps do not create duplicate GitHub issues.",
+  },
   REPORT_LOOKUP_INCONCLUSIVE: {
     code: "REPORT_LOOKUP_INCONCLUSIVE",
     dougFacing:
@@ -769,6 +797,15 @@ export const MESSAGE_CATALOG = {
     followUp: "Eric -> tune lease window",
     helpfulContext:
       "Bug-report submissions for this show are racing against their own leases - too many retries firing inside the lease window.",
+  },
+  STALE_ORPHAN_REPORT: {
+    code: "STALE_ORPHAN_REPORT",
+    dougFacing:
+      "A stale bug-report reservation expired before it could create a GitHub issue. No user action is needed unless this repeats.",
+    crewFacing: null,
+    followUp: "Eric -> inspect report-reaper logs if this recurs",
+    helpfulContext:
+      "The report reaper deleted an unresolved report row older than the 24-hour recovery horizon after its processing lease had expired.",
   },
   TILE_SERVER_RENDER_FAILED: {
     code: "TILE_SERVER_RENDER_FAILED",
