@@ -52,6 +52,30 @@ describe("report issue body templates", () => {
     expect(body).toContain("> Doug note with context");
   });
 
+  test("admin body uses server-derived show context when client autocapture omits show fields", () => {
+    // Failure mode: production callers send only show_id, so issue bodies
+    // regress to UUID/Not captured instead of the spec-required show context.
+    const { lastSyncTimestamp: _lastSyncTimestamp, ...bodyWithoutLastSync } = baseBody;
+    const body = buildAdminIssueBody(
+      { kind: "admin", email: "doug@example.com" },
+      {
+        ...bodyWithoutLastSync,
+        fieldRef: { path: "venue.notes" },
+      },
+      null,
+      {
+        title: "Test Show",
+        slug: "test-show",
+        drive_file_id: "drive_123",
+        last_synced_at: "2026-05-12T16:30:00Z",
+      },
+    );
+
+    expect(body).toContain("**Show:** Test Show (test-show)");
+    expect(body).toContain("**Show drive file ID:** drive_123");
+    expect(body).toContain("**Last sync:** 2026-05-12T16:30:00Z");
+  });
+
   test("crew body omits crew identity while retaining visible section and page state", () => {
     // Failure modes: crew privacy regression leaks direct identity; the template
     // regresses to the old minimal builder and drops crew-page autocapture.
@@ -76,5 +100,35 @@ describe("report issue body templates", () => {
     expect(body).toContain("show_day_n");
     expect(body).toContain("A1,LEAD");
     expect(body).toContain(`<!-- fxav-report-id: ${baseBody.idempotency_key} -->`);
+  });
+
+  test("crew body uses server-derived show context when client autocapture omits show fields", () => {
+    // Failure mode: real crew footer submissions omit title/slug/drive id and
+    // the body renders UUID/Not captured instead of server-owned metadata.
+    const { lastSyncTimestamp: _lastSyncTimestamp, ...bodyWithoutLastSync } = baseBody;
+    const body = buildCrewIssueBody(
+      {
+        kind: "crew",
+        source: "google",
+        showId: baseBody.show_id,
+        crewMemberId: "018f2f4c-0000-4000-9000-000000000002",
+        roleFlags: ["A1"],
+      },
+      {
+        ...bodyWithoutLastSync,
+        fieldRef: null,
+      },
+      "A1",
+      {
+        title: "Test Show",
+        slug: "test-show",
+        drive_file_id: "drive_123",
+        last_synced_at: "2026-05-12T16:30:00Z",
+      },
+    );
+
+    expect(body).toContain("**Show:** Test Show (test-show)");
+    expect(body).toContain("**Show drive file ID:** drive_123");
+    expect(body).toContain("- Last sync: 2026-05-12T16:30:00Z");
   });
 });

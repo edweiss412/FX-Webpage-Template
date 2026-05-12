@@ -1,6 +1,50 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
+
+const supabaseMock = vi.hoisted(() => ({
+  mode: "ok" as "ok" | "returned_error" | "thrown_error",
+  createSupabaseServiceRoleClient: vi.fn(() => {
+    if (supabaseMock.mode === "thrown_error") {
+      throw new Error("META: simulated Supabase service-role construction fault");
+    }
+    return {
+      from() {
+        return {
+          select() {
+            return {
+              eq() {
+                return {
+                  async maybeSingle() {
+                    if (supabaseMock.mode === "returned_error") {
+                      return {
+                        data: null,
+                        error: { message: "META: simulated Supabase returned error" },
+                      };
+                    }
+                    return {
+                      data: {
+                        title: "Meta Show",
+                        slug: "meta-show",
+                        drive_file_id: "drive_meta",
+                        last_synced_at: null,
+                      },
+                      error: null,
+                    };
+                  },
+                };
+              },
+            };
+          },
+        };
+      },
+    };
+  }),
+}));
+
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: supabaseMock.createSupabaseServiceRoleClient,
+}));
 
 import {
   ReportLeaseInfraError,
@@ -98,6 +142,18 @@ function validBody() {
     idempotency_key: "018f2f4c-8f54-4c28-9f56-f0f1b2c3d4e5",
     show_id: "018f2f4c-0000-4000-9000-000000000001",
     message: "Looks wrong",
+  };
+}
+
+function claimedReservationSql() {
+  return {
+    begin: async <T>() =>
+      ({
+        state: "claimed" as const,
+        leaseHolder: "018f2f4c-0000-4000-9000-000000000002",
+      }) as T,
+    unsafe: async () => [],
+    end: async () => {},
   };
 }
 
@@ -277,6 +333,30 @@ describe("META reports infra-failure contract", () => {
         },
       }),
     ).rejects.toBeInstanceOf(ReportSubmitInfraError);
+  });
+
+  test("submitReport distinguishes Supabase returned errors from thrown show lookups", async () => {
+    supabaseMock.mode = "returned_error";
+    await expect(
+      submitReport({ kind: "admin", email: "admin@example.com" }, validBody(), {
+        sql: claimedReservationSql(),
+      }),
+    ).rejects.toMatchObject({
+      operation: "lookupShowContext",
+      source: "returned_error",
+    });
+
+    supabaseMock.mode = "thrown_error";
+    await expect(
+      submitReport({ kind: "admin", email: "admin@example.com" }, validBody(), {
+        sql: claimedReservationSql(),
+      }),
+    ).rejects.toMatchObject({
+      operation: "lookupShowContext",
+      source: "thrown_error",
+    });
+
+    supabaseMock.mode = "ok";
   });
 
   test("POST returns cataloged 500 when submitReport throws typed infra error", async () => {

@@ -12,6 +12,7 @@ import {
 } from "@/lib/github/issues";
 import { acquireReportLease, type ReportLeaseDb } from "@/lib/reports/leaseProtocol";
 import { enforceQuota, type QuotaResult, type ReportQuotaKind } from "@/lib/reports/rateLimit";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 export type ReporterRoleSnapshot = string | null;
 
@@ -75,6 +76,19 @@ type ReservationResult =
   | { state: "in_flight" }
   | { state: "expired_pending_recovery" };
 
+export type ReportShowContext = {
+  title: string;
+  slug: string;
+  drive_file_id: string;
+  last_synced_at: string | null;
+};
+
+type ReportShowContextResult =
+  | { state: "found"; show: ReportShowContext }
+  | { state: "missing" };
+
+type ReportShowContextInput = ReportShowContext | ReportShowContextResult;
+
 class QuotaDeniedRollback extends Error {
   readonly result: QuotaResult;
 
@@ -87,14 +101,19 @@ class QuotaDeniedRollback extends Error {
 
 // not-subject-to-meta: typed error class only; infra behavior is covered by submitReport/handleTailUpdateMiss registry rows.
 export class ReportSubmitInfraError extends Error {
-  readonly operation: "submitReport" | "handleTailUpdateMiss";
-  readonly source = "thrown_error";
+  readonly operation: "submitReport" | "handleTailUpdateMiss" | "lookupShowContext";
+  readonly source: "returned_error" | "thrown_error";
   override readonly cause: unknown;
 
-  constructor(operation: ReportSubmitInfraError["operation"], cause: unknown) {
+  constructor(
+    operation: ReportSubmitInfraError["operation"],
+    cause: unknown,
+    source: ReportSubmitInfraError["source"] = "thrown_error",
+  ) {
     super(`report submission ${operation} failed`);
     this.name = "ReportSubmitInfraError";
     this.operation = operation;
+    this.source = source;
     this.cause = cause;
   }
 }
@@ -239,10 +258,66 @@ function showLine(body: RequestBody): string {
   return body.show_id;
 }
 
+function foundShowContext(showContext?: ReportShowContextInput): ReportShowContext | null {
+  if (!showContext) return null;
+  if ("state" in showContext) return showContext.state === "found" ? showContext.show : null;
+  return showContext;
+}
+
+function showContextLine(body: RequestBody, showContext?: ReportShowContextInput): string {
+  const show = foundShowContext(showContext);
+  if (show) return `${show.title} (${show.slug})`;
+  if (showContext && "state" in showContext && showContext.state === "missing") return "(deleted)";
+  return showLine(body);
+}
+
 function driveFileIdFromFieldRef(fieldRef: RequestBody["fieldRef"]): string | null {
   if (!fieldRef || typeof fieldRef !== "object") return null;
   const value = fieldRef.driveFileId ?? fieldRef.drive_file_id;
   return typeof value === "string" && value.trim() ? value : null;
+}
+
+function showDriveFileId(
+  body: RequestBody,
+  showContext?: ReportShowContextInput,
+): string | null {
+  return driveFileIdFromFieldRef(body.fieldRef) ?? foundShowContext(showContext)?.drive_file_id ?? null;
+}
+
+function lastSyncTimestamp(
+  body: RequestBody,
+  showContext?: ReportShowContextInput,
+): string | null {
+  return body.lastSyncTimestamp ?? foundShowContext(showContext)?.last_synced_at ?? null;
+}
+
+function adminReporterUrl(body: RequestBody, showContext?: ReportShowContextInput): string | null {
+  if (body.reporterUrl) return body.reporterUrl;
+  const show = foundShowContext(showContext);
+  if (!show) return null;
+  const origin = process.env.NEXT_PUBLIC_SITE_ORIGIN ?? process.env.SITE_ORIGIN ?? "";
+  return `${origin.replace(/\/$/, "")}/admin/show/${show.slug}`;
+}
+
+async function readReportShowContext(showId: string): Promise<ReportShowContextResult> {
+  try {
+    const service = createSupabaseServiceRoleClient();
+    // /api/report has already authenticated the reporter. This service-role
+    // read deliberately bypasses RLS so issue bodies use canonical show
+    // metadata from `shows`, not client-supplied copies.
+    const { data, error } = (await service
+      .from("shows")
+      .select("title,slug,drive_file_id,last_synced_at")
+      .eq("id", showId)
+      .maybeSingle()) as { data: ReportShowContext | null; error: unknown };
+
+    if (error) throw new ReportSubmitInfraError("lookupShowContext", error, "returned_error");
+    if (!data) return { state: "missing" };
+    return { state: "found", show: data };
+  } catch (cause) {
+    if (cause instanceof ReportSubmitInfraError) throw cause;
+    throw new ReportSubmitInfraError("lookupShowContext", cause, "thrown_error");
+  }
 }
 
 // not-subject-to-meta: pure markdown formatter; no Supabase, database, or GitHub call.
@@ -250,11 +325,12 @@ export function buildAdminIssueBody(
   auth: Extract<ReportAuthContext, { kind: "admin" }>,
   body: RequestBody,
   reporterRole: ReporterRoleSnapshot,
+  showContext?: ReportShowContextInput,
 ): string {
-  const driveFileId = driveFileIdFromFieldRef(body.fieldRef);
+  const driveFileId = showDriveFileId(body, showContext);
   return [
     `**Reported by:** ${auth.email}`,
-    `**Show:** ${showLine(body)}`,
+    `**Show:** ${showContextLine(body, showContext)}`,
     `**Surface:** ${body.surface ?? "unknown"}`,
     `**Crew context:** ${formatValue(body.crewPreview)}`,
     `**Reporter role snapshot:** ${reporterRole ?? "N/A - admin submission"}`,
@@ -274,10 +350,10 @@ export function buildAdminIssueBody(
     body.rawSnippet ?? "Not captured",
     "```",
     "",
-    `**Last sync:** ${body.lastSyncTimestamp ?? "Not captured"}`,
-    `**Drive file ID:** ${driveFileId ?? "Not captured"}`,
+    `**Last sync:** ${lastSyncTimestamp(body, showContext) ?? "Not captured"}`,
+    `**Show drive file ID:** ${driveFileId ?? "Not captured"}`,
     `**User agent:** ${body.userAgent ?? "Not captured"}`,
-    `**Reporter URL:** ${body.reporterUrl ?? "Not captured"}`,
+    `**Reporter URL:** ${adminReporterUrl(body, showContext) ?? "Not captured"}`,
     "",
     `<!-- fxav-report-id: ${body.idempotency_key} -->`,
   ].join("\n");
@@ -288,14 +364,16 @@ export function buildCrewIssueBody(
   auth: Extract<ReportAuthContext, { kind: "crew" }>,
   body: RequestBody,
   reporterRole: ReporterRoleSnapshot,
+  showContext?: ReportShowContextInput,
 ): string {
-  const driveFileId = driveFileIdFromFieldRef(body.fieldRef);
+  const driveFileId = showDriveFileId(body, showContext);
   void auth;
+  const show = foundShowContext(showContext);
   return [
-    `**Reported by:** crew member of \`${body.showSlug ?? body.show_id}\` (role flags: \`${reporterRole ?? "none"}\`)`,
+    `**Reported by:** crew member of \`${show?.slug ?? body.showSlug ?? body.show_id}\` (role flags: \`${reporterRole ?? "none"}\`)`,
     "_(Reporter identity intentionally NOT included; Eric can look up via `reports.id` if needed.)_",
     "",
-    `**Show:** ${showLine(body)}`,
+    `**Show:** ${showContextLine(body, showContext)}`,
     `**Surface:** ${body.surface ?? "crew page footer report"}`,
     `**Section being viewed:** ${body.viewerVisibleSection ?? "Not captured"}`,
     "",
@@ -306,7 +384,7 @@ export function buildCrewIssueBody(
     "**Page state at submission:**",
     "",
     `- Right Now state: ${formatValue(body.rightNowState).replaceAll("\n", " ")}`,
-    `- Last sync: ${body.lastSyncTimestamp ?? "Not captured"}`,
+    `- Last sync: ${lastSyncTimestamp(body, showContext) ?? "Not captured"}`,
     `- Stale tier: ${body.staleTier ?? "Not captured"}`,
     `- User agent: ${body.userAgent ?? "Not captured"}`,
     "",
@@ -316,7 +394,7 @@ export function buildCrewIssueBody(
   ].join("\n");
 }
 
-function issueInput(auth: ReportAuthContext, body: RequestBody): {
+function issueInput(auth: ReportAuthContext, body: RequestBody, showContext?: ReportShowContextResult): {
   title: string;
   body: string;
   labels: string[];
@@ -328,8 +406,8 @@ function issueInput(auth: ReportAuthContext, body: RequestBody): {
     title: `Bug report: ${body.surface ?? "unknown"}`,
     body:
       auth.kind === "admin"
-        ? buildAdminIssueBody(auth, body, reporterRole)
-        : buildCrewIssueBody(auth, body, reporterRole),
+        ? buildAdminIssueBody(auth, body, reporterRole, showContext)
+        : buildCrewIssueBody(auth, body, reporterRole, showContext),
     labels: ["bug-report", reporterLabel, areaLabel],
   };
 }
@@ -621,6 +699,7 @@ async function expiredLeaseRetry(
   db: ReportLeaseDb,
   auth: ReportAuthContext,
   body: RequestBody,
+  showContext: ReportShowContextResult,
   depth = 0,
 ): Promise<SubmitReportResult> {
   if (depth >= 3) {
@@ -719,12 +798,12 @@ async function expiredLeaseRetry(
       return { status: 200, body: successBody(auth, "recovered", state.github_issue_url) };
     }
     if (state.lease_live) return inFlightResponse();
-    return await expiredLeaseRetry(db, auth, body, depth + 1);
+    return await expiredLeaseRetry(db, auth, body, showContext, depth + 1);
   }
 
   let issue: CreatedIssue;
   try {
-    issue = await createIssue(issueInput(auth, body));
+    issue = await createIssue(issueInput(auth, body, showContext));
   } catch {
     return { status: 502, body: { ok: false, code: "REPORT_LOOKUP_INCONCLUSIVE" } };
   }
@@ -831,12 +910,15 @@ export async function submitReport(
         return inFlightResponse();
       }
       if (reservation.state === "expired_pending_recovery") {
-        return await expiredLeaseRetry(postgresAdapter(sql), auth, body);
+        const showContext = await readReportShowContext(body.show_id);
+        return await expiredLeaseRetry(postgresAdapter(sql), auth, body, showContext);
       }
+
+      const showContext = await readReportShowContext(body.show_id);
 
       let issue: CreatedIssue;
       try {
-        issue = await createIssue(issueInput(auth, body));
+        issue = await createIssue(issueInput(auth, body, showContext));
       } catch {
         return { status: 502, body: { ok: false, code: "REPORT_LOOKUP_INCONCLUSIVE" } };
       }
