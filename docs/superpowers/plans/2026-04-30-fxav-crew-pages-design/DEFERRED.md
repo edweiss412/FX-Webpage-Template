@@ -22,9 +22,9 @@ When picking up a deferred item:
 ### M2-D1 — Hardcoded admin allow-list rotation
 
 **Source:** M2 adversarial review, Round 1 advisory note
-**Description:** `ADMIN_EMAILS` is env-driven (set once in `.env.local` per spec §14.3), but there is no documented rotation procedure, audit trail, or in-product UX for adding/removing admins. Today the only path is "edit env, redeploy."
+**Description (corrected 2026-05-12 at M9 Task 9.0 close):** The admin allow-list is HARDCODED IN A POSTGRES MIGRATION (`supabase/migrations/20260501002000_rls_policies.sql:23-37`, the `public.is_admin()` function — `array['dlarson@fxav.net', 'edweiss412@gmail.com']`). The `ADMIN_EMAILS` env var listed at spec §14.3:3290 and `.env.local.example:26` is **NOT consumed by any code path**. Original deferral text claimed env-driven; live mechanism is migration-driven. There is no documented rotation procedure, audit trail, or in-product UX for adding/removing admins. Today the only path is "edit migration, deploy."
 **Why deferred:** Out of M2 schema scope. Doesn't block anything functional — admins work, the allow-list is honored. It's an ops-hardening question.
-**Suggested home:** M9 (polish) or X.\* (cross-cutting). Could also land as a separate ops doc rather than code.
+**Suggested home:** **M9 polish — C9 cluster (routed 2026-05-12 at Task 9.0).** Shipping as code-driven self-service UI: spec amendment to §14.3 retiring the zombie env var + replacing the hardcoded array with an `admin_emails` table lookup + `/admin/settings/admins` page with add/revoke Server Actions. See `handoffs/M9-polish.md` §A Cluster C9 for the full task list. Original alternative dispositions (X.\* cross-cutting; ops doc only) were considered and rejected at 9.0 in favor of the self-service UI path.
 
 ### M2-D2 — Static-vs-runtime breadth for the 21 admin-table RLS matrix
 

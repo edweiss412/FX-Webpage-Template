@@ -30,7 +30,7 @@ Exhaustive, not representative. M9's surface = the four stated tasks + every §-
 - **§4.6** — `admin_alerts` UPSERT contract; per-show vs global keying (M5-D3 AlertBanner queue depth, resolve confirmation, raised_at format).
 - **§10** — Onboarding flow copy mapping (M5-D5 — self-serve fallbacks).
 - **§13.1** — "Something looks wrong?" footer button surfaces; report channel boundaries (Doug vs developer vs ops). **M8 R2 M2 reference** — the §13.1 channel-boundary inversion that shipped via a critique disposition; M9 work in or near this surface re-reads §13.1 verbatim before any copy rewrite.
-- **§14.3** — Environment variable / ops surface (M2-D1 admin allow-list rotation; if it lands in M9 at all per 9.0's call).
+- **§14.3** — Environment variable / ops surface (M2-D1 admin allow-list — **9.0 routed C9 as code-driven self-service UI, REQUIRES §14.3 spec amendment**). The current `public.is_admin()` Postgres function in `supabase/migrations/20260501002000_rls_policies.sql:23-37` hardcodes admins in a stable SECURITY DEFINER function (`array['dlarson@fxav.net', 'edweiss412@gmail.com']`); the `ADMIN_EMAILS` env var listed at spec §14.3:3290 + `.env.local.example:26` is NOT actually consumed by any code path. C9 replaces the hardcoded array with an `admin_emails` table lookup + UI surface for runtime CRUD.
 
 If 9.0's scope decision adds or removes deferrals, this §1 list updates in the same commit that ships the 9.0 output.
 
@@ -56,7 +56,7 @@ Of the three ratified §13.2.3 amendments (per `00-overview.md` and `AGENTS.md`)
 
 The other six plan amendments (parser registry / v4 single-marker / Sheets modtime-CAS / MI-8 debounce / MI-9 LEAD-bit / Amendment 9 first-seen auto-publish) are all M1/M6/M6.5 territory; **none apply to M9.** Amendment 9 was resolved in M6.5 at SHA `badbb15` (per `DEFERRED.md` Resolved section).
 
-**State explicitly:** No new spec amendments are expected in M9. M9 is implementation-only against the existing spec. If a finding during convergence requires an amendment, that's a P0 — surface and pause; do not silently fix. (M8 R2 M2 was almost exactly this — a copy rewrite that contradicted §13.1 — caught by adversarial review, not self-review.)
+**Updated 2026-05-12 at 9.0 close** — **ONE new spec amendment IS in M9 scope**: §14.3 admin allow-list mechanism. The 9.0 scope session (Task 9.0 outcome below in §A) routed M2-D1 as a code-driven self-service UI cluster (C9), which requires retiring the migration-hardcoded `is_admin()` array and replacing it with a table-driven mechanism + UI. The amendment text is drafted in C9 Task 9.0.M2-D1.A via `superpowers:brainstorming` BEFORE any C9 implementation work; ratified-by + reasoning land in the amendment file at `docs/superpowers/specs/amendments/2026-05-12-admin-allowlist-runtime-mutable.md`. **If any OTHER finding during convergence requires an amendment, that's a P0 — surface and pause; do not silently fix.** (M8 R2 M2 was almost exactly this — a copy rewrite that contradicted §13.1 — caught by adversarial review, not self-review.)
 
 ## 4. Pre-handoff state
 
@@ -241,7 +241,11 @@ After Opus finishes implementation:
 
 **(e) M11 ops-hardening operator-log sink (M5-D9 / M5-D10 / M5-D11).** Per M8 §11(d) kickoff decision: structured operator-log sink rolled to M11 ops-hardening. **M9 inherits NO operator-log work** — none of the M5/M7 deferrals routed to M9 require the sink. If 9.0 surfaces a deferral that does require it, surface to orchestrator as a routing question (M9 vs M11).
 
-> **Recommended disposition:** No operator-log work in M9. Verify at 9.0.
+> **Recommended disposition:** No operator-log work in M9. Verify at 9.0. **9.0 close (2026-05-12)**: verified — no C0..C9 cluster requires the operator-log sink. C9 audit-trail uses the per-row `admin_emails` revocation columns + an optional `admin_email_changes` table per the C9.0 amendment, NOT the operator-log sink.
+
+**(f) C9 admin allow-list vs existing RLS surface (M2-D1, NEW 2026-05-12 at 9.0 close).** C9 replaces the migration-hardcoded `public.is_admin()` array in `supabase/migrations/20260501002000_rls_policies.sql:23-37` with an `admin_emails` table lookup. The 21 admin-gated tables (per M2-D2 unresolved deferral) all consume `is_admin()` via RLS — the C9.1 migration must preserve identical post-cutover semantics. The schema-introspection test `tests/db/schema-introspection.test.ts` is the regression gate; any RLS policy that USED the hardcoded array directly (rather than going through `is_admin()`) breaks the migration. **Pre-task verification**: `grep -rn "dlarson@fxav.net\|edweiss412@gmail.com" supabase/migrations/` to confirm the hardcoded emails appear ONLY in the `is_admin()` function (line 33 of `20260501002000_rls_policies.sql`), NOT in any other policy or function.
+
+> **Recommended disposition:** C9.1 migration includes a pre-migration verification step (grep + test); if hardcoded emails appear in any RLS policy outside `is_admin()`, the migration scope expands to cover those policies too. M2-D2's static-vs-runtime breadth concern (84-cell admin-table RLS matrix) is NOT in M9 scope — it remains open at its current Suggested-home (X.6 traceability walker).
 
 ## 12. Impeccable evaluation (UI quality gate — AGENTS.md §1 invariant 8)
 
@@ -283,21 +287,44 @@ For each candidate class below, **create / extend / N/A — <reason>**. The exac
 
 - [N/A] **Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`)** — **N/A — M9 introduces no new `pg_advisory*` surfaces.** Polish is UI-only; none of the listed M2/M4/M5/M7 deferrals add an advisory-lock surface. **Re-verify at 9.0** — if any routed deferral does, this row becomes mandatory.
 
-- [N/A] **No-inline-email-normalization (`tests/admin/no-inline-email-normalization.test.ts`)** — **N/A — M9 doesn't read emails from any new source.** Polish surfaces don't introduce email-reading code paths. **Re-verify at 9.0.**
+- [ ] **(EXTEND) No-inline-email-normalization (`tests/admin/no-inline-email-normalization.test.ts`)** — **EXTEND for C9 (M2-D1).** Add `admin_emails` Server Actions + `lib/data/adminEmails.ts` to the glob so every add/revoke call routes through `lib/email/canonicalize.ts`. The §1.3 invariant (email canonicalization at every boundary) applies — `admin_emails` is the most security-sensitive new email-reading surface introduced since M2.
 
 - [N/A] **Amendment contract structural meta-test (`tests/reports/_amendmentContractMetaTest.test.ts`)** — **N/A — M9 doesn't touch the §13.2.3 report pipeline contracts.** M8 owns this meta-test; M9 leaves it alone.
 
-**Empty rows silently lie.** The final create/extend/N/A determinations are confirmed at 9.0 close and re-confirmed at each cluster close.
+- [ ] **(POSSIBLY EXTEND) Supabase call-boundary discipline — `tests/auth/_metaInfraContract.test.ts` for C9 (M2-D1).** Every helper in `lib/data/adminEmails.ts` registers in the auth meta-test (admin add/revoke is auth-surface mutation). Same registry semantics as the existing M5/M6 entries — destructure `{ data, error }`, surface infra faults as typed `AdminEmailsInfraError`, never silent `continue`.
+
+- [ ] **(POSSIBLY CREATE) Pure-render-compliance static-analysis for Task 9.2 view components.** `09-10-admin.md:71-77` specifies a static-analysis test that walks every tile-view component in `components/tiles/**Tile*View.tsx` and asserts (a) no `await` in the body, (b) no imports from `lib/db/**` / `lib/drive/**` / `lib/sync/**`, (c) no calls to functions matching `/^(load|fetch|query|read)/` from outside the component module. Decide at Task 9.2 close whether this lives in a per-tile test file or a single meta-test at `tests/components/tiles/_metaPureRenderContract.test.ts` (RECOMMENDED — meta-test pattern matches §1.9 lineage).
+
+**Empty rows silently lie.** The final create/extend/N/A determinations are re-confirmed at each cluster close.
 
 ---
 
 ## A. Task list
 
-**Pre-9.0 (this handoff):** the §A task list is intentionally NOT enumerated. Per the kickoff prompt's "DO NOT pre-decide" rules, the 9.0 shape session decides which deferred items ship in M9 vs roll to M10/M11 and produces the concrete task list.
+**9.0 outcome (2026-05-12, populated at scope-and-shape session close):**
 
-**Tasks 9.0 (scope-and-shape), then 9.1+ as determined by 9.0 output.**
+- **20 deliverables shipping in M9** (4 stated + 16 routed-in deferrals).
+- **0 re-defers to other milestones from the 9.0-routed inventory.** (M5-D7 retains its existing Suggested-home "first M-task that introduces a 4th accent button variant" — no re-route; no 4th variant has materialized in M6/M7/M8 and the YAGNI default holds.)
+- **1 new spec amendment in scope** (§14.3 — admin allow-list mechanism; C9 prereq).
+- **12 clusters** in dependency-aware order: C0 (foundation) → C2 (tokens) → C1 (crew-page IA) → C3 (auth flow) → C4 (admin banner) → C5 (sign-in brand) → C6 (lightbox motion/sentinel) → C6b (lightbox media perf) → C6c (lightbox pinch-zoom) → C7 (inline-error consolidation) → C8 (a11y batch) → C9 (admin allow-list, amendment+migration+UI).
 
-### Task 9.0 — Scope-and-shape session (FIRST DELIVERABLE)
+**Ordering rationale (anchors the cluster sequence):**
+
+1. **C0 lands first** — Task 9.4 (catalog + `helpfulContext`) is the dependency for stale-footer (9.1), tile-fallback alert code (9.2), AgendaPdfViewer error routing (M7-D2 inside C6), and inline-error consolidation (M5-D8 / C7). Without 9.4 done, ~7 downstream clusters are blocked on hand-coded strings.
+2. **C2 tokens before C1 IA work** — M4-D5 introduces `--tracking-eyebrow` (and possibly `-eyebrow-strong`); M4-D3 header rebalance (C1) explicitly touches eyebrow typography. Landing the token first means rebalance consumes it cleanly; landing rebalance first would require a follow-up sweep when the token lands.
+3. **C1 IA cluster needs its own `/impeccable shape` sub-session before crafting** — per DEFERRED.md M4-D2 (`/impeccable shape /crew-page-IA-redesign`), M4-D3 (`/impeccable shape /header-rebalance`). The four C1 items (M4-D2 tile reorder, M4-D3 header rebalance, M4-D6 desktop-chromium viewport bug, M4-D4 test-attribute relocation) are sequenced D2 → D3 → D6 → D4 so the reorder lands once and the test-attribute relocation rewrites e2e tests against the final IA, not an intermediate one.
+4. **C3 auth flow needs `/impeccable shape` AND `/impeccable animate` sub-sessions** — per DEFERRED.md M5-D1 + M5-D2. C3 sequence: D1 (/me anchor) → D2 (Bootstrap liveness) → D5 (self-serve fallbacks, depends on D1 + D2 landing).
+5. **C4 admin banner gets its own `/impeccable shape` sub-session** — per DEFERRED.md M5-D3 (queue depth + two-tap Resolve + raised_at format are IA decisions).
+6. **C6/C6b/C6c are three separate clusters because each has different risk vectors** — C6 is motion + helper extraction (low risk); C6b is `next/image` proxy + Cache-Control interaction (medium risk — needs scoped test); C6c is `react-zoom-pan-pinch` + Embla gesture priority (highest risk — new dependency + gesture coordination). Splitting lets each cluster's dual-impeccable-gate run be focused, and allows C6c to pause/re-defer mid-milestone without unwinding C6/C6b.
+7. **C9 lands LAST** — admin allow-list is the only cluster requiring a spec amendment (§14.3); the amendment brainstorming + ratification cost real time AND C9 has the biggest cross-cutting surface (RLS via `public.is_admin()` touches every admin-gated table). Landing C9 last means a C9-blocking finding doesn't strand C0..C8 work behind it.
+
+**Re-defer disposition (1 item, no Suggested-home flip):**
+
+- **M5-D7** — AccentButton atom extraction. **2026-05-12 (M9 Task 9.0 routing decision):** confirmed at existing Suggested-home "M6 or first M-task that introduces a 4th accent button variant." No 4th variant has materialized in M6/M7/M8; YAGNI default holds. Re-evaluate at M11 close or whenever a 4th accent-button surface is introduced. NOT in §A below.
+
+---
+
+### Task 9.0 — Scope-and-shape session (FIRST DELIVERABLE — completed at this commit)
 
 **Files:** modify `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/handoffs/M9-polish.md` (this file's §A). Modify `DEFERRED.md` to reflect any Suggested-home changes for deferrals re-deferred out of M9.
 
@@ -331,11 +358,452 @@ For each candidate class below, **create / extend / N/A — <reason>**. The exac
 
 **Step 3: Adversarial-review the scope decision.** Before any per-task work starts, run a lightweight cross-CLI review of the 9.0 output (`/codex:adversarial-review --base 69ed38a --scope branch` against just the 9.0 commit). Focus: is the M9 scope coherent? Are any deferrals routed into M9 that should have been pushed to M10/M11 given their dependencies? Are any deferrals pushed out that should have been kept (i.e., is M9 over-deferring)? Convergence cap: 2 rounds — if the scope decision survives 2 rounds with no blocking findings, it ships; otherwise iterate.
 
-### Task 9.1, 9.2, 9.3, 9.4, and routed deferrals — DETERMINED BY 9.0
+---
 
-The per-task TDD checklists, file lists, test commands, and commit subjects for the four stated M9 tasks plus every routed deferral land in §A in the post-9.0 commit. **Do not start any of these tasks before 9.0 closes.**
+### Cluster C0 — Foundation (4 stated M9 tasks)
 
-The four stated tasks already have plan-prose TDD checklists in `09-10-admin.md:7–122`. 9.0's job is to (a) confirm those checklists are still correct given any routed deferrals that touch the same surfaces, (b) order them against the routed deferrals (e.g., M4-D2 tile reorder must precede any per-tile data-loader-split work in Task 9.2), and (c) write per-cluster task checklists for the routed deferrals using the same TDD-per-task pattern.
+The per-task TDD checklists for 9.1–9.4 are exhaustively spelled out in `09-10-admin.md:7-122`. The 9.0 session re-confirmed those checklists are correct as-is; below records only the ordering + commit subject + cross-cluster impact.
+
+**C0 ordering rationale:** 9.4 must land FIRST (catalog is dependency for the other three + many other clusters). 9.1 + 9.2 can run in either order after 9.4; recommended 9.1 → 9.2 because 9.1 is the smaller surface and de-risks the catalog wiring. 9.3 lands last in C0 (depends on every empty-state having been touched; cleanest gate).
+
+#### Task 9.4 — `lib/messages/catalog.ts` + `lib/messages/lookup.ts` + `helpfulContext` field
+
+- **Files**: per `09-10-admin.md:115-121`. Plus: extend EVERY existing dougFacing-non-null catalog row with a `helpfulContext` field (one-paragraph plain-language explanation).
+- **AC**: AC-9.X foundation (no numbered AC; gates AC-9.1 and AC-9.3).
+- **TDD checklist**: `09-10-admin.md:118-121` (verbatim).
+- **Cross-cluster impact**: C6 (M7-D2), C7 (M5-D8) both depend on this.
+- **Commit**: `feat(messages): §12.4 catalog + lookup + helpfulContext field`
+
+#### Task 9.1 — Stale-data footer (`components/shared/StaleFooter.tsx`)
+
+- **Files**: per `09-10-admin.md:9-25`.
+- **AC**: AC-9.1.
+- **TDD checklist**: `09-10-admin.md:13-25` (verbatim — every `last_sync_status` branch).
+- **Cross-cluster impact**: tested independently of C1 / C2 IA work.
+- **Commit**: `feat(crew-page): stale footer status ladder with parse_error + pending_review branches (§5.4, §12.4)`
+
+#### Task 9.2 — Server + client tile error boundaries
+
+- **Files**: per `09-10-admin.md:29-30, 33-67`. Per-tile data-loader/view split: every tile in `components/tiles/{AudioScopeTile,ContactsTile,CrewTile,DiagramsTile,FinancialsTile,LightingScopeTile,LodgingTile,NotesTile,OpeningReelTile,PackListTile,ScheduleTile,ShowStatusTile,TransportTile,VenueTile,VideoScopeTile}.tsx` becomes `*TileLoader` (data-fetch, can throw) + `*TileView` (pure, cannot throw). 15 tiles × split = 15 commits OR one larger commit per `09-10-admin.md:65-67`'s usage example.
+- **AC**: AC-9.3.
+- **TDD checklist**: `09-10-admin.md:94-107` (verbatim — server-throw test, client-descendant render-throw test, both-layers-compose test, pure-render-compliance static-analysis test at `09-10-admin.md:71-77`).
+- **Meta-test extension**: `tests/auth/_metaInfraContract.test.ts` registers every new `*TileLoader` Supabase-call helper (§1.9 discipline; pre-declared in §13 below). OR a new `tests/tiles/_metaInfraContract.test.ts` is created if the loaders live in `lib/tiles/loaders/` — decide at Task 9.2 close per §13's POSSIBLY EXTEND row.
+- **`admin_alerts` extension**: `tests/messages/_metaAdminAlertCatalog.test.ts` adds `TILE_SERVER_RENDER_FAILED` row.
+- **Cross-cluster impact**: C1 tile reorder (M4-D2) must come AFTER C0/9.2 lands because moving tiles between mount positions while their loader/view split is in flight is a needless cascade.
+- **Commit**: `feat(crew-page): server + client tile error boundaries (§12.1)`
+
+#### Task 9.3 — Empty-state catalog reachability baselines
+
+- **Files**: `tests/e2e/empty-state-reachability.spec.ts` (NEW).
+- **AC**: AC-9.2.
+- **TDD checklist**: `09-10-admin.md:112-113` (verbatim — Playwright `toHaveScreenshot` baselines per §8.3 empty-state catalog entry).
+- **Anti-tautology check**: per AGENTS.md writing-plans additions — derive expected screenshots from real rendered pages, NOT synthesized component-level snapshots. The test must scope its assertion so a regression in the rendering path can't be passed by a stale snapshot of the same broken state.
+- **Commit**: `test(crew-page): empty-state reachability baselines`
+
+#### C0 close-out — impeccable §12 dual gate
+
+After 9.4 + 9.1 + 9.2 + 9.3 all commit, run `/impeccable critique` and `/impeccable audit` against the C0 surface diff (`components/shared/StaleFooter.tsx`, `components/shared/TileServerFallback.tsx`, `components/shared/TileErrorBoundary.tsx`, every `*TileLoader.tsx` + `*TileView.tsx`, `lib/messages/catalog.ts`, `lib/messages/lookup.ts`, `tests/e2e/empty-state-reachability.spec.ts`). Record findings + dispositions in §12 of this handoff per the table format. **Spec-check every critique disposition that rewrites user-visible copy** — especially anything touching §12.4 catalog rows.
+
+---
+
+### Cluster C2 — Tokens (M4-D5)
+
+**Sub-shape session NOT required** — token consolidation is mechanical typography normalization, not IA work.
+
+#### Task 9.M4-D5 — `--tracking-eyebrow` token consolidation
+
+- **Files**: `app/globals.css` (`@theme` block extension); `DESIGN.md` §2 (document new token); ALL 5 inline `tracking-[0.NNem]` callsites identified in DEFERRED.md M4-D5 (Section + KeyValue + Header + RightNowCard + Footer — verify exact line numbers with `rg "tracking-\[" components/` at task kickoff and update this list).
+- **AC**: M9 deferral closure / AC-9.X.
+- **Pre-task code-verification**: `rg "tracking-\[" components/ app/ -n` returns the canonical 5 callsites (or current count); `rg "uppercase" components/ app/ -n` identifies any uppercase-eyebrow surface that should join the consolidation.
+- **TDD checklist**:
+  - **Step 1**: Failing test (`tests/styles/eyebrow-tracking.test.ts`, NEW) — static-grep assertion that no `tracking-\[` arbitrary-tracking values appear in `components/` or `app/` for any element with `uppercase` class.
+  - **Step 2**: Add `--tracking-eyebrow` (and `-eyebrow-strong` if the 5 inline values cluster around two different ems) to `app/globals.css` `@theme`; document in `DESIGN.md` §2; replace the 5 inline values with the named token.
+  - **Step 3**: Run the layout-regression Playwright suite (`pnpm test:e2e tests/e2e/crew-page.spec.ts --project=mobile-safari`) — the dimensional-invariant assertions are the regression gate; any token-driven layout collapse triggers a fail. **DO NOT** treat jsdom unit tests as sufficient (per AGENTS.md writing-plans additions).
+  - **Step 4**: Re-run the static-grep test from Step 1; assert it now passes.
+- **Class-sweep code-shape**: per AGENTS.md watchpoint 2, `rg "tracking-\[" components/ app/` walks every callsite, not a hand-named list.
+- **Commit**: `feat(crew-page): consolidate eyebrow tracking via --tracking-eyebrow token (M4-D5)`
+
+#### C2 close-out — impeccable §12 dual gate
+
+After M4-D5 commits, run `/impeccable critique` + `/impeccable audit` against the C2 diff (`app/globals.css`, `DESIGN.md`, 5 component callsites). Token consolidation rarely surfaces copy issues; expect audit findings to dominate.
+
+---
+
+### Cluster C1 — Crew-page IA (M4-D2, M4-D3, M4-D6, M4-D4)
+
+**Sub-shape session REQUIRED** before crafting (per DEFERRED.md M4-D2 + M4-D3).
+
+#### Task 9.C1.0 — `/impeccable shape <crew-page-IA-redesign>` sub-session
+
+- **Output**: a written shape brief (committed to `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/shape-sessions/2026-05-12-crew-page-IA.md`) documenting:
+  - New tile order (Today / Logistics / People / Reference clusters, OR a "Today" cluster promoting 1-2 tiles above the general grid — DEFERRED.md M4-D2's two candidate framings).
+  - Header treatment (shrink + sticky-thin, OR header-as-context + drop the orange hairline — DEFERRED.md M4-D3's two candidate framings).
+  - PRODUCT.md persona ranking applied to the tile order (set/strike-day primary tile = PackListTile; show-day primary tile = ScheduleTile; etc.).
+- **Pre-shape grep**: `app/show/[slug]/page.tsx` for the current tile mount order; `components/layout/Header.tsx` for current scale/weight; PRODUCT.md "Crew on the venue floor" section for the canonical persona-question→tile mapping.
+- **TDD checklist**: this is a shape session, not a code commit; the failing-test → minimal-impl → passing-test pattern doesn't apply. The "test" is user confirmation of the brief.
+- **Commit**: `docs(plan): C1 crew-page IA shape brief — tile order + header rebalance (M4-D2, M4-D3)`
+
+#### Task 9.M4-D2 — Tile reorder by persona urgency
+
+- **Files**: `app/show/[slug]/page.tsx` (tile mount order); `tests/e2e/crew-page.spec.ts` (regression: every tile testid still present, in new order); whatever sticky-anchor or section-header components the C1.0 shape brief calls for.
+- **AC**: M9 deferral closure / AC-9.X.
+- **Pre-task code-verification**: confirm tile testids in `tests/e2e/crew-page.spec.ts` match what's actually rendered (per AGENTS.md pre-draft code-verification).
+- **TDD checklist**:
+  - **Step 1**: Failing e2e test — `tests/e2e/crew-page.spec.ts` assertions for the NEW tile order (testids match brief's ordering).
+  - **Step 2**: Reorder `page.tsx`; add cluster headings if brief calls for them.
+  - **Step 3**: Run the dimensional-invariant Playwright suite — the page rebalances vertical rhythm; any container-height collapse triggers a fail.
+  - **Step 4**: Cross-milestone dependency check (§11(c)) — if the brief introduces sticky cluster headers, verify Realtime broadcast invalidation (M6.5 `SHOW_FIRST_PUBLISHED` channel) still subscribes BEFORE first-tile render.
+- **Commit**: `feat(crew-page): persona-urgency tile order with cluster headings (M4-D2)`
+
+#### Task 9.M4-D3 — Header weight rebalance
+
+- **Files**: `components/layout/Header.tsx`; possibly `DESIGN.md` §header section.
+- **AC**: M9 deferral closure / AC-9.X.
+- **Pre-task code-verification**: confirm `text-2xl sm:text-3xl font-bold` is still the current header scale; confirm the orange hairline element flagged by M4-D3 is still in place.
+- **TDD checklist**:
+  - **Step 1**: Failing e2e test — `tests/e2e/header-rebalance.spec.ts` (NEW): assertions for the new header treatment (smaller scale, or sticky-thin, per brief).
+  - **Step 2**: Implement per brief; consume `--tracking-eyebrow` from C2 if the eyebrow gets re-styled.
+  - **Step 3**: Visual regression via `toHaveScreenshot` on mobile-safari + desktop-chromium (page-hero treatment is viewport-sensitive).
+  - **Step 4**: Re-run AC-4.3 RightNowCard transition tests — header rebalance MUST NOT regress the hero-card transitions.
+- **Commit**: `feat(layout): rebalance header weight vs RightNowCard hero (M4-D3)`
+
+#### Task 9.M4-D6 — `crew-page.spec.ts:118` desktop-chromium viewport bug
+
+- **Files**: `tests/e2e/crew-page.spec.ts:118`; possibly `playwright.config.ts` testMatch scoping.
+- **AC**: M9 deferral closure / AC-9.X.
+- **Pre-task code-verification**: `rg "setViewportSize|test.use.*viewport" tests/e2e/crew-page.spec.ts -n`; `rg "project|testMatch" playwright.config.ts -n` to know the current desktop-chromium scoping.
+- **TDD checklist**:
+  - **Step 1**: Confirm the failure exists on `desktop-chromium` (`pnpm test:e2e --project=desktop-chromium tests/e2e/crew-page.spec.ts -g "2-col grid"`).
+  - **Step 2**: Add `await page.setViewportSize({ width: 390, height: 667 })` at the top of the test OR scope the test's `testMatch` to `mobile-safari` only. **Choose the viewport-set option** unless C1.0's shape brief explicitly says desktop-chromium gets its own grid contract — the test is asserting MOBILE behavior, so setting the mobile viewport is the correctness fix.
+  - **Step 3**: Re-run `pnpm test:e2e --project=desktop-chromium` and assert it now passes; re-run `--project=mobile-safari` and assert no regression.
+  - **Step 4**: Verify the desktop-chromium Playwright project isn't silently excluded — `rg "project: 'desktop-chromium'" playwright.config.ts` should show the project AND `testMatch` should NOT exclude this file. Silent test exclusion is its own discipline regression (per §6 watchpoint 5).
+- **Commit**: `fix(test): set mobile viewport on crew-page grid assertion (M4-D6)`
+
+#### Task 9.M4-D4 — RightNowCard test-attribute relocation
+
+- **Files**: `components/right-now/RightNowCard.tsx`; `tests/e2e/right-now-transitions.spec.ts` (and any other AC-4.3 transition tests that read `data-state` / `data-rendered-state` / `data-treatment`).
+- **AC**: M9 deferral closure / AC-9.X.
+- **Pre-task code-verification**: `rg "data-state|data-rendered-state|data-treatment" tests/ -n` to enumerate every consumer.
+- **TDD checklist**:
+  - **Step 1**: Failing test — the `<p>` element MUST NOT carry the three `data-*` test attributes; assert they live on a sibling `<span data-testid="right-now-debug" hidden>` outside the AT tree.
+  - **Step 2**: Relocate attributes; update every e2e test reader at the same time.
+  - **Step 3**: Run AC-4.3 transition tests; assert no regression in transition coverage.
+- **Order rationale**: lands AFTER M4-D2 tile reorder so the e2e tests aren't rewritten twice (M4-D2 may not change testids but may change `expect(locator(...).first())` traversal patterns).
+- **Commit**: `refactor(right-now): relocate debug data-attrs off AT-traversed paragraph (M4-D4)`
+
+#### C1 close-out — impeccable §12 dual gate
+
+After C1.0 brief + M4-D2 + M4-D3 + M4-D6 + M4-D4 all commit, run `/impeccable critique` + `/impeccable audit` against the C1 diff. **Spec-check every critique disposition that rewrites cluster-heading or section-label copy** — per §6 watchpoint 1, M9's biggest critique-vs-spec risk is in IA work where the impeccable tool's UX taste may conflict with spec product-contract language.
+
+---
+
+### Cluster C3 — Auth flow (M5-D1, M5-D2, M5-D5)
+
+**Sub-shape session REQUIRED** (per DEFERRED.md M5-D1 + M5-D2). **Also a `/impeccable animate` sub-session** for the Bootstrap motion design.
+
+#### Task 9.C3.0 — `/impeccable shape </me + Bootstrap polish>` + `/impeccable animate <Bootstrap timeout>` sub-sessions
+
+- **Output**: two brief files at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/shape-sessions/2026-05-12-{me-page-anchor,bootstrap-liveness}.md`.
+- **Shape brief content (me-page-anchor.md)**: emphasized "most soonest show" card design (larger; "Tomorrow" / "In 3 days" relative-time chip); grouping headers (Upcoming / Past) for the remainder; DESIGN.md anti-pattern "no identical card grids" resolution explicit.
+- **Animate brief content (bootstrap-liveness.md)**: animated dot rhythm + 6s timeout → "Still working… [Retry]" intermediate state; respects `prefers-reduced-motion` (the existing `app/globals.css` reduction); Retry rotates the bootstrap-nonce so a stale nonce doesn't replay.
+- **Commit**: `docs(plan): C3 auth-flow polish briefs — /me anchor + Bootstrap liveness (M5-D1, M5-D2)`
+
+#### Task 9.M5-D1 — /me page "what's next" anchor
+
+- **Files**: `app/me/page.tsx`; possibly a new `components/me/UpcomingShowAnchor.tsx`; relative-time helper at `lib/time/relative.ts` if 9.1 didn't already cover the "X days from now" forward-tense variant.
+- **AC**: M9 deferral closure / AC-9.X.
+- **TDD checklist**:
+  - **Step 1**: Failing test — `tests/e2e/me-page-anchor.spec.ts` (NEW): with 3 shows seeded (yesterday / tomorrow / next week), assert tomorrow's card is visually emphasized (larger; "Tomorrow" chip); yesterday's appears under "Past" header; next-week's appears under "Upcoming" header.
+  - **Step 2**: Implement per brief; consume catalog copy via `messageFor` for any error states.
+  - **Step 3**: Dimensional-invariants check against the emphasized-card → grid-cell relationship.
+  - **Step 4**: Spec-check the "Tomorrow" / "In 3 days" relative-time copy against §7.3 — the spec doesn't dictate this phrasing, but per the M9 spec-check discipline (§6 watchpoint 1), surface as a question to the user IF the brief's phrasing feels novel.
+- **Commit**: `feat(me): emphasize next-soonest show with relative-time anchor (M5-D1)`
+
+#### Task 9.M5-D2 — Bootstrap shell liveness signal + 6s timeout
+
+- **Files**: `app/show/[slug]/p/Bootstrap.tsx`; `app/globals.css` (animation keyframes if needed, respecting `prefers-reduced-motion`); possibly a new `components/shared/AnimatedDot.tsx`.
+- **AC**: M9 deferral closure / AC-9.X.
+- **TDD checklist**:
+  - **Step 1**: Failing test — `tests/e2e/bootstrap-liveness.spec.ts` (NEW): assert (a) animated dot appears within first paint; (b) after 6s (use Playwright clock-mock), the "Still working… [Retry]" state appears; (c) Retry rotates the bootstrap-nonce (verify by intercepting the redeem-link POST — the second attempt carries a different nonce).
+  - **Step 2**: Failing test for `prefers-reduced-motion` — assert dot animation is 0ms duration when the media query matches.
+  - **Step 3**: Implement per brief.
+  - **Step 4**: §13.1 channel-boundary spec-check — the Retry copy MUST NOT contain "report this to the developer" or invert the report channel (M8 R2 M2 watchpoint).
+- **Commit**: `feat(auth): bootstrap liveness + 6s timeout with retry (M5-D2)`
+
+#### Task 9.M5-D5 — Self-serve fallback copy
+
+- **Files**: `app/show/[slug]/p/Bootstrap.tsx` (error path); `app/auth/sign-in/SignInButton.tsx` (inline-error fallback); possibly new catalog entries for the fallback codes.
+- **AC**: M9 deferral closure / AC-9.X.
+- **Pre-task code-verification**: M5-D1 + M5-D2 MUST have landed so the structural anchors exist (the fallback copy attaches to those anchors).
+- **TDD checklist**:
+  - **Step 1**: Failing test — `tests/e2e/auth-self-serve-fallbacks.spec.ts` (NEW): assert (a) Bootstrap error state renders a "Sign in with Google instead" link; (b) sign-in page with no `?next=` fragment renders a "View show list" secondary path; (c) /me with zero shows renders a "Contact Doug" affordance (per §13.1 channel boundary — show-content questions message Doug directly).
+  - **Step 2**: Add new catalog entries IF the fallback strings introduce new MessageCodes (rather than re-using existing codes with new `crewFacing` text — adding new codes requires explicit spec amendment to §12.4 per AGENTS.md §1.7).
+  - **Step 3**: Spec-check every fallback string against §13.1 channel-boundary contract (M8 R2 M2 reference). "Contact Doug" is correct for show-content; "report this" routes through `<ReportButton>` to the developer, NOT to Doug.
+- **Commit**: `feat(auth): self-serve fallback copy for Bootstrap + /me + sign-in (M5-D5)`
+
+#### C3 close-out — impeccable §12 dual gate
+
+Run `/impeccable critique` + `/impeccable audit` against C3 diff. **Spec-check is the highest M9 risk vector for this cluster** — §7.3 sign-in copy and §13.1 channel boundary both intersect with critique-rewrite temptations.
+
+---
+
+### Cluster C4 — Admin banner (M5-D3)
+
+**Sub-shape session REQUIRED** (per DEFERRED.md M5-D3).
+
+#### Task 9.C4.0 — `/impeccable shape <AlertBanner>` sub-session
+
+- **Output**: brief at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/shape-sessions/2026-05-12-alert-banner.md`.
+- **Brief content**: queue-depth badge design ("+3 more"); two-tap Resolve confirmation pattern (initial tap → confirm prompt → confirm tap); `raised_at` format (relative "14 minutes ago" or absolute "10:23 AM" — decide per Doug's actual phone-vs-desk context).
+- **Commit**: `docs(plan): C4 AlertBanner shape brief (M5-D3)`
+
+#### Task 9.M5-D3 — AlertBanner queue depth + Resolve confirmation + raised_at
+
+- **Files**: `components/admin/AlertBanner.tsx`; the Server Action that resolves alerts (verify file path with `grep`); possibly new catalog row for the confirmation prompt copy.
+- **AC**: M9 deferral closure / AC-9.X.
+- **Pre-task code-verification**: confirm AlertBanner's current `LIMIT 1` SELECT (per DEFERRED.md M5-D3); confirm the Resolve Server Action's location and current implementation.
+- **TDD checklist**:
+  - **Step 1**: Failing test — with 4 unresolved alerts seeded, assert (a) topmost alert displays + "+3 more" badge; (b) clicking Resolve shows a confirm prompt; (c) clicking confirm calls the Server Action; (d) `raised_at` renders per the brief's format.
+  - **Step 2**: Implement per brief.
+  - **Step 3**: Audit-pass (`aria-describedby` on the confirm button per M5-D6 batch — this fix lands here ahead of C8 because the confirm UI is being built).
+- **Commit**: `feat(admin): alert banner queue depth + confirmation + raised_at (M5-D3)`
+
+#### C4 close-out — impeccable §12 dual gate
+
+Run dual gate. The confirmation-prompt copy is the highest spec-check risk surface.
+
+---
+
+### Cluster C5 — Sign-in brand (M5-D4)
+
+**Sub-shape session NOT required** — brand-asset placement is direct (FXAV wordmark above headline; Google G left of button text).
+
+#### Task 9.M5-D4 — FXAV wordmark + Google G icon
+
+- **Files**: `app/auth/sign-in/page.tsx`; `app/auth/sign-in/SignInButton.tsx`; new asset files at `public/brand/fxav-wordmark.svg` and `public/brand/google-g.svg`.
+- **AC**: M9 deferral closure / AC-9.X.
+- **Asset sourcing**: FXAV wordmark — source from Doug (or the existing FXAV brand kit if present in the repo); Google G — official Google Sign-In brand guide download (https://developers.google.com/identity/branding-guidelines). DO NOT recreate either asset by hand.
+- **TDD checklist**:
+  - **Step 1**: Failing test — `tests/e2e/sign-in-brand.spec.ts` (NEW): assert (a) FXAV wordmark `<svg>` or `<img>` appears above the headline; (b) Google G icon appears left of the button text; (c) the Google button conforms to Google's brand-guide minimum dimensions (height ≥ 40px) AND has the official text "Sign in with Google" (not paraphrased).
+  - **Step 2**: Add brand assets to `public/brand/`; reference from sign-in page + button.
+  - **Step 3**: Visual regression via `toHaveScreenshot`.
+- **Commit**: `feat(auth): FXAV wordmark + Google G icon on sign-in (M5-D4)`
+
+#### C5 close-out — impeccable §12 dual gate
+
+---
+
+### Cluster C6 — Lightbox motion + sentinel + error routing (M7-D5, M7-D1, M7-D2)
+
+**Sub-shape session NOT required** — motion design is `/impeccable animate` territory but the motion spec is already constrained by DESIGN.md §5 (`--duration-normal`, `--ease-out-quart`).
+
+#### Task 9.M7-D5 — Sentinel-hiding helper for diagrams + agenda
+
+- **Files**: `lib/visibility/emptyState.ts` (add `shouldHideDiagrams(diagrams, agendaLinks)`); `components/tiles/DiagramsTile.tsx` (consume the helper); `tests/components/tiles/_metaSentinelHidingContract.test.ts` (extend with DiagramsTile + AgendaTile registry rows).
+- **AC**: M9 deferral closure / AC-9.X.
+- **Pre-task code-verification**: `rg "items.length > 0|agendaLinks.some" components/tiles/DiagramsTile.tsx` confirms the inline boolean checks DEFERRED.md M7-D5 describes still exist; `rg "shouldHideGenericOptional" lib/visibility/emptyState.ts` confirms the existing helper pattern.
+- **TDD checklist**:
+  - **Step 1**: Failing test — `tests/lib/visibility/emptyState.test.ts` extends with `shouldHideDiagrams` cases: empty diagrams + empty agendaLinks → true; non-empty diagrams + empty agendaLinks → false; etc.
+  - **Step 2**: Implement helper; refactor DiagramsTile to consume it.
+  - **Step 3**: Extend `_metaSentinelHidingContract.test.ts` with DiagramsTile + AgendaTile rows (media-presence: diagrams + agenda links).
+- **Class-sweep**: `rg "\.length > 0|\.some\(Boolean\)" components/tiles/ -n` walks every tile component for similar inline patterns; route the same shape through `shouldHide*` helpers if any other tile carries one.
+- **Commit**: `refactor(visibility): extract shouldHideDiagrams helper + register in meta-test (M7-D5)`
+
+#### Task 9.M7-D1 — Gallery + AgendaSheet entry/exit motion
+
+- **Files**: `components/diagrams/GalleryLightbox.tsx`; `components/agenda/AgendaSheet.tsx` (verify exists — if not, create or skip the agenda branch).
+- **AC**: M9 deferral closure / AC-9.X.
+- **Pre-task code-verification**: `ls components/agenda/` — confirmed `AgendaEmbed.tsx` + `AgendaPdfViewer.tsx`; **no `AgendaSheet.tsx`** in the current tree. Either (a) the bottom-sheet pattern doesn't exist yet (M7-D1 motion only applies to GalleryLightbox in M9), or (b) the bottom-sheet is M10 territory. **Decide at task kickoff** — if the sheet isn't a separate component in `components/agenda/`, M7-D1's scope reduces to GalleryLightbox only and `AgendaSheet` motion re-defers to whichever milestone introduces the component.
+- **TDD checklist**:
+  - **Step 1**: Failing test — `tests/components/diagrams/GalleryLightbox.test.tsx` extends with `AnimatePresence` entry/exit assertions (opacity 0→1, `scale: 0.96 → 1`, duration `--duration-normal` 220ms, easing `--ease-out-quart`).
+  - **Step 2**: Wrap with `AnimatePresence`; respect `prefers-reduced-motion`.
+  - **Step 3**: Transition-audit task per AGENTS.md writing-plans additions — every `AnimatePresence`, ternary render, conditional block has appropriate `exit` / `initial` / `animate` props. Compound transitions: opening lightbox A while lightbox B is mid-close.
+- **Commit**: `feat(diagrams): lightbox entry/exit motion with reduced-motion gate (M7-D1)`
+
+#### Task 9.M7-D2 — AgendaPdfViewer error states via messageFor
+
+- **Files**: `components/agenda/AgendaPdfViewer.tsx`; `lib/messages/catalog.ts` (add `AGENDA_GONE_FOR_CREW` (410) + `AGENDA_UNAUTHENTICATED` (401) rows + their `helpfulContext`); `app/api/asset/agenda/[showId]/route.ts` (verify status codes match; cross-check with `ls app/api/asset/agenda/`).
+- **AC**: M9 deferral closure / AC-9.X.
+- **Pre-task code-verification**: confirm `react-pdf`'s `onLoadError` payload shape; if status isn't exposed, the HEAD-fetch fallback per DEFERRED.md M7-D2 lands.
+- **TDD checklist**:
+  - **Step 1**: Failing test — with the proxy mocked to return 410, assert AgendaPdfViewer renders `messageFor('AGENDA_GONE_FOR_CREW').crewFacing` exactly; with 401, asserts `AGENDA_UNAUTHENTICATED` copy.
+  - **Step 2**: New catalog rows (REQUIRES spec amendment — `AGENDA_*` codes don't exist in §12.4; the codes are NEW per DEFERRED.md M7-D2 description). **Per AGENTS.md §1.7**: any new catalog code needs spec authorization. Drafting the §12.4 rows happens in C0's Task 9.4 commit IF the rows are intended to be in §12.4; otherwise a small focused spec amendment lands here. **Decision**: ship the rows in Task 9.4 (C0) so the catalog test asserts them from the start.
+  - **Step 3**: Implement `onLoadError` → status-derivation → `messageFor` routing.
+  - **Step 4**: Meta-test `_metaAdminAlertCatalog.test.ts` check — `AGENDA_*` codes are crew-facing only (NOT `admin_alerts` producers); confirm they belong in the message-codes coverage test, NOT the admin-alerts catalog test.
+- **Commit**: `feat(agenda): route PDF load errors through messageFor (M7-D2)`
+
+#### C6 close-out — impeccable §12 dual gate
+
+---
+
+### Cluster C6b — Lightbox media perf (M7-D3)
+
+**Sub-shape session NOT required** — this is a build/config + interaction-test task, not visual.
+
+#### Task 9.M7-D3 — Diagrams `<img>` → `next/image` (scoped tightly)
+
+- **Files**: `components/diagrams/Gallery.tsx`; `components/diagrams/GalleryLightbox.tsx`; `next.config.ts` (add `images.remotePatterns` for the proxy origin); `app/api/asset/diagram/[...]/route.ts` (verify `Cache-Control: private, max-age=0, must-revalidate` is still emitted post-migration); new integration test.
+- **AC**: M9 deferral closure / AC-9.X.
+- **Pre-task code-verification**:
+  - `cat next.config.ts` confirms current state (no `images` block — current config only sets `distDir` + `experimental.authInterrupts`).
+  - `cat app/api/asset/diagram/[asset]/route.ts` (find actual path with `find app/api/asset/diagram -type f`) for the proxy's response headers.
+  - Confirm Next.js 16's `/_next/image` proxy honors `Cache-Control: private` from the upstream (per AGENTS.md memory `feedback_verify_review_findings_against_external_api_spec.md`).
+- **TDD checklist**:
+  - **Step 1**: Failing integration test — `tests/integration/diagram-next-image.test.ts` (NEW): with the diagram proxy mocked, request `/diagrams/<asset>` and assert (a) the resolved image URL goes through `/_next/image?url=...`; (b) the response `Cache-Control` is `private, max-age=0, must-revalidate` (NOT mutated by `/_next/image`); (c) revoking the underlying asset (returning 403 from the proxy) propagates through `/_next/image` as a non-cached failure.
+  - **Step 2**: Migrate `<img>` → `next/image`; declare the proxy origin in `next.config.ts` `images.remotePatterns`.
+  - **Step 3**: Re-run the integration test; assert all three properties hold.
+  - **Step 4**: Lint check — `pnpm lint` should no longer warn about `@next/next/no-img-element` for `components/diagrams/`.
+- **Cache-Control vector**: per §6 watchpoint 12 + AGENTS.md memory `feedback_verify_review_findings_against_external_api_spec.md` — the Cache-Control propagation through `/_next/image` is the failure mode; the test must explicitly verify it, NOT just smoke-check that images load.
+- **Commit**: `feat(diagrams): migrate to next/image with proxy Cache-Control test (M7-D3)`
+
+#### C6b close-out — impeccable §12 dual gate (audit-dominant; little copy to critique)
+
+---
+
+### Cluster C6c — Lightbox pinch-zoom (M7-D4)
+
+**Sub-shape session NOT required** — the gesture-priority decision is constrained by Embla's gesture model (well-documented).
+
+#### Task 9.M7-D4 — `react-zoom-pan-pinch` + Embla gesture priority
+
+- **Files**: `package.json` (add `react-zoom-pan-pinch` dep); `components/diagrams/GalleryLightbox.tsx` (wrap each `<figure>` with `TransformWrapper` + `TransformComponent`); new test.
+- **AC**: M9 deferral closure / AC-9.X.
+- **Pre-task code-verification**: `grep "useEmblaCarousel\|emblaApi" components/diagrams/GalleryLightbox.tsx -n` confirms Embla's hook usage; `cat node_modules/embla-carousel-react/package.json | jq .version` for the current Embla version; check Embla's docs for the canonical pattern for temporarily disabling swipe (`emblaApi.reInit({ watchDrag: false })` is a common path).
+- **TDD checklist**:
+  - **Step 1**: Failing test (Playwright touch-emulation) — `tests/e2e/lightbox-pinch-zoom.spec.ts` (NEW): assert (a) two-finger pinch on a figure scales the image (transform matrix changes); (b) one-finger swipe DURING active zoom does NOT navigate Embla (gesture priority: pinch wins); (c) one-finger swipe AFTER pinch-end navigates Embla normally; (d) double-tap resets zoom.
+  - **Step 2**: Add dependency; implement per pattern.
+  - **Step 3**: Gesture-priority compound transitions: pinch + try-to-swipe-while-pinching; pinch then release then swipe-immediately; multiple pinches in sequence without releasing.
+  - **Step 4**: Run on a real mobile device OR Playwright's touch emulation (mobile-safari project); jsdom is not sufficient (per AGENTS.md writing-plans additions).
+- **Commit**: `feat(diagrams): pinch-zoom inside lightbox with Embla gesture priority (M7-D4)`
+
+#### C6c close-out — impeccable §12 dual gate
+
+---
+
+### Cluster C7 — Inline-error consolidation (M5-D8)
+
+**Sub-shape session NOT required** — this is a sweep, not a redesign.
+
+#### Task 9.M5-D8 — Route inline error strings through `messageFor`
+
+- **Files**: `app/auth/sign-in/SignInButton.tsx` (~lines 139-141 per DEFERRED.md M5-D8); `app/show/[slug]/p/Bootstrap.tsx` (~lines 96-99); any other inline-error callsite the class-sweep grep surfaces.
+- **AC**: M9 deferral closure / AC-9.X.
+- **Pre-task code-verification (CLASS-SWEEP, code-shape, NOT name-list)**: `rg "setError\(['\"][^'\"]+['\"]" app/ components/ -n` enumerates every inline literal-string `setError` call across the codebase; route every result through `messageFor` (or carry a deliberate inline annotation explaining why a specific call site is exempt). Per §6 watchpoint 2.
+- **TDD checklist**:
+  - **Step 1**: Failing test — static-grep assertion at `tests/messages/no-inline-error-strings.test.ts` (NEW): `! rg "setError\(['\"][^'\"]+['\"]" app/ components/ | rg -v "messageFor\\(|// not-subject:"` returns zero matches.
+  - **Step 2**: For each callsite, identify the appropriate catalog code (add new catalog rows if the inline string doesn't map to an existing code — adding new codes requires spec amendment per §1.7; consolidate to existing codes where possible).
+  - **Step 3**: Replace inline strings with `messageFor(code).crewFacing` (or `dougFacing` per surface).
+- **Commit**: `refactor(messages): route inline error strings through messageFor (M5-D8)`
+
+#### C7 close-out — impeccable §12 dual gate
+
+---
+
+### Cluster C8 — A11y batch (M5-D6)
+
+#### Task 9.M5-D6 — Five batched P2/P3 a11y polish items
+
+- **Files** (per DEFERRED.md M5-D6):
+  1. `components/messages/ErrorExplainer.tsx:93-98` — style `<details>` UA marker or `list-style: none` reset.
+  2. `app/auth/sign-in/SignInButton.tsx:118-145` — `aria-describedby` linking inline error to button.
+  3. `components/admin/AlertBanner.tsx` — consider `aria-atomic="true"` (AlertBanner is already C4-touched; verify D6 item #3 is still pending at this point — may be resolved in C4 already).
+  4. `app/show/[slug]/p/Bootstrap.tsx` — `aria-live` on state-transition region.
+  5. `app/auth/sign-in/page.tsx` — `aria-labelledby` on `<header>`.
+- **AC**: M9 deferral closure / AC-9.X.
+- **TDD checklist**: per-item Playwright a11y axe-rule assertion OR component-level unit test with `@testing-library/jest-dom`'s `toHaveAttribute`. One task, five sub-commits OR one batched commit per AGENTS.md §1.6 (the items share a theme — accessibility batch — so one commit is acceptable).
+- **Commit**: `refactor(a11y): batched P2/P3 a11y polish (M5-D6)`
+
+#### C8 close-out — impeccable §12 dual gate (audit-dominant)
+
+---
+
+### Cluster C9 — Admin allow-list runtime-mutable (M2-D1, large; spec amendment + DB migration + UI)
+
+**Sub-brainstorming session REQUIRED for spec amendment.** **Sub-shape session REQUIRED for the UI.** This cluster has the biggest cross-cutting surface (RLS via `public.is_admin()` touches 21 admin-gated tables).
+
+**Implementation discovery (recorded 2026-05-12 at Task 9.0 close):**
+- The current admin allow-list is HARDCODED IN A POSTGRES MIGRATION (`supabase/migrations/20260501002000_rls_policies.sql:30-36`, the `public.is_admin()` function), NOT env-driven. The `ADMIN_EMAILS` env var listed at spec §14.3:3290 and `.env.local.example:26` is **NOT consumed by any code path**. DEFERRED.md M2-D1 description has been corrected to reflect this.
+- 21 admin-gated tables (per M2-D2) consume `public.is_admin()` via RLS policies. C9's migration must preserve identical semantics post-cutover.
+
+#### Task 9.C9.0 — Spec amendment `superpowers:brainstorming` session
+
+- **Output**: `docs/superpowers/specs/amendments/2026-05-12-admin-allowlist-runtime-mutable.md` (NEW).
+- **Amendment text MUST specify**:
+  - Retirement of the hardcoded `array['dlarson@fxav.net', 'edweiss412@gmail.com']` in `public.is_admin()`.
+  - New `admin_emails` table contract: `(email text primary key, added_by uuid references auth.users(id), added_at timestamptz not null default now, revoked_at timestamptz, revoked_by uuid references auth.users(id), revoked_reason text)`. Email column ALWAYS canonicalized via `public.canonicalize_email()` (per AGENTS.md §1.3 invariant).
+  - Updated `public.is_admin()` reads from `admin_emails WHERE revoked_at IS NULL` (table lookup replaces array).
+  - Initial seed migration writes `INSERT INTO admin_emails (email, added_by, added_at) VALUES ('dlarson@fxav.net', null, now), ('edweiss412@gmail.com', null, now)` — preserves identical post-migration semantics with zero-downtime cutover.
+  - **`INITIAL_ADMIN_EMAIL` env var (NEW)** consumed by the seed migration ONCE on first deploy IF `admin_emails` is empty AND env var is set; default behavior on existing deployments uses the literal seed `(dlarson, edweiss)`.
+  - The `ADMIN_EMAILS` env var listed at §14.3:3290 is **deleted from the spec** (retiring zombie config per AGENTS.md "Flag lifecycle table" guidance).
+  - Audit trail: `admin_email_changes` table OR re-use existing `admin_alerts` with `ADMIN_EMAIL_ADDED` / `ADMIN_EMAIL_REVOKED` producer codes — decide in the brainstorming session.
+  - RLS for `admin_emails` table: `is_admin()` for SELECT/INSERT/UPDATE; advisory-lock decision (per AGENTS.md §1.2 — `admin_emails` is NOT in the §1.2 invariant list of `{shows, crew_members, crew_member_auth, pending_syncs, pending_ingestions}`, so advisory locks default to N/A; brainstorming may add `admin_emails` to a separate per-table lock contract if desired).
+  - Performance: `public.is_admin()` is called in EVERY RLS check; table-lookup vs constant-array cost differential. Brainstorming evaluates: (a) function STABILITY = stable (same query plan); (b) add an index on `admin_emails(email) WHERE revoked_at IS NULL`; (c) measure baseline RPS impact on a seeded fixture.
+- **Adversarial review**: per `feedback_adversarial_review_canonical_invocation.md`, the amendment goes through `/codex:adversarial-review --scope branch` before ratification. Single-round expected (small amendment).
+- **Commit (amendment)**: `docs(spec): §14.3 amendment — admin allow-list runtime-mutable (M2-D1)` — single commit landing the amendment file + ratification record.
+
+#### Task 9.C9.1 — Migration: `admin_emails` table + replacement `is_admin()` + seed
+
+- **Files**: `supabase/migrations/2026XXXX_admin_emails_runtime_mutable.sql` (NEW); update `supabase/seed.ts` if it touches admin state.
+- **AC**: M9 deferral closure / AC-9.X.
+- **Pre-task code-verification**: re-grep `is_admin()` callsites; confirm M2-D2's 21-table list is still accurate (the spec/plan should be authoritative, but verify by running `tests/db/schema-introspection.test.ts`).
+- **TDD checklist**:
+  - **Step 1**: Failing migration test — `tests/db/admin-emails.test.ts` (NEW): (a) table exists with the schema from the amendment; (b) `public.is_admin()` returns true for an `admin_emails` row with `revoked_at IS NULL` AND the auth-jwt email canonicalized matches; (c) returns false after `revoked_at` is set; (d) returns false for an email not in the table; (e) `app_metadata.role = 'admin'` path STILL works (preserves the JWT-based admin override per `is_admin()` line 30).
+  - **Step 2**: Migration writes the table + replacement `is_admin()` + initial seed.
+  - **Step 3**: Run the 21-table RLS introspection test (`tests/db/schema-introspection.test.ts`) — assert zero drift in policies.
+  - **Step 4**: Performance smoke — run a seeded query against an admin-gated table; assert response time is within 10% of pre-migration baseline (collect baseline via `pnpm dlx supabase db reset` against pre-migration HEAD, run query, record; then apply migration, re-run).
+  - **Step 5**: Idempotency — `pnpm dlx supabase db reset` twice in a row produces identical schema.
+- **Commit**: `feat(db): admin_emails table + runtime-mutable is_admin() (M2-D1)`
+
+#### Task 9.C9.2 — `/impeccable shape <admin-allowlist-UI>` sub-session
+
+- **Output**: brief at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/shape-sessions/2026-05-12-admin-allowlist-UI.md`.
+- **Brief content**: add/revoke flows; admin email confirmation pattern (two-tap or password re-prompt for the revoke path); audit-trail rendering on the page; how the page is reached (`/admin/settings/admins` per DEFERRED.md M2-D1 recommendation).
+- **Commit**: `docs(plan): C9 admin-allowlist UI shape brief (M2-D1)`
+
+#### Task 9.C9.3 — `/admin/settings/admins` page + Server Actions
+
+- **Files**: `app/admin/settings/admins/page.tsx` (NEW); `app/admin/settings/admins/_actions.ts` (NEW — `addAdmin`, `revokeAdmin` Server Actions); `lib/data/adminEmails.ts` (NEW — typed query helpers).
+- **AC**: M9 deferral closure / AC-9.X.
+- **Supabase call-boundary discipline (§1.9)**: every helper in `lib/data/adminEmails.ts` destructures `{ data, error }`; infra faults surface as typed `AdminEmailsInfraError`; register helpers in `tests/auth/_metaInfraContract.test.ts` (extend per §13 below).
+- **Email canonicalization (§1.3)**: every add/revoke call passes through `lib/email/canonicalize.ts` BEFORE the DB INSERT/UPDATE. Add a row to `tests/admin/no-inline-email-normalization.test.ts` to enforce.
+- **TDD checklist**:
+  - **Step 1**: Failing tests:
+    - (a) Adding a new admin's canonicalized email lands a row; subsequent `is_admin()` returns true for that email.
+    - (b) Revoking sets `revoked_at` to now AND `revoked_by` to the actor; `is_admin()` returns false for that email; the row is preserved (audit trail).
+    - (c) Adding an already-active admin email is a no-op (idempotent) — does NOT raise an error.
+    - (d) Adding a revoked email re-activates it (clears `revoked_at`) — confirm in the brainstorming session whether this is the desired UX OR a fresh row is appended.
+    - (e) Non-admin attempting to call the Server Actions gets 403 via `requireAdmin()`.
+    - (f) The page renders the canonical admin list with `revoked_at IS NULL` filtered (or shows revoked entries under a "Revoked" header per brief).
+  - **Step 2**: Implement Server Actions + page per brief.
+  - **Step 3**: Spec-check every UI copy string against the C9.0 amendment.
+- **Commit**: `feat(admin): /admin/settings/admins page + Server Actions (M2-D1)`
+
+#### C9 close-out — impeccable §12 dual gate
+
+After C9.0 + C9.1 + C9.2 + C9.3 commit, run `/impeccable critique` + `/impeccable audit`. **Spec-check is high-risk** — the UI's add/revoke prompts touch security-signal copy.
+
+---
+
+## A. Task list — summary table
+
+| # | Cluster | Items | Commits (rough) | Pre-req sub-sessions |
+|---|---------|-------|-----------------|----------------------|
+| C0 | Foundation | 9.4 → 9.1 → 9.2 → 9.3 + dual gate | 4-5 | — |
+| C2 | Tokens | M4-D5 + dual gate | 1 | — |
+| C1 | Crew-page IA | C1.0 brief → M4-D2 → M4-D3 → M4-D6 → M4-D4 + dual gate | 5 | `/impeccable shape` |
+| C3 | Auth flow | C3.0 briefs → M5-D1 → M5-D2 → M5-D5 + dual gate | 4 | `/impeccable shape` + `/impeccable animate` |
+| C4 | Admin banner | C4.0 brief → M5-D3 + dual gate | 2 | `/impeccable shape` |
+| C5 | Sign-in brand | M5-D4 + dual gate | 1 | — |
+| C6 | Lightbox motion/sentinel | M7-D5 → M7-D1 → M7-D2 + dual gate | 3 | — |
+| C6b | Lightbox media perf | M7-D3 + dual gate | 1 | — |
+| C6c | Lightbox pinch-zoom | M7-D4 + dual gate | 1 | — |
+| C7 | Inline-error consolidation | M5-D8 + dual gate | 1 | — |
+| C8 | A11y batch | M5-D6 + dual gate | 1 | — |
+| C9 | Admin allow-list | C9.0 amendment → C9.1 migration → C9.2 brief → C9.3 UI + dual gate | 4 | `superpowers:brainstorming` + `/impeccable shape` |
+
+**Total commits (approx)**: 28-30 (including the dual-gate fixup commits where critique/audit findings land).
+
+**Per AGENTS.md §1.6 (one commit per task)**: every numbered task above gets ONE commit subject. Dual-gate fixup commits use `chore(<scope>): impeccable <cluster-letter> findings disposition` form.
 
 ---
 
