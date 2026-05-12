@@ -752,6 +752,16 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "The bug-report recovery path could not conclusively list recent GitHub issues for this idempotency key, so it refused to create a duplicate issue.",
   },
+  REPORT_PIPELINE_FAILED: {
+    code: "REPORT_PIPELINE_FAILED",
+    dougFacing:
+      "The report system hit a server error before it could finish. Please try again in a few minutes.",
+    crewFacing:
+      "The report system hit a server error before it could finish. Please try again in a few minutes.",
+    followUp: "Eric -> inspect report pipeline logs and database connectivity",
+    helpfulContext:
+      "The report route caught a typed infrastructure failure from the report submission or reaper path and returned a cataloged 500 response instead of crashing.",
+  },
   REPORT_HORIZON_EXPIRED: {
     code: "REPORT_HORIZON_EXPIRED",
     dougFacing:

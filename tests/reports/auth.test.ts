@@ -8,6 +8,10 @@ const authMock = vi.hoisted(() => ({
   requireAdmin: vi.fn(async () => {
     throw new Error("forbidden");
   }),
+  requireAdminIdentity: vi.fn(async () => {
+    throw new Error("forbidden");
+  }),
+  roleFlags: ["A1"] as string[],
 }));
 
 vi.mock("@/lib/auth/validateLinkSession", () => ({
@@ -23,6 +27,24 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
     readonly code = "ADMIN_SESSION_LOOKUP_FAILED";
   },
   requireAdmin: authMock.requireAdmin,
+  requireAdminIdentity: authMock.requireAdminIdentity,
+}));
+
+vi.mock("@/lib/supabase/server", () => ({
+  createSupabaseServiceRoleClient: () => ({
+    from: () => ({
+      select: () => ({
+        eq: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({
+              data: { role_flags: authMock.roleFlags },
+              error: null,
+            }),
+          }),
+        }),
+      }),
+    }),
+  }),
 }));
 
 vi.mock("@/lib/reports/submit", async (importOriginal) => {
@@ -55,6 +77,7 @@ describe("POST /api/report auth skeleton", () => {
     authMock.validateLinkSession.mockReset();
     authMock.validateGoogleSession.mockReset();
     authMock.requireAdmin.mockReset();
+    authMock.requireAdminIdentity.mockReset();
     authMock.validateLinkSession.mockResolvedValue({ kind: "continue" });
     authMock.validateGoogleSession.mockResolvedValue({ kind: "continue" });
     authMock.submitReport.mockResolvedValue({
@@ -62,6 +85,8 @@ describe("POST /api/report auth skeleton", () => {
       body: { ok: false, code: "NOT_IMPLEMENTED" },
     });
     authMock.requireAdmin.mockRejectedValue(new Error("forbidden"));
+    authMock.requireAdminIdentity.mockRejectedValue(new Error("forbidden"));
+    authMock.roleFlags = ["A1"];
   });
 
   test("rejects malformed or non-v4 idempotency keys before auth or DB work", async () => {
@@ -78,7 +103,7 @@ describe("POST /api/report auth skeleton", () => {
 
     expect(authMock.validateLinkSession).not.toHaveBeenCalled();
     expect(authMock.validateGoogleSession).not.toHaveBeenCalled();
-    expect(authMock.requireAdmin).not.toHaveBeenCalled();
+    expect(authMock.requireAdminIdentity).not.toHaveBeenCalled();
     expect(authMock.submitReport).not.toHaveBeenCalled();
   });
 
@@ -89,7 +114,7 @@ describe("POST /api/report auth skeleton", () => {
     await expect(response.json()).resolves.toEqual({ ok: false });
     expect(authMock.validateLinkSession).not.toHaveBeenCalled();
     expect(authMock.validateGoogleSession).not.toHaveBeenCalled();
-    expect(authMock.requireAdmin).not.toHaveBeenCalled();
+    expect(authMock.requireAdminIdentity).not.toHaveBeenCalled();
     expect(authMock.submitReport).not.toHaveBeenCalled();
   });
 
@@ -104,7 +129,7 @@ describe("POST /api/report auth skeleton", () => {
     expect(authMock.validateGoogleSession).toHaveBeenCalledWith(expect.any(Request), {
       showId: validBody.show_id,
     });
-    expect(authMock.requireAdmin).toHaveBeenCalledOnce();
+    expect(authMock.requireAdminIdentity).toHaveBeenCalledOnce();
   });
 
   test("continues to downstream 501 stub after link-session success", async () => {
@@ -122,6 +147,6 @@ describe("POST /api/report auth skeleton", () => {
     expect(response.status).toBe(501);
     await expect(response.json()).resolves.toEqual({ ok: false, code: "NOT_IMPLEMENTED" });
     expect(authMock.validateGoogleSession).not.toHaveBeenCalled();
-    expect(authMock.requireAdmin).not.toHaveBeenCalled();
+    expect(authMock.requireAdminIdentity).not.toHaveBeenCalled();
   });
 });

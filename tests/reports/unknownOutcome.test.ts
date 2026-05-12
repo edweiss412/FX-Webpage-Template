@@ -70,7 +70,7 @@ describe("unknown-outcome recovery", () => {
     seedExpiredUnknownOutcomeRow();
     githubMock.findIssueByMarker.mockResolvedValue({ htmlUrl: recoveredUrl });
 
-    const result = await submitReport({ kind: "admin" }, requestBody);
+    const result = await submitReport({ kind: "admin", email: "admin.com" }, requestBody);
 
     expect(result).toEqual({
       status: 200,

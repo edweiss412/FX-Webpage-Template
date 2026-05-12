@@ -97,6 +97,7 @@ describe("report quota reservation", () => {
           source: "link",
           showId,
           crewMemberId,
+          roleFlags: ["A1"],
         },
         {
           idempotency_key: "018f2f4c-8f54-4c28-9f56-f0f1b2c3d4e5",

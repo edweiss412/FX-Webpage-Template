@@ -87,9 +87,9 @@ describe("concurrent expired-lease retries", () => {
   test("only one retry claims the expired lease while the other sees in-flight contention", async () => {
     seedExpiredUnknownOutcomeRow();
 
-    const first = submitReport({ kind: "admin" }, requestBody);
+    const first = submitReport({ kind: "admin", email: "admin.com" }, requestBody);
     await vi.waitFor(() => expect(githubMock.createIssue).toHaveBeenCalledTimes(1));
-    const second = await submitReport({ kind: "admin" }, requestBody);
+    const second = await submitReport({ kind: "admin", email: "admin.com" }, requestBody);
 
     githubMock.gate?.resolve({
       htmlUrl: retryUrl,

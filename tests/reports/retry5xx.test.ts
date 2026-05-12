@@ -27,7 +27,7 @@ const { submitReport } = await import("@/lib/reports/submit");
 
 const showId = "018f2f4c-3333-4333-9333-000000000001";
 const key = "018f2f4c-8f54-4c28-9f56-f0f1b2c3d501";
-const adminIdentity = "admin";
+const adminIdentity = "admin@example.com";
 
 const requestBody = {
   idempotency_key: key,
@@ -66,15 +66,15 @@ describe("5xx retry path", () => {
       });
     githubMock.findIssueByMarker.mockResolvedValue(null);
 
-    const initial = await submitReport({ kind: "admin" }, requestBody);
+    const initial = await submitReport({ kind: "admin", email: adminIdentity }, requestBody);
     expect(initial).toEqual({
       status: 502,
       body: { ok: false, code: "REPORT_LOOKUP_INCONCLUSIVE" },
     });
-    expect(reportRows(key)).toEqual(["admin:admin:A1:"]);
+    expect(reportRows(key)).toEqual(["admin:admin@example.com::"]);
     expect(quotaCount(adminIdentity)).toBe(1);
 
-    const inFlight = await submitReport({ kind: "admin" }, requestBody);
+    const inFlight = await submitReport({ kind: "admin", email: adminIdentity }, requestBody);
     expect(inFlight).toEqual({
       status: 409,
       body: { ok: false, code: "IDEMPOTENCY_IN_FLIGHT" },
@@ -85,7 +85,7 @@ describe("5xx retry path", () => {
 
     expireLease(key);
 
-    const recovered = await submitReport({ kind: "admin" }, requestBody);
+    const recovered = await submitReport({ kind: "admin", email: adminIdentity }, requestBody);
     expect(recovered).toEqual({
       status: 201,
       body: {
@@ -97,7 +97,7 @@ describe("5xx retry path", () => {
     expect(githubMock.findIssueByMarker).toHaveBeenCalledTimes(1);
     expect(githubMock.createIssue).toHaveBeenCalledTimes(2);
     expect(reportRows(key)).toEqual([
-      "admin:admin:A1:https://github.com/edweiss412/FX-Webpage-Template/issues/retry-5xx",
+      "admin:admin@example.com::https://github.com/edweiss412/FX-Webpage-Template/issues/retry-5xx",
     ]);
     expect(quotaCount(adminIdentity)).toBe(1);
   });

@@ -34,7 +34,7 @@ describe("state-gated report alert reconciliation", () => {
       { pattern: /SELECT show_id,\s*github_issue_url/, rows: [{ show_id: showId, github_issue_url: recoveredUrl, lease_live: false, within_horizon: true }] },
     ]);
 
-    const result = await resolveStateGatedAlert(db, { kind: "admin" }, key, {
+    const result = await resolveStateGatedAlert(db, { kind: "admin", email: "admin.com" }, key, {
       alertCode: "REPORT_LOOKUP_INCONCLUSIVE",
       responseCode: "REPORT_LOOKUP_INCONCLUSIVE",
       responseStatus: 502,
@@ -57,7 +57,7 @@ describe("state-gated report alert reconciliation", () => {
       { pattern: /INSERT INTO admin_alerts[\s\S]*VALUES \(\$1::uuid, \$2, \$3::jsonb\)/, rows: [] },
     ]);
 
-    const result = await resolveStateGatedAlert(db, { kind: "admin" }, key, {
+    const result = await resolveStateGatedAlert(db, { kind: "admin", email: "admin.com" }, key, {
       alertCode: "REPORT_LEASE_THRASHING",
       responseCode: "REPORT_LEASE_THRASHING",
       responseStatus: 503,

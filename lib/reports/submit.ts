@@ -18,6 +18,9 @@ export type ReporterRoleSnapshot = string | null;
 export type RequestBody = {
   idempotency_key: string;
   show_id: string;
+  showTitle?: string | null;
+  showSlug?: string | null;
+  reporterUrl?: string | null;
   message?: string | null;
   surface?: string | null;
   reporter_role?: ReporterRoleSnapshot;
@@ -33,13 +36,15 @@ export type RequestBody = {
 };
 
 export type ReportAuthContext =
-  | { kind: "admin" }
+  | { kind: "admin"; email: string }
   | {
       kind: "crew";
       source: "link" | "google";
       showId: string;
       crewMemberId: string;
       email?: string;
+      name?: string;
+      roleFlags: string[];
     };
 
 export type SuccessResponse = {
@@ -80,6 +85,30 @@ class QuotaDeniedRollback extends Error {
   }
 }
 
+// not-subject-to-meta: typed error class only; infra behavior is covered by submitReport/handleTailUpdateMiss registry rows.
+export class ReportSubmitInfraError extends Error {
+  readonly operation: "submitReport" | "handleTailUpdateMiss";
+  readonly source = "thrown_error";
+  override readonly cause: unknown;
+
+  constructor(operation: ReportSubmitInfraError["operation"], cause: unknown) {
+    super(`report submission ${operation} failed`);
+    this.name = "ReportSubmitInfraError";
+    this.operation = operation;
+    this.cause = cause;
+  }
+}
+
+type SubmitReportSql = {
+  begin: <T>(fn: (tx: { unsafe: (sql: string, params?: never[]) => Promise<unknown[]> }) => Promise<T>) => Promise<T>;
+  unsafe: (sql: string, params?: never[]) => Promise<unknown[]>;
+  end: (opts?: { timeout?: number }) => Promise<void>;
+};
+
+type SubmitReportDeps = {
+  sql?: SubmitReportSql;
+};
+
 function databaseUrl(): string {
   const configured = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
   if (configured) return configured;
@@ -105,7 +134,7 @@ function reporterFor(auth: ReportAuthContext): {
   reportedBy: string;
 } {
   if (auth.kind === "admin") {
-    return { kind: "admin", identity: "admin", reportedByKind: "admin", reportedBy: "admin" };
+    return { kind: "admin", identity: auth.email, reportedByKind: "admin", reportedBy: auth.email };
   }
   return {
     kind: "crew",
@@ -113,6 +142,11 @@ function reporterFor(auth: ReportAuthContext): {
     reportedByKind: "crew",
     reportedBy: auth.crewMemberId,
   };
+}
+
+function reporterRoleSnapshot(auth: ReportAuthContext): ReporterRoleSnapshot {
+  if (auth.kind === "admin") return null;
+  return auth.roleFlags.length > 0 ? auth.roleFlags.join(",") : "none";
 }
 
 function successBody(
@@ -176,6 +210,112 @@ function reportContext(body: RequestBody): Record<string, unknown> {
   };
 }
 
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "Not captured";
+  if (typeof value === "string") return value;
+  return JSON.stringify(value, null, 2);
+}
+
+function formatWarnings(value: unknown[] | null | undefined): string {
+  if (!Array.isArray(value) || value.length === 0) return "- None captured";
+  return value.map((warning) => `- ${formatValue(warning).replaceAll("\n", "\n  ")}`).join("\n");
+}
+
+function quoteMessage(message: string | null | undefined): string {
+  const text = message?.trim();
+  if (!text) return "> No freeform note provided.";
+  return text
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+}
+
+function showLine(body: RequestBody): string {
+  const title = body.showTitle?.trim();
+  const slug = body.showSlug?.trim();
+  if (title && slug) return `${title} (\`${slug}\`) — ${body.show_id}`;
+  if (title) return `${title} — ${body.show_id}`;
+  if (slug) return `\`${slug}\` — ${body.show_id}`;
+  return body.show_id;
+}
+
+function driveFileIdFromFieldRef(fieldRef: RequestBody["fieldRef"]): string | null {
+  if (!fieldRef || typeof fieldRef !== "object") return null;
+  const value = fieldRef.driveFileId ?? fieldRef.drive_file_id;
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+// not-subject-to-meta: pure markdown formatter; no Supabase, database, or GitHub call.
+export function buildAdminIssueBody(
+  auth: Extract<ReportAuthContext, { kind: "admin" }>,
+  body: RequestBody,
+  reporterRole: ReporterRoleSnapshot,
+): string {
+  const driveFileId = driveFileIdFromFieldRef(body.fieldRef);
+  return [
+    `**Reported by:** ${auth.email}`,
+    `**Show:** ${showLine(body)}`,
+    `**Surface:** ${body.surface ?? "unknown"}`,
+    `**Crew context:** ${formatValue(body.crewPreview)}`,
+    `**Reporter role snapshot:** ${reporterRole ?? "N/A - admin submission"}`,
+    `**Field/section ref:** ${formatValue(body.fieldRef)}`,
+    "",
+    "**Parse warnings (this section):**",
+    "",
+    formatWarnings(body.parseWarnings),
+    "",
+    "**Doug's note:**",
+    "",
+    quoteMessage(body.message),
+    "",
+    "**Raw snippet:**",
+    "",
+    "```",
+    body.rawSnippet ?? "Not captured",
+    "```",
+    "",
+    `**Last sync:** ${body.lastSyncTimestamp ?? "Not captured"}`,
+    `**Drive file ID:** ${driveFileId ?? "Not captured"}`,
+    `**User agent:** ${body.userAgent ?? "Not captured"}`,
+    `**Reporter URL:** ${body.reporterUrl ?? "Not captured"}`,
+    "",
+    `<!-- fxav-report-id: ${body.idempotency_key} -->`,
+  ].join("\n");
+}
+
+// not-subject-to-meta: pure markdown formatter; no Supabase, database, or GitHub call.
+export function buildCrewIssueBody(
+  auth: Extract<ReportAuthContext, { kind: "crew" }>,
+  body: RequestBody,
+  reporterRole: ReporterRoleSnapshot,
+): string {
+  const driveFileId = driveFileIdFromFieldRef(body.fieldRef);
+  void auth;
+  return [
+    `**Reported by:** crew member of \`${body.showSlug ?? body.show_id}\` (role flags: \`${reporterRole ?? "none"}\`)`,
+    "_(Reporter identity intentionally NOT included; Eric can look up via `reports.id` if needed.)_",
+    "",
+    `**Show:** ${showLine(body)}`,
+    `**Surface:** ${body.surface ?? "crew page footer report"}`,
+    `**Section being viewed:** ${body.viewerVisibleSection ?? "Not captured"}`,
+    "",
+    "**Crew member's note:**",
+    "",
+    quoteMessage(body.message),
+    "",
+    "**Page state at submission:**",
+    "",
+    `- Right Now state: ${formatValue(body.rightNowState).replaceAll("\n", " ")}`,
+    `- Last sync: ${body.lastSyncTimestamp ?? "Not captured"}`,
+    `- Stale tier: ${body.staleTier ?? "Not captured"}`,
+    `- User agent: ${body.userAgent ?? "Not captured"}`,
+    "",
+    `**Show drive file ID:** ${driveFileId ?? "Not captured"}`,
+    "",
+    `<!-- fxav-report-id: ${body.idempotency_key} -->`,
+  ].join("\n");
+}
+
 function issueInput(auth: ReportAuthContext, body: RequestBody): {
   title: string;
   body: string;
@@ -183,18 +323,13 @@ function issueInput(auth: ReportAuthContext, body: RequestBody): {
 } {
   const reporterLabel = auth.kind === "admin" ? "reporter:admin" : "reporter:crew";
   const areaLabel = auth.kind === "admin" ? "area:parser" : "area:render";
-  const lines = [
-    `Surface: ${body.surface ?? "unknown"}`,
-    "",
-    body.message ?? "",
-    "",
-    `Show ID: ${body.show_id}`,
-    `Reporter kind: ${auth.kind}`,
-    `<!-- fxav-report-id: ${body.idempotency_key} -->`,
-  ];
+  const reporterRole = reporterRoleSnapshot(auth);
   return {
     title: `Bug report: ${body.surface ?? "unknown"}`,
-    body: lines.join("\n"),
+    body:
+      auth.kind === "admin"
+        ? buildAdminIssueBody(auth, body, reporterRole)
+        : buildCrewIssueBody(auth, body, reporterRole),
     labels: ["bug-report", reporterLabel, areaLabel],
   };
 }
@@ -214,7 +349,7 @@ async function reserveReport(
     showId: body.show_id,
     reportedByKind: reporter.reportedByKind,
     reportedBy: reporter.reportedBy,
-    reporterRole: body.reporter_role ?? null,
+    reporterRole: reporterRoleSnapshot(auth),
     context: reportContext(body),
     message: body.message ?? null,
     leaseHolder,
@@ -617,106 +752,118 @@ export async function handleTailUpdateMiss(
   myLeaseHolder: string,
   fallbackShowId: string | null,
 ): Promise<SubmitReportResult> {
-  const { rows } = await db.query(
-    `SELECT github_issue_url, show_id
-       FROM reports
-      WHERE idempotency_key = $1::uuid`,
-    [key],
-  );
-  const row = rows[0] as { github_issue_url: string | null; show_id: string | null } | undefined;
-  if (row?.github_issue_url === newIssue.htmlUrl) {
-    return { status: 200, body: successBody(auth, "recovered", newIssue.htmlUrl) };
-  }
-
-  let orphanCloseFailure: { name: string; message: string } | null = null;
   try {
-    await closeIssueAsOrphan(newIssue);
-  } catch (error) {
-    orphanCloseFailure = {
-      name: error instanceof Error ? error.name : "UnknownError",
-      message: error instanceof Error ? error.message : String(error),
-    };
-  }
-  await db.query(
-    `INSERT INTO admin_alerts (show_id, code, context)
-     VALUES ($1, 'REPORT_ORPHANED_LOST_LEASE', $2::jsonb)
-     ON CONFLICT (coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL
-     DO UPDATE SET
-       last_seen_at = now(),
-       occurrence_count = admin_alerts.occurrence_count + 1,
-       context = EXCLUDED.context`,
-    [
-      row?.show_id ?? fallbackShowId,
-      {
-        idempotency_key: key,
-        orphan_url: newIssue.htmlUrl,
-        orphan_issue_number: newIssue.issueNumber,
-        lease_holder: myLeaseHolder,
-        row_reaped: !row,
-        stored_url: row?.github_issue_url ?? null,
-        orphan_close_failed: orphanCloseFailure !== null,
-        orphan_close_error: orphanCloseFailure,
-      },
-    ],
-  );
+    const { rows } = await db.query(
+      `SELECT github_issue_url, show_id
+         FROM reports
+        WHERE idempotency_key = $1::uuid`,
+      [key],
+    );
+    const row = rows[0] as { github_issue_url: string | null; show_id: string | null } | undefined;
+    if (row?.github_issue_url === newIssue.htmlUrl) {
+      return { status: 200, body: successBody(auth, "recovered", newIssue.htmlUrl) };
+    }
 
-  if (!row) return { status: 410, body: { ok: false, code: "REPORT_HORIZON_EXPIRED" } };
-  if (row.github_issue_url) {
-    return { status: 200, body: successBody(auth, "recovered", row.github_issue_url) };
+    let orphanCloseFailure: { name: string; message: string } | null = null;
+    try {
+      await closeIssueAsOrphan(newIssue);
+    } catch (error) {
+      orphanCloseFailure = {
+        name: error instanceof Error ? error.name : "UnknownError",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+    await db.query(
+      `INSERT INTO admin_alerts (show_id, code, context)
+       VALUES ($1, 'REPORT_ORPHANED_LOST_LEASE', $2::jsonb)
+       ON CONFLICT (coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL
+       DO UPDATE SET
+         last_seen_at = now(),
+         occurrence_count = admin_alerts.occurrence_count + 1,
+         context = EXCLUDED.context`,
+      [
+        row?.show_id ?? fallbackShowId,
+        {
+          idempotency_key: key,
+          orphan_url: newIssue.htmlUrl,
+          orphan_issue_number: newIssue.issueNumber,
+          lease_holder: myLeaseHolder,
+          row_reaped: !row,
+          stored_url: row?.github_issue_url ?? null,
+          orphan_close_failed: orphanCloseFailure !== null,
+          orphan_close_error: orphanCloseFailure,
+        },
+      ],
+    );
+
+    if (!row) return { status: 410, body: { ok: false, code: "REPORT_HORIZON_EXPIRED" } };
+    if (row.github_issue_url) {
+      return { status: 200, body: successBody(auth, "recovered", row.github_issue_url) };
+    }
+    return { status: 409, body: { ok: false, code: "IDEMPOTENCY_IN_FLIGHT" } };
+  } catch (cause) {
+    if (cause instanceof ReportSubmitInfraError) throw cause;
+    throw new ReportSubmitInfraError("handleTailUpdateMiss", cause);
   }
-  return { status: 409, body: { ok: false, code: "IDEMPOTENCY_IN_FLIGHT" } };
 }
 
 export async function submitReport(
   auth: ReportAuthContext,
   body: RequestBody,
+  deps: SubmitReportDeps = {},
 ): Promise<SubmitReportResult> {
-  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+  const sql =
+    deps.sql ?? (postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false }) as SubmitReportSql);
   try {
-    let reservation: ReservationResult;
     try {
-      reservation = await sql.begin(async (tx) => reserveReport(postgresAdapter(tx), auth, body));
-    } catch (cause) {
-      if (cause instanceof QuotaDeniedRollback) return quotaDeniedResponse(reporterFor(auth).kind);
-      throw cause;
-    }
+      let reservation: ReservationResult;
+      try {
+        reservation = await sql.begin(async (tx) => reserveReport(postgresAdapter(tx), auth, body));
+      } catch (cause) {
+        if (cause instanceof QuotaDeniedRollback) return quotaDeniedResponse(reporterFor(auth).kind);
+        throw cause;
+      }
 
-    if (reservation.state === "duplicate") {
-      return { status: 200, body: successBody(auth, "duplicate", reservation.url) };
-    }
-    if (reservation.state === "in_flight") {
-      return inFlightResponse();
-    }
-    if (reservation.state === "expired_pending_recovery") {
-      return await expiredLeaseRetry(postgresAdapter(sql), auth, body);
-    }
+      if (reservation.state === "duplicate") {
+        return { status: 200, body: successBody(auth, "duplicate", reservation.url) };
+      }
+      if (reservation.state === "in_flight") {
+        return inFlightResponse();
+      }
+      if (reservation.state === "expired_pending_recovery") {
+        return await expiredLeaseRetry(postgresAdapter(sql), auth, body);
+      }
 
-    let issue: CreatedIssue;
-    try {
-      issue = await createIssue(issueInput(auth, body));
-    } catch {
-      return { status: 502, body: { ok: false, code: "REPORT_LOOKUP_INCONCLUSIVE" } };
-    }
+      let issue: CreatedIssue;
+      try {
+        issue = await createIssue(issueInput(auth, body));
+      } catch {
+        return { status: 502, body: { ok: false, code: "REPORT_LOOKUP_INCONCLUSIVE" } };
+      }
 
-    const db = postgresAdapter(sql);
-    const wroteUrl = await writeIssueUrl(
-      db,
-      body.idempotency_key,
-      issue.htmlUrl,
-      reservation.leaseHolder,
-    );
-    if (!wroteUrl) {
-      return await handleTailUpdateMiss(
+      const db = postgresAdapter(sql);
+      const wroteUrl = await writeIssueUrl(
         db,
-        auth,
         body.idempotency_key,
-        issue,
+        issue.htmlUrl,
         reservation.leaseHolder,
-        body.show_id,
       );
-    }
+      if (!wroteUrl) {
+        return await handleTailUpdateMiss(
+          db,
+          auth,
+          body.idempotency_key,
+          issue,
+          reservation.leaseHolder,
+          body.show_id,
+        );
+      }
 
-    return { status: 201, body: successBody(auth, "created", issue.htmlUrl) };
+      return { status: 201, body: successBody(auth, "created", issue.htmlUrl) };
+    } catch (cause) {
+      if (cause instanceof ReportSubmitInfraError) throw cause;
+      throw new ReportSubmitInfraError("submitReport", cause);
+    }
   } finally {
     await sql.end({ timeout: 5 });
   }

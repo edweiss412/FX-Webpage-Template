@@ -90,7 +90,7 @@ describe("lookup-inconclusive fail-closed recovery", () => {
       new LookupInconclusive("PAGINATION_ERROR", "page 3 failed"),
     );
 
-    const result = await submitReport({ kind: "admin" }, requestBody);
+    const result = await submitReport({ kind: "admin", email: "admin.com" }, requestBody);
 
     expect(result).toEqual({
       status: 502,
@@ -106,7 +106,7 @@ describe("lookup-inconclusive fail-closed recovery", () => {
       new LookupInconclusive("BOT_LOGIN_MISSING", "GITHUB_BOT_LOGIN env var is unset"),
     );
 
-    const result = await submitReport({ kind: "admin" }, requestBody);
+    const result = await submitReport({ kind: "admin", email: "admin.com" }, requestBody);
 
     expect(result).toEqual({
       status: 502,

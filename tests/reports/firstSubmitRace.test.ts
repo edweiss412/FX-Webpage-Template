@@ -69,11 +69,11 @@ describe("first-submit idempotency race", () => {
 
   test("same brand-new idempotency key creates one row and one GitHub issue", async () => {
     const first = submitReport(
-      { kind: "crew", source: "link", showId, crewMemberId },
+      { kind: "crew", source: "link", showId, crewMemberId, roleFlags: ["A1"] },
       requestBody,
     );
     const second = submitReport(
-      { kind: "crew", source: "link", showId, crewMemberId },
+      { kind: "crew", source: "link", showId, crewMemberId, roleFlags: ["A1"] },
       requestBody,
     );
 

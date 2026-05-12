@@ -15,7 +15,9 @@
  * requires `experimental.authInterrupts: true` in next.config.ts — set in M3).
  *
  * `requireAdmin(): Promise<void>` signature stays stable so downstream
- * callers (page, actions, future API routes) don't churn.
+ * callers (page, actions, future API routes) don't churn. Report submission
+ * uses `requireAdminIdentity()` so reports.reported_by can store the
+ * canonical admin email required by §13.2.3 / AC-8.2.
  */
 import { forbidden } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -45,7 +47,9 @@ export class AdminInfraError extends Error {
   }
 }
 
-export async function requireAdmin(): Promise<void> {
+export type AdminIdentity = { email: string };
+
+export async function requireAdminIdentity(): Promise<AdminIdentity> {
   // Auth gate: ask Postgres' is_admin() helper. Reading via the cookie-bound
   // client means RLS-side helpers see the same auth.jwt() the rest of the
   // request would. Empty cookies → unauthenticated → fail closed before RPC.
@@ -113,4 +117,10 @@ export async function requireAdmin(): Promise<void> {
     // Confirmed non-admin — auth-level denial.
     forbidden();
   }
+
+  return { email };
+}
+
+export async function requireAdmin(): Promise<void> {
+  await requireAdminIdentity();
 }

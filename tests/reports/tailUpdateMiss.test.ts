@@ -68,7 +68,7 @@ describe("handleTailUpdateMiss orphan cleanup", () => {
   test("does not close the live recovered issue when the row URL equals this worker's issue", async () => {
     const { db, calls } = fakeDb({ github_issue_url: myIssue.htmlUrl, show_id: showA });
 
-    const result = await handleTailUpdateMiss(db, { kind: "admin" }, key, myIssue, leaseHolder, showA);
+    const result = await handleTailUpdateMiss(db, { kind: "admin", email: "admin.com" }, key, myIssue, leaseHolder, showA);
 
     expect(result).toEqual({
       status: 200,
@@ -82,7 +82,7 @@ describe("handleTailUpdateMiss orphan cleanup", () => {
     const winningUrl = "https://github.com/edweiss412/FX-Webpage-Template/issues/12";
     const { db, calls } = fakeDb({ github_issue_url: winningUrl, show_id: showA });
 
-    const result = await handleTailUpdateMiss(db, { kind: "admin" }, key, myIssue, leaseHolder, showB);
+    const result = await handleTailUpdateMiss(db, { kind: "admin", email: "admin.com" }, key, myIssue, leaseHolder, showB);
 
     expect(result).toEqual({
       status: 200,
@@ -105,7 +105,7 @@ describe("handleTailUpdateMiss orphan cleanup", () => {
   test("closes this worker's issue, alerts, and returns 409 when the row still has no URL", async () => {
     const { db, calls } = fakeDb({ github_issue_url: null, show_id: showA });
 
-    const result = await handleTailUpdateMiss(db, { kind: "admin" }, key, myIssue, leaseHolder, showB);
+    const result = await handleTailUpdateMiss(db, { kind: "admin", email: "admin.com" }, key, myIssue, leaseHolder, showB);
 
     expect(result).toEqual({ status: 409, body: { ok: false, code: "IDEMPOTENCY_IN_FLIGHT" } });
     expect(githubMock.closeIssueAsOrphan).toHaveBeenCalledWith(myIssue);
@@ -118,7 +118,7 @@ describe("handleTailUpdateMiss orphan cleanup", () => {
   test("closes this worker's issue and preserves fallback show keying when the row was reaped", async () => {
     const { db, calls } = fakeDb(null);
 
-    const result = await handleTailUpdateMiss(db, { kind: "admin" }, key, myIssue, leaseHolder, showB);
+    const result = await handleTailUpdateMiss(db, { kind: "admin", email: "admin.com" }, key, myIssue, leaseHolder, showB);
 
     expect(result).toEqual({ status: 410, body: { ok: false, code: "REPORT_HORIZON_EXPIRED" } });
     expect(githubMock.closeIssueAsOrphan).toHaveBeenCalledWith(myIssue);
@@ -133,7 +133,7 @@ describe("handleTailUpdateMiss orphan cleanup", () => {
     const winningUrl = "https://github.com/edweiss412/FX-Webpage-Template/issues/13";
     const { db, calls } = fakeDb({ github_issue_url: winningUrl, show_id: showA });
 
-    const result = await handleTailUpdateMiss(db, { kind: "admin" }, key, myIssue, leaseHolder, showB);
+    const result = await handleTailUpdateMiss(db, { kind: "admin", email: "admin.com" }, key, myIssue, leaseHolder, showB);
 
     expect(result).toEqual({
       status: 200,
