@@ -516,3 +516,18 @@ The four create / extend rows above are mandatory at M8 close. Empty rows silent
 ## Convergence log
 
 _(Append here after impeccable evaluation closes and adversarial review begins.)_
+
+### §A backend pre-reconvergence review (Codex implementer → Claude reviewer)
+
+- **Base:** `badbb15` (M6.5 close / scoped M8 implementation baseline).
+- **Round 1 verdict:** `NEEDS_ATTENTION`.
+  - HIGH — `lib/reports/submit.ts` `handleLookupInconclusive` collapsed the plan-mandated 2-gate state-gated alert flow by ignoring the `upsertStateGatedLookupAlert` boolean and returning false 502s.
+  - HIGH — `lib/reports/submit.ts` depth-3 `REPORT_LEASE_THRASHING` path had the same single-gate collapse and could return false 503s.
+  - MEDIUM — `lib/github/issues.ts` defaulted missing `GITHUB_REPO` to `edweiss412/FX-Webpage-Template` instead of failing closed.
+- **Fix SHA:** `bb520af` (`fix(reports): close state-gated alert review findings`).
+  - Added shared `resolveStateGatedAlert` first-gate → redispatch → second-gate → redispatch → unconditional `raced_back_twice` fallback.
+  - Routed both lookup-inconclusive and lease-thrashing producers through the shared helper.
+  - Removed the hardcoded GitHub repo fallback and added fail-closed coverage for missing `GITHUB_REPO`.
+  - Added regression coverage in `tests/reports/stateGatedAlert.test.ts`, `tests/github/issues.test.ts`, `tests/reports/_amendmentContractMetaTest.test.ts`, and `tests/reports/_metaInfraContract.test.ts`.
+- **Round 2 verdict:** `APPROVED` (`Findings: none`).
+- **Verification at approval:** `pnpm test && pnpm lint && pnpm typecheck && pnpm verify:spec-amendment` passed. Lint emitted only the pre-existing Next `<img>` warnings in `components/diagrams/Gallery.tsx` and `components/diagrams/GalleryLightbox.tsx`.
