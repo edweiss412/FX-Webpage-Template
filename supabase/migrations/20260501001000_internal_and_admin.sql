@@ -322,6 +322,8 @@ create table public.reports (
 );
 create index reports_show_id_idx on public.reports (show_id, created_at desc);
 create index reports_reporter_idx on public.reports (reported_by, created_at desc);
+create index reports_lease_holder_active_idx
+  on public.reports (lease_holder, processing_lease_until) where lease_holder is not null;
 
 create table public.report_rate_limits (
   kind text not null check (kind in ('admin', 'crew')),
