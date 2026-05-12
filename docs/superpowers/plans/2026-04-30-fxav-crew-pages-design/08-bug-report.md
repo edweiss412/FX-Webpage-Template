@@ -53,17 +53,17 @@ This is the smallest TDD slice — auth gate only, no GH integration, no quota, 
 
 The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) DO NOTHING RETURNING id` — NOT `SELECT FOR UPDATE` followed by `INSERT`. The `SELECT FOR UPDATE`-then-`INSERT` pattern has a window where two concurrent first submissions both find no row to lock, both attempt INSERT, and the second hits `unique_violation` (Postgres error 23505) instead of getting an idempotent response. The `INSERT .. ON CONFLICT DO NOTHING` form forces the conflict resolution to happen atomically inside the engine: at most one transaction's INSERT returns a row; the other gets an empty result and falls through to the existing-row branch. This handles the first-submit race correctly without a separate lock dance.
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
   - AC-8.1: admin click → GH issue with §13.2.1 body + `reporter:admin` label.
   - AC-8.2: row recorded with `reported_by_kind='admin'`, populated `github_issue_url`.
   - AC-8.4: crew submission → §13.2.2 body, NO crew name/email in issue, `reporter:crew` label.
   - AC-8.5: row recorded with `reported_by_kind='crew'`, `reported_by=<crew_members.id>`, `reporter_role` snapshot, `github_issue_url` populated.
   - AC-8.9: same `idempotency_key` POSTed twice → same `github_issue_url` returned, no duplicate issue, exactly one `reports` row.
   - **First-submit race test:** spawn two concurrent POSTs with the same brand-new `idempotency_key` against an empty `reports` table. Exactly one `reports` row is INSERTed and exactly one GH issue is created. The "loser" returns `IDEMPOTENCY_IN_FLIGHT` (HTTP 409) while the winner is still mid-call to GitHub OR returns the same URL once the winner finishes. NEITHER request returns 500 with a unique-violation error.
-- [ ] **Step 2: Run** — FAIL.
+- [x] **Step 2: Run** — FAIL.
       **Quota is charged only when an idempotency claim is genuinely won — INSERT first, then quota.** Round 3's draft put quota before INSERT and tried to refund losers via `GREATEST(count - 1, 0)`. The observed that approach still allows a false 429: with `remaining_quota = 1`, two concurrent same-key first submitters both pass the pre-check, both increment quota (one to limit, one to limit+1), and the loser returns 429 at the quota step before reaching the conflict-safe INSERT — even though the request is an idempotent duplicate that should return 200 or 409. The fix: do the INSERT first, and only the actual inserter (the row that returned from `RETURNING`) charges quota inside the same transaction. The loser sees zero rows from the INSERT and falls through to the existing-row dispatch without ever touching the quota counter.
 
-- [ ] **Step 3: Implement** the reserve-then-call flow as INSERT-first, quota-on-claim:
+- [x] **Step 3: Implement** the reserve-then-call flow as INSERT-first, quota-on-claim:
   1. Open transaction.
      **Server response contract:** every terminal success returns `{ ok: true, status: 'created' | 'duplicate' | 'recovered', github_issue_url?: string }`. Admin path includes `github_issue_url`; crew path omits it (privacy §13.2.3). Failure responses return `{ ok: false, code: <message catalog code> }` with the appropriate non-2xx HTTP status.
 
@@ -143,8 +143,8 @@ The reservation-acquisition path uses `INSERT .. ON CONFLICT (idempotency_key) D
   - **Quota-exhausted-rollback:** seed `count = limit`. POST a brand-new idempotency_key. Assert 429 returned, `reports` table has no new row for that key, `report_rate_limits.count = limit` (the 429 ROLLBACK reverted the optimistic increment).
   - **8.3c retry-after-lease-expiry no-recharge:** simulate the GH 5xx scenario where the original submission charges quota and sets the lease but never sets `github_issue_url`. After the lease expires, retry. Assert `report_rate_limits.count` is unchanged (still 1) — the existing-row branch in step 2 short-circuits before quota.
 
-- [ ] **Step 4: Run** — PASS.
-- [ ] **Step 5: Commit** `feat(reports): conflict-safe reservation + first-submit race protection (AC-8.1..8.5, AC-8.9)`.
+- [x] **Step 4: Run** — PASS.
+- [x] **Step 5: Commit** `feat(reports): conflict-safe reservation + first-submit race protection (AC-8.1..8.5, AC-8.9)`.
 
 ### Task 8.3c: 5xx retry path — lock-free search-then-recover (AC-8.11)
 

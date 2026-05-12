@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test } from "vitest";
 
 import { reserveQuota } from "@/lib/reports/rateLimit";
 import { submitReport } from "@/lib/reports/submit";
+import { cleanupReportFixtures, seedShow } from "@/tests/reports/_dbHelpers";
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
@@ -85,26 +86,32 @@ describe("report quota reservation", () => {
 
   test("submitReport maps over-limit crew quota to REPORT_RATE_LIMITED_CREW", async () => {
     const crewMemberId = track("018f2f4c-0000-4000-9000-000000000099");
+    const showId = "018f2f4c-0000-4000-9000-000000000001";
+    seedShow(showId, "m8-quota-submit");
     await Promise.all(Array.from({ length: 3 }, () => reserveQuota("crew", crewMemberId)));
 
-    const result = await submitReport(
-      {
-        kind: "crew",
-        source: "link",
-        showId: "018f2f4c-0000-4000-9000-000000000001",
-        crewMemberId,
-      },
-      {
-        idempotency_key: "018f2f4c-8f54-4c28-9f56-f0f1b2c3d4e5",
-        show_id: "018f2f4c-0000-4000-9000-000000000001",
-        message: "Wrong schedule",
-      },
-    );
+    try {
+      const result = await submitReport(
+        {
+          kind: "crew",
+          source: "link",
+          showId,
+          crewMemberId,
+        },
+        {
+          idempotency_key: "018f2f4c-8f54-4c28-9f56-f0f1b2c3d4e5",
+          show_id: showId,
+          message: "Wrong schedule",
+        },
+      );
 
-    expect(result).toEqual({
-      status: 429,
-      body: { ok: false, code: "REPORT_RATE_LIMITED_CREW" },
-    });
-    expect(currentCount(crewMemberId)).toBe(3);
+      expect(result).toEqual({
+        status: 429,
+        body: { ok: false, code: "REPORT_RATE_LIMITED_CREW" },
+      });
+      expect(currentCount(crewMemberId)).toBe(3);
+    } finally {
+      cleanupReportFixtures(showId, [crewMemberId]);
+    }
   });
 });

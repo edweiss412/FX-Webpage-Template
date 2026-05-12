@@ -24,6 +24,14 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdmin: authMock.requireAdmin,
 }));
 
+vi.mock("@/lib/reports/submit", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/reports/submit")>();
+  return {
+    ...actual,
+    submitReport: async () => ({ status: 501, body: { ok: false, code: "NOT_IMPLEMENTED" } }),
+  };
+});
+
 const { POST } = await import("@/app/api/report/route");
 
 const validBody = {
