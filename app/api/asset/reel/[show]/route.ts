@@ -488,7 +488,9 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
 
     try {
       const revOpts: ReelDriveOptions = { responseType: "stream" };
-      if (rangeHeader) revOpts.headers = { Range: rangeHeader };
+      if (rangeHeader && Number.isFinite(reportedSize)) {
+        revOpts.headers = { Range: rangeHeader };
+      }
       const revRes = (await drive.revisions.get(
         {
           fileId: row.opening_reel_drive_file_id,
@@ -585,7 +587,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
       // fallback (Pattern A revision GC'd / 404) would fail to load
       // entirely. After md5 verify, slice the already-buffered chunks
       // to satisfy the requested range and return 206.
-      if (rangeHeader) {
+      if (rangeHeader && Number.isFinite(reportedSize)) {
         const parsed = parseSingleRange(rangeHeader, result.totalBytes);
         if (parsed === "unsatisfiable") {
           return new Response(null, {

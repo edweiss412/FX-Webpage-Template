@@ -307,7 +307,19 @@ export async function GET(
       });
     }
 
-    const fetchHeaders: HeadersInit = rangeHeader ? { Range: rangeHeader } : {};
+    const fetchHeaders: HeadersInit = {};
+    if (rangeHeader) {
+      const headRes = await fetch(signed.data.signedUrl, { method: "HEAD" });
+      if (!headRes.ok) {
+        if (headRes.status === 404 || headRes.status === 410) return gone();
+        return infraError("DIAGRAM_ASSET_LOOKUP_FAILED");
+      }
+      const upstreamSizeHeader = headRes.headers.get("content-length");
+      const upstreamSize = upstreamSizeHeader ? Number(upstreamSizeHeader) : NaN;
+      if (Number.isFinite(upstreamSize)) {
+        fetchHeaders.Range = rangeHeader;
+      }
+    }
     const fetchRes = await fetch(signed.data.signedUrl, { headers: fetchHeaders });
     if (!fetchRes.ok || !fetchRes.body) {
       // Codex R13 P1: cancel the upstream body on early return so the

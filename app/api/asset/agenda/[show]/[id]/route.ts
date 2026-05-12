@@ -448,7 +448,9 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
         responseType: "stream";
         headers?: Record<string, string>;
       } = { responseType: "stream" };
-      if (rangeHeader) driveOpts.headers = { Range: rangeHeader };
+      if (rangeHeader && Number.isFinite(reportedSize)) {
+        driveOpts.headers = { Range: rangeHeader };
+      }
       const bytesResult = await drive.files.get(
         { fileId: id, alt: "media", supportsAllDrives: true },
         driveOpts,
