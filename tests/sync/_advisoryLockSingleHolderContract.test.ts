@@ -55,6 +55,13 @@ const lockHolderRegistry = [
     key: "hashtext('show:' || drive_file_id)",
   },
   {
+    path: "lib/sync/unpublishShow.ts",
+    holder: "unpublishShow",
+    layer:
+      "resolves slug to drive_file_id before delegating token consumption/link revocation to withShowLock; unpublishShow_unlocked never locks",
+    key: "hashtext('show:' || drive_file_id)",
+  },
+  {
     path: "lib/sync/lockedPromoteTx.ts",
     holder: "withPromoteLock",
     layer: "JS-side transaction wrapper for post-commit storage promotion",
@@ -284,6 +291,11 @@ describe("M6 advisory-lock single-holder contract", () => {
           key: "hashtext('show:' || drive_file_id)",
         }),
         expect.objectContaining({
+          holder: "unpublishShow",
+          layer: expect.stringContaining("withShowLock"),
+          key: "hashtext('show:' || drive_file_id)",
+        }),
+        expect.objectContaining({
           holder: "withPromoteLock",
           key: "hashtext('promote:' || show_id)",
         }),
@@ -315,6 +327,7 @@ describe("M6 advisory-lock single-holder contract", () => {
       ...tsFiles("app/api/admin/sync"),
       ...tsFiles("app/api/admin/staged"),
       ...tsFiles("app/api/admin/snapshot-rollback"),
+      ...tsFiles("app/api/show"),
     ];
     const holders = runtimeSources
       .filter((path) => /\bpg_(?:try_)?advisory_xact_lock\s*\(/i.test(read(path)))

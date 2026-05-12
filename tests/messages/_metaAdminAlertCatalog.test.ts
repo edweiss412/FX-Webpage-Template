@@ -65,6 +65,7 @@ const ADMIN_ALERTS_CODES = [
   "ROLE_FLAGS_NOTICE", //             M6 auto-applied non-LEAD role_flags change
   "SHEET_UNAVAILABLE", //             M6 cron/fetch source missing recovery
   "SHOW_FIRST_PUBLISHED", //          M6.5 first-seen auto-publish confirmation
+  "SHOW_UNPUBLISHED", //              M6.5 unpublish undo confirmation
   "PENDING_SNAPSHOT_PROMOTE_STUCK", // M7 diagram GC promotion-stuck repair signal
   "PENDING_SNAPSHOT_ROLLBACK_STUCK", // M7 promoter rollback-stuck repair signal
   "PENDING_SNAPSHOT_DELETE_STUCK", //   M7 diagram GC delete-stuck repair signal
@@ -129,6 +130,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   SHOW_FIRST_PUBLISHED: {
     path: "lib/sync/runScheduledCronSync.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"SHOW_FIRST_PUBLISHED"/,
+  },
+  SHOW_UNPUBLISHED: {
+    path: "lib/sync/unpublishShow.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"SHOW_UNPUBLISHED"/,
   },
   PENDING_SNAPSHOT_PROMOTE_STUCK: {
     path: "lib/sync/diagramGc.ts",

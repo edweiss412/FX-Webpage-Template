@@ -149,6 +149,18 @@ const infraRegistry = [
     path: "app/api/cron/diagram-gc/route.ts",
     contract: "diagram GC cron route delegates to the registered backend scheduler surface",
   },
+  {
+    helper: "unpublishShow",
+    path: "lib/sync/unpublishShow.ts",
+    contract:
+      "unpublish route uses explicit Postgres transaction boundary; helper faults propagate to route caller",
+  },
+  {
+    helper: "POST",
+    path: "app/api/show/[slug]/unpublish/route.ts",
+    contract:
+      "unpublish route delegates to registered locked backend helper and returns catalog codes only for token state",
+  },
 ] as const;
 
 function read(path: string): string {
