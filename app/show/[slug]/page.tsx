@@ -739,7 +739,12 @@ export default async function ShowPage({ params }: PageProps) {
           })()}
         </section>
       </main>
-      <Footer asOf={null} showId={showId} showSlug={slug} />
+      <Footer
+        asOf={null}
+        showId={showId}
+        showSlug={slug}
+        reportAutocapture={{ rightNowState: rightNowCtx }}
+      />
     </>
   );
 }

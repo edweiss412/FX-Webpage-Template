@@ -246,6 +246,13 @@ export function ReportModal(props: ReportModalProps) {
       message: draft,
       surface,
       ...(autocapture ?? {}),
+      // M8 R1 H2: client-only autocapture fields the server-side page
+      // can't pre-bake. userAgent is always present in a browser context;
+      // autocapture.userAgent (if explicitly set by caller) wins via the
+      // spread order — this fallback only fires when the caller omits it.
+      ...(typeof navigator !== "undefined" && !autocapture?.userAgent
+        ? { userAgent: navigator.userAgent }
+        : {}),
     };
     // 30s default timeout (configurable via submitTimeoutMs prop) — a
     // hung connection cannot leave the modal stuck in `submitting`.

@@ -153,6 +153,40 @@ describe("A. Submit body shape", () => {
     });
   });
 
+  test("auto-attaches navigator.userAgent when autocapture omits userAgent (R1 H2)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201, { ok: true, status: "created" }));
+    const originalUA = navigator.userAgent;
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "FXAVTestAgent/1.0",
+    });
+    try {
+      const { getByTestId } = render(
+        <ReportModal {...defaultProps({ autocapture: { rightNowState: { state: "set-day" } } })} />,
+      );
+      fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "x" } });
+      fireEvent.click(getByTestId("report-modal-submit"));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+      expect(body.userAgent).toBe("FXAVTestAgent/1.0");
+      expect(body.rightNowState).toEqual({ state: "set-day" });
+    } finally {
+      Object.defineProperty(navigator, "userAgent", { configurable: true, value: originalUA });
+    }
+  });
+
+  test("explicit autocapture.userAgent wins over the navigator fallback (R1 H2)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201, { ok: true, status: "created" }));
+    const { getByTestId } = render(
+      <ReportModal {...defaultProps({ autocapture: { userAgent: "caller-set/9.9" } })} />,
+    );
+    fireEvent.change(getByTestId("report-modal-textarea"), { target: { value: "x" } });
+    fireEvent.click(getByTestId("report-modal-submit"));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.userAgent).toBe("caller-set/9.9");
+  });
+
   test("submit is disabled when textarea is empty / whitespace-only", () => {
     const { getByTestId } = render(<ReportModal {...defaultProps()} />);
     const submit = getByTestId("report-modal-submit") as HTMLButtonElement;
