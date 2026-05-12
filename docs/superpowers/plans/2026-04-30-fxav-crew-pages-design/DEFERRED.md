@@ -31,7 +31,7 @@ When picking up a deferred item:
 **Source:** M2 adversarial review, Round 1 advisory note
 **Description:** AC-2.5 tests pin the §4.3 admin-only table list (21 tables × 4 verbs = 84 cells) at schema-introspection time. There is no runtime probe that the _live_ policy set still matches §4.3 after future migrations land. A future migration could silently drop or weaken a policy and current tests wouldn't catch it.
 **Why deferred:** M2's introspection coverage is correct for "what shipped at M2." Runtime drift detection is a separate concern, and the right time to add it is when there are actually multiple migrations in play (M3+).
-**Suggested home:** X.6 (traceability matrix walker) — it already enumerates spec sections, can be extended to assert live-policy parity. Alternatively land it as part of the next M2-touching migration.
+**Suggested home:** **M9 polish — C9 cluster Task 9.C9.0.5 (routed 2026-05-12 at R1 review repair of Task 9.0 commit `00620cb`).** Codex adversarial review of the 9.0 scope commit flagged that C9's `is_admin()` replacement (M2-D1) without a runtime RLS guard would be a structural gap — the exact gap M2-D2 describes. Closure path: Task 9.C9.0.5 creates `tests/db/admin-rls-runtime.test.ts` as a permanent 8N-cell behavioral-parity meta-test (DERIVED from `pg_policies` at runtime). Resolved-SHA backfilled here once C9.0.5 + C9.1 ship.
 
 ### M2-D3 — `transportation.show_id` single-row uniqueness model
 

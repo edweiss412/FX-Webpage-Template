@@ -56,7 +56,13 @@ Of the three ratified §13.2.3 amendments (per `00-overview.md` and `AGENTS.md`)
 
 The other six plan amendments (parser registry / v4 single-marker / Sheets modtime-CAS / MI-8 debounce / MI-9 LEAD-bit / Amendment 9 first-seen auto-publish) are all M1/M6/M6.5 territory; **none apply to M9.** Amendment 9 was resolved in M6.5 at SHA `badbb15` (per `DEFERRED.md` Resolved section).
 
-**Updated 2026-05-12 at 9.0 close** — **ONE new spec amendment IS in M9 scope**: §14.3 admin allow-list mechanism. The 9.0 scope session (Task 9.0 outcome below in §A) routed M2-D1 as a code-driven self-service UI cluster (C9), which requires retiring the migration-hardcoded `is_admin()` array and replacing it with a table-driven mechanism + UI. The amendment text is drafted in C9 Task 9.0.M2-D1.A via `superpowers:brainstorming` BEFORE any C9 implementation work; ratified-by + reasoning land in the amendment file at `docs/superpowers/specs/amendments/2026-05-12-admin-allowlist-runtime-mutable.md`. **If any OTHER finding during convergence requires an amendment, that's a P0 — surface and pause; do not silently fix.** (M8 R2 M2 was almost exactly this — a copy rewrite that contradicted §13.1 — caught by adversarial review, not self-review.)
+**Updated 2026-05-12 at 9.0 close (revised after Round 1 adversarial review at SHA 00620cb)** — **TWO new spec amendments ARE in M9 scope**:
+
+1. **§14.3 admin allow-list mechanism** (C9 cluster prereq). Retires the migration-hardcoded `public.is_admin()` array; replaces with `admin_emails` table lookup + `/admin/settings/admins` UI. Amendment text drafted in C9.0 (`superpowers:brainstorming`) BEFORE C9.1 migration ships; lands at `docs/superpowers/specs/amendments/2026-05-12-admin-allowlist-runtime-mutable.md`.
+
+2. **§12.4 catalog new rows for AGENDA_* crew-facing codes** (M7-D2 task prereq, routes through C0 catalog). Adds `AGENDA_GONE_FOR_CREW` (410, "file removed / non-PDF / drift — non-retry-able") and `AGENDA_UNAUTHENTICATED` (401, "link expired / signed-in user lacks crew binding — suggest reopening Doug's link") to the §12.4 catalog. Amendment drafted in a new C0-prerequisite task **9.0.A1** (`superpowers:brainstorming` session, small scope — two rows + their `helpfulContext`) BEFORE Task 9.4 lands the catalog so 9.4's `messageFor` includes the rows from the start; lands at `docs/superpowers/specs/amendments/2026-05-12-catalog-agenda-codes.md`. **NOTE:** `PARSE_ERROR_LAST_GOOD` (spec line 2721), `SYNC_DELAYED_MODERATE` (line 2837), and `SYNC_DELAYED_SEVERE` (line 2838) are ALREADY in the spec at §12.4 (ratified via prior "Fix 2 spec amendment" referenced in `09-10-admin.md:24`) — Task 9.1 lands them in the catalog but no fresh amendment is required for those.
+
+**If any OTHER finding during convergence requires a third amendment, that's a P0 — surface and pause; do not silently fix.** (M8 R2 M2 was almost exactly this — a copy rewrite that contradicted §13.1 — caught by adversarial review, not self-review.)
 
 ## 4. Pre-handoff state
 
@@ -245,7 +251,7 @@ After Opus finishes implementation:
 
 **(f) C9 admin allow-list vs existing RLS surface (M2-D1, NEW 2026-05-12 at 9.0 close).** C9 replaces the migration-hardcoded `public.is_admin()` array in `supabase/migrations/20260501002000_rls_policies.sql:23-37` with an `admin_emails` table lookup. The 21 admin-gated tables (per M2-D2 unresolved deferral) all consume `is_admin()` via RLS — the C9.1 migration must preserve identical post-cutover semantics. The schema-introspection test `tests/db/schema-introspection.test.ts` is the regression gate; any RLS policy that USED the hardcoded array directly (rather than going through `is_admin()`) breaks the migration. **Pre-task verification**: `grep -rn "dlarson@fxav.net\|edweiss412@gmail.com" supabase/migrations/` to confirm the hardcoded emails appear ONLY in the `is_admin()` function (line 33 of `20260501002000_rls_policies.sql`), NOT in any other policy or function.
 
-> **Recommended disposition:** C9.1 migration includes a pre-migration verification step (grep + test); if hardcoded emails appear in any RLS policy outside `is_admin()`, the migration scope expands to cover those policies too. M2-D2's static-vs-runtime breadth concern (84-cell admin-table RLS matrix) is NOT in M9 scope — it remains open at its current Suggested-home (X.6 traceability walker).
+> **Recommended disposition:** C9.1 migration includes a pre-migration verification step (grep + test); if hardcoded emails appear in any RLS policy outside `is_admin()`, the migration scope expands to cover those policies too. **Updated at R1 repair (codex finding 1):** M2-D2's static-vs-runtime breadth concern IS now in M9 scope, via the new Task 9.C9.0.5 runtime RLS behavioral-parity probe. The probe runs on every CI build going forward, closing the drift-detection gap M2-D2 worries about. Mark M2-D2 for "Resolved" disposition after C9.1 ships; commit SHA backfilled into DEFERRED.md Resolved section at that point.
 
 ## 12. Impeccable evaluation (UI quality gate — AGENTS.md §1 invariant 8)
 
@@ -293,6 +299,8 @@ For each candidate class below, **create / extend / N/A — <reason>**. The exac
 
 - [ ] **(POSSIBLY EXTEND) Supabase call-boundary discipline — `tests/auth/_metaInfraContract.test.ts` for C9 (M2-D1).** Every helper in `lib/data/adminEmails.ts` registers in the auth meta-test (admin add/revoke is auth-surface mutation). Same registry semantics as the existing M5/M6 entries — destructure `{ data, error }`, surface infra faults as typed `AdminEmailsInfraError`, never silent `continue`.
 
+- [ ] **(CREATE) Runtime RLS behavioral-parity probe — `tests/db/admin-rls-runtime.test.ts` [ADDED at R1 repair, codex finding 1].** 8N-cell matrix (4-verb × N-table × 2-role) DERIVED at runtime from `pg_policies` filter for `is_admin()`-gated tables. Permanent meta-test going forward; closes M2-D2 by providing the continuous drift-detection guard that schema introspection cannot. Pre-migration baseline AND post-migration regression run is gated by Task 9.C9.0.5 + Task 9.C9.1.
+
 - [ ] **(POSSIBLY CREATE) Pure-render-compliance static-analysis for Task 9.2 view components.** `09-10-admin.md:71-77` specifies a static-analysis test that walks every tile-view component in `components/tiles/**Tile*View.tsx` and asserts (a) no `await` in the body, (b) no imports from `lib/db/**` / `lib/drive/**` / `lib/sync/**`, (c) no calls to functions matching `/^(load|fetch|query|read)/` from outside the component module. Decide at Task 9.2 close whether this lives in a per-tile test file or a single meta-test at `tests/components/tiles/_metaPureRenderContract.test.ts` (RECOMMENDED — meta-test pattern matches §1.9 lineage).
 
 **Empty rows silently lie.** The final create/extend/N/A determinations are re-confirmed at each cluster close.
@@ -301,12 +309,12 @@ For each candidate class below, **create / extend / N/A — <reason>**. The exac
 
 ## A. Task list
 
-**9.0 outcome (2026-05-12, populated at scope-and-shape session close):**
+**9.0 outcome (2026-05-12, populated at scope-and-shape session close; revised at R1 review repair of SHA 00620cb):**
 
-- **20 deliverables shipping in M9** (4 stated + 16 routed-in deferrals).
+- **21 deliverables shipping in M9** (4 stated + 16 routed-in deferrals + **M2-D2 added at R1 repair via C9.0.5 closure**).
 - **0 re-defers to other milestones from the 9.0-routed inventory.** (M5-D7 retains its existing Suggested-home "first M-task that introduces a 4th accent button variant" — no re-route; no 4th variant has materialized in M6/M7/M8 and the YAGNI default holds.)
-- **1 new spec amendment in scope** (§14.3 — admin allow-list mechanism; C9 prereq).
-- **12 clusters** in dependency-aware order: C0 (foundation) → C2 (tokens) → C1 (crew-page IA) → C3 (auth flow) → C4 (admin banner) → C5 (sign-in brand) → C6 (lightbox motion/sentinel) → C6b (lightbox media perf) → C6c (lightbox pinch-zoom) → C7 (inline-error consolidation) → C8 (a11y batch) → C9 (admin allow-list, amendment+migration+UI).
+- **2 new spec amendments in scope** (§14.3 admin allow-list mechanism for C9; **§12.4 catalog AGENDA_* codes for M7-D2 — added at R1 repair**).
+- **12 clusters** in dependency-aware order: C0 (foundation, NOW including the §12.4 amendment 9.0.A1 as first step) → C2 (tokens) → C1 (crew-page IA) → C3 (auth flow) → C4 (admin banner) → C5 (sign-in brand) → C6 (lightbox motion/sentinel) → C6b (lightbox media perf) → C6c (lightbox pinch-zoom) → C7 (inline-error consolidation) → C8 (a11y batch) → C9 (admin allow-list — NOW including the C9.0.5 runtime RLS probe between C9.0 amendment and C9.1 migration).
 
 **Ordering rationale (anchors the cluster sequence):**
 
@@ -360,11 +368,22 @@ For each candidate class below, **create / extend / N/A — <reason>**. The exac
 
 ---
 
-### Cluster C0 — Foundation (4 stated M9 tasks)
+### Cluster C0 — Foundation (4 stated M9 tasks + §12.4 amendment prereq)
 
 The per-task TDD checklists for 9.1–9.4 are exhaustively spelled out in `09-10-admin.md:7-122`. The 9.0 session re-confirmed those checklists are correct as-is; below records only the ordering + commit subject + cross-cluster impact.
 
-**C0 ordering rationale:** 9.4 must land FIRST (catalog is dependency for the other three + many other clusters). 9.1 + 9.2 can run in either order after 9.4; recommended 9.1 → 9.2 because 9.1 is the smaller surface and de-risks the catalog wiring. 9.3 lands last in C0 (depends on every empty-state having been touched; cleanest gate).
+**C0 ordering rationale:** **9.0.A1 (§12.4 amendment for AGENDA_* codes) lands FIRST** — added at Round 1 review repair (codex finding 2). Then 9.4 (catalog + helpfulContext, NOW including the freshly-ratified `AGENDA_GONE_FOR_CREW` + `AGENDA_UNAUTHENTICATED` rows). Then 9.1 + 9.2 in either order; recommended 9.1 → 9.2 because 9.1 is the smaller surface and de-risks the catalog wiring. 9.3 lands last in C0.
+
+#### Task 9.0.A1 — Spec amendment §12.4 (AGENDA_* catalog rows) [ADDED at R1 repair]
+
+- **Files**: `docs/superpowers/specs/amendments/2026-05-12-catalog-agenda-codes.md` (NEW); record + ratify-by line.
+- **Process**: `superpowers:brainstorming` session — small scope (2 rows + helpfulContext). Spec-amendment self-review checklist (per AGENTS.md spec-self-review additions); cross-CLI adversarial review run on the amendment commit (single round expected).
+- **Amendment content MUST specify**:
+  - `AGENDA_GONE_FOR_CREW` (status 410) — crew-facing copy + helpfulContext. Suggested crewFacing: "Doug removed or replaced this agenda. Ask Doug for the new link." helpfulContext: longer plain-language explanation of the 410 semantics (file deleted, replaced, or not a PDF).
+  - `AGENDA_UNAUTHENTICATED` (status 401) — crew-facing copy + helpfulContext. Suggested crewFacing: "This link expired or you're not signed in. Reopen Doug's most recent message to refresh." helpfulContext: longer plain-language explanation.
+  - Both rows include `dougFacing: null` (these are crew-only display codes; Doug never sees them since the agenda surface is crew-side).
+  - Per the §1.5 invariant: rendered via `messageFor('AGENDA_GONE_FOR_CREW').crewFacing`, no raw codes in UI.
+- **Commit**: `docs(spec): §12.4 amendment — AGENDA_* crew-facing catalog rows (M7-D2 prereq)`
 
 #### Task 9.4 — `lib/messages/catalog.ts` + `lib/messages/lookup.ts` + `helpfulContext` field
 
@@ -622,14 +641,14 @@ Run dual gate. The confirmation-prompt copy is the highest spec-check risk surfa
 
 #### Task 9.M7-D2 — AgendaPdfViewer error states via messageFor
 
-- **Files**: `components/agenda/AgendaPdfViewer.tsx`; `lib/messages/catalog.ts` (add `AGENDA_GONE_FOR_CREW` (410) + `AGENDA_UNAUTHENTICATED` (401) rows + their `helpfulContext`); `app/api/asset/agenda/[showId]/route.ts` (verify status codes match; cross-check with `ls app/api/asset/agenda/`).
+- **Files**: `components/agenda/AgendaPdfViewer.tsx`; `lib/messages/catalog.ts` (the `AGENDA_*` rows landed already via Task 9.4 from the 9.0.A1 amendment); **route file: `app/api/asset/agenda/[show]/[id]/route.ts`** (verified path, corrected R1 finding 3 — earlier `[showId]` placeholder was non-existent).
 - **AC**: M9 deferral closure / AC-9.X.
-- **Pre-task code-verification**: confirm `react-pdf`'s `onLoadError` payload shape; if status isn't exposed, the HEAD-fetch fallback per DEFERRED.md M7-D2 lands.
+- **Pre-task code-verification**: confirm `react-pdf`'s `onLoadError` payload shape; if status isn't exposed, the HEAD-fetch fallback per DEFERRED.md M7-D2 lands. Confirm the agenda proxy route at `app/api/asset/agenda/[show]/[id]/route.ts` emits 410 + 401 distinct status codes (NOT collapsing to 404 / 500).
 - **TDD checklist**:
-  - **Step 1**: Failing test — with the proxy mocked to return 410, assert AgendaPdfViewer renders `messageFor('AGENDA_GONE_FOR_CREW').crewFacing` exactly; with 401, asserts `AGENDA_UNAUTHENTICATED` copy.
-  - **Step 2**: New catalog rows (REQUIRES spec amendment — `AGENDA_*` codes don't exist in §12.4; the codes are NEW per DEFERRED.md M7-D2 description). **Per AGENTS.md §1.7**: any new catalog code needs spec authorization. Drafting the §12.4 rows happens in C0's Task 9.4 commit IF the rows are intended to be in §12.4; otherwise a small focused spec amendment lands here. **Decision**: ship the rows in Task 9.4 (C0) so the catalog test asserts them from the start.
-  - **Step 3**: Implement `onLoadError` → status-derivation → `messageFor` routing.
-  - **Step 4**: Meta-test `_metaAdminAlertCatalog.test.ts` check — `AGENDA_*` codes are crew-facing only (NOT `admin_alerts` producers); confirm they belong in the message-codes coverage test, NOT the admin-alerts catalog test.
+  - **Step 1**: Failing test — with the proxy mocked to return 410, assert AgendaPdfViewer renders `messageFor('AGENDA_GONE_FOR_CREW').crewFacing` exactly; with 401, asserts `AGENDA_UNAUTHENTICATED` copy. Test path: `tests/components/agenda/AgendaPdfViewer.test.tsx` (extend existing OR create).
+  - **Step 2**: Catalog rows already exist (ratified via 9.0.A1 amendment + shipped via Task 9.4); this task only adds the `onLoadError` → status-derivation → `messageFor` routing logic in `AgendaPdfViewer.tsx`. **No fresh catalog change here.**
+  - **Step 3**: Implement `onLoadError` → status derivation. If `react-pdf` doesn't expose status, HEAD-fetch the agenda proxy URL first and route on its status code.
+  - **Step 4**: Meta-test `_metaAdminAlertCatalog.test.ts` check — `AGENDA_*` codes are crew-facing only (`dougFacing: null`, NOT `admin_alerts` producers); confirm they belong in the message-codes coverage test, NOT the admin-alerts catalog test.
 - **Commit**: `feat(agenda): route PDF load errors through messageFor (M7-D2)`
 
 #### C6 close-out — impeccable §12 dual gate
@@ -642,14 +661,14 @@ Run dual gate. The confirmation-prompt copy is the highest spec-check risk surfa
 
 #### Task 9.M7-D3 — Diagrams `<img>` → `next/image` (scoped tightly)
 
-- **Files**: `components/diagrams/Gallery.tsx`; `components/diagrams/GalleryLightbox.tsx`; `next.config.ts` (add `images.remotePatterns` for the proxy origin); `app/api/asset/diagram/[...]/route.ts` (verify `Cache-Control: private, max-age=0, must-revalidate` is still emitted post-migration); new integration test.
+- **Files**: `components/diagrams/Gallery.tsx`; `components/diagrams/GalleryLightbox.tsx`; `next.config.ts` (add `images.remotePatterns` for the proxy origin); **route file: `app/api/asset/diagram/[show]/[rev]/[key]/route.ts`** (verified path, corrected R1 finding 3 — earlier `[asset]` placeholder was non-existent); new integration test.
 - **AC**: M9 deferral closure / AC-9.X.
 - **Pre-task code-verification**:
   - `cat next.config.ts` confirms current state (no `images` block — current config only sets `distDir` + `experimental.authInterrupts`).
-  - `cat app/api/asset/diagram/[asset]/route.ts` (find actual path with `find app/api/asset/diagram -type f`) for the proxy's response headers.
+  - `cat app/api/asset/diagram/[show]/[rev]/[key]/route.ts` for the proxy's response headers — verify `Cache-Control: private, max-age=0, must-revalidate` is still emitted.
   - Confirm Next.js 16's `/_next/image` proxy honors `Cache-Control: private` from the upstream (per AGENTS.md memory `feedback_verify_review_findings_against_external_api_spec.md`).
 - **TDD checklist**:
-  - **Step 1**: Failing integration test — `tests/integration/diagram-next-image.test.ts` (NEW): with the diagram proxy mocked, request `/diagrams/<asset>` and assert (a) the resolved image URL goes through `/_next/image?url=...`; (b) the response `Cache-Control` is `private, max-age=0, must-revalidate` (NOT mutated by `/_next/image`); (c) revoking the underlying asset (returning 403 from the proxy) propagates through `/_next/image` as a non-cached failure.
+  - **Step 1**: Failing integration test — `tests/integration/diagram-next-image.test.ts` (NEW): with the diagram proxy mocked at `app/api/asset/diagram/[show]/[rev]/[key]/route.ts`, request a representative dynamic URL (e.g., `/api/asset/diagram/<showSlug>/<rev>/<keyHash>`) via `next/image` consumption and assert (a) the resolved image URL goes through `/_next/image?url=...`; (b) the response `Cache-Control` is `private, max-age=0, must-revalidate` (NOT mutated by `/_next/image`); (c) revoking the underlying asset (returning 403 from the proxy) propagates through `/_next/image` as a non-cached failure.
   - **Step 2**: Migrate `<img>` → `next/image`; declare the proxy origin in `next.config.ts` `images.remotePatterns`.
   - **Step 3**: Re-run the integration test; assert all three properties hold.
   - **Step 4**: Lint check — `pnpm lint` should no longer warn about `@next/next/no-img-element` for `components/diagrams/`.
@@ -741,17 +760,36 @@ Run dual gate. The confirmation-prompt copy is the highest spec-check risk surfa
 - **Adversarial review**: per `feedback_adversarial_review_canonical_invocation.md`, the amendment goes through `/codex:adversarial-review --scope branch` before ratification. Single-round expected (small amendment).
 - **Commit (amendment)**: `docs(spec): §14.3 amendment — admin allow-list runtime-mutable (M2-D1)` — single commit landing the amendment file + ratification record.
 
+#### Task 9.C9.0.5 — Runtime RLS behavioral-parity probe [ADDED at R1 repair, codex finding 1]
+
+**Rationale (R1 finding):** C9 replaces the `public.is_admin()` function consumed by 21 admin-gated tables' RLS. The existing `tests/db/schema-introspection.test.ts` (per M2-D2) proves policies STILL CALL `is_admin()` post-migration, but doesn't prove the live ADMIN-vs-NON-ADMIN behavior is preserved. A bad table lookup, email-canonicalization mismatch, or revoked-row edge case could lock out admins or over-authorize admin tables without breaking introspection. The R1 reviewer recommendation: pull M2-D2 into C9, OR push C9 out of M9. We're pulling M2-D2 in.
+
+**This task ALSO RESOLVES M2-D2** (static-vs-runtime breadth for the 21-table admin RLS matrix). The runtime probe written here runs on every CI build going forward, closing the drift-detection gap M2-D2 worries about.
+
+- **Files**: `tests/db/admin-rls-runtime.test.ts` (NEW); test fixtures for admin + non-admin JWTs (verify via `grep "admin.*jwt\|signJwt.*admin" tests/` whether helper exists, else create at `tests/_fixtures/auth.ts`).
+- **AC**: M9 deferral closure / AC-9.X (also closes M2-D2 inheritance).
+- **Pre-task code-verification**: enumerate the 21 admin-gated tables — re-derive from `supabase/migrations/20260501002000_rls_policies.sql` by grepping `using (public.is_admin())` to get the canonical list at this SHA. **Do NOT trust M2-D2's "21" count without re-verification.** The test's table list must come from the live migration, not a stale memory of M2.
+- **TDD checklist**:
+  - **Step 1**: Failing test — `tests/db/admin-rls-runtime.test.ts` defines a 4-verb (SELECT / INSERT / UPDATE / DELETE) × N-table matrix (N = the verified count of `is_admin()`-gated tables) × 2-role (admin / non-admin) = 8N-cell matrix. For each cell, run the operation under the appropriate test JWT and assert: admin → succeeds (or RLS allows, even if FK / NOT NULL fails — that's a different error class); non-admin → fails with `permission denied for table X` or `new row violates row-level security policy`. Test is parametrized so adding a new admin-gated table requires only adding the table name to a single list (which the test then validates against the `is_admin()`-gated table set derived from `pg_policies`).
+  - **Step 2**: Run the test BEFORE the C9.1 migration applies — assert all 8N cells pass against the current hardcoded-array `is_admin()`. This is the BASELINE; record the cell-result map in a test-run artifact.
+  - **Step 3** (deferred to C9.1 close): Run the test AFTER the C9.1 migration applies — assert zero cell-result drift from the baseline. ANY cell that flips admin→fail or non-admin→succeed is a P0 blocker; pause migration rollout.
+  - **Step 4**: Edge-case test — explicitly add: (a) revoked admin email (set `revoked_at = now`) → admin operations now fail like non-admin; (b) email-case mismatch (mixed-case input, canonicalized lookup) → admin operations succeed; (c) duplicate-row scenario (re-INSERT of an active email) → no behavioral change.
+- **Class-sweep**: the test must DERIVE the table list from `pg_policies`, NOT a hand-named array. Per AGENTS.md memory `feedback_class_sweep_must_be_code_shape_not_name_list.md`: structural meta-tests walk the subtree, not a lexical name list.
+- **Meta-test inventory impact**: this test IS the M2-D2 closure meta-test. Update §13 below to record (closes M2-D2 + creates a permanent meta-test for the 8N-cell matrix).
+- **Commit**: `test(db): runtime RLS behavioral-parity probe for admin allow-list (C9 prereq; closes M2-D2)`
+
 #### Task 9.C9.1 — Migration: `admin_emails` table + replacement `is_admin()` + seed
 
 - **Files**: `supabase/migrations/2026XXXX_admin_emails_runtime_mutable.sql` (NEW); update `supabase/seed.ts` if it touches admin state.
 - **AC**: M9 deferral closure / AC-9.X.
-- **Pre-task code-verification**: re-grep `is_admin()` callsites; confirm M2-D2's 21-table list is still accurate (the spec/plan should be authoritative, but verify by running `tests/db/schema-introspection.test.ts`).
+- **Pre-task code-verification**: re-grep `is_admin()` callsites; confirm M2-D2's 21-table list is still accurate (the spec/plan should be authoritative, but verify by running `tests/db/schema-introspection.test.ts` AND the new C9.0.5 runtime test).
 - **TDD checklist**:
   - **Step 1**: Failing migration test — `tests/db/admin-emails.test.ts` (NEW): (a) table exists with the schema from the amendment; (b) `public.is_admin()` returns true for an `admin_emails` row with `revoked_at IS NULL` AND the auth-jwt email canonicalized matches; (c) returns false after `revoked_at` is set; (d) returns false for an email not in the table; (e) `app_metadata.role = 'admin'` path STILL works (preserves the JWT-based admin override per `is_admin()` line 30).
   - **Step 2**: Migration writes the table + replacement `is_admin()` + initial seed.
   - **Step 3**: Run the 21-table RLS introspection test (`tests/db/schema-introspection.test.ts`) — assert zero drift in policies.
-  - **Step 4**: Performance smoke — run a seeded query against an admin-gated table; assert response time is within 10% of pre-migration baseline (collect baseline via `pnpm dlx supabase db reset` against pre-migration HEAD, run query, record; then apply migration, re-run).
-  - **Step 5**: Idempotency — `pnpm dlx supabase db reset` twice in a row produces identical schema.
+  - **Step 4**: **Run the C9.0.5 runtime RLS behavioral-parity probe (`tests/db/admin-rls-runtime.test.ts`) AFTER the migration applies; assert zero cell-result drift from the C9.0.5 baseline.** This is the behavioral-correctness gate. ANY drift → P0 blocker, halt rollout, surface to orchestrator.
+  - **Step 5**: Performance smoke — run a seeded query against an admin-gated table; assert response time is within 10% of pre-migration baseline (collect baseline via `pnpm dlx supabase db reset` against pre-migration HEAD, run query, record; then apply migration, re-run).
+  - **Step 6**: Idempotency — `pnpm dlx supabase db reset` twice in a row produces identical schema.
 - **Commit**: `feat(db): admin_emails table + runtime-mutable is_admin() (M2-D1)`
 
 #### Task 9.C9.2 — `/impeccable shape <admin-allowlist-UI>` sub-session
@@ -788,7 +826,7 @@ After C9.0 + C9.1 + C9.2 + C9.3 commit, run `/impeccable critique` + `/impeccabl
 
 | # | Cluster | Items | Commits (rough) | Pre-req sub-sessions |
 |---|---------|-------|-----------------|----------------------|
-| C0 | Foundation | 9.4 → 9.1 → 9.2 → 9.3 + dual gate | 4-5 | — |
+| C0 | Foundation | **9.0.A1 §12.4 amendment** → 9.4 → 9.1 → 9.2 → 9.3 + dual gate | 5-6 | `superpowers:brainstorming` (small) |
 | C2 | Tokens | M4-D5 + dual gate | 1 | — |
 | C1 | Crew-page IA | C1.0 brief → M4-D2 → M4-D3 → M4-D6 → M4-D4 + dual gate | 5 | `/impeccable shape` |
 | C3 | Auth flow | C3.0 briefs → M5-D1 → M5-D2 → M5-D5 + dual gate | 4 | `/impeccable shape` + `/impeccable animate` |
@@ -799,9 +837,9 @@ After C9.0 + C9.1 + C9.2 + C9.3 commit, run `/impeccable critique` + `/impeccabl
 | C6c | Lightbox pinch-zoom | M7-D4 + dual gate | 1 | — |
 | C7 | Inline-error consolidation | M5-D8 + dual gate | 1 | — |
 | C8 | A11y batch | M5-D6 + dual gate | 1 | — |
-| C9 | Admin allow-list | C9.0 amendment → C9.1 migration → C9.2 brief → C9.3 UI + dual gate | 4 | `superpowers:brainstorming` + `/impeccable shape` |
+| C9 | Admin allow-list | C9.0 §14.3 amendment → **C9.0.5 runtime RLS probe** → C9.1 migration → C9.2 brief → C9.3 UI + dual gate | 5 | `superpowers:brainstorming` + `/impeccable shape` |
 
-**Total commits (approx)**: 28-30 (including the dual-gate fixup commits where critique/audit findings land).
+**Total commits (approx)**: 30-32 (including the dual-gate fixup commits where critique/audit findings land). **R1 repair (2026-05-12, codex review of SHA 00620cb) added Task 9.0.A1 + Task 9.C9.0.5 + closed M2-D2 inline via C9.0.5 + corrected M7-D2 and M7-D3 route citations.**
 
 **Per AGENTS.md §1.6 (one commit per task)**: every numbered task above gets ONE commit subject. Dual-gate fixup commits use `chore(<scope>): impeccable <cluster-letter> findings disposition` form.
 
