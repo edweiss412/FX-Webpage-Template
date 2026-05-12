@@ -296,7 +296,7 @@
     <div><strong>Primary reader</strong><br>Doug Larson (admin)</div>
     <div><strong>Phase 2</strong><br>Crew docs at <code>/help/crew/*</code></div>
     <div><strong>Depends on</strong><br>M10 close-out (real screenshots)</div>
-    <div><strong>Revision</strong><br>r2 (screenshots in v1)</div>
+    <div><strong>Revision</strong><br>r3 (round-1 adversarial fixes)</div>
   </div>
 </div>
 
@@ -396,9 +396,9 @@
     <!-- lib/messages -->
     <rect class="node" x="440" y="20" width="300" height="100" rx="8"/>
     <text class="label" x="590" y="44" text-anchor="middle">lib/messages/</text>
-    <text class="route" x="460" y="66">lookup(code) →</text>
-    <text class="route" x="475" y="84">{ title, body, helpHref? }</text>
-    <text class="small" x="460" y="104">catalog.ts · severity: info | warning</text>
+    <text class="route" x="460" y="66">messageFor(code) →</text>
+    <text class="route" x="475" y="84">MessageCatalogEntry</text>
+    <text class="small" x="460" y="104">+ longExplanation, helpHref (M12)</text>
 
     <!-- /admin surfaces -->
     <rect class="node" x="160" y="220" width="440" height="120" rx="8"/>
@@ -448,34 +448,60 @@ public/help/screenshots/        # WebP output, committed (r2)
 scripts/help-screenshots.ts             # Playwright capture entry (r2)
 scripts/help-screenshots.manifest.ts    # { key, route, fixture, viewport, theme, waitFor } (r2)</code></pre>
 
-  <h3>3.4 Rendering posture &amp; auth</h3>
-  <p><strong>Static.</strong> Every <code>/help/*</code> page is statically rendered at build time. MDX compiles to React Server Components. Client hydration only for: theme toggle, sidebar current-page highlight.</p>
-  <p><strong>Mobile-first.</strong> Single-column under 768px with sidebar collapsed into a top-of-page disclosure (same 390px baseline as the crew page).</p>
-  <p><strong>Auth.</strong> <code>app/help/layout.tsx</code> calls the existing <code>requireAdmin()</code> helper (uses <code>forbidden()</code> from <code>experimental.authInterrupts</code>). Non-admin → clean 403. Phase 2 splits via route groups — no URL changes.</p>
+  <h3>3.4 Rendering posture &amp; auth <span class="pill accent">corrected r3</span></h3>
+  <p><strong>Dynamic at request time.</strong> <code>app/help/layout.tsx</code> calls <code>requireAdmin()</code>, which runs Supabase queries (<code>auth.getUser()</code> + <code>rpc("is_admin")</code>) on every request. The auth gate forces the entire <code>/help/*</code> tree out of static prerender into the dynamic / on-demand path — same posture as <code>/admin</code>. MDX content itself is statically compiled to RSC; the gate is dynamic.</p>
+  <p><strong>Client hydration only for:</strong> theme toggle, sidebar current-page highlight.</p>
+  <p><strong>Mobile-first.</strong> Single-column under 768px with sidebar collapsed (same 390px baseline as the crew page).</p>
+  <p><strong>Auth + infra-error mapping.</strong> The helper at <code>lib/auth/requireAdmin.ts:52-126</code> uses <code>forbidden()</code> for confirmed non-admin and throws <code>AdminInfraError</code> (<code>lib/auth/requireAdmin.ts:41-48</code>) for infra faults. <code>app/help/layout.tsx</code> mirrors the existing <code>app/admin/layout.tsx:47-71</code> pattern verbatim — try/catch around <code>requireAdmin()</code>, catch <code>AdminInfraError</code>, render the cataloged 500-class surface via <code>messageFor("ADMIN_SESSION_LOOKUP_FAILED")</code>. Phase 2 splits via route groups; static prerender restored for the public tree only.</p>
 
-  <h3>3.5 Screenshot harness <span class="pill accent">new in r2</span></h3>
-  <p>Real screenshots ship in v1. Capture is scripted, not manual. Pipeline:</p>
+  <h3>3.5 Screenshot harness <span class="pill accent">r2 + reproducibility hardening r3</span></h3>
+  <p>Real screenshots ship in v1. Capture is scripted, <strong>deterministic, and reproducible</strong>. r3 hardens the pipeline against round-1 finding 4.</p>
+  <h4>3.5.1 Pipeline</h4>
   <ol>
-    <li><strong>Manifest</strong> at <code>scripts/help-screenshots.manifest.ts</code> declares every documented surface: <code>{ key, route, fixture, viewport, theme, waitFor, captureSelector? }</code>. Single source of truth.</li>
-    <li><strong>Capture script</strong> at <code>scripts/help-screenshots.ts</code> drives Playwright (reusing existing test-auth), navigates each route against the named fixture, waits on <code>waitFor</code>, captures at the manifest's viewport, writes WebP (q90) to <code>public/help/screenshots/&lt;key&gt;-{light,dark}.webp</code>.</li>
-    <li><strong><code>&lt;Screenshot key&gt;</code> MDX component</strong> renders <code>&lt;picture&gt;</code> with <code>&lt;source media="(prefers-color-scheme: dark)"&gt;</code> + a default light <code>&lt;img&gt;</code>. Reader's theme picks the variant.</li>
-    <li><strong>Invocation:</strong> <code>pnpm screenshot:help</code>. Idempotent. Hash-stable on unchanged UI; CI sees the diff in the PR when something shifts.</li>
+    <li><strong>Manifest</strong> at <code>scripts/help-screenshots.manifest.ts</code> — single source of truth. Per-entry: <code>{ key, route, fixture, viewport, theme, waitFor, captureSelector?, expectStableMs? }</code>.</li>
+    <li><strong>Capture script</strong> at <code>scripts/help-screenshots.ts</code> drives a dedicated Playwright project through the reproducibility preconditions (3.5.2) and writes WebP (q90, pinned <code>sharp</code> encoder) to <code>public/help/screenshots/&lt;key&gt;-{light,dark}.webp</code>.</li>
+    <li><strong><code>&lt;Screenshot key&gt;</code> MDX component</strong> renders <code>&lt;picture&gt;</code> with <code>&lt;source media="(prefers-color-scheme: dark)" srcset="…-dark.webp"&gt;</code> + a default light <code>&lt;img&gt;</code>. AC-12.25 is enforced by a component-level test (§7.1 test 10).</li>
+    <li><strong>Invocation:</strong> <code>pnpm screenshot:help</code> runs the full pipeline on a clean checkout.</li>
   </ol>
+
+  <h4>3.5.2 Reproducibility preconditions (mandatory)</h4>
+  <p>The capture script MUST establish each precondition before any screenshot is taken. Without these, "idempotent / byte-stable" is not achievable.</p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Precondition</th><th>How</th><th>Source-of-truth</th></tr></thead>
+    <tbody>
+      <tr><td>Dedicated Playwright project</td><td>Add <code>screenshots-help</code> project to <code>playwright.config.ts</code> with its own <code>webServer</code>, <code>use.timezoneId</code>, <code>use.locale</code>, <code>use.colorScheme</code>, <code>use.viewport</code>, and a <code>globalSetup</code> running env + seed.</td><td><code>playwright.config.ts</code> existing patterns (<code>e2e-dev</code> / <code>e2e-prod</code>)</td></tr>
+      <tr><td>Test-auth env at server start</td><td><code>ENABLE_TEST_AUTH=true</code> + <code>TEST_AUTH_SECRET=&lt;fixture&gt;</code> set for the harness <code>webServer</code>.</td><td><code>tests/e2e/helpers/signInAs.ts:1-23</code></td></tr>
+      <tr><td>DB seed before capture</td><td><code>globalSetup</code> runs <code>pnpm db:seed</code>. Every manifest entry's named fixture (default <code>RPAS Central 2026</code>) at known state.</td><td>Existing E2E seed pattern</td></tr>
+      <tr><td>Sign in via reusable helper</td><td>Script calls <code>signInAs(page, adminFixture)</code> from <code>tests/e2e/helpers/signInAs.ts</code> — no parallel admin-login implementation.</td><td><code>tests/e2e/helpers/signInAs.ts:43-73</code></td></tr>
+      <tr><td>Deterministic browser settings</td><td><code>timezoneId: 'America/New_York'</code>, <code>locale: 'en-US'</code>, theme set per entry, <code>reducedMotion: 'reduce'</code>, font hinting disabled (<code>--font-render-hinting=none --disable-skia-runtime-opts</code>), animations disabled via CSS <code>addInitScript</code>.</td><td>Pinned in the <code>screenshots-help</code> project config</td></tr>
+      <tr><td>Quiescence wait</td><td>Manifest <code>waitFor</code> selector + <code>page.waitForLoadState('networkidle')</code> + optional <code>expectStableMs</code> (default 500 ms).</td><td>Manifest-driven</td></tr>
+      <tr><td>Theme application</td><td>Per entry, run twice: <code>colorScheme: 'light'</code> + <code>&lt;html data-theme="light"&gt;</code>, and the dark equivalent. Theme is imposed via <code>addInitScript</code>, not inferred.</td><td>App's existing <code>data-theme</code> mechanism</td></tr>
+      <tr><td>Output normalization</td><td>WebP via <code>sharp</code> with pinned encoder settings (<code>q=90</code>, <code>effort=4</code>, <code>smartSubsample=true</code>, <code>nearLossless=false</code>). <code>sharp</code> version pinned in <code>package.json</code>; CI uses the same.</td><td><code>package.json</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>3.5.3 CI drift gate</h4>
+  <p>A CI step runs <code>pnpm screenshot:help</code> against a clean checkout, then <code>git diff --exit-code public/help/screenshots/</code>. <strong>Non-zero exit fails the PR.</strong> This is the load-bearing drift signal — UI changes that shift a documented surface cannot merge without regenerated screenshots. AC-12.19 (idempotency) is what makes this safe.</p>
+
+  <h4>3.5.4 Defaults (not relitigated)</h4>
   <div class="table-wrap">
   <table class="spec-table">
     <thead><tr><th>Decision</th><th>Default</th><th>Why</th></tr></thead>
     <tbody>
-      <tr><td>Format</td><td>WebP, quality 90</td><td>Repo-committable size; visual fidelity preserved</td></tr>
-      <tr><td>Density</td><td>Single representative rendition</td><td>Manifest names the viewport; one crisp WebP per theme</td></tr>
-      <tr><td>Storage</td><td><code>public/help/screenshots/</code>, committed</td><td>Version-controlled with docs; no external asset pipeline</td></tr>
+      <tr><td>Format</td><td>WebP q90, pinned <code>sharp</code> encoder (see 3.5.2)</td><td>Repo-committable size; reproducible encoder output</td></tr>
+      <tr><td>Density</td><td>Single representative rendition</td><td>Manifest names viewport</td></tr>
+      <tr><td>Storage</td><td><code>public/help/screenshots/</code>, committed</td><td>Version-controlled with docs</td></tr>
       <tr><td>Theme variants</td><td><strong>Both required</strong>; light + dark always paired</td><td>PRODUCT.md "both modes first-class"</td></tr>
-      <tr><td>Viewport</td><td>Per-manifest. Default desktop 1280×800; mobile-flow surfaces 390×844</td><td>Surface-appropriate; one per surface</td></tr>
-      <tr><td>Fixture</td><td>RPAS Central 2026 (default)</td><td>Most populated 2026 sheet; predictable content</td></tr>
-      <tr><td>Drift detection</td><td>Git diff on WebP bytes</td><td>Any pixel change produces a visible PR diff</td></tr>
+      <tr><td>Viewport</td><td>Per-manifest. Default desktop 1280×800; mobile-flow 390×844</td><td>Surface-appropriate</td></tr>
+      <tr><td>Fixture</td><td><code>RPAS Central 2026</code> default; manifest may override</td><td>Most populated 2026 sheet</td></tr>
+      <tr><td>Drift detection</td><td>Git diff on WebP bytes + CI <code>git diff --exit-code</code> gate (3.5.3)</td><td>Automatic, unmissable</td></tr>
     </tbody>
   </table>
   </div>
-  <p><strong>Authoring scaffold (separate from shipped state):</strong> <code>&lt;ScreenshotPlaceholder&gt;</code> is preserved as a <strong>draft-only</strong> component for pages being written before the underlying surface stabilizes. Must not appear in any MDX file at v1 close-out — lint enforces (§7.1 test 7).</p>
+
+  <p><strong>Authoring scaffold:</strong> <code>&lt;ScreenshotPlaceholder&gt;</code> is preserved as a <strong>draft-only</strong> component, lint-prohibited at v1 close-out (§7.1 test 7).</p>
 
   <h3>3.6 Mockup — what <code>/help/admin/dashboard</code> will look like</h3>
   <p>Roughly. Sidebar at desktop, content right. Below 768px the sidebar collapses to a top-of-page disclosure.</p>
@@ -602,7 +628,7 @@ scripts/help-screenshots.manifest.ts    # { key, route, fixture, viewport, theme
   <h2>5. Deep-link contract</h2>
 
   <h3>5.1 Wiring diagram</h3>
-  <svg class="diagram" viewBox="0 0 760 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Deep-link contract: admin surfaces resolve helpHref via lookup() and land on /help URLs">
+  <svg class="diagram" viewBox="0 0 760 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Deep-link contract: admin surfaces resolve helpHref via messageFor() and land on /help URLs">
     <defs>
       <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
         <path d="M 0 0 L 10 5 L 0 10 z" fill="#f79338"/>
@@ -622,10 +648,10 @@ scripts/help-screenshots.manifest.ts    # { key, route, fixture, viewport, theme
     <rect class="node" x="20" y="210" width="200" height="32" rx="6"/>
     <text class="route" x="35" y="231">dashboard footer link</text>
 
-    <!-- Middle: lookup() -->
+    <!-- Middle: messageFor() -->
     <rect class="node-accent" x="290" y="100" width="180" height="60" rx="8"/>
-    <text class="label" x="380" y="125" text-anchor="middle">lookup(code)</text>
-    <text class="small" x="380" y="142" text-anchor="middle">→ { …, helpHref? }</text>
+    <text class="label" x="380" y="125" text-anchor="middle">messageFor(code)</text>
+    <text class="small" x="380" y="142" text-anchor="middle">→ MessageCatalogEntry</text>
 
     <!-- Arrows from admin surfaces into lookup -->
     <path class="flow-accent" d="M 220 50 Q 260 80 290 120" marker-end="url(#arrow2)"/>
@@ -658,22 +684,44 @@ scripts/help-screenshots.manifest.ts    # { key, route, fixture, viewport, theme
     <text class="small" x="380" y="302" text-anchor="middle">slug stability is a committed contract (§5.4)</text>
   </svg>
 
-  <h3>5.2 <code>lib/messages/lookup.ts</code> API extension</h3>
-  <p>Existing signature (per spec §12.4):</p>
-  <pre><code>lookup(code: ErrorCode): { title: string; body: string }</code></pre>
-  <p>Extended (additive — existing callers keep compiling):</p>
-  <pre><code>lookup(code: ErrorCode): { title: string; body: string; helpHref?: string }</code></pre>
-  <p>The catalog at <code>lib/messages/catalog.ts</code> already declares <code>severity?: "info" | "warning"</code> on line 3. M12 adds two new optional fields per entry:</p>
+  <h3>5.2 <code>MessageCatalogEntry</code> schema extension <span class="pill accent">corrected r3</span></h3>
+  <p>The catalog uses the existing <code>messageFor</code> accessor (not a new <code>lookup</code>). Live shape:</p>
+  <pre><code>// lib/messages/lookup.ts:11
+export function messageFor(code: MessageCode, params?: MessageParams): MessageCatalogEntry;
+
+// lib/messages/catalog.ts:1-8
+export type MessageCatalogEntry = {
+  code: string;
+  severity?: "info" | "warning";
+  dougFacing: string | null;
+  crewFacing: string | null;
+  followUp: string | null;
+  helpfulContext: string | null;
+};</code></pre>
+  <p><code>messageFor</code> keeps its signature; the <strong>return type gains two new fields</strong>:</p>
+  <pre><code>export type MessageCatalogEntry = {
+  code: string;
+  severity?: "info" | "warning";
+  dougFacing: string | null;
+  crewFacing: string | null;
+  followUp: string | null;
+  helpfulContext: string | null;
+  longExplanation: string | null;   // NEW in M12
+  helpHref: string | null;          // NEW in M12
+};</code></pre>
+  <p>Both new fields are <code>string | null</code>, matching the existing field shape. Existing callers continue to compile — TS sees the return type widen but every pre-r3 caller ignores these properties.</p>
+  <p><strong>Required-when predicate (corrected r3):</strong> <code>severity !== "info"</code> AND (<code>dougFacing != null</code> OR <code>crewFacing != null</code>).</p>
+  <p>This is the load-bearing change from r2. Live <code>components/admin/AlertBanner.tsx:39-50</code> treats only <code>severity === "info"</code> as excluded; unset severity is rendered as warning-equivalent. Many user-visible entries currently omit severity (e.g. <code>LEAKED_LINK_DETECTED</code> at <code>lib/messages/catalog.ts:46-53</code>). The r2 predicate (<code>severity === "warning"</code>) would have let those ship without docs, breaking the §9.0.1 "every error has a help link" affordance. The corrected predicate covers them.</p>
   <div class="table-wrap">
   <table class="spec-table">
     <thead><tr><th>Field</th><th>Type</th><th>Required when</th><th>Purpose</th></tr></thead>
     <tbody>
-      <tr><td><code>longExplanation</code></td><td><code>string</code> (non-empty)</td><td><code>severity === "warning"</code></td><td>Long-form explanation; rendered on <code>/help/errors#&lt;code&gt;</code></td></tr>
-      <tr><td><code>helpHref</code></td><td><code>string</code> (URL or <code>/help/...#&lt;anchor&gt;</code>)</td><td><code>severity === "warning"</code></td><td>Deep-link target for "Learn more →"</td></tr>
+      <tr><td><code>longExplanation</code></td><td><code>string | null</code>; non-null required</td><td><code>severity !== "info"</code> AND (<code>dougFacing != null</code> OR <code>crewFacing != null</code>)</td><td>Long-form explanation; rendered on <code>/help/errors#&lt;code&gt;</code></td></tr>
+      <tr><td><code>helpHref</code></td><td><code>string | null</code>; non-null required</td><td>Same predicate as above</td><td>Deep-link target for "Learn more →"</td></tr>
     </tbody>
   </table>
   </div>
-  <p>A meta-test (<code>tests/messages/_metaErrorCatalogDocs.test.ts</code>) enforces both fields are populated on warning entries. Info entries are not required to have docs; they may opt in but the meta-test does not require it.</p>
+  <p>The compound predicate excludes catalog entries that have severity but no user-visible string (defensive). Info-tier entries are not required to carry docs but may opt in; meta-test does not require them. <code>tests/messages/_metaErrorCatalogDocs.test.ts</code> enforces; new codes without docs fail CI.</p>
 
   <h3>5.3 Affordance wiring (retrofits)</h3>
   <p>This milestone does not change the text content of any tooltip, error message, or expansion shipped by M4/M9/M10. <strong>Link-only retrofit.</strong></p>
@@ -833,20 +881,22 @@ scripts/help-screenshots.manifest.ts    # { key, route, fixture, viewport, theme
 <!-- ===== Section 7 ===== -->
 <section class="spec-section" id="s7">
   <h2>7. Testing strategy</h2>
-  <h3>7.1 Test inventory (9 tests)</h3>
+  <h3>7.1 Test inventory (10 unit/integration tests + 1 CI gate)</h3>
   <div class="table-wrap">
   <table class="spec-table">
     <thead><tr><th>#</th><th>Test</th><th>File</th><th>What it catches</th></tr></thead>
     <tbody>
       <tr><td>1</td><td><strong>Build-time anchor resolver</strong></td><td><code>tests/help/anchor-resolver.test.ts</code></td><td>Broken deep-link from catalog <code>helpHref</code> to a missing page or <code>&lt;RefAnchor&gt;</code>.</td></tr>
-      <tr><td>2</td><td><strong>Catalog meta-test</strong></td><td><code>tests/messages/_metaErrorCatalogDocs.test.ts</code></td><td>New error code added at <code>severity === "warning"</code> without <code>longExplanation</code> + <code>helpHref</code>.</td></tr>
-      <tr><td>3</td><td><strong>Auth-gating</strong></td><td><code>tests/help/auth.test.ts</code></td><td>Unauth → 403; admin → 200; crew (signed link) → 403 in v1.</td></tr>
+      <tr><td>2</td><td><strong>Catalog meta-test</strong> <span class="pill accent">r3</span></td><td><code>tests/messages/_metaErrorCatalogDocs.test.ts</code></td><td>Asserts: every entry where <code>severity !== "info"</code> AND (<code>dougFacing != null</code> OR <code>crewFacing != null</code>) has non-null <code>longExplanation</code> + <code>helpHref</code> matching <code>^/help/...</code>. Covers warning + unset-severity entries per the live AlertBanner default rule.</td></tr>
+      <tr><td>3</td><td><strong>Auth-gating + AdminInfraError mapping</strong> <span class="pill accent">r3</span></td><td><code>tests/help/auth.test.ts</code></td><td>Unauth → 403; admin → 200; crew (signed link) → 403 in v1. <strong>Plus:</strong> Supabase RPC stubbed to throw → 500-class surface rendered via <code>messageFor("ADMIN_SESSION_LOOKUP_FAILED")</code>, mirroring <code>app/admin/layout.tsx:47-71</code>.</td></tr>
       <tr><td>4</td><td><strong>MDX smoke</strong></td><td><code>tests/help/render.test.ts</code></td><td>Malformed MDX, missing component, broken import.</td></tr>
       <tr><td>5</td><td><strong>Nav consistency meta-test</strong></td><td><code>tests/help/_metaNavSync.test.ts</code></td><td>Orphan page (FS but not in <code>_nav.ts</code>) or dead nav (in <code>_nav.ts</code> but not on FS).</td></tr>
       <tr><td>6</td><td><strong>Mobile layout (Playwright)</strong></td><td><code>tests/playwright/help-mobile.spec.ts</code></td><td>Horizontal scroll at 390px, sub-44px tap targets, sidebar that doesn't collapse. Real browser only — jsdom insufficient per Tailwind v4 flex-stretch lesson.</td></tr>
       <tr><td>7</td><td><strong>No-placeholder-in-shipped-v1 lint</strong> <span class="pill accent">r2</span></td><td><code>tests/help/no-placeholders.test.ts</code></td><td><code>&lt;ScreenshotPlaceholder</code> in <code>app/help/**/*.mdx</code> at close-out. Forces real <code>&lt;Screenshot key&gt;</code> on every documented surface.</td></tr>
       <tr><td>8</td><td><strong>Screenshot coverage</strong> <span class="pill accent">r2</span></td><td><code>tests/help/screenshot-coverage.test.ts</code></td><td><code>&lt;Screenshot key&gt;</code> referencing a missing manifest entry, or a manifest entry missing one or both of its <code>{key}-light.webp</code> / <code>{key}-dark.webp</code> on disk.</td></tr>
       <tr><td>9</td><td><strong>Manifest integrity meta-test</strong> <span class="pill accent">r2</span></td><td><code>tests/help/_metaScreenshotManifest.test.ts</code></td><td>Stale manifest entry (route gone but entry remains), orphan WebP (entry deleted but file remains), or fixture name not present in <code>fixtures/shows/</code>.</td></tr>
+      <tr><td>10</td><td><strong><code>&lt;Screenshot&gt;</code> <code>&lt;picture&gt;</code> contract test</strong> <span class="pill accent">r3</span></td><td><code>tests/help/screenshot-picture-contract.test.ts</code></td><td>Renders <code>&lt;Screenshot&gt;</code> against a stub manifest. Asserts the output contains <code>&lt;source media="(prefers-color-scheme: dark)" srcset="…-dark.webp"&gt;</code> and a default light <code>&lt;img&gt;</code> with the provided <code>alt</code>. Enforces AC-12.25 directly — without this, the <code>&lt;picture&gt;</code> contract has only visual fixtures to prove it works.</td></tr>
+      <tr><td>11</td><td><strong>CI drift gate</strong> <span class="pill accent">r3</span></td><td>CI workflow step</td><td>CI runs <code>pnpm screenshot:help</code> on a clean checkout (with <code>pnpm db:seed</code> precondition), then <code>git diff --exit-code public/help/screenshots/</code>. Non-zero exit → PR fails.</td></tr>
     </tbody>
   </table>
   </div>
@@ -878,7 +928,7 @@ scripts/help-screenshots.manifest.ts    # { key, route, fixture, viewport, theme
       <tr><td><strong>#6</strong> Commit per task</td><td class="center"><span class="pill accent">yes</span></td><td>~13–20 commits depending on slicing. <code>feat(help):</code> / <code>test(help):</code> scope.</td></tr>
       <tr><td><strong>#7</strong> Spec is canonical</td><td class="center"><span class="pill accent">yes</span></td><td>Conflicts with crew-pages spec resolve in favor of crew-pages spec.</td></tr>
       <tr><td><strong>#8</strong> impeccable v3 UI gate</td><td class="center"><span class="pill accent">yes</span></td><td>Every <code>/help/*</code> page is a UI surface. <code>/impeccable critique</code> + <code>/impeccable audit</code> mandatory before milestone close-out.</td></tr>
-      <tr><td><strong>#9</strong> Supabase call-boundary</td><td class="center"><span class="pill">n/a</span></td><td><code>/help/*</code> does no Supabase I/O. Auth via existing <code>requireAdmin()</code>.</td></tr>
+      <tr><td><strong>#9</strong> Supabase call-boundary</td><td class="center"><span class="pill accent">applies</span></td><td><code>/help/layout.tsx</code> calls <code>requireAdmin()</code>, which queries Supabase (<code>auth.getUser()</code> + <code>rpc("is_admin")</code>). Same single-call-site pattern as <code>/admin/layout.tsx</code>. Returned-error and thrown-error paths are already distinguished inside <code>requireAdmin</code>; layout catches <code>AdminInfraError</code> and renders cataloged 500-class surface (§3.4). <code>requireAdmin</code> is already registered in <code>tests/auth/_metaInfraContract.test.ts</code> — no new registry entry required. <span class="pill accent">corrected r3</span></td></tr>
     </tbody>
   </table>
   </div>
@@ -906,9 +956,9 @@ scripts/help-screenshots.manifest.ts    # { key, route, fixture, viewport, theme
     <li><strong>Anchor resolver invocation.</strong> <code>prebuild</code> script vs. vitest test in CI — pick based on existing build hooks.</li>
     <li><strong>Theme toggle reuse.</strong> Whether <code>&lt;Header&gt;</code>'s theme toggle reuses the crew-page component or duplicates the pattern.</li>
     <li><strong><code>Learn more →</code> text vs. icon.</strong> Implementation picks based on <code>impeccable</code> audit; spec does not constrain.</li>
-    <li><strong>Screenshot harness reuse of test auth.</strong> <span class="pill accent">r2</span> The capture script must authenticate as admin. Implementation surveys whether the existing Playwright test harness has a reusable admin-login helper.</li>
-    <li><strong>Recapture trigger for downstream milestones.</strong> <span class="pill accent">r2</span> Future milestones that change a documented surface must include a "regenerate screenshots" task. Git diff on WebP bytes is the automatic drift signal; future CI rule could fail the PR on drift without matching update. Plan-writing decision.</li>
+    <li><strong>Recapture obligation for downstream milestones.</strong> <span class="pill accent">r2</span> Future milestones that change a documented surface must include a "regenerate screenshots" task. The CI drift gate (§3.5.3 / §7.1 item 11) is the automatic signal — PR fails until <code>pnpm screenshot:help</code> is rerun and the new bytes are committed.</li>
   </ol>
+  <p style="font-size:.85rem;color:var(--fg-soft);"><span class="pill accent">r3 note</span> Open questions about test-auth helper reuse and screenshot-harness reproducibility shape (both flagged in round 1) are resolved upstream in §3.5.2 — <code>signInAs</code> from <code>tests/e2e/helpers/signInAs.ts:43-73</code> is the canonical helper.</p>
 </section>
 
 <!-- ===== Section 11 ===== -->
@@ -927,7 +977,11 @@ scripts/help-screenshots.manifest.ts    # { key, route, fixture, viewport, theme
       <tr><td><strong>Auth gating breadth</strong></td><td>All <code>/help/*</code> admin-gated in v1. Phase 2 splits via route groups; URLs unchanged.</td><td><a href="#s3">§3.4</a></td></tr>
       <tr><td><strong><code>/help/errors</code> rendering</strong></td><td>TSX iterating catalog. MDX rejected (would duplicate the short message).</td><td><a href="#s4">§4</a></td></tr>
       <tr><td><strong><code>/help/admin/parse-warnings</code> rendering</strong></td><td>MDX with anchored sections. TSX rejected (content is editorial).</td><td><a href="#s4">§4</a></td></tr>
-      <tr><td><strong>Catalog schema extension shape</strong></td><td>Two new optional fields. Required when <code>severity === "warning"</code> (the only non-info enum value per <code>lib/messages/catalog.ts:3</code>), meta-test enforced.</td><td><a href="#s5">§5.2</a></td></tr>
+      <tr><td><strong>Catalog API surface</strong> <span class="pill accent">r3</span></td><td>The accessor is <code>messageFor(code): MessageCatalogEntry</code> (<code>lib/messages/lookup.ts:11</code>). M12 does NOT introduce a new <code>lookup</code> function — it extends the existing <code>MessageCatalogEntry</code> type. <strong>Per round-1 finding 1.</strong></td><td><a href="#s5">§5.2</a></td></tr>
+      <tr><td><strong>Catalog schema extension shape</strong> <span class="pill accent">r3</span></td><td>Two new fields: <code>longExplanation: string | null</code> and <code>helpHref: string | null</code>. Required when <code>severity !== "info"</code> AND (<code>dougFacing != null</code> OR <code>crewFacing != null</code>). r2's <code>=== "warning"</code> predicate was wrong (round-1 finding 3); corrected here.</td><td><a href="#s5">§5.2</a></td></tr>
+      <tr><td><strong>Rendering posture</strong> <span class="pill accent">r3</span></td><td><strong>Dynamic at request time</strong> for <code>/help/*</code>. <code>requireAdmin()</code> runs Supabase queries per request. MDX content is statically compiled to RSC; the layout gate is dynamic. <strong>Per round-1 finding 2.</strong></td><td><a href="#s3">§3.4</a></td></tr>
+      <tr><td><strong><code>AdminInfraError</code> handling on <code>/help</code></strong> <span class="pill accent">r3</span></td><td>Mirrors <code>app/admin/layout.tsx:47-71</code> verbatim. Layout catches <code>AdminInfraError</code>, renders cataloged 500-class surface via <code>messageFor("ADMIN_SESSION_LOOKUP_FAILED")</code>. Test #3 verifies. <strong>Per round-1 finding 2.</strong></td><td><a href="#s3">§3.4</a>, <a href="#s7">§7.1 test 3</a></td></tr>
+      <tr><td><strong>Screenshot harness reproducibility</strong> <span class="pill accent">r3</span></td><td>Dedicated Playwright project, <code>globalSetup</code> with <code>pnpm db:seed</code>, reuses <code>signInAs</code>, pinned <code>sharp</code> encoder, deterministic browser settings, quiescence wait, CI <code>git diff --exit-code</code> gate. <strong>Per round-1 finding 4.</strong></td><td><a href="#s3">§3.5.2</a>, <a href="#s3">§3.5.3</a></td></tr>
       <tr><td><strong>Concept track</strong></td><td>Excluded from v1. Explanations live inline on operator pages.</td><td><a href="#s2">§2</a></td></tr>
       <tr><td><strong>Doug as bug-report triager</strong></td><td><strong>No.</strong> Doug receives content questions from crew via existing channels (phone/text); app bug reports route to Eric via M8 GitHub pipeline. <code>/help</code> covers no bug-triage surface.</td><td>(Resolved during brainstorm.)</td></tr>
     </tbody>
@@ -944,9 +998,14 @@ scripts/help-screenshots.manifest.ts    # { key, route, fixture, viewport, theme
     <thead><tr><th>Claim</th><th>Citation</th><th class="center">Verified</th></tr></thead>
     <tbody>
       <tr><td><code>experimental.authInterrupts</code> is enabled, enabling <code>forbidden()</code></td><td><code>next.config.ts:17</code></td><td class="center">✅</td></tr>
-      <tr><td><code>requireAdmin()</code> exists and uses <code>forbidden()</code></td><td><code>lib/auth/requireAdmin.ts</code> (referenced from <code>next.config.ts:10</code>)</td><td class="center">✅</td></tr>
-      <tr><td>Catalog has <code>severity?: "info" | "warning"</code> field</td><td><code>lib/messages/catalog.ts:3</code></td><td class="center">✅</td></tr>
-      <tr><td><code>lib/messages/lookup.ts</code> is the project's message-lookup helper</td><td><code>lib/messages/lookup.ts</code> exists; AGENTS.md invariant #5 names it canonical</td><td class="center">✅</td></tr>
+      <tr><td><code>requireAdmin()</code> + <code>requireAdminIdentity()</code> exist, throw <code>AdminInfraError</code> on infra paths, call <code>forbidden()</code> on auth-deny</td><td><code>lib/auth/requireAdmin.ts:41-48</code>, <code>:52-126</code></td><td class="center">✅</td></tr>
+      <tr><td>Existing admin layout catches <code>AdminInfraError</code> and renders cataloged 500-class surface</td><td><code>app/admin/layout.tsx:47-71</code></td><td class="center">✅</td></tr>
+      <tr><td><code>messageFor(code): MessageCatalogEntry</code> is the live accessor (NOT <code>lookup</code>)</td><td><code>lib/messages/lookup.ts:11</code></td><td class="center">✅</td></tr>
+      <tr><td><code>MessageCatalogEntry</code> shape (<code>code</code>, optional <code>severity</code>, four nullable string fields)</td><td><code>lib/messages/catalog.ts:1-8</code></td><td class="center">✅</td></tr>
+      <tr><td><code>severity</code> is OPTIONAL on entries; many user-visible codes omit it (e.g. <code>LEAKED_LINK_DETECTED</code>) and are rendered as warning-equivalent by AlertBanner</td><td><code>lib/messages/catalog.ts:46-53</code>; <code>components/admin/AlertBanner.tsx:39-50</code></td><td class="center">✅</td></tr>
+      <tr><td>Test-auth pattern: <code>signInAs</code> POSTing to <code>/api/test-auth/set-session</code> with <code>Authorization: Bearer ${TEST_AUTH_SECRET}</code></td><td><code>tests/e2e/helpers/signInAs.ts:43-73</code></td><td class="center">✅</td></tr>
+      <tr><td><code>ENABLE_TEST_AUTH</code> + <code>TEST_AUTH_SECRET</code> env vars required at server start</td><td><code>tests/e2e/helpers/signInAs.ts:1-23</code></td><td class="center">✅</td></tr>
+      <tr><td><code>ADMIN_SESSION_LOOKUP_FAILED</code> is the cataloged code thrown by <code>AdminInfraError</code></td><td><code>lib/auth/requireAdmin.ts:42</code></td><td class="center">✅</td></tr>
       <tr><td>App Router (not Pages); <code>app/admin/</code>, <code>app/api/</code>, <code>app/show/</code> exist</td><td><code>app/layout.tsx</code> + sibling routes</td><td class="center">✅</td></tr>
       <tr><td>Tailwind v4 with <code>app/globals.css</code> <code>@theme</code> tokens</td><td>AGENTS.md global-rules § (flex-stretch warning)</td><td class="center">✅</td></tr>
       <tr><td>Spec §9.0.1 mandates "?" / "What does this mean?" / "Take the tour" affordances</td><td><code>docs/.../2026-04-30-fxav-crew-pages-design.md:2540–2549</code></td><td class="center">✅</td></tr>
@@ -962,20 +1021,20 @@ scripts/help-screenshots.manifest.ts    # { key, route, fixture, viewport, theme
 <!-- ===== Section 13 — interactive checklist ===== -->
 <section class="spec-section" id="s13">
   <h2>13. Acceptance criteria</h2>
-  <p class="ac-progress"><strong id="acDone">0</strong> / <strong id="acTotal">22</strong> complete. State persists locally in this browser (<code>localStorage</code>).</p>
+  <p class="ac-progress"><strong id="acDone">0</strong> / <strong id="acTotal">28</strong> complete. State persists locally in this browser (<code>localStorage</code>).</p>
   <ul class="ac-list" id="acList">
     <li><input type="checkbox" id="ac1"><span class="ac-id">AC-12.1</span><span class="ac-text">All 13 pages under <code>app/help/*</code> exist and render non-empty HTML at build time.</span></li>
     <li><input type="checkbox" id="ac2"><span class="ac-id">AC-12.2</span><span class="ac-text"><code>app/help/layout.tsx</code> gates the tree via <code>requireAdmin()</code>. Unauthenticated and crew requests → 403.</span></li>
     <li><input type="checkbox" id="ac3"><span class="ac-id">AC-12.3</span><span class="ac-text">Sidebar renders on every <code>/help/*</code> page with current-page highlight; collapses to top-of-page disclosure under 768 px.</span></li>
     <li><input type="checkbox" id="ac4"><span class="ac-id">AC-12.4</span><span class="ac-text">Theme toggle is present in <code>&lt;Header&gt;</code> on every page and respects <code>prefers-color-scheme</code> on first paint.</span></li>
-    <li><input type="checkbox" id="ac5"><span class="ac-id">AC-12.5</span><span class="ac-text"><code>lib/messages/lookup.ts</code> returns <code>helpHref?: string</code> per §5.2; existing callers compile unchanged.</span></li>
-    <li><input type="checkbox" id="ac6"><span class="ac-id">AC-12.6</span><span class="ac-text">Every catalog entry with <code>severity === "warning"</code> has <code>longExplanation</code> + <code>helpHref</code>; meta-test enforces.</span></li>
+    <li><input type="checkbox" id="ac5"><span class="ac-id">AC-12.5</span><span class="ac-text"><code>MessageCatalogEntry</code> (per <code>lib/messages/catalog.ts:1-8</code>) is extended with <code>longExplanation: string | null</code> and <code>helpHref: string | null</code> per §5.2. <code>messageFor</code> signature unchanged; all existing callers compile and behave identically.</span></li>
+    <li><input type="checkbox" id="ac6"><span class="ac-id">AC-12.6</span><span class="ac-text">Every catalog entry where <code>severity !== "info"</code> AND (<code>dougFacing != null</code> OR <code>crewFacing != null</code>) has non-null <code>longExplanation</code> AND <code>helpHref</code> matching <code>^/help/...</code>; meta-test enforces.</span></li>
     <li><input type="checkbox" id="ac7"><span class="ac-id">AC-12.7</span><span class="ac-text">Build-time anchor resolver passes — every <code>helpHref</code> resolves to a real <code>&lt;RefAnchor&gt;</code>.</span></li>
     <li><input type="checkbox" id="ac8"><span class="ac-id">AC-12.8</span><span class="ac-text">Parse-warning rows in the §9.2 panel render <code>Learn more →</code> when <code>helpHref</code> is present.</span></li>
     <li><input type="checkbox" id="ac9"><span class="ac-id">AC-12.9</span><span class="ac-text">Dashboard tooltips render trailing <code>Learn more →</code> link when mapped.</span></li>
     <li><input type="checkbox" id="ac10"><span class="ac-id">AC-12.10</span><span class="ac-text">Dashboard footer renders <code>Take the tour →</code> linking to <code>/help/tour</code>.</span></li>
-    <li><input type="checkbox" id="ac11"><span class="ac-id">AC-12.11</span><span class="ac-text"><code>/help/errors</code> iterates the catalog and renders one anchored section per warning entry.</span></li>
-    <li><input type="checkbox" id="ac12"><span class="ac-id">AC-12.12</span><span class="ac-text">All 9 tests in §7.1 pass; nav-consistency, anchor-resolver, screenshot-coverage, and manifest-integrity meta-tests are red on the conditions they guard.</span></li>
+    <li><input type="checkbox" id="ac11"><span class="ac-id">AC-12.11</span><span class="ac-text"><code>/help/errors</code> iterates the catalog and renders one anchored section per entry matching the AC-12.6 predicate (every entry that would surface to a user).</span></li>
+    <li><input type="checkbox" id="ac12"><span class="ac-id">AC-12.12</span><span class="ac-text">All 10 unit/integration tests in §7.1 pass; nav-consistency, anchor-resolver, screenshot-coverage, manifest-integrity, and <code>&lt;picture&gt;</code>-contract meta-tests are red on the conditions they guard. CI drift gate (item 11) is wired.</span></li>
     <li><input type="checkbox" id="ac13"><span class="ac-id">AC-12.13</span><span class="ac-text"><code>/impeccable critique</code> + <code>/impeccable audit</code> pass on every <code>app/help/*</code> page (per invariant #8).</span></li>
     <li><input type="checkbox" id="ac14"><span class="ac-id">AC-12.14</span><span class="ac-text">No <code>&lt;ScreenshotPlaceholder&gt;</code> references in shipped v1 MDX (lint, §7.1 test 7). Every documented surface ships with a real <code>&lt;Screenshot key&gt;</code>.</span></li>
     <li><input type="checkbox" id="ac15"><span class="ac-id">AC-12.15</span><span class="ac-text">Mobile Playwright at 390×844 passes: sidebar collapsed, no horizontal scroll, every tap target ≥ 44×44 px.</span></li>
@@ -986,6 +1045,12 @@ scripts/help-screenshots.manifest.ts    # { key, route, fixture, viewport, theme
     <li><input type="checkbox" id="ac20"><span class="ac-id">AC-12.20</span><span class="ac-text"><code>&lt;Screenshot&gt;</code> renders <code>&lt;picture&gt;</code> with a <code>(prefers-color-scheme: dark)</code> <code>&lt;source&gt;</code> and default light <code>&lt;img&gt;</code>; reader's theme picks automatically.</span></li>
     <li><input type="checkbox" id="ac21"><span class="ac-id">AC-12.21</span><span class="ac-text">Manifest-integrity meta-test (§7.1 test 9) passes: no stale entries, no orphan WebPs, every named fixture exists in <code>fixtures/shows/</code>.</span></li>
     <li><input type="checkbox" id="ac22"><span class="ac-id">AC-12.22</span><span class="ac-text">M12 work begins only after M10 closes (sequencing constraint, recorded in milestone-routing handoff).</span></li>
+    <li><input type="checkbox" id="ac23"><span class="ac-id">AC-12.23</span><span class="ac-text"><code>/help/*</code> renders dynamically (not statically prerendered) — auth gate runs Supabase queries per request. Test #3 observes distinct responses for admin / unauthenticated / AdminInfraError-stubbed cases.</span></li>
+    <li><input type="checkbox" id="ac24"><span class="ac-id">AC-12.24</span><span class="ac-text"><code>app/help/layout.tsx</code> catches <code>AdminInfraError</code> and renders the cataloged 500-class surface via <code>messageFor("ADMIN_SESSION_LOOKUP_FAILED").dougFacing</code>; mirrors <code>app/admin/layout.tsx:47-71</code>. Test #3 verifies.</span></li>
+    <li><input type="checkbox" id="ac25"><span class="ac-id">AC-12.25</span><span class="ac-text"><code>&lt;Screenshot&gt;</code> <code>&lt;picture&gt;</code> contract test (§7.1 test 10) passes — output contains <code>&lt;source media="(prefers-color-scheme: dark)" srcset="…-dark.webp"&gt;</code> and a default light <code>&lt;img&gt;</code> with the provided <code>alt</code>.</span></li>
+    <li><input type="checkbox" id="ac26"><span class="ac-id">AC-12.26</span><span class="ac-text">CI drift gate is wired: <code>pnpm screenshot:help</code> runs against a clean checkout, then <code>git diff --exit-code public/help/screenshots/</code>. PR fails on non-zero exit.</span></li>
+    <li><input type="checkbox" id="ac27"><span class="ac-id">AC-12.27</span><span class="ac-text">The <code>screenshots-help</code> Playwright project declares: dedicated <code>webServer</code> with <code>ENABLE_TEST_AUTH=true</code> + <code>TEST_AUTH_SECRET</code> env, <code>globalSetup</code> running <code>pnpm db:seed</code>, deterministic browser settings, and reuses <code>signInAs</code> from <code>tests/e2e/helpers/signInAs.ts</code>.</span></li>
+    <li><input type="checkbox" id="ac28"><span class="ac-id">AC-12.28</span><span class="ac-text"><code>messageFor</code> signature is unchanged. Existing call sites (e.g., <code>app/admin/layout.tsx:51</code>) continue to compile and behave identically — only the return type widens.</span></li>
   </ul>
 </section>
 
