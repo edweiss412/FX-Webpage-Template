@@ -224,6 +224,8 @@ M7 has not yet been implemented; no prior M7 convergence log exists. Watchpoints
 
 25. **Phase 1 warning → TriggeredReviewItem bridge (full-M7 R1 HIGH `review-mp1uaqca-jbmciz`).** The four sync-layer-appended asset-review variants (`DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE`, `DIAGRAMS_EMBEDDED_NONE_FOUND`, `DIAGRAMS_LINKED_FOLDER_DRIFT_PENDING`, `REEL_DRIFT_PENDING`) MUST be promoted from Phase 1 `parseResult.warnings` into `pending_syncs.triggered_review_items` before the pass/stage decision. Otherwise Apply auto-runs and bypasses the preserve / empty-gallery / linked-folder drift / reel-drift branches in `applyStaged`. Future changes touching `lib/parser/types.ts` asset-review variants or `lib/sync/phase1.ts` MUST extend `tests/sync/_phase1WarningBridgeContract.test.ts`.
 
+26. **Shared Drive parity across Drive API calls (full-M7 R2 HIGH `review-mp1vferp-te7o36`).** R14 added `supportsAllDrives: true` to the asset proxy routes, but the sync-layer class sweep was incomplete: `drive.revisions.get/list` calls in `lib/sync/**` still omitted Shared Drive support. Future changes touching `drive.revisions.get/list` or `drive.files.get/list` MUST run `rg -n "drive\\.revisions\\.(get|list)\\(|drive\\.files\\.(get|list)\\(" lib app` and keep `tests/sync/_sharedDriveSupportContract.test.ts` green. For `drive.files.list`, both `supportsAllDrives: true` and `includeItemsFromAllDrives: true` are required.
+
 ## 7. Test commands
 
 - **Pre-flight and final gate**: `pnpm test && pnpm lint && pnpm typecheck`. Do NOT parallelize `pnpm test` with Playwright.
@@ -428,6 +430,8 @@ For each candidate class below, **create / extend / N/A — <reason>**:
 
 - [x] **Phase 1 warning → review-item bridge** — **CREATE `tests/sync/_phase1WarningBridgeContract.test.ts`** (NEW full-M7 R1-introduced class). Static-analysis test reads the `TriggeredReviewItem` union comment in `lib/parser/types.ts` and enumerates every variant marked sync-layer-appended; then asserts `lib/sync/phase1.ts` has an explicit `syncLayerReviewItems` bridge path and call site for each. This prevents future asset-review warning variants from silently falling through Phase 1 as `pass` and bypassing `applyStaged`'s preserve / empty / drift contracts.
 
+- [x] **Shared Drive support across Drive API surfaces** — **CREATE `tests/sync/_sharedDriveSupportContract.test.ts`** (NEW full-M7 R2-introduced class). Static-analysis test scans `lib/sync/**`, `lib/drive/**`, and `app/api/asset/**` for every `drive.revisions.get/list` and `drive.files.get/list` call. Every call must include `supportsAllDrives: true`; `drive.files.list` must also include `includeItemsFromAllDrives: true`. Violations name the offending `file:line`.
+
 - [N/A] **Sentinel hiding in optional text** — `tests/components/tiles/_metaSentinelHidingContract.test.ts`. **N/A — M7 backend doesn't render tile-shape optional text. If Task 7.9 ships in M7 (per §6.24 resolution), Opus's UI work owns this consideration; the existing M4 meta-test already covers the tile-render contract.**
 
 - [N/A] **No-inline-email-normalization** — `tests/admin/no-inline-email-normalization.test.ts`. **N/A for M7's new surfaces — M7 does NOT read emails from any source.** The existing M6-extended glob covers `lib/sync/**`; M7's new files under `lib/sync/` are automatically covered, but they have no email-reading surface so the test passes trivially.
@@ -580,13 +584,16 @@ The seven create / extend rows above are mandatory at M7 close. Empty rows silen
 
 **Final UI-session HEAD.** R26 attests through commit `4808576` (this convergence-log entry); the last code-changing fix landed at `68bfa48`. The R20-R26 chain lives across `3b8efca`, `752260e`, `9945396`, `51ba0c8`, `02dda36`, `68bfa48` + `c069893` (AGENTS.md rule codification). **A full-M7 adversarial review against `ae6f0b8..HEAD` is still pending** — it is what closes the milestone.
 
-#### Full-M7 adversarial review — R1 bridge fix
+#### Full-M7 adversarial review — R1/R2 fixes
 
 | Round | Codex job id | Verdict + summary | Resolution commit |
 | --- | --- | --- | --- |
 | R1 | `review-mp1uaqca-jbmciz` | HIGH: four sync-layer-owned asset-review `TriggeredReviewItem` codes were present as Phase 1 warnings but not promoted into `triggeredReviewItems`; Phase 1 could return `pass`, causing Apply to auto-run and bypass the preserve / empty-gallery / linked-folder drift / reel-drift branches in `applyStaged`. | `9ab1088`, `250838a` |
+| R2 | `review-mp1vferp-te7o36` | HIGH: Shared Drive support was complete in asset proxy routes but missing from sync-layer Drive revisions calls, so Shared Drive-hosted sheets/assets could fail in sync/recovery paths. | `de0c855`, `8cf5b11`, this doc commit |
 
 **R1 resolution.** `lib/sync/phase1.ts` now composes `syncLayerReviewItems(args, args.parseResult, show)` with `runInvariants` output before the pass/stage decision. `tests/sync/phase1WarningBridge.test.ts` pins one positive staging case per asset-review code, and `tests/sync/_phase1WarningBridgeContract.test.ts` structurally guards the sync-layer-appended variant list from `lib/parser/types.ts`.
+
+**R2 resolution.** Class sweep used `rg -n "drive\\.revisions\\.(get|list)\\(|drive\\.files\\.(get|list)\\(" lib app` as canonical. The already-correct proxy and `lib/drive` surfaces were left unchanged; sync-layer `drive.revisions.get/list` calls now include `supportsAllDrives: true`. `tests/sync/_sharedDriveSupportContract.test.ts` pins Shared Drive flags across sync, drive helpers, and asset proxy routes.
 
 **Tests added during convergence (cumulative):**
 
