@@ -1,0 +1,1091 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FXAV /help — Design Spec (M12)</title>
+<style>
+  :root {
+    --fg: #1a1a1d;
+    --fg-soft: #4a4a52;
+    --muted: #707078;
+    --bg: #fafafa;
+    --surface: #fff;
+    --surface-2: #f3f3f5;
+    --border: #e1e1e5;
+    --border-strong: #c8c8cf;
+    --accent: #f79338;
+    --accent-strong: #d97a1a;
+    --accent-soft: #fff1e0;
+    --warn-bg: #fff8ec;
+    --warn-border: #f0c47a;
+    --warn-text: #7a4a06;
+    --note-bg: #eef4ff;
+    --note-border: #b3c9ef;
+    --note-text: #1a3a78;
+    --tip-bg: #ecf7ee;
+    --tip-border: #a8d3ae;
+    --tip-text: #1a5a25;
+    --code-bg: #f3f3f5;
+    --code-fg: #1a1a1d;
+    --shadow: 0 1px 2px rgba(0,0,0,.04), 0 4px 12px rgba(0,0,0,.06);
+    --radius: 8px;
+  }
+  html[data-theme="dark"] {
+    --fg: #ececec;
+    --fg-soft: #c0c0c8;
+    --muted: #909098;
+    --bg: #0e0e10;
+    --surface: #161619;
+    --surface-2: #1d1d22;
+    --border: #2a2a30;
+    --border-strong: #3a3a42;
+    --accent: #ffa14a;
+    --accent-strong: #ffb56b;
+    --accent-soft: #2a1d10;
+    --warn-bg: #2a2010;
+    --warn-border: #6b4a14;
+    --warn-text: #f0c47a;
+    --note-bg: #14223e;
+    --note-border: #2a4070;
+    --note-text: #b3c9ef;
+    --tip-bg: #142a18;
+    --tip-border: #2a5030;
+    --tip-text: #a8d3ae;
+    --code-bg: #1c1c22;
+    --code-fg: #ececec;
+    --shadow: 0 1px 2px rgba(0,0,0,.2), 0 4px 12px rgba(0,0,0,.3);
+  }
+  @media (prefers-color-scheme: dark) {
+    html[data-theme="auto"] {
+      --fg: #ececec;
+      --fg-soft: #c0c0c8;
+      --muted: #909098;
+      --bg: #0e0e10;
+      --surface: #161619;
+      --surface-2: #1d1d22;
+      --border: #2a2a30;
+      --border-strong: #3a3a42;
+      --accent: #ffa14a;
+      --accent-strong: #ffb56b;
+      --accent-soft: #2a1d10;
+      --warn-bg: #2a2010;
+      --warn-border: #6b4a14;
+      --warn-text: #f0c47a;
+      --note-bg: #14223e;
+      --note-border: #2a4070;
+      --note-text: #b3c9ef;
+      --tip-bg: #142a18;
+      --tip-border: #2a5030;
+      --tip-text: #a8d3ae;
+      --code-bg: #1c1c22;
+      --code-fg: #ececec;
+      --shadow: 0 1px 2px rgba(0,0,0,.2), 0 4px 12px rgba(0,0,0,.3);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; font-feature-settings: 'tnum'; scroll-behavior: smooth; scroll-padding-top: 80px; }
+  body { margin: 0; background: var(--bg); color: var(--fg); line-height: 1.55; -webkit-font-smoothing: antialiased; }
+
+  /* Top header bar */
+  header.topbar { position: sticky; top: 0; z-index: 50; background: rgba(250,250,250,.85); backdrop-filter: saturate(180%) blur(10px); border-bottom: 1px solid var(--border); }
+  html[data-theme="dark"] header.topbar, html[data-theme="auto"] header.topbar { background: rgba(14,14,16,.85); }
+  @media (prefers-color-scheme: dark) { html[data-theme="auto"] header.topbar { background: rgba(14,14,16,.85); } }
+  .topbar-inner { max-width: 1280px; margin: 0 auto; padding: .65rem 1.25rem; display: flex; align-items: center; gap: 1rem; }
+  .topbar h1 { font-size: 1rem; margin: 0; font-weight: 600; }
+  .topbar .meta-pill { font-size: .78rem; padding: .15rem .55rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; letter-spacing: .02em; }
+  .topbar .spacer { flex: 1; }
+  .topbar button { font: inherit; padding: .35rem .7rem; border-radius: 6px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--fg); cursor: pointer; font-size: .85rem; }
+  .topbar button:hover { background: var(--surface-2); }
+
+  /* Hero */
+  .hero { max-width: 1280px; margin: 0 auto; padding: 2rem 1.25rem .5rem; }
+  .hero h2 { font-size: 1.95rem; margin: 0 0 .25rem; line-height: 1.15; letter-spacing: -.01em; }
+  .hero .lede { color: var(--fg-soft); max-width: 60ch; font-size: 1.05rem; margin: .25rem 0 1rem; }
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .5rem 1.5rem; font-size: .9rem; color: var(--muted); margin-top: 1rem; }
+  .meta-grid strong { color: var(--fg); }
+
+  /* Layout: TOC + content */
+  .layout { max-width: 1280px; margin: 0 auto; padding: 1rem 1.25rem 6rem; display: grid; grid-template-columns: 240px 1fr; gap: 2.5rem; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; gap: 1rem; } aside.toc { position: static; height: auto; } }
+
+  /* TOC */
+  aside.toc { position: sticky; top: 64px; align-self: start; max-height: calc(100vh - 80px); overflow-y: auto; padding: 1rem 0; border-right: 1px solid var(--border); padding-right: 1rem; }
+  @media (max-width: 900px) { aside.toc { border-right: none; border-bottom: 1px solid var(--border); padding: .5rem 0 1rem; padding-right: 0; } }
+  aside.toc h3 { font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 .5rem; font-weight: 600; }
+  aside.toc ol { list-style: none; margin: 0; padding: 0; counter-reset: toc; }
+  aside.toc li { counter-increment: toc; }
+  aside.toc a { display: block; padding: .3rem .55rem .3rem 1.7rem; color: var(--fg-soft); font-size: .87rem; text-decoration: none; border-left: 2px solid transparent; border-radius: 0 4px 4px 0; position: relative; }
+  aside.toc a::before { content: counter(toc); position: absolute; left: .35rem; color: var(--muted); font-variant-numeric: tabular-nums; font-size: .78rem; top: .3rem; }
+  aside.toc a:hover { color: var(--fg); background: var(--surface-2); }
+  aside.toc a.active { color: var(--accent-strong); border-left-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+
+  /* Main content */
+  main { min-width: 0; }
+  section.spec-section { margin: 0 0 3rem; scroll-margin-top: 70px; }
+  section.spec-section > h2 { font-size: 1.5rem; margin: 0 0 .5rem; padding-bottom: .35rem; border-bottom: 2px solid var(--accent); display: inline-block; letter-spacing: -.005em; }
+  section.spec-section h3 { font-size: 1.1rem; margin: 1.5rem 0 .35rem; color: var(--fg); }
+  section.spec-section h4 { font-size: .95rem; margin: 1.25rem 0 .35rem; color: var(--fg-soft); text-transform: uppercase; letter-spacing: .04em; }
+  section.spec-section p { margin: .5rem 0 .75rem; max-width: 70ch; }
+  section.spec-section ul, section.spec-section ol { padding-left: 1.4rem; max-width: 70ch; }
+  section.spec-section li { margin: .25rem 0; }
+
+  /* Code */
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; background: var(--code-bg); color: var(--code-fg); padding: .12em .38em; border-radius: 3px; font-size: .9em; }
+  pre { background: var(--code-bg); color: var(--code-fg); padding: 1rem 1.1rem; border-radius: var(--radius); overflow-x: auto; font-size: .85rem; border: 1px solid var(--border); margin: .8rem 0; max-width: 70ch; }
+  pre code { background: none; padding: 0; }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; margin: .8rem 0; }
+  table.spec-table { width: 100%; border-collapse: collapse; font-size: .9rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  table.spec-table th, table.spec-table td { text-align: left; padding: .55rem .8rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.spec-table th { background: var(--surface-2); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; color: var(--fg-soft); }
+  table.spec-table tr:last-child td { border-bottom: none; }
+  table.spec-table td.center { text-align: center; }
+
+  /* Links */
+  a { color: var(--accent-strong); }
+  a:hover { color: var(--accent); }
+
+  /* Sitemap */
+  .sitemap { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .75rem; margin: 1rem 0; }
+  .sitemap .page-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .8rem 1rem; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+  .sitemap .page-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--card-color, var(--border)); }
+  .sitemap .page-card .group { font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 .15rem; }
+  .sitemap .page-card .route { font-family: ui-monospace, monospace; font-size: .86rem; color: var(--fg); margin: 0 0 .25rem; word-break: break-all; font-weight: 600; }
+  .sitemap .page-card .desc { font-size: .82rem; color: var(--fg-soft); line-height: 1.4; }
+  .sitemap .page-card[data-group="adoption"] { --card-color: #4a8bff; }
+  .sitemap .page-card[data-group="reference"] { --card-color: var(--accent); }
+  .sitemap .page-card[data-group="tour"] { --card-color: #6a9a3e; }
+  .legend { display: flex; gap: 1rem; font-size: .82rem; color: var(--fg-soft); margin: .5rem 0 1rem; flex-wrap: wrap; }
+  .legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: .35rem; }
+
+  /* Component previews */
+  .preview-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: .75rem 0; }
+  @media (max-width: 700px) { .preview-pair { grid-template-columns: 1fr; } }
+  .preview-frame { border-radius: var(--radius); padding: 1rem 1.1rem; border: 1px solid var(--border); position: relative; min-height: 100px; }
+  .preview-frame::after { content: attr(data-mode); position: absolute; top: .35rem; right: .55rem; font-size: .65rem; text-transform: uppercase; letter-spacing: .08em; opacity: .55; }
+  .preview-frame[data-mode="light"] { background: #fafafa; color: #1a1a1d; }
+  .preview-frame[data-mode="dark"] { background: #0e0e10; color: #ececec; }
+
+  /* Faux component renderings */
+  .demo-callout { border-radius: 6px; padding: .65rem .85rem; margin: .35rem 0; font-size: .88rem; line-height: 1.5; border-left: 3px solid; display: flex; gap: .55rem; }
+  .demo-callout .icon { font-weight: 700; flex-shrink: 0; }
+  .demo-callout.note { background: var(--note-bg); color: var(--note-text); border-color: var(--note-border); }
+  .demo-callout.warning { background: var(--warn-bg); color: var(--warn-text); border-color: var(--warn-border); }
+  .demo-callout.tip { background: var(--tip-bg); color: var(--tip-text); border-color: var(--tip-border); }
+  .preview-frame[data-mode="light"] .demo-callout.note { background: #eef4ff; color: #1a3a78; border-color: #b3c9ef; }
+  .preview-frame[data-mode="light"] .demo-callout.warning { background: #fff8ec; color: #7a4a06; border-color: #f0c47a; }
+  .preview-frame[data-mode="light"] .demo-callout.tip { background: #ecf7ee; color: #1a5a25; border-color: #a8d3ae; }
+  .preview-frame[data-mode="dark"] .demo-callout.note { background: #14223e; color: #b3c9ef; border-color: #2a4070; }
+  .preview-frame[data-mode="dark"] .demo-callout.warning { background: #2a2010; color: #f0c47a; border-color: #6b4a14; }
+  .preview-frame[data-mode="dark"] .demo-callout.tip { background: #142a18; color: #a8d3ae; border-color: #2a5030; }
+
+  .demo-step { display: flex; gap: .8rem; margin: .55rem 0; align-items: flex-start; }
+  .demo-step .num { flex-shrink: 0; width: 26px; height: 26px; border-radius: 999px; background: #f79338; color: #fff; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; font-size: .82rem; font-variant-numeric: tabular-nums; }
+  .preview-frame[data-mode="dark"] .demo-step .num { background: #ffa14a; color: #0e0e10; }
+  .demo-step .body { line-height: 1.5; font-size: .9rem; padding-top: .15rem; }
+
+  .demo-screenshot { background: repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(127,127,127,.08) 6px, rgba(127,127,127,.08) 12px); border: 1px dashed var(--border-strong); border-radius: 4px; padding: 1.5rem 1rem; text-align: center; font-size: .82rem; color: var(--muted); font-style: italic; }
+
+  .demo-anchor { display: flex; align-items: center; gap: .5rem; margin: .65rem 0 .15rem; }
+  .demo-anchor h5 { margin: 0; font-size: 1rem; color: var(--accent-strong); }
+  .demo-anchor .link-icon { color: var(--muted); font-size: .85rem; opacity: .55; cursor: pointer; }
+  .demo-anchor .link-icon:hover { opacity: 1; }
+  .demo-anchor + p { font-size: .85rem; color: var(--fg-soft); margin: 0 0 .35rem; }
+
+  .demo-tip { background: var(--accent-soft); border-radius: 6px; padding: .65rem .85rem; margin: .35rem 0; font-size: .87rem; border-left: 3px solid var(--accent); }
+  .demo-tip .label { display: inline-block; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--accent-strong); font-weight: 700; margin-right: .35rem; }
+  .preview-frame[data-mode="light"] .demo-tip { background: #fff1e0; color: #7a4a06; border-color: #d97a1a; }
+  .preview-frame[data-mode="light"] .demo-tip .label { color: #d97a1a; }
+  .preview-frame[data-mode="dark"] .demo-tip { background: #2a1d10; color: #f0c47a; border-color: #ffa14a; }
+  .preview-frame[data-mode="dark"] .demo-tip .label { color: #ffa14a; }
+
+  /* SVG diagrams */
+  .diagram { display: block; max-width: 100%; height: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin: 1rem 0; padding: 1rem; }
+  .diagram text { fill: var(--fg); font-family: ui-sans-serif, system-ui, sans-serif; }
+  .diagram text.small { font-size: 11px; fill: var(--fg-soft); }
+  .diagram text.label { font-size: 13px; font-weight: 600; }
+  .diagram text.route { font-family: ui-monospace, monospace; font-size: 11px; fill: var(--accent-strong); }
+  .diagram rect.node { fill: var(--surface-2); stroke: var(--border-strong); stroke-width: 1.5; }
+  .diagram rect.node-accent { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+  .diagram path.flow { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+  .diagram path.flow-accent { stroke: var(--accent); stroke-width: 2; fill: none; }
+
+  /* AC checklist */
+  .ac-list { list-style: none; padding: 0; margin: 1rem 0; }
+  .ac-list li { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .65rem .8rem .65rem 2.4rem; margin: .35rem 0; display: block; position: relative; cursor: pointer; transition: background .15s, border-color .15s; }
+  .ac-list li:hover { background: var(--surface-2); }
+  .ac-list li.done { background: var(--tip-bg); border-color: var(--tip-border); }
+  .ac-list input[type="checkbox"] { position: absolute; left: .85rem; top: .85rem; width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); }
+  .ac-list .ac-id { display: inline-block; font-family: ui-monospace, monospace; font-size: .78rem; background: var(--accent-soft); color: var(--accent-strong); padding: .1rem .4rem; border-radius: 3px; margin-right: .55rem; font-weight: 600; }
+  .ac-list .ac-text { font-size: .88rem; color: var(--fg); }
+  .ac-list li.done .ac-text { text-decoration: line-through; color: var(--muted); }
+  .ac-progress { font-size: .85rem; color: var(--fg-soft); margin: .5rem 0 .25rem; }
+  .ac-progress strong { color: var(--accent-strong); font-variant-numeric: tabular-nums; }
+
+  /* Audience-cut visual */
+  .audience-cut { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  @media (max-width: 700px) { .audience-cut { grid-template-columns: 1fr; } }
+  .audience-cut .phase { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem; box-shadow: var(--shadow); }
+  .audience-cut .phase h4 { margin: 0 0 .5rem; font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--accent-strong); }
+  .audience-cut .phase .row { display: flex; justify-content: space-between; padding: .35rem 0; border-bottom: 1px dashed var(--border); font-size: .88rem; }
+  .audience-cut .phase .row:last-child { border-bottom: none; }
+  .audience-cut .phase .yes { color: #2a8a3a; font-weight: 600; }
+  .audience-cut .phase .no { color: var(--muted); }
+  html[data-theme="dark"] .audience-cut .phase .yes, html[data-theme="auto"] .audience-cut .phase .yes { color: #6ac070; }
+  @media (prefers-color-scheme: dark) { html[data-theme="auto"] .audience-cut .phase .yes { color: #6ac070; } }
+
+  /* Faux /help layout mockup */
+  .mockup { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); margin: 1rem 0; font-size: .82rem; }
+  .mockup .browser-bar { background: var(--surface-2); padding: .4rem .7rem; display: flex; gap: .35rem; align-items: center; border-bottom: 1px solid var(--border); }
+  .mockup .browser-bar .dot { width: 10px; height: 10px; border-radius: 999px; background: var(--border-strong); }
+  .mockup .browser-bar .url { font-family: ui-monospace, monospace; color: var(--fg-soft); font-size: .78rem; background: var(--surface); padding: .15rem .55rem; border-radius: 4px; margin-left: .5rem; flex: 1; }
+  .mockup .frame { display: grid; grid-template-columns: 160px 1fr; min-height: 220px; }
+  .mockup .frame .side { background: var(--surface-2); padding: .75rem .6rem; border-right: 1px solid var(--border); }
+  .mockup .frame .side .group-h { font-size: .65rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: .5rem 0 .25rem; font-weight: 600; }
+  .mockup .frame .side .group-h:first-child { margin-top: 0; }
+  .mockup .frame .side .nav-item { font-family: ui-monospace, monospace; font-size: .75rem; padding: .2rem .35rem; border-radius: 3px; color: var(--fg-soft); }
+  .mockup .frame .side .nav-item.active { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+  .mockup .frame .content { padding: .9rem 1rem; }
+  .mockup .frame .content h6 { margin: 0 0 .5rem; font-size: .95rem; }
+  .mockup .frame .content p { margin: .3rem 0; font-size: .78rem; color: var(--fg-soft); }
+  .mockup .frame .content .lorem { background: linear-gradient(90deg, var(--surface-2) 60%, transparent); height: 8px; border-radius: 2px; margin: .3rem 0; }
+  .mockup .frame .content .lorem.short { width: 60%; }
+  .mockup .frame .content .lorem.mid { width: 85%; }
+  @media (max-width: 700px) { .mockup .frame { grid-template-columns: 1fr; } .mockup .frame .side { border-right: none; border-bottom: 1px solid var(--border); } }
+
+  /* Misc */
+  .pill { display: inline-block; font-size: .72rem; padding: .12rem .45rem; border-radius: 999px; background: var(--surface-2); color: var(--fg-soft); font-weight: 600; letter-spacing: .02em; }
+  .pill.warn { background: var(--warn-bg); color: var(--warn-text); }
+  .pill.tip { background: var(--tip-bg); color: var(--tip-text); }
+  .pill.note { background: var(--note-bg); color: var(--note-text); }
+  .pill.accent { background: var(--accent-soft); color: var(--accent-strong); }
+
+  .end-note { color: var(--muted); font-style: italic; text-align: center; margin-top: 3rem; padding-top: 2rem; border-top: 1px solid var(--border); }
+
+  /* Print */
+  @media print {
+    aside.toc, header.topbar { display: none; }
+    .layout { grid-template-columns: 1fr; padding: 0; }
+    section.spec-section { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar" id="topbar">
+  <div class="topbar-inner">
+    <h1>FXAV <code>/help</code> Spec</h1>
+    <span class="meta-pill">M12 · DRAFT</span>
+    <span class="spacer"></span>
+    <button id="themeToggle" type="button" title="Toggle theme">◐ Theme</button>
+    <a href="./2026-05-12-user-facing-docs-design.md" style="font-size:.85rem;color:var(--fg-soft);text-decoration:none;border:1px solid var(--border-strong);padding:.35rem .7rem;border-radius:6px;">Markdown ↗</a>
+  </div>
+</header>
+
+<div class="hero">
+  <h2>User-facing docs at <code>/help</code></h2>
+  <p class="lede">A wiki-style site that carries Doug from his Sheets-only workflow into the FXAV-augmented one — adoption guide, capability reference, and tour, all destinationed in one place that <code>/admin</code> tooltips can deep-link into.</p>
+  <div class="meta-grid">
+    <div><strong>Spec date</strong><br>2026-05-12</div>
+    <div><strong>Milestone</strong><br>M12 (proposed)</div>
+    <div><strong>Status</strong><br>Draft — pending user + adversarial review</div>
+    <div><strong>Implementer</strong><br>Opus / Claude Code (UI surface)</div>
+    <div><strong>Primary reader</strong><br>Doug Larson (admin)</div>
+    <div><strong>Phase 2</strong><br>Crew docs at <code>/help/crew/*</code></div>
+    <div><strong>Depends on</strong><br>M10 close-out (real screenshots)</div>
+    <div><strong>Revision</strong><br>r2 (screenshots in v1)</div>
+  </div>
+</div>
+
+<div class="layout">
+
+<aside class="toc" aria-label="Table of contents">
+  <h3>Sections</h3>
+  <ol>
+    <li><a href="#s1" data-section>Goal &amp; scope</a></li>
+    <li><a href="#s2" data-section>Out of scope</a></li>
+    <li><a href="#s3" data-section>Architecture</a></li>
+    <li><a href="#s4" data-section>Content inventory</a></li>
+    <li><a href="#s5" data-section>Deep-link contract</a></li>
+    <li><a href="#s6" data-section>Components</a></li>
+    <li><a href="#s7" data-section>Testing strategy</a></li>
+    <li><a href="#s8" data-section>Plan-wide invariants</a></li>
+    <li><a href="#s9" data-section>Flag lifecycle</a></li>
+    <li><a href="#s10" data-section>Open questions</a></li>
+    <li><a href="#s11" data-section>Disagreement-loop preempt</a></li>
+    <li><a href="#s12" data-section>Existing-code citations</a></li>
+    <li><a href="#s13" data-section>Acceptance criteria</a></li>
+    <li><a href="#s14" data-section>Phase 2 appendix</a></li>
+  </ol>
+</aside>
+
+<main>
+
+<!-- ===== Section 1 ===== -->
+<section class="spec-section" id="s1">
+  <h2>1. Goal &amp; scope</h2>
+  <p>Build an in-app wiki at <code>/help</code> whose primary reader is <strong>Doug Larson</strong> (the sole admin of <code>/admin</code>). The site does three jobs at once:</p>
+  <ol>
+    <li><strong>Adoption.</strong> Carries Doug across the gap from his Sheets-only workflow into the FXAV-augmented one — explicit, narrative, finite.</li>
+    <li><strong>Reference.</strong> One page per operator-facing surface (dashboard triage, review queues, parse warnings, per-show panel, preview-as-crew, signed-link distribution, onboarding).</li>
+    <li><strong>Tour.</strong> A single capability-showcase page Doug can use to orient himself or a future successor.</li>
+  </ol>
+  <p>The crew-pages spec §9.0.1 already mandates contextual help affordances — "?" tooltips, "Take the tour", "What does this mean?" links. Those land with M4 / M9 / M10 as <strong>plain-text only</strong>. M12 builds the destination, and retrofits each affordance with a <code>Learn more →</code> link.</p>
+
+  <h3>1.1 Audience cut</h3>
+  <div class="audience-cut">
+    <div class="phase">
+      <h4>v1 (M12, this milestone)</h4>
+      <div class="row"><span>Doug (admin)</span><span class="yes">✓ all 13 pages</span></div>
+      <div class="row"><span>Crew (signed link)</span><span class="no">✗ none</span></div>
+      <div class="row"><span>Public</span><span class="no">✗ 403 across <code>/help/*</code></span></div>
+    </div>
+    <div class="phase">
+      <h4>Phase 2 (future)</h4>
+      <div class="row"><span>Doug (admin)</span><span class="yes">✓ unchanged</span></div>
+      <div class="row"><span>Crew (signed link)</span><span class="yes">✓ <code>/help/crew/*</code></span></div>
+      <div class="row"><span>Public</span><span class="yes">✓ <code>/help/crew/*</code> only</span></div>
+    </div>
+  </div>
+  <p>v1 gates all of <code>/help/*</code> to admin. Phase 2 splits via App Router route groups (<code>(admin)</code> / <code>(public)</code>) — <strong>no URLs change</strong> between phases.</p>
+</section>
+
+<!-- ===== Section 2 ===== -->
+<section class="spec-section" id="s2">
+  <h2>2. Out of scope (explicit deferrals)</h2>
+  <p>Every entry below was considered and rejected for v1. Recording so the round-N reviewer doesn't relitigate.</p>
+  <ul>
+    <li><strong>Crew-facing pages</strong> — phase 2 only. Auth gating is admin-only across the whole tree in v1.</li>
+    <li><strong>Full-text search</strong> — sidebar + Ctrl-F is sufficient for 13 pages. Phase-2 trigger: total pages &gt; ~25.</li>
+    <li><strong>In-app authoring / CMS</strong> — MDX/TSX in the repo, PR-reviewed. Doug reads; he does not edit.</li>
+    <li><strong>Versioned docs</strong> — single "latest".</li>
+    <li><strong>Changelog / release notes</strong>.</li>
+    <li><strong>Dev / internals explainers</strong> — those stay in <code>docs/superpowers/specs/*</code>.</li>
+    <li><strong>Concepts / vocabulary track</strong> — explanations live inline on operator pages.</li>
+    <li><strong>External hosting</strong> (Notion / GitBook) — rejected: divergence from <code>DESIGN.md</code> tokens, loss of in-repo review gate.</li>
+    <li><strong>Separate docs framework</strong> (Nextra / Docusaurus / Fumadocs) — rejected: too much framework for 13 pages.</li>
+  </ul>
+</section>
+
+<!-- ===== Section 3 ===== -->
+<section class="spec-section" id="s3">
+  <h2>3. Architecture</h2>
+  <h3>3.1 System overview</h3>
+  <svg class="diagram" viewBox="0 0 760 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="System overview: app/help tree, lib/messages catalog, admin surfaces and how they wire together">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+      </marker>
+      <marker id="arrow-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#f79338"/>
+      </marker>
+    </defs>
+
+    <!-- app/help/ -->
+    <rect class="node-accent" x="20" y="20" width="280" height="140" rx="8"/>
+    <text class="label" x="160" y="44" text-anchor="middle">app/help/</text>
+    <text class="route" x="40" y="68">layout.tsx  (requireAdmin)</text>
+    <text class="route" x="40" y="86">page.mdx · 13 pages</text>
+    <text class="route" x="40" y="104">errors/page.tsx  (catalog →)</text>
+    <text class="route" x="40" y="122">_components/  ·  _nav.ts</text>
+    <text class="small" x="40" y="146">App Router · static · @next/mdx</text>
+
+    <!-- lib/messages -->
+    <rect class="node" x="440" y="20" width="300" height="100" rx="8"/>
+    <text class="label" x="590" y="44" text-anchor="middle">lib/messages/</text>
+    <text class="route" x="460" y="66">lookup(code) →</text>
+    <text class="route" x="475" y="84">{ title, body, helpHref? }</text>
+    <text class="small" x="460" y="104">catalog.ts · severity: info | warning</text>
+
+    <!-- /admin surfaces -->
+    <rect class="node" x="160" y="220" width="440" height="120" rx="8"/>
+    <text class="label" x="380" y="244" text-anchor="middle">/admin surfaces (M4 / M9 / M10)</text>
+    <text class="route" x="180" y="270">dashboard tooltips  ──→  /help/admin/&lt;page&gt;</text>
+    <text class="route" x="180" y="288">parse-warning rows  ──→  /help/admin/parse-warnings#&lt;code&gt;</text>
+    <text class="route" x="180" y="306">error toasts / banners ──→  /help/errors#&lt;code&gt;</text>
+    <text class="route" x="180" y="324">"Take the tour"     ──→  /help/tour</text>
+
+    <!-- arrows -->
+    <path class="flow-accent" d="M 300 90 L 440 70" marker-end="url(#arrow-accent)"/>
+    <text class="small" x="370" y="74" text-anchor="middle">deep-link contract</text>
+
+    <path class="flow" d="M 590 120 L 590 180 L 380 180 L 380 220" marker-end="url(#arrow)"/>
+    <text class="small" x="490" y="174" text-anchor="middle">called by</text>
+
+    <path class="flow-accent" d="M 380 220 Q 200 200 160 160" marker-end="url(#arrow-accent)"/>
+  </svg>
+
+  <h3>3.2 Pipeline choice</h3>
+  <p><strong><code>@next/mdx</code> (native).</strong> Three deps (<code>@next/mdx</code>, <code>@mdx-js/loader</code>, <code>@mdx-js/react</code>), all maintained by Next.js. Integrates with App Router via <code>pageExtensions: ['ts','tsx','mdx']</code> and <code>withMDX()</code> in <code>next.config.ts</code>. Reuses <code>app/globals.css</code> Tailwind v4 theme tokens. No content-collections layer; no third-party docs framework. 13 pages do not justify a framework.</p>
+
+  <h3>3.3 File layout</h3>
+  <pre><code>app/help/
+  layout.tsx                    # shared chrome: sidebar, header, theme toggle, requireAdmin
+  page.mdx                      # /help (landing)
+  getting-started/page.mdx
+  daily-rhythm/page.mdx
+  whats-different/page.mdx
+  tour/page.mdx
+  errors/page.tsx               # iterates §12.4 catalog → one &lt;RefAnchor&gt; per code
+  admin/
+    dashboard/page.mdx
+    review-queues/page.mdx
+    parse-warnings/page.mdx     # anchored sections per warning class
+    per-show-panel/page.mdx
+    preview-as-crew/page.mdx
+    sharing-links/page.mdx
+    onboarding-wizard/page.mdx
+  _components/                  # not a route (App Router private folder)
+    Screenshot.tsx              # primary: &lt;picture&gt; with light/dark WebP sources
+    ScreenshotPlaceholder.tsx   # draft-only; lint-prohibited at v1 close-out
+    Sidebar.tsx · Header.tsx · Breadcrumb.tsx · Callout.tsx · Step.tsx · RefAnchor.tsx · TipFromSheets.tsx
+  _nav.ts                       # single source: sidebar + breadcrumb + next/prev
+mdx-components.tsx              # project root, required by @next/mdx
+public/help/screenshots/        # WebP output, committed (r2)
+scripts/help-screenshots.ts             # Playwright capture entry (r2)
+scripts/help-screenshots.manifest.ts    # { key, route, fixture, viewport, theme, waitFor } (r2)</code></pre>
+
+  <h3>3.4 Rendering posture &amp; auth</h3>
+  <p><strong>Static.</strong> Every <code>/help/*</code> page is statically rendered at build time. MDX compiles to React Server Components. Client hydration only for: theme toggle, sidebar current-page highlight.</p>
+  <p><strong>Mobile-first.</strong> Single-column under 768px with sidebar collapsed into a top-of-page disclosure (same 390px baseline as the crew page).</p>
+  <p><strong>Auth.</strong> <code>app/help/layout.tsx</code> calls the existing <code>requireAdmin()</code> helper (uses <code>forbidden()</code> from <code>experimental.authInterrupts</code>). Non-admin → clean 403. Phase 2 splits via route groups — no URL changes.</p>
+
+  <h3>3.5 Screenshot harness <span class="pill accent">new in r2</span></h3>
+  <p>Real screenshots ship in v1. Capture is scripted, not manual. Pipeline:</p>
+  <ol>
+    <li><strong>Manifest</strong> at <code>scripts/help-screenshots.manifest.ts</code> declares every documented surface: <code>{ key, route, fixture, viewport, theme, waitFor, captureSelector? }</code>. Single source of truth.</li>
+    <li><strong>Capture script</strong> at <code>scripts/help-screenshots.ts</code> drives Playwright (reusing existing test-auth), navigates each route against the named fixture, waits on <code>waitFor</code>, captures at the manifest's viewport, writes WebP (q90) to <code>public/help/screenshots/&lt;key&gt;-{light,dark}.webp</code>.</li>
+    <li><strong><code>&lt;Screenshot key&gt;</code> MDX component</strong> renders <code>&lt;picture&gt;</code> with <code>&lt;source media="(prefers-color-scheme: dark)"&gt;</code> + a default light <code>&lt;img&gt;</code>. Reader's theme picks the variant.</li>
+    <li><strong>Invocation:</strong> <code>pnpm screenshot:help</code>. Idempotent. Hash-stable on unchanged UI; CI sees the diff in the PR when something shifts.</li>
+  </ol>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Decision</th><th>Default</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Format</td><td>WebP, quality 90</td><td>Repo-committable size; visual fidelity preserved</td></tr>
+      <tr><td>Density</td><td>Single representative rendition</td><td>Manifest names the viewport; one crisp WebP per theme</td></tr>
+      <tr><td>Storage</td><td><code>public/help/screenshots/</code>, committed</td><td>Version-controlled with docs; no external asset pipeline</td></tr>
+      <tr><td>Theme variants</td><td><strong>Both required</strong>; light + dark always paired</td><td>PRODUCT.md "both modes first-class"</td></tr>
+      <tr><td>Viewport</td><td>Per-manifest. Default desktop 1280×800; mobile-flow surfaces 390×844</td><td>Surface-appropriate; one per surface</td></tr>
+      <tr><td>Fixture</td><td>RPAS Central 2026 (default)</td><td>Most populated 2026 sheet; predictable content</td></tr>
+      <tr><td>Drift detection</td><td>Git diff on WebP bytes</td><td>Any pixel change produces a visible PR diff</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p><strong>Authoring scaffold (separate from shipped state):</strong> <code>&lt;ScreenshotPlaceholder&gt;</code> is preserved as a <strong>draft-only</strong> component for pages being written before the underlying surface stabilizes. Must not appear in any MDX file at v1 close-out — lint enforces (§7.1 test 7).</p>
+
+  <h3>3.6 Mockup — what <code>/help/admin/dashboard</code> will look like</h3>
+  <p>Roughly. Sidebar at desktop, content right. Below 768px the sidebar collapses to a top-of-page disclosure.</p>
+  <div class="mockup" aria-label="Mockup of the /help page chrome">
+    <div class="browser-bar">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="url">fxav.app/help/admin/dashboard</span>
+    </div>
+    <div class="frame">
+      <div class="side">
+        <div class="group-h">Get started</div>
+        <div class="nav-item">/help</div>
+        <div class="nav-item">/getting-started</div>
+        <div class="nav-item">/daily-rhythm</div>
+        <div class="nav-item">/whats-different</div>
+        <div class="group-h">Admin surface</div>
+        <div class="nav-item active">/admin/dashboard</div>
+        <div class="nav-item">/admin/review-queues</div>
+        <div class="nav-item">/admin/parse-warnings</div>
+        <div class="nav-item">…</div>
+        <div class="group-h">Reference</div>
+        <div class="nav-item">/tour</div>
+        <div class="nav-item">/errors</div>
+      </div>
+      <div class="content">
+        <h6>Reading the dashboard</h6>
+        <p>Two panels stacked top-to-bottom. The top panel lists active shows; the bottom panel collects sheets the app couldn't auto-apply.</p>
+        <div class="lorem"></div>
+        <div class="lorem mid"></div>
+        <div class="lorem short"></div>
+        <p style="margin-top:.55rem;font-size:.75rem;"><span class="pill warn">Heads up</span> Yellow status badges mean Doug needs to look at something — they don't mean anything broke.</p>
+        <div class="lorem mid"></div>
+        <div class="lorem"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== Section 4 ===== -->
+<section class="spec-section" id="s4">
+  <h2>4. Content inventory (v1)</h2>
+  <p>13 pages total. Color-coded below by track: <strong>adoption</strong>, <strong>reference</strong>, <strong>tour &amp; errors</strong>.</p>
+  <div class="legend">
+    <span><span class="dot" style="background:#4a8bff;"></span>Adoption track (read once, narrative)</span>
+    <span><span class="dot" style="background:var(--accent);"></span>Capability reference (lookup)</span>
+    <span><span class="dot" style="background:#6a9a3e;"></span>Tour &amp; errors</span>
+  </div>
+
+  <div class="sitemap">
+    <div class="page-card" data-group="adoption">
+      <p class="group">Adoption · 1 of 4</p>
+      <p class="route">/help</p>
+      <p class="desc">Landing. Elevator-pitch + three jump-buttons. Also the "Take the tour" target from §9.0.1.</p>
+    </div>
+    <div class="page-card" data-group="adoption">
+      <p class="group">Adoption · 2 of 4</p>
+      <p class="route">/help/getting-started</p>
+      <p class="desc">First-time setup mirroring §9.0 wizard. Historical post-onboarding; kept for successor handoff.</p>
+    </div>
+    <div class="page-card" data-group="adoption">
+      <p class="group">Adoption · 3 of 4</p>
+      <p class="route">/help/daily-rhythm</p>
+      <p class="desc">Your new check-in routine in <code>/admin</code>. Scan active shows, glance at queues, address yellow.</p>
+    </div>
+    <div class="page-card" data-group="adoption">
+      <p class="group">Adoption · 4 of 4</p>
+      <p class="route">/help/whats-different</p>
+      <p class="desc">Explicit Sheets-vs-FXAV diff. Same / automated / new.</p>
+    </div>
+
+    <div class="page-card" data-group="reference">
+      <p class="group">Reference · §9.1</p>
+      <p class="route">/help/admin/dashboard</p>
+      <p class="desc">Dashboard layout, status badges, the two review-queue panels.</p>
+    </div>
+    <div class="page-card" data-group="reference">
+      <p class="group">Reference · §9.1</p>
+      <p class="route">/help/admin/review-queues</p>
+      <p class="desc">First-seen vs. re-stage. Apply vs. Discard semantics. The single most behaviorally-new surface.</p>
+    </div>
+    <div class="page-card" data-group="reference">
+      <p class="group">Reference · §12.4</p>
+      <p class="route">/help/admin/parse-warnings</p>
+      <p class="desc">One anchored section per warning class — <code>#code-slug</code> URLs that <code>/admin</code> deep-links into.</p>
+    </div>
+    <div class="page-card" data-group="reference">
+      <p class="group">Reference · §9.2</p>
+      <p class="route">/help/admin/per-show-panel</p>
+      <p class="desc">Sync health, manual re-sync, parse warnings, preview links.</p>
+    </div>
+    <div class="page-card" data-group="reference">
+      <p class="group">Reference · §9.3</p>
+      <p class="route">/help/admin/preview-as-crew</p>
+      <p class="desc">Impersonation. Role-based hiding explained in operator terms. Covers what crew see, by proxy.</p>
+    </div>
+    <div class="page-card" data-group="reference">
+      <p class="group">Reference · §7.2</p>
+      <p class="route">/help/admin/sharing-links</p>
+      <p class="desc">Signed crew-page links. How to send them, what crew see, wrong-recipient handling.</p>
+    </div>
+    <div class="page-card" data-group="reference">
+      <p class="group">Reference · §9.0</p>
+      <p class="route">/help/admin/onboarding-wizard</p>
+      <p class="desc">§9.0 folder-share flow reference. Mostly post-hoc documentation.</p>
+    </div>
+
+    <div class="page-card" data-group="tour">
+      <p class="group">Tour</p>
+      <p class="route">/help/tour</p>
+      <p class="desc">One-paragraph-per-surface jump table. Linked from <code>/help</code> + §9.0.1 footer.</p>
+    </div>
+    <div class="page-card" data-group="tour">
+      <p class="group">Errors</p>
+      <p class="route">/help/errors</p>
+      <p class="desc">TSX page iterating §12.4 catalog. One <code>&lt;RefAnchor&gt;</code> per warning code.</p>
+    </div>
+  </div>
+
+  <p style="margin-top:1rem;"><strong>Excluded from v1:</strong> crew pages, concepts track, dev internals explainers, versioned docs, changelog, in-app editor. See <a href="#s2">§2</a>.</p>
+</section>
+
+<!-- ===== Section 5 ===== -->
+<section class="spec-section" id="s5">
+  <h2>5. Deep-link contract</h2>
+
+  <h3>5.1 Wiring diagram</h3>
+  <svg class="diagram" viewBox="0 0 760 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Deep-link contract: admin surfaces resolve helpHref via lookup() and land on /help URLs">
+    <defs>
+      <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#f79338"/>
+      </marker>
+    </defs>
+
+    <!-- Left column: admin surfaces -->
+    <text class="small" x="20" y="20">/admin surfaces (built in M4/M9/M10)</text>
+    <rect class="node" x="20" y="34" width="200" height="32" rx="6"/>
+    <text class="route" x="35" y="55">dashboard "?" tooltip</text>
+    <rect class="node" x="20" y="78" width="200" height="32" rx="6"/>
+    <text class="route" x="35" y="99">parse-warning row</text>
+    <rect class="node" x="20" y="122" width="200" height="32" rx="6"/>
+    <text class="route" x="35" y="143">error toast / banner</text>
+    <rect class="node" x="20" y="166" width="200" height="32" rx="6"/>
+    <text class="route" x="35" y="187">"What does this mean?"</text>
+    <rect class="node" x="20" y="210" width="200" height="32" rx="6"/>
+    <text class="route" x="35" y="231">dashboard footer link</text>
+
+    <!-- Middle: lookup() -->
+    <rect class="node-accent" x="290" y="100" width="180" height="60" rx="8"/>
+    <text class="label" x="380" y="125" text-anchor="middle">lookup(code)</text>
+    <text class="small" x="380" y="142" text-anchor="middle">→ { …, helpHref? }</text>
+
+    <!-- Arrows from admin surfaces into lookup -->
+    <path class="flow-accent" d="M 220 50 Q 260 80 290 120" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 220 94 Q 260 115 290 130" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 220 138 L 290 138" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 220 182 Q 260 165 290 145" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 220 226 Q 260 190 290 155" marker-end="url(#arrow2)"/>
+
+    <!-- Right column: /help destinations -->
+    <text class="small" x="540" y="20">/help destinations (built in M12)</text>
+    <rect class="node" x="540" y="34" width="200" height="32" rx="6"/>
+    <text class="route" x="555" y="55">/help/admin/&lt;page&gt;</text>
+    <rect class="node" x="540" y="78" width="200" height="32" rx="6"/>
+    <text class="route" x="555" y="99">/help/admin/parse-warnings#X</text>
+    <rect class="node" x="540" y="122" width="200" height="32" rx="6"/>
+    <text class="route" x="555" y="143">/help/errors#X</text>
+    <rect class="node" x="540" y="166" width="200" height="32" rx="6"/>
+    <text class="route" x="555" y="187">/help/errors#X</text>
+    <rect class="node" x="540" y="210" width="200" height="32" rx="6"/>
+    <text class="route" x="555" y="231">/help/tour</text>
+
+    <!-- Arrows from lookup to /help -->
+    <path class="flow-accent" d="M 470 120 Q 510 75 540 50" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 470 130 Q 510 110 540 94" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 470 138 L 540 138" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 470 145 Q 510 165 540 182" marker-end="url(#arrow2)"/>
+    <path class="flow-accent" d="M 470 155 Q 510 195 540 226" marker-end="url(#arrow2)"/>
+
+    <text class="small" x="380" y="285" text-anchor="middle">build-time anchor resolver fails CI on any helpHref pointing at a missing page or &lt;RefAnchor id&gt;</text>
+    <text class="small" x="380" y="302" text-anchor="middle">slug stability is a committed contract (§5.4)</text>
+  </svg>
+
+  <h3>5.2 <code>lib/messages/lookup.ts</code> API extension</h3>
+  <p>Existing signature (per spec §12.4):</p>
+  <pre><code>lookup(code: ErrorCode): { title: string; body: string }</code></pre>
+  <p>Extended (additive — existing callers keep compiling):</p>
+  <pre><code>lookup(code: ErrorCode): { title: string; body: string; helpHref?: string }</code></pre>
+  <p>The catalog at <code>lib/messages/catalog.ts</code> already declares <code>severity?: "info" | "warning"</code> on line 3. M12 adds two new optional fields per entry:</p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Field</th><th>Type</th><th>Required when</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>longExplanation</code></td><td><code>string</code> (non-empty)</td><td><code>severity === "warning"</code></td><td>Long-form explanation; rendered on <code>/help/errors#&lt;code&gt;</code></td></tr>
+      <tr><td><code>helpHref</code></td><td><code>string</code> (URL or <code>/help/...#&lt;anchor&gt;</code>)</td><td><code>severity === "warning"</code></td><td>Deep-link target for "Learn more →"</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>A meta-test (<code>tests/messages/_metaErrorCatalogDocs.test.ts</code>) enforces both fields are populated on warning entries. Info entries are not required to have docs; they may opt in but the meta-test does not require it.</p>
+
+  <h3>5.3 Affordance wiring (retrofits)</h3>
+  <p>This milestone does not change the text content of any tooltip, error message, or expansion shipped by M4/M9/M10. <strong>Link-only retrofit.</strong></p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Affordance</th><th>Spec</th><th>M12 addition</th></tr></thead>
+    <tbody>
+      <tr><td>Section header "?" tooltip</td><td>§9.0.1</td><td>Trailing <code>Learn more →</code> link to the mapped <code>/help/...</code> page. Conditional on <code>helpHref</code>; degrades cleanly.</td></tr>
+      <tr><td>Parse warning row</td><td>§9.2</td><td>Sibling <code>Learn more →</code> button next to "Report this to Eric"; resolves to <code>/help/admin/parse-warnings#&lt;code&gt;</code>.</td></tr>
+      <tr><td>Error toast / banner</td><td>§12.4</td><td>Inline <code>Learn more →</code> when <code>helpHref</code> is present.</td></tr>
+      <tr><td>Dashboard footer "Take the tour"</td><td>§9.0.1</td><td><code>&lt;Link href="/help/tour"&gt;Take the tour →&lt;/Link&gt;</code>.</td></tr>
+      <tr><td>"What does this mean?" expansion</td><td>§9.0.1</td><td>Body stays as M9/M10 shipped; appended <code>Learn more →</code> to <code>/help/errors#&lt;code&gt;</code>.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>5.4 Slug stability invariant</h3>
+  <p>Page slugs and anchor IDs under <code>/help/*</code> are <strong>committed contracts</strong>. Renaming any requires a redirect entry in the same change. The build-time anchor resolver (<a href="#s7">§7</a> test 1) fails CI on any <code>helpHref</code> that points at a missing anchor or page.</p>
+
+  <h3>5.5 Auth interaction</h3>
+  <p>A non-admin who hits a deep-linked <code>/help/...</code> URL gets the same <code>forbidden()</code> 403 as bare <code>/help</code>. Acceptable: only Doug should be following these links from inside <code>/admin</code>. Phase 2 relaxes <code>/help/crew/*</code> only.</p>
+</section>
+
+<!-- ===== Section 6 ===== -->
+<section class="spec-section" id="s6">
+  <h2>6. Components (live previews)</h2>
+  <p>Each MDX component, rendered below as a faux preview in both light and dark frames. These are illustrative — the production tokens come from <code>app/globals.css</code>. The point: a reviewer can see what they're approving, not just read the API table.</p>
+
+  <h3>6.1 <code>&lt;Callout type="note|warning|tip"&gt;</code></h3>
+  <p>Colored block with palette token + fixed icon per type. Used for "Heads up," "If this happens…," and procedural tips.</p>
+  <div class="preview-pair">
+    <div class="preview-frame" data-mode="light">
+      <div class="demo-callout note"><span class="icon">ℹ</span><span><strong>Note.</strong> Your sheet is the source of truth. If it changes, the crew page changes — usually within five seconds.</span></div>
+      <div class="demo-callout warning"><span class="icon">⚠</span><span><strong>Heads up.</strong> A yellow "Review staged changes" badge means the app is holding new edits for your approval before crew see them.</span></div>
+      <div class="demo-callout tip"><span class="icon">✓</span><span><strong>Tip.</strong> Preview as the crew member you're about to send a link to. If something looks off, fix the sheet first.</span></div>
+    </div>
+    <div class="preview-frame" data-mode="dark">
+      <div class="demo-callout note"><span class="icon">ℹ</span><span><strong>Note.</strong> Your sheet is the source of truth. If it changes, the crew page changes — usually within five seconds.</span></div>
+      <div class="demo-callout warning"><span class="icon">⚠</span><span><strong>Heads up.</strong> A yellow "Review staged changes" badge means the app is holding new edits for your approval before crew see them.</span></div>
+      <div class="demo-callout tip"><span class="icon">✓</span><span><strong>Tip.</strong> Preview as the crew member you're about to send a link to. If something looks off, fix the sheet first.</span></div>
+    </div>
+  </div>
+
+  <h3>6.2 <code>&lt;Step n={N}&gt;</code></h3>
+  <p>Numbered procedural step. Used in the adoption track and onboarding-wizard reference.</p>
+  <div class="preview-pair">
+    <div class="preview-frame" data-mode="light">
+      <div class="demo-step"><span class="num">1</span><div class="body">In Google Drive, find the folder where you keep your show sheets — or make a new one.</div></div>
+      <div class="demo-step"><span class="num">2</span><div class="body">Click <strong>Share</strong> on the folder and paste the service-account email. Give it Viewer access.</div></div>
+      <div class="demo-step"><span class="num">3</span><div class="body">Come back here and click "I've shared the folder."</div></div>
+    </div>
+    <div class="preview-frame" data-mode="dark">
+      <div class="demo-step"><span class="num">1</span><div class="body">In Google Drive, find the folder where you keep your show sheets — or make a new one.</div></div>
+      <div class="demo-step"><span class="num">2</span><div class="body">Click <strong>Share</strong> on the folder and paste the service-account email. Give it Viewer access.</div></div>
+      <div class="demo-step"><span class="num">3</span><div class="body">Come back here and click "I've shared the folder."</div></div>
+    </div>
+  </div>
+
+  <h3>6.3 <code>&lt;Screenshot key="..."&gt;</code> <span class="pill accent">primary in r2</span></h3>
+  <p>The shipped path. Renders <code>&lt;picture&gt;</code> with light/dark WebP sources from the capture harness (§3.5). Reader's theme picks the variant automatically via <code>prefers-color-scheme</code>. Toggle this page's theme (top-right) to see the swap behavior on the example below.</p>
+  <div class="preview-pair">
+    <div class="preview-frame" data-mode="light">
+      <p style="font-size:.78rem;color:var(--muted);margin:.2rem 0;font-family:ui-monospace,monospace;">&lt;Screenshot key="dashboard-active-shows" alt="Active Shows panel with one row showing a yellow Review staged changes badge" /&gt;</p>
+      <!-- Faux rendering of what the dark-mode dashboard would look like inline -->
+      <div style="background:#fff;border:1px solid #ddd;border-radius:6px;padding:.6rem;font-family:ui-sans-serif;font-size:.74rem;color:#333;">
+        <div style="font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:#888;margin-bottom:.4rem;">Active shows · light variant</div>
+        <div style="display:grid;grid-template-columns:1fr 80px 60px 130px;gap:.4rem;align-items:center;padding:.35rem 0;border-bottom:1px solid #eee;">
+          <div><strong>RPAS Central 2026</strong><br><span style="color:#888;font-size:.7rem;">3/22 → 3/26/26</span></div>
+          <div style="color:#666;">Crew: 4</div>
+          <div style="color:#666;">12m</div>
+          <div><span style="background:#fff3d8;color:#7a4a06;padding:.15rem .4rem;border-radius:3px;font-weight:600;font-size:.7rem;">⚠ Review staged changes</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 80px 60px 130px;gap:.4rem;align-items:center;padding:.35rem 0;color:#888;">
+          <div><strong style="color:#333;">Atlantic Forum 2026</strong><br><span style="font-size:.7rem;">2/18 → 2/20/26</span></div>
+          <div>Crew: 6</div>
+          <div>2h</div>
+          <div><span style="color:#777;">✓ Up to date</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="preview-frame" data-mode="dark">
+      <p style="font-size:.78rem;color:var(--muted);margin:.2rem 0;font-family:ui-monospace,monospace;">&lt;Screenshot key="dashboard-active-shows" alt="Active Shows panel with one row showing a yellow Review staged changes badge" /&gt;</p>
+      <div style="background:#16161a;border:1px solid #2a2a30;border-radius:6px;padding:.6rem;font-family:ui-sans-serif;font-size:.74rem;color:#ccc;">
+        <div style="font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;color:#888;margin-bottom:.4rem;">Active shows · dark variant</div>
+        <div style="display:grid;grid-template-columns:1fr 80px 60px 130px;gap:.4rem;align-items:center;padding:.35rem 0;border-bottom:1px solid #2a2a30;">
+          <div><strong style="color:#ececec;">RPAS Central 2026</strong><br><span style="color:#888;font-size:.7rem;">3/22 → 3/26/26</span></div>
+          <div style="color:#aaa;">Crew: 4</div>
+          <div style="color:#aaa;">12m</div>
+          <div><span style="background:#2a2010;color:#f0c47a;padding:.15rem .4rem;border-radius:3px;font-weight:600;font-size:.7rem;">⚠ Review staged changes</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 80px 60px 130px;gap:.4rem;align-items:center;padding:.35rem 0;color:#888;">
+          <div><strong style="color:#ececec;">Atlantic Forum 2026</strong><br><span style="font-size:.7rem;">2/18 → 2/20/26</span></div>
+          <div>Crew: 6</div>
+          <div>2h</div>
+          <div><span style="color:#888;">✓ Up to date</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p style="font-size:.85rem;color:var(--fg-soft);margin-top:.5rem;">In production, both frames above are <strong>generated WebP files</strong> from <code>scripts/help-screenshots.ts</code>. The faux renderings here show the kind of content the harness will capture per manifest key.</p>
+
+  <h3>6.3b <code>&lt;ScreenshotPlaceholder&gt;</code> <span class="pill warn">draft-only</span></h3>
+  <p>Used when authoring a page before its underlying surface is built. <strong>Lint-prohibited in shipped v1 MDX</strong> (§7.1 test 7). Every documented surface must graduate from this placeholder to a real <code>&lt;Screenshot&gt;</code> before milestone close-out.</p>
+  <div class="preview-pair">
+    <div class="preview-frame" data-mode="light">
+      <div class="demo-screenshot">Screenshot pending — "Yellow Review staged changes badge on a row in the Active Shows panel"</div>
+    </div>
+    <div class="preview-frame" data-mode="dark">
+      <div class="demo-screenshot">Screenshot pending — "Yellow Review staged changes badge on a row in the Active Shows panel"</div>
+    </div>
+  </div>
+
+  <h3>6.4 <code>&lt;RefAnchor id="CODE"&gt;</code></h3>
+  <p>Stable-anchor heading for catalog deep-links. Renders with <code>id={id}</code> and a click-to-copy link icon. Anchor IDs must match the catalog code shape: <code>/^[A-Z_]+$/</code>.</p>
+  <div class="preview-pair">
+    <div class="preview-frame" data-mode="light">
+      <div class="demo-anchor"><h5>REPORT_HORIZON_EXPIRED</h5><span class="link-icon">🔗</span></div>
+      <p>The 24-hour retention window for this report has passed. You can resubmit the issue if it's still happening.</p>
+    </div>
+    <div class="preview-frame" data-mode="dark">
+      <div class="demo-anchor"><h5>REPORT_HORIZON_EXPIRED</h5><span class="link-icon">🔗</span></div>
+      <p>The 24-hour retention window for this report has passed. You can resubmit the issue if it's still happening.</p>
+    </div>
+  </div>
+
+  <h3>6.5 <code>&lt;TipFromSheets&gt;</code></h3>
+  <p>Adoption-track aside. Lets the reader anchor each new concept against the Sheets workflow they already know.</p>
+  <div class="preview-pair">
+    <div class="preview-frame" data-mode="light">
+      <div class="demo-tip"><span class="label">From Sheets</span>In your old workflow, you'd email each crew member their copy of the sheet (or a PDF). Now the app generates a per-crew-member page automatically — you only send the link.</div>
+    </div>
+    <div class="preview-frame" data-mode="dark">
+      <div class="demo-tip"><span class="label">From Sheets</span>In your old workflow, you'd email each crew member their copy of the sheet (or a PDF). Now the app generates a per-crew-member page automatically — you only send the link.</div>
+    </div>
+  </div>
+
+  <h3>6.6 Component contract summary</h3>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Component</th><th>File</th><th>Required props</th></tr></thead>
+    <tbody>
+      <tr><td><code>&lt;Sidebar&gt;</code></td><td><code>app/help/_components/Sidebar.tsx</code></td><td>none (reads <code>_nav.ts</code> + <code>usePathname()</code>)</td></tr>
+      <tr><td><code>&lt;Header&gt;</code></td><td><code>app/help/_components/Header.tsx</code></td><td>none</td></tr>
+      <tr><td><code>&lt;Breadcrumb&gt;</code></td><td><code>app/help/_components/Breadcrumb.tsx</code></td><td>none</td></tr>
+      <tr><td><code>&lt;Callout&gt;</code></td><td><code>app/help/_components/Callout.tsx</code></td><td><code>type</code> · unknown values default to <code>note</code></td></tr>
+      <tr><td><code>&lt;Step&gt;</code></td><td><code>app/help/_components/Step.tsx</code></td><td><code>n</code>, <code>children</code></td></tr>
+      <tr><td><code>&lt;Screenshot&gt;</code> <span class="pill accent">primary</span></td><td><code>app/help/_components/Screenshot.tsx</code></td><td><code>key</code> (manifest entry), <code>alt</code></td></tr>
+      <tr><td><code>&lt;ScreenshotPlaceholder&gt;</code> <span class="pill warn">draft-only</span></td><td><code>app/help/_components/ScreenshotPlaceholder.tsx</code></td><td><code>alt</code>. Lint-prohibited in shipped v1.</td></tr>
+      <tr><td><code>&lt;RefAnchor&gt;</code></td><td><code>app/help/_components/RefAnchor.tsx</code></td><td><code>id</code> (regex <code>/^[A-Z_]+$/</code>, anchor-resolver enforced)</td></tr>
+      <tr><td><code>&lt;TipFromSheets&gt;</code></td><td><code>app/help/_components/TipFromSheets.tsx</code></td><td><code>children</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>All components honor <code>prefers-reduced-motion</code>. None have motion in v1. All meet WCAG AA contrast minimum per PRODUCT.md; AAA where cheap.</p>
+</section>
+
+<!-- ===== Section 7 ===== -->
+<section class="spec-section" id="s7">
+  <h2>7. Testing strategy</h2>
+  <h3>7.1 Test inventory (9 tests)</h3>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>#</th><th>Test</th><th>File</th><th>What it catches</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><strong>Build-time anchor resolver</strong></td><td><code>tests/help/anchor-resolver.test.ts</code></td><td>Broken deep-link from catalog <code>helpHref</code> to a missing page or <code>&lt;RefAnchor&gt;</code>.</td></tr>
+      <tr><td>2</td><td><strong>Catalog meta-test</strong></td><td><code>tests/messages/_metaErrorCatalogDocs.test.ts</code></td><td>New error code added at <code>severity === "warning"</code> without <code>longExplanation</code> + <code>helpHref</code>.</td></tr>
+      <tr><td>3</td><td><strong>Auth-gating</strong></td><td><code>tests/help/auth.test.ts</code></td><td>Unauth → 403; admin → 200; crew (signed link) → 403 in v1.</td></tr>
+      <tr><td>4</td><td><strong>MDX smoke</strong></td><td><code>tests/help/render.test.ts</code></td><td>Malformed MDX, missing component, broken import.</td></tr>
+      <tr><td>5</td><td><strong>Nav consistency meta-test</strong></td><td><code>tests/help/_metaNavSync.test.ts</code></td><td>Orphan page (FS but not in <code>_nav.ts</code>) or dead nav (in <code>_nav.ts</code> but not on FS).</td></tr>
+      <tr><td>6</td><td><strong>Mobile layout (Playwright)</strong></td><td><code>tests/playwright/help-mobile.spec.ts</code></td><td>Horizontal scroll at 390px, sub-44px tap targets, sidebar that doesn't collapse. Real browser only — jsdom insufficient per Tailwind v4 flex-stretch lesson.</td></tr>
+      <tr><td>7</td><td><strong>No-placeholder-in-shipped-v1 lint</strong> <span class="pill accent">r2</span></td><td><code>tests/help/no-placeholders.test.ts</code></td><td><code>&lt;ScreenshotPlaceholder</code> in <code>app/help/**/*.mdx</code> at close-out. Forces real <code>&lt;Screenshot key&gt;</code> on every documented surface.</td></tr>
+      <tr><td>8</td><td><strong>Screenshot coverage</strong> <span class="pill accent">r2</span></td><td><code>tests/help/screenshot-coverage.test.ts</code></td><td><code>&lt;Screenshot key&gt;</code> referencing a missing manifest entry, or a manifest entry missing one or both of its <code>{key}-light.webp</code> / <code>{key}-dark.webp</code> on disk.</td></tr>
+      <tr><td>9</td><td><strong>Manifest integrity meta-test</strong> <span class="pill accent">r2</span></td><td><code>tests/help/_metaScreenshotManifest.test.ts</code></td><td>Stale manifest entry (route gone but entry remains), orphan WebP (entry deleted but file remains), or fixture name not present in <code>fixtures/shows/</code>.</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>7.2 Anti-tautology guardrails</h3>
+  <ul>
+    <li>Anchor resolver reads <strong>catalog source</strong>, not the rendered page. Assertion side ≠ page-under-test.</li>
+    <li>Nav consistency reads the <strong>filesystem</strong>, not the rendered DOM.</li>
+    <li>Auth-gating asserts HTTP status, not DOM presence.</li>
+  </ul>
+
+  <h3>7.3 Out of scope for v1 testing</h3>
+  <p>Full-text search, <strong>pixel-diff regression</strong> (r2: drift detection via git diff on WebP bytes is sufficient for v1; <code>pixelmatch</code>-style thresholding is phase-1.5 if false-positive churn becomes a problem), deep a11y audit (impeccable v3's territory), Lighthouse perf (broader app pipeline).</p>
+</section>
+
+<!-- ===== Section 8 ===== -->
+<section class="spec-section" id="s8">
+  <h2>8. Plan-wide invariants this milestone interacts with</h2>
+  <p>From <code>AGENTS.md</code>. Listed here for the implementer's preflight.</p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Invariant</th><th>Applies?</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><strong>#1</strong> TDD per task</td><td class="center"><span class="pill accent">yes</span></td><td>Each component + each test in its own red → green → commit loop.</td></tr>
+      <tr><td><strong>#2</strong> Per-show advisory lock</td><td class="center"><span class="pill">n/a</span></td><td><code>/help/*</code> has no DB write paths.</td></tr>
+      <tr><td><strong>#3</strong> Email canonicalization</td><td class="center"><span class="pill">n/a</span></td><td>No email handling.</td></tr>
+      <tr><td><strong>#4</strong> No global sync cursor</td><td class="center"><span class="pill">n/a</span></td><td>No sync code.</td></tr>
+      <tr><td><strong>#5</strong> No raw error codes in UI</td><td class="center"><span class="pill accent">yes</span></td><td><code>/help/errors</code> renders codes <strong>as anchor IDs only</strong>; visible heading is the catalog <code>title</code>.</td></tr>
+      <tr><td><strong>#6</strong> Commit per task</td><td class="center"><span class="pill accent">yes</span></td><td>~13–20 commits depending on slicing. <code>feat(help):</code> / <code>test(help):</code> scope.</td></tr>
+      <tr><td><strong>#7</strong> Spec is canonical</td><td class="center"><span class="pill accent">yes</span></td><td>Conflicts with crew-pages spec resolve in favor of crew-pages spec.</td></tr>
+      <tr><td><strong>#8</strong> impeccable v3 UI gate</td><td class="center"><span class="pill accent">yes</span></td><td>Every <code>/help/*</code> page is a UI surface. <code>/impeccable critique</code> + <code>/impeccable audit</code> mandatory before milestone close-out.</td></tr>
+      <tr><td><strong>#9</strong> Supabase call-boundary</td><td class="center"><span class="pill">n/a</span></td><td><code>/help/*</code> does no Supabase I/O. Auth via existing <code>requireAdmin()</code>.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ===== Section 9 ===== -->
+<section class="spec-section" id="s9">
+  <h2>9. Flag lifecycle table</h2>
+  <p>This milestone introduces no new boolean config flags. The new catalog fields (<code>longExplanation</code>, <code>helpHref</code>) are strings, not flags. The optional <code>?ref=&lt;source-surface&gt;</code> query param (§5.3) is read-only telemetry — no code path branches on it.</p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Storage</th><th>Write path</th><th>Read path</th><th>Effect on output</th></tr></thead>
+    <tbody><tr><td colspan="4" class="center" style="color:var(--muted);font-style:italic;">No new flags introduced.</td></tr></tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ===== Section 10 ===== -->
+<section class="spec-section" id="s10">
+  <h2>10. Open implementation questions</h2>
+  <p>Deferred to the writing-plans phase, not to the user. All are "consult the codebase" calls.</p>
+  <ol>
+    <li><strong>Sidebar primitive reuse.</strong> Whether <code>&lt;Sidebar&gt;</code> reuses an existing <code>/admin</code> nav primitive or is bespoke.</li>
+    <li><strong><code>_nav.ts</code> shape.</strong> Flat array of <code>{slug,title,group}</code> vs. nested groups — pick whatever reads cleanest in TS.</li>
+    <li><strong>Anchor resolver invocation.</strong> <code>prebuild</code> script vs. vitest test in CI — pick based on existing build hooks.</li>
+    <li><strong>Theme toggle reuse.</strong> Whether <code>&lt;Header&gt;</code>'s theme toggle reuses the crew-page component or duplicates the pattern.</li>
+    <li><strong><code>Learn more →</code> text vs. icon.</strong> Implementation picks based on <code>impeccable</code> audit; spec does not constrain.</li>
+    <li><strong>Screenshot harness reuse of test auth.</strong> <span class="pill accent">r2</span> The capture script must authenticate as admin. Implementation surveys whether the existing Playwright test harness has a reusable admin-login helper.</li>
+    <li><strong>Recapture trigger for downstream milestones.</strong> <span class="pill accent">r2</span> Future milestones that change a documented surface must include a "regenerate screenshots" task. Git diff on WebP bytes is the automatic drift signal; future CI rule could fail the PR on drift without matching update. Plan-writing decision.</li>
+  </ol>
+</section>
+
+<!-- ===== Section 11 ===== -->
+<section class="spec-section" id="s11">
+  <h2>11. Disagreement-loop preempt</h2>
+  <p>Contracts the round-N reviewer is most likely to relitigate. Resolved here to spare the convergence loop.</p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Contract</th><th>Resolution</th><th>Cite</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Hosting choice</strong> (in-app vs. external)</td><td>In-app <code>/help/*</code>. External wikis considered and rejected.</td><td><a href="#s2">§2</a>, <a href="#s3">§3</a></td></tr>
+      <tr><td><strong>Framework choice</strong> (<code>@next/mdx</code> vs. Nextra/Fumadocs)</td><td>Native <code>@next/mdx</code>. Framework alternatives rejected for 13-page surface.</td><td><a href="#s2">§2</a>, <a href="#s3">§3.2</a></td></tr>
+      <tr><td><strong>Screenshots in v1</strong> <span class="pill accent">r2</span></td><td><strong>Real screenshots ship in v1</strong> via scripted Playwright harness (§3.5). Light + dark always paired via <code>&lt;picture&gt;</code> + <code>prefers-color-scheme</code>. WebP q90, committed. <code>&lt;ScreenshotPlaceholder&gt;</code> is draft-only and lint-prohibited at v1 close-out.</td><td><a href="#s3">§3.5</a>, <a href="#s6">§6.3</a>, <a href="#s7">§7.1 tests 7–9</a></td></tr>
+      <tr><td><strong>M12 milestone sequencing</strong> <span class="pill accent">r2</span></td><td>M12 starts only after <strong>M10 closes</strong>. Real screenshots require their documented surfaces (M3 / M4 / M9 / M10) to be built and stable.</td><td>(Metadata)</td></tr>
+      <tr><td><strong>Search in v1</strong></td><td>No full-text search. Sidebar + Ctrl-F is sufficient for 13 pages.</td><td><a href="#s2">§2</a></td></tr>
+      <tr><td><strong>Auth gating breadth</strong></td><td>All <code>/help/*</code> admin-gated in v1. Phase 2 splits via route groups; URLs unchanged.</td><td><a href="#s3">§3.4</a></td></tr>
+      <tr><td><strong><code>/help/errors</code> rendering</strong></td><td>TSX iterating catalog. MDX rejected (would duplicate the short message).</td><td><a href="#s4">§4</a></td></tr>
+      <tr><td><strong><code>/help/admin/parse-warnings</code> rendering</strong></td><td>MDX with anchored sections. TSX rejected (content is editorial).</td><td><a href="#s4">§4</a></td></tr>
+      <tr><td><strong>Catalog schema extension shape</strong></td><td>Two new optional fields. Required when <code>severity === "warning"</code> (the only non-info enum value per <code>lib/messages/catalog.ts:3</code>), meta-test enforced.</td><td><a href="#s5">§5.2</a></td></tr>
+      <tr><td><strong>Concept track</strong></td><td>Excluded from v1. Explanations live inline on operator pages.</td><td><a href="#s2">§2</a></td></tr>
+      <tr><td><strong>Doug as bug-report triager</strong></td><td><strong>No.</strong> Doug receives content questions from crew via existing channels (phone/text); app bug reports route to Eric via M8 GitHub pipeline. <code>/help</code> covers no bug-triage surface.</td><td>(Resolved during brainstorm.)</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ===== Section 12 ===== -->
+<section class="spec-section" id="s12">
+  <h2>12. Existing-code citations</h2>
+  <p>Per AGENTS.md self-review additions: every factual claim about current code MUST cite <code>file:line</code>.</p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Claim</th><th>Citation</th><th class="center">Verified</th></tr></thead>
+    <tbody>
+      <tr><td><code>experimental.authInterrupts</code> is enabled, enabling <code>forbidden()</code></td><td><code>next.config.ts:17</code></td><td class="center">✅</td></tr>
+      <tr><td><code>requireAdmin()</code> exists and uses <code>forbidden()</code></td><td><code>lib/auth/requireAdmin.ts</code> (referenced from <code>next.config.ts:10</code>)</td><td class="center">✅</td></tr>
+      <tr><td>Catalog has <code>severity?: "info" | "warning"</code> field</td><td><code>lib/messages/catalog.ts:3</code></td><td class="center">✅</td></tr>
+      <tr><td><code>lib/messages/lookup.ts</code> is the project's message-lookup helper</td><td><code>lib/messages/lookup.ts</code> exists; AGENTS.md invariant #5 names it canonical</td><td class="center">✅</td></tr>
+      <tr><td>App Router (not Pages); <code>app/admin/</code>, <code>app/api/</code>, <code>app/show/</code> exist</td><td><code>app/layout.tsx</code> + sibling routes</td><td class="center">✅</td></tr>
+      <tr><td>Tailwind v4 with <code>app/globals.css</code> <code>@theme</code> tokens</td><td>AGENTS.md global-rules § (flex-stretch warning)</td><td class="center">✅</td></tr>
+      <tr><td>Spec §9.0.1 mandates "?" / "What does this mean?" / "Take the tour" affordances</td><td><code>docs/.../2026-04-30-fxav-crew-pages-design.md:2540–2549</code></td><td class="center">✅</td></tr>
+      <tr><td>§12.4 is the user-facing message catalog</td><td><code>docs/.../2026-04-30-fxav-crew-pages-design.md:2681</code> heading</td><td class="center">✅</td></tr>
+      <tr><td>§9.2 parse-warnings panel is at <code>/admin/show/&lt;slug&gt;</code></td><td><code>docs/.../2026-04-30-fxav-crew-pages-design.md:2581</code> heading</td><td class="center">✅</td></tr>
+      <tr><td><code>/admin/show/&lt;slug&gt;/preview/&lt;crew-id&gt;</code> is the impersonation route</td><td><code>docs/.../2026-04-30-fxav-crew-pages-design.md:2596</code> heading</td><td class="center">✅</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>The exact line for <code>requireAdmin.ts</code> internals is deferred to implementation. The spec avoids naming internal lines that would rot if files are moved.</p>
+</section>
+
+<!-- ===== Section 13 — interactive checklist ===== -->
+<section class="spec-section" id="s13">
+  <h2>13. Acceptance criteria</h2>
+  <p class="ac-progress"><strong id="acDone">0</strong> / <strong id="acTotal">22</strong> complete. State persists locally in this browser (<code>localStorage</code>).</p>
+  <ul class="ac-list" id="acList">
+    <li><input type="checkbox" id="ac1"><span class="ac-id">AC-12.1</span><span class="ac-text">All 13 pages under <code>app/help/*</code> exist and render non-empty HTML at build time.</span></li>
+    <li><input type="checkbox" id="ac2"><span class="ac-id">AC-12.2</span><span class="ac-text"><code>app/help/layout.tsx</code> gates the tree via <code>requireAdmin()</code>. Unauthenticated and crew requests → 403.</span></li>
+    <li><input type="checkbox" id="ac3"><span class="ac-id">AC-12.3</span><span class="ac-text">Sidebar renders on every <code>/help/*</code> page with current-page highlight; collapses to top-of-page disclosure under 768 px.</span></li>
+    <li><input type="checkbox" id="ac4"><span class="ac-id">AC-12.4</span><span class="ac-text">Theme toggle is present in <code>&lt;Header&gt;</code> on every page and respects <code>prefers-color-scheme</code> on first paint.</span></li>
+    <li><input type="checkbox" id="ac5"><span class="ac-id">AC-12.5</span><span class="ac-text"><code>lib/messages/lookup.ts</code> returns <code>helpHref?: string</code> per §5.2; existing callers compile unchanged.</span></li>
+    <li><input type="checkbox" id="ac6"><span class="ac-id">AC-12.6</span><span class="ac-text">Every catalog entry with <code>severity === "warning"</code> has <code>longExplanation</code> + <code>helpHref</code>; meta-test enforces.</span></li>
+    <li><input type="checkbox" id="ac7"><span class="ac-id">AC-12.7</span><span class="ac-text">Build-time anchor resolver passes — every <code>helpHref</code> resolves to a real <code>&lt;RefAnchor&gt;</code>.</span></li>
+    <li><input type="checkbox" id="ac8"><span class="ac-id">AC-12.8</span><span class="ac-text">Parse-warning rows in the §9.2 panel render <code>Learn more →</code> when <code>helpHref</code> is present.</span></li>
+    <li><input type="checkbox" id="ac9"><span class="ac-id">AC-12.9</span><span class="ac-text">Dashboard tooltips render trailing <code>Learn more →</code> link when mapped.</span></li>
+    <li><input type="checkbox" id="ac10"><span class="ac-id">AC-12.10</span><span class="ac-text">Dashboard footer renders <code>Take the tour →</code> linking to <code>/help/tour</code>.</span></li>
+    <li><input type="checkbox" id="ac11"><span class="ac-id">AC-12.11</span><span class="ac-text"><code>/help/errors</code> iterates the catalog and renders one anchored section per warning entry.</span></li>
+    <li><input type="checkbox" id="ac12"><span class="ac-id">AC-12.12</span><span class="ac-text">All 9 tests in §7.1 pass; nav-consistency, anchor-resolver, screenshot-coverage, and manifest-integrity meta-tests are red on the conditions they guard.</span></li>
+    <li><input type="checkbox" id="ac13"><span class="ac-id">AC-12.13</span><span class="ac-text"><code>/impeccable critique</code> + <code>/impeccable audit</code> pass on every <code>app/help/*</code> page (per invariant #8).</span></li>
+    <li><input type="checkbox" id="ac14"><span class="ac-id">AC-12.14</span><span class="ac-text">No <code>&lt;ScreenshotPlaceholder&gt;</code> references in shipped v1 MDX (lint, §7.1 test 7). Every documented surface ships with a real <code>&lt;Screenshot key&gt;</code>.</span></li>
+    <li><input type="checkbox" id="ac15"><span class="ac-id">AC-12.15</span><span class="ac-text">Mobile Playwright at 390×844 passes: sidebar collapsed, no horizontal scroll, every tap target ≥ 44×44 px.</span></li>
+    <li><input type="checkbox" id="ac16"><span class="ac-id">AC-12.16</span><span class="ac-text">No new boolean flags, no new env vars, no new Supabase tables. (Screenshot harness reuses existing Playwright config.)</span></li>
+    <li><input type="checkbox" id="ac17"><span class="ac-id">AC-12.17</span><span class="ac-text">Commits in conventional-commits format (<code>feat(help):</code>, <code>test(help):</code>, etc.) per invariant #6.</span></li>
+    <li><input type="checkbox" id="ac18"><span class="ac-id">AC-12.18</span><span class="ac-text"><code>scripts/help-screenshots.manifest.ts</code> is the single source of truth. Every <code>&lt;Screenshot key&gt;</code> reference resolves to a manifest entry.</span></li>
+    <li><input type="checkbox" id="ac19"><span class="ac-id">AC-12.19</span><span class="ac-text"><code>pnpm screenshot:help</code> runs end-to-end against a clean checkout and produces every manifest entry's light + dark WebP. Idempotent: a second run on unchanged UI is byte-identical.</span></li>
+    <li><input type="checkbox" id="ac20"><span class="ac-id">AC-12.20</span><span class="ac-text"><code>&lt;Screenshot&gt;</code> renders <code>&lt;picture&gt;</code> with a <code>(prefers-color-scheme: dark)</code> <code>&lt;source&gt;</code> and default light <code>&lt;img&gt;</code>; reader's theme picks automatically.</span></li>
+    <li><input type="checkbox" id="ac21"><span class="ac-id">AC-12.21</span><span class="ac-text">Manifest-integrity meta-test (§7.1 test 9) passes: no stale entries, no orphan WebPs, every named fixture exists in <code>fixtures/shows/</code>.</span></li>
+    <li><input type="checkbox" id="ac22"><span class="ac-id">AC-12.22</span><span class="ac-text">M12 work begins only after M10 closes (sequencing constraint, recorded in milestone-routing handoff).</span></li>
+  </ul>
+</section>
+
+<!-- ===== Section 14 ===== -->
+<section class="spec-section" id="s14">
+  <h2>14. Appendix — relationship to phase 2</h2>
+  <p>Phase 2 (<code>/help/crew/*</code>) is intentionally not designed here. When it lands:</p>
+  <ol>
+    <li>Route-group split: <code>app/help/(admin)/layout.tsx</code> keeps <code>requireAdmin</code>; <code>app/help/(public)/layout.tsx</code> is unguarded.</li>
+    <li>Sidebar <code>_nav.ts</code> grows a <code>visibility: 'admin' | 'public' | 'both'</code> field; rendered sidebar filters by viewer role.</li>
+    <li>Crew-facing pages reuse all existing MDX components — no component rework.</li>
+    <li>Auth-gating test splits into admin-tree and public-tree variants.</li>
+    <li>URLs established in M12 do not change.</li>
+  </ol>
+
+  <p class="end-note">End of spec.<br>Markdown twin: <a href="./2026-05-12-user-facing-docs-design.md">2026-05-12-user-facing-docs-design.md</a></p>
+</section>
+
+</main>
+</div>
+
+<script>
+  // Theme toggle: cycles auto → light → dark → auto
+  (function () {
+    const root = document.documentElement;
+    const btn = document.getElementById('themeToggle');
+    const stored = localStorage.getItem('helpSpecTheme');
+    if (stored) root.dataset.theme = stored;
+    function next() {
+      const order = ['auto','light','dark'];
+      const cur = root.dataset.theme || 'auto';
+      const nxt = order[(order.indexOf(cur) + 1) % order.length];
+      root.dataset.theme = nxt;
+      localStorage.setItem('helpSpecTheme', nxt);
+      btn.textContent = nxt === 'auto' ? '◐ Theme (auto)' : nxt === 'light' ? '☀ Light' : '☾ Dark';
+    }
+    btn.addEventListener('click', next);
+    btn.textContent = (root.dataset.theme === 'light' ? '☀ Light' : root.dataset.theme === 'dark' ? '☾ Dark' : '◐ Theme (auto)');
+  })();
+
+  // TOC scroll-spy: highlight active section
+  (function () {
+    const sections = document.querySelectorAll('section.spec-section');
+    const links = new Map();
+    document.querySelectorAll('aside.toc a[data-section]').forEach(a => {
+      links.set(a.getAttribute('href').slice(1), a);
+    });
+    const io = new IntersectionObserver((entries) => {
+      // Find the entry closest to the top of the viewport that is intersecting
+      let best = null;
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          if (!best || e.boundingClientRect.top < best.boundingClientRect.top) best = e;
+        }
+      });
+      if (best) {
+        links.forEach(a => a.classList.remove('active'));
+        const link = links.get(best.target.id);
+        if (link) link.classList.add('active');
+      }
+    }, { rootMargin: '-80px 0px -60% 0px', threshold: [0, 0.1, 0.5] });
+    sections.forEach(s => io.observe(s));
+  })();
+
+  // AC checklist: persist in localStorage, update count
+  (function () {
+    const list = document.getElementById('acList');
+    const done = document.getElementById('acDone');
+    const total = document.getElementById('acTotal');
+    const inputs = list.querySelectorAll('input[type="checkbox"]');
+    total.textContent = inputs.length;
+    function update() {
+      let n = 0;
+      inputs.forEach(i => {
+        const li = i.closest('li');
+        if (i.checked) { li.classList.add('done'); n++; } else { li.classList.remove('done'); }
+      });
+      done.textContent = n;
+    }
+    const stored = JSON.parse(localStorage.getItem('helpSpecAC') || '{}');
+    inputs.forEach(i => {
+      if (stored[i.id]) i.checked = true;
+      i.addEventListener('change', () => {
+        stored[i.id] = i.checked;
+        localStorage.setItem('helpSpecAC', JSON.stringify(stored));
+        update();
+      });
+    });
+    update();
+    // Allow clicking anywhere on the row to toggle
+    list.querySelectorAll('li').forEach(li => {
+      li.addEventListener('click', (e) => {
+        if (e.target.tagName !== 'INPUT' && !e.target.closest('a') && !e.target.closest('code')) {
+          const cb = li.querySelector('input[type="checkbox"]');
+          cb.checked = !cb.checked;
+          cb.dispatchEvent(new Event('change'));
+        }
+      });
+    });
+  })();
+</script>
+</body>
+</html>
