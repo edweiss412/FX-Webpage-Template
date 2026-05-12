@@ -59,6 +59,7 @@ function defaultDrive(): VerifyReelOnApplyDrive {
       const response = await getDriveClient().files.get({
         fileId,
         fields: "mimeType,modifiedTime,trashed,headRevisionId,md5Checksum",
+        supportsAllDrives: true,
       });
       return response.data;
     },
