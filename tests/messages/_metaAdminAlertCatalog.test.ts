@@ -79,6 +79,7 @@ const ADMIN_ALERTS_CODES = [
   "REPORT_DUPLICATE_LIVE_MATCHES", //   M8 duplicate live marker fail-closed recovery
   "REPORT_OPEN_ORPHAN_LABEL", //        M8 impossible open orphan state
   "REPORT_LEASE_THRASHING", //          M8 repeated retry/lease race fail-closed recovery
+  "STALE_ORPHAN_REPORT", //             M8 report reaper stale reservation audit
 ] as const;
 
 const ADMIN_ALERTS_WRITE_SITES: Record<
@@ -192,6 +193,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   REPORT_LEASE_THRASHING: {
     path: "lib/reports/submit.ts",
     pattern: /REPORT_LEASE_THRASHING/,
+  },
+  STALE_ORPHAN_REPORT: {
+    path: "app/api/cron/report-reaper/route.ts",
+    pattern: /INSERT\s+INTO\s+admin_alerts[\s\S]*STALE_ORPHAN_REPORT/,
   },
 };
 

@@ -62,12 +62,21 @@ export async function runReportReaper(
         )) as ReapedReportRow[];
 
         for (const row of deleted) {
+          // STALE_ORPHAN_REPORT is keyed per show here even though the handoff inventory
+          // called it "global": the deleted report row carries show_id, and preserving
+          // that scope keeps the admin_alerts queue actionable for show-specific triage.
+          // admin_alerts is the single durable signal for M8 reaper audits; no sync_log
+          // dual-write, so recurrence semantics stay in one unresolved alert row.
           await tx.unsafe(
-            `INSERT INTO sync_log (show_id, status, message, parse_warnings)
-             VALUES ($1::uuid, 'STALE_ORPHAN_REPORT', $2, $3::jsonb)`,
+            `INSERT INTO admin_alerts (show_id, code, context)
+             VALUES ($1::uuid, 'STALE_ORPHAN_REPORT', $2::jsonb)
+             ON CONFLICT (coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL
+             DO UPDATE SET
+               last_seen_at = now(),
+               occurrence_count = admin_alerts.occurrence_count + 1,
+               context = EXCLUDED.context`,
             [
               row.show_id,
-              `stale orphan report reaped: ${row.idempotency_key}`,
               {
                 report_id: row.id,
                 idempotency_key: row.idempotency_key,
