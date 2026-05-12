@@ -36,6 +36,10 @@ const M6_SYNC_CODES = [
   "DRIVE_METADATA_MISSING",
   "SHEET_UNAVAILABLE",
   "LOCK_OWNERSHIP_ASSERTION_FAILED",
+  "SHOW_FIRST_PUBLISHED",
+  "SHOW_UNPUBLISHED",
+  "UNPUBLISH_TOKEN_CONSUMED",
+  "UNPUBLISH_TOKEN_EXPIRED",
 ] as const;
 
 const M6_PIN2_EXTENSION_ROUTE_CODES = [
@@ -106,6 +110,26 @@ describe("M6 sync message catalog", () => {
       followUp: "Doug → refresh admin",
       helpfulContext:
         "Each review item has a fixed list of valid decisions (apply / reject / rename / independent, depending on the item's invariant). Your submission carried an action value that isn't in the allowed list for one of the items — usually because the form was hand-edited or the page is running a stale build. Refresh the admin page and re-submit using the form controls.",
+    });
+  });
+
+  test("Amendment 9 first-publish and unpublish entries match §12.4 copy", () => {
+    expect(MESSAGE_CATALOG.SHOW_FIRST_PUBLISHED).toMatchObject({
+      severity: "info",
+      dougFacing:
+        "_<sheet-name>_ is now live for crew. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](signed-link) within 24h.",
+      crewFacing: null,
+      followUp: null,
+      helpfulContext:
+        "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live and signed links you send out will work. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and kill any links you've already sent.",
+    });
+    expect(MESSAGE_CATALOG.SHOW_UNPUBLISHED).toMatchObject({
+      dougFacing:
+        "_<sheet-name>_ has been unpublished. Crew links no longer work. Drag the sheet back into your watched folder when you're ready to publish again.",
+      crewFacing: null,
+      followUp: "Doug → optionally re-share when ready",
+      helpfulContext:
+        "You clicked Unpublish on a recently-published show. The show is now archived, any signed links you sent in the last 24h have been revoked, and crew can no longer reach the page. Nothing is lost — your sheet is unchanged. Drag it back into the watched folder when you're ready to publish for real.",
     });
   });
 });

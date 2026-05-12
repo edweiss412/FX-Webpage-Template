@@ -347,6 +347,43 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "LEAD additions or removals still require review. Non-Lead role flag changes sync automatically and are recorded here for visibility.",
   },
+  SHOW_FIRST_PUBLISHED: {
+    code: "SHOW_FIRST_PUBLISHED",
+    severity: "info",
+    dougFacing:
+      "_<sheet-name>_ is now live for crew. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](signed-link) within 24h.",
+    crewFacing: null,
+    followUp: null,
+    helpfulContext:
+      "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live and signed links you send out will work. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and kill any links you've already sent.",
+  },
+  SHOW_UNPUBLISHED: {
+    code: "SHOW_UNPUBLISHED",
+    dougFacing:
+      "_<sheet-name>_ has been unpublished. Crew links no longer work. Drag the sheet back into your watched folder when you're ready to publish again.",
+    crewFacing: null,
+    followUp: "Doug → optionally re-share when ready",
+    helpfulContext:
+      "You clicked Unpublish on a recently-published show. The show is now archived, any signed links you sent in the last 24h have been revoked, and crew can no longer reach the page. Nothing is lost — your sheet is unchanged. Drag it back into the watched folder when you're ready to publish for real.",
+  },
+  UNPUBLISH_TOKEN_CONSUMED: {
+    code: "UNPUBLISH_TOKEN_CONSUMED",
+    dougFacing:
+      "That unpublish link was already used. The show is already unpublished or the undo window has been closed.",
+    crewFacing: null,
+    followUp: "Doug -> no action if the show is already archived",
+    helpfulContext:
+      "Unpublish undo tokens are single-use. A second click on the same email link returns this code instead of running link revocation twice.",
+  },
+  UNPUBLISH_TOKEN_EXPIRED: {
+    code: "UNPUBLISH_TOKEN_EXPIRED",
+    dougFacing:
+      "That unpublish link has expired. Use the normal admin archive flow if the show still needs to come down.",
+    crewFacing: null,
+    followUp: "Doug -> archive from admin if needed",
+    helpfulContext:
+      "First-seen auto-publish undo links are valid for 24 hours. After that, wrong-publish recovery uses the regular admin archive workflow.",
+  },
   FINALIZE_OWNED_SHOW: {
     code: "FINALIZE_OWNED_SHOW",
     dougFacing: "This onboarding finalize step tried to take over an existing owned show.",

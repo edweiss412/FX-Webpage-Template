@@ -64,6 +64,7 @@ const ADMIN_ALERTS_CODES = [
   "LIVE_ROW_CONFLICT", //             M6 live-row conflict recovery
   "ROLE_FLAGS_NOTICE", //             M6 auto-applied non-LEAD role_flags change
   "SHEET_UNAVAILABLE", //             M6 cron/fetch source missing recovery
+  "SHOW_FIRST_PUBLISHED", //          M6.5 first-seen auto-publish confirmation
   "PENDING_SNAPSHOT_PROMOTE_STUCK", // M7 diagram GC promotion-stuck repair signal
   "PENDING_SNAPSHOT_ROLLBACK_STUCK", // M7 promoter rollback-stuck repair signal
   "PENDING_SNAPSHOT_DELETE_STUCK", //   M7 diagram GC delete-stuck repair signal
@@ -124,6 +125,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   SHEET_UNAVAILABLE: {
     path: "lib/sync/runScheduledCronSync.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"SHEET_UNAVAILABLE"/,
+  },
+  SHOW_FIRST_PUBLISHED: {
+    path: "lib/sync/runScheduledCronSync.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"SHOW_FIRST_PUBLISHED"/,
   },
   PENDING_SNAPSHOT_PROMOTE_STUCK: {
     path: "lib/sync/diagramGc.ts",
@@ -206,6 +211,7 @@ describe("META admin_alerts catalog contract", () => {
       { severity?: "info" | "warning"; dougFacing: string | null }
     >;
     expect(entries.ROLE_FLAGS_NOTICE?.severity).toBe("info");
+    expect(entries.SHOW_FIRST_PUBLISHED?.severity).toBe("info");
     expect(entries.LIVE_ROW_CONFLICT?.severity ?? "warning").toBe("warning");
   });
 });
