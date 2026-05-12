@@ -28,11 +28,11 @@ Spec context: §13 entire section, §17.1 milestone 8.
 
 This is the smallest TDD slice — auth gate only, no GH integration, no quota, no idempotency yet. Subsequent tasks layer features on.
 
-- [ ] **Step 1: Failing test** — POST `/api/report` with no session → 401.
-- [ ] **Step 2: Run** test — expect FAIL (route missing).
-- [ ] **Step 3: Implement** the route skeleton: dispatch to `validateLinkSession`/`validateGoogleSession`/`requireAdmin`; if all three reject → 401. Otherwise return a 501 NOT_IMPLEMENTED stub for downstream tests to flesh out.
-- [ ] **Step 4: Run** test — expect PASS.
-- [ ] **Step 5: Commit** `feat(reports): /api/report skeleton + auth (AC-8.7)`.
+- [x] **Step 1: Failing test** — POST `/api/report` with no session → 401.
+- [x] **Step 2: Run** test — expect FAIL (route missing).
+- [x] **Step 3: Implement** the route skeleton: dispatch to `validateLinkSession`/`validateGoogleSession`/`requireAdmin`; if all three reject → 401. Otherwise return a 501 NOT_IMPLEMENTED stub for downstream tests to flesh out.
+- [x] **Step 4: Run** test — expect PASS.
+- [x] **Step 5: Commit** `feat(reports): /api/report skeleton + auth (AC-8.7)`.
 
 ### Task 8.3a: Atomic quota reservation (AC-8.3, AC-8.6, AC-8.10)
 
