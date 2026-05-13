@@ -539,24 +539,33 @@ export function GalleryLightbox({
                           );
                         }}
                         smooth={!prefersReducedMotion}
-                        // Codex R5 HIGH: library's `toggle` mode uses
-                        // exponential button-zoom math (scale *
-                        // exp(step)) rather than alternating between
-                        // 1x and 1+step. At scale=1 with step=1 the
-                        // result is ~2.718x, not 2x; at scale=4 with
-                        // step=1 reverse, the result is ~1.47x, NOT
-                        // a reset. Solution: switch mode dynamically
-                        // based on current scale.
-                        //   - scale=1 (zoomed=false): mode "zoomIn"
-                        //     with step=ln(2) → 1 * exp(ln 2) = 2.0
-                        //   - scale>1 (zoomed=true): mode "reset" →
-                        //     always returns to 1x
-                        // The library re-reads doubleClick per render
-                        // so the mode + step flip with the zoomed
-                        // state, no remount needed.
+                        // Codex R5 HIGH (zoomed-toggle): library
+                        // `toggle` mode uses exponential math when
+                        // smooth=true (`scale * exp(step)`), so
+                        // step=1 gives 2.718x not 2x. Solution:
+                        // switch mode dynamically based on current
+                        // scale:
+                        //   - scale=1 (zoomed=false): mode 'zoomIn'
+                        //   - scale>1 (zoomed=true): mode 'reset'
+                        // The library re-reads doubleClick per
+                        // render so mode + step flip with the
+                        // zoomed state, no remount needed.
+                        //
+                        // Codex R10 HIGH (reduced-motion math swap):
+                        // when smooth=false the library swaps to
+                        // ADDITIVE math: `scale + step`. So the
+                        // step value to land at exactly 2x depends
+                        // on the motion mode:
+                        //   - smooth=true (full motion):  step=ln(2)
+                        //     → 1 * exp(ln 2) = 2.0 exactly
+                        //   - smooth=false (reduced):     step=1
+                        //     → 1 + 1 = 2.0 exactly
+                        // The reduced-motion step branch ensures the
+                        // double-tap target matches the brief in
+                        // both motion modes.
                         doubleClick={{
                           mode: zoomed ? "reset" : "zoomIn",
-                          step: Math.LN2,
+                          step: prefersReducedMotion ? 1 : Math.LN2,
                           animationTime: prefersReducedMotion ? 0 : 200,
                         }}
                         pinch={{ disabled: false }}

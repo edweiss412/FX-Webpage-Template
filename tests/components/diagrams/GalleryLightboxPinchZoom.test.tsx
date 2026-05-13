@@ -263,7 +263,7 @@ beforeEach(() => {
 });
 
 describe("M9 C6c — TransformWrapper prop contract", () => {
-  test("Codex R5 HIGH: doubleClick uses dynamic mode (zoomIn @ scale=1 → 2x; reset @ scale>1 → 1x) with step=ln(2)", async () => {
+  test("Codex R5 HIGH: doubleClick uses dynamic mode (zoomIn @ scale=1 → 2x; reset @ scale>1 → 1x); full-motion step=ln(2)", async () => {
     render(
       <GalleryLightbox
         showId={SHOW_ID}
@@ -275,16 +275,13 @@ describe("M9 C6c — TransformWrapper prop contract", () => {
     );
     expect(libState.lastWrapperProps?.minScale).toBe(1);
     expect(libState.lastWrapperProps?.maxScale).toBe(4);
-    // At rest (scale=1): mode='zoomIn' so library's `scale * exp(step)`
-    // math lands at exactly 2x with step=ln(2). The original
-    // mode='toggle' was wrong — library toggle still uses exp math,
-    // producing ~2.718x from 1x and only ~1.47x from 4x (never resets).
+    // Full motion (default): library `scale * exp(step)` math lands
+    // at exactly 2x with step=ln(2).
     const dcAtRest = libState.lastWrapperProps?.doubleClick as
       | { mode?: string; step?: number; animationTime?: number }
       | undefined;
     expect(dcAtRest?.mode).toBe("zoomIn");
     expect(dcAtRest?.step).toBeCloseTo(Math.LN2, 6);
-    // Library: 1 * exp(ln 2) === 2.0 exactly.
     expect(1 * Math.exp(dcAtRest?.step ?? 0)).toBeCloseTo(2, 6);
 
     // When zoomed (scale>1): mode flips to 'reset' so double-tap
@@ -296,6 +293,32 @@ describe("M9 C6c — TransformWrapper prop contract", () => {
         | undefined;
       expect(dcZoomed?.mode).toBe("reset");
     });
+  });
+
+  test("Codex R10 HIGH: under reduced motion, doubleClick step swaps to 1 so library's ADDITIVE math (smooth=false) still lands at 2.0x", () => {
+    __matchMediaQuery = (q: string) => q.includes("reduce");
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(3)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    const props = libState.lastWrapperProps;
+    // smooth=false under reduced motion (confirmed elsewhere).
+    expect(props?.smooth).toBe(false);
+    const dc = props?.doubleClick as
+      | { mode?: string; step?: number; animationTime?: number }
+      | undefined;
+    // Library swaps to additive math when smooth=false → step=1
+    // produces 1+1=2.0 exactly. Negative-assert step=ln(2) which
+    // would produce 1.693 under additive math (the R10 bug).
+    expect(dc?.mode).toBe("zoomIn");
+    expect(dc?.step).toBe(1);
+    expect((1 + (dc?.step ?? 0))).toBe(2);
+    expect(dc?.step).not.toBeCloseTo(Math.LN2, 3);
   });
 
   test("Codex R1 HIGH: panning is disabled at scale=1 (Embla owns swipe), enabled at scale>1 (library owns pan)", async () => {
