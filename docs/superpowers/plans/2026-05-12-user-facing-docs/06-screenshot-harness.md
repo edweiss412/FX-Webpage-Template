@@ -82,40 +82,47 @@ Per spec §3.6.2 — drives Playwright through the reproducibility preconditions
 
 **Files:**
 - Modify: `playwright.config.ts`
-- Create: `tests/e2e/global-setup-screenshots.ts`
+- Create: `tests/e2e/screenshots-help-setup.ts` (Playwright setup test, NOT a default-export globalSetup function)
 - Create: `tests/help/playwright-config.test.ts`
 
-Per spec §3.6.2. Dedicated Playwright project with own `webServer` env (`ENABLE_TEST_AUTH=true`, `TEST_AUTH_SECRET`), `globalSetup` running `pnpm db:seed` via `child_process.spawnSync` with array args (NOT `exec`/`execSync` with a shell string — avoids shell-injection class).
+Per spec §3.6.2. Dedicated Playwright project with own `webServer` env (`ENABLE_TEST_AUTH=true`, `TEST_AUTH_SECRET`), seeded via the **setup-project pattern** (a real Playwright test that runs once before the capture project).
 
-- [ ] Step 1: Write failing assertion that the config text contains `name: "screenshots-help"`, `ENABLE_TEST_AUTH: "true"` declaration, and a `globalSetup` reference for the screenshots project.
+- [ ] Step 1: Write failing assertion that the config text contains `name: "screenshots-help"`, `ENABLE_TEST_AUTH: "true"` declaration, and the setup-project dependency wiring.
 - [ ] Step 2: Run test → FAIL.
 - [ ] Step 3: Edit `playwright.config.ts`:
-  - **r2 — Playwright API correction (B-r10 finding 1):** Playwright 1.59+ does NOT support `globalSetup` as a `Project`-level option — it's a top-level `TestConfig` option only. Project-scoped setup uses a **setup project + dependency** pattern instead. Add TWO project entries:
-    1. A setup project `screenshots-help-setup` with `testMatch: /global-setup-screenshots\.ts/` (the file itself becomes a single-test setup task).
-    2. The capture project `screenshots-help` with `testMatch: /help-screenshots-clock-pipeline\.spec\.ts/`, `dependencies: ["screenshots-help-setup"]`, `use.viewport`, `use.timezoneId`, `use.locale`, `use.colorScheme`, `use.reducedMotion`, `use.launchOptions.args = ["--font-render-hinting=none","--disable-skia-runtime-opts"]`.
-  - Add the screenshots `webServer` entry (port 3003) with `env: { ENABLE_TEST_AUTH: "true", TEST_AUTH_SECRET: "test-secret-fixture" }`. Mirror existing webServer entries' shape.
-  - **r2 — testMatch coverage for new E2E specs (B-r10 finding 2):** the live `playwright.config.ts` uses restrictive `testMatch` regexes per project (currently `/admin-dev\.spec\.ts/` on multiple projects). Without an update, the new specs created by Phase G (`deep-link-walker.spec.ts`), Phase H (`help-auth.spec.ts`, `help-mobile.spec.ts`) will be silently uncollected and `pnpm test:e2e` can return green without running them. Add a dedicated `help-docs` project with `testMatch: /(deep-link-walker|help-auth|help-mobile)\.spec\.ts/`, mirroring the existing project's webServer + use shape and including `ENABLE_TEST_AUTH: "true"` / `TEST_AUTH_SECRET` env so the auth-test fixtures work. Document the project name in the phase summary so reviewers running `pnpm exec playwright test --project=help-docs` see the right scope.
-- [ ] Step 4: Create `tests/e2e/global-setup-screenshots.ts`:
+  - **r2 fix per F-r1 finding 2 (HIGH, CROSS-PHASE):** Playwright 1.59+ supports `globalSetup` only at the top-level `TestConfig` level. The setup-project pattern uses a **real Playwright test** that runs via `testMatch`, NOT a default-exported `globalSetup()` function. The r1 draft's `tests/e2e/global-setup-screenshots.ts` with `export default async function globalSetup()` would NEVER execute under a setup project (setup projects run test files; they call `test()` blocks).
+  - Add TWO project entries:
+    1. **Setup project** `screenshots-help-setup` with `testMatch: /screenshots-help-setup\.ts/`. The matched file is a real Playwright test (see Step 4).
+    2. **Capture project** `screenshots-help` with `testMatch: /help-screenshots-clock-pipeline\.spec\.ts/`, `dependencies: ["screenshots-help-setup"]`, `use.viewport`, `use.timezoneId`, `use.locale`, `use.colorScheme`, `use.reducedMotion`, `use.launchOptions.args = ["--font-render-hinting=none","--disable-skia-runtime-opts"]`, `use.baseURL: "http://localhost:3004"`.
+  - **r2 fix per F-r1 finding 3 (HIGH, PORT CONFLICT):** the r1 draft used port 3003, but live `playwright.config.ts:104,189,207-208` already binds `prod-runtime-flip` to 3003. Two webServers on the same port race or readiness-check the wrong app. Use **port 3004** for the screenshots webServer + `help-docs` project. Add a config-text assertion pinning `port 3004` so this can't silently regress.
+  - Add the screenshots `webServer` entry on **port 3004** with `env: { ENABLE_TEST_AUTH: "true", TEST_AUTH_SECRET: "test-secret-fixture" }`. Mirror existing webServer entries' shape.
+  - **r2 — testMatch coverage for new E2E specs (B-r10 finding 2):** add a dedicated `help-docs` project with `testMatch: /(deep-link-walker|help-auth|help-mobile)\.spec\.ts/`, `baseURL: "http://localhost:3004"`, `dependencies: ["screenshots-help-setup"]` (so help-docs also gets seeded DB), mirroring the existing project's `use` shape and including `ENABLE_TEST_AUTH: "true"` / `TEST_AUTH_SECRET` env. Document the project name in the phase summary so reviewers running `pnpm exec playwright test --project=help-docs` see the right scope.
+
+- [ ] Step 4: Create `tests/e2e/screenshots-help-setup.ts` as a **real Playwright test** (NOT a default-export):
+
   ```ts
-  // tests/e2e/global-setup-screenshots.ts — Phase F.4
-  // Runs once before the screenshots-help project: seeds DB.
-  // Uses spawnSync with array args (NOT exec with a shell string) to avoid
-  // shell-injection class — even though the args are static here, the safer
-  // pattern is the house rule.
+  // tests/e2e/screenshots-help-setup.ts — Phase F.4
+  // r2 fix per F-r1 finding 2: setup projects run TEST FILES. A default-
+  // exported `globalSetup()` function would never execute. This file is a
+  // real Playwright test that seeds the DB exactly once before the
+  // screenshots-help + help-docs projects run.
+  import { test, expect } from "@playwright/test";
   import { spawnSync } from "node:child_process";
 
-  export default async function globalSetup(): Promise<void> {
+  test("seed screenshots DB (runs once before screenshots-help + help-docs)", async () => {
     const result = spawnSync("pnpm", ["db:seed"], {
       stdio: "inherit",
       shell: false,
     });
-    if (result.status !== 0) {
-      throw new Error(`globalSetup: pnpm db:seed exited with status ${result.status}`);
-    }
-  }
+    expect(
+      result.status,
+      `pnpm db:seed exited with status ${result.status}`,
+    ).toBe(0);
+  });
   ```
-- [ ] Step 5: Run test → PASS. Smoke-run `pnpm test:e2e --project screenshots-help` — globalSetup executes, webServer comes up; suite is empty until F.9 lands.
-- [ ] Step 6: Commit: `feat(screenshots): screenshots-help Playwright project + globalSetup (Task F.4)`
+
+- [ ] Step 5: Run test → PASS. Smoke-run `pnpm exec playwright test --project screenshots-help-setup` — the setup test runs alone; smoke-run `pnpm exec playwright test --project screenshots-help` — Playwright auto-runs the setup dependency first, then the (empty until F.9 lands) capture suite.
+- [ ] Step 6: Commit: `feat(screenshots): screenshots-help Playwright project + setup-project seeding on port 3004 (Task F.4)`
 
 ---
 
@@ -127,10 +134,23 @@ Per spec §3.6.2. Dedicated Playwright project with own `webServer` env (`ENABLE
 
 Per spec §3.6.3 — CI runs `pnpm screenshot:help` against a clean checkout, then `git diff --exit-code public/help/screenshots/`. Non-zero exit fails the PR.
 
-- [ ] Step 1: Add to `package.json` `scripts`: `"screenshot:help": "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture pnpm dlx tsx scripts/help-screenshots.ts"`.
-- [ ] Step 2: Run `pnpm screenshot:help` manually — confirm WebPs land in `public/help/screenshots/`. If any manifest entry's `frozenClockInstant` is outside its fixture's range, the validation step (F.3 precondition 10) throws — fix the manifest entry.
-- [ ] Step 3: `ls .github/workflows/ 2>/dev/null` to see existing workflows. Add a new `screenshots-drift.yml` (or extend an existing workflow with a job). Trigger on PR + daily cron. Steps: checkout → setup-node → pnpm install → `pnpm db:seed` → `pnpm screenshot:help` (with `ENABLE_TEST_AUTH` and `TEST_AUTH_SECRET` from GitHub Secrets) → `git diff --exit-code public/help/screenshots/`.
-- [ ] Step 4: Commit: `feat(screenshots): pnpm screenshot:help + CI drift gate (Task F.5)`
+**r2 fix per F-r1 finding 1 (CRITICAL):** the r1 draft made `screenshot:help` a direct `tsx scripts/help-screenshots.ts` invocation. The Playwright `webServer` declared in F.4 is started ONLY by `playwright test`, not by an arbitrary tsx invocation. On a clean CI runner the script would connect to nothing; locally it might silently capture against a stale dev server that lacks the test-auth env, violating AC-12.19/12.26 (and silently corrupting the WebP corpus).
+
+Two options to fix this; pick (a) to inherit F.4's webServer + setup-project + env automatically:
+
+(a) **PREFERRED:** make screenshot capture a Playwright project. Add a `screenshots-help-capture` project that runs a single `tests/e2e/screenshots-help-capture.spec.ts` test, which iterates the manifest and calls `captureAll()`. Then `pnpm screenshot:help` becomes `pnpm exec playwright test --project=screenshots-help-capture`. Playwright starts the webServer, runs the setup-project seed, then the capture test — single command, server lifecycle owned by Playwright.
+
+(b) Alternative: have `scripts/help-screenshots.ts` itself spawn `next build && next start --port 3004` with the test-auth env set, capture, then kill the server. This duplicates Playwright's webServer logic and is harder to keep in sync; (a) is preferred.
+
+- [ ] Step 1: Implement option (a). Move the `captureAll()` logic from F.3's CLI entry into a Playwright test file `tests/e2e/screenshots-help-capture.spec.ts` (test calls `captureAll()` from `scripts/help-screenshots.ts`). Add the `screenshots-help-capture` project to `playwright.config.ts` with `testMatch: /screenshots-help-capture\.spec\.ts/`, `dependencies: ["screenshots-help-setup"]`, baseURL on port 3004, and the same `use` shape as `screenshots-help`.
+- [ ] Step 2: Add to `package.json` `scripts`:
+  ```json
+  "screenshot:help": "playwright test --project=screenshots-help-capture"
+  ```
+  (env `ENABLE_TEST_AUTH` and `TEST_AUTH_SECRET` are inherited from the project's `webServer.env`.)
+- [ ] Step 3: Run `pnpm screenshot:help` manually — confirm: (i) the webServer comes up on 3004 with test-auth env, (ii) the setup-project test seeds, (iii) `captureAll()` runs, (iv) WebPs land in `public/help/screenshots/`. If any manifest entry's `frozenClockInstant` is outside its fixture's range, F.3 precondition 10 throws — fix the manifest entry.
+- [ ] Step 4: `ls .github/workflows/ 2>/dev/null` to see existing workflows. Add `screenshots-drift.yml`. Trigger on PR + daily cron. Steps: checkout → setup-node → pnpm install → `pnpm screenshot:help` (server lifecycle handled by Playwright; no separate `pnpm db:seed` step needed because the setup-project does it) → `git diff --exit-code public/help/screenshots/`.
+- [ ] Step 5: Commit: `feat(screenshots): pnpm screenshot:help as Playwright capture project + CI drift gate (Task F.5)`
 
 ---
 
@@ -189,11 +209,12 @@ git status --short app/help/_components/Screenshot.tsx
 **Files:**
 - Create: `tests/help/_metaScreenshotManifest.test.ts`
 
-Per spec §7.1 test 9. Three assertions:
+Per spec §7.1 test 9. Four assertions:
 
 1. Every manifest entry's `fixture` resolves to either `fixtures/shows/raw/<fixture>.md` OR `fixtures/shows/pdf-only/<fixture>__INFO.md`.
-2. Every manifest entry has BOTH light + dark WebPs on disk (gated: if `public/help/screenshots/` doesn't exist yet, mark as "first-time / pre-capture" and return — the test goes green once F.11 produces WebPs).
-3. No orphan WebPs on disk — every `<key>-{light,dark}.webp` filename's `<key>` is in the manifest.
+2. **r2 fix per F-r1 finding 5 (MEDIUM): every manifest entry's `route` resolves to a real App Router page.** Compute the file-system path from the route (e.g., `/show/[slug]` → `app/show/[slug]/page.tsx`; `/admin/show/<slug>` → `app/admin/show/[slug]/page.tsx`); assert `existsSync(...)` returns true for `page.tsx` OR `page.mdx`. Without this, a stale or typoed `route` stays manifest-valid until capture time and the harness can commit screenshots of an error/404 page while the meta-test stays green.
+3. Every manifest entry has BOTH light + dark WebPs on disk (gated: if `public/help/screenshots/` doesn't exist yet, mark as "first-time / pre-capture" and return — the test goes green once F.11 produces WebPs).
+4. No orphan WebPs on disk — every `<key>-{light,dark}.webp` filename's `<key>` is in the manifest.
 
 - [ ] Step 1: Write failing test per the three assertions.
 - [ ] Step 2: Run test → FAIL on the fixture-existence assertion if any seed-manifest entry's fixture name is wrong; FAIL on the WebPs assertion until F.11 captures real bytes.
@@ -241,9 +262,33 @@ Per spec §7.1 test 18 / AC-12.39. Captures the `preview-as-crew-banner` manifes
   - Uses `@playwright/test` `test` / `expect`.
   - Inside the test, sign in as admin via `signInAs`.
   - **Fix the browser clock once** at a neutral instant (`"2026-03-23T12:00:00.000Z"`) for both captures via `context.clock.install({ time: ... })`. Do NOT vary it between captures.
-  - Define a `serverRenderedTodayAt(instant: string): Promise<string>` helper that: sets `X-Screenshot-Frozen-Now` + `Authorization: Bearer ${TEST_AUTH_SECRET}` extra headers; navigates to the preview route with `await page.goto(url, { waitUntil: "domcontentloaded" })`; extracts the **server-rendered** `data-today` attribute from the schedule tile via `await page.locator('[data-testid="schedule-tile"]').getAttribute("data-today")` BEFORE client effects can rewrite it.
+  - **r3 fix per F-r1 finding 4 (HIGH, CROSS-PHASE):** the r2 helper queried `[data-testid="schedule-tile"]` for a `data-today` attribute, but live `components/tiles/ScheduleTile.tsx` puts `data-testid="schedule-tile"` on the section root while `data-today="true"` (boolean) lives on each `<li data-testid="schedule-day">`. The actual ISO date lives in **`data-day`** on the same `<li>`. Also, querying via `page.locator` after `page.goto` reads the hydrated DOM, NOT the initial server HTML promised by the assertion.
+
+  Fix: fetch the initial HTML via `page.request.get(url, { headers })` (raw server response, no JS execution), parse with a tiny regex or use `JSDOM`, locate `<li data-testid="schedule-day" data-today="true" data-day="YYYY-MM-DD">`, return `data-day`. Helper signature:
+
+  ```ts
+  async function serverRenderedTodayAt(instant: string): Promise<string> {
+    const res = await page.request.get(previewUrl, {
+      headers: {
+        "X-Screenshot-Frozen-Now": instant,
+        Authorization: `Bearer ${process.env.TEST_AUTH_SECRET}`,
+        Cookie: signedInCookieHeader, // from signInAs()
+      },
+    });
+    expect(res.ok()).toBe(true);
+    const html = await res.text();
+    // Match `<li data-testid="schedule-day" data-today="true" data-day="2026-03-24">`
+    // (attribute order can vary — use a permissive match).
+    const m = html.match(
+      /<li[^>]*\bdata-testid=["']schedule-day["'][^>]*\bdata-today=["']true["'][^>]*\bdata-day=["']([^"']+)["']|<li[^>]*\bdata-day=["']([^"']+)["'][^>]*\bdata-today=["']true["'][^>]*\bdata-testid=["']schedule-day["']/,
+    );
+    expect(m, `no <li data-testid=schedule-day data-today=true> found in initial HTML for ${instant}`).not.toBeNull();
+    return m![1] ?? m![2];
+  }
+  ```
+
   - **Primary assertion (server-only):** call the helper twice with two different server-header instants (`"2026-03-22T..."` pre-show, `"2026-03-24T..."` mid-show). Assert `today1 !== today2` AND both match the expected dates from the manifest fixture. If `today1 === today2`, the server-render path is NOT consuming the header — TEST FAILS regardless of any WebP output.
-  - **Secondary assertion (full-pipeline byte diff, ADDITIONAL not replacement):** with the browser clock still fixed, also capture WebPs via `page.screenshot({ type: "png" })` → sharp-encode at both instants and assert `buf1.equals(buf2) === false`. This catches end-to-end regressions in the encoding/sharp/output path that don't show up in the data-today attribute alone.
+  - **Secondary assertion (full-pipeline byte diff, ADDITIONAL not replacement):** with the browser clock still fixed, also capture WebPs via `page.screenshot({ type: "png" })` → sharp-encode at both instants and assert `buf1.equals(buf2) === false`. This catches end-to-end regressions in the encoding/sharp/output path that don't show up in the data-day attribute alone.
   - Write both buffers to `tmp/screenshots-clock-pipeline/` for post-mortem debugging.
 - [ ] Step 2: Run the test — `pnpm test:e2e --project screenshots-help`. PASS confirms BOTH the server header is consumed AND the full pipeline produces distinct outputs. The PRIMARY (server-only) assertion specifically pins AC-12.39's "request-scoped header reaches server render" contract — a broken server path fails this assertion even if WebP bytes happen to differ.
 - [ ] Step 3: Commit: `test(playwright): E2E clock-pipeline proof for AC-12.39 — server-rendered marker + byte diff (Task F.9 — test #18)`
