@@ -401,11 +401,60 @@ The per-task TDD checklists for 9.1–9.4 are exhaustively spelled out in `09-10
 
 #### Task 9.4 — `lib/messages/catalog.ts` + `lib/messages/lookup.ts` + `helpfulContext` field
 
-- **Files**: per `09-10-admin.md:115-121`. Plus: extend EVERY existing dougFacing-non-null catalog row with a `helpfulContext` field (one-paragraph plain-language explanation).
-- **AC**: AC-9.X foundation (no numbered AC; gates AC-9.1 and AC-9.3).
-- **TDD checklist**: `09-10-admin.md:118-121` (verbatim).
-- **Cross-cluster impact**: C6 (M7-D2), C7 (M5-D8) both depend on this.
-- **Commit**: `feat(messages): §12.4 catalog + lookup + helpfulContext field`
+**Status (2026-05-12 session close):** PART 1 SHIPPED at SHA `b7ac297`. Part 2 pending — briefing below.
+
+**Part 1 (shipped `b7ac297`):** Added AGENDA_GONE_FOR_CREW + AGENDA_UNAUTHENTICATED entries verbatim from amendment `7f836b6`. Wired `messageFor(code, params)` placeholder interpolation, added typed accessors `getDougFacing` / `getCrewFacing` / `lookupHelpfulContext`. Added AGENDA presence tests + interpolation tests. 9 tests pass; typecheck clean.
+
+**Part 2 — REMAINING WORK (next session pickup):**
+
+1. **Identify 21 catalog entries with `dougFacing != null` AND `helpfulContext: null`** (current count after part 1 — re-verify with the awk script in the part-2 spec). These are the entries violating the spec invariant at lines 2853-2856: "Every code whose `dougFacing` is non-null MUST have a non-null, non-empty entry here."
+
+2. **Port 14 entries verbatim from the spec §12.4 YAML appendix** (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` lines 2858-2929). Catalog entries with matching YAML keys: `LEAKED_LINK_DETECTED`, `AMBIGUOUS_EMAIL_BINDING`, `WIZARD_SESSION_SUPERSEDED`, `WEBHOOK_TOKEN_INVALID`, `STAGED_PARSE_OUTDATED`, `STAGED_PARSE_SOURCE_GONE`, `STAGED_PARSE_SOURCE_OUT_OF_SCOPE`, `LINKED_ASSET_DRIFTED`, `REEL_DRIFTED`, `STAGED_PARSE_RESTAGED_INLINE`, `STAGED_PARSE_SUPERSEDED`, `FINALIZE_OWNED_SHOW`, `LIVE_ROW_CONFLICT`, plus 1 to verify. Use the YAML text verbatim — that's the canonical source.
+
+3. **Author 7 catalog-only entries** that lack spec YAML mappings. Candidates from part 1's grep: `CSRF_KEY_ROTATED`, `LINK_SESSION_KEY_ROTATED`, `WIZARD_SESSION_SUPERSEDED_DURING_SCAN`, `WIZARD_ISOLATION_INDEXES_MISSING`, `WEBHOOK_HEADERS_MISSING`, `WEBHOOK_NOOP_ALREADY_SYNCED`, `PENDING_SYNC_NOT_FOUND`, `STALE_DISCARD_REJECTED`. Verify each:
+   - If dougFacing is genuinely meant to be Doug-facing, author a 1-3-sentence plain-language helpfulContext.
+   - If dougFacing is actually admin-log-only placeholder text (e.g., `"(admin log only ...)"`), CHANGE dougFacing to `null` instead of authoring helpfulContext. The catalog has mis-categorized entries from older milestones.
+
+4. **Add the helpfulContext × dougFacing coverage test** (failing → passes after population) at `tests/messages/catalog.test.ts`:
+
+   ```ts
+   test("every dougFacing-non-null code has non-null helpfulContext", () => {
+     const violations = Object.values(MESSAGE_CATALOG)
+       .filter((entry) => entry.dougFacing !== null && entry.helpfulContext === null)
+       .map((entry) => entry.code);
+     expect(violations).toEqual([]);
+   });
+
+   test("every dougFacing-null code has null helpfulContext (admin-log-only invariant)", () => {
+     const violations = Object.values(MESSAGE_CATALOG)
+       .filter((entry) => entry.dougFacing === null && entry.helpfulContext !== null)
+       .map((entry) => entry.code);
+     expect(violations).toEqual([]);
+   });
+   ```
+
+5. **Run `pnpm test tests/messages/catalog.test.ts && pnpm typecheck`** — assert both new coverage tests pass + no regressions.
+
+6. **Commit**: `feat(messages): populate helpfulContext for all dougFacing-non-null codes (Task 9.4 part 2)`. The commit closes Task 9.4 (the canonical Task 9.4 close commit subject was `feat(messages): §12.4 catalog + lookup + helpfulContext field` per the plan; split into two commits per the session-close briefing — combine subjects in the final-commit message body if you want a single canonical reference).
+
+**Cross-cluster impact**: C6 (M7-D2 AgendaPdfViewer status-routing) and C7 (M5-D8 inline-error consolidation) both consume the catalog; they cannot start until part 2 ships. Tasks 9.1 + 9.2 + 9.3 (the rest of C0) can proceed with part 1's catalog state since they don't depend on helpfulContext for non-AGENDA codes.
+
+**TDD pre-task command sequence** (run at next-session kickoff):
+
+```bash
+# Verify the 21-entry list hasn't drifted
+awk '
+  /^  [A-Z_][A-Z0-9_]*: \{$/ { code = $1; sub(":", "", code); inEntry = 1; df = "null"; hc = "null"; next }
+  inEntry && /dougFacing:/ { if ($0 !~ /dougFacing: null,/) df = "nonnull"; next }
+  inEntry && /helpfulContext:/ { if ($0 !~ /helpfulContext: null,/) hc = "nonnull"; next }
+  inEntry && /^  \},/ {
+    if (df == "nonnull" && hc == "null") print code
+    inEntry = 0
+  }
+' lib/messages/catalog.ts
+```
+
+If the count is materially different from 21, re-derive the YAML-port-vs-author split before populating.
 
 #### Task 9.1 — Stale-data footer (`components/shared/StaleFooter.tsx`)
 
@@ -913,4 +962,34 @@ After C9.0 + C9.1 + C9.2 + C9.3 commit, run `/impeccable critique` + `/impeccabl
 
 ## Convergence log
 
-_(Append here after Task 9.0 ships AND each cluster's impeccable evaluation closes AND adversarial review begins.)_
+### Task 9.0 — scope-and-shape session
+
+- **2026-05-12 R0 commit `00620cb`** — initial §A populated with 12-cluster routing + 20 deliverables.
+- **R1 codex adversarial review** — needs-attention: 2 HIGH + 1 MEDIUM findings (C9 missing runtime RLS guard; M7-D2 requires undeclared spec amendment; route citations were placeholder paths).
+- **R1 repair commit `49bc26b`** — added Task 9.C9.0.5 runtime RLS probe; added Task 9.0.A1 §12.4 amendment task; corrected route paths.
+- **R2 codex review** — needs-attention: 2 HIGH + 2 MEDIUM findings (C9.0.5 pg_policies underspecified; M9 branch diff polluted by M12 spec work; AGENDA_* in admin_alerts meta-test; INITIAL_ADMIN_EMAIL injection contract missing).
+- **R2 repair commit `2a55707`** — specified two policy classes (Class A admin_only / Class B crew-readable); mandated path-filtered M9 reviews; removed AGENDA_* from admin_alerts inventory; moved INITIAL_ADMIN_EMAIL to TS seed.
+- **R3 codex review** — needs-attention: 1 HIGH + 1 MEDIUM (INITIAL_ADMIN_EMAIL contract still contradictory because supabase/seed.sql doesn't exist; §13 inventory stale 8N).
+- **R3 repair + comprehensive C9 re-analysis** at commit `1c90d6f` — verified live infra (seed.sql absent; seed.ts manual-only; is_admin has JWT-role + email-array branches). Dropped INITIAL_ADMIN_EMAIL entirely; migration's literal seed is sole bootstrap path; preserved JWT-role branch in amendment text; documented last-admin-lockout refusal contract; §13 inventory updated to mirror C9.0.5 exactly.
+- **Convergence**: halted at 1c90d6f per user authorization. Remaining contract questions (audit-trail schema, rotation procedures) defer to C9.0 brainstorming session per the authority disclaimer.
+
+### Task 9.0.A1 — §12.4 amendment for AGENDA_* codes
+
+- **R0 commit `946b811`** — initial amendment ratifying AGENDA_GONE_FOR_CREW (410) + AGENDA_UNAUTHENTICATED (401) crew-only catalog rows.
+- **R1 codex review** — needs-attention: 1 HIGH (proxy taxonomy mismatched live code; headRevisionId trigger fictional; cross-show=401 wrong, actually 403).
+- **R1 repair commit `ac5983d`** — enumerated 410 triggers from route.ts:113-289 + validateCrewAssetSession.ts:30-131; cited live `file:line` for every trigger; 403 mapped to AGENDA_GONE_FOR_CREW; documented why 410/403 collapse.
+- **R2 codex review** — needs-attention: 2 HIGH (mid-stream byte-limit isn't 410-observable; 401 enumeration missing validateLinkSession session-expiry paths).
+- **R2 repair commit `d34c910`** — excluded mid-stream byte-limit; broadened 401 to enumerate validateLinkSession.ts:188 (SESSION_NOT_FOUND), 204 (SESSION_ABSOLUTE_TIMEOUT), 222 (LINK_SESSION_KEY_ROTATED), 288 (SESSION_IDLE_TIMEOUT).
+- **R3 codex review** — needs-attention: 2 HIGH + 1 MEDIUM (401 trigger list still over/under-inclusive; 410 missing Range total-size guard; copy mismatch "fresh link" vs "new link"). **Same-vector recurrence rule satisfied — R1+R2+R3 all on trigger taxonomy.**
+- **R3 repair commit `ac905da`** — **structural shift**: simplified canonical rows to HTTP-status + crew-recovery level; added "implementation owns the taxonomy" disclaimer documenting why exhaustive enumeration belongs in implementation + tests, not amendment text. Fixed "fresh link" / "new link" copy mismatch.
+- **R4 codex review** — **APPROVE**. "Keeps canonical spec contract at the observable HTTP-status and crew-recovery level, preserves exact catalog copy, keeps helpfulContext omitted for null dougFacing rows, avoids making brittle implementation-branch enumeration part of spec contract."
+- **Spec body integration commit `7f836b6`** — inserted two canonical rows into §12.4 between EMBEDDED_RECOVERY_REQUIRES_RESTAGE and ASSET_RECOVERY_REVISION_DRIFT; backfilled ratification SHAs in amendment file; updated 00-overview.md with new "Ratified spec amendments" sub-list.
+
+### Task 9.4 — Catalog implementation (part 1 of 2)
+
+- **Part 1 commit `b7ac297`** — added AGENDA_GONE_FOR_CREW + AGENDA_UNAUTHENTICATED entries to `lib/messages/catalog.ts` verbatim from amendment. Wired `messageFor(code, params)` placeholder interpolation in `lib/messages/lookup.ts` (PLACEHOLDER_RE matches `<name>` tokens; missing/null params leave placeholders verbatim; added `getDougFacing` / `getCrewFacing` / `lookupHelpfulContext` accessors). Tests: 4 existing + 5 new = 9 passing.
+- **Part 2 PENDING** — see Task 9.4 task body §A for the briefing.
+
+### Subsequent cluster work pending
+
+C0 (Task 9.4 part 2, then 9.1 → 9.2 → 9.3), C2, C1, C3, C4, C5, C6, C6b, C6c, C7, C8, C9 per the §A summary table.
