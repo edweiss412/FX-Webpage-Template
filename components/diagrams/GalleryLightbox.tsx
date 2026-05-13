@@ -87,23 +87,32 @@ type ZoomControls = {
 function ZoomController({
   onScaleChange,
   controlsSlotRef,
+  prefersReducedMotion,
 }: {
   onScaleChange: (scale: number) => void;
   controlsSlotRef: { current: ZoomControls | null };
+  prefersReducedMotion: boolean;
 }) {
   const controls = useControls();
   useEffect(() => {
+    // Codex R3 HIGH: library v4.0.3 control functions default to
+    // animated durations (200ms reset, 300ms zoomIn/Out). Under
+    // prefers-reduced-motion the brief calls for instant scale
+    // changes with no interpolation. Pass animationTime=0 so the
+    // imperative path mirrors the gesture path (already gated via
+    // smooth=false + velocityAnimation.disabled=true).
+    const animTime = prefersReducedMotion ? 0 : undefined;
     controlsSlotRef.current = {
-      resetTransform: () => controls.resetTransform(),
-      zoomIn: (step?: number) => controls.zoomIn(step),
-      zoomOut: (step?: number) => controls.zoomOut(step),
+      resetTransform: () => controls.resetTransform(animTime),
+      zoomIn: (step?: number) => controls.zoomIn(step, animTime),
+      zoomOut: (step?: number) => controls.zoomOut(step, animTime),
     };
     return () => {
       // Clear the slot on unmount so a stale closure can't call into
       // a torn-down TransformWrapper.
       controlsSlotRef.current = null;
     };
-  }, [controls, controlsSlotRef]);
+  }, [controls, controlsSlotRef, prefersReducedMotion]);
   useTransformEffect(({ state }) => {
     onScaleChange(state.scale);
   });
@@ -472,6 +481,7 @@ export function GalleryLightbox({
                         <ZoomController
                           onScaleChange={setActiveScale}
                           controlsSlotRef={controlsSlotRef}
+                          prefersReducedMotion={prefersReducedMotion}
                         />
                         <TransformComponent
                           wrapperClass="!size-full !max-h-full !max-w-full !flex !items-center !justify-center"
@@ -500,6 +510,22 @@ export function GalleryLightbox({
                               // wrapper runs synchronously before the
                               // ZoomController cleanup so the library
                               // also drops state cleanly.
+                              // Codex R3 MED-3: if focus is on a
+                              // soon-to-unmount lightbox element
+                              // (Reset chip OR the now-stale <img>),
+                              // relocate focus to closeRef before the
+                              // unmount cascade so the non-Escape
+                              // keyboard gate doesn't drop the user
+                              // outside the dialog.
+                              const dialog = dialogRef.current;
+                              const active = document.activeElement;
+                              if (
+                                dialog &&
+                                active instanceof HTMLElement &&
+                                dialog.contains(active)
+                              ) {
+                                closeRef.current?.focus();
+                              }
                               controlsSlotRef.current?.resetTransform();
                               setActiveScale(1);
                               setFailedKeys((prev) => {

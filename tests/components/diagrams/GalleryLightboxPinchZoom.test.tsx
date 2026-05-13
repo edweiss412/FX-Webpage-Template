@@ -93,17 +93,31 @@ type TransformEffectCb = (snap: { state: { scale: number } }) => void;
 interface LibTestState {
   scaleListeners: TransformEffectCb[];
   resetTransformCalls: number;
+  resetTransformAnimTimes: Array<number | undefined>;
   zoomInCalls: number;
+  zoomInAnimTimes: Array<number | undefined>;
   zoomOutCalls: number;
+  zoomOutAnimTimes: Array<number | undefined>;
   lastWrapperProps: Record<string, unknown> | null;
+  // When true, the mock's resetTransform records the call but does
+  // NOT emit a scale=1 listener callback. Used to test that the
+  // production code (and not the library's response) is responsible
+  // for resetting the lifted scale state. (Codex R3 MED-2: without
+  // this, the default mock auto-emits scale=1, making the R2
+  // regression test pass even if production removes setActiveScale.)
+  silenceResetTransform: boolean;
 }
 
 const libState: LibTestState = {
   scaleListeners: [],
   resetTransformCalls: 0,
+  resetTransformAnimTimes: [],
   zoomInCalls: 0,
+  zoomInAnimTimes: [],
   zoomOutCalls: 0,
+  zoomOutAnimTimes: [],
   lastWrapperProps: null,
+  silenceResetTransform: false,
 };
 
 function simulateScale(scale: number): void {
@@ -153,19 +167,26 @@ vi.mock("react-zoom-pan-pinch", async () => {
   }
   function useControls() {
     return {
-      resetTransform: () => {
+      resetTransform: (animationTime?: number) => {
         libState.resetTransformCalls += 1;
+        libState.resetTransformAnimTimes.push(animationTime);
         // Library behavior: resetTransform fires a transform event back
-        // to listeners with scale=1.
-        simulateScale(1);
+        // to listeners with scale=1. silenceResetTransform suppresses
+        // that emit so tests can prove the production code (not the
+        // library callback) is responsible for resetting lifted state.
+        if (!libState.silenceResetTransform) {
+          simulateScale(1);
+        }
       },
-      zoomIn: (step?: number) => {
+      zoomIn: (step?: number, animationTime?: number) => {
         libState.zoomInCalls += 1;
+        libState.zoomInAnimTimes.push(animationTime);
         const next = Math.min(4, 1 + (step ?? 0.5));
         simulateScale(next);
       },
-      zoomOut: (_step?: number) => {
+      zoomOut: (_step?: number, animationTime?: number) => {
         libState.zoomOutCalls += 1;
+        libState.zoomOutAnimTimes.push(animationTime);
         simulateScale(1);
       },
     };
@@ -197,9 +218,13 @@ afterEach(() => {
 beforeEach(() => {
   libState.scaleListeners = [];
   libState.resetTransformCalls = 0;
+  libState.resetTransformAnimTimes = [];
   libState.zoomInCalls = 0;
+  libState.zoomInAnimTimes = [];
   libState.zoomOutCalls = 0;
+  libState.zoomOutAnimTimes = [];
   libState.lastWrapperProps = null;
+  libState.silenceResetTransform = false;
   __matchMediaQuery = () => false;
 });
 
@@ -577,7 +602,14 @@ describe("M9 C6c — Diagram navigation resets scale (per-diagram zoom context)"
 });
 
 describe("M9 C6c — image error while zoomed (Codex R2 HIGH regression)", () => {
-  test("active image error fires resetTransform + drops activeScale to 1 so Reset chip + chip-bound chrome don't strand", async () => {
+  test("active image error chrome recovery does NOT depend on library callback (Codex R3 MED-2 strengthening)", async () => {
+    // Codex R3 MED-2: silence the mock's auto-emit of scale=1 from
+    // resetTransform so this test fails if production removes the
+    // local setActiveScale(1) line. Real v4.0.3 resetTransform is
+    // animated by default — the about-to-unmount TransformWrapper
+    // may never fire its scale=1 listener, so the lightbox MUST
+    // perform the local state reset.
+    libState.silenceResetTransform = true;
     render(
       <GalleryLightbox
         showId={SHOW_ID}
@@ -587,25 +619,109 @@ describe("M9 C6c — image error while zoomed (Codex R2 HIGH regression)", () =>
         onClose={() => {}}
       />,
     );
-    // Simulate user zooms past threshold.
     simulateScale(2.5);
     expect(screen.queryByTestId("lightbox-reset-chip")).not.toBeNull();
-    // Image errors mid-zoom.
     const activeImg = screen.getAllByRole("img")[0];
     expect(activeImg).toBeDefined();
     fireEvent.error(activeImg!);
-    // Two things must happen synchronously:
-    //   (a) resetTransform invoked on the about-to-unmount wrapper.
+    // resetTransform must still be invoked on the about-to-unmount
+    // wrapper (for library-state hygiene) AND the local
+    // setActiveScale(1) must drop the lifted chrome state — that's
+    // the contract the production code owns.
     expect(libState.resetTransformCalls).toBeGreaterThanOrEqual(1);
-    //   (b) Reset chip disappears because activeScale dropped to 1
-    //       (driven by the local setActiveScale(1) in onError).
-    //       The TransformWrapper unmounts (placeholder renders),
-    //       which would also unmount ZoomController; this test
-    //       proves the chrome state synchronizes even when the
-    //       library has no chance to fire its scale=1 listener.
     await waitFor(() => {
       expect(screen.queryByTestId("lightbox-reset-chip")).toBeNull();
     });
+  });
+
+  test("Codex R3 MED-3: active image error relocates focus to close button if focus was inside the dialog", async () => {
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(2)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    simulateScale(2.5);
+    const chip = await screen.findByTestId("lightbox-reset-chip");
+    chip.focus();
+    expect(document.activeElement).toBe(chip);
+    const closeButton = screen.getByRole("button", { name: /close gallery/i });
+    const activeImg = screen.getAllByRole("img")[0];
+    fireEvent.error(activeImg!);
+    // Focus must move to close button before chip unmounts.
+    expect(document.activeElement).toBe(closeButton);
+  });
+});
+
+describe("M9 C6c — Codex R3 HIGH: reduced-motion threads animationTime=0 through imperative controls", () => {
+  test("reduced motion → resetTransform invoked with animationTime=0", async () => {
+    __matchMediaQuery = (q: string) => q.includes("reduce");
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(2)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    simulateScale(2);
+    fireEvent.keyDown(window, { key: "0" });
+    expect(libState.resetTransformAnimTimes).toContain(0);
+  });
+
+  test("reduced motion → zoomIn invoked with animationTime=0", () => {
+    __matchMediaQuery = (q: string) => q.includes("reduce");
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(2)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    fireEvent.keyDown(window, { key: "+" });
+    expect(libState.zoomInAnimTimes).toContain(0);
+  });
+
+  test("reduced motion → zoomOut invoked with animationTime=0", () => {
+    __matchMediaQuery = (q: string) => q.includes("reduce");
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(2)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    simulateScale(3);
+    fireEvent.keyDown(window, { key: "-" });
+    expect(libState.zoomOutAnimTimes).toContain(0);
+  });
+
+  test("full motion → resetTransform invoked with default animationTime (undefined)", () => {
+    __matchMediaQuery = () => false;
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(2)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    simulateScale(2);
+    fireEvent.keyDown(window, { key: "0" });
+    // Full motion: pass undefined so the library uses its default
+    // animation duration. Negative-assert NOT zero (would otherwise
+    // be a regression making this test useless).
+    expect(libState.resetTransformAnimTimes).toContain(undefined);
+    expect(libState.resetTransformAnimTimes).not.toContain(0);
   });
 });
 
