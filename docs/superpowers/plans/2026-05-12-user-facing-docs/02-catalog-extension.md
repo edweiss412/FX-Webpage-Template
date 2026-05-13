@@ -929,7 +929,7 @@ After B.1 – B.5 commits land:
 - [ ] `MessageCatalogEntry` has three new nullable fields; every entry has them present (B.1)
 - [ ] `extract-admin-log-only-codes.ts` parses master-spec §12.4 and emits the canonical set; 8 unit fixtures + 1 live-spec assertion PASS (B.2)
 - [ ] **Hard gate (r3):** Every code in B.2's derived set exists in `lib/messages/catalog.ts` (either pre-existing or newly null-stubbed by B.3) AND has all six user-facing fields `null` (B.3). No follow-up commits deferred.
-- [ ] `lib/messages/catalogDocsValidator.ts` exports `predicate`, `allM12FieldsNonNull`, `helpHrefShapeOk`, `contractViolations`, `HELP_HREF_RE`; Test #2 (forced-fixture coverage, 13 cases) PASSES. Live-catalog full-contract assertion lives in **Task E.13** (per r6 — r4's H.6 was removed); E.13 imports `contractViolations` from this same module (no inline redefinition).
+- [ ] `lib/messages/catalogDocsValidator.ts` exports `predicate`, `allM12FieldsNonNull`, `helpHrefShapeOk`, `contractViolations`, `HELP_HREF_RE`; Test #2 (forced-fixture coverage, **15 cases — 6 predicate + 5 non-predicate + 4 shape**, exercising every contract-violation case) PASSES. Live-catalog full-contract assertion lives in **Task E.13** (per r6 — r4's H.6 was removed); E.13 imports `contractViolations` from this same module (no inline redefinition).
 - [ ] Test #17 (catalog-alignment meta-test, B.5) PASSES
 - [ ] `pnpm test tests/messages/` is **fully green** at Phase B close-out (no documented-red exception — r5 fix per AGENTS.md invariant #1)
 - [ ] **Hand off to Phase C** ([03-time-utility.md](03-time-utility.md))
