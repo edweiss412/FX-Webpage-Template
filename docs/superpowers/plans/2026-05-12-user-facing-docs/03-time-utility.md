@@ -355,9 +355,13 @@ Expected: unchanged behavior (the utility falls back to `new Date()` when the sc
 
   Two known render-side call sites:
   - `components/layout/Footer.tsx:91` — `const year = new Date().getUTCFullYear()` for the copyright year. Migrate to `const year = (await nowDate()).getUTCFullYear()`. Since `Footer` is a Client Component (`"use client"` at top? if not, currently a Server Component — verify), it may need conversion: if it's a Server Component, replace with `await nowDate()` directly and ensure the caller awaits the now-async Footer; if it's a Client Component, move the year computation to a Server Component wrapper, OR keep `new Date().getUTCFullYear()` but add `// not-render-side: copyright year is wall-clock-stable across screenshot capture` waiver since copyright-year is OK to drift across years (screenshot fixtures are pinned to 2026; year is stable mid-March).
-  - `components/shared/StaleFooter.tsx:72` — `const currentNow = now ?? new Date()`. The component ALREADY accepts a `now` prop for deterministic testing (line 27: "Override for deterministic testing"). The render-time default is the risk surface. Option A: make the prop required (defensive) and pass `await nowDate()` from every server caller. Option B: add `// not-render-side: defaulted only when caller omits the prop; screenshot harness always passes a frozen `now`` and ensure every screenshot-reachable call site passes the prop explicitly.
+  - `components/shared/StaleFooter.tsx:72` — `const currentNow = now ?? new Date()`. The component ALREADY accepts a `now` prop for deterministic testing (line 27: "Override for deterministic testing"). The render-time default is the risk surface.
 
-  Choose per-component based on the architecture; the C.4 guard test will FAIL for any unwaived raw `new Date()`. Update test #16 + AC-12.38 outcome documentation if a waiver is the chosen approach.
+    **r5 fix per C-r4 finding 1 (HIGH) — waiver path REMOVED.** Earlier drafts allowed waiving `new Date()` if callers passed a frozen `now`. But the screenshot harness sends `X-Screenshot-Frozen-Now` as an HTTP header (consumed by `lib/time/now.ts`), NOT as a component prop. A waiver leaves the default branch wall-clock-bound — screenshots drift even when callers update later. Required migration:
+
+    1. Modify `StaleFooter` so it always derives `currentNow` from `await nowDate()` at the server-render boundary. The cleanest implementation: change `StaleFooter`'s signature to optionally accept `now` for unit testing, but if `now` is omitted, the component MUST `await nowDate()` rather than `new Date()`. This requires converting `StaleFooter` to an async server component (or wrapping the `now` default fetch in a server-only helper).
+    2. Update every screenshot-reachable caller (currently `app/show/[slug]/page.tsx` and any other show / admin pages) to either pass `now={await nowDate()}` explicitly OR let the component's own server-side default fetch handle it.
+    3. Add a structural test `tests/components/shared/staleFooter-now-prop.test.ts` that scans every `<StaleFooter ... />` JSX usage under `app/` AND asserts the rendered output is deterministic across two simulated screenshot captures (with a fixed `X-Screenshot-Frozen-Now` header, the rendered "X min ago" text must be byte-identical on two consecutive renders).
 
   Run the C.4 guard after the migration:
 
@@ -596,20 +600,49 @@ function walkTsTsx(dir: string, found: string[] = []): string[] {
 }
 
 /**
- * r4 fix per C-r3 finding 1: only server-rendered code violates the render-
- * side time invariant. Client components (`"use client"` directive present)
- * run in the browser where Playwright's `context.clock.install()` pins time
- * deterministically — their `new Date()` / `Date.now()` calls are NOT a
- * screenshot-drift source. Skip them to avoid forcing legitimate client-clock
- * paths into needless waivers.
+ * r4 → r5 fix per C-r4 finding 2 (MEDIUM): only server-rendered code violates
+ * the render-side time invariant. Client components (`"use client"` directive
+ * present **in the directive prologue**) run in the browser where Playwright's
+ * `context.clock.install()` pins time deterministically — their `new Date()` /
+ * `Date.now()` calls are NOT a screenshot-drift source.
  *
- * Per Next.js spec, the `"use client"` directive must be the first non-comment
- * statement in the module (it CAN come after a leading JSDoc/license comment).
- * Detect presence anywhere in the source as a defensive overapproximation —
- * false-positive exclusion is bounded by source's own self-declaration.
+ * Per Next.js / ECMAScript spec, a directive is meaningful ONLY in the directive
+ * prologue: the consecutive string-expression statements at the very top of the
+ * module, AFTER leading comments/whitespace, BEFORE any non-string-expression
+ * statement (imports, declarations, etc.). A standalone `"use client"` string
+ * INSIDE a function body or after imports is NOT a directive — just an unused
+ * string literal. The earlier r4 regex `/^\s*["']use client["']\s*;?\s*$/m`
+ * would have falsely classified such files as client, hiding render-side
+ * `new Date()` violations.
+ *
+ * This parser walks tokens: strip leading comments/whitespace; the first
+ * non-comment, non-whitespace statement must be exactly `"use client"` (or
+ * `'use client'`) optionally followed by `;`. Anything else → server.
  */
 function isClientComponent(src: string): boolean {
-  return /^\s*["']use client["']\s*;?\s*$/m.test(src);
+  // Remove leading line + block comments and whitespace until the first
+  // meaningful character.
+  let i = 0;
+  while (i < src.length) {
+    // Skip whitespace.
+    while (i < src.length && /\s/.test(src[i])) i++;
+    // Line comment.
+    if (src.startsWith("//", i)) {
+      const nl = src.indexOf("\n", i);
+      i = nl === -1 ? src.length : nl + 1;
+      continue;
+    }
+    // Block comment.
+    if (src.startsWith("/*", i)) {
+      const end = src.indexOf("*/", i + 2);
+      i = end === -1 ? src.length : end + 2;
+      continue;
+    }
+    break;
+  }
+  // First real token must be the directive (string literal followed by EOL or
+  // optional `;`).
+  return /^["']use client["']\s*;?/.test(src.slice(i));
 }
 
 describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
@@ -663,6 +696,39 @@ describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
     expect(isClientComponent(staleSrc)).toBe(false);
     expect(isClientComponent(rightSrc)).toBe(true);
     expect(isClientComponent(reportSrc)).toBe(true);
+  });
+
+  // r5 fix per C-r4 finding 2: prove the directive-prologue boundary is
+  // enforced — a "use client" string AFTER imports or INSIDE a function body
+  // is NOT a directive and must NOT classify the file as client.
+  it("directive-prologue boundary: standalone 'use client' string AFTER imports does NOT classify as client", () => {
+    const synthetic = [
+      `import { foo } from "bar";`,
+      `"use client";`, // not a directive — appears after imports
+      `export function X() { return null; }`,
+    ].join("\n");
+    expect(isClientComponent(synthetic)).toBe(false);
+  });
+
+  it("directive-prologue boundary: 'use client' inside a function body does NOT classify as client", () => {
+    const synthetic = [
+      `export function X() {`,
+      `  "use client"; // unused string literal`,
+      `  return new Date();`,
+      `}`,
+    ].join("\n");
+    expect(isClientComponent(synthetic)).toBe(false);
+  });
+
+  it("directive-prologue: leading JSDoc + 'use client' DOES classify as client (matches RightNowCard pattern)", () => {
+    const synthetic = [
+      `/**`,
+      ` * Long header doc comment.`,
+      ` */`,
+      `"use client";`,
+      `import React from "react";`,
+    ].join("\n");
+    expect(isClientComponent(synthetic)).toBe(true);
   });
 });
 ```
