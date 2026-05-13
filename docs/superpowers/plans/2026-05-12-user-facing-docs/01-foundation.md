@@ -41,17 +41,27 @@ describe("MDX pipeline", () => {
 Run: `pnpm test tests/help/_mdx-pipeline.test.ts`
 Expected: FAIL (`mdx-components.tsx` does not exist; `pageExtensions` does not include `mdx`).
 
-- [ ] **Step 3: Add three deps to `package.json`**
+- [ ] **Step 3: Add four deps to `package.json`**
 
-Run: `pnpm add @next/mdx @mdx-js/loader @mdx-js/react`
+Run two commands:
 
-Expected `package.json` `dependencies` additions (versions may differ — accept whatever pnpm resolves):
+```bash
+pnpm add @next/mdx @mdx-js/loader @mdx-js/react
+pnpm add -D @types/mdx
+```
+
+Expected `package.json` additions (versions may differ — accept whatever pnpm resolves):
 
 ```json
+// dependencies:
 "@next/mdx": "^15.x",
 "@mdx-js/loader": "^3.x",
-"@mdx-js/react": "^3.x"
+"@mdx-js/react": "^3.x",
+// devDependencies:
+"@types/mdx": "^2.x"
 ```
+
+The `@types/mdx` dev dep is required for `import type { MDXComponents } from "mdx/types"` in Step 4 — without it, `pnpm typecheck` fails with a module-resolution error (r3 fix per Phase A round-2 finding 1).
 
 - [ ] **Step 4: Create `mdx-components.tsx` at project root**
 
@@ -105,7 +115,7 @@ Expected: PASS.
 
 ```bash
 git add package.json pnpm-lock.yaml next.config.ts mdx-components.tsx tests/help/_mdx-pipeline.test.ts
-git commit -m "feat(help): wire @next/mdx pipeline + pageExtensions (Task A.1)"
+git commit -m "feat(help): wire @next/mdx pipeline + pageExtensions + @types/mdx (Task A.1)"
 ```
 
 ---
@@ -372,7 +382,12 @@ import { render, screen } from "@testing-library/react";
 import { Sidebar } from "@/app/help/_components/Sidebar";
 
 // Mock usePathname so the current-page highlight is testable.
-const mockUsePathname = vi.fn(() => "/help/admin/dashboard");
+// r3 (Phase A round-2 finding 2): use vi.hoisted to lift the mock fn
+// definition above vi.mock's hoisting. A plain `const mockUsePathname`
+// would still be in the temporal-dead zone when vi.mock's factory runs.
+const { mockUsePathname } = vi.hoisted(() => ({
+  mockUsePathname: vi.fn(() => "/help/admin/dashboard"),
+}));
 vi.mock("next/navigation", () => ({
   usePathname: () => mockUsePathname(),
 }));
@@ -615,7 +630,11 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Breadcrumb } from "@/app/help/_components/Breadcrumb";
 
-const mockUsePathname = vi.fn(() => "/help/admin/dashboard");
+// r3 (Phase A round-2 finding 2): vi.hoisted to lift the mock fn above
+// vi.mock's hoisting — same TDZ-avoidance pattern as Sidebar test.
+const { mockUsePathname } = vi.hoisted(() => ({
+  mockUsePathname: vi.fn(() => "/help/admin/dashboard"),
+}));
 vi.mock("next/navigation", () => ({
   usePathname: () => mockUsePathname(),
 }));
