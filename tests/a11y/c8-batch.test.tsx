@@ -98,32 +98,104 @@ describe("M9 C8 #3 — AlertBanner is aria-atomic", () => {
   });
 });
 
+// Strip JSX block comments + single-line // comments + JSDoc blocks
+// from a source string so the structural regexes below only see the
+// JSX/TS attributes themselves — not comment references to them.
+// Match-anywhere `data-testid="bootstrap-error"` inside a comment
+// would otherwise fool the negative-regex check (M9 C8 R2 finding).
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "") // /* … */ blocks (incl. JSDoc)
+    .replace(/\{\/\*[\s\S]*?\*\/\}/g, "") // {/* JSX comments */}
+    .replace(/^\s*\/\/.*$/gm, ""); // // line comments
+}
+
 describe("M9 C8 #4 — Bootstrap renders a single stable aria-live region (no nested role='alert')", () => {
-  test("error state: outer wrapper has aria-live='polite'; inner <p> does NOT carry role='alert'", async () => {
-    // Renders the Bootstrap component in an error state by mocking
-    // its initial UiState. Easier path: assert the structure via
-    // a partial render — the component fires effects that need the
-    // browser, so we just probe the markup the JSX would produce.
-    // We can't easily drive the state machine without a full mount,
-    // so this test instead validates the SOURCE: the file MUST NOT
-    // re-introduce a nested role="alert" inside the live region.
+  // The Bootstrap component is a 'use client' state machine that
+  // fires a network request to /api/auth/redeem-link inside an effect.
+  // A full jsdom mount would require mocking next/navigation, fetch,
+  // window.location.hash, and bootstrapMint — too much wiring for a
+  // structural-contract test. Instead we assert source-shape
+  // invariants that capture both the positive (wrapper present) and
+  // the negative (no nested role=alert) contracts, with attribute-
+  // order-independent matching + comment-stripping (R2 improvements).
+  test("source: wrapper element carries aria-live='polite' (any attribute order)", async () => {
     const { readFileSync } = await import("node:fs");
-    const source = readFileSync("app/show/[slug]/p/Bootstrap.tsx", "utf8");
-    // The wrapper element with aria-live="polite" is present.
-    expect(source).toMatch(/data-testid="bootstrap-live-region"[\s\S]*aria-live="polite"/);
-    // The inner error <p> does NOT carry role="alert" (P2 fix —
-    // nested live region + role=alert double-announces).
-    expect(source).not.toMatch(/<p[^>]*data-testid="bootstrap-error"[^>]*role="alert"/);
+    const source = stripComments(readFileSync("app/show/[slug]/p/Bootstrap.tsx", "utf8"));
+    // Find the wrapper element by its data-testid; assert aria-live
+    // appears anywhere within its opening-tag attribute list.
+    const wrapperMatch = source.match(
+      /<div\b([\s\S]*?\bdata-testid="bootstrap-live-region"[\s\S]*?)>/,
+    );
+    expect(wrapperMatch).not.toBeNull();
+    const wrapperAttrs = wrapperMatch?.[1] ?? "";
+    expect(wrapperAttrs).toContain('aria-live="polite"');
+  });
+
+  test("source: bootstrap-error <p> does NOT carry role='alert' (any attribute order)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = stripComments(readFileSync("app/show/[slug]/p/Bootstrap.tsx", "utf8"));
+    const errorMatch = source.match(
+      /<p\b([\s\S]*?\bdata-testid="bootstrap-error"[\s\S]*?)>/,
+    );
+    expect(errorMatch).not.toBeNull();
+    const errorAttrs = errorMatch?.[1] ?? "";
+    // P2 regression guard: nested live region + role=alert double-announces.
+    expect(errorAttrs).not.toContain('role="alert"');
+  });
+
+  test("source: exactly one aria-live attribute on a JSX element (no double regions)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = stripComments(readFileSync("app/show/[slug]/p/Bootstrap.tsx", "utf8"));
+    // Count `aria-live="..."` ONLY when it appears inside a JSX tag
+    // (preceded by whitespace, not by a comment-marker like `//` or `*`).
+    // A simpler structural filter: split by line and check each line
+    // for the attribute pattern; skip lines that are inside JSDoc /
+    // line-comments (start with `//` or `*`).
+    const attrCount = source
+      .split("\n")
+      .filter((line) => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("//") || trimmed.startsWith("*")) return false;
+        return /\baria-live="/.test(line);
+      }).length;
+    expect(attrCount).toBe(1);
   });
 });
 
 describe("M9 C8 #5 — sign-in page <header> is aria-labelledby the headline", () => {
-  test("<header> aria-labelledby resolves to the <h1 id> with the headline text", async () => {
+  // The sign-in page is an async Server Component that redirects on
+  // valid sessions and reads from a Promise<SearchParams> — full
+  // rendering requires extensive mocking. The contract being
+  // verified is purely structural (attribute pairing), so a
+  // source-shape test with attribute-order-independent matching is
+  // sufficient. R2 improvement: also verify the labelledby target
+  // appears exactly once as an `id` attribute (proves the pairing
+  // is unique and resolvable).
+  test("source: <header> aria-labelledby='sign-in-headline' (any attribute order)", async () => {
     const { readFileSync } = await import("node:fs");
-    const source = readFileSync("app/auth/sign-in/page.tsx", "utf8");
-    // <header aria-labelledby="sign-in-headline">
-    expect(source).toMatch(/<header[^>]*aria-labelledby="sign-in-headline"/);
-    // <h1 id="sign-in-headline" ...> matching the labelledby target.
-    expect(source).toMatch(/<h1[\s\S]*?id="sign-in-headline"/);
+    const source = stripComments(readFileSync("app/auth/sign-in/page.tsx", "utf8"));
+    // <header> can span multiple lines; use [\s\S]*? to span newlines.
+    const headerMatch = source.match(/<header\b([\s\S]*?)>/);
+    expect(headerMatch).not.toBeNull();
+    const headerAttrs = headerMatch?.[1] ?? "";
+    expect(headerAttrs).toContain('aria-labelledby="sign-in-headline"');
+  });
+
+  test("source: a single id='sign-in-headline' exists, on a <h1> with the headline text", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = stripComments(readFileSync("app/auth/sign-in/page.tsx", "utf8"));
+    // Use `\bid="...` so `data-testid="sign-in-headline"` (which
+    // contains `id="..."` as a substring of `testid="..."`) does NOT
+    // satisfy the regex — \b is the boundary between `d` (word) and
+    // `i` (word), so we need `\sid=` or anchor at line start.
+    const idMatches = source.match(/(?:^|[\s\t])id="sign-in-headline"/g);
+    expect(idMatches).not.toBeNull();
+    expect(idMatches?.length ?? 0).toBe(1);
+    // The id is on a <h1> element AND the heading text is "Sign in
+    // with Google". Multi-line attribute span is allowed.
+    expect(source).toMatch(
+      /<h1\b[\s\S]*?id="sign-in-headline"[\s\S]*?>[\s\S]*?Sign in with Google[\s\S]*?<\/h1>/,
+    );
   });
 });
