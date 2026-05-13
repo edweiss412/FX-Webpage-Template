@@ -145,22 +145,22 @@ Per spec §7.1 test 10 / AC-12.25.
 Temporarily break one branch of `<Screenshot>`'s output to prove the new contract test catches the regression:
 
 ```bash
-# Pre-flight: components/help/Screenshot.tsx must be clean — else the restore
+# Pre-flight: app/help/_components/Screenshot.tsx must be clean — else the restore
 # step would discard unrelated working-tree edits.
-git status --short components/help/Screenshot.tsx
+git status --short app/help/_components/Screenshot.tsx
 # Expected: empty output. ABORT and resolve those edits first if non-empty.
 
 # Backup, then break the dark <source> media attribute so manifest-aware
 # assertions on it fail:
-cp components/help/Screenshot.tsx components/help/Screenshot.tsx.bak
-sed -i '' 's/(prefers-color-scheme: dark)/(prefers-color-scheme: light)/' components/help/Screenshot.tsx
+cp app/help/_components/Screenshot.tsx app/help/_components/Screenshot.tsx.bak
+sed -i '' 's/(prefers-color-scheme: dark)/(prefers-color-scheme: light)/' app/help/_components/Screenshot.tsx
 ```
 
 After Step 1 writes the test, run it. Expected: FAILS for every manifest entry — the dark `<source>` media query is wrong. Restore:
 
 ```bash
-mv components/help/Screenshot.tsx.bak components/help/Screenshot.tsx
-git status --short components/help/Screenshot.tsx
+mv app/help/_components/Screenshot.tsx.bak app/help/_components/Screenshot.tsx
+git status --short app/help/_components/Screenshot.tsx
 # Expected: empty output.
 ```
 

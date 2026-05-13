@@ -323,21 +323,27 @@ Per spec §5.3 affordance wiring. The retrofit is LINK-ONLY — does not change 
 
 For every concrete-testid row in the matrix, the owning component must carry the `data-testid` attribute on the affordance element (the `?` icon, "Take the tour" link, etc.). Most M3/M9/M10 work already shipped these affordances without testids; G.4 retrofits them.
 
-**r8 — TDD ordering fix (B-r8 critical finding 1):** the r7 task numbered the retrofits as Step 1-3 and deferred verification to G.5, committing UI without a failing test first — violation of AGENTS.md invariant #1. r8 restructures: write the concrete-row walker FIRST as Step 1, observe it fail for every row (no testids exist yet), retrofit in Step 3-4 with each retrofit flipping one walker assertion from red to green, commit retrofits + walker test together. The remaining walker classes (template-family + negative + reverse) stay in G.5.
+**r8 → r9 — TDD ordering fix (B-r8 critical finding 1, scope refined per B-r9 finding 2):** the r7 task numbered the retrofits as Step 1-3 and deferred verification to G.5, committing UI without a failing test first — violation of AGENTS.md invariant #1. r8 restructured to test-first; r9 further refined the scope: G.4's walker covers the **12 concrete rows that have static sourceRoutes**, leaving the **first-seen-review row** (whose sourceRoute contains `STAGED_ID_PLACEHOLDER` and requires a seeded staged_id at fixture time) to G.5. Without this split, G.4's first-seen assertion would stay red even after retrofit because the placeholder is unresolved.
 
-- [ ] Step 1: **Write the concrete-row walker** (`tests/e2e/deep-link-walker.spec.ts`):
+- [ ] Step 1: **Write the concrete-row walker — scoped to the 12 static-route rows** (`tests/e2e/deep-link-walker.spec.ts`):
 
   ```ts
-  // Concrete-row portion of test #13. Iterates AFFORDANCE_MATRIX where kind === "concrete".
-  // Signs in as admin via signInAs, navigates to row.sourceRoute, locates page.getByTestId(row.testid),
-  // asserts visible. For tooltip rows, click/hover, locate inner `Learn more →`, assert href === row.target.
+  // Concrete-row portion of test #13 — G.4 scope: AFFORDANCE_MATRIX where
+  // kind === "concrete" AND !row.sourceRoute.includes("STAGED_ID_PLACEHOLDER").
+  // (The first-seen-review row needs a seeded staged_id; that part lands in G.5
+  // with its own red→green proof.)
+  // Signs in as admin via signInAs, navigates to row.sourceRoute, locates
+  // page.getByTestId(row.testid), asserts visible. For tooltip rows, click/hover,
+  // locate inner `Learn more →`, assert href === row.target.
   // Template-family + negative + reverse-direction live in G.5.
   ```
-- [ ] Step 2: **Run the walker — observe RED** (no testids exist yet; expect 13 failures):
+- [ ] Step 2: **Run the walker — observe RED** (no testids exist yet; expect 12 failures):
 
   ```bash
   pnpm exec playwright test tests/e2e/deep-link-walker.spec.ts
-  # Expected: every concrete row fails with a "TestId not found on sourceRoute"-class error.
+  # Expected: every static-route concrete row fails with a "TestId not found on
+  # sourceRoute"-class error. The first-seen-review row is skipped by the filter
+  # (G.5 owns its red→green proof).
   ```
   Capture the failure list in the eventual commit-message body as verify-red evidence.
 - [ ] Step 3: For each matrix row, locate the component:
@@ -359,7 +365,7 @@ For every concrete-testid row in the matrix, the owning component must carry the
     ?
   </button>
   ```
-- [ ] Step 5: After each component's testids land, re-run the walker. Assertions for that row flip red → green. After all 13 rows retrofitted, all concrete-row assertions PASS.
+- [ ] Step 5: After each component's testids land, re-run the walker. Assertions for that row flip red → green. After the 12 static-route rows are retrofitted, the G.4-scoped walker PASSES. (The first-seen-review row's testid also lands here as part of the retrofit pass — see the `?` tooltip on the `<StagedReviewCard>` component — but its walker assertion is left to G.5 where the seeded staged_id fixture makes the route resolvable.)
 - [ ] Step 6: Commit retrofits + walker test together. One commit per source-component is acceptable as long as each commit's diff covers BOTH the testid edit AND the matching walker assertion turning green:
 
   ```bash
@@ -378,8 +384,12 @@ For every concrete-testid row in the matrix, the owning component must carry the
 
 Per spec §7.1 test 13 (r10 row-class split, r11 split between G.4 and G.5 per B-r8 finding 1). Three row-class handlers + reverse-direction check. The concrete-row walker landed in G.4 to satisfy TDD ordering; G.5 adds the remaining classes.
 
-- [ ] Step 1: **Extend the concrete-row walker** with the first-seen-review fixture requirement:
-  - For the first-seen-review row whose route contains `STAGED_ID_PLACEHOLDER`: the test REQUIRES a known staged_id from the seeded fixture (NOT optional — r6 per round-5 finding 4). If `pnpm db:seed` doesn't produce a `pending_syncs` row that yields a staged_id, extend the seed script (or G.5's per-spec setup hook) to insert a deterministic test-fixture staged row. The test FAILS (not skips) if the fixture is absent — first-seen review is one of Doug's highest-friction surfaces per master spec §9.1.1; AC-12.30 requires every concrete matrix row wired, with no opt-out for missing fixtures.
+- [ ] Step 1a: **Add the first-seen-review walker assertion + its red→green proof** (r9 — owns the row G.4 deferred per B-r9 finding 2):
+  - Extend the concrete-row filter in `tests/e2e/deep-link-walker.spec.ts` to ALSO include the first-seen-review row (i.e., remove G.4's `!row.sourceRoute.includes("STAGED_ID_PLACEHOLDER")` exclusion for this step).
+  - The test REQUIRES a known staged_id from the seeded fixture (NOT optional — r6 per round-5 finding 4). If `pnpm db:seed` doesn't produce a `pending_syncs` row that yields a staged_id, extend the seed script (or G.5's per-spec setup hook) to insert a deterministic test-fixture staged row. AC-12.30 requires every concrete matrix row wired, with no opt-out for missing fixtures.
+  - **Verify-red proof:** before adding the seed extension, run the extended walker. Expected RED — the test fails to resolve `STAGED_ID_PLACEHOLDER` to a real staged_id. Capture the failure in the commit message body.
+  - Add the seed extension. Re-run — concrete walker (including first-seen) PASSES.
+  - The test FAILS (not skips) if the fixture is absent — first-seen review is one of Doug's highest-friction surfaces per master spec §9.1.1.
 - [ ] Step 2: **Template-family row** — unit-level test. Imports `MESSAGE_CATALOG`; iterates entries matching the AC-12.6 predicate (`severity !== "info"` AND `dougFacing != null` AND M12 fields non-null); for each entry calls the rendering helper from G.3 directly (mock the route as `/admin/show/x`); asserts the output contains:
   - `data-testid` matching `testidForErrorCode(code)`
   - `<a>` with `href` matching `targetForErrorCode(code)` (which equals `messageFor(code).helpHref` for the error-code family)
