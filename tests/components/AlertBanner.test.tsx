@@ -38,6 +38,8 @@ type AlertRow = {
   code: string;
   raised_at: string;
   show_id: string | null;
+  /** Test fixture optional — defaults to null in setRows. Real row is required. */
+  context?: Record<string, unknown> | null;
   shows: { slug: string } | null;
 };
 const mockState = vi.hoisted(() => ({
@@ -46,6 +48,7 @@ const mockState = vi.hoisted(() => ({
     code: string;
     raised_at: string;
     show_id: string | null;
+    context: Record<string, unknown> | null;
     shows: { slug: string } | null;
   }>,
 }));
@@ -102,9 +105,12 @@ vi.mock("@/lib/supabase/server", () => {
 
 function setRows(rows: AlertRow[]) {
   // Order rows by raised_at DESC so .limit(1) returns the topmost.
-  mockState.rows = [...rows].sort(
-    (a, b) => new Date(b.raised_at).getTime() - new Date(a.raised_at).getTime(),
-  );
+  // Normalize the optional `context` to `null` so the mock matches the
+  // production AlertBanner SELECT shape ({ context: Record<string, unknown>
+  // | null } is required on the production row).
+  mockState.rows = [...rows]
+    .map((r) => ({ ...r, context: r.context ?? null }))
+    .sort((a, b) => new Date(b.raised_at).getTime() - new Date(a.raised_at).getTime());
 }
 
 describe("AlertBanner", () => {
@@ -302,5 +308,46 @@ describe("AlertBanner", () => {
     expect(queryByTestId("admin-alert-id-input")).toBeNull();
     const link = getByTestId("admin-alert-show-link") as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/admin/show/test-show?alert_id=per-show-alert");
+  });
+
+  // C0 round-6 M1: prove that AlertBanner threads admin_alerts.context
+  // through ErrorExplainer's `params` so renderer interpolation
+  // substitutes <placeholder> tokens (e.g., <sheet-name> for
+  // TILE_SERVER_RENDER_FAILED). Without this assertion, the R5 plumbing
+  // could regress without any test failing — the catalog interpolation
+  // unit test only exercises messageFor directly.
+  test("AlertBanner threads admin_alerts.context through ErrorExplainer for placeholder substitution", async () => {
+    setRows([
+      {
+        id: "tile-failed-1",
+        code: "TILE_SERVER_RENDER_FAILED",
+        raised_at: "2026-05-04T11:00:00Z",
+        show_id: "11111111-1111-4111-8111-111111111111",
+        context: { tileId: "lodging-tile", message: "boom", sheet_name: "Spring Conference" },
+        shows: { slug: "spring-conference" },
+      },
+    ]);
+    const { getByTestId } = render(await AlertBanner());
+    const text = getByTestId("error-explainer-message").textContent ?? "";
+    // Producer's sheet_name should have replaced the <sheet-name>
+    // placeholder via hyphen↔underscore key normalization.
+    expect(text).toContain("Spring Conference");
+    expect(text).not.toContain("<sheet-name>");
+  });
+
+  test("AlertBanner leaves <sheet-name> intact when context is null (no plumbing regression)", async () => {
+    setRows([
+      {
+        id: "tile-failed-no-ctx",
+        code: "TILE_SERVER_RENDER_FAILED",
+        raised_at: "2026-05-04T12:00:00Z",
+        show_id: "11111111-1111-4111-8111-111111111111",
+        context: null,
+        shows: { slug: "test-show" },
+      },
+    ]);
+    const { getByTestId } = render(await AlertBanner());
+    const text = getByTestId("error-explainer-message").textContent ?? "";
+    expect(text).toContain("<sheet-name>"); // placeholder remains
   });
 });

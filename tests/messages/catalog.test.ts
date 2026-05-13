@@ -182,4 +182,41 @@ describe("messageFor interpolation", () => {
       messageFor("AGENDA_UNAUTHENTICATED", params).crewFacing,
     ).toBe("Your link to this agenda expired. Reopen Doug's latest message to view it.");
   });
+
+  // C0 round-6 M1: pin the renderer-plumbing fix from R5. The R5 plumbing
+  // adds hyphen↔underscore key normalization so producers with snake_case
+  // context (sheet_name) satisfy hyphenated catalog placeholders
+  // (<sheet-name>). These three tests use real placeholder-bearing codes
+  // so the assertions would fail if interpolation were removed.
+  test("TILE_SERVER_RENDER_FAILED substitutes <sheet-name> from snake_case sheet_name param", () => {
+    const entry = messageFor("TILE_SERVER_RENDER_FAILED", { sheet_name: "Demo Show" });
+    expect(entry.dougFacing).toContain("*Demo Show*");
+    expect(entry.dougFacing).not.toContain("<sheet-name>");
+  });
+
+  test("TILE_SERVER_RENDER_FAILED leaves <sheet-name> intact when sheet_name is null", () => {
+    const entry = messageFor("TILE_SERVER_RENDER_FAILED", { sheet_name: null });
+    expect(entry.dougFacing).toContain("<sheet-name>");
+  });
+
+  test("SHOW_FIRST_PUBLISHED substitutes all three placeholders from snake_case context", () => {
+    const entry = messageFor("SHOW_FIRST_PUBLISHED", {
+      sheet_name: "Spring Conference",
+      crew_count: 12,
+      show_date: "Apr 6",
+    });
+    expect(entry.dougFacing).toContain("Spring Conference");
+    expect(entry.dougFacing).toContain("_12_");
+    expect(entry.dougFacing).toContain("Apr 6");
+    expect(entry.dougFacing).not.toContain("<sheet-name>");
+    expect(entry.dougFacing).not.toContain("<crew-count>");
+    expect(entry.dougFacing).not.toContain("<show-date>");
+  });
+
+  test("hyphen-form key (sheet-name) ALSO satisfies the placeholder", () => {
+    // Symmetry check: the normalization works either direction.
+    const entry = messageFor("SHOW_UNPUBLISHED", { "sheet-name": "Q4 Recap" });
+    expect(entry.dougFacing).toContain("Q4 Recap");
+    expect(entry.dougFacing).not.toContain("<sheet-name>");
+  });
 });
