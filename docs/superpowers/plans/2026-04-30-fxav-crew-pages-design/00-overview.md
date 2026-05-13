@@ -20,7 +20,10 @@
 
 ## How to use this plan
 
-1. **Spec is canonical, with nine ratified amendments documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
+1. **Spec is canonical, with nine ratified plan amendments AND one ratified spec amendment documented below.** Every task references a spec section like `§5.2` or an acceptance criterion like `AC-6.13`. When a task and the spec disagree on anything OTHER than the amendments below, the spec wins — open a question, do not silently fix it in the plan.
+
+   **Ratified spec amendments (in `docs/superpowers/specs/amendments/`):**
+   - **§12.4 AGENDA_* crew-facing catalog rows** _(2026-05-12, ratified at SHA `ac905da` after R1–R4 cross-CLI review; integrated into spec body by Task 9.0.A1)_. Adds `AGENDA_GONE_FOR_CREW` (410/403) and `AGENDA_UNAUTHENTICATED` (401) crew-only display codes covering the `AgendaPdfViewer` proxy's error states. See `docs/superpowers/specs/amendments/2026-05-12-catalog-agenda-codes.md`. M7-D2 (`components/agenda/AgendaPdfViewer.tsx` routing to these codes) is the consumer; Task 9.M7-D2's TDD checklist owns the exhaustive status→code coverage.
 
    **Ratified plan amendments to spec:**
    1. **§13.2.3 recovery lookup** — the spec specifies eventually-consistent code search via `octokit.rest.search.issuesAndPullRequests({q: '"<idempotency_key>" repo:<repo> in:body'})`. Adversarial-review rounds 6 + 10 demonstrated this is unsafe: GitHub's code-search index can lag tens of seconds, producing false-negative misses that drive `createIssue` and open duplicate issues. **The plan's Tasks 8.3d/8.3e supersede §13.2.3 on this single mechanism.** Revised contract:

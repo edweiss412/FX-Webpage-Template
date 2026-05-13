@@ -93,13 +93,14 @@ The spec body integration commit subject: `docs(spec): integrate §12.4 amendmen
 
 ## Ratification record
 
-- **Authored**: 2026-05-12
-- **Effective SHA**: TBD (backfill on commit of this file)
-- **Spec body integration SHA**: TBD (separate commit; tracks when the rows land in the live spec body)
+- **Authored**: 2026-05-12 at SHA `946b811`
+- **Finalized**: 2026-05-12 at SHA `ac905da` (after R1+R2+R3 amendment-review iterations; R4 verdict APPROVE confirmed convergence)
+- **Spec body integration SHA**: backfilled in the integration commit immediately after this line
 - **Supersedes**: nothing (purely additive)
 - **Authorized by**: Eric Weiss (M9 milestone owner per ROUTING.md M9 row)
-- **Cross-CLI adversarial review**: required before spec body integration; single-round expected given the small surface (2 rows, parameterless copy, no parity ambiguity)
+- **Cross-CLI adversarial review**: completed across 4 rounds (R1 needs-attention → R1 repair `ac5983d`; R2 needs-attention → R2 repair `d34c910`; R3 needs-attention → R3 repair `ac905da`; R4 APPROVE)
 - **Reviewer**: GPT-5.5 / Codex (per ROUTING.md M9 row: Opus implements → Codex reviews)
+- **Convergence lesson** (recorded for future amendments): R1–R3 surfaced same-vector recurrence on trigger enumeration. R3's structural shift ("implementation owns the taxonomy") closed the loop in a single round. Future amendments touching runtime route taxonomy should stay at HTTP-status + crew-recovery level from the start; comprehensive trigger enumeration belongs in implementation + tests, not spec amendment text.
 
 ## Self-consistency check (run inline before commit)
 
