@@ -68,6 +68,7 @@ type EmptyStateProps = {
  * safety-net copy when no override is supplied. Replaces the prior
  * "Doug hasn't filled this in yet" string per Critique Finding 3a.
  */
+// not-subject:M5-D8 — empty-state placeholder, not an error message
 const DEFAULT_COPY = "Information missing.";
 
 export function EmptyState({ label, children }: EmptyStateProps) {

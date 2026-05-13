@@ -110,9 +110,11 @@ type UiState = { kind: "connecting" } | { kind: "no_fragment" } | { kind: "error
 // not-subject:M5-D8 — both strings are deliberate inline catch-alls,
 // per the above. The meta-test below treats inline literal-string copy
 // in this file as exempt via the `not-subject:` annotation.
+// not-subject:M5-D8 (callsite-scoped — applies to both literals below)
 const GENERIC_ERROR_COPY =
   "Something went wrong opening this link. Try the original link Doug shared again, or contact Doug if it keeps happening.";
 
+// not-subject:M5-D8 — wayfinding, not an error
 const NO_FRAGMENT_COPY = "Open this link from the message Doug sent you.";
 
 export function Bootstrap({ showId, slug }: BootstrapProps) {

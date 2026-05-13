@@ -44,30 +44,53 @@ function walkFiles(dir: string): string[] {
   });
 }
 
-// Match `setError("literal")` or `setError('literal')` — single-line.
-// The double-escaped form rules out `setError(null)`, `setError(err)`,
-// `setError({ kind: "..." })` style which all use catalog codes
-// via the `kind` discriminator.
-const INLINE_SETERROR_RE = /setError\((["'])[^"']+["']\)/g;
-// `not-subject:M5-D8` annotation token — file-scoped exemption.
-const EXEMPT_RE = /not-subject:M5-D8/;
+// Patterns that signal "inline literal error copy" — broader than the
+// initial R1 setError-only sweep:
+//   (1) setError("literal") / setError('literal')
+//   (2) const FOO_COPY = "..."  (constants likely rendered as error UI)
+//   (3) const FOO_MESSAGE = "..."
+//   (4) message: "literal"  (object-shape error/alert payload)
+// Each pattern is checked per-line; an inline `// not-subject:M5-D8`
+// comment within ±3 lines of the match exempts that callsite.
+const PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
+  { name: "setError literal", re: /setError\((["'])[^"']+["']\)/ },
+  { name: "ERROR/COPY/MESSAGE const literal", re: /const\s+[A-Z_]*(COPY|MESSAGE|ERROR)\s*=\s*["']/ },
+  { name: "object error message literal", re: /\bmessage:\s*(["'])[^"']{8,}["']/ },
+];
+
+const EXEMPT_TOKEN = "not-subject:M5-D8";
+const NEARBY_LINES = 3;
+
+function isExempt(lines: string[], matchedIdx: number): boolean {
+  const start = Math.max(0, matchedIdx - NEARBY_LINES);
+  const end = Math.min(lines.length, matchedIdx + NEARBY_LINES + 1);
+  for (let i = start; i < end; i++) {
+    if (lines[i]?.includes(EXEMPT_TOKEN)) return true;
+  }
+  return false;
+}
 
 describe("META no inline literal error strings (M5-D8)", () => {
   const files = [...walkFiles("app"), ...walkFiles("components")];
 
-  test("no `setError(\"literal\")` callsites outside exempt files", () => {
+  test("no inline literal error-copy callsites outside callsite-scoped exemptions", () => {
     const violations: string[] = [];
     for (const file of files) {
       const source = readFileSync(file, "utf8");
-      if (EXEMPT_RE.test(source)) continue;
-      const matches = source.match(INLINE_SETERROR_RE);
-      if (matches) {
-        violations.push(`${file}: ${matches.join(", ")}`);
+      const lines = source.split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i] ?? "";
+        for (const { name, re } of PATTERNS) {
+          if (re.test(line)) {
+            if (isExempt(lines, i)) continue;
+            violations.push(`${file}:${i + 1} [${name}]: ${line.trim()}`);
+          }
+        }
       }
     }
     expect(
       violations,
-      `Route error UI through messageFor(code) instead of inline literal strings. To exempt a file, add a "// not-subject:M5-D8" comment with rationale (see app/show/[slug]/p/Bootstrap.tsx for the canonical example).`,
+      `Route error UI through messageFor(code) instead of inline literal strings. To exempt a single callsite, add a "// not-subject:M5-D8" comment within ±${NEARBY_LINES} lines of the match (see app/show/[slug]/p/Bootstrap.tsx and components/shared/ReportModal.tsx for canonical examples).`,
     ).toEqual([]);
   });
 });
