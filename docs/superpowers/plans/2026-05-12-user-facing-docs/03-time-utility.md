@@ -113,6 +113,24 @@ describe("lib/time/now — three-precondition gate (test #15)", () => {
     expect((await nowDate()).toISOString()).toBe(realNow.toISOString());
   });
 
+  it("header value is parseable but NOT canonical ISO 8601 (e.g., `03/24/2026`) → gate refuses per AC-12.37", async () => {
+    // r8 fix per C-r7 finding 4: `new Date("03/24/2026")` is parseable
+    // implementation-dependently, but the spec requires canonical
+    // ISO/RFC3339. The gate round-trips parsed.toISOString() vs the input
+    // and rejects mismatches.
+    headerStore["x-screenshot-frozen-now"] = "03/24/2026";
+    headerStore.authorization = "Bearer test-secret-fixture-19c";
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = "test-secret-fixture-19c";
+
+    vi.useFakeTimers();
+    const realNow = new Date("2099-01-01T00:00:00.000Z");
+    vi.setSystemTime(realNow);
+
+    const { nowDate } = await import("@/lib/time/now");
+    expect((await nowDate()).toISOString()).toBe(realNow.toISOString());
+  });
+
   it("header value not parseable as ISO 8601 → gate refuses (defense-in-depth)", async () => {
     headerStore["x-screenshot-frozen-now"] = "not-a-date";
     headerStore.authorization = "Bearer test-secret-fixture";
@@ -234,8 +252,19 @@ export async function nowDate(): Promise<Date> {
   if (!expectedSecret || expectedSecret.length < 16) return new Date();
   if (authz !== `Bearer ${expectedSecret}`) return new Date();
 
+  // r8 fix per C-r7 finding 4: spec r13 AC-12.37 requires the header value
+  // to be a valid ISO/RFC3339 timestamp. JavaScript's `new Date(str)` is
+  // permissive — it accepts implementation-dependent forms like
+  // `03/24/2026` or `Wed, 24 Mar 2026 15:00:00 GMT`. Without stricter
+  // validation, those non-canonical forms would silently pin the clock
+  // under the test-auth gate.
+  //
+  // Round-trip check: parse → reformat as ISO → compare. If the input was
+  // canonical ISO 8601 (with optional milliseconds + Z timezone), the
+  // round-tripped string equals the input. Anything else falls through.
   const parsed = new Date(frozen);
   if (Number.isNaN(parsed.getTime())) return new Date();
+  if (parsed.toISOString() !== frozen) return new Date();
   return parsed;
 }
 ```
@@ -440,13 +469,24 @@ Expected: unchanged behavior (the utility falls back to `new Date()` when the sc
 
     Run the test against the unmodified `StaleFooter`: expect FAIL — the "X seconds ago" or "less than a minute ago" relative-time text on the first render becomes "1 minute ago" on the second because `new Date()` reads the advanced fake-timer system clock. Capture the diff in the commit message body as verify-red evidence.
 
-    Step 5b.2 (RED → GREEN implementation): Modify `StaleFooter` so its default branch awaits `nowDate()`. The cleanest implementation: change `StaleFooter`'s signature to optionally accept `now` for unit testing; if `now` is omitted, the component MUST `await nowDate()` rather than `new Date()`. This requires converting `StaleFooter` to an async server component (or wrapping the `now` default fetch in a server-only helper).
+    Step 5b.2 (RED → GREEN implementation): **r8 fix per C-r7 finding 2 — prefer caller-side prop threading to avoid breaking the existing sync test suite.** The live `tests/components/StaleFooter.test.tsx` renders `<StaleFooter ... />` synchronously through `@testing-library/react` across the existing behavior suite. Converting `StaleFooter` to an async server component would break those tests AND change the project's prevailing component pattern.
 
-    Step 5b.3: Update every screenshot-reachable caller (currently `app/show/[slug]/page.tsx` and any other show / admin pages) to either pass `now={await nowDate()}` explicitly OR let the component's own server-side default fetch handle it.
+    Required approach: **keep `StaleFooter` synchronous**. Two options to eliminate the `new Date()` default:
+    - **Option A (PREFERRED):** make the `now` prop **required**. Every caller MUST pass `now={await nowDate()}` (or a `Date` of their choosing). No default. The component stays sync.
+    - **Option B:** introduce a thin async server wrapper `<StaleFooterServer />` that calls `await nowDate()` and forwards to the sync `<StaleFooter now={...} />`. Existing sync tests continue to render `<StaleFooter now={...} />` directly with an explicit `now` prop.
 
-    Step 5b.4 (GREEN): Re-run the structural test from Step 5b.1. Expected: PASS.
+    Either option preserves the sync component contract and keeps the existing test suite green.
 
-    The test must also scan every `<StaleFooter ... />` JSX usage under `app/` for callers that omit `now`, so future regressions in caller-side prop threading are caught (the byte-identical assertion alone wouldn't catch a NEW caller that omits `now`).
+    Step 5b.3: Update every screenshot-reachable caller (currently `app/show/[slug]/page.tsx` and any other show/admin pages) to pass `now={await nowDate()}` explicitly (Option A) or render via `<StaleFooterServer />` (Option B).
+
+    Step 5b.4 (GREEN): Run BOTH test suites:
+
+    ```bash
+    pnpm test tests/components/StaleFooter.test.tsx tests/components/shared/staleFooter-now-prop.test.ts
+    ```
+    Expected: BOTH PASS. The existing sync behavior suite continues to exercise the resolved-output paths (now via an explicit `now` prop), AND the new deterministic-output structural test confirms the wall-clock-drift surface is closed.
+
+    The new structural test must also scan every `<StaleFooter ... />` JSX usage under `app/` for callers that omit `now`, so future regressions in caller-side prop threading are caught (the byte-identical assertion alone wouldn't catch a NEW caller that omits `now`).
 
   Run the C.4 guard after the migration:
 
@@ -458,7 +498,7 @@ Expected: unchanged behavior (the utility falls back to `new Date()` when the sc
 - [ ] **Step 6: Commit**
 
 ```bash
-git add app/show/[slug]/page.tsx components/layout/Footer.tsx components/shared/StaleFooter.tsx tests/show/page-today-uses-now-utility.test.ts
+git add app/show/[slug]/page.tsx components/layout/Footer.tsx components/shared/StaleFooter.tsx tests/show/page-today-uses-now-utility.test.ts tests/components/shared/staleFooter-now-prop.test.ts tests/components/StaleFooter.test.tsx
 git commit -m "refactor(show): migrate render-side new Date() to nowDate() utility (Task C.2 — page.tsx + Footer + StaleFooter)"
 ```
 
@@ -771,8 +811,20 @@ describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
   function stripComments(src: string): string {
     return src
       // Block comments — non-greedy, multi-line.
-      .replace(/\/\*[\s\S]*?\*\//g, " ")
-      // Line comments — preserve the newline so line numbers stay aligned.
+      // r8 fix per C-r7 finding 3: preserve the SAME number of newlines as the
+      // original block so downstream line indexes stay aligned with the
+      // original source. Replacing a multi-line `/* ... */` with a single
+      // space (the r7 approach) collapsed all interior newlines, so a real
+      // `new Date()` after a multi-line comment would be reported at the
+      // wrong line — and worse, if the corresponding `originalLines[i]`
+      // happened to be a comment containing `// not-render-side:` text, the
+      // guard would suppress the unrelated violation.
+      .replace(/\/\*[\s\S]*?\*\//g, (match) => {
+        const newlineCount = (match.match(/\n/g) ?? []).length;
+        return " " + "\n".repeat(newlineCount);
+      })
+      // Line comments — drop everything from `//` to EOL (the `\n` itself
+      // is NOT in the [^\n]* class, so line breaks are preserved).
       .replace(/\/\/[^\n]*/g, "");
   }
 
@@ -819,19 +871,18 @@ describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
     expect(isClientComponent(reportSrc)).toBe(true);
   });
 
-  // r7 fix per C-r6 finding 2: comment-only mentions of `new Date()` /
-  // `Date.now()` MUST NOT trigger the guard (e.g., PackListTile's docstring
-  // comments). The stripComments() helper handles both `//` and `/* */`.
+  // r7 fix per C-r6 finding 2 + r8 fix per C-r7 finding 3: comment-only
+  // mentions of `new Date()` MUST NOT trigger the guard, AND multi-line
+  // block comments MUST preserve newline count so line indexes stay aligned
+  // for waiver detection. The fixtures below call the production
+  // `stripComments` helper directly (not a copy of the regex).
   it("comment-stripping: comment-only mentions of new Date() do NOT register as violations", () => {
     const synthetic = [
       `// This function returns the equivalent of new Date() but...`,
       `/* Block: new Date() is bad here */`,
       `export function f() { return 1; }`,
     ].join("\n");
-    const stripped = synthetic
-      .replace(/\/\*[\s\S]*?\*\//g, " ")
-      .replace(/\/\/[^\n]*/g, "");
-    // After stripping, no `new Date()` remains.
+    const stripped = stripComments(synthetic);
     expect(/\bnew Date\(\s*\)/.test(stripped)).toBe(false);
   });
 
@@ -840,10 +891,36 @@ describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
       `// This is a comment about new Date()`,
       `const x = new Date(); // a real call`,
     ].join("\n");
-    const stripped = synthetic
-      .replace(/\/\*[\s\S]*?\*\//g, " ")
-      .replace(/\/\/[^\n]*/g, "");
+    const stripped = stripComments(synthetic);
     expect(/\bnew Date\(\s*\)/.test(stripped)).toBe(true);
+  });
+
+  // r8 fix per C-r7 finding 3: multi-line block comments must preserve their
+  // newline count so a later `const x = new Date();` is reported at its
+  // ORIGINAL line number AND the corresponding originalLines[i] is its own
+  // line (not an unrelated comment that happens to contain a waiver token).
+  it("comment-stripping: multi-line block comment preserves newline count for waiver alignment", () => {
+    const original = [
+      `/**`,
+      ` * Multi-line JSDoc.`,
+      ` * Reference: new Date() — but documentation, not code.`,
+      ` * not-render-side: this is JUST a comment, ignored by the guard`,
+      ` */`,
+      `const x = new Date(); // ACTUAL violation`,
+    ].join("\n");
+    const stripped = stripComments(original);
+    const strippedLines = stripped.split("\n");
+    const originalLines = original.split("\n");
+
+    // Same line count (newlines preserved).
+    expect(strippedLines.length).toBe(originalLines.length);
+
+    // Index 5 = the `const x = new Date();` line. Production guard test
+    // logic: check stripped[i] for forbidden pattern, original[i] for
+    // waiver. Stripped[5] still has `new Date()`. Original[5] is the actual
+    // code line (no waiver). So the violation is reported correctly.
+    expect(/\bnew Date\(\s*\)/.test(strippedLines[5])).toBe(true);
+    expect(/\/\/\s*not-render-side:/.test(originalLines[5])).toBe(false);
   });
 
   // r5 fix per C-r4 finding 2: prove the directive-prologue boundary is
