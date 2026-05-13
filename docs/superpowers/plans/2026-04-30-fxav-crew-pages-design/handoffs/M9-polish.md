@@ -1100,6 +1100,54 @@ Base: `205f84d` (C6 close SHA). 3 rounds to approve.
 
 C6c / M7-D4 (lightbox pinch-zoom) requires `react-zoom-pan-pinch` integration with Embla gesture priority on real mobile touch — Playwright touch-emulation in `mobile-safari` project IS available but the interaction-test feedback loop and gesture risk (breaking the existing swipe) is high without iterative iOS/Android testing. Per DEFERRED.md M7-D4 v1 acceptable workaround: long-press → "Open image in new tab" → Safari native zoom. Skipping in this M9 close-out autonomous push.
 
+### Cluster C7 convergence (Codex)
+
+Base: `9a44bc8` (C6b close SHA). 3 rounds to approve.
+
+| Round | Verdict | Findings | Fix SHA | Notes |
+|-------|---------|----------|---------|-------|
+| R1 | needs-attention | H1 ReportModal GENERIC_NETWORK_COPY unannotated; H2 meta-test too narrow; M1 file-scoped exemption; M2 BOOTSTRAP_GENERIC catalog gap | `6d7c751` | Annotated ReportModal; broadened regex (3 patterns); callsite-scoped exemption (±3 lines); BOOTSTRAP_GENERIC tracked in DEFERRED.md. |
+| R2 | needs-attention | M1 multi-line const regex missed multi-line declarations (silently hiding what it was meant to govern) | `72a160b` | Regex extended to match `const NAME_(COPY/MESSAGE/ERROR) = $`; ReportModal annotation moved within ±3 lines of declaration. |
+| R3 | **approve** | none | `72a160b` | C7 CONVERGED. |
+
+### Cluster C8 convergence (Codex)
+
+Base: `72a160b` (C7 close SHA). 3 rounds to approve.
+
+Five batched P2/P3 a11y items per DEFERRED.md M5-D6:
+- **#1** ErrorExplainer `<details>` UA marker hiding (list-none + WebKit + Firefox + Safari)
+- **#2** SignInButton aria-describedby — JUSTIFIED SKIP (file shrunk to 26 lines; inline error lives at page level with role="alert")
+- **#3** AlertBanner aria-atomic="true"
+- **#4** Bootstrap stable aria-live wrapper for state-transition region
+- **#5** sign-in page <header aria-labelledby> tied to <h1 id>
+
+| Round | Verdict | Findings | Fix SHA | Notes |
+|-------|---------|----------|---------|-------|
+| R1 | **block** | P0 no tests for new contracts; P2 nested aria-live + role=alert double-announces; 2× P3 cosmetic | `890103c` | NEW tests/a11y/c8-batch.test.tsx (4 tests); Bootstrap inner role="alert" removed (P2). P3 chevron + landmark wording deferred. |
+| R2 | needs-attention | P1 tests were source-regex too brittle (comment confusion + attribute-order + substring bugs) | `15e3389` | Tests strengthened with `stripComments` helper + attribute-order-independent matching + `\sid="..."` boundary to avoid `data-testid` substring confusion. 7/7 pass. |
+| R3 | **approve** | none | `15e3389` | C8 CONVERGED. |
+
+---
+
+## M9 close-out summary
+
+**Clusters converged (APPROVE):** C0 (R11), C2 (R4), C6 (R3), C6b (R3), C7 (R3), C8 (R3). 6 clusters / 33 rounds total.
+
+**Clusters DEFERRED with documented rationale:**
+- **C5** (sign-in brand / M5-D4) — blocked on external brand assets (Doug-supplied FXAV wordmark + official Google G icon). Plan explicitly forbids hand-recreation.
+- **C6c** (lightbox pinch-zoom / M7-D4) — needs real-device + Playwright touch-emulation gesture-priority testing; risk to existing Embla swipe behavior is high without iterative iOS/Android feedback. v1 workaround (long-press → Safari native zoom) per DEFERRED.md M7-D4 is acceptable.
+
+**Outstanding sub-shape-required clusters (NOT attempted in autonomous push per user directive):**
+- C1 (Crew-page IA — M4-D2, M4-D3, M4-D6, M4-D4) — sub-shape session required.
+- C3 (Bootstrap motion — M5-D1, M5-D2) — sub-shape session + `/impeccable animate` sub-session required.
+- C4 (M5-D3) — sub-shape session required.
+- C9 (Admin allow-list runtime-mutable — M2-D1) — sub-brainstorming + sub-shape sessions required.
+
+**Open spec-amendment debt (flagged across the convergence loops):**
+1. PARSE_ERROR_LAST_GOOD spec line 2721 markdown emphasis typo (`_<time>\*.` vs `_<time>_.`) — propagated to catalog per AGENTS.md §1.7; flagged for future spec-amendment session.
+2. BOOTSTRAP_GENERIC catalog code — single catch-all for the multiple §A redeem-link error codes the Bootstrap state machine collapses; current GENERIC_ERROR_COPY inline literal carries `not-subject:M5-D8` annotation.
+3. Network-failure catalog code — ReportModal's GENERIC_NETWORK_COPY ("Couldn't reach the server…") has no §12.4 row for client-side network unreachable; annotated `not-subject:M5-D8`.
+
 Convergence trajectory: HIGH×8 → MEDIUM×3 → MEDIUM×1 → MEDIUM×1 → MEDIUM×3. Findings narrowing each round. Memory `feedback_iterate_until_convergence` directs continued iteration; round-3 cap applies to value-judgment loops, not new-finding rounds.
 
 ### Subsequent cluster work pending
