@@ -1121,8 +1121,8 @@ C6c / M7-D4 (lightbox pinch-zoom) was un-deferred 2026-05-13 after research revi
 
 #### C6c close-out — impeccable §12 dual gate
 
-**`/impeccable critique`** (UX heuristic review). Verdict: 2 HIGH, 3 MEDIUM. Dispositions:
-- **HIGH-1 pinch discoverability hint** → DECLINE. Pinch is gesture-universal on mobile (iOS Photos teaches the convention); Reset chip handles the "stuck" case (scale>1). Persistent hint would compete with the page indicator in already-tight header chrome. No user-research signal that discoverability is actually a barrier.
+**`/impeccable critique`** (UX heuristic review). Verdict: 2 HIGH, 3 MEDIUM. Dispositions (per AGENTS.md invariant 8: every HIGH/CRITICAL UI-gate finding is fixed or recorded as a `DEFERRED.md` entry):
+- **HIGH-1 pinch discoverability hint** → DEFERRED via `DEFERRED.md` entry `M9-D-C6c-1`. Rationale: pinch is gesture-universal on mobile (iOS Photos teaches the convention); Reset chip handles the "stuck" case (scale>1). Persistent hint would compete with the page indicator in already-tight header chrome. No user-research signal that discoverability is actually a barrier; revisit if venue-floor crew feedback identifies pinch-discovery friction.
 - **HIGH-2 live-region "Zoomed to 2.0×" reads like debug + silent on de-zoom** → ACCEPT. Rewrote to "Zoomed in, Nx" + announce "Zoomed out" on the de-zoom transition. wasAnnouncedZoomedRef gates the initial-state silence so AT doesn't get a "Zoomed out" announcement on first mount.
 - **MED-3 Reset chip reflows the figure ~52px** → ACCEPT. Moved chip from the dialog's flex column to absolute-positioned INSIDE the relative image container (`inset-x-0 top-2`). Figure no longer reflows when chip mounts; the user's pinched-detail stays under their fingers.
 - **MED-4 arrows-always-navigate undocumented** → DECLINE. Documented in shape brief §10a; low-frequency edge case (desktop keyboard user who zooms with `+` then hits arrow); recoverable (re-zoom on new diagram).

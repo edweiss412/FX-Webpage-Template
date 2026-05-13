@@ -484,14 +484,31 @@ export function GalleryLightbox({
                             loading="eager"
                             decoding="async"
                             draggable={false}
-                            onError={() =>
+                            onError={() => {
+                              // Codex R2 HIGH: when the active image
+                              // errors mid-zoom, the slide flips to
+                              // the unavailable placeholder branch
+                              // which unmounts ZoomController. That
+                              // leaves activeScale > 1 with a null
+                              // controlsSlotRef — Reset chip stays
+                              // visible but its onClick no-ops, and
+                              // Embla swipe stays disabled. Force the
+                              // lifted zoom state back to 1 here so
+                              // the chrome (Reset chip / Embla
+                              // watchDrag) drops back to defaults.
+                              // resetTransform on the about-to-unmount
+                              // wrapper runs synchronously before the
+                              // ZoomController cleanup so the library
+                              // also drops state cleanly.
+                              controlsSlotRef.current?.resetTransform();
+                              setActiveScale(1);
                               setFailedKeys((prev) => {
                                 if (prev.has(item.key)) return prev;
                                 const next = new Set(prev);
                                 next.add(item.key);
                                 return next;
-                              })
-                            }
+                              });
+                            }}
                             className="max-h-full max-w-full select-none object-contain"
                           />
                         </TransformComponent>

@@ -576,6 +576,39 @@ describe("M9 C6c — Diagram navigation resets scale (per-diagram zoom context)"
   });
 });
 
+describe("M9 C6c — image error while zoomed (Codex R2 HIGH regression)", () => {
+  test("active image error fires resetTransform + drops activeScale to 1 so Reset chip + chip-bound chrome don't strand", async () => {
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(2)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    // Simulate user zooms past threshold.
+    simulateScale(2.5);
+    expect(screen.queryByTestId("lightbox-reset-chip")).not.toBeNull();
+    // Image errors mid-zoom.
+    const activeImg = screen.getAllByRole("img")[0];
+    expect(activeImg).toBeDefined();
+    fireEvent.error(activeImg!);
+    // Two things must happen synchronously:
+    //   (a) resetTransform invoked on the about-to-unmount wrapper.
+    expect(libState.resetTransformCalls).toBeGreaterThanOrEqual(1);
+    //   (b) Reset chip disappears because activeScale dropped to 1
+    //       (driven by the local setActiveScale(1) in onError).
+    //       The TransformWrapper unmounts (placeholder renders),
+    //       which would also unmount ZoomController; this test
+    //       proves the chrome state synchronizes even when the
+    //       library has no chance to fire its scale=1 listener.
+    await waitFor(() => {
+      expect(screen.queryByTestId("lightbox-reset-chip")).toBeNull();
+    });
+  });
+});
+
 describe("M9 C6c — touch-action posture on dialog root", () => {
   test("dialog root carries touch-action: manipulation (iOS-Safari-supported)", () => {
     render(

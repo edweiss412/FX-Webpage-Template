@@ -203,12 +203,18 @@ When picking up a deferred item:
 
 **Suggested home:** Future milestone with a private-image-pipeline brainstorming session.
 
-### M7-D4 — Pinch-zoom inside lightbox figures
+### M7-D4 — Pinch-zoom inside lightbox figures — RESOLVED 2026-05-13 (M9 C6c)
 
 **Source:** M7 Task 7.9 §12 `/impeccable critique`, 2026-05-11 (LD persona red flag)
 **Description:** Add `react-zoom-pan-pinch` (or equivalent) inside each `<figure>` of `GalleryLightbox.tsx` so a crew member can pinch-zoom a diagram for detail (truss positions, stage plot dimensions). Embla's swipe gesture must be temporarily disabled while a zoom is in flight; restore on pinch-end. Verify gesture priority: pinch wins over swipe when two fingers are down; single-finger swipe still navigates between images.
-**Why deferred:** LD persona explicitly needs pinch-zoom on diagrams. v1 ships native browser image rendering inside the swipe carousel — Embla intercepts touch events, so pinch-zoom on iOS doesn't work reliably. Crew workaround: long-press → "Open image in new tab" → use Safari's native zoom. Acceptable for v1; native-feeling in v2. AC-7.2 closes at M7 — the gallery + swipe behavior works; pinch-zoom is a deferred polish.
-**Suggested home:** M9 polish.
+**Resolution (M9 C6c, 2026-05-13):** Shipped via `react-zoom-pan-pinch@4.0.3`. Single-finger pan when zoomed; Embla `watchDrag` gated on `wasZoomedRef` boundary; chevrons auto-reset zoom. Reset chip absolutely-positioned inside the relative image container so the figure does not reflow on mount. 28 jsdom unit tests + impeccable critique + audit dual gate passed. See shape brief `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/shape-sessions/2026-05-13-pinch-zoom-lightbox.md` and handoff §12 for the convergence log. Real-device iOS smoke is the remaining manual verification per shape brief §14.
+
+### M9-D-C6c-1 — Pinch discoverability hint (declined HIGH from C6c critique)
+
+**Source:** M9 C6c `/impeccable critique`, 2026-05-13 (HIGH-1 finding from the LLM design review)
+**Description:** Reviewer flagged the absence of a first-time discoverability hint for pinch-zoom on the lightbox. Suggested mitigations: a one-shot subtle chip ("Pinch to zoom · double-tap to reset") that fades out after 2s on first open per session, OR a persistent low-contrast hint in the header alongside "Diagrams · N of M".
+**Why deferred (accepted residual risk, AGENTS.md invariant 8):** Pinch-zoom is a gesture-universal convention on mobile (iOS Photos, every consumer image viewer teaches it culturally). Mobile crew members will instinctively try pinch on any photographic image. The "stuck while zoomed" failure mode the hint primarily protects against is already handled by the Reset chip (which is visible by definition when scale > 1, the only state where the user could be stuck). Adding a persistent hint chip would compete for header chrome real-estate against the page indicator (1 of N) and the close button on a 390px viewport; a session-scoped one-shot hint adds localStorage state machinery and an additional dismiss interaction surface. No user-research signal that discoverability is an actual barrier on this surface. Recommendation revisits if FXAV venue-floor crew feedback explicitly identifies pinch-discovery friction in a future round.
+**Suggested home:** Re-open when there is a real-user data point. Currently no scheduled milestone.
 
 ### M7-D5 — Sentinel-hiding helper for diagrams + agenda emptiness
 
