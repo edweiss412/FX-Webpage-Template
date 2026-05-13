@@ -683,8 +683,7 @@ export const MESSAGE_CATALOG = {
     dougFacing:
       "_<sheet-name>_ isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back.",
     crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
-    followUp:
-      "Eric -> confirm whether the Sheet was moved or deleted, then restore it or archive the show",
+    followUp: "Doug -> re-share sheet",
     helpfulContext:
       "We expected to find this sheet in your watched folder but it's not there anymore. Either someone moved it to a different folder, the share was removed, or the file was deleted. Crew see the last good version we have on file. Re-share or move the sheet back into the folder and we'll pick it up on the next sync.",
   },
