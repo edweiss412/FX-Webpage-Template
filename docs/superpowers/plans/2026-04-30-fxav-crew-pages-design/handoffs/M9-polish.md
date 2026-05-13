@@ -1056,6 +1056,21 @@ Base: `9e053bd`. Each round anchors to milestone-base per memory feedback `adver
 | R10 | needs-attention | M1-r10 R9 row lacks SHA; M2-r10 PARSE_ERROR_LAST_GOOD crewFacing drifts from §12.4 (spec apparent typo `_<time>\*.` propagated to catalog per spec-canonical rule) | `0aa1f9c` | Two final narrow MEDIUM cleanups. The spec typo at line 2721 (`_<time>\*.` instead of `_<time>_.`) is propagated to the catalog rather than silently fixed; flagged for spec-amendment follow-up. |
 | R11 | **approve** | LOW R10 row backfill (record-keeping only) | `0aa1f9c` | C0 cluster CONVERGED. No HIGH/CRITICAL findings. PARSE_ERROR_LAST_GOOD spec typo flagged for future spec-amendment session. |
 
+### Cluster C2 convergence (Codex)
+
+Base: `1875fa7` (C0 close SHA). 4 rounds to approve.
+
+| Round | Verdict | Findings | Fix SHA | Notes |
+|-------|---------|----------|---------|-------|
+| R1 | needs-attention | M1 admin kicker drift; M2 test/doc literals; L1 walker ext | `d1cbfc8` | StagedReviewCard → tracking-eyebrow; DESIGN.md scope clarified; walker scans ts/tsx/js/jsx/css. |
+| R2 | needs-attention | H1 bracket-form utilities leaked into Tailwind v4 built CSS | `4f12168` | `@source not "../docs"` + `@source not "../tests"` in globals.css. |
+| R3 | needs-attention | M1 runtime comments still leak; L1 admin/dev page | `789d87a` | `@source not "../lib"` + `@source not "../app/admin/dev"`; rewrote 3 runtime-file comments to remove bracket-form examples. |
+| R4 | **approve** | none | `789d87a` | C2 cluster CONVERGED. No HIGH/CRITICAL findings. |
+
+### Cluster C5 (DEFERRED — external assets)
+
+C5 / M5-D4 (sign-in brand) requires FXAV wordmark + official Google G icon, plan explicitly forbids hand-recreating either. Deferred to a session where Doug-supplied brand kit is available. No code shipped; convergence loop skipped.
+
 Convergence trajectory: HIGH×8 → MEDIUM×3 → MEDIUM×1 → MEDIUM×1 → MEDIUM×3. Findings narrowing each round. Memory `feedback_iterate_until_convergence` directs continued iteration; round-3 cap applies to value-judgment loops, not new-finding rounds.
 
 ### Subsequent cluster work pending
