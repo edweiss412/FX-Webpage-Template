@@ -447,7 +447,7 @@ All components honor `prefers-reduced-motion`. None have motion in v1 (the contr
    - **r5/r6/r7's `selfContainedAction` opt-out is GONE in r8** — once the catalog is reconciled with master spec (M12 catalog-alignment subtask sets `dougFacing: null` on master-spec admin-log-only codes), those codes naturally satisfy the right-side of the biconditional with all-`null` M12 fields. No third conjunct needed.
    - Phase 2: predicate widens to also cover `crewFacing != null` once `/help/crew/*` ships
 
-3. **Auth-gating + AdminInfraError mapping** (`tests/help/auth.test.ts`)
+3. **Auth-gating + AdminInfraError mapping** (`tests/e2e/help-auth.spec.ts` — r14: path corrected to match Phase H's actual test location)
    - Unauthenticated GET on `/help/`, `/help/admin/dashboard`, `/help/errors`, `/help/tour` → 403
    - Authenticated-as-admin GET on the same → 200
    - Authenticated-as-crew (signed-link viewer) → 403 in v1 (phase-2 will relax for `/help/crew/*` only)
@@ -462,7 +462,7 @@ All components honor `prefers-reduced-motion`. None have motion in v1 (the contr
    - Every route under `app/help/` is referenced in `_nav.ts`
    - Prevents orphan pages and dead nav entries
 
-6. **Mobile-layout Playwright test** (`tests/playwright/help-mobile.spec.ts`)
+6. **Mobile-layout Playwright test** (`tests/e2e/help-mobile.spec.ts` — r14: path corrected to match live `playwright.config.ts` `testDir: "tests/e2e"`; the originally-named `tests/playwright/` directory was an early-draft convention superseded by the project-standard layout)
    - Viewport: 390 × 844
    - Navigates to a representative content page (`/help/admin/dashboard`)
    - Asserts: sidebar is collapsed (top-of-page `<details>`); body content `width <= 390 - 2 * gutter`; no horizontal scroll (`document.documentElement.scrollWidth === window.innerWidth`); every interactive target ≥ 44 × 44 px
