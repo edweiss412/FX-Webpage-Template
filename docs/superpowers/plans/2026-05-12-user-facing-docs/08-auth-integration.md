@@ -2,14 +2,24 @@
 
 **Scope:** The remaining structural tests from spec §7.1 that exercise the integrated `/help` surface: anchor resolver (#1, deferred from Phase A), auth + AdminInfraError mapping (#3), MDX smoke (#4), mobile-layout Playwright (#6), no-placeholder lint (#7).
 
-**Per-task TDD discipline (r7 — addresses round-6 finding 3 about green-only batching):** Every Phase H task explicitly demonstrates a red-then-green TDD loop by introducing the test BEFORE its implementation OR by **stashing** a representative piece of the implementation to verify the test fails meaningfully. The exact "stash" pattern per task is documented in each task's Step 0:
+**Per-task TDD discipline (r7 → r8 verify-red-via-restore per B-r7 finding 1, applied cross-phase):** Every Phase H task explicitly demonstrates a red-then-green TDD loop by introducing the test BEFORE its implementation OR by **temporarily editing** a representative piece of the implementation to verify the test fails meaningfully. The exact pattern per task is documented in each task's Step 0:
 
 ```
-Step 0 (verify-red): git stash an artifact the test depends on, run the test, confirm FAIL with the expected error, then `git stash pop` to restore.
-Step 1+: standard TDD red→green from the restored state.
+Step 0 (verify-red-via-restore):
+  1. Pre-flight: `git status --short <file>` MUST be empty (else any unrelated
+     working-tree edits would be lost by the restore step below). Abort if not.
+  2. Hand-edit the artifact the test depends on (use `cp <file> <file>.bak`
+     beforehand so the diff at the end proves the edit actually changed bytes).
+  3. Run the test → confirm FAIL with the expected error.
+  4. Restore: `mv <file>.bak <file>` (or, if no .bak was made,
+     `git restore -- <file>`).
+  5. Verify clean: `git status --short <file>` MUST be empty again.
+  6. Standard TDD red→green from the restored state.
 ```
 
-This converts each Phase H task from "green-only verification commit" into a documented red-then-green loop. The stash step doesn't change repo state long-term — it only proves the test would catch a regression.
+**Do NOT use `git stash` / `git stash pop`** in Phase H. At Phase H time most files are committed (clean working tree), so `git stash push` creates no stash, and a follow-up `git stash pop` either no-ops (if no stash) or pops the user's most recent unrelated stash (data-loss risk). Phase B.5 hit this class in B-r7 finding 1; the cross-phase sweep applies the same fix here.
+
+This converts each Phase H task from "green-only verification commit" into a documented red-then-green loop with no data-loss class. The temporary edit doesn't change repo state long-term — it only proves the test would catch a regression.
 
 **Prereqs:** Phase G complete (strict sequential per 00-overview.md — implies A through G also complete).
 
@@ -521,19 +531,27 @@ git commit -m "test(playwright): /help mobile layout assertions (Task H.4 — te
 
 Per spec §7.1 test 7 (r2 inverted lint). At v1 close-out, no `<ScreenshotPlaceholder>` references exist in any `.mdx` file under `app/help/`. Phase F.10 should have replaced every placeholder with a real `<Screenshot key>` or deleted it; H.5 enforces.
 
-- [ ] **Step 0: Verify-red-via-stash (r8 per round-7 finding 2)**
+- [ ] **Step 0: Verify-red-via-restore (r8 per round-7 finding 2; cross-phase verify-red sweep per B-r7 finding 1)**
 
-Temporarily insert a `<ScreenshotPlaceholder>` reference to prove the lint catches it:
+Temporarily insert a `<ScreenshotPlaceholder>` reference to prove the lint catches it. Use `cp` to backup + `mv` to restore — do NOT use `git stash` / `git checkout` without a pre-flight clean check (see Phase H preamble for the protocol):
 
 ```bash
-# Append a single line to a representative page:
+# Pre-flight: dashboard/page.mdx must be clean — else any unrelated edits
+# would be lost by the restore step below.
+git status --short app/help/admin/dashboard/page.mdx
+# Expected: empty output. If non-empty, ABORT and resolve those edits first.
+
+# Backup, then append a single line to a representative page:
+cp app/help/admin/dashboard/page.mdx app/help/admin/dashboard/page.mdx.bak
 printf '\n<ScreenshotPlaceholder alt="lint verify-red" />\n' >> app/help/admin/dashboard/page.mdx
 ```
 
 After Step 1 writes the lint, run it. Expected: FAILS, listing `app/help/admin/dashboard/page.mdx`. Restore:
 
 ```bash
-git checkout app/help/admin/dashboard/page.mdx
+mv app/help/admin/dashboard/page.mdx.bak app/help/admin/dashboard/page.mdx
+git status --short app/help/admin/dashboard/page.mdx
+# Expected: empty output (file back to clean state).
 ```
 
 Re-run: PASSES. Record the failure in the commit message:
