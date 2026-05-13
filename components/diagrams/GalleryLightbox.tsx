@@ -467,16 +467,39 @@ export function GalleryLightbox({
                         // to-screen, and the library re-takes ownership
                         // when the user has pinched past 1x.
                         panning={{ disabled: !zoomed }}
-                        // Codex R1 HIGH: brief §7 keyboard/input table
-                        // says "Mouse wheel: no-op at scale=1, zoom with
-                        // ctrl/cmd at scale>1." Plain wheel without an
-                        // activation key would zoom unintentionally on
-                        // desktop. activationKeys gates wheel-zoom to
-                        // Control/Meta. Trackpad pinch on macOS dispatches
-                        // wheel events with ctrl held internally, so this
-                        // also preserves the trackpad pinch contract.
-                        wheel={{ disabled: false, activationKeys: ["Control", "Meta"] }}
+                        // Brief §7 keyboard/input table: "Mouse wheel:
+                        // no-op at scale=1, zoom with ctrl/cmd at
+                        // scale>1." Plain wheel without an activation
+                        // key would zoom unintentionally on desktop.
+                        // Codex R1 HIGH first surfaced the missing
+                        // activation gate; Codex R4 HIGH then caught
+                        // that the array form is AND'd (library's
+                        // `keys.every(...)`), so `["Control", "Meta"]`
+                        // required BOTH modifiers — blocking the
+                        // common ctrl-wheel and cmd-wheel paths. The
+                        // function form returns true if EITHER key
+                        // is pressed, restoring the brief's contract.
+                        // Trackpad pinch on macOS dispatches wheel
+                        // events with ctrl held internally, so the
+                        // predicate also covers trackpad pinch.
+                        wheel={{
+                          disabled: false,
+                          activationKeys: (keys) =>
+                            keys.includes("Control") || keys.includes("Meta"),
+                        }}
                         velocityAnimation={{ disabled: prefersReducedMotion }}
+                        // Comprehensive reduced-motion sweep (post-R4):
+                        // zoomAnimation governs the snap-after-pinch
+                        // interpolation; autoAlignment governs the
+                        // snap-back when the image is panned past
+                        // bounds. Both should be instant under
+                        // reduced motion to keep the gesture contract
+                        // (scale tracks fingers 1:1 with no spring).
+                        // (No `alignmentAnimation` prop exists; the
+                        // type signature exposes `autoAlignment` for
+                        // this concern.)
+                        zoomAnimation={{ disabled: prefersReducedMotion }}
+                        autoAlignment={{ disabled: prefersReducedMotion }}
                       >
                         <ZoomController
                           onScaleChange={setActiveScale}

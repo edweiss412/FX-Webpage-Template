@@ -273,7 +273,7 @@ describe("M9 C6c — TransformWrapper prop contract", () => {
     });
   });
 
-  test("Codex R1 HIGH: wheel requires Control/Meta activation keys (no unintended desktop zoom)", () => {
+  test("Codex R4 HIGH: wheel activation predicate ORs Control/Meta (not ANDs)", () => {
     render(
       <GalleryLightbox
         showId={SHOW_ID}
@@ -285,10 +285,29 @@ describe("M9 C6c — TransformWrapper prop contract", () => {
     );
     const props = libState.lastWrapperProps;
     const wheel = props?.wheel as
-      | { disabled?: boolean; activationKeys?: string[] }
+      | {
+          disabled?: boolean;
+          activationKeys?: string[] | ((keys: string[]) => boolean);
+        }
       | undefined;
     expect(wheel?.disabled).toBe(false);
-    expect(wheel?.activationKeys).toEqual(["Control", "Meta"]);
+    // The library's array form is AND'd internally (keys.every).
+    // Brief contract is OR (ctrl/cmd-wheel + trackpad pinch), so we
+    // pass a predicate. Execute it against representative inputs.
+    expect(typeof wheel?.activationKeys).toBe("function");
+    const predicate = wheel?.activationKeys as (keys: string[]) => boolean;
+    // No modifier — plain wheel — must NOT activate zoom.
+    expect(predicate([])).toBe(false);
+    // Control held (typical Windows / Linux ctrl-wheel) — activates.
+    expect(predicate(["Control"])).toBe(true);
+    // Meta held (typical macOS cmd-wheel + trackpad-pinch with ctrl
+    // injected → both can flow through this branch).
+    expect(predicate(["Meta"])).toBe(true);
+    // Both held — activates (no regression from R1's AND form).
+    expect(predicate(["Control", "Meta"])).toBe(true);
+    // Unrelated modifier — must NOT activate.
+    expect(predicate(["Shift"])).toBe(false);
+    expect(predicate(["Alt"])).toBe(false);
   });
 
   test("pinch is never disabled, even under prefers-reduced-motion: reduce", () => {
@@ -307,6 +326,42 @@ describe("M9 C6c — TransformWrapper prop contract", () => {
     expect(pinch?.disabled).toBe(false);
     const wheel = props?.wheel as { disabled?: boolean } | undefined;
     expect(wheel?.disabled).toBe(false);
+  });
+
+  test("reduced-motion disables zoomAnimation + autoAlignment (comprehensive sweep post-R4)", () => {
+    __matchMediaQuery = (q: string) => q.includes("reduce");
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(3)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    const props = libState.lastWrapperProps;
+    const zoomAnim = props?.zoomAnimation as { disabled?: boolean } | undefined;
+    const alignAnim = props?.autoAlignment as { disabled?: boolean } | undefined;
+    expect(zoomAnim?.disabled).toBe(true);
+    expect(alignAnim?.disabled).toBe(true);
+  });
+
+  test("full-motion keeps zoomAnimation + autoAlignment enabled", () => {
+    __matchMediaQuery = () => false;
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(3)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    const props = libState.lastWrapperProps;
+    const zoomAnim = props?.zoomAnimation as { disabled?: boolean } | undefined;
+    const alignAnim = props?.autoAlignment as { disabled?: boolean } | undefined;
+    expect(zoomAnim?.disabled).toBe(false);
+    expect(alignAnim?.disabled).toBe(false);
   });
 
   test("reduced-motion disables smooth animation + velocity (no momentum/interpolation)", () => {
