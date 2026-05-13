@@ -80,13 +80,22 @@ describe(`/help/${slug} (E.N — real render)`, () => {
 Create `tests/help/page-landing.test.tsx`:
 
 ```tsx
-import { describe, it, expect } from "vitest";
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { describe, it, expect, vi } from "vitest";
+import { render } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const src = readFileSync(join(process.cwd(), "app/help/page.mdx"), "utf8");
 
 describe("/help landing page (E.1)", () => {
+  it("renders without throwing through the real MDX pipeline (r3 per E-r2 finding 2)", async () => {
+    const Mod = await import("@/app/help/page");
+    const Page = Mod.default;
+    expect(() => render(<Page />)).not.toThrow();
+  });
+
   it("has the canonical H1", () => {
     expect(src).toMatch(/^# What this app does for you\b/m);
   });
@@ -179,6 +188,9 @@ git commit -m "feat(help): /help landing page content (Task E.1)"
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { render } from "@testing-library/react";
 // tests/help/page-getting-started.test.tsx
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -187,6 +199,12 @@ import { join } from "node:path";
 const src = readFileSync(join(process.cwd(), "app/help/getting-started/page.mdx"), "utf8");
 
 describe("/help/getting-started (E.2)", () => {
+  it("renders without throwing through the real MDX pipeline (r3 per E-r2 finding 2)", async () => {
+    const Mod = await import("@/app/help/getting-started/page");
+    const Page = Mod.default;
+    expect(() => render(<Page />)).not.toThrow();
+  });
+
   it("has the canonical H1", () => {
     expect(src).toMatch(/^# First-time setup\b/m);
   });
@@ -287,6 +305,9 @@ git commit -m "feat(help): /help/getting-started page content (Task E.2)"
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { render } from "@testing-library/react";
 // tests/help/page-daily-rhythm.test.tsx
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -295,6 +316,12 @@ import { join } from "node:path";
 const src = readFileSync(join(process.cwd(), "app/help/daily-rhythm/page.mdx"), "utf8");
 
 describe("/help/daily-rhythm (E.3)", () => {
+  it("renders without throwing through the real MDX pipeline (r3 per E-r2 finding 2)", async () => {
+    const Mod = await import("@/app/help/daily-rhythm/page");
+    const Page = Mod.default;
+    expect(() => render(<Page />)).not.toThrow();
+  });
+
   it("has the canonical H1", () => {
     expect(src).toMatch(/^# Your new daily rhythm\b/m);
   });
@@ -374,6 +401,9 @@ git commit -m "feat(help): /help/daily-rhythm page content (Task E.3)"
 - [ ] **Step 1–3: Test + content + commit following the shared pattern**
 
 ```tsx
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { render } from "@testing-library/react";
 // tests/help/page-whats-different.test.tsx
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -382,6 +412,12 @@ import { join } from "node:path";
 const src = readFileSync(join(process.cwd(), "app/help/whats-different/page.mdx"), "utf8");
 
 describe("/help/whats-different (E.4)", () => {
+  it("renders without throwing through the real MDX pipeline (r3 per E-r2 finding 2)", async () => {
+    const Mod = await import("@/app/help/whats-different/page");
+    const Page = Mod.default;
+    expect(() => render(<Page />)).not.toThrow();
+  });
+
   it("has the canonical H1", () => {
     expect(src).toMatch(/^# What's different from Sheets\b/m);
   });
@@ -406,7 +442,7 @@ Commit: `feat(help): /help/whats-different page content (Task E.4)`
 
 **Files:**
 - Create: `app/help/admin/dashboard/page.mdx`
-- Modify: `lib/messages/catalog.ts` (if any error codes get `/help/admin/dashboard` as their `helpHref`, populate `title` / `longExplanation` / `helpHref` per Phase B.4 biconditional)
+- Modify: `lib/messages/catalog.ts` (no error codes target this dashboard page directly per the **r3 canonical-helpHref rule** — all catalog `helpHref` values point at `/help/errors#<CODE>`. The §5.6 matrix's `?` tooltip targets `/help/admin/dashboard#active-shows` etc. for in-context section navigation, which is independent of `messageFor()`-driven Learn-more links. No catalog backfill required for this task.)
 
 **Content brief:** Mirror master spec §9.1 + §9.1.1. Explain the two panels (Active Shows, Sheets-we-couldnt-auto-apply) and the badge/icon meanings.
 
@@ -427,9 +463,18 @@ Commit: `feat(help): /help/whats-different page content (Task E.4)`
 Smoke test:
 
 ```tsx
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { render } from "@testing-library/react";
 // tests/help/page-dashboard.test.tsx
 const src = /* readFileSync(...) */;
 describe("/help/admin/dashboard (E.5)", () => {
+  it("renders without throwing through the real MDX pipeline (r3 per E-r2 finding 2)", async () => {
+    const Mod = await import("@/app/help/admin/dashboard/page");
+    const Page = Mod.default;
+    expect(() => render(<Page />)).not.toThrow();
+  });
+
   it("has the canonical H1", () => expect(src).toMatch(/^# Reading the dashboard\b/m));
   it("has plain h2 section anchors matching §5.6 matrix fragments", () => {
     expect(src).toMatch(/<h2[^>]*id=["']active-shows["']/);
@@ -452,7 +497,7 @@ Commit: `feat(help): /help/admin/dashboard page + relevant catalog title/longExp
 
 **Files:**
 - Create: `app/help/admin/review-queues/page.mdx`
-- Modify: `lib/messages/catalog.ts` (populate `title` / `longExplanation` / `helpHref` for codes whose `helpHref` lands here — implementer derives the set by grepping the M9 review-queues components for `messageFor(` call sites and listing each code rendered through them; for each such code where `severity !== "info"` and `dougFacing != null`, set `helpHref` to `/help/admin/review-queues#<code>` and add a matching `<RefAnchor id={code}>` to the page)
+- Modify: `lib/messages/catalog.ts` (populate `title` / `longExplanation` / `helpHref` for codes covered by this page — implementer derives the set by grepping the M9 review-queues components for `messageFor(` call sites and listing each code rendered through them; for each such code where `severity !== "info"` and `dougFacing != null`, set `helpHref` to `"/help/errors#" + CODE` per the **r3 canonical-helpHref rule** (per E-r2 finding 1). Add a `<RefAnchor id={code}>` to the /help/errors page (E.13 owns) for the per-code anchor. This review-queues page is a THEMATIC explainer that cross-links FROM /help/errors back here for "more detail.")
 
 **Content brief:** Mirror master spec §9.1 + §9.1.1 + §5.2 routing. First-seen vs. re-stage; Apply vs. Discard; what each action does irrevocably.
 
@@ -530,6 +575,12 @@ const warningCodes = Object.values(MESSAGE_CATALOG).filter(
 );
 
 describe("/help/admin/parse-warnings (E.7)", () => {
+  it("renders without throwing through the real MDX pipeline (r3 per E-r2 finding 2)", async () => {
+    const Mod = await import("@/app/help/admin/parse-warnings/page");
+    const Page = Mod.default;
+    expect(() => render(<Page />)).not.toThrow();
+  });
+
   it("has the canonical H1", () => expect(src).toMatch(/^# Parse warnings\b/m));
 
   for (const entry of warningCodes) {
@@ -628,7 +679,43 @@ Commit: `feat(help): /help/admin/preview-as-crew page (Task E.9)`
 5. H2 "If a link gets shared with the wrong person" — what happens (whose responsibility), how to issue a new link, "Issue new link" action
 6. H2 "Link expiry + revocation" — link lifetime, what triggers revocation, what crew see when an expired link is opened
 
-Commit: `feat(help): /help/admin/sharing-links page (Task E.10)`
+**r3 fix per E-r2 finding 3 (HIGH) — explicit TDD block** (the shared pattern at the top of Phase E applies in full; here's the page-specific test):
+
+```tsx
+// @vitest-environment jsdom
+// tests/help/page-sharing-links.test.tsx
+import "@testing-library/jest-dom/vitest";
+import { describe, it, expect, vi } from "vitest";
+import { render } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const src = readFileSync(join(process.cwd(), "app/help/admin/sharing-links/page.mdx"), "utf8");
+
+describe("/help/admin/sharing-links (E.10)", () => {
+  it("renders without throwing through the real MDX pipeline (r3 per E-r2 finding 2)", async () => {
+    const Mod = await import("@/app/help/admin/sharing-links/page");
+    const Page = Mod.default;
+    expect(() => render(<Page />)).not.toThrow();
+  });
+
+  it("renders without throwing through the real MDX pipeline", async () => {
+    const Mod = await import("@/app/help/admin/sharing-links/page");
+    const Page = Mod.default;
+    expect(() => render(<Page />)).not.toThrow();
+  });
+  it("has the canonical H1", () => expect(src).toMatch(/^# Sharing crew links\b/m));
+  it("uses <Step> components in the walkthrough section", () => expect(src).toMatch(/<Step\s+n=\{?1/));
+  it("has a 'Link expiry + revocation' section", () => expect(src).toMatch(/Link expiry/i));
+  it("does NOT reference <ScreenshotPlaceholder>", () => expect(src).not.toContain("<ScreenshotPlaceholder"));
+});
+```
+
+- [ ] Step 1: Write the test (RED — Phase A.7 stub fails all assertions).
+- [ ] Step 2: Implement the page per the structure brief above.
+- [ ] Step 3: Re-run test → GREEN.
+- [ ] Step 4: Manual `pnpm dev` sanity check.
+- [ ] Step 5: Commit: `feat(help): /help/admin/sharing-links page (Task E.10)`
 
 ---
 
@@ -652,8 +739,17 @@ Anchors are lowercase-with-hyphen here, which doesn't match the RefAnchor regex.
 Smoke test:
 
 ```tsx
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { render } from "@testing-library/react";
 const src = /* ... */;
 describe("/help/admin/onboarding-wizard (E.11)", () => {
+  it("renders without throwing through the real MDX pipeline (r3 per E-r2 finding 2)", async () => {
+    const Mod = await import("@/app/help/admin/onboarding-wizard/page");
+    const Page = Mod.default;
+    expect(() => render(<Page />)).not.toThrow();
+  });
+
   it("has the canonical H1", () => expect(src).toMatch(/^# Onboarding wizard\b/m));
   it("has anchored sections matching §5.6 matrix testids", () => {
     expect(src).toMatch(/id=["']service-account["']/);
@@ -724,11 +820,27 @@ import { join } from "node:path";
 
 const src = readFileSync(join(process.cwd(), "app/help/errors/page.tsx"), "utf8");
 
+// r3 fix per E-r2 finding 4: page renders entries that ALSO have all three
+// M12 fields populated. Use the same predicate the page itself uses (mirrors
+// `isRenderable()` in app/help/errors/page.tsx). Without this alignment, the
+// test would dereference null `entry.title` or fail for the wrong reason when
+// the live biconditional finds a Doug-facing entry without title.
 const renderableCodes = Object.values(MESSAGE_CATALOG).filter(
-  (e) => e.severity !== "info" && e.dougFacing !== null,
+  (e) =>
+    e.severity !== "info" &&
+    e.dougFacing !== null &&
+    e.title !== null &&
+    e.longExplanation !== null &&
+    e.helpHref !== null,
 );
 
 describe("/help/errors (E.13)", () => {
+  it("renders without throwing through the real MDX pipeline (r3 per E-r2 finding 2)", async () => {
+    const Mod = await import("@/app/help/errors/page");
+    const Page = Mod.default;
+    expect(() => render(<Page />)).not.toThrow();
+  });
+
   it("imports MESSAGE_CATALOG", () => {
     expect(src).toMatch(/MESSAGE_CATALOG/);
   });
