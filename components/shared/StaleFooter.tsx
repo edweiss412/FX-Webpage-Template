@@ -30,11 +30,17 @@ type StaleFooterProps = {
 
 type Tier = "subtle" | "subtle-dot" | "yellow" | "red";
 
+// Tier styling — uses the project's existing token vocabulary
+// (app/globals.css @theme). `text-text-subtle` and `text-warning-text` are
+// the canonical neutral + amber tones; the project does not expose a
+// dedicated "critical" red token today, so the red tier intensifies the
+// warning tone with `font-medium`. If a future DESIGN.md amendment adds a
+// danger/critical token, swap `red` to that token.
 const TIER_CLASS: Record<Tier, string> = {
-  subtle: "text-muted",
-  "subtle-dot": "text-muted",
-  yellow: "text-warning",
-  red: "text-critical",
+  subtle: "text-text-subtle",
+  "subtle-dot": "text-text-subtle",
+  yellow: "text-warning-text",
+  red: "text-warning-text font-medium",
 };
 
 function selectCodeAndTier(

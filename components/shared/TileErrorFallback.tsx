@@ -28,7 +28,7 @@ export function TileErrorFallback({ message }: TileErrorFallbackProps = {}) {
       data-testid="tile-error-fallback"
       role="status"
       aria-live="polite"
-      className="rounded-md border border-border bg-bg-elev p-4 text-sm text-muted"
+      className="rounded-md border border-border bg-surface-raised p-4 text-sm text-text-subtle"
     >
       {text}
     </div>

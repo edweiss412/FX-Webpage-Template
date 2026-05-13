@@ -252,26 +252,25 @@ describe("META admin_alerts catalog contract", () => {
 
   // Codes whose dougFacing copy intentionally carries an interpolation
   // placeholder AND whose producer (admin_alerts.context) reliably
-  // supplies the corresponding param at upsert time.
+  // supplies the corresponding param at upsert time AND whose renderer
+  // (AlertBanner → ErrorExplainer) routes through messageFor with the
+  // context map.
   //
-  // KNOWN RENDERER GAP (tracked separately from M9 C0): AlertBanner
-  // currently renders MESSAGE_CATALOG[code].dougFacing verbatim via
-  // <ErrorExplainer surface="admin"> without passing alert.context as
-  // params. So even when a producer supplies context here, Doug still
-  // sees literal placeholders today. The producers below ARE writing
-  // context.sheet_name / crew_count / show_date at upsert time, so the
-  // renderer plumbing fix is purely on the read side — see
-  // components/admin/AlertBanner.tsx and components/messages/ErrorExplainer.tsx.
+  // Today this is EMPTY: AlertBanner renders MESSAGE_CATALOG[code].dougFacing
+  // verbatim without interpolation, so any placeholder would leak literal
+  // <name> tokens to Doug. Two codes (SHOW_FIRST_PUBLISHED + SHOW_UNPUBLISHED)
+  // previously carried sheet-name/crew-count placeholders here; those
+  // placeholders were removed from the catalog dougFacing in M9 C0 round-2
+  // pending the end-to-end renderer plumbing follow-up. Producers still
+  // write the corresponding context.sheet_name / crew_count / show_date
+  // keys for audit + future plumbing.
   //
   // Registering a code here is a TWO-SIDED commitment:
   //   (a) the producer call site supplies the matching keys in context;
   //   (b) the renderer routes through messageFor(code, alert.context).
-  // (a) is in place today for the two codes below; (b) is pending the
-  // ErrorExplainer interpolation plumbing follow-up.
-  const INTERPOLATED_DOUG_FACING_CODES: ReadonlyArray<(typeof ADMIN_ALERTS_CODES)[number]> = [
-    "SHOW_FIRST_PUBLISHED", // lib/sync/runScheduledCronSync.ts:1558 supplies sheet_name, crew_count, show_date, unpublish_token
-    "SHOW_UNPUBLISHED", //     lib/sync/unpublishShow.ts:230 supplies sheet_name
-  ];
+  // Without (b) in place, adding a code here re-introduces the literal-
+  // placeholder leak that M9 Codex round-2 M2 flagged.
+  const INTERPOLATED_DOUG_FACING_CODES: ReadonlyArray<(typeof ADMIN_ALERTS_CODES)[number]> = [];
 
   test.each(ADMIN_ALERTS_CODES)(
     "registered producer code %s has no unresolved <placeholder> in dougFacing",

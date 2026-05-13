@@ -828,15 +828,32 @@ export default async function ShowPage({ params }: PageProps) {
                 <WrappedTile
                   tileId="notes-tile"
                   showId={showId}
-                  load={() =>
-                    loadNotesTileData({
+                  load={() => {
+                    // NotesTile aggregates four source domains. If ANY failed
+                    // upstream, the tile would silently render partial content;
+                    // raise to the per-tile fallback instead. (Round-2 H1
+                    // partial-data leak.) transportation is checked only when
+                    // the viewer is authorized to see it (privacy boundary
+                    // preserved per Codex round-21 MEDIUM).
+                    const failed = ["hotel", "rooms", "contacts"].find(
+                      (k) => data.tileErrors[k],
+                    );
+                    if (failed) {
+                      throw new Error(`${failed} fetch failed: ${data.tileErrors[failed]}`);
+                    }
+                    if (transportVisible && data.tileErrors["transportation"]) {
+                      throw new Error(
+                        `transportation fetch failed: ${data.tileErrors["transportation"]}`,
+                      );
+                    }
+                    return loadNotesTileData({
                       show: data.show,
                       hotelReservations: data.hotelReservations,
                       rooms: data.rooms,
                       transportation: transportVisible ? data.transportation : null,
                       contacts: data.contacts,
-                    })
-                  }
+                    });
+                  }}
                   View={NotesTileView}
                 />
               </>
