@@ -11,7 +11,7 @@ Copy this template to `handoffs/M12-help.md` (or per-session `handoffs/M12-help-
 - **Reviewer:** Codex (cross-CLI per ROUTING.md)
 - **Base branch:** main at commit `<SHA>`
 - **Plan version:** `docs/superpowers/plans/2026-05-12-user-facing-docs/` r1 (commit `<SHA>`)
-- **Spec version:** `docs/superpowers/specs/2026-05-12-user-facing-docs-design.md` r10 (commit `fc26d8b`)
+- **Spec version:** `docs/superpowers/specs/2026-05-12-user-facing-docs-design.md` r14 (incorporates r11/r12/r13/r14 amendments: STALE_MANUAL_REPLAY_ABORTED is Doug-facing not admin-log-only; parser is canonical for admin-log-only derivation; predicate is `severity !== "info" AND dougFacing != null` single source of truth; `<Screenshot>` prop renamed to `name` per React-reserved-`key` issue). Implementer running close-out: replace this line with the actual r14 commit SHA via `git log -n1 --format="%h" -- docs/superpowers/specs/2026-05-12-user-facing-docs-design.md`.
 
 ---
 

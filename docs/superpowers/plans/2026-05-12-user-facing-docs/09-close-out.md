@@ -72,10 +72,17 @@ Per AGENTS.md writing-plans additions: cross-CLI adversarial review is **mandato
 **Invocation (r2 fix per I-r1 finding 2 — pin the milestone base SHA so the final APPROVE attests to the full M12 diff, not just the latest fix):**
 
 ```bash
-# 1. Capture the M12 base SHA (the commit before any Phase A work landed).
-#    The canonical anchor is the last commit BEFORE Phase A.1's first commit:
-M12_BASE=$(git log --oneline --reverse | grep -B 1 -m 1 'Phase A.1' | head -1 | awk '{print $1}')
+# 1. Capture the M12 base SHA — the commit BEFORE M12's first plan scaffold
+#    landed. The first M12 commit is `b30f522` ("M12 plan scaffold — README
+#    + overview + Phase A foundation"), so the base is its parent:
+M12_BASE=$(git rev-parse b30f522^)
 echo "M12 base: $M12_BASE"
+
+# r3 fix per I-r2 finding 1: GUARD the capture. The earlier grep-based
+# command produced empty when oneline history didn't contain "Phase A.1".
+# Always verify the resolved SHA exists before invoking the reviewer:
+test -n "$M12_BASE" && git rev-parse --verify "$M12_BASE^{commit}" >/dev/null \
+  || { echo "FATAL: M12_BASE empty or invalid — fix the SHA above"; exit 1; }
 
 # 2. Invoke with --base AND --scope branch so every round reviews the FULL
 #    M12 diff (not the previous-round fix-base, which would hide drift
@@ -85,7 +92,9 @@ echo "M12 base: $M12_BASE"
   "M12 Phase I final fresh-eyes review: audit the entire M12 plan + implementation against spec r14, all 17 §7.1 tests, AC-12.1 through AC-12.39, and every plan-wide invariant from AGENTS.md. Return verdict + findings."
 
 # 3. Each retry MUST keep the same --base so the cumulative APPROVE attests
-#    to the complete milestone.
+#    to the complete milestone. If M12's first commit SHA changes (e.g.,
+#    history rewrite), update `b30f522` above to the new first-M12-commit
+#    SHA before re-running.
 ```
 
 See also: memory note "Adversarial review canonical invocation" in `~/.claude/projects/-Users-ericweiss-FX-Webpage-Template/memory/`.
@@ -129,6 +138,17 @@ When the reviewer returns APPROVE, mark Task I.2 complete and proceed to I.3.
 - Create or finalize: `docs/superpowers/plans/2026-05-12-user-facing-docs/handoffs/M12-help.md`
 
 The handoff doc is the canonical record of M12's execution. Mirror the existing handoff pattern at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/handoffs/`.
+
+**r3 fix per I-r2 finding 2 (MEDIUM):** when copying `HANDOFF-TEMPLATE.md` to `handoffs/M12-help.md`, IMMEDIATELY update the template's Spec version line. The template (post-r3) shows r14 + the r11-r14 amendment lineage but still requires the implementer to fill in the actual r14 commit SHA via:
+
+```bash
+SPEC_SHA=$(git log -n1 --format="%h" -- docs/superpowers/specs/2026-05-12-user-facing-docs-design.md)
+echo "Spec r14 commit: $SPEC_SHA"
+# Then edit handoffs/M12-help.md's Spec version line to replace the
+# placeholder with this SHA.
+```
+
+Without this step the handoff records a stale-or-undefined spec SHA, and the final close-out attests to nothing.
 
 Required sections (per the project's HANDOFF-TEMPLATE.md):
 
