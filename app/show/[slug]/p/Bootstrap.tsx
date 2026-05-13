@@ -90,6 +90,26 @@ type BootstrapProps = {
 
 type UiState = { kind: "connecting" } | { kind: "no_fragment" } | { kind: "error" };
 
+// M9 C7 / M5-D8 — These two inline strings remain inline by deliberate
+// scope decision, NOT by oversight:
+//
+//   GENERIC_ERROR_COPY is a catch-all rendered when the bootstrap layer
+//   has caught a §A error from multiple underlying codes (CSRF_DENIED,
+//   CSRF_NONCE_EXPIRED, LINK_REVOKED_FLOOR, LINK_REDEEM_KEY_ROTATED,
+//   LINK_VERSION_MISMATCH, LINK_NO_CREW_MATCH, …). The bootstrap state
+//   machine intentionally collapses them so the user-visible copy stays
+//   stable across the variants — but no single catalog code semantically
+//   covers "any of the above bootstrap §A failures." Adding a dedicated
+//   BOOTSTRAP_GENERIC catalog row requires a spec amendment per
+//   AGENTS.md §1.7; deferred to a spec-amendment session.
+//
+//   NO_FRAGMENT_COPY is NOT an error — it's a wayfinding message when
+//   the user lands at /show/<slug>/p without `#t=<jwt>`. No §12.4
+//   catalog code covers "wayfinding fragment-missing".
+//
+// not-subject:M5-D8 — both strings are deliberate inline catch-alls,
+// per the above. The meta-test below treats inline literal-string copy
+// in this file as exempt via the `not-subject:` annotation.
 const GENERIC_ERROR_COPY =
   "Something went wrong opening this link. Try the original link Doug shared again, or contact Doug if it keeps happening.";
 
