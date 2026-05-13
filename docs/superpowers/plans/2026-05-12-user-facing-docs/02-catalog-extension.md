@@ -367,7 +367,7 @@ export function extractAdminLogOnlyCodes(markdown: string): string[] {
     // `line.split("|")` shifts every cell after the escape, so Doug lands at
     // cells[3+] instead of cells[2] and the parser silently misses the row.
     // Replace `\|` with a sentinel before splitting, restore after.
-    const SENTINEL = " ESCAPED_PIPE ";
+    const SENTINEL = "<<ESCAPED-PIPE>>";
     const cells = line
       .replace(/\\\|/g, SENTINEL)
       .split("|")
@@ -890,7 +890,7 @@ Per spec §7.1 test 17. **Independent structural guard** — a separate test fil
 
 Reads master-spec §12.4 via `extract-admin-log-only-codes.ts`; asserts every derived code has all six user-facing fields `null` in the live catalog. Different from B.3 in scope: B.3 is the implementation-driving assertion (used during the alignment work itself); B.5 is the standalone meta-test that runs in `pnpm test tests/messages/` as the long-term canary.
 
-**r6 — verify-red-via-stash protocol (mandatory per AGENTS.md invariant #1):** B.5 codifies a structural guarantee that B.3's hard gate established. To stay red→green compliant despite landing AFTER B.3, B.5 includes an explicit verify-red step that temporarily reverts one of B.3's null-alignments, runs the new test to observe FAIL, then restores the alignment before committing. This is the same pattern Phase H uses; it produces a concrete red proof that the test would have caught pre-B.3 state, satisfying invariant #1 without requiring a separate red commit.
+**r6 — verify-red-via-restore protocol (mandatory per AGENTS.md invariant #1):** B.5 codifies a structural guarantee that B.3's hard gate established. To stay red→green compliant despite landing AFTER B.3, B.5 includes an explicit verify-red step that temporarily reverts one of B.3's null-alignments, runs the new test to observe FAIL, then restores the alignment with `git restore` (not `git stash`, which can silently drop unrelated stashes — see Step 2). This is the same pattern Phase H uses; it produces a concrete red proof that the test would have caught pre-B.3 state, satisfying invariant #1 without requiring a separate red commit.
 
 - [ ] **Step 1: Write the test**
 
@@ -928,13 +928,16 @@ describe("Catalog ↔ master-spec admin-log-only alignment (test #17)", () => {
 });
 ```
 
-- [ ] **Step 2: Verify-red-via-stash (proves the meta-test would catch the pre-B.3 drift state)**
+- [ ] **Step 2: Verify-red-via-restore (proves the meta-test would catch the pre-B.3 drift state)**
 
-Temporarily revert one of B.3's null-alignments to simulate the pre-B.3 catalog state. Example using `STALE_WRITE_ABORTED`:
+Temporarily revert one of B.3's null-alignments to simulate the pre-B.3 catalog state. Use `git restore` to revert when done — **do NOT use `git stash`**; if there are no working-tree changes to stash (which is the expected state at B.5 time, since B.3 already committed), `git stash push` creates no stash and a follow-up `git stash drop` would silently delete the user's most recent unrelated stash.
+
+Example using `STALE_WRITE_ABORTED`:
 
 ```bash
-# Save current aligned state to a temporary stash
-git stash push --keep-index -m "B.5-verify-red" -- lib/messages/catalog.ts
+# Pre-flight: confirm catalog.ts is clean (no unrelated working-tree edits we'd lose).
+git status --short lib/messages/catalog.ts
+# Expected: empty output (clean).
 
 # Hand-edit STALE_WRITE_ABORTED back to its pre-B.3 drifted shape (one entry suffices).
 # In lib/messages/catalog.ts, change:
@@ -947,8 +950,9 @@ pnpm test tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts
 # Expected: FAIL — "STALE_WRITE_ABORTED.dougFacing should be null per master-spec admin-log-only"
 
 # Restore B.3's aligned state.
-git checkout -- lib/messages/catalog.ts
-git stash drop  # discard the temp stash
+git restore -- lib/messages/catalog.ts
+git status --short lib/messages/catalog.ts
+# Expected: empty output (catalog.ts back to clean post-B.3 state).
 ```
 
 Document the observed failure in the commit message body (`git commit ... -m "[...] verify-red captured: STALE_WRITE_ABORTED.dougFacing rejected when restored to pre-B.3 string"`). This gives the same TDD evidence a literal red commit would: the test demonstrably rejects the pre-fix state.
@@ -962,7 +966,7 @@ Expected: PASS for every code in the derived set. Any FAIL signals B.3 missed a 
 
 ```bash
 git add tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts
-git commit -m "test(messages): catalog-alignment meta-test #17 — long-running canary on master-spec derivation; verify-red-via-stash captured pre-B.3 drift rejection (Task B.5)"
+git commit -m "test(messages): catalog-alignment meta-test #17 — long-running canary on master-spec derivation; verify-red-via-restore captured pre-B.3 drift rejection (Task B.5)"
 ```
 
 ---
