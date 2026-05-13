@@ -348,9 +348,75 @@ The existing `app/help/layout.tsx` catch block (mirrors `app/admin/layout.tsx:47
 
 **Per AGENTS.md invariant #9 (Supabase call-boundary discipline):** this test proves the requireAdmin → AdminInfraError → HelpLayout catch path. A real Supabase RPC throw would follow the IDENTICAL path. The trigger inside requireAdmin (not layout) is what makes this a genuine boundary test rather than a layout-local smoke.
 
-- [ ] **Step 3: Run + commit BOTH files together**
+- [ ] **Step 2b (NEW per H-r3 finding 1, HIGH): write the direct Supabase-boundary unit test**
 
-Run: `ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture pnpm exec playwright test --project=help-docs tests/e2e/help-auth.spec.ts` (per F-r3 — runner env + help-docs project on port 3004)
+  Before the Playwright run in Step 3, write + run `tests/auth/requireAdmin-infra-boundary.test.ts`. Mock `@/lib/supabase/server` (the `createSupabaseServerClient` factory) so its `getUser()` throws on one test case and its `rpc("is_admin")` throws on another. Each test asserts `requireAdmin()` re-throws as `AdminInfraError` with the expected diagnostics. Three required cases:
+
+  ```ts
+  // tests/auth/requireAdmin-infra-boundary.test.ts
+  // @vitest-environment node
+  import { describe, it, expect, vi, beforeEach } from "vitest";
+  import { AdminInfraError } from "@/lib/auth/requireAdmin";
+
+  vi.mock("@/lib/supabase/server", () => ({
+    createSupabaseServerClient: vi.fn(),
+  }));
+  const { createSupabaseServerClient } = await import("@/lib/supabase/server");
+
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  describe("requireAdmin → AdminInfraError boundary", () => {
+    it("getUser() throws → requireAdmin re-throws AdminInfraError", async () => {
+      (createSupabaseServerClient as any).mockResolvedValue({
+        auth: { getUser: vi.fn().mockRejectedValue(new Error("supabase: connection refused")) },
+        rpc: vi.fn(),
+      });
+      const { requireAdmin } = await import("@/lib/auth/requireAdmin");
+      await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
+    });
+
+    it("rpc('is_admin') throws → requireAdmin re-throws AdminInfraError", async () => {
+      (createSupabaseServerClient as any).mockResolvedValue({
+        auth: {
+          getUser: vi.fn().mockResolvedValue({ data: { user: { email: "e@d" } }, error: null }),
+        },
+        rpc: vi.fn().mockRejectedValue(new Error("supabase: rpc network failure")),
+      });
+      const { requireAdmin } = await import("@/lib/auth/requireAdmin");
+      await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
+    });
+
+    it("rpc('is_admin') returns { error: <Postgrest error> } → AdminInfraError", async () => {
+      (createSupabaseServerClient as any).mockResolvedValue({
+        auth: {
+          getUser: vi.fn().mockResolvedValue({ data: { user: { email: "e@d" } }, error: null }),
+        },
+        rpc: vi.fn().mockResolvedValue({ data: null, error: { message: "PGRST301: timeout" } }),
+      });
+      const { requireAdmin } = await import("@/lib/auth/requireAdmin");
+      await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
+    });
+  });
+  ```
+
+  Run: `pnpm test tests/auth/requireAdmin-infra-boundary.test.ts`
+  Expected: FAIL initially (requireAdmin's current Supabase wrapper may not classify every shape as AdminInfraError). Implement the wrapper changes; re-run → PASS.
+
+- [ ] **Step 3: Run e2e + commit ALL files together**
+
+First run the unit test (must already be green from Step 2b):
+```bash
+pnpm test tests/auth/requireAdmin-infra-boundary.test.ts
+```
+Expected: PASS — boundary contract pinned.
+
+Then run the e2e:
+```bash
+ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture pnpm exec playwright test --project=help-docs tests/e2e/help-auth.spec.ts
+```
+(per F-r3 — runner env + help-docs project on port 3004)
 Expected: all 10 tests PASS (9 base auth + 1 AdminInfraError mapping). **No skip path** per AC-12.24.
 
 ```bash
