@@ -115,4 +115,26 @@ describe("Gallery — thumbnail grid", () => {
     );
     expect(container.firstChild).toBeNull();
   });
+
+  test("M9 C6b P1: <img onError> flips the thumbnail to the unavailable placeholder branch", () => {
+    render(<Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={items(2)} />);
+    const slot0 = screen.getByTestId("diagram-slot-0");
+    // Before error: <img> exists, slot has no data-unavailable.
+    expect(within(slot0).queryByRole("img")).not.toBeNull();
+    expect(slot0.getAttribute("data-unavailable")).toBeNull();
+
+    const img0 = within(slot0).getByRole("img");
+    fireEvent.error(img0);
+
+    // After error: slot flips to the unavailable placeholder branch
+    // (no <img>, data-unavailable="true").
+    const slot0After = screen.getByTestId("diagram-slot-0");
+    expect(within(slot0After).queryByRole("img")).toBeNull();
+    expect(slot0After.getAttribute("data-unavailable")).toBe("true");
+
+    // Slot #1 is unaffected — onError state is per-key.
+    const slot1 = screen.getByTestId("diagram-slot-1");
+    expect(within(slot1).queryByRole("img")).not.toBeNull();
+    expect(slot1.getAttribute("data-unavailable")).toBeNull();
+  });
 });

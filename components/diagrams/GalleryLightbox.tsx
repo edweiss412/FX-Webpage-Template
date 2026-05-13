@@ -66,6 +66,10 @@ export function GalleryLightbox({
   });
 
   const [activeIndex, setActiveIndex] = useState(startIndex);
+  // M9 C6b R2 P1 (symmetric with Gallery thumbnails): track per-slide
+  // runtime load failures so a proxy 4xx/5xx in the lightbox falls
+  // back to the existing unavailable placeholder branch.
+  const [failedKeys, setFailedKeys] = useState<ReadonlySet<string>>(() => new Set());
 
   useEffect(() => {
     if (!emblaApi) return;
@@ -171,7 +175,7 @@ export function GalleryLightbox({
                 key={item.key}
                 className="flex size-full shrink-0 grow-0 basis-full items-center justify-center px-4"
               >
-                {item.available ? (
+                {item.available && !failedKeys.has(item.key) ? (
                   // M9 C6b / M7-D3 — REVERTED: next/image does NOT
                   // forward user auth cookies to the upstream
                   // /api/asset/diagram/... proxy (server-side fetch
@@ -181,12 +185,23 @@ export function GalleryLightbox({
                   // Per C6b round-1 P0 finding, the raw <img> tag is
                   // correct here; @next/next/no-img-element is
                   // disabled inline with rationale.
+                  // onError (C6b R2): runtime 4xx/5xx falls back to
+                  // the unavailable placeholder branch — symmetric
+                  // with Gallery thumbnails.
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={assetUrl(showId, snapshotRevisionId, item.key)}
                     alt={item.alt || `Diagram ${i + 1}`}
                     loading={i === startIndex ? "eager" : "lazy"}
                     decoding="async"
+                    onError={() =>
+                      setFailedKeys((prev) => {
+                        if (prev.has(item.key)) return prev;
+                        const next = new Set(prev);
+                        next.add(item.key);
+                        return next;
+                      })
+                    }
                     className="max-h-full max-w-full object-contain"
                   />
                 ) : (
