@@ -1,6 +1,22 @@
 @import "tailwindcss";
 
 /*
+ * Exclude non-runtime source from Tailwind v4's auto-detection (M9 C2
+ * R2 fix). Without these excludes, Tailwind picks up documentation
+ * examples and meta-test regex patterns that mention arbitrary
+ * square-bracket utility classes as legitimate class candidates and
+ * emits the matching arbitrary utilities into the built CSS,
+ * defeating the point of consolidating tokens.
+ *
+ * The runtime UI lives in `app/` and `components/` only; `docs/` and
+ * `tests/` are documentation + verification surfaces that should never
+ * contribute classes to the bundle. Tailwind v4 still recursively
+ * scans every other path from the project root by default.
+ */
+@source not "../docs";
+@source not "../tests";
+
+/*
  * Token surface for FXAV Crew Pages — pairs with DESIGN.md.
  *
  * Tokens land in @theme (Tailwind v4 reads this and exposes utilities

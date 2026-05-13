@@ -18,10 +18,12 @@
  * `components/` and `app/` rather than a hand-named list, so the
  * coverage stays in sync with the codebase as files are added/moved.
  *
- * Note: the regex literal below is the only `tracking-[...]` form this
- * file contains. Comments and test names DO NOT spell the arbitrary
- * class out verbatim because Tailwind v4 scans test files and would
- * emit those literals into the built CSS (M9 C2 R1 finding).
+ * Note: the regex literal below is the only bracket-form tracking
+ * spelling this file contains. Comments and test names DO NOT spell
+ * the arbitrary class out verbatim because Tailwind v4 scans test
+ * files and would emit those literals into the built CSS (M9 C2 R1
+ * finding). The R2 follow-up additionally adds `@source not "../tests"`
+ * to app/globals.css so even an accidental literal here wouldn't leak.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
