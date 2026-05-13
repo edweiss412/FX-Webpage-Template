@@ -3,12 +3,20 @@
  * tests/components/diagrams/GalleryLightboxPinchZoom.test.tsx
  *   (M9 C6c / M7-D4 — pinch-zoom on the diagrams lightbox)
  *
- * Pins the chrome + state-machine contracts that close C6c. Actual pinch
- * gesture mechanics belong to react-zoom-pan-pinch and are verified in
- * Playwright (tests/e2e/diagrams-lightbox-pinch-zoom.spec.ts). Here we
- * mock the library so the test controls the simulated scale, then assert
- * our chrome (Reset chip, live region, keyboard handler, Embla
- * watchDrag toggle, reduced-motion gate) responds correctly.
+ * Pins the chrome + state-machine contracts that close C6c. Actual
+ * pinch gesture mechanics belong to react-zoom-pan-pinch v4.0.3 and
+ * are verified by (a) the library's own test suite, and (b) a manual
+ * iOS device smoke per shape brief §11 + §14. There is intentionally
+ * NO Playwright e2e for synthetic pinch — shape brief §10b documents
+ * the trade-off: no existing diagram-lightbox e2e fixture +
+ * significant CDP multi-touch plumbing scope, and synthetic
+ * multi-touch in headless Chromium diverges from real-device
+ * behavior on the iOS-Safari touch-action arbitration path which is
+ * the actual risk class.
+ *
+ * Here we mock the library so the test controls the simulated scale,
+ * then assert our chrome (Reset chip, live region, keyboard handler,
+ * Embla watchDrag toggle, reduced-motion gate) responds correctly.
  *
  * Test surface:
  *   1. Default render at scale=1: Reset chip absent, page indicator
@@ -605,6 +613,65 @@ describe("M9 C6c — Keyboard map (lightbox-owned; library v4 has no keyEvents p
     simulateScale(2);
     fireEvent.keyDown(window, { key: "0" });
     expect(libState.recenterViewCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  test("Codex R9 HIGH: pinch-out normalization can fire onPinchStop with transient out-of-bounds scale; subsequent + targets clamped 1+0.5", () => {
+    // Repro: the library's pinch-out path allows scale to dip below
+    // minScale=1 during overscroll (zoomAnimation.size padding).
+    // onPinchStop fires with that transient value (e.g., 0.6); the
+    // post-stop alignment animation later settles to 1.0. Without
+    // the clamp added in R9, requestedScaleRef stores 0.6 and the
+    // next '+' targets 1.1 instead of the intended 1.5.
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(3)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    // Simulate pinch-out: gesture-end fires with scale=0.6 (below
+    // minScale=1). The lightbox clamps when capturing into
+    // requestedScaleRef.
+    const props = libState.lastWrapperProps;
+    const onPinchStop = props?.onPinchStop as
+      | ((ref: { state: { scale: number } }) => void)
+      | undefined;
+    expect(onPinchStop).toBeDefined();
+    act(() => {
+      onPinchStop!({ state: { scale: 0.6 } });
+    });
+    // Subsequent '+' must compute from clamped 1.0, producing 1.5.
+    fireEvent.keyDown(window, { key: "+" });
+    expect(libState.centerViewCalls).toHaveLength(1);
+    expect(libState.centerViewCalls[0]?.scale).toBeCloseTo(1.5, 6);
+  });
+
+  test("Codex R9 HIGH: pinch-in normalization above maxScale clamps to 4 in requestedScaleRef", () => {
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(3)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    const props = libState.lastWrapperProps;
+    const onPinchStop = props?.onPinchStop as
+      | ((ref: { state: { scale: number } }) => void)
+      | undefined;
+    act(() => {
+      onPinchStop!({ state: { scale: 5.2 } });
+    });
+    // From clamped 4, '+' would target 4.5 → clamped to 4 → no-op.
+    fireEvent.keyDown(window, { key: "+" });
+    expect(libState.centerViewCalls).toHaveLength(0);
+    // But '-' targets 3.5 (clamped 4 minus 0.5).
+    fireEvent.keyDown(window, { key: "-" });
+    expect(libState.centerViewCalls).toHaveLength(1);
+    expect(libState.centerViewCalls[0]?.scale).toBeCloseTo(3.5, 6);
   });
 
   test("Codex R8 HIGH: rapid '+' '+' during animation window computes from requestedScaleRef, not animated intermediate scale", () => {

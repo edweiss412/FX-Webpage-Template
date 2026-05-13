@@ -512,17 +512,31 @@ export function GalleryLightbox({
                         // Codex R8: sync requestedScaleRef to the
                         // library's final scale at the end of a
                         // user-driven gesture (pinch, wheel, zoom).
-                        // Without this, pressing + after pinching to
-                        // 3x would target 1.5x because the keyboard
-                        // handler bases targets on requestedScaleRef.
+                        // Codex R9 HIGH: the library's pinch-out
+                        // normalization can fire onPinchStop with a
+                        // transient out-of-bounds scale (e.g., 0.6)
+                        // before the post-stop alignment animation
+                        // settles back to minScale=1. Clamp the
+                        // captured scale to [minScale, maxScale] so
+                        // a subsequent + keypress targets 1.5 from
+                        // a clamped 1.0 base, not 1.1 from 0.6.
                         onPinchStop={(ref) => {
-                          requestedScaleRef.current = ref.state.scale;
+                          requestedScaleRef.current = Math.max(
+                            1,
+                            Math.min(4, ref.state.scale),
+                          );
                         }}
                         onZoomStop={(ref) => {
-                          requestedScaleRef.current = ref.state.scale;
+                          requestedScaleRef.current = Math.max(
+                            1,
+                            Math.min(4, ref.state.scale),
+                          );
                         }}
                         onWheelStop={(ref) => {
-                          requestedScaleRef.current = ref.state.scale;
+                          requestedScaleRef.current = Math.max(
+                            1,
+                            Math.min(4, ref.state.scale),
+                          );
                         }}
                         smooth={!prefersReducedMotion}
                         // Codex R5 HIGH: library's `toggle` mode uses
