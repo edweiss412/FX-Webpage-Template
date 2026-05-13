@@ -65,6 +65,16 @@ grep -rl "Active Shows" components/ app/admin/ | wc -l       # must be 1
 grep -rl "Sheets we couldn't" components/ app/admin/ | wc -l # must be 1
 # (continue for every concrete row's source-surface text)
 
+# (b.2) r4 fix per G-r3 finding 3 — template-family ownership discovery.
+# The `error-message` template-family row is rendered by the shared
+# error-renderer helper AND by ParsePanel (parse-warning rows go through
+# `messageFor()`). Confirm BOTH call sites exist:
+grep -rl "messageFor" components/messages/ app/admin/ | wc -l   # must be ≥1 (shared renderer)
+grep -rl "ParsePanel" components/admin/ | wc -l                  # must be ≥1 (ParsePanel surface)
+# If ParsePanel doesn't call `messageFor()` (or doesn't render per-warning
+# rows that DO), G.3 Step 5b's parse-panel-affordance test will FAIL — that's
+# the intentional red proof that the family covers ParsePanel.
+
 # (c) Every owning file from (b) appears in the 00-overview.md inventory's modify section:
 # Hand-check or grep the updated overview for each path.
 
@@ -165,23 +175,17 @@ Per spec §5.6 — the matrix is the typed source of truth. Three row classes (p
     { kind: "concrete", sourceSurface: "Per-show — Parse warnings header", sourceRoute: "/admin/show/rpas-central-2026",
       affordance: "? tooltip", testid: "help-affordance--per-show-parse-warnings--tooltip",
       target: "/help/admin/parse-warnings", owningMilestone: "M9" },
-    // r2 fix per G-r1 finding 1 — §5.6 row for individual parse-warning rows
-    // (per AC-12.8). Each rendered warning carries a per-code Learn-more link.
-    //
-    // r3 fix per G-r2 finding 1 — modeled as a TEMPLATE-FAMILY row (not
-    // concrete) because the target is per-code: each rendered warning's
-    // Learn-more href is `messageFor(code).helpHref` (canonical
-    // `/help/errors#<code>` per E-r1 finding 2). G.4/G.5 walkers iterate
-    // rendered warning codes; G.0 discovers the ParsePanel surface via the
-    // exact UI text on the row (the "Learn more →" label adjacent to the
-    // warning's title).
-    { kind: "template-family",
-      sourceSurface: "ParsePanel warning row — 'Learn more →' link adjacent to warning title (one per warning code rendered)",
-      sourceRoute: "/admin/show/rpas-central-2026",
-      affordance: "Learn more →",
-      testidPattern: "help-affordance--parse-warning-row--<code>--learn-more",
-      targetForCode: (code) => `/help/errors#${code}`, // per E-r1 canonical helpHref
-      owningMilestone: "M9" },
+    // r4 fix per G-r3 finding 2: removed the separate parse-warning-row
+    // template-family row. Per-code parse-warning Learn-more links are
+    // already covered by the existing `error-message` template-family row
+    // below (since parse-warning messages go through `messageFor(code)` and
+    // emit `help-affordance--error-message--<code>--learn-more`).
+    // Adding a separate `parse-warning-row` testid family would duplicate
+    // coverage AND require a second renderer path + reverse-direction
+    // whitelist entry. Coverage for ParsePanel call-sites lives in G.0
+    // (discovery — ParsePanel must render the error-message family) +
+    // a representative ParsePanel smoke test in G.3 Step 5b that asserts
+    // ParsePanel renders the error-message Learn-more link per-warning.
     { kind: "concrete", sourceSurface: "Per-show — Crew preview links header", sourceRoute: "/admin/show/rpas-central-2026",
       affordance: "? tooltip", testid: "help-affordance--per-show-preview-links--tooltip",
       target: "/help/admin/preview-as-crew", owningMilestone: "M9" },
@@ -330,7 +334,7 @@ Per spec §5.3 affordance wiring. The retrofit is LINK-ONLY — does not change 
 
 - [ ] **Step 5b: Add failing tests for the concrete-UI affordances BEFORE implementing them** (r2 fix per G-r1 finding 2 — concrete UI was previously added in Step 6 without a corresponding failing test):
 
-  Write `tests/admin/dashboard-footer-affordance.test.tsx` asserting the dashboard footer renders `<a href="/help/tour" data-testid="help-affordance--dashboard-footer--tour">` AND `tests/admin/section-header-affordance.test.tsx` asserting each section-header tooltip component renders its corresponding inline `Learn more →` link with the matrix's testid+target (parameterize via AFFORDANCE_MATRIX). Run both → FAIL (the components don't yet have these affordances).
+  Write `tests/admin/dashboard-footer-affordance.test.tsx` asserting the dashboard footer renders `<a href="/help/tour" data-testid="help-affordance--dashboard-footer--tour">` AND `tests/admin/section-header-affordance.test.tsx` asserting each section-header tooltip component renders its corresponding inline `Learn more →` link with the matrix's testid+target (parameterize via AFFORDANCE_MATRIX). Also write `tests/admin/parse-panel-affordance.test.tsx` (**r4 fix per G-r3 finding 2** — collapsed ParsePanel parse-warning coverage into the existing error-message family rather than a duplicate `parse-warning-row` family): renders ParsePanel with seeded `pending_syncs` warnings; for each rendered warning's `messageFor(code)`, asserts the warning row carries `data-testid="help-affordance--error-message--<code>--learn-more"` with `href === messageFor(code).helpHref`. Run all three → FAIL (the components don't yet have these affordances).
 
 - [ ] Step 6: Wire the dashboard footer — add `<a href="/help/tour" data-testid="help-affordance--dashboard-footer--tour">Take the tour →</a>` to the dashboard footer component. Wire section-header tooltips inline-link per matrix rows. Re-run Step 5b's tests → PASS.
 
