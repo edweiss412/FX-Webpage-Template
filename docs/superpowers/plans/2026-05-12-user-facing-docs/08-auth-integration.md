@@ -4,7 +4,7 @@
 
 **Prereqs:** Phases A, B, C, D, E, F, G complete. Phase H tests the full integration — they will be partially or fully red until those phases land.
 
-**Tasks:** H.1 → H.6 (6 tasks). H.6 is the live-catalog biconditional assertion deferred from B.4 — it runs at Phase H because every Phase E backfill must land first.
+**Tasks:** H.1 → H.5 (5 tasks). r4's H.6 (live-catalog biconditional) was REMOVED in r6 — see the H.6 section below for the rationale; the assertion now lives in Phase E Task E.13.
 
 ---
 
@@ -380,67 +380,27 @@ git commit -m "test(help): no-placeholder lint (Task H.5 — test #7)"
 
 ---
 
-### Task H.6: Live-catalog biconditional assertion (deferred from B.4)
+### Task H.6: REMOVED in r6
 
-**Files:**
-- Modify: `tests/messages/_metaErrorCatalogDocs.test.ts` (extend with the live-catalog assertion)
+The live-catalog biconditional assertion that r4 added as H.6 violated AGENTS.md plan-wide invariant #1 (TDD: failing test → minimal implementation → passing test → commit). At H.6 time, every Phase E backfill had already landed, so the new assertion would commit as green-only — no red state, no implementation that makes it pass.
 
-Per r4 — Task B.4 committed only the forced fixtures because the live-catalog forward-direction assertion failed for unbackfilled Doug-facing entries. Phase E.5 – E.11 backfilled each. At Phase H time, every Doug-facing admin entry has `title` / `longExplanation` / `helpHref` populated. H.6 adds the live-catalog biconditional assertion to the file.
+**r6 restructure:** the live-catalog biconditional assertion lives in **Task E.13** (the `/help/errors` page task — the last Phase E task by both dependency and ordering convention). E.13 adds the assertion alongside whatever final catalog-backfill is needed to make it pass. The assertion is RED at the start of E.13 (entries unaccounted for), and goes GREEN with E.13's own commit (the final backfills that close any remaining gaps).
 
-- [ ] **Step 1: Write the failing test** (it should pass immediately — write it, run it, verify green)
-
-Append to `tests/messages/_metaErrorCatalogDocs.test.ts`:
-
-```ts
-import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
-
-describe("Catalog meta-test (test #2 — live-catalog biconditional — Task H.6)", () => {
-  it("every live entry satisfies the biconditional", () => {
-    const violations: string[] = [];
-    const HELP_HREF_RE = /^\/help\/.+/;
-    for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
-      const lhs = entry.severity !== "info" && entry.dougFacing !== null;
-      const rhs =
-        entry.title !== null && entry.longExplanation !== null && entry.helpHref !== null;
-      if (lhs !== rhs) {
-        violations.push(`${code}: predicate=${lhs}, M12 fields non-null=${rhs}`);
-      }
-      if (rhs && entry.helpHref && !HELP_HREF_RE.test(entry.helpHref)) {
-        violations.push(`${code}: helpHref invalid: ${entry.helpHref}`);
-      }
-    }
-    expect(violations, violations.join("\n")).toEqual([]);
-  });
-});
-```
-
-- [ ] **Step 2: Run test**
-
-Run: `pnpm test tests/messages/_metaErrorCatalogDocs.test.ts`
-Expected: PASS — every Doug-facing entry was backfilled by Phase E.5 – E.11; every entry without dougFacing has all M12 fields null.
-
-If any violation: a Phase E backfill missed an entry. Fix the backfill in `lib/messages/catalog.ts` and commit as a follow-up.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/messages/_metaErrorCatalogDocs.test.ts
-git commit -m "test(messages): live-catalog biconditional assertion (Task H.6 — completes B.4)"
-```
+See `05-content.md` Task E.13 for the TDD-clean integration.
 
 ---
 
 ## Phase H close-out
 
-After H.1 – H.6 commits land:
+After H.1 – H.5 commits land:
 
 - [ ] Test #1 (anchor resolver) PASSES — every `helpHref` resolves
 - [ ] Test #3 (auth + AdminInfraError) PASSES — admin gate + cataloged 500-class surface
 - [ ] Test #4 (MDX smoke) PASSES — every page renders non-empty
 - [ ] Test #6 (mobile layout) PASSES — no horizontal scroll, no sub-44px taps, sidebar collapses
 - [ ] Test #7 (no-placeholder lint) PASSES — no `<ScreenshotPlaceholder>` in shipped MDX
-- [ ] Test #2 live-catalog biconditional PASSES (H.6 completes the B.4 deferral)
+- [ ] Test #2 live-catalog biconditional PASSES (committed in E.13 per r6, not H.6)
 - [ ] Full `pnpm test` and `pnpm test:e2e` green
 - [ ] **Hand off to Phase I** ([09-close-out.md](09-close-out.md))
 
-Phase H introduces ~6 commits.
+Phase H introduces ~5 commits.

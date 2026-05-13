@@ -53,9 +53,11 @@ M9/M10-discovered additions land here as a single commit.
 G.0 cannot be marked complete until ALL of these pass; G.1 cannot start until G.0 is complete:
 
 ```bash
-# (a) No placeholder tokens remain in the file inventory:
-rg '<dashboard-row-component>|<onboarding-wizard>' docs/superpowers/plans/2026-05-12-user-facing-docs/
-# Expected: zero matches.
+# (a) No placeholder tokens remain in the file INVENTORY (not the plan dir
+# at large — that would match this very task description). Scope to the
+# overview file only:
+rg '<dashboard-row-component>|<onboarding-wizard>' docs/superpowers/plans/2026-05-12-user-facing-docs/00-overview.md
+# Expected after G.0 commits: zero matches.
 
 # (b) Every AFFORDANCE_MATRIX concrete-testid row's sourceSurface text is found in exactly one component file under app/ or components/:
 # For each row, run a grep and confirm the count is 1:
@@ -358,7 +360,7 @@ Per spec §7.1 test 13 (r10 row-class split). Three row-class handlers; reverse-
 - [ ] Step 1: **Concrete rows** — E2E Playwright spec. Iterates `AFFORDANCE_MATRIX` where `kind === "concrete"`:
   - Sign in as admin via `signInAs`.
   - For each row: `await page.goto(row.sourceRoute)`. Locate `page.getByTestId(row.testid)`. Assert it's visible. If the row is a tooltip, click/hover to reveal its inner `Learn more →`. Assert the visible `<a>`'s `href` matches `row.target`.
-  - For the first-seen-review row whose route contains `STAGED_ID_PLACEHOLDER` — implementer substitutes a known staged_id from the seeded fixture; if no staged row exists in seed, skip with `test.skip("requires staged-row fixture")`.
+  - For the first-seen-review row whose route contains `STAGED_ID_PLACEHOLDER`: the test REQUIRES a known staged_id from the seeded fixture (NOT optional — r6 per round-5 finding 4). If `pnpm db:seed` doesn't produce a `pending_syncs` row that yields a staged_id, extend the seed script (or G.5's per-spec setup hook) to insert a deterministic test-fixture staged row. The test FAILS (not skips) if the fixture is absent — first-seen review is one of Doug's highest-friction surfaces per master spec §9.1.1; AC-12.30 requires every concrete matrix row wired, with no opt-out for missing fixtures.
 - [ ] Step 2: **Template-family row** — unit-level test. Imports `MESSAGE_CATALOG`; iterates entries matching the AC-12.6 predicate (`severity !== "info"` AND `dougFacing != null` AND M12 fields non-null); for each entry calls the rendering helper from G.3 directly (mock the route as `/admin/show/x`); asserts the output contains:
   - `data-testid` matching `testidForErrorCode(code)`
   - `<a>` with `href` matching `targetForErrorCode(code)` (which equals `messageFor(code).helpHref` for the error-code family)

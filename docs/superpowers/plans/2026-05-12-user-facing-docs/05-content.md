@@ -717,11 +717,48 @@ export default function ErrorsPage() {
 Run: `pnpm typecheck && pnpm test tests/help/page-errors.test.tsx`
 Expected: PASS for entries that have been content-authored. If catalog entries that should render exist but lack `title` / `longExplanation` / `helpHref`, Phase B.4's biconditional meta-test will catch them — they're not yet content-authored. The errors-page smoke renders only the ones that are.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Extend the catalog meta-test with the LIVE biconditional assertion (r6 — folds in the work B.4 deferred)**
+
+Per r6 fix to round-5 finding 3: B.4 committed only forced fixtures because the live-catalog biconditional fails until every Doug-facing entry is backfilled. E.13 is the genuinely-last Phase E task; by E.13 time every E.5–E.11 backfill has landed. E.13 ADDS the live assertion (red just before this commit; green after) as part of the same TDD red-green-commit loop as the errors page itself.
+
+Append to `tests/messages/_metaErrorCatalogDocs.test.ts`:
+
+```ts
+import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+
+describe("Catalog meta-test (test #2 — live-catalog biconditional, added in E.13 per r6)", () => {
+  it("every live entry satisfies the biconditional", () => {
+    const violations: string[] = [];
+    const HELP_HREF_RE = /^\/help\/.+/;
+    for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
+      const lhs = entry.severity !== "info" && entry.dougFacing !== null;
+      const rhs =
+        entry.title !== null && entry.longExplanation !== null && entry.helpHref !== null;
+      if (lhs !== rhs) {
+        violations.push(`${code}: predicate=${lhs}, M12 fields non-null=${rhs}`);
+      }
+      if (rhs && entry.helpHref && !HELP_HREF_RE.test(entry.helpHref)) {
+        violations.push(`${code}: helpHref invalid: ${entry.helpHref}`);
+      }
+    }
+    expect(violations, violations.join("\n")).toEqual([]);
+  });
+});
+```
+
+- [ ] **Step 6: Run the test**
+
+Run: `pnpm test tests/messages/_metaErrorCatalogDocs.test.ts`
+
+If the biconditional FAILS for any entry: a Phase E backfill missed an entry. Fix the backfill in `lib/messages/catalog.ts` AS PART OF THIS COMMIT (not a follow-up — E.13 is the consolidation step that closes any gaps). Re-run until PASS.
+
+This is the TDD red→implementation→green→commit loop the reviewer required: the live biconditional assertion is the failing test; the implementation is any final backfill that makes it pass; the commit ships both together.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add app/help/errors/page.tsx tests/help/page-errors.test.tsx
-git commit -m "feat(help): /help/errors TSX page iterating catalog with RefAnchor per code (Task E.13)"
+git add app/help/errors/page.tsx tests/help/page-errors.test.tsx tests/messages/_metaErrorCatalogDocs.test.ts lib/messages/catalog.ts
+git commit -m "feat(help): /help/errors TSX + live-catalog biconditional (Task E.13 — closes B.4 deferral per r6)"
 ```
 
 ---
