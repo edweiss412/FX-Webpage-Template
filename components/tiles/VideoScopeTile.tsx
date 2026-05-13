@@ -63,3 +63,18 @@ export function VideoScopeTile({ rooms, viewerFlags }: VideoScopeTileProps) {
     </Section>
   );
 }
+
+
+/**
+ * View alias + async loader for M9 Task 9.2 — `VideoScopeTile` is
+ * already pure; the loader is identity but provides the seam where
+ * future per-tile derivation can throw and be caught by
+ * <TileServerFallback>.
+ */
+export const VideoScopeTileView = VideoScopeTile;
+
+export async function loadVideoScopeTileData(
+  props: VideoScopeTileProps,
+): Promise<VideoScopeTileProps> {
+  return props;
+}

@@ -94,3 +94,18 @@ export function OpeningReelTile({ showId, eventDetails, hasVideo }: OpeningReelT
     </Section>
   );
 }
+
+
+/**
+ * View alias + async loader for M9 Task 9.2 — `OpeningReelTile` is
+ * already pure; the loader is identity but provides the seam where
+ * future per-tile derivation can throw and be caught by
+ * <TileServerFallback>.
+ */
+export const OpeningReelTileView = OpeningReelTile;
+
+export async function loadOpeningReelTileData(
+  props: OpeningReelTileProps,
+): Promise<OpeningReelTileProps> {
+  return props;
+}

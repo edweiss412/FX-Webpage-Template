@@ -103,3 +103,18 @@ export function FinancialsTile({ financials, viewerFlags, isAdmin }: FinancialsT
     </Section>
   );
 }
+
+
+/**
+ * View alias + async loader for M9 Task 9.2 — `FinancialsTile` is
+ * already pure; the loader is identity but provides the seam where
+ * future per-tile derivation can throw and be caught by
+ * <TileServerFallback>.
+ */
+export const FinancialsTileView = FinancialsTile;
+
+export async function loadFinancialsTileData(
+  props: FinancialsTileProps,
+): Promise<FinancialsTileProps> {
+  return props;
+}

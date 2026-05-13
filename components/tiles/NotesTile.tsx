@@ -292,3 +292,18 @@ export function NotesTile({
     </Section>
   );
 }
+
+
+/**
+ * View alias + async loader for M9 Task 9.2 — `NotesTile` is
+ * already pure; the loader is identity but provides the seam where
+ * future per-tile derivation can throw and be caught by
+ * <TileServerFallback>.
+ */
+export const NotesTileView = NotesTile;
+
+export async function loadNotesTileData(
+  props: NotesTileProps,
+): Promise<NotesTileProps> {
+  return props;
+}

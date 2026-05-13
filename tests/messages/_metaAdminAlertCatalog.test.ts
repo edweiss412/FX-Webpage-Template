@@ -80,6 +80,7 @@ const ADMIN_ALERTS_CODES = [
   "REPORT_OPEN_ORPHAN_LABEL", //        M8 impossible open orphan state
   "REPORT_LEASE_THRASHING", //          M8 repeated retry/lease race fail-closed recovery
   "STALE_ORPHAN_REPORT", //             M8 report reaper stale reservation audit
+  "TILE_SERVER_RENDER_FAILED", //       M9 Task 9.2: per-tile server-render failure
 ] as const;
 
 const ADMIN_ALERTS_WRITE_SITES: Record<
@@ -197,6 +198,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   STALE_ORPHAN_REPORT: {
     path: "app/api/cron/report-reaper/route.ts",
     pattern: /INSERT\s+INTO\s+admin_alerts[\s\S]*STALE_ORPHAN_REPORT/,
+  },
+  TILE_SERVER_RENDER_FAILED: {
+    path: "components/shared/TileServerFallback.tsx",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"TILE_SERVER_RENDER_FAILED"/,
   },
 };
 

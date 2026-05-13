@@ -273,3 +273,18 @@ export function PackListTile({ pullSheet, show, stageRestriction, today }: PackL
     </Section>
   );
 }
+
+
+/**
+ * View alias + async loader for M9 Task 9.2 — `PackListTile` is
+ * already pure; the loader is identity but provides the seam where
+ * future per-tile derivation can throw and be caught by
+ * <TileServerFallback>.
+ */
+export const PackListTileView = PackListTile;
+
+export async function loadPackListTileData(
+  props: PackListTileProps,
+): Promise<PackListTileProps> {
+  return props;
+}

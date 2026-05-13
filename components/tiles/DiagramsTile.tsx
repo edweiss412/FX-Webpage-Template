@@ -132,3 +132,18 @@ export function DiagramsTile({ showId, diagrams, agendaLinks }: DiagramsTileProp
     </Section>
   );
 }
+
+
+/**
+ * View alias + async loader for M9 Task 9.2 — `DiagramsTile` is
+ * already pure; the loader is identity but provides the seam where
+ * future per-tile derivation can throw and be caught by
+ * <TileServerFallback>.
+ */
+export const DiagramsTileView = DiagramsTile;
+
+export async function loadDiagramsTileData(
+  props: DiagramsTileProps,
+): Promise<DiagramsTileProps> {
+  return props;
+}

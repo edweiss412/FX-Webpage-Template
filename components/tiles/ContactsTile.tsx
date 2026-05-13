@@ -170,3 +170,18 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
     </Section>
   );
 }
+
+
+/**
+ * View alias + async loader for M9 Task 9.2 — `ContactsTile` is
+ * already pure; the loader is identity but provides the seam where
+ * future per-tile derivation can throw and be caught by
+ * <TileServerFallback>.
+ */
+export const ContactsTileView = ContactsTile;
+
+export async function loadContactsTileData(
+  props: ContactsTileProps,
+): Promise<ContactsTileProps> {
+  return props;
+}

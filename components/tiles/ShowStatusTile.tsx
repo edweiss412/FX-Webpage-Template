@@ -159,3 +159,18 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
     </Section>
   );
 }
+
+
+/**
+ * View alias + async loader for M9 Task 9.2 — `ShowStatusTile` is
+ * already pure; the loader is identity but provides the seam where
+ * future per-tile derivation can throw and be caught by
+ * <TileServerFallback>.
+ */
+export const ShowStatusTileView = ShowStatusTile;
+
+export async function loadShowStatusTileData(
+  props: ShowStatusTileProps,
+): Promise<ShowStatusTileProps> {
+  return props;
+}

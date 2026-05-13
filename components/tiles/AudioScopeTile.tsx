@@ -97,3 +97,18 @@ export function AudioScopeTile({ rooms, viewerFlags }: AudioScopeTileProps) {
     </Section>
   );
 }
+
+
+/**
+ * View alias + async loader for M9 Task 9.2 — `AudioScopeTile` is
+ * already pure; the loader is identity but provides the seam where
+ * future per-tile derivation can throw and be caught by
+ * <TileServerFallback>.
+ */
+export const AudioScopeTileView = AudioScopeTile;
+
+export async function loadAudioScopeTileData(
+  props: AudioScopeTileProps,
+): Promise<AudioScopeTileProps> {
+  return props;
+}

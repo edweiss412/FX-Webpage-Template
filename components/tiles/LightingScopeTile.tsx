@@ -68,3 +68,18 @@ export function LightingScopeTile({ rooms, viewerFlags }: LightingScopeTileProps
     </Section>
   );
 }
+
+
+/**
+ * View alias + async loader for M9 Task 9.2 — `LightingScopeTile` is
+ * already pure; the loader is identity but provides the seam where
+ * future per-tile derivation can throw and be caught by
+ * <TileServerFallback>.
+ */
+export const LightingScopeTileView = LightingScopeTile;
+
+export async function loadLightingScopeTileData(
+  props: LightingScopeTileProps,
+): Promise<LightingScopeTileProps> {
+  return props;
+}

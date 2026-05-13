@@ -232,3 +232,18 @@ export function ScheduleTile({ show, dateRestriction, today }: ScheduleTileProps
     </Section>
   );
 }
+
+
+/**
+ * View alias + async loader for M9 Task 9.2 — `ScheduleTile` is
+ * already pure; the loader is identity but provides the seam where
+ * future per-tile derivation can throw and be caught by
+ * <TileServerFallback>.
+ */
+export const ScheduleTileView = ScheduleTile;
+
+export async function loadScheduleTileData(
+  props: ScheduleTileProps,
+): Promise<ScheduleTileProps> {
+  return props;
+}

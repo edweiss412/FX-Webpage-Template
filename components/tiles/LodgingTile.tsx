@@ -148,3 +148,18 @@ export function LodgingTile({ hotelReservations }: LodgingTileProps) {
     </Section>
   );
 }
+
+
+/**
+ * View alias + async loader for M9 Task 9.2 — `LodgingTile` is
+ * already pure; the loader is identity but provides the seam where
+ * future per-tile derivation can throw and be caught by
+ * <TileServerFallback>.
+ */
+export const LodgingTileView = LodgingTile;
+
+export async function loadLodgingTileData(
+  props: LodgingTileProps,
+): Promise<LodgingTileProps> {
+  return props;
+}

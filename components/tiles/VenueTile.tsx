@@ -144,3 +144,18 @@ export function VenueTile({ venue }: VenueTileProps) {
     </Section>
   );
 }
+
+
+/**
+ * View alias + async loader for M9 Task 9.2 — `VenueTile` is
+ * already pure; the loader is identity but provides the seam where
+ * future per-tile derivation can throw and be caught by
+ * <TileServerFallback>.
+ */
+export const VenueTileView = VenueTile;
+
+export async function loadVenueTileData(
+  props: VenueTileProps,
+): Promise<VenueTileProps> {
+  return props;
+}

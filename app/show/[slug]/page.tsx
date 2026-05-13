@@ -78,21 +78,25 @@ import { Header } from "@/components/layout/Header";
 import { ShowRealtimeBridge } from "@/components/realtime/ShowRealtimeBridge";
 import { RightNowCard } from "@/components/right-now/RightNowCard";
 import { buildRightNowContext } from "@/components/right-now/buildRightNowContext";
-import { AudioScopeTile } from "@/components/tiles/AudioScopeTile";
-import { ContactsTile } from "@/components/tiles/ContactsTile";
-import { CrewTile } from "@/components/tiles/CrewTile";
-import { DiagramsTile } from "@/components/tiles/DiagramsTile";
-import { FinancialsTile } from "@/components/tiles/FinancialsTile";
-import { LightingScopeTile } from "@/components/tiles/LightingScopeTile";
-import { LodgingTile } from "@/components/tiles/LodgingTile";
-import { NotesTile } from "@/components/tiles/NotesTile";
-import { OpeningReelTile } from "@/components/tiles/OpeningReelTile";
-import { PackListTile } from "@/components/tiles/PackListTile";
-import { ScheduleTile } from "@/components/tiles/ScheduleTile";
-import { ShowStatusTile } from "@/components/tiles/ShowStatusTile";
-import { TransportTile } from "@/components/tiles/TransportTile";
-import { VenueTile } from "@/components/tiles/VenueTile";
-import { VideoScopeTile } from "@/components/tiles/VideoScopeTile";
+import { AudioScopeTileView, loadAudioScopeTileData } from "@/components/tiles/AudioScopeTile";
+import { ContactsTileView, loadContactsTileData } from "@/components/tiles/ContactsTile";
+import { CrewTileView, loadCrewTileData } from "@/components/tiles/CrewTile";
+import { DiagramsTileView, loadDiagramsTileData } from "@/components/tiles/DiagramsTile";
+import { FinancialsTileView, loadFinancialsTileData } from "@/components/tiles/FinancialsTile";
+import {
+  LightingScopeTileView,
+  loadLightingScopeTileData,
+} from "@/components/tiles/LightingScopeTile";
+import { LodgingTileView, loadLodgingTileData } from "@/components/tiles/LodgingTile";
+import { NotesTileView, loadNotesTileData } from "@/components/tiles/NotesTile";
+import { OpeningReelTileView, loadOpeningReelTileData } from "@/components/tiles/OpeningReelTile";
+import { PackListTileView, loadPackListTileData } from "@/components/tiles/PackListTile";
+import { ScheduleTileView, loadScheduleTileData } from "@/components/tiles/ScheduleTile";
+import { ShowStatusTileView, loadShowStatusTileData } from "@/components/tiles/ShowStatusTile";
+import { TransportTileView, loadTransportTileData } from "@/components/tiles/TransportTile";
+import { VenueTileView, loadVenueTileData } from "@/components/tiles/VenueTile";
+import { VideoScopeTileView, loadVideoScopeTileData } from "@/components/tiles/VideoScopeTile";
+import { WrappedTile } from "@/components/shared/WrappedTile";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import { SESSION_COOKIE_NAME } from "@/lib/auth/constants";
 import { decodeSessionCookieValue } from "@/lib/auth/cookies";
@@ -638,10 +642,30 @@ export default async function ShowPage({ params }: PageProps) {
             reflow per §8.3) — that's intentional and verified by the e2e
             suite.
           */}
-          <LodgingTile hotelReservations={data.hotelReservations} />
-          <VenueTile venue={data.show.venue} />
-          <CrewTile crewMembers={data.crewMembers} />
-          <ContactsTile contacts={data.contacts} />
+          <WrappedTile
+            tileId="lodging-tile"
+            showId={showId}
+            load={() => loadLodgingTileData({ hotelReservations: data.hotelReservations })}
+            View={LodgingTileView}
+          />
+          <WrappedTile
+            tileId="venue-tile"
+            showId={showId}
+            load={() => loadVenueTileData({ venue: data.show.venue })}
+            View={VenueTileView}
+          />
+          <WrappedTile
+            tileId="crew-tile"
+            showId={showId}
+            load={() => loadCrewTileData({ crewMembers: data.crewMembers })}
+            View={CrewTileView}
+          />
+          <WrappedTile
+            tileId="contacts-tile"
+            showId={showId}
+            load={() => loadContactsTileData({ contacts: data.contacts })}
+            View={ContactsTileView}
+          />
           {(() => {
             const today = new Date();
             const transportVisible = transportTileVisible({
@@ -651,88 +675,131 @@ export default async function ShowPage({ params }: PageProps) {
             });
             return (
               <>
-                <ScheduleTile
-                  show={data.show}
-                  dateRestriction={ctx.dateRestriction}
-                  today={today}
-                />
-                <AudioScopeTile rooms={data.rooms} viewerFlags={ctx.viewerFlags} />
-                <VideoScopeTile rooms={data.rooms} viewerFlags={ctx.viewerFlags} />
-                <LightingScopeTile rooms={data.rooms} viewerFlags={ctx.viewerFlags} />
-                <TransportTile transportation={data.transportation} visible={transportVisible} />
-                {/*
-                  ShowStatusTile (Task 4.8 / AC-4.1) — public, every-crew
-                  surface. Renders coi_status + dress code + venue notes.
-                  Opening-reel rendering moved to OpeningReelTile at M7
-                  Task 7.9 (AC-7.3 / AC-7.25).
-                */}
-                <ShowStatusTile show={data.show} />
-                {/*
-                  OpeningReelTile (M7 Task 7.9 / AC-7.3 / AC-7.25).
-                  Renders the §10 URL-stripped opening_reel status AND
-                  the inline <video src="/api/asset/reel/<show>"> when
-                  all four shows.opening_reel_* pin columns are
-                  non-NULL. Whole-tile-missing per §8.3 when neither
-                  applies (e.g., text-only "TBD" cell + no pins).
-                */}
-                <OpeningReelTile
+                <WrappedTile
+                  tileId="schedule-tile"
                   showId={showId}
-                  eventDetails={data.show.event_details}
-                  hasVideo={data.openingReelHasVideo}
+                  load={() =>
+                    loadScheduleTileData({
+                      show: data.show,
+                      dateRestriction: ctx.dateRestriction,
+                      today,
+                    })
+                  }
+                  View={ScheduleTileView}
                 />
-                {/*
-                  DiagramsTile (M7 Task 7.9 / §10 / AC-7.1 / AC-7.2 /
-                  AC-7.2b / AC-7.4 / AC-7.7). Embedded-first gallery +
-                  inline PDF.js agenda embed. Whole-tile-missing per
-                  §8.3 when both lists are empty.
-                */}
-                <DiagramsTile
+                <WrappedTile
+                  tileId="audio-scope-tile"
                   showId={showId}
-                  diagrams={data.diagrams}
-                  agendaLinks={data.show.agenda_links}
+                  load={() =>
+                    loadAudioScopeTileData({ rooms: data.rooms, viewerFlags: ctx.viewerFlags })
+                  }
+                  View={AudioScopeTileView}
+                />
+                <WrappedTile
+                  tileId="video-scope-tile"
+                  showId={showId}
+                  load={() =>
+                    loadVideoScopeTileData({ rooms: data.rooms, viewerFlags: ctx.viewerFlags })
+                  }
+                  View={VideoScopeTileView}
+                />
+                <WrappedTile
+                  tileId="lighting-scope-tile"
+                  showId={showId}
+                  load={() =>
+                    loadLightingScopeTileData({ rooms: data.rooms, viewerFlags: ctx.viewerFlags })
+                  }
+                  View={LightingScopeTileView}
+                />
+                <WrappedTile
+                  tileId="transport-tile"
+                  showId={showId}
+                  load={() =>
+                    loadTransportTileData({
+                      transportation: data.transportation,
+                      visible: transportVisible,
+                    })
+                  }
+                  View={TransportTileView}
+                />
+                {/* ShowStatusTile (Task 4.8 / AC-4.1) — public, every-crew surface. */}
+                <WrappedTile
+                  tileId="show-status-tile"
+                  showId={showId}
+                  load={() => loadShowStatusTileData({ show: data.show })}
+                  View={ShowStatusTileView}
+                />
+                {/* OpeningReelTile (M7 Task 7.9 / AC-7.3 / AC-7.25). */}
+                <WrappedTile
+                  tileId="opening-reel-tile"
+                  showId={showId}
+                  load={() =>
+                    loadOpeningReelTileData({
+                      showId,
+                      eventDetails: data.show.event_details,
+                      hasVideo: data.openingReelHasVideo,
+                    })
+                  }
+                  View={OpeningReelTileView}
+                />
+                {/* DiagramsTile (M7 Task 7.9 / §10 / AC-7.1 / AC-7.2 / AC-7.2b / AC-7.4 / AC-7.7). */}
+                <WrappedTile
+                  tileId="diagrams-tile"
+                  showId={showId}
+                  load={() =>
+                    loadDiagramsTileData({
+                      showId,
+                      diagrams: data.diagrams,
+                      agendaLinks: data.show.agenda_links,
+                    })
+                  }
+                  View={DiagramsTileView}
+                />
+                {/* FinancialsTile (Task 4.8 / AC-4.2) — LEAD/admin only. */}
+                <WrappedTile
+                  tileId="financials-tile"
+                  showId={showId}
+                  load={() =>
+                    loadFinancialsTileData({
+                      financials: data.financials,
+                      viewerFlags: ctx.viewerFlags,
+                      isAdmin: ctx.isAdmin,
+                    })
+                  }
+                  View={FinancialsTileView}
+                />
+                {/* PackListTile — visibility decided by lib/visibility/packList.ts predicate. */}
+                <WrappedTile
+                  tileId="pack-list-tile"
+                  showId={showId}
+                  load={() =>
+                    loadPackListTileData({
+                      pullSheet: data.pullSheet,
+                      show: data.show,
+                      stageRestriction: ctx.stageRestriction,
+                      today,
+                    })
+                  }
+                  View={PackListTileView}
                 />
                 {/*
-                  FinancialsTile (Task 4.8 / AC-4.2) — LEAD/admin only.
-                  Defense in depth: the projection already gates by
-                  isLead, AND the tile re-checks the canonical
-                  financialsVisible predicate.
-                */}
-                <FinancialsTile
-                  financials={data.financials}
-                  viewerFlags={ctx.viewerFlags}
-                  isAdmin={ctx.isAdmin}
-                />
-                {/*
-                  PackListTile — visibility decided by
-                  lib/visibility/packList.ts predicate.
-                */}
-                <PackListTile
-                  pullSheet={data.pullSheet}
-                  show={data.show}
-                  stageRestriction={ctx.stageRestriction}
-                  today={today}
-                />
-                {/*
-                  NotesTile — aggregates every block-level `notes` field
-                  into a single "Things to know" tile.
-
+                  NotesTile — aggregates every block-level `notes` field.
                   Codex round-21 MEDIUM: gate `transportation` on
-                  `transportVisible`. NotesTile aggregates
-                  `transportation.notes` unconditionally; without this
-                  gate, a viewer not authorized to see the TransportTile
-                  (not the driver, not in any schedule's assigned_names)
-                  would still see transport notes under "Things to know"
-                  — a privacy boundary leak that exposes driver/parking/
-                  vehicle prose to unrelated crew. Passing null when the
-                  viewer can't see the tile keeps the boundary local +
-                  consistent.
+                  `transportVisible` to keep the privacy boundary local.
                 */}
-                <NotesTile
-                  show={data.show}
-                  hotelReservations={data.hotelReservations}
-                  rooms={data.rooms}
-                  transportation={transportVisible ? data.transportation : null}
-                  contacts={data.contacts}
+                <WrappedTile
+                  tileId="notes-tile"
+                  showId={showId}
+                  load={() =>
+                    loadNotesTileData({
+                      show: data.show,
+                      hotelReservations: data.hotelReservations,
+                      rooms: data.rooms,
+                      transportation: transportVisible ? data.transportation : null,
+                      contacts: data.contacts,
+                    })
+                  }
+                  View={NotesTileView}
                 />
               </>
             );
