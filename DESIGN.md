@@ -109,14 +109,14 @@ Apply at the smallest semantic boundary — the `<time>` element, the `.call-tim
 
 ### 2.6 Eyebrow letter-spacing tokens (M9 M4-D5 consolidation)
 
-Uppercase eyebrow labels (`text-xs uppercase` + meta-label voice) use one of two named letter-spacing tokens — never an arbitrary `tracking-[X.YYem]` value:
+Uppercase eyebrow labels (`text-xs uppercase` + meta-label voice) use one of two named letter-spacing tokens — never an arbitrary inline square-bracket value:
 
 | Token                       | em     | Use                                                                                                                            |
 | --------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `--tracking-eyebrow`        | 0.12em | Standard eyebrow voice — KeyValue dt, Section heading eyebrow, tile field labels (Schedule day labels, Contacts kind, etc.).   |
+| `--tracking-eyebrow`        | 0.12em | Standard eyebrow voice — KeyValue dt, Section heading eyebrow, tile field labels (Schedule day labels, Contacts kind, etc.), admin StagedReviewCard source kicker. |
 | `--tracking-eyebrow-strong` | 0.18em | Emphasis eyebrow — Right Now card "RIGHT NOW" tag, Footer FXAV wordmark, Header crew tag.                                      |
 
-The consolidation absorbed four prior inline values (0.12 / 0.14 / 0.18 / 0.22em) into two semantic tokens. `tests/styles/eyebrow-tracking.test.ts` enforces the contract — adding a new arbitrary `tracking-[X.YYem]` value to any file under `components/` or `app/` fails the build. If a future surface genuinely needs a different tracking value, declare it as a named token in `app/globals.css` `@theme` and add a row to the table above before using it.
+The consolidation absorbed four prior inline values (0.12 / 0.14 / 0.18 / 0.22em) into two semantic tokens. `tests/styles/eyebrow-tracking.test.ts` enforces the contract — adding a new arbitrary square-bracket tracking value to any source file under `components/` or `app/` (ts/tsx/js/jsx/css) fails the build. If a future surface genuinely needs a different tracking value, declare it as a named token in `app/globals.css` `@theme` and add a row to the table above before using it. Non-arbitrary Tailwind defaults (`tracking-wide`, `tracking-tight`, etc.) are not in scope for this meta-test — they're used elsewhere for non-eyebrow surfaces (display headings use `tracking-tight`); the meta-test specifically targets the bracket-form arbitrary leak class that R1 reviewer caught.
 
 ---
 

@@ -322,7 +322,7 @@ export function StagedReviewCard({ row, onMutated, showId }: StagedReviewCardPro
             language label rather than the raw `cron`/`onboarding_scan`
             enum so Doug doesn't have to translate schema vocabulary. */}
         <p
-          className="text-xs font-medium uppercase tracking-wide text-text-subtle"
+          className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle"
           data-testid="staged-source-kind"
         >
           {SOURCE_LABELS[row.sourceKind]}

@@ -1,21 +1,27 @@
 /**
  * tests/styles/eyebrow-tracking.test.ts (M9 C2 / M4-D5)
  *
- * Static-grep contract: no `tracking-[0.NNem]` arbitrary letter-spacing
- * values should appear on elements with the `uppercase` class anywhere
- * under `components/` or `app/`. The eyebrow tracking values were
- * consolidated to two named tokens during M9 C2:
+ * Static-grep contract: no `tracking-` arbitrary-square-bracket
+ * letter-spacing values (e.g., tracking-, then "[", then a numeric em
+ * value, then "]") should appear on uppercase elements anywhere under
+ * `components/` or `app/`. The eyebrow tracking values were consolidated
+ * to two named tokens during M9 C2:
  *   - `tracking-eyebrow`         (0.12em — standard eyebrow)
  *   - `tracking-eyebrow-strong`  (0.18em — emphasis eyebrow)
  *
  * Future eyebrow callsites MUST use the named tokens. Adding a new
- * inline `tracking-[X.YYem]` to an uppercase element fails this test;
- * either add the value as a token in app/globals.css @theme + document
- * in DESIGN.md §2, or use the existing tokens.
+ * inline arbitrary tracking value to an uppercase element fails this
+ * test; either add the value as a token in app/globals.css @theme +
+ * document in DESIGN.md §2, or use the existing tokens.
  *
  * Class-sweep contract (per AGENTS.md): the test scans every file in
  * `components/` and `app/` rather than a hand-named list, so the
  * coverage stays in sync with the codebase as files are added/moved.
+ *
+ * Note: the regex literal below is the only `tracking-[...]` form this
+ * file contains. Comments and test names DO NOT spell the arbitrary
+ * class out verbatim because Tailwind v4 scans test files and would
+ * emit those literals into the built CSS (M9 C2 R1 finding).
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -27,7 +33,13 @@ function walkFiles(dir: string): string[] {
     if (statSync(path).isDirectory()) {
       return walkFiles(path);
     }
-    return /\.(ts|tsx)$/.test(path) ? [path] : [];
+    // Scan every source extension Tailwind v4 can pick up classes from:
+    // .ts/.tsx for JSX className strings, .js/.jsx for legacy, .css for
+    // @apply / arbitrary-value usage in stylesheets (M9 C2 R1 L1 fix —
+    // a future Tailwind-scanned .css file under app/ or components/
+    // should not be able to slip an arbitrary tracking value past
+    // this meta-test).
+    return /\.(ts|tsx|js|jsx|css)$/.test(path) ? [path] : [];
   });
 }
 
@@ -35,7 +47,7 @@ describe("META eyebrow tracking token contract (M4-D5)", () => {
   const ARBITRARY_TRACKING_RE = /tracking-\[[^\]]+\]/g;
   const files = [...walkFiles("components"), ...walkFiles("app")];
 
-  test("no `tracking-[X.YYem]` arbitrary tracking values remain in components/ or app/", () => {
+  test("no arbitrary square-bracket tracking values remain in components/ or app/", () => {
     const violations: string[] = [];
     for (const file of files) {
       const source = readFileSync(file, "utf8");
