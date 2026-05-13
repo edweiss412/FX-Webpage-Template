@@ -229,7 +229,7 @@ beforeEach(() => {
 });
 
 describe("M9 C6c — TransformWrapper prop contract", () => {
-  test("min=1, max=4, doubleClick toggles 1↔2 with mode='toggle' + step=1", () => {
+  test("Codex R5 HIGH: doubleClick uses dynamic mode (zoomIn @ scale=1 → 2x; reset @ scale>1 → 1x) with step=ln(2)", async () => {
     render(
       <GalleryLightbox
         showId={SHOW_ID}
@@ -239,14 +239,29 @@ describe("M9 C6c — TransformWrapper prop contract", () => {
         onClose={() => {}}
       />,
     );
-    const props = libState.lastWrapperProps;
-    expect(props).not.toBeNull();
-    expect(props?.minScale).toBe(1);
-    expect(props?.maxScale).toBe(4);
-    const dc = props?.doubleClick as { mode?: string; step?: number } | undefined;
-    expect(dc?.mode).toBe("toggle");
-    // step=1 means 1 + 1 = 2× on toggle (library adds step to minScale).
-    expect(dc?.step).toBe(1);
+    expect(libState.lastWrapperProps?.minScale).toBe(1);
+    expect(libState.lastWrapperProps?.maxScale).toBe(4);
+    // At rest (scale=1): mode='zoomIn' so library's `scale * exp(step)`
+    // math lands at exactly 2x with step=ln(2). The original
+    // mode='toggle' was wrong — library toggle still uses exp math,
+    // producing ~2.718x from 1x and only ~1.47x from 4x (never resets).
+    const dcAtRest = libState.lastWrapperProps?.doubleClick as
+      | { mode?: string; step?: number; animationTime?: number }
+      | undefined;
+    expect(dcAtRest?.mode).toBe("zoomIn");
+    expect(dcAtRest?.step).toBeCloseTo(Math.LN2, 6);
+    // Library: 1 * exp(ln 2) === 2.0 exactly.
+    expect(1 * Math.exp(dcAtRest?.step ?? 0)).toBeCloseTo(2, 6);
+
+    // When zoomed (scale>1): mode flips to 'reset' so double-tap
+    // always returns to 1x regardless of current scale.
+    simulateScale(3.5);
+    await waitFor(() => {
+      const dcZoomed = libState.lastWrapperProps?.doubleClick as
+        | { mode?: string }
+        | undefined;
+      expect(dcZoomed?.mode).toBe("reset");
+    });
   });
 
   test("Codex R1 HIGH: panning is disabled at scale=1 (Embla owns swipe), enabled at scale>1 (library owns pan)", async () => {
@@ -777,6 +792,29 @@ describe("M9 C6c — Codex R3 HIGH: reduced-motion threads animationTime=0 throu
     // be a regression making this test useless).
     expect(libState.resetTransformAnimTimes).toContain(undefined);
     expect(libState.resetTransformAnimTimes).not.toContain(0);
+  });
+});
+
+describe("M9 C6c — Codex R5 MED-1: TransformComponent content box is viewport-sized", () => {
+  test("source: contentClass forces size-full so img max-h/w resolves against figure viewport, not fit-content", async () => {
+    // jsdom can't measure layout, so this is a source-shape
+    // assertion: both wrapperClass AND contentClass must carry
+    // !size-full + the centering flex. Without contentClass override
+    // the library's default `width/height: fit-content` on the inner
+    // content box would let large diagrams render at intrinsic size
+    // at scale=1 on the active slide.
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("components/diagrams/GalleryLightbox.tsx", "utf8");
+    expect(source).toContain(
+      'wrapperClass="!size-full !max-h-full !max-w-full !flex !items-center !justify-center"',
+    );
+    expect(source).toContain(
+      'contentClass="!size-full !max-h-full !max-w-full !flex !items-center !justify-center"',
+    );
+    // The active-slide img drops max-h/w-full + uses size-full
+    // because the parent boxes are now definite (no fit-content
+    // ambiguity). object-contain preserves aspect.
+    expect(source).toContain('className="size-full select-none object-contain"');
   });
 });
 

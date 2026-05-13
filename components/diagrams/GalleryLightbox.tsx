@@ -451,9 +451,24 @@ export function GalleryLightbox({
                         limitToBounds={true}
                         centerOnInit={true}
                         smooth={!prefersReducedMotion}
+                        // Codex R5 HIGH: library's `toggle` mode uses
+                        // exponential button-zoom math (scale *
+                        // exp(step)) rather than alternating between
+                        // 1x and 1+step. At scale=1 with step=1 the
+                        // result is ~2.718x, not 2x; at scale=4 with
+                        // step=1 reverse, the result is ~1.47x, NOT
+                        // a reset. Solution: switch mode dynamically
+                        // based on current scale.
+                        //   - scale=1 (zoomed=false): mode "zoomIn"
+                        //     with step=ln(2) → 1 * exp(ln 2) = 2.0
+                        //   - scale>1 (zoomed=true): mode "reset" →
+                        //     always returns to 1x
+                        // The library re-reads doubleClick per render
+                        // so the mode + step flip with the zoomed
+                        // state, no remount needed.
                         doubleClick={{
-                          mode: "toggle",
-                          step: 1,
+                          mode: zoomed ? "reset" : "zoomIn",
+                          step: Math.LN2,
                           animationTime: prefersReducedMotion ? 0 : 200,
                         }}
                         pinch={{ disabled: false }}
@@ -506,9 +521,26 @@ export function GalleryLightbox({
                           controlsSlotRef={controlsSlotRef}
                           prefersReducedMotion={prefersReducedMotion}
                         />
+                        {/*
+                          Codex R5 MED-1: the library's
+                          TransformComponent renders two boxes —
+                          wrapper + content. wrapperClass alone left
+                          the content box at the library's default
+                          `width/height: fit-content`, which means
+                          the child img's `max-h/w-full` resolved
+                          against the img's natural size (unbounded)
+                          rather than the figure viewport. For large
+                          stage plots this allowed the active slide
+                          to render at intrinsic size at scale=1
+                          while inactive/plain slides fit correctly.
+                          Both boxes now get size-full, and the img
+                          drops max-* in favor of h-full/w-full +
+                          object-contain so fit-to-screen is computed
+                          against the figure viewport.
+                        */}
                         <TransformComponent
                           wrapperClass="!size-full !max-h-full !max-w-full !flex !items-center !justify-center"
-                          contentClass="!flex !items-center !justify-center"
+                          contentClass="!size-full !max-h-full !max-w-full !flex !items-center !justify-center"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img
@@ -558,7 +590,7 @@ export function GalleryLightbox({
                                 return next;
                               });
                             }}
-                            className="max-h-full max-w-full select-none object-contain"
+                            className="size-full select-none object-contain"
                           />
                         </TransformComponent>
                       </TransformWrapper>
