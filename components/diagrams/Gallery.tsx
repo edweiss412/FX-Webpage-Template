@@ -27,6 +27,7 @@
  * sees the `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` warning).
  */
 import { useState } from "react";
+import { AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronUp, ImageOff } from "lucide-react";
 
 import { GalleryLightbox } from "@/components/diagrams/GalleryLightbox";
@@ -137,15 +138,23 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
           )}
         </button>
       ) : null}
-      {lightboxIndex !== null ? (
-        <GalleryLightbox
-          showId={showId}
-          snapshotRevisionId={snapshotRevisionId}
-          items={items}
-          startIndex={lightboxIndex}
-          onClose={() => setLightboxIndex(null)}
-        />
-      ) : null}
+      {/*
+        M9 C6 / M7-D1: AnimatePresence lets the lightbox play its
+        exit animation (opacity 1→0, scale 1→0.96) on close before
+        unmounting. The motion contract lives in
+        GalleryLightbox.tsx's `motion.div` root + reduced-motion gate.
+      */}
+      <AnimatePresence>
+        {lightboxIndex !== null ? (
+          <GalleryLightbox
+            showId={showId}
+            snapshotRevisionId={snapshotRevisionId}
+            items={items}
+            startIndex={lightboxIndex}
+            onClose={() => setLightboxIndex(null)}
+          />
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

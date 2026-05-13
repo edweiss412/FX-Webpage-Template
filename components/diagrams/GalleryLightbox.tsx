@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import useEmblaCarousel from "embla-carousel-react";
+import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import type { GalleryItem } from "@/components/diagrams/Gallery";
@@ -102,14 +103,30 @@ export function GalleryLightbox({
     };
   }, []);
 
+  // M9 C6 / M7-D1: lightbox entry/exit motion via framer-motion.
+  // - Container: opacity 0 → 1 + scale 0.96 → 1 on enter, reversed on
+  //   exit. Duration matches DESIGN.md §5 `--duration-normal` (220ms);
+  //   easing matches `--ease-out-quart`.
+  // - Reuses the same `prefersReducedMotion` snapshot the Embla scrub
+  //   tracks at mount; reduce-motion users skip the animation entirely
+  //   (initial/exit = the "rest" state, duration 0).
+  // - AnimatePresence wrapping lives in the parent Gallery so the
+  //   exit-animation has a place to play on unmount.
+  const motionDuration = prefersReducedMotion ? 0 : 0.22;
   return (
-    <div
+    <motion.div
       ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label="Diagrams gallery"
       data-testid="diagrams-lightbox"
       className="fixed inset-0 z-50 flex flex-col bg-bg/95 backdrop-blur-sm"
+      initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={prefersReducedMotion ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.96 }}
+      // ease-out-quart from DESIGN.md §5. cubic-bezier(0.25, 1, 0.5, 1)
+      // is the canonical four-point curve.
+      transition={{ duration: motionDuration, ease: [0.25, 1, 0.5, 1] }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -185,6 +202,6 @@ export function GalleryLightbox({
           </button>
         ) : null}
       </div>
-    </div>
+    </motion.div>
   );
 }
