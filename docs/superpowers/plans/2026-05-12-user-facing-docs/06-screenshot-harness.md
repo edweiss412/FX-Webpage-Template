@@ -232,15 +232,18 @@ This split honors AGENTS.md plan-wide invariant #1 (TDD: every commit green). r4
 
 Per spec §7.1 test 18 / AC-12.39. Captures the `preview-as-crew-banner` manifest entry TWICE with two different `frozenClockInstant` values; asserts WebP bytes differ — proving the header reaches the server's render path.
 
+**r2 fix per Phase-C-r8 finding 1 (HIGH, CROSS-PHASE):** the r1 test varied BOTH `context.clock` AND `X-Screenshot-Frozen-Now`, then asserted final-WebP-byte difference. That passes even if the server header path is broken, because client components like `RightNowCard` read browser `Date` under `context.clock` and would produce different output regardless. r2 isolates the server header by **keeping the browser clock fixed** and varying ONLY the server header, AND adds a primary assertion against a **server-rendered marker** (the `data-today` attribute on the schedule tile) extracted from the initial HTML response BEFORE any client hydration. This pins AC-12.39's contract: the header reaches server render.
+
 - [ ] Step 1: Write the test:
   - Uses `@playwright/test` `test` / `expect`.
   - Inside the test, sign in as admin via `signInAs`.
-  - Define a `captureAt(instant: string): Promise<Buffer>` helper that: installs `context.clock` at `instant`; sets `X-Screenshot-Frozen-Now` + `Authorization: Bearer ${TEST_AUTH_SECRET}` extra headers; navigates to the preview route; waits for the manifest's `waitFor` selector; takes a `page.screenshot({ type: "png" })`; encodes via `sharp` with the same pinned settings as Task F.3.
-  - Capture once at `"2026-03-22T15:00:00.000Z"` (pre-show day) and once at `"2026-03-24T15:00:00.000Z"` (mid-show day) — both inside the RPAS Central 2026 fixture window.
+  - **Fix the browser clock once** at a neutral instant (`"2026-03-23T12:00:00.000Z"`) for both captures via `context.clock.install({ time: ... })`. Do NOT vary it between captures.
+  - Define a `serverRenderedTodayAt(instant: string): Promise<string>` helper that: sets `X-Screenshot-Frozen-Now` + `Authorization: Bearer ${TEST_AUTH_SECRET}` extra headers; navigates to the preview route with `await page.goto(url, { waitUntil: "domcontentloaded" })`; extracts the **server-rendered** `data-today` attribute from the schedule tile via `await page.locator('[data-testid="schedule-tile"]').getAttribute("data-today")` BEFORE client effects can rewrite it.
+  - **Primary assertion (server-only):** call the helper twice with two different server-header instants (`"2026-03-22T..."` pre-show, `"2026-03-24T..."` mid-show). Assert `today1 !== today2` AND both match the expected dates from the manifest fixture. If `today1 === today2`, the server-render path is NOT consuming the header — TEST FAILS regardless of any WebP output.
+  - **Secondary assertion (full-pipeline byte diff, ADDITIONAL not replacement):** with the browser clock still fixed, also capture WebPs via `page.screenshot({ type: "png" })` → sharp-encode at both instants and assert `buf1.equals(buf2) === false`. This catches end-to-end regressions in the encoding/sharp/output path that don't show up in the data-today attribute alone.
   - Write both buffers to `tmp/screenshots-clock-pipeline/` for post-mortem debugging.
-  - Assert `buf1.length > 0`, `buf2.length > 0`, and `buf1.equals(buf2) === false`.
-- [ ] Step 2: Run the test — `pnpm test:e2e --project screenshots-help`. PASS confirms the request-scoped clock pipeline is wired end-to-end.
-- [ ] Step 3: Commit: `test(playwright): E2E clock-pipeline proof for AC-12.39 (Task F.9 — test #18)`
+- [ ] Step 2: Run the test — `pnpm test:e2e --project screenshots-help`. PASS confirms BOTH the server header is consumed AND the full pipeline produces distinct outputs. The PRIMARY (server-only) assertion specifically pins AC-12.39's "request-scoped header reaches server render" contract — a broken server path fails this assertion even if WebP bytes happen to differ.
+- [ ] Step 3: Commit: `test(playwright): E2E clock-pipeline proof for AC-12.39 — server-rendered marker + byte diff (Task F.9 — test #18)`
 
 ---
 

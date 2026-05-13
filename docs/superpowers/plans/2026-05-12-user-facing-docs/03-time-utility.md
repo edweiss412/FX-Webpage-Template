@@ -114,10 +114,11 @@ describe("lib/time/now — three-precondition gate (test #15)", () => {
   });
 
   it("header value is parseable but NOT canonical ISO 8601 (e.g., `03/24/2026`) → gate refuses per AC-12.37", async () => {
-    // r8 fix per C-r7 finding 4: `new Date("03/24/2026")` is parseable
-    // implementation-dependently, but the spec requires canonical
-    // ISO/RFC3339. The gate round-trips parsed.toISOString() vs the input
-    // and rejects mismatches.
+    // r8 → r9 fix per C-r7 finding 4 (refined per C-r8 finding 2):
+    // `new Date("03/24/2026")` is parseable implementation-dependently, but
+    // the spec requires canonical ISO 8601 / RFC3339. Regex-screen catches
+    // this without being so strict that valid `Z`-without-ms inputs are
+    // rejected.
     headerStore["x-screenshot-frozen-now"] = "03/24/2026";
     headerStore.authorization = "Bearer test-secret-fixture-19c";
     process.env.ENABLE_TEST_AUTH = "true";
@@ -129,6 +130,32 @@ describe("lib/time/now — three-precondition gate (test #15)", () => {
 
     const { nowDate } = await import("@/lib/time/now");
     expect((await nowDate()).toISOString()).toBe(realNow.toISOString());
+  });
+
+  it("header value is ISO 8601 WITHOUT milliseconds (e.g., `2026-03-24T15:00:00Z`) → gate ACCEPTS", async () => {
+    // r9 per C-r8 finding 2: valid ISO inputs without fractional seconds
+    // must be accepted (toISOString() always emits `.000Z` so a pure
+    // round-trip would have rejected `2026-03-24T15:00:00Z`). The regex
+    // approach accepts both forms.
+    const noMs = "2026-03-24T15:00:00Z";
+    headerStore["x-screenshot-frozen-now"] = noMs;
+    headerStore.authorization = "Bearer test-secret-fixture-19c";
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = "test-secret-fixture-19c";
+
+    const { nowDate } = await import("@/lib/time/now");
+    // 15:00:00Z parses to the same instant as 15:00:00.000Z.
+    expect((await nowDate()).toISOString()).toBe("2026-03-24T15:00:00.000Z");
+  });
+
+  it("header value is ISO 8601 with explicit offset (e.g., `2026-03-24T15:00:00+00:00`) → gate ACCEPTS", async () => {
+    headerStore["x-screenshot-frozen-now"] = "2026-03-24T15:00:00+00:00";
+    headerStore.authorization = "Bearer test-secret-fixture-19c";
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = "test-secret-fixture-19c";
+
+    const { nowDate } = await import("@/lib/time/now");
+    expect((await nowDate()).toISOString()).toBe("2026-03-24T15:00:00.000Z");
   });
 
   it("header value not parseable as ISO 8601 → gate refuses (defense-in-depth)", async () => {
@@ -252,19 +279,27 @@ export async function nowDate(): Promise<Date> {
   if (!expectedSecret || expectedSecret.length < 16) return new Date();
   if (authz !== `Bearer ${expectedSecret}`) return new Date();
 
-  // r8 fix per C-r7 finding 4: spec r13 AC-12.37 requires the header value
-  // to be a valid ISO/RFC3339 timestamp. JavaScript's `new Date(str)` is
-  // permissive — it accepts implementation-dependent forms like
-  // `03/24/2026` or `Wed, 24 Mar 2026 15:00:00 GMT`. Without stricter
-  // validation, those non-canonical forms would silently pin the clock
-  // under the test-auth gate.
+  // r8 → r9 fix per C-r7 finding 4 (refined per C-r8 finding 2): spec r13
+  // AC-12.37 requires a valid ISO 8601 / RFC3339 timestamp. JavaScript's
+  // `new Date(str)` is permissive — it accepts implementation-dependent
+  // forms like `03/24/2026` or `Wed, 24 Mar 2026 15:00:00 GMT`. Round-trip
+  // alone is too strict (rejects valid `2026-03-24T15:00:00Z` without ms).
   //
-  // Round-trip check: parse → reformat as ISO → compare. If the input was
-  // canonical ISO 8601 (with optional milliseconds + Z timezone), the
-  // round-tripped string equals the input. Anything else falls through.
+  // r9: regex-screen ISO 8601 / RFC3339 inputs first (accepts both `Z` and
+  // explicit offsets, with or without fractional seconds), THEN parse. This
+  // accepts:
+  //   2026-03-24T15:00:00.000Z
+  //   2026-03-24T15:00:00Z
+  //   2026-03-24T15:00:00+00:00
+  // And refuses:
+  //   03/24/2026
+  //   Wed, 24 Mar 2026 15:00:00 GMT
+  //   2026-03-24 (date only)
+  const ISO_8601_RE =
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+  if (!ISO_8601_RE.test(frozen)) return new Date();
   const parsed = new Date(frozen);
   if (Number.isNaN(parsed.getTime())) return new Date();
-  if (parsed.toISOString() !== frozen) return new Date();
   return parsed;
 }
 ```
@@ -808,24 +843,65 @@ describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
    * comments). If a future PR needs strict accuracy, swap for a TypeScript
    * AST that walks NewExpression/CallExpression nodes.
    */
+  /**
+   * r9 fix per C-r8 finding 3: a regex-only stripComments has a known
+   * false-negative class — any line containing a string literal with `//`
+   * (e.g., `const url = "https://example.com"; const t = new Date();`) gets
+   * everything-after-`//` stripped, including the legitimate `new Date()`
+   * call to the right.
+   *
+   * Replace with a tiny lexer that tracks string + template-literal context.
+   * Inside a string/template, `//` and `/*` are LITERAL characters and don't
+   * start comments. Outside, they do — and we replace the comment with
+   * whitespace that preserves line-count alignment.
+   */
   function stripComments(src: string): string {
-    return src
-      // Block comments — non-greedy, multi-line.
-      // r8 fix per C-r7 finding 3: preserve the SAME number of newlines as the
-      // original block so downstream line indexes stay aligned with the
-      // original source. Replacing a multi-line `/* ... */` with a single
-      // space (the r7 approach) collapsed all interior newlines, so a real
-      // `new Date()` after a multi-line comment would be reported at the
-      // wrong line — and worse, if the corresponding `originalLines[i]`
-      // happened to be a comment containing `// not-render-side:` text, the
-      // guard would suppress the unrelated violation.
-      .replace(/\/\*[\s\S]*?\*\//g, (match) => {
-        const newlineCount = (match.match(/\n/g) ?? []).length;
-        return " " + "\n".repeat(newlineCount);
-      })
-      // Line comments — drop everything from `//` to EOL (the `\n` itself
-      // is NOT in the [^\n]* class, so line breaks are preserved).
-      .replace(/\/\/[^\n]*/g, "");
+    const out: string[] = [];
+    let i = 0;
+    let mode: "code" | "sq" | "dq" | "tpl" | "line" | "block" = "code";
+    while (i < src.length) {
+      const c = src[i];
+      const next = src[i + 1];
+      if (mode === "code") {
+        if (c === "/" && next === "/") { mode = "line"; i += 2; continue; }
+        if (c === "/" && next === "*") { mode = "block"; i += 2; continue; }
+        if (c === '"') { mode = "dq"; out.push(c); i++; continue; }
+        if (c === "'") { mode = "sq"; out.push(c); i++; continue; }
+        if (c === "`") { mode = "tpl"; out.push(c); i++; continue; }
+        out.push(c); i++; continue;
+      }
+      if (mode === "line") {
+        // Strip until newline (preserve the newline).
+        if (c === "\n") { out.push("\n"); mode = "code"; i++; continue; }
+        i++; continue;
+      }
+      if (mode === "block") {
+        if (c === "*" && next === "/") { mode = "code"; i += 2; continue; }
+        if (c === "\n") { out.push("\n"); i++; continue; } // preserve line count
+        i++; continue;
+      }
+      if (mode === "dq") {
+        if (c === "\\") { out.push(c); out.push(next ?? ""); i += 2; continue; }
+        if (c === '"') { mode = "code"; }
+        out.push(c); i++; continue;
+      }
+      if (mode === "sq") {
+        if (c === "\\") { out.push(c); out.push(next ?? ""); i += 2; continue; }
+        if (c === "'") { mode = "code"; }
+        out.push(c); i++; continue;
+      }
+      if (mode === "tpl") {
+        if (c === "\\") { out.push(c); out.push(next ?? ""); i += 2; continue; }
+        if (c === "`") { mode = "code"; }
+        // Note: ${...} template substitutions inside backticks are NOT a comment context;
+        // an interpolated expression COULD contain a comment but that's a corner case
+        // we accept for now (false-positive on stripping inside ${...} would only fire
+        // for a literal `${"foo" // bar}` — unusual).
+        out.push(c); i++; continue;
+      }
+      i++; // safety
+    }
+    return out.join("");
   }
 
   for (const file of allFiles) {
@@ -893,6 +969,21 @@ describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
     ].join("\n");
     const stripped = stripComments(synthetic);
     expect(/\bnew Date\(\s*\)/.test(stripped)).toBe(true);
+  });
+
+  // r9 fix per C-r8 finding 3: string literals containing `//` (e.g., URLs)
+  // must NOT cause the line-comment stripper to discard the real code that
+  // follows. The lexer-based stripComments tracks string context.
+  it("string-literal containing '//' (URL) does NOT cause new Date() after it to be stripped", () => {
+    const synthetic = `const url = "https://example.test"; const t = new Date();\n`;
+    const stripped = stripComments(synthetic);
+    expect(/\bnew Date\(\s*\)/.test(stripped)).toBe(true);
+  });
+
+  it("real // comment after a string literal IS stripped (lexer leaves code mode after closing quote)", () => {
+    const synthetic = `const url = "https://example.test"; // a comment with new Date()\n`;
+    const stripped = stripComments(synthetic);
+    expect(/\bnew Date\(\s*\)/.test(stripped)).toBe(false);
   });
 
   // r8 fix per C-r7 finding 3: multi-line block comments must preserve their
@@ -1007,7 +1098,7 @@ After C.1 – C.4 commits land:
 
 - [ ] `lib/time/now.ts` exists and gates correctly on all three preconditions
 - [ ] `app/show/[slug]/page.tsx`'s render-side `today` migrated to `nowDate()`
-- [ ] Test #15 (lib/time/now.ts gate) PASSES with 11 cases total — **8 C.1 gate fixtures** (all-three-met, header-missing, ENABLE_TEST_AUTH-unset, Bearer-missing, Bearer-mismatch, malformed-ISO, TEST_AUTH_SECRET-unset+Bearer-undefined, short-secret) + **3 C.3 envelope fixtures** (capture-boundary, header casing tolerance, Bearer case-sensitivity)
+- [ ] Test #15 (lib/time/now.ts gate) PASSES with 13 cases total — **10 C.1 gate fixtures** (all-three-met, header-missing, ENABLE_TEST_AUTH-unset, Bearer-missing, Bearer-mismatch, malformed-ISO, parseable-non-ISO `03/24/2026`, no-ms-ISO accepted, offset-ISO accepted, TEST_AUTH_SECRET-unset+Bearer-undefined, short-secret) + **3 C.3 envelope fixtures** (capture-boundary, header casing tolerance, Bearer case-sensitivity)
 - [ ] Test #16 (server-time grep guard) PASSES against the current call-site inventory
 - [ ] Mutation paths carry `// not-render-side: <reason>` per-line waivers
 - [ ] Existing `pnpm test:e2e` for crew page passes — production behavior unchanged when header isn't present
