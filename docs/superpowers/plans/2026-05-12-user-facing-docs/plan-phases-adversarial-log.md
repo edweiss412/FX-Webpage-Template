@@ -99,7 +99,14 @@ Same soft cap as overview: 10 rounds per phase. At round 10, remaining findings 
 
 ## Phase G — `07-affordance-retrofit.md`
 
-(Pending — task #18.)
+| Round | Verdict | Findings | Resolved in commit | Notes |
+|---|---|---|---|---|
+| R1 | needs-attention | 3 (2 high, 1 medium) | r2 — `a470973` | Missing parse-warning row in §5.6 matrix; G.3 wired UI before walker test (TDD violation); G.5 import path mismatch (lib/help vs app/help/_affordanceMatrix) |
+| R2 | needs-attention | 3 (2 high, 1 medium) | r3 — `0f4e19c` | Parse-warning row's single target lost per-code deep link; G.4 hard-coded 12-row count; G.0 sourceSurface not exact UI text |
+| R3 | needs-attention | 3 (2 high, 1 medium) | r4 — `f172c74` | TemplateFamilyRow type didn't match new row's shape; parse-warning family duplicated existing `error-message` family; G.0 only walked concrete rows |
+| **Close** | **approved-by-trajectory** | — | — | **Phase G closed at round-3 per user direction** ("Declare Phase G approved"). 9 findings across rounds. r4 collapsed parse-warning row into existing error-message template-family (clean structural fix). Trajectory mirrors Phase B/C/D/E/F. Remaining edges (if any) naturally surface in Phase H review or at execution. |
+
+**Phase G converged at round 3** (soft cap, user-approved close). Total findings raised + resolved: 9.
 
 ---
 
