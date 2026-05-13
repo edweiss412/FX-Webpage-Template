@@ -401,7 +401,7 @@ The per-task TDD checklists for 9.1–9.4 are exhaustively spelled out in `09-10
 
 #### Task 9.4 — `lib/messages/catalog.ts` + `lib/messages/lookup.ts` + `helpfulContext` field
 
-**Status (2026-05-12 session close):** PART 1 SHIPPED at SHA `b7ac297`. Part 2 pending — briefing below.
+**Status (2026-05-12):** SHIPPED. Part 1 at SHA `b7ac297` (catalog rows + interpolation + accessors). Part 2 at SHA `1812f9a` (helpfulContext populated for all 21 dougFacing-non-null entries — 15 verbatim YAML ports + 6 fresh-author — plus 2 inverse-violation cleanups on CSRF_NONCE_EXPIRED + REPORT_RATE_LIMITED_CREW; structural coverage tests pinning both directions of the spec invariant). 11/11 catalog tests pass; typecheck clean. Briefing preserved below for archival.
 
 **Part 1 (shipped `b7ac297`):** Added AGENDA_GONE_FOR_CREW + AGENDA_UNAUTHENTICATED entries verbatim from amendment `7f836b6`. Wired `messageFor(code, params)` placeholder interpolation, added typed accessors `getDougFacing` / `getCrewFacing` / `lookupHelpfulContext`. Added AGENDA presence tests + interpolation tests. 9 tests pass; typecheck clean.
 
@@ -990,6 +990,54 @@ After C9.0 + C9.1 + C9.2 + C9.3 commit, run `/impeccable critique` + `/impeccabl
 - **Part 1 commit `b7ac297`** — added AGENDA_GONE_FOR_CREW + AGENDA_UNAUTHENTICATED entries to `lib/messages/catalog.ts` verbatim from amendment. Wired `messageFor(code, params)` placeholder interpolation in `lib/messages/lookup.ts` (PLACEHOLDER_RE matches `<name>` tokens; missing/null params leave placeholders verbatim; added `getDougFacing` / `getCrewFacing` / `lookupHelpfulContext` accessors). Tests: 4 existing + 5 new = 9 passing.
 - **Part 2 PENDING** — see Task 9.4 task body §A for the briefing.
 
+### Task 9.4 — Catalog implementation (part 2 SHIPPED)
+
+- **Part 2 commit `1812f9a`** — populated `helpfulContext` for all 21 dougFacing-non-null entries (15 verbatim YAML ports + 6 fresh-author) plus 2 inverse-violation cleanups (CSRF_NONCE_EXPIRED + REPORT_RATE_LIMITED_CREW). Added structural coverage tests pinning both directions of the spec invariant. 11/11 catalog tests pass.
+- **Regression fix commit `4a14100`** — retargeted three ErrorExplainer helpful-context tests to CSRF_KEY_ROTATED (which post-9.4-p2 carries both crewFacing + helpfulContext).
+
+### Task 9.1 — Stale-data footer (SHIPPED)
+
+- **Commit `0c41cdb`** — `components/shared/StaleFooter.tsx` with 17 vitest cases covering the §12.4 catalog-bound branching contract (4 age tiers × ok; 3 status precedence cases; pending_review × age branching; ISO-string acceptance; formatRelative helper). Catalog deltas: NEW rows DRIVE_FETCH_FAILED, PARSE_ERROR_LAST_GOOD, SYNC_DELAYED_MODERATE, SYNC_DELAYED_SEVERE; SHEET_UNAVAILABLE.crewFacing reconciled to spec-canonical copy. lib/time/relative.ts formatter shipped.
+
+### Task 9.2 — Tile error boundaries (SHIPPED)
+
+- **Commit `70ab2a1`** — shared infrastructure (`TileServerFallback`, `TileErrorBoundary`, `TileErrorFallback`, `WrappedTile`) + 15 tile files appended with `*TileView` alias + `load*Data` loader + show-page wire-up using `<WrappedTile tileId showId load View />` per call site. Tests: TileServerFallback (7), TileErrorBoundary (4), composition (3), pure-render compliance (61). Meta-test `_metaAdminAlertCatalog` registered TILE_SERVER_RENDER_FAILED. Total 135/135 9.2-specific tests pass; full suite 2765 passed.
+
+### Task 9.3 — Empty-state reachability baselines (SHIPPED)
+
+- **Commit `f4797cc`** — `tests/e2e/empty-state-reachability.spec.ts` with 4 scenarios per §8.3 category (required-field-missing, optional-field-missing, whole-tile-missing, stale-sync). Each scenario combines a DOM contract assertion (anti-tautology) with a `toHaveScreenshot` baseline. Spec is `test.describe.skip()` pending the auth-fixture migration tracked in `tests/e2e/empty-state.spec.ts:83-87`; baseline-generation command documented in JSDoc.
+
+## §12 — C0 close-out impeccable findings + dispositions
+
+### Critique (LLM design review + deterministic detector)
+
+Deterministic detector: 0 findings across 6 affected files (`components/shared/{StaleFooter,TileServerFallback,TileErrorBoundary,TileErrorFallback,WrappedTile}.tsx` + `app/show/[slug]/page.tsx`).
+
+LLM review: no AI-slop patterns; catalog-bound copy throughout; semantic Tailwind tokens; no gradient text, no glassmorphism, no hero-metric layouts.
+
+| ID | Severity | Finding | Disposition |
+|----|----------|---------|-------------|
+| M1 | MEDIUM   | StaleFooter shipped standalone but not wired into Footer's `asOf` slot. | **FIXED in commit `ce22e05`** — Footer accepts optional `lastSyncedAt` + `lastSyncStatus`; show page passes them; ShowForViewer projection extended. |
+| M2 | MEDIUM   | Yellow + red tiers signal severity by text color only; bright-light venue-floor glare per PRODUCT.md crew context. | **DEFER** — acceptable for v1; revisit if Doug or crew flag. Document in [DEFERRED.md](../DEFERRED.md) as M9-D1 if not already. |
+| M3 | MEDIUM   | TileErrorFallback is more visually prominent than working tiles (rounded border + elevated bg). | **DEFER** — current treatment matches §12.1 spec intent (visible cue that data is unavailable). |
+| M4 | MEDIUM   | No inline "Report" button on TileErrorFallback; crew has to find footer-level Report. | **DEFER** — JSDoc already records this as a Task 9.2 follow-up. |
+| M5 | MEDIUM   | Generic fallback copy across all tiles; no per-tile context interpolation. | **DEFER** — matches §12.4 canonical copy; spec amendment required to change. |
+
+### Audit (5-dimension technical health)
+
+| # | Dimension | Score | Key Finding |
+|---|-----------|-------|-------------|
+| 1 | Accessibility | 4 | `role="status"` + `aria-live="polite"` on TileErrorFallback; StaleFooter informational. |
+| 2 | Performance | 4 | No layout thrash, no expensive animations, bounded overhead from 15 wrappers. |
+| 3 | Theming | 4 | Semantic tokens throughout (text-muted/warning/critical, bg-bg-elev, border-border). |
+| 4 | Responsive Design | 4 | No fixed widths; flex layouts; non-interactive surfaces. |
+| 5 | Anti-Patterns | 4 | No AI slop; catalog-bound copy; ASCII hyphen in user-visible strings. |
+| **Total** | | **20/20** | **Excellent** |
+
+P0=0, P1=0, P2=0, P3=1 (StaleFooter tier signal text-color-only; deferred per M2 above).
+
+**Gate verdict: PASS.** Zero unresolved HIGH/CRITICAL findings. Adversarial review (cross-model) next.
+
 ### Subsequent cluster work pending
 
-C0 (Task 9.4 part 2, then 9.1 → 9.2 → 9.3), C2, C1, C3, C4, C5, C6, C6b, C6c, C7, C8, C9 per the §A summary table.
+C2, C1, C3, C4, C5, C6, C6b, C6c, C7, C8, C9 per the §A summary table. After C0 adversarial convergence, the next cluster is C2 (token consolidation — no sub-shape required).
