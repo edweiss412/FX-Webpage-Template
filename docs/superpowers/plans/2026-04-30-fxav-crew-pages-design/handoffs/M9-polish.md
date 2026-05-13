@@ -1071,6 +1071,35 @@ Base: `1875fa7` (C0 close SHA). 4 rounds to approve.
 
 C5 / M5-D4 (sign-in brand) requires FXAV wordmark + official Google G icon, plan explicitly forbids hand-recreating either. Deferred to a session where Doug-supplied brand kit is available. No code shipped; convergence loop skipped.
 
+### Cluster C6 convergence (Codex)
+
+Base: `a6446d4` (C5 deferred-record SHA). 3 sub-tasks + 3 rounds to approve.
+
+Sub-tasks shipped:
+- **M7-D5** (`75f753c`): `shouldHideDiagrams` helper extracted to `lib/visibility/emptyState.ts`; DiagramsTile consumes it; 7 unit tests.
+- **M7-D2** (`b49275c`): AgendaPdfViewer onLoadError → HEAD-probe → `messageFor` routing for 410/401/other; 4 new error-routing tests.
+- **M7-D1** (`f2d3a08`): GalleryLightbox `motion.div` with opacity 0→1 + scale 0.96→1 entry, reversed exit; reduce-motion gate via existing `prefersReducedMotion` state; `AnimatePresence` wrap in Gallery.tsx.
+
+| Round | Verdict | Findings | Fix SHA | Notes |
+|-------|---------|----------|---------|-------|
+| R1 | needs-attention | H1 403 unrouted; M1 retryable fallback used inline literal | `f074221` | 403 + 410 both route to AGENDA_GONE_FOR_CREW per spec line 2753; unknown / network failures route to AGENDA_ASSET_LOOKUP_FAILED. |
+| R2 | needs-attention | M1 inline literal rendered during async HEAD-probe pending window | `205f84d` | Default rendered copy switched to `messageFor(errorCode ?? "AGENDA_ASSET_LOOKUP_FAILED").crewFacing` — no transitional uncataloged string. |
+| R3 | **approve** | none | `205f84d` | C6 cluster CONVERGED. |
+
+### Cluster C6b convergence (Codex)
+
+Base: `205f84d` (C6 close SHA). 3 rounds to approve.
+
+| Round | Verdict | Findings | Fix SHA | Notes |
+|-------|---------|----------|---------|-------|
+| R1 | **block** | P0 next/image breaks auth + cache; P1 runtime onError missing; P2 sizes too aggressive | `22623ad` | REVERTED next/image migration; added Gallery `<img onError>` → unavailable placeholder; M7-D3 stays deferred. |
+| R2 | needs-attention | H1 Lightbox missing symmetric onError; H2 no Gallery onError regression test; M1 DEFERRED.md stale | `1a5a297` | Lightbox got the same `failedKeys` + onError pattern; Gallery test asserts the flip; DEFERRED.md M7-D3 has 2026-05-13 close-out subsection. |
+| R3 | **approve** | none | `1a5a297` | C6b CONVERGED. M7-D3 stays deferred (next/image requires private-image-pipeline + custom loader). |
+
+### Cluster C6c (DEFERRED — needs real-device gesture testing)
+
+C6c / M7-D4 (lightbox pinch-zoom) requires `react-zoom-pan-pinch` integration with Embla gesture priority on real mobile touch — Playwright touch-emulation in `mobile-safari` project IS available but the interaction-test feedback loop and gesture risk (breaking the existing swipe) is high without iterative iOS/Android testing. Per DEFERRED.md M7-D4 v1 acceptable workaround: long-press → "Open image in new tab" → Safari native zoom. Skipping in this M9 close-out autonomous push.
+
 Convergence trajectory: HIGH×8 → MEDIUM×3 → MEDIUM×1 → MEDIUM×1 → MEDIUM×3. Findings narrowing each round. Memory `feedback_iterate_until_convergence` directs continued iteration; round-3 cap applies to value-judgment loops, not new-finding rounds.
 
 ### Subsequent cluster work pending
