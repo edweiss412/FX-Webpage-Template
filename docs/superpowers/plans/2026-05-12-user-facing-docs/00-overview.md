@@ -66,7 +66,7 @@ This milestone CREATES the following structural meta-tests. Declaring this inven
 | Meta-test | Phase | Created in task | Purpose |
 | --- | --- | --- | --- |
 | `tests/help/_metaNavSync.test.ts` | A | Task A.7 | Every `_nav.ts` entry resolves to a real route under `app/help/`; every route under `app/help/` is referenced in `_nav.ts` (nav-consistency, test #5) |
-| `tests/messages/_metaErrorCatalogDocs.test.ts` | B | Task B.4 | Catalog meta-test biconditional: predicate ↔ "all three M12 fields non-null" (test #2). Includes 5 forced-fixture cases. |
+| `tests/messages/_metaErrorCatalogDocs.test.ts` | B + E | Task B.4 (forced fixtures only) + Task E.13 (extends with live-catalog biconditional) | Catalog meta-test (test #2). B.4 commits 5 forced-fixture cases that exercise the predicate logic against synthetic entries (TDD-green at B.4). E.13 appends the live-catalog biconditional assertion (predicate ↔ "all three M12 fields non-null") alongside E.13's final catalog backfills — red-then-green TDD per r6. |
 | `tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts` | B | Task B.5 | Reads master-spec §12.4 markdown via `extract-admin-log-only-codes.ts`; asserts every derived admin-log-only code has all six user-facing fields `null` (test #17) |
 | `tests/help/_metaServerTimeGuard.test.ts` | C | Task C.4 | Greps server-side `Date.now()`/`new Date()` under manifest-derived scan roots; per-line waiver rule (test #16) |
 | `tests/help/_metaScreenshotManifest.test.ts` | F | Task F.7 | Stale manifest entries, orphan WebPs, fixture name validation (test #9) |

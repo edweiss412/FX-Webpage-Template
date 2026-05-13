@@ -24,6 +24,28 @@ This converts each Phase H task from "green-only verification commit" into a doc
 
 Per spec §7.1 test 1. For every catalog entry with `helpHref`, parses the target file (MDX or TSX) and confirms a matching `<RefAnchor id="<anchor>">` exists. Fails CI on any broken deep-link.
 
+- [ ] **Step 0: Verify-red-via-stash (r8 per round-7 finding 2)**
+
+Before writing the test, prove it would catch a regression in the implementation it guards. Stash a representative anchor:
+
+```bash
+# Choose a page with multiple RefAnchors — parse-warnings.mdx is the densest.
+# Temporarily delete one RefAnchor to break the helpHref → anchor link:
+# (Use sed to remove one specific anchor; revert with git checkout after.)
+sed -i.bak 's/<RefAnchor id="WARN_DAY_FLAG_MISMATCH">/<h3>/' app/help/admin/parse-warnings/page.mdx
+```
+
+After Step 1 below writes the test, run it. Expected: FAILS for `WARN_DAY_FLAG_MISMATCH` (or whichever anchor was removed). Then `git checkout app/help/admin/parse-warnings/page.mdx` to restore. Run again: PASSES. Record the observed failure message in the commit message so reviewers can audit that Step 0 actually fired:
+
+```bash
+git commit -m "test(help): anchor resolver test #1 (Task H.1)
+
+Verify-red observed: deleted WARN_DAY_FLAG_MISMATCH RefAnchor → test
+output included \"helpHref /help/admin/parse-warnings#WARN_DAY_FLAG_MISMATCH
+fragment WARN_DAY_FLAG_MISMATCH not found in app/help/admin/parse-warnings/page.mdx\".
+Restored and re-ran → PASS."
+```
+
 - [ ] **Step 1: Write the failing test**
 
 ```ts
@@ -111,8 +133,20 @@ git commit -m "test(help): anchor resolver test #1 (Task H.1)"
 
 **Files:**
 - Create: `tests/playwright/help-auth.spec.ts`
+- Modify: `app/help/layout.tsx` (test-only `?force_infra_fail=1` trigger inside the existing AdminInfraError catch — Step 2)
 
 Per spec §7.1 test 3 (r10 expanded for AdminInfraError + fallback chain). Three GET paths × three auth states + the AdminInfraError surface.
+
+- [ ] **Step 0: Verify-red is implicit in H.2's TDD loop (r8 per round-7 finding 2)**
+
+Unlike H.1/H.3/H.4/H.5, H.2's red state requires no stash — the test is written in Step 1 against an unmodified `app/help/layout.tsx`, and the AdminInfraError mapping test FAILS because the `?force_infra_fail=1` trigger doesn't exist yet. Step 2 implements the trigger; Step 3 reruns; PASS. Step 0 is just an instruction to confirm Step 1's run output records the failure for audit. Sample expected failure on Step 1's first run:
+
+```
+× /help AdminInfraError mapping (test #3 r10) > when requireAdmin throws AdminInfraError, /help renders cataloged 500-class surface
+  Error: Timed out waiting for getByTestId("help-layout-infra-error")
+```
+
+Record this observation in the eventual commit message.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -176,35 +210,59 @@ test.describe("/help AdminInfraError mapping (test #3 r10)", () => {
 });
 ```
 
-- [ ] **Step 2: Implement the infra-fail trigger as part of H.2 (TDD red→implementation→green per round-6 finding 2)**
+- [ ] **Step 2: Implement the infra-fail trigger INSIDE the existing try/catch (r8 — round-7 finding 1)**
 
-The infra-fail test is RED at first run because the trigger doesn't exist yet. H.2 IMPLEMENTS the trigger:
+The infra-fail test is RED at first run because the trigger doesn't exist. H.2 IMPLEMENTS the trigger such that the forced `AdminInfraError` flows through the EXISTING `try { await requireAdmin() } catch (err) { if (err instanceof AdminInfraError) { ... } }` block — otherwise the thrown error escapes and the 500-class surface never renders, defeating the test.
 
-Edit `app/help/layout.tsx` to honor a test-only `?force_infra_fail=1` query param:
+Edit `app/help/layout.tsx`. Inside `HelpLayout`, modify the existing try block:
 
 ```tsx
-// app/help/layout.tsx — H.2 r7 (test-only infra-fail trigger)
+// app/help/layout.tsx — H.2 r8 (test-only infra-fail trigger inside the
+// existing AdminInfraError-catching try/catch).
 import { headers } from "next/headers";
+// ... existing imports ...
 
-// ...inside HelpLayout, BEFORE the `try { await requireAdmin() } catch (...)`:
-const reqHeaders = await headers();
-const url = new URL(reqHeaders.get("x-url") ?? "/", "http://localhost");
-if (
-  url.searchParams.get("force_infra_fail") === "1" &&
-  process.env.ENABLE_TEST_AUTH === "true" &&
-  reqHeaders.get("authorization") === `Bearer ${process.env.TEST_AUTH_SECRET}`
-) {
-  throw new AdminInfraError("test-forced infra fail (H.2)");
+export const dynamic = "force-dynamic";
+
+export default async function HelpLayout({ children }: { children: ReactNode }) {
+  try {
+    // r8 — H.2 trigger lives HERE, inside the same try that catches
+    // AdminInfraError. The forced error flows through the existing catch
+    // and renders the cataloged 500-class surface (AC-12.24).
+    const reqHeaders = await headers();
+    const url = new URL(reqHeaders.get("x-url") ?? "/", "http://localhost");
+    if (
+      url.searchParams.get("force_infra_fail") === "1" &&
+      process.env.ENABLE_TEST_AUTH === "true" &&
+      reqHeaders.get("authorization") === `Bearer ${process.env.TEST_AUTH_SECRET}`
+    ) {
+      throw new AdminInfraError("test-forced infra fail (H.2)");
+    }
+    await requireAdmin();
+  } catch (err) {
+    if (err instanceof AdminInfraError) {
+      // ... existing infra-error fallback rendering ...
+    }
+    throw err;
+  }
+  // ... existing chrome rendering ...
 }
-// ...then proceed with the normal try/catch around requireAdmin().
 ```
 
-(Implementation note: Next 16's `headers()` doesn't expose the request URL directly; the implementer may need middleware or `next/headers`'s `cookies()` + a custom header pattern. The exact mechanism matches whatever pattern the project's existing test-only infra triggers use — survey at execution time. The CONTRACT is: a way to force `AdminInfraError` triggered ONLY when test-auth is on AND the bearer matches.)
+(Implementation note: Next 16's `headers()` doesn't expose the request URL directly; if the `x-url` pattern above is impractical, the implementer surveys the project's middleware for an existing URL-injection pattern. Contract: the trigger MUST be inside the catch's reach AND honor the three-precondition gate.)
 
-- [ ] **Step 3: Run + iterate**
+- [ ] **Step 3: Run + commit BOTH files together**
 
 Run: `pnpm test:e2e tests/playwright/help-auth.spec.ts`
-Expected: the 9 base auth tests PASS (Phase A's `requireAdmin()` already gates). The AdminInfraError mapping test PASSES once the H.2 Step 2 trigger lands — there is **no skip path** (r7 fix per round-6 finding 2: AC-12.24 must have unconditional coverage).
+Expected: all 10 tests PASS (9 base auth + 1 AdminInfraError mapping). **No skip path** per AC-12.24.
+
+```bash
+# IMPORTANT: stage BOTH the test AND the layout file (r8 fix to round-7
+# finding 1 — earlier draft only staged the test, leaving the production
+# trigger uncommitted).
+git add tests/playwright/help-auth.spec.ts app/help/layout.tsx
+git commit -m "test(playwright): /help auth gate + AdminInfraError mapping with trigger (Task H.2)"
+```
 
 - [ ] **Step 3: Commit**
 
@@ -221,6 +279,32 @@ git commit -m "test(playwright): /help auth gate + AdminInfraError mapping (Task
 - Create: `tests/help/render.test.ts`
 
 Per spec §7.1 test 4. Every `.mdx` and `.tsx` page under `app/help/` returns a non-empty rendered HTML body via the Next.js test renderer. Catches malformed MDX, missing required components, broken imports.
+
+- [ ] **Step 0: Verify-red-via-stash (r8 per round-7 finding 2)**
+
+Stash one page's content to prove the smoke renderer would catch a broken page:
+
+```bash
+# Replace one page's content with malformed MDX to verify the renderer catches it:
+cp app/help/admin/dashboard/page.mdx app/help/admin/dashboard/page.mdx.bak
+printf 'broken < mdx > { unclosed' > app/help/admin/dashboard/page.mdx
+```
+
+After Step 1 writes the test, run it. Expected: FAILS for `/help/admin/dashboard`. Then restore:
+
+```bash
+mv app/help/admin/dashboard/page.mdx.bak app/help/admin/dashboard/page.mdx
+```
+
+Re-run: PASSES. Record the failure message in the commit message:
+
+```bash
+git commit -m "test(help): MDX smoke renderer (Task H.3 — test #4)
+
+Verify-red observed: replaced dashboard/page.mdx with malformed MDX → test
+output included \"renders non-empty HTML\" assertion failure for that route.
+Restored and re-ran → PASS."
+```
 
 - [ ] **Step 1: Write the failing test**
 
@@ -299,6 +383,30 @@ Per spec §7.1 test 6 (real-browser assertion — jsdom not sufficient per proje
 - No horizontal scroll: `document.documentElement.scrollWidth === window.innerWidth`
 - Every interactive target ≥ 44 × 44 px (per PRODUCT.md accessibility floor)
 
+- [ ] **Step 0: Verify-red-via-stash (r8 per round-7 finding 2)**
+
+Stash the `md:hidden` class on `<Sidebar>`'s mobile-disclosure to prove the test catches a missing mobile collapse:
+
+```bash
+sed -i.bak 's/className="md:hidden mb-4"/className="mb-4"/' app/help/_components/Sidebar.tsx
+```
+
+After Step 1, run the test. Expected: FAILS (the desktop sidebar renders at mobile viewport; no `<details>` collapse). Restore:
+
+```bash
+mv app/help/_components/Sidebar.tsx.bak app/help/_components/Sidebar.tsx
+```
+
+Re-run: PASSES. Record the failure in the commit message:
+
+```bash
+git commit -m "test(playwright): /help mobile layout assertions (Task H.4 — test #6)
+
+Verify-red observed: removed md:hidden from Sidebar's mobile <details> →
+sidebar didn't collapse at 390px; horizontal-scroll assertion failed.
+Restored and re-ran → PASS."
+```
+
 - [ ] **Step 1: Write the failing test**
 
 ```ts
@@ -366,6 +474,31 @@ git commit -m "test(playwright): /help mobile layout assertions (Task H.4 — te
 
 Per spec §7.1 test 7 (r2 inverted lint). At v1 close-out, no `<ScreenshotPlaceholder>` references exist in any `.mdx` file under `app/help/`. Phase F.10 should have replaced every placeholder with a real `<Screenshot key>` or deleted it; H.5 enforces.
 
+- [ ] **Step 0: Verify-red-via-stash (r8 per round-7 finding 2)**
+
+Temporarily insert a `<ScreenshotPlaceholder>` reference to prove the lint catches it:
+
+```bash
+# Append a single line to a representative page:
+printf '\n<ScreenshotPlaceholder alt="lint verify-red" />\n' >> app/help/admin/dashboard/page.mdx
+```
+
+After Step 1 writes the lint, run it. Expected: FAILS, listing `app/help/admin/dashboard/page.mdx`. Restore:
+
+```bash
+git checkout app/help/admin/dashboard/page.mdx
+```
+
+Re-run: PASSES. Record the failure in the commit message:
+
+```bash
+git commit -m "test(help): no-placeholder lint (Task H.5 — test #7)
+
+Verify-red observed: appended <ScreenshotPlaceholder> to dashboard/page.mdx
+→ lint output listed app/help/admin/dashboard/page.mdx as a violation.
+Reverted and re-ran → PASS."
+```
+
 - [ ] **Step 1: Write the failing test**
 
 ```ts
@@ -418,11 +551,13 @@ git commit -m "test(help): no-placeholder lint (Task H.5 — test #7)"
 
 ---
 
-### Task H.6: REMOVED in r6
+#### Appendix: H.6 task removal (rationale)
 
-The live-catalog biconditional assertion that r4 added as H.6 violated AGENTS.md plan-wide invariant #1 (TDD: failing test → minimal implementation → passing test → commit). At H.6 time, every Phase E backfill had already landed, so the new assertion would commit as green-only — no red state, no implementation that makes it pass.
+(Not a task — heading-based task inventories should report Phase H = 5 tasks: H.1–H.5.)
 
-**r6 restructure:** the live-catalog biconditional assertion lives in **Task E.13** (the `/help/errors` page task — the last Phase E task by both dependency and ordering convention). E.13 adds the assertion alongside whatever final catalog-backfill is needed to make it pass. The assertion is RED at the start of E.13 (entries unaccounted for), and goes GREEN with E.13's own commit (the final backfills that close any remaining gaps).
+The live-catalog biconditional assertion that r4 added as Task H.6 violated AGENTS.md plan-wide invariant #1 (TDD: failing test → minimal implementation → passing test → commit). At the original H.6 time, every Phase E backfill had already landed, so the new assertion would commit as green-only — no red state, no implementation that makes it pass.
+
+r6 restructure: the live-catalog biconditional assertion lives in Task E.13 (the `/help/errors` page task — the last Phase E task by both dependency and ordering convention). E.13 adds the assertion alongside whatever final catalog-backfill is needed to make it pass. The assertion is RED at the start of E.13 (entries unaccounted for), and goes GREEN with E.13's own commit (the final backfills that close any remaining gaps).
 
 See `05-content.md` Task E.13 for the TDD-clean integration.
 
