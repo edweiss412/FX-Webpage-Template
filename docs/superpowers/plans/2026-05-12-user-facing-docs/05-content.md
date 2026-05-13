@@ -519,7 +519,7 @@ Commit: `feat(help): /help/admin/per-show-panel page (Task E.8)`
 1. H1: "Preview as crew"
 2. Intro: what impersonation is and why it exists
 3. `<Screenshot name="preview-as-crew-banner" alt="...">` showing the sticky banner
-4. H2 `<RefAnchor id="impersonation-banner">` — the banner UX (sticky, yellow, Exit button) — note this is the `?` icon target per §5.6 matrix
+4. H2 `<h2 id="impersonation-banner">` — the banner UX (sticky, yellow, Exit button) — note this is the `?` icon target per §5.6 matrix. **r4 fix per D-r3 finding 1:** use a plain `<h2>` with kebab-case `id` here rather than `<RefAnchor>`, because `<RefAnchor>` is reserved for catalog-code-shaped anchors (`/^[A-Z][A-Z0-9_]*$/` per D.5). Non-catalog section anchors live on plain heading elements; the H.1 anchor-resolver already accepts both `<RefAnchor id="...">` AND plain `id="..."` attributes per its `containsAnchor()` helper.
 5. H2 "What to verify" — bulleted checklist (call time correct, hotel info present, role-restricted info hidden as expected)
 6. H2 "Why some fields are hidden" — short explanation of role-based filtering; reassures Doug that not-seeing-a-field is correct behavior, not a bug
 

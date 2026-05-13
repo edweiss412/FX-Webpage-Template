@@ -340,6 +340,20 @@ describe("<Screenshot>", () => {
     const html = container.innerHTML;
     expect(html).not.toContain("undefined");
   });
+
+  // r4 fix per D-r3 finding 2: empty name must throw, not silently produce
+  // `/help/screenshots/-light.webp`. Spec §6.3 documents this as a build-fail.
+  it("throws when name prop is empty string (build-fail per spec §6.3)", () => {
+    // Render swallows the throw and surfaces it via the error boundary; we
+    // assert via the spy that the component never produced output. Using
+    // React's error boundary in tests is verbose, so the simpler equivalent
+    // is to assert render() itself throws synchronously.
+    expect(() => render(<Screenshot name="" alt="x" />)).toThrow(/name.*empty/i);
+  });
+
+  it("throws when name prop is whitespace-only (defense-in-depth)", () => {
+    expect(() => render(<Screenshot name="   " alt="x" />)).toThrow(/name.*empty/i);
+  });
 });
 ```
 
@@ -371,6 +385,17 @@ export function Screenshot({
   alt: string;
   caption?: string;
 }) {
+  // r4 fix per D-r3 finding 2: an empty name would render
+  // `/help/screenshots/-light.webp` (broken image) without failing the build.
+  // Throw eagerly so a typo like `<Screenshot name="" ...>` becomes a hard
+  // render-time error caught by H.3's MDX smoke test instead of a silently
+  // shipped 404. Spec §6.3 already documents this as "Empty `name` → build
+  // fails."
+  if (name.trim() === "") {
+    throw new Error(
+      `<Screenshot>: \`name\` prop is empty. Provide a manifest key, e.g. <Screenshot name="dashboard-active-shows" />.`,
+    );
+  }
   return (
     <figure className="my-4">
       <picture>

@@ -215,8 +215,9 @@ This split honors AGENTS.md plan-wide invariant #1 (TDD: every commit green). r4
 
 - [ ] Step 1: Write the failing test (Half A only):
   - Walk `app/help/` recursively, collect `.mdx` files.
-  - For each file, regex `/(<Screenshot)\s+[^>]*name=["']([^"']+)["']/g` to extract references. **r2 fix per D-r2 finding 1 (HIGH):** the r1 regex matched `key=` which is the OLD prop name — after the r14 rename to `name=`, MDX call sites would be invisible to this walker, letting real coverage gaps ship undetected.
-  - Per reference: assert the extracted name ∈ `MANIFEST` (the manifest's JS field stays `key`; only the React prop renamed).
+  - For each file, regex `/(<Screenshot)\s+[^>]*name=["']([^"']*)["']/g` to extract references. **r3 fix per D-r3 finding 2 (MEDIUM):** uses `[^"']*` (zero or more) so empty `name=""` props are CAPTURED, not silently skipped — the walker then fails them explicitly below. (r2 used `[^"']+` which let empty names slip through entirely.)
+  - **r2 fix per D-r2 finding 1 (HIGH):** the r1 regex matched `key=` which is the OLD prop name — after the r14 rename to `name=`, MDX call sites would be invisible to this walker, letting real coverage gaps ship undetected.
+  - Per reference: assert the captured name is non-empty AND ∈ `MANIFEST` (the manifest's JS field stays `key`; only the React prop renamed). An empty captured name fails with "Screenshot has empty name attribute in <file>" — matching the runtime error D.4's component throws.
   - **Non-empty assertion:** at least one `<Screenshot name=>` reference must be discovered in the walk (else the regex is broken or the walk finds nothing). Prevents vacuous pass.
   - NO on-disk WebP assertion at F.8 commit.
 - [ ] Step 2: Run test — FAILS if any Phase E page references a `<Screenshot name>` that's not yet in the manifest. Phase E may have authored against not-yet-added manifest keys; F.8 catches these.
