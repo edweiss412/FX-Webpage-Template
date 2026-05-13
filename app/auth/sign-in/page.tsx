@@ -161,6 +161,24 @@ export default async function SignInPage({
         than the generic "banner" landmark label).
       */}
       <header aria-labelledby="sign-in-headline" className="mb-section-gap text-center">
+        {/*
+          M9 C5 / M5-D4: FXAV wordmark above the headline.
+          Asset sourced from fxav.net (white-letter variant from the
+          Wix CDN); cached locally under public/brand/fxav-wordmark.png.
+          aria-hidden because the headline directly below carries the
+          same brand identity in accessible text; the wordmark is
+          decorative reinforcement.
+        */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/brand/fxav-wordmark.png"
+          alt=""
+          aria-hidden="true"
+          data-testid="sign-in-fxav-wordmark"
+          width={96}
+          height={102}
+          className="mx-auto mb-6 size-24 select-none"
+        />
         <h1
           id="sign-in-headline"
           data-testid="sign-in-headline"
