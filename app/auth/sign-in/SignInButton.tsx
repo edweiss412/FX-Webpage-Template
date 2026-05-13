@@ -2,16 +2,25 @@
  * The sign-in CTA submits to a server Route Handler so the Supabase PKCE
  * verifier cookie is written from the HTTP response with HttpOnly attributes.
  *
- * M9 C5 / M5-D4 (R1 BLOCKER fix): button styled as Google's "Light"
- * theme per the current brand guidelines — white background, dark text,
- * gray border. The G mark on the left is the unmodified 40×40 SVG from
- * Google's official signin-assets.zip bundle (Web → svg → light →
- * web_light_rd_na). Google's brand guidelines forbid placing the
- * standard color G on a non-prescribed colored button (the previous
- * FXAV-accent variant violated that constraint). FXAV brand identity
- * lives in the wordmark above the headline, not on the OAuth CTA.
- * The button text uses Google's approved verbatim "Sign in with
- * Google" phrasing.
+ * M9 C5 / M5-D4 (R2 fix): renders Google's pre-approved Light-theme
+ * Web button SVG (web_light_rd_SI from signin-assets.zip) at its
+ * native 175×40 size. This is the brand-compliant choice for custom
+ * apps that integrate Sign in with Google — the prior in-progress
+ * variants were either (R0) on FXAV-accent background, violating the
+ * standalone-G rule, or (R1) had the G rendered at 20×20 SVG which
+ * effectively shrank the actual G to ~10×10 because the asset's
+ * inner G fills only the center 20×20 of its 40×40 viewBox. The
+ * full button asset has the G at its native bundle size; we do not
+ * resize.
+ *
+ * The wrapping <button> handles form submission + focus ring + tap-
+ * target sizing; the SVG provides the entire visual identity (white
+ * surface, dark text, gray border, multicolor G). FXAV brand identity
+ * lives in the wordmark above the headline.
+ *
+ * The image carries `alt="Sign in with Google"` (decorative chrome
+ * with the text label baked in is fine here — the button's
+ * accessible name comes from the wrapping <button> via aria-label).
  */
 export type SignInButtonProps = {
   /**
@@ -28,25 +37,22 @@ export function SignInButton({ validatedNext }: SignInButtonProps) {
       <button
         type="submit"
         data-testid="sign-in-with-google"
-        // Google "Light" theme: white surface (#fff) + #1f1f1f text +
-        // #747775 1px border + ≥40px height + medium-weight Roboto-
-        // equivalent (project Inter is metric-compatible). The
-        // `text-[#1f1f1f]` and `border-[#747775]` are pinned per
-        // Google's hex specs — not project tokens — so the button
-        // stays brand-compliant regardless of theme-token drift.
-        className="inline-flex h-10 min-w-tap-min items-center justify-center gap-3 rounded-sm border border-[#747775] bg-white px-4 font-medium text-[#1f1f1f] transition-colors duration-fast hover:bg-[#f6f6f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-60"
+        aria-label="Sign in with Google"
+        // Focus ring uses ring-[#1a73e8] (Google's interaction blue)
+        // for ≥3:1 contrast against the white button surface (R1
+        // HIGH-2 fix). Default project focus-ring (orange ~1.6:1 on
+        // white) was below the 3:1 minimum.
+        className="inline-flex h-10 items-center justify-center rounded-sm bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-60"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/brand/google-g.svg"
-          alt=""
-          aria-hidden="true"
-          data-testid="sign-in-google-g"
-          width={20}
-          height={20}
-          className="size-5 select-none"
+          src="/brand/google-signin-button.svg"
+          alt="Sign in with Google"
+          data-testid="sign-in-google-button-image"
+          width={175}
+          height={40}
+          className="block select-none"
         />
-        Sign in with Google
       </button>
     </form>
   );

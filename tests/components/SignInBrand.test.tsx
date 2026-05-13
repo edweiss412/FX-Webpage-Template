@@ -29,52 +29,56 @@ import { SignInButton } from "@/app/auth/sign-in/SignInButton";
 
 afterEach(() => cleanup());
 
-describe("M9 C5 / M5-D4 — SignInButton carries the official Google G mark", () => {
-  test("renders the Google G icon left of the canonical button text", () => {
+describe("M9 C5 / M5-D4 — SignInButton renders Google's pre-approved Light-theme button asset", () => {
+  test("button image src points at the canonical Google button SVG at native dimensions", () => {
     const { getByTestId } = render(<SignInButton validatedNext="/show/abc" />);
     const button = getByTestId("sign-in-with-google");
-    const icon = getByTestId("sign-in-google-g");
-    // The icon is INSIDE the button (left of the text).
-    expect(button.contains(icon)).toBe(true);
-    // The src points at the canonical asset path. The file at this
-    // path MUST be Google's unmodified web_light_rd_na.svg per the
-    // commit body. Test asserts the path; the asset audit (a
-    // future spec amendment) would verify byte-equivalence with
-    // Google's bundle.
-    expect(icon.getAttribute("src")).toBe("/brand/google-g.svg");
-    expect(icon.getAttribute("alt")).toBe("");
-    expect(icon.getAttribute("aria-hidden")).toBe("true");
-    // Button text is verbatim per Google's brand guide allowed
-    // phrasings ("Sign in with Google", "Sign up with Google",
-    // "Continue with Google").
-    expect(button.textContent).toContain("Sign in with Google");
+    const buttonImage = getByTestId("sign-in-google-button-image");
+    expect(button.contains(buttonImage)).toBe(true);
+    expect(buttonImage.getAttribute("src")).toBe("/brand/google-signin-button.svg");
+    // Native bundle size: 175×40 (Web → svg → light → web_light_rd_SI).
+    // We do NOT resize — Google's brand guidelines require unmodified
+    // rendering at native size.
+    expect(buttonImage.getAttribute("width")).toBe("175");
+    expect(buttonImage.getAttribute("height")).toBe("40");
   });
 
-  test("icon precedes the text in DOM order (G appears left)", () => {
+  test("button has accessible name 'Sign in with Google' (alt + aria-label)", () => {
     const { getByTestId } = render(<SignInButton validatedNext="/show/abc" />);
     const button = getByTestId("sign-in-with-google");
-    const icon = getByTestId("sign-in-google-g");
-    // First child of the button is the icon; the rest is text.
-    expect(button.firstElementChild).toBe(icon);
+    const buttonImage = getByTestId("sign-in-google-button-image");
+    // The wrapping <button> carries an explicit aria-label so the
+    // accessible name does not depend on the SVG's inline text.
+    expect(button.getAttribute("aria-label")).toBe("Sign in with Google");
+    // The image's alt is the same canonical phrasing — when AT
+    // exposes the image directly, the result is identical.
+    expect(buttonImage.getAttribute("alt")).toBe("Sign in with Google");
   });
 
-  test("button uses Google 'Light' theme (R1 BLOCKER fix — white background, dark text, gray border)", () => {
+  test("button does NOT add custom Google-button surface classes (R2 fix — SVG is the visual)", () => {
     const { getByTestId } = render(<SignInButton validatedNext="/show/abc" />);
     const button = getByTestId("sign-in-with-google");
     const className = button.getAttribute("class") ?? "";
-    // White surface per Google's prescribed Light theme.
-    expect(className).toContain("bg-white");
-    // Dark text (#1f1f1f) per Google's spec — pinned as arbitrary
-    // hex rather than a project token so brand-compliance survives
-    // theme-token drift.
-    expect(className).toContain("text-[#1f1f1f]");
-    // 1px #747775 border per Google's spec.
-    expect(className).toContain("border-[#747775]");
-    // The previous FXAV-accent variant used `bg-accent`. Negative
-    // assertion: that class MUST NOT appear on the button (it would
-    // re-introduce the brand violation R1 BLOCKER flagged).
+    // The SVG asset provides the white surface, dark text, gray
+    // border, AND the G at its native bundle size. The wrapping
+    // <button> must NOT re-render any of those (would double-apply).
+    expect(className).not.toContain("bg-white");
+    expect(className).not.toContain("text-[#1f1f1f]");
+    expect(className).not.toContain("border-[#747775]");
+    // Also negative-assert the original FXAV-accent variant (R0
+    // BLOCKER from R1 review) — must NOT regress.
     expect(className).not.toContain("bg-accent");
     expect(className).not.toContain("text-accent-text");
+  });
+
+  test("focus ring uses Google Interaction Blue #1a73e8 for ≥3:1 contrast on white (R1 HIGH-2 fix)", () => {
+    const { getByTestId } = render(<SignInButton validatedNext="/show/abc" />);
+    const button = getByTestId("sign-in-with-google");
+    const className = button.getAttribute("class") ?? "";
+    // Google's Interaction Blue (#1a73e8) — pinned hex, not project
+    // token. Project default focus-ring (orange ~1.6:1) fails 3:1
+    // WCAG focus-indicator contrast on white surfaces.
+    expect(className).toContain("focus-visible:ring-[#1a73e8]");
   });
 });
 
@@ -142,15 +146,17 @@ describe("M9 C5 / M5-D4 — Brand assets exist on disk", () => {
     expect(head.subarray(1, 4).toString("ascii")).toBe("PNG");
   });
 
-  test("public/brand/google-g.svg exists and is an SVG (Google's web_light_rd_na variant)", async () => {
+  test("public/brand/google-signin-button.svg exists and is the Google web_light_rd_SI variant", async () => {
     const { readFileSync, statSync } = await import("node:fs");
-    const path = "public/brand/google-g.svg";
+    const path = "public/brand/google-signin-button.svg";
     const stat = statSync(path);
     expect(stat.isFile()).toBe(true);
     const content = readFileSync(path, "utf8");
     expect(content).toMatch(/^<svg\b/);
-    // The Google bundle's web_light_rd_na is 40x40 with viewBox 0 0 40 40.
-    expect(content).toContain('viewBox="0 0 40 40"');
+    // Google bundle's web_light_rd_SI native size is 175×40.
+    expect(content).toContain('width="175"');
+    expect(content).toContain('height="40"');
+    expect(content).toContain('viewBox="0 0 175 40"');
     // The canonical Google brand colors appear (Blue/Green/Yellow/Red).
     expect(content).toContain("#4285F4"); // Google Blue
     expect(content).toContain("#34A853"); // Google Green
