@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M7 — Linked content · FXAV Crew Pages</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK</span></a>
+    <nav class="topbar__nav">
+      <a href="06-drive-sync.html">← M6</a>
+      <a href="index.html">All milestones</a>
+      <a href="08-bug-report.html">M8 →</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">M7</div>
+  <div class="container">
+    <div class="hero__kicker">Stage 8 of 11 · Linked content</div>
+    <div class="hero__milestone-mark">M7</div>
+    <h1 class="hero__title">Copy every picture before the venue wifi dies.</h1>
+    <p class="hero__lede">
+      The crew page has pictures, videos, and an agenda PDF. Those files live in Doug's
+      Google Drive. M7 makes sure they keep working even when the venue wifi is awful and
+      even after Doug accidentally re-edits an image. Every linked file gets <strong>copied
+      into our own storage</strong>, pinned to an exact Drive revision, and served by us —
+      never by Drive.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Tasks</dt><dd>9</dd></div>
+      <div><dt>Acceptance</dt><dd>AC-7.1 → AC-7.24</dd></div>
+      <div><dt>Spec sections</dt><dd>§6.11, §10, §17.1</dd></div>
+      <div><dt>Status</dt><dd><span class="pill pill--active">In progress</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    Imagine the crew showing up to a convention center basement with one bar of LTE.
+    Stage diagram on the page? Has to load. Opening reel video? Has to play. Agenda PDF?
+    Has to open. <em>And</em> the file Doug embedded in the sheet last Tuesday must look
+    exactly like it did last Tuesday — even if he replaced it with a new version this morning.
+  </p>
+  <p>
+    So at every Apply we make a <strong>copy</strong> of every linked file into our own storage,
+    tag the copy with the exact Drive revision it came from, and serve it through our own URL.
+    Old copies get cleaned up by a janitor job a week later. If something went wrong during
+    that copy, a recovery mode tries again — without ever touching the bytes that are already approved.
+  </p>
+</div>
+
+<!-- ============================================================
+     THE LIFECYCLE DIAGRAM
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">CONCEPT</span> Asset lifecycle</div>
+
+<div class="diagram">
+  <div class="diagram__title">M7 · One image from Drive to the crew's phone</div>
+  <svg viewBox="0 0 900 460" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Lifecycle of one linked asset from Drive through snapshot, storage, and signed asset route, with garbage collection after grace window.">
+    <defs>
+      <marker id="arr7" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#ffb627"/>
+      </marker>
+      <marker id="arr7g" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#3fb950"/>
+      </marker>
+      <marker id="arr7r" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#ff5c5c"/>
+      </marker>
+    </defs>
+
+    <!-- top row: drive → apply → storage -->
+    <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#a4b3c5">
+
+      <!-- DRIVE -->
+      <rect x="40" y="60" width="160" height="110" fill="#0a1119" stroke="#ffb627" stroke-width="2"/>
+      <text x="120" y="92" text-anchor="middle" font-family="Anton" font-size="16" fill="#ffb627">DRIVE</text>
+      <text x="120" y="115" text-anchor="middle" font-size="10">stage-plot.png</text>
+      <text x="120" y="132" text-anchor="middle" font-size="10" fill="#6c7e93">headRevisionId: R1</text>
+      <text x="120" y="148" text-anchor="middle" font-size="10" fill="#6c7e93">md5: a3f1…</text>
+      <text x="120" y="164" text-anchor="middle" font-size="9" fill="#6c7e93">(may change at any time)</text>
+
+      <!-- APPLY -->
+      <rect x="240" y="60" width="160" height="110" fill="#172230" stroke="#6fe7d8"/>
+      <text x="320" y="92" text-anchor="middle" font-family="Anton" font-size="16" fill="#6fe7d8">APPLY</text>
+      <text x="320" y="115" text-anchor="middle" font-size="10">snapshotAssets</text>
+      <text x="320" y="132" text-anchor="middle" font-size="10">revisions.get(R1)</text>
+      <text x="320" y="148" text-anchor="middle" font-size="10">verify md5 a3f1…</text>
+      <text x="320" y="164" text-anchor="middle" font-size="9" fill="#6c7e93">temp prefix · run_uuid</text>
+
+      <!-- STORAGE -->
+      <rect x="440" y="60" width="200" height="110" fill="#172230" stroke="#6fe7d8"/>
+      <text x="540" y="92" text-anchor="middle" font-family="Anton" font-size="16" fill="#6fe7d8">STORAGE</text>
+      <text x="540" y="115" text-anchor="middle" font-size="9">diagram-snapshots/</text>
+      <text x="540" y="130" text-anchor="middle" font-size="9">shows/&lt;id&gt;/&lt;rev_uuid&gt;/</text>
+      <text x="540" y="145" text-anchor="middle" font-size="9">folder-&lt;driveId&gt;.png</text>
+      <text x="540" y="164" text-anchor="middle" font-size="9" fill="#6c7e93">promoted at commit</text>
+
+      <!-- ROUTE -->
+      <rect x="680" y="60" width="180" height="110" fill="#0a1119" stroke="#3fb950" stroke-width="2"/>
+      <text x="770" y="92" text-anchor="middle" font-family="Anton" font-size="16" fill="#3fb950">CREW PHONE</text>
+      <text x="770" y="115" text-anchor="middle" font-size="9">/api/asset/diagram/</text>
+      <text x="770" y="130" text-anchor="middle" font-size="9">&lt;show&gt;/&lt;rev&gt;/&lt;key&gt;</text>
+      <text x="770" y="148" text-anchor="middle" font-size="10" fill="#3fb950">200 · bytes</text>
+      <text x="770" y="164" text-anchor="middle" font-size="9" fill="#6c7e93">private · max-age=0</text>
+
+      <!-- arrows top row -->
+      <line x1="202" y1="115" x2="238" y2="115" stroke="#ffb627" stroke-width="2" marker-end="url(#arr7)"/>
+      <line x1="402" y1="115" x2="438" y2="115" stroke="#ffb627" stroke-width="2" marker-end="url(#arr7)"/>
+      <line x1="642" y1="115" x2="678" y2="115" stroke="#3fb950" stroke-width="2" marker-end="url(#arr7g)"/>
+
+      <text x="220" y="105" font-size="9" fill="#6c7e93">copy</text>
+      <text x="420" y="105" font-size="9" fill="#6c7e93">promote</text>
+      <text x="660" y="105" font-size="9" fill="#6c7e93">serve</text>
+
+      <!-- divider -->
+      <line x1="40" y1="220" x2="860" y2="220" stroke="#3a4d68" stroke-dasharray="3 4"/>
+      <text x="450" y="212" text-anchor="middle" font-size="9" fill="#6c7e93" letter-spacing="3">TIME PASSES · DOUG EDITS THE FILE</text>
+
+      <!-- bottom row: drift, new apply, GC -->
+
+      <!-- DRIFT -->
+      <rect x="40" y="250" width="160" height="110" fill="#0a1119" stroke="#ff5c5c"/>
+      <text x="120" y="282" text-anchor="middle" font-family="Anton" font-size="16" fill="#ff5c5c">DRIFT</text>
+      <text x="120" y="305" text-anchor="middle" font-size="10">stage-plot.png</text>
+      <text x="120" y="322" text-anchor="middle" font-size="10" fill="#6c7e93">headRevisionId: R2</text>
+      <text x="120" y="338" text-anchor="middle" font-size="10" fill="#6c7e93">md5: 8b4e…</text>
+      <text x="120" y="354" text-anchor="middle" font-size="9" fill="#ff5c5c">R1 ≠ R2</text>
+
+      <!-- APPLY 2 -->
+      <rect x="240" y="250" width="160" height="110" fill="#172230" stroke="#6fe7d8"/>
+      <text x="320" y="282" text-anchor="middle" font-family="Anton" font-size="16" fill="#6fe7d8">NEXT APPLY</text>
+      <text x="320" y="305" text-anchor="middle" font-size="10">new run_uuid</text>
+      <text x="320" y="322" text-anchor="middle" font-size="10">new rev_uuid R'</text>
+      <text x="320" y="338" text-anchor="middle" font-size="10">snapshot R2 bytes</text>
+      <text x="320" y="354" text-anchor="middle" font-size="9" fill="#6c7e93">CAS pending → current</text>
+
+      <!-- STORAGE 2 -->
+      <rect x="440" y="250" width="200" height="110" fill="#172230" stroke="#6fe7d8"/>
+      <text x="540" y="282" text-anchor="middle" font-family="Anton" font-size="16" fill="#6fe7d8">STORAGE</text>
+      <text x="540" y="302" text-anchor="middle" font-size="9" fill="#6c7e93">shows/&lt;id&gt;/&lt;old_rev&gt;/  ← orphan</text>
+      <text x="540" y="320" text-anchor="middle" font-size="9">shows/&lt;id&gt;/&lt;new_rev&gt;/  ← live</text>
+      <text x="540" y="345" text-anchor="middle" font-size="9" fill="#6c7e93">both prefixes coexist</text>
+
+      <!-- GC -->
+      <rect x="680" y="250" width="180" height="110" fill="#0a1119" stroke="#ffb627" stroke-width="2"/>
+      <text x="770" y="282" text-anchor="middle" font-family="Anton" font-size="16" fill="#ffb627">GC CRON</text>
+      <text x="770" y="305" text-anchor="middle" font-size="10">7 days (active)</text>
+      <text x="770" y="322" text-anchor="middle" font-size="10">30 days (archived)</text>
+      <text x="770" y="340" text-anchor="middle" font-size="10" fill="#ff5c5c">DELETE old_rev/</text>
+      <text x="770" y="356" text-anchor="middle" font-size="9" fill="#6c7e93">never current revision</text>
+
+      <!-- arrows bottom row -->
+      <line x1="202" y1="305" x2="238" y2="305" stroke="#ffb627" stroke-width="2" marker-end="url(#arr7)"/>
+      <line x1="402" y1="305" x2="438" y2="305" stroke="#ffb627" stroke-width="2" marker-end="url(#arr7)"/>
+      <line x1="642" y1="305" x2="678" y2="305" stroke="#ff5c5c" stroke-width="2" stroke-dasharray="4 3" marker-end="url(#arr7r)"/>
+
+      <text x="220" y="295" font-size="9" fill="#6c7e93">detect</text>
+      <text x="420" y="295" font-size="9" fill="#6c7e93">stage</text>
+      <text x="660" y="295" font-size="9" fill="#ff5c5c">reap</text>
+
+      <!-- bottom caption -->
+      <text x="450" y="410" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#6c7e93" letter-spacing="2">
+        EVERY APPLY MINTS A FRESH revision_uuid · OLD URLS RETURN 410 · CACHE INVALIDATES
+      </text>
+      <text x="450" y="440" text-anchor="middle" font-family="Anton" font-size="18" fill="#ffb627" letter-spacing="3">
+        REVISION-PINNED · SELF-HEALING · OFFLINE-TOLERANT
+      </text>
+    </g>
+  </svg>
+</div>
+
+<!-- ============================================================
+     WHY SNAPSHOT
+     ============================================================ -->
+
+<h2>Why we copy instead of hot-linking</h2>
+
+<p class="prose">
+  A simpler design would just stick Drive URLs into the crew page and let the phone fetch
+  them directly. Three things kill that idea:
+</p>
+
+<div class="deflist">
+  <dt>Venue wifi</dt>
+  <dd>Conference centers throttle outbound TLS. Cold-fetching a 50MB stage plot from Drive at showcall is a recipe for a black tile.</dd>
+
+  <dt>Drive permissions</dt>
+  <dd>Doug shares files differently across shows. A file world-readable last month becomes "anyone in FXAV" this month. The crew member opening the link is not in FXAV's Google org and gets a permission error.</dd>
+
+  <dt>Doug edits things</dt>
+  <dd>The whole point of "Apply" is that the operator approved <em>these exact bytes</em>. If Doug replaces stage-plot.png mid-show with the wrong version, the crew page must still show the approved one.</dd>
+</div>
+
+<!-- ============================================================
+     THE IMMUTABLE PIN
+     ============================================================ -->
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Invariant · immutable pin tuple</div>
+  <p>
+    Every linked asset is pinned to a <strong>content-derived</strong> identifier — not a
+    timestamp. Linked-folder files pin to <code>(headRevisionId, md5Checksum)</code>; embedded
+    sheet images pin to <code>(sheetsRevisionId, base64url(SHA-256(bytes)))</code>. These tuples
+    are byte-stable: equal inputs always produce equal outputs. Apply re-verifies the pin under
+    the per-show advisory lock before any byte ever lands in canonical storage.
+  </p>
+  <p>
+    Why not <code>drive_modified_time</code>? Because there's a TOCTOU window between reading
+    the modtime and downloading the bytes. The newly-edited file would get snapshotted as the
+    "approved" version even though Apply was approving the older one. Modtime is informational.
+    The pin is the fence.
+  </p>
+</div>
+
+<div class="callout callout--spec">
+  <div class="callout__label">Ratified amendment · 2026-05-12</div>
+  <p>
+    The agenda PDF viewer surfaces its own error codes through the §12.4 catalog. Two new codes:
+    <code>AGENDA_GONE_FOR_CREW</code> (linked agenda PDF was unshared or deleted between Apply
+    and crew page load) and <code>AGENDA_UNAUTHENTICATED</code> (crew member is on a device
+    that has lost its signed-link cookie). The viewer renders these via <code>lib/messages/lookup.ts</code>
+    just like every other UI surface — no raw error strings.
+  </p>
+</div>
+
+<!-- ============================================================
+     STORAGE LAYOUT
+     ============================================================ -->
+
+<h2>The two-prefix dance</h2>
+
+<p class="prose">
+  Every Apply writes to a <strong>temp prefix</strong> first. Only after every byte is on
+  storage AND the DB transaction commits does a post-commit promoter rename the temp prefix
+  to the canonical prefix in one atomic JSONB cutover. If anything fails — Storage 5xx,
+  manifest mismatch, race with another Apply for the same show — the promoter reverse-renames
+  everything back to temp. The canonical prefix is either fully populated with the new
+  revision or untouched. <em>A partial gallery is never live.</em>
+</p>
+
+<pre data-lang="Storage layout"><code>diagram-snapshots/
+  shows/&lt;show_id&gt;/
+    &lt;snapshot_revision_id&gt;/     ← canonical · live · served by /api/asset/diagram/
+      embedded-&lt;objectId&gt;.png
+      folder-&lt;driveFileId&gt;.jpg
+      ...
+    _pending/&lt;run_uuid&gt;/         ← temp · this Apply's uploaded bytes
+      embedded-&lt;objectId&gt;.png    ← becomes canonical on promote
+      ...                          ← swept by GC if the Apply was abandoned</code></pre>
+
+<!-- ============================================================
+     TASKS
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">M7</span> The 9 tasks</div>
+
+<h4>Extraction + freezing</h4>
+
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">7.1 <span class="pill pill--active">Active</span></div>
+    <h3 class="task-card__title">Embedded image extraction</h3>
+    <p class="task-card__body">Inside <code>enrichWithDrivePins</code>, walk the DIAGRAMS tab (case-insensitive) and SHA-256 each image. Cap at 60 across both embedded and linked. The legacy <code>files.export</code> zip fallback is retired — it can't supply a content-derived pin.</p>
+    <div class="task-card__files"><code>lib/sync/enrichWithDrivePins.ts</code><code>tests/sync/embeddedImages.test.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">7.2 <span class="pill pill--active">Active</span></div>
+    <h3 class="task-card__title">Linked-folder freeze</h3>
+    <p class="task-card__body">Enumerate the linked folder, capture each item's <code>(headRevisionId, md5Checksum)</code>, and apply the combined-cap budget. Items 61+ never get persisted — hidden overflow would drift forever and suppress GC.</p>
+    <div class="task-card__files"><code>lib/sync/enrichWithDrivePins.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">7.3 <span class="pill pill--active">Active</span></div>
+    <h3 class="task-card__title">Snapshot at Apply</h3>
+    <p class="task-card__body">The big one. Two-prefix temp/canonical layout. All-or-nothing manifest protocol with reverse-rename rollback. 202-Accepted async promotion contract. The <code>pending</code> JSONB sub-payload stages the new manifest; <code>current</code> never moves until promote succeeds.</p>
+    <div class="task-card__files"><code>lib/sync/snapshotAssets.ts</code><code>lib/sync/phase2.ts</code></div>
+  </div>
+</div>
+
+<h4>Self-healing</h4>
+
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">7.4 <span class="pill pill--active">Active</span></div>
+    <h3 class="task-card__title">asset_recovery mode</h3>
+    <p class="task-card__body">When Apply lands with <code>snapshot_status='partial_failure'</code>, a separate cron mode retries only the missing items. Two-phase: byte-heavy SHA-256 verification runs <em>outside</em> the per-show advisory lock; DB writes run inside. Per-run cap 60 items / 50MB single / 3GB cumulative.</p>
+    <div class="task-card__files"><code>lib/sync/assetRecovery.ts</code><code>app/api/cron/asset-recovery/route.ts</code></div>
+  </div>
+</div>
+
+<h4>Serving routes</h4>
+
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">7.5 <span class="pill pill--pending">Pending</span></div>
+    <h3 class="task-card__title">Diagram asset route</h3>
+    <p class="task-card__body"><code>/api/asset/diagram/[show]/[rev]/[key]</code>. Bare-UUID rev segment. Literal equality on <code>current.snapshot_revision_id</code>; <code>pending</code> sub-payload is never consulted. Any miss is 410, never 404 — single contract for missing bytes.</p>
+    <div class="task-card__files"><code>app/api/asset/diagram/[show]/[rev]/[key]/route.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">7.5b <span class="pill pill--pending">Pending</span></div>
+    <h3 class="task-card__title">Apply status poll endpoint</h3>
+    <p class="task-card__body">Apply returns 202 immediately after Phase-2 commit; the operator polls this endpoint for the eventual promoter outcome. Four states: <code>pending · promoted · rolled_back · stuck_admin_repair_required</code>. Pure read; idempotent under poll storms.</p>
+    <div class="task-card__files"><code>app/api/admin/show/[slug]/apply/[applyId]/status/route.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">7.6 <span class="pill pill--pending">Pending</span></div>
+    <h3 class="task-card__title">Reel asset route</h3>
+    <p class="task-card__body"><code>/api/asset/reel/[show]</code>. Pin is <em>four</em> columns atomic: <code>(driveFileId, drive_modified_time, headRevisionId, mime_type)</code>. Live drift gate compares against current Drive on every request. Two streaming patterns: <code>revisions.get</code> preferred, <code>alt=media</code> with buffer-then-verify md5 as fallback.</p>
+    <div class="task-card__files"><code>app/api/asset/reel/[show]/route.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">7.7 <span class="pill pill--pending">Pending</span></div>
+    <h3 class="task-card__title">Apply-time reel drift</h3>
+    <p class="task-card__body">Verify the four-column pin under the lock at Apply. Trashed, 403, revision-change, modtime-change, MIME-flip all classify as drift → null all four columns atomically → emit the appropriate <code>REEL_*</code> warning code → crew falls back to text-only.</p>
+    <div class="task-card__files"><code>lib/sync/applyStaged.ts</code></div>
+  </div>
+</div>
+
+<h4>Janitor + UI</h4>
+
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">7.8 <span class="pill pill--pending">Pending</span></div>
+    <h3 class="task-card__title">Diagram GC cron</h3>
+    <p class="task-card__body">Five passes per run: orphan-blob sweep, reclaim-expired, initial-claim, per-row work (rename-retry OR delete-orphan), post-promotion cleanup. Three-state ledger lifecycle protects bytes via <code>delete_started_at</code> and <code>promote_started_at</code> markers. Includes the stuck-rollback admin repair endpoint.</p>
+    <div class="task-card__files"><code>app/api/cron/diagram-gc/route.ts</code><code>app/api/admin/snapshot-rollback/[id]/repair/route.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">7.9 <span class="pill pill--pending">Pending</span></div>
+    <h3 class="task-card__title">Gallery + agenda embed</h3>
+    <p class="task-card__body">The crew-facing UI: <code>DiagramsTile</code>, paged gallery (12 initial, "Show more" reveals up to 60), inline <code>&lt;video&gt;</code> for the reel, and the agenda PDF embed. Gallery emits revision-versioned URLs at render time using current <code>shows.diagrams.snapshot_revision_id</code>.</p>
+    <div class="task-card__files"><code>components/tiles/DiagramsTile.tsx</code><code>components/diagrams/Gallery.tsx</code><code>components/agenda/AgendaEmbed.tsx</code></div>
+  </div>
+</div>
+
+<!-- ============================================================
+     STATE TABLE
+     ============================================================ -->
+
+<h2>The ledger row, decoded</h2>
+
+<p class="prose">
+  Every Apply attempt inserts exactly one row into <code>pending_snapshot_uploads</code>.
+  That row is the rendezvous point for the post-commit promoter, the recovery cron, the GC
+  janitor, and the stuck-rollback repair endpoint. Three timestamp markers do all the
+  coordination — together they form a 3-state lifecycle the GC sweep uses to know whether
+  bytes are touchable.
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>State</th><th>Marker shape</th><th>Who's responsible</th><th>GC behavior</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>uploaded</strong></td>
+      <td><code>promoted_at NULL</code> · <code>delete_started_at NULL</code> · <code>promote_started_at NULL</code></td>
+      <td>Phase-2 just committed; promoter hasn't started yet (or rolled back cleanly).</td>
+      <td>Eligible for claim by promoter OR GC after 1h.</td>
+    </tr>
+    <tr>
+      <td><strong>promoting</strong></td>
+      <td><code>promote_started_at NOT NULL</code> · <code>promoted_at NULL</code></td>
+      <td>Post-commit promoter is mid-Storage-rename. Heartbeats <code>claim_expires_at</code>.</td>
+      <td>Refuses to reclaim or delete. The marker is the byte-protection invariant.</td>
+    </tr>
+    <tr>
+      <td><strong>committing_delete</strong></td>
+      <td><code>delete_started_at NOT NULL</code></td>
+      <td>GC has committed to delete this row's temp prefix; Storage DELETE is running.</td>
+      <td>Refuses reclaim. Another worker cannot double-delete the same bytes.</td>
+    </tr>
+    <tr>
+      <td><strong>promoted</strong></td>
+      <td><code>promoted_at NOT NULL</code></td>
+      <td>Cutover landed; canonical revision advanced.</td>
+      <td>Swept after 24h (keep for forensics, then DELETE the row).</td>
+    </tr>
+    <tr>
+      <td><strong>stuck</strong></td>
+      <td><code>promote_started_at &lt; now - '15min'</code> · <code>promoted_at NULL</code></td>
+      <td>Operator-only via <code>/api/admin/snapshot-rollback/[id]/repair</code>.</td>
+      <td>Refuses to touch — emits <code>PENDING_SNAPSHOT_ROLLBACK_STUCK</code> admin alert.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ============================================================
+     INVARIANTS BANNER
+     ============================================================ -->
+
+<div class="hazard-banner">
+  <div class="hazard-banner__stripe"></div>
+  <div class="hazard-banner__body">
+    <h3 class="hazard-banner__title">M7 invariants — never violated past this milestone</h3>
+    <ol class="prose">
+      <li><strong>Content-derived pins only.</strong> Approval evidence is <code>SHA-256(bytes)</code> or <code>md5Checksum</code>. NEVER an HTTP ETag, NEVER a HEAD-derived token, NEVER a modtime.</li>
+      <li><strong>The asset route reads only <code>current</code>.</strong> The <code>pending</code> JSONB sub-payload is the cutover staging slot and is invisible to crew. Literal equality on <code>current.snapshot_revision_id</code> is the only authoritative gate.</li>
+      <li><strong>Any missing-bytes outcome is 410, never 404.</strong> Single contract — caches invalidate consistently, regardless of cause (drift, GC, revoked link, never-existed).</li>
+      <li><strong>Per-show advisory lock is mandatory for every write path.</strong> Apply, asset_recovery, and the admin repair endpoint all acquire <code>show:</code>; the post-commit promoter also takes <code>promote:</code>. No two writers ever race for the same show.</li>
+      <li><strong>A partial gallery is never live.</strong> Promote is all-or-nothing across the manifest; rollback reverse-renames every successfully renamed asset back to temp before clearing <code>pending</code>.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ============================================================
+     ACCEPTANCE CRITERIA
+     ============================================================ -->
+
+<h2>Acceptance criteria</h2>
+
+<ul class="ac-list">
+  <li><span class="ac-id">AC-7.1</span><span>Drive PDF in <code>agenda_links</code> renders inline via PDF.js or <code>&lt;iframe&gt;</code>.</span></li>
+  <li><span class="ac-id">AC-7.2</span><span>Linked folder URL renders a gallery; 12 initial thumbnails, "Show more" reveals the rest.</span></li>
+  <li><span class="ac-id">AC-7.2a</span><span>Sheet-embedded images extracted with content-derived <code>embeddedFingerprint</code>.</span></li>
+  <li><span class="ac-id">AC-7.2b</span><span>Merged gallery — embedded entries come before linked-folder entries.</span></li>
+  <li><span class="ac-id">AC-7.3</span><span>Opening reel renders as inline <code>&lt;video src="/api/asset/reel/<show>"&gt;</code>.</span></li>
+  <li><span class="ac-id">AC-7.4</span><span>Gallery images fetch through <code>/api/asset/diagram/…</code>; raw Drive URLs never appear in crew DOM.</span></li>
+  <li><span class="ac-id">AC-7.5</span><span>Linked-folder cap of 60. Folder with 78 images shows first 60 + admin warning.</span></li>
+  <li><span class="ac-id">AC-7.6</span><span>Embedded-image cap. 65 floating images → 60 rendered + <code>DIAGRAMS_EMBEDDED_CAP_EXCEEDED</code>.</span></li>
+  <li><span class="ac-id">AC-7.7</span><span>Embedded image with 4xx <code>contentUrl</code> renders placeholder slot, not silent hide.</span></li>
+  <li><span class="ac-id">AC-7.8</span><span>Edit one image in Drive without re-syncing — crew page still serves original bytes.</span></li>
+  <li><span class="ac-id">AC-7.9</span><span>Old revisions GC'd at 7 days (active) / 30 days (archived). Suppressed when status is <code>partial_failure</code>.</span></li>
+  <li><span class="ac-id">AC-7.10</span><span>Two manual Applies of same modtime produce distinct <code>snapshot_revision_id</code> and distinct prefixes.</span></li>
+  <li><span class="ac-id">AC-7.11</span><span>Per-asset Apply failure → <code>snapshot_status='partial_failure'</code>; next cron enters <code>asset_recovery</code>.</span></li>
+  <li><span class="ac-id">AC-7.12</span><span>No signed-link cookie → 401. Removed from show → 403. New link issued → 410.</span></li>
+  <li><span class="ac-id">AC-7.13</span><span>Linked-folder freeze captures <code>(headRevisionId, md5Checksum)</code> per item.</span></li>
+  <li><span class="ac-id">AC-7.14</span><span><code>asset_recovery</code> retries both embedded and linked unresolved entries.</span></li>
+  <li><span class="ac-id">AC-7.15</span><span>Revision-versioned URLs — request with prior revision returns 410.</span></li>
+  <li><span class="ac-id">AC-7.16</span><span>Sheet edited during partial_failure → next cron takes NORMAL Phase 2, not recovery.</span></li>
+  <li><span class="ac-id">AC-7.17</span><span>Cache revalidation — "Issue New Link" makes cached asset URLs return 410.</span></li>
+  <li><span class="ac-id">AC-7.18</span><span>Reel route enforces same auth + cache parity as the diagram route.</span></li>
+  <li><span class="ac-id">AC-7.19</span><span>Linked folder edited between stage and Apply — Apply commits with the frozen set only.</span></li>
+  <li><span class="ac-id">AC-7.20</span><span>Linked-folder image edited in place → <code>snapshotPath</code> stays NULL + <code>LINKED_ASSET_DRIFTED</code>.</span></li>
+  <li><span class="ac-id">AC-7.21</span><span>Reel file edited after Apply → route compares modtime AND <code>headRevisionId</code> → 410.</span></li>
+  <li><span class="ac-id">AC-7.22</span><span>Cell with Drive URL → all four reel pin columns NOT NULL after Apply.</span></li>
+  <li><span class="ac-id">AC-7.23</span><span>Mixed-text reel cell → all four pin columns NOT NULL AND crew page renders text+video.</span></li>
+  <li><span class="ac-id">AC-7.24</span><span>Reel edited between stage and Apply → all four pin columns NULL + <code>REEL_DRIFTED</code>; route returns 410.</span></li>
+</ul>
+
+<!-- ============================================================
+     SHAPES IN CODE
+     ============================================================ -->
+
+<h2>The pin tuple, in code</h2>
+
+<pre data-lang="TypeScript"><code>// lib/sync/types.ts — per-entry approval evidence
+
+export type LinkedFolderItem = {
+  driveFileId: string;
+  mimeType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
+  alt: 'media';
+  drive_modified_time: string;     // informational only — NEVER used as a fence
+  headRevisionId: string;          // immutable per-revision Drive token
+  md5Checksum: string;             // content hash — re-verified at Apply
+  snapshotPath: string | null;     // 'diagram-snapshots/shows/<id>/<rev>/<key>' once promoted
+};
+
+export type EmbeddedImage = {
+  sheetTab: string;                // resolved DIAGRAMS tab title (case-preserved)
+  objectId: string;                // Sheets API embedded-object id
+  mimeType: string;
+  sheetsRevisionId: string;        // last entry of drive.revisions.list(spreadsheetId)
+  embeddedFingerprint: string | null;        // base64url(SHA-256(bytes)) — null only if contentUrl unreachable
+  recovery_disposition: 'normal' | 'restage_required';
+  snapshotPath: string | null;
+};
+
+// shows.diagrams JSONB — two sub-payloads
+export type DiagramsJsonb = {
+  current: { snapshot_revision_id: string; embeddedImages: EmbeddedImage[];
+             linkedFolderItems: LinkedFolderItem[]; snapshot_status: 'complete' | 'partial_failure' | 'partial_failure_restage_required'; };
+  pending: { revision_id: string; embeddedImages: EmbeddedImage[];
+             linkedFolderItems: LinkedFolderItem[]; snapshot_status: 'complete' | 'partial_failure'; } | null;
+};</code></pre>
+
+<!-- ============================================================
+     WHAT'S NEXT
+     ============================================================ -->
+
+<h2>What this unlocks</h2>
+
+<div class="deflist">
+  <dt>M8 · Bug report</dt>
+  <dd>Crew can now open a report from a working crew page — images and the reel will render even on bad wifi. The report flow ships next.</dd>
+
+  <dt>Production reliability</dt>
+  <dd>The crew page's offline tolerance is no longer dependent on Doug's Drive sharing settings or venue wifi. Approved bytes are durable in our own storage with a clean garbage-collection contract.</dd>
+
+  <dt>Operator confidence</dt>
+  <dd>An Apply now returns 202 in &lt; 200ms. The operator UI polls a single status endpoint for the eventual promoter outcome. Stuck states surface a "Repair" affordance instead of leaving the operator guessing.</dd>
+</div>
+
+<nav class="pagenav">
+  <a href="06-drive-sync.html">
+    <span class="pagenav__dir">← M6</span>
+    <span class="pagenav__title">Drive sync engine</span>
+  </a>
+  <a href="08-bug-report.html" class="pagenav--right">
+    <span class="pagenav__dir">M8 →</span>
+    <span class="pagenav__title">Bug report flow</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>

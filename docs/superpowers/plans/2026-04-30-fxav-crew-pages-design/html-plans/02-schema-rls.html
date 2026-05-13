@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M2 — Schema, RLS, migrations, seed · FXAV Crew Pages</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK</span></a>
+    <nav class="topbar__nav">
+      <a href="01-foundation.html">← M0 · M1</a>
+      <a href="index.html">All milestones</a>
+      <a href="03-04-tiles.html">M3 · M4 →</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">M2</div>
+  <div class="container">
+    <div class="hero__kicker">Stage 2 of 11 · Database foundation</div>
+    <div class="hero__milestone-mark">M2</div>
+    <h1 class="hero__title">Build the safe. Then bolt it to the floor.</h1>
+    <p class="hero__lede">
+      M1 proved we can <em>parse</em> a show sheet into a clean data structure. M2 builds the
+      Postgres home that data will live in for the rest of the project — with one twist: the
+      money-and-secrets columns get their own physical room behind three independent locks. By
+      the end of this milestone we have tables, row-level security policies, a seed script,
+      and a constraint-introspection harness that refuses to let the schema drift.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Tasks</dt><dd>5 (2.1 → 2.5)</dd></div>
+      <div><dt>Acceptance</dt><dd>AC-2.1 → AC-2.7</dd></div>
+      <div><dt>Spec sections</dt><dd>§4 (entire data model)</dd></div>
+      <div><dt>Status</dt><dd><span class="pill pill--done">Complete</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    A <strong>schema</strong> is the blueprint for a database — what tables exist, what columns
+    each table has, what relationships connect them. <strong>RLS</strong> (row-level security)
+    is Postgres saying "even if the application is buggy or compromised, here are the rows each
+    kind of user is allowed to see." Together they form the safety perimeter every later
+    milestone trusts without re-checking.
+  </p>
+  <p>
+    For FXAV that perimeter matters because each show sheet contains two very different kinds
+    of data: ordinary crew info (names, hotels, call times) that the crew themselves need to see,
+    and <em>LEAD-only</em> financial data (payout rates, gross billings) that must never reach a
+    regular crew member's phone — even if a bug rendered an admin page to the wrong audience.
+    M2 makes that separation a property of the database itself, not a property of the UI code.
+  </p>
+</div>
+
+<!-- ============================================================
+     SHAPE OF M2
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">M2</span> What gets built</div>
+
+<h2>The shape</h2>
+
+<p class="prose">
+  Three migration files, one seed script, one introspection harness. The migrations are
+  CREATE-only — no <code>ALTER TABLE</code>, no <code>IF NOT EXISTS</code> — because additive
+  fragments mask drift the audit harness is designed to catch.
+</p>
+
+<div class="diagram">
+  <div class="diagram__title">M2 · Entity-relationship sketch</div>
+  <svg viewBox="0 0 920 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Schema diagram: public crew-readable tables on the left, shows_internal isolated on the right, admin-only ledgers along the bottom">
+    <defs>
+      <marker id="erd-arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+        <polygon points="0 0, 9 3, 0 6" fill="#6fe7d8"/>
+      </marker>
+      <marker id="erd-arrow-amber" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+        <polygon points="0 0, 9 3, 0 6" fill="#ffb627"/>
+      </marker>
+    </defs>
+
+    <!-- Left zone label -->
+    <text x="200" y="32" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" letter-spacing="3" fill="#6fe7d8">PUBLIC · CREW-READABLE</text>
+    <line x1="40" y1="42" x2="360" y2="42" stroke="#2c3c52"/>
+
+    <!-- shows (hub) -->
+    <rect x="140" y="62" width="140" height="78" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+    <text x="210" y="86" text-anchor="middle" font-family="Anton" font-size="16" fill="#ffb627">shows</text>
+    <text x="210" y="104" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#a4b3c5">id · slug · title</text>
+    <text x="210" y="118" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#a4b3c5">drive_file_id</text>
+    <text x="210" y="132" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#a4b3c5">published · diagrams</text>
+
+    <!-- crew_members -->
+    <rect x="40" y="170" width="130" height="60" fill="#172230" stroke="#2c3c52"/>
+    <text x="105" y="192" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">crew_members</text>
+    <text x="105" y="208" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="#a4b3c5">email · role_flags</text>
+    <text x="105" y="221" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="#a4b3c5">last_changed_at</text>
+
+    <!-- hotel_reservations -->
+    <rect x="190" y="170" width="130" height="40" fill="#172230" stroke="#2c3c52"/>
+    <text x="255" y="194" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">hotel_reservations</text>
+
+    <!-- rooms -->
+    <rect x="40" y="250" width="90" height="40" fill="#172230" stroke="#2c3c52"/>
+    <text x="85" y="274" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">rooms</text>
+
+    <!-- transportation -->
+    <rect x="140" y="250" width="120" height="40" fill="#172230" stroke="#2c3c52"/>
+    <text x="200" y="274" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">transportation</text>
+
+    <!-- contacts -->
+    <rect x="270" y="250" width="90" height="40" fill="#172230" stroke="#2c3c52"/>
+    <text x="315" y="274" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">contacts</text>
+
+    <!-- FK arrows: peers -> shows -->
+    <line x1="105" y1="170" x2="170" y2="140" stroke="#6fe7d8" stroke-width="1.2" marker-end="url(#erd-arrow)"/>
+    <line x1="255" y1="170" x2="230" y2="140" stroke="#6fe7d8" stroke-width="1.2" marker-end="url(#erd-arrow)"/>
+    <line x1="85"  y1="250" x2="185" y2="142" stroke="#6fe7d8" stroke-width="0.8" stroke-dasharray="2 3" marker-end="url(#erd-arrow)"/>
+    <line x1="200" y1="250" x2="210" y2="142" stroke="#6fe7d8" stroke-width="0.8" stroke-dasharray="2 3" marker-end="url(#erd-arrow)"/>
+    <line x1="315" y1="250" x2="245" y2="142" stroke="#6fe7d8" stroke-width="0.8" stroke-dasharray="2 3" marker-end="url(#erd-arrow)"/>
+
+    <!-- Hazard divider between zones -->
+    <line x1="400" y1="40" x2="400" y2="320" stroke="#ffb627" stroke-width="1" stroke-dasharray="6 6"/>
+    <text x="400" y="34" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" letter-spacing="2" fill="#ffb627">PHYSICAL ISOLATION</text>
+
+    <!-- Right zone: shows_internal -->
+    <text x="600" y="32" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" letter-spacing="3" fill="#ff5b9f">LEAD-ONLY · FINANCIAL</text>
+    <line x1="440" y1="42" x2="760" y2="42" stroke="#2c3c52"/>
+
+    <rect x="500" y="62" width="200" height="98" fill="#1a1408" stroke="#ff5b9f" stroke-width="2"/>
+    <text x="600" y="86" text-anchor="middle" font-family="Anton" font-size="16" fill="#ff5b9f">shows_internal</text>
+    <text x="600" y="106" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#d8e0ea">show_id  (1:1 → shows)</text>
+    <text x="600" y="120" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#d8e0ea">financials  jsonb</text>
+    <text x="600" y="134" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#d8e0ea">parse_warnings[]</text>
+    <text x="600" y="148" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#d8e0ea">raw_unrecognized[]</text>
+
+    <!-- 1:1 link to shows -->
+    <line x1="500" y1="100" x2="285" y2="100" stroke="#ff5b9f" stroke-width="1.2" stroke-dasharray="3 3" marker-end="url(#erd-arrow-amber)"/>
+    <text x="395" y="92" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="#ff5b9f">1:1</text>
+
+    <!-- defense layers stacked under shows_internal -->
+    <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#ff5b9f">
+      <rect x="500" y="180" width="200" height="22" fill="rgba(255,91,159,0.06)" stroke="#ff5b9f" stroke-dasharray="3 3"/>
+      <text x="600" y="195" text-anchor="middle">1 · separate table  (physical)</text>
+      <rect x="500" y="208" width="200" height="22" fill="rgba(255,91,159,0.06)" stroke="#ff5b9f" stroke-dasharray="3 3"/>
+      <text x="600" y="223" text-anchor="middle">2 · admin-only RLS  (policy)</text>
+      <rect x="500" y="236" width="200" height="22" fill="rgba(255,91,159,0.06)" stroke="#ff5b9f" stroke-dasharray="3 3"/>
+      <text x="600" y="251" text-anchor="middle">3 · role-aware fetcher  (M4)</text>
+    </g>
+
+    <!-- Auth zone -->
+    <text x="200" y="338" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" letter-spacing="3" fill="#b48cff">AUTH</text>
+    <line x1="40" y1="346" x2="360" y2="346" stroke="#2c3c52"/>
+
+    <rect x="40" y="360" width="130" height="50" fill="#172230" stroke="#b48cff"/>
+    <text x="105" y="382" text-anchor="middle" font-family="Anton" font-size="13" fill="#b48cff">crew_member_auth</text>
+    <text x="105" y="398" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="#a4b3c5">token versions · revoked_below</text>
+
+    <rect x="180" y="360" width="100" height="50" fill="#172230" stroke="#b48cff"/>
+    <text x="230" y="382" text-anchor="middle" font-family="Anton" font-size="13" fill="#b48cff">link_sessions</text>
+    <text x="230" y="398" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="#a4b3c5">signing_key_id</text>
+
+    <rect x="290" y="360" width="80" height="50" fill="#172230" stroke="#b48cff"/>
+    <text x="330" y="382" text-anchor="middle" font-family="Anton" font-size="13" fill="#b48cff">revoked</text>
+    <text x="330" y="398" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" fill="#a4b3c5">_links</text>
+
+    <!-- Ops ledgers -->
+    <text x="600" y="338" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" letter-spacing="3" fill="#a4b3c5">OPS LEDGERS · ADMIN-ONLY</text>
+    <line x1="440" y1="346" x2="760" y2="346" stroke="#2c3c52"/>
+
+    <g font-family="Anton" font-size="11" fill="#a4b3c5">
+      <rect x="440" y="360" width="120" height="38" fill="#172230" stroke="#2c3c52"/>
+      <text x="500" y="384" text-anchor="middle">pending_syncs</text>
+      <rect x="570" y="360" width="120" height="38" fill="#172230" stroke="#2c3c52"/>
+      <text x="630" y="384" text-anchor="middle">pending_ingestions</text>
+      <rect x="700" y="360" width="80"  height="38" fill="#172230" stroke="#2c3c52"/>
+      <text x="740" y="384" text-anchor="middle">sync_log</text>
+
+      <rect x="440" y="406" width="120" height="38" fill="#172230" stroke="#2c3c52"/>
+      <text x="500" y="430" text-anchor="middle">admin_alerts</text>
+      <rect x="570" y="406" width="120" height="38" fill="#172230" stroke="#2c3c52"/>
+      <text x="630" y="430" text-anchor="middle">sync_audit</text>
+      <rect x="700" y="406" width="80"  height="38" fill="#172230" stroke="#2c3c52"/>
+      <text x="740" y="430" text-anchor="middle">reports</text>
+
+      <rect x="440" y="452" width="120" height="38" fill="#172230" stroke="#2c3c52"/>
+      <text x="500" y="476" text-anchor="middle">app_settings</text>
+      <rect x="570" y="452" width="120" height="38" fill="#172230" stroke="#2c3c52"/>
+      <text x="630" y="476" text-anchor="middle">drive_watch_channels</text>
+      <rect x="700" y="452" width="80"  height="38" fill="#172230" stroke="#2c3c52"/>
+      <text x="740" y="476" text-anchor="middle">+ 10 more</text>
+    </g>
+
+    <!-- footer -->
+    <text x="460" y="520" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10" fill="#6c7e93" letter-spacing="2">
+      21 ADMIN-ONLY TABLES  ·  6 CREW-READABLE TABLES  ·  1 LEAD-ONLY ISOLATED TABLE
+    </text>
+  </svg>
+</div>
+
+<!-- ============================================================
+     THE THREE-LAYER HAZARD BANNER
+     ============================================================ -->
+
+<div class="hazard-banner">
+  <div class="hazard-banner__stripe"></div>
+  <div class="hazard-banner__body">
+    <h3 class="hazard-banner__title">LEAD-only financial data — three independent locks</h3>
+    <p class="prose">
+      A crew page never accidentally exposes financials. Not because the UI is careful — because
+      <em>three different layers</em> would each have to fail simultaneously:
+    </p>
+    <ol class="prose">
+      <li><strong>Physical isolation.</strong> Financial fields don't live on the <code>shows</code> table at all. They live in <code>shows_internal</code>, a separate 1:1 table. A SELECT against <code>shows</code> can't accidentally return what isn't there.</li>
+      <li><strong>RLS policy.</strong> <code>shows_internal</code> is admin-only. A request without the admin role gets zero rows back, regardless of what query it sends.</li>
+      <li><strong>Role-aware fetcher (M4).</strong> The application-side data layer refuses to join <code>shows_internal</code> unless the current viewer is a LEAD or admin. This is the layer crew code touches; the layers below it are the backstop.</li>
+    </ol>
+    <p class="prose">
+      AC-2.5 and AC-2.6 prove layers 1 and 2 work with exhaustive table×verb tests — every
+      admin-only table is probed for SELECT / INSERT / UPDATE / DELETE under a non-admin JWT,
+      with a service-role control proving the row actually exists and the operation is real.
+    </p>
+  </div>
+</div>
+
+<!-- ============================================================
+     THE FIVE TASKS
+     ============================================================ -->
+
+<h2>The five tasks</h2>
+
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">2.1 · public schema <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Initial migration — public tables</h3>
+    <p class="task-card__body">
+      The six crew-readable tables — <code>shows</code>, <code>crew_members</code>,
+      <code>hotel_reservations</code>, <code>rooms</code>, <code>transportation</code>,
+      <code>contacts</code>. CHECK constraints for canonical email on every email-bearing column.
+      The partial unique index <code>crew_members_show_email_unique</code>. No <code>ALTER</code>,
+      no <code>IF NOT EXISTS</code>.
+    </p>
+    <div class="task-card__files"><code>supabase/migrations/2026…_initial_public_schema.sql</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">2.2 · internal + admin <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">shows_internal + 20 admin-only tables</h3>
+    <p class="task-card__body">
+      Everything operational. Auth (<code>crew_member_auth</code>, <code>link_sessions</code>,
+      <code>revoked_links</code>, <code>bootstrap_nonces</code>), sync ledgers
+      (<code>pending_syncs</code>, <code>sync_audit</code>, <code>drive_watch_channels</code>),
+      and the <code>app_settings</code> singleton row. One canonical source per table — the
+      table matrix in the spec is explicit about who owns which CREATE.
+    </p>
+    <div class="task-card__files"><code>…_internal_and_admin.sql</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">2.3 · RLS <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Row-level security policies</h3>
+    <p class="task-card__body">
+      <code>ENABLE RLS</code> + an <code>admin_only</code> policy on every admin-only table.
+      A <code>can_read_show(uuid)</code> <code>SECURITY DEFINER</code> helper bypasses RLS for
+      the membership lookup so policies don't recurse. The <code>published = TRUE</code> gate
+      is replicated on every peer crew-readable table — never relying on the join through
+      <code>shows</code>.
+    </p>
+    <div class="task-card__files"><code>…_rls_policies.sql</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">2.4 · seed <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Seed script (AC-2.7)</h3>
+    <p class="task-card__body">
+      Loads the 10 real fixtures through the <em>production</em> ingestion pipeline (not a
+      shortcut INSERT). Every persisted field — including the four reel-pin columns, the
+      structured <code>diagrams</code> JSONB, and <code>drive_file_id</code> /
+      <code>last_seen_modified_time</code> — is asserted post-load.
+    </p>
+    <div class="task-card__files"><code>scripts/seed.ts</code><code>tests/db/seed.test.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">2.5 · introspection <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">CHECK + FK + index introspection</h3>
+    <p class="task-card__body">
+      AC-2.1's drift-detector. Reads <code>pg_get_constraintdef</code>,
+      <code>pg_get_indexdef</code>, and an FK introspection helper; asserts every documented
+      constraint, foreign key cascade rule, and partial index matches its spec definition
+      <em>exactly</em>. A renamed column or weakened cascade fails this test, not production.
+    </p>
+    <div class="task-card__files"><code>tests/db/introspection.test.ts</code></div>
+  </div>
+</div>
+
+<!-- ============================================================
+     EMAIL CANONICALIZATION SAFETY NET
+     ============================================================ -->
+
+<h2>Email canonicalization — at the schema, as a safety net</h2>
+
+<p class="prose">
+  The plan-wide invariant says <code>lib/email/canonicalize.ts</code> (from M1) is the only
+  function permitted to touch a raw email. M2 makes that a property the database itself
+  enforces — every email-bearing column carries a CHECK that rejects any value the
+  canonicalizer would have altered:
+</p>
+
+<pre data-lang="SQL"><code>-- supabase/migrations/…_initial_public_schema.sql
+
+CREATE TABLE crew_members (
+  id            uuid primary key default gen_random_uuid,
+  show_id       uuid not null references shows(id) on delete cascade,
+  name          text not null,
+  email         text,                                       -- nullable per spec
+  role          text not null,
+  role_flags    text[] not null default '{}',
+  ...
+  CONSTRAINT crew_members_email_canonical
+    CHECK (email IS NULL OR email = lower(btrim(email)))
+);
+
+-- partial unique index: one row per (show, canonical email) when present
+CREATE UNIQUE INDEX crew_members_show_email_unique
+  ON crew_members (show_id, email)
+  WHERE email IS NOT NULL;</code></pre>
+
+<p class="prose">
+  If any path ever forgets to canonicalize — a future API route, a manual SQL fix, a CSV import
+  — Postgres rejects the row. The application doesn't have to be perfect; it has to be
+  perfect <em>or</em> the database catches it.
+</p>
+
+<!-- ============================================================
+     RLS DEEP DIVE — the helper pattern
+     ============================================================ -->
+
+<h2>The RLS pattern, in one helper</h2>
+
+<p class="prose">
+  Naïvely, the RLS policy on <code>crew_members</code> wants to say "let this row through if
+  the viewer is admin <em>or</em> a member of this show." But Postgres evaluates that policy
+  against <code>crew_members</code> itself — which is the same table the predicate has to
+  read to check membership. Self-referential RLS either recurses or denies-by-default.
+</p>
+
+<p class="prose">
+  The fix is a <code>SECURITY DEFINER</code> helper that runs with the migration role's
+  privileges and bypasses RLS for the membership lookup. Three rules harden it: an explicit
+  <code>SET search_path</code> with <code>pg_temp</code> placed last, schema-qualified
+  references inside the body, and a <code>REVOKE ALL FROM PUBLIC</code> followed by an
+  explicit grant to only the roles that need it.
+</p>
+
+<pre data-lang="SQL"><code>CREATE OR REPLACE FUNCTION can_read_show(p_show_id uuid)
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public, pg_temp   -- pg_temp LAST closes the writable-schema attack
+STABLE
+AS $$
+  SELECT public.is_admin
+      OR EXISTS (
+           SELECT 1 FROM public.crew_members c
+            WHERE c.show_id = p_show_id
+              AND c.email   = public.auth_email_canonical
+         );
+$$;
+
+REVOKE ALL ON FUNCTION can_read_show(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION can_read_show(uuid) TO authenticated, anon;</code></pre>
+
+<p class="prose">
+  Every crew-readable table's SELECT policy then reads:
+  <code>is_admin OR (can_read_show(table.show_id) AND EXISTS (SELECT 1 FROM shows WHERE id = table.show_id AND published = TRUE))</code>.
+  The <code>published = TRUE</code> gate has to be replicated on every peer — not relying on
+  a join through <code>shows</code> — because PostgREST can query peer tables directly.
+</p>
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Invariant · the three canonical SQL helpers</div>
+  <p>
+    <code>is_admin</code> (zero-arg, boolean), <code>auth_email_canonical</code> (zero-arg, text), and <code>canonicalize_email(text)</code> (one-arg, immutable). Every callsite uses parentheses; bare-identifier usage would silently return the function's <em>oid</em> instead of executing it. Task 2.5's introspection asserts <code>pronargs</code> on each.
+  </p>
+</div>
+
+<!-- ============================================================
+     INTROSPECTION TEST — the drift safety net
+     ============================================================ -->
+
+<h2>Why introspection earns its own task</h2>
+
+<p class="prose">
+  Migrations are write-once. A column rename, a weakened cascade rule
+  (<code>ON DELETE CASCADE</code> → <code>SET NULL</code>), or a partial index that quietly
+  loses its <code>WHERE</code> clause won't fail any normal test — the rows still flow, the
+  queries still return data. Task 2.5 reads Postgres's own catalogs and asserts each
+  constraint, foreign key, and partial index matches its documented definition exactly:
+</p>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>What it checks</th><th>Source catalog</th><th>Failure mode it catches</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>CHECK</code> definitions</td>
+        <td><code>pg_get_constraintdef</code></td>
+        <td>A future migration relaxes the canonical-email CHECK to allow mixed-case emails.</td>
+      </tr>
+      <tr>
+        <td><code>FOREIGN KEY</code> cascade rules</td>
+        <td><code>introspect_fk(...)</code> SECURITY DEFINER helper</td>
+        <td>An FK silently changes from <code>CASCADE</code> to <code>SET NULL</code>, orphaning crew rows when a show is deleted.</td>
+      </tr>
+      <tr>
+        <td>Partial index <code>WHERE</code> clauses</td>
+        <td><code>pg_get_indexdef</code></td>
+        <td>The unique index loses its <code>WHERE email IS NOT NULL</code> predicate and starts blocking NULL-email inserts.</td>
+      </tr>
+      <tr>
+        <td>Function signatures (<code>pronargs</code>)</td>
+        <td><code>pg_proc</code></td>
+        <td>A helper gains a parameter; existing callsites still type-check but resolve to the wrong overload.</td>
+      </tr>
+      <tr>
+        <td>RLS trigger inventory (M2.2 add)</td>
+        <td><code>pg_trigger</code></td>
+        <td>The AFTER-STATEMENT publish trigger gets dropped — rows still update, but the realtime invalidation never fires.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============================================================
+     ACCEPTANCE CRITERIA
+     ============================================================ -->
+
+<h2>Acceptance criteria</h2>
+
+<ul class="ac-list">
+  <li><span class="ac-id">AC-2.1</span><span>Every table from spec §4 exists with documented columns, constraints, FK cascades, and partial indexes. Drift fails the introspection test.</span></li>
+  <li><span class="ac-id">AC-2.2</span><span><code>crew_members_show_email_unique</code> rejects a duplicate (<code>show_id</code>, canonical email) pair.</span></li>
+  <li><span class="ac-id">AC-2.3</span><span><code>crew_members_email_canonical</code> rejects any value that isn't <code>lower(btrim(value))</code> — mixed case, leading whitespace, surrounding spaces.</span></li>
+  <li><span class="ac-id">AC-2.4</span><span><code>revoked_links.token_version &gt; 0</code> CHECK rejects a zero token version.</span></li>
+  <li><span class="ac-id">AC-2.5</span><span>Every one of the 21 admin-only tables denies SELECT / INSERT / UPDATE / DELETE under a non-admin JWT — 84 assertions, each with a service-role control proving the row exists and the payload is valid.</span></li>
+  <li><span class="ac-id">AC-2.6</span><span>Crew-readable tables (<code>shows</code> + 5 peers) deny writes under a matching <em>and</em> non-matching crew JWT, and the <code>published = FALSE</code> gate hides interim-batch rows from peers.</span></li>
+  <li><span class="ac-id">AC-2.7</span><span>The seed script loads all 10 fixtures via the production pipeline; every persisted field round-trips correctly, including the reel-pin quadruple and the structured <code>diagrams</code> JSONB.</span></li>
+</ul>
+
+<!-- ============================================================
+     ADVISORY LOCK SETUP
+     ============================================================ -->
+
+<h2>One more thing M2 quietly establishes</h2>
+
+<p class="prose">
+  M2 doesn't <em>use</em> per-show advisory locks — that's M5 and M6 — but it puts the surfaces
+  in place so later code can. Every table that later milestones mutate under a
+  <code>pg_advisory_xact_lock(hashtext('show:' || drive_file_id))</code> is created here:
+  <code>shows</code>, <code>crew_members</code>, <code>crew_member_auth</code>,
+  <code>pending_syncs</code>, <code>pending_ingestions</code>. The plan-wide invariant —
+  "single holder per hashkey" — is enforced later by the structural meta-test at
+  <code>tests/auth/advisoryLockRpcDeadlock.test.ts</code>; the tables it pins exist starting
+  here.
+</p>
+
+<!-- ============================================================
+     WHAT THIS UNLOCKS
+     ============================================================ -->
+
+<h2>What this unlocks</h2>
+
+<div class="deflist">
+  <dt>M3 · admin dev surface</dt>
+  <dd>A throwaway <code>/admin/dev</code> form can now read raw markdown, call <code>parseSheet</code> from M1, and persist the result into M2's schema — proving the end-to-end round-trip works.</dd>
+
+  <dt>M4 · crew page</dt>
+  <dd>The mobile-first UI fetches from <code>shows</code> + its peers via the role-aware data layer. The LEAD-only fields are read from <code>shows_internal</code> only when the viewer is a LEAD.</dd>
+
+  <dt>M5 · auth</dt>
+  <dd>Signed-link redemption writes to <code>link_sessions</code> with <code>signing_key_id</code> captured from <code>app_settings.active_signing_key_id</code> — the JWT signing-key rotation surface lives here.</dd>
+
+  <dt>M6 · sync</dt>
+  <dd>The Drive sync path runs inside per-show advisory locks and writes to <code>pending_syncs</code> / <code>pending_ingestions</code>. The CHECK on <code>pending_syncs.source_kind</code> (<code>'cron' | 'push' | 'manual' | 'onboarding_scan'</code>) is set up in this milestone.</dd>
+</div>
+
+<nav class="pagenav">
+  <a href="01-foundation.html">
+    <span class="pagenav__dir">← M0 · M1</span>
+    <span class="pagenav__title">Foundation &amp; parser</span>
+  </a>
+  <a href="03-04-tiles.html" class="pagenav--right">
+    <span class="pagenav__dir">M3 · M4 →</span>
+    <span class="pagenav__title">Admin dev &amp; the crew page</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>

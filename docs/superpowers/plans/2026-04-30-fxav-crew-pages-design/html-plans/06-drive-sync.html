@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M6 — Drive Sync · FXAV Crew Pages</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK</span></a>
+    <nav class="topbar__nav">
+      <a href="index.html">All milestones</a>
+      <a href="05-auth.html">← M5</a>
+      <a href="07-asset.html">M7 →</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">M6</div>
+  <div class="container">
+    <div class="hero__kicker">Stage 7 of 11 · Drive sync engine</div>
+    <div class="hero__milestone-mark">M6</div>
+    <h1 class="hero__title">Doug edits the sheet. The page changes.</h1>
+    <p class="hero__lede">
+      The runtime heart of FXAV: a pair of entry points — a five-minute cron and a real-time
+      Drive push webhook — that funnel every show through the same two-phase processor. Phase 1
+      reads the sheet and grades it. Phase 2 destructively replaces the snapshot under a
+      per-show lock. The largest invariant-dense milestone in v1.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Tasks</dt><dd>13</dd></div>
+      <div><dt>Acceptance</dt><dd>AC-6.1 → AC-6.27</dd></div>
+      <div><dt>Spec sections</dt><dd>§5 + §6.8.x</dd></div>
+      <div><dt>Status</dt><dd><span class="pill pill--done">Complete</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    Doug saves the Google Sheet. Within five minutes — or seconds, with a push notification —
+    the crew member's webpage reflects the change. That's the whole milestone in one sentence.
+  </p>
+  <p>
+    Under the hood: four ways a sync can start (a scheduled cron tick, a Drive push, an admin
+    clicking "Re-sync", or a fresh-folder onboarding scan), one shared processor that handles
+    every show identically, and one ironclad rule — only ever one worker mutates a given show
+    at a time.
+  </p>
+</div>
+
+<!-- ============================================================
+     STAGE 1 — Trigger sources
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">M6 · A</span> Four ways in, one way through</div>
+
+<h2>The four entry points</h2>
+
+<p class="prose">
+  Cron, push, manual, onboarding-scan. Each one originates from a different surface — a Vercel
+  cron cadence, an inbound webhook from Google, an admin button click, a wizard step in M10.
+  But every one of them eventually calls the same shared <code>processOneFile</code> helper.
+  That's the design: the entry points are thin shells; the processor is fat and shared.
+</p>
+
+<div class="diagram">
+  <div class="diagram__title">M6 · Trigger sources feed one shared processor</div>
+  <svg viewBox="0 0 940 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Four entry points (cron, push webhook, manual admin, onboarding scan) feed into the shared per-file processor">
+    <defs>
+      <marker id="arrow6a" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#ffb627"/>
+      </marker>
+    </defs>
+
+    <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#a4b3c5">
+      <!-- Triggers (left column) -->
+      <rect x="40" y="40" width="200" height="60" fill="#172230" stroke="#2c3c52"/>
+      <text x="140" y="62" text-anchor="middle" font-family="Anton" font-size="15" fill="#ffb627">CRON · /5 MIN</text>
+      <text x="140" y="80" text-anchor="middle" font-size="10">Vercel scheduled</text>
+      <text x="140" y="93" text-anchor="middle" font-size="10">runScheduledCronSync</text>
+
+      <rect x="40" y="120" width="200" height="60" fill="#172230" stroke="#2c3c52"/>
+      <text x="140" y="142" text-anchor="middle" font-family="Anton" font-size="15" fill="#6fe7d8">PUSH WEBHOOK</text>
+      <text x="140" y="160" text-anchor="middle" font-size="10">Drive channels.watch</text>
+      <text x="140" y="173" text-anchor="middle" font-size="10">runPushSyncForShow</text>
+
+      <rect x="40" y="200" width="200" height="60" fill="#172230" stroke="#2c3c52"/>
+      <text x="140" y="222" text-anchor="middle" font-family="Anton" font-size="15" fill="#a4b3c5">MANUAL · ADMIN</text>
+      <text x="140" y="240" text-anchor="middle" font-size="10">/admin/show/[slug] click</text>
+      <text x="140" y="253" text-anchor="middle" font-size="10">runManualSyncForShow</text>
+
+      <rect x="40" y="280" width="200" height="60" fill="#172230" stroke="#2c3c52"/>
+      <text x="140" y="302" text-anchor="middle" font-family="Anton" font-size="15" fill="#b48cff">ONBOARDING SCAN</text>
+      <text x="140" y="320" text-anchor="middle" font-size="10">wizard discovery, M10</text>
+      <text x="140" y="333" text-anchor="middle" font-size="10">runOnboardingScan</text>
+
+      <!-- Arrows converging -->
+      <line x1="240" y1="70"  x2="380" y2="200" stroke="#ffb627" marker-end="url(#arrow6a)"/>
+      <line x1="240" y1="150" x2="380" y2="210" stroke="#6fe7d8" marker-end="url(#arrow6a)"/>
+      <line x1="240" y1="230" x2="380" y2="220" stroke="#a4b3c5" marker-end="url(#arrow6a)"/>
+      <line x1="240" y1="310" x2="380" y2="230" stroke="#b48cff" marker-end="url(#arrow6a)"/>
+
+      <!-- Shared processor -->
+      <rect x="380" y="160" width="240" height="120" fill="#0a1119" stroke="#ffb627" stroke-width="2"/>
+      <text x="500" y="190" text-anchor="middle" font-family="Anton" font-size="18" fill="#ffb627">processOneFile</text>
+      <text x="500" y="210" text-anchor="middle" font-size="10" fill="#a4b3c5">shared per-file pipeline</text>
+      <text x="500" y="232" text-anchor="middle" font-size="10">gate → parse → enrich</text>
+      <text x="500" y="248" text-anchor="middle" font-size="10">→ phase 1 → phase 2</text>
+      <text x="500" y="268" text-anchor="middle" font-size="10" fill="#6fe7d8">under per-show lock</text>
+
+      <!-- Out arrows -->
+      <line x1="620" y1="180" x2="740" y2="100" stroke="#ffb627" marker-end="url(#arrow6a)"/>
+      <line x1="620" y1="220" x2="740" y2="220" stroke="#ffb627" marker-end="url(#arrow6a)"/>
+      <line x1="620" y1="260" x2="740" y2="340" stroke="#ffb627" marker-end="url(#arrow6a)"/>
+
+      <!-- Outcomes (right column) -->
+      <rect x="740" y="70" width="160" height="60" fill="#172230" stroke="#3fb950"/>
+      <text x="820" y="92" text-anchor="middle" font-family="Anton" font-size="14" fill="#3fb950">APPLY</text>
+      <text x="820" y="110" text-anchor="middle" font-size="10">snapshot replaced</text>
+      <text x="820" y="123" text-anchor="middle" font-size="10">crew page advances</text>
+
+      <rect x="740" y="190" width="160" height="60" fill="#172230" stroke="#ffb627"/>
+      <text x="820" y="212" text-anchor="middle" font-family="Anton" font-size="14" fill="#ffb627">STAGE</text>
+      <text x="820" y="230" text-anchor="middle" font-size="10">pending_syncs row</text>
+      <text x="820" y="243" text-anchor="middle" font-size="10">admin reviews</text>
+
+      <rect x="740" y="310" width="160" height="60" fill="#172230" stroke="#ff5c5c"/>
+      <text x="820" y="332" text-anchor="middle" font-family="Anton" font-size="14" fill="#ff5c5c">HARD FAIL</text>
+      <text x="820" y="350" text-anchor="middle" font-size="10">pending_ingestions</text>
+      <text x="820" y="363" text-anchor="middle" font-size="10">not parseable</text>
+
+      <!-- Caption -->
+      <text x="470" y="395" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#6c7e93" letter-spacing="2">
+        FOUR DIFFERENT FRONT DOORS · ONE SHARED ASSEMBLY LINE · THREE POSSIBLE OUTCOMES
+      </text>
+    </g>
+  </svg>
+</div>
+
+<!-- ============================================================
+     INVARIANT — advisory lock
+     ============================================================ -->
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Invariant · per-show advisory lock</div>
+  <p>
+    Every mutation of <code>shows</code>, <code>crew_members</code>, <code>pending_syncs</code>,
+    or <code>pending_ingestions</code> runs inside
+    <code>pg_try_advisory_xact_lock(hashtext('show:' || drive_file_id))</code> (cron / push)
+    or the blocking <code>pg_advisory_xact_lock(...)</code> (admin paths). Two workers cannot
+    process the same show at the same time. Period. The lock survives the Phase 1 → Phase 2
+    boundary because both phases run inside ONE transaction owned by the orchestrator.
+  </p>
+</div>
+
+<div class="callout callout--warn">
+  <div class="callout__label">Warn · single-holder rule (M5 R20 lesson)</div>
+  <p>
+    For any given hash key, the lock is acquired at exactly ONE layer — never two. Nested
+    holders deadlock under burst. Phase 1 and Phase 2 helpers receive the locked transaction
+    as an argument and MUST NOT call <code>pg_*advisory*_lock</code> themselves. The
+    <code>LockedShowTx&lt;T&gt;</code> brand makes this unforgeable: <code>_unlocked</code>
+    helpers accept only the branded type, so a refactor that hands them a raw <code>Tx</code>
+    fails to compile. A DEV-mode runtime check against <code>pg_locks</code> catches the
+    residual force-cast.
+  </p>
+</div>
+
+<!-- ============================================================
+     STAGE 2 — Two-phase commit diagram
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">M6 · B</span> Inside the lock: two phases</div>
+
+<h2>Phase 1, Phase 2, and the wall between them</h2>
+
+<p class="prose">
+  Phase 1 is read-mostly: it parses the markdown, runs the fourteen invariants from M1, and
+  decides whether the sheet should auto-apply, stage for review, or hard-fail. It is allowed
+  to write status columns and pending rows, but never the destructive ones. Phase 2 is the
+  destructive transaction: old crew rows for this show are deleted, new rows inserted, hotel
+  and transport snapshots wiped and reseeded — all atomic, all under the lock.
+</p>
+
+<div class="diagram">
+  <div class="diagram__title">M6 · Two-phase commit under one advisory lock</div>
+  <svg viewBox="0 0 940 480" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Drive file enters left, advisory lock acquired, Phase 1 routes hard-fail or stage or pass, Phase 2 destructively replaces snapshot, lock released">
+    <defs>
+      <marker id="arrow6b" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#ffb627"/>
+      </marker>
+      <pattern id="lockHatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+        <line x1="0" y1="0" x2="0" y2="6" stroke="#ffb627" stroke-width="1.4" opacity="0.4"/>
+      </pattern>
+    </defs>
+
+    <!-- Lock container -->
+    <rect x="120" y="60" width="760" height="320" fill="url(#lockHatch)" opacity="0.5"/>
+    <rect x="120" y="60" width="760" height="320" fill="none" stroke="#ffb627" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="500" y="50" text-anchor="middle" font-family="IBM Plex Mono" font-size="11" fill="#ffb627" letter-spacing="3">
+      pg_try_advisory_xact_lock(hashtext('show:' || drive_file_id))
+    </text>
+
+    <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#a4b3c5">
+      <!-- Input -->
+      <rect x="20" y="200" width="90" height="60" fill="#0a1119" stroke="#ffb627" stroke-width="2"/>
+      <text x="65" y="225" text-anchor="middle" font-family="Anton" font-size="13" fill="#ffb627">DRIVE</text>
+      <text x="65" y="240" text-anchor="middle" font-family="Anton" font-size="13" fill="#ffb627">FILE</text>
+      <text x="65" y="254" text-anchor="middle" font-size="9">+ binding rev</text>
+
+      <line x1="110" y1="230" x2="138" y2="230" stroke="#ffb627" marker-end="url(#arrow6b)"/>
+
+      <!-- Phase 1 box -->
+      <rect x="150" y="90" width="220" height="260" fill="#172230" stroke="#6fe7d8" stroke-width="2"/>
+      <text x="260" y="115" text-anchor="middle" font-family="Anton" font-size="16" fill="#6fe7d8">PHASE 1 · GATE</text>
+      <text x="260" y="135" text-anchor="middle" font-size="9" fill="#6c7e93">read · classify · route</text>
+
+      <text x="170" y="160" font-size="10">1. parseSheet(markdown)</text>
+      <text x="170" y="180" font-size="10">2. enrichWithDrivePins</text>
+      <text x="170" y="200" font-size="10">3. MI-1..MI-5b — hard fail?</text>
+      <text x="170" y="220" font-size="10">4. MI-6..MI-14 — soft fail?</text>
+      <text x="170" y="240" font-size="10">5. binding revision check</text>
+
+      <text x="260" y="278" text-anchor="middle" font-size="10" fill="#ffb627" letter-spacing="2">DECIDES OUTCOME</text>
+      <text x="170" y="300" font-size="9" fill="#6c7e93">may write: pending_*, status cols</text>
+      <text x="170" y="316" font-size="9" fill="#6c7e93">may NOT write: shows, crew, hotels…</text>
+      <text x="260" y="340" text-anchor="middle" font-family="Anton" font-size="10" fill="#a4b3c5">runPhase1(tx, ...)</text>
+
+      <!-- Three outbound paths -->
+      <line x1="370" y1="160" x2="540" y2="100" stroke="#ff5c5c" stroke-width="1.6" marker-end="url(#arrow6b)"/>
+      <text x="455" y="125" text-anchor="middle" font-size="9" fill="#ff5c5c">hard fail</text>
+      <line x1="370" y1="225" x2="540" y2="225" stroke="#ffb627" stroke-width="1.6" marker-end="url(#arrow6b)"/>
+      <text x="455" y="215" text-anchor="middle" font-size="9" fill="#ffb627">stage</text>
+      <line x1="370" y1="290" x2="540" y2="350" stroke="#3fb950" stroke-width="1.6" marker-end="url(#arrow6b)"/>
+      <text x="455" y="335" text-anchor="middle" font-size="9" fill="#3fb950">pass</text>
+
+      <!-- Outcomes within lock -->
+      <rect x="550" y="80" width="180" height="44" fill="#0a1119" stroke="#ff5c5c"/>
+      <text x="640" y="100" text-anchor="middle" font-family="Anton" font-size="11" fill="#ff5c5c">PENDING_INGESTIONS</text>
+      <text x="640" y="115" text-anchor="middle" font-size="9">not parseable</text>
+
+      <rect x="550" y="200" width="180" height="44" fill="#0a1119" stroke="#ffb627"/>
+      <text x="640" y="220" text-anchor="middle" font-family="Anton" font-size="11" fill="#ffb627">PENDING_SYNCS</text>
+      <text x="640" y="235" text-anchor="middle" font-size="9">staged for admin review</text>
+
+      <rect x="550" y="328" width="180" height="44" fill="#172230" stroke="#3fb950" stroke-width="2"/>
+      <text x="640" y="348" text-anchor="middle" font-family="Anton" font-size="11" fill="#3fb950">PHASE 2</text>
+      <text x="640" y="363" text-anchor="middle" font-size="9">destructive snapshot</text>
+
+      <!-- Phase 2 detail box -->
+      <line x1="730" y1="350" x2="760" y2="350" stroke="#3fb950" marker-end="url(#arrow6b)"/>
+      <rect x="760" y="290" width="110" height="80" fill="#0a1119" stroke="#3fb950"/>
+      <text x="815" y="310" text-anchor="middle" font-family="Anton" font-size="11" fill="#3fb950">runPhase2</text>
+      <text x="815" y="328" text-anchor="middle" font-size="9">DELETE old</text>
+      <text x="815" y="342" text-anchor="middle" font-size="9">INSERT new</text>
+      <text x="815" y="356" text-anchor="middle" font-size="9">stamp watermark</text>
+    </g>
+
+    <!-- Bottom caption -->
+    <text x="500" y="410" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#6c7e93" letter-spacing="2">
+      ONE TRANSACTION · ONE LOCK · LOCK RELEASES AT COMMIT
+    </text>
+    <text x="500" y="440" text-anchor="middle" font-family="Anton" font-size="14" fill="#ffb627" letter-spacing="3">
+      ATOMIC SNAPSHOT REPLACEMENT
+    </text>
+  </svg>
+</div>
+
+<h3>Three monotonic guards, one per mode</h3>
+
+<p class="prose">
+  Phase 2 won't let a stale write clobber a fresh one. Each mode picks a different comparison
+  against <code>last_seen_modified_time</code>:
+</p>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Mode</th><th>Guard</th><th>Same-modtime behavior</th><th>Rejection code</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>cron</code></td><td>strict <code>&lt;</code></td><td>roll back</td><td><code>STALE_WRITE_ABORTED</code></td></tr>
+      <tr><td><code>push</code></td><td>strict <code>&lt;</code></td><td>roll back</td><td><code>STALE_PUSH_ABORTED</code></td></tr>
+      <tr><td><code>manual</code></td><td><code>&lt;=</code></td><td>allowed (replay)</td><td><code>STALE_MANUAL_REPLAY_ABORTED</code></td></tr>
+      <tr><td><code>recovery</code></td><td><code>&lt;=</code></td><td>allowed (re-attach)</td><td>same as mode of origin</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============================================================
+     PHASE 1 ROUTING — Amendment 9
+     ============================================================ -->
+
+<div class="callout callout--spec">
+  <div class="callout__label">Ratified amendment 9 · first-seen routing</div>
+  <p>
+    First-seen sheets dropped in the watched folder (mode = <code>cron</code> / <code>push</code>
+    / <code>manual</code>) AUTO-APPLY when all MI-1..MI-14 pass — Phase 2 runs, the show goes
+    live, a 24h <code>unpublish_token</code> is stamped, and <code>SHOW_FIRST_PUBLISHED</code>
+    fires. Wizard onboarding-scan mode still stages with the <code>ONBOARDING_SCAN_REVIEW</code>
+    sentinel — explicit human review is the point of the wizard. MI-1..MI-5b hard fails route
+    to <code>pending_ingestions</code> regardless of mode. The retired
+    <code>FIRST_SEEN_REVIEW</code> sentinel no longer fires from any code path.
+  </p>
+</div>
+
+<!-- ============================================================
+     TASK GRID
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">M6 · C</span> The thirteen tasks</div>
+
+<h2>What ships in this milestone</h2>
+
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">6.1 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Drive client</h3>
+    <p class="task-card__body">Service-account auth via <code>GOOGLE_SERVICE_ACCOUNT_JSON</code>. Returns a configured <code>googleapis</code> client. Tests mock the auth layer.</p>
+    <div class="task-card__files"><code>lib/drive/client.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">6.2 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">List + fetch wrappers</h3>
+    <p class="task-card__body">Folder-scoped <code>files.list</code> with pagination, <code>files.get</code>, and <code>files.export</code>. Rejects files whose <code>parents</code> doesn't include the watched folder.</p>
+    <div class="task-card__files"><code>lib/drive/list.ts</code><code>lib/drive/fetch.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">6.3 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Per-file processor — gate only</h3>
+    <p class="task-card__body">Gating phase: deferral check, watermark gate, sheet-unavailable recovery, partial-failure detection. Decides skip vs proceed; does NOT call parseSheet or run phases.</p>
+    <div class="task-card__files"><code>lib/sync/perFileProcessor.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">6.4 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Phase 1 — invariant gate + routing</h3>
+    <p class="task-card__body">MI-1..MI-5b first (hard fail), then amendment-9 mode-aware first-seen branch, then MI-6..MI-14 soft routing. Accepts an externally-owned transaction. Never opens its own.</p>
+    <div class="task-card__files"><code>lib/sync/phase1.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">6.5 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Phase 2 — destructive snapshot</h3>
+    <p class="task-card__body">DELETE-first then UPSERT for <code>crew_members</code>; full DELETE+INSERT for hotels/rooms/transport. Stamps <code>last_seen_modified_time</code> from <code>binding.modifiedTime</code>, never <code>files.list</code>.</p>
+    <div class="task-card__files"><code>lib/sync/phase2.ts</code><code>lib/sync/applyParseResult.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">6.6 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">runScheduledCronSync</h3>
+    <p class="task-card__body">Vercel cron at <code>*/5 * * * *</code>. Lists the watched folder, runs <code>processOneFile</code> per sheet, then runs §5.2 step 4 removed-sheet detection.</p>
+    <div class="task-card__files"><code>lib/sync/runScheduledCronSync.ts</code><code>app/api/cron/sync/route.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">6.7 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">runManualSyncForShow</h3>
+    <p class="task-card__body">Admin "Re-sync" button. Ships two helpers — locked outer wrapper and <code>_unlocked</code> body accepting a branded <code>LockedShowTx</code>. Wizard-finalize 409 guard before any DB write.</p>
+    <div class="task-card__files"><code>lib/sync/runManualSyncForShow.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">6.8 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">runOnboardingScan</h3>
+    <p class="task-card__body">Wizard-mode discovery. Phase 1 only — never runs Phase 2. Writes are CAS-gated against <code>app_settings.pending_wizard_session_id</code> AND scoped to the wizard's session partition.</p>
+    <div class="task-card__files"><code>lib/sync/runOnboardingScan.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">6.9 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Watch subscription lifecycle</h3>
+    <p class="task-card__body">Two-phase outbox for Drive watch channels: pending → active → superseded → stopped. Hourly renewal cron; GC reconciles orphans. Strict <code>status='active'</code> match on webhook.</p>
+    <div class="task-card__files"><code>lib/drive/watch.ts</code><code>app/api/cron/refresh-watch/route.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">6.10 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Webhook + runPushSyncForShow</h3>
+    <p class="task-card__body">Eight-step §5.5.3 verification: headers, channel lookup, token compare, resource cross-check, state filter, dedup, fast 200, dispatch. Push and cron share the strict-<code>&lt;</code> guard.</p>
+    <div class="task-card__files"><code>app/api/drive/webhook/route.ts</code><code>lib/sync/runPushSyncForShow.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">6.11 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Apply staged parse</h3>
+    <p class="task-card__body">Source-scoped: live Apply runs Phase 2 + DELETEs the staged row; wizard Apply is Phase-1-only approval that flips <code>wizard_approved = TRUE</code> and waits for finalize. Auth side-effects per §6.8.2.</p>
+    <div class="task-card__files"><code>app/api/admin/staged/[fileId]/apply/route.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">6.12 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Discard staged parse</h3>
+    <p class="task-card__body">Three variants for first-seen (try again / skip until edited / permanently ignore) + one for existing-show (restore prior status). Symmetric source-scoping with Apply. <code>staged_id</code> CAS catches stale tabs.</p>
+    <div class="task-card__files"><code>app/api/admin/staged/[fileId]/discard/route.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">6.13 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Demo verification</h3>
+    <p class="task-card__body">Edit a sheet; observe the crew page update within ~5s via push (or 5min via cron fallback). Run all M6 tests. Commit the chore.</p>
+    <div class="task-card__files"><code>tests/sync/**</code></div>
+  </div>
+</div>
+
+<!-- ============================================================
+     SAME-REVISION BINDING
+     ============================================================ -->
+
+<h2>The same-revision binding contract</h2>
+
+<p class="prose">
+  Doug edits the sheet while a sync is mid-flight. The Drive head advances. The orchestrator
+  captured markdown bytes at <code>R1</code> but is now enriching pins at <code>R2</code>.
+  Without protection, half the staged <code>ParseResult</code> describes a sheet that no
+  longer exists.
+</p>
+
+<p class="prose">
+  The fix: every sync captures <code>binding = { headRevisionId, modifiedTime }</code> BEFORE
+  exporting markdown, pins every subsequent Drive read to that revision, then runs a final
+  re-verify after enrichment. Mismatch aborts as <code>STAGED_PARSE_REVISION_RACE</code> — no
+  commit, no watermark advance. The next cron pass picks it up with a fresh binding. A
+  cooldown table prevents a hot sheet from burning Drive API quota indefinitely:
+  <span class="mono">60s, 120s, 240s, 480s, 600s</span> capped, cleared on successful commit.
+</p>
+
+<pre data-lang="TypeScript"><code>// lib/sync/runScheduledCronSync.ts — processOneFile flow
+const binding = await getDriveClient.files.get(driveFileId, {
+  fields: 'headRevisionId,modifiedTime', supportsAllDrives: true
+});
+const markdown = await fetchSheetAsMarkdownAtRevision(driveFileId, binding.headRevisionId);
+const parsed = parseSheet(markdown);
+const parseResult = await enrichWithDrivePins(parsed, ..., { binding });
+
+const reVerify = await getDriveClient.files.get(driveFileId, /* same fields */);
+if (reVerify.headRevisionId !== binding.headRevisionId) {
+  logSyncOutcome({ kind: 'skip', reason: 'STAGED_PARSE_REVISION_RACE', ... });
+  return;  // no commit, no watermark advance
+}
+
+await withShowSyncTransaction(async (tx) => {
+  /* acquire advisory lock, runPhase1(tx, ...), runPhase2(tx, ...) */
+});</code></pre>
+
+<!-- ============================================================
+     ACCEPTANCE CRITERIA — sampled
+     ============================================================ -->
+
+<h2>Acceptance criteria (representative)</h2>
+
+<p class="prose">
+  M6 carries the largest AC count in the plan — twenty-seven criteria across cron, push,
+  manual, onboarding, and watch lifecycle. Here are the most representative:
+</p>
+
+<ul class="ac-list">
+  <li><span class="ac-id">AC-6.2</span><span>Unchanged sheet → no advance of <code>last_seen_modified_time</code>; cron is a no-op.</span></li>
+  <li><span class="ac-id">AC-6.4</span><span>Show A's parse failure does not skip Show B — per-file isolation across the cron loop.</span></li>
+  <li><span class="ac-id">AC-6.7</span><span>Concurrent sync attempts: second worker hits <code>CONCURRENT_SYNC_SKIPPED</code> because the first holds the advisory lock.</span></li>
+  <li><span class="ac-id">AC-6.11</span><span>First-seen routing per amendment 9: auto-apply on cron/push/manual + all-MI-pass; stage on wizard mode; hard-fail on MI-1..MI-5b.</span></li>
+  <li><span class="ac-id">AC-6.14</span><span>Edit a sheet, webhook fires, <code>last_seen_modified_time</code> advances within ~5 seconds end-to-end.</span></li>
+  <li><span class="ac-id">AC-6.21</span><span>Push that races cron rolls back as <code>STALE_PUSH_ABORTED</code> — the strict-<code>&lt;</code> monotonic guard fires.</span></li>
+  <li><span class="ac-id">AC-6.26</span><span>Source out of scope at Apply time → <code>STAGED_PARSE_SOURCE_OUT_OF_SCOPE</code>; existing-show stages restore prior status.</span></li>
+</ul>
+
+<!-- ============================================================
+     PARTITIONS — wizard vs live
+     ============================================================ -->
+
+<h2>Two partitions, one drive_file_id</h2>
+
+<p class="prose">
+  Once an admin starts the onboarding wizard against a candidate folder while the live folder
+  is still cron-syncing, a single <code>drive_file_id</code> can have TWO pending rows — one
+  in the live partition (<code>wizard_session_id IS NULL</code>), one in the wizard partition
+  (<code>wizard_session_id = $session</code>). The schema enforces coexistence via two partial
+  unique indexes treating NULL as distinct from any UUID. Every read and write in the sync
+  pipeline carries the matching scope predicate, and the Apply / Discard routes demand a
+  <code>source_scope</code> parameter from request context — never inferred from row content.
+</p>
+
+<div class="hazard-banner">
+  <div class="hazard-banner__stripe"></div>
+  <div class="hazard-banner__body">
+    <h3 class="hazard-banner__title">M6 invariants — non-negotiable past this milestone</h3>
+    <ol class="prose">
+      <li>Every show mutation runs inside the per-show advisory lock. <em>Single holder</em>: lock acquired at exactly one layer.</li>
+      <li>Phase 1 and Phase 2 share ONE transaction, owned by the orchestrator. Helpers never <code>BEGIN</code> / <code>COMMIT</code> themselves.</li>
+      <li>The <code>LockedShowTx&lt;T&gt;</code> brand makes lock ownership unforgeable at compile time. DEV-mode <code>pg_locks</code> query catches force-casts.</li>
+      <li>Same-revision binding pinned on every Drive read; post-enrichment re-verify before Phase 1 commits anything.</li>
+      <li>Source-scope predicate (<code>wizard_session_id IS NULL</code> vs <code>= $session</code>) on every <code>pending_*</code> read and write.</li>
+      <li>No global sync cursor. Per-show watermark only — <code>shows.last_seen_modified_time</code> is the source of truth.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ============================================================
+     WHAT'S NEXT
+     ============================================================ -->
+
+<h2>What this unlocks</h2>
+
+<div class="deflist">
+  <dt>M7 · Assets</dt>
+  <dd>Phase 2 stamps the diagram snapshot revision. M7 owns the signed-URL routes that serve those snapshots and the recovery flow for partial failures.</dd>
+
+  <dt>M8 · Report</dt>
+  <dd>Sync errors hit <code>admin_alerts</code>; the report endpoint files GitHub issues with deduplication, retention, and the lease-holder protocol.</dd>
+
+  <dt>M10 · Onboarding</dt>
+  <dd>The wizard already wires through <code>runOnboardingScan</code> here. M10 layers UI on top: folder picker, scan summary, finalize-CAS promotion.</dd>
+
+  <dt>M11 · Polish</dt>
+  <dd>The cron keepalive, GC sweepers for stopped watch channels and orphan temp prefixes, and the demo verification all firm up.</dd>
+</div>
+
+<nav class="pagenav">
+  <a href="05-auth.html">
+    <span class="pagenav__dir">← M5</span>
+    <span class="pagenav__title">Auth & signed links</span>
+  </a>
+  <a href="07-asset.html" class="pagenav--right">
+    <span class="pagenav__dir">M7 →</span>
+    <span class="pagenav__title">Asset snapshotting & recovery</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AC-X · Cross-cutting audits · FXAV Crew Pages</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK</span></a>
+    <nav class="topbar__nav">
+      <a href="09-10-admin.html">← M9 · M10</a>
+      <a href="index.html">All milestones</a>
+      <a href="index.html">End ▣</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">AC-X</div>
+  <div class="container">
+    <div class="hero__kicker">Stage 11 of 11 · Cross-cutting</div>
+    <div class="hero__milestone-mark">AC · X</div>
+    <h1 class="hero__title">Six robots that walk the whole codebase.</h1>
+    <p class="hero__lede">
+      The other ten milestones each prove a feature works. This one proves something stranger:
+      that a set of <strong>plan-wide promises</strong> still hold true everywhere, all at once.
+      No single feature can guarantee them; only an audit can. Six audits ship here — one per
+      invariant — each implemented as a script that scans every relevant file in the repo and
+      fails CI the moment a line of code violates the contract.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Audits</dt><dd>AC-X.1 → AC-X.6</dd></div>
+      <div><dt>Required CI checks</dt><dd>7 PR-blocking</dd></div>
+      <div><dt>Spec sections</dt><dd>§12.4 · §17.2 · all</dd></div>
+      <div><dt>Status</dt><dd><span class="pill pill--active">In flight</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    These aren't features. They're <strong>guarantees</strong>. Each audit is a small robot that
+    walks the entire codebase looking for one specific kind of violation. If the robot finds anything,
+    CI turns red and the change cannot merge.
+  </p>
+  <p>
+    Why does this exist? Because in a system this big, individual milestone tests cannot catch
+    <em>class-level drift</em>. A test proves that one route handler works; it can't prove that
+    <em>every</em> route handler still calls the auth validator first. A test proves that one
+    error message renders correctly; it can't prove that <em>no</em> raw error code ever leaks
+    into a user-visible string anywhere on the site. The audits do.
+  </p>
+</div>
+
+<div class="hazard-banner">
+  <div class="hazard-banner__stripe"></div>
+  <div class="hazard-banner__body">
+    <h3 class="hazard-banner__title">Tests prove a feature works. Audits prove an invariant holds.</h3>
+    <p class="prose">
+      Every milestone before this one shipped behavior. M1 parses sheets. M4 renders tiles. M6 syncs
+      Drive. M8 mints report links. Each was tested in isolation. But the spec also makes
+      <strong>system-wide promises</strong>: <em>no raw error codes in the UI; one place that touches
+      raw emails; per-show watermarks only; a single auth chain on every protected surface.</em>
+      Those promises can only be defended by a script that scans the <em>entire</em> repo on every
+      pull request. That's what this milestone builds.
+    </p>
+  </div>
+</div>
+
+<!-- ============================================================
+     X-RAY DIAGRAM
+     ============================================================ -->
+
+<div class="diagram">
+  <div class="diagram__title">AC-X · Six scanners over the codebase</div>
+  <svg viewBox="0 0 960 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Six audits projected as scan beams across the codebase surfaces">
+    <defs>
+      <marker id="acx-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#ffb627"/>
+      </marker>
+      <linearGradient id="beam" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#ffb627" stop-opacity="0.6"/>
+        <stop offset="100%" stop-color="#ffb627" stop-opacity="0"/>
+      </linearGradient>
+      <pattern id="grid" patternUnits="userSpaceOnUse" width="14" height="14">
+        <path d="M14 0 L0 0 0 14" fill="none" stroke="#1b2837" stroke-width="0.5"/>
+      </pattern>
+    </defs>
+
+    <!-- backplate -->
+    <rect x="0" y="0" width="960" height="520" fill="url(#grid)"/>
+
+    <!-- LEFT COLUMN: the six scanners -->
+    <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#a4b3c5">
+      <text x="120" y="34" text-anchor="middle" font-family="Anton" font-size="14" fill="#ffb627" letter-spacing="3">SCANNERS</text>
+
+      <!-- X.1 -->
+      <rect x="30" y="58" width="180" height="52" fill="#172230" stroke="#2c3c52"/>
+      <text x="42" y="78" font-family="Anton" font-size="13" fill="#ffb627">X.1</text>
+      <text x="42" y="94" font-size="10">CATALOG PARITY</text>
+      <text x="42" y="106" font-size="9" fill="#6c7e93">spec ↔ catalog ↔ scenario</text>
+
+      <!-- X.2 -->
+      <rect x="30" y="124" width="180" height="52" fill="#172230" stroke="#2c3c52"/>
+      <text x="42" y="144" font-family="Anton" font-size="13" fill="#ffb627">X.2</text>
+      <text x="42" y="160" font-size="10">NO RAW CODES IN UI</text>
+      <text x="42" y="172" font-size="9" fill="#6c7e93">text · attrs · live DOM</text>
+
+      <!-- X.3 -->
+      <rect x="30" y="190" width="180" height="52" fill="#172230" stroke="#2c3c52"/>
+      <text x="42" y="210" font-family="Anton" font-size="13" fill="#ffb627">X.3</text>
+      <text x="42" y="226" font-size="10">ONE AUTH CHAIN</text>
+      <text x="42" y="238" font-size="9" fill="#6c7e93">dominator analysis</text>
+
+      <!-- X.4 -->
+      <rect x="30" y="256" width="180" height="52" fill="#172230" stroke="#2c3c52"/>
+      <text x="42" y="276" font-family="Anton" font-size="13" fill="#ffb627">X.4</text>
+      <text x="42" y="292" font-size="10">NO GLOBAL CURSOR</text>
+      <text x="42" y="304" font-size="9" fill="#6c7e93">per-show watermarks</text>
+
+      <!-- X.5 -->
+      <rect x="30" y="322" width="180" height="52" fill="#172230" stroke="#2c3c52"/>
+      <text x="42" y="342" font-family="Anton" font-size="13" fill="#ffb627">X.5</text>
+      <text x="42" y="358" font-size="10">EMAIL CANONICAL</text>
+      <text x="42" y="370" font-size="9" fill="#6c7e93">single chokepoint</text>
+
+      <!-- X.6 -->
+      <rect x="30" y="388" width="180" height="52" fill="#172230" stroke="#2c3c52"/>
+      <text x="42" y="408" font-family="Anton" font-size="13" fill="#ffb627">X.6</text>
+      <text x="42" y="424" font-size="10">SPEC ↔ CODE MATRIX</text>
+      <text x="42" y="436" font-size="9" fill="#6c7e93">machine-generated</text>
+
+      <!-- RIGHT COLUMN: the surfaces -->
+      <text x="780" y="34" text-anchor="middle" font-family="Anton" font-size="14" fill="#6fe7d8" letter-spacing="3">SURFACES</text>
+
+      <rect x="660" y="58" width="240" height="36" fill="#0e1620" stroke="#3a4d68"/>
+      <text x="780" y="80" text-anchor="middle" font-size="11" fill="#d8e0ea">spec §12.4 · catalog · scenarios</text>
+
+      <rect x="660" y="106" width="240" height="36" fill="#0e1620" stroke="#3a4d68"/>
+      <text x="780" y="128" text-anchor="middle" font-size="11" fill="#d8e0ea">app/** · components/** (TSX)</text>
+
+      <rect x="660" y="154" width="240" height="36" fill="#0e1620" stroke="#3a4d68"/>
+      <text x="780" y="176" text-anchor="middle" font-size="11" fill="#d8e0ea">app/api/** · app/admin/** · app/me/**</text>
+
+      <rect x="660" y="202" width="240" height="36" fill="#0e1620" stroke="#3a4d68"/>
+      <text x="780" y="224" text-anchor="middle" font-size="11" fill="#d8e0ea">lib/sync/** · DB schema · cron</text>
+
+      <rect x="660" y="250" width="240" height="36" fill="#0e1620" stroke="#3a4d68"/>
+      <text x="780" y="272" text-anchor="middle" font-size="11" fill="#d8e0ea">lib/parser/** · lib/auth/** · RLS</text>
+
+      <rect x="660" y="298" width="240" height="36" fill="#0e1620" stroke="#3a4d68"/>
+      <text x="780" y="320" text-anchor="middle" font-size="11" fill="#d8e0ea">spec headings · plan task blocks</text>
+
+      <!-- repo silhouette -->
+      <rect x="660" y="358" width="240" height="84" fill="rgba(255,182,39,0.04)" stroke="#2c3c52" stroke-dasharray="3 3"/>
+      <text x="780" y="382" text-anchor="middle" font-family="Anton" font-size="13" fill="#ffb627">THE WHOLE REPO</text>
+      <text x="780" y="402" text-anchor="middle" font-size="10" fill="#6c7e93">every audit walks the full tree</text>
+      <text x="780" y="420" text-anchor="middle" font-size="10" fill="#6c7e93">on every pull request</text>
+      <text x="780" y="436" text-anchor="middle" font-size="10" fill="#6c7e93">7 required GitHub status checks</text>
+    </g>
+
+    <!-- BEAMS connecting scanners to surfaces -->
+    <g stroke-width="1.5" fill="none">
+      <path d="M210 84 Q 420 84 660 76" stroke="url(#beam)"/>
+      <path d="M210 150 Q 420 140 660 124" stroke="url(#beam)"/>
+      <path d="M210 216 Q 420 200 660 172" stroke="url(#beam)"/>
+      <path d="M210 282 Q 420 260 660 220" stroke="url(#beam)"/>
+      <path d="M210 348 Q 420 320 660 268" stroke="url(#beam)"/>
+      <path d="M210 414 Q 420 360 660 316" stroke="url(#beam)"/>
+    </g>
+
+    <!-- arrowheads near each surface -->
+    <g>
+      <line x1="650" y1="76" x2="660" y2="76" stroke="#ffb627" marker-end="url(#acx-arrow)"/>
+      <line x1="650" y1="124" x2="660" y2="124" stroke="#ffb627" marker-end="url(#acx-arrow)"/>
+      <line x1="650" y1="172" x2="660" y2="172" stroke="#ffb627" marker-end="url(#acx-arrow)"/>
+      <line x1="650" y1="220" x2="660" y2="220" stroke="#ffb627" marker-end="url(#acx-arrow)"/>
+      <line x1="650" y1="268" x2="660" y2="268" stroke="#ffb627" marker-end="url(#acx-arrow)"/>
+      <line x1="650" y1="316" x2="660" y2="316" stroke="#ffb627" marker-end="url(#acx-arrow)"/>
+    </g>
+
+    <!-- caption -->
+    <text x="480" y="488" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#6c7e93" letter-spacing="2">
+      EACH ROBOT WALKS ONE INVARIANT ACROSS ITS ENTIRE SURFACE — EVERY PR, EVERY BUILD
+    </text>
+  </svg>
+</div>
+
+<!-- ============================================================
+     PLAIN-LANGUAGE INVARIANT SUMMARY
+     ============================================================ -->
+
+<h2>What each audit defends, in plain words</h2>
+
+<div class="deflist">
+  <dt>AC-X.1 · catalog parity</dt>
+  <dd>Every error message Doug or a crew member could ever see is described in one place (§12.4 of the spec). The audit proves <em>spec, catalog code, and at least one test scenario</em> all agree about every code — and that retired codes never reappear.</dd>
+
+  <dt>AC-X.2 · no raw codes in UI</dt>
+  <dd>Internal error codes (<code>LINK_REVOKED_FLOOR</code>, <code>MI-5b_DUPLICATE_CREW_EMAIL</code>, <code>parse_error</code>) are for logs and admin alerts. They must never appear as text on a page Doug or crew see — not in body text, not in <code>title</code> attributes, not in a textarea controlled by React state.</dd>
+
+  <dt>AC-X.3 · one auth chain</dt>
+  <dd>Every protected URL passes through the same small set of validators in the same order, before touching protected data. Not just "imports the validator" — <em>dominates every reachable database read</em>.</dd>
+
+  <dt>AC-X.4 · no global cursor</dt>
+  <dd>Sync decisions are made per show, not per system. There is no single <em>"when did we last poll?"</em> timestamp anywhere — every watermark belongs to one row of one table.</dd>
+
+  <dt>AC-X.5 · email canonicalization</dt>
+  <dd>One function (<code>lib/email/canonicalize.ts</code>) is allowed to clean up raw email strings. Every other place that touches an email must call it first. The schema CHECKs are the safety net; this audit is the doorman.</dd>
+
+  <dt>AC-X.6 · spec ↔ code matrix</dt>
+  <dd>Every numbered section of the spec maps to at least one task in the plan via a structured HTML-comment anchor. Free-form prose mentions don't count. If the spec adds a new amendment and no task claims it, CI fails.</dd>
+</div>
+
+<!-- ============================================================
+     AUDIT X.1
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">X.1</span> Three-way §12.4 parity</div>
+<h2>X.1 · No orphan error codes</h2>
+
+<p class="prose">
+  Spec §12.4 is the canonical message catalog. Every code worth showing a human has a row there
+  with Doug-facing copy, crew-facing copy, a follow-up suggestion, and helpful-context paragraph.
+  This audit proves three things, all at once.
+</p>
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Invariant · spec ↔ catalog ↔ scenario</div>
+  <p>
+    For every code <code>X</code> in §12.4: (1) <code>SPEC_CODES[X]</code> is extracted from the spec
+    markdown, (2) <code>catalog[X]</code> in the codebase has byte-identical copy in all four columns,
+    and (3) at least one named test scenario actually drives a code path that emits <code>X</code>.
+    Drift in any one of the three fails the build.
+  </p>
+</div>
+
+<h3>What would break if this failed</h3>
+<p class="prose">
+  Someone edits the Doug-facing copy in §12.4 to say something kinder, but never updates the catalog.
+  Doug keeps seeing the old phrasing. Or a developer adds a new internal error code in
+  <code>lib/sync/</code> without adding it to §12.4 — orphan codes that the lookup helper can't translate
+  ship into production. Or worst: a code marked retired in round 44 reappears in a TSX file. All three
+  classes are caught here.
+</p>
+
+<h4>The scanner walks</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">X.1 · extractor</div>
+    <h3 class="task-card__title">Spec → typed manifest</h3>
+    <p class="task-card__body"><code>scripts/extract-spec-codes.ts</code> parses §12.4's markdown table <em>and</em> the YAML appendix anchored by <code>&lt;!-- §12.4 helpfulContext appendix --&gt;</code>. Emits one row per code with every column verbatim; retired (<code>~~strikethrough~~</code>) rows go in a separate <code>RETIRED_CODES</code> set.</p>
+    <div class="task-card__files"><code>scripts/extract-spec-codes.ts</code><code>lib/messages/__generated__/spec-codes.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">X.1 · registry</div>
+    <h3 class="task-card__title">Code → scenario map</h3>
+    <p class="task-card__body">A typed <code>CODE_SCENARIOS</code> object whose keys are <code>keyof typeof SPEC_CODES</code>. The compiler fails the moment a new §12.4 row lacks a scenario; the runtime fails if a registered scenario doesn't actually emit its code.</p>
+    <div class="task-card__files"><code>tests/cross-cutting/code-scenarios.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">X.1 · parity test</div>
+    <h3 class="task-card__title">Deep-compare every column</h3>
+    <p class="task-card__body">Not <code>Object.keys</code> equality — <em>field-by-field</em> equality. <code>dougFacing</code>, <code>crewFacing</code>, <code>followUp</code>, and <code>helpfulContext</code> all checked against the spec extract.</p>
+    <div class="task-card__files"><code>tests/cross-cutting/codes.test.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">X.1 · retired sweep</div>
+    <h3 class="task-card__title">Retired-code resurrection guard</h3>
+    <p class="task-card__body">For every code in <code>RETIRED_CODES</code>, grep <code>lib/**/*.{ts,tsx}</code>, <code>app/**/*.{ts,tsx}</code>, <code>components/**/*.{ts,tsx}</code>, and <code>middleware.ts</code>. Any producer of a retired code fails the audit with file path.</p>
+  </div>
+</div>
+
+<!-- ============================================================
+     AUDIT X.2
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">X.2</span> Substring leak detection</div>
+<h2>X.2 · No raw error codes in user-visible UI</h2>
+
+<p class="prose">
+  An error code like <code>LINK_REVOKED_FLOOR</code> is meaningful in logs and Sentry. To a crew member
+  in a hotel lobby at 2am, it's an alarming hex-string. This audit makes sure no rendered surface
+  ever shows one.
+</p>
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Invariant · catalog is the only renderer</div>
+  <p>
+    Internal codes (<code>SPEC_CODES</code> ∪ <code>RETIRED_CODES</code> ∪ <code>INTERNAL_CODE_ENUMS</code>)
+    must reach the screen <em>only</em> through <code>messageFor()</code>, which substitutes
+    catalog copy. Raw appearance — in text, attribute, or live DOM property — fails the build.
+  </p>
+</div>
+
+<h3>Three crawls per surface</h3>
+
+<p class="prose">
+  Playwright drives every reachable route. For each element on each page, the audit runs three
+  scans, because earlier drafts each missed a hole:
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Scan</th><th>What it reads</th><th>The hole it closes</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>1a · textContent</strong></td>
+      <td>every element's text node</td>
+      <td>obvious leaks: <code>&lt;span&gt;{errorCode}&lt;/span&gt;</code></td>
+    </tr>
+    <tr>
+      <td><strong>1b · user-visible attributes</strong></td>
+      <td><code>aria-label</code>, <code>title</code>, <code>alt</code>, <code>placeholder</code>, <code>value</code>, <code>aria-description</code>, <code>aria-roledescription</code></td>
+      <td><code>title="LINK_REVOKED_FLOOR"</code> — invisible to text scan, visible to screen readers</td>
+    </tr>
+    <tr>
+      <td><strong>1c · live DOM properties</strong></td>
+      <td><code>input.value</code>, <code>textarea.value</code>, <code>select.selectedOptions[0]</code>, <code>contenteditable.textContent</code></td>
+      <td>controlled inputs whose value lives in React state, never in the HTML attribute</td>
+    </tr>
+    <tr>
+      <td><strong>2 · AST scan</strong></td>
+      <td><code>ts-morph</code> over every <code>JsxText</code> + <code>JsxAttribute</code> + <code>JsxExpression</code></td>
+      <td>codes referenced statically (defense in depth — catches before runtime can)</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout callout--warn">
+  <div class="callout__label">Known leak class — fixed here</div>
+  <p>
+    A textarea bound to <code>useState('LINK_REVOKED_FLOOR')</code> is invisible to <code>textContent</code>
+    (textarea internals aren't text) and invisible to <code>getAttribute('value')</code> (React never writes the
+    attribute — it owns the property setter). Scan 1c reads <code>textarea.value</code> directly.
+    A fixture in <code>tests/cross-cutting/fixtures/x2-controlled-input/</code> reproduces this exact bug
+    and the audit must flag it.
+  </p>
+</div>
+
+<!-- ============================================================
+     AUDIT X.3
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">X.3</span> Trust-domain control-flow audit</div>
+<h2>X.3 · One auth chain, dominates every sink</h2>
+
+<p class="prose">
+  The original draft of this audit checked: <em>does the route file import a validator?</em>
+  That's worthless. A handler can import <code>validateLinkSession</code>, gate one branch on it,
+  and read protected data in another. The corrected audit does <em>dominator analysis</em> on the
+  call graph: every reachable database read on every reachable execution path must be preceded
+  by a complete validator chain.
+</p>
+
+<h3>Eight trust domains</h3>
+
+<p class="prose">
+  Every file under <code>app/</code> is classified into exactly one domain. Each domain has a
+  required auth contract. Adding a new file without classifying it fails CI.
+</p>
+
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">crew-session</div>
+    <h3 class="task-card__title">Show page · asset · report routes</h3>
+    <p class="task-card__body">Four valid terminal-success branches. <strong>B1</strong>: admin-precedence wins. <strong>B2</strong>: link wins. <strong>B3</strong>: link continue → google wins. <strong>B4</strong>: link continue → google continue → admin wins. The audit accepts any path matching <em>any</em> branch.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">admin</div>
+    <h3 class="task-card__title">Admin pages + admin API</h3>
+    <p class="task-card__body"><code>requireAdmin</code> only.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">me</div>
+    <h3 class="task-card__title">/me · cross-show user list</h3>
+    <p class="task-card__body"><code>validateGoogleIdentity</code> ONLY — not <code>validateGoogleSession</code>, which is show-bound and cannot run cross-show.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">auth-library</div>
+    <h3 class="task-card__title">The validators themselves</h3>
+    <p class="task-card__body"><code>lib/auth/**</code>, <code>middleware.ts</code>, and the cookie-mint route. Exempt — these <em>are</em> the chain.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">public-bootstrap</div>
+    <h3 class="task-card__title">Pre-cookie shell</h3>
+    <p class="task-card__body"><code>app/show/[slug]/p/page.tsx</code> renders before any cookie exists.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">public-webhook</div>
+    <h3 class="task-card__title">Drive push channel</h3>
+    <p class="task-card__body">Constant-time token compare, not the user-session validator chain.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">cron-internal</div>
+    <h3 class="task-card__title">Scheduled jobs</h3>
+    <p class="task-card__body">Vercel cron auth header. No user identity available.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">server-action</div>
+    <h3 class="task-card__title">'use server' (AST-detected)</h3>
+    <p class="task-card__body">Detected by directive scan <em>before</em> path-based classification, so an inline action in a component file doesn't escape audit. Trust domain inherited from the containing route subtree.</p>
+  </div>
+</div>
+
+<div class="callout callout--spec">
+  <div class="callout__label">Why this is hard — full set of request entries</div>
+  <p>
+    App Router invokes many server-side functions during a request: not just the page default export
+    and HTTP-method handlers, but <code>generateMetadata</code>, <code>generateViewport</code>,
+    <code>head.tsx</code>, <code>loading.tsx</code>, <code>not-found.tsx</code>, <code>template.tsx</code>.
+    Each is its own entry into the dominator analysis. A <code>generateMetadata</code> that reads
+    <code>shows_internal</code> without first calling the validator leaks data through Open Graph tags
+    and page titles — and the audit catches it.
+  </p>
+</div>
+
+<!-- ============================================================
+     AUDIT X.4
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">X.4</span> Per-show watermarks only</div>
+<h2>X.4 · No global cursor</h2>
+
+<p class="prose">
+  Per spec §3.2, §5.2 and AC-X.4: there is no single timestamp that decides whether sync runs. Every
+  watermark belongs to one row. Why? Because a global cursor coupled to wall-clock time has nasty
+  failure modes — clock skew, crashed-mid-batch reprocessing storms, and "we missed everything
+  modified between 2:04 and 2:05" silent gaps. Per-row watermarks are crash-safe by construction.
+</p>
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Invariant · three audit layers</div>
+  <p>
+    <strong>(a) Name-based heuristic</strong> catches the obvious — anything matching
+    <code>/last_(seen|sync|poll|processed|run|cursor)|watermark|cursor/i</code> must be on the
+    allowlist. <strong>(b) Semantic data-flow audit</strong> walks the call graph from every sync
+    entry point and asserts every <code>modifiedTime</code>-shape comparison reads from a per-row
+    source. <strong>(c) DDL event trigger</strong> blocks new columns matching the heuristic at the
+    database layer.
+  </p>
+</div>
+
+<h3>Two named sets</h3>
+
+<div class="deflist">
+  <dt>AUTHORITATIVE_GATING</dt>
+  <dd>Drive-derived per-row timestamps that may appear as the right-hand operand of a sync-decision comparison: <code>shows.last_seen_modified_time</code>, <code>pending_syncs.base_modified_time</code>, <code>pending_syncs.staged_modified_time</code>, <code>fileMeta.modifiedTime</code>, <code>deferred_ingestions.deferred_at_modified_time</code>.</dd>
+
+  <dt>DISPLAY_ONLY</dt>
+  <dd>Per-row timestamps rendered to the operator but <em>never</em> consulted by sync gating: <code>shows.last_synced_at</code>, <code>pending_syncs.parsed_at</code>, <code>pending_ingestions.last_attempt_at</code>. A sync-decision read of any of these fails the audit.</dd>
+</div>
+
+<div class="callout callout--warn">
+  <div class="callout__label">Why naming alone isn't enough</div>
+  <p>
+    Someone introduces <code>processedAt</code> on a hypothetical singleton <code>app_settings</code>
+    row and uses it as the watermark. The name passes every regex. The semantic layer catches it:
+    the comparison's RHS resolves to a row that isn't on the per-show allowlist.
+  </p>
+</div>
+
+<!-- ============================================================
+     AUDIT X.5
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">X.5</span> One canonicalization function</div>
+<h2>X.5 · Email canonicalization at every boundary</h2>
+
+<p class="prose">
+  <code>lib/email/canonicalize.ts</code> (built in Task 1.2) lowercases, trims, and strips
+  <code>+suffix</code> aliases. Every email entering the system must pass through it exactly once,
+  at the earliest boundary. The schema-level <code>*_email_canonical</code> CHECK constraints are
+  the safety net — they reject uncanonicalized writes — but this audit is the doorman, catching
+  the problem at the call site rather than at INSERT time.
+</p>
+
+<h3>Every email-bearing path, enumerated</h3>
+
+<div class="table-wrap">
+<table>
+  <thead><tr><th>Layer</th><th>Path</th><th>Check</th></tr></thead>
+  <tbody>
+    <tr><td>Parser write</td><td><code>lib/parser/blocks/crew.ts</code> → <code>crew_members.email</code></td><td>canonicalize at first emit</td></tr>
+    <tr><td>Parser write</td><td><code>blocks/client.ts</code> → <code>shows.client_contact.email</code> (JSONB)</td><td>both primary + secondary</td></tr>
+    <tr><td>Parser write</td><td><code>blocks/transport.ts</code> → <code>transportation.driver_email</code></td><td>same</td></tr>
+    <tr><td>Parser write</td><td><code>blocks/contacts.ts</code> → <code>contacts.email</code></td><td>same</td></tr>
+    <tr><td>DB write</td><td><code>lib/sync/applyParseResult.ts</code></td><td>defensive re-canonicalize at the write boundary</td></tr>
+    <tr><td>DB write</td><td><code>lib/reports/rateLimit.ts</code></td><td>identity bucket can't double-count mixed case</td></tr>
+    <tr><td>DB write</td><td><code>admin_alerts.context</code> JSONB email fields</td><td>incl. <code>AMBIGUOUS_EMAIL_BINDING</code> colliding-emails array</td></tr>
+    <tr><td>Read</td><td><code>validateGoogleSession.ts</code> → <code>WHERE email = canonicalize(...)</code></td><td>explicit call before SELECT</td></tr>
+    <tr><td>Read</td><td><code>/me</code> show list</td><td>uses <code>canonicalize(supabaseAuth.user.email)</code></td></tr>
+    <tr><td>RLS</td><td>policies comparing <code>auth.email</code> to <code>crew_members.email</code></td><td>SQL helper <code>auth_email_canonical()</code></td></tr>
+    <tr><td>Schema</td><td>every email-bearing column / JSONB field</td><td><code>*_email_canonical</code> CHECK constraint</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Failure mode the audit catches</div>
+  <p>
+    A new email-bearing column is added without the matching CHECK; a parser site is added without
+    calling <code>canonicalize</code>; the SQL helper <code>auth_email_canonical()</code> is renamed
+    or has its arity changed; an <code>admin_alerts.context</code> payload starts capturing a raw
+    requester email. All flagged by the <code>pg_proc</code> + <code>ts-morph</code> + AST scan trio.
+  </p>
+</div>
+
+<!-- ============================================================
+     AUDIT X.6
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">X.6</span> Machine-generated coverage matrix</div>
+<h2>X.6 · Spec ↔ implementation traceability</h2>
+
+<p class="prose">
+  The spec is the canonical contract. Every numbered section is a normative obligation. The plan
+  is supposed to implement all of them. The earlier draft of this audit was a manual checklist —
+  unmaintainable at the scale of 17 spec sections × ~80 amendments × 60-plus tasks. The corrected
+  design generates the matrix.
+</p>
+
+<h3>How the generator works</h3>
+
+<ol class="prose">
+  <li>Walk every heading <code>§N</code> / <code>§N.M</code> / <code>§N.M.O</code> in the spec markdown.</li>
+  <li>Walk every <code>&lt;!-- spec-id: kebab-slug --&gt;</code> anchor — these mark non-heading normative units like the §6.8 derivation table, §13.2.3 lease protocol amendment, and the immutable-pin amendment.</li>
+  <li>Walk every <code>AC-*</code> row from spec §17.</li>
+  <li>Walk every plan task block delimited by <code>### Task N.M:</code>, collecting <code>&lt;!-- coverage: §X, AC-Y --&gt;</code> markers. Prose mentions don't count — only structured anchors.</li>
+  <li>Emit <code>docs/superpowers/plans/coverage.md</code> with status <code>planned</code> / <code>implemented</code> / <code>deferred</code> / <code>out-of-scope</code> / <code>MISSING</code> per anchor.</li>
+</ol>
+
+<div class="callout callout--spec">
+  <div class="callout__label">Why prose doesn't count</div>
+  <p>
+    Earlier rounds accepted a sentence like <em>"this task uses ParsedSheet and enrichWithDrivePins"</em>
+    as evidence of coverage. That re-introduces the heuristic matching X.6 was redesigned to eliminate.
+    A future amendment to the type split could ship with no task actually claiming it — and the audit
+    would still pass on the strength of the old prose mention. Only structured
+    <code>&lt;!-- coverage: ... --&gt;</code> markers count now.
+  </p>
+</div>
+
+<h3>Seven required PR-blocking CI checks</h3>
+
+<p class="prose">
+  Every audit above ships as its own GitHub status check, registered as required on the
+  <code>main</code> branch. A pull request cannot merge unless all seven are green.
+</p>
+
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">CI · 1</div>
+    <h3 class="task-card__title">traceability-audit</h3>
+    <p class="task-card__body">X.6 — generator + matrix + every parity assertion.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">CI · 2</div>
+    <h3 class="task-card__title">x1-catalog-parity</h3>
+    <p class="task-card__body">X.1 — three-way spec ↔ catalog ↔ scenario.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">CI · 3</div>
+    <h3 class="task-card__title">x2-no-raw-codes</h3>
+    <p class="task-card__body">X.2 — Playwright + AST substring sweep.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">CI · 4</div>
+    <h3 class="task-card__title">x3-trust-domain</h3>
+    <p class="task-card__body">X.3 — dominator analysis on every entry point.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">CI · 5</div>
+    <h3 class="task-card__title">x4-no-global-cursor</h3>
+    <p class="task-card__body">X.4 — schema, ts-morph token audit, DDL trigger.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">CI · 6</div>
+    <h3 class="task-card__title">x5-rls-coverage</h3>
+    <p class="task-card__body">X.5 — canonicalize-at-boundary allowlist.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">CI · 7</div>
+    <h3 class="task-card__title">verify-branch-protection-status</h3>
+    <p class="task-card__body">Lightweight reader. Confirms the privileged <code>verify-branch-protection</code> job ran successfully on <code>main</code> within the last 8 days. Uses only the auto-injected <code>GITHUB_TOKEN</code> — no secrets — so fork PRs don't deadlock.</p>
+  </div>
+</div>
+
+<div class="callout callout--warn">
+  <div class="callout__label">Why a split reader job exists</div>
+  <p>
+    GitHub does not send secrets to <code>pull_request</code> workflows triggered by forks; using
+    <code>pull_request_target</code> would fix the secret access but expose secrets to untrusted PR
+    code — a known security hole. The split: the privileged <code>verify-branch-protection</code> job
+    runs only on trusted contexts (<code>push</code> to main, weekly cron); the lightweight
+    <code>verify-branch-protection-status</code> reader runs on every PR and asserts the privileged
+    job ran successfully recently. Two jobs, one guarantee, zero secret leak.
+  </p>
+</div>
+
+<!-- ============================================================
+     ACCEPTANCE CRITERIA
+     ============================================================ -->
+
+<h2>Acceptance criteria</h2>
+
+<ul class="ac-list">
+  <li><span class="ac-id">AC-X.1</span><span>Every §12.4 code has a catalog entry with byte-identical copy in all four columns AND at least one named scenario that emits it. Retired codes have no producer in any source surface.</span></li>
+  <li><span class="ac-id">AC-X.2</span><span>No <code>SPEC_CODES</code>, <code>RETIRED_CODES</code>, or <code>INTERNAL_CODE_ENUMS</code> identifier appears as text content, user-visible attribute, or live DOM property on any reachable surface.</span></li>
+  <li><span class="ac-id">AC-X.3</span><span>Every protected request entry — including <code>generateMetadata</code>, <code>loading.tsx</code>, <code>not-found.tsx</code>, and inline <code>'use server'</code> actions — passes a complete validator chain on every reachable execution path before any protected sink.</span></li>
+  <li><span class="ac-id">AC-X.4</span><span>No file, schema column, or string literal anywhere in the repo encodes a global sync watermark. All gating watermarks resolve to per-row sources on the explicit allowlist.</span></li>
+  <li><span class="ac-id">AC-X.5</span><span><code>lib/email/canonicalize.ts</code> is the sole function called at every parser, DB write, validator, and RLS boundary that handles a raw email. Every email-bearing schema element has a matching <code>*_email_canonical</code> CHECK.</span></li>
+  <li><span class="ac-id">AC-X.6</span><span>Generator emits zero anchors at status <code>MISSING</code>. ParsedSheet/ParseResult split, /40 lease-holder amendments, and §16 secrets coverage are all explicitly mapped via structured <code>&lt;!-- coverage: ... --&gt;</code> markers. All seven required CI checks pass on every PR.</span></li>
+</ul>
+
+<!-- ============================================================
+     CLOSING NOTE
+     ============================================================ -->
+
+<h2>The point</h2>
+
+<p class="prose">
+  Building one feature well is engineering. Keeping <em>every</em> feature still respecting the
+  same set of system-wide promises, sprint after sprint, year after year — that's discipline. And
+  discipline at this scale only survives if a robot enforces it. These six audits are that robot.
+</p>
+
+<p class="prose">
+  They have no end-user. No one ever sees their output unless something is wrong. They sit quietly
+  in CI on every PR, walking the codebase one more time, asking the same six questions: <em>is
+  every error code accounted for? Is the UI clean of internal codes? Does every protected route
+  still authenticate? Are watermarks still per-show? Are emails canonicalized? Does every spec
+  section still have an owner?</em>
+</p>
+
+<p class="prose">
+  Eleven milestones built the product. This one keeps it honest.
+</p>
+
+<nav class="pagenav">
+  <a href="09-10-admin.html">
+    <span class="pagenav__dir">← M9 · M10</span>
+    <span class="pagenav__title">Polish, admin, onboarding</span>
+  </a>
+  <a href="index.html" class="pagenav--right">
+    <span class="pagenav__dir">All milestones ▣</span>
+    <span class="pagenav__title">Back to the index</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>

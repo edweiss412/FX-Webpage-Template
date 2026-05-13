@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M8 — Bug-report pipeline · FXAV Crew Pages</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK</span></a>
+    <nav class="topbar__nav">
+      <a href="index.html">All milestones</a>
+      <a href="07-asset.html">← M7</a>
+      <a href="09-10-admin.html">M9 · M10 →</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">M8</div>
+  <div class="container">
+    <div class="hero__kicker">Stage 9 of 11 · Bug Report</div>
+    <div class="hero__milestone-mark">M8</div>
+    <h1 class="hero__title">One click. One ticket. Even on bad wifi.</h1>
+    <p class="hero__lede">
+      When a crew member spots something wrong, they tap a button at the bottom of their
+      page and a GitHub issue is filed against the project repo. The button is the easy part.
+      Making sure one click never produces two tickets — through retries, dropped responses,
+      reaper crons, clock skew, and races between two workers — took <strong>forty rounds</strong>
+      of cross-model review and rewrote the spec three times.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Tasks</dt><dd>12 (8.1 → 8.5)</dd></div>
+      <div><dt>Acceptance</dt><dd>AC-8.1 → AC-8.13</dd></div>
+      <div><dt>Spec sections</dt><dd>§13, §17.1 / amend ×3</dd></div>
+      <div><dt>Status</dt><dd><span class="pill pill--done">Complete</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    When a crew member clicks "something looks wrong," we file a ticket in our bug tracker.
+    The hard part is making sure one click never creates two tickets, even with bad networks
+    and retries.
+  </p>
+  <p>
+    The user sees: tap button → modal → type a sentence → submit → "report filed."
+    The system does: authenticate, count quota, reserve a row in the database with a unique
+    idempotency key, stamp an ownership token, call GitHub, write the URL back, recover
+    from anything that broke in the middle.
+  </p>
+</div>
+
+<!-- ============================================================
+     THE CORE PATTERN: RESERVE-THEN-CALL
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">PATTERN</span> Reserve · call · stamp</div>
+
+<h2>The shape of the problem</h2>
+
+<p class="prose">
+  A naive bug-report endpoint would just <code>POST /api/report → octokit.issues.create</code>
+  and call it done. That endpoint has at least five duplicate-creating bugs in it. Two clients
+  with flaky wifi both retry → two issues. A 5xx from GitHub that <em>actually succeeded</em> →
+  the retry sees no record and creates a second issue. A request that finishes after the user
+  gave up and refreshed → ditto. The fix is the <strong>reserve-then-call</strong> pattern:
+  the database commits to the work <em>before</em> the network call, so every retry path can
+  find the prior attempt and bind to its result.
+</p>
+
+<div class="diagram">
+  <div class="diagram__title">M8 · happy path — reserve-then-call</div>
+  <svg viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Five-step happy path: auth, quota, reserve row, call GitHub, stamp URL">
+    <defs>
+      <marker id="ah1" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#ffb627"/>
+      </marker>
+    </defs>
+    <line x1="60" y1="170" x2="840" y2="170" stroke="#3a4d68" stroke-width="2"/>
+
+    <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#a4b3c5">
+      <!-- Client -->
+      <rect x="30" y="130" width="100" height="80" fill="#0a1119" stroke="#ffb627" stroke-width="2"/>
+      <text x="80" y="160" text-anchor="middle" font-family="Anton" font-size="13" fill="#ffb627">CLIENT</text>
+      <text x="80" y="180" text-anchor="middle" font-size="10">tap report</text>
+      <text x="80" y="196" text-anchor="middle" font-size="10">+ idem_key</text>
+
+      <!-- Auth -->
+      <rect x="155" y="130" width="100" height="80" fill="#172230" stroke="#2c3c52"/>
+      <text x="205" y="160" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">AUTH</text>
+      <text x="205" y="180" text-anchor="middle" font-size="10">link / google</text>
+      <text x="205" y="196" text-anchor="middle" font-size="10">/ admin</text>
+
+      <!-- Quota -->
+      <rect x="280" y="130" width="100" height="80" fill="#172230" stroke="#2c3c52"/>
+      <text x="330" y="160" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">QUOTA</text>
+      <text x="330" y="180" text-anchor="middle" font-size="10">10/h admin</text>
+      <text x="330" y="196" text-anchor="middle" font-size="10">3/h crew</text>
+
+      <!-- Reserve -->
+      <rect x="405" y="130" width="100" height="80" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="455" y="158" text-anchor="middle" font-family="Anton" font-size="13" fill="#ffb627">RESERVE</text>
+      <text x="455" y="176" text-anchor="middle" font-size="10">INSERT ON</text>
+      <text x="455" y="190" text-anchor="middle" font-size="10">CONFLICT</text>
+      <text x="455" y="204" text-anchor="middle" font-size="10">+ lease_holder</text>
+
+      <!-- GitHub -->
+      <rect x="530" y="130" width="100" height="80" fill="#172230" stroke="#2c3c52"/>
+      <text x="580" y="160" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">GITHUB</text>
+      <text x="580" y="180" text-anchor="middle" font-size="10">issues.create</text>
+      <text x="580" y="196" text-anchor="middle" font-size="10">15s timeout</text>
+
+      <!-- Tail UPDATE -->
+      <rect x="655" y="130" width="100" height="80" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="705" y="158" text-anchor="middle" font-family="Anton" font-size="13" fill="#ffb627">STAMP</text>
+      <text x="705" y="176" text-anchor="middle" font-size="10">SET url</text>
+      <text x="705" y="190" text-anchor="middle" font-size="10">WHERE</text>
+      <text x="705" y="204" text-anchor="middle" font-size="10">lease_holder=me</text>
+
+      <!-- 201 -->
+      <rect x="780" y="130" width="80" height="80" fill="#0a1119" stroke="#3fb950" stroke-width="2"/>
+      <text x="820" y="170" text-anchor="middle" font-family="Anton" font-size="13" fill="#3fb950">201</text>
+      <text x="820" y="190" text-anchor="middle" font-size="10">created</text>
+
+      <!-- arrows -->
+      <line x1="132" y1="170" x2="153" y2="170" stroke="#ffb627" marker-end="url(#ah1)"/>
+      <line x1="257" y1="170" x2="278" y2="170" stroke="#ffb627" marker-end="url(#ah1)"/>
+      <line x1="382" y1="170" x2="403" y2="170" stroke="#ffb627" marker-end="url(#ah1)"/>
+      <line x1="507" y1="170" x2="528" y2="170" stroke="#ffb627" marker-end="url(#ah1)"/>
+      <line x1="632" y1="170" x2="653" y2="170" stroke="#ffb627" marker-end="url(#ah1)"/>
+      <line x1="757" y1="170" x2="778" y2="170" stroke="#ffb627" marker-end="url(#ah1)"/>
+
+      <!-- bottom caption -->
+      <text x="450" y="260" text-anchor="middle" font-size="10" fill="#6c7e93" letter-spacing="2">
+        DB COMMITS THE INTENT BEFORE THE NETWORK CALL. RETRIES FIND THE PRIOR ATTEMPT.
+      </text>
+      <text x="450" y="285" text-anchor="middle" font-family="Anton" font-size="18" fill="#ffb627" letter-spacing="3">
+        AT MOST ONE GH ISSUE PER IDEMPOTENCY KEY
+      </text>
+    </g>
+  </svg>
+</div>
+
+<!-- ============================================================
+     STATE DIAGRAM
+     ============================================================ -->
+
+<h2>The five states of a report row</h2>
+
+<p class="prose">
+  Every <code>reports</code> row passes through a small state machine. The columns
+  <code>idempotency_key</code>, <code>processing_lease_until</code>, <code>lease_holder</code>,
+  and <code>github_issue_url</code> tell you which state the row is in at any moment.
+  All four are authored once by Task 2.2's schema; M8 just defines the protocol.
+</p>
+
+<div class="diagram">
+  <div class="diagram__title">reports.row — state machine</div>
+  <svg viewBox="0 0 900 480" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="State diagram: PENDING → RESERVED → CREATED / FAILED / ORPHANED / HORIZON_EXPIRED">
+    <defs>
+      <marker id="ahS" markerWidth="11" markerHeight="11" refX="9" refY="3" orient="auto">
+        <polygon points="0 0, 9 3, 0 6" fill="#ffb627"/>
+      </marker>
+      <marker id="ahR" markerWidth="11" markerHeight="11" refX="9" refY="3" orient="auto">
+        <polygon points="0 0, 9 3, 0 6" fill="#ff5c5c"/>
+      </marker>
+      <marker id="ahG" markerWidth="11" markerHeight="11" refX="9" refY="3" orient="auto">
+        <polygon points="0 0, 9 3, 0 6" fill="#3fb950"/>
+      </marker>
+    </defs>
+
+    <g font-family="IBM Plex Mono, monospace" font-size="11">
+      <!-- PENDING (entry) -->
+      <rect x="40" y="40" width="160" height="70" rx="3" fill="#0a1119" stroke="#a4b3c5" stroke-width="2" stroke-dasharray="3 3"/>
+      <text x="120" y="68" text-anchor="middle" font-family="Anton" font-size="16" fill="#a4b3c5">PENDING</text>
+      <text x="120" y="88" text-anchor="middle" font-size="10" fill="#6c7e93">(no row yet)</text>
+      <text x="120" y="102" text-anchor="middle" font-size="10" fill="#6c7e93">client has key</text>
+
+      <!-- RESERVED -->
+      <rect x="370" y="40" width="180" height="90" rx="3" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="460" y="68" text-anchor="middle" font-family="Anton" font-size="16" fill="#ffb627">RESERVED</text>
+      <text x="460" y="88" text-anchor="middle" font-size="10" fill="#a4b3c5">row exists</text>
+      <text x="460" y="102" text-anchor="middle" font-size="10" fill="#a4b3c5">url IS NULL</text>
+      <text x="460" y="118" text-anchor="middle" font-size="10" fill="#a4b3c5">lease + holder set</text>
+
+      <!-- CREATED -->
+      <rect x="700" y="40" width="170" height="80" rx="3" fill="#0c1e14" stroke="#3fb950" stroke-width="2"/>
+      <text x="785" y="68" text-anchor="middle" font-family="Anton" font-size="16" fill="#3fb950">CREATED</text>
+      <text x="785" y="88" text-anchor="middle" font-size="10" fill="#a4b3c5">github_issue_url</text>
+      <text x="785" y="102" text-anchor="middle" font-size="10" fill="#a4b3c5">set · terminal</text>
+
+      <!-- FAILED / RETRYABLE -->
+      <rect x="40" y="220" width="180" height="90" rx="3" fill="#1f1212" stroke="#ff5c5c" stroke-width="2"/>
+      <text x="130" y="248" text-anchor="middle" font-family="Anton" font-size="14" fill="#ff5c5c">FAILED · RETRYABLE</text>
+      <text x="130" y="268" text-anchor="middle" font-size="10" fill="#a4b3c5">5xx / dropped</text>
+      <text x="130" y="282" text-anchor="middle" font-size="10" fill="#a4b3c5">url NULL</text>
+      <text x="130" y="296" text-anchor="middle" font-size="10" fill="#a4b3c5">lease expired</text>
+
+      <!-- RECOVERED (transient label) -->
+      <rect x="290" y="220" width="180" height="90" rx="3" fill="#0c1e14" stroke="#3fb950" stroke-width="2" stroke-dasharray="5 3"/>
+      <text x="380" y="248" text-anchor="middle" font-family="Anton" font-size="14" fill="#3fb950">RECOVERED</text>
+      <text x="380" y="268" text-anchor="middle" font-size="10" fill="#a4b3c5">findIssueByMarker</text>
+      <text x="380" y="282" text-anchor="middle" font-size="10" fill="#a4b3c5">found prior issue</text>
+      <text x="380" y="296" text-anchor="middle" font-size="10" fill="#a4b3c5">URL stamped</text>
+
+      <!-- ORPHANED (lease stolen) -->
+      <rect x="540" y="220" width="180" height="90" rx="3" fill="#2a1530" stroke="#b48cff" stroke-width="2"/>
+      <text x="630" y="248" text-anchor="middle" font-family="Anton" font-size="14" fill="#b48cff">ORPHANED</text>
+      <text x="630" y="268" text-anchor="middle" font-size="10" fill="#a4b3c5">lease stolen</text>
+      <text x="630" y="282" text-anchor="middle" font-size="10" fill="#a4b3c5">my GH issue ≠ row</text>
+      <text x="630" y="296" text-anchor="middle" font-size="10" fill="#a4b3c5">close + alert</text>
+
+      <!-- HORIZON_EXPIRED -->
+      <rect x="370" y="370" width="200" height="80" rx="3" fill="#0a1119" stroke="#6c7e93" stroke-width="2"/>
+      <text x="470" y="398" text-anchor="middle" font-family="Anton" font-size="14" fill="#6c7e93">HORIZON_EXPIRED</text>
+      <text x="470" y="418" text-anchor="middle" font-size="10" fill="#a4b3c5">created_at &gt; 24h</text>
+      <text x="470" y="432" text-anchor="middle" font-size="10" fill="#a4b3c5">410 · reaper sweeps</text>
+
+      <!-- arrows -->
+      <!-- PENDING -> RESERVED -->
+      <line x1="202" y1="75" x2="368" y2="75" stroke="#ffb627" stroke-width="2" marker-end="url(#ahS)"/>
+      <text x="285" y="65" text-anchor="middle" font-size="10" fill="#ffb627">INSERT ON CONFLICT</text>
+
+      <!-- RESERVED -> CREATED (happy) -->
+      <line x1="552" y1="85" x2="698" y2="80" stroke="#3fb950" stroke-width="2" marker-end="url(#ahG)"/>
+      <text x="625" y="73" text-anchor="middle" font-size="10" fill="#3fb950">tail UPDATE · lease_holder=me</text>
+
+      <!-- RESERVED -> FAILED -->
+      <path d="M 400 130 Q 250 180 200 218" fill="none" stroke="#ff5c5c" stroke-width="2" marker-end="url(#ahR)"/>
+      <text x="240" y="190" font-size="10" fill="#ff5c5c">5xx · dropped · lease expires</text>
+
+      <!-- FAILED -> RECOVERED -->
+      <line x1="222" y1="265" x2="288" y2="265" stroke="#3fb950" stroke-width="2" marker-end="url(#ahG)"/>
+      <text x="255" y="258" text-anchor="middle" font-size="10" fill="#3fb950">retry · findByMarker hit</text>
+
+      <!-- RECOVERED -> CREATED -->
+      <path d="M 470 222 Q 600 170 760 122" fill="none" stroke="#3fb950" stroke-width="2" marker-end="url(#ahG)"/>
+      <text x="640" y="195" font-size="10" fill="#3fb950">UPDATE SET url</text>
+
+      <!-- FAILED -> RESERVED (retry claims fresh lease) -->
+      <path d="M 130 222 Q 130 160 380 132" fill="none" stroke="#ffb627" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#ahS)"/>
+      <text x="120" y="175" font-size="10" fill="#ffb627">retry rotates lease_holder</text>
+
+      <!-- RESERVED -> ORPHANED -->
+      <path d="M 480 130 Q 540 175 620 218" fill="none" stroke="#b48cff" stroke-width="2" marker-end="url(#ahR)"/>
+      <text x="595" y="180" font-size="10" fill="#b48cff">tail · holder ≠ me</text>
+
+      <!-- ORPHANED -> CREATED (the row's URL is from the winning retry) -->
+      <path d="M 720 222 Q 800 170 800 122" fill="none" stroke="#3fb950" stroke-width="2" stroke-dasharray="3 3" marker-end="url(#ahG)"/>
+      <text x="820" y="170" font-size="9" fill="#a4b3c5">row points</text>
+      <text x="820" y="182" font-size="9" fill="#a4b3c5">to winner</text>
+
+      <!-- ALL -> HORIZON_EXPIRED -->
+      <line x1="130" y1="310" x2="380" y2="372" stroke="#6c7e93" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ahS)"/>
+      <line x1="460" y1="130" x2="460" y2="368" stroke="#6c7e93" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ahS)"/>
+      <line x1="630" y1="310" x2="540" y2="370" stroke="#6c7e93" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ahS)"/>
+      <text x="620" y="358" font-size="10" fill="#6c7e93">created_at &gt; 24h ⇒ 410</text>
+
+      <!-- caption -->
+      <text x="450" y="470" text-anchor="middle" font-family="Anton" font-size="14" fill="#ffb627" letter-spacing="2">
+        ONE ROW · ONE IDEMPOTENCY KEY · ONE LIVE GITHUB ISSUE
+      </text>
+    </g>
+  </svg>
+</div>
+
+<!-- ============================================================
+     THE GOTCHA
+     ============================================================ -->
+
+<h2>The race that ate fifteen review rounds</h2>
+
+<div class="callout callout--warn">
+  <div class="callout__label">Gotcha · the concurrent-retry race</div>
+  <p>
+    A worker reserves the row, calls GitHub, GitHub <em>succeeds</em>, but the response is lost
+    to a TCP hiccup. The lease expires. A retry claims the lease, creates a <em>second</em> issue,
+    writes its URL to the row. Then the original's stalled HTTP response finally arrives — and
+    the original tries to stamp <em>its</em> URL onto the row. If you just do
+    <code>UPDATE reports SET github_issue_url = $url WHERE id = $row</code>, the original overwrites
+    the retry's URL, then closes the wrong issue. <strong>Two open issues. Wrong one closed.
+    Row points at a corpse.</strong>
+  </p>
+  <p>
+    The fix is the <code>lease_holder uuid</code> ownership token. Every URL-writing UPDATE carries
+    <code>AND lease_holder = $myToken</code>. The original sees its tail UPDATE match 0 rows,
+    re-reads the row, discovers another retry is in charge, closes its own orphan issue, and
+    returns 200 with the retry's URL.
+  </p>
+</div>
+
+<!-- ============================================================
+     THE THREE PLAN AMENDMENTS
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">§13.2.3</span> Three ratified amendments</div>
+
+<h2>What 40 rounds of review changed</h2>
+
+<p class="prose">
+  The spec's original §13.2.3 had three load-bearing mistakes. Each one looked fine at the spec
+  level and only revealed itself under adversarial review. All three are now ratified amendments
+  in <code>00-overview.md</code>; <code>scripts/verify-spec-amendment-3.sh</code> exits non-zero
+  if the spec text drifts from any of them.
+</p>
+
+<div class="callout callout--spec">
+  <div class="callout__label">Amendment 1 · recovery uses listForRepo, not code search</div>
+  <p>
+    The original design recovered lost responses by GitHub <strong>code search</strong>
+    (<code>q="<key>" in:body</code>). The search index lags create writes by tens of seconds —
+    exactly the window AC-8.12 must defend against. A freshly-created issue would be invisible
+    to its own retry, which would then create a duplicate.
+  </p>
+  <p>
+    The amendment swaps to <code>octokit.rest.issues.listForRepo({ creator, since, state: 'all', labels: 'fxav-app:report' })</code>,
+    which <em>is</em> immediately consistent with create writes. Pages are scanned for the
+    <code>&lt;!-- fxav-report-id: KEY --&gt;</code> marker, bounded by a 1000-page sanity cap,
+    and filtered client-side by <code>issue.created_at &gt;= cutoff</code> because GitHub's
+    <code>since</code> filters by last-updated. <strong>LookupInconclusive returns 502 and
+    never authorizes <code>createIssue</code>.</strong>
+  </p>
+</div>
+
+<div class="callout callout--spec">
+  <div class="callout__label">Amendment 2 · retention horizon aligns on created_at</div>
+  <p>
+    The original reaper deleted rows whose <code>processing_lease_until</code> was older than
+    24h. But a retry that refreshes the lease 23h after creation pushes the lease another
+    90s into the future — which under the lease-based predicate would keep the row alive
+    almost another full day, while <code>expiredLeaseRetry</code> was already returning
+    <code>410 REPORT_HORIZON_EXPIRED</code> on it. Two gates, drifting apart.
+  </p>
+  <p>
+    The amendment aligns both gates on <code>reports.created_at</code>:
+  </p>
+  <pre data-lang="SQL"><code>-- reaper (Task 8.3f, daily cron)
+DELETE FROM reports
+ WHERE github_issue_url IS NULL
+   AND created_at &lt; now - interval '24 hours'
+   AND processing_lease_until &lt; now;  -- never reap a row a retry holds
+
+-- retry lease-claim (Task 8.3e)
+UPDATE reports SET processing_lease_until = now + interval '90 seconds',
+                   lease_holder = $myToken
+ WHERE idempotency_key = $1
+   AND processing_lease_until &lt; now
+   AND github_issue_url IS NULL
+   AND created_at &gt;= now - interval '24 hours';  -- horizon fence</code></pre>
+  <p>
+    The <code>processing_lease_until &lt; now</code> clause in the reaper is the lease-expired
+    race fix — it prevents the reaper from yanking a row a retry is actively working.
+  </p>
+</div>
+
+<div class="callout callout--spec">
+  <div class="callout__label">Amendment 3 · lease_holder uuid ownership protocol</div>
+  <p>
+    A new column on <code>reports</code>. Stamped at reservation with <code>gen_random_uuid()</code>.
+    Rotated on every lease reacquisition. Required by every URL-writing tail UPDATE:
+  </p>
+  <pre data-lang="SQL"><code>UPDATE reports
+   SET github_issue_url = $newUrl
+ WHERE idempotency_key = $key
+   AND github_issue_url IS NULL
+   AND lease_holder    = $myToken::uuid  -- I still own this row
+   AND created_at &gt;= now - interval '24 hours'
+RETURNING id;</code></pre>
+  <p>
+    A 0-row tail UPDATE means another retry stole the lease in the meantime. The losing worker
+    enters <code>handleTailUpdateMiss</code>, re-reads the row, and dispatches: <em>Case A</em>
+    the row's URL is mine (a retry's <code>findByMarker</code> recovered my issue — do NOT close it,
+    return 200); <em>Case B</em> the row's URL is a different issue (mine is the orphan — close
+    with <code>state_reason: not_planned</code> and label <code>fxav-orphan-lost-lease</code>,
+    UPSERT <code>admin_alerts.REPORT_ORPHANED_LOST_LEASE</code>); <em>Case C</em> URL still NULL,
+    another worker holds the lease (cleanup my issue, return 409); <em>Case Reaped</em> row gone
+    (close my issue anyway — orphan must never leak at GitHub — return 410).
+  </p>
+</div>
+
+<!-- ============================================================
+     INVARIANT BANNER
+     ============================================================ -->
+
+<div class="hazard-banner">
+  <div class="hazard-banner__stripe"></div>
+  <div class="hazard-banner__body">
+    <h3 class="hazard-banner__title">M8 invariants — never violated</h3>
+    <ol class="prose">
+      <li><strong>At most one open GitHub issue</strong> per idempotency_key, regardless of retry pattern, dropped responses, clock skew, or worker death.</li>
+      <li><strong>LookupInconclusive never authorizes createIssue.</strong> Any inconclusive recovery lookup returns 502; the row stays unresolved for the next retry.</li>
+      <li><strong>Quota is charged only when the idempotency claim is genuinely won.</strong> Duplicate retries, race losers, and rolled-back over-quota attempts increment the counter by zero.</li>
+      <li><strong>Every horizon decision uses Postgres <code>now()</code>, never <code>Date.now</code>.</strong> App/DB clock skew at the 24h boundary must not flip the verdict.</li>
+      <li><strong>An orphan GitHub issue never leaks even if the row was reaped.</strong> Case Reaped still closes the issue and writes the per-show admin alert.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ============================================================
+     TASKS
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">TASKS</span> 12 task slices</div>
+
+<h2>The 12 tasks of M8</h2>
+
+<p class="prose">
+  Each task is a single failing test → minimal implementation → one commit. The order
+  matters: 8.1 stands up the lease protocol, 8.2 wraps Octokit, then 8.3 grows the
+  <code>/api/report</code> endpoint one concern at a time — auth, quota, idempotency,
+  retry recovery, concurrent races, the reaper cron, and the spec patch.
+</p>
+
+<h4>Foundation</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">8.1 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Lease protocol helpers</h3>
+    <p class="task-card__body">Schema-gate test asserting Task 2.2 authored the columns. New <code>lib/reports/leaseProtocol.ts</code>: acquire / extend / release, idempotency-key dedup, ownership-token mint. No new migration — schema is owned by 2.2.</p>
+    <div class="task-card__files"><code>lib/reports/leaseProtocol.ts</code><code>tests/db/reports-schema.test.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">8.2 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">GitHub issues client</h3>
+    <p class="task-card__body"><code>createIssue</code> normalizes the Octokit response to <code>{ htmlUrl, labels, issueNumber }</code> so create-path and recovery-path agree on field names. Always appends the reserved <code>fxav-app:report</code> label.</p>
+    <div class="task-card__files"><code>lib/github/issues.ts</code></div>
+  </div>
+</div>
+
+<h4>The /api/report endpoint, grown one slice at a time</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">8.3 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Skeleton + auth gate</h3>
+    <p class="task-card__body">Smallest TDD slice. POST with no session → 401. Dispatches to <code>validateLinkSession</code> / <code>validateGoogleSession</code> / <code>requireAdmin</code>. Everything else is a 501 stub for later tasks.</p>
+    <div class="task-card__files"><code>app/api/report/route.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">8.3a <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Atomic quota reservation</h3>
+    <p class="task-card__body">10/h admin, 3/h crew. <code>INSERT .. ON CONFLICT (kind, identity, hour_bucket) DO UPDATE SET count = count + 1 RETURNING count</code>. Over-limit ROLLBACKs the entire transaction — the brand-new <code>reports</code> row never persists.</p>
+    <div class="task-card__files"><code>lib/reports/rateLimit.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">8.3b <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Reserve · call · stamp</h3>
+    <p class="task-card__body">Conflict-safe reservation via <code>INSERT .. ON CONFLICT (idempotency_key) DO NOTHING RETURNING id, lease_holder</code>. Quota charged only on a winning claim. Tail UPDATE fenced by <code>lease_holder = $myToken</code>.</p>
+    <div class="task-card__files"><code>lib/reports/submit.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">8.3c <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">5xx retry — lock-free</h3>
+    <p class="task-card__body">The retry holds NO row lock during GitHub I/O. Only the lease-claim UPDATE is serialized. Everything else is single-statement Tx with the late-success guard <code>AND github_issue_url IS NULL</code>.</p>
+    <div class="task-card__files"><code>lib/reports/submit.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">8.3d <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Single-path fail-closed recovery</h3>
+    <p class="task-card__body"><code>findIssueByMarker</code> against <code>listForRepo</code>. Skips closed orphans. Throws <code>LookupInconclusive</code> on missing BOT_LOGIN, pagination errors, shape errors, duplicate-live-matches, open-issue-with-orphan-label. Recovery returns 502 — <em>never</em> falls through to a duplicate-creating createIssue.</p>
+    <div class="task-card__files"><code>lib/github/issues.ts</code><code>.env.local.example</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">8.3e <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Concurrent retry + late success</h3>
+    <p class="task-card__body">The canonical <code>expiredLeaseRetry(key, depth=0)</code> helper. Bounded recursion (depth 3 → <code>REPORT_LEASE_THRASHING</code> 503). State-gated admin_alert UPSERTs so a row that resolves between dispatch and write doesn't emit a false alert.</p>
+    <div class="task-card__files"><code>lib/reports/submit.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">8.3f <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Daily orphan reaper</h3>
+    <p class="task-card__body">Vercel cron at 0 6 * * *. Deletes rows where <code>github_issue_url IS NULL AND created_at &lt; now - 24h AND processing_lease_until &lt; now</code>. Live-leased rows are preserved — they belong to in-flight retries.</p>
+    <div class="task-card__files"><code>app/api/cron/report-reaper/route.ts</code><code>vercel.json</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">8.3g <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Spec patch verification</h3>
+    <p class="task-card__body">Spec text rewritten during review rounds 24+. New <code>scripts/verify-spec-amendment-3.sh</code> exit-codes non-zero if any of the three amendments drift: code-search removed, <code>created_at</code> reaper predicate present, <code>lease_holder uuid</code> in BOTH §4.1 and §13.2.3.</p>
+    <div class="task-card__files"><code>scripts/verify-spec-amendment-3.sh</code></div>
+  </div>
+</div>
+
+<h4>UI + verification</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">8.4 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Report button + modal</h3>
+    <p class="task-card__body">Footer-mounted button on the crew page. Modal collects a short description, generates the idempotency_key client-side, POSTs to <code>/api/report</code>. Terminal-success classification (<code>body.ok &amp;&amp; 200–299</code>) clears sessionStorage; 410 routes to a fresh-report flow.</p>
+    <div class="task-card__files"><code>components/ReportButton.tsx</code><code>components/ReportModal.tsx</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">8.5 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Acceptance sweep</h3>
+    <p class="task-card__body">End-to-end Playwright run hits every AC-8.x scenario with mocked GitHub. The pipeline is wired to the message catalog (§12.4) so users see human strings, never raw codes.</p>
+    <div class="task-card__files"><code>tests/e2e/report.spec.ts</code></div>
+  </div>
+</div>
+
+<!-- ============================================================
+     RECOVERY FLOW DIAGRAM
+     ============================================================ -->
+
+<h2>What happens when GitHub goes weird</h2>
+
+<p class="prose">
+  The recovery path is the most-reviewed code in the milestone. Here's the decision tree
+  every retry walks before it's allowed to call <code>createIssue</code> a second time.
+</p>
+
+<div class="diagram">
+  <div class="diagram__title">expiredLeaseRetry · decision tree (Task 8.3e)</div>
+  <svg viewBox="0 0 900 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Recovery decision tree">
+    <defs>
+      <marker id="ahT" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#a4b3c5"/>
+      </marker>
+    </defs>
+    <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#a4b3c5">
+
+      <!-- Entry -->
+      <rect x="350" y="20" width="200" height="50" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="450" y="42" text-anchor="middle" font-family="Anton" font-size="13" fill="#ffb627">EXPIRED-LEASE RETRY</text>
+      <text x="450" y="60" text-anchor="middle" font-size="10">entry-time SELECT (DB-time)</text>
+
+      <!-- horizon check -->
+      <polygon points="350,100 550,100 500,150 400,150" fill="#172230" stroke="#2c3c52"/>
+      <text x="450" y="125" text-anchor="middle" font-size="11">created_at within 24h?</text>
+
+      <!-- NO -> 410 -->
+      <line x1="350" y1="125" x2="180" y2="125" stroke="#a4b3c5" marker-end="url(#ahT)"/>
+      <text x="265" y="118" text-anchor="middle" font-size="10">no</text>
+      <rect x="60" y="105" width="120" height="40" fill="#0a1119" stroke="#6c7e93"/>
+      <text x="120" y="130" text-anchor="middle" font-family="Anton" font-size="11" fill="#6c7e93">410 HORIZON</text>
+
+      <!-- YES -> findByMarker -->
+      <line x1="450" y1="151" x2="450" y2="180" stroke="#a4b3c5" marker-end="url(#ahT)"/>
+      <text x="465" y="170" font-size="10">yes</text>
+      <rect x="320" y="180" width="260" height="50" fill="#172230" stroke="#2c3c52"/>
+      <text x="450" y="200" text-anchor="middle" font-family="Anton" font-size="12" fill="#6fe7d8">findIssueByMarker(key, dbCutoff)</text>
+      <text x="450" y="218" text-anchor="middle" font-size="10">listForRepo + marker scan + horizon</text>
+
+      <!-- 3 outcomes -->
+      <line x1="370" y1="231" x2="180" y2="270" stroke="#a4b3c5" marker-end="url(#ahT)"/>
+      <line x1="450" y1="231" x2="450" y2="270" stroke="#a4b3c5" marker-end="url(#ahT)"/>
+      <line x1="530" y1="231" x2="720" y2="270" stroke="#a4b3c5" marker-end="url(#ahT)"/>
+
+      <!-- found -->
+      <rect x="60" y="270" width="240" height="60" fill="#0c1e14" stroke="#3fb950" stroke-width="2"/>
+      <text x="180" y="290" text-anchor="middle" font-family="Anton" font-size="12" fill="#3fb950">FOUND {htmlUrl}</text>
+      <text x="180" y="308" text-anchor="middle" font-size="10">recovered-path UPDATE</text>
+      <text x="180" y="322" text-anchor="middle" font-size="10">→ 200 recovered</text>
+
+      <!-- null -> claim lease -->
+      <rect x="340" y="270" width="220" height="60" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="450" y="290" text-anchor="middle" font-family="Anton" font-size="12" fill="#ffb627">NULL · claim lease</text>
+      <text x="450" y="308" text-anchor="middle" font-size="10">rotate lease_holder · createIssue</text>
+      <text x="450" y="322" text-anchor="middle" font-size="10">→ 201 created (winner)</text>
+
+      <!-- inconclusive -->
+      <rect x="600" y="270" width="240" height="60" fill="#1f1212" stroke="#ff5c5c" stroke-width="2"/>
+      <text x="720" y="290" text-anchor="middle" font-family="Anton" font-size="12" fill="#ff5c5c">LookupInconclusive</text>
+      <text x="720" y="308" text-anchor="middle" font-size="10">state re-dispatch → admin_alert</text>
+      <text x="720" y="322" text-anchor="middle" font-size="10">→ 502 (NEVER createIssue)</text>
+
+      <!-- Claim 0-row branch -->
+      <line x1="450" y1="331" x2="450" y2="365" stroke="#a4b3c5" marker-end="url(#ahT)"/>
+      <rect x="270" y="365" width="360" height="60" fill="#172230" stroke="#2c3c52"/>
+      <text x="450" y="385" text-anchor="middle" font-family="Anton" font-size="11" fill="#6fe7d8">if claim returns 0 rows · re-SELECT to classify</text>
+      <text x="450" y="402" text-anchor="middle" font-size="10">row gone? url set? past horizon? lease live?</text>
+      <text x="450" y="416" text-anchor="middle" font-size="10">→ 410 / 200 / 410 / 409 (case D')</text>
+
+      <!-- depth bound -->
+      <rect x="60" y="450" width="780" height="70" fill="rgba(255,182,39,0.06)" stroke="#ffb627" stroke-dasharray="4 3"/>
+      <text x="450" y="475" text-anchor="middle" font-family="Anton" font-size="13" fill="#ffb627">case D' · row immediately reclaimable → recurse(depth+1)</text>
+      <text x="450" y="495" text-anchor="middle" font-size="10">depth ≥ 3 → state-gated UPSERT REPORT_LEASE_THRASHING → 503</text>
+      <text x="450" y="510" text-anchor="middle" font-size="10">(if row resolved between dispatch and write, return 200/410/409 instead — no false alert)</text>
+    </g>
+  </svg>
+</div>
+
+<h3>Why fail-closed on LookupInconclusive matters</h3>
+
+<p class="prose">
+  If <code>findIssueByMarker</code> can't be sure whether the prior attempt's issue exists,
+  treating the inconclusive result as "no issue exists" would cause a duplicate-creating
+  <code>createIssue</code> on every retry. The contract is hard: <em>only a clean
+  <code>null</code> return — pagination exhausted, no marker match — authorizes a second
+  create call.</em> Pagination errors, missing <code>GITHUB_BOT_LOGIN</code>, malformed
+  responses, multiple live matches, open-issue-with-orphan-label — each routes to a
+  different <code>admin_alerts</code> code so Eric sees the right diagnosis.
+</p>
+
+<!-- ============================================================
+     ALERT CATALOG TABLE
+     ============================================================ -->
+
+<h2>The alert catalog</h2>
+
+<p class="prose">
+  M8 introduces six new <code>admin_alerts</code> codes. Each is keyed per-show
+  via the §4.6 partial unique index <code>(coalesce(show_id::text, ''), code) WHERE resolved_at IS NULL</code>,
+  except <code>GITHUB_BOT_LOGIN_MISSING</code> which is truly global.
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>Code</th><th>Trigger</th><th>Scope</th><th>Client gets</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>REPORT_ORPHANED_LOST_LEASE</code></td>
+      <td>Tail UPDATE 0-rows; a competing retry stole the lease and my issue is the orphan.</td>
+      <td>per-show</td>
+      <td>200 (with winner's URL) or 410 (Case Reaped)</td>
+    </tr>
+    <tr>
+      <td><code>REPORT_LOOKUP_INCONCLUSIVE</code></td>
+      <td>Pagination error, shape error — generic "couldn't confirm whether your last report went through."</td>
+      <td>per-show</td>
+      <td>502</td>
+    </tr>
+    <tr>
+      <td><code>GITHUB_BOT_LOGIN_MISSING</code></td>
+      <td>The <code>GITHUB_BOT_LOGIN</code> env var is unset. Recovery cannot run at all.</td>
+      <td>global</td>
+      <td>502</td>
+    </tr>
+    <tr>
+      <td><code>REPORT_DUPLICATE_LIVE_MATCHES</code></td>
+      <td>Two open marker-bearing issues for one idempotency_key — data-integrity fault.</td>
+      <td>per-show</td>
+      <td>502 (Eric must investigate manually)</td>
+    </tr>
+    <tr>
+      <td><code>REPORT_OPEN_ORPHAN_LABEL</code></td>
+      <td>An open issue carries the <code>fxav-orphan-lost-lease</code> label — should be impossible.</td>
+      <td>per-show</td>
+      <td>502</td>
+    </tr>
+    <tr>
+      <td><code>REPORT_LEASE_THRASHING</code></td>
+      <td><code>expiredLeaseRetry</code> recursed past depth 3 and the row is genuinely still stuck.</td>
+      <td>per-show</td>
+      <td>503</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ============================================================
+     ACCEPTANCE CRITERIA
+     ============================================================ -->
+
+<h2>Acceptance criteria</h2>
+
+<ul class="ac-list">
+  <li><span class="ac-id">AC-8.1</span><span>Admin click files a §13.2.1 GH issue with <code>reporter:admin</code> label.</span></li>
+  <li><span class="ac-id">AC-8.2</span><span>Reports row recorded with <code>reported_by_kind='admin'</code>, populated <code>github_issue_url</code>.</span></li>
+  <li><span class="ac-id">AC-8.3</span><span>11th admin submission in current hour bucket → 429 <code>REPORT_RATE_LIMITED_ADMIN</code>.</span></li>
+  <li><span class="ac-id">AC-8.4</span><span>Crew submission files §13.2.2 body — <strong>no name/email in issue</strong>, <code>reporter:crew</code> label.</span></li>
+  <li><span class="ac-id">AC-8.5</span><span>Crew row recorded with <code>reported_by_kind='crew'</code>, reporter_role snapshot, URL populated.</span></li>
+  <li><span class="ac-id">AC-8.6</span><span>4th crew submission in 1h from same <code>crew_members.id</code> → 429 <code>REPORT_RATE_LIMITED_CREW</code>.</span></li>
+  <li><span class="ac-id">AC-8.7</span><span>Anonymous (no session) POST → 401.</span></li>
+  <li><span class="ac-id">AC-8.8</span><span>GitHub unreachable → server returns 502 with retry guidance; no duplicate issue created on later success.</span></li>
+  <li><span class="ac-id">AC-8.9</span><span>Same idempotency_key POSTed twice → same <code>github_issue_url</code>, one row, one issue.</span></li>
+  <li><span class="ac-id">AC-8.10</span><span>4 concurrent crew submissions, empty bucket → exactly 3 succeed, 4th gets 429. Atomic UPSERT guarantees no race.</span></li>
+  <li><span class="ac-id">AC-8.11</span><span>5xx + dropped response retry → <code>findIssueByMarker</code> returns null (issue truly doesn't exist) → fresh createIssue → one issue total.</span></li>
+  <li><span class="ac-id">AC-8.12</span><span>Unknown-outcome (response dropped after success) retry → <code>findIssueByMarker</code> via <code>listForRepo</code> finds the prior issue → row binds to it → one issue total.</span></li>
+  <li><span class="ac-id">AC-8.13</span><span>Concurrent retries after lease expiry → first wins lease, second gets 409 <code>IDEMPOTENCY_IN_FLIGHT</code>. Lease_holder ownership token prevents the late-success duplicate.</span></li>
+</ul>
+
+<!-- ============================================================
+     WHAT'S NEXT
+     ============================================================ -->
+
+<h2>What this unlocks</h2>
+
+<div class="deflist">
+  <dt>M9 · Messages</dt>
+  <dd>The message catalog now has real customers: every <code>REPORT_*</code> code maps to user-facing copy. The catalog meta-test (<code>tests/messages/_metaAdminAlertCatalog.test.ts</code>) extends to cover M8's six new admin_alerts codes.</dd>
+
+  <dt>M10 · Admin dashboard</dt>
+  <dd>The per-show admin_alerts banner surfaces all six M8 codes. Eric can resolve, view forensic context (idempotency_key, raced_back flag, lease_holder), and click through to the GitHub issue or the orphan.</dd>
+
+  <dt>Production telemetry</dt>
+  <dd>Every 502/503 the report pipeline emits is paired with an admin_alerts row, so there's no silent failure mode. The reaper's <code>STALE_ORPHAN_REPORT</code> audit gives Eric a daily list of reports that never resolved.</dd>
+</div>
+
+<nav class="pagenav">
+  <a href="07-asset.html">
+    <span class="pagenav__dir">← M7</span>
+    <span class="pagenav__title">Asset pipeline · signed URLs · Range</span>
+  </a>
+  <a href="09-10-admin.html" class="pagenav--right">
+    <span class="pagenav__dir">M9 · M10 →</span>
+    <span class="pagenav__title">Messages · admin dashboard</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>

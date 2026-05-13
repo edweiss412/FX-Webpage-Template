@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M0 · M1 — Foundation & Parser · FXAV Crew Pages</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK</span></a>
+    <nav class="topbar__nav">
+      <a href="index.html">All milestones</a>
+      <a href="02-schema-rls.html">M2 →</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">M0·1</div>
+  <div class="container">
+    <div class="hero__kicker">Stage 1 of 11 · Foundation</div>
+    <div class="hero__milestone-mark">M0 · M1</div>
+    <h1 class="hero__title">Set up the workshop. Then read the binder.</h1>
+    <p class="hero__lede">
+      Before we can build anything that touches a real show, two things need to exist:
+      a clean Next.js + Supabase workshop with every tool wired up, and a pure-function
+      <strong>parser</strong> that can read one of Doug's Google Sheets and turn it into
+      structured data. No databases yet. No webpages yet. Just a workbench and the ability
+      to translate the binder.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Tasks</dt><dd>6 + 14 = 20</dd></div>
+      <div><dt>Acceptance</dt><dd>AC-1.1 → AC-1.10</dd></div>
+      <div><dt>Spec sections</dt><dd>§6, §14, §17.1</dd></div>
+      <div><dt>Status</dt><dd><span class="pill pill--done">Complete</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    Imagine Doug — owner of FXAV — keeps a Google Sheet for every show he produces.
+    Each sheet has crew names, hotel reservations, schedules, transportation, stage diagrams,
+    pack lists. Today his crew has to scroll through that giant sheet on a phone backstage.
+    Our job is to turn each sheet into a personal mobile webpage for every crew member.
+  </p>
+  <p>
+    But before we touch the database or build a single screen, we have to prove one thing
+    can be done reliably: <em>given the text of one of those sheets, can we extract every
+    piece of useful information from it as a clean data structure?</em> That's all M1 does.
+    M0 just gets the workshop ready to host it.
+  </p>
+</div>
+
+<!-- ============================================================
+     STAGE 1: M0 — Foundation
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">M0</span> Repository bootstrap</div>
+
+<h2>The workshop</h2>
+
+<p class="prose">
+  M0 is one weekend of pure setup. Nothing the user ever sees ships from it. But every later
+  milestone assumes these six tools are in place, configured correctly, and committed.
+</p>
+
+<div class="diagram">
+  <div class="diagram__title">M0 · The tool rack</div>
+  <svg viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Six foundational tools wired into the project">
+    <defs>
+      <pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
+        <line x1="0" y1="0" x2="0" y2="6" stroke="#2c3c52" stroke-width="2"/>
+      </pattern>
+    </defs>
+    <!-- ground bar -->
+    <line x1="40" y1="200" x2="860" y2="200" stroke="#3a4d68" stroke-width="2"/>
+    <line x1="40" y1="200" x2="860" y2="200" stroke="#ffb627" stroke-width="1" stroke-dasharray="4 4"/>
+
+    <!-- tool slots -->
+    <g font-family="IBM Plex Mono, monospace" font-size="12" fill="#a4b3c5">
+      <!-- Next.js -->
+      <rect x="60" y="60" width="120" height="140" fill="#172230" stroke="#2c3c52"/>
+      <text x="120" y="92" text-anchor="middle" font-family="Anton" font-size="20" fill="#ffb627">NEXT.JS 16</text>
+      <text x="120" y="115" text-anchor="middle" font-size="11">App Router</text>
+      <text x="120" y="132" text-anchor="middle" font-size="11">Turbopack</text>
+      <text x="120" y="149" text-anchor="middle" font-size="11">strict TS</text>
+      <text x="120" y="180" text-anchor="middle" font-size="10" fill="#6c7e93">runtime</text>
+
+      <!-- Vitest -->
+      <rect x="200" y="100" width="120" height="100" fill="#172230" stroke="#2c3c52"/>
+      <text x="260" y="132" text-anchor="middle" font-family="Anton" font-size="20" fill="#ffb627">VITEST</text>
+      <text x="260" y="155" text-anchor="middle" font-size="11">unit + parser</text>
+      <text x="260" y="172" text-anchor="middle" font-size="11">jsdom</text>
+      <text x="260" y="190" text-anchor="middle" font-size="10" fill="#6c7e93">tests</text>
+
+      <!-- Playwright -->
+      <rect x="340" y="80" width="120" height="120" fill="#172230" stroke="#2c3c52"/>
+      <text x="400" y="112" text-anchor="middle" font-family="Anton" font-size="20" fill="#ffb627">PLAYWRIGHT</text>
+      <text x="400" y="135" text-anchor="middle" font-size="11">mobile e2e</text>
+      <text x="400" y="152" text-anchor="middle" font-size="11">iPhone 14 / 390×844</text>
+      <text x="400" y="170" text-anchor="middle" font-size="11">layout-dims</text>
+      <text x="400" y="190" text-anchor="middle" font-size="10" fill="#6c7e93">tests · e2e</text>
+
+      <!-- Supabase -->
+      <rect x="480" y="60" width="120" height="140" fill="#172230" stroke="#2c3c52"/>
+      <text x="540" y="92" text-anchor="middle" font-family="Anton" font-size="20" fill="#6fe7d8">SUPABASE</text>
+      <text x="540" y="115" text-anchor="middle" font-size="11">local Postgres</text>
+      <text x="540" y="132" text-anchor="middle" font-size="11">auth + realtime</text>
+      <text x="540" y="149" text-anchor="middle" font-size="11">storage</text>
+      <text x="540" y="180" text-anchor="middle" font-size="10" fill="#6c7e93">data</text>
+
+      <!-- Tailwind -->
+      <rect x="620" y="110" width="120" height="90" fill="#172230" stroke="#2c3c52"/>
+      <text x="680" y="142" text-anchor="middle" font-family="Anton" font-size="18" fill="#6fe7d8">TAILWIND v4</text>
+      <text x="680" y="165" text-anchor="middle" font-size="11">@theme tokens</text>
+      <text x="680" y="183" text-anchor="middle" font-size="11">(empty for now)</text>
+
+      <!-- ESLint -->
+      <rect x="760" y="120" width="100" height="80" fill="#172230" stroke="#2c3c52"/>
+      <text x="810" y="150" text-anchor="middle" font-family="Anton" font-size="16" fill="#a4b3c5">ESLINT</text>
+      <text x="810" y="168" text-anchor="middle" font-size="11">+ Prettier</text>
+      <text x="810" y="186" text-anchor="middle" font-size="10" fill="#6c7e93">discipline</text>
+    </g>
+
+    <!-- caption -->
+    <text x="450" y="240" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="#6c7e93" letter-spacing="2">
+      WIRED UP, COMMITTED, NO FEATURES SHIPPED. WORKSHOP IS READY.
+    </text>
+    <text x="450" y="270" text-anchor="middle" font-family="Anton" font-size="22" fill="#ffb627" letter-spacing="3">
+      LOAD-IN COMPLETE
+    </text>
+  </svg>
+</div>
+
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">0.1 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Initialize Next.js</h3>
+    <p class="task-card__body">Next.js 16 App Router with Turbopack, pinned exact, strict TypeScript on. Installs <code>googleapis</code>, <code>@octokit/rest</code>, Supabase SDKs, Zod, Sentry.</p>
+    <div class="task-card__files"><code>package.json</code><code>tsconfig.json</code><code>next.config.mjs</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">0.2 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Configure Vitest</h3>
+    <p class="task-card__body">Fast unit-test runner. One sample test passing proves the wiring. Everything in <code>tests/</code> from here on uses this.</p>
+    <div class="task-card__files"><code>vitest.config.ts</code><code>tests/setup.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">0.3 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Configure Playwright</h3>
+    <p class="task-card__body">End-to-end browser tests, defaulting to <span class="mono">iPhone 14 · 390×844</span> because the crew page is mobile-first. Desktop is a secondary project, not the default.</p>
+    <div class="task-card__files"><code>playwright.config.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">0.4 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Supabase + env template</h3>
+    <p class="task-card__body">Local Supabase stack via Docker. The full env-var list lives in <code>.env.local.example</code>: Google service account, JWT secret, GitHub PAT, admin allowlist, etc.</p>
+    <div class="task-card__files"><code>.env.local.example</code><code>supabase/config.toml</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">0.5 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Tailwind v4 base</h3>
+    <p class="task-card__body">Strip the scaffolder's tokens. <em>Don't establish colors yet</em> — those land in Task 4.1 via the impeccable design flow. PRODUCT.md is already committed.</p>
+    <div class="task-card__files"><code>app/globals.css</code><code>app/layout.tsx</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">0.6 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Lint + format</h3>
+    <p class="task-card__body">ESLint extends <code>next/core-web-vitals</code> + <code>next/typescript</code> + <code>prettier</code>. <code>pnpm lint &amp;&amp; pnpm typecheck</code> must pass.</p>
+    <div class="task-card__files"><code>.eslintrc.json</code><code>.prettierrc</code></div>
+  </div>
+</div>
+
+<!-- ============================================================
+     STAGE 2: M1 — Parser
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">M1</span> Parser standalone</div>
+
+<h2>Reading the binder</h2>
+
+<p class="prose">
+  Every FXAV show has a Google Sheet that follows one of four templates (v1, v2, v4 — v3 was
+  dropped because no real sheet uses it). The sheet has named blocks for crew, hotels, transportation,
+  stage diagrams, schedules, financials. A small army of typos and edge cases lives in there
+  — sheets in the wild call things "Hotal" instead of "Hotel", say "MAIN | SECONDARY" in some
+  versions but not others, and use shorthand like "GS - V1" to mean a crew member is V1 for
+  the General Session room.
+</p>
+
+<p class="prose">
+  The parser is the brain that turns all that text into a single, predictable data structure.
+  It runs as a <strong>pure function</strong> — no database, no Drive API, no network. You give
+  it markdown; it gives you a <code>ParseResult</code> with warnings on the side. That purity
+  is the point: every later milestone can call this function thousands of times in tests without
+  spinning anything up.
+</p>
+
+<div class="diagram">
+  <div class="diagram__title">M1 · parseSheet pipeline</div>
+  <svg viewBox="0 0 900 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Markdown enters left, ParseResult exits right via six stages">
+    <defs>
+      <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#ffb627"/>
+      </marker>
+    </defs>
+
+    <!-- Pipeline rail -->
+    <line x1="60" y1="180" x2="840" y2="180" stroke="#3a4d68" stroke-width="2"/>
+
+    <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#a4b3c5">
+      <!-- Input -->
+      <rect x="40" y="140" width="100" height="80" fill="#0a1119" stroke="#ffb627" stroke-width="2"/>
+      <text x="90" y="170" text-anchor="middle" font-family="Anton" font-size="14" fill="#ffb627">MARKDOWN</text>
+      <text x="90" y="190" text-anchor="middle" font-size="10">show sheet</text>
+      <text x="90" y="206" text-anchor="middle" font-size="10">~3000 lines</text>
+
+      <!-- Stage 1 -->
+      <rect x="170" y="140" width="100" height="80" fill="#172230" stroke="#2c3c52"/>
+      <text x="220" y="170" text-anchor="middle" font-family="Anton" font-size="14" fill="#6fe7d8">VERSION</text>
+      <text x="220" y="190" text-anchor="middle" font-size="10">v1 / v2 / v4</text>
+      <text x="220" y="206" text-anchor="middle" font-size="10">marker scan</text>
+
+      <!-- Stage 2 -->
+      <rect x="300" y="140" width="100" height="80" fill="#172230" stroke="#2c3c52"/>
+      <text x="350" y="170" text-anchor="middle" font-family="Anton" font-size="14" fill="#6fe7d8">ALIASES</text>
+      <text x="350" y="190" text-anchor="middle" font-size="10">resolve labels</text>
+      <text x="350" y="206" text-anchor="middle" font-size="10">per version</text>
+
+      <!-- Stage 3 -->
+      <rect x="430" y="140" width="120" height="80" fill="#172230" stroke="#2c3c52"/>
+      <text x="490" y="170" text-anchor="middle" font-family="Anton" font-size="14" fill="#6fe7d8">BLOCK PARSERS</text>
+      <text x="490" y="190" text-anchor="middle" font-size="10">crew · hotels</text>
+      <text x="490" y="206" text-anchor="middle" font-size="10">venue · dates · …</text>
+
+      <!-- Stage 4 -->
+      <rect x="580" y="140" width="100" height="80" fill="#172230" stroke="#2c3c52"/>
+      <text x="630" y="170" text-anchor="middle" font-family="Anton" font-size="14" fill="#6fe7d8">INVARIANTS</text>
+      <text x="630" y="190" text-anchor="middle" font-size="10">MI-1 … MI-14</text>
+      <text x="630" y="206" text-anchor="middle" font-size="10">sanity gate</text>
+
+      <!-- Stage 5 -->
+      <rect x="710" y="140" width="100" height="80" fill="#172230" stroke="#2c3c52"/>
+      <text x="760" y="170" text-anchor="middle" font-family="Anton" font-size="14" fill="#6fe7d8">SLUG</text>
+      <text x="760" y="190" text-anchor="middle" font-size="10">URL-safe</text>
+      <text x="760" y="206" text-anchor="middle" font-size="10">show identity</text>
+
+      <!-- Output -->
+      <rect x="840" y="140" width="60" height="80" fill="#0a1119" stroke="#3fb950" stroke-width="2"/>
+      <text x="870" y="172" text-anchor="middle" font-family="Anton" font-size="11" fill="#3fb950">PARSE</text>
+      <text x="870" y="187" text-anchor="middle" font-family="Anton" font-size="11" fill="#3fb950">RESULT</text>
+
+      <!-- Arrows -->
+      <line x1="142" y1="180" x2="168" y2="180" stroke="#ffb627" marker-end="url(#arrowhead)"/>
+      <line x1="272" y1="180" x2="298" y2="180" stroke="#ffb627" marker-end="url(#arrowhead)"/>
+      <line x1="402" y1="180" x2="428" y2="180" stroke="#ffb627" marker-end="url(#arrowhead)"/>
+      <line x1="552" y1="180" x2="578" y2="180" stroke="#ffb627" marker-end="url(#arrowhead)"/>
+      <line x1="682" y1="180" x2="708" y2="180" stroke="#ffb627" marker-end="url(#arrowhead)"/>
+      <line x1="812" y1="180" x2="838" y2="180" stroke="#ffb627" marker-end="url(#arrowhead)"/>
+
+      <!-- Side-channel: warnings -->
+      <text x="450" y="80" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#ff5b9f" letter-spacing="2">
+        SIDE CHANNEL · NON-FATAL
+      </text>
+      <rect x="240" y="90" width="420" height="36" fill="rgba(255,91,159,0.08)" stroke="#ff5b9f" stroke-dasharray="4 3"/>
+      <text x="450" y="113" text-anchor="middle" font-size="11" fill="#ff5b9f">warnings[]  ·  typos · unknown roles · raw_unrecognized</text>
+
+      <line x1="450" y1="126" x2="450" y2="138" stroke="#ff5b9f" stroke-dasharray="2 2"/>
+
+      <!-- Bottom: pure function declaration -->
+      <text x="450" y="280" text-anchor="middle" font-family="IBM Plex Mono" font-size="12" fill="#a4b3c5">
+        parseSheet(markdown: string): ParseResult
+      </text>
+      <text x="450" y="300" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#6c7e93" letter-spacing="2">
+        NO DATABASE · NO NETWORK · NO SIDE EFFECTS · IDEMPOTENT
+      </text>
+      <text x="450" y="328" text-anchor="middle" font-family="Anton" font-size="18" fill="#ffb627" letter-spacing="3">
+        PURE
+      </text>
+    </g>
+  </svg>
+</div>
+
+<h3>Why pure?</h3>
+
+<p class="prose">
+  Because every test in every later milestone — the database tests, the sync tests, the UI tests
+  — calls <code>parseSheet</code> on a fixture and asserts on the result. If the parser had any
+  side effect, those tests would have to mock or spin up infrastructure to even start. By forbidding
+  side effects, the parser stays runnable in 50ms inside a Vitest worker.
+</p>
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Invariant · email canonicalization</div>
+  <p>
+    Every email the parser emits passes through <code>lib/email/canonicalize.ts</code> exactly once.
+    This is the <em>only</em> function in the codebase allowed to touch a raw email string. The
+    schema-level <code>CHECK</code> in M2 is the safety net — but canonicalization happens here,
+    at the very first boundary.
+  </p>
+</div>
+
+<div class="callout callout--spec">
+  <div class="callout__label">Ratified amendment · spec §6.4</div>
+  <p>
+    The spec defined four versions (v1, v2, v3, v4). Zero real sheets have v3's marker
+    (<code>block:GEAR INVENTORY</code>) — verified by grepping the entire fixture corpus. The plan
+    treats versions as <code>'v1' | 'v2' | 'v4'</code>. If a v3 sheet ever surfaces, it can be
+    re-introduced. v4 was simplified from a two-marker AND to a single marker for the same reason:
+    half the v4 corpus didn't have the second marker.
+  </p>
+</div>
+
+<h3>The 14 tasks of M1, grouped</h3>
+
+<h4>Bedrock — types & shared utilities</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">1.1 · types <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">ParseResult shape</h3>
+    <p class="task-card__body">All the discriminated unions — <code>ShowRow</code>, <code>CrewMemberRow</code>, <code>DateRestriction</code>, <code>WorkPhase</code>, <code>RoleFlag</code>. Compound role tokens like <code>"BO - V1"</code> decompose into <code>['BO','V1']</code>, not a composite.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">1.2 · email <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Email canonicalization</h3>
+    <p class="task-card__body">Lowercase, trim, strip <code>+suffix</code> aliases. The single chokepoint enforced at every system boundary by AC-X.5.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">1.3 · versions <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Version detection</h3>
+    <p class="task-card__body">Field-alias loader + marker scan. v4 → <code>row:Contact Office</code>; v2 → <code>Hotel Contact Info</code> (or typo <code>Hotal</code>); v1 → fallback when neither marker fires.</p>
+  </div>
+</div>
+
+<h4>Block extractors — read each section of the sheet</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">1.4 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Client + Venue</h3>
+    <p class="task-card__body">Show title, client label, primary + secondary contact, venue address, loading dock, Google Maps link.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">1.5 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Dates</h3>
+    <p class="task-card__body">Travel in, set, show days[], travel out, plus the per-day work-phase map that <code>PackListTile</code> reads in M4.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">1.6 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Crew + personalization</h3>
+    <p class="task-card__body">Role flags, day restriction, stage restriction. <code>*</code> asterisks become <code>{ kind: 'unknown_asterisk' }</code> instead of guessing.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">1.7 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Hotels, rooms, transport, contacts</h3>
+    <p class="task-card__body">Free-text fields stay free-text per spec §6.5 — the parser doesn't try to schematize audio/video/lighting setup notes.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">1.8 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Pull sheet</h3>
+    <p class="task-card__body">The packing list. Cases and the items inside. M4's PackListTile filters this by work-phase to show "what you load <em>today</em>".</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">1.9 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Diagrams + opening reel</h3>
+    <p class="task-card__body">Embedded images and the substring extractor that finds the opening-reel video link. Real fetching happens in M7.</p>
+  </div>
+</div>
+
+<h4>Soft assembly</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">1.10 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Soft warnings</h3>
+    <p class="task-card__body">Typo normalization (<code>Hotal → Hotel</code>), unknown role tokens, and a <code>raw_unrecognized</code> bucket so nothing is silently dropped.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">1.11 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">parseSheet orchestrator</h3>
+    <p class="task-card__body">The pure public function. Calls every block extractor, collects warnings, returns one frozen result.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">1.12 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Minimum invariant runner</h3>
+    <p class="task-card__body">MI-1 … MI-14. Hard fails block ingestion (MI-1..MI-5b). Soft fails stage for admin review. Foundation for the M6 sync gate.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">1.13 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Slug derivation</h3>
+    <p class="task-card__body">URL-safe show identity. Stable across re-parses. M4's crew page lives at <code>/show/[slug]</code>.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">1.14 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Run the whole corpus</h3>
+    <p class="task-card__body">Every one of Doug's 10 real fixtures must parse with zero unhandled errors. Demo: <code>pnpm test:parser</code>.</p>
+  </div>
+</div>
+
+<!-- ============================================================
+     INVARIANTS BANNER
+     ============================================================ -->
+
+<div class="hazard-banner">
+  <div class="hazard-banner__stripe"></div>
+  <div class="hazard-banner__body">
+    <h3 class="hazard-banner__title">Foundation invariants — never violated past this milestone</h3>
+    <ol class="prose">
+      <li>The parser is a <strong>pure function</strong>. No imports of <code>node:fs</code>, <code>googleapis</code>, or any Supabase client are ever allowed.</li>
+      <li><code>lib/email/canonicalize.ts</code> is the <strong>only</strong> function permitted to touch raw email strings. Every later layer enforces this with audits (AC-X.5).</li>
+      <li>Version detection uses <strong>marker presence</strong>, never structural heuristics. The amendment retiring v3 and simplifying v4 lives in <code>00-overview.md</code>.</li>
+      <li>TDD per task. Each task adds a failing test first, then implementation. <em>No exceptions.</em></li>
+    </ol>
+  </div>
+</div>
+
+<!-- ============================================================
+     ACCEPTANCE CRITERIA
+     ============================================================ -->
+
+<h2>Acceptance criteria</h2>
+
+<ul class="ac-list">
+  <li><span class="ac-id">AC-1.1</span><span><code>parseSheet</code> runs against any of the 10 raw fixtures without throwing.</span></li>
+  <li><span class="ac-id">AC-1.2</span><span>Crew rows extract correctly for every version, including compound role tokens like <code>"GS - LEAD"</code>.</span></li>
+  <li><span class="ac-id">AC-1.3</span><span>Day restrictions parse into <code>explicit</code> / <code>unknown_asterisk</code> / <code>none</code>; no silent guessing.</span></li>
+  <li><span class="ac-id">AC-1.4</span><span>Stage restrictions enumerate work-phases canonically (<code>Load In</code>, <code>Set</code>, <code>Show</code>, <code>Strike</code>, <code>Load Out</code>).</span></li>
+  <li><span class="ac-id">AC-1.5</span><span>Email outputs are all canonicalized before leaving the parser.</span></li>
+  <li><span class="ac-id">AC-1.6</span><span>Canonicalization handles uppercase, whitespace, and <code>+alias</code> suffixes.</span></li>
+  <li><span class="ac-id">AC-1.7</span><span>MI-1..MI-5b hard-fail invariants trigger <code>ParseError</code>, not silent partial results.</span></li>
+  <li><span class="ac-id">AC-1.8</span><span>MI-6..MI-14 soft invariants produce warnings consumable by the M6 sync gate.</span></li>
+  <li><span class="ac-id">AC-1.9</span><span>Slug derivation is stable: same show name → same slug across re-parses.</span></li>
+  <li><span class="ac-id">AC-1.10</span><span>Slugs are URL-safe and collision-checked against the existing show set.</span></li>
+</ul>
+
+<!-- ============================================================
+     KEY TYPES (CODE SNIPPET)
+     ============================================================ -->
+
+<h2>The contract, in code</h2>
+
+<p class="prose">
+  Every milestone after this one consumes <code>ParseResult</code>. Here are the two most-referenced
+  shapes — the ones M2 turns into Postgres tables and M4 turns into mobile tile components.
+</p>
+
+<pre data-lang="TypeScript"><code>// lib/parser/types.ts
+
+export type ParseResult = {
+  show: ShowRow;
+  crew: CrewMemberRow[];
+  hotels: HotelReservationRow[];
+  rooms: RoomRow[];
+  transportation: TransportationRow[];
+  contacts: ContactRow[];
+  pullSheet: PullSheetCase[];
+  diagrams: DiagramReference[];
+  warnings: ParseWarning[];
+  errors: ParseError[];          // empty on a clean parse
+};
+
+export type CrewMemberRow = {
+  name: string;
+  email: string | null;          // canonicalized at the boundary
+  phone: string | null;
+  role: string;                  // raw display string from the sheet
+  role_flags: RoleFlag[];        // ['LEAD', 'A1'] — atomic flags, no compounds
+  date_restriction:  DateRestriction;
+  stage_restriction: StageRestriction;
+  flight_info: string | null;
+};
+
+export type WorkPhase = 'Load In' | 'Set' | 'Show' | 'Strike' | 'Load Out';</code></pre>
+
+<!-- ============================================================
+     WHAT'S NEXT
+     ============================================================ -->
+
+<h2>What this unlocks</h2>
+
+<div class="deflist">
+  <dt>M2 · Schema + RLS</dt>
+  <dd>Now there's a target shape — the Postgres tables can mirror <code>ParseResult</code> exactly, and RLS policies can enforce role-based field hiding.</dd>
+
+  <dt>M3 · Admin upload-test</dt>
+  <dd>A throwaway <code>/admin/dev</code> form that feeds raw markdown through <code>parseSheet</code> + writes to the DB, proving the round-trip works end-to-end.</dd>
+
+  <dt>M4 · Crew page</dt>
+  <dd>The mobile-first UI reads from <code>shows</code> and renders 12+ tiles — each tile maps to a slice of <code>ParseResult</code>.</dd>
+
+  <dt>M6 · Drive sync</dt>
+  <dd>Calls <code>parseSheet</code> from inside the per-show advisory lock. Phase 1 = parse + invariant check. Phase 2 = destructive snapshot replacement.</dd>
+</div>
+
+<nav class="pagenav">
+  <a href="00-overview.html">
+    <span class="pagenav__dir">← Overview</span>
+    <span class="pagenav__title">Goal, architecture, amendments</span>
+  </a>
+  <a href="02-schema-rls.html" class="pagenav--right">
+    <span class="pagenav__dir">M2 →</span>
+    <span class="pagenav__title">Schema, RLS, migrations, seed</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>

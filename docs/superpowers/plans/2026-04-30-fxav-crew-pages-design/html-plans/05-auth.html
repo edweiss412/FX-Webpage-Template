@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M5 — Auth · FXAV Crew Pages</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK</span></a>
+    <nav class="topbar__nav">
+      <a href="index.html">All milestones</a>
+      <a href="03-04-tiles.html">← M3·M4</a>
+      <a href="06-drive-sync.html">M6 →</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">M5</div>
+  <div class="container">
+    <div class="hero__kicker">Stage 5 of 11 · Authentication</div>
+    <div class="hero__milestone-mark">M5</div>
+    <h1 class="hero__title">Tap the link. You're in.</h1>
+    <p class="hero__lede">
+      No sign-up screen. No password reset email. No app to download. Crew members
+      receive a personalized URL from Doug, tap it once, and the right show — with
+      the right fields visible for their role — opens on their phone. M5 is the
+      machinery that makes "tap the link, you're in" actually safe.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Tasks</dt><dd>11</dd></div>
+      <div><dt>Acceptance</dt><dd>AC-5.1 → AC-5.14</dd></div>
+      <div><dt>Spec sections</dt><dd>§7 (entire) · §17.1</dd></div>
+      <div><dt>Status</dt><dd><span class="pill pill--done">Complete</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    How does the system know who you are without making you sign up for an account?
+    It doesn't, really — Doug already knows who you are. He has your name and your
+    email in his show sheet. M5's job is to translate Doug's <em>I know who this
+    person is</em> into a browser session, securely, without bothering you to make
+    or remember anything.
+  </p>
+  <p>
+    There are two front doors. The <strong>signed link</strong> — Doug texts or
+    emails you a URL with a tiny encrypted ticket baked into it. You tap, the
+    page reads the ticket, hands you back a cookie, and forgets the ticket. The
+    <strong>Google sign-in</strong> — for admins and anyone with an
+    <code>@fxav.net</code> address — clicks through Google's "choose an account"
+    screen. Either way, on the way in, the system asks the same question: <em>which
+    show is this, and which row in that show's crew list is you?</em>
+  </p>
+</div>
+
+<!-- ============================================================
+     STAGE A — Signed-link flow
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">A</span> The signed-link flow</div>
+
+<h2>From Doug's outbox to a rendered crew page</h2>
+
+<p class="prose">
+  The signed-link path is the load-bearing piece of M5. It's how every crew
+  member who isn't on Google's enterprise plan gets in. The whole flow is one
+  round-trip — Doug sends a URL, the crew member taps it, the browser holds a
+  cookie for the next 12 hours.
+</p>
+
+<div class="diagram">
+  <div class="diagram__title">M5 · signed-link sequence — five lanes, one round-trip</div>
+  <svg viewBox="0 0 940 580" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Sequence diagram of the signed-link flow from Doug to the rendered crew page">
+    <defs>
+      <marker id="arrow-amber" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#ffb627"/>
+      </marker>
+      <marker id="arrow-cyan" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#6fe7d8"/>
+      </marker>
+    </defs>
+
+    <!-- Lane headers -->
+    <g font-family="Anton, sans-serif" font-size="13" fill="#ffb627" letter-spacing="2">
+      <text x="80"  y="30" text-anchor="middle">DOUG</text>
+      <text x="260" y="30" text-anchor="middle">CREW PHONE</text>
+      <text x="450" y="30" text-anchor="middle">BOOTSTRAP /p</text>
+      <text x="640" y="30" text-anchor="middle">REDEEM-LINK</text>
+      <text x="840" y="30" text-anchor="middle">DB · link_sessions</text>
+    </g>
+    <g font-family="IBM Plex Mono, monospace" font-size="9" fill="#6c7e93">
+      <text x="80"  y="44" text-anchor="middle">admin UI</text>
+      <text x="260" y="44" text-anchor="middle">Safari · iOS</text>
+      <text x="450" y="44" text-anchor="middle">app/show/[slug]/p</text>
+      <text x="640" y="44" text-anchor="middle">api/auth/redeem-link</text>
+      <text x="840" y="44" text-anchor="middle">+ bootstrap_nonces</text>
+    </g>
+
+    <!-- Lifelines -->
+    <g stroke="#2c3c52" stroke-dasharray="3 4">
+      <line x1="80"  y1="55" x2="80"  y2="540"/>
+      <line x1="260" y1="55" x2="260" y2="540"/>
+      <line x1="450" y1="55" x2="450" y2="540"/>
+      <line x1="640" y1="55" x2="640" y2="540"/>
+      <line x1="840" y1="55" x2="840" y2="540"/>
+    </g>
+
+    <!-- Step 1: Doug mints signed link -->
+    <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#a4b3c5">
+      <rect x="40" y="70" width="80" height="34" fill="#172230" stroke="#ffb627"/>
+      <text x="80" y="86" text-anchor="middle" fill="#ffb627">sign JWT</text>
+      <text x="80" y="98" text-anchor="middle" font-size="9" fill="#6c7e93">kid · tokenVer</text>
+    </g>
+
+    <!-- Step 2: Doug → Crew via SMS/email -->
+    <line x1="118" y1="115" x2="258" y2="115" stroke="#ffb627" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+    <text x="188" y="108" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#ffd166">SMS / email · /show/&lt;slug&gt;/p#t=&lt;jwt&gt;</text>
+
+    <!-- Step 3: Crew taps URL -->
+    <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#a4b3c5">
+      <rect x="220" y="130" width="80" height="28" fill="#172230" stroke="#2c3c52"/>
+      <text x="260" y="148" text-anchor="middle">tap link</text>
+    </g>
+
+    <!-- Step 4: Crew → bootstrap GET -->
+    <line x1="300" y1="172" x2="448" y2="172" stroke="#ffb627" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+    <text x="374" y="165" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#ffd166">GET /show/&lt;slug&gt;/p</text>
+
+    <!-- Step 5: Bootstrap mints nonce -->
+    <line x1="450" y1="190" x2="838" y2="190" stroke="#6fe7d8" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+    <text x="644" y="184" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#6fe7d8">INSERT bootstrap_nonces (nonce_hash, show_id, signing_key_id)</text>
+
+    <!-- Step 6: Bootstrap → browser (HTML + nonce + cookie) -->
+    <line x1="448" y1="218" x2="262" y2="218" stroke="#ffb627" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+    <text x="354" y="212" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#ffd166">HTML shell + nonce + __Host-fxav_bootstrap_v cookie</text>
+
+    <!-- Step 7: Client-side script reads hash -->
+    <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#a4b3c5">
+      <rect x="218" y="232" width="84" height="40" fill="#172230" stroke="#2c3c52"/>
+      <text x="260" y="248" text-anchor="middle">read location.hash</text>
+      <text x="260" y="262" text-anchor="middle" font-size="9" fill="#6c7e93">strip #t= after</text>
+    </g>
+
+    <!-- Step 8: POST redeem-link -->
+    <line x1="302" y1="288" x2="638" y2="288" stroke="#ffb627" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+    <text x="470" y="282" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#ffd166">POST /api/auth/redeem-link  { token, nonce, show_id }</text>
+
+    <!-- Validator stack inside redeem-link -->
+    <g font-family="IBM Plex Mono, monospace" font-size="9" fill="#a4b3c5">
+      <rect x="580" y="300" width="120" height="118" fill="#172230" stroke="#ffb627" stroke-dasharray="2 2"/>
+      <text x="640" y="316" text-anchor="middle" font-family="Anton" font-size="11" fill="#ffb627">REDEEM GATES</text>
+      <text x="640" y="333" text-anchor="middle">1. Origin / SecFetch</text>
+      <text x="640" y="347" text-anchor="middle">2. nonce row exists</text>
+      <text x="640" y="361" text-anchor="middle">3. not consumed</text>
+      <text x="640" y="375" text-anchor="middle">4. kid matches row</text>
+      <text x="640" y="389" text-anchor="middle">5. verify JWT</text>
+      <text x="640" y="403" text-anchor="middle">6. kid == active</text>
+    </g>
+
+    <!-- Step 9: redeem writes link_sessions row -->
+    <line x1="700" y1="430" x2="838" y2="430" stroke="#6fe7d8" stroke-width="1.5" marker-end="url(#arrow-cyan)"/>
+    <text x="770" y="424" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#6fe7d8">INSERT link_sessions</text>
+
+    <!-- Step 10: Set-Cookie back to crew -->
+    <line x1="638" y1="458" x2="262" y2="458" stroke="#ffb627" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+    <text x="450" y="452" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#ffd166">200 + Set-Cookie: __Host-fxav_session = url-enc { v:1, token, show_id }</text>
+
+    <!-- Step 11: client navigates to /show/[slug] -->
+    <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#a4b3c5">
+      <rect x="218" y="472" width="84" height="28" fill="#172230" stroke="#2c3c52"/>
+      <text x="260" y="490" text-anchor="middle">history.replaceState</text>
+    </g>
+
+    <!-- Step 12: crew → /show/[slug] -->
+    <line x1="302" y1="528" x2="448" y2="528" stroke="#3fb950" stroke-width="2" marker-end="url(#arrow-amber)"/>
+    <text x="374" y="522" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#3fb950">GET /show/&lt;slug&gt; · cookie-only · CREW PAGE RENDERS</text>
+
+    <!-- Right margin caption -->
+    <text x="470" y="568" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#6c7e93" letter-spacing="2">
+      JWT NEVER STORED · OPAQUE TOKEN IN COOKIE · FRAGMENT WIPED FROM HISTORY
+    </text>
+  </svg>
+</div>
+
+<div class="callout callout--spec">
+  <div class="callout__label">The cookie is NOT the JWT</div>
+  <p>
+    The signed link's JWT is exchanged exactly once, at the bootstrap shell.
+    What ends up in the browser is an opaque UUID wrapped in a tiny JSON envelope
+    (<code>{ v: 1, token, show_id }</code>) inside a <code>__Host-fxav_session</code>
+    cookie. The JWT itself never lives in any cookie, never re-verifies on later
+    requests. From here on, the validator only looks up the opaque token in
+    <code>link_sessions</code> — twelve steps deep.
+  </p>
+</div>
+
+<!-- ============================================================
+     STAGE B — The 12-step validator
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">B</span> validateLinkSession · the 12-step gate</div>
+
+<h2>Twelve checks before every page render</h2>
+
+<p class="prose">
+  Every request to <code>/show/&lt;slug&gt;</code> from a cookie-bearing browser
+  runs through this gate. It is the highest-stakes function in M5: failing any
+  one step in the wrong direction is a CVE. Each step has a specific status
+  code, a specific catalog message, and — for the failure paths — a mandatory
+  side effect of <strong>deleting the offending <code>link_sessions</code> row</strong>
+  so the cookie can't be reused.
+</p>
+
+<div class="diagram">
+  <div class="diagram__title">12 steps · stops at the first match</div>
+  <svg viewBox="0 0 940 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Numbered grid of the twelve validation steps">
+    <g font-family="IBM Plex Mono, monospace" font-size="10" fill="#a4b3c5">
+
+      <!-- Step 1-2 -->
+      <rect x="20" y="20" width="220" height="78" fill="#172230" stroke="#2c3c52"/>
+      <text x="36" y="40" font-family="Anton" font-size="14" fill="#ffb627">1 — 2 · COOKIE / TOKEN</text>
+      <text x="36" y="58" fill="#d8e0ea">missing cookie · token unknown</text>
+      <text x="36" y="74" fill="#ff5c5c">401</text>
+      <text x="80" y="74" fill="#a4b3c5">  no row to delete</text>
+      <text x="36" y="90" font-size="9" fill="#6c7e93">parse-fault → continue + clearCookie</text>
+
+      <!-- Step 3 -->
+      <rect x="250" y="20" width="220" height="78" fill="#172230" stroke="#2c3c52"/>
+      <text x="266" y="40" font-family="Anton" font-size="14" fill="#ffb627">3 · ABSOLUTE 12H</text>
+      <text x="266" y="58" fill="#d8e0ea">expires_at &lt;= now</text>
+      <text x="266" y="74" fill="#ff5c5c">401</text>
+      <text x="306" y="74" fill="#ffd166">SESSION_ABSOLUTE_TIMEOUT</text>
+      <text x="266" y="90" font-size="9" fill="#6c7e93">DELETE row</text>
+
+      <!-- Step 3a -->
+      <rect x="480" y="20" width="220" height="78" fill="#172230" stroke="#b48cff"/>
+      <text x="496" y="40" font-family="Anton" font-size="14" fill="#b48cff">3a · KEY ROTATED</text>
+      <text x="496" y="58" fill="#d8e0ea">row.signing_key_id ≠ active</text>
+      <text x="496" y="74" fill="#ff5c5c">401</text>
+      <text x="536" y="74" fill="#ffd166">LINK_SESSION_KEY_ROTATED</text>
+      <text x="496" y="90" font-size="9" fill="#6c7e93">DELETE row + clearCookie</text>
+
+      <!-- Step 4 -->
+      <rect x="710" y="20" width="210" height="78" fill="#172230" stroke="#6fe7d8"/>
+      <text x="726" y="40" font-family="Anton" font-size="14" fill="#6fe7d8">4 · CROSS-SHOW</text>
+      <text x="726" y="58" fill="#d8e0ea">cookie.show_id ≠ request</text>
+      <text x="726" y="74" fill="#ffd166">continue + clearCookie</text>
+      <text x="726" y="90" font-size="9" fill="#6c7e93">DELETE · falls through chain</text>
+
+      <!-- Step 5 -->
+      <rect x="20" y="118" width="220" height="78" fill="#172230" stroke="#2c3c52"/>
+      <text x="36" y="138" font-family="Anton" font-size="14" fill="#ffb627">5 · CREW GONE</text>
+      <text x="36" y="156" fill="#d8e0ea">crew_member_id IS NULL</text>
+      <text x="36" y="172" fill="#ff5c5c">410</text>
+      <text x="76" y="172" fill="#ffd166">LINK_NO_CREW_MATCH</text>
+      <text x="36" y="188" font-size="9" fill="#6c7e93">FK ON DELETE SET NULL · DELETE row</text>
+
+      <!-- Step 6 -->
+      <rect x="250" y="118" width="220" height="78" fill="#172230" stroke="#2c3c52"/>
+      <text x="266" y="138" font-family="Anton" font-size="14" fill="#ffb627">6 · VERSION MISMATCH</text>
+      <text x="266" y="156" fill="#d8e0ea">jwt_token_version ≠ current</text>
+      <text x="266" y="172" fill="#ff5c5c">410</text>
+      <text x="306" y="172" fill="#ffd166">LINK_VERSION_MISMATCH</text>
+      <text x="266" y="188" font-size="9" fill="#6c7e93">DELETE row</text>
+
+      <!-- Step 7 -->
+      <rect x="480" y="118" width="220" height="78" fill="#172230" stroke="#2c3c52"/>
+      <text x="496" y="138" font-family="Anton" font-size="14" fill="#ffb627">7 · REVOKED FLOOR</text>
+      <text x="496" y="156" fill="#d8e0ea">version &lt;= revoked_below_version</text>
+      <text x="496" y="172" fill="#ff5c5c">410</text>
+      <text x="536" y="172" fill="#ffd166">LINK_REVOKED_FLOOR</text>
+      <text x="496" y="188" font-size="9" fill="#6c7e93">DELETE row</text>
+
+      <!-- Step 8 -->
+      <rect x="710" y="118" width="210" height="78" fill="#172230" stroke="#2c3c52"/>
+      <text x="726" y="138" font-family="Anton" font-size="14" fill="#ffb627">8 · SURGICAL REVOKE</text>
+      <text x="726" y="156" fill="#d8e0ea">revoked_links match</text>
+      <text x="726" y="172" fill="#ff5c5c">410</text>
+      <text x="766" y="172" fill="#ffd166">LINK_REVOKED_SURGICAL</text>
+      <text x="726" y="188" font-size="9" fill="#6c7e93">DELETE row</text>
+
+      <!-- Step 9 -->
+      <rect x="20" y="216" width="220" height="78" fill="#172230" stroke="#2c3c52"/>
+      <text x="36" y="236" font-family="Anton" font-size="14" fill="#ffb627">9 · IDLE 15 MIN</text>
+      <text x="36" y="254" fill="#d8e0ea">last_active_at past TTL</text>
+      <text x="36" y="270" fill="#ff5c5c">401</text>
+      <text x="76" y="270" fill="#ffd166">SESSION_IDLE_TIMEOUT</text>
+      <text x="36" y="286" font-size="9" fill="#6c7e93">DELETE row · NOT 410</text>
+
+      <!-- Step 10 -->
+      <rect x="250" y="216" width="220" height="78" fill="#172230" stroke="#3fb950"/>
+      <text x="266" y="236" font-family="Anton" font-size="14" fill="#3fb950">10 · TOUCH</text>
+      <text x="266" y="254" fill="#d8e0ea">UPDATE last_active_at = now</text>
+      <text x="266" y="270" fill="#a4b3c5">idle window advances</text>
+
+      <!-- Step 11 -->
+      <rect x="480" y="216" width="220" height="78" fill="#172230" stroke="#3fb950"/>
+      <text x="496" y="236" font-family="Anton" font-size="14" fill="#3fb950">11 · ROLE</text>
+      <text x="496" y="254" fill="#d8e0ea">derive from role_flags</text>
+      <text x="496" y="270" fill="#a4b3c5">re-derived every request</text>
+
+      <!-- Step 12 -->
+      <rect x="710" y="216" width="210" height="78" fill="#172230" stroke="#3fb950"/>
+      <text x="726" y="236" font-family="Anton" font-size="14" fill="#3fb950">12 · RENDER</text>
+      <text x="726" y="254" fill="#d8e0ea">200 + crew page</text>
+      <text x="726" y="270" fill="#a4b3c5">getShowForViewer(showId, viewer)</text>
+
+      <!-- Outcome legend -->
+      <rect x="20" y="320" width="900" height="220" fill="#0e1620" stroke="#2c3c52"/>
+      <text x="36" y="346" font-family="Anton" font-size="14" fill="#ffb627">TRI-STATE OUTCOME CONTRACT</text>
+
+      <text x="36"  y="372" font-family="Anton" font-size="12" fill="#3fb950">SUCCESS</text>
+      <text x="120" y="372">viewer carries identity only — no role flag. role re-derived on every render.</text>
+
+      <text x="36"  y="396" font-family="Anton" font-size="12" fill="#6fe7d8">CONTINUE</text>
+      <text x="120" y="396">cookie failure that may not be the user's only credential — chain falls through</text>
+      <text x="120" y="410" fill="#a4b3c5">to validateGoogleSession + requireAdmin. clearCookie:true on most paths.</text>
+
+      <text x="36"  y="434" font-family="Anton" font-size="12" fill="#ff5c5c">TERMINAL_FAILURE</text>
+      <text x="160" y="434">server-side infra fault ONLY — DB outage, Supabase down, signing-key fetch fail.</text>
+      <text x="160" y="448" fill="#a4b3c5">parse/format faults are NOT terminal — they're continue + clearCookie.</text>
+      <text x="160" y="462" fill="#ff5b9f">reserving terminal for client-side corruption = login-CSRF availability bug.</text>
+
+      <text x="36"  y="494" font-family="IBM Plex Mono" font-size="10" fill="#6c7e93" letter-spacing="2">SIDE EFFECT — DELETE FROM link_sessions WHERE token = $cookie</text>
+      <text x="36"  y="510" font-family="IBM Plex Mono" font-size="10" fill="#6c7e93" letter-spacing="2">FIRES ON STEPS 3, 3a, 4, 5, 6, 7, 8, 9. NEVER ON 1–2 (NO ROW) OR 10–12.</text>
+      <text x="36"  y="530" font-family="Anton" font-size="14" fill="#ffb627" letter-spacing="3">FIRST MATCH WINS · NO FALL-THROUGH WITHIN THE GATE</text>
+    </g>
+  </svg>
+</div>
+
+<!-- ============================================================
+     STAGE C — Admin precedence
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">C</span> The auth chain · admin first</div>
+
+<h2>Three credentials, in this order</h2>
+
+<p class="prose">
+  A request to <code>/show/&lt;slug&gt;</code> may carry an admin role, a Google
+  session, a signed-link cookie, or any combination. The chain runs in a
+  specific order — admin <em>first</em>, before the cookie validator gets a
+  chance to short-circuit — because an admin clicking a share link during
+  preview is still an admin. The single shared predicate <code>isAdminSession()</code>
+  guards the runtime branch and the X.3 static audit, so the two can never
+  disagree.
+</p>
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Invariant · admin precedence over crew-on-self</div>
+  <p>
+    When the same person is both an admin and a row in <code>crew_members</code>
+    for the same show, the admin role wins. <em>Always</em>. An earlier draft
+    had the link cookie short-circuit ahead of the admin check; that silently
+    downgraded admins to crew-mode every time they opened a preview link. The
+    corrected chain runs <code>isAdminSession</code> first as a pure predicate,
+    then <code>validateLinkSession</code>, then <code>validateGoogleSession</code>,
+    then a final <code>requireAdmin</code> fallback for non-OAuth admin shapes.
+  </p>
+</div>
+
+<div class="diagram">
+  <div class="diagram__title">The chain · first success wins</div>
+  <svg viewBox="0 0 900 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Four-step auth chain with admin first">
+    <defs>
+      <marker id="arrow-chain" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#ffb627"/>
+      </marker>
+    </defs>
+
+    <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#a4b3c5">
+      <!-- entry -->
+      <rect x="20" y="90" width="100" height="60" fill="#0a1119" stroke="#ffb627" stroke-width="2"/>
+      <text x="70" y="115" text-anchor="middle" font-family="Anton" font-size="13" fill="#ffb627">REQUEST</text>
+      <text x="70" y="132" text-anchor="middle" font-size="10">/show/[slug]</text>
+
+      <!-- 1. isAdminSession -->
+      <rect x="160" y="80" width="150" height="80" fill="#172230" stroke="#b48cff" stroke-width="2"/>
+      <text x="235" y="102" text-anchor="middle" font-family="Anton" font-size="13" fill="#b48cff">1 · isAdminSession</text>
+      <text x="235" y="120" text-anchor="middle" font-size="10">app_metadata.role</text>
+      <text x="235" y="134" text-anchor="middle" font-size="10">OR allowlist match</text>
+      <text x="235" y="150" text-anchor="middle" font-size="10" fill="#3fb950">→ admin viewer · STOP</text>
+
+      <!-- 2. validateLinkSession -->
+      <rect x="350" y="80" width="150" height="80" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="425" y="102" text-anchor="middle" font-family="Anton" font-size="13" fill="#ffb627">2 · validateLink</text>
+      <text x="425" y="120" text-anchor="middle" font-size="10">12-step cookie gate</text>
+      <text x="425" y="134" text-anchor="middle" font-size="10">success · continue · fail</text>
+      <text x="425" y="150" text-anchor="middle" font-size="10" fill="#3fb950">→ crew viewer</text>
+
+      <!-- 3. validateGoogleSession -->
+      <rect x="540" y="80" width="150" height="80" fill="#172230" stroke="#6fe7d8" stroke-width="2"/>
+      <text x="615" y="102" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">3 · validateGoogle</text>
+      <text x="615" y="120" text-anchor="middle" font-size="10">canonical email +</text>
+      <text x="615" y="134" text-anchor="middle" font-size="10">show-bound lookup</text>
+      <text x="615" y="150" text-anchor="middle" font-size="10" fill="#3fb950">→ crew viewer</text>
+
+      <!-- 4. requireAdmin fallback -->
+      <rect x="730" y="80" width="150" height="80" fill="#172230" stroke="#3a4d68"/>
+      <text x="805" y="102" text-anchor="middle" font-family="Anton" font-size="13" fill="#a4b3c5">4 · requireAdmin</text>
+      <text x="805" y="120" text-anchor="middle" font-size="10" fill="#6c7e93">non-OAuth admin</text>
+      <text x="805" y="134" text-anchor="middle" font-size="10" fill="#6c7e93">belt-and-suspenders</text>
+      <text x="805" y="150" text-anchor="middle" font-size="10" fill="#3fb950">→ admin viewer</text>
+
+      <!-- arrows -->
+      <line x1="120" y1="120" x2="158" y2="120" stroke="#ffb627" marker-end="url(#arrow-chain)"/>
+      <line x1="310" y1="120" x2="348" y2="120" stroke="#ffb627" marker-end="url(#arrow-chain)"/>
+      <line x1="500" y1="120" x2="538" y2="120" stroke="#ffb627" marker-end="url(#arrow-chain)"/>
+      <line x1="690" y1="120" x2="728" y2="120" stroke="#ffb627" marker-end="url(#arrow-chain)"/>
+
+      <!-- caption -->
+      <text x="450" y="200" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#6c7e93" letter-spacing="2">
+        VALIDATORS RETURN IDENTITY ONLY. ROLE RE-DERIVED INSIDE getShowForViewer().
+      </text>
+      <text x="450" y="220" text-anchor="middle" font-family="IBM Plex Mono" font-size="10" fill="#6c7e93" letter-spacing="2">
+        STALE / WRONG-SHOW / PARSE-FAULT COOKIES → continue + clearCookie · NEVER terminal_failure
+      </text>
+    </g>
+  </svg>
+</div>
+
+<!-- ============================================================
+     STAGE D — Compromise handling
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">D</span> When a link leaks · the <code>?t=</code> handler</div>
+
+<h2>Two branches, one canonical code</h2>
+
+<p class="prose">
+  A signed link in a URL <em>fragment</em> (<code>#t=…</code>) is invisible to
+  servers and logs — that's the safe form. A signed link in a <em>query
+  string</em> (<code>?t=…</code>) is logged everywhere — Vercel, proxies,
+  browser history, screenshots. Any request with <code>?t=</code> on any path
+  under <code>/show/&lt;slug&gt;</code> is treated as a confirmed compromise event.
+</p>
+
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">Branch A · no-live-link</div>
+    <h3 class="task-card__title">Leaked token IS the current version</h3>
+    <p class="task-card__body">
+      Insert a <code>revoked_links</code> row at the exact version. Set
+      <code>revoked_below_version = current_token_version</code>. <em>Do not</em>
+      auto-mint a fresh version — the spec demands Doug explicitly click
+      "Issue new link" before any shareable token exists.
+    </p>
+    <div class="task-card__files"><code>410 LEAKED_LINK_DETECTED</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">Branch B · surgical revoke only</div>
+    <h3 class="task-card__title">Leaked token is OLDER than current</h3>
+    <p class="task-card__body">
+      Insert a <code>revoked_links</code> row at the leaked version only.
+      <code>crew_member_auth</code> is unchanged — the live current link
+      stays usable. An old leak shouldn't kick everyone off the current
+      version.
+    </p>
+    <div class="task-card__files"><code>410 LEAKED_LINK_DETECTED</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">Branch C · lifted floor</div>
+    <h3 class="task-card__title">Leaked token is from the FUTURE</h3>
+    <p class="task-card__body">
+      Anomaly. Lift <code>current</code>, <code>max</code>, and floor all to the
+      leaked version in one step so a single "Issue new link" click clears the
+      floor. The retired half-fix needed multiple clicks — a real auth-lockout
+      bug.
+    </p>
+    <div class="task-card__files"><code>structured log only</code></div>
+  </div>
+</div>
+
+<div class="callout callout--warn">
+  <div class="callout__label">Middleware scope · every <code>/show/**</code> path</div>
+  <p>
+    Earlier drafts narrowed the <code>?t=</code> scan to <code>/show/[slug]/p</code>.
+    That was wrong: Vercel logs the full URL for every path the platform
+    serves, and a copy-paste leak as <code>/show/&lt;slug&gt;?t=...</code> would
+    bypass revocation. The middleware now matches <code>^/show/[^/]+</code>
+    regardless of subroute — root crew page, bootstrap path, trailing-segment
+    typos, and any future <code>/show/&lt;slug&gt;/&lt;new-thing&gt;</code> route.
+  </p>
+</div>
+
+<!-- ============================================================
+     STAGE E — Google OAuth and /me
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">E</span> Google OAuth · admins and <code>@fxav.net</code></div>
+
+<h2>The second front door</h2>
+
+<p class="prose">
+  Admins and any crew member with an <code>@fxav.net</code> email sign in
+  through Google. The flow is the standard PKCE OAuth dance via Supabase Auth.
+  Two subtle pieces matter: a <code>next</code>-param canonicalizer that
+  refuses to redirect anywhere off-app, and a <code>/me</code> page that uses
+  a separate validator (<code>validateGoogleIdentity</code>) — because
+  <code>/me</code> has no show parameter, and calling the show-bound
+  <code>validateGoogleSession</code> from a show-less route would be a
+  structural error.
+</p>
+
+<div class="callout callout--spec">
+  <div class="callout__label"><code>validateNextParam</code> · five guards then the allowlist</div>
+  <p>
+    The OAuth <code>next</code> redirect is an open-redirect attack surface.
+    The validator runs five guards in order — reject non-strings, reject
+    backslashes / percent-encoded dot-segments / control characters, parse
+    via <code>new URL()</code>, reject cross-origin, reject the
+    <code>/show/&lt;slug&gt;/p</code> bootstrap surface — then matches against a
+    canonicalized allowlist. Anything else falls back to <code>/admin</code>.
+  </p>
+</div>
+
+<!-- ============================================================
+     TASKS
+     ============================================================ -->
+
+<h2>The eleven tasks of M5</h2>
+
+<h4>Crypto + validators</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">5.1 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">JWT sign / verify</h3>
+    <p class="task-card__body">
+      HS256 via <code>jose</code>. 90-day default expiry. Captures
+      <code>active_signing_key_id</code> into the JWT's <code>kid</code> header
+      at sign time; verifier returns <code>{ payload, verifiedKid }</code> so
+      the redeem route can detect mid-flight rotation.
+    </p>
+    <div class="task-card__files"><code>lib/auth/jwt.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">5.2 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">validateLinkSession (12 steps)</h3>
+    <p class="task-card__body">
+      The cookie-side gate. Tri-state outcome contract: success /
+      continue+clearCookie / terminal_failure. Parse/format faults are
+      <em>continue</em>, never terminal — reserving terminal for client cookie
+      corruption is a login-CSRF availability bug.
+    </p>
+    <div class="task-card__files"><code>lib/auth/validateLinkSession.ts</code><code>lib/auth/cookies.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">5.3 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">validateGoogleSession</h3>
+    <p class="task-card__body">
+      Show-bound. First DB call is canonical-email + <code>show_id</code>
+      scoped. Multi-match within the same show → 500 + UPSERT
+      <code>admin_alerts</code> row. Cross-show duplicates never mis-fire.
+    </p>
+    <div class="task-card__files"><code>lib/auth/validateGoogleSession.ts</code></div>
+  </div>
+</div>
+
+<h4>Routes + bootstrap</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">5.4 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">/api/auth/redeem-link</h3>
+    <p class="task-card__body">
+      Login-CSRF defense: Origin / Sec-Fetch check + composite-key
+      bootstrap-nonce consume <em>before</em> any JWT verification. Then mint
+      an opaque token, never the JWT. Discriminates <code>CSRF_DENIED</code>
+      (malicious) from <code>CSRF_NONCE_EXPIRED</code> (benign UX).
+    </p>
+    <div class="task-card__files"><code>app/api/auth/redeem-link/route.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">5.5 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Bootstrap shell <code>/p</code></h3>
+    <p class="task-card__body">
+      Server-rendered shell with no PII. Mints a <code>bootstrap_nonces</code>
+      row at composite PK <code>(nonce_hash, show_id)</code>. Embeds nonce +
+      show_id in the HTML. Client script reads <code>location.hash</code>,
+      POSTs to redeem, then <code>history.replaceState</code>s the fragment away.
+    </p>
+    <div class="task-card__files"><code>app/show/[slug]/p/page.tsx</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">5.6 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Compromise handler · <code>?t=</code></h3>
+    <p class="task-card__body">
+      <code>middleware.ts</code> scans every path matching
+      <code>^/show/[^/]+</code>. Three branches by version comparison.
+      <code>revoked_links</code> insert is idempotent via
+      <code>ON CONFLICT DO NOTHING</code> so retries don't 500.
+    </p>
+    <div class="task-card__files"><code>middleware.ts</code></div>
+  </div>
+</div>
+
+<h4>Wire-up · the chain</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">5.7 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Auth chain on <code>/show/[slug]</code></h3>
+    <p class="task-card__body">
+      Admin-first ordering. The shared <code>isAdminSession</code> predicate
+      gates both runtime and X.3 static audit. Validators return identity
+      only; role is re-derived inside <code>getShowForViewer</code> every
+      request. Stale / wrong-show cookies fall through with
+      <code>clearCookie</code>.
+    </p>
+    <div class="task-card__files"><code>app/show/[slug]/page.tsx</code><code>lib/auth/isAdminSession.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">5.8 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Google OAuth routes</h3>
+    <p class="task-card__body">
+      Sign-in (with redirect-loop guard), callback (with PKCE verifier
+      cleanup on every path), sign-out (POST-only; GET → 405). All three
+      share <code>validateNextParam</code>'s five-guard canonicalizer.
+    </p>
+    <div class="task-card__files"><code>app/auth/sign-in</code><code>app/auth/callback</code><code>app/auth/sign-out</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">5.9 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Admin alerts banner + catalog</h3>
+    <p class="task-card__body">
+      Pulls a minimum slice of the §12.4 catalog forward into M5 so
+      <code>AMBIGUOUS_EMAIL_BINDING</code> and <code>LEAKED_LINK_DETECTED</code>
+      get canonical copy instead of inline strings. M9 expands; M5 seeds.
+    </p>
+    <div class="task-card__files"><code>components/admin/AlertBanner.tsx</code><code>lib/messages/catalog.ts</code></div>
+  </div>
+</div>
+
+<h4>Cross-show identity + demo</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">5.10 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title"><code>/me</code> signed-in show list</h3>
+    <p class="task-card__body">
+      Uses <code>validateGoogleIdentity</code>, deliberately NOT DRY with
+      <code>validateGoogleSession</code> — sharing the implementation is what
+      reopens the show-binding hole. Lists every show whose
+      <code>crew_members</code> row matches the canonical email.
+    </p>
+    <div class="task-card__files"><code>app/me/page.tsx</code><code>lib/auth/validateGoogleIdentity.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">5.11 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">M5 demo verification</h3>
+    <p class="task-card__body">
+      End-to-end: Google sign-in on a fixture crew account, role demotion
+      live-updating the page within one render, <code>?t=</code> leak
+      triggering 410 + revocation, sign-out clearing every cookie family.
+    </p>
+    <div class="task-card__files"><code>manual e2e</code></div>
+  </div>
+</div>
+
+<!-- ============================================================
+     ACCEPTANCE
+     ============================================================ -->
+
+<h2>Acceptance criteria</h2>
+
+<ul class="ac-list">
+  <li><span class="ac-id">AC-5.1</span><span>Cookie / show binding: 12-step gate's steps 1–4 reject missing, wrong-show, and cross-show cookies with the right status + side effect.</span></li>
+  <li><span class="ac-id">AC-5.2</span><span>Version mismatch: cookie's <code>jwt_token_version</code> ≠ <code>crew_member_auth.current_token_version</code> → 410 <code>LINK_VERSION_MISMATCH</code> + DELETE row.</span></li>
+  <li><span class="ac-id">AC-5.3</span><span>Cross-show reuse: cookie minted for show A presented at show B → continue + clearCookie + row DELETEd; chain falls through.</span></li>
+  <li><span class="ac-id">AC-5.4</span><span>Revoked floor: <code>jwt_token_version &lt;= revoked_below_version</code> → 410 <code>LINK_REVOKED_FLOOR</code>.</span></li>
+  <li><span class="ac-id">AC-5.5</span><span>Surgical revoke: exact <code>(show_id, crew_name, token_version)</code> match in <code>revoked_links</code> → 410 <code>LINK_REVOKED_SURGICAL</code>.</span></li>
+  <li><span class="ac-id">AC-5.6</span><span>Idle timeout at 15 min → 401 <code>SESSION_IDLE_TIMEOUT</code> (NOT 410). Absolute timeout at 12h → 401 <code>SESSION_ABSOLUTE_TIMEOUT</code>.</span></li>
+  <li><span class="ac-id">AC-5.6a</span><span>Global key rotation atomically invalidates redeemed sessions via <code>link_sessions.signing_key_id</code> ≠ <code>app_settings.active_signing_key_id</code>.</span></li>
+  <li><span class="ac-id">AC-5.7</span><span>Google sign-in for an email not on the show's crew list → 403 <code>GOOGLE_NO_CREW_MATCH</code>.</span></li>
+  <li><span class="ac-id">AC-5.8</span><span>Multi-match within the same show → 500 <code>AMBIGUOUS_EMAIL_BINDING</code> + UPSERT <code>admin_alerts</code> with coalesce semantics.</span></li>
+  <li><span class="ac-id">AC-5.9</span><span>Payload introspection: LEAD response includes <code>financials</code>; non-LEAD does not. <code>coi_status</code> is universally visible.</span></li>
+  <li><span class="ac-id">AC-5.10</span><span>Demote LEAD → A1 via DB update; refresh; Financials tile disappears within one render cycle — no token rotation needed.</span></li>
+  <li><span class="ac-id">AC-5.11</span><span><code>?t=</code> compromise handler runs on every path under <code>/show/&lt;slug&gt;</code>; branches A / B / C produce correct <code>crew_member_auth</code> state.</span></li>
+  <li><span class="ac-id">AC-5.12</span><span>Synthesized duplicate-email runtime condition writes a banner; resolving the alert removes it.</span></li>
+  <li><span class="ac-id">AC-5.13</span><span>Admin precedence: when both admin and crew credentials are present, admin wins; cookie left in place.</span></li>
+  <li><span class="ac-id">AC-5.14</span><span>Google OAuth sign-in / callback / sign-out: PKCE state cleanup on every code path; <code>next</code>-param canonicalized through the five-guard validator; sign-out clears every cookie family atomically.</span></li>
+</ul>
+
+<!-- ============================================================
+     INVARIANTS BANNER
+     ============================================================ -->
+
+<div class="hazard-banner">
+  <div class="hazard-banner__stripe"></div>
+  <div class="hazard-banner__body">
+    <h3 class="hazard-banner__title">M5 invariants — never violated past this milestone</h3>
+    <ol class="prose">
+      <li>The cookie carries an opaque token + show binding, <strong>never a JWT</strong>. JWTs verify exactly once at redeem time.</li>
+      <li>Every cookie set/clear flows through <code>lib/auth/cookies.ts</code>. The literal string <code>__Host-fxav_session</code> outside that module fails X.3's banned-identifier scan.</li>
+      <li><strong>Admin precedence runs first</strong>. <code>isAdminSession</code> is a pure predicate shared between the runtime chain and the X.3 static audit.</li>
+      <li>Validators return identity only. Role re-derived inside <code>getShowForViewer</code> every request — Task 4.3's locked contract.</li>
+      <li>Client-side cookie parse/format faults are <strong><code>continue + clearCookie</code></strong>, never <code>terminal_failure</code>. The chain must be able to fall through.</li>
+      <li>The <code>?t=</code> handler matches <code>^/show/[^/]+</code> — every path, not a closed list of subroutes.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ============================================================
+     OUTCOME CONTRACT IN CODE
+     ============================================================ -->
+
+<h2>The validator contract, in code</h2>
+
+<p class="prose">
+  Every later milestone that touches a server-rendered show page consumes this
+  tri-state shape. Returning <code>terminal_failure</code> for anything other
+  than a true server-side fault is a contract violation that X.3's audit will
+  catch.
+</p>
+
+<pre data-lang="TypeScript"><code>// lib/auth/validateLinkSession.ts
+
+export type ValidatorOutcome =
+  | { kind: 'success'; viewer: { kind: 'crew'; crewMemberId: string; showId: string } }
+  | {
+      kind: 'continue';
+      // Lossless: carry the prior failure metadata so the chain adapter
+      // can render the most-actionable §12.4 code if ALL branches fall through.
+      priorFailure?: { status: number; code: string; messageInterpolations?: Record&lt;string, string&gt; };
+      clearCookie: boolean;
+    }
+  | { kind: 'terminal_failure'; status: number; code: string };
+  // ^ SERVER-SIDE infrastructure faults ONLY.
+  //   DB outage. Supabase down. Signing-key fetch failure.
+  //   Client-side cookie corruption is `continue + clearCookie`, never this.
+
+export async function validateLinkSession(req: Request): Promise&lt;ValidatorOutcome&gt;;</code></pre>
+
+<!-- ============================================================
+     WHAT'S NEXT
+     ============================================================ -->
+
+<h2>What this unlocks</h2>
+
+<div class="deflist">
+  <dt>M6 · Drive sync</dt>
+  <dd>Now that auth knows who you are, the sync engine can attribute mutations and run inside the per-show advisory lock with a real principal — admin vs cron-token vs signed crew.</dd>
+
+  <dt>M7 · Assets</dt>
+  <dd>The signed-URL gate on <code>/api/asset/**</code> uses the same chain. Once <code>validateLinkSession</code> ships, every protected sink in the codebase can adopt it.</dd>
+
+  <dt>M8 · Reports</dt>
+  <dd>The lease-claim protocol writes <code>lease_holder</code> with the viewer's identity. The validator's identity-only success shape is exactly what the lease layer wants.</dd>
+
+  <dt>M9 · Messages</dt>
+  <dd>The §12.4 catalog seeded here (link/session codes, AMBIGUOUS_EMAIL_BINDING, LEAKED_LINK_DETECTED) is what M9 expands into the full crew-facing + Doug-facing copy registry.</dd>
+</div>
+
+<nav class="pagenav">
+  <a href="03-04-tiles.html">
+    <span class="pagenav__dir">← M3 · M4</span>
+    <span class="pagenav__title">Design system + crew page tiles</span>
+  </a>
+  <a href="06-drive-sync.html" class="pagenav--right">
+    <span class="pagenav__dir">M6 →</span>
+    <span class="pagenav__title">Drive sync · per-show advisory lock</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>

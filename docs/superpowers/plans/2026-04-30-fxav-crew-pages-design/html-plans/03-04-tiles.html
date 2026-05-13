@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M3 · M4 — Admin dev panel & Crew page · FXAV Crew Pages</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK</span></a>
+    <nav class="topbar__nav">
+      <a href="02-schema-rls.html">← M2</a>
+      <a href="index.html">All milestones</a>
+      <a href="05-auth.html">M5 →</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">M3·4</div>
+  <div class="container">
+    <div class="hero__kicker">Stages 4 + 5 of 11 · Admin proving rig & the crew page</div>
+    <div class="hero__milestone-mark">M3 · M4</div>
+    <h1 class="hero__title">A throwaway form, then the show itself.</h1>
+    <p class="hero__lede">
+      M3 is a single hidden page — <code>/admin/dev</code> — that lets Eric upload one of Doug's
+      sheets and watch it land in an isolated test schema. M4 is the milestone everything before
+      it was leading toward: the actual mobile webpage a touring AV crew member opens on their
+      phone backstage. Thirteen tiles, one live "right now" card, and the design system the rest
+      of the product will inherit.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Tasks</dt><dd>2 + 16 = 18</dd></div>
+      <div><dt>Acceptance</dt><dd>AC-3.1..3.3 · AC-4.1..4.12</dd></div>
+      <div><dt>Spec sections</dt><dd>§7.3, §8 (entire), §17.1</dd></div>
+      <div><dt>Status</dt><dd><span class="pill pill--done">Complete</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    Imagine a Lyft receipt page, but for working a touring AV show. You open your phone backstage
+    and see only the things <em>you</em> need: which hotel you're in, what time call is, which
+    truck you're riding, what gear is on your pull sheet today, who to call if the LED wall
+    goes dark. Nothing else. The information narrows to your name, your role, your day.
+  </p>
+  <p>
+    M3 proves we can put a fixture in one end of the pipeline and see structured data come out
+    the other — without touching production tables. M4 turns that structured data into the
+    mobile page itself, with empty-state discipline, role-gated tiles, and a state machine
+    that always knows what's happening <em>right now</em>.
+  </p>
+</div>
+
+<!-- ============================================================
+     STAGE 4: M3 — Admin upload-test
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">M3</span> Admin proving rig</div>
+
+<h2>The throwaway upload form</h2>
+
+<p class="prose">
+  <code>/admin/dev</code> is an <em>internal</em> page Eric uses to prove the parser plus the
+  Phase-1 sync logic actually work end-to-end on real fixtures, before any of the production
+  cron infrastructure exists. It does a real write — it has to, AC-3.2 and AC-3.3 explicitly
+  assert that rows land in <code>pending_syncs</code> and <code>pending_ingestions</code>. A
+  pure preview wouldn't satisfy the contract.
+</p>
+
+<p class="prose">
+  The trick: it writes into an <strong>isolated <code>dev_*</code> schema</strong> that mirrors
+  <code>public</code>. The migrations apply twice — once to <code>public</code> for production,
+  once to <code>dev</code> for the panel — so a fixture upload can never corrupt real
+  <code>shows</code> rows. A "Reset dev schema" button truncates everything in <code>dev</code>
+  between runs.
+</p>
+
+<div class="callout callout--warn">
+  <div class="callout__label">Build-time gate · server-only flag</div>
+  <p>
+    An earlier draft used <code>NEXT_PUBLIC_ENABLE_ADMIN_DEV_PANEL</code> — but the
+    <code>NEXT_PUBLIC_</code> prefix inlines the value into the client bundle and can be mutated
+    at runtime. The corrected design uses a <strong>server-only</strong>
+    <code>ADMIN_DEV_PANEL_ENABLED</code> flag, read once during Server Component render. A
+    dual-Playwright-build test proves the prod artifact returns 404 even for an admin; the dev
+    artifact returns 403 for non-admins. The dev panel must never reach production builds,
+    regardless of auth state.
+  </p>
+</div>
+
+<div class="diagram">
+  <div class="diagram__title">M3 · The /admin/dev pipeline (parity with production sync)</div>
+  <svg viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Fixture markdown enters left, dev schema rows exit right via parser, enrichment, invariants, and phase 1">
+    <defs>
+      <marker id="m3-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#ffb627"/>
+      </marker>
+    </defs>
+
+    <line x1="40" y1="180" x2="860" y2="180" stroke="#3a4d68" stroke-width="2"/>
+
+    <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#a4b3c5">
+      <rect x="30" y="140" width="100" height="80" fill="#0a1119" stroke="#ffb627" stroke-width="2"/>
+      <text x="80" y="170" text-anchor="middle" font-family="Anton" font-size="13" fill="#ffb627">FIXTURE.MD</text>
+      <text x="80" y="190" text-anchor="middle" font-size="10">picker</text>
+      <text x="80" y="206" text-anchor="middle" font-size="10">on disk</text>
+
+      <rect x="160" y="140" width="110" height="80" fill="#172230" stroke="#2c3c52"/>
+      <text x="215" y="170" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">parseSheet</text>
+      <text x="215" y="190" text-anchor="middle" font-size="10">pure · M1</text>
+      <text x="215" y="206" text-anchor="middle" font-size="10">ParsedSheet</text>
+
+      <rect x="300" y="140" width="150" height="80" fill="#172230" stroke="#2c3c52"/>
+      <text x="375" y="170" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">enrichWithDrivePins</text>
+      <text x="375" y="190" text-anchor="middle" font-size="10">mock Drive client</text>
+      <text x="375" y="206" text-anchor="middle" font-size="10">→ ParseResult</text>
+
+      <rect x="480" y="140" width="110" height="80" fill="#172230" stroke="#2c3c52"/>
+      <text x="535" y="170" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">runInvariants</text>
+      <text x="535" y="190" text-anchor="middle" font-size="10">MI-1..MI-14</text>
+      <text x="535" y="206" text-anchor="middle" font-size="10">hard / soft</text>
+
+      <rect x="620" y="140" width="110" height="80" fill="#172230" stroke="#2c3c52"/>
+      <text x="675" y="170" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">phase 1</text>
+      <text x="675" y="190" text-anchor="middle" font-size="10">stage rows</text>
+      <text x="675" y="206" text-anchor="middle" font-size="10">no INSERT shows</text>
+
+      <rect x="760" y="140" width="110" height="80" fill="#0a1119" stroke="#3fb950" stroke-width="2"/>
+      <text x="815" y="168" text-anchor="middle" font-family="Anton" font-size="11" fill="#3fb950">dev.pending_*</text>
+      <text x="815" y="188" text-anchor="middle" font-size="10">isolated schema</text>
+      <text x="815" y="204" text-anchor="middle" font-size="10">public untouched</text>
+
+      <line x1="132" y1="180" x2="158" y2="180" stroke="#ffb627" marker-end="url(#m3-arrow)"/>
+      <line x1="272" y1="180" x2="298" y2="180" stroke="#ffb627" marker-end="url(#m3-arrow)"/>
+      <line x1="452" y1="180" x2="478" y2="180" stroke="#ffb627" marker-end="url(#m3-arrow)"/>
+      <line x1="592" y1="180" x2="618" y2="180" stroke="#ffb627" marker-end="url(#m3-arrow)"/>
+      <line x1="732" y1="180" x2="758" y2="180" stroke="#ffb627" marker-end="url(#m3-arrow)"/>
+
+      <text x="450" y="60" text-anchor="middle" font-family="Anton" font-size="14" fill="#ff5b9f" letter-spacing="3">SAME CHAIN AS PRODUCTION SYNC</text>
+      <text x="450" y="80" text-anchor="middle" font-size="10" fill="#a4b3c5">skipping enrichWithDrivePins was the bug this section guards against</text>
+
+      <text x="450" y="280" text-anchor="middle" font-size="11" fill="#a4b3c5">
+        parse panel renders parse_outcome · triggered MI · parse_warnings · raw_unrecognized · enrichment summary
+      </text>
+      <text x="450" y="304" text-anchor="middle" font-family="Anton" font-size="16" fill="#ffb627" letter-spacing="3">
+        WRITE-THROUGH · SCHEMA-ISOLATED · GATED
+      </text>
+    </g>
+  </svg>
+</div>
+
+<h3>M3 tasks</h3>
+
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">3.1 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title"><code>/admin/dev</code> form + parse panel</h3>
+    <p class="task-card__body">Server Component page + two Server Actions (<code>parseAndStage</code>, <code>resetDevSchema</code>). Both call <code>requireAdmin</code> on line one. Same parser → enrichment → invariants → phase-1 chain production sync uses. Strictly Phase-1 — no direct <code>dev.shows</code> INSERT.</p>
+    <div class="task-card__files"><code>app/admin/dev/page.tsx</code><code>app/admin/dev/actions.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">3.2 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">MI-7 + MI-1 synthesis tests</h3>
+    <p class="task-card__body">Synthesize <code>prior = 4 hotels, next = 1</code> → assert <code>MI-7_SECTION_SHRINKAGE</code> stages. Synthesize markdown with no version markers → assert <code>MI-1_VERSION_DETECTION_FAILED</code>. Dev-schema isolation is what makes this safe.</p>
+    <div class="task-card__files"><code>tests/sync/dev-routing.test.ts</code></div>
+  </div>
+</div>
+
+<h3>M3 acceptance criteria</h3>
+
+<ul class="ac-list">
+  <li><span class="ac-id">AC-3.1</span><span>Upload a fixture via <code>/admin/dev</code>; see <code>parse_outcome</code>, triggered MI codes, parse warnings, raw-unrecognized chunks, and enrichment summary in the panel.</span></li>
+  <li><span class="ac-id">AC-3.2</span><span>MI-7 SECTION_SHRINKAGE routes the parse into <code>dev.pending_syncs</code> with the correct <code>triggered_review_items</code> entry.</span></li>
+  <li><span class="ac-id">AC-3.3</span><span>MI-1 VERSION_DETECTION_FAILED routes the parse into <code>dev.pending_ingestions</code> with <code>last_error_code = 'MI-1_VERSION_DETECTION_FAILED'</code>.</span></li>
+</ul>
+
+<!-- ============================================================
+     STAGE 5: M4 — Crew page
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">M4</span> The crew page</div>
+
+<h2>What the crew member actually sees</h2>
+
+<p class="prose">
+  Open <code>/show/&lt;slug&gt;?crew=&lt;crewMemberId&gt;</code> on a phone. A Header with the
+  show title. A <strong>Right Now card</strong> that always knows what's happening — pre-travel,
+  travel-in, set, show day 2, strike, post-show. Then a 2-column grid of tiles, each rendering
+  one narrow slice of the show data. A Footer. That's the whole page.
+</p>
+
+<p class="prose">
+  Every tile reads from a single Server Component data fetcher,
+  <code>getShowForViewer(showId, viewer)</code>. That helper is the only place role flags get
+  derived — the page never trusts caller-supplied roles, never accepts a <code>?role=</code>
+  query param, and re-reads <code>crew_members.role_flags</code> from the database on every
+  request. M5 will replace the identity-only mock with real auth; the contract here is built
+  so that swap is a one-line change.
+</p>
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Invariant · identity-only mock</div>
+  <p>
+    The M4 page accepts <code>?crew=&lt;id&gt;</code> for identity and <code>?as=admin</code>
+    for admin preview. <strong><code>?role=</code> is explicitly ignored</strong> even if
+    present — a regression test (<code>tests/e2e/role-spoof.spec.ts</code>) asserts that
+    <code>?role=lead</code> cannot unlock the FinancialsTile when the bound crew row's
+    <code>role_flags</code> don't include <code>LEAD</code>. <code>getShowForViewer</code>
+    binds its lookup on both <code>id AND show_id</code>, closing the cross-show financial-leak
+    vector.
+  </p>
+</div>
+
+<!-- The phone mockup -->
+
+<div class="diagram">
+  <div class="diagram__title">M4 · The 13 tiles, laid out on the phone</div>
+  <svg viewBox="0 0 900 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="A mobile phone mockup showing the Right Now card and the 13 tiles arranged in a 2-column grid">
+    <!-- Phone outer frame -->
+    <rect x="240" y="20" width="420" height="680" rx="46" fill="#0e1620" stroke="#3a4d68" stroke-width="3"/>
+    <rect x="252" y="32" width="396" height="656" rx="38" fill="#07101c" stroke="#243345" stroke-width="1"/>
+    <!-- Notch -->
+    <rect x="380" y="32" width="140" height="22" rx="11" fill="#0a1119"/>
+
+    <!-- Header strip -->
+    <g font-family="IBM Plex Mono, monospace" fill="#a4b3c5">
+      <rect x="260" y="68" width="380" height="36" fill="#131e2b" stroke="#2c3c52"/>
+      <text x="276" y="92" font-family="Anton" font-size="13" fill="#ffb627">FXAV</text>
+      <text x="318" y="92" font-size="10" fill="#a4b3c5">/ DCI · RPAS Central · Four Seasons</text>
+
+      <!-- Right Now card (full width) -->
+      <rect x="260" y="116" width="380" height="86" fill="#1b2837" stroke="#ffb627" stroke-width="2"/>
+      <text x="450" y="138" text-anchor="middle" font-family="IBM Plex Mono" font-size="9" letter-spacing="3" fill="#ffb627">RIGHT NOW</text>
+      <text x="450" y="162" text-anchor="middle" font-family="Anton" font-size="20" fill="#f4f7fa">SHOW DAY 2</text>
+      <text x="450" y="182" text-anchor="middle" font-size="10" fill="#a4b3c5">Doors 6:30p · Crew call 4:00p · Ballroom A</text>
+      <text x="265" y="196" font-size="7" fill="#6c7e93">data-testid=right-now-card · w-full</text>
+
+      <!-- Tile grid header -->
+      <text x="265" y="220" font-size="8" letter-spacing="2" fill="#6c7e93">TILES · 2 cols mobile / 3 sm / 4 lg · min-h 96 · max-h 240 internal overflow</text>
+
+      <!-- Tiles 2-column grid, each ~180w x ~96h -->
+      <!-- Row 1 -->
+      <rect x="260" y="232" width="184" height="96" fill="#172230" stroke="#2c3c52"/>
+      <text x="270" y="252" font-family="Anton" font-size="13" fill="#ffb627">LODGING</text>
+      <text x="270" y="270" font-size="9" fill="#a4b3c5">Hotel · room · check-in</text>
+      <text x="270" y="284" font-size="9" fill="#a4b3c5">filtered to viewer name</text>
+      <text x="270" y="318" font-size="7" fill="#6c7e93">LodgingTile</text>
+
+      <rect x="456" y="232" width="184" height="96" fill="#172230" stroke="#2c3c52"/>
+      <text x="466" y="252" font-family="Anton" font-size="13" fill="#ffb627">VENUE</text>
+      <text x="466" y="270" font-size="9" fill="#a4b3c5">Address · dock · maps</text>
+      <text x="466" y="284" font-size="9" fill="#a4b3c5">load-in notes</text>
+      <text x="466" y="318" font-size="7" fill="#6c7e93">VenueTile</text>
+
+      <!-- Row 2 -->
+      <rect x="260" y="336" width="184" height="96" fill="#172230" stroke="#2c3c52"/>
+      <text x="270" y="356" font-family="Anton" font-size="13" fill="#ffb627">SCHEDULE</text>
+      <text x="270" y="374" font-size="9" fill="#a4b3c5">Per-day, filtered to</text>
+      <text x="270" y="388" font-size="9" fill="#a4b3c5">viewer day_restriction</text>
+      <text x="270" y="422" font-size="7" fill="#6c7e93">ScheduleTile</text>
+
+      <rect x="456" y="336" width="184" height="96" fill="#172230" stroke="#2c3c52"/>
+      <text x="466" y="356" font-family="Anton" font-size="13" fill="#6fe7d8">AUDIO SCOPE</text>
+      <text x="466" y="374" font-size="9" fill="#a4b3c5">A1 / A2 / LEAD see this</text>
+      <text x="466" y="388" font-size="9" fill="#a4b3c5">aggregates room.audio</text>
+      <text x="466" y="422" font-size="7" fill="#6c7e93">AudioScopeTile</text>
+
+      <!-- Row 3 -->
+      <rect x="260" y="440" width="184" height="96" fill="#172230" stroke="#2c3c52"/>
+      <text x="270" y="460" font-family="Anton" font-size="13" fill="#6fe7d8">VIDEO SCOPE</text>
+      <text x="270" y="478" font-size="9" fill="#a4b3c5">V1 / LEAD see this</text>
+      <text x="270" y="492" font-size="9" fill="#a4b3c5">PTZ · LED · stream</text>
+      <text x="270" y="526" font-size="7" fill="#6c7e93">VideoScopeTile</text>
+
+      <rect x="456" y="440" width="184" height="96" fill="#172230" stroke="#2c3c52"/>
+      <text x="466" y="460" font-family="Anton" font-size="13" fill="#6fe7d8">LIGHTING SCOPE</text>
+      <text x="466" y="478" font-size="9" fill="#a4b3c5">L1 only — NOT LEAD</text>
+      <text x="466" y="492" font-size="9" fill="#a4b3c5">per §8.1 canonical rule</text>
+      <text x="466" y="526" font-size="7" fill="#6c7e93">LightingScopeTile</text>
+
+      <!-- Row 4 -->
+      <rect x="260" y="544" width="184" height="96" fill="#172230" stroke="#2c3c52"/>
+      <text x="270" y="564" font-family="Anton" font-size="13" fill="#ffb627">CREW</text>
+      <text x="270" y="582" font-size="9" fill="#a4b3c5">All members · tap-to-call</text>
+      <text x="270" y="596" font-size="9" fill="#a4b3c5">role · phone · email</text>
+      <text x="270" y="630" font-size="7" fill="#6c7e93">CrewTile</text>
+
+      <rect x="456" y="544" width="184" height="96" fill="#172230" stroke="#2c3c52"/>
+      <text x="466" y="564" font-family="Anton" font-size="13" fill="#ffb627">CONTACTS</text>
+      <text x="466" y="582" font-size="9" fill="#a4b3c5">Client · venue · hotel</text>
+      <text x="466" y="596" font-size="9" fill="#a4b3c5">tap-to-call</text>
+      <text x="466" y="630" font-size="7" fill="#6c7e93">ContactsTile</text>
+
+      <!-- Continued tiles below the fold -->
+      <text x="450" y="660" text-anchor="middle" font-size="8" letter-spacing="2" fill="#6c7e93">···  TRANSPORT  ·  SHOW STATUS  ·  FINANCIALS (LEAD)  ·  PACK LIST  ·  NOTES  ···</text>
+      <text x="450" y="678" text-anchor="middle" font-size="7" fill="#6c7e93">Footer · sticky on short pages · in-flow on long</text>
+    </g>
+  </svg>
+</div>
+
+<h3>Tile inventory — what each box shows</h3>
+
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">LodgingTile <span class="pill pill--solid">crew</span></div>
+    <h3 class="task-card__title">Where you sleep</h3>
+    <p class="task-card__body">Hotel name, address, check-in/out, room number. Filtered to reservations whose <code>names</code> field contains the viewer.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">VenueTile <span class="pill pill--solid">crew</span></div>
+    <h3 class="task-card__title">Where you work</h3>
+    <p class="task-card__body">Venue name, address, loading-dock notes, Google Maps link. Shared by every viewer.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">ScheduleTile <span class="pill pill--solid">crew</span></div>
+    <h3 class="task-card__title">When you work</h3>
+    <p class="task-card__body">Three branches. Unrestricted: every show day. Explicit: only assigned days. Unknown-asterisk: "days aren't confirmed" message, no per-day list.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">AudioScopeTile <span class="pill pill--design">A1 · A2 · LEAD</span></div>
+    <h3 class="task-card__title">Audio gear & setup</h3>
+    <p class="task-card__body">Aggregated audio setup across all rooms. Visible when <code>audioScopeVisible(flags) = hasA1 || hasLead</code>.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">VideoScopeTile <span class="pill pill--design">V1 · LEAD</span></div>
+    <h3 class="task-card__title">Video gear & setup</h3>
+    <p class="task-card__body">Aggregated video setup. Visible when <code>videoScopeVisible(flags) = hasV1 || hasLead</code>.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">LightingScopeTile <span class="pill pill--design">L1 · LEAD</span></div>
+    <h3 class="task-card__title">Lighting gear & setup</h3>
+    <p class="task-card__body">Aggregated lighting setup. Visible when <code>lightingScopeVisible(flags) = hasL1 || hasLead</code>. Symmetric with Audio/Video per <strong>§8.1 Amendment §8.1-A1 (2026-05-13)</strong> — LEAD reads-in to all three scope tiles.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">CrewTile <span class="pill pill--solid">crew</span></div>
+    <h3 class="task-card__title">Who else is here</h3>
+    <p class="task-card__body">Every crew member with role, phone, email. Tap-to-call/email via <code>tel:</code> / <code>mailto:</code>.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">ContactsTile <span class="pill pill--solid">crew</span></div>
+    <h3 class="task-card__title">Off-crew contacts</h3>
+    <p class="task-card__body">Client, venue rep, hotel desk, primary + secondary show contacts.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">TransportTile <span class="pill pill--solid">2 branches</span></div>
+    <h3 class="task-card__title">How you get there</h3>
+    <p class="task-card__body">Visible when (a) <code>transportation.driver_name === viewer.name</code> OR (b) viewer's name appears in any <code>schedule[*].assigned_names[]</code> entry. Branch 2 catches passengers, not just drivers.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">ShowStatusTile <span class="pill pill--solid">crew</span></div>
+    <h3 class="task-card__title">COI · dress · venue notes</h3>
+    <p class="task-card__body">Certificate-of-insurance status, dress code, free-text venue notes. Visible to every crew viewer per §4.4.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">FinancialsTile <span class="pill pill--design">LEAD only</span></div>
+    <h3 class="task-card__title">PO · Proposal · Invoice</h3>
+    <p class="task-card__body">From <code>shows_internal.financials</code>. <code>getShowForViewer</code> JOINs <code>shows_internal</code> only when <code>isLead = isAdmin || roleFlags.includes('LEAD')</code>.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">PackListTile <span class="pill pill--solid">phase-gated</span></div>
+    <h3 class="task-card__title">What you load today</h3>
+    <p class="task-card__body">Visible only on Set / Strike / Load-Out days (NOT Load-In). Filtered by <code>stage_restriction</code> if set. Caps at 12 cases inline; "Show more" disclosure for the rest.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">NotesTile <span class="pill pill--solid">crew</span></div>
+    <h3 class="task-card__title">Things to know</h3>
+    <p class="task-card__body">Every block-level <code>notes</code> field aggregated into one tile. Per-source items truncated at 280 chars; 8 shown max with "+N more" disclosure.</p>
+  </div>
+</div>
+
+<!-- ============================================================
+     The Right Now state machine
+     ============================================================ -->
+
+<h2>The Right Now card · state machine</h2>
+
+<p class="prose">
+  The card at the top of the page never says "Welcome" or "Today's date." It says <em>what is
+  happening right now</em>, computed from the show's date list, the viewer's day-restriction,
+  and the current wall-clock time in the venue's timezone. Twelve states. Each transition has
+  an explicit animation treatment in the audit matrix.
+</p>
+
+<div class="diagram">
+  <div class="diagram__title">M4 · selectRightNowState — pure function, 12 states, table-ordered precedence</div>
+  <svg viewBox="0 0 900 500" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="State machine for the Right Now card showing transitions between Idle, Load In, Set, Show, Strike, Load Out, Travel, and overrides">
+    <defs>
+      <marker id="rn-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#6fe7d8"/>
+      </marker>
+      <marker id="rn-arrow-amber" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#ffb627"/>
+      </marker>
+    </defs>
+
+    <!-- Main timeline lane (show-wide states) -->
+    <text x="40" y="40" font-family="IBM Plex Mono" font-size="10" letter-spacing="3" fill="#ffb627">SHOW-WIDE STATES · date-driven · evaluated when viewer is unrestricted or today ∈ viewer.days</text>
+
+    <g font-family="IBM Plex Mono" font-size="11" fill="#a4b3c5">
+      <!-- pre_travel -->
+      <rect x="40" y="70" width="110" height="56" fill="#172230" stroke="#6fe7d8"/>
+      <text x="95" y="92" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">PRE TRAVEL</text>
+      <text x="95" y="110" text-anchor="middle" font-size="9">today &lt; travel_in</text>
+
+      <rect x="170" y="70" width="110" height="56" fill="#172230" stroke="#6fe7d8"/>
+      <text x="225" y="92" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">TRAVEL IN</text>
+      <text x="225" y="110" text-anchor="middle" font-size="9">travel_in_day</text>
+
+      <rect x="300" y="70" width="110" height="56" fill="#172230" stroke="#6fe7d8"/>
+      <text x="355" y="92" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">SET</text>
+      <text x="355" y="110" text-anchor="middle" font-size="9">set_day · Load In</text>
+
+      <rect x="430" y="70" width="120" height="56" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="490" y="92" text-anchor="middle" font-family="Anton" font-size="13" fill="#ffb627">SHOW DAY N</text>
+      <text x="490" y="110" text-anchor="middle" font-size="9">repeats for N days</text>
+
+      <rect x="570" y="70" width="110" height="56" fill="#172230" stroke="#6fe7d8"/>
+      <text x="625" y="92" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">TRAVEL OUT</text>
+      <text x="625" y="110" text-anchor="middle" font-size="9">travel_out_day</text>
+
+      <rect x="700" y="70" width="110" height="56" fill="#172230" stroke="#6fe7d8"/>
+      <text x="755" y="92" text-anchor="middle" font-family="Anton" font-size="13" fill="#6fe7d8">POST SHOW</text>
+      <text x="755" y="110" text-anchor="middle" font-size="9">today &gt; last_day</text>
+
+      <!-- Arrows along the timeline -->
+      <line x1="152" y1="98" x2="168" y2="98" stroke="#6fe7d8" marker-end="url(#rn-arrow)"/>
+      <line x1="282" y1="98" x2="298" y2="98" stroke="#6fe7d8" marker-end="url(#rn-arrow)"/>
+      <line x1="412" y1="98" x2="428" y2="98" stroke="#6fe7d8" marker-end="url(#rn-arrow)"/>
+      <line x1="552" y1="98" x2="568" y2="98" stroke="#6fe7d8" marker-end="url(#rn-arrow)"/>
+      <line x1="682" y1="98" x2="698" y2="98" stroke="#6fe7d8" marker-end="url(#rn-arrow)"/>
+      <!-- show day repeats -->
+      <path d="M 490 70 C 480 30, 500 30, 490 70" fill="none" stroke="#ffb627" stroke-dasharray="3 3"/>
+      <text x="490" y="22" text-anchor="middle" font-size="8" fill="#ffb627">date rollover · crossfade-body</text>
+
+      <!-- Viewer-override lane -->
+      <text x="40" y="180" font-family="IBM Plex Mono" font-size="10" letter-spacing="3" fill="#ff5b9f">VIEWER OVERRIDES · evaluated BEFORE show-wide · per-viewer</text>
+
+      <rect x="40" y="210" width="160" height="56" fill="#172230" stroke="#ff5b9f"/>
+      <text x="120" y="232" text-anchor="middle" font-family="Anton" font-size="13" fill="#ff5b9f">VIEWER UNCONFIRMED</text>
+      <text x="120" y="250" text-anchor="middle" font-size="9">unknown_asterisk · wins</text>
+
+      <rect x="220" y="210" width="160" height="56" fill="#172230" stroke="#ff5b9f"/>
+      <text x="300" y="232" text-anchor="middle" font-family="Anton" font-size="13" fill="#ff5b9f">VIEWER OFF DAY</text>
+      <text x="300" y="250" text-anchor="middle" font-size="9">explicit · today not in</text>
+
+      <rect x="400" y="210" width="160" height="56" fill="#172230" stroke="#ff5b9f"/>
+      <text x="480" y="232" text-anchor="middle" font-family="Anton" font-size="13" fill="#ff5b9f">OFF DAY · PRE</text>
+      <text x="480" y="250" text-anchor="middle" font-size="9">before first assigned</text>
+
+      <rect x="580" y="210" width="160" height="56" fill="#172230" stroke="#ff5b9f"/>
+      <text x="660" y="232" text-anchor="middle" font-family="Anton" font-size="13" fill="#ff5b9f">AFTER LAST DAY</text>
+      <text x="660" y="250" text-anchor="middle" font-size="9">eval BEFORE off_day</text>
+
+      <!-- Fallbacks -->
+      <text x="40" y="310" font-family="IBM Plex Mono" font-size="10" letter-spacing="3" fill="#b48cff">FALLBACKS</text>
+
+      <rect x="40" y="340" width="160" height="56" fill="#172230" stroke="#b48cff"/>
+      <text x="120" y="362" text-anchor="middle" font-family="Anton" font-size="13" fill="#b48cff">DATELESS</text>
+      <text x="120" y="380" text-anchor="middle" font-size="9">parser found no dates</text>
+
+      <rect x="220" y="340" width="160" height="56" fill="#172230" stroke="#b48cff"/>
+      <text x="300" y="362" text-anchor="middle" font-family="Anton" font-size="13" fill="#b48cff">UNKNOWN</text>
+      <text x="300" y="380" text-anchor="middle" font-size="9">sync error · stale tint</text>
+
+      <!-- "any → unknown" floating arrow -->
+      <path d="M 760 70 Q 800 250, 380 360" fill="none" stroke="#b48cff" stroke-dasharray="4 3" marker-end="url(#rn-arrow)"/>
+      <text x="820" y="180" text-anchor="end" font-size="9" fill="#b48cff">any → unknown</text>
+      <text x="820" y="194" text-anchor="end" font-size="9" fill="#b48cff">morph-to-last-good</text>
+
+      <!-- Precedence reminder -->
+      <rect x="40" y="430" width="800" height="50" fill="rgba(255,182,39,0.06)" stroke="#ffb627" stroke-dasharray="4 3"/>
+      <text x="56" y="450" font-family="IBM Plex Mono" font-size="10" letter-spacing="2" fill="#ffb627">PRECEDENCE</text>
+      <text x="56" y="468" font-size="10" fill="#a4b3c5">viewer_unconfirmed → viewer_after_last_day → viewer_off_day → viewer_off_day_pre → show-wide states → dateless → unknown</text>
+    </g>
+  </svg>
+</div>
+
+<div class="callout callout--spec">
+  <div class="callout__label">Transition matrix · 12 states · 66 pairs</div>
+  <p>
+    Per the global CLAUDE.md "Transition inventory" rule, every state-transition pair gets an
+    explicit treatment: <code>crossfade-body</code> for date rollovers (container holds
+    <code>min-h-[X]</code> to preserve card height), <code>morph-to-last-good</code> for any →
+    <code>unknown</code>, <code>instant</code> for user-initiated changes, <code>unreachable</code>
+    with a regression guard for impossible paths (e.g., <code>post_show → pre_travel</code>).
+    Compound transitions — sync-error mid-rollover, role demotion mid-state — get six dedicated
+    integration tests.
+  </p>
+</div>
+
+<!-- ============================================================
+     Tasks
+     ============================================================ -->
+
+<h2>The 16 tasks of M4, grouped</h2>
+
+<h4>Foundation — design tokens & data plumbing</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">4.1 · design <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Establish DESIGN.md via impeccable v3</h3>
+    <p class="task-card__body">One-time setup. Invoke the impeccable v3 skill against the existing <code>PRODUCT.md</code>; the flow derives colors (light + dark), typography scale, spacing, radii, motion timings into <code>DESIGN.md</code>. Gates every subsequent UI task in M3/M4.</p>
+    <div class="task-card__files"><code>DESIGN.md</code><code>app/globals.css</code><code>tailwind.config.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">4.2 · shell <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Layout shell</h3>
+    <p class="task-card__body">Page + layout Server Components. Header, Right Now slot, tile grid, Footer. Reads viewer identity from <code>?crew=</code> and <code>?as=admin</code>; ignores <code>?role=</code>.</p>
+    <div class="task-card__files"><code>app/show/[slug]/page.tsx</code><code>app/show/[slug]/layout.tsx</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">4.3 · data <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title"><code>getShowForViewer</code></h3>
+    <p class="task-card__body">Identity-only signature. Binds crew lookup on <code>id AND show_id</code>. Re-derives role_flags from DB on every call. Cross-show probe throws <code>LINK_NO_CREW_MATCH</code>. Static-analysis test asserts the function never accepts a <code>role_flags</code> parameter.</p>
+    <div class="task-card__files"><code>lib/data/getShowForViewer.ts</code></div>
+  </div>
+</div>
+
+<h4>Tile components — one slice at a time</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">4.4 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Lodging · Venue · Crew · Contacts</h3>
+    <p class="task-card__body">Four tiles, same TDD pattern. Empty-state placeholder for required fields; omit optional fields entirely.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">4.5 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">ScheduleTile</h3>
+    <p class="task-card__body">Three branches per §8.1: unrestricted, explicit-days, unknown-asterisk ("days aren't confirmed").</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">4.6 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Scope tiles · canonical visibility rule</h3>
+    <p class="task-card__body">Single source of truth in <code>lib/visibility/scopeTiles.ts</code>: <code>audioScopeVisible = hasA1 || hasLead</code>, <code>videoScopeVisible = hasV1 || hasLead</code>, <code>lightingScopeVisible = hasL1 || hasLead</code> (§8.1 Amendment §8.1-A1, 2026-05-13: AVL triad now uniform; LEAD reads-in to Lighting).</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">4.7 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">TransportTile · 2 branches</h3>
+    <p class="task-card__body">Driver-name match OR <code>assigned_names[]</code> match. End-to-end fixture test proves <code>assigned_names</code> survives parser → seed → persistence → projection.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">4.8 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">ShowStatus + Financials</h3>
+    <p class="task-card__body">ShowStatus carries COI + dress + venue notes. Financials JOINs <code>shows_internal</code> only when <code>isLead</code>.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">4.9 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">PackListTile · phase-gated</h3>
+    <p class="task-card__body">Visible only on Set / Strike / Load-Out (NOT Load-In). Reads <code>schedule_phases</code> directly from the parser — no re-derivation. Date keying uses <code>formatInTimeZone(today, show.venue.timezone, 'yyyy-MM-dd')</code> to avoid UTC drift near midnight.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">4.10 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">NotesTile</h3>
+    <p class="task-card__body">Aggregate every block-level <code>notes</code>. Truncate at 280 chars; tap to expand; 8 max + disclosure.</p>
+  </div>
+</div>
+
+<h4>The Right Now state machine</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">4.11 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">selectRightNowState</h3>
+    <p class="task-card__body">Pure function. All 12 states. Precedence-ordered if/else. Unit tests cover every cell of the precedence table — including the "next-assigned-day pointing at nothing" regression.</p>
+    <div class="task-card__files"><code>lib/time/rightNow.ts</code></div>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">4.12 <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Transition audit</h3>
+    <p class="task-card__body">66-pair matrix for RightNow + 10-pair capability-predicate matrix + a 2×2 transport-reassignment matrix. Six compound-transition tests for race conditions (sync error mid-rollover, role flip + transport flip in same render).</p>
+  </div>
+</div>
+
+<h4>Layout, empty-state, realtime — the rest</h4>
+<div class="task-grid">
+  <div class="task-card">
+    <div class="task-card__id">4.13 · layout <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Layout dimensions e2e</h3>
+    <p class="task-card__body">Real-browser Playwright. Five invariants asserted at 390 / 1024 / 1200px. Includes the 240px-internal-overflow rule and the sticky-vs-flow footer behavior across short + long content fixtures.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">4.14 · empty <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">Empty-state discipline</h3>
+    <p class="task-card__body">Per-field dispatch table. Opening-reel renders URL-stripped status text (<code>YES - &lt;drive-url&gt;</code> → <code>Opening reel: YES</code>); pure-URL cells hide. Crew DOM must NEVER contain <code>https://</code> or <code>drive.google.com</code>.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">4.16 · realtime <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">ShowRealtimeBridge over Broadcast</h3>
+    <p class="task-card__body">Thin client component subscribes to one server-owned Broadcast topic <code>show:&lt;id&gt;:invalidation</code>, server mints a 5-min JWT from the session cookie, calls <code>router.refresh</code> on event with a 100ms debounce. Composite <code>viewer_version_token</code> from <code>shows.last_synced_at</code> + auth + role-flags last-changed. Unmount-safe ordering, single-flight renewal, no polling fallback.</p>
+  </div>
+  <div class="task-card">
+    <div class="task-card__id">4.15 · demo <span class="pill pill--done">Done</span></div>
+    <h3 class="task-card__title">M4 demo verification</h3>
+    <p class="task-card__body"><code>pnpm test &amp;&amp; pnpm test:e2e --project=mobile-safari</code>. Open the seeded URL on a phone-shaped viewport. Screenshot. Attach to the demo PR.</p>
+  </div>
+</div>
+
+<!-- ============================================================
+     Tailwind v4 dimensional invariants — the gotcha
+     ============================================================ -->
+
+<div class="callout callout--warn">
+  <div class="callout__label">Gotcha · Tailwind v4 does not default <code>.flex</code> to <code>align-items: stretch</code></div>
+  <p>
+    This project's Tailwind v4 setup means every fixed-dimension parent containing flex/grid
+    children needs explicit <code>items-stretch</code> + <code>h-full</code> (or an equivalent
+    inline style). Jest + jsdom is not sufficient to catch the failure mode — jsdom doesn't
+    compute real layout, so a layout-collapse bug passes unit tests. Task 4.13 writes the
+    real-browser assertion: <code>getBoundingClientRect()</code> on every documented
+    <code>data-testid</code>, asserting <code>child.dimension === parent.dimension</code>
+    within a 0.5px tolerance. Five invariants from §8.4, exhaustively covered.
+  </p>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>§8.4 invariant</th>
+        <th>What the test asserts</th>
+        <th>Tailwind class chain</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Right Now card full-width at every breakpoint</td>
+        <td>card width equals container content-box width, ±0.5px, at 390 / 1024 / 1200</td>
+        <td><code>w-full</code> on the card, parent container holds the padding</td>
+      </tr>
+      <tr>
+        <td>Tile grid columns scale: 2 / 3 / 4</td>
+        <td><code>getComputedStyle(grid).gridTemplateColumns.split(' ').length</code> matches</td>
+        <td><code>grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 items-stretch</code></td>
+      </tr>
+      <tr>
+        <td>Tiles in a row share height</td>
+        <td><code>tile[0].height === tile[1].height</code> within 0.5px</td>
+        <td><code>min-h-24 h-full</code> on each tile</td>
+      </tr>
+      <tr>
+        <td>240px internal-overflow rule</td>
+        <td>tiles past 240px render <code>[data-testid=tile-show-more]</code> AND have overflow-y auto/scroll; short tiles render no disclosure</td>
+        <td><code>max-h-60 overflow-y-auto</code> when content might exceed</td>
+      </tr>
+      <tr>
+        <td>Footer sticky on short pages, in-flow on long</td>
+        <td>short fixture: <code>footer.bottom === viewport.height</code>. long fixture: scrolling moves the footer upward with content.</td>
+        <td>flex column with <code>min-h-screen</code>, footer uses <code>mt-auto</code></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============================================================
+     Acceptance criteria
+     ============================================================ -->
+
+<h2>M4 acceptance criteria</h2>
+
+<ul class="ac-list">
+  <li><span class="ac-id">AC-4.1</span><span>Crew page renders for any viewer with COI/show-status tiles visible; non-LEAD viewers see no financials.</span></li>
+  <li><span class="ac-id">AC-4.2</span><span>LEAD viewers (and admin) see the FinancialsTile; <code>getShowForViewer</code> JOINs <code>shows_internal</code> only when authorized.</span></li>
+  <li><span class="ac-id">AC-4.3</span><span>Right Now card renders the correct state for every fixture date · viewer combination per the §8.2 precedence table.</span></li>
+  <li><span class="ac-id">AC-4.4</span><span>All five §8.4 dimensional invariants pass at 390 / 1024 / 1200px in real-browser Playwright.</span></li>
+  <li><span class="ac-id">AC-4.5</span><span>Empty-state discipline: required-missing renders the placeholder; optional-missing omits entirely. Opening-reel URL-strip rule never leaks raw Drive URLs to crew DOM.</span></li>
+  <li><span class="ac-id">AC-4.6</span><span>ScheduleTile renders the three branches correctly: unrestricted, explicit days, unknown-asterisk.</span></li>
+  <li><span class="ac-id">AC-4.7</span><span>Parser populates <code>pull_sheet</code> for fixtures with PULL SHEET; null for others.</span></li>
+  <li><span class="ac-id">AC-4.8</span><span>PackListTile renders on Set / Travel-Out / Strike days for unrestricted crew when <code>pull_sheet IS NOT NULL</code>; hidden on Show days.</span></li>
+  <li><span class="ac-id">AC-4.9</span><span>PackListTile absent for sheets without a PULL SHEET section.</span></li>
+  <li><span class="ac-id">AC-4.10</span><span><code>stage_restriction</code> filters per-day rendering using the §6.6 <code>{kind:'explicit',stages[]}</code> discriminator against <code>ShowRow.schedule_phases[isoDate]</code>.</span></li>
+  <li><span class="ac-id">AC-4.11</span><span>Partial-parse rows render their <code>rawSnippet</code>; the tile still appears.</span></li>
+  <li><span class="ac-id">AC-4.12</span><span>MI-8c stages on collapse / case drop / halved — exercised in M6 invariant tests; cross-checked here that the tile renders the prior approved snapshot while review pending.</span></li>
+</ul>
+
+<!-- ============================================================
+     The contract, in code
+     ============================================================ -->
+
+<h2>The visibility contract, in code</h2>
+
+<p class="prose">
+  The single shared <code>SCOPE_TILE_VISIBILITY_RULE</code> imported by every consumer — the
+  scope tiles, the transition audit, the §17.1 acceptance criteria. No inline restatement
+  anywhere in the codebase.
+</p>
+
+<pre data-lang="TypeScript"><code>// lib/visibility/scopeTiles.ts — single source of truth.
+import type { RoleFlag } from '@/lib/parser/types';
+
+export function audioScopeVisible(flags: RoleFlag[]): boolean {
+  return flags.includes('A1') || flags.includes('A2') || flags.includes('LEAD');
+}
+
+export function videoScopeVisible(flags: RoleFlag[]): boolean {
+  return flags.includes('V1') || flags.includes('LEAD');
+}
+
+export function lightingScopeVisible(flags: RoleFlag[]): boolean {
+  // §8.1 amended 2026-05-13 — LEAD now reads-in to Lighting scope,
+  // symmetric with Audio/Video. See spec Amendment §8.1-A1.
+  return flags.includes('L1') || flags.includes('LEAD');
+}
+
+export function financialsVisible(flags: RoleFlag[], isAdmin: boolean): boolean {
+  return isAdmin || flags.includes('LEAD');
+}</code></pre>
+
+<!-- ============================================================
+     Foundation invariants for this milestone
+     ============================================================ -->
+
+<div class="hazard-banner">
+  <div class="hazard-banner__stripe"></div>
+  <div class="hazard-banner__body">
+    <h3 class="hazard-banner__title">M3·M4 invariants — never violated past this milestone</h3>
+    <ol class="prose">
+      <li><strong>UI quality gate.</strong> Every UI surface ships only after <code>/impeccable critique</code> AND <code>/impeccable audit</code> pass on the affected diff, with HIGH/CRITICAL findings either fixed or explicitly deferred via <code>DEFERRED.md</code>.</li>
+      <li><strong>Identity-only viewer.</strong> <code>getShowForViewer</code> never accepts <code>role_flags</code> as a parameter. Role is re-derived from <code>crew_members.role_flags</code> on every call. Static-analysis regression test pins the signature.</li>
+      <li><strong>Show-bound lookup.</strong> Crew lookup binds on both <code>id AND show_id</code>. A LEAD crew row from a different show cannot inherit financial visibility on this show.</li>
+      <li><strong>Canonical scope-tile rule.</strong> One predicate module. No <code>viewerRole === 'LEAD'</code> checks anywhere in tile components.</li>
+      <li><strong>No raw Drive URLs in crew DOM.</strong> Opening-reel renders URL-stripped status text at M4. Inline <code>&lt;video&gt;</code> defers to M7 Task 7.6 once the asset-proxy route exists.</li>
+      <li><strong>Real-browser layout assertions.</strong> Tailwind v4's non-default flex behavior makes jsdom insufficient. Every dimensional invariant gets a Playwright assertion.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ============================================================
+     What this unlocks
+     ============================================================ -->
+
+<h2>What this unlocks</h2>
+
+<div class="deflist">
+  <dt>M5 · Auth</dt>
+  <dd>The identity-only mock (<code>?crew=&lt;id&gt;</code>) gets replaced with real signed-link redemption and Google session validation. <code>getShowForViewer</code>'s signature doesn't change — only the resolver feeding it.</dd>
+
+  <dt>M6 · Drive sync</dt>
+  <dd>The Phase-1 logic <code>/admin/dev</code> exercises here gets promoted to production cron. Every Phase-2 commit calls <code>publishShowInvalidation(tx, showId)</code> to fire the Broadcast topic the bridge subscribes to.</dd>
+
+  <dt>M7 · Assets &amp; reports</dt>
+  <dd>Opening-reel inline <code>&lt;video&gt;</code> rendering lands here (Task 7.6) — the asset-proxy route <code>/api/asset/reel/[show]</code> appears, and the empty-state predicate flips additive: URL-stripped text remains, <code>&lt;video&gt;</code> appears alongside.</dd>
+
+  <dt>M8 onward</dt>
+  <dd>Every subsequent UI surface — admin pages, report viewer, onboarding wizard — inherits the DESIGN.md tokens established in Task 4.1 and the empty-state predicates from Task 4.14.</dd>
+</div>
+
+<nav class="pagenav">
+  <a href="02-schema-rls.html">
+    <span class="pagenav__dir">← M2</span>
+    <span class="pagenav__title">Schema, RLS, migrations, seed</span>
+  </a>
+  <a href="05-auth.html" class="pagenav--right">
+    <span class="pagenav__dir">M5 →</span>
+    <span class="pagenav__title">Real auth · signed links · sessions</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>

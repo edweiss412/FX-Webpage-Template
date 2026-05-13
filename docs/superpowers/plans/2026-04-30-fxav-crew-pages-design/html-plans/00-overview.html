@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>00 — Overview · FXAV Crew Pages</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK</span></a>
+    <nav class="topbar__nav">
+      <a href="index.html">All milestones</a>
+      <a href="01-foundation.html">M0 · M1 →</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">00</div>
+  <div class="container">
+    <div class="hero__kicker">Plan root · Contract sheet</div>
+    <div class="hero__milestone-mark">OVERVIEW</div>
+    <h1 class="hero__title">The whole show, on one page.</h1>
+    <p class="hero__lede">
+      Doug ships every show out of a giant Google Sheet. The crew has to thumb through it on
+      a phone backstage. This plan turns every sheet into a personal, mobile-first webpage
+      for every crew member &mdash; with sub-second sync, role-based field hiding, signed-link
+      sharing, and an admin surface that lets Doug fix things from a folder, not a dashboard.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Milestones</dt><dd>M0 → M10</dd></div>
+      <div><dt>Spec</dt><dd>§1 → §17</dd></div>
+      <div><dt>Invariants</dt><dd>9 plan-wide</dd></div>
+      <div><dt>Amendments</dt><dd>9 ratified</dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    Picture a touring AV crew &mdash; audio, video, lighting techs &mdash; arriving at a venue
+    they&rsquo;ve never seen, on a tour where the schedule changed twice that morning.
+    The owner of FXAV, Doug, has a Google Sheet for every show: hotel reservations, schedule,
+    stage diagrams, pack lists, who&rsquo;s LEAD, who flies in early, what time the show calls.
+    Today every crew member squints at that whole sheet on a phone.
+  </p>
+  <p>
+    The product is a webpage <strong>personalized to each crew member</strong>:
+    only their lodging, their schedule, the gear they pack, the people they need to call.
+    Doug keeps editing the sheet. The page updates within a second. He can drop a brand-new
+    sheet into a Drive folder and it goes live automatically, with a one-button undo email.
+    Crew log in with a Google account, or just tap the signed link Doug texted them.
+  </p>
+</div>
+
+<!-- ============================================================
+     ARCHITECTURE
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">§1</span> Architecture in one diagram</div>
+
+<div class="diagram">
+  <div class="diagram__title">Source-of-truth flow · Google Sheet → personalized page</div>
+  <svg viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="End-to-end flow from Doug's Drive folder through sync, schema, and the crew page">
+    <defs>
+      <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#ffb627"/>
+      </marker>
+      <marker id="arrc" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+        <polygon points="0 0, 8 3, 0 6" fill="#6fe7d8"/>
+      </marker>
+    </defs>
+
+    <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#a4b3c5">
+
+      <!-- Layer labels (left margin) -->
+      <text x="30" y="60" font-size="9" fill="#6c7e93" letter-spacing="3">SOURCE</text>
+      <text x="30" y="150" font-size="9" fill="#6c7e93" letter-spacing="3">SYNC</text>
+      <text x="30" y="240" font-size="9" fill="#6c7e93" letter-spacing="3">DATA</text>
+      <text x="30" y="330" font-size="9" fill="#6c7e93" letter-spacing="3">SURFACE</text>
+
+      <!-- SOURCE row -->
+      <rect x="100" y="35" width="180" height="60" fill="#172230" stroke="#2c3c52"/>
+      <text x="190" y="58" text-anchor="middle" font-family="Anton" font-size="15" fill="#ffb627">DOUG'S DRIVE FOLDER</text>
+      <text x="190" y="78" text-anchor="middle" font-size="10">one Google Sheet per show</text>
+
+      <rect x="320" y="35" width="160" height="60" fill="#172230" stroke="#2c3c52"/>
+      <text x="400" y="58" text-anchor="middle" font-family="Anton" font-size="14" fill="#ffb627">files.watch PUSH</text>
+      <text x="400" y="78" text-anchor="middle" font-size="10">sub-second notifications</text>
+
+      <rect x="520" y="35" width="160" height="60" fill="#172230" stroke="#2c3c52"/>
+      <text x="600" y="58" text-anchor="middle" font-family="Anton" font-size="14" fill="#ffb627">5-MIN CRON</text>
+      <text x="600" y="78" text-anchor="middle" font-size="10">reconciliation safety net</text>
+
+      <rect x="720" y="35" width="150" height="60" fill="#172230" stroke="#2c3c52"/>
+      <text x="795" y="58" text-anchor="middle" font-family="Anton" font-size="14" fill="#ffb627">ASSET RECOVERY</text>
+      <text x="795" y="78" text-anchor="middle" font-size="10">missing-blob backfill</text>
+
+      <!-- arrows source -> sync -->
+      <line x1="190" y1="98" x2="190" y2="128" stroke="#ffb627" marker-end="url(#arr)"/>
+      <line x1="400" y1="98" x2="400" y2="128" stroke="#ffb627" marker-end="url(#arr)"/>
+      <line x1="600" y1="98" x2="600" y2="128" stroke="#ffb627" marker-end="url(#arr)"/>
+      <line x1="795" y1="98" x2="795" y2="128" stroke="#ffb627" marker-end="url(#arr)"/>
+
+      <!-- SYNC row — single fat box -->
+      <rect x="100" y="130" width="770" height="80" fill="#0e1620" stroke="#ffb627" stroke-width="2"/>
+      <text x="485" y="156" text-anchor="middle" font-family="Anton" font-size="16" fill="#ffb627">TWO-PHASE SYNC · UNDER PER-SHOW ADVISORY LOCK</text>
+      <text x="220" y="180" text-anchor="middle" font-size="10" fill="#6fe7d8">PHASE 1</text>
+      <text x="220" y="196" text-anchor="middle" font-size="10">parseSheet + MI-1..MI-14</text>
+      <text x="485" y="180" text-anchor="middle" font-size="10" fill="#6fe7d8">GATE</text>
+      <text x="485" y="196" text-anchor="middle" font-size="10">hard fail → block · soft fail → stage</text>
+      <text x="750" y="180" text-anchor="middle" font-size="10" fill="#6fe7d8">PHASE 2</text>
+      <text x="750" y="196" text-anchor="middle" font-size="10">destructive snapshot swap</text>
+
+      <line x1="485" y1="213" x2="485" y2="238" stroke="#6fe7d8" marker-end="url(#arrc)"/>
+
+      <!-- DATA row -->
+      <rect x="100" y="240" width="180" height="60" fill="#172230" stroke="#2c3c52"/>
+      <text x="190" y="263" text-anchor="middle" font-family="Anton" font-size="14" fill="#6fe7d8">POSTGRES</text>
+      <text x="190" y="283" text-anchor="middle" font-size="10">shows · crew · hotels …</text>
+
+      <rect x="300" y="240" width="180" height="60" fill="#172230" stroke="#2c3c52"/>
+      <text x="390" y="263" text-anchor="middle" font-family="Anton" font-size="14" fill="#ff5b9f">shows_internal</text>
+      <text x="390" y="283" text-anchor="middle" font-size="10">LEAD-only · 3 layers</text>
+
+      <rect x="500" y="240" width="180" height="60" fill="#172230" stroke="#2c3c52"/>
+      <text x="590" y="263" text-anchor="middle" font-family="Anton" font-size="14" fill="#6fe7d8">SUPABASE STORAGE</text>
+      <text x="590" y="283" text-anchor="middle" font-size="10">revision-pinned diagrams</text>
+
+      <rect x="700" y="240" width="170" height="60" fill="#172230" stroke="#2c3c52"/>
+      <text x="785" y="263" text-anchor="middle" font-family="Anton" font-size="14" fill="#6fe7d8">REALTIME</text>
+      <text x="785" y="283" text-anchor="middle" font-size="10">private channels · RLS</text>
+
+      <line x1="190" y1="303" x2="190" y2="325" stroke="#6fe7d8" marker-end="url(#arrc)"/>
+      <line x1="390" y1="303" x2="390" y2="325" stroke="#6fe7d8" marker-end="url(#arrc)"/>
+      <line x1="590" y1="303" x2="590" y2="325" stroke="#6fe7d8" marker-end="url(#arrc)"/>
+      <line x1="785" y1="303" x2="785" y2="325" stroke="#6fe7d8" marker-end="url(#arrc)"/>
+
+      <!-- SURFACE row -->
+      <rect x="100" y="328" width="220" height="48" fill="#0a1119" stroke="#3fb950" stroke-width="2"/>
+      <text x="210" y="350" text-anchor="middle" font-family="Anton" font-size="13" fill="#3fb950">/show/[slug]</text>
+      <text x="210" y="365" text-anchor="middle" font-size="9">signed-in crew page</text>
+
+      <rect x="340" y="328" width="220" height="48" fill="#0a1119" stroke="#3fb950" stroke-width="2"/>
+      <text x="450" y="350" text-anchor="middle" font-family="Anton" font-size="13" fill="#3fb950">/show/[slug]/p</text>
+      <text x="450" y="365" text-anchor="middle" font-size="9">signed-link bootstrap → cookie</text>
+
+      <rect x="580" y="328" width="290" height="48" fill="#0a1119" stroke="#b48cff" stroke-width="2"/>
+      <text x="725" y="350" text-anchor="middle" font-family="Anton" font-size="13" fill="#b48cff">/admin/*</text>
+      <text x="725" y="365" text-anchor="middle" font-size="9">parse · staged review · onboarding · reports</text>
+    </g>
+  </svg>
+</div>
+
+<!-- ============================================================
+     PLAIN ENGLISH STACK
+     ============================================================ -->
+
+<h2>The stack, in one breath</h2>
+
+<div class="deflist">
+  <dt>Next.js 16</dt>
+  <dd>App Router + Server Components on Vercel. Strict TypeScript, Turbopack. Pages + API routes live together.</dd>
+
+  <dt>Supabase</dt>
+  <dd>Postgres for data, Auth for crew Google sign-in, Realtime for push-to-viewer, Storage for snapshotted diagrams.</dd>
+
+  <dt>Drive + Sheets API</dt>
+  <dd><code>googleapis</code> with service-account JWT. <code>files.watch</code> push notifications for sub-second sync; 5-min cron reconciles missed deltas.</dd>
+
+  <dt>GitHub Issues</dt>
+  <dd>Bug-report endpoint posts via <code>@octokit/rest</code> using a reserve-then-call idempotency dance (§13.2.3).</dd>
+
+  <dt>Tailwind v4</dt>
+  <dd>Tokens established by the impeccable v3 design-context flow (PRODUCT.md strategic + DESIGN.md visual).</dd>
+
+  <dt>Vitest + Playwright</dt>
+  <dd>Unit for parser + business logic; e2e for crew page, auth flows, dimensional invariants, transition audits.</dd>
+</div>
+
+<!-- ============================================================
+     THE NINE PLAN-WIDE INVARIANTS — HAZARD BANNER
+     ============================================================ -->
+
+<div class="hazard-banner">
+  <div class="hazard-banner__stripe"></div>
+  <div class="hazard-banner__body">
+    <h3 class="hazard-banner__title">The nine plan-wide invariants &mdash; never violated, regardless of test status</h3>
+    <ol class="prose">
+      <li><strong>TDD per task.</strong> Every task: failing test → minimal implementation → passing test → commit. Skipping the failing test means the test isn&rsquo;t actually covering what it claims.</li>
+      <li><strong>Per-show advisory lock.</strong> Every mutation of <code>shows</code>, <code>crew_members</code>, <code>crew_member_auth</code>, <code>pending_syncs</code>, or <code>pending_ingestions</code> runs inside <code>pg_try_advisory_xact_lock(hashtext('show:' || drive_file_id))</code>. <em>Single-holder rule:</em> per hashkey, the lock is acquired at exactly one layer &mdash; never two.</li>
+      <li><strong>Email canonicalization at every boundary.</strong> <code>lib/email/canonicalize.ts</code> is the <em>only</em> function permitted to touch raw emails. The schema-level <code>CHECK</code> is the safety net, not the primary mechanism.</li>
+      <li><strong>No global sync cursor.</strong> Per &sect;3.2 / &sect;5.2 / AC-X.4, no source file references <code>lastPollAt</code>. Each show tracks <code>shows.last_seen_modified_time</code>.</li>
+      <li><strong>No raw error codes in user-visible UI.</strong> &sect;12.4 is the catalog. UI reads codes through <code>lib/messages/lookup.ts</code> which returns the appropriate copy.</li>
+      <li><strong>Commit per task.</strong> Conventional commits: <code>feat(parser):</code>, <code>test(auth):</code>, <code>infra:</code>. One task per commit; no batching.</li>
+      <li><strong>Spec is canonical.</strong> Nine ratified amendments below are the <em>only</em> places where the plan supersedes the spec. Elsewhere the spec wins &mdash; open a question.</li>
+      <li><strong>UI quality gate.</strong> Every UI surface ships only after <code>/impeccable critique</code> AND <code>/impeccable audit</code> pass; HIGH and CRITICAL findings either fixed or deferred via <code>DEFERRED.md</code>.</li>
+      <li><strong>Supabase call-boundary discipline.</strong> Every Supabase call destructures <code>{ data, error }</code>; returned vs thrown errors are distinguished; infra faults surface as discriminable typed results &mdash; never silent <code>continue</code> or benign auth signals.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ============================================================
+     RATIFIED AMENDMENTS
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">§2</span> The nine ratified amendments</div>
+
+<h2>Where the plan supersedes the spec</h2>
+
+<p class="prose">
+  Every milestone references the spec section it implements. The plan and spec disagree
+  in exactly nine places &mdash; each one survived between four and forty rounds of
+  cross-model adversarial review. These are the only places where the plan wins.
+</p>
+
+<div class="callout callout--spec">
+  <div class="callout__label">Note · spec §12.4 catalog rows</div>
+  <p>
+    Separately, two crew-facing catalog rows were ratified into spec §12.4
+    (<code>AGENDA_GONE_FOR_CREW</code> 410/403, <code>AGENDA_UNAUTHENTICATED</code> 401) covering
+    the AgendaPdfViewer proxy. Integrated into the spec body by Task 9.0.A1; consumed by M7-D2.
+  </p>
+</div>
+
+<div class="task-grid">
+
+  <div class="task-card">
+    <div class="task-card__id">A1 · §13.2.3 <span class="pill pill--spec">Ratified</span></div>
+    <h3 class="task-card__title">Recovery uses listForRepo, not code search</h3>
+    <p class="task-card__body">GitHub&rsquo;s code-search index lags tens of seconds &mdash; false-negatives drive duplicate-issue creation. Switched to <code>issues.listForRepo({creator, since, state:'all'})</code>, which is immediately consistent with create writes. Body marker stays; client-side filters by <code>created_at &gt;= T-24h</code>.</p>
+    <div class="task-card__files"><code>api/report/route.ts</code><code>Task 8.3d/8.3e</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">A2 · §13.2.3 <span class="pill pill--spec">Ratified</span></div>
+    <h3 class="task-card__title">Reaper aligns on created_at + lease check</h3>
+    <p class="task-card__body">Retry rejects rows where <code>created_at &lt; now - 24h</code> (returns 410). Reaper deletes only when <code>github_issue_url IS NULL</code> AND <code>created_at &lt; now - 24h</code> AND <code>processing_lease_until &lt; now</code>. The third clause prevents reaping a row a retry actively holds.</p>
+    <div class="task-card__files"><code>Task 8.3f</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">A3 · §13.2.3 / §4.1 <span class="pill pill--spec">Ratified</span></div>
+    <h3 class="task-card__title">lease_holder ownership protocol</h3>
+    <p class="task-card__body"><code>lease_holder uuid</code> on <code>reports</code>, stamped at reservation, rotated on re-acquisition, required on every tail UPDATE. 0-row tail triggers orphan cleanup &mdash; close issue, label <code>fxav-orphan-lost-lease</code>, alert. Re-SELECT null → 410.</p>
+    <div class="task-card__files"><code>Task 8.3g · verify-only</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">A4 · §6.4 <span class="pill pill--spec">Ratified</span></div>
+    <h3 class="task-card__title">Drop v3 from the version registry</h3>
+    <p class="task-card__body">Spec declared v3 marker as <code>block:GEAR INVENTORY</code>. Zero corpus fixtures contain that string. Parser treats versions as <code>'v1' | 'v2' | 'v4'</code>. Re-introducible if a genuine v3 surfaces.</p>
+    <div class="task-card__files"><code>lib/parser/schema.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">A5 · §6.4 <span class="pill pill--spec">Ratified</span></div>
+    <h3 class="task-card__title">v4 collapses to a single marker</h3>
+    <p class="task-card__body">Strict AND-of-two (<code>row:Contact Office</code> &amp; <code>block:MAIN/SECONDARY</code>) produced 50% false-negatives in the v4 corpus. Parser treats v4 as <code>row:Contact Office</code> single-marker. MAIN/SECONDARY is documentation-only.</p>
+    <div class="task-card__files"><code>lib/parser/schema.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">A6 · §5.2 / §5.3 <span class="pill pill--spec">Ratified</span></div>
+    <h3 class="task-card__title">Sheets revision binding → modtime CAS</h3>
+    <p class="task-card__body">Google Sheets are Workspace-native: <code>headRevisionId</code> and <code>md5Checksum</code> return <code>null</code>; <code>drive.revisions.list</code> is empty; Sheets API v4 has no revision parameter. Plan ratifies modtime CAS for the spreadsheet; per-asset binary binding (diagrams) is unaffected.</p>
+    <div class="task-card__files"><code>M6 · Pin-stop 1.5</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">A7 · §6.8 <span class="pill pill--spec">Ratified</span></div>
+    <h3 class="task-card__title">MI-8/MI-8b modtime-stable debounce</h3>
+    <p class="task-card__body">Drive&rsquo;s ~3-min modtime batching means a mid-edit "clear-and-retype" can fire an empty-cell push. MI-8 (financial collapse) and MI-8b (COI delta) fire only when <code>now - modifiedTime ≥ 240s</code>. Cron/push/recovery only &mdash; manual and onboarding bypass.</p>
+    <div class="task-card__files"><code>lib/sync/constants.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">A8 · §6.8 <span class="pill pill--spec">Ratified</span></div>
+    <h3 class="task-card__title">MI-9 narrowed to LEAD-bit changes</h3>
+    <p class="task-card__body">Spec staged on <em>any</em> <code>role_flags</code> delta. Narrowed to LEAD-bit-set membership change. Non-LEAD deltas (department, additive flags) auto-apply and emit info-severity <code>ROLE_FLAGS_NOTICE</code>. MI-9 and MI-10 collapse to a single LEAD-bit check.</p>
+    <div class="task-card__files"><code>lib/parser/invariants.ts</code></div>
+  </div>
+
+  <div class="task-card">
+    <div class="task-card__id">A9 · §5.2 / §6.8 <span class="pill pill--spec">Ratified</span></div>
+    <h3 class="task-card__title">First-seen auto-publish + 24h email undo</h3>
+    <p class="task-card__body">Doug-validated 2026-05-09: "the folder IS the publish gate." First-seen + all MI pass → auto-apply via Phase 2 + signed 24h unpublish link in confirmation email. Wizard onboarding scan unchanged. <code>FIRST_SEEN_REVIEW</code> retired; <code>SHOW_FIRST_PUBLISHED</code> replaces it.</p>
+    <div class="task-card__files"><code>shows.unpublish_token</code><code>api/show/[slug]/unpublish</code></div>
+  </div>
+
+</div>
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Why these survived adversarial review</div>
+  <p>
+    Each amendment was probed by a cross-CLI Codex/Claude opposing-model review until convergence.
+    A1&ndash;A3 needed forty rounds and a meta-test (<code>tests/auth/_metaInfraContract.test.ts</code>) before
+    converging. A6&ndash;A9 are grounded in <em>verified external facts</em>: a grep of the corpus, a Drive
+    API doc citation, a Doug-validation answer in <code>doug-validation-questions.md</code>. The plan
+    earns the right to override the spec only with that level of evidence.
+  </p>
+</div>
+
+<!-- ============================================================
+     FILE STRUCTURE
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">§3</span> Where everything lives</div>
+
+<h2>The canonical file tree</h2>
+
+<p class="prose">
+  When a milestone says "create the per-show parse panel," this tree says where it goes.
+  The spec section in parens stays canonical &mdash; if a path here disagrees with the spec, the spec wins.
+</p>
+
+<div class="diagram">
+  <div class="diagram__title">Layered architecture · four roots</div>
+  <svg viewBox="0 0 900 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Four-root architecture: app, components, lib, supabase">
+    <g font-family="IBM Plex Mono, monospace" font-size="11" fill="#a4b3c5">
+
+      <!-- app/ -->
+      <rect x="40" y="40" width="200" height="240" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="140" y="68" text-anchor="middle" font-family="Anton" font-size="18" fill="#ffb627">app/</text>
+      <text x="140" y="84" text-anchor="middle" font-size="9" fill="#6c7e93">ROUTES + API HANDLERS</text>
+      <text x="60" y="112" font-size="10" fill="#6fe7d8">PUBLIC SURFACES</text>
+      <text x="60" y="128" font-size="10">/show/[slug]</text>
+      <text x="60" y="143" font-size="10">/show/[slug]/p</text>
+      <text x="60" y="158" font-size="10">/auth/sign-in</text>
+      <text x="60" y="173" font-size="10">/me</text>
+      <text x="60" y="196" font-size="10" fill="#b48cff">ADMIN</text>
+      <text x="60" y="211" font-size="10">/admin</text>
+      <text x="60" y="225" font-size="10">/admin/show/[slug]</text>
+      <text x="60" y="239" font-size="10">/admin/dev <tspan fill="#6c7e93">(M3)</tspan></text>
+      <text x="60" y="263" font-size="10" fill="#ffb627">api/cron · api/drive</text>
+      <text x="60" y="277" font-size="10" fill="#ffb627">api/asset · api/report</text>
+
+      <!-- components/ -->
+      <rect x="255" y="40" width="200" height="240" fill="#172230" stroke="#ff5b9f" stroke-width="2"/>
+      <text x="355" y="68" text-anchor="middle" font-family="Anton" font-size="18" fill="#ff5b9f">components/</text>
+      <text x="355" y="84" text-anchor="middle" font-size="9" fill="#6c7e93">UI · OPUS TERRITORY</text>
+      <text x="275" y="112" font-size="10" fill="#6fe7d8">layout/</text>
+      <text x="275" y="126" font-size="10">Header · Footer</text>
+      <text x="275" y="148" font-size="10" fill="#6fe7d8">right-now/</text>
+      <text x="275" y="162" font-size="10">RightNowCard (FSM)</text>
+      <text x="275" y="184" font-size="10" fill="#6fe7d8">tiles/</text>
+      <text x="275" y="198" font-size="10">12 mobile tiles</text>
+      <text x="275" y="212" font-size="10">Lodging · Venue · Crew</text>
+      <text x="275" y="226" font-size="10">Schedule · Scope · Contact</text>
+      <text x="275" y="248" font-size="10" fill="#6fe7d8">admin/</text>
+      <text x="275" y="262" font-size="10">ParsePanel · Wizard</text>
+      <text x="275" y="276" font-size="10">StagedReviewCard</text>
+
+      <!-- lib/ -->
+      <rect x="470" y="40" width="200" height="240" fill="#172230" stroke="#6fe7d8" stroke-width="2"/>
+      <text x="570" y="68" text-anchor="middle" font-family="Anton" font-size="18" fill="#6fe7d8">lib/</text>
+      <text x="570" y="84" text-anchor="middle" font-size="9" fill="#6c7e93">PURE LOGIC + ADAPTERS</text>
+      <text x="490" y="112" font-size="10" fill="#ffb627">parser/</text>
+      <text x="490" y="126" font-size="10">parseSheet (pure fn)</text>
+      <text x="490" y="140" font-size="10">v1/v2/v4 · MI-1..14</text>
+      <text x="490" y="162" font-size="10" fill="#ffb627">sync/</text>
+      <text x="490" y="176" font-size="10">phase1 · phase2</text>
+      <text x="490" y="190" font-size="10">snapshotAssets</text>
+      <text x="490" y="212" font-size="10" fill="#ffb627">auth/</text>
+      <text x="490" y="226" font-size="10">jwt · validateLinkSession</text>
+      <text x="490" y="240" font-size="10">requireAdmin · cookies</text>
+      <text x="490" y="262" font-size="10" fill="#ffb627">drive · github · email</text>
+      <text x="490" y="276" font-size="10">messages · reports · time</text>
+
+      <!-- supabase/ + tests/ -->
+      <rect x="685" y="40" width="195" height="240" fill="#172230" stroke="#b48cff" stroke-width="2"/>
+      <text x="782" y="68" text-anchor="middle" font-family="Anton" font-size="18" fill="#b48cff">supabase/</text>
+      <text x="782" y="84" text-anchor="middle" font-size="9" fill="#6c7e93">SCHEMA · TESTS · ROOT</text>
+      <text x="705" y="112" font-size="10" fill="#6fe7d8">migrations/</text>
+      <text x="705" y="126" font-size="10">initial_schema</text>
+      <text x="705" y="140" font-size="10">rls_policies</text>
+      <text x="705" y="162" font-size="10" fill="#6fe7d8">seed.ts</text>
+      <text x="705" y="184" font-size="10" fill="#ffb627">tests/</text>
+      <text x="705" y="198" font-size="10">parser · invariants</text>
+      <text x="705" y="212" font-size="10">sync · auth · reports</text>
+      <text x="705" y="226" font-size="10">e2e/* (Playwright)</text>
+      <text x="705" y="248" font-size="10" fill="#6c7e93">root config</text>
+      <text x="705" y="262" font-size="10">tsconfig · next.config</text>
+      <text x="705" y="276" font-size="10">tailwind · playwright</text>
+    </g>
+  </svg>
+</div>
+
+<h3>Two paths to the crew page</h3>
+
+<p class="prose">
+  The crew page is reachable two ways &mdash; both render the same UI from the same data, but
+  cross different auth gates. This pair is the most-relied-upon shape in the whole app.
+</p>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr><th>Path</th><th>Auth gate</th><th>Validator</th><th>Use case</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>app/show/[slug]/page.tsx</code></td>
+        <td>HTTP-only session cookie</td>
+        <td><code>validateGoogleSession</code></td>
+        <td>Signed-in crew on their own device.</td>
+      </tr>
+      <tr>
+        <td><code>app/show/[slug]/p/page.tsx</code></td>
+        <td>Signed JWT in URL → cookie exchange</td>
+        <td><code>validateLinkSession</code> (12-step)</td>
+        <td>Doug texted a link. First tap bootstraps the session.</td>
+      </tr>
+      <tr>
+        <td><code>app/admin/show/[slug]/preview/[crewId]</code></td>
+        <td>Admin allowlist + impersonation token</td>
+        <td><code>requireAdmin</code> + <code>isAdminSession</code></td>
+        <td>Doug previews exactly what crew member X sees, in production.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ============================================================
+     READ THESE FIRST
+     ============================================================ -->
+
+<h2>If you're new to this plan, read in this order</h2>
+
+<div class="deflist">
+  <dt>1 · PRODUCT.md</dt>
+  <dd>The strategic brief. Who&rsquo;s using this, what they need to do, what failure looks like for them.</dd>
+
+  <dt>2 · The spec</dt>
+  <dd><code>docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md</code> &mdash; the canonical source. Every milestone task cites a section.</dd>
+
+  <dt>3 · This overview</dt>
+  <dd>The nine invariants and nine amendments. Internalize them. The rest of the plan assumes them.</dd>
+
+  <dt>4 · AGENTS.md</dt>
+  <dd>Project-scoped guidance for any agent harness driving this repo. Self-review additions, writing-plans additions, Codex notes.</dd>
+
+  <dt>5 · ROUTING.md</dt>
+  <dd>Which milestone is owned by which model+harness, and where UI work (always Opus) splits off mid-milestone.</dd>
+
+  <dt>6 · The milestone you're about to touch</dt>
+  <dd>Each milestone has a README, a tasks list, and a handoff doc. Read all three before writing any code.</dd>
+</div>
+
+<!-- ============================================================
+     FOOTER NAV
+     ============================================================ -->
+
+<nav class="pagenav">
+  <a href="index.html">
+    <span class="pagenav__dir">&larr; All milestones</span>
+    <span class="pagenav__title">Index</span>
+  </a>
+  <a href="01-foundation.html" class="pagenav--right">
+    <span class="pagenav__dir">M0 · M1 &rarr;</span>
+    <span class="pagenav__title">Foundation &amp; parser</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>
