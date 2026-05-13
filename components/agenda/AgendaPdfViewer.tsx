@@ -39,6 +39,8 @@ import { useEffect, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import { Moon, Sun } from "lucide-react";
 
+import { messageFor, type MessageCode } from "@/lib/messages/lookup";
+
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
@@ -77,6 +79,15 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
     Math.round(MAX_PAGE_WIDTH * LETTER_RATIO),
   );
   const [error, setError] = useState<Error | null>(null);
+  // M9 C6 / M7-D2: surface the proxy's status code through the §12.4
+  // catalog so Doug's 410 (agenda gone) and 401 (link expired)
+  // failures render their canonical crewFacing copy. react-pdf's
+  // onLoadError event doesn't expose the underlying HTTP status, so
+  // we HEAD-fetch the same `src` URL after a load failure to
+  // determine which catalog code applies. Default: generic load
+  // failure (the existing "Couldn't open" copy, kept as the fallback
+  // when the HEAD probe itself fails or returns an unexpected code).
+  const [errorCode, setErrorCode] = useState<MessageCode | null>(null);
   const [inverted, setInverted] = useState(prefersDarkAtMount);
 
   // Track the parent container's actual width via ResizeObserver. The
@@ -177,11 +188,17 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
           role="alert"
           className="flex flex-col items-center gap-3 py-8 text-text-subtle"
         >
-          <p className="text-sm">Couldn&rsquo;t open the agenda right now.</p>
+          <p className="text-sm">
+            {errorCode
+              ? (messageFor(errorCode).crewFacing ??
+                "Couldn’t open the agenda right now.")
+              : "Couldn’t open the agenda right now."}
+          </p>
           <button
             type="button"
             onClick={() => {
               setError(null);
+              setErrorCode(null);
               setNumPages(null);
             }}
             className="min-h-tap-min rounded-sm border border-border bg-surface px-3 py-2 text-sm font-medium text-text-strong hover:border-border-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
@@ -196,7 +213,28 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
             setNumPages(pdf.numPages);
             pageRefs.current = new Array(pdf.numPages).fill(null);
           }}
-          onLoadError={(err: Error) => setError(err)}
+          onLoadError={async (err: Error) => {
+            setError(err);
+            // Derive a catalog code from the proxy's actual HTTP status.
+            // react-pdf swallows the status before it reaches onLoadError,
+            // so we re-probe with a HEAD request to the same URL.
+            try {
+              const probe = await fetch(src, { method: "HEAD", cache: "no-store" });
+              if (probe.status === 410) {
+                setErrorCode("AGENDA_GONE_FOR_CREW");
+              } else if (probe.status === 401) {
+                setErrorCode("AGENDA_UNAUTHENTICATED");
+              } else {
+                setErrorCode(null);
+              }
+            } catch {
+              // HEAD probe itself failed (network); fall through to the
+              // generic copy. The `setError(err)` above already armed
+              // the error UI; errorCode stays null so the fallback text
+              // renders.
+              setErrorCode(null);
+            }
+          }}
           loading={
             <div role="status" aria-live="polite" className="py-8 text-sm text-text-subtle">
               Loading agenda…
