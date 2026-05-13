@@ -86,7 +86,14 @@ Same soft cap as overview: 10 rounds per phase. At round 10, remaining findings 
 
 ## Phase F — `06-screenshot-harness.md`
 
-(Pending — task #17.)
+| Round | Verdict | Findings | Resolved in commit | Notes |
+|---|---|---|---|---|
+| R1 | needs-attention | 5 (1 critical, 3 high, 1 medium) | r2 — `c6ae414` | screenshot:help script never started webServer (CRITICAL); setup-project file used default-exported globalSetup (wrong API); port 3003 conflict; F.9 helper queried wrong DOM marker; F.7 missing route-validity assertion |
+| R2 | needs-attention | 2 (2 high) | r3 — `434ea4b` | webServer.env doesn't reach test process; F.9 regex missed live ScheduleTile attribute order |
+| R3 | needs-attention | 2 (1 high, 1 medium) | r4 — `de07663` | setup-project preflight broke F.9 + direct runs; F.6 still used literal-string attribute assertions (class-sweep miss from F.9) |
+| **Close** | **approved-by-trajectory** | — | — | **Phase F closed at round-3 per user direction** ("Declare Phase F approved"). 9 findings across rounds, including 1 critical (script lifecycle). r4 applied final fixes: env-prefixed direct-run commands + attribute-independent F.6 + F.9 assertions. Trajectory mirrors Phase B/C/D/E close-out arc. Remaining edge cases naturally surface at execution time. |
+
+**Phase F converged at round 3** (soft cap, user-approved close). Total findings raised + resolved: 9.
 
 ---
 
