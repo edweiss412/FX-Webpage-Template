@@ -58,7 +58,17 @@ Same soft cap as overview: 10 rounds per phase. At round 10, remaining findings 
 
 ## Phase D — `04-components.md`
 
-(Pending — task #15.)
+| Round | Verdict | Findings | Resolved in commit | Notes |
+|---|---|---|---|---|
+| R1 | needs-attention | 3 (1 critical, 2 high) | r2 — `fa32ef7` | `<Screenshot key=>` (React reserved attr) — cross-phase rename to `name`; jsdom directive missing; nonexistent Tailwind tokens |
+| R2 | needs-attention | 4 (1 high, 3 medium) | r3 — `5adf6fd` | F.8 walker still scanned `key=`; Callout text-color tokens stale; spec guard table stale; jsdom directives not line 1 |
+| R3 | needs-attention | 2 (1 high, 1 medium) | r4 — `f3206ac` | E.9 used `<RefAnchor id="impersonation-banner">` (kebab) — D.5 rejects; empty Screenshot `name=""` would render `/help/screenshots/-light.webp` |
+| R4 | needs-attention | 2 (2 high) | r5 — `2c82467` | RefAnchor h3 vs h2 (Phase E uses as page section); r4 RefAnchor sweep incomplete (sync-health, service-account, step-2, step-3) |
+| R5 | needs-attention | 2 (1 high, 1 medium) | r6 — `a0db4b7` | §5.6 matrix lowercase kebab targets vs Phase E catalog-code RefAnchor ids; "expand regex" option contradicted D.5 contract |
+| R6 | needs-attention | 2 (1 high, 1 medium) | r7 — `5cd30f8` | E.5 smoke test still required RefAnchor/ALL_CAPS variant; no test resolved §5.6 matrix targets (H.1 only walks MESSAGE_CATALOG.helpHref) |
+| **Close** | **approved-by-trajectory** | — | — | **Phase D closed at round-6 soft cap per user direction** ("Declare Phase D approved"). 16 findings across rounds; r7 applied final fixes — E.5 smoke test aligned to plain h2 contract + G.5 matrix-target resolver added. Trajectory mirrors Phase B/C. Remaining edge cases naturally surface in Phase E/G's own reviews. |
+
+**Phase D converged at round 6** (soft cap, user-approved close). Total findings raised + resolved: 16.
 
 ---
 
