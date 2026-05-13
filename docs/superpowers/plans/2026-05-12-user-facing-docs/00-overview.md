@@ -178,7 +178,7 @@ tests/help/breadcrumb.test.tsx                            # Phase A.6
 tests/help/_metaNavSync.test.ts                           # Phase A.7 — meta-test #5
 tests/messages/catalog-schema-extension.test.ts           # Phase B.1 + B.2 (extended for alignment cases)
 tests/messages/extract-admin-log-only-codes.test.ts       # Phase B.3
-tests/messages/_metaErrorCatalogDocs.test.ts              # Phase B.4 — meta-test #2
+tests/messages/_metaErrorCatalogDocs.test.ts              # Phase B.4 (forced fixtures) + Phase E.13 (appends live-catalog biconditional) — meta-test #2
 tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts  # Phase B.5 — meta-test #17
 tests/time/now.test.ts                                    # Phase C.1 (smoke) → Phase C.3 (full gating)
 tests/show/page-today-uses-now-utility.test.ts            # Phase C.2

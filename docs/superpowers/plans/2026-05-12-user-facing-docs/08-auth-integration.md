@@ -26,24 +26,43 @@ Per spec §7.1 test 1. For every catalog entry with `helpHref`, parses the targe
 
 - [ ] **Step 0: Verify-red-via-stash (r8 per round-7 finding 2)**
 
-Before writing the test, prove it would catch a regression in the implementation it guards. Stash a representative anchor:
+Before writing the test, prove it would catch a regression in the implementation it guards. **Derive the anchor to stash from the live catalog** (r9 — round-8 finding 3: the previous draft hard-coded `WARN_DAY_FLAG_MISMATCH` which doesn't exist in the catalog):
 
 ```bash
-# Choose a page with multiple RefAnchors — parse-warnings.mdx is the densest.
-# Temporarily delete one RefAnchor to break the helpHref → anchor link:
-# (Use sed to remove one specific anchor; revert with git checkout after.)
-sed -i.bak 's/<RefAnchor id="WARN_DAY_FLAG_MISMATCH">/<h3>/' app/help/admin/parse-warnings/page.mdx
+# Find the first catalog code whose helpHref points at parse-warnings:
+ANCHOR=$(pnpm dlx tsx -e '
+  import { MESSAGE_CATALOG } from "./lib/messages/catalog";
+  const target = "/help/admin/parse-warnings#";
+  for (const e of Object.values(MESSAGE_CATALOG)) {
+    if (e.helpHref?.startsWith(target)) { console.log(e.code); break; }
+  }
+')
+echo "Anchor to stash: $ANCHOR"
+
+# Stash that anchor by removing its RefAnchor opening tag.
+# Save a backup so we can verify the edit actually changed the file:
+cp app/help/admin/parse-warnings/page.mdx app/help/admin/parse-warnings/page.mdx.bak
+sed -i '' "s/<RefAnchor id=\"$ANCHOR\">/<h3>/" app/help/admin/parse-warnings/page.mdx
+
+# Sanity check the edit changed the file (else the verify-red is fake):
+diff app/help/admin/parse-warnings/page.mdx app/help/admin/parse-warnings/page.mdx.bak \
+  || echo "edit confirmed; proceed"
 ```
 
-After Step 1 below writes the test, run it. Expected: FAILS for `WARN_DAY_FLAG_MISMATCH` (or whichever anchor was removed). Then `git checkout app/help/admin/parse-warnings/page.mdx` to restore. Run again: PASSES. Record the observed failure message in the commit message so reviewers can audit that Step 0 actually fired:
+After Step 1 below writes the test, run it. Expected: FAILS for `$ANCHOR` (whatever code the catalog yielded). Then restore:
+
+```bash
+mv app/help/admin/parse-warnings/page.mdx.bak app/help/admin/parse-warnings/page.mdx
+```
+
+Run again: PASSES. Record the observed failure message in the commit message:
 
 ```bash
 git commit -m "test(help): anchor resolver test #1 (Task H.1)
 
-Verify-red observed: deleted WARN_DAY_FLAG_MISMATCH RefAnchor → test
-output included \"helpHref /help/admin/parse-warnings#WARN_DAY_FLAG_MISMATCH
-fragment WARN_DAY_FLAG_MISMATCH not found in app/help/admin/parse-warnings/page.mdx\".
-Restored and re-ran → PASS."
+Verify-red observed: removed <RefAnchor id=\"$ANCHOR\"> from
+parse-warnings page → test output included a helpHref-resolves-to-anchor
+failure for that code. Restored and re-ran → PASS."
 ```
 
 - [ ] **Step 1: Write the failing test**
@@ -185,15 +204,18 @@ test.describe("/help AdminInfraError mapping (test #3 r10)", () => {
   test("when requireAdmin throws AdminInfraError, /help renders cataloged 500-class surface", async ({ page, request }) => {
     // r7 (round-6 finding 2): NO SKIP allowed. AC-12.24 requires this test to
     // run unconditionally. The infra-fail trigger is implemented as part of
-    // H.2 (see Step 2 below) — a test-only query-param `?force_infra_fail=1`
+    // H.2 (see Step 2 below) — a test-only HEADER `X-Help-Force-Infra-Fail: 1`
+    // (r9 corrected from r7's URL-search-param approach which couldn't reach
+    // the trigger via Next 16's `headers()` API — round-8 finding 2)
     // recognized ONLY when ENABLE_TEST_AUTH === "true" AND the request
     // includes a valid Authorization: Bearer ${TEST_AUTH_SECRET}, identical
     // gating to lib/time/now.ts (Phase C).
     await signInAs(page, { email: "admin-fixture@example.com", label: "admin" } as never);
     await page.setExtraHTTPHeaders({
+      "X-Help-Force-Infra-Fail": "1",
       Authorization: `Bearer ${process.env.TEST_AUTH_SECRET}`,
     });
-    await page.goto("/help?force_infra_fail=1");
+    await page.goto("/help");
     await expect(page.getByTestId("help-layout-infra-error")).toBeVisible();
     // Fallback chain per spec §3.5 + AC-12.24:
     //   entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."
@@ -210,15 +232,15 @@ test.describe("/help AdminInfraError mapping (test #3 r10)", () => {
 });
 ```
 
-- [ ] **Step 2: Implement the infra-fail trigger INSIDE the existing try/catch (r8 — round-7 finding 1)**
+- [ ] **Step 2: Implement the infra-fail trigger via a dedicated test-only HEADER (r9 — round-8 finding 2)**
 
-The infra-fail test is RED at first run because the trigger doesn't exist. H.2 IMPLEMENTS the trigger such that the forced `AdminInfraError` flows through the EXISTING `try { await requireAdmin() } catch (err) { if (err instanceof AdminInfraError) { ... } }` block — otherwise the thrown error escapes and the 500-class surface never renders, defeating the test.
+The previous draft (r8) used `?force_infra_fail=1` query-param + reading `x-url` via `headers()`, but the live `middleware.ts` only sets `x-pathname` (NOT `x-url` / search params) and only matches `/show/:path*`. The trigger as written would never fire. r9 pins the implementation with a dedicated test-only header that Playwright already sets via `setExtraHTTPHeaders` — no middleware change needed.
 
 Edit `app/help/layout.tsx`. Inside `HelpLayout`, modify the existing try block:
 
 ```tsx
-// app/help/layout.tsx — H.2 r8 (test-only infra-fail trigger inside the
-// existing AdminInfraError-catching try/catch).
+// app/help/layout.tsx — H.2 r9 (test-only infra-fail trigger via dedicated
+// header; inside the AdminInfraError-catching try/catch).
 import { headers } from "next/headers";
 // ... existing imports ...
 
@@ -226,14 +248,18 @@ export const dynamic = "force-dynamic";
 
 export default async function HelpLayout({ children }: { children: ReactNode }) {
   try {
-    // r8 — H.2 trigger lives HERE, inside the same try that catches
-    // AdminInfraError. The forced error flows through the existing catch
-    // and renders the cataloged 500-class surface (AC-12.24).
+    // r9 — H.2 trigger via X-Help-Force-Infra-Fail header. Inside the same
+    // try that catches AdminInfraError, so the forced error flows through
+    // the existing catch and renders the cataloged 500-class surface
+    // (AC-12.24). Three-precondition gate identical to lib/time/now.ts:
+    //   (1) header X-Help-Force-Infra-Fail === "1"
+    //   (2) process.env.ENABLE_TEST_AUTH === "true"
+    //   (3) request includes Authorization: Bearer ${TEST_AUTH_SECRET}
     const reqHeaders = await headers();
-    const url = new URL(reqHeaders.get("x-url") ?? "/", "http://localhost");
     if (
-      url.searchParams.get("force_infra_fail") === "1" &&
+      reqHeaders.get("x-help-force-infra-fail") === "1" &&
       process.env.ENABLE_TEST_AUTH === "true" &&
+      process.env.TEST_AUTH_SECRET !== undefined &&
       reqHeaders.get("authorization") === `Bearer ${process.env.TEST_AUTH_SECRET}`
     ) {
       throw new AdminInfraError("test-forced infra fail (H.2)");
@@ -249,7 +275,7 @@ export default async function HelpLayout({ children }: { children: ReactNode }) 
 }
 ```
 
-(Implementation note: Next 16's `headers()` doesn't expose the request URL directly; if the `x-url` pattern above is impractical, the implementer surveys the project's middleware for an existing URL-injection pattern. Contract: the trigger MUST be inside the catch's reach AND honor the three-precondition gate.)
+The Playwright test (Step 1) sends both headers via `page.setExtraHTTPHeaders({ "X-Help-Force-Infra-Fail": "1", Authorization: \`Bearer ${process.env.TEST_AUTH_SECRET}\` })` — replace the `?force_infra_fail=1` URL in Step 1's test with this header pattern.
 
 - [ ] **Step 3: Run + commit BOTH files together**
 
@@ -262,13 +288,6 @@ Expected: all 10 tests PASS (9 base auth + 1 AdminInfraError mapping). **No skip
 # trigger uncommitted).
 git add tests/playwright/help-auth.spec.ts app/help/layout.tsx
 git commit -m "test(playwright): /help auth gate + AdminInfraError mapping with trigger (Task H.2)"
-```
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/playwright/help-auth.spec.ts
-git commit -m "test(playwright): /help auth gate + AdminInfraError mapping (Task H.2 — test #3)"
 ```
 
 ---
