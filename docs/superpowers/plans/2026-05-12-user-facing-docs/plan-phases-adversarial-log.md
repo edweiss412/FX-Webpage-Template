@@ -125,4 +125,33 @@ Same soft cap as overview: 10 rounds per phase. At round 10, remaining findings 
 
 ## Phase I — `09-close-out.md`
 
-(Pending — task #20.)
+| Round | Verdict | Findings | Resolved in commit | Notes |
+|---|---|---|---|---|
+| R1 | needs-attention | 3 (2 high, 1 medium) | r2 — `2ab3896` | Pinned to stale spec r10 (live is r14); adversarial review missing `--base` SHA; DEFERRED.md at root not plan-scoped |
+| R2 | needs-attention | 2 (1 high, 1 medium) | r3 — `8f0c138` | grep-derived $M12_BASE produced empty (oneline history didn't contain literal "Phase A.1"); HANDOFF-TEMPLATE.md still spec r10 |
+| **Close** | **approved-by-trajectory** | — | — | **Phase I closed at round-2 per user direction** ("Declare Phase I approved"). 5 findings across rounds. r3 hardcoded the verified first M12 commit SHA (`b30f522`) with a fail-loud guard; HANDOFF-TEMPLATE updated to r14 with explicit SHA-fill step. |
+
+**Phase I converged at round 2** (soft cap, user-approved close). Total findings raised + resolved: 5.
+
+---
+
+## M12 Adversarial-Review Pass — Summary
+
+**All 10 plan tasks reviewed and closed:**
+
+| Task | Phase | Rounds | Findings | Severity max |
+|---|---|---|---|---|
+| #11 | README + 00-overview | 10 (overview log) | — | — |
+| #12 | Phase A — 01-foundation | 3 | 5 | high |
+| #13 | Phase B — 02-catalog-extension | 10 | 31 | critical |
+| #14 | Phase C — 03-time-utility | 8 | 27 | high |
+| #15 | Phase D — 04-components | 6 | 16 | critical |
+| #16 | Phase E — 05-content | 2 | 7 | high |
+| #17 | Phase F — 06-screenshot-harness | 3 | 9 | critical |
+| #18 | Phase G — 07-affordance-retrofit | 3 | 9 | high |
+| #19 | Phase H — 08-auth-integration | 3 | 9 | high |
+| #20 | Phase I — 09-close-out | 2 | 5 | high |
+
+**Total: 118 findings across 40 review rounds. 4 critical findings caught (Screenshot React-reserved-key prop, screenshot:help script lifecycle, G.4 TDD ordering, parser column index).**
+
+All plans converged to "approved-by-trajectory" per user direction at decreasing-severity points matching the project's adversarial-review pattern. The plan is ready for execution.
