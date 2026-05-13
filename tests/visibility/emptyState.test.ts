@@ -15,7 +15,11 @@
  * "Opening reel: N/A".
  */
 import { describe, expect, test } from "vitest";
-import { shouldHideOpeningReel, shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import {
+  shouldHideDiagrams,
+  shouldHideGenericOptional,
+  shouldHideOpeningReel,
+} from "@/lib/visibility/emptyState";
 
 describe("shouldHideOpeningReel", () => {
   test("null is hidden", () => {
@@ -76,5 +80,40 @@ describe("shouldHideGenericOptional", () => {
     expect(shouldHideGenericOptional("House power, 20A")).toBe(false);
     expect(shouldHideGenericOptional("Wi-Fi: FXAV-Show / pw fxav2026")).toBe(false);
     expect(shouldHideGenericOptional("Black drape, 24x12")).toBe(false);
+  });
+});
+
+describe("shouldHideDiagrams (M9 C6 / M7-D5)", () => {
+  test("both domains empty → hide (whole-tile-missing)", () => {
+    expect(shouldHideDiagrams(null, [])).toBe(true);
+    expect(shouldHideDiagrams({ embeddedImages: [], linkedFolderItems: [] }, [])).toBe(true);
+  });
+
+  test("diagrams.embeddedImages non-empty → render (don't hide)", () => {
+    expect(shouldHideDiagrams({ embeddedImages: [{}], linkedFolderItems: [] }, [])).toBe(false);
+  });
+
+  test("diagrams.linkedFolderItems non-empty → render (don't hide)", () => {
+    expect(shouldHideDiagrams({ embeddedImages: [], linkedFolderItems: [{}] }, [])).toBe(false);
+  });
+
+  test("agendaLinks with a fileId → render (don't hide)", () => {
+    expect(shouldHideDiagrams(null, [{ fileId: "abc123" }])).toBe(false);
+  });
+
+  test("agendaLinks without any fileId → ignored as agenda source", () => {
+    // A link entry with only a URL (no fileId) is not a PDF-renderable
+    // agenda and should not flip the tile from hide → render on its own.
+    expect(shouldHideDiagrams(null, [{ url: "https://example.com/agenda" }])).toBe(true);
+  });
+
+  test("both domains populated → render (don't hide)", () => {
+    expect(
+      shouldHideDiagrams({ embeddedImages: [{}], linkedFolderItems: [] }, [{ fileId: "xyz" }]),
+    ).toBe(false);
+  });
+
+  test("undefined diagrams fields tolerated", () => {
+    expect(shouldHideDiagrams({}, [])).toBe(true);
   });
 });

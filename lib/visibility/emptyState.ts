@@ -76,3 +76,48 @@ export function shouldHideGenericOptional(value: string | null): boolean {
   if (value == null) return true;
   return GENERIC_OPTIONAL_HIDE.has(value.trim().toUpperCase());
 }
+
+/**
+ * Whole-tile-missing predicate for `<DiagramsTile>` (M9 C6 / M7-D5).
+ *
+ * The tile aggregates two media domains:
+ *   - `diagrams.embeddedImages` + `diagrams.linkedFolderItems` (the
+ *     gallery)
+ *   - `agendaLinks[*].fileId` (the inline agenda PDF)
+ *
+ * The tile only renders when at least ONE of those domains has content;
+ * both empty → §8.3 whole-tile-missing reflow (return null). The boolean
+ * combination was previously inlined in the View. Extracting it here so:
+ *   (a) the visibility decision lives in one place alongside the
+ *       sentinel-hiding helpers, and
+ *   (b) future surfaces that want to ask "is there ANYTHING to show in
+ *       the diagrams/agenda domain?" route through the same predicate.
+ *
+ * Pure function — no I/O, deterministic.
+ */
+type DiagramsLike = {
+  embeddedImages?: readonly unknown[];
+  linkedFolderItems?: readonly unknown[];
+} | null;
+
+type AgendaLinkLike = {
+  fileId?: string;
+  // AgendaLink (components/agenda/AgendaEmbed.tsx) also carries label
+  // and url fields. The predicate only cares about fileId presence
+  // (PDF embeds need a Drive file id), so other keys are ignored —
+  // the loose `unknown` index keeps the type compatible with the
+  // real AgendaLink without coupling the visibility module to that
+  // component file.
+  [key: string]: unknown;
+};
+
+export function shouldHideDiagrams(
+  diagrams: DiagramsLike,
+  agendaLinks: ReadonlyArray<AgendaLinkLike>,
+): boolean {
+  const embeddedCount = diagrams?.embeddedImages?.length ?? 0;
+  const linkedCount = diagrams?.linkedFolderItems?.length ?? 0;
+  const hasItems = embeddedCount + linkedCount > 0;
+  const hasAgendaPdf = agendaLinks.some((link) => Boolean(link.fileId));
+  return !hasItems && !hasAgendaPdf;
+}

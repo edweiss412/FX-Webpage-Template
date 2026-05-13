@@ -41,6 +41,7 @@ import { Section } from "@/components/atoms/Section";
 import { Gallery, type GalleryItem } from "@/components/diagrams/Gallery";
 import { AgendaEmbed, type AgendaLink } from "@/components/agenda/AgendaEmbed";
 import { isAllowedDiagramMime } from "@/lib/data/diagrams";
+import { shouldHideDiagrams } from "@/lib/visibility/emptyState";
 import type {
   PersistedDiagrams,
   PersistedEmbeddedImage,
@@ -95,10 +96,13 @@ export function DiagramsTile({ showId, diagrams, agendaLinks }: DiagramsTileProp
     ...linked.map((entry, i) => linkedItem(entry, embedded.length + i + 1)),
   ];
 
+  // Whole-tile-missing per §8.3 — both media domains empty. Predicate
+  // (M9 C6 / M7-D5) lives in lib/visibility/emptyState.ts so the
+  // "is there anything to show" decision routes through the same
+  // visibility module as the sentinel-hiding helpers.
+  if (shouldHideDiagrams(diagrams, agendaLinks)) return null;
   const hasAgendaPdf = agendaLinks.some((link) => Boolean(link.fileId));
   const hasItems = items.length > 0;
-
-  if (!hasItems && !hasAgendaPdf) return null;
 
   // Heading mirrors content state: diagrams + agenda together get the
   // combined label; either alone gets the single-domain label so the
