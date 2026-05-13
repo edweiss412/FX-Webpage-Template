@@ -40,7 +40,19 @@ Same soft cap as overview: 10 rounds per phase. At round 10, remaining findings 
 
 ## Phase C — `03-time-utility.md`
 
-(Pending — task #14.)
+| Round | Verdict | Findings | Resolved in commit | Notes |
+|---|---|---|---|---|
+| R1 | needs-attention | 4 (2 high, 2 medium) | r2 — `8dcd13a` | C.1/C.3 TDD ordering (smoke vs gate); C.2 await inside sync JSX IIFE; wrong line citation (646 vs 697); /g regex statefulness |
+| R2 | needs-attention | 4 (3 high, 1 medium) | r3 — `6433910` | now() returned ISO but test expected epoch; C.3 conflicting mocks; component scan missed `components/`; secret length < 16 |
+| R3 | needs-attention | 2 (1 high, 1 medium) | r4 — `afd3eda` | Client-component exclusion (RightNowCard/ReportModal); deterministic verify-red mutation |
+| R4 | needs-attention | 2 (1 high, 1 medium) | r5 — `967e8ae` | StaleFooter waiver path; isClientComponent directive-prologue boundary |
+| R5 | needs-attention | 3 (1 high, 2 medium) | r6 — `a9a3f07` | Step 5b TDD ordering; TEST_AUTH_SECRET unset + Bearer undefined; isClientComponent statement-terminator |
+| R6 | needs-attention | 3 (1 high, 1 medium, 1 low) | r7 — `ec91fe1` | Step 5b RED test unreliable (minute-floor); stripComments doesn't strip comments; case count |
+| R7 | needs-attention | 4 (2 high, 2 medium) | r8 — `57e397f` | New test missing from git add; async StaleFooter breaks sync tests; stripComments line alignment; non-ISO parseable accept |
+| R8 | needs-attention | 3 (1 high cross-phase, 2 medium) | r9 — `8d7feff` | F.9 E2E proof didn't isolate server; ISO check too strict (rejects no-ms); stripComments URL-string false-negative |
+| **Close** | **approved-by-trajectory** | — | — | **Phase C closed at round-8 soft cap per user direction** ("Apply r8 fixes, declare Phase C approved"). 27 findings across rounds; r9 applied final fixes including lexer-based stripComments + regex-screen ISO + F.9 server-rendered-marker isolation. Trajectory mirrors Phase B's path. Remaining Playwright wiring concerns naturally surface in Phase F's own review (task #17). |
+
+**Phase C converged at round 8** (soft cap, user-approved close). Total findings raised + resolved: 27.
 
 ---
 
