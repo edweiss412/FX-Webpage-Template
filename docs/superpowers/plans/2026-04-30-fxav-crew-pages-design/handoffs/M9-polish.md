@@ -1141,6 +1141,28 @@ Anti-patterns verdict: clean. No glassmorphism beyond project-canonical `bg-bg/9
 
 Both gates pass with all HIGH/CRITICAL/P1 findings either fixed or explicitly dispositioned. Files touched: `components/diagrams/GalleryLightbox.tsx`, `tests/components/diagrams/GalleryLightboxPinchZoom.test.tsx`, `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/shape-sessions/2026-05-13-pinch-zoom-lightbox.md`, `package.json` + `pnpm-lock.yaml` (added `react-zoom-pan-pinch@4.0.3`).
 
+#### C6c convergence (Codex)
+
+Base: `2ab3896` (the commit before the C6c initial scaffold). 11 rounds to approve. Mostly library-contract HIGH issues (R1, R4, R5, R6, R7, R8, R9, R10) reflecting the depth of integration with `react-zoom-pan-pinch@4.0.3`.
+
+| Round | Verdict | Findings | Fix SHA | Notes |
+|-------|---------|----------|---------|-------|
+| R1 | needs-attention | H1 panning defaults to enabled → intercepts Embla swipe at scale=1; H2 wheel without activationKeys zooms on plain scroll | `6852119` | `panning.disabled={!zoomed}` + `wheel.activationKeys=["Control","Meta"]` |
+| R2 | needs-attention | H1 image-error mid-zoom strands the lightbox (chip+watchDrag stuck); H2 invariant 8 HIGH-1 DECLINE missing DEFERRED.md entry | `df1221a` | onError → resetTransform + setActiveScale(1) + setFailedKeys; added `M9-D-C6c-1` to DEFERRED.md |
+| R3 | needs-attention | H1 reduced-motion still got animated zoom (library defaults 200/300ms); M2 R2 test was tautological; M3 onError focus loss on chip-focused path | `f4bbe16` | ZoomController threads animTime=0 under reduced motion; libState.silenceResetTransform flag; onError focus relocation |
+| R4 | needs-attention | H1 wheel.activationKeys array form is AND'd (`keys.every`) — required holding both Ctrl AND Cmd | `7b67415` | Switched to predicate `(keys) => keys.includes("Control") \|\| keys.includes("Meta")`; preemptive sweep added zoomAnimation.disabled + autoAlignment.disabled under reduced motion |
+| R5 | needs-attention | H1 doubleClick mode='toggle' uses library's exp math (1→2.718, 4→1.47 not reset); M1 TransformComponent contentClass left at fit-content, large images render at intrinsic size on active slide | `55b3362` | Dynamic doubleClick.mode based on zoomed state (`zoomIn` @ scale=1 / `reset` @ scale>1); contentClass `!size-full ...`; img className `size-full object-contain` |
+| R6 | needs-attention | H1 keyboard +/- passed step=0.5 to library's zoomIn/zoomOut whose math switches between exp (smooth=true) and additive (smooth=false) — produces 1.65x/1.5x depending on motion mode | `1ccbc2b` | Bypassed library zoomIn/zoomOut: added `setScale(target)` that calls `setTransform(currentX, currentY, clamped, animTime)`; mock + tests rewritten to setTransformCalls |
+| R7 | needs-attention | H1 setTransform carries stale pan offsets through scale changes — 4x→1x via keyboard left image translated off-screen; library's setTransform doesn't apply limitToBounds | `0f4c4fd` | Replaced setTransform with `controls.centerView(target, animTime)`; added `centerZoomedOut={true}` defense-in-depth; mock + tests rewritten to centerViewCalls |
+| R8 | needs-attention | H1 keyboard targets read from activeScale (animation frames) instead of last requested target — rapid '+ +' during 200ms animation produced 1.12+0.5=1.62 instead of 1.5+0.5=2.0 | `b87d92d` | `requestedScaleRef` tracks last user intent; gesture-end callbacks (`onPinchStop`/`onZoomStop`/`onWheelStop`) sync ref; reset paths reset it; added simulateGestureEnd test helper |
+| R9 | needs-attention | H1 onPinchStop fires with transient out-of-bounds scale during pinch normalization (e.g., 0.6 below minScale=1 via zoomAnimation.size padding); H2 test header lied about a Playwright spec | `1f335c7` | Clamp captured scale to [1,4] in all three stop handlers; rewrote test header to reflect actual coverage shape (no Playwright e2e) |
+| R10 | needs-attention | H1 doubleClick.step=ln(2) only correct under smooth=true; smooth=false swaps to additive math → 1+ln(2)=1.693x instead of 2x | `c7fde29` | Step swaps with motion mode: `prefersReducedMotion ? 1 : Math.LN2` so both produce 2.0 exactly; added reduced-motion regression test |
+| R11 | **approve** | none | `c7fde29` | C6c CONVERGED. 11 rounds total. 8 library-contract HIGHs converged into a thoroughly-audited integration. Lint passed in Codex's sandbox; Codex couldn't run Vitest due to sandbox EPERM but the harness-side run is 43/43 green. |
+
+Test surface at close: **43 jsdom unit tests** covering prop contract (15+), Reset chip visibility tracking scale, live-region debounced announcements, chevron auto-reset on navigate, image-error focus relocation, keyboard map (Escape/0/+/=/-/_/arrows), TransformComponent contentClass shape, requestedScaleRef vs activeScale separation, gesture-end clamping at minScale/maxScale, reduced-motion math swaps (full-motion exp vs reduced additive). Real-browser pinch-gesture verification remains the manual iOS-Safari device smoke documented in shape brief §11 + §14 + the no-Playwright rationale in §10b.
+
+Final commit: `c7fde29` (C6c R10 fix). M7-D4 marked **RESOLVED 2026-05-13** in DEFERRED.md.
+
 ### Cluster C7 convergence (Codex)
 
 Base: `9a44bc8` (C6b close SHA). 3 rounds to approve.
@@ -1172,11 +1194,10 @@ Five batched P2/P3 a11y items per DEFERRED.md M5-D6:
 
 ## M9 close-out summary
 
-**Clusters converged (APPROVE):** C0 (R11), C2 (R4), C6 (R3), C6b (R3), C7 (R3), C8 (R3). 6 clusters / 33 rounds total.
+**Clusters converged (APPROVE):** C0 (R11), C2 (R4), C5 (R4), C6 (R3), C6b (R3), C6c (R11), C7 (R3), C8 (R3). 8 clusters / 55 rounds total. C6c was un-deferred 2026-05-13 after research revised the risk assessment; the 11-round convergence loop was driven by deep library-contract integration with `react-zoom-pan-pinch@4.0.3`.
 
 **Clusters DEFERRED with documented rationale:**
-- **C5** (sign-in brand / M5-D4) — blocked on external brand assets (Doug-supplied FXAV wordmark + official Google G icon). Plan explicitly forbids hand-recreation.
-- **C6c** (lightbox pinch-zoom / M7-D4) — needs real-device + Playwright touch-emulation gesture-priority testing; risk to existing Embla swipe behavior is high without iterative iOS/Android feedback. v1 workaround (long-press → Safari native zoom) per DEFERRED.md M7-D4 is acceptable.
+- (none) — C5 closed via FXAV wordmark sourced from fxav.net + official Google sign-in-button SVG from Google's signin-assets.zip (no hand-recreation; brand-compliant). C6c closed via `react-zoom-pan-pinch@4.0.3` integration; remaining iOS-Safari touch-action arbitration verified by manual device smoke per shape brief §14.
 
 **Outstanding sub-shape-required clusters (NOT attempted in autonomous push per user directive):**
 - C1 (Crew-page IA — M4-D2, M4-D3, M4-D6, M4-D4) — sub-shape session required.
