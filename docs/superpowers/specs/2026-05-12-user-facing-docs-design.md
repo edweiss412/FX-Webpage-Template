@@ -286,7 +286,15 @@ Illustrative subset (master-spec line 2691 examples; non-exhaustive):
 **r11 amendment (reconciliation against master-spec §12.4):**
 
 - `STALE_MANUAL_REPLAY_ABORTED` is **NOT** admin-log-only. Master-spec line 2724 carries explicit Doug-facing copy ("This manual sync is stale — a newer parse has already been applied. Refresh the page to see the current state."). Earlier spec drafts grouped it with the asset-recovery cooldown variants by surface-pattern similarity, but its master-spec row contradicts that grouping. The extractor (parser at master-spec line 2691's contract) correctly does not derive it. STALE_MANUAL_REPLAY_ABORTED is a Doug-facing entry that gets `title` / `longExplanation` / `helpHref` like any other Doug-facing entry in Phase E.
-- `LINK_CROSS_SHOW_REUSE`, `UNEXPECTED_PARENT`, `TYPO_NORMALIZED`, and other §12.4 entries that are admin-log-only per master-spec but **absent from live `lib/messages/catalog.ts`** are added as null-stub entries during Phase B's catalog-alignment subtask (plan Task B.3). The alignment task derives the full canonical set from the parser output and either nulls existing entries or adds null stubs.
+
+**r12 amendment (parser is the single source of truth for what gets stubbed):**
+
+- The B.3 hard-gate alignment task adds null-stub entries to `lib/messages/catalog.ts` for **exactly the codes that B.2's parser derives from master-spec §12.4 AND that are absent from the live catalog** — no more, no less. The parser's contract (master-spec line 2691: Doug cell AND Crew cell are one of `—` / empty / `(admin log only ...)`) is canonical.
+- Examples of codes the parser **DOES** derive AND that need stub-creation as of master-spec r-latest: `UNEXPECTED_PARENT`, `TYPO_NORMALIZED`, `WIZARD_FINALIZE_BATCHES_PENDING`, `SHOW_REALTIME_SUBSCRIPTION_FAILED`, `SHOW_REALTIME_JWT_RENEWED`, `SLUG_COLLISION_EXHAUSTED`, `BRANCH_PROTECTION_DRIFT`. (Implementer runs the parser at execution time and aligns whatever it returns — this list is illustrative.)
+- Examples of codes the parser **does NOT** derive (so Phase B does NOT add stubs):
+  - `LINK_CROSS_SHOW_REUSE` — master-spec line 2846 Doug cell starts with `(operator log only`, which is NON-canonical per master-spec line 2692. M12 does not amend master-spec for this; if/when master-spec is amended to use `(admin log only`, the parser will derive it on the next run and the next milestone's alignment pass will null-stub it. Until then, M12 explicitly does not add or modify this entry.
+  - Any other entry whose Doug cell is a non-canonical pseudo-null sentinel.
+- The plan-side B.3 task and the spec are now in lockstep: the parser is canonical for membership; both surfaces defer to whatever the parser returns at execution time.
 
 Behavior change: AlertBanner stops surfacing the derived admin-log-only codes to Doug — which is master-spec-correct. Any test exercising the current (drifted) behavior breaks; those tests were testing drift.
 

@@ -637,6 +637,30 @@ describe("Catalog meta-test (test #2 — predicate-entry contract)", () => {
     expect(contractViolations(e)).toEqual([]);
   });
 
+  it("predicate-entry missing title → violation 'predicate entry: title is null'", () => {
+    const e = makeEntry({
+      severity: "warning",
+      dougFacing: "Refresh.",
+      // title intentionally null
+      longExplanation: "A newer sync already won.",
+      helpHref: "/help/admin/parse-warnings#STALE",
+    });
+    expect(predicate(e)).toBe(true);
+    expect(contractViolations(e)).toContain("predicate entry: title is null");
+  });
+
+  it("predicate-entry missing longExplanation → violation 'predicate entry: longExplanation is null'", () => {
+    const e = makeEntry({
+      severity: "warning",
+      dougFacing: "Refresh.",
+      title: "Sync race",
+      // longExplanation intentionally null
+      helpHref: "/help/admin/parse-warnings#STALE",
+    });
+    expect(predicate(e)).toBe(true);
+    expect(contractViolations(e)).toContain("predicate entry: longExplanation is null");
+  });
+
   it("predicate-entry missing helpHref → violation 'predicate entry: helpHref is null'", () => {
     const e = makeEntry({
       severity: "warning",
@@ -822,7 +846,7 @@ export function contractViolations(entry: MessageCatalogEntry): string[] {
 - [ ] **Step 4: Run test to verify it passes (GREEN)**
 
 Run: `pnpm typecheck && pnpm test tests/messages/_metaErrorCatalogDocs.test.ts`
-Expected: PASS — 13 forced-fixture cases (4 predicate + 5 non-predicate + 4 shape). All exercise `contractViolations`; the crew-only-with-stray-helpHref case from Codex r2 is now caught.
+Expected: PASS — 15 forced-fixture cases (6 predicate + 5 non-predicate + 4 shape). All exercise `contractViolations`; the crew-only-with-stray-helpHref case from Codex r2 is caught, and each of the 7 violation cases (predicate missing title / longExplanation / helpHref / bad shape; non-predicate stray title / longExplanation / helpHref) has a dedicated fixture so a future flawed validator implementation cannot ship a silent regression.
 
 **Note on E.13 deferral (r6 — r4's H.6 was removed):** at B.4 commit time, the live catalog still has Doug-facing entries with `title`/`longExplanation`/`helpHref` all null (Phase E.5–E.11 backfills haven't landed). A live full-contract assertion would FAIL on every such entry. E.13 lands AFTER Phase E backfills, writes the live-catalog assertion (importing `contractViolations` from this module), and commits red→green. Forced fixtures from B.4 stay green throughout — they're synthetic and don't depend on live state.
 
@@ -830,7 +854,7 @@ Expected: PASS — 13 forced-fixture cases (4 predicate + 5 non-predicate + 4 sh
 
 ```bash
 git add lib/messages/catalogDocsValidator.ts tests/messages/_metaErrorCatalogDocs.test.ts
-git commit -m "test(messages): catalog meta-test #2 — validator module + 13 forced fixtures (predicate + non-predicate + shape); live-catalog assertion deferred to E.13 (Task B.4 — TDD red→green)"
+git commit -m "test(messages): catalog meta-test #2 — validator module + 15 forced fixtures (all 7 violations + 8 satisfying cases); live-catalog assertion deferred to E.13 (Task B.4 — TDD red→green)"
 ```
 
 **Note:** Phase E Task E.13 extends this file with the live-catalog biconditional assertion as part of its own TDD red→green loop (writing the assertion + closing any final backfill gaps in one commit). The forced fixtures stay; the live-catalog assertion is E.13's deliverable.

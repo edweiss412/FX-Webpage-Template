@@ -53,7 +53,7 @@ These extend AGENTS.md's 9 plan-wide invariants. Violating any is a P0 bug regar
 5. **impeccable v3 UI gate** (AGENTS.md #8) — every `/help/*` page goes through `/impeccable critique` + `/impeccable audit` before Phase I close-out.
 6. **Supabase call-boundary discipline** (AGENTS.md #9) — applies via `requireAdmin()`. `lib/auth/requireAdmin.ts` is already registered in `tests/auth/_metaInfraContract.test.ts`; no new registry entry required, but grep to confirm post-implementation.
 7. **MessageCatalogEntry additive extension** (M12-specific) — `messageFor` signature stays unchanged; the return type widens with three new nullable fields. Existing callers compile unchanged. Verified by Task B.1.
-8. **Catalog-master-spec alignment** (M12-specific) — Task B.2 sets `dougFacing: null`, `crewFacing: null`, `helpfulContext: null` on every code master-spec §12.4 classifies as admin-log-only. AlertBanner stops surfacing those codes — master-spec-correct behavior. Tests that exercised the drifted behavior break; M12 owns those updates.
+8. **Catalog-master-spec alignment** (M12-specific) — **r3-reordered: Task B.2 (parser) → Task B.3 (alignment)**. Task B.2 implements `scripts/extract-admin-log-only-codes.ts`, which parses master-spec §12.4 and returns the canonical admin-log-only set. Task B.3 then runs that parser, sets `dougFacing: null`, `crewFacing: null`, `helpfulContext: null` on every existing entry that the parser derives AND adds null-stub entries for derived codes that are absent from `lib/messages/catalog.ts`. B.3 is the hard gate — no follow-up commits are deferred. AlertBanner stops surfacing those codes — master-spec-correct behavior. Tests that exercised the drifted behavior break; M12 owns those updates.
 9. **`lib/time/now.ts` is the only server-side render-time source** (M12-specific) — every server component reachable from a screenshot manifest route that calls `new Date()` / `Date.now()` for render-side output MUST migrate to this utility (or carry a per-line `// not-render-side: <reason>` waiver). Enforced by test #16.
 10. **§5.6 affordance matrix is the §9.0.1 retrofit contract** (M12-specific) — every M3/M9/M10 component that owns a §9.0.1 affordance MUST carry the documented `data-testid` from the matrix in the same PR that adds the affordance text. Test #13 walks the matrix; the reverse-direction check catches affordances added without matrix rows.
 
@@ -66,7 +66,7 @@ This milestone CREATES the following structural meta-tests. Declaring this inven
 | Meta-test | Phase | Created in task | Purpose |
 | --- | --- | --- | --- |
 | `tests/help/_metaNavSync.test.ts` | A | Task A.7 | Every `_nav.ts` entry resolves to a real route under `app/help/`; every route under `app/help/` is referenced in `_nav.ts` (nav-consistency, test #5) |
-| `tests/messages/_metaErrorCatalogDocs.test.ts` | B + E | Task B.4 (forced fixtures only) + Task E.13 (extends with live-catalog biconditional) | Catalog meta-test (test #2). B.4 commits 5 forced-fixture cases that exercise the predicate logic against synthetic entries (TDD-green at B.4). E.13 appends the live-catalog biconditional assertion (predicate ↔ "all three M12 fields non-null") alongside E.13's final catalog backfills — red-then-green TDD per r6. |
+| `tests/messages/_metaErrorCatalogDocs.test.ts` + `lib/messages/catalogDocsValidator.ts` | B + E | Task B.4 (validator module + 15 forced fixtures) + Task E.13 (extends with live-catalog full-contract assertion) | Catalog meta-test (test #2). B.4 creates the validator module that exports `predicate`, `allM12FieldsNonNull`, `helpHrefShapeOk`, `contractViolations`, `HELP_HREF_RE`, and commits 15 forced-fixture cases exercising every contract-violation case (6 predicate, 5 non-predicate, 4 helpHref shape) — TDD red→green at B.4 (red = module-not-found, green = module + tests). E.13 appends the live-catalog full-contract assertion by importing `contractViolations` from the validator module — single source of truth between forced fixtures and live-catalog gate. Red-then-green TDD per r6. |
 | `tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts` | B | Task B.5 | Reads master-spec §12.4 markdown via `extract-admin-log-only-codes.ts`; asserts every derived admin-log-only code has all six user-facing fields `null` (test #17) |
 | `tests/help/_metaServerTimeGuard.test.ts` | C | Task C.4 | Greps server-side `Date.now()`/`new Date()` under manifest-derived scan roots; per-line waiver rule (test #16) |
 | `tests/help/_metaScreenshotManifest.test.ts` | F | Task F.7 | Stale manifest entries, orphan WebPs, fixture name validation (test #9) |
@@ -137,7 +137,8 @@ lib/time/now.ts                                           # Phase C.1 (create �
 lib/messages/renderer-gate.ts                             # Phase G.2 (create — shouldEmitLearnMore admin-context check)
 
 # Production source — modified
-lib/messages/catalog.ts                                   # Phase B.1 (extend type) + B.2 (align admin-log-only) + E.5–E.11 (per-page backfill)
+lib/messages/catalog.ts                                   # Phase B.1 (extend type + seed null fields) + B.3 (align derived admin-log-only entries + add null stubs) + E.5–E.11 (per-page backfill)
+lib/messages/catalogDocsValidator.ts                      # Phase B.4 (NEW — predicate/allM12FieldsNonNull/helpHrefShapeOk/contractViolations/HELP_HREF_RE; reused by E.13)
 lib/messages/lookup.ts                                    # Phase B.1 (signature unchanged; return type widens) — no edits required if re-export is generic
 app/show/[slug]/page.tsx                                  # Phase C.2 (migrate `today` to nowDate())
 app/admin/actions.ts                                      # Phase C.4 (add `// not-render-side` waiver on existing new Date() call)
@@ -158,7 +159,7 @@ playwright.config.ts                                      # Phase F.4 (add `scre
 scripts/help-screenshots.ts                               # Phase F.3 (Playwright capture entry point)
 scripts/help-screenshots.manifest.ts                      # Phase F.1 (single source of truth)
 scripts/help-screenshots-fixture-range.ts                 # Phase F.2 (INFO-tab DATES parser)
-scripts/extract-admin-log-only-codes.ts                   # Phase B.3 (master-spec §12.4 derivation parser)
+scripts/extract-admin-log-only-codes.ts                   # Phase B.2 (master-spec §12.4 derivation parser — was B.3 pre-r3 reorder)
 scripts/seed-m12-catalog-fields.ts                        # Phase B.1 (one-shot migration adding title/longExplanation/helpHref nulls)
 
 # CI / workflows — created (or extends existing)
@@ -176,10 +177,10 @@ tests/help/sidebar.test.tsx                               # Phase A.4
 tests/help/header.test.tsx                                # Phase A.5
 tests/help/breadcrumb.test.tsx                            # Phase A.6
 tests/help/_metaNavSync.test.ts                           # Phase A.7 — meta-test #5
-tests/messages/catalog-schema-extension.test.ts           # Phase B.1 + B.2 (extended for alignment cases)
-tests/messages/extract-admin-log-only-codes.test.ts       # Phase B.3
-tests/messages/_metaErrorCatalogDocs.test.ts              # Phase B.4 (forced fixtures) + Phase E.13 (appends live-catalog biconditional) — meta-test #2
-tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts  # Phase B.5 — meta-test #17
+tests/messages/catalog-schema-extension.test.ts           # Phase B.1 + B.3 (extended for alignment cases; r3-reordered)
+tests/messages/extract-admin-log-only-codes.test.ts       # Phase B.2 (was B.3 pre-r3 reorder)
+tests/messages/_metaErrorCatalogDocs.test.ts              # Phase B.4 (15 forced fixtures via catalogDocsValidator) + Phase E.13 (appends live-catalog full-contract assertion) — meta-test #2
+tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts  # Phase B.5 — meta-test #17 (long-running canary on parser-derived set)
 tests/time/now.test.ts                                    # Phase C.1 (smoke) → Phase C.3 (full gating)
 tests/show/page-today-uses-now-utility.test.ts            # Phase C.2
 tests/help/_metaServerTimeGuard.test.ts                   # Phase C.4 — meta-test #16

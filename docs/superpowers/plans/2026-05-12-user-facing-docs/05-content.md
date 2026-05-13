@@ -620,8 +620,10 @@ Per spec §4.3 / AC-12.11. This is the ONE page that's TSX (not MDX) because it 
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
+// @vitest-environment jsdom
 // tests/help/page-errors.test.tsx
 import { describe, it, expect } from "vitest";
+import { renderToStaticMarkup } from "react-dom/server";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -647,9 +649,7 @@ describe("/help/errors (E.13)", () => {
     expect(src).not.toMatch(/Learn more/i); // the destination page never self-links
   });
 
-  it("rendered output contains every renderable code as an anchor id (smoke-render via Next test renderer)", async () => {
-    // Use Next.js' app-router test renderer or @testing-library/react with the
-    // page component directly.
+  it("rendered output contains every renderable code as an anchor id", async () => {
     const Page = (await import("@/app/help/errors/page")).default;
     const html = renderToStaticMarkup(<Page />);
     for (const entry of renderableCodes) {
