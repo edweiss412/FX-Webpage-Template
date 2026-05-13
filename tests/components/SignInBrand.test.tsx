@@ -80,6 +80,20 @@ describe("M9 C5 / M5-D4 — SignInButton renders Google's pre-approved Light-the
     // WCAG focus-indicator contrast on white surfaces.
     expect(className).toContain("focus-visible:ring-[#1a73e8]");
   });
+
+  test("wrapping <button> meets the project 44px tap-target floor (R3 HIGH fix)", () => {
+    const { getByTestId } = render(<SignInButton validatedNext="/show/abc" />);
+    const button = getByTestId("sign-in-with-google");
+    const className = button.getAttribute("class") ?? "";
+    // DESIGN.md §3 minimum tap-target is 44px. The Google button SVG
+    // is 40px tall on its own; the wrapper extends the hit area via
+    // min-h-tap-min (the project token for 44px). A bare `h-10`
+    // height — without min-h-tap-min — would regress to 40px and
+    // miss the WCAG 2.5.5 / mobile-tap-target floor.
+    expect(className).toContain("min-h-tap-min");
+    // Negative: must NOT regress to h-10-only height.
+    expect(className).not.toMatch(/\bh-10\b/);
+  });
 });
 
 describe("M9 C5 / M5-D4 — Sign-in page sources the FXAV wordmark above the headline", () => {

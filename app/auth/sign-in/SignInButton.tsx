@@ -42,7 +42,12 @@ export function SignInButton({ validatedNext }: SignInButtonProps) {
         // for ≥3:1 contrast against the white button surface (R1
         // HIGH-2 fix). Default project focus-ring (orange ~1.6:1 on
         // white) was below the 3:1 minimum.
-        className="inline-flex h-10 items-center justify-center rounded-sm bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-60"
+        // min-h-tap-min: project 44px tap-target floor per DESIGN.md §3
+        // (C5 R3 HIGH fix). The Google button SVG itself is 40px tall;
+        // the wrapping <button> extends the hit area to ≥44px via
+        // transparent padding so single-finger taps on small screens
+        // always land inside the interactive region.
+        className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1a73e8] focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-60"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
