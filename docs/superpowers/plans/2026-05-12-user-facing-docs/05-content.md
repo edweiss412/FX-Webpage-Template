@@ -8,11 +8,45 @@
 
 **Shared page pattern (applies to every E.N task):**
 
-1. Write a failing test in `tests/help/page-<slug>.test.tsx` that asserts: the page renders, contains expected section headings, includes the required component usages (e.g., at least one `<Callout>`).
-2. Run the test — fails (Phase A.7 created a single-line stub; the test asserts on the real content shape that doesn't exist yet).
+**r2 fix per E-r1 finding 1 (HIGH):** the r1 smoke pattern used `readFileSync` + regex grep, which lets invalid MDX/JSX, missing imports, or runtime render failures ship green as long as the expected text appears in source. r2 requires every E.N page test to ALSO compile/render the page module through the real Next.js MDX pipeline so 500-class runtime errors fail the test. The string-shape grep assertions stay as a SECONDARY layer (cheap; catches editorial drift).
+
+Each task's test file follows this shape (concrete page-specific assertions vary):
+
+```tsx
+// @vitest-environment jsdom
+// tests/help/page-<slug>.test.tsx
+import "@testing-library/jest-dom/vitest";
+import { describe, it, expect, vi } from "vitest";
+import { render } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const slug = "<slug>"; // e.g., "getting-started"
+const src = readFileSync(join(process.cwd(), `app/help/${slug}/page.mdx`), "utf8");
+
+describe(`/help/${slug} (E.N — real render)`, () => {
+  it("renders without throwing through the real MDX pipeline", async () => {
+    // Dynamic import goes through @next/mdx's compiler; a malformed page
+    // throws here, not in the source-grep assertions below.
+    const Mod = await import(`@/app/help/${slug}/page`);
+    const Page = Mod.default;
+    // render() catches runtime errors via React's error boundary.
+    expect(() => render(<Page />)).not.toThrow();
+  });
+
+  // Secondary: editorial source-shape assertions (page-specific).
+  it("has the canonical H1", () => {
+    expect(src).toMatch(/^# .+$/m);
+  });
+  // ...page-specific assertions...
+});
+```
+
+1. Write a failing test in `tests/help/page-<slug>.test.tsx` per the shape above. The "real-render" assertion + the page-specific assertions should ALL fail against Phase A.7's stub (which is a single-line `# <Page Title>`).
+2. Run the test — fails (Phase A.7 stub doesn't satisfy the structure brief).
 3. **Replace the stub content** at `app/help/<slug>/page.mdx` (or `page.tsx` for E.13) with the page structure + content brief implemented. The file already exists from Phase A.7; E.N edits in place rather than creating new files. (r4 change — earlier draft had Phase E creating files, which conflicted with Phase A.7's stub-creation step.)
-4. **For the 7 admin-reference pages (E.5 – E.11):** also populate `title` / `longExplanation` / `helpHref` on the corresponding catalog entries (per Phase B.4's catalog-meta-test forced-fixture coverage; the LIVE-catalog full-contract assertion runs in **Phase E Task E.13** — r6 fix; the originally-scoped Phase H Task H.6 was REMOVED). Edit `lib/messages/catalog.ts` to set these three fields on every entry that points to this page via `helpHref`. Most pages cover a class of error codes; populate accordingly.
-5. Run the test — passes.
+4. **For the 7 admin-reference pages (E.5 – E.11):** also populate `title` / `longExplanation` / `helpHref` on the corresponding catalog entries (per Phase B.4's catalog-meta-test forced-fixture coverage; the LIVE-catalog full-contract assertion runs in **Phase E Task E.13** — r6 fix; the originally-scoped Phase H Task H.6 was REMOVED). **r2 canonical helpHref target per E-r1 finding 2:** ALL catalog `helpHref` values point at `/help/errors#<CODE>` — NOT topic pages like `/help/admin/parse-warnings#<CODE>`. The §5.6 template-family contract requires this so the generic `messageFor(code)` Learn-more link has ONE destination. Topic pages (parse-warnings, review-queues, etc.) cross-link FROM `/help/errors#<CODE>` to their detailed explainers; the catalog's helpHref is the canonical entry point.
+5. Run the test — passes (both real-render AND source-shape assertions green).
 6. Run `pnpm dev`, visit the page as admin, do a sanity scan — content reads cleanly, no dev-only artifacts.
 7. Commit.
 
@@ -432,7 +466,18 @@ Commit: `feat(help): /help/admin/dashboard page + relevant catalog title/longExp
 6. H2 "When to Discard" — short bullet list
 7. `<Screenshot name="review-queues-side-by-side" alt="...">`
 
-Smoke test (similar shape to E.5).
+**r2 fix per E-r1 finding 3 (HIGH) — explicit TDD per task:** the shared pattern at the top of Phase E (steps 1-7) applies in full. Concretely:
+
+- **Step 1 (RED):** Write `tests/help/page-<slug>.test.tsx` per the shared real-render skeleton, plus page-specific assertions:
+  - canonical H1 matches `/^# <Title>/m`
+  - each H2 section anchor (`<h2 id="...">` or `<RefAnchor id=...>` as documented above) is present
+  - any `<Callout type="warning">` / `<Step n>` / `<Screenshot name="...">` from the content brief is asserted by tag-presence regex
+- **Step 2 (RED):** `pnpm test tests/help/page-<slug>.test.tsx` → FAIL (Phase A.7 stub doesn't have the structure yet).
+- **Steps 3-5 (implement → GREEN):** replace stub content with the brief above; re-run → PASS.
+- **Step 6 (manual sanity):** `pnpm dev` + visit page as admin.
+- **Step 7 (commit):** see commit line below.
+
+Smoke test follows the shape sketched in E.5 with page-specific assertions per the content brief above.
 
 Commit: `feat(help): /help/admin/review-queues page + catalog deep-link backfill (Task E.6)`
 
@@ -442,7 +487,7 @@ Commit: `feat(help): /help/admin/review-queues page + catalog deep-link backfill
 
 **Files:**
 - Create: `app/help/admin/parse-warnings/page.mdx`
-- Modify: `lib/messages/catalog.ts` (populate `title` / `longExplanation` / `helpHref` for every parse-warning code where `dougFacing != null`; their `helpHref` is `/help/admin/parse-warnings#<code>`)
+- Modify: `lib/messages/catalog.ts` (populate `title` / `longExplanation` / `helpHref` for every parse-warning code where `dougFacing != null`; their `helpHref` is `"/help/errors#" + CODE` per the r2 canonical-helpHref rule — see shared pattern step 4)
 
 **Content brief:** **This page is the largest content task.** One `<RefAnchor>` section per parse-warning code in §12.4 that surfaces to Doug. Each section explains in plain language what triggered the warning + what to do (usually "edit the sheet to fix X").
 
@@ -459,9 +504,9 @@ Commit: `feat(help): /help/admin/review-queues page + catalog deep-link backfill
 **Catalog backfill:** for every `<RefAnchor id={CODE}>` section, set the catalog entry's:
 - `title` — a short heading (e.g., "Day flag on crew row doesn't match a column")
 - `longExplanation` — the same paragraph that appears on the page, condensed if necessary
-- `helpHref` — `"/help/admin/parse-warnings#" + CODE`
+- `helpHref` — `"/help/errors#" + CODE` (**r2 canonical target per E-r1 finding 2** — every catalog helpHref points at the per-code listing on `/help/errors`. This parse-warnings page is a THEMATIC reference that explains parse warnings as a class; its per-code `<RefAnchor>` sections are cross-link targets *from* /help/errors, NOT the catalog's primary destination.)
 
-Test #2 (catalog meta-test, Phase B.4) verifies all three are non-null on every applicable code. Test #1 (anchor resolver, Phase H — to be added) verifies every `helpHref` resolves to a real anchor on this page.
+Test #2 (catalog meta-test, Phase B.4) verifies all three are non-null on every applicable code. Test #1 (anchor resolver, Phase H.1) verifies every `helpHref` resolves to a real anchor on `/help/errors` (which is the page E.13 owns). Phase G.5 Step 5 (matrix-target resolver) separately verifies the §5.6 matrix's non-catalog kebab fragments resolve.
 
 Smoke test:
 
@@ -470,8 +515,18 @@ Smoke test:
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 
 const src = readFileSync(/* ... */);
+// r2 fix: catalog helpHref is now `/help/errors#CODE` for ALL Doug-facing
+// entries (per E-r1 finding 2). The parse-warnings page renders per-code
+// <RefAnchor> sections for thematic reference, but the SOURCE OF TRUTH for
+// which codes have a parse-warnings detail section is the catalog filtered
+// by code-name pattern (WARN_ or PARSE_* prefix per the M9 parse-pipeline
+// naming convention) AND Doug-facing.
+const PARSE_CODE_PATTERN = /^(WARN_|PARSE_)/;
 const warningCodes = Object.values(MESSAGE_CATALOG).filter(
-  (e) => e.helpHref?.startsWith("/help/admin/parse-warnings#"),
+  (e) =>
+    e.severity !== "info" &&
+    e.dougFacing !== null &&
+    PARSE_CODE_PATTERN.test(e.code),
 );
 
 describe("/help/admin/parse-warnings (E.7)", () => {
@@ -507,7 +562,18 @@ Commit: `feat(help): /help/admin/parse-warnings + catalog backfill for every Dou
 
 (Note: **r6 fix per D-r5 finding 2** — `<RefAnchor>` is exclusively for catalog-code-shaped IDs (`/^[A-Z][A-Z0-9_]*$/` per D.5). Non-catalog section anchors MUST use plain heading IDs like `<h2 id="sync-health">`. The earlier draft offered an "expand the regex" option — that's RETIRED. D.5's regex is the hardened contract; do not widen it. Non-catalog kebab anchors live on plain `<h2>` / `<h3>` elements.)
 
-Smoke test similar to E.5.
+**r2 fix per E-r1 finding 3 (HIGH) — explicit TDD per task:** the shared pattern at the top of Phase E (steps 1-7) applies in full. Concretely:
+
+- **Step 1 (RED):** Write `tests/help/page-<slug>.test.tsx` per the shared real-render skeleton, plus page-specific assertions:
+  - canonical H1 matches `/^# <Title>/m`
+  - each H2 section anchor (`<h2 id="...">` or `<RefAnchor id=...>` as documented above) is present
+  - any `<Callout type="warning">` / `<Step n>` / `<Screenshot name="...">` from the content brief is asserted by tag-presence regex
+- **Step 2 (RED):** `pnpm test tests/help/page-<slug>.test.tsx` → FAIL (Phase A.7 stub doesn't have the structure yet).
+- **Steps 3-5 (implement → GREEN):** replace stub content with the brief above; re-run → PASS.
+- **Step 6 (manual sanity):** `pnpm dev` + visit page as admin.
+- **Step 7 (commit):** see commit line below.
+
+Smoke test similar to E.5 — adapt the page-specific assertions per the content brief above.
 
 Commit: `feat(help): /help/admin/per-show-panel page (Task E.8)`
 
@@ -529,7 +595,18 @@ Commit: `feat(help): /help/admin/per-show-panel page (Task E.8)`
 5. H2 "What to verify" — bulleted checklist (call time correct, hotel info present, role-restricted info hidden as expected)
 6. H2 "Why some fields are hidden" — short explanation of role-based filtering; reassures Doug that not-seeing-a-field is correct behavior, not a bug
 
-Smoke test similar to E.5.
+**r2 fix per E-r1 finding 3 (HIGH) — explicit TDD per task:** the shared pattern at the top of Phase E (steps 1-7) applies in full. Concretely:
+
+- **Step 1 (RED):** Write `tests/help/page-<slug>.test.tsx` per the shared real-render skeleton, plus page-specific assertions:
+  - canonical H1 matches `/^# <Title>/m`
+  - each H2 section anchor (`<h2 id="...">` or `<RefAnchor id=...>` as documented above) is present
+  - any `<Callout type="warning">` / `<Step n>` / `<Screenshot name="...">` from the content brief is asserted by tag-presence regex
+- **Step 2 (RED):** `pnpm test tests/help/page-<slug>.test.tsx` → FAIL (Phase A.7 stub doesn't have the structure yet).
+- **Steps 3-5 (implement → GREEN):** replace stub content with the brief above; re-run → PASS.
+- **Step 6 (manual sanity):** `pnpm dev` + visit page as admin.
+- **Step 7 (commit):** see commit line below.
+
+Smoke test similar to E.5 — adapt the page-specific assertions per the content brief above.
 
 Commit: `feat(help): /help/admin/preview-as-crew page (Task E.9)`
 
@@ -610,7 +687,18 @@ Commit: `feat(help): /help/admin/onboarding-wizard page (Task E.11)`
    - Sharing crew links → /help/admin/sharing-links
    - Onboarding wizard → /help/admin/onboarding-wizard
 
-Smoke test asserts links to all 7 admin-reference pages.
+**r2 fix per E-r1 finding 3 (HIGH) — explicit TDD per task:** the shared pattern at the top of Phase E (steps 1-7) applies in full. Concretely:
+
+- **Step 1 (RED):** Write `tests/help/page-tour.test.tsx` per the shared real-render skeleton, plus page-specific assertions:
+  - canonical H1 matches `/^# Tour/m`
+  - each H2 section anchor (`<h2 id="...">` or `<RefAnchor id=...>` as documented above) is present
+  - any `<Callout type="warning">` / `<Step n>` / `<Screenshot name="...">` from the content brief is asserted by tag-presence regex
+- **Step 2 (RED):** `pnpm test tests/help/page-tour.test.tsx` → FAIL (Phase A.7 stub doesn't have the structure yet).
+- **Steps 3-5 (implement → GREEN):** replace stub content with the brief above; re-run → PASS.
+- **Step 6 (manual sanity):** `pnpm dev` + visit page as admin.
+- **Step 7 (commit):** see commit line below.
+
+E.12-specific assertions: smoke test asserts links to all 7 admin-reference pages (`/help/admin/dashboard`, `/help/admin/review-queues`, `/help/admin/parse-warnings`, `/help/admin/per-show-panel`, `/help/admin/preview-as-crew`, `/help/admin/sharing-links`, `/help/admin/onboarding-wizard`).
 
 Commit: `feat(help): /help/tour page (Task E.12)`
 
