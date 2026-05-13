@@ -1229,6 +1229,7 @@ describe("processOneFile", () => {
           drive_file_id: "file-1",
           failure_code: STAGED_PARSE_SOURCE_GONE,
           previous_last_seen_modified_time: "2026-05-08T11:00:00.000Z",
+          sheet_name: null,
         },
       },
     ]);
@@ -1423,6 +1424,7 @@ describe("processOneFile", () => {
           drive_file_id: "file-1",
           failure_code: STAGED_PARSE_SOURCE_GONE,
           previous_last_seen_modified_time: "2026-05-08T11:00:00.000Z",
+          sheet_name: null,
         },
       },
     ]);

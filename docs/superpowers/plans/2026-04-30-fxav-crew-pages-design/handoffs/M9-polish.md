@@ -1038,6 +1038,23 @@ P0=0, P1=0, P2=0, P3=1 (StaleFooter tier signal text-color-only; deferred per M2
 
 **Gate verdict: PASS.** Zero unresolved HIGH/CRITICAL findings. Adversarial review (cross-model) next.
 
+### Cross-model adversarial review convergence (Codex)
+
+Base: `9e053bd`. Each round anchors to milestone-base per memory feedback `adversarial_review_full_milestone_scope`.
+
+| Round | Verdict | Findings | Fix SHA | Notes |
+|-------|---------|----------|---------|-------|
+| R1 | needs-attention | H1 per-tile isolation; H2 View invocation; M3 Footer p→div; M4 TILE_SERVER_RENDER_FAILED placeholder | `febac56` | Initial structural correctness pass — identity-loader pattern, View JSX-element vs function-call, HTML nesting validity, copy placeholders. |
+| R2 | needs-attention | H1-r2 NotesTile multi-domain check; M2-r2 SHOW_*_PUBLISHED placeholders; M3-r2 Tailwind token swap | `5a8e61f` | NotesTile aggregates 4 domains; admin-alert renderer plumbing gap surfaced; non-existent text-muted/bg-bg-elev tokens replaced with text-text-subtle/bg-surface-raised. |
+| R3 | needs-attention | H1-r3 visibility-gated guards (audio/video/lighting/transport/financials) | `216ddff` | Role-gated tiles' visibility predicates AND-ed with tileErrors check before throw to prevent fallback cards for tiles the viewer wouldn't see. |
+| R4 | needs-attention | H1-r4 TransportTile admin-bypass | `471ff26` | transportTileVisible(null) coupling — when transport query fails, the predicate goes silent. Fixed with admin OR transportVisible. |
+| R5 | needs-attention | H1-r5 NotesTile+Lodging admin-bypass; H2-r5 catalog spec restore + renderer interpolation | `26ec002` | Renderer plumbing wired end-to-end (lookup hyphen↔underscore normalization; ErrorExplainer params; AlertBanner threading admin_alerts.context; TileServerFallback writes sheet_name). |
+| R6 | needs-attention | M1-r6 renderer-interpolation test coverage | `8239543` | Added placeholder-bearing assertions on TILE_SERVER_RENDER_FAILED + SHOW_FIRST_PUBLISHED + SHOW_UNPUBLISHED via messageFor and AlertBanner-level context threading. |
+| R7 | needs-attention | M1-r7 stale/sync §12.4 spec parity + SHEET_UNAVAILABLE producer plumbing | `411d882` | Restored §12.4-canonical SHEET_UNAVAILABLE / PARSE_ERROR_LAST_GOOD / SYNC_DELAYED_SEVERE rows; CronLiveShowRow extended with title; SHEET_UNAVAILABLE producer now supplies sheet_name in context. |
+| R8 | (in flight) | M1-r8 source-gone producer plumbing; M2-r8 remaining stale-footer wrappers + TILE_SERVER_RENDER_FAILED helpfulContext; M3-r8 §12 doc record | — | This R8 commit closes M1-r8 + M2-r8 + this row of the table. |
+
+Convergence trajectory: HIGH×8 → MEDIUM×3 → MEDIUM×1 → MEDIUM×1 → MEDIUM×3. Findings narrowing each round. Memory `feedback_iterate_until_convergence` directs continued iteration; round-3 cap applies to value-judgment loops, not new-finding rounds.
+
 ### Subsequent cluster work pending
 
 C2, C1, C3, C4, C5, C6, C6b, C6c, C7, C8, C9 per the §A summary table. After C0 adversarial convergence, the next cluster is C2 (token consolidation — no sub-shape required).

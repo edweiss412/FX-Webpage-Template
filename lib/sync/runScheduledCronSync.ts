@@ -1788,6 +1788,12 @@ async function handleFetchFailure_unlocked(
           drive_file_id: driveFileId,
           failure_code: code,
           previous_last_seen_modified_time: previousLastSeenModifiedTime,
+          // Supplies §12.4 `<sheet-name>` placeholder for AlertBanner
+          // interpolation (M9 C0 round-8). When code is STAGED_PARSE_SOURCE_GONE,
+          // updated came from markShowSheetUnavailable which now exposes
+          // title in its RETURNING. The narrowing below picks up `title`
+          // off the markShowSheetUnavailable branch's union member.
+          sheet_name: "title" in updated ? updated.title : null,
         },
       });
     }

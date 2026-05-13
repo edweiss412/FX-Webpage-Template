@@ -682,7 +682,7 @@ export const MESSAGE_CATALOG = {
     code: "SHEET_UNAVAILABLE",
     dougFacing:
       "_<sheet-name>_ isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back.",
-    crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at <time>.",
+    crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
     followUp:
       "Eric -> confirm whether the Sheet was moved or deleted, then restore it or archive the show",
     helpfulContext:
@@ -692,7 +692,7 @@ export const MESSAGE_CATALOG = {
     code: "DRIVE_FETCH_FAILED",
     dougFacing:
       "We couldn't fetch this sheet from Google Drive. Could be a transient network issue, or the sheet's been moved or unshared. We'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
-    crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at <time>.",
+    crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
     followUp: "Doug -> check share / Retry",
     helpfulContext:
       "Google Drive temporarily blocked or refused our request to read this sheet. The most common cause is a transient network or permissions hiccup; we keep retrying automatically. If this stays for more than an hour, double-check that the folder is still shared with the service account email and that the sheet hasn't been moved out of the watched folder.",
@@ -702,7 +702,7 @@ export const MESSAGE_CATALOG = {
     dougFacing:
       "_<sheet-name>_'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail.",
     crewFacing:
-      "We couldn't read the latest edit to Doug's sheet. Showing what we had at <time>.",
+      "We couldn't read the latest edit to Doug's sheet. Showing what we had at _<time>_.",
     followUp: "Doug -> fix sheet (see parse panel); Crew -> mention to Doug",
     helpfulContext:
       "A recent edit to the sheet introduced something the parser couldn't read, but we kept the previously approved version live so crew aren't blocked. Open the per-show parse panel to see the specific MI-N code explaining what went wrong, fix it in the sheet, and the next sync will replace the stale data.",
@@ -710,7 +710,7 @@ export const MESSAGE_CATALOG = {
   SYNC_DELAYED_MODERATE: {
     code: "SYNC_DELAYED_MODERATE",
     dougFacing: null,
-    crewFacing: "Last synced <time> ago. Check with Doug if anything looks off.",
+    crewFacing: "Last synced *<time>* ago. Check with Doug if anything looks off.",
     followUp: "Crew -> mention to Doug",
     helpfulContext: null,
   },
@@ -889,11 +889,11 @@ export const MESSAGE_CATALOG = {
   TILE_SERVER_RENDER_FAILED: {
     code: "TILE_SERVER_RENDER_FAILED",
     dougFacing:
-      "*<sheet-name>*: a section couldn't load on the server. The page will keep trying - refresh in a minute. Tell the developer if this keeps happening.",
-    crewFacing: "This section couldn't load - last good data shown.",
+      "*<sheet-name>*: a section couldn't load on the server. The page will keep trying — refresh in a minute. Tell the developer if this keeps happening.",
+    crewFacing: "This section couldn't load — last good data shown.",
     followUp: "Doug -> refresh / Report; Eric -> investigate",
     helpfulContext:
-      "One of the page sections crashed while the server was rendering it. The rest of the page rendered normally. The page will keep retrying.",
+      "One of the page sections crashed while the server was rendering it. The rest of the page rendered normally. The page will keep retrying — refresh in a minute. If this keeps happening, click 'Report' so the developer can investigate.",
   },
   INVALID_JSON: {
     code: "INVALID_JSON",
