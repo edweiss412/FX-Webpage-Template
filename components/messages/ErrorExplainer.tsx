@@ -32,6 +32,7 @@
  * Server Component (no 'use client').
  */
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+import { messageFor, type MessageParams } from "@/lib/messages/lookup";
 
 export type ErrorExplainerProps = {
   /**
@@ -52,19 +53,36 @@ export type ErrorExplainerProps = {
    * sign-in page can opt in for codes where extra context is helpful.
    */
   helpfulContext?: boolean;
+  /**
+   * Placeholder values for catalog interpolation (see
+   * `lib/messages/lookup.ts` PLACEHOLDER_RE). AlertBanner passes the
+   * row's `admin_alerts.context` so codes with placeholders (e.g.,
+   * SHOW_FIRST_PUBLISHED's `<sheet-name>`) render the producer's
+   * supplied values instead of literal tokens. Hyphen/underscore key
+   * normalization is built into messageFor so snake_case context keys
+   * (sheet_name) satisfy hyphenated placeholders (<sheet-name>).
+   */
+  params?: MessageParams;
 };
 
 function isKnownCode(code: string): code is MessageCode {
   return Object.prototype.hasOwnProperty.call(MESSAGE_CATALOG, code);
 }
 
-export function ErrorExplainer({ code, surface, helpfulContext = false }: ErrorExplainerProps) {
+export function ErrorExplainer({
+  code,
+  surface,
+  helpfulContext = false,
+  params,
+}: ErrorExplainerProps) {
   // Defensive: unknown code → render nothing. The sign-in page passes
   // user-controlled `searchParams.code`; this is the last backstop.
   if (!isKnownCode(code)) {
     return null;
   }
-  const entry = MESSAGE_CATALOG[code];
+  // Use messageFor to apply optional placeholder interpolation. When
+  // `params` is undefined, messageFor returns the raw catalog entry.
+  const entry = messageFor(code, params);
   const message = surface === "admin" ? entry.dougFacing : entry.crewFacing;
 
   // Defensive: known code, but no copy for this surface (e.g., LINK_EXPIRED

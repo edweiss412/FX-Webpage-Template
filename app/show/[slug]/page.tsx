@@ -651,8 +651,16 @@ export default async function ShowPage({ params }: PageProps) {
           <WrappedTile
             tileId="lodging-tile"
             showId={showId}
+            sheetName={data.show.title}
             load={() => {
-              if (data.tileErrors["hotel"]) {
+              // Round-5 M1: LodgingTile visibility (whole-tile-missing when
+              // hotelReservations is empty per §8.3) derives from the same
+              // hotel query that may have failed. For crew, we cannot tell
+              // whether the viewer was named on a reservation, so we fail
+              // closed (tile reflows away — matches normal whole-tile-missing
+              // behavior). Admin always sees all reservations and should
+              // see the fallback so the failure is surfaced.
+              if (ctx.isAdmin && data.tileErrors["hotel"]) {
                 throw new Error(`hotel fetch failed: ${data.tileErrors["hotel"]}`);
               }
               return loadLodgingTileData({ hotelReservations: data.hotelReservations });
@@ -662,18 +670,21 @@ export default async function ShowPage({ params }: PageProps) {
           <WrappedTile
             tileId="venue-tile"
             showId={showId}
+            sheetName={data.show.title}
             load={() => loadVenueTileData({ venue: data.show.venue })}
             View={VenueTileView}
           />
           <WrappedTile
             tileId="crew-tile"
             showId={showId}
+            sheetName={data.show.title}
             load={() => loadCrewTileData({ crewMembers: data.crewMembers })}
             View={CrewTileView}
           />
           <WrappedTile
             tileId="contacts-tile"
             showId={showId}
+            sheetName={data.show.title}
             load={() => {
               if (data.tileErrors["contacts"]) {
                 throw new Error(`contacts fetch failed: ${data.tileErrors["contacts"]}`);
@@ -694,6 +705,7 @@ export default async function ShowPage({ params }: PageProps) {
                 <WrappedTile
                   tileId="schedule-tile"
                   showId={showId}
+                  sheetName={data.show.title}
                   load={() =>
                     loadScheduleTileData({
                       show: data.show,
@@ -706,6 +718,7 @@ export default async function ShowPage({ params }: PageProps) {
                 <WrappedTile
                   tileId="audio-scope-tile"
                   showId={showId}
+                  sheetName={data.show.title}
                   load={() => {
                     // Round-3 H1: only escalate the rooms-domain error if the
                     // viewer would otherwise see this tile (§8.1 role gate).
@@ -726,6 +739,7 @@ export default async function ShowPage({ params }: PageProps) {
                 <WrappedTile
                   tileId="video-scope-tile"
                   showId={showId}
+                  sheetName={data.show.title}
                   load={() => {
                     if (videoScopeVisible(ctx.viewerFlags) && data.tileErrors["rooms"]) {
                       throw new Error(`rooms fetch failed: ${data.tileErrors["rooms"]}`);
@@ -740,6 +754,7 @@ export default async function ShowPage({ params }: PageProps) {
                 <WrappedTile
                   tileId="lighting-scope-tile"
                   showId={showId}
+                  sheetName={data.show.title}
                   load={() => {
                     if (lightingScopeVisible(ctx.viewerFlags) && data.tileErrors["rooms"]) {
                       throw new Error(`rooms fetch failed: ${data.tileErrors["rooms"]}`);
@@ -754,6 +769,7 @@ export default async function ShowPage({ params }: PageProps) {
                 <WrappedTile
                   tileId="transport-tile"
                   showId={showId}
+                  sheetName={data.show.title}
                   load={() => {
                     // Round-4 H1: transportTileVisible derives from
                     // data.transportation, which is null when the fetch
@@ -787,6 +803,7 @@ export default async function ShowPage({ params }: PageProps) {
                 <WrappedTile
                   tileId="show-status-tile"
                   showId={showId}
+                  sheetName={data.show.title}
                   load={() => loadShowStatusTileData({ show: data.show })}
                   View={ShowStatusTileView}
                 />
@@ -794,6 +811,7 @@ export default async function ShowPage({ params }: PageProps) {
                 <WrappedTile
                   tileId="opening-reel-tile"
                   showId={showId}
+                  sheetName={data.show.title}
                   load={() =>
                     loadOpeningReelTileData({
                       showId,
@@ -807,6 +825,7 @@ export default async function ShowPage({ params }: PageProps) {
                 <WrappedTile
                   tileId="diagrams-tile"
                   showId={showId}
+                  sheetName={data.show.title}
                   load={() =>
                     loadDiagramsTileData({
                       showId,
@@ -820,6 +839,7 @@ export default async function ShowPage({ params }: PageProps) {
                 <WrappedTile
                   tileId="financials-tile"
                   showId={showId}
+                  sheetName={data.show.title}
                   load={() => {
                     // Round-3 H1: financialsVisible is the public LEAD/admin
                     // gate. Non-LEAD non-admin viewers never see Financials,
@@ -846,6 +866,7 @@ export default async function ShowPage({ params }: PageProps) {
                 <WrappedTile
                   tileId="pack-list-tile"
                   showId={showId}
+                  sheetName={data.show.title}
                   load={() =>
                     loadPackListTileData({
                       pullSheet: data.pullSheet,
@@ -864,6 +885,7 @@ export default async function ShowPage({ params }: PageProps) {
                 <WrappedTile
                   tileId="notes-tile"
                   showId={showId}
+                  sheetName={data.show.title}
                   load={() => {
                     // NotesTile aggregates four source domains. If ANY failed
                     // upstream, the tile would silently render partial content;
@@ -877,7 +899,15 @@ export default async function ShowPage({ params }: PageProps) {
                     if (failed) {
                       throw new Error(`${failed} fetch failed: ${data.tileErrors[failed]}`);
                     }
-                    if (transportVisible && data.tileErrors["transportation"]) {
+                    // Round-5 H1: NotesTile transport guard mirrors the
+                    // TransportTile R4 admin-bypass. Without it, admin
+                    // sees partial NotesTile content with transport notes
+                    // silently dropped when transportTileVisible(null)
+                    // returns false on a failed query.
+                    if (
+                      (ctx.isAdmin || transportVisible) &&
+                      data.tileErrors["transportation"]
+                    ) {
                       throw new Error(
                         `transportation fetch failed: ${data.tileErrors["transportation"]}`,
                       );

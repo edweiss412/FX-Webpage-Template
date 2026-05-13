@@ -23,9 +23,22 @@ type WrappedTileProps<P> = {
   View: (props: P) => ReactElement | null;
   /** Optional custom fallback element (defaults to <TileErrorFallback />). */
   fallback?: ReactElement;
+  /**
+   * Show title (sheet name) — passed through to TileServerFallback's
+   * admin_alerts.context so AlertBanner can interpolate the
+   * §12.4 `<sheet-name>` placeholder in TILE_SERVER_RENDER_FAILED.
+   */
+  sheetName?: string | null;
 };
 
-export function WrappedTile<P>({ tileId, showId, load, View, fallback }: WrappedTileProps<P>) {
+export function WrappedTile<P>({
+  tileId,
+  showId,
+  load,
+  View,
+  fallback,
+  sheetName,
+}: WrappedTileProps<P>) {
   // With strict exactOptionalPropertyTypes, conditionally include `fallback`
   // only when the caller supplied one. Passing undefined to a required-ish
   // ReactElement prop is a type error under strict settings.
@@ -43,6 +56,7 @@ export function WrappedTile<P>({ tileId, showId, load, View, fallback }: Wrapped
         render={(data) => View(data) ?? <></>}
         tileId={tileId}
         showId={showId}
+        {...(sheetName !== undefined ? { sheetName } : {})}
         {...(fallback ? { fallback } : {})}
       />
     </TileErrorBoundary>

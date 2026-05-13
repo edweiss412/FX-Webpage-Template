@@ -256,21 +256,25 @@ describe("META admin_alerts catalog contract", () => {
   // (AlertBanner → ErrorExplainer) routes through messageFor with the
   // context map.
   //
-  // Today this is EMPTY: AlertBanner renders MESSAGE_CATALOG[code].dougFacing
-  // verbatim without interpolation, so any placeholder would leak literal
-  // <name> tokens to Doug. Two codes (SHOW_FIRST_PUBLISHED + SHOW_UNPUBLISHED)
-  // previously carried sheet-name/crew-count placeholders here; those
-  // placeholders were removed from the catalog dougFacing in M9 C0 round-2
-  // pending the end-to-end renderer plumbing follow-up. Producers still
-  // write the corresponding context.sheet_name / crew_count / show_date
-  // keys for audit + future plumbing.
-  //
-  // Registering a code here is a TWO-SIDED commitment:
-  //   (a) the producer call site supplies the matching keys in context;
-  //   (b) the renderer routes through messageFor(code, alert.context).
-  // Without (b) in place, adding a code here re-introduces the literal-
-  // placeholder leak that M9 Codex round-2 M2 flagged.
-  const INTERPOLATED_DOUG_FACING_CODES: ReadonlyArray<(typeof ADMIN_ALERTS_CODES)[number]> = [];
+  // M9 C0 round-5 H2: renderer interpolation plumbing is in place
+  // (AlertBanner SELECTs admin_alerts.context, passes it to ErrorExplainer
+  // as `params`, ErrorExplainer routes through messageFor which
+  // interpolates with hyphen↔underscore key normalization). The three
+  // codes below carry §12.4-canonical placeholders AND have producers
+  // that supply the matching context keys:
+  //   - SHOW_FIRST_PUBLISHED: lib/sync/runScheduledCronSync.ts writes
+  //     sheet_name / crew_count / show_date / unpublish_token.
+  //   - SHOW_UNPUBLISHED: lib/sync/unpublishShow.ts writes sheet_name.
+  //   - TILE_SERVER_RENDER_FAILED: components/shared/TileServerFallback.tsx
+  //     writes sheet_name / tileId / message.
+  // Adding a new code here is a TWO-SIDED commitment: producer writes
+  // the matching context key AND the renderer's messageFor interpolation
+  // covers the surface.
+  const INTERPOLATED_DOUG_FACING_CODES: ReadonlyArray<(typeof ADMIN_ALERTS_CODES)[number]> = [
+    "SHOW_FIRST_PUBLISHED",
+    "SHOW_UNPUBLISHED",
+    "TILE_SERVER_RENDER_FAILED",
+  ];
 
   test.each(ADMIN_ALERTS_CODES)(
     "registered producer code %s has no unresolved <placeholder> in dougFacing",

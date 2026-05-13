@@ -51,6 +51,13 @@ type TileServerFallbackProps<T> = {
   tileId: string;
   /** Show id for the admin_alerts row's `show_id`. Optional for global tiles. */
   showId?: string | null;
+  /**
+   * Optional show title (sheet name). Stamped into admin_alerts.context
+   * so AlertBanner can interpolate the §12.4 catalog placeholder
+   * `<sheet-name>` in `TILE_SERVER_RENDER_FAILED.dougFacing` and render
+   * Doug the specific show that failed.
+   */
+  sheetName?: string | null;
 };
 
 export async function TileServerFallback<T>({
@@ -59,6 +66,7 @@ export async function TileServerFallback<T>({
   fallback,
   tileId,
   showId,
+  sheetName,
 }: TileServerFallbackProps<T>): Promise<ReactElement> {
   try {
     const data = await load();
@@ -76,7 +84,14 @@ export async function TileServerFallback<T>({
       await upsertAdminAlert({
         showId: showId ?? null,
         code: "TILE_SERVER_RENDER_FAILED",
-        context: { tileId, message: err.message },
+        context: {
+          tileId,
+          message: err.message,
+          // sheet_name supplies the `<sheet-name>` placeholder in
+          // TILE_SERVER_RENDER_FAILED.dougFacing so AlertBanner renders
+          // the specific show that failed instead of a literal token.
+          sheet_name: sheetName ?? null,
+        },
       });
     } catch (alertErr) {
       console.error(

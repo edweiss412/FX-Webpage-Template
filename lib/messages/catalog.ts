@@ -363,12 +363,8 @@ export const MESSAGE_CATALOG = {
   SHOW_FIRST_PUBLISHED: {
     code: "SHOW_FIRST_PUBLISHED",
     severity: "info",
-    // Placeholders dropped pending the renderer interpolation plumbing
-    // (AlertBanner → ErrorExplainer → messageFor with admin_alerts.context).
-    // Producers (lib/sync/runScheduledCronSync.ts) still write sheet_name /
-    // crew_count / show_date into context for audit + future plumbing.
     dougFacing:
-      "A show is now live for crew. Made a mistake? Open the auto-publish email and click 'Unpublish' within 24h.",
+      "_<sheet-name>_ is now live for crew. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](signed-link) within 24h.",
     crewFacing: null,
     followUp: null,
     helpfulContext:
@@ -376,11 +372,8 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_UNPUBLISHED: {
     code: "SHOW_UNPUBLISHED",
-    // Placeholder dropped pending renderer interpolation plumbing.
-    // Producer (lib/sync/unpublishShow.ts) still writes sheet_name into
-    // context for audit + future plumbing.
     dougFacing:
-      "A show has been unpublished. Crew links no longer work. Drag the sheet back into your watched folder when you're ready to publish again.",
+      "_<sheet-name>_ has been unpublished. Crew links no longer work. Drag the sheet back into your watched folder when you're ready to publish again.",
     crewFacing: null,
     followUp: "Doug → optionally re-share when ready",
     helpfulContext:
@@ -896,7 +889,7 @@ export const MESSAGE_CATALOG = {
   TILE_SERVER_RENDER_FAILED: {
     code: "TILE_SERVER_RENDER_FAILED",
     dougFacing:
-      "A section couldn't load on the server. The page will keep trying - refresh in a minute. Tell the developer if this keeps happening.",
+      "*<sheet-name>*: a section couldn't load on the server. The page will keep trying - refresh in a minute. Tell the developer if this keeps happening.",
     crewFacing: "This section couldn't load - last good data shown.",
     followUp: "Doug -> refresh / Report; Eric -> investigate",
     helpfulContext:

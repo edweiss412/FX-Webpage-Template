@@ -33,6 +33,8 @@ type AlertRow = {
   code: string;
   raised_at: string;
   show_id: string | null;
+  /** admin_alerts.context — jsonb payload supplied by the producer. */
+  context: Record<string, unknown> | null;
   shows: { slug: string } | Array<{ slug: string }> | null;
 };
 
@@ -62,7 +64,7 @@ export async function AlertBanner() {
   // `()` clause throws on the server.
   let query = supabase
     .from("admin_alerts")
-    .select("id, code, raised_at, show_id, shows(slug)")
+    .select("id, code, raised_at, show_id, context, shows(slug)")
     .is("resolved_at", null);
   if (INFO_SEVERITY_CODES.length > 0) {
     query = query.not(
@@ -108,7 +110,25 @@ export async function AlertBanner() {
       aria-live="polite"
       className="mb-section-gap rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
     >
-      <ErrorExplainer code={alert.code} surface="admin" helpfulContext />
+      <ErrorExplainer
+        code={alert.code}
+        surface="admin"
+        helpfulContext
+        {...(alert.context
+          ? {
+              // Type-narrow: messageFor only consumes primitive values; cast
+              // the JSONB row through to MessageParams. Runtime interpolation
+              // String()-coerces values it understands and leaves non-primitive
+              // values unsubstituted (the placeholder remains, which the
+              // _metaAdminAlertCatalog regression test will flag the next time
+              // anyone adds an unsupported key).
+              params: alert.context as unknown as Record<
+                string,
+                string | number | boolean | null | undefined
+              >,
+            }
+          : {})}
+      />
 
       {isPerShowAlert ? (
         showSlug ? (

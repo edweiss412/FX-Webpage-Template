@@ -92,7 +92,7 @@ describe("TileServerFallback — server-side render isolation", () => {
     expect(upsertAdminAlert).toHaveBeenCalledWith({
       showId: "show-abc",
       code: "TILE_SERVER_RENDER_FAILED",
-      context: { tileId: "lodging-tile", message: "synthetic" },
+      context: { tileId: "lodging-tile", message: "synthetic", sheet_name: null },
     });
   });
 
