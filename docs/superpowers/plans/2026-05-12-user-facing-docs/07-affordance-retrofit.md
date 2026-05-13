@@ -139,7 +139,7 @@ Per spec §5.6 — the matrix is the typed source of truth. Three row classes (p
   export type AffordanceRow = ConcreteRow | TemplateFamilyRow | NegativeRow;
 
   export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
-    // Concrete (12 rows after Step 2 + Step 3 split):
+    // Concrete rows (count derived at runtime — see G.4 walker; current snapshot lists 12 static-route concrete rows + 1 placeholder row, r3 added a template-family parse-warning row):
     { kind: "concrete", sourceSurface: "Dashboard — Active Shows header", sourceRoute: "/admin",
       affordance: "? tooltip", testid: "help-affordance--dashboard-active-shows--tooltip",
       target: "/help/admin/dashboard#active-shows", owningMilestone: "M3 / M9" },
@@ -166,13 +166,22 @@ Per spec §5.6 — the matrix is the typed source of truth. Three row classes (p
       affordance: "? tooltip", testid: "help-affordance--per-show-parse-warnings--tooltip",
       target: "/help/admin/parse-warnings", owningMilestone: "M9" },
     // r2 fix per G-r1 finding 1 — §5.6 row for individual parse-warning rows
-    // (per AC-12.8). Each rendered warning carries a Learn-more link with this
-    // testid pattern; G.4's walker discovers/asserts via testid; G.0
-    // pre-execution discovery pins the ParsePanel.tsx call site.
-    { kind: "concrete", sourceSurface: "Per-show — Parse warning row Learn-more link",
+    // (per AC-12.8). Each rendered warning carries a per-code Learn-more link.
+    //
+    // r3 fix per G-r2 finding 1 — modeled as a TEMPLATE-FAMILY row (not
+    // concrete) because the target is per-code: each rendered warning's
+    // Learn-more href is `messageFor(code).helpHref` (canonical
+    // `/help/errors#<code>` per E-r1 finding 2). G.4/G.5 walkers iterate
+    // rendered warning codes; G.0 discovers the ParsePanel surface via the
+    // exact UI text on the row (the "Learn more →" label adjacent to the
+    // warning's title).
+    { kind: "template-family",
+      sourceSurface: "ParsePanel warning row — 'Learn more →' link adjacent to warning title (one per warning code rendered)",
       sourceRoute: "/admin/show/rpas-central-2026",
-      affordance: "Learn more →", testid: "help-affordance--parse-warning-row--learn-more",
-      target: "/help/admin/parse-warnings", owningMilestone: "M9" },
+      affordance: "Learn more →",
+      testidPattern: "help-affordance--parse-warning-row--<code>--learn-more",
+      targetForCode: (code) => `/help/errors#${code}`, // per E-r1 canonical helpHref
+      owningMilestone: "M9" },
     { kind: "concrete", sourceSurface: "Per-show — Crew preview links header", sourceRoute: "/admin/show/rpas-central-2026",
       affordance: "? tooltip", testid: "help-affordance--per-show-preview-links--tooltip",
       target: "/help/admin/preview-as-crew", owningMilestone: "M9" },
@@ -337,27 +346,43 @@ Per spec §5.3 affordance wiring. The retrofit is LINK-ONLY — does not change 
 
 For every concrete-testid row in the matrix, the owning component must carry the `data-testid` attribute on the affordance element (the `?` icon, "Take the tour" link, etc.). Most M3/M9/M10 work already shipped these affordances without testids; G.4 retrofits them.
 
-**r8 → r9 — TDD ordering fix (B-r8 critical finding 1, scope refined per B-r9 finding 2):** the r7 task numbered the retrofits as Step 1-3 and deferred verification to G.5, committing UI without a failing test first — violation of AGENTS.md invariant #1. r8 restructured to test-first; r9 further refined the scope: G.4's walker covers the **12 concrete rows that have static sourceRoutes**, leaving the **first-seen-review row** (whose sourceRoute contains `STAGED_ID_PLACEHOLDER` and requires a seeded staged_id at fixture time) to G.5. Without this split, G.4's first-seen assertion would stay red even after retrofit because the placeholder is unresolved.
+**r8 → r9 → r10 — TDD ordering fix (B-r8 critical finding 1, scope refined per B-r9 finding 2, count-derivation per G-r2 finding 2):** the r7 task numbered the retrofits as Step 1-3 and deferred verification to G.5, committing UI without a failing test first — violation of AGENTS.md invariant #1. r8 restructured to test-first; r9 refined scope; r10 made the walker iterate AFFORDANCE_MATRIX dynamically (no hard-coded count) so new concrete rows are picked up automatically. G.4's walker covers all `kind:"concrete"` rows whose `sourceRoute` does NOT include `STAGED_ID_PLACEHOLDER`; the **first-seen-review row** (which requires a seeded staged_id at fixture time) is deferred to G.5.
 
-- [ ] Step 1: **Write the concrete-row walker — scoped to the 12 static-route rows** (`tests/e2e/deep-link-walker.spec.ts`):
+- [ ] Step 1: **Write the concrete-row walker — scoped to all static-route concrete rows** (`tests/e2e/deep-link-walker.spec.ts`):
 
   ```ts
   // Concrete-row portion of test #13 — G.4 scope: AFFORDANCE_MATRIX where
   // kind === "concrete" AND !row.sourceRoute.includes("STAGED_ID_PLACEHOLDER").
   // (The first-seen-review row needs a seeded staged_id; that part lands in G.5
   // with its own red→green proof.)
-  // Signs in as admin via signInAs, navigates to row.sourceRoute, locates
-  // page.getByTestId(row.testid), asserts visible. For tooltip rows, click/hover,
-  // locate inner `Learn more →`, assert href === row.target.
+  //
+  // r3 fix per G-r2 finding 2: derive row count from the matrix at runtime
+  // (do NOT hard-code "12 rows"). New concrete rows added after r2 should be
+  // automatically picked up without plan edits.
+  const staticConcreteRows = AFFORDANCE_MATRIX.filter(
+    (row) => row.kind === "concrete" && !row.sourceRoute.includes("STAGED_ID_PLACEHOLDER"),
+  );
+
+  test("AFFORDANCE_MATRIX has at least one static concrete row (anti-tautology)", () => {
+    expect(staticConcreteRows.length).toBeGreaterThan(0);
+  });
+
+  for (const row of staticConcreteRows) {
+    test(`${row.testid} resolves on ${row.sourceRoute}`, async ({ page }) => {
+      // Signs in as admin via signInAs, navigates to row.sourceRoute, locates
+      // page.getByTestId(row.testid), asserts visible. For tooltip rows,
+      // click/hover, locate inner `Learn more →`, assert href === row.target.
+    });
+  }
   // Template-family + negative + reverse-direction live in G.5.
   ```
-- [ ] Step 2: **Run the walker — observe RED** (no testids exist yet; expect 12 failures):
+- [ ] Step 2: **Run the walker — observe RED** (no testids exist yet; expect one failure per static concrete row):
 
   ```bash
-  pnpm exec playwright test tests/e2e/deep-link-walker.spec.ts
+  ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture pnpm exec playwright test --project help-docs tests/e2e/deep-link-walker.spec.ts
   # Expected: every static-route concrete row fails with a "TestId not found on
   # sourceRoute"-class error. The first-seen-review row is skipped by the filter
-  # (G.5 owns its red→green proof).
+  # (G.5 owns its red→green proof). Failure count = staticConcreteRows.length.
   ```
   Capture the failure list in the eventual commit-message body as verify-red evidence.
 - [ ] Step 3: For each matrix row, locate the component:
