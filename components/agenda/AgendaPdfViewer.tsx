@@ -220,19 +220,28 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
             // so we re-probe with a HEAD request to the same URL.
             try {
               const probe = await fetch(src, { method: "HEAD", cache: "no-store" });
-              if (probe.status === 410) {
+              // Spec §12.4 line 2753: BOTH 410 AND 403 route to
+              // AGENDA_GONE_FOR_CREW. 403 fires from cross-show or
+              // otherwise-forbidden crew sessions (the agenda proxy's
+              // validateCrewAssetSession forbidden paths); the
+              // crew-facing recovery is the same as for a 410 (the
+              // agenda is unreachable from this signed link; ask Doug
+              // for a fresh one).
+              if (probe.status === 410 || probe.status === 403) {
                 setErrorCode("AGENDA_GONE_FOR_CREW");
               } else if (probe.status === 401) {
                 setErrorCode("AGENDA_UNAUTHENTICATED");
               } else {
-                setErrorCode(null);
+                // Other status (typically 5xx) — retryable. Route
+                // through AGENDA_ASSET_LOOKUP_FAILED so Doug sees
+                // catalog-bound recovery copy instead of an inline
+                // literal.
+                setErrorCode("AGENDA_ASSET_LOOKUP_FAILED");
               }
             } catch {
-              // HEAD probe itself failed (network); fall through to the
-              // generic copy. The `setError(err)` above already armed
-              // the error UI; errorCode stays null so the fallback text
-              // renders.
-              setErrorCode(null);
+              // HEAD probe itself failed (network). Treat as retryable
+              // — same catalog code as the 5xx path.
+              setErrorCode("AGENDA_ASSET_LOOKUP_FAILED");
             }
           }}
           loading={

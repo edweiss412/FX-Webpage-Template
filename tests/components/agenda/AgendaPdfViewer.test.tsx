@@ -151,21 +151,36 @@ describe("AgendaPdfViewer error routing via messageFor (M9 C6 / M7-D2)", () => {
     expect(alert.textContent).toContain(expected);
   });
 
-  test("HEAD probe returning 500 (unknown) → falls back to generic copy", async () => {
+  test("HEAD probe returning 403 → renders AGENDA_GONE_FOR_CREW (spec §12.4 line 2753)", async () => {
+    documentMode = "error";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 403 }));
+    const { AgendaPdfViewer } = await import("@/components/agenda/AgendaPdfViewer");
+    const { findByRole } = render(<AgendaPdfViewer src="/api/asset/agenda/show/file-403" />);
+    const { messageFor } = await import("@/lib/messages/lookup");
+    const expected = messageFor("AGENDA_GONE_FOR_CREW").crewFacing!;
+    const alert = await findByRole("alert");
+    expect(alert.textContent).toContain(expected);
+  });
+
+  test("HEAD probe returning 500 (retryable) → renders AGENDA_ASSET_LOOKUP_FAILED.crewFacing", async () => {
     documentMode = "error";
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 500 }));
     const { AgendaPdfViewer } = await import("@/components/agenda/AgendaPdfViewer");
     const { findByRole } = render(<AgendaPdfViewer src="/api/asset/agenda/show/file-500" />);
+    const { messageFor } = await import("@/lib/messages/lookup");
+    const expected = messageFor("AGENDA_ASSET_LOOKUP_FAILED").crewFacing!;
     const alert = await findByRole("alert");
-    expect(alert.textContent).toMatch(/Couldn’t open the agenda right now/);
+    expect(alert.textContent).toContain(expected);
   });
 
-  test("HEAD probe network failure → falls back to generic copy", async () => {
+  test("HEAD probe network failure → renders AGENDA_ASSET_LOOKUP_FAILED.crewFacing", async () => {
     documentMode = "error";
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network down"));
     const { AgendaPdfViewer } = await import("@/components/agenda/AgendaPdfViewer");
     const { findByRole } = render(<AgendaPdfViewer src="/api/asset/agenda/show/file-netdown" />);
+    const { messageFor } = await import("@/lib/messages/lookup");
+    const expected = messageFor("AGENDA_ASSET_LOOKUP_FAILED").crewFacing!;
     const alert = await findByRole("alert");
-    expect(alert.textContent).toMatch(/Couldn’t open the agenda right now/);
+    expect(alert.textContent).toContain(expected);
   });
 });
