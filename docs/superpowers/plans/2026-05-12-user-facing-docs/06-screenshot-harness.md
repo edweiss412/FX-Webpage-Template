@@ -121,7 +121,15 @@ Per spec §3.6.2. Dedicated Playwright project with own `webServer` env (`ENABLE
   });
   ```
 
-- [ ] Step 5: Run test → PASS. Smoke-run `pnpm exec playwright test --project screenshots-help-setup` — the setup test runs alone; smoke-run `pnpm exec playwright test --project screenshots-help` — Playwright auto-runs the setup dependency first, then the (empty until F.9 lands) capture suite.
+- [ ] Step 5: Run test → PASS. **r4 fix per F-r3 finding 1 (HIGH):** ALL direct project runs MUST set the test-runner env vars (the setup-project preflight asserts them). Use the env-prefixed form:
+
+  ```bash
+  ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture pnpm exec playwright test --project screenshots-help-setup
+  ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture pnpm exec playwright test --project screenshots-help
+  ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture pnpm exec playwright test --project help-docs
+  ```
+
+  Or add convenience scripts to `package.json` mirroring `screenshot:help` (`test:e2e:screenshots-help-setup`, `test:e2e:screenshots-help`, `test:e2e:help-docs`) that bake in the env. Without this, `pnpm test:e2e --project screenshots-help` fails the setup preflight before ever running the capture/clock-pipeline suite.
 - [ ] Step 6: Commit: `feat(screenshots): screenshots-help Playwright project + setup-project seeding on port 3004 (Task F.4)`
 
 ---
@@ -207,10 +215,47 @@ git status --short app/help/_components/Screenshot.tsx
 # Expected: empty output.
 ```
 
-- [ ] Step 1: Write the test. Iterates `MANIFEST`; for each entry, renders `<Screenshot name={entry.key} alt="Test alt" />`, asserts the output contains:
-  - `<picture>` element
-  - `<source media="(prefers-color-scheme: dark)" srcset="/help/screenshots/<key>-dark.webp">`
-  - `<img src="/help/screenshots/<key>-light.webp" alt="Test alt">`
+- [ ] Step 1: Write the test. **r4 fix per F-r3 finding 2 (class-sweep from F.9 attribute-order class):** assertions MUST be attribute-order-independent. The D.4 `<Screenshot>` renders `<img>` with class/loading/decoding alongside src/alt; the literal-tag-string assertions in r1 would fail against the correct component output (or pass only when component output happens to match the asserted attribute order). Use DOM-query assertions on the rendered tree.
+
+  Iterates `MANIFEST`; for each entry, renders `<Screenshot name={entry.key} alt="Test alt" />` via `@testing-library/react` and asserts via `container.querySelector`:
+
+  ```ts
+  // @vitest-environment jsdom
+  // tests/help/screenshot-picture-contract.test.tsx
+  import "@testing-library/jest-dom/vitest";
+  import { describe, it, expect } from "vitest";
+  import { render } from "@testing-library/react";
+  import { Screenshot } from "@/app/help/_components/Screenshot";
+  import { MANIFEST } from "@/scripts/help-screenshots.manifest";
+
+  describe("<Screenshot> <picture>-contract per manifest entry (F.6 / test #10)", () => {
+    for (const entry of MANIFEST) {
+      it(`${entry.key}: emits <picture> + <source media=dark> + <img>`, () => {
+        const { container } = render(<Screenshot name={entry.key} alt="Test alt" />);
+
+        // <picture> element exists.
+        const picture = container.querySelector("picture");
+        expect(picture, `<picture> missing for ${entry.key}`).not.toBeNull();
+
+        // <source> with prefers-color-scheme: dark — attribute-independent.
+        const darkSource = picture!.querySelector('source[media="(prefers-color-scheme: dark)"]');
+        expect(darkSource, `dark <source> missing for ${entry.key}`).not.toBeNull();
+        expect(darkSource!.getAttribute("srcset")).toBe(
+          `/help/screenshots/${entry.key}-dark.webp`,
+        );
+
+        // <img> — assert required attributes individually; tolerate
+        // additional attributes (className, loading, decoding, etc.).
+        const img = picture!.querySelector("img");
+        expect(img, `<img> missing for ${entry.key}`).not.toBeNull();
+        expect(img!.getAttribute("src")).toBe(
+          `/help/screenshots/${entry.key}-light.webp`,
+        );
+        expect(img!.getAttribute("alt")).toBe("Test alt");
+      });
+    }
+  });
+  ```
 - [ ] Step 2: Re-run the test against the restored `<Screenshot>` component — PASSES.
 - [ ] Step 3: Commit (record the observed verify-red failure in the message body):
 
@@ -327,7 +372,11 @@ Per spec §7.1 test 18 / AC-12.39. Captures the `preview-as-crew-banner` manifes
   - **Primary assertion (server-only):** call the helper twice with two different server-header instants (`"2026-03-22T..."` pre-show, `"2026-03-24T..."` mid-show). Assert `today1 !== today2` AND both match the expected dates from the manifest fixture. If `today1 === today2`, the server-render path is NOT consuming the header — TEST FAILS regardless of any WebP output.
   - **Secondary assertion (full-pipeline byte diff, ADDITIONAL not replacement):** with the browser clock still fixed, also capture WebPs via `page.screenshot({ type: "png" })` → sharp-encode at both instants and assert `buf1.equals(buf2) === false`. This catches end-to-end regressions in the encoding/sharp/output path that don't show up in the data-day attribute alone.
   - Write both buffers to `tmp/screenshots-clock-pipeline/` for post-mortem debugging.
-- [ ] Step 2: Run the test — `pnpm test:e2e --project screenshots-help`. PASS confirms BOTH the server header is consumed AND the full pipeline produces distinct outputs. The PRIMARY (server-only) assertion specifically pins AC-12.39's "request-scoped header reaches server render" contract — a broken server path fails this assertion even if WebP bytes happen to differ.
+- [ ] Step 2: Run the test — **r4 fix per F-r3 finding 1:** set runner env explicitly so the setup-project preflight passes:
+  ```bash
+  ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture pnpm exec playwright test --project screenshots-help
+  ```
+  PASS confirms BOTH the server header is consumed AND the full pipeline produces distinct outputs. The PRIMARY (server-only) assertion specifically pins AC-12.39's "request-scoped header reaches server render" contract — a broken server path fails this assertion even if WebP bytes happen to differ.
 - [ ] Step 3: Commit: `test(playwright): E2E clock-pipeline proof for AC-12.39 — server-rendered marker + byte diff (Task F.9 — test #18)`
 
 ---
