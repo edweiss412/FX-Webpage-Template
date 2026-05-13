@@ -2,7 +2,7 @@
 
 **Scope:** Build `lib/time/now.ts` — a single server-side time utility that returns the request-scoped `X-Screenshot-Frozen-Now` ISO timestamp when both `ENABLE_TEST_AUTH === "true"` AND a valid `Authorization: Bearer ${TEST_AUTH_SECRET}` are present on the current request. Migrate known render-side `new Date()` call sites (initially `app/show/[slug]/page.tsx:646`). Ship the gating unit test (test #15) and the server-time grep guard (test #16).
 
-**Prereqs:** Phase A complete (auth env + Next.js config in place). No Phase B dependency.
+**Prereqs:** Phase B complete (strict sequential per 00-overview.md). Phase A's auth env + Next.js config in place is the practical dependency; Phase B's catalog schema extension is a no-op interaction with this phase but the strict-sequential ordering applies.
 
 **Tasks:** C.1 → C.4 (4 tasks). C.1 must precede C.2 (migration consumes the utility). C.3 + C.4 can interleave once C.1 commits.
 

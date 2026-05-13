@@ -2,7 +2,7 @@
 
 **Scope:** Extend `MessageCatalogEntry` with three new nullable string fields (`title`, `longExplanation`, `helpHref`). Reconcile the live catalog with master-spec §12.4's admin-log-only contract via a derived parser (`scripts/extract-admin-log-only-codes.ts`). Ship the catalog meta-test (test #2) and the catalog-alignment meta-test (test #17).
 
-**Prereqs:** Phase A complete (MDX pipeline + `/help` layout exist; `lib/messages/lookup.ts` and `lib/messages/catalog.ts` are unchanged from M8/M9 state).
+**Prereqs:** Phase A complete (strict sequential per 00-overview.md). `lib/messages/lookup.ts` and `lib/messages/catalog.ts` from M8/M9/M10 state.
 
 **Tasks:** B.1 → B.5 (5 tasks). B.1 must land before B.2 (alignment writes nulls to the extended schema). B.3 + B.4 + B.5 can interleave once B.2 commits.
 

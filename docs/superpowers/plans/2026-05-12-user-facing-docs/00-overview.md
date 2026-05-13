@@ -143,9 +143,13 @@ app/show/[slug]/page.tsx                                  # Phase C.2 (migrate `
 app/admin/actions.ts                                      # Phase C.4 (add `// not-render-side` waiver on existing new Date() call)
 app/show/[slug]/p/actions.ts                              # Phase C.4 (waiver)
 app/admin/dev/actions.ts                                  # Phase C.4 (waivers)
-components/admin/*.tsx                                    # Phase G.3 (Learn-more link wiring inside shared error-renderer call sites)
-components/admin/<dashboard-and-per-show-components>.tsx  # Phase G.4 (data-testid retrofit per §5.6 matrix concrete rows)
-components/<onboarding-wizard>.tsx                        # Phase G.4 (testid retrofit, M10-owned)
+components/admin/AlertBanner.tsx                          # Phase G.3 (Learn-more wiring on the shared messageFor renderer)
+components/admin/ParsePanel.tsx                           # Phase G.4 (testid retrofit per §5.6 matrix rows: parse-warnings header + parse-warning rows)
+components/admin/ReSyncButton.tsx                         # Phase G.4 (testid retrofit per §5.6 matrix: sync-health header sibling)
+components/admin/StagedReviewCard.tsx                     # Phase G.4 (testid retrofit per §5.6 matrix: per-show staged-review card; first-seen variant if M9 ships it separately)
+components/messages/<ErrorExplainer>.tsx                  # Phase G.3 — file path resolves at execution time when implementer surveys components/messages/ for the §9.0.1 "What does this mean?" expansion component shipped by M9/M10. Falls back to a new file under app/help/_components/ if M9/M10 hasn't shipped a shared helper. (Acceptable indeterminacy: r2 grep confirmed components/messages/ is the canonical M9/M10 location; ErrorExplainer is the master-spec-named helper.)
+components/admin/<dashboard-row-component>.tsx            # Phase G.4 — M9-owned, dashboard "Active Shows" + "Sheets we couldn't auto-apply" panel headers and the "Review staged changes" status badge. Concrete path resolves when M9 ships; per AC-12.22 sequencing, M10 close-out gates M12 execution, so this gap is bounded.
+components/<onboarding-wizard>.tsx                        # Phase G.4 — M10-owned, three wizard step headers carrying help-affordance--wizard-step{1,2,3}--tooltip testids. Concrete path resolves at M10 close-out; an M10 amendment may also re-shape these surfaces.
 next.config.ts                                            # Phase A.1 (add withMDX + pageExtensions ['ts','tsx','mdx'])
 package.json + pnpm-lock.yaml                             # Phase A.1 (@next/mdx + loaders) + F.3 (sharp) + F.5 (screenshot:help script)
 playwright.config.ts                                      # Phase F.4 (add `screenshots-help` project + webServer entry)

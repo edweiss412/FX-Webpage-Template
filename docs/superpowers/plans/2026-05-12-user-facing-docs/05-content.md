@@ -2,7 +2,7 @@
 
 **Scope:** Author the 13 v1 pages: 4 adoption-track + 7 capability-reference + `/help/tour` + `/help/errors`. Each page is a separate task following a shared pattern. Smoke tests assert each page renders without error and contains the documented section structure.
 
-**Prereqs:** Phases A, B, D complete (MDX pipeline + layout, catalog schema extended, all six MDX components exist). Phase C optional (the time utility doesn't affect `/help/*` directly — `/help/admin/preview-as-crew` covers the migrated render-side surface).
+**Prereqs:** Phase D complete (strict sequential per 00-overview.md — implies A + B + C also complete). MDX pipeline + layout from A; catalog schema extended in B; time utility from C; all six MDX components from D.
 
 **Tasks:** E.1 → E.13 (13 tasks). Order is flexible; the recommended order is the reading order (adoption track first, then reference, then tour + errors). E.13 (`/help/errors`) is a TSX file (iterates catalog); the other 12 are `.mdx`.
 

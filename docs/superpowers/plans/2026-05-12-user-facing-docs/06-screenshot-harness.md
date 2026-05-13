@@ -2,7 +2,7 @@
 
 **Scope:** Build the deterministic screenshot capture pipeline. Manifest of `(key, route, fixture, viewport, frozenClockInstant)` entries; fixture-INFO-tab date-range parser; Playwright capture script using `signInAs` + `context.clock.install` + `X-Screenshot-Frozen-Now` header; `sharp` encoder with pinned settings; CI drift gate; structural meta-tests (#8, #9, #10, #14); E2E clock-pipeline proof (#18); real screenshot captures committed.
 
-**Prereqs:** Phases A, C, D, E complete. Phase E may have left `<ScreenshotPlaceholder>` references in some pages — Task F.10 converts those to `<Screenshot key>` references in lockstep with capturing the WebPs.
+**Prereqs:** Phase E complete (strict sequential per 00-overview.md — implies A + B + C + D also complete). Phase E may have left `<ScreenshotPlaceholder>` references in some pages — Task F.10 converts those to `<Screenshot key>` references in lockstep with capturing the WebPs.
 
 **Tasks:** F.1 → F.11 (11 tasks). F.1 → F.2 → F.3 are linear (manifest defines the contract; parser validates entries; capture script consumes both). F.4 + F.5 run after F.3. F.6 – F.9 are tests that can interleave. F.10 (E2E proof) requires F.5 (the screenshot:help script). F.11 (capture real WebPs) is the deliverable that ships the final bytes.
 

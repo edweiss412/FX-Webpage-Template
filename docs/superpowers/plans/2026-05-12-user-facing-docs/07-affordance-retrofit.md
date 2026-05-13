@@ -2,7 +2,7 @@
 
 **Scope:** Build the `affordanceMatrix.ts` registry as the typed source of truth for §5.6's affordance matrix. Implement the render-side gate (admin-context detection with the preview-as-crew exception). Wire `Learn more →` links into existing components via `messageFor(code).helpHref`. Retrofit M3/M9/M10 source surfaces with the documented `data-testid` attributes. Ship the deep-link walker (#13) and error-renderer gate (#12).
 
-**Prereqs:** Phases B (catalog with `helpHref` populated), E (target pages exist), F (testid retrofits land alongside screenshot manifest entries; some surfaces are captured surfaces). M3/M9/M10 components must exist — confirmed by M10 close-out (AC-12.22).
+**Prereqs:** Phase F complete (strict sequential per 00-overview.md — implies A through F also complete). Catalog with `helpHref` populated (Phase B + Phase E backfill); target pages exist (Phase E); manifest entries with WebPs (Phase F). M3/M9/M10 source components must exist — confirmed by M10 close-out (AC-12.22).
 
 **Tasks:** G.1 → G.6 (6 tasks). G.1 → G.2 → G.3 are linear. G.4 (testid retrofits) touches existing components; can interleave with G.5 (walker test). G.6 can run anytime after G.2.
 
@@ -241,8 +241,20 @@ Per spec §5.3 affordance wiring. The retrofit is LINK-ONLY — does not change 
 
 ### Task G.4: Retrofit `data-testid` on M3/M9/M10 source surfaces
 
+**Pre-execution discovery (r2 — addresses round-2 finding 2):** Before G.4 begins, the implementer runs a discovery pass to pin the exact file path for every matrix row's source surface. Updates 00-overview.md's file-inventory `<placeholder>` paths with the concrete files. The discovery pass is unblocked when M10 closes (per AC-12.22). Commands:
+
+```bash
+# For each matrix row, grep for the source-surface text to locate its owning component:
+grep -rn "Active Shows" components/ app/admin/    # → /admin dashboard Active Shows panel header
+grep -rn "Sheets we couldn't" components/ app/admin/
+grep -rn "Review staged changes" components/ app/admin/
+# ... repeat for each row's source surface text
+```
+
+Commit the inventory update as `docs(plan): pin M9/M10 component paths for Phase G.4 retrofit` BEFORE the G.4 task block begins.
+
 **Files:**
-- Modify: existing components per the `AFFORDANCE_MATRIX` concrete-testid rows. Identify each via the matrix's `sourceSurface` description + the existing project's component layout under `components/admin/`.
+- Modify: existing components per the `AFFORDANCE_MATRIX` concrete-testid rows. Concrete paths are pinned by the discovery pass above. Known anchors from the r2 plan inventory: `components/admin/AlertBanner.tsx`, `components/admin/ParsePanel.tsx`, `components/admin/ReSyncButton.tsx`, `components/admin/StagedReviewCard.tsx` (live at plan-write time); plus M9/M10-owned files (dashboard rows, onboarding wizard steps) discovered post-M10.
 
 For every concrete-testid row in the matrix, the owning component must carry the `data-testid` attribute on the affordance element (the `?` icon, "Take the tour" link, etc.). Most M3/M9/M10 work already shipped these affordances without testids; G.4 retrofits them.
 

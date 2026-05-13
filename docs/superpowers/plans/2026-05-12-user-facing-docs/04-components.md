@@ -2,7 +2,7 @@
 
 **Scope:** Build the 6 MDX-injected components: `<Callout>`, `<Step>`, `<ScreenshotPlaceholder>` (draft scaffold), `<Screenshot>` (production), `<RefAnchor>`, `<TipFromSheets>`. Register them in `mdx-components.tsx` so they're available inside every `.mdx` file under `app/help/`.
 
-**Prereqs:** Phase A (mdx-components.tsx exists). Phase B optional (`<RefAnchor>` will eventually be referenced by `helpHref` deep-links, but the component itself doesn't depend on the catalog schema).
+**Prereqs:** Phase C complete (strict sequential per 00-overview.md). Phase A's `mdx-components.tsx` and Phase B's catalog schema extension are the practical interactions; Phase C's time utility is a no-op interaction but the strict-sequential ordering applies.
 
 **Tasks:** D.1 → D.7 (6 components + 1 wiring task). Order within phase is flexible; do them in alphabetical order for predictability.
 
