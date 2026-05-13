@@ -397,8 +397,15 @@ Per spec §7.1 test 13 (r10 row-class split, r11 split between G.4 and G.5 per B
 - [ ] Step 4: **Reverse-direction check** — vitest test:
   - Grep the codebase for `data-testid="help-affordance--*"` literals.
   - For each found testid: assert it's enumerated in the matrix (concrete rows) OR matches the template-family pattern `/^help-affordance--error-message--[a-z0-9-]+--learn-more$/`.
-- [ ] Step 5: Run all three test files. Concrete rows should PASS once G.4 retrofitted testids. Template-family PASSES once G.3 wires the renderer. Negative PASSES — no testids on `/show/<slug>`. Reverse-direction PASSES — every testid in the codebase is in the matrix or matches the family pattern.
-- [ ] Step 6: Commit: `test(help): deep-link affordance walker (Task G.5 — test #13, three row classes)`
+- [ ] Step 5: **Matrix-target resolver** — vitest test (**r7 add per Phase-D-r6 finding 2 (MEDIUM)**):
+  - Import `AFFORDANCE_MATRIX` from `lib/help/affordanceMatrix.ts`.
+  - For each `kind === "concrete"` row, take `row.target` (e.g., `/help/admin/dashboard#active-shows`), split on `#`, resolve the path to a file under `app/help/` (`.mdx` or `.tsx`, page.mdx/page.tsx convention as in H.1's anchor resolver).
+  - Assert the file exists AND the fragment appears in the source as either `<RefAnchor id="...">` (catalog-code anchors) OR a plain `id="..."` attribute (kebab-case section anchors).
+  - For template-family rows, expand by iterating MESSAGE_CATALOG and computing each expanded `target`; resolve each.
+  - Anti-tautology guard: assert at least one concrete row's target was resolved (else the test passes vacuously when the matrix is empty).
+  - This closes the gap H.1 leaves: H.1 only walks `helpHref` from MESSAGE_CATALOG; the §5.6 matrix has non-catalog targets like `#active-shows` / `#step-2` that H.1 never sees.
+- [ ] Step 6: Run all four test files. Concrete rows should PASS once G.4 retrofitted testids. Template-family PASSES once G.3 wires the renderer. Negative PASSES — no testids on `/show/<slug>`. Reverse-direction PASSES — every testid in the codebase is in the matrix or matches the family pattern. Matrix-target resolver PASSES — every concrete + template-family target resolves to a real page + fragment.
+- [ ] Step 7: Commit: `test(help): deep-link affordance walker + matrix-target resolver (Task G.5 — test #13, four assertions)`
 
 ---
 

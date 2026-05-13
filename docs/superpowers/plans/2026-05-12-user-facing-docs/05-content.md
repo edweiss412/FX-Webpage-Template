@@ -383,12 +383,12 @@ Commit: `feat(help): /help/whats-different page content (Task E.4)`
 3. H2 "The Active Shows panel" — `<h2 id="active-shows">` (the §5.6 matrix targets `/help/admin/dashboard#active-shows`). **r6 fix per D-r5 finding 1:** matrix uses lowercase kebab fragment; non-catalog section anchor → plain `<h2>`, not `<RefAnchor>`.
    - Per-column explanation
    - What status badges mean (green, yellow, red — but never use color alone per PRODUCT.md a11y floor)
-4. H2 "The Sheets-we-couldn't-auto-apply panel" — `<h2 id="first-seen">` (the §5.6 matrix targets `/help/admin/review-queues#first-seen`; this section on the dashboard page mirrors the canonical "first-seen review" anchor that lives on the review-queues page — but **DO NOT** duplicate the id on this page if the review-queues page already owns it; instead change this dashboard-page anchor to a distinct id like `<h2 id="pending-ingestion">` and update the §5.6 matrix row to target `/help/admin/dashboard#pending-ingestion`).
-
-**r6 cross-phase fix per D-r5 finding 1:** the matrix at line 362 of the spec targets `/help/admin/review-queues#first-seen` from the dashboard `?` tooltip, which would cross-link the user from the dashboard's pending-ingestion panel description to the dedicated review-queues page's first-seen anchor. That cross-page linking is fine; the only thing to fix is the dashboard's OWN heading anchor. Match the matrix exactly.
+4. H2 "The Sheets-we-couldn't-auto-apply panel" — `<h2 id="pending-ingestion">` (the §5.6 matrix dashboard row links the dashboard `?` tooltip cross-page to `/help/admin/review-queues#first-seen` for the canonical review-queue explainer; this dashboard page only needs its OWN page-local anchor for in-page navigation, so use the descriptive `pending-ingestion`).
    - When sheets land here (first-seen + parse failure)
    - Retry vs. Discard
 5. H2 "Staged-changes review" — short pointer to `/help/admin/review-queues#re-stage`
+
+**r7 fix per D-r6 finding 1 (HIGH):** the r6 commit updated the content brief to plain `<h2>` but the smoke test still asserted `<RefAnchor id="ACTIVE_SHOWS">`. Implementer following the test would recreate the broken state. r7 aligns the smoke test to the plain-h2 contract.
 
 Smoke test:
 
@@ -397,9 +397,13 @@ Smoke test:
 const src = /* readFileSync(...) */;
 describe("/help/admin/dashboard (E.5)", () => {
   it("has the canonical H1", () => expect(src).toMatch(/^# Reading the dashboard\b/m));
-  it("uses RefAnchor for the two panel anchors", () => {
-    expect(src).toMatch(/<RefAnchor id=["']ACTIVE_SHOWS["']/);
-    expect(src).toMatch(/<RefAnchor id=["']PENDING_INGESTION["']/);
+  it("has plain h2 section anchors matching §5.6 matrix fragments", () => {
+    expect(src).toMatch(/<h2[^>]*id=["']active-shows["']/);
+    expect(src).toMatch(/<h2[^>]*id=["']pending-ingestion["']/);
+  });
+  it("does NOT use RefAnchor for these section anchors (catalog-code-only per D.5)", () => {
+    expect(src).not.toMatch(/<RefAnchor\s+id=["']ACTIVE_SHOWS["']/);
+    expect(src).not.toMatch(/<RefAnchor\s+id=["']PENDING_INGESTION["']/);
   });
   it("links to /help/admin/review-queues", () =>
     expect(src).toContain("/help/admin/review-queues"));
