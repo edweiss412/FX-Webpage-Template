@@ -163,7 +163,8 @@ The capture script MUST establish each precondition before any screenshot is tak
 | **Quiescence wait** | After navigation, await `waitFor` selector AND `page.waitForLoadState('networkidle')` AND optional `expectStableMs` settle period (default 500 ms). Captures only after a frame is rendered post-quiescence. | Manifest-driven |
 | **Theme application** | For each entry, run twice: once with `colorScheme: 'light'` + `<html data-theme="light">` set via `addInitScript`, once with `dark` equivalent. Theme is *imposed*, not inferred from OS. | App's existing `data-theme` mechanism |
 | **Output normalization** | WebP output via `sharp` with fixed encoder settings (`q=90`, `effort=4`, `smartSubsample=true`, `nearLossless=false`). Pinning encoder version prevents the same pixels from producing different bytes across machines. | `package.json` pins `sharp` version; CI uses the same version. |
-| **Fixed clock (r4)** | All time-dependent rendering is captured at a fixed instant. Specifically: (a) browser side — Playwright's `context.clock.install({ time: FIXED_INSTANT })` (or `page.addInitScript` overriding `Date` / `Date.now`) pins `new Date()` and `Date.now()` to the manifest's `frozenClockInstant`; (b) server side — the server-rendered relative-time formatter is stubbed via test-only env (`SCREENSHOT_FROZEN_NOW=<ISO>`), OR fixture seed data is timestamped relative to `frozenClockInstant` so "12 min ago" renders the same string every run. Default instant: `2026-04-15T14:30:00Z`. Manifest may override per-entry. | Existing `tests/e2e/right-now.spec.ts:87-114` pinning pattern; reuse. |
+| **Fixed clock (r4, refined r5)** | All time-dependent rendering is captured at a fixed instant. **`frozenClockInstant` is REQUIRED per manifest entry** — no project-wide default (r4's default fell outside the default fixture's show window; r5 fixes by requiring per-entry intent). Each entry picks an instant inside its fixture's operational window. Mechanism: (a) browser — Playwright's `context.clock.install({ time: frozenClockInstant })` pins `Date`/`Date.now`; (b) server-rendered relative-time — **no new env var** (preserves AC-12.16); fixture seed timestamps are anchored relative to `frozenClockInstant`, e.g., a row meant to render "12 min ago" has `last_synced_at = frozenClockInstant - 12 minutes`. The server formatter still uses real `Date.now()` at capture time, but the difference resolves stably because both sides are pinned to within the capture window. | Existing `tests/e2e/right-now.spec.ts:87-114` pinning pattern |
+| **Frozen-instant fixture validation (r5)** | Pre-capture validation: for every manifest entry, assert `frozenClockInstant` falls within the named fixture's operational date range (parsed from the fixture's INFO tab dates, catalogued in `fixtures/shows/_schema-diff.md`). Capture fails fast if a manifest entry's clock is outside its fixture's window. | `fixtures/shows/_schema-diff.md` |
 | **CSRF / session-cookie volatility (r4)** | Sign in once at `globalSetup`, persist `storageState`, reuse across captures. Subsequent navigations carry stable cookies; no per-request CSRF nonce churn enters the rendered output. | Playwright's `storageState` pattern, already used by existing E2E suite |
 | **Supabase Realtime suppression (r4)** | The capture script disables Realtime subscriptions before navigation: either `page.addInitScript` overrides `window.WebSocket` to a no-op for the duration of capture, or the test-only build flag disables Realtime subscribe paths entirely. Live data flicker from Realtime push during the quiescence wait would otherwise produce non-deterministic captures. | Implementation picks the lighter option; both are reversible per-test. |
 
@@ -248,7 +249,7 @@ export type MessageCatalogEntry = {
 };
 ```
 
-`messageFor` keeps its signature; the **return type gains two new fields**:
+`messageFor` keeps its signature; the **return type gains three new fields (r5)**:
 
 ```ts
 export type MessageCatalogEntry = {
@@ -260,12 +261,15 @@ export type MessageCatalogEntry = {
   helpfulContext: string | null;
   longExplanation: string | null;   // NEW in M12
   helpHref: string | null;          // NEW in M12
+  adminLogOnly?: boolean;           // NEW in M12 (r5) — opt-out for self-contained admin-log entries
 };
 ```
 
-Both new fields are declared `string | null` (matching the existing field shape — uniform with `dougFacing`/`crewFacing`/`followUp`/`helpfulContext`). Existing callers continue to compile: TS sees the type widen but every caller pre-r3 ignores these properties.
+`longExplanation` and `helpHref` are `string | null`. `adminLogOnly` is optional `boolean`; defaults `false`. Existing callers continue to compile.
 
-**Required-when predicate (corrected r4):** `severity !== "info"` AND `dougFacing != null`.
+**`adminLogOnly` semantics (new in r5).** Some catalog entries are self-contained: their `dougFacing` string is its own action ("refresh the admin page", "retry shortly"). Per master-spec §12.4, codes like `STALE_WRITE_ABORTED`, `STALE_PUSH_ABORTED`, `STALE_MANUAL_REPLAY_ABORTED`, `CONCURRENT_SYNC_SKIPPED`, `STAGED_PARSE_REVISION_RACE`, and `STAGED_PARSE_REVISION_RACE_COOLDOWN` exist for admin-feed visibility but don't need `/help/errors` pages — Doug doesn't need to "learn more"; he needs to refresh. M12 sets `adminLogOnly: true` on these entries. The render-side gate (below) also strips `Learn more →` from any entry where `adminLogOnly === true`, even if `helpHref` is accidentally populated.
+
+**Required-when predicate (r5):** `severity !== "info"` AND `dougFacing != null` AND `adminLogOnly !== true`.
 
 This is the v1 admin-scoped predicate. Live `components/admin/AlertBanner.tsx:39-50` treats only `severity === "info"` as excluded from the alert banner; unset severity is rendered as warning-equivalent. The narrowed predicate covers warning + unset-severity entries AND restricts to admin-facing rows.
 
@@ -273,12 +277,12 @@ This is the v1 admin-scoped predicate. Live `components/admin/AlertBanner.tsx:39
 
 | Field | Type | Required when | Purpose |
 | --- | --- | --- | --- |
-| `longExplanation` | `string \| null`; non-null required | `severity !== "info"` AND `dougFacing != null` | Long-form plain-language explanation; rendered on `/help/errors#<code>` |
+| `longExplanation` | `string \| null`; non-null required | `severity !== "info"` AND `dougFacing != null` AND `adminLogOnly !== true` | Long-form plain-language explanation; rendered on `/help/errors#<code>` |
 | `helpHref` | `string \| null`; non-null required | Same predicate as above | Deep-link target for "Learn more →" links |
 
-Info-tier entries are not required to carry docs but may opt in. Crew-only entries (`dougFacing == null`, `crewFacing != null`): both fields stay `null` in v1; phase 2 fills them when crew docs ship.
+Info-tier entries: not required. Crew-only entries (`dougFacing == null`, `crewFacing != null`): both fields stay `null` in v1; phase 2 fills them. Admin-log-only entries (`adminLogOnly === true`, see r5 semantics above): both fields stay `null`; the entry's own `dougFacing` is its self-contained action.
 
-**Render-side guard:** The shared error renderer that displays `messageFor(code)` output adds a `Learn more →` link only when **both** of these hold: (a) `helpHref` is non-null, and (b) the rendering context is admin (the surface lives on `/admin/*` or `/help/admin/*`). Crew-facing surfaces (`/show/<slug>`) MUST NOT emit admin-gated `/help` links even if a future widening of the predicate accidentally populates `helpHref` on a crew-only entry. This is enforced by `tests/messages/_metaErrorRendererGate.test.ts` — see §7.1 test 12.
+**Render-side guard (r5):** The shared error renderer adds `Learn more →` only when **all** of these hold: (a) `helpHref` is non-null, (b) rendering context is admin (`/admin/*` or `/help/admin/*`), AND (c) `adminLogOnly !== true`. Crew-facing surfaces (`/show/<slug>`) MUST NOT emit admin-gated `/help` links. Admin-log-only entries skip the link even on admin contexts — Doug doesn't need to "learn more" about a transient sync race; the embedded action ("refresh", "retry") is sufficient. Enforced by `tests/messages/_metaErrorRendererGate.test.ts` — see §7.1 test 12.
 
 A meta-test (`tests/messages/_metaErrorCatalogDocs.test.ts`) asserts the catalog contract. New codes added without docs fail CI.
 
@@ -306,30 +310,35 @@ Page slugs and anchor IDs under `/help/*` are **committed contracts**. Renaming 
 
 A non-admin who hits a deep-linked `/help/...` URL gets the same `forbidden()` 403 as bare `/help`. Acceptable: only Doug should be following these links from inside `/admin`. Phase 2 will allow `/help/crew/*` to bypass auth without affecting admin links. The render-side gate (§5.1) ensures crew-facing surfaces don't emit admin-gated links even if the catalog accidentally populates `helpHref` on a crew-only entry.
 
-### 5.6 §9.0.1 surface affordance matrix (new in r4)
+### 5.6 §9.0.1 surface affordance matrix (new in r4, expanded in r5)
 
-Every `?` tooltip / "Learn more" / "What does this mean?" / "Take the tour" link in the master spec §9.0.1 is enumerated below with its M12 deep-link target. Test #13 (§7.1) walks this matrix and verifies every source surface emits the expected `/help/...` URL.
+Every `?` tooltip / "Learn more" / "What does this mean?" / "Take the tour" link in the master spec §9.0.1 is enumerated below with its M12 deep-link target AND a stable `data-testid`. Test #13 walks the matrix by `data-testid`, locates the affordance in the rendered DOM, asserts the link is present (or absent for crew rows), and asserts the link's `href` matches the matrix target.
 
-| Source surface | Affordance | Target | Owning milestone |
-| --- | --- | --- | --- |
-| `/admin` dashboard — Active Shows panel header | `?` tooltip | `/help/admin/dashboard#active-shows` | M3 / M9 |
-| `/admin` dashboard — "Sheets we couldn't auto-apply" panel header | `?` tooltip | `/help/admin/review-queues#first-seen` | M3 / M9 |
-| `/admin` dashboard — "Review staged changes" status badge | `?` tooltip | `/help/admin/review-queues#re-stage` | M9 |
-| `/admin` dashboard footer | "Take the tour" link | `/help/tour` | M9 |
-| `/admin/show/<slug>` — Staged review card header | `?` tooltip | `/help/admin/review-queues#re-stage` | M9 |
-| `/admin/show/<slug>` — Sync health section header | `?` tooltip | `/help/admin/per-show-panel#sync-health` | M9 |
-| `/admin/show/<slug>` — Parse warnings section header | `?` tooltip | `/help/admin/parse-warnings` | M9 |
-| `/admin/show/<slug>` — individual parse-warning row | `Learn more →` | `/help/admin/parse-warnings#<warning-code>` via `messageFor(code).helpHref` | M9 |
-| `/admin/show/<slug>` — Crew preview links section header | `?` tooltip | `/help/admin/preview-as-crew` | M9 |
-| `/admin/show/<slug>/preview/<crew-id>` — sticky preview banner | `?` icon | `/help/admin/preview-as-crew#impersonation-banner` | M9 |
-| Onboarding wizard — Step 1 ("Share your show folder") | `?` icon next to the service-account email | `/help/admin/onboarding-wizard#service-account` | M10 |
-| Onboarding wizard — Step 2 + Step 3 headers | `?` tooltip per step | `/help/admin/onboarding-wizard#step-2` and `#step-3` | M10 |
-| Any error message rendered through `messageFor(code)` in `/admin/*` | `Learn more →` | `/help/errors#<code>` via `messageFor(code).helpHref` | M9 / M10 |
-| Crew-facing surfaces (`/show/<slug>`) | **No** `Learn more →` link emitted in v1 (admin-gated tree). Phase 2 introduces `/help/crew/*` and crew-facing entries get help links. | n/a in v1 | (Phase 2) |
+**Discovery mechanism (r5):** the test does NOT depend on file:line citations (those rot when components move). It uses `data-testid` attributes that owning milestones (M3/M9/M10) MUST add when they ship the affordance. The testid naming convention: `help-affordance--<source-surface-slug>--<affordance-kind>`.
 
-The matrix is the source of truth for test #13. Owning milestones (M3/M9/M10) ship the affordance text via spec §9.0.1; M12 retrofits the `helpHref` resolution and the link element. Every row that says "Test #13 verifies" is a concrete file:line assertion in the test.
+| Source surface | Affordance | `data-testid` | Target | Owning milestone |
+| --- | --- | --- | --- | --- |
+| `/admin` dashboard — Active Shows panel header | `?` tooltip | `help-affordance--dashboard-active-shows--tooltip` | `/help/admin/dashboard#active-shows` | M3 / M9 |
+| `/admin` dashboard — "Sheets we couldn't auto-apply" panel header | `?` tooltip | `help-affordance--dashboard-pending-ingestion--tooltip` | `/help/admin/review-queues#first-seen` | M3 / M9 |
+| `/admin` dashboard — "Review staged changes" status badge | `?` tooltip | `help-affordance--dashboard-restage-badge--tooltip` | `/help/admin/review-queues#re-stage` | M9 |
+| `/admin` dashboard footer | "Take the tour" link | `help-affordance--dashboard-footer--tour` | `/help/tour` | M9 |
+| `/admin/show/<slug>` — Staged review card (re-stage) | `?` tooltip on header | `help-affordance--per-show-restage-card--tooltip` | `/help/admin/review-queues#re-stage` | M9 |
+| **`/admin/show/staged/<stagedId>` — first-seen staged review card (r5)** | **`?` tooltip on header** | **`help-affordance--first-seen-review-card--tooltip`** | **`/help/admin/review-queues#first-seen`** | **M9** |
+| `/admin/show/<slug>` — Sync health section header | `?` tooltip | `help-affordance--per-show-sync-health--tooltip` | `/help/admin/per-show-panel#sync-health` | M9 |
+| `/admin/show/<slug>` — Parse warnings section header | `?` tooltip | `help-affordance--per-show-parse-warnings--tooltip` | `/help/admin/parse-warnings` | M9 |
+| `/admin/show/<slug>` — individual parse-warning row | `Learn more →` | `help-affordance--parse-warning-row--learn-more` | `/help/admin/parse-warnings#<warning-code>` via `messageFor(code).helpHref` | M9 |
+| `/admin/show/<slug>` — Crew preview links section header | `?` tooltip | `help-affordance--per-show-preview-links--tooltip` | `/help/admin/preview-as-crew` | M9 |
+| `/admin/show/<slug>/preview/<crew-id>` — sticky preview banner | `?` icon | `help-affordance--preview-banner--tooltip` | `/help/admin/preview-as-crew#impersonation-banner` | M9 |
+| Onboarding wizard — Step 1 (service-account email) | `?` icon | `help-affordance--wizard-step1--tooltip` | `/help/admin/onboarding-wizard#service-account` | M10 |
+| Onboarding wizard — Step 2 + Step 3 headers | `?` tooltip per step | `help-affordance--wizard-step2--tooltip`, `help-affordance--wizard-step3--tooltip` | `/help/admin/onboarding-wizard#step-2` and `#step-3` | M10 |
+| Any error message rendered through `messageFor(code)` in `/admin/*` (excludes `adminLogOnly === true`) | `Learn more →` | `help-affordance--error-message--<code>--learn-more` (testid template; concrete testid carries the error code suffix) | `/help/errors#<code>` via `messageFor(code).helpHref` | M9 / M10 |
+| Crew-facing surfaces (`/show/<slug>`) | **No** `Learn more →` link emitted in v1 | — | n/a in v1 | (Phase 2) |
 
-**Class-sweep guarantee:** any new section header in `/admin/*` that would carry a §9.0.1 tooltip MUST add a row to this matrix in the same PR (enforced by code review per AGENTS.md invariant #7 "spec is canonical"). Test #13 fails if a tooltip in the codebase is missing a matrix row OR if a matrix row's source surface is missing the affordance.
+The matrix is the source of truth for test #13. Owning milestones ship the affordance text via spec §9.0.1; M12 retrofits the `helpHref` resolution and the link element. **Owning milestones MUST also add the `data-testid` attribute exactly as named in this matrix** — see §7.1 test 13 for the discovery mechanism.
+
+**Class-sweep guarantee:** any new section header in `/admin/*` that would carry a §9.0.1 tooltip MUST add (a) a row to this matrix, (b) the matching `data-testid` in the component, (c) the target `/help/...` page or anchor — all in the same PR. Test #13 fails if a `data-testid` named `help-affordance--*` exists in the codebase without a matrix row, OR if a matrix row's `data-testid` is missing from the rendered output.
+
+**Phase-2 widening:** when crew docs ship, the bottom row gains a `data-testid` and target; admin-log-only is unaffected since those entries don't get crew-facing affordances either.
 
 ---
 
@@ -443,10 +452,12 @@ All components honor `prefers-reduced-motion`. None have motion in v1 (the contr
     - Prevents future widening of the catalog predicate from accidentally leaking admin-gated `/help` links into crew-rendered surfaces
     - **Anti-tautology:** the rendering helper is called against a mock catalog entry with `helpHref` populated even on crew-only rows (a forced-mismatch); the test asserts the gate's behavior, not the catalog's predicate
 
-13. **Deep-link affordance walker** (`tests/help/deep-link-walker.test.ts`) — new in r4
-    - For every row in §5.6's affordance matrix, asserts: (a) the source surface component exists at the cited file:line, (b) the `Learn more →` link element (or the absence of one, where matrix says so) is present in the rendered output, (c) the link's `href` matches the matrix's target column
-    - Catches added or moved affordances that aren't reflected in the matrix
-    - Catches matrix rows that were never wired
+13. **Deep-link affordance walker** (`tests/help/deep-link-walker.test.ts`) — new in r4, discovery-by-testid in r5
+    - **Discovery mechanism:** the test reads §5.6's matrix (as a typed `affordanceMatrix.ts` import) and walks each row by its `data-testid`. No file:line citations — components can move freely as long as the testid travels with the affordance.
+    - For every matrix row: navigates to the source-surface route (signed in as admin), locates the element with the documented `data-testid`, asserts the `Learn more →` (or `?` tooltip → "Learn more →") link is present, and asserts the link's `href` matches the matrix target column.
+    - For the crew-facing row (last in matrix): navigates as a signed-link viewer to `/show/<slug>`, asserts no `data-testid="help-affordance--*"` element is rendered.
+    - **Reverse-direction check:** the test ALSO greps the codebase for any `data-testid="help-affordance--*"` and asserts each is enumerated in `affordanceMatrix.ts`. Catches affordances added without matrix rows.
+    - Catches added/moved/missing affordances and matrix rows that were never wired.
 
 ### 7.2 Anti-tautology guardrails
 
@@ -523,7 +534,7 @@ These are all "consult the codebase" calls. None changes the design.
 | **`/help/errors` rendering** | TSX page iterating the catalog. MDX considered and rejected (would duplicate the short message). | §4.3 |
 | **`/help/admin/parse-warnings` rendering** | MDX with anchored sections. TSX considered and rejected (content is editorial). | §4.2 |
 | **Catalog API surface** | The accessor is `messageFor(code): MessageCatalogEntry` (per `lib/messages/lookup.ts:11`). M12 does NOT introduce a new `lookup` function — it extends the existing `MessageCatalogEntry` type (per `lib/messages/catalog.ts:1-8`) with two new optional fields. **Per round-1 finding 1.** | §5.1 |
-| **Catalog schema extension shape** | Two new fields: `longExplanation: string \| null` and `helpHref: string \| null`. Required when `severity !== "info"` AND `dougFacing != null` (admin-facing only in v1). The `severity !== "info"` half covers warning + unset-severity entries per the live `AlertBanner` default-warning rule at `components/admin/AlertBanner.tsx:39-50`; the `dougFacing != null` half restricts to admin-navigable entries so crew users never link to admin-gated `/help` URLs. **r2's `severity === "warning"` was wrong (round-1 finding 3); r3's broader predicate would have linked crew users to 403s (round-2 finding 1); r4 narrows correctly.** Enforced by meta-test + render-side gate. | §5.1, §7.1 test 12 |
+| **Catalog schema extension shape** | Three new fields: `longExplanation: string \| null`, `helpHref: string \| null`, `adminLogOnly?: boolean` (r5). Required predicate: `severity !== "info"` AND `dougFacing != null` AND `adminLogOnly !== true`. **r5 added `adminLogOnly` opt-out (round-3 finding 2)** so self-contained admin-log codes (STALE_WRITE_ABORTED etc.) skip the docs requirement; their `dougFacing` is its own action. r4 narrowed from r3's overly-broad predicate (round-2 finding 1); r2's `=== "warning"` predicate missed default-warning entries (round-1 finding 3). Enforced by meta-test + render-side gate. | §5.1, §7.1 test 12, AC-12.35 |
 | **Rendering posture** | **Dynamic at request time** for `/help/*` (not statically prerendered). `requireAdmin()` runs Supabase queries on every request. MDX content is statically compiled to RSC; the layout gate is dynamic. **Per round-1 finding 2.** | §3.4 |
 | **`AdminInfraError` handling on `/help`** | Mirrors `app/admin/layout.tsx:47-71` verbatim. `/help/layout.tsx` wraps `requireAdmin()` in try/catch, catches `AdminInfraError`, renders the cataloged 500-class surface via `messageFor("ADMIN_SESSION_LOOKUP_FAILED")`. Test #3 verifies. **Per round-1 finding 2.** | §3.5, §7.1 test 3 |
 | **Screenshot harness reproducibility** | The harness specifies a dedicated Playwright project, `globalSetup` running `pnpm db:seed`, reuse of `signInAs` from `tests/e2e/helpers/signInAs.ts`, pinned `sharp` encoder settings, deterministic browser settings (timezone, locale, color-scheme, reduced motion, font hinting, animations off), quiescence wait, **fixed clock (browser + server) per r4**, **CSRF/cookie stability via `storageState` reuse per r4**, **Supabase Realtime suppression per r4**, and a CI `git diff --exit-code` gate. **Per round-1 finding 4 + round-2 finding 3.** | §3.6.2, §3.6.3 |
@@ -532,6 +543,11 @@ These are all "consult the codebase" calls. None changes the design.
 | **Static-vs-dynamic build contract** | `pnpm build` **compiles** MDX to RSC chunks; does NOT prerender static HTML. `app/help/layout.tsx` exports `dynamic = "force-dynamic"` to be explicit. AC-12.1 asserts compilation, not prerender. **Per round-2 finding 4.** | §3.2, §3.4, AC-12.1, AC-12.31 |
 | **§9.0.1 surface coverage** | §5.6 enumerates every section header / `Learn more →` / "Take the tour" affordance per master-spec §9.0.1, with explicit `/help/...` target per row. Test #13 walks the matrix. New tooltips added in `/admin` must add a matrix row in the same PR. **Per round-2 finding 5.** | §5.6, §7.1 test 13 |
 | **Existing-code citation discipline** | All citations in §12 cite `file:line` (no "deferred to implementation"). r3's `next.config.ts:13` corrected to `:17` in r3; r3's directory-only citations corrected to file:line in r4 (`app/layout.tsx:1`, `app/globals.css:1`). **Per round-2 finding 6.** | §12 |
+| **First-seen staged-review surface in matrix** | §5.6 row added for `/admin/show/staged/<stagedId>` per master-spec §9.1 / §9.2 sub-section 0. Same review-card UI as `/admin/show/<slug>?review=`, slug-less variant. Target: `/help/admin/review-queues#first-seen`. **Per round-3 finding 1.** | §5.6 row "first-seen staged review card" |
+| **Admin-log-only codes excluded from docs requirement** | New `adminLogOnly?: boolean` catalog flag (r5) opts out 6 named codes (STALE_*, CONCURRENT_SYNC_SKIPPED, STAGED_PARSE_REVISION_RACE*). Predicate becomes `severity !== "info"` AND `dougFacing != null` AND `adminLogOnly !== true`. Render-side gate strips Learn-more even when these entries are rendered to Doug — the dougFacing is self-contained. **Per round-3 finding 2.** | §5.1, §5.2 gate, AC-12.35 |
+| **Walker discovery uses `data-testid`, not file:line** | §5.6 matrix gains a `data-testid` column with `help-affordance--*` naming convention. Owning milestones (M3/M9/M10) ship the testids; test #13 walks them. File:line citations would rot when components move. **Per round-3 finding 3.** | §5.6, §7.1 test 13, AC-12.36 |
+| **`frozenClockInstant` is per-entry required, no default** | r4's project default (`2026-04-15T14:30:00Z`) fell outside the default fixture's window (RPAS Central 2026: 3/22–3/26). r5 removes the default — manifest entries MUST declare `frozenClockInstant` per-entry, validated against the fixture's date window pre-capture. **Per round-3 finding 4.** | §3.6.2 "Fixed clock" + "Frozen-instant fixture validation", AC-12.32, AC-12.34 |
+| **Fixed-clock contract preserves AC-12.16** | r5 drops the hypothetical `SCREENSHOT_FROZEN_NOW` env var. Server-rendered relative time stays deterministic via fixture seed timestamps anchored relative to `frozenClockInstant` — no new env var. **Per round-3 finding 5.** | §3.6.2, AC-12.16, AC-12.32 |
 | **Concept track** | Excluded from v1. Explanations live inline on operator pages. | §2 |
 | **Doug as bug-report triager** | **No.** Doug receives content questions from crew via his existing channels (phone/text); app bug reports route to Eric via M8 GitHub pipeline. `/help` covers no bug-triage surface. | (Resolved during brainstorm; codified here.) |
 | **`Learn more →` text vs. icon** | Implementation chooses based on `impeccable` audit; spec does not constrain. | §10 |
@@ -585,7 +601,7 @@ All citations in this table cite `file:line` as required by AGENTS.md self-revie
 | **AC-12.13** | `/impeccable critique` and `/impeccable audit` pass on every `app/help/*` page (per invariant #8). |
 | **AC-12.14** | No `<ScreenshotPlaceholder>` references in `app/help/**/*.mdx` at v1 close-out (lint enforces, §7.1 test 7). Every documented surface ships with a real `<Screenshot key="...">`. |
 | **AC-12.15** | Mobile Playwright test at 390 × 844 passes the dimensional + no-horizontal-scroll + 44 × 44 px-target assertions. |
-| **AC-12.16** | No new boolean flags, no new env vars, no new Supabase tables. (Screenshot harness reuses existing Playwright config; no new env vars.) |
+| **AC-12.16** | No new boolean flags, no new env vars, no new Supabase tables. (Screenshot harness reuses existing Playwright config; the fixed-clock contract is satisfied via fixture timestamp seeding + `context.clock.install`, not via a new env var — see §3.6.2 row "Fixed clock" r5 refinement.) |
 | **AC-12.17** | All milestone work is committed in conventional-commits format (`feat(help): …`, `test(help): …`, etc.) per invariant #6. |
 | **AC-12.18** | `scripts/help-screenshots.manifest.ts` exists and is the single source of truth for every documented surface. Every `<Screenshot key>` reference resolves to a manifest entry. |
 | **AC-12.19** | `scripts/help-screenshots.ts` (the capture script) runs end-to-end via `pnpm screenshot:help` against a clean checkout and produces every manifest entry's light + dark WebP output. Idempotent: a second run on unchanged UI produces byte-identical output. |
@@ -601,7 +617,10 @@ All citations in this table cite `file:line` as required by AGENTS.md self-revie
 | **AC-12.29** | Error-renderer gate test (§7.1 test 12) passes: admin / help-admin contexts emit `Learn more →` when `helpHref` is non-null; crew context never emits the link regardless of catalog `helpHref` value. |
 | **AC-12.30** | Deep-link affordance walker test (§7.1 test 13) passes: every row in §5.6's matrix is wired (or explicitly absent where the matrix says so). |
 | **AC-12.31** | `app/help/layout.tsx` exports `export const dynamic = "force-dynamic"` to make the dynamic-rendering posture explicit to Next.js. |
-| **AC-12.32** | Screenshot harness pins a fixed clock per §3.6.2 row "Fixed clock": browser `Date`/`Date.now` overridden via `addInitScript` or `context.clock.install`; server-rendered relative time stubbed via `SCREENSHOT_FROZEN_NOW` env OR fixture timestamps seeded relative to `frozenClockInstant`. Default instant `2026-04-15T14:30:00Z`; per-entry override permitted. |
+| **AC-12.32** | Screenshot harness pins a fixed clock per §3.6.2 row "Fixed clock": `frozenClockInstant` is required per manifest entry (no project-wide default). Browser side: Playwright's `context.clock.install({ time: frozenClockInstant })`. Server side: fixture timestamps seeded relative to the entry's `frozenClockInstant` so server-rendered relative-time strings are deterministic — **no new env var introduced** (AC-12.16 preserved). |
+| **AC-12.34** | Frozen-instant fixture validation passes: for every manifest entry, `frozenClockInstant` falls within the named fixture's operational date range per `fixtures/shows/_schema-diff.md`. Capture fails fast if a clock is outside its fixture's window. |
+| **AC-12.35** | Catalog entries flagged `adminLogOnly: true` per master-spec §12.4 admin-log-only contract: `STALE_WRITE_ABORTED`, `STALE_PUSH_ABORTED`, `STALE_MANUAL_REPLAY_ABORTED`, `CONCURRENT_SYNC_SKIPPED`, `STAGED_PARSE_REVISION_RACE`, `STAGED_PARSE_REVISION_RACE_COOLDOWN`. These entries' `longExplanation` and `helpHref` stay `null`; the renderer-gate (test #12) verifies no `Learn more →` is emitted for them. |
+| **AC-12.36** | Every row in §5.6's affordance matrix has a `data-testid` matching `^help-affordance--[a-z0-9-]+--(tooltip|tour|learn-more)$`. Owning milestones (M3/M9/M10) ship those testids on the affordance components. Test #13 walks the matrix by testid. |
 | **AC-12.33** | Screenshot harness suppresses Supabase Realtime push during capture (per §3.6.2). Stable cookies persist across captures via `globalSetup` `storageState` reuse. |
 
 ---
