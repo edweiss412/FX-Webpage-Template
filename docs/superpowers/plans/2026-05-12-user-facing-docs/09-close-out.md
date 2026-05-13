@@ -45,7 +45,7 @@ Same scope. Cache the audit output in `handoffs/M12-help.md` §12 alongside the 
 
 For each finding:
 - **Fix it inline.** Commit per fix with `fix(help): <impeccable finding summary> (Task I.1)`.
-- **OR explicitly defer via `DEFERRED.md`** (matching the existing crew-pages plan's `DEFERRED.md` pattern at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/DEFERRED.md`). Acceptable for findings that are real but better-scoped to a follow-up milestone.
+- **OR explicitly defer via `DEFERRED.md`** (matching the existing crew-pages plan's `DEFERRED.md` pattern at `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/DEFERRED.md`). For M12, the canonical deferral file path is `docs/superpowers/plans/2026-05-12-user-facing-docs/DEFERRED.md` (mirror the crew-pages pattern under the M12 plan directory). Acceptable for findings that are real but better-scoped to a follow-up milestone.
 
 LOW and MEDIUM findings: implementer discretion. Default to fix-now unless it adds scope creep.
 
@@ -56,7 +56,7 @@ After all HIGH/CRITICAL findings are addressed or deferred, re-run `/impeccable 
 - [ ] **Step 5: Commit handoff doc updates**
 
 ```bash
-git add docs/superpowers/plans/2026-05-12-user-facing-docs/handoffs/M12-help.md DEFERRED.md
+git add docs/superpowers/plans/2026-05-12-user-facing-docs/handoffs/M12-help.md docs/superpowers/plans/2026-05-12-user-facing-docs/DEFERRED.md
 git commit -m "docs(handoff): M12 impeccable critique + audit findings (Task I.1)"
 ```
 
@@ -69,7 +69,26 @@ git commit -m "docs(handoff): M12 impeccable critique + audit findings (Task I.1
 
 Per AGENTS.md writing-plans additions: cross-CLI adversarial review is **mandatory** between self-review and execution handoff. For this plan, the execution-handoff has already happened (Phase A – H is the execution); I.2 retroactively reviews the assembled M12 work against the canonical spec.
 
-**Invocation:** `/codex:adversarial-review --scope branch` (or the project's per-memory canonical invocation — see memory note "Adversarial review canonical invocation" in `~/.claude/projects/-Users-ericweiss-FX-Webpage-Template/memory/`).
+**Invocation (r2 fix per I-r1 finding 2 — pin the milestone base SHA so the final APPROVE attests to the full M12 diff, not just the latest fix):**
+
+```bash
+# 1. Capture the M12 base SHA (the commit before any Phase A work landed).
+#    The canonical anchor is the last commit BEFORE Phase A.1's first commit:
+M12_BASE=$(git log --oneline --reverse | grep -B 1 -m 1 'Phase A.1' | head -1 | awk '{print $1}')
+echo "M12 base: $M12_BASE"
+
+# 2. Invoke with --base AND --scope branch so every round reviews the FULL
+#    M12 diff (not the previous-round fix-base, which would hide drift
+#    outside the latest fix surface — see memory note "Adversarial review
+#    must keep full-milestone scope, not narrow per-round").
+/codex:adversarial-review --wait --base "$M12_BASE" --scope branch \
+  "M12 Phase I final fresh-eyes review: audit the entire M12 plan + implementation against spec r14, all 17 §7.1 tests, AC-12.1 through AC-12.39, and every plan-wide invariant from AGENTS.md. Return verdict + findings."
+
+# 3. Each retry MUST keep the same --base so the cumulative APPROVE attests
+#    to the complete milestone.
+```
+
+See also: memory note "Adversarial review canonical invocation" in `~/.claude/projects/-Users-ericweiss-FX-Webpage-Template/memory/`.
 
 The reviewer should anchor on the spec's watchpoints + the 9-round spec review history. Specific watchpoints for the M12 *implementation* review:
 
@@ -89,7 +108,7 @@ Follow the project's canonical adversarial-review invocation. Capture output to 
 
 Per memory note "Iterate adversarial review until APPROVE" — keep iterating; the round-3 cap is for finding-disagreement loops, NOT for halting when each round surfaces new bugs. Pause only on tooling failures or genuine value-judgment ambiguity.
 
-For every round's findings: address them in the codebase (NOT in the spec — the spec is canonical and frozen at r10), commit per fix, then re-trigger the review.
+For every round's findings: address them in the codebase (NOT in the spec — the spec is canonical at the current r14 revision (which incorporates r11-r14 amendments). Implementers fix code, not spec, except when an explicit ratified amendment is needed — see I.3 amendment log), commit per fix, then re-trigger the review.
 
 - [ ] **Step 3: Commit handoff doc convergence-log updates after each round**
 
@@ -115,7 +134,7 @@ Required sections (per the project's HANDOFF-TEMPLATE.md):
 
 1. **Spec sections in scope** — list every §X reference the M12 work touched
 2. **AC list** — every AC-12.* with PASS / DEFERRED / N/A annotation
-3. **Amendments in scope** — none for M12 (spec r10 is canonical; no plan-amendments)
+3. **Amendments in scope** — none for M12 (spec r14 is canonical (incorporating r11/r12/r13/r14 amendments: STALE_MANUAL_REPLAY_ABORTED classification, parser canonical-derivation, predicate single source of truth, Screenshot `name` prop). Plan-amendments documented inline per task; aggregate list in 00-overview if needed)
 4. **Test commands** — exact commands to verify each test class, with expected output
 5. **Convergence log** — round-by-round adversarial-review record (from Task I.2)
 6. **Watchpoints** — class-vector reminders for the next milestone or for follow-up: catalog drift, clock pipeline, affordance retrofit, preview exception
