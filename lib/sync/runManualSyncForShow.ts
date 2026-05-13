@@ -61,7 +61,11 @@ type ManualRecoveryTx = SyncPipelineTx & {
   markShowSheetUnavailable(
     driveFileId: string,
     code: typeof SHEET_UNAVAILABLE | typeof STAGED_PARSE_SOURCE_GONE,
-  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+  ): Promise<{
+    showId: string | null;
+    lastSeenModifiedTime: string | null;
+    title: string | null;
+  }>;
   markShowDriveError(
     driveFileId: string,
     code: string,
@@ -161,6 +165,10 @@ async function markManualSheetUnavailable_unlocked(
       drive_file_id: driveFileId,
       ...(code === STAGED_PARSE_SOURCE_GONE ? { failure_code: code } : {}),
       previous_last_seen_modified_time: previousLastSeenModifiedTime,
+      // Supplies the §12.4 `<sheet-name>` placeholder for AlertBanner
+      // interpolation (M9 C0 round-7). `updated.title` is the freshly
+      // read show title returned by markShowSheetUnavailable's RETURNING.
+      sheet_name: updated.title,
     },
   });
 

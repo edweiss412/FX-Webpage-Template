@@ -681,12 +681,12 @@ export const MESSAGE_CATALOG = {
   SHEET_UNAVAILABLE: {
     code: "SHEET_UNAVAILABLE",
     dougFacing:
-      "A previously synced show sheet is no longer in the watched Drive folder. It will stay visible, but automatic sync is paused until the sheet is restored.",
+      "_<sheet-name>_ isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back.",
     crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at <time>.",
     followUp:
       "Eric -> confirm whether the Sheet was moved or deleted, then restore it or archive the show",
     helpfulContext:
-      "Cron compares the watched folder listing to the live shows already known by the app. This alert means a live show's source Sheet was missing from the latest folder listing or disappeared during fetch.",
+      "We expected to find this sheet in your watched folder but it's not there anymore. Either someone moved it to a different folder, the share was removed, or the file was deleted. Crew see the last good version we have on file. Re-share or move the sheet back into the folder and we'll pick it up on the next sync.",
   },
   DRIVE_FETCH_FAILED: {
     code: "DRIVE_FETCH_FAILED",
@@ -700,7 +700,7 @@ export const MESSAGE_CATALOG = {
   PARSE_ERROR_LAST_GOOD: {
     code: "PARSE_ERROR_LAST_GOOD",
     dougFacing:
-      "<sheetName>'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail.",
+      "_<sheet-name>_'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail.",
     crewFacing:
       "We couldn't read the latest edit to Doug's sheet. Showing what we had at <time>.",
     followUp: "Doug -> fix sheet (see parse panel); Crew -> mention to Doug",
@@ -717,7 +717,7 @@ export const MESSAGE_CATALOG = {
   SYNC_DELAYED_SEVERE: {
     code: "SYNC_DELAYED_SEVERE",
     dougFacing:
-      "<sheetName>: crew page hasn't synced from Drive in over 6 hours. Push or cron is stalled — check the dashboard.",
+      "*<sheet-name>*: crew page hasn't synced from Drive in over 6 hours. Push or cron is stalled — check the dashboard.",
     crewFacing: "Couldn't sync recently — contact Doug.",
     followUp: "Crew -> text Doug; Doug -> check dashboard",
     helpfulContext:

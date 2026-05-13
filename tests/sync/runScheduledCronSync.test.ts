@@ -1753,6 +1753,7 @@ describe("runScheduledCronSync", () => {
           driveFileId: "file-a",
           lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
           wizardSessionId: null,
+          title: null,
         },
       ]),
     });
@@ -1786,6 +1787,7 @@ describe("runScheduledCronSync", () => {
         context: {
           drive_file_id: "file-a",
           previous_last_seen_modified_time: "2026-05-08T11:00:00.000Z",
+          sheet_name: null,
         },
       },
     ]);
@@ -1811,6 +1813,7 @@ describe("runScheduledCronSync", () => {
           driveFileId: "wizard-file",
           lastSeenModifiedTime: "2026-05-08T10:00:00.000Z",
           wizardSessionId: "11111111-1111-4111-8111-111111111111",
+          title: null,
         },
       ]),
     });

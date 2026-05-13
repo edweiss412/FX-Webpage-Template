@@ -159,13 +159,25 @@ export type CronLiveShowRow = {
   driveFileId: string;
   lastSeenModifiedTime: string | null;
   wizardSessionId: string | null;
+  /**
+   * Show title (sheet name) — projected so SHEET_UNAVAILABLE admin
+   * alerts can supply `sheet_name` in admin_alerts.context for the
+   * §12.4 `<sheet-name>` placeholder interpolation (M9 C0 round-7 fix).
+   * Nullable for shows that haven't successfully parsed yet, or for
+   * legacy rows that pre-date title population.
+   */
+  title: string | null;
 };
 
 type CronRecoveryTx = SyncPipelineTx & {
   markShowSheetUnavailable(
     driveFileId: string,
     code: typeof SHEET_UNAVAILABLE | typeof STAGED_PARSE_SOURCE_GONE,
-  ): Promise<{ showId: string | null; lastSeenModifiedTime: string | null }>;
+  ): Promise<{
+    showId: string | null;
+    lastSeenModifiedTime: string | null;
+    title: string | null;
+  }>;
   markShowDriveError(
     driveFileId: string,
     code: string,
@@ -661,20 +673,27 @@ class PostgresPipelineTx implements SyncPipelineTx {
     driveFileId: string,
     code: typeof SHEET_UNAVAILABLE | typeof STAGED_PARSE_SOURCE_GONE,
   ) {
-    const row = await this.one<{ id: string; last_seen_modified_time: string | null }>(
+    const row = await this.one<{
+      id: string;
+      last_seen_modified_time: string | null;
+      title: string | null;
+    }>(
       `
         update public.shows
            set last_sync_status = 'sheet_unavailable',
                last_sync_error = $2,
                last_synced_at = now()
          where drive_file_id = $1
-         returning id, last_seen_modified_time
+         returning id, last_seen_modified_time, title
       `,
       [driveFileId, code],
     );
     return {
       showId: row?.id ?? null,
       lastSeenModifiedTime: row?.last_seen_modified_time ?? null,
+      // Returned so admin_alerts producers can supply `sheet_name` in
+      // context for the §12.4 SHEET_UNAVAILABLE placeholder (M9 C0 R7).
+      title: row?.title ?? null,
     };
   }
 
@@ -1433,19 +1452,21 @@ async function listPostgresLiveShows(): Promise<CronLiveShowRow[]> {
   const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
   try {
     const rows = (await sql.unsafe(`
-      select id, drive_file_id, last_seen_modified_time
+      select id, drive_file_id, last_seen_modified_time, title
         from public.shows
        where drive_file_id is not null
     `)) as Array<{
       id: string;
       drive_file_id: string;
       last_seen_modified_time: string | null;
+      title: string | null;
     }>;
     return rows.map((row) => ({
       showId: row.id,
       driveFileId: row.drive_file_id,
       lastSeenModifiedTime: row.last_seen_modified_time,
       wizardSessionId: null,
+      title: row.title,
     }));
   } finally {
     await sql.end({ timeout: 5 });
@@ -1713,6 +1734,9 @@ async function markMissingShow_unlocked(
     context: {
       drive_file_id: show.driveFileId,
       previous_last_seen_modified_time: previousLastSeenModifiedTime,
+      // Supplies the §12.4 `<sheet-name>` placeholder for AlertBanner
+      // interpolation (M9 C0 round-7).
+      sheet_name: show.title,
     },
   });
   return { outcome: "source_gone", code: SHEET_UNAVAILABLE };

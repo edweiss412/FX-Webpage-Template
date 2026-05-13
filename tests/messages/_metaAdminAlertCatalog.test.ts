@@ -271,9 +271,10 @@ describe("META admin_alerts catalog contract", () => {
   // the matching context key AND the renderer's messageFor interpolation
   // covers the surface.
   const INTERPOLATED_DOUG_FACING_CODES: ReadonlyArray<(typeof ADMIN_ALERTS_CODES)[number]> = [
-    "SHOW_FIRST_PUBLISHED",
-    "SHOW_UNPUBLISHED",
-    "TILE_SERVER_RENDER_FAILED",
+    "SHEET_UNAVAILABLE", //         lib/sync/runScheduledCronSync.ts + runManualSyncForShow.ts supply sheet_name
+    "SHOW_FIRST_PUBLISHED", //      lib/sync/runScheduledCronSync.ts supplies sheet_name / crew_count / show_date
+    "SHOW_UNPUBLISHED", //          lib/sync/unpublishShow.ts supplies sheet_name
+    "TILE_SERVER_RENDER_FAILED", // components/shared/TileServerFallback.tsx supplies sheet_name
   ];
 
   test.each(ADMIN_ALERTS_CODES)(
