@@ -448,7 +448,25 @@ export function GalleryLightbox({
                           animationTime: prefersReducedMotion ? 0 : 200,
                         }}
                         pinch={{ disabled: false }}
-                        wheel={{ disabled: false }}
+                        // Codex R1 HIGH: panning defaults to ENABLED in the
+                        // library. At scale=1 the library's one-finger
+                        // touchmove handler would consume the gesture
+                        // (preventDefault + stopPropagation) BEFORE Embla
+                        // sees it, breaking swipe-to-next on the active
+                        // image. Gating panning on the zoom state lets
+                        // Embla own single-finger horizontal drag at fit-
+                        // to-screen, and the library re-takes ownership
+                        // when the user has pinched past 1x.
+                        panning={{ disabled: !zoomed }}
+                        // Codex R1 HIGH: brief §7 keyboard/input table
+                        // says "Mouse wheel: no-op at scale=1, zoom with
+                        // ctrl/cmd at scale>1." Plain wheel without an
+                        // activation key would zoom unintentionally on
+                        // desktop. activationKeys gates wheel-zoom to
+                        // Control/Meta. Trackpad pinch on macOS dispatches
+                        // wheel events with ctrl held internally, so this
+                        // also preserves the trackpad pinch contract.
+                        wheel={{ disabled: false, activationKeys: ["Control", "Meta"] }}
                         velocityAnimation={{ disabled: prefersReducedMotion }}
                       >
                         <ZoomController

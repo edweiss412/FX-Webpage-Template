@@ -224,6 +224,48 @@ describe("M9 C6c — TransformWrapper prop contract", () => {
     expect(dc?.step).toBe(1);
   });
 
+  test("Codex R1 HIGH: panning is disabled at scale=1 (Embla owns swipe), enabled at scale>1 (library owns pan)", async () => {
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(3)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    // At scale=1, panning.disabled must be true so single-finger
+    // horizontal drag passes through to Embla's swipe-to-next.
+    const propsAtRest = libState.lastWrapperProps;
+    const panningAtRest = propsAtRest?.panning as { disabled?: boolean } | undefined;
+    expect(panningAtRest?.disabled).toBe(true);
+    // After zooming, library takes over panning.
+    simulateScale(2);
+    await waitFor(() => {
+      const props = libState.lastWrapperProps;
+      const panning = props?.panning as { disabled?: boolean } | undefined;
+      expect(panning?.disabled).toBe(false);
+    });
+  });
+
+  test("Codex R1 HIGH: wheel requires Control/Meta activation keys (no unintended desktop zoom)", () => {
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(3)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    const props = libState.lastWrapperProps;
+    const wheel = props?.wheel as
+      | { disabled?: boolean; activationKeys?: string[] }
+      | undefined;
+    expect(wheel?.disabled).toBe(false);
+    expect(wheel?.activationKeys).toEqual(["Control", "Meta"]);
+  });
+
   test("pinch is never disabled, even under prefers-reduced-motion: reduce", () => {
     __matchMediaQuery = (q: string) => q.includes("reduce");
     render(
