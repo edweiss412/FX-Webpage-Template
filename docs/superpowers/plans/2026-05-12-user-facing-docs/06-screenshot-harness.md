@@ -145,9 +145,29 @@ Two options to fix this; pick (a) to inherit F.4's webServer + setup-project + e
 - [ ] Step 1: Implement option (a). Move the `captureAll()` logic from F.3's CLI entry into a Playwright test file `tests/e2e/screenshots-help-capture.spec.ts` (test calls `captureAll()` from `scripts/help-screenshots.ts`). Add the `screenshots-help-capture` project to `playwright.config.ts` with `testMatch: /screenshots-help-capture\.spec\.ts/`, `dependencies: ["screenshots-help-setup"]`, baseURL on port 3004, and the same `use` shape as `screenshots-help`.
 - [ ] Step 2: Add to `package.json` `scripts`:
   ```json
-  "screenshot:help": "playwright test --project=screenshots-help-capture"
+  "screenshot:help": "ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture playwright test --project=screenshots-help-capture"
   ```
-  (env `ENABLE_TEST_AUTH` and `TEST_AUTH_SECRET` are inherited from the project's `webServer.env`.)
+
+  **r3 fix per F-r2 finding 1 (HIGH):** `webServer.env` sets env for the SPAWNED Next server, NOT for the Playwright test process. The capture script's startup check `process.env.ENABLE_TEST_AUTH === "true"` runs in the test process and would fail without the runner env. The `signInAs` helper + the `Authorization: Bearer ${TEST_AUTH_SECRET}` header in F.9 also read from the test process env — they must match the server's secret exactly.
+
+  Setting both `ENABLE_TEST_AUTH=true` and `TEST_AUTH_SECRET=test-secret-fixture` on the command line ensures the test runner sees them. Playwright then forwards `webServer.env` (with the SAME values) to the spawned Next server. Both processes see the same secret.
+
+  Add an assertion in the setup-project test:
+
+  ```ts
+  test("seed screenshots DB (runs once before screenshots-help + help-docs)", async () => {
+    // r3: pre-flight that the runner env matches what the webServer was
+    // started with. Mismatch = captures will fail auth on a clean CI run.
+    expect(process.env.ENABLE_TEST_AUTH).toBe("true");
+    expect(process.env.TEST_AUTH_SECRET).toBe("test-secret-fixture");
+
+    const result = spawnSync("pnpm", ["db:seed"], {
+      stdio: "inherit",
+      shell: false,
+    });
+    expect(result.status, `pnpm db:seed exited with status ${result.status}`).toBe(0);
+  });
+  ```
 - [ ] Step 3: Run `pnpm screenshot:help` manually — confirm: (i) the webServer comes up on 3004 with test-auth env, (ii) the setup-project test seeds, (iii) `captureAll()` runs, (iv) WebPs land in `public/help/screenshots/`. If any manifest entry's `frozenClockInstant` is outside its fixture's range, F.3 precondition 10 throws — fix the manifest entry.
 - [ ] Step 4: `ls .github/workflows/ 2>/dev/null` to see existing workflows. Add `screenshots-drift.yml`. Trigger on PR + daily cron. Steps: checkout → setup-node → pnpm install → `pnpm screenshot:help` (server lifecycle handled by Playwright; no separate `pnpm db:seed` step needed because the setup-project does it) → `git diff --exit-code public/help/screenshots/`.
 - [ ] Step 5: Commit: `feat(screenshots): pnpm screenshot:help as Playwright capture project + CI drift gate (Task F.5)`
@@ -279,11 +299,28 @@ Per spec §7.1 test 18 / AC-12.39. Captures the `preview-as-crew-banner` manifes
     const html = await res.text();
     // Match `<li data-testid="schedule-day" data-today="true" data-day="2026-03-24">`
     // (attribute order can vary — use a permissive match).
-    const m = html.match(
-      /<li[^>]*\bdata-testid=["']schedule-day["'][^>]*\bdata-today=["']true["'][^>]*\bdata-day=["']([^"']+)["']|<li[^>]*\bdata-day=["']([^"']+)["'][^>]*\bdata-today=["']true["'][^>]*\bdata-testid=["']schedule-day["']/,
-    );
-    expect(m, `no <li data-testid=schedule-day data-today=true> found in initial HTML for ${instant}`).not.toBeNull();
-    return m![1] ?? m![2];
+    // r3 fix per F-r2 finding 2: live JSX emits attributes in the order
+    // `data-testid` → `data-day` → `data-today`. The r2 alternation regex
+    // only matched two orderings (testid→today→day OR day→today→testid)
+    // and would fail the correct live shape. r3 uses attribute-independent
+    // matching: find ALL `<li ...>` elements with all three required
+    // attributes (any order), then extract `data-day` via a sub-match.
+    const liRe = /<li\b[^>]*>/g;
+    let match: RegExpExecArray | null;
+    let dataDay: string | null = null;
+    while ((match = liRe.exec(html))) {
+      const tag = match[0];
+      const hasTestid = /\bdata-testid=["']schedule-day["']/.test(tag);
+      const hasToday = /\bdata-today=["']true["']/.test(tag);
+      if (!hasTestid || !hasToday) continue;
+      const dayMatch = tag.match(/\bdata-day=["']([^"']+)["']/);
+      if (dayMatch) {
+        dataDay = dayMatch[1];
+        break;
+      }
+    }
+    expect(dataDay, `no <li data-testid="schedule-day" data-today="true" data-day="..."> found in initial HTML for ${instant}`).not.toBeNull();
+    return dataDay!;
   }
   ```
 
