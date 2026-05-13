@@ -270,6 +270,13 @@ describe("extractAdminLogOnlyCodes — null-cell normalization (Doug AND Crew)",
     ].join("\n");
     expect(extractAdminLogOnlyCodes(src)).toEqual(["X"]);
   });
+
+  it("respects escaped pipes (\\|) inside cells — Doug stays at cells[2] (r6 regression fixture)", () => {
+    // BRANCH_PROTECTION_MONITOR_AUTH_FAILED-shape row: Where cell contains
+    // literal `\|` characters. A naive split-on-`|` would shift Doug rightward.
+    const src = "| `X` | http_status: number \\| null, last_auth: timestamptz \\| null | (admin log only — operator) | — | Eric → rotate creds |";
+    expect(extractAdminLogOnlyCodes(src)).toEqual(["X"]);
+  });
 });
 
 describe("extractAdminLogOnlyCodes — live master spec", () => {
@@ -288,6 +295,8 @@ describe("extractAdminLogOnlyCodes — live master spec", () => {
     expect(codes).toContain("PENDING_SNAPSHOT_ROLLBACK_STUCK");
     // Negative: STALE_MANUAL_REPLAY_ABORTED is Doug-facing per master-spec line 2724.
     expect(codes).not.toContain("STALE_MANUAL_REPLAY_ABORTED");
+    // r6: ensure escaped-pipe rows are derived (master-spec line 2826 has `\| null` in Where cell).
+    expect(codes).toContain("BRANCH_PROTECTION_MONITOR_AUTH_FAILED");
   });
 });
 ```
@@ -352,7 +361,18 @@ export function extractAdminLogOnlyCodes(markdown: string): string[] {
     if (!line.startsWith("|") || !line.endsWith("|")) continue;
     if (line.includes("---")) continue;
 
-    const cells = line.split("|").slice(1, -1).map((c) => c.trim());
+    // r6 fix: master-spec §12.4 rows use `\|` to escape literal pipes inside
+    // cells (e.g., the BRANCH_PROTECTION_MONITOR_AUTH_FAILED row has
+    // `http_status: number \| null` inside the Where cell). A naive
+    // `line.split("|")` shifts every cell after the escape, so Doug lands at
+    // cells[3+] instead of cells[2] and the parser silently misses the row.
+    // Replace `\|` with a sentinel before splitting, restore after.
+    const SENTINEL = " ESCAPED_PIPE ";
+    const cells = line
+      .replace(/\\\|/g, SENTINEL)
+      .split("|")
+      .slice(1, -1)
+      .map((c) => c.trim().replace(new RegExp(SENTINEL, "g"), "|"));
     if (cells.length < 4) continue;
 
     const codeMatch = cells[0].match(/^`([A-Z][A-Z0-9_]*)`$/);
@@ -381,7 +401,7 @@ if (require.main === module) {
 - [ ] **Step 4: Run tests**
 
 Run: `pnpm typecheck && pnpm test tests/messages/extract-admin-log-only-codes.test.ts`
-Expected: PASS — all 8 unit cases + the live-spec assertion pass.
+Expected: PASS — all 9 unit cases (8 original + r6's escaped-pipe regression) + the live-spec assertion (which now also asserts `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` is derived).
 
 - [ ] **Step 5: Manually inspect output against the live master spec**
 
@@ -430,7 +450,7 @@ This makes B.5's `expect(entry).toBeDefined()` assertion satisfiable for every d
 
 - **Existing entries to null (14, verified):** `STALE_WRITE_ABORTED`, `STALE_PUSH_ABORTED`, `CONCURRENT_SYNC_SKIPPED`, `STAGED_PARSE_REVISION_RACE`, `STAGED_PARSE_REVISION_RACE_COOLDOWN`, `WEBHOOK_NOOP_ALREADY_SYNCED`, `ASSET_RECOVERY_REVISION_DRIFT`, `ASSET_RECOVERY_DRIFT_COOLDOWN`, `WIZARD_SESSION_SUPERSEDED_DURING_SCAN`, `LOCK_OWNERSHIP_ASSERTION_FAILED`, `DIAGRAMS_TAB_MISSING`, `DIAGRAMS_EMBEDDED_CAP_EXCEEDED`, `PENDING_SNAPSHOT_ROLLBACK_STUCK`, `PENDING_SNAPSHOT_PROMOTE_STUCK`.
 
-- **New entries to add as null stubs (~7, verified):** `UNEXPECTED_PARENT`, `TYPO_NORMALIZED`, `WIZARD_FINALIZE_BATCHES_PENDING`, `SHOW_REALTIME_SUBSCRIPTION_FAILED`, `SHOW_REALTIME_JWT_RENEWED`, `SLUG_COLLISION_EXHAUSTED`, `BRANCH_PROTECTION_DRIFT`. (Plus any others the parser derives — the implementer runs the parser at execution time and aligns whatever it returns.)
+- **New entries to add as null stubs (~8, verified):** `UNEXPECTED_PARENT`, `TYPO_NORMALIZED`, `WIZARD_FINALIZE_BATCHES_PENDING`, `SHOW_REALTIME_SUBSCRIPTION_FAILED`, `SHOW_REALTIME_JWT_RENEWED`, `SLUG_COLLISION_EXHAUSTED`, `BRANCH_PROTECTION_DRIFT`, `BRANCH_PROTECTION_MONITOR_AUTH_FAILED`. (Plus any others the parser derives — the implementer runs the parser at execution time and aligns whatever it returns. The escaped-pipe parser fix in r6 specifically ensures `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` is derived; without it the parser missed this code.)
 
 **Explicitly NOT in scope** (master-spec drift, out of M12):
 
@@ -870,7 +890,9 @@ Per spec §7.1 test 17. **Independent structural guard** — a separate test fil
 
 Reads master-spec §12.4 via `extract-admin-log-only-codes.ts`; asserts every derived code has all six user-facing fields `null` in the live catalog. Different from B.3 in scope: B.3 is the implementation-driving assertion (used during the alignment work itself); B.5 is the standalone meta-test that runs in `pnpm test tests/messages/` as the long-term canary.
 
-- [ ] **Step 1: Write the test (passes once B.3 commits — this is verification-of-alignment, not red→green for new logic)**
+**r6 — verify-red-via-stash protocol (mandatory per AGENTS.md invariant #1):** B.5 codifies a structural guarantee that B.3's hard gate established. To stay red→green compliant despite landing AFTER B.3, B.5 includes an explicit verify-red step that temporarily reverts one of B.3's null-alignments, runs the new test to observe FAIL, then restores the alignment before committing. This is the same pattern Phase H uses; it produces a concrete red proof that the test would have caught pre-B.3 state, satisfying invariant #1 without requiring a separate red commit.
+
+- [ ] **Step 1: Write the test**
 
 ```ts
 // tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts
@@ -906,18 +928,41 @@ describe("Catalog ↔ master-spec admin-log-only alignment (test #17)", () => {
 });
 ```
 
-**Why this isn't a red→green TDD task in the usual sense:** B.3's hard gate already established alignment correctness; B.5 codifies that guarantee as a separate, long-running meta-test. B.5 commits in a green state. If B.5 fails when first run, it means B.3 missed a derived code — return to B.3, complete the alignment (which is the hard gate's job), then re-run B.5.
+- [ ] **Step 2: Verify-red-via-stash (proves the meta-test would catch the pre-B.3 drift state)**
 
-- [ ] **Step 2: Run test to verify it passes**
+Temporarily revert one of B.3's null-alignments to simulate the pre-B.3 catalog state. Example using `STALE_WRITE_ABORTED`:
+
+```bash
+# Save current aligned state to a temporary stash
+git stash push --keep-index -m "B.5-verify-red" -- lib/messages/catalog.ts
+
+# Hand-edit STALE_WRITE_ABORTED back to its pre-B.3 drifted shape (one entry suffices).
+# In lib/messages/catalog.ts, change:
+#   STALE_WRITE_ABORTED: { ..., dougFacing: null, ... }
+# back to:
+#   STALE_WRITE_ABORTED: { ..., dougFacing: "A newer sync already won...", ... }
+
+# Run the new B.5 test — expect it to FAIL on STALE_WRITE_ABORTED specifically.
+pnpm test tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts
+# Expected: FAIL — "STALE_WRITE_ABORTED.dougFacing should be null per master-spec admin-log-only"
+
+# Restore B.3's aligned state.
+git checkout -- lib/messages/catalog.ts
+git stash drop  # discard the temp stash
+```
+
+Document the observed failure in the commit message body (`git commit ... -m "[...] verify-red captured: STALE_WRITE_ABORTED.dougFacing rejected when restored to pre-B.3 string"`). This gives the same TDD evidence a literal red commit would: the test demonstrably rejects the pre-fix state.
+
+- [ ] **Step 3: Run test to verify it passes (green)**
 
 Run: `pnpm test tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts`
 Expected: PASS for every code in the derived set. Any FAIL signals B.3 missed a code — fix B.3, do not loosen B.5.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts
-git commit -m "test(messages): catalog-alignment meta-test #17 — long-running canary on master-spec derivation (Task B.5)"
+git commit -m "test(messages): catalog-alignment meta-test #17 — long-running canary on master-spec derivation; verify-red-via-stash captured pre-B.3 drift rejection (Task B.5)"
 ```
 
 ---
@@ -927,7 +972,7 @@ git commit -m "test(messages): catalog-alignment meta-test #17 — long-running 
 After B.1 – B.5 commits land:
 
 - [ ] `MessageCatalogEntry` has three new nullable fields; every entry has them present (B.1)
-- [ ] `extract-admin-log-only-codes.ts` parses master-spec §12.4 and emits the canonical set; 8 unit fixtures + 1 live-spec assertion PASS (B.2)
+- [ ] `extract-admin-log-only-codes.ts` parses master-spec §12.4 and emits the canonical set; 9 unit fixtures (incl. r6 escaped-pipe regression) + 1 live-spec assertion PASS (B.2)
 - [ ] **Hard gate (r3):** Every code in B.2's derived set exists in `lib/messages/catalog.ts` (either pre-existing or newly null-stubbed by B.3) AND has all six user-facing fields `null` (B.3). No follow-up commits deferred.
 - [ ] `lib/messages/catalogDocsValidator.ts` exports `predicate`, `allM12FieldsNonNull`, `helpHrefShapeOk`, `contractViolations`, `HELP_HREF_RE`; Test #2 (forced-fixture coverage, **15 cases — 6 predicate + 5 non-predicate + 4 shape**, exercising every contract-violation case) PASSES. Live-catalog full-contract assertion lives in **Task E.13** (per r6 — r4's H.6 was removed); E.13 imports `contractViolations` from this same module (no inline redefinition).
 - [ ] Test #17 (catalog-alignment meta-test, B.5) PASSES
