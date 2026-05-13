@@ -1107,9 +1107,39 @@ Base: `205f84d` (C6 close SHA). 3 rounds to approve.
 | R2 | needs-attention | H1 Lightbox missing symmetric onError; H2 no Gallery onError regression test; M1 DEFERRED.md stale | `1a5a297` | Lightbox got the same `failedKeys` + onError pattern; Gallery test asserts the flip; DEFERRED.md M7-D3 has 2026-05-13 close-out subsection. |
 | R3 | **approve** | none | `1a5a297` | C6b CONVERGED. M7-D3 stays deferred (next/image requires private-image-pipeline + custom loader). |
 
-### Cluster C6c (DEFERRED — needs real-device gesture testing)
+### Cluster C6c (RESOLVED — implemented 2026-05-13, pending adversarial review)
 
-C6c / M7-D4 (lightbox pinch-zoom) requires `react-zoom-pan-pinch` integration with Embla gesture priority on real mobile touch — Playwright touch-emulation in `mobile-safari` project IS available but the interaction-test feedback loop and gesture risk (breaking the existing swipe) is high without iterative iOS/Android testing. Per DEFERRED.md M7-D4 v1 acceptable workaround: long-press → "Open image in new tab" → Safari native zoom. Skipping in this M9 close-out autonomous push.
+C6c / M7-D4 (lightbox pinch-zoom) was un-deferred 2026-05-13 after research revised the risk assessment. Original deferral hypothesis: "needs real-device gesture testing for Embla+pinch coordination + iOS Safari touch-action arbitration." Revised: mature library (`react-zoom-pan-pinch`) handles cross-browser quirks (millions of weekly downloads, iOS Safari blur fixes baked in); Playwright supports synthetic-pinch via CDP multi-touch; only iOS-Safari-specific `touch-action` arbitration genuinely requires a real iPhone for verification (~5 min smoke).
+
+**Shape session:** `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/shape-sessions/2026-05-13-pinch-zoom-lightbox.md` (confirmed by user 2026-05-13). 14 design decisions baked: scale=4× max, single-finger pan disables Embla swipe at scale>1, reset-on-diagram-change (per-diagram zoom context), Reset chip neutral chrome centered above figure, double-tap toggles 1↔2, full desktop parity (trackpad/cmd-scroll/drag), reduced-motion = no momentum/interpolation but pinch works, etc.
+
+**Implementation discoveries (documented in brief §10a/§10b):**
+- `react-zoom-pan-pinch` v4.0.3 has NO `keyEvents` prop. Lightbox owns all keyboard (`Escape` close, `0` reset, `+/=` zoom in 0.5x, `-/_` zoom out 0.5x, arrows navigate diagrams). Arrows-pan-when-zoomed (originally specced) is dropped; arrows always navigate (auto-reset via chevron handlers). Trade-off: keyboard-only users zoom via `+/-`, pan via mouse/touch only. Acceptable for the touch-driven crew persona.
+- Playwright synthetic multi-touch deferred to manual iOS device smoke; no existing diagram-lightbox e2e fixture exists and CDP plumbing is significant scope. 16 jsdom unit tests pin the lightbox's contract surface (state machine, chrome, keyboard, library prop bag).
+
+**Test surface:** `tests/components/diagrams/GalleryLightboxPinchZoom.test.tsx` (26 tests, all passing). Covers TransformWrapper prop contract (min/max/doubleClick/pinch/smooth/velocity), Reset chip visibility tracking scale (with 1.01 noise threshold), live-region announcements ("Zoomed in, Nx" / "Zoomed out" / initial-silent), chevron auto-reset, keyboard map, touch-action posture. Includes a vi.mock of react-zoom-pan-pinch with controlled scale simulation.
+
+#### C6c close-out — impeccable §12 dual gate
+
+**`/impeccable critique`** (UX heuristic review). Verdict: 2 HIGH, 3 MEDIUM. Dispositions:
+- **HIGH-1 pinch discoverability hint** → DECLINE. Pinch is gesture-universal on mobile (iOS Photos teaches the convention); Reset chip handles the "stuck" case (scale>1). Persistent hint would compete with the page indicator in already-tight header chrome. No user-research signal that discoverability is actually a barrier.
+- **HIGH-2 live-region "Zoomed to 2.0×" reads like debug + silent on de-zoom** → ACCEPT. Rewrote to "Zoomed in, Nx" + announce "Zoomed out" on the de-zoom transition. wasAnnouncedZoomedRef gates the initial-state silence so AT doesn't get a "Zoomed out" announcement on first mount.
+- **MED-3 Reset chip reflows the figure ~52px** → ACCEPT. Moved chip from the dialog's flex column to absolute-positioned INSIDE the relative image container (`inset-x-0 top-2`). Figure no longer reflows when chip mounts; the user's pinched-detail stays under their fingers.
+- **MED-4 arrows-always-navigate undocumented** → DECLINE. Documented in shape brief §10a; low-frequency edge case (desktop keyboard user who zooms with `+` then hits arrow); recoverable (re-zoom on new diagram).
+- **MED-5 Reset chip chrome reads identical to chevrons** → ACCEPT. Added `border border-border-strong` so chip earns visual primacy over neutral chevrons when active.
+
+Anti-patterns verdict: clean. No glassmorphism beyond project-canonical `bg-bg/95 backdrop-blur-sm`, no gradient text, no hero-metric, no side stripe. Modal is the canonical image-viewer exception.
+
+**`/impeccable audit`** (technical quality). Audit health: 15/20 (Excellent band starts at 18). Dispositions:
+- **P1-A focus loss on chip unmount when chip was focused** → ACCEPT. Chip onClick moves focus to closeRef BEFORE calling resetTransform — otherwise focus falls to document.body and the user has to Tab back into the dialog.
+- **P1-B two `aria-live="polite"` regions compete (page indicator + zoom region)** → ACCEPT. Removed `aria-live="polite"` from page indicator (slide change is user-initiated via labeled chevron; the announcement was redundant). Zoom region remains the only polite region.
+- **P1-C `window` keydown listener escapes dialog focus context** → ACCEPT. Non-Escape keys (`0`, `+/-`, arrows) now gated by `dialogRef.current?.contains(document.activeElement)`. Escape always closes regardless (canonical dismiss contract).
+- **P2 live-region timer-ref rot** (dual refs tracking the same handle) → ACCEPT. Dropped outer `liveRegionTimerRef`; rely on effect-local handle + cleanup.
+- **P2 Embla reInit rapid-pinch collision risk** → DECLINE. Hand-driven gesture won't oscillate at sub-ms rates; boundary-cross gate already minimizes reInit frequency.
+- **P2 `wrapperClass !important` fragility across library upgrades** → DECLINE. Manual smoke + pin to v4.0.3 in package.json. Would benefit from a Playwright dimensional-invariant test if/when a diagram-lightbox e2e fixture is added.
+- **P2 Reset chip touch target** → No action — reviewer confirmed `min-h-tap-min` + `px-4` + "Reset" text ≈ 80×44px is fine.
+
+Both gates pass with all HIGH/CRITICAL/P1 findings either fixed or explicitly dispositioned. Files touched: `components/diagrams/GalleryLightbox.tsx`, `tests/components/diagrams/GalleryLightboxPinchZoom.test.tsx`, `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/shape-sessions/2026-05-13-pinch-zoom-lightbox.md`, `package.json` + `pnpm-lock.yaml` (added `react-zoom-pan-pinch@4.0.3`).
 
 ### Cluster C7 convergence (Codex)
 
