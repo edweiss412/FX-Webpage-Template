@@ -90,14 +90,18 @@ beforeAll(() => {
 // stateful so reset between tests in beforeEach.
 type TransformEffectCb = (snap: { state: { scale: number } }) => void;
 
+interface SetTransformCall {
+  positionX: number;
+  positionY: number;
+  scale: number;
+  animationTime: number | undefined;
+}
+
 interface LibTestState {
   scaleListeners: TransformEffectCb[];
   resetTransformCalls: number;
   resetTransformAnimTimes: Array<number | undefined>;
-  zoomInCalls: number;
-  zoomInAnimTimes: Array<number | undefined>;
-  zoomOutCalls: number;
-  zoomOutAnimTimes: Array<number | undefined>;
+  setTransformCalls: SetTransformCall[];
   lastWrapperProps: Record<string, unknown> | null;
   // When true, the mock's resetTransform records the call but does
   // NOT emit a scale=1 listener callback. Used to test that the
@@ -112,10 +116,7 @@ const libState: LibTestState = {
   scaleListeners: [],
   resetTransformCalls: 0,
   resetTransformAnimTimes: [],
-  zoomInCalls: 0,
-  zoomInAnimTimes: [],
-  zoomOutCalls: 0,
-  zoomOutAnimTimes: [],
+  setTransformCalls: [],
   lastWrapperProps: null,
   silenceResetTransform: false,
 };
@@ -178,17 +179,31 @@ vi.mock("react-zoom-pan-pinch", async () => {
           simulateScale(1);
         }
       },
-      zoomIn: (step?: number, animationTime?: number) => {
-        libState.zoomInCalls += 1;
-        libState.zoomInAnimTimes.push(animationTime);
-        const next = Math.min(4, 1 + (step ?? 0.5));
-        simulateScale(next);
+      setTransform: (
+        positionX: number,
+        positionY: number,
+        scale: number,
+        animationTime?: number,
+      ) => {
+        libState.setTransformCalls.push({
+          positionX,
+          positionY,
+          scale,
+          animationTime,
+        });
+        // setTransform is the LINEAR scale-set path used by the
+        // lightbox's keyboard +/- after Codex R6. The mock emits
+        // the new scale immediately so the lifted activeScale and
+        // chrome track the keystroke.
+        simulateScale(scale);
       },
-      zoomOut: (_step?: number, animationTime?: number) => {
-        libState.zoomOutCalls += 1;
-        libState.zoomOutAnimTimes.push(animationTime);
-        simulateScale(1);
-      },
+      // zoomIn/zoomOut retained on the mock because the library
+      // exposes them; production no longer calls them after R6 so
+      // these are documentation-only (a stray production call would
+      // hit the wrong-math bug, but the integration tests assert
+      // setTransformCalls is the path actually taken).
+      zoomIn: () => {},
+      zoomOut: () => {},
     };
   }
   return { TransformWrapper, TransformComponent, useTransformEffect, useControls };
@@ -219,10 +234,7 @@ beforeEach(() => {
   libState.scaleListeners = [];
   libState.resetTransformCalls = 0;
   libState.resetTransformAnimTimes = [];
-  libState.zoomInCalls = 0;
-  libState.zoomInAnimTimes = [];
-  libState.zoomOutCalls = 0;
-  libState.zoomOutAnimTimes = [];
+  libState.setTransformCalls = [];
   libState.lastWrapperProps = null;
   libState.silenceResetTransform = false;
   __matchMediaQuery = () => false;
@@ -581,7 +593,7 @@ describe("M9 C6c — Keyboard map (lightbox-owned; library v4 has no keyEvents p
     expect(libState.resetTransformCalls).toBeGreaterThanOrEqual(1);
   });
 
-  test("'+' and '=' keys invoke zoomIn(0.5)", () => {
+  test("Codex R6 HIGH: '+' from scale=1 invokes setTransform with target=1.5 (LINEAR +0.5, not library's exp math)", () => {
     render(
       <GalleryLightbox
         showId={SHOW_ID}
@@ -592,11 +604,16 @@ describe("M9 C6c — Keyboard map (lightbox-owned; library v4 has no keyEvents p
       />,
     );
     fireEvent.keyDown(window, { key: "+" });
+    expect(libState.setTransformCalls).toHaveLength(1);
+    expect(libState.setTransformCalls[0]?.scale).toBeCloseTo(1.5, 6);
+    // Second keystroke from 1.5 → 2.0 (mock auto-emits scale=1.5
+    // after first call, so activeScale follows).
     fireEvent.keyDown(window, { key: "=" });
-    expect(libState.zoomInCalls).toBe(2);
+    expect(libState.setTransformCalls).toHaveLength(2);
+    expect(libState.setTransformCalls[1]?.scale).toBeCloseTo(2.0, 6);
   });
 
-  test("'-' and '_' keys invoke zoomOut(0.5)", () => {
+  test("Codex R6 HIGH: '-' from scale=4 invokes setTransform with target=3.5 (clamped LINEAR -0.5)", () => {
     render(
       <GalleryLightbox
         showId={SHOW_ID}
@@ -606,10 +623,45 @@ describe("M9 C6c — Keyboard map (lightbox-owned; library v4 has no keyEvents p
         onClose={() => {}}
       />,
     );
-    simulateScale(3); // zoom in first so the zoomOut has somewhere to go
+    simulateScale(4);
     fireEvent.keyDown(window, { key: "-" });
+    expect(libState.setTransformCalls).toHaveLength(1);
+    expect(libState.setTransformCalls[0]?.scale).toBeCloseTo(3.5, 6);
     fireEvent.keyDown(window, { key: "_" });
-    expect(libState.zoomOutCalls).toBe(2);
+    expect(libState.setTransformCalls).toHaveLength(2);
+    expect(libState.setTransformCalls[1]?.scale).toBeCloseTo(3.0, 6);
+  });
+
+  test("Codex R6: '+' clamps at maxScale=4 (no setTransform call when at boundary)", () => {
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(3)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    simulateScale(4);
+    fireEvent.keyDown(window, { key: "+" });
+    // setScale clamps target to 4; already at 4, so no setTransform call.
+    expect(libState.setTransformCalls).toHaveLength(0);
+  });
+
+  test("Codex R6: '-' clamps at minScale=1 (no setTransform call when at boundary)", () => {
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(3)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    // activeScale starts at 1; - would try target=0.5 → clamped to 1
+    // → no-op.
+    fireEvent.keyDown(window, { key: "-" });
+    expect(libState.setTransformCalls).toHaveLength(0);
   });
 
   test("'Escape' closes lightbox regardless of scale", () => {
@@ -743,7 +795,7 @@ describe("M9 C6c — Codex R3 HIGH: reduced-motion threads animationTime=0 throu
     expect(libState.resetTransformAnimTimes).toContain(0);
   });
 
-  test("reduced motion → zoomIn invoked with animationTime=0", () => {
+  test("reduced motion → setTransform invoked with animationTime=0 (linear path, no library exp math)", () => {
     __matchMediaQuery = (q: string) => q.includes("reduce");
     render(
       <GalleryLightbox
@@ -755,10 +807,13 @@ describe("M9 C6c — Codex R3 HIGH: reduced-motion threads animationTime=0 throu
       />,
     );
     fireEvent.keyDown(window, { key: "+" });
-    expect(libState.zoomInAnimTimes).toContain(0);
+    expect(libState.setTransformCalls).toHaveLength(1);
+    expect(libState.setTransformCalls[0]?.animationTime).toBe(0);
+    // Reduced motion + + still produces exactly 1.5, not exp math.
+    expect(libState.setTransformCalls[0]?.scale).toBeCloseTo(1.5, 6);
   });
 
-  test("reduced motion → zoomOut invoked with animationTime=0", () => {
+  test("reduced motion → setTransform for zoom-out invoked with animationTime=0 + linear delta", () => {
     __matchMediaQuery = (q: string) => q.includes("reduce");
     render(
       <GalleryLightbox
@@ -771,7 +826,9 @@ describe("M9 C6c — Codex R3 HIGH: reduced-motion threads animationTime=0 throu
     );
     simulateScale(3);
     fireEvent.keyDown(window, { key: "-" });
-    expect(libState.zoomOutAnimTimes).toContain(0);
+    expect(libState.setTransformCalls).toHaveLength(1);
+    expect(libState.setTransformCalls[0]?.animationTime).toBe(0);
+    expect(libState.setTransformCalls[0]?.scale).toBeCloseTo(2.5, 6);
   });
 
   test("full motion → resetTransform invoked with default animationTime (undefined)", () => {

@@ -78,10 +78,22 @@ function isZoomed(scale: number): boolean {
 // — that's cleaner than the original shape-brief plan to delegate to
 // the library, and it keeps the keymap entirely in the
 // lightbox-level focus-trap context.
+// Codex R6 HIGH (stop-the-line library re-audit): the library's
+// `zoomIn(step)` / `zoomOut(step)` perform `scale * exp(step)` math
+// when smooth=true (the normal-motion path), and switch to additive
+// `scale + step` when smooth=false (reduced motion). Brief §7
+// specifies "+/-: zoom by 0.5x step" — a LINEAR delta, not
+// exponential. Passing `0.5` directly to zoomIn yields ~1.65x from
+// 1x under normal motion (wrong) and 1.5x under reduced motion
+// (correct), so the same keystroke produces different scales
+// depending on motion preference. We bypass the library's math by
+// using `setTransform(x, y, target, animTime)` which is a direct
+// scale set unambiguously. Current x/y are tracked via
+// useTransformEffect so pan position is preserved across keyboard
+// zoom steps. min/max clamp is applied in the lightbox layer.
 type ZoomControls = {
   resetTransform: () => void;
-  zoomIn: (step?: number) => void;
-  zoomOut: (step?: number) => void;
+  setScale: (target: number) => void;
 };
 
 function ZoomController({
@@ -94,18 +106,27 @@ function ZoomController({
   prefersReducedMotion: boolean;
 }) {
   const controls = useControls();
+  // Keep latest transform state in a ref so setScale can read x/y
+  // synchronously when the user presses + or -.
+  const transformStateRef = useRef({ scale: 1, positionX: 0, positionY: 0 });
   useEffect(() => {
     // Codex R3 HIGH: library v4.0.3 control functions default to
-    // animated durations (200ms reset, 300ms zoomIn/Out). Under
+    // animated durations (200ms reset, 300ms setTransform). Under
     // prefers-reduced-motion the brief calls for instant scale
-    // changes with no interpolation. Pass animationTime=0 so the
-    // imperative path mirrors the gesture path (already gated via
-    // smooth=false + velocityAnimation.disabled=true).
+    // changes. Pass animationTime=0 so the imperative path mirrors
+    // the gesture path (smooth=false + velocityAnimation.disabled).
     const animTime = prefersReducedMotion ? 0 : undefined;
     controlsSlotRef.current = {
       resetTransform: () => controls.resetTransform(animTime),
-      zoomIn: (step?: number) => controls.zoomIn(step, animTime),
-      zoomOut: (step?: number) => controls.zoomOut(step, animTime),
+      setScale: (target: number) => {
+        // Clamp to [minScale=1, maxScale=4]; the library will also
+        // clamp internally but doing it here avoids no-op
+        // setTransform calls at the boundary.
+        const clamped = Math.max(1, Math.min(4, target));
+        const s = transformStateRef.current;
+        if (clamped === s.scale) return;
+        controls.setTransform(s.positionX, s.positionY, clamped, animTime);
+      },
     };
     return () => {
       // Clear the slot on unmount so a stale closure can't call into
@@ -114,6 +135,11 @@ function ZoomController({
     };
   }, [controls, controlsSlotRef, prefersReducedMotion]);
   useTransformEffect(({ state }) => {
+    transformStateRef.current = {
+      scale: state.scale,
+      positionX: state.positionX,
+      positionY: state.positionY,
+    };
     onScaleChange(state.scale);
   });
   return null;
@@ -280,11 +306,15 @@ export function GalleryLightbox({
         return;
       }
       if (e.key === "+" || e.key === "=") {
-        controlsSlotRef.current?.zoomIn(0.5);
+        // Linear +0.5 step on the lifted scale. setScale clamps to
+        // [1, 4] internally so we don't need to here. Reading
+        // activeScale (rendered state) is fine because keystrokes
+        // come in human-time, after React commits.
+        controlsSlotRef.current?.setScale(activeScale + 0.5);
         return;
       }
       if (e.key === "-" || e.key === "_") {
-        controlsSlotRef.current?.zoomOut(0.5);
+        controlsSlotRef.current?.setScale(activeScale - 0.5);
         return;
       }
       if (e.key === "ArrowLeft") scrollPrev();
@@ -292,7 +322,7 @@ export function GalleryLightbox({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, scrollPrev, scrollNext]);
+  }, [onClose, scrollPrev, scrollNext, activeScale]);
 
   // Lock background scroll while open.
   useEffect(() => {
