@@ -2,7 +2,12 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
-import { MESSAGE_CATALOG, messageFor, type MessageCode } from "@/lib/messages/lookup";
+import {
+  MESSAGE_CATALOG,
+  messageFor,
+  type MessageCatalogEntry,
+  type MessageCode,
+} from "@/lib/messages/lookup";
 
 const REQUIRED_M5_CODES = [
   "LINK_NO_CREW_MATCH",
@@ -134,6 +139,24 @@ describe("message catalog", () => {
       followUp: "Crew -> reopen signed link",
       helpfulContext: null,
     });
+  });
+});
+
+describe("helpfulContext × dougFacing coverage", () => {
+  const entries = Object.values(MESSAGE_CATALOG) as readonly MessageCatalogEntry[];
+
+  test("every dougFacing-non-null code has non-null helpfulContext", () => {
+    const violations = entries
+      .filter((entry) => entry.dougFacing !== null && entry.helpfulContext === null)
+      .map((entry) => entry.code);
+    expect(violations).toEqual([]);
+  });
+
+  test("every dougFacing-null code has null helpfulContext (admin-log-only invariant)", () => {
+    const violations = entries
+      .filter((entry) => entry.dougFacing === null && entry.helpfulContext !== null)
+      .map((entry) => entry.code);
+    expect(violations).toEqual([]);
   });
 });
 

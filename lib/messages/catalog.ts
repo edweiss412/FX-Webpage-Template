@@ -49,7 +49,8 @@ export const MESSAGE_CATALOG = {
       "A signed link was opened with `?t=` in the URL - we treat that as a possible leak. The affected link has been auto-revoked and the crew member's row is in 'no live link' state. Click 'Issue new link' for them when you're ready.",
     crewFacing: "This link format isn't supported and has been revoked. Ask Doug for a new one.",
     followUp: "Doug -> Issue new link",
-    helpfulContext: null,
+    helpfulContext:
+      "A signed link is meant to live in the URL fragment after `#t=`, never in the query string after `?t=`. When Vercel logged a `?t=` URL, that token may have been written to a request log or referrer header — we treat it as compromised and revoke it automatically. Click 'Issue new link' to send the affected crew member a fresh one.",
   },
   CSRF_DENIED: {
     code: "CSRF_DENIED",
@@ -64,15 +65,15 @@ export const MESSAGE_CATALOG = {
     dougFacing: null,
     crewFacing: "Please refresh and click the link again - your bootstrap window expired.",
     followUp: "Crew -> re-click signed link",
-    helpfulContext:
-      "Signed-in links go through a small bootstrap step that proves your browser actually rendered the link's start page in the last 30 seconds. If the rendered page sits open longer than 30 seconds before you complete sign-in, or you opened a lot of bootstrap pages back-to-back in different tabs, the bootstrap proof expires. Refresh the page and click the link again.",
+    helpfulContext: null,
   },
   CSRF_KEY_ROTATED: {
     code: "CSRF_KEY_ROTATED",
     dougFacing: "Sessions have been rotated; please open your original signed link again.",
     crewFacing: "Your sign-in session was rotated. Refresh the page and click your link again.",
     followUp: "Crew -> re-click signed link; Doug -> refresh and re-click",
-    helpfulContext: null,
+    helpfulContext:
+      "While you were using the app, the developer rotated the secret key the app uses to verify CSRF tokens. The token your browser was holding was minted under the old key, so it was rejected to keep stale tokens from authorizing actions after the rotation. Refresh the page and click your link again to mint a fresh CSRF token.",
   },
   GOOGLE_NO_CREW_MATCH: {
     code: "GOOGLE_NO_CREW_MATCH",
@@ -87,7 +88,8 @@ export const MESSAGE_CATALOG = {
       "Two crew rows share the same email - Google login is unsafe to resolve. The duplicate-email check normally catches this; please re-share the sheet so we can re-parse, or contact the developer.",
     crewFacing: "Something is misconfigured for this show. Doug has been notified.",
     followUp: "Doug -> fix sheet duplicate; if persistent, Eric",
-    helpfulContext: null,
+    helpfulContext:
+      "When two people on the crew list share the same email address, we can't safely tell who's logging in. The duplicate-email check should normally catch this in the parse step. If you're seeing this code, the safest fix is to look at the most recent edits to your crew block — usually one of the two emails is a typo or a paste mistake. Once you correct the duplicate in your sheet, this alert will clear automatically on the next sync.",
   },
   SESSION_NOT_FOUND: {
     code: "SESSION_NOT_FOUND",
@@ -115,7 +117,8 @@ export const MESSAGE_CATALOG = {
     dougFacing: "Sessions have been rotated; please open your original signed link again.",
     crewFacing: null,
     followUp: "User -> re-open original signed link",
-    helpfulContext: null,
+    helpfulContext:
+      "While you were finishing sign-in, the developer rotated the secret key the app uses to authenticate link sessions. Your session was bound to the old key, so it was retired to keep the old key from authorizing any new requests after the rotation. Open the original signed link Doug shared again to mint a fresh session.",
   },
   LINK_REDEEM_KEY_ROTATED: {
     code: "LINK_REDEEM_KEY_ROTATED",
@@ -269,35 +272,40 @@ export const MESSAGE_CATALOG = {
     dougFacing: "This staged sheet is no longer in the watched Drive folder.",
     crewFacing: null,
     followUp: "Doug -> move the sheet back or discard the staged parse",
-    helpfulContext: null,
+    helpfulContext:
+      "Between staging and Apply, the sheet was moved out of the watched folder. Anything outside the watched folder is invisible to the sync pipeline by design. Move the sheet back in and the next sync will produce a new staged parse.",
   },
   STAGED_PARSE_SOURCE_GONE: {
     code: "STAGED_PARSE_SOURCE_GONE",
     dougFacing: "This Drive sheet is unavailable or was deleted.",
     crewFacing: null,
     followUp: "Doug -> restore the sheet or discard the staged parse",
-    helpfulContext: null,
+    helpfulContext:
+      "Between staging and Apply, the source sheet was deleted, trashed, or unshared in Drive. Without a sheet to read, we can't apply the staged parse. Restore the sheet (or re-share it) and the next sync will produce a new staged parse.",
   },
   STAGED_PARSE_OUTDATED: {
     code: "STAGED_PARSE_OUTDATED",
     dougFacing: "A newer sheet revision exists. Refresh and review the latest staged parse.",
     crewFacing: null,
     followUp: "Doug -> refresh",
-    helpfulContext: null,
+    helpfulContext:
+      "Doug saved another edit to the sheet after the version you were reviewing was staged. The staged version is no longer the most recent state, so we discarded it. The next sync will produce a fresh staged parse to review.",
   },
   STAGED_PARSE_RESTAGED_INLINE: {
     code: "STAGED_PARSE_RESTAGED_INLINE",
     dougFacing: "The sheet changed during review, so we restaged it from the latest revision.",
     crewFacing: null,
     followUp: "Doug -> review the updated parse",
-    helpfulContext: null,
+    helpfulContext:
+      "The wizard re-parsed the sheet inside your current setup session because Doug edited it after the original scan. Review the refreshed parse — any decisions you made on the prior version were discarded.",
   },
   STAGED_PARSE_SUPERSEDED: {
     code: "STAGED_PARSE_SUPERSEDED",
     dougFacing: "The staged parse you were viewing was replaced by a newer sync.",
     crewFacing: null,
     followUp: "Doug -> refresh and review the latest staged parse",
-    helpfulContext: null,
+    helpfulContext:
+      "A newer parse was applied (probably by a different admin or a cron run) before your Apply landed. Refresh the admin page to see the current state.",
   },
   STALE_DISCARD_REJECTED: {
     code: "STALE_DISCARD_REJECTED",
@@ -305,21 +313,24 @@ export const MESSAGE_CATALOG = {
       "The staged parse you were viewing was replaced by a newer sync. Refresh and review the latest version before deciding.",
     crewFacing: null,
     followUp: "Doug -> refresh",
-    helpfulContext: null,
+    helpfulContext:
+      "A newer parse was staged for this sheet between when you opened the review and when you clicked Discard. Refresh the admin page to see the latest version before deciding.",
   },
   WIZARD_SESSION_SUPERSEDED: {
     code: "WIZARD_SESSION_SUPERSEDED",
     dougFacing: "This onboarding scan was replaced by a newer scan.",
     crewFacing: null,
     followUp: "Doug -> continue from the latest onboarding scan",
-    helpfulContext: null,
+    helpfulContext:
+      "Setup wizards run one at a time. While your tab was open, another wizard was started (probably from a second browser tab or device) and your session was retired. Refresh and start setup over in a single tab; whatever the other wizard scanned is the new state.",
   },
   WIZARD_SESSION_SUPERSEDED_DURING_SCAN: {
     code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
     dougFacing: "A newer onboarding scan started before this one finished.",
     crewFacing: null,
     followUp: "Doug -> use the latest scan",
-    helpfulContext: null,
+    helpfulContext:
+      "Setup wizards run one at a time per folder. While your scan was still running, someone (probably you, in a second tab) started a fresh scan against the same folder, which retires the in-flight one. Close this tab and continue from the wizard tab that holds the newer scan.",
   },
   WIZARD_ISOLATION_INDEXES_MISSING: {
     code: "WIZARD_ISOLATION_INDEXES_MISSING",
@@ -327,7 +338,8 @@ export const MESSAGE_CATALOG = {
       "Onboarding isolation indexes are missing. Stop onboarding until the database migration is fixed.",
     crewFacing: null,
     followUp: "Eric -> verify pending_syncs and pending_ingestions partition indexes",
-    helpfulContext: null,
+    helpfulContext:
+      "The setup wizard scans your folder by writing per-session staging rows into the same tables the live sync writes to (pending_syncs, pending_ingestions, onboarding_scan_manifest). To keep wizard rows from colliding with live rows, the database has four partial unique indexes that route writes to the right slot. The scan checks for those indexes before writing anything; if any are missing, the wizard aborts cleanly rather than risk a partial scan against a half-migrated schema. Eric is automatically notified to apply the migration; once that's done, click Re-run Setup to retry.",
   },
   LIVE_ROW_CONFLICT: {
     code: "LIVE_ROW_CONFLICT",
@@ -335,7 +347,8 @@ export const MESSAGE_CATALOG = {
       "A live show row conflicted with the staged sync. The developer needs to reconcile it before applying.",
     crewFacing: null,
     followUp: "Eric -> reconcile the live row and staged parse",
-    helpfulContext: null,
+    helpfulContext:
+      "Setup tried to stage a parse for a sheet that the live folder sync is already processing. We skipped the wizard's stage to avoid clobbering the live row. Resolve the live row from the dashboard — either Apply or Discard it — then re-run setup if you still need to.",
   },
   ROLE_FLAGS_NOTICE: {
     code: "ROLE_FLAGS_NOTICE",
@@ -389,21 +402,24 @@ export const MESSAGE_CATALOG = {
     dougFacing: "This onboarding finalize step tried to take over an existing owned show.",
     crewFacing: null,
     followUp: "Doug -> review the existing show before finalizing",
-    helpfulContext: null,
+    helpfulContext:
+      "This show is currently being published as part of a setup wizard's multi-batch finalize. Until the wizard's final-publish step commits, the row is held with `published = false` and admin write actions (Re-sync, Archive, Apply/Discard staged changes) are gated to prevent races against the in-flight finalize. Wait for the wizard tab to finish — the dashboard 'Publishing…' badge clears the moment the final-publish step commits, after which this action will succeed.",
   },
   WEBHOOK_HEADERS_MISSING: {
     code: "WEBHOOK_HEADERS_MISSING",
     dougFacing: "A Drive webhook request was missing required Google headers.",
     crewFacing: null,
     followUp: "Eric -> inspect webhook delivery",
-    helpfulContext: null,
+    helpfulContext:
+      "Google Drive's push notifications carry a fixed set of headers identifying the channel, resource, and verification token. A request reached our webhook endpoint without those headers — usually that means a stale subscription is still firing or someone's probing the endpoint. The developer has been notified; no action is needed unless this keeps appearing.",
   },
   WEBHOOK_NOOP_ALREADY_SYNCED: {
     code: "WEBHOOK_NOOP_ALREADY_SYNCED",
     dougFacing: "This Drive notification was already synced.",
     crewFacing: null,
     followUp: null,
-    helpfulContext: null,
+    helpfulContext:
+      "Google Drive sometimes redelivers the same push notification (network hiccups or Google's own retries). When the notification's revision was already processed, we skip the sync to avoid duplicate work and record this so the admin log shows why the webhook returned early. No action is needed.",
   },
   EMBEDDED_RECOVERY_REQUIRES_RESTAGE: {
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
@@ -419,14 +435,16 @@ export const MESSAGE_CATALOG = {
     dougFacing: "A linked Drive asset changed after staging and needs review.",
     crewFacing: null,
     followUp: "Doug -> review linked assets before applying",
-    helpfulContext: null,
+    helpfulContext:
+      "A diagram in the linked Google Drive folder was edited after the staged parse was reviewed. Crew see a placeholder where that diagram should be — we won't show drifted bytes that an operator hasn't approved. Save the sheet again (any edit advances the version) to re-stage the new diagram.",
   },
   REEL_DRIFTED: {
     code: "REEL_DRIFTED",
     dougFacing: "The opening reel changed after staging and needs review.",
     crewFacing: null,
     followUp: "Doug -> review the reel before applying",
-    helpfulContext: null,
+    helpfulContext:
+      "The opening-reel video was replaced or edited in Drive after the staged parse was reviewed. Crew see the text status only (e.g., 'YES') without the inline video until you save the sheet again to re-stage the new reel.",
   },
   OPENING_REEL_PERMISSION_DENIED: {
     code: "OPENING_REEL_PERMISSION_DENIED",
@@ -626,7 +644,8 @@ export const MESSAGE_CATALOG = {
     dougFacing: "That staged sync is no longer available.",
     crewFacing: null,
     followUp: "Doug -> refresh the admin page",
-    helpfulContext: null,
+    helpfulContext:
+      "The admin page renders staged-sync rows by id. When you clicked Apply or Discard, the server looked up that id and didn't find a row — usually because another browser tab acted on the same staged sync between when the page loaded and when you clicked. Refresh the admin page to see the current state and act on whatever's still pending.",
   },
   SYNC_FILE_FAILED: {
     code: "SYNC_FILE_FAILED",
@@ -717,7 +736,8 @@ export const MESSAGE_CATALOG = {
       "A push notification from Google Drive failed verification - possible spoofing or misconfiguration. The developer has been notified.",
     crewFacing: null,
     followUp: "Eric -> investigate",
-    helpfulContext: null,
+    helpfulContext:
+      "A push notification arrived from Google Drive carrying the wrong verification token. This usually means a stale subscription is still firing or someone's spoofing the endpoint. The developer has been notified and will rotate the token if needed.",
   },
   REPORT_ORPHANED_LOST_LEASE: {
     code: "REPORT_ORPHANED_LOST_LEASE",
@@ -753,8 +773,7 @@ export const MESSAGE_CATALOG = {
     crewFacing:
       "Too many reports were sent recently. Please wait a bit, then try again.",
     followUp: "Crew -> retry after the rate-limit window",
-    helpfulContext:
-      "Crew bug-report submissions are rate-limited per reporter so repeated taps do not create duplicate GitHub issues.",
+    helpfulContext: null,
   },
   REPORT_LOOKUP_INCONCLUSIVE: {
     code: "REPORT_LOOKUP_INCONCLUSIVE",
