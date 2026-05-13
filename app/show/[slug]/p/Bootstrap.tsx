@@ -330,26 +330,27 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
     };
   }, [router, showId, slug]);
 
-  if (ui.kind === "no_fragment") {
-    return (
-      <p data-testid="bootstrap-no-fragment" className="text-base text-text-subtle">
-        {NO_FRAGMENT_COPY}
-      </p>
-    );
-  }
-
-  if (ui.kind === "error") {
-    return (
-      <p data-testid="bootstrap-error" role="alert" className="text-base text-warning-text">
-        {GENERIC_ERROR_COPY}
-      </p>
-    );
-  }
-
-  // ui.kind === "connecting"
+  // M9 C8 / M5-D6 #4: wrap the state-transition region in a single
+  // aria-live="polite" container so screen readers announce each
+  // state change (connecting → no_fragment / error) as the same
+  // logical region updates. Without a stable live region, the
+  // separate <p>s mount/unmount and the announcement is lost.
   return (
-    <p data-testid="bootstrap-connecting" className="text-base text-text-subtle">
-      Connecting…
-    </p>
+    <div data-testid="bootstrap-live-region" aria-live="polite">
+      {ui.kind === "no_fragment" ? (
+        <p data-testid="bootstrap-no-fragment" className="text-base text-text-subtle">
+          {NO_FRAGMENT_COPY}
+        </p>
+      ) : ui.kind === "error" ? (
+        <p data-testid="bootstrap-error" role="alert" className="text-base text-warning-text">
+          {GENERIC_ERROR_COPY}
+        </p>
+      ) : (
+        // ui.kind === "connecting"
+        <p data-testid="bootstrap-connecting" className="text-base text-text-subtle">
+          Connecting…
+        </p>
+      )}
+    </div>
   );
 }

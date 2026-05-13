@@ -154,8 +154,18 @@ export default async function SignInPage({
       data-testid="sign-in-page"
       className="mx-auto flex min-h-screen max-w-md flex-col justify-center bg-bg px-4 py-section-gap text-text sm:px-8"
     >
-      <header className="mb-section-gap text-center">
-        <h1 data-testid="sign-in-headline" className="text-3xl font-bold text-text-strong">
+      {/*
+        M9 C8 / M5-D6 #5: aria-labelledby ties the <header> landmark
+        to the <h1> id so AT users navigating by landmark hear the
+        sign-in headline as the region's accessible name (rather
+        than the generic "banner" landmark label).
+      */}
+      <header aria-labelledby="sign-in-headline" className="mb-section-gap text-center">
+        <h1
+          id="sign-in-headline"
+          data-testid="sign-in-headline"
+          className="text-3xl font-bold text-text-strong"
+        >
           Sign in with Google
         </h1>
         <p className="mt-3 text-base text-text-subtle">

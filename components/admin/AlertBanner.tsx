@@ -105,9 +105,13 @@ export async function AlertBanner() {
       // role="status" + aria-live="polite" — SSR-rendered banner; not a
       // time-critical interruption that warrants role="alert". If future
       // versions inject the banner client-side via a real-time event,
-      // reconsider role="alert".
+      // reconsider role="alert". aria-atomic="true" (M9 C8 / M5-D6 #3):
+      // when the banner re-announces on alert-row update, the screen
+      // reader reads the whole region (header + body + helpful-context)
+      // as one unit rather than diffing word-by-word.
       role="status"
       aria-live="polite"
+      aria-atomic="true"
       className="mb-section-gap rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
     >
       <ErrorExplainer

@@ -99,9 +99,17 @@ export function ErrorExplainer({
       <p data-testid="error-explainer-message" className="text-base font-medium">
         {message}
       </p>
+      {/*
+        M9 C8 / M5-D6 #1: the `<details>` below suppresses the UA
+        disclosure triangle via list-none + WebKit marker hiding so
+        the summary blends with the project's typography. Screen
+        readers still announce the disclosure state via the native
+        <details>/<summary> semantics; removing the marker is purely
+        cosmetic.
+      */}
       {showHelpfulContext ? (
-        <details className="mt-3 text-sm text-text-subtle">
-          <summary className="cursor-pointer">Helpful context</summary>
+        <details className="mt-3 list-none text-sm text-text-subtle [&::-webkit-details-marker]:hidden [&_summary::-webkit-details-marker]:hidden [&_summary]:list-none">
+          <summary className="cursor-pointer list-none">Helpful context</summary>
           <p data-testid="error-explainer-helpful-context" className="mt-2">
             {entry.helpfulContext}
           </p>
