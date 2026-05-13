@@ -34,11 +34,16 @@ This converts each Phase H task from "green-only verification commit" into a doc
 
 Per spec §7.1 test 1. For every catalog entry with `helpHref`, parses the target file (MDX or TSX) and confirms a matching `<RefAnchor id="<anchor>">` exists. Fails CI on any broken deep-link.
 
-- [ ] **Step 0: Verify-red-via-stash (r8 per round-7 finding 2)**
+- [ ] **Step 0: Verify-red-via-restore (r8 — cross-phase sweep per B-r7 finding 1 + B-r8 finding 2)**
 
-Before writing the test, prove it would catch a regression in the implementation it guards. **Derive the anchor to stash from the live catalog** (r9 — round-8 finding 3: the previous draft hard-coded `WARN_DAY_FLAG_MISMATCH` which doesn't exist in the catalog):
+Before writing the test, prove it would catch a regression in the implementation it guards. **Derive the anchor to break from the live catalog** (r9 — round-8 finding 3: the previous draft hard-coded `WARN_DAY_FLAG_MISMATCH` which doesn't exist in the catalog):
 
 ```bash
+# Pre-flight: parse-warnings/page.mdx must be clean — else the restore step would
+# discard any unrelated working-tree edits there.
+git status --short app/help/admin/parse-warnings/page.mdx
+# Expected: empty output. ABORT and resolve those edits first if non-empty.
+
 # Find the first catalog code whose helpHref points at parse-warnings:
 ANCHOR=$(pnpm dlx tsx -e '
   import { MESSAGE_CATALOG } from "./lib/messages/catalog";
@@ -47,10 +52,10 @@ ANCHOR=$(pnpm dlx tsx -e '
     if (e.helpHref?.startsWith(target)) { console.log(e.code); break; }
   }
 ')
-echo "Anchor to stash: $ANCHOR"
+echo "Anchor to break: $ANCHOR"
 
-# Stash that anchor by removing its RefAnchor opening tag.
-# Save a backup so we can verify the edit actually changed the file:
+# Break the anchor by removing its RefAnchor opening tag. Backup via cp (not git
+# stash — see preamble) so the edit is reversible without touching git state:
 cp app/help/admin/parse-warnings/page.mdx app/help/admin/parse-warnings/page.mdx.bak
 sed -i '' "s/<RefAnchor id=\"$ANCHOR\">/<h3>/" app/help/admin/parse-warnings/page.mdx
 
@@ -63,6 +68,9 @@ After Step 1 below writes the test, run it. Expected: FAILS for `$ANCHOR` (whate
 
 ```bash
 mv app/help/admin/parse-warnings/page.mdx.bak app/help/admin/parse-warnings/page.mdx
+# Post-flight verification: file back to clean state.
+git status --short app/help/admin/parse-warnings/page.mdx
+# Expected: empty output.
 ```
 
 Run again: PASSES. Record the observed failure message in the commit message:
@@ -337,12 +345,17 @@ git commit -m "test(playwright): /help auth gate + AdminInfraError mapping with 
 
 Per spec §7.1 test 4. Every `.mdx` and `.tsx` page under `app/help/` returns a non-empty rendered HTML body via the Next.js test renderer. Catches malformed MDX, missing required components, broken imports.
 
-- [ ] **Step 0: Verify-red-via-stash (r8 per round-7 finding 2)**
+- [ ] **Step 0: Verify-red-via-restore (r8 — cross-phase sweep per B-r7 finding 1 + B-r8 finding 2)**
 
-Stash one page's content to prove the smoke renderer would catch a broken page:
+Temporarily break one page's content to prove the smoke renderer would catch a broken page:
 
 ```bash
-# Replace one page's content with malformed MDX to verify the renderer catches it:
+# Pre-flight: dashboard/page.mdx must be clean (restore step would discard any
+# unrelated working-tree edits there otherwise).
+git status --short app/help/admin/dashboard/page.mdx
+# Expected: empty output. ABORT and resolve those edits first if non-empty.
+
+# Backup, then replace with malformed MDX to verify the renderer catches it:
 cp app/help/admin/dashboard/page.mdx app/help/admin/dashboard/page.mdx.bak
 printf 'broken < mdx > { unclosed' > app/help/admin/dashboard/page.mdx
 ```
@@ -351,6 +364,9 @@ After Step 1 writes the test, run it. Expected: FAILS for `/help/admin/dashboard
 
 ```bash
 mv app/help/admin/dashboard/page.mdx.bak app/help/admin/dashboard/page.mdx
+# Post-flight verification: file back to clean state.
+git status --short app/help/admin/dashboard/page.mdx
+# Expected: empty output.
 ```
 
 Re-run: PASSES. Record the failure message in the commit message:
@@ -440,11 +456,17 @@ Per spec §7.1 test 6 (real-browser assertion — jsdom not sufficient per proje
 - No horizontal scroll: `document.documentElement.scrollWidth === window.innerWidth`
 - Every interactive target ≥ 44 × 44 px (per PRODUCT.md accessibility floor)
 
-- [ ] **Step 0: Verify-red-via-stash (r8 per round-7 finding 2)**
+- [ ] **Step 0: Verify-red-via-restore (r8 — cross-phase sweep per B-r7 finding 1 + B-r8 finding 2)**
 
-Stash the `md:hidden` class on `<Sidebar>`'s mobile-disclosure to prove the test catches a missing mobile collapse:
+Temporarily remove the `md:hidden` class on `<Sidebar>`'s mobile-disclosure to prove the test catches a missing mobile collapse:
 
 ```bash
+# Pre-flight: Sidebar.tsx must be clean (restore step would discard any unrelated
+# working-tree edits there otherwise).
+git status --short app/help/_components/Sidebar.tsx
+# Expected: empty output. ABORT and resolve those edits first if non-empty.
+
+# Backup + edit (sed -i.bak writes the backup to Sidebar.tsx.bak automatically):
 sed -i.bak 's/className="md:hidden mb-4"/className="mb-4"/' app/help/_components/Sidebar.tsx
 ```
 
@@ -452,6 +474,9 @@ After Step 1, run the test. Expected: FAILS (the desktop sidebar renders at mobi
 
 ```bash
 mv app/help/_components/Sidebar.tsx.bak app/help/_components/Sidebar.tsx
+# Post-flight verification: file back to clean state.
+git status --short app/help/_components/Sidebar.tsx
+# Expected: empty output.
 ```
 
 Re-run: PASSES. Record the failure in the commit message:

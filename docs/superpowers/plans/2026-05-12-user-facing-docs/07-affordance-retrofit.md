@@ -315,20 +315,40 @@ Per spec §5.3 affordance wiring. The retrofit is LINK-ONLY — does not change 
 
 ---
 
-### Task G.4: Retrofit `data-testid` on M3/M9/M10 source surfaces
+### Task G.4: Retrofit `data-testid` on M3/M9/M10 source surfaces (test-first per AGENTS.md invariant #1)
 
 **Files:**
-- Modify: existing components per the `AFFORDANCE_MATRIX` concrete-testid rows. Concrete paths were pinned by Task G.0 (pre-execution discovery). Known live anchors: `components/admin/AlertBanner.tsx`, `components/admin/ParsePanel.tsx`, `components/admin/ReSyncButton.tsx`, `components/admin/StagedReviewCard.tsx`, `components/messages/ErrorExplainer.tsx`. M9/M10-owned files (dashboard rows, onboarding wizard steps) were discovered + added to the inventory by G.0.
+- Create FIRST (before any UI edit): `tests/e2e/deep-link-walker.spec.ts` — the concrete-row portion of test #13's walker (the remaining template-family + negative + reverse-direction parts live in G.5).
+- Modify: existing components per the `AFFORDANCE_MATRIX` concrete-testid rows. Concrete paths were pinned by Task G.0. Known live anchors: `components/admin/AlertBanner.tsx`, `components/admin/ParsePanel.tsx`, `components/admin/ReSyncButton.tsx`, `components/admin/StagedReviewCard.tsx`, `components/messages/ErrorExplainer.tsx`. M9/M10-owned files (dashboard rows, onboarding wizard steps) were discovered + added to the inventory by G.0.
 
 For every concrete-testid row in the matrix, the owning component must carry the `data-testid` attribute on the affordance element (the `?` icon, "Take the tour" link, etc.). Most M3/M9/M10 work already shipped these affordances without testids; G.4 retrofits them.
 
-- [ ] Step 1: For each matrix row, locate the component:
+**r8 — TDD ordering fix (B-r8 critical finding 1):** the r7 task numbered the retrofits as Step 1-3 and deferred verification to G.5, committing UI without a failing test first — violation of AGENTS.md invariant #1. r8 restructures: write the concrete-row walker FIRST as Step 1, observe it fail for every row (no testids exist yet), retrofit in Step 3-4 with each retrofit flipping one walker assertion from red to green, commit retrofits + walker test together. The remaining walker classes (template-family + negative + reverse) stay in G.5.
+
+- [ ] Step 1: **Write the concrete-row walker** (`tests/e2e/deep-link-walker.spec.ts`):
+
+  ```ts
+  // Concrete-row portion of test #13. Iterates AFFORDANCE_MATRIX where kind === "concrete".
+  // Signs in as admin via signInAs, navigates to row.sourceRoute, locates page.getByTestId(row.testid),
+  // asserts visible. For tooltip rows, click/hover, locate inner `Learn more →`, assert href === row.target.
+  // Template-family + negative + reverse-direction live in G.5.
+  ```
+- [ ] Step 2: **Run the walker — observe RED** (no testids exist yet; expect 13 failures):
+
+  ```bash
+  pnpm exec playwright test tests/e2e/deep-link-walker.spec.ts
+  # Expected: every concrete row fails with a "TestId not found on sourceRoute"-class error.
+  ```
+  Capture the failure list in the eventual commit-message body as verify-red evidence.
+- [ ] Step 3: For each matrix row, locate the component:
+
   ```bash
   grep -rn "Active Shows" components/admin/ app/admin/    # finds the Active Shows header
   grep -rn "Sheets we couldn't" components/admin/ app/admin/
   # ... repeat for each row's source surface text
   ```
-- [ ] Step 2: Add `data-testid={...}` to each affordance element. Example for the Active Shows header tooltip:
+- [ ] Step 4: Add `data-testid={...}` to each affordance element. Example for the Active Shows header tooltip:
+
   ```tsx
   <button
     type="button"
@@ -339,27 +359,26 @@ For every concrete-testid row in the matrix, the owning component must carry the
     ?
   </button>
   ```
-- [ ] Step 3: Repeat for all 13 concrete-testid rows. Commit each retrofit as a separate logical commit OR batch by component:
+- [ ] Step 5: After each component's testids land, re-run the walker. Assertions for that row flip red → green. After all 13 rows retrofitted, all concrete-row assertions PASS.
+- [ ] Step 6: Commit retrofits + walker test together. One commit per source-component is acceptable as long as each commit's diff covers BOTH the testid edit AND the matching walker assertion turning green:
+
   ```bash
-  git add components/admin/Dashboard.tsx tests/components/admin/dashboard-testids.test.tsx
-  git commit -m "feat(admin): add help-affordance testids on Dashboard tooltips (Task G.4 — dashboard subset)"
+  git add components/admin/Dashboard.tsx tests/e2e/deep-link-walker.spec.ts
+  git commit -m "feat(admin): help-affordance testids + concrete-row walker green (Task G.4 — dashboard subset; pre-retrofit verify-red captured)"
   ```
-- [ ] Step 4: Verify each via the matrix walker (Task G.5 runs against these).
 
 ---
 
-### Task G.5: Deep-link affordance walker (test #13)
+### Task G.5: Deep-link affordance walker — remaining row classes + reverse-direction (test #13)
 
 **Files:**
-- Create: `tests/e2e/deep-link-walker.spec.ts` (concrete rows — E2E via Playwright)
+- Modify: `tests/e2e/deep-link-walker.spec.ts` — extend the concrete-row walker created in G.4 with the first-seen-review row's fixture requirement (which depends on a seeded staged_id, easier to add here than in G.4)
 - Create: `tests/help/deep-link-walker-template-family.test.tsx` (template-family row — unit-level per r7)
 - Create: `tests/help/deep-link-walker-reverse.test.ts` (reverse-direction codebase grep)
 
-Per spec §7.1 test 13 (r10 row-class split). Three row-class handlers; reverse-direction check.
+Per spec §7.1 test 13 (r10 row-class split, r11 split between G.4 and G.5 per B-r8 finding 1). Three row-class handlers + reverse-direction check. The concrete-row walker landed in G.4 to satisfy TDD ordering; G.5 adds the remaining classes.
 
-- [ ] Step 1: **Concrete rows** — E2E Playwright spec. Iterates `AFFORDANCE_MATRIX` where `kind === "concrete"`:
-  - Sign in as admin via `signInAs`.
-  - For each row: `await page.goto(row.sourceRoute)`. Locate `page.getByTestId(row.testid)`. Assert it's visible. If the row is a tooltip, click/hover to reveal its inner `Learn more →`. Assert the visible `<a>`'s `href` matches `row.target`.
+- [ ] Step 1: **Extend the concrete-row walker** with the first-seen-review fixture requirement:
   - For the first-seen-review row whose route contains `STAGED_ID_PLACEHOLDER`: the test REQUIRES a known staged_id from the seeded fixture (NOT optional — r6 per round-5 finding 4). If `pnpm db:seed` doesn't produce a `pending_syncs` row that yields a staged_id, extend the seed script (or G.5's per-spec setup hook) to insert a deterministic test-fixture staged row. The test FAILS (not skips) if the fixture is absent — first-seen review is one of Doug's highest-friction surfaces per master spec §9.1.1; AC-12.30 requires every concrete matrix row wired, with no opt-out for missing fixtures.
 - [ ] Step 2: **Template-family row** — unit-level test. Imports `MESSAGE_CATALOG`; iterates entries matching the AC-12.6 predicate (`severity !== "info"` AND `dougFacing != null` AND M12 fields non-null); for each entry calls the rendering helper from G.3 directly (mock the route as `/admin/show/x`); asserts the output contains:
   - `data-testid` matching `testidForErrorCode(code)`

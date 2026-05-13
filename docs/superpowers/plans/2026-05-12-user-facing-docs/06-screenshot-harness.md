@@ -131,19 +131,53 @@ Per spec §3.6.3 — CI runs `pnpm screenshot:help` against a clean checkout, th
 
 ---
 
-### Task F.6: `<Screenshot>` `<picture>` contract test (test #10)
+### Task F.6: `<Screenshot>` `<picture>` contract test (test #10) — test-first per AGENTS.md invariant #1
 
 **Files:**
 - Create: `tests/help/screenshot-picture-contract.test.tsx` (promotes the test from Task D.4 to a manifest-aware variant)
 
 Per spec §7.1 test 10 / AC-12.25.
 
-- [ ] Step 1: Write failing test that iterates `MANIFEST`; for each entry, renders `<Screenshot key={entry.key} alt="Test alt" />`, asserts the output contains:
+**r2 — TDD ordering fix (B-r8 finding 3, cross-phase verify-red sweep per B-r7 finding 1):** the r1 task said "Run test — should PASS immediately (Task D.4 implemented the component correctly)." That is green-only commit and violates AGENTS.md invariant #1. r2 adds a Step 0 verify-red that temporarily breaks the `<Screenshot>` `<picture>` shape, observes the new test FAIL, restores, then commits green — same restore protocol as B.5 / Phase H.
+
+- [ ] **Step 0: Verify-red-via-restore**
+
+Temporarily break one branch of `<Screenshot>`'s output to prove the new contract test catches the regression:
+
+```bash
+# Pre-flight: components/help/Screenshot.tsx must be clean — else the restore
+# step would discard unrelated working-tree edits.
+git status --short components/help/Screenshot.tsx
+# Expected: empty output. ABORT and resolve those edits first if non-empty.
+
+# Backup, then break the dark <source> media attribute so manifest-aware
+# assertions on it fail:
+cp components/help/Screenshot.tsx components/help/Screenshot.tsx.bak
+sed -i '' 's/(prefers-color-scheme: dark)/(prefers-color-scheme: light)/' components/help/Screenshot.tsx
+```
+
+After Step 1 writes the test, run it. Expected: FAILS for every manifest entry — the dark `<source>` media query is wrong. Restore:
+
+```bash
+mv components/help/Screenshot.tsx.bak components/help/Screenshot.tsx
+git status --short components/help/Screenshot.tsx
+# Expected: empty output.
+```
+
+- [ ] Step 1: Write the test. Iterates `MANIFEST`; for each entry, renders `<Screenshot key={entry.key} alt="Test alt" />`, asserts the output contains:
   - `<picture>` element
   - `<source media="(prefers-color-scheme: dark)" srcset="/help/screenshots/<key>-dark.webp">`
   - `<img src="/help/screenshots/<key>-light.webp" alt="Test alt">`
-- [ ] Step 2: Run test — should PASS immediately (Task D.4 implemented the component correctly; this test just exercises every manifest entry).
-- [ ] Step 3: Commit: `test(help): <Screenshot> <picture>-contract per manifest entry (Task F.6 — test #10)`
+- [ ] Step 2: Re-run the test against the restored `<Screenshot>` component — PASSES.
+- [ ] Step 3: Commit (record the observed verify-red failure in the message body):
+
+  ```bash
+  git commit -m "test(help): <Screenshot> <picture>-contract per manifest entry (Task F.6 — test #10)
+
+  Verify-red observed: swapped 'prefers-color-scheme: dark' -> light in
+  Screenshot.tsx; manifest-aware assertion failed for every entry.
+  Restored and re-ran -> PASS."
+  ```
 
 ---
 
