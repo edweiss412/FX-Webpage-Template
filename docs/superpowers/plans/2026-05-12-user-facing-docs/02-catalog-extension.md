@@ -395,7 +395,7 @@ const HELP_HREF_RE = /^\/help\/.+/;
  *   biconditional: predicate ↔ (title !== null AND longExplanation !== null AND helpHref !== null)
  *
  * B.4 commits ONLY the forced-fixture coverage below (TDD green).
- * Phase H Task H.6 extends this file with the live-catalog biconditional
+ * Phase E Task E.13 (per r6 — r4's H.6 was removed) extends this file with the live-catalog biconditional
  * assertion after all Phase E backfills land.
  */
 function predicate(entry: MessageCatalogEntry): boolean {
@@ -462,7 +462,7 @@ describe("Catalog meta-test (test #2 — biconditional forced fixtures)", () => 
 
 Per AGENTS.md plan-wide invariant #1, every task commits in a green state. The forward direction of the biconditional ("predicate fires → all three M12 fields non-null") FAILS for every Doug-facing entry at B.4 commit time — those entries aren't backfilled until Phase E.5 – E.11.
 
-**Restructure (r4):** Task B.4 commits ONLY the forced-fixture tests (5 synthetic cases that exercise the predicate's logic). The live-catalog biconditional assertion is deferred to Phase H Task H.6 (after all Phase E backfills land). At H.6 commit time, every Doug-facing admin entry has `title` / `longExplanation` / `helpHref` populated (Phase E.5 – E.11 + the parse-warnings backfill of E.7); the live-catalog biconditional passes.
+**Restructure (r4 → r6 → r10):** Task B.4 commits ONLY the forced-fixture tests (5 synthetic cases that exercise the predicate's logic). The live-catalog biconditional assertion is deferred to **Task E.13** (per r6 — r4's H.6 was removed). At E.13 commit time, every Doug-facing admin entry has `title` / `longExplanation` / `helpHref` populated (Phase E.5 – E.11 + the parse-warnings backfill of E.7); E.13 writes the live-catalog biconditional alongside its final catalog backfills as a red→green TDD loop.
 
 Replace the test body with the forced fixtures only — drop the `it("every live entry satisfies the biconditional", ...)` block. Keep the synthetic-fixture `it()` blocks.
 
@@ -475,10 +475,10 @@ Expected: PASS — forced fixtures exercise the predicate logic against syntheti
 
 ```bash
 git add tests/messages/_metaErrorCatalogDocs.test.ts
-git commit -m "test(messages): catalog meta-test #2 — 5 forced fixtures only; live-catalog biconditional deferred to H.6 (Task B.4 — TDD green)"
+git commit -m "test(messages): catalog meta-test #2 — 5 forced fixtures only; live-catalog biconditional deferred to E.13 (Task B.4 — TDD green)"
 ```
 
-**Note:** Phase H Task H.6 (new in r4) extends this file with the live-catalog biconditional assertion AFTER Phase E backfills land. The forced fixtures stay; the live-catalog assertion is the H.6 deliverable.
+**Note:** Phase E Task E.13 extends this file with the live-catalog biconditional assertion as part of its own TDD red→green loop (writing the assertion + closing any final backfill gaps in one commit). The forced fixtures stay; the live-catalog assertion is E.13's deliverable.
 
 ---
 
@@ -550,7 +550,7 @@ After B.1 – B.5 commits land:
 - [ ] `MessageCatalogEntry` has three new nullable fields; every entry has them present
 - [ ] 18+ master-spec admin-log-only codes have all six user-facing fields `null` (B.2 hand-list + B.5 meta-test net)
 - [ ] `extract-admin-log-only-codes.ts` parses master-spec §12.4 and emits the canonical set
-- [ ] Test #2 (catalog meta-test) PASSES with forced-fixture coverage only — no live-catalog biconditional assertion exists at Phase B. The live-catalog biconditional lives in Phase H Task H.6 (added in r4), which runs after every Phase E backfill lands.
+- [ ] Test #2 (catalog meta-test) PASSES with forced-fixture coverage only — no live-catalog biconditional assertion exists at Phase B. The live-catalog biconditional lives in **Task E.13** (per r6 — r4's H.6 was removed); E.13 commits the assertion alongside its final catalog backfills in a red→green TDD loop.
 - [ ] Test #17 (catalog-alignment) PASSES
 - [ ] `pnpm test tests/messages/` is **fully green** at Phase B close-out (no documented-red exception — r5 fix per AGENTS.md invariant #1)
 - [ ] **Hand off to Phase C** ([03-time-utility.md](03-time-utility.md))

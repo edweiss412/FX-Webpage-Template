@@ -126,16 +126,21 @@ Required sections (per the project's HANDOFF-TEMPLATE.md):
 11. **Routing decision update** — confirm M12 is in `ROUTING.md` with Opus as implementer + Codex as reviewer
 12. **Sign-off** — implementer + reviewer + date
 
-- [ ] **Step 1: Run all tests + capture output**
+- [ ] **Step 1: Run all tests + final production build + capture output**
 
 ```bash
 pnpm typecheck
 pnpm test
 pnpm test:e2e
 pnpm screenshot:help && git diff --exit-code public/help/screenshots/
+# r10 (round-9 finding 1): final `pnpm build` against the FULL post-content
+# state proves AC-12.1 — every page compiles to RSC chunks. Phase A's stub-
+# era build was only against placeholders; a real MDX/RSC build failure
+# introduced by Phase E content would not be caught until ship without this.
+pnpm build
 ```
 
-Expected: all green.
+Expected: all green; `pnpm build` completes without errors. This is the AC-12.1 post-content build proof, distinct from Phase A.1's stub-era build.
 
 - [ ] **Step 2: Write `handoffs/M12-help.md`**
 
@@ -177,6 +182,7 @@ Phase I introduces commits proportional to the number of impeccable + adversaria
 When all 9 phase files are complete, verify the entire milestone:
 
 - [ ] All 13 `/help/*` pages render
+- [ ] **`pnpm build` succeeds against the post-content state** (AC-12.1 final proof; r10 — distinct from Phase A.1's stub-era build)
 - [ ] `pnpm dev` + visit `/help` as admin → see Header + Sidebar + Breadcrumb + content; theme toggle works (if Phase D wired one)
 - [ ] `pnpm dev` + visit `/help` unauth → 403
 - [ ] All 17 unit/integration tests + CI drift gate green

@@ -201,6 +201,25 @@ test.describe("/help auth gate (test #3)", () => {
 });
 
 test.describe("/help AdminInfraError mapping (test #3 r10)", () => {
+  // r10 (round-9 finding 2): negative case — empty TEST_AUTH_SECRET with
+  // ENABLE_TEST_AUTH=true MUST NOT accept an empty-bearer-suffix request as
+  // a valid forced-infra-fail trigger. Test stubs the env via a Playwright
+  // beforeAll fixture; assertion is "the help page renders normally (200
+  // for admin), NOT the infra-error surface."
+  test("empty TEST_AUTH_SECRET does NOT accept Bearer empty-string as the trigger gate", async ({ page }) => {
+    // Implementer stubs TEST_AUTH_SECRET="" for this specific test via
+    // a per-test webServer env or a process.env override matching the
+    // project's existing test-env-override pattern.
+    await signInAs(page, { email: "admin-fixture@example.com", label: "admin" } as never);
+    await page.setExtraHTTPHeaders({
+      "X-Help-Force-Infra-Fail": "1",
+      Authorization: "Bearer ", // matches empty secret pattern
+    });
+    const response = await page.goto("/help");
+    expect(response?.status()).toBe(200);
+    await expect(page.getByTestId("help-layout-infra-error")).not.toBeVisible();
+  });
+
   test("when requireAdmin throws AdminInfraError, /help renders cataloged 500-class surface", async ({ page, request }) => {
     // r7 (round-6 finding 2): NO SKIP allowed. AC-12.24 requires this test to
     // run unconditionally. The infra-fail trigger is implemented as part of
@@ -256,11 +275,15 @@ export default async function HelpLayout({ children }: { children: ReactNode }) 
     //   (2) process.env.ENABLE_TEST_AUTH === "true"
     //   (3) request includes Authorization: Bearer ${TEST_AUTH_SECRET}
     const reqHeaders = await headers();
+    const expectedSecret = process.env.TEST_AUTH_SECRET;
     if (
       reqHeaders.get("x-help-force-infra-fail") === "1" &&
       process.env.ENABLE_TEST_AUTH === "true" &&
-      process.env.TEST_AUTH_SECRET !== undefined &&
-      reqHeaders.get("authorization") === `Bearer ${process.env.TEST_AUTH_SECRET}`
+      // r10 (round-9 finding 2): truthy check, not just "!== undefined".
+      // An empty TEST_AUTH_SECRET with ENABLE_TEST_AUTH=true must NOT
+      // accept `Authorization: Bearer ` (empty bearer after concat).
+      !!expectedSecret &&
+      reqHeaders.get("authorization") === `Bearer ${expectedSecret}`
     ) {
       throw new AdminInfraError("test-forced infra fail (H.2)");
     }
