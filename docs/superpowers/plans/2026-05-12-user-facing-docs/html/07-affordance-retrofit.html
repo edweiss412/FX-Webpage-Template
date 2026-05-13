@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phase G — Affordances · M12 · FXAV Tour Book</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK / M12</span></a>
+    <nav class="topbar__nav">
+      <a href="06-screenshot-harness.html">← Phase F</a>
+      <a href="08-auth-integration.html">Phase H →</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">G</div>
+  <div class="container">
+    <div class="hero__kicker">Stage 7 of 9 · Affordance retrofit</div>
+    <div class="hero__milestone-mark">PHASE G</div>
+    <h1 class="hero__title">Plant the <em>"Learn more →"</em> seeds in /admin.</h1>
+    <p class="hero__lede">
+      The help center only works if Doug can <em>find it</em>. Phase G
+      retrofits twelve specific admin surfaces with little
+      <code>?</code> tooltips and <em>Learn more →</em> links that
+      deep-link into <code>/help/...</code>. The whole thing is driven
+      by a typed registry — the <strong>affordance matrix</strong> —
+      so the doc-side and the surface-side can’t drift.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Tasks</dt><dd>G.0 → G.6 (7)</dd></div>
+      <div><dt>Surfaces</dt><dd>M3 / M9 / M10</dd></div>
+      <div><dt>Contexts</dt><dd>4 (admin · help-admin · crew · preview)</dd></div>
+      <div><dt>Status</dt><dd><span class="pill pill--pending">Pending F</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    A help center buried inside the app is no help at all. So instead of
+    expecting Doug to navigate to <code>/help</code> when he’s confused,
+    Phase G plants tiny <code>?</code> tooltips and <em>Learn more →</em>
+    links right next to the things in the admin UI that are most likely
+    to confuse him. Each one is a single-click jump into the exact
+    relevant page or anchor.
+  </p>
+  <p>
+    The clever part: the same renderer needs to know <em>not</em> to
+    show those affordances when Doug is using "preview as crew" mode —
+    the previewed content has to look exactly like what crew sees, with
+    no admin-only chrome leaking in.
+  </p>
+</div>
+
+<!-- ============================================================
+     AFFORDANCE FLAVORS
+     ============================================================ -->
+
+<h2>What's an affordance?</h2>
+
+<div class="task-grid">
+
+  <article class="task-card">
+    <div class="task-card__id">FLAVOR 1</div>
+    <h3 class="task-card__title">? tooltips on headers</h3>
+    <p class="task-card__body">Active Shows, Sync health, Crew preview links, wizard steps. Click → open the matching help page in a new tab.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">FLAVOR 2</div>
+    <h3 class="task-card__title">Learn more → on error messages</h3>
+    <p class="task-card__body">Every message rendered via <code>messageFor(code)</code> in admin contexts. Points at <code>/help/errors#&lt;CODE&gt;</code>.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">FLAVOR 3</div>
+    <h3 class="task-card__title">Take the tour footer link</h3>
+    <p class="task-card__body">Single link in the dashboard footer. Points at <code>/help/tour</code>.</p>
+  </article>
+
+</div>
+
+<!-- ============================================================
+     THE MATRIX
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">02</span> The affordance matrix · 3 row classes</div>
+
+<p class="prose">
+  <code>app/help/_affordanceMatrix.ts</code> is the typed registry —
+  one row per affordance. Three row classes:
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>What it means</th>
+      <th>Example testid</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="pill pill--blocked">concrete</span></td>
+      <td>Single fixed <code>data-testid</code> on a known surface. Test #13 asserts it exists.</td>
+      <td><code>help-affordance--dashboard-active-shows--tooltip</code></td>
+    </tr>
+    <tr>
+      <td><span class="pill pill--spec">template-family</span></td>
+      <td>Pattern for codes that come from the catalog. One row, walked per-code via catalog iteration.</td>
+      <td><code>help-affordance--error-message--&lt;code&gt;--learn-more</code></td>
+    </tr>
+    <tr>
+      <td><span class="pill pill--active">negative</span></td>
+      <td>Asserts the <em>absence</em> of any <code>help-affordance--*</code> testid on a given route — crew pages must never carry one.</td>
+      <td>None on <code>/show/&lt;slug&gt;</code></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p class="prose">
+  The 12 concrete rows live in M3 / M9 / M10 components (dashboard,
+  per-show panel, preview-as-crew banner, onboarding wizard steps).
+  The template-family row covers every code in the catalog. The
+  negative row pins the crew-side guarantee.
+</p>
+
+<!-- ============================================================
+     FOUR CONTEXTS
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">03</span> The four-context renderer gate</div>
+
+<p class="prose">
+  The same <code>messageFor(code)</code> call site renders in four
+  different contexts. The gate decides whether to emit the
+  <em>Learn more →</em> link.
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>Context</th>
+      <th>URL pattern</th>
+      <th>Audience</th>
+      <th>Emit Learn-more?</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>admin</td>
+      <td><code>/admin/*</code></td>
+      <td>Doug</td>
+      <td><span class="pill pill--done">Yes</span></td>
+    </tr>
+    <tr>
+      <td>help-admin</td>
+      <td><code>/help/*</code></td>
+      <td>Doug</td>
+      <td><span class="pill pill--done">Yes</span></td>
+    </tr>
+    <tr>
+      <td>crew</td>
+      <td><code>/show/&lt;slug&gt;</code></td>
+      <td>Crew</td>
+      <td><span class="pill pill--blocked">No</span></td>
+    </tr>
+    <tr>
+      <td>preview-as-crew</td>
+      <td><code>/admin/show/&lt;slug&gt;/preview/&lt;member&gt;</code></td>
+      <td>Doug, pretending to be crew</td>
+      <td><span class="pill pill--blocked">No (banner excepted)</span></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout callout--warn">
+  <div class="callout__label">The preview-as-crew exception</div>
+  <p class="prose">
+    <em>Preview-as-crew</em> lives on an <code>/admin/*</code> URL but
+    the content being previewed is what crew would see. The renderer
+    treats it as <strong>crew context</strong> — the previewed content
+    stays affordance-free — while the sticky admin banner above it
+    still carries its <code>?</code> tooltip. The URL alone can’t
+    disambiguate; the renderer needs an explicit admin-context signal.
+  </p>
+</div>
+
+<!-- ============================================================
+     TWO DIRECTIONS
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">04</span> Two-direction walking · how the matrix protects itself</div>
+
+<div class="diagram">
+  <div class="diagram__title">Forward (#13) + reverse (#13-rev) walkers</div>
+  <svg viewBox="0 0 920 220" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Forward and reverse matrix walking">
+    <defs>
+      <marker id="ahG" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+        <polygon points="0 0, 9 3, 0 6" fill="#ffb627"/>
+      </marker>
+    </defs>
+    <g font-family="IBM Plex Mono, monospace" fill="#a4b3c5" font-size="11">
+
+      <rect x="40" y="40" width="260" height="160" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="170" y="68" text-anchor="middle" font-family="Anton" font-size="14" fill="#ffb627">AFFORDANCE_MATRIX</text>
+      <text x="170" y="88" text-anchor="middle" font-size="10" fill="#6c7e93">the registry</text>
+      <text x="170" y="124" text-anchor="middle" font-size="11">12 concrete rows</text>
+      <text x="170" y="142" text-anchor="middle" font-size="11">1 template-family row</text>
+      <text x="170" y="160" text-anchor="middle" font-size="11">1 negative row</text>
+
+      <line x1="300" y1="78" x2="400" y2="78" stroke="#ffb627" stroke-width="2" marker-end="url(#ahG)"/>
+      <text x="350" y="68" text-anchor="middle" font-size="10" fill="#ffb627">FORWARD · #13</text>
+
+      <line x1="400" y1="160" x2="300" y2="160" stroke="#ffb627" stroke-width="2" marker-end="url(#ahG)"/>
+      <text x="350" y="180" text-anchor="middle" font-size="10" fill="#ffb627">REVERSE · #13-rev</text>
+
+      <rect x="400" y="40" width="480" height="160" fill="#172230" stroke="#2c3c52"/>
+      <text x="640" y="68" text-anchor="middle" font-family="Anton" font-size="14" fill="#6fe7d8">THE CODEBASE</text>
+      <text x="640" y="88" text-anchor="middle" font-size="10" fill="#6c7e93">M3 / M9 / M10 components with testids</text>
+
+      <text x="420" y="114" font-size="10">FORWARD: for each matrix row → assert testid in codebase</text>
+      <text x="420" y="130" font-size="10" fill="#3fb950">catches missing testid (someone removed it)</text>
+
+      <text x="420" y="156" font-size="10">REVERSE: for each codebase testid → assert it's in the matrix</text>
+      <text x="420" y="172" font-size="10" fill="#3fb950">catches matrix drift (someone added testid without row)</text>
+    </g>
+  </svg>
+</div>
+
+<!-- ============================================================
+     TASKS
+     ============================================================ -->
+
+<h2>The seven tasks</h2>
+
+<div class="task-grid">
+
+  <article class="task-card">
+    <div class="task-card__id">G.0 · Discovery</div>
+    <h3 class="task-card__title">Pin M9/M10 component paths</h3>
+    <p class="task-card__body">Before any other G task, grep the live tree for each matrix row’s source-surface label and pin every placeholder in <code>00-overview.md</code>’s file inventory to a real path. Hard gate.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">G.1 · Registry</div>
+    <h3 class="task-card__title">_affordanceMatrix.ts</h3>
+    <p class="task-card__body">Build the typed registry. Three row types (<code>ConcreteRow</code>, <code>TemplateFamilyRow</code>, <code>NegativeRow</code>) + a frozen <code>AFFORDANCE_MATRIX</code> array.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">G.2 · Gate</div>
+    <h3 class="task-card__title">shouldEmitLearnMore()</h3>
+    <p class="task-card__body">Pure function. Takes pathname + explicit <code>previewAsCrew</code> signal. Returns true/false. Unit tests cover all four contexts.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">G.3 · Wire renderers</div>
+    <h3 class="task-card__title">Plumb Learn more →</h3>
+    <p class="task-card__body">Edit <code>AlertBanner.tsx</code> + <code>ErrorExplainer.tsx</code> to call <code>shouldEmitLearnMore()</code> and conditionally emit the link with the catalog’s <code>helpHref</code>. <code>ParsePanel.tsx</code> inherits for free (it renders via <code>messageFor()</code>).</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">G.4 · Testid retrofit</div>
+    <h3 class="task-card__title">data-testid on source surfaces</h3>
+    <p class="task-card__body">Edit each M9/M10 component flagged in the matrix. Add the documented <code>data-testid</code> next to its affordance. Small commits per file.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">G.5 · test #13</div>
+    <h3 class="task-card__title">Deep-link walker · 3 walkers</h3>
+    <p class="task-card__body">Walks the matrix. <strong>Concrete</strong>: render source page, click testid, assert target. <strong>Template-family</strong>: iterate catalog, assert per-code testid + target. <strong>Negative</strong>: render crew page, assert no <code>help-affordance--*</code>. Plus reverse-direction structural meta-test.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">G.6 · meta-test #12</div>
+    <h3 class="task-card__title">Four-context coverage</h3>
+    <p class="task-card__body">Asserts the renderer behaves correctly in all four contexts. If anyone adds a fifth context or changes the gate’s signature, this catches it.</p>
+  </article>
+
+</div>
+
+<!-- ============================================================
+     ACCEPTANCE
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">05</span> Phase G acceptance</div>
+
+<ul class="ac-list">
+  <li><span class="ac-id">G.PATHS</span><span>Every M9/M10 placeholder in the file inventory replaced with a real path.</span></li>
+  <li><span class="ac-id">G.MATRIX</span><span><code>AFFORDANCE_MATRIX</code> is non-empty; every row has the right shape per its <code>kind</code>.</span></li>
+  <li><span class="ac-id">G.GATE</span><span><code>shouldEmitLearnMore()</code> returns the right answer for all four contexts.</span></li>
+  <li><span class="ac-id">G.ADMIN</span><span><code>/admin</code> as Doug shows every documented affordance.</span></li>
+  <li><span class="ac-id">G.PREV</span><span>Preview-as-crew shows the banner tooltip but no affordances inside the previewed crew content.</span></li>
+  <li><span class="ac-id">G.CREW</span><span><code>/show/&lt;slug&gt;</code> as crew shows no <code>help-affordance--*</code> elements anywhere.</span></li>
+  <li><span class="ac-id">G.WALK</span><span>Forward + reverse + template-family + negative walkers all pass.</span></li>
+  <li><span class="ac-id">G.META12</span><span>Four-context meta-test (#12) passes.</span></li>
+</ul>
+
+<nav class="pagenav">
+  <a href="06-screenshot-harness.html">
+    <span class="pagenav__dir">← Previous</span>
+    <span class="pagenav__title">Phase F · Screenshots</span>
+  </a>
+  <a href="08-auth-integration.html" class="pagenav--right">
+    <span class="pagenav__dir">Next →</span>
+    <span class="pagenav__title">Phase H · Auth + integration</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phase I — Close-out · M12 · FXAV Tour Book</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK / M12</span></a>
+    <nav class="topbar__nav">
+      <a href="08-auth-integration.html">← Phase H</a>
+      <a href="index.html">All phases</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">I</div>
+  <div class="container">
+    <div class="hero__kicker">Stage 9 of 9 · Close-out</div>
+    <div class="hero__milestone-mark">PHASE I</div>
+    <h1 class="hero__title">Two quality gates, one cross-model review, then ship.</h1>
+    <p class="hero__lede">
+      The implementation is done. Phase I runs the project’s standing
+      quality gates against what was built: <code>/impeccable critique</code>
+      + <code>/impeccable audit</code> on every page, then a full
+      cross-CLI adversarial review of the assembled milestone against
+      the canonical spec. Findings get fixed or explicitly deferred. A
+      handoff doc records everything. Then M12 closes.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Tasks</dt><dd>I.1 → I.3 (3)</dd></div>
+      <div><dt>Gates</dt><dd>impeccable v3 · cross-CLI · spec r14</dd></div>
+      <div><dt>Iterate</dt><dd>Until APPROVE</dd></div>
+      <div><dt>Status</dt><dd><span class="pill pill--pending">Pending H</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    Everything that touched a screen Doug will see — 13 pages + 8
+    components + the layout chrome + the affordance retrofits in M3/M9/M10
+    — runs through two automated quality gates and one cross-model
+    adversarial review before the milestone is allowed to close. The
+    point isn’t to find more bugs; the point is to <em>be sure we didn’t
+    miss any</em>.
+  </p>
+</div>
+
+<!-- ============================================================
+     SCOPE
+     ============================================================ -->
+
+<h2>What gets reviewed</h2>
+
+<div class="deflist">
+  <dt>The 13 pages</dt>
+  <dd>Every <code>/help/*</code> page authored in Phase E.</dd>
+
+  <dt>The 8 components</dt>
+  <dd><code>Sidebar</code>, <code>Header</code>, <code>Breadcrumb</code>, <code>Callout</code>, <code>Step</code>, <code>Screenshot</code>, <code>RefAnchor</code>, <code>TipFromSheets</code>.</dd>
+
+  <dt>The chrome composition</dt>
+  <dd><code>app/help/layout.tsx</code>’s assembled output.</dd>
+
+  <dt>The affordance retrofits</dt>
+  <dd>The §5.6 matrix testids + <em>Learn more →</em> links inside M3/M9/M10 components. Each surface already passed impeccable for its owning milestone, but the M12 retrofit may introduce new visual elements that warrant a re-pass.</dd>
+</div>
+
+<!-- ============================================================
+     THE THREE TASKS
+     ============================================================ -->
+
+<h2>The three tasks</h2>
+
+<div class="task-grid">
+
+  <article class="task-card">
+    <div class="task-card__id">I.1 · impeccable v3</div>
+    <h3 class="task-card__title">/impeccable critique + audit</h3>
+    <p class="task-card__body">Both, not one or the other. Critique surfaces UX/accessibility/content concerns. Audit checks against v3 preflight gates (PRODUCT.md, DESIGN.md, design register). HIGH/CRITICAL findings: fix inline OR defer via <code>DEFERRED.md</code>. Re-run both until zero un-deferred high/critical.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">I.2 · cross-CLI review</div>
+    <h3 class="task-card__title">/codex:adversarial-review</h3>
+    <p class="task-card__body">Implementer is Claude Code; reviewer is Codex. Reviewer reads spec + plan + implementation, returns APPROVE or findings. Critical: <code>--base &lt;M12-base-SHA&gt;</code> + <code>--scope branch</code> so every round reviews the full M12 diff, not the latest fix. Iterate fix → review until APPROVE.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">I.3 · handoff</div>
+    <h3 class="task-card__title">handoffs/M12-help.md</h3>
+    <p class="task-card__body">Twelve sections: spec sections in scope, AC list with PASS/DEFERRED/N/A, amendments in scope, test commands + expected output, convergence log, watchpoints, deferred content, impeccable findings, perf/bundle impact, convergence-log transcript, routing decision, sign-off. Updates <code>ROUTING.md</code> with the M12 row. Runs final <code>pnpm build</code> against the post-content state.</p>
+  </article>
+
+</div>
+
+<!-- ============================================================
+     WATCHPOINTS
+     ============================================================ -->
+
+<div class="hazard-banner">
+  <div class="hazard-banner__stripe"></div>
+  <div class="hazard-banner__body">
+    <h3 class="hazard-banner__title">Cross-CLI reviewer watchpoints</h3>
+    <p class="prose">The reviewer anchors on these. Each is a documented bug class from prior milestones, codified here so they’re explicitly audited.</p>
+    <ul class="prose">
+      <li><strong>Catalog drift:</strong> every admin-log-only code has <code>dougFacing: null</code> in the live catalog.</li>
+      <li><strong>Clock pipeline:</strong> every render-side <code>new Date()</code> uses <code>nowDate()</code> or carries a per-line waiver.</li>
+      <li><strong>Affordance retrofit completeness:</strong> every concrete row in <code>AFFORDANCE_MATRIX</code> has its testid in the live component.</li>
+      <li><strong>Preview-as-crew exception:</strong> previewed content emits no <em>Learn more →</em>.</li>
+      <li><strong>/help/errors trailing CTA:</strong> <em>"If this keeps happening, tell Eric →"</em> — not a self-linking <em>Learn more →</em>.</li>
+      <li><strong>&lt;picture&gt; contract:</strong> every WebP pair (light + dark) exists; <code>&lt;Screenshot&gt;</code> emits the dark <code>&lt;source&gt;</code>.</li>
+      <li><strong>Invariant #4:</strong> <code>/help/errors</code> shows codes only as anchor fragments; visible heading is <code>entry.title</code>.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ============================================================
+     CLOSE-OUT CHECKLIST
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">02</span> Full milestone close-out checklist</div>
+
+<p class="prose">
+  When all three Phase I tasks land, walk this list one last time.
+  Every box ticked → <strong>M12 ships</strong>.
+</p>
+
+<ul class="ac-list">
+  <li><span class="ac-id">CO.RENDER</span><span>All 13 <code>/help/*</code> pages render.</span></li>
+  <li><span class="ac-id">CO.BUILD</span><span><code>pnpm build</code> succeeds against the post-content state (AC-12.1 final proof).</span></li>
+  <li><span class="ac-id">CO.ADMIN</span><span><code>pnpm dev</code> + <code>/help</code> as admin → chrome + content; theme toggle works.</span></li>
+  <li><span class="ac-id">CO.UNAUTH</span><span><code>/help</code> unauth → 403.</span></li>
+  <li><span class="ac-id">CO.TESTS</span><span>All 17 unit/integration tests + CI drift gate green.</span></li>
+  <li><span class="ac-id">CO.DRIFT</span><span><code>git diff --exit-code public/help/screenshots/</code> exits 0.</span></li>
+  <li><span class="ac-id">CO.PLH</span><span>No <code>&lt;ScreenshotPlaceholder&gt;</code> references in MDX.</span></li>
+  <li><span class="ac-id">CO.AFF</span><span>§9.0.1 affordances on <code>/admin/*</code> carry their testids and emit <em>Learn more →</em>.</span></li>
+  <li><span class="ac-id">CO.ALIGN</span><span>Catalog admin-log-only codes have <code>dougFacing: null</code> and no longer surface in AlertBanner.</span></li>
+  <li><span class="ac-id">CO.HAND</span><span>M12 handoff doc complete; routing updated.</span></li>
+  <li><span class="ac-id">CO.SHIP</span><span>M12 marked closed in <code>ROUTING.md</code>.</span></li>
+</ul>
+
+<!-- ============================================================
+     SHIP BANNER
+     ============================================================ -->
+
+<div class="diagram" style="text-align:center; padding: 3rem; background: linear-gradient(135deg, #0a1119 0%, #1b2837 100%); border-color: #ffb627;">
+  <div class="hero__milestone-mark" style="font-size: clamp(4rem, 10vw, 8rem); margin: 0;">M12 · SHIP</div>
+  <p class="prose" style="max-width: 50ch; margin: 1rem auto 0; color: var(--paper-200);">
+    Doug opens <code>/help</code>, finds answers, returns to <code>/admin</code>
+    faster. Every <em>"Learn more →"</em> link in the dashboard works.
+    Every screenshot stays pixel-stable. The doc and the surface can’t
+    drift because the matrix says so.
+  </p>
+</div>
+
+<nav class="pagenav">
+  <a href="08-auth-integration.html">
+    <span class="pagenav__dir">← Previous</span>
+    <span class="pagenav__title">Phase H · Auth + integration</span>
+  </a>
+  <a href="index.html" class="pagenav--right">
+    <span class="pagenav__dir">Back to</span>
+    <span class="pagenav__title">All phases</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>

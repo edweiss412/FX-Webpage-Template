@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phase A — Foundation · M12 · FXAV Tour Book</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK / M12</span></a>
+    <nav class="topbar__nav">
+      <a href="00-overview.html">← Overview</a>
+      <a href="02-catalog-extension.html">Phase B →</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">A</div>
+  <div class="container">
+    <div class="hero__kicker">Stage 1 of 9 · Foundation</div>
+    <div class="hero__milestone-mark">PHASE A</div>
+    <h1 class="hero__title">Teach Next.js about MDX. Then put the front door on a lock.</h1>
+    <p class="hero__lede">
+      Nothing in M12 works until Next.js knows what an <code>.mdx</code>
+      file is. Nothing should be reachable until the request goes through
+      <code>requireAdmin()</code>. And no page is navigable until a
+      sidebar, a header, and a breadcrumb exist to surround it. Phase A
+      lands all three.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Tasks</dt><dd>A.1 → A.7 (7)</dd></div>
+      <div><dt>Order</dt><dd>Strict sequential</dd></div>
+      <div><dt>Acceptance</dt><dd>AC-12.1, 12.3, 12.4</dd></div>
+      <div><dt>Status</dt><dd><span class="pill pill--pending">Pending M10</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    Picture Doug opening <code>/help</code> in his browser. We need three
+    things to happen before any content renders: <strong>Next.js has to
+    know how to render <code>.mdx</code></strong> as a route, <strong>the
+    layout has to check that he’s logged in as an admin</strong>, and
+    <strong>the surrounding sidebar/header/breadcrumb chrome has to
+    exist</strong> so the page looks like a wiki instead of a blank
+    document. That’s what Phase A builds. Nothing reaches Phase B until
+    these three are in place.
+  </p>
+</div>
+
+<!-- ============================================================
+     REQUEST FLOW
+     ============================================================ -->
+
+<h2>A request to /help, in three beats</h2>
+
+<div class="diagram">
+  <div class="diagram__title">Phase A · request flow</div>
+  <svg viewBox="0 0 920 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Request flow through Phase A's layout">
+    <defs>
+      <marker id="ahA" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+        <polygon points="0 0, 9 3, 0 6" fill="#ffb627"/>
+      </marker>
+    </defs>
+
+    <g font-family="IBM Plex Mono, monospace" fill="#a4b3c5" font-size="11">
+
+      <!-- Request -->
+      <text x="30" y="40" font-size="10" fill="#6c7e93" letter-spacing="2">REQUEST</text>
+      <rect x="30" y="50" width="160" height="70" fill="#172230" stroke="#2c3c52"/>
+      <text x="110" y="78" text-anchor="middle" font-family="Anton" font-size="16" fill="#6fe7d8">GET /help</text>
+      <text x="110" y="100" text-anchor="middle" font-size="10">browser request</text>
+
+      <!-- Layout -->
+      <text x="220" y="40" font-size="10" fill="#6c7e93" letter-spacing="2">LAYOUT · app/help/layout.tsx</text>
+      <rect x="220" y="50" width="280" height="120" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="360" y="74" text-anchor="middle" font-family="Anton" font-size="14" fill="#ffb627">REQUIREADMIN()</text>
+      <text x="240" y="98" font-size="10">export const dynamic = "force-dynamic"</text>
+      <text x="240" y="116" font-size="10">try { await requireAdmin() }</text>
+      <text x="240" y="134" font-size="10">catch (AdminInfraError) → friendly page</text>
+      <text x="240" y="152" font-size="10">catch (forbidden) → 403</text>
+
+      <!-- Decision diamond -->
+      <polygon points="540,90 590,60 640,90 590,120" fill="#172230" stroke="#ffb627"/>
+      <text x="590" y="94" text-anchor="middle" font-size="10" fill="#ffb627">ADMIN?</text>
+
+      <!-- Yes path -->
+      <text x="690" y="55" font-size="10" fill="#3fb950">YES</text>
+      <line x1="640" y1="80" x2="680" y2="60" stroke="#3fb950" marker-end="url(#ahA)"/>
+      <rect x="680" y="40" width="220" height="60" fill="#172230" stroke="#3fb950" stroke-width="2"/>
+      <text x="790" y="64" text-anchor="middle" font-family="Anton" font-size="14" fill="#3fb950">RENDER</text>
+      <text x="790" y="84" text-anchor="middle" font-size="10">&lt;Sidebar/&gt; + &lt;Header/&gt; + &lt;Breadcrumb/&gt;</text>
+
+      <!-- No path -->
+      <text x="690" y="155" font-size="10" fill="#ff5c5c">NO / INFRA-FAULT</text>
+      <line x1="640" y1="100" x2="680" y2="130" stroke="#ff5c5c" marker-end="url(#ahA)"/>
+      <rect x="680" y="120" width="220" height="60" fill="#172230" stroke="#ff5c5c"/>
+      <text x="790" y="144" text-anchor="middle" font-family="Anton" font-size="14" fill="#ff5c5c">403 / FRIENDLY PAGE</text>
+      <text x="790" y="164" text-anchor="middle" font-size="10">forbidden() · "Help unavailable"</text>
+
+      <!-- Request arrow -->
+      <line x1="190" y1="85" x2="218" y2="85" stroke="#ffb627" marker-end="url(#ahA)"/>
+      <line x1="500" y1="90" x2="540" y2="90" stroke="#ffb627" marker-end="url(#ahA)"/>
+
+      <!-- Nav registry -->
+      <text x="30" y="230" font-size="10" fill="#6c7e93" letter-spacing="2">SINGLE SOURCE OF TRUTH</text>
+      <rect x="30" y="240" width="870" height="100" fill="#172230" stroke="#6fe7d8" stroke-dasharray="3 3"/>
+      <text x="50" y="266" font-family="Anton" font-size="14" fill="#6fe7d8">APP/HELP/_NAV.TS</text>
+      <text x="50" y="290" font-size="11">Read by Sidebar (renders), Breadcrumb (derives trail), _metaNavSync.test.ts (enforces no drift).</text>
+      <text x="50" y="310" font-size="11">Every entry → real route. Every route → registry entry. Both directions enforced.</text>
+      <text x="50" y="328" font-size="10" fill="#6c7e93">13 entries · 3 groups: get-started · admin-surface · reference</text>
+    </g>
+  </svg>
+</div>
+
+<!-- ============================================================
+     TASKS
+     ============================================================ -->
+
+<h2>The seven tasks</h2>
+
+<p class="prose">
+  Each task is its own commit. Each one starts red (a failing test) and
+  ends green. Order is linear: each task depends on the previous task’s
+  commits.
+</p>
+
+<div class="task-grid">
+
+  <article class="task-card">
+    <div class="task-card__id">A.1 · MDX pipeline</div>
+    <h3 class="task-card__title">Wire @next/mdx</h3>
+    <p class="task-card__body">Add <code>@next/mdx</code> + loaders + <code>@types/mdx</code>. Create <code>mdx-components.tsx</code> at the project root. Add <code>"mdx"</code> to <code>pageExtensions</code> so Next sees <code>.mdx</code> as routable.</p>
+    <div class="task-card__files"><code>package.json</code> <code>next.config.ts</code> <code>mdx-components.tsx</code></div>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">A.2 · Gated layout</div>
+    <h3 class="task-card__title">requireAdmin + chrome shell</h3>
+    <p class="task-card__body">Create <code>app/help/layout.tsx</code>. Mirrors <code>app/admin/layout.tsx:47-71</code> verbatim. Exports <code>dynamic = "force-dynamic"</code>. Catches <code>AdminInfraError</code> → friendly try-again page. Placeholder <code>page.mdx</code> lands so the route resolves.</p>
+    <div class="task-card__files"><code>app/help/layout.tsx</code> <code>app/help/page.mdx</code></div>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">A.3 · Nav registry</div>
+    <h3 class="task-card__title">_nav.ts source of truth</h3>
+    <p class="task-card__body">Create <code>app/help/_nav.ts</code> exporting all 13 v1 pages, each tagged with a group: <em>get-started</em>, <em>admin-surface</em>, <em>reference</em>. Single source for sidebar, breadcrumb, and the nav-consistency meta-test.</p>
+    <div class="task-card__files"><code>app/help/_nav.ts</code></div>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">A.4 · Sidebar</div>
+    <h3 class="task-card__title">&lt;Sidebar&gt;</h3>
+    <p class="task-card__body">Renders each group as a section with its entries as links. Highlights current path. Mobile-collapsible per the responsive contract.</p>
+    <div class="task-card__files"><code>_components/Sidebar.tsx</code></div>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">A.5 · Header</div>
+    <h3 class="task-card__title">&lt;Header&gt;</h3>
+    <p class="task-card__body">Wordmark on the left, theme toggle on the right, "Back to /admin" link, sticky on scroll.</p>
+    <div class="task-card__files"><code>_components/Header.tsx</code></div>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">A.6 · Breadcrumb</div>
+    <h3 class="task-card__title">&lt;Breadcrumb&gt;</h3>
+    <p class="task-card__body">Derives the current trail by walking <code>_nav.ts</code>. Hidden on the landing page; shown on every nested route.</p>
+    <div class="task-card__files"><code>_components/Breadcrumb.tsx</code></div>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">A.7 · Meta-test #5 + stubs</div>
+    <h3 class="task-card__title">_metaNavSync + page stubs</h3>
+    <p class="task-card__body">The structural guard: walks <code>_nav.ts</code> and asserts every slug resolves to a real file; walks the filesystem and asserts every page is registered. To make it green, every remaining v1 page gets a one-line stub MDX file. Phase E replaces stubs with real copy <em>in place</em>.</p>
+    <div class="task-card__files"><code>tests/help/_metaNavSync.test.ts</code> <code>app/help/&lt;12 stubs&gt;</code></div>
+  </article>
+
+</div>
+
+<!-- ============================================================
+     WHY IT'S SHAPED THIS WAY
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">02</span> Why this phase is shaped this way</div>
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Why a nav registry?</div>
+  <p class="prose">One extra file, but it’s the only way the sidebar, the breadcrumb, and the structural meta-test can agree on what pages exist. Three sources of truth drift the moment anyone adds a page.</p>
+</div>
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Why mirror admin layout verbatim?</div>
+  <p class="prose">The exact <code>requireAdmin() / AdminInfraError</code> shape at <code>app/admin/layout.tsx:47–71</code> is what <code>tests/auth/_metaInfraContract.test.ts</code> already pins structurally. Mirroring it costs nothing and keeps the new surface inside the existing guarantee.</p>
+</div>
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Why stubs in A.7 (not later)?</div>
+  <p class="prose">The nav-consistency meta-test is the gate; it can only go green if every slug resolves. Phase E replaces stub content with real copy. Defining the stubs at Phase A means Phase E never creates new files — it edits in place.</p>
+</div>
+
+<!-- ============================================================
+     ACCEPTANCE
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">03</span> Phase A acceptance</div>
+
+<ul class="ac-list">
+  <li><span class="ac-id">A.GREEN</span><span><code>pnpm typecheck &amp;&amp; pnpm test tests/help/</code> all green.</span></li>
+  <li><span class="ac-id">A.ADMIN</span><span><code>/help</code> as admin renders the placeholder "Help" heading inside the new chrome.</span></li>
+  <li><span class="ac-id">A.AUTH</span><span><code>/help</code> unauthenticated returns 403.</span></li>
+  <li><span class="ac-id">A.INFRA</span><span><code>/help</code> with Supabase forced into infra-fail mode shows the friendly "Help unavailable" page.</span></li>
+  <li><span class="ac-id">A.STUBS</span><span>All 12 v1 page stubs exist and route correctly.</span></li>
+  <li><span class="ac-id">A.META</span><span>Nav-consistency meta-test passes both directions (registry ↔ filesystem).</span></li>
+</ul>
+
+<nav class="pagenav">
+  <a href="00-overview.html">
+    <span class="pagenav__dir">← Previous</span>
+    <span class="pagenav__title">Overview</span>
+  </a>
+  <a href="02-catalog-extension.html" class="pagenav--right">
+    <span class="pagenav__dir">Next →</span>
+    <span class="pagenav__title">Phase B · Catalog</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>

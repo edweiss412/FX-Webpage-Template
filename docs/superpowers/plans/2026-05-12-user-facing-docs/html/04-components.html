@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phase D — Components · M12 · FXAV Tour Book</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK / M12</span></a>
+    <nav class="topbar__nav">
+      <a href="03-time-utility.html">← Phase C</a>
+      <a href="05-content.html">Phase E →</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">D</div>
+  <div class="container">
+    <div class="hero__kicker">Stage 4 of 9 · MDX components</div>
+    <div class="hero__milestone-mark">PHASE D</div>
+    <h1 class="hero__title">Six building blocks. One vocabulary. Every page speaks it.</h1>
+    <p class="hero__lede">
+      MDX is Markdown that can render React components. Phase D builds
+      the six components every help page uses, then registers them in
+      <code>mdx-components.tsx</code> so they’re available everywhere
+      under <code>app/help/</code> without per-page imports.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Components</dt><dd>6 + 1 draft-only</dd></div>
+      <div><dt>Tasks</dt><dd>D.1 → D.7 (7)</dd></div>
+      <div><dt>Registration</dt><dd>mdx-components.tsx</dd></div>
+      <div><dt>Status</dt><dd><span class="pill pill--pending">Pending C</span> · <span class="pill pill--design">DESIGN</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    Every help page is mostly Markdown — headings, paragraphs, lists.
+    But certain things repeat across pages: a yellow "heads up" box, a
+    numbered procedure step, a screenshot, an anchored heading you can
+    deep-link to. Rather than reinventing those for every page, Phase D
+    builds them once as <strong>components</strong>, then makes them
+    available in every <code>.mdx</code> file by name. Page authors
+    write <code>&lt;Callout type="warning"&gt;</code>; the component
+    handles the icon, the color, the role, and the accessibility plumbing.
+  </p>
+</div>
+
+<!-- ============================================================
+     THE VOCABULARY
+     ============================================================ -->
+
+<h2>The vocabulary</h2>
+
+<div class="task-grid">
+
+  <article class="task-card">
+    <div class="task-card__id">D.1 · &lt;Callout&gt;</div>
+    <h3 class="task-card__title">Boxed message · 3 variants</h3>
+    <p class="task-card__body">Three variants — <code>note</code>, <code>warning</code>, <code>tip</code> — with palette tokens from <code>globals.css</code>. Fixed icon per type. Unknown <code>type</code> falls back to <code>note</code> per spec §6.3 guard. Used for "heads up" guidance interspersed in body text.</p>
+    <div class="task-card__files"><code>_components/Callout.tsx</code></div>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">D.2 · &lt;Step&gt;</div>
+    <h3 class="task-card__title">Numbered procedure item</h3>
+    <p class="task-card__body">Auto-incrementing via CSS counter — authors don’t manually number. Used in <em>First-time setup</em> and similar adoption flows.</p>
+    <div class="task-card__files"><code>_components/Step.tsx</code></div>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">D.3 · &lt;ScreenshotPlaceholder&gt;</div>
+    <h3 class="task-card__title">Draft scaffold · lint-prohibited at v1</h3>
+    <p class="task-card__body">A labeled empty box for pages authored before Phase F’s real screenshots land. Phase H Task H.5 enforces <em>zero</em> references in shipped v1 MDX. Useful only during the gap.</p>
+    <div class="task-card__files"><code>_components/ScreenshotPlaceholder.tsx</code></div>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">D.4 · &lt;Screenshot name&gt;</div>
+    <h3 class="task-card__title">Production · &lt;picture&gt; with light/dark</h3>
+    <p class="task-card__body">Renders <code>&lt;picture&gt;</code> with light/dark WebP sources from <code>public/help/screenshots/&lt;name&gt;-{light,dark}.webp</code>. Prop is <code>name</code>, <strong>not</strong> <code>key</code> — see the reserved-key trap below. Empty <code>name</code> throws.</p>
+    <div class="task-card__files"><code>_components/Screenshot.tsx</code></div>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">D.5 · &lt;RefAnchor id&gt;</div>
+    <h3 class="task-card__title">Anchored heading · catalog-code shape</h3>
+    <p class="task-card__body">Heading with explicit <code>id</code> for deep-linking. Renders <code>&lt;h2&gt;</code> by default; <code>as="h3"</code> for nested anchors on <code>/help/errors</code>. <code>id</code> must match <code>/^[A-Z][A-Z0-9_]*$/</code> (catalog-code shape). Includes click-to-copy link affordance.</p>
+    <div class="task-card__files"><code>_components/RefAnchor.tsx</code></div>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">D.6 · &lt;TipFromSheets&gt;</div>
+    <h3 class="task-card__title">Bridge metaphor callout</h3>
+    <p class="task-card__body">Visually distinct from <code>&lt;Callout type="tip"&gt;</code> — amber palette, small <em>from Sheets</em> label so the anchoring metaphor stays obvious. Used only on the four adoption-track pages.</p>
+    <div class="task-card__files"><code>_components/TipFromSheets.tsx</code></div>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">D.7 · Wire-up</div>
+    <h3 class="task-card__title">Register in mdx-components.tsx</h3>
+    <p class="task-card__body">Edits the shell created in A.1 to return the six components keyed by name. After this task, MDX pages under <code>app/help/</code> can use <code>&lt;Callout&gt;</code>, <code>&lt;Step&gt;</code>, etc. <em>without per-page imports</em>.</p>
+    <div class="task-card__files"><code>mdx-components.tsx</code></div>
+  </article>
+
+</div>
+
+<!-- ============================================================
+     RESERVED-KEY TRAP
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">02</span> The key/name trap · a round-1 finding</div>
+
+<div class="callout callout--warn">
+  <div class="callout__label">Why &lt;Screenshot name&gt; not &lt;Screenshot key&gt;</div>
+  <p class="prose">
+    <code>key</code> is a React-reserved attribute. The reconciler
+    consumes it <em>before</em> it reaches the component’s <code>props</code>
+    object. The original draft used <code>&lt;Screenshot key="dashboard-active-shows"&gt;</code>
+    and would have rendered <code>/help/screenshots/undefined-light.webp</code>
+    every time. Rename to <code>name</code>. Add a regression test
+    asserting the rendered HTML never contains the literal string
+    <code>"undefined"</code>.
+  </p>
+</div>
+
+<!-- ============================================================
+     MDX REGISTRATION DIAGRAM
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">03</span> How registration works</div>
+
+<div class="diagram">
+  <div class="diagram__title">D.7 wires the registry · after that, no .mdx file needs imports</div>
+  <svg viewBox="0 0 920 240" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="MDX components registration">
+    <defs>
+      <marker id="ahD" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+        <polygon points="0 0, 9 3, 0 6" fill="#ffb627"/>
+      </marker>
+    </defs>
+    <g font-family="IBM Plex Mono, monospace" fill="#a4b3c5" font-size="11">
+
+      <text x="30" y="40" font-size="10" fill="#6c7e93" letter-spacing="2">REGISTRY</text>
+      <rect x="30" y="50" width="260" height="160" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="160" y="78" text-anchor="middle" font-family="Anton" font-size="14" fill="#ffb627">MDX-COMPONENTS.TSX</text>
+      <text x="160" y="98" text-anchor="middle" font-size="10" fill="#6c7e93">project root</text>
+      <text x="50" y="124" font-size="10">useMDXComponents() {</text>
+      <text x="60" y="142" font-size="10">return {</text>
+      <text x="70" y="160" font-size="10" fill="#3fb950">Callout, Step,</text>
+      <text x="70" y="178" font-size="10" fill="#3fb950">Screenshot, RefAnchor,</text>
+      <text x="70" y="196" font-size="10" fill="#3fb950">TipFromSheets, …</text>
+
+      <line x1="290" y1="130" x2="340" y2="130" stroke="#ffb627" marker-end="url(#ahD)"/>
+
+      <text x="350" y="40" font-size="10" fill="#6c7e93" letter-spacing="2">COMPILER</text>
+      <rect x="350" y="50" width="220" height="160" fill="#172230" stroke="#2c3c52"/>
+      <text x="460" y="78" text-anchor="middle" font-family="Anton" font-size="14" fill="#6fe7d8">@NEXT/MDX</text>
+      <text x="460" y="98" text-anchor="middle" font-size="10" fill="#6c7e93">build-time wiring</text>
+      <text x="460" y="130" text-anchor="middle" font-size="10">reads the registry</text>
+      <text x="460" y="150" text-anchor="middle" font-size="10">injects components</text>
+      <text x="460" y="170" text-anchor="middle" font-size="10">into every .mdx page</text>
+
+      <line x1="570" y1="130" x2="620" y2="130" stroke="#ffb627" marker-end="url(#ahD)"/>
+
+      <text x="630" y="40" font-size="10" fill="#6c7e93" letter-spacing="2">CALL SITE</text>
+      <rect x="630" y="50" width="260" height="160" fill="#172230" stroke="#3fb950"/>
+      <text x="760" y="78" text-anchor="middle" font-family="Anton" font-size="14" fill="#3fb950">ANY PAGE.MDX</text>
+      <text x="760" y="98" text-anchor="middle" font-size="10" fill="#6c7e93">app/help/&lt;slug&gt;/page.mdx</text>
+      <text x="650" y="124" font-size="10"># Heading</text>
+      <text x="650" y="142" font-size="10">&lt;Callout type="note"&gt;</text>
+      <text x="650" y="160" font-size="10">Hello world.</text>
+      <text x="650" y="178" font-size="10">&lt;/Callout&gt;</text>
+      <text x="650" y="200" font-size="10" fill="#3fb950">// no imports needed</text>
+    </g>
+  </svg>
+</div>
+
+<!-- ============================================================
+     ACCEPTANCE
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">04</span> Phase D acceptance</div>
+
+<ul class="ac-list">
+  <li><span class="ac-id">D.UNIT</span><span>All 6 components render through their unit tests.</span></li>
+  <li><span class="ac-id">D.REG</span><span><code>mdx-components.tsx</code> returns the registry object; registration test green.</span></li>
+  <li><span class="ac-id">D.VAR</span><span>Variants exercised (<code>Callout</code> note/warn/tip; <code>RefAnchor</code> h2/h3).</span></li>
+  <li><span class="ac-id">D.GUARD</span><span>Defensive paths: unknown Callout type → note; empty Screenshot name → throws; invalid RefAnchor id → throws.</span></li>
+  <li><span class="ac-id">D.KEY</span><span>Reserved-<code>key</code> regression guard green — rendered HTML never contains <code>"undefined"</code>.</span></li>
+</ul>
+
+<nav class="pagenav">
+  <a href="03-time-utility.html">
+    <span class="pagenav__dir">← Previous</span>
+    <span class="pagenav__title">Phase C · Time</span>
+  </a>
+  <a href="05-content.html" class="pagenav--right">
+    <span class="pagenav__dir">Next →</span>
+    <span class="pagenav__title">Phase E · Content</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>

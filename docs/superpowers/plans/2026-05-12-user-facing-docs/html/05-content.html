@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phase E — Content · M12 · FXAV Tour Book</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK / M12</span></a>
+    <nav class="topbar__nav">
+      <a href="04-components.html">← Phase D</a>
+      <a href="06-screenshot-harness.html">Phase F →</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">E</div>
+  <div class="container">
+    <div class="hero__kicker">Stage 5 of 9 · Content authoring</div>
+    <div class="hero__milestone-mark">PHASE E</div>
+    <h1 class="hero__title">Write the manual. One page at a time.</h1>
+    <p class="hero__lede">
+      Phase E is the big one: thirteen pages of authored content. Each
+      is its own task, its own commit, its own real-MDX-render test.
+      Twelve are <code>.mdx</code>; the thirteenth
+      (<code>/help/errors</code>) is a TSX page that iterates the
+      catalog and renders one section per error code.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Pages</dt><dd>13 (12 MDX + 1 TSX)</dd></div>
+      <div><dt>Tasks</dt><dd>E.1 → E.13</dd></div>
+      <div><dt>Test shape</dt><dd>Real MDX compile per page</dd></div>
+      <div><dt>Status</dt><dd><span class="pill pill--pending">Pending D</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    This is the part that actually reads like a help center. The first
+    four pages introduce the whole app to a new admin — what it does,
+    how to set it up, what the daily rhythm looks like, what changes
+    from Sheets. The next seven walk every screen in the admin console
+    — the dashboard, the review queues, the parse warnings, the
+    per-show panel, the preview-as-crew banner, the sharing links, and
+    the onboarding wizard. The last two are <em>tour</em> (a guided
+    overview) and <em>errors</em> (an index of every error code Doug
+    might see).
+  </p>
+</div>
+
+<!-- ============================================================
+     GROUP ONE: ADOPTION TRACK
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">01</span> Adoption track · 4 pages · read in order</div>
+
+<div class="task-grid">
+
+  <article class="task-card">
+    <div class="task-card__id">E.1 · /help</div>
+    <h3 class="task-card__title">What this app does for you</h3>
+    <p class="task-card__body">Elevator pitch + three jump buttons into the next adoption pages. Footer link to <code>/help/tour</code>.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">E.2 · /help/getting-started</div>
+    <h3 class="task-card__title">First-time setup</h3>
+    <p class="task-card__body">Onboarding-wizard walkthrough using <code>&lt;Step&gt;</code>. Share folder, drop sheet, verify dashboard pick-up.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">E.3 · /help/daily-rhythm</div>
+    <h3 class="task-card__title">Your new daily rhythm</h3>
+    <p class="task-card__body">"What to glance at," what yellow means, sharing a new sheet, what hasn’t changed.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">E.4 · /help/whats-different</div>
+    <h3 class="task-card__title">What's different from Sheets</h3>
+    <p class="task-card__body">Three small habits change, the rest stays. Same / now-automated / new-habits sections.</p>
+  </article>
+
+</div>
+
+<!-- ============================================================
+     GROUP TWO: REFERENCE
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">02</span> Capability reference · 7 pages · read as needed</div>
+
+<div class="task-grid">
+
+  <article class="task-card">
+    <div class="task-card__id">E.5 · /help/admin/dashboard</div>
+    <h3 class="task-card__title">The dashboard</h3>
+    <p class="task-card__body">Active Shows panel, "Sheets we couldn't auto-apply", review-staged-changes badge, "Last sync" indicator.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">E.6 · /help/admin/review-queues</div>
+    <h3 class="task-card__title">Review queues</h3>
+    <p class="task-card__body">Yellow badges, when they appear, what Apply / Discard mean, what gets staged.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">E.7 · /help/admin/parse-warnings</div>
+    <h3 class="task-card__title">Parse warnings</h3>
+    <p class="task-card__body">Anchored sections per warning code — every <code>WARN_*</code> code in the catalog gets a <code>&lt;RefAnchor id="CODE"&gt;</code> section.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">E.8 · /help/admin/per-show-panel</div>
+    <h3 class="task-card__title">Per-show panel</h3>
+    <p class="task-card__body">Staged-review card, sync health, parse warnings, crew preview links — the contents of <code>/admin/show/&lt;slug&gt;</code>.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">E.9 · /help/admin/preview-as-crew</div>
+    <h3 class="task-card__title">Preview as crew</h3>
+    <p class="task-card__body">Impersonation banner, what to verify, why some fields are hidden (role-based filtering reassurance).</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">E.10 · /help/admin/sharing-links</div>
+    <h3 class="task-card__title">Sharing crew links</h3>
+    <p class="task-card__body">How to send a link, what crew see, what to do if it gets shared with the wrong person, expiry + revocation.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">E.11 · /help/admin/onboarding-wizard</div>
+    <h3 class="task-card__title">Onboarding wizard</h3>
+    <p class="task-card__body">The three-step initial setup flow. References <code>?</code>-icon affordances Phase G adds.</p>
+  </article>
+
+</div>
+
+<!-- ============================================================
+     GROUP THREE: TOUR + ERRORS
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">03</span> Tour + Errors · 2 specialty pages</div>
+
+<div class="task-grid">
+
+  <article class="task-card">
+    <div class="task-card__id">E.12 · /help/tour</div>
+    <h3 class="task-card__title">Take the tour</h3>
+    <p class="task-card__body">Guided overview combining screenshots, callouts, and links. The "first time visiting /help" landing.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">E.13 · /help/errors · TSX</div>
+    <h3 class="task-card__title">Errors index</h3>
+    <p class="task-card__body">The only TSX page. Iterates <code>MESSAGE_CATALOG</code>, renders one <code>&lt;RefAnchor id="CODE" as="h3"&gt;</code> + title + longExplanation per entry passing the predicate. Trailing CTA is <em>"If this keeps happening, tell Eric →"</em>.</p>
+  </article>
+
+</div>
+
+<!-- ============================================================
+     SHARED PATTERN
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">04</span> The shared pattern · every task follows it</div>
+
+<p class="prose">
+  Every Phase E task follows the same seven steps. The only thing that
+  varies is the page-specific assertions in the test.
+</p>
+
+<ol class="prose">
+  <li><strong>Write the test (RED).</strong> Real-render through the MDX pipeline + page-specific source-shape assertions.</li>
+  <li><strong>Run test → fails.</strong> Phase A.7’s stub is just <code># &lt;Title&gt;</code> — none of the page-specific assertions pass.</li>
+  <li><strong>Replace the stub content.</strong> File already exists from A.7; E.N <em>edits in place</em>.</li>
+  <li><strong>For E.5 – E.11, backfill the catalog.</strong> Populate <code>title</code> / <code>longExplanation</code> / <code>helpHref</code> on the corresponding catalog entries. <code>helpHref</code> always points at <code>/help/errors#&lt;CODE&gt;</code>.</li>
+  <li><strong>Run test → passes.</strong> Both real-render and source-shape assertions green.</li>
+  <li><strong>Manual sanity check.</strong> <code>pnpm dev</code>, visit as admin, scan for editorial drift.</li>
+  <li><strong>Commit.</strong> <code>feat(help): /help/&lt;slug&gt; page (Task E.N)</code>.</li>
+</ol>
+
+<div class="callout">
+  <div class="callout__label">Why the real-MDX-render step?</div>
+  <p class="prose">
+    Earlier drafts only used <code>readFileSync</code> + regex to assert
+    page shape. That lets invalid JSX or missing imports ship green —
+    the regex still matches the source even if the page would crash at
+    runtime. Compiling the page through <code>@next/mdx</code> in the
+    test catches that class.
+  </p>
+</div>
+
+<!-- ============================================================
+     CONTENT QUALITY BAR
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">05</span> Content quality bar</div>
+
+<div class="deflist">
+  <dt>Tone</dt>
+  <dd>Matches PRODUCT.md — <em>professional · bold-modern · intuitive</em>. Plain language. No jargon. No error codes in visible text (only as URL fragments). Glanceable on mobile.</dd>
+
+  <dt>Components</dt>
+  <dd>Every <code>&lt;Screenshot name="..."&gt;</code> resolves to a manifest entry. Every <code>&lt;RefAnchor&gt;</code> uses catalog-code-shaped IDs (non-catalog anchors use plain <code>&lt;h2 id="..."&gt;</code>).</dd>
+
+  <dt>No artifacts</dt>
+  <dd>No <code>&lt;ScreenshotPlaceholder&gt;</code> references at v1 close-out (Phase H.5 lint enforces).</dd>
+
+  <dt>Cross-links</dt>
+  <dd>Every link from a page points at a real <code>/help/...</code> route or a real <code>#anchor</code>. Phase H.1’s anchor-resolver fails CI on any broken deep-link.</dd>
+</div>
+
+<!-- ============================================================
+     E.13 SPECIAL CASE
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">06</span> /help/errors · the special case</div>
+
+<p class="prose">
+  <code>/help/errors</code> is the only TSX page. It iterates the
+  catalog and renders one section per code passing the predicate
+  (<code>severity ≠ "info"</code> AND <code>dougFacing ≠ null</code>).
+  Each section is a <code>&lt;RefAnchor id="CODE" as="h3"&gt;</code>
+  followed by <code>title</code> and <code>longExplanation</code>.
+  Codes appear in catalog declaration order.
+</p>
+
+<div class="callout callout--invariant">
+  <div class="callout__label">Invariant #4 — no raw error codes in visible UI</div>
+  <p class="prose">
+    <code>/help/errors</code> shows codes only as URL fragments
+    (<code>#REPORT_HORIZON_EXPIRED</code>). The visible heading is
+    <code>entry.title</code>, never the code itself.
+  </p>
+</div>
+
+<p class="prose">
+  E.13 also lands the <strong>live-catalog full-contract assertion</strong>
+  — originally scoped as Phase H.6 but folded into E.13 for TDD
+  compliance. The assertion uses <code>contractViolations</code> from
+  <code>catalogDocsValidator.ts</code> (Phase B.4) — single source of
+  truth between forced fixtures and the live-catalog gate.
+</p>
+
+<!-- ============================================================
+     ACCEPTANCE
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">07</span> Phase E acceptance</div>
+
+<ul class="ac-list">
+  <li><span class="ac-id">E.ALL</span><span>All 13 pages exist with real content (no Phase A.7 stubs remain).</span></li>
+  <li><span class="ac-id">E.MDX</span><span>Every page passes its real-MDX-render test.</span></li>
+  <li><span class="ac-id">E.CAT</span><span>The 7 admin-reference pages backfill <code>title</code> / <code>longExplanation</code> / <code>helpHref</code> on their catalog entries.</span></li>
+  <li><span class="ac-id">E.HREF</span><span>Every <code>helpHref</code> points at <code>/help/errors#&lt;CODE&gt;</code>.</span></li>
+  <li><span class="ac-id">E.META2</span><span>Catalog meta-test (B.4) live-catalog assertion (added in E.13) passes.</span></li>
+  <li><span class="ac-id">E.PLH</span><span>No <code>&lt;ScreenshotPlaceholder&gt;</code> references remain.</span></li>
+  <li><span class="ac-id">E.DEV</span><span><code>pnpm dev</code> + admin login → all 13 pages render cleanly.</span></li>
+</ul>
+
+<nav class="pagenav">
+  <a href="04-components.html">
+    <span class="pagenav__dir">← Previous</span>
+    <span class="pagenav__title">Phase D · Components</span>
+  </a>
+  <a href="06-screenshot-harness.html" class="pagenav--right">
+    <span class="pagenav__dir">Next →</span>
+    <span class="pagenav__title">Phase F · Screenshots</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>

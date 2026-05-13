@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Overview — M12 · FXAV Tour Book</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK / M12</span></a>
+    <nav class="topbar__nav">
+      <a href="index.html">All phases</a>
+      <a href="01-foundation.html">Phase A →</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">M12</div>
+  <div class="container">
+    <div class="hero__kicker">Stage 0 of 9 · Overview</div>
+    <div class="hero__milestone-mark">OVERVIEW</div>
+    <h1 class="hero__title">Architecture, invariants, and the rules of the road.</h1>
+    <p class="hero__lede">
+      Before any phase, three things to internalize: <strong>where the
+      spec wins</strong>, <strong>why nothing can start until M10
+      closes</strong>, and <strong>which structural guards live across
+      the milestone</strong> to keep the bug classes that already burned
+      previous milestones from coming back.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Invariants</dt><dd>10</dd></div>
+      <div><dt>Meta-tests</dt><dd>7</dd></div>
+      <div><dt>Tasks</dt><dd>62</dd></div>
+      <div><dt>Spec</dt><dd>r14 (r1 → r10 reviewed)</dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    M12 builds an in-app wiki-style documentation site at
+    <code>/help</code>. Its primary reader is Doug Larson — the sole
+    admin of <code>/admin</code>. Thirteen MDX/TSX pages: four
+    adoption-track + seven capability-reference + <code>/help/tour</code>
+    + <code>/help/errors</code>.
+  </p>
+  <p>
+    Real screenshots ship in v1 via a scripted Playwright harness with a
+    deterministic clock and fixture seeding. Twelve admin surfaces in
+    M3/M9/M10 grow a <em>Learn more →</em> link that deep-links into
+    <code>/help/...</code>, gated by render-side admin-context detection
+    (preview-as-crew is treated as crew, despite living on
+    <code>/admin/*</code>).
+  </p>
+</div>
+
+<!-- ============================================================
+     TECH STACK
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">01</span> The tech stack, on one slide</div>
+
+<div class="diagram">
+  <div class="diagram__title">The four layers · which phase touches which</div>
+  <svg viewBox="0 0 900 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Tech stack across four layers">
+    <g font-family="IBM Plex Mono, monospace" fill="#a4b3c5" font-size="11">
+
+      <!-- User -->
+      <circle cx="450" cy="40" r="20" fill="#ffb627" stroke="#d68f0c" stroke-width="2"/>
+      <text x="450" y="46" text-anchor="middle" font-family="Anton" font-size="14" fill="#1a1408">D</text>
+      <text x="450" y="82" text-anchor="middle" font-size="11" fill="#6c7e93">Doug visits /help</text>
+
+      <!-- Layer 1: Next.js -->
+      <text x="30" y="115" font-size="10" fill="#6c7e93" letter-spacing="2">01 · APP ROUTER</text>
+      <rect x="30" y="125" width="840" height="60" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="50" y="148" font-family="Anton" font-size="16" fill="#ffb627">NEXT.JS 16 · RSC · dynamic = "force-dynamic"</text>
+      <text x="50" y="170" font-size="11">app/help/layout.tsx · requireAdmin() per request · AdminInfraError catch · sidebar + header + breadcrumb chrome</text>
+      <text x="780" y="170" font-size="10" fill="#6fe7d8">PHASE A</text>
+
+      <!-- Layer 2: MDX + Time -->
+      <text x="30" y="210" font-size="10" fill="#6c7e93" letter-spacing="2">02 · MDX PIPELINE                                                                  03 · CLOCK</text>
+      <rect x="30" y="220" width="410" height="60" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="50" y="243" font-family="Anton" font-size="14" fill="#ffb627">@next/mdx</text>
+      <text x="50" y="263" font-size="11">mdx-components.tsx · 6 injected components</text>
+      <text x="400" y="263" font-size="10" fill="#6fe7d8">D</text>
+
+      <rect x="460" y="220" width="410" height="60" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="480" y="243" font-family="Anton" font-size="14" fill="#ffb627">lib/time/now.ts</text>
+      <text x="480" y="263" font-size="11">X-Screenshot-Frozen-Now header (gated by Bearer)</text>
+      <text x="830" y="263" font-size="10" fill="#6fe7d8">C</text>
+
+      <!-- Layer 3: catalog -->
+      <text x="30" y="305" font-size="10" fill="#6c7e93" letter-spacing="2">04 · MESSAGE CATALOG</text>
+      <rect x="30" y="315" width="840" height="60" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="50" y="338" font-family="Anton" font-size="14" fill="#ffb627">MESSAGE_CATALOG · messageFor(code)</text>
+      <text x="50" y="358" font-size="11">+title +longExplanation +helpHref · admin-log-only codes have all six user-facing fields null</text>
+      <text x="780" y="358" font-size="10" fill="#6fe7d8">PHASE B</text>
+
+    </g>
+  </svg>
+</div>
+
+<!-- ============================================================
+     INVARIANTS
+     ============================================================ -->
+
+<div class="hazard-banner">
+  <div class="hazard-banner__stripe"></div>
+  <div class="hazard-banner__body">
+    <h3 class="hazard-banner__title">Plan-wide invariants · P0 if violated</h3>
+    <p class="prose">
+      Ten rules layered on top of AGENTS.md’s nine global invariants.
+      Violating any of them is a P0 bug regardless of test status.
+    </p>
+    <ol class="prose">
+      <li><strong>TDD per task.</strong> Failing test → minimal implementation → green → commit.</li>
+      <li><strong>Commit per task.</strong> <code>&lt;type&gt;(help|messages|time|screenshots): &lt;summary&gt;</code>.</li>
+      <li><strong>Spec is canonical.</strong> Disagreements open questions, not silent fixes.</li>
+      <li><strong>No raw error codes in user-visible UI.</strong> <code>/help/errors</code> shows codes as URL fragments only; visible heading is <code>entry.title</code>.</li>
+      <li><strong>impeccable v3 UI gate.</strong> Every <code>/help/*</code> page passes <code>/impeccable critique</code> + <code>/impeccable audit</code> before close-out.</li>
+      <li><strong>Supabase call-boundary discipline.</strong> Already enforced for <code>requireAdmin()</code> via a structural meta-test.</li>
+      <li><strong>Catalog extension is additive.</strong> <code>messageFor</code> signature stays unchanged; type widens with three nullable fields.</li>
+      <li><strong>Catalog–master-spec alignment.</strong> Every admin-log-only code derived from master-spec §12.4 has all user-facing fields nulled.</li>
+      <li><strong><code>lib/time/now.ts</code> is the only render-side clock.</strong> Every server-side <code>new Date()</code> reachable from a screenshot manifest route migrates here or carries a per-line waiver.</li>
+      <li><strong>§5.6 affordance matrix is the §9.0.1 retrofit contract.</strong> Every M3/M9/M10 component with an affordance carries its documented <code>data-testid</code>.</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ============================================================
+     SEQUENCING
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">02</span> Why M10 has to finish first</div>
+
+<div class="callout callout--warn">
+  <div class="callout__label">AC-12.22 · Unconditional gate</div>
+  <p class="prose">
+    M12 doesn’t begin until M10 closes out. <strong>No soft-start</strong>,
+    even on phases B / C / D that don’t directly touch UI. Earlier plan
+    drafts let those phases start early; that permission was removed in
+    r2.
+  </p>
+</div>
+
+<p class="prose">
+  Phase F captures real screenshots of the dashboard, per-show panel,
+  preview-as-crew banner, and onboarding wizard. Those surfaces are
+  owned by M3, M9, and M10. If they’re still moving, every WebP we
+  capture is wrong by the time it lands. Phase B also mutates the
+  shared message catalog, setting <code>dougFacing: null</code> on
+  entries currently rendered by M9’s <code>AlertBanner</code> — pre-M10
+  commits risk invalidating assumptions still being settled.
+</p>
+
+<!-- ============================================================
+     META-TESTS
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">03</span> Structural meta-tests this milestone owns</div>
+
+<p class="prose">
+  A meta-test is a test that walks the codebase to enforce a
+  <em>structural</em> rule — “every X has a Y,” “no surface has both A
+  and B.” Pre-declared at plan time per AGENTS.md.
+</p>
+
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr>
+      <th>File</th>
+      <th>Phase</th>
+      <th>What it enforces</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>tests/help/_metaNavSync.test.ts</code></td>
+      <td><span class="pill pill--active">A</span></td>
+      <td>Every <code>_nav.ts</code> entry resolves to a real route; every route under <code>app/help/</code> appears in <code>_nav.ts</code>.</td>
+    </tr>
+    <tr>
+      <td><code>tests/messages/_metaErrorCatalogDocs.test.ts</code></td>
+      <td><span class="pill pill--active">B + E</span></td>
+      <td>Catalog predicate correct AND every predicate-passing entry has full M12 fields.</td>
+    </tr>
+    <tr>
+      <td><code>tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts</code></td>
+      <td><span class="pill pill--active">B</span></td>
+      <td>Reads master-spec §12.4; asserts every derived admin-log-only code has all six user-facing fields <code>null</code>.</td>
+    </tr>
+    <tr>
+      <td><code>tests/help/_metaServerTimeGuard.test.ts</code></td>
+      <td><span class="pill pill--active">C</span></td>
+      <td>Greps server-side <code>Date.now()</code> / <code>new Date()</code> under manifest-derived scan roots; per-line waiver rule.</td>
+    </tr>
+    <tr>
+      <td><code>tests/help/_metaScreenshotManifest.test.ts</code></td>
+      <td><span class="pill pill--active">F</span></td>
+      <td>No stale manifest entries, no orphan WebPs, fixture names valid.</td>
+    </tr>
+    <tr>
+      <td><code>tests/messages/_metaErrorRendererGate.test.ts</code></td>
+      <td><span class="pill pill--active">G</span></td>
+      <td>Renderer-gate covers all four contexts: admin / help-admin / crew / preview-as-crew.</td>
+    </tr>
+    <tr>
+      <td><code>tests/help/deep-link-walker-reverse.test.ts</code></td>
+      <td><span class="pill pill--active">G</span></td>
+      <td>Reverse direction: every <code>help-affordance--*</code> testid in the codebase appears in the matrix.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<!-- ============================================================
+     PRE-RESOLVED CONTRACTS
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">04</span> Disagreement-loop preempts</div>
+
+<p class="prose">
+  These were debated through eight rounds of spec review. The plan
+  cites each one so reviewers don’t relitigate.
+</p>
+
+<div class="deflist">
+  <dt><code>/help/*</code> is dynamic</dt>
+  <dd>Not statically prerendered — <code>requireAdmin()</code> runs Supabase queries per request.</dd>
+
+  <dt>Catalog extension is additive</dt>
+  <dd>Three new nullable fields. Existing callers compile unchanged.</dd>
+
+  <dt>Predicate</dt>
+  <dd><code>severity !== "info"</code> AND <code>dougFacing != null</code>. No <code>selfContainedAction</code> flag.</dd>
+
+  <dt>Alignment lives in M12</dt>
+  <dd>Setting <code>dougFacing: null</code> on admin-log-only codes is M12’s responsibility, not a separate milestone.</dd>
+
+  <dt>Server clock pin</dt>
+  <dd>Request-scoped header (<code>X-Screenshot-Frozen-Now</code>), not an env var. Gated by <code>ENABLE_TEST_AUTH</code> + Bearer secret.</dd>
+
+  <dt>Fixture layout</dt>
+  <dd>Flat <code>fixtures/shows/raw/&lt;fixture&gt;.md</code> + pdf-only split <code>__INFO.md</code>.</dd>
+
+  <dt>Preview-as-crew = crew context</dt>
+  <dd>For the renderer, despite living on <code>/admin/*</code> URLs. No <em>Learn more →</em> in previewed content; only the sticky banner is admin-context.</dd>
+
+  <dt><code>/help/errors</code> trailing CTA</dt>
+  <dd><em>"If this keeps happening, tell Eric →"</em> — not a self-linking <em>Learn more →</em>.</dd>
+</div>
+
+<!-- ============================================================
+     CLOSE-OUT CHECKLIST
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">05</span> What "done" looks like</div>
+
+<ul class="ac-list">
+  <li><span class="ac-id">AC-12.1</span><span>All 13 <code>/help/*</code> pages render; <code>pnpm build</code> succeeds against the post-content state.</span></li>
+  <li><span class="ac-id">AC-12.3</span><span><code>/help</code> as admin → see chrome + content. Unauth → 403.</span></li>
+  <li><span class="ac-id">AC-12.5</span><span>Catalog extension shipped; predicate-passing entries have full M12 fields.</span></li>
+  <li><span class="ac-id">AC-12.22</span><span>M12 began only after M10 close-out.</span></li>
+  <li><span class="ac-id">AC-12.25</span><span>Every <code>&lt;Screenshot&gt;</code> resolves to a manifest entry; both light + dark WebP pairs exist.</span></li>
+  <li><span class="ac-id">AC-12.34</span><span>Fixture-range parser validates every manifest entry’s frozen instant lies in the operational range.</span></li>
+  <li><span class="ac-id">AC-12.35</span><span>Catalog–master-spec alignment shipped; <code>_metaCatalogAdminLogOnlyAlignment</code> passes.</span></li>
+  <li><span class="ac-id">AC-12.39</span><span>impeccable v3 critique + audit completed; cross-CLI review returned APPROVE.</span></li>
+</ul>
+
+<!-- ============================================================
+     PAGE NAV
+     ============================================================ -->
+
+<nav class="pagenav">
+  <a href="index.html">
+    <span class="pagenav__dir">← Back to</span>
+    <span class="pagenav__title">All phases</span>
+  </a>
+  <a href="01-foundation.html" class="pagenav--right">
+    <span class="pagenav__dir">Next →</span>
+    <span class="pagenav__title">Phase A · Foundation</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>

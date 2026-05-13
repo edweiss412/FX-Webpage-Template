@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phase F — Screenshots · M12 · FXAV Tour Book</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__inner">
+    <a href="index.html" class="topbar__brand">FXAV <span class="tag">/ TOUR BOOK / M12</span></a>
+    <nav class="topbar__nav">
+      <a href="05-content.html">← Phase E</a>
+      <a href="07-affordance-retrofit.html">Phase G →</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="hero__stencil-bg">F</div>
+  <div class="container">
+    <div class="hero__kicker">Stage 6 of 9 · Screenshot harness</div>
+    <div class="hero__milestone-mark">PHASE F</div>
+    <h1 class="hero__title">Same data, same clock, same pixels — every single time.</h1>
+    <p class="hero__lede">
+      Phase F builds the screenshot pipeline. Playwright signs in as a
+      test admin, freezes both clocks (browser + server), disables
+      animations, suppresses realtime, captures each documented surface
+      in light and dark themes, encodes as WebP via <code>sharp</code>,
+      and writes to disk. A CI gate fails the build if anything drifts.
+    </p>
+    <dl class="hero__meta">
+      <div><dt>Tasks</dt><dd>F.1 → F.11 (11)</dd></div>
+      <div><dt>Preconditions</dt><dd>12 reproducibility gates</dd></div>
+      <div><dt>Output</dt><dd>public/help/screenshots/</dd></div>
+      <div><dt>Status</dt><dd><span class="pill pill--pending">Pending E</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<main class="container">
+
+<div class="plain prose">
+  <p>
+    Screenshots are the most fragile thing in any doc set — change one
+    pixel, and every PR’s CI lights up with diffs that don’t mean
+    anything. The fix is <strong>determinism</strong>: capture the
+    same page from the same data with the same clock, animation, theme,
+    and realtime state every single time. If anything’s out of pin,
+    the harness throws.
+  </p>
+  <p>
+    A CI workflow runs the harness on every PR and fails the build if
+    even one WebP byte differs from what’s committed. So either the
+    capture is reproducible, or merging is blocked.
+  </p>
+</div>
+
+<!-- ============================================================
+     PIPELINE
+     ============================================================ -->
+
+<h2>The pipeline, in one diagram</h2>
+
+<div class="diagram">
+  <div class="diagram__title">Manifest → setup → capture → encode → output → CI</div>
+  <svg viewBox="0 0 920 380" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Screenshot pipeline">
+    <defs>
+      <marker id="ahF" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+        <polygon points="0 0, 9 3, 0 6" fill="#ffb627"/>
+      </marker>
+    </defs>
+
+    <g font-family="IBM Plex Mono, monospace" fill="#a4b3c5" font-size="11">
+
+      <!-- Manifest -->
+      <text x="20" y="30" font-size="10" fill="#6c7e93" letter-spacing="2">01 · MANIFEST</text>
+      <rect x="20" y="40" width="180" height="80" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="110" y="68" text-anchor="middle" font-family="Anton" font-size="14" fill="#ffb627">MANIFEST.TS</text>
+      <text x="110" y="88" text-anchor="middle" font-size="10">(key, route, fixture,</text>
+      <text x="110" y="104" text-anchor="middle" font-size="10">frozenClockInstant)</text>
+
+      <!-- Setup project -->
+      <text x="220" y="30" font-size="10" fill="#6c7e93" letter-spacing="2">02 · SETUP</text>
+      <rect x="220" y="40" width="180" height="80" fill="#172230" stroke="#2c3c52"/>
+      <text x="310" y="68" text-anchor="middle" font-family="Anton" font-size="14" fill="#6fe7d8">SETUP PROJECT</text>
+      <text x="310" y="88" text-anchor="middle" font-size="10">pnpm db:seed</text>
+      <text x="310" y="104" text-anchor="middle" font-size="10">via Playwright test</text>
+
+      <!-- Capture -->
+      <text x="420" y="30" font-size="10" fill="#6c7e93" letter-spacing="2">03 · CAPTURE · 12-precondition pipeline</text>
+      <rect x="420" y="40" width="290" height="280" fill="#172230" stroke="#ffb627" stroke-width="2"/>
+      <text x="565" y="68" text-anchor="middle" font-family="Anton" font-size="14" fill="#ffb627">PLAYWRIGHT · per entry</text>
+      <text x="435" y="92" font-size="10">1. signInAs(adminFixture)</text>
+      <text x="435" y="108" font-size="10">2. context.clock.install</text>
+      <text x="435" y="124" font-size="10">3. X-Screenshot-Frozen-Now</text>
+      <text x="435" y="140" font-size="10">4. data-theme imposed</text>
+      <text x="435" y="156" font-size="10">5. animations off</text>
+      <text x="435" y="172" font-size="10">6. WebSocket stubbed</text>
+      <text x="435" y="188" font-size="10">7. timezone/locale pinned</text>
+      <text x="435" y="204" font-size="10">8. fixture-range validated</text>
+      <text x="435" y="220" font-size="10">9. quiescence wait</text>
+      <text x="435" y="236" font-size="10">10. screenshot → PNG</text>
+      <text x="435" y="252" font-size="10">11. sharp().webp(…)</text>
+      <text x="435" y="268" font-size="10">12. write to public/</text>
+      <text x="435" y="295" font-size="10" fill="#6c7e93">light + dark per entry</text>
+
+      <!-- Output -->
+      <text x="730" y="30" font-size="10" fill="#6c7e93" letter-spacing="2">04 · OUTPUT</text>
+      <rect x="730" y="40" width="170" height="80" fill="#172230" stroke="#3fb950" stroke-width="2"/>
+      <text x="815" y="68" text-anchor="middle" font-family="Anton" font-size="14" fill="#3fb950">WEBPs ON DISK</text>
+      <text x="815" y="88" text-anchor="middle" font-size="10">light.webp + dark.webp</text>
+      <text x="815" y="104" text-anchor="middle" font-size="9">public/help/screenshots/</text>
+
+      <!-- CI gate -->
+      <text x="730" y="160" font-size="10" fill="#6c7e93" letter-spacing="2">05 · CI DRIFT GATE</text>
+      <rect x="730" y="170" width="170" height="80" fill="#172230" stroke="#ff5c5c" stroke-width="2"/>
+      <text x="815" y="198" text-anchor="middle" font-family="Anton" font-size="13" fill="#ff5c5c">FAIL ON DRIFT</text>
+      <text x="815" y="218" text-anchor="middle" font-size="9">git diff --exit-code</text>
+      <text x="815" y="232" text-anchor="middle" font-size="9">public/help/screenshots/</text>
+
+      <!-- Fixture-range parser -->
+      <text x="20" y="160" font-size="10" fill="#6c7e93" letter-spacing="2">SAFETY GATE</text>
+      <rect x="20" y="170" width="380" height="80" fill="#172230" stroke="#b48cff" stroke-width="2"/>
+      <text x="210" y="198" text-anchor="middle" font-family="Anton" font-size="14" fill="#b48cff">FIXTURE-RANGE PARSER</text>
+      <text x="210" y="218" text-anchor="middle" font-size="10">parseFixtureDateRange(src) → [earliest, latest]</text>
+      <text x="210" y="234" text-anchor="middle" font-size="10">runs BEFORE capture; throws if frozenClockInstant</text>
+      <text x="210" y="248" text-anchor="middle" font-size="10">isn't in the fixture's operational range</text>
+
+      <!-- Connectors -->
+      <line x1="200" y1="80" x2="218" y2="80" stroke="#ffb627" marker-end="url(#ahF)"/>
+      <line x1="400" y1="80" x2="418" y2="80" stroke="#ffb627" marker-end="url(#ahF)"/>
+      <line x1="710" y1="80" x2="728" y2="80" stroke="#ffb627" marker-end="url(#ahF)"/>
+      <line x1="815" y1="120" x2="815" y2="165" stroke="#ff5c5c" stroke-dasharray="3 3" marker-end="url(#ahF)"/>
+    </g>
+  </svg>
+</div>
+
+<!-- ============================================================
+     PRECONDITIONS
+     ============================================================ -->
+
+<h2>The twelve reproducibility preconditions</h2>
+
+<p class="prose">
+  A screenshot is "deterministic" only if every external source of
+  variation is pinned. Phase F enforces twelve.
+</p>
+
+<div class="task-grid">
+
+  <article class="task-card">
+    <div class="task-card__id">PRE 1</div>
+    <h3 class="task-card__title">ENABLE_TEST_AUTH = true</h3>
+    <p class="task-card__body">Env flag. Production never sets it. Throws on startup otherwise.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">PRE 2</div>
+    <h3 class="task-card__title">Browser clock</h3>
+    <p class="task-card__body"><code>context.clock.install({ time })</code> — Playwright primitive.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">PRE 3</div>
+    <h3 class="task-card__title">Theme imposed</h3>
+    <p class="task-card__body"><code>addInitScript</code> sets <code>data-theme</code> before page load.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">PRE 4</div>
+    <h3 class="task-card__title">Animations off</h3>
+    <p class="task-card__body">CSS <code>*, *::before, *::after { animation-duration: 0s !important }</code>.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">PRE 5</div>
+    <h3 class="task-card__title">Server clock</h3>
+    <p class="task-card__body"><code>X-Screenshot-Frozen-Now</code> header from Phase C.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">PRE 6</div>
+    <h3 class="task-card__title">Realtime suppressed</h3>
+    <p class="task-card__body"><code>window.WebSocket</code> replaced with a no-op class.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">PRE 7</div>
+    <h3 class="task-card__title">Signed-in test admin</h3>
+    <p class="task-card__body">Via existing <code>signInAs</code> from <code>tests/e2e/helpers/</code>.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">PRE 8</div>
+    <h3 class="task-card__title">Font hinting off</h3>
+    <p class="task-card__body">Chromium args: <code>--font-render-hinting=none</code> — sub-pixel stays stable across machines.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">PRE 9</div>
+    <h3 class="task-card__title">TZ + locale + motion</h3>
+    <p class="task-card__body"><code>America/New_York</code>, <code>en-US</code>, <code>reducedMotion: "reduce"</code>.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">PRE 10</div>
+    <h3 class="task-card__title">Quiescence wait</h3>
+    <p class="task-card__body">Optional selector wait + <code>networkidle</code> + 500ms stability.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">PRE 11</div>
+    <h3 class="task-card__title">Fixture-range validation</h3>
+    <p class="task-card__body">Frozen instant must lie within the fixture’s operational date range. Throws clearly if not.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">PRE 12</div>
+    <h3 class="task-card__title">Pinned encoder</h3>
+    <p class="task-card__body"><code>sharp({ quality: 90, effort: 4, smartSubsample: true })</code>. Version pinned in <code>package.json</code>.</p>
+  </article>
+
+</div>
+
+<!-- ============================================================
+     TASKS
+     ============================================================ -->
+
+<h2>The eleven tasks</h2>
+
+<div class="task-grid">
+
+  <article class="task-card">
+    <div class="task-card__id">F.1</div>
+    <h3 class="task-card__title">Manifest definition</h3>
+    <p class="task-card__body">The single source of truth. <code>(key, route, fixture, frozenClockInstant, viewport)</code> per entry. Seeds with 4 entries; grows as content authoring needs.</p>
+    <div class="task-card__files"><code>scripts/help-screenshots.manifest.ts</code></div>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">F.2 · test #14</div>
+    <h3 class="task-card__title">Fixture-range parser</h3>
+    <p class="task-card__body">Parses fixture INFO tab. Returns <code>{ earliest, latest }</code>. Handles flat + pdf-only split. ISO + US dates.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">F.3</div>
+    <h3 class="task-card__title">Capture script</h3>
+    <p class="task-card__body">Playwright entry point. Enforces all 12 preconditions. Captures both themes per entry. Encodes via <code>sharp</code>.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">F.4</div>
+    <h3 class="task-card__title">Playwright projects</h3>
+    <p class="task-card__body">Setup-project pattern (real test, not <code>globalSetup</code> function). Webserver on port 3004 (avoid prod-runtime-flip 3003 collision). Adds <code>screenshots-help-setup</code>, <code>screenshots-help</code>, and <code>help-docs</code> projects.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">F.5</div>
+    <h3 class="task-card__title">CI drift gate</h3>
+    <p class="task-card__body">GitHub Actions workflow. On PR: run <code>pnpm screenshot:help</code>, then <code>git diff --exit-code</code>. Drifted bytes block merge.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">F.6 · test #10</div>
+    <h3 class="task-card__title">&lt;picture&gt; contract</h3>
+    <p class="task-card__body">For every manifest entry: assert <code>&lt;Screenshot name&gt;</code> renders <code>&lt;picture&gt;</code> with both light + dark sources at expected paths.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">F.7 · meta-test #9</div>
+    <h3 class="task-card__title">Manifest integrity</h3>
+    <p class="task-card__body">Stale entries (key but no WebP), orphan WebPs (file but no key), invalid fixtures — all caught here.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">F.8 · test #8</div>
+    <h3 class="task-card__title">Coverage</h3>
+    <p class="task-card__body">Walk every <code>.mdx</code> under <code>app/help/</code>; find every <code>&lt;Screenshot name&gt;</code>; assert the manifest contains an entry.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">F.9 · test #18</div>
+    <h3 class="task-card__title">E2E clock-pipeline proof</h3>
+    <p class="task-card__body">Capture same surface at two frozen instants 60+s apart. Assert the rendered HTML differs in the expected way — proves the clock pin actually flows through to render.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">F.10</div>
+    <h3 class="task-card__title">Convert placeholders</h3>
+    <p class="task-card__body">Each Phase E page that landed with a <code>&lt;ScreenshotPlaceholder&gt;</code> now points at its manifest entry. Manifest grows as needed.</p>
+  </article>
+
+  <article class="task-card">
+    <div class="task-card__id">F.11</div>
+    <h3 class="task-card__title">Capture real WebPs</h3>
+    <p class="task-card__body">Run <code>pnpm screenshot:help</code>. Commit the WebPs under <code>public/help/screenshots/</code>. From here, every PR’s CI runs the same harness.</p>
+  </article>
+
+</div>
+
+<!-- ============================================================
+     ACCEPTANCE
+     ============================================================ -->
+
+<div class="section-mark"><span class="section-mark__num">02</span> Phase F acceptance</div>
+
+<ul class="ac-list">
+  <li><span class="ac-id">F.RUN</span><span><code>pnpm screenshot:help</code> runs end-to-end without error.</span></li>
+  <li><span class="ac-id">F.DISK</span><span>Every manifest entry produces a light + dark WebP pair on disk.</span></li>
+  <li><span class="ac-id">F.CLEAN</span><span><code>git diff --exit-code public/help/screenshots/</code> is clean after a fresh capture.</span></li>
+  <li><span class="ac-id">F.TESTS</span><span>Tests #8, #9, #10, #14, #18 pass.</span></li>
+  <li><span class="ac-id">F.PLH</span><span>No <code>&lt;ScreenshotPlaceholder&gt;</code> references remain in MDX.</span></li>
+  <li><span class="ac-id">F.CI</span><span>CI drift gate is wired and passes on the seed state.</span></li>
+</ul>
+
+<nav class="pagenav">
+  <a href="05-content.html">
+    <span class="pagenav__dir">← Previous</span>
+    <span class="pagenav__title">Phase E · Content</span>
+  </a>
+  <a href="07-affordance-retrofit.html" class="pagenav--right">
+    <span class="pagenav__dir">Next →</span>
+    <span class="pagenav__title">Phase G · Affordances</span>
+  </a>
+</nav>
+
+</main>
+
+</body>
+</html>
