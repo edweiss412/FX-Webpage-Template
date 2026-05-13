@@ -123,6 +123,71 @@ describe("TileErrorBoundary + TileServerFallback composition", () => {
     expect(happy[0]?.textContent).toBe("contacts-ok");
   });
 
+  test("H1-r3 visibility-gated guard: rooms-error does NOT escalate when viewer lacks scope-tile role flags", async () => {
+    // Simulates the page-level pattern:
+    //   load: () => {
+    //     if (audioScopeVisible(viewerFlags) && data.tileErrors['rooms']) throw …;
+    //     return loadAudioScopeTileData({ rooms, viewerFlags });
+    //   }
+    // For a viewer with no A1/A2/V1/L1/LEAD flags, audioScopeVisible returns
+    // false. Even when data.tileErrors['rooms'] is set, the load callback
+    // MUST NOT throw — otherwise non-A1 crew see three error fallbacks
+    // (audio/video/lighting) for tiles they normally don't see at all.
+    const tileErrors: Record<string, string> = { rooms: "rooms fetch failed: connection reset" };
+    const viewerFlagsNoScope: string[] = []; // crew with no scope-unlocking flags
+    const audioScopeVisible = (flags: string[]) =>
+      flags.some((f) => ["A1", "A2", "LEAD"].includes(f));
+
+    const audioResolved = await TileServerFallback({
+      load: async () => {
+        if (audioScopeVisible(viewerFlagsNoScope) && tileErrors["rooms"]) {
+          throw new Error(tileErrors["rooms"]);
+        }
+        // No throw — return a payload the View will choose to render-null on.
+        return { rooms: [], viewerFlags: viewerFlagsNoScope };
+      },
+      // Mimic the page-level View behavior: View returns null when not
+      // visible; WrappedTile's `?? <></>` fallback materializes the null
+      // result as an empty fragment so the tile reflows away.
+      render: () =>
+        audioScopeVisible(viewerFlagsNoScope) ? <HappyView value="audio" /> : <></>,
+      tileId: "audio-scope-tile",
+      showId: "show-1",
+    });
+
+    const { container } = render(
+      <TileErrorBoundary tileId="audio-scope-tile">{audioResolved}</TileErrorBoundary>,
+    );
+    // No fallback card; no happy view either (tile is whole-tile-missing).
+    expect(container.querySelector('[data-testid="tile-error-fallback"]')).toBeNull();
+    expect(container.querySelector('[data-testid="happy"]')).toBeNull();
+  });
+
+  test("H1-r3 visibility-gated guard: rooms-error DOES escalate when viewer HAS scope-tile flags", async () => {
+    const tileErrors: Record<string, string> = { rooms: "rooms fetch failed: connection reset" };
+    const viewerFlagsLead: string[] = ["LEAD"];
+    const audioScopeVisible = (flags: string[]) =>
+      flags.some((f) => ["A1", "A2", "LEAD"].includes(f));
+
+    const audioResolved = await TileServerFallback({
+      load: async () => {
+        if (audioScopeVisible(viewerFlagsLead) && tileErrors["rooms"]) {
+          throw new Error(tileErrors["rooms"]);
+        }
+        return { rooms: [], viewerFlags: viewerFlagsLead };
+      },
+      render: () => <HappyView value="audio" />,
+      tileId: "audio-scope-tile",
+      showId: "show-1",
+    });
+
+    const { container } = render(
+      <TileErrorBoundary tileId="audio-scope-tile">{audioResolved}</TileErrorBoundary>,
+    );
+    expect(container.querySelector('[data-testid="tile-error-fallback"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="happy"]')).toBeNull();
+  });
+
   test("client render-throw: server resolves OK, then a descendant render throws → client boundary catches", async () => {
     // Server side resolves successfully — load doesn't throw and the
     // render callback returns a valid element. The element's component

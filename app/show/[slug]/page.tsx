@@ -97,7 +97,13 @@ import { TransportTileView, loadTransportTileData } from "@/components/tiles/Tra
 import { VenueTileView, loadVenueTileData } from "@/components/tiles/VenueTile";
 import { VideoScopeTileView, loadVideoScopeTileData } from "@/components/tiles/VideoScopeTile";
 import { WrappedTile } from "@/components/shared/WrappedTile";
-import { transportTileVisible } from "@/lib/visibility/scopeTiles";
+import {
+  audioScopeVisible,
+  financialsVisible,
+  lightingScopeVisible,
+  transportTileVisible,
+  videoScopeVisible,
+} from "@/lib/visibility/scopeTiles";
 import { SESSION_COOKIE_NAME } from "@/lib/auth/constants";
 import { decodeSessionCookieValue } from "@/lib/auth/cookies";
 import { isAdminSession } from "@/lib/auth/isAdminSession";
@@ -701,7 +707,13 @@ export default async function ShowPage({ params }: PageProps) {
                   tileId="audio-scope-tile"
                   showId={showId}
                   load={() => {
-                    if (data.tileErrors["rooms"]) {
+                    // Round-3 H1: only escalate the rooms-domain error if the
+                    // viewer would otherwise see this tile (§8.1 role gate).
+                    // Otherwise the View's own audioScopeVisible() check
+                    // returns null and we should let the tile reflow away,
+                    // not show an error card to someone who wouldn't see
+                    // the tile at all.
+                    if (audioScopeVisible(ctx.viewerFlags) && data.tileErrors["rooms"]) {
                       throw new Error(`rooms fetch failed: ${data.tileErrors["rooms"]}`);
                     }
                     return loadAudioScopeTileData({
@@ -715,7 +727,7 @@ export default async function ShowPage({ params }: PageProps) {
                   tileId="video-scope-tile"
                   showId={showId}
                   load={() => {
-                    if (data.tileErrors["rooms"]) {
+                    if (videoScopeVisible(ctx.viewerFlags) && data.tileErrors["rooms"]) {
                       throw new Error(`rooms fetch failed: ${data.tileErrors["rooms"]}`);
                     }
                     return loadVideoScopeTileData({
@@ -729,7 +741,7 @@ export default async function ShowPage({ params }: PageProps) {
                   tileId="lighting-scope-tile"
                   showId={showId}
                   load={() => {
-                    if (data.tileErrors["rooms"]) {
+                    if (lightingScopeVisible(ctx.viewerFlags) && data.tileErrors["rooms"]) {
                       throw new Error(`rooms fetch failed: ${data.tileErrors["rooms"]}`);
                     }
                     return loadLightingScopeTileData({
@@ -743,7 +755,10 @@ export default async function ShowPage({ params }: PageProps) {
                   tileId="transport-tile"
                   showId={showId}
                   load={() => {
-                    if (data.tileErrors["transportation"]) {
+                    // Round-3 H1: only escalate if the viewer was going to
+                    // see Transport at all. Non-driver / not-on-schedule
+                    // viewers must not see a Transport failure card.
+                    if (transportVisible && data.tileErrors["transportation"]) {
                       throw new Error(
                         `transportation fetch failed: ${data.tileErrors["transportation"]}`,
                       );
@@ -793,7 +808,15 @@ export default async function ShowPage({ params }: PageProps) {
                   tileId="financials-tile"
                   showId={showId}
                   load={() => {
-                    if (data.tileErrors["financials"]) {
+                    // Round-3 H1: financialsVisible is the public LEAD/admin
+                    // gate. Non-LEAD non-admin viewers never see Financials,
+                    // so an error card for that domain would be a privacy
+                    // leak (signals presence of internal data to viewers who
+                    // shouldn't know it exists).
+                    if (
+                      financialsVisible(ctx.viewerFlags, ctx.isAdmin) &&
+                      data.tileErrors["financials"]
+                    ) {
                       throw new Error(
                         `financials fetch failed: ${data.tileErrors["financials"]}`,
                       );
