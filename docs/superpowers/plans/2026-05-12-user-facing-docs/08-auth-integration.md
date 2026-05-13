@@ -194,6 +194,13 @@ import { signInAs, signOut } from "../e2e/helpers/signInAs";
 
 // Per spec §7.1 test 3 — three auth states × four routes.
 
+// r2 fix per H-r1 finding 2 (HIGH, CROSS-PHASE): use shared fixtures from
+// tests/e2e/helpers/fixtures.ts. The ad-hoc literals from r1
+// (`admin-fixture@example.com`, `crew-fixture@example.com`) are NOT in the
+// test-auth allowlist; signInAs would fail with `email_not_allowlisted`
+// before ever exercising /help authorization.
+import { ADMIN_FIXTURE, NON_ADMIN_CREW_FIXTURE } from "tests/e2e/helpers/fixtures";
+
 const ROUTES = ["/help", "/help/admin/dashboard", "/help/errors", "/help/tour"];
 
 test.describe("/help auth gate (test #3)", () => {
@@ -205,13 +212,13 @@ test.describe("/help auth gate (test #3)", () => {
     });
 
     test(`authenticated-as-admin GET ${route} → 200`, async ({ page }) => {
-      await signInAs(page, { email: "admin-fixture@example.com", label: "admin" } as never);
+      await signInAs(page, ADMIN_FIXTURE);
       const response = await page.goto(route, { waitUntil: "domcontentloaded" });
       expect(response?.status()).toBe(200);
     });
 
     test(`authenticated-as-crew GET ${route} → 403 in v1 (phase 2 will relax /help/crew/*)`, async ({ page }) => {
-      await signInAs(page, { email: "crew-fixture@example.com", label: "non-admin" } as never);
+      await signInAs(page, NON_ADMIN_CREW_FIXTURE);
       const response = await page.goto(route, { waitUntil: "domcontentloaded" });
       expect(response?.status()).toBe(403);
     });
@@ -252,80 +259,96 @@ test.describe("/help AdminInfraError mapping (test #3 r10)", () => {
     // recognized ONLY when ENABLE_TEST_AUTH === "true" AND the request
     // includes a valid Authorization: Bearer ${TEST_AUTH_SECRET}, identical
     // gating to lib/time/now.ts (Phase C).
-    await signInAs(page, { email: "admin-fixture@example.com", label: "admin" } as never);
+    //
+    // r2 fix per H-r1 finding 1 (HIGH): the r1 implementation threw
+    // AdminInfraError INSIDE `app/help/layout.tsx` BEFORE `requireAdmin()`
+    // was called. That bypassed the real auth-infra boundary the test is
+    // supposed to verify. r2 implementation: the trigger lives INSIDE
+    // `lib/auth/requireAdmin.ts` (or a thin test-only wrapper Phase H.2
+    // installs there) — after the auth-prelude gate (`ENABLE_TEST_AUTH ===
+    // "true"` + valid `Authorization: Bearer ${TEST_AUTH_SECRET}` + header
+    // `X-Help-Force-Infra-Fail: 1`), `requireAdmin()` itself throws
+    // `AdminInfraError`. This proves the real catch-handler path:
+    // requireAdmin throw → HelpLayout catch → messageFor("ADMIN_SESSION_
+    // LOOKUP_FAILED") fallback chain. See Step 2 for the implementation
+    // detail; the test below exercises that path end-to-end.
+    await signInAs(page, ADMIN_FIXTURE);
     await page.setExtraHTTPHeaders({
       "X-Help-Force-Infra-Fail": "1",
       Authorization: `Bearer ${process.env.TEST_AUTH_SECRET}`,
     });
     await page.goto("/help");
     await expect(page.getByTestId("help-layout-infra-error")).toBeVisible();
-    // Fallback chain per spec §3.5 + AC-12.24:
-    //   entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."
-    // For ADMIN_SESSION_LOOKUP_FAILED (lib/messages/catalog.ts:148-154 post
-    // Phase B.2 alignment), all fields are null AFTER B.2 sets them to null.
-    // Wait — review: ADMIN_SESSION_LOOKUP_FAILED is NOT a master-spec
-    // admin-log-only code; B.2 only touches admin-log-only entries. So
-    // ADMIN_SESSION_LOOKUP_FAILED keeps its current crewFacing value:
-    // "Something is misconfigured for this show. Doug has been notified."
-    await expect(page.locator("body")).toContainText(
-      "Something is misconfigured for this show. Doug has been notified.",
-    );
+
+    // r2 fix per H-r1 finding 4 (MEDIUM): r1 hard-coded the visible string,
+    // which would pass even if HelpLayout used a hard-coded literal instead
+    // of `messageFor()`. r2 resolves the fallback chain at test time so the
+    // assertion proves HelpLayout consumes the catalog.
+    const { messageFor } = await import("@/lib/messages/lookup");
+    const entry = messageFor("ADMIN_SESSION_LOOKUP_FAILED");
+    const expected = entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment.";
+    await expect(page.locator("body")).toContainText(expected);
+
+    // Defense-in-depth: the raw error code MUST NOT appear in visible UI
+    // (per AGENTS.md invariant #5 + AC-12.24 catalog-only rendering).
+    await expect(page.locator("body")).not.toContainText("ADMIN_SESSION_LOOKUP_FAILED");
   });
 });
 ```
 
-- [ ] **Step 2: Implement the infra-fail trigger via a dedicated test-only HEADER (r9 — round-8 finding 2)**
+- [ ] **Step 2: Implement the infra-fail trigger INSIDE `requireAdmin()` (r12 — round-1 finding 1, drives the REAL auth-infra boundary)**
 
-The previous draft (r8) used `?force_infra_fail=1` query-param + reading `x-url` via `headers()`, but the live `middleware.ts` only sets `x-pathname` (NOT `x-url` / search params) and only matches `/show/:path*`. The trigger as written would never fire. r9 pins the implementation with a dedicated test-only header that Playwright already sets via `setExtraHTTPHeaders` — no middleware change needed.
+**r12 fix per H-r1 finding 1 (HIGH):** earlier drafts threw the AdminInfraError inside `app/help/layout.tsx` BEFORE `requireAdmin()` ran. That bypassed the real auth-infra boundary the test is supposed to verify — a regression in `requireAdmin()`'s Supabase RPC error handling would NOT be caught. r12 moves the trigger INSIDE `requireAdmin()` so the throw exercises the actual catch handler chain (requireAdmin → HelpLayout catch → messageFor fallback).
 
-Edit `app/help/layout.tsx`. Inside `HelpLayout`, modify the existing try block:
+Edit `lib/auth/requireAdmin.ts`. Add a test-only gate at the very top of the function, BEFORE the real Supabase RPC call:
 
-```tsx
-// app/help/layout.tsx — H.2 r9 (test-only infra-fail trigger via dedicated
-// header; inside the AdminInfraError-catching try/catch).
+```ts
+// lib/auth/requireAdmin.ts — H.2 r12 (test-only infra-fail trigger inside
+// requireAdmin so the throw exercises the real Supabase RPC boundary's
+// catch-handler chain).
 import { headers } from "next/headers";
-// ... existing imports ...
+// ... existing imports including AdminInfraError ...
 
-export const dynamic = "force-dynamic";
-
-export default async function HelpLayout({ children }: { children: ReactNode }) {
+export async function requireAdmin(): Promise<RequireAdminOutcome> {
+  // r12 — test-only trigger. Three-precondition gate (mirrors lib/time/now.ts):
+  //   (1) header X-Help-Force-Infra-Fail === "1"
+  //   (2) process.env.ENABLE_TEST_AUTH === "true"
+  //   (3) request includes Authorization: Bearer ${TEST_AUTH_SECRET} (non-empty)
+  // Production builds with ENABLE_TEST_AUTH unset ignore the header entirely.
+  let reqHeaders: Awaited<ReturnType<typeof headers>>;
   try {
-    // r9 — H.2 trigger via X-Help-Force-Infra-Fail header. Inside the same
-    // try that catches AdminInfraError, so the forced error flows through
-    // the existing catch and renders the cataloged 500-class surface
-    // (AC-12.24). Three-precondition gate identical to lib/time/now.ts:
-    //   (1) header X-Help-Force-Infra-Fail === "1"
-    //   (2) process.env.ENABLE_TEST_AUTH === "true"
-    //   (3) request includes Authorization: Bearer ${TEST_AUTH_SECRET}
-    const reqHeaders = await headers();
+    reqHeaders = await headers();
+  } catch {
+    // Outside request scope (build-time RSC compile) — skip the trigger.
+    reqHeaders = null as never;
+  }
+  if (reqHeaders) {
     const expectedSecret = process.env.TEST_AUTH_SECRET;
     if (
       reqHeaders.get("x-help-force-infra-fail") === "1" &&
       process.env.ENABLE_TEST_AUTH === "true" &&
-      // r10 (round-9 finding 2): truthy check, not just "!== undefined".
-      // An empty TEST_AUTH_SECRET with ENABLE_TEST_AUTH=true must NOT
-      // accept `Authorization: Bearer ` (empty bearer after concat).
       !!expectedSecret &&
+      expectedSecret.length >= 16 && // mirrors api/test-auth length check
       reqHeaders.get("authorization") === `Bearer ${expectedSecret}`
     ) {
       throw new AdminInfraError("test-forced infra fail (H.2)");
     }
-    await requireAdmin();
-  } catch (err) {
-    if (err instanceof AdminInfraError) {
-      // ... existing infra-error fallback rendering ...
-    }
-    throw err;
   }
-  // ... existing chrome rendering ...
+
+  // ... existing requireAdmin logic (Supabase auth check, rpc("is_admin"), etc.) ...
+  // The existing implementation already wraps Supabase calls in try/catch and
+  // rethrows AdminInfraError on infra failures — so the test trigger above
+  // exercises the SAME catch path a real Supabase RPC throw would take.
 }
 ```
 
-The Playwright test (Step 1) sends both headers via `page.setExtraHTTPHeaders({ "X-Help-Force-Infra-Fail": "1", Authorization: \`Bearer ${process.env.TEST_AUTH_SECRET}\` })` — replace the `?force_infra_fail=1` URL in Step 1's test with this header pattern.
+The existing `app/help/layout.tsx` catch block (mirrors `app/admin/layout.tsx:47-71`) catches `AdminInfraError` from `requireAdmin()` and renders the cataloged 500-class surface via `messageFor("ADMIN_SESSION_LOOKUP_FAILED")`. No changes needed in HelpLayout.
+
+**Per AGENTS.md invariant #9 (Supabase call-boundary discipline):** this test proves the requireAdmin → AdminInfraError → HelpLayout catch path. A real Supabase RPC throw would follow the IDENTICAL path. The trigger inside requireAdmin (not layout) is what makes this a genuine boundary test rather than a layout-local smoke.
 
 - [ ] **Step 3: Run + commit BOTH files together**
 
-Run: `pnpm test:e2e tests/e2e/help-auth.spec.ts`
+Run: `ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture pnpm exec playwright test --project=help-docs tests/e2e/help-auth.spec.ts` (per F-r3 — runner env + help-docs project on port 3004)
 Expected: all 10 tests PASS (9 base auth + 1 AdminInfraError mapping). **No skip path** per AC-12.24.
 
 ```bash
@@ -500,7 +523,7 @@ test.describe("/help mobile layout (test #6)", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   test("sidebar collapsed; no horizontal scroll; tap targets ≥ 44×44", async ({ page }) => {
-    await signInAs(page, { email: "admin-fixture@example.com", label: "admin" } as never);
+    await signInAs(page, ADMIN_FIXTURE);
     await page.goto("/help/admin/dashboard", { waitUntil: "networkidle" });
 
     // Sidebar collapsed into <details>:
@@ -537,7 +560,7 @@ test.describe("/help mobile layout (test #6)", () => {
 
 - [ ] **Step 2: Run**
 
-Run: `pnpm test:e2e tests/e2e/help-mobile.spec.ts`
+Run: `ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture pnpm exec playwright test --project=help-docs tests/e2e/help-mobile.spec.ts` (per F-r3 — runner env + help-docs project)
 Expected: PASS. Any sub-44×44 hits → fix the offending component (likely the click-to-copy `<RefAnchor>` icon, or a tooltip `?` icon; adjust their CSS to `min-h-tap-min` + `min-w-tap-min` or pad with `before`/`after`).
 
 - [ ] **Step 3: Commit**
