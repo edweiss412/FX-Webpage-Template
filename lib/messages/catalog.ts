@@ -530,6 +530,20 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "The agenda asset route could not resolve or stream the linked Drive PDF for the show.",
   },
+  AGENDA_GONE_FOR_CREW: {
+    code: "AGENDA_GONE_FOR_CREW",
+    dougFacing: null,
+    crewFacing: "This agenda isn't available anymore. Ask Doug for a fresh link.",
+    followUp: "Crew -> message Doug",
+    helpfulContext: null,
+  },
+  AGENDA_UNAUTHENTICATED: {
+    code: "AGENDA_UNAUTHENTICATED",
+    dougFacing: null,
+    crewFacing: "Your link to this agenda expired. Reopen Doug's latest message to view it.",
+    followUp: "Crew -> reopen signed link",
+    helpfulContext: null,
+  },
   PENDING_SNAPSHOT_ROLLBACK_STUCK: {
     code: "PENDING_SNAPSHOT_ROLLBACK_STUCK",
     dougFacing:

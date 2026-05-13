@@ -115,4 +115,48 @@ describe("message catalog", () => {
     const missing = producedCodes().filter((code) => !(code in MESSAGE_CATALOG));
     expect(missing).toEqual([]);
   });
+
+  test("AGENDA_GONE_FOR_CREW carries the ratified §12.4 amendment copy", () => {
+    expect(messageFor("AGENDA_GONE_FOR_CREW")).toMatchObject({
+      code: "AGENDA_GONE_FOR_CREW",
+      dougFacing: null,
+      crewFacing: "This agenda isn't available anymore. Ask Doug for a fresh link.",
+      followUp: "Crew -> message Doug",
+      helpfulContext: null,
+    });
+  });
+
+  test("AGENDA_UNAUTHENTICATED carries the ratified §12.4 amendment copy", () => {
+    expect(messageFor("AGENDA_UNAUTHENTICATED")).toMatchObject({
+      code: "AGENDA_UNAUTHENTICATED",
+      dougFacing: null,
+      crewFacing: "Your link to this agenda expired. Reopen Doug's latest message to view it.",
+      followUp: "Crew -> reopen signed link",
+      helpfulContext: null,
+    });
+  });
+});
+
+describe("messageFor interpolation", () => {
+  test("returns the catalog entry unchanged when no params", () => {
+    const entry = messageFor("OAUTH_STATE_INVALID");
+    expect(entry.crewFacing).toBe(
+      "Something interrupted your sign-in. Please click the original link from Doug again to start over.",
+    );
+  });
+
+  test("interpolates <placeholder> tokens with matching params", () => {
+    const entry = messageFor("AGENDA_GONE_FOR_CREW", { name: "Doug" });
+    expect(entry.crewFacing).toBe(
+      "This agenda isn't available anymore. Ask Doug for a fresh link.",
+    );
+  });
+
+  test("leaves unmatched placeholders intact and skips null/undefined values", () => {
+    const params = { foo: "bar", missing: null, also_missing: undefined };
+    expect(
+      // The template has no <foo>/<missing> placeholders, so all stay verbatim.
+      messageFor("AGENDA_UNAUTHENTICATED", params).crewFacing,
+    ).toBe("Your link to this agenda expired. Reopen Doug's latest message to view it.");
+  });
 });
