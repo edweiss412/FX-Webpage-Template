@@ -495,7 +495,7 @@ Commit: `feat(help): /help/admin/parse-warnings + catalog backfill for every Dou
 1. H1: "Per-show panel"
 2. Intro: one paragraph
 3. H2 `<RefAnchor id="STAGED_REVIEW_CARD">` (if entry exists; otherwise plain H2) — explains when the yellow card appears + links to `/help/admin/review-queues#re-stage`
-4. H2 `<RefAnchor id="sync-health">` "Sync health" — last 5 sync attempts, manual re-sync, what to do if syncs keep failing
+4. H2 `<h2 id="sync-health">` "Sync health" — last 5 sync attempts, manual re-sync, what to do if syncs keep failing. **r5 fix per D-r4 finding 2:** kebab-case `id` is non-catalog → plain `<h2>`, not `<RefAnchor>` (which is restricted to catalog-code shape per D.5).
 5. H2 "Parse warnings" — short pointer to `/help/admin/parse-warnings`
 6. H2 "Crew preview links" — what these are + how to use Preview as Crew
 
@@ -560,9 +560,9 @@ Commit: `feat(help): /help/admin/sharing-links page (Task E.10)`
 
 1. H1: "Onboarding wizard"
 2. Intro: when you see the wizard (first-time visit, or post-cleanup)
-3. H2 `<RefAnchor id="service-account">` — Step 1 (matches §5.6 testid `help-affordance--wizard-step1--tooltip`)
-4. H2 `<RefAnchor id="step-2">` — Step 2 (matches §5.6 testid for step2)
-5. H2 `<RefAnchor id="step-3">` — Step 3 (matches §5.6 testid for step3)
+3. H2 `<h2 id="service-account">` — Step 1 (matches §5.6 testid `help-affordance--wizard-step1--tooltip`). **r5 fix per D-r4 finding 2:** kebab-case `id` is non-catalog → plain `<h2>`, not `<RefAnchor>`.
+4. H2 `<h2 id="step-2">` — Step 2 (matches §5.6 testid for step2). Plain `<h2>` (non-catalog kebab-case).
+5. H2 `<h2 id="step-3">` — Step 3 (matches §5.6 testid for step3). Plain `<h2>` (non-catalog kebab-case).
 
 Anchors are lowercase-with-hyphen here, which doesn't match the RefAnchor regex. **Decision:** for these onboarding-wizard anchors, use plain `<h2 id="step-2">` not `<RefAnchor>`. Reserve `<RefAnchor>` for catalog codes only. Update the smoke test to look for plain `id="step-2"` etc.
 
@@ -698,7 +698,7 @@ export default function ErrorsPage() {
       </p>
       {entries.map((entry) => (
         <section key={entry.code} className="mt-6">
-          <RefAnchor id={entry.code}>{entry.title}</RefAnchor>
+          <RefAnchor id={entry.code} as="h3">{entry.title}</RefAnchor>
           <p>{entry.longExplanation}</p>
           <p className="text-sm text-text-subtle">
             <a href="/admin/bug-report" className="underline underline-offset-2">

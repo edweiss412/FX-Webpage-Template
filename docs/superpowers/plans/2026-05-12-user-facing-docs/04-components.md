@@ -453,11 +453,19 @@ import { render, screen } from "@testing-library/react";
 import { RefAnchor } from "@/app/help/_components/RefAnchor";
 
 describe("<RefAnchor>", () => {
-  it("renders an h3 with id={id}", () => {
+  it("renders an h2 with id={id} by default (Phase E pages use it as section heading)", () => {
     render(<RefAnchor id="REPORT_HORIZON_EXPIRED">Report horizon expired</RefAnchor>);
-    const heading = screen.getByRole("heading", { level: 3 });
+    const heading = screen.getByRole("heading", { level: 2 });
     expect(heading).toHaveAttribute("id", "REPORT_HORIZON_EXPIRED");
     expect(heading).toHaveTextContent("Report horizon expired");
+  });
+
+  // r5 fix per D-r4 finding 1: /help/errors lists every catalog code as an h3
+  // beneath an h2-shaped page heading. Support optional `as` prop for that case.
+  it("renders an h3 when `as='h3'` (used in /help/errors per-code list)", () => {
+    render(<RefAnchor id="X" as="h3">X</RefAnchor>);
+    const heading = screen.getByRole("heading", { level: 3 });
+    expect(heading).toHaveAttribute("id", "X");
   });
 
   it("renders a copy-link affordance with aria-label", () => {
@@ -486,14 +494,31 @@ import type { ReactNode } from "react";
 
 const VALID_ID = /^[A-Z][A-Z0-9_]*$/;
 
-export function RefAnchor({ id, children }: { id: string; children: ReactNode }) {
+// r5 fix per D-r4 finding 1: RefAnchor defaults to h2 (Phase E uses it as
+// section heading for help pages). /help/errors uses h3 for per-code entries
+// beneath the page's own h1/h2; pass `as="h3"` for that case.
+export function RefAnchor({
+  id,
+  as = "h2",
+  children,
+}: {
+  id: string;
+  as?: "h2" | "h3";
+  children: ReactNode;
+}) {
   if (!VALID_ID.test(id)) {
     throw new Error(
       `<RefAnchor id="${id}"> — id must match /^[A-Z][A-Z0-9_]*$/ (catalog code shape).`,
     );
   }
+  const Tag = as;
+  // h2 is larger; h3 smaller. Style accordingly.
+  const className =
+    as === "h2"
+      ? "mt-10 mb-3 text-xl font-semibold text-text-strong group flex items-center gap-2"
+      : "mt-8 mb-2 text-lg font-semibold text-text-strong group flex items-center gap-2";
   return (
-    <h3 id={id} className="mt-8 mb-2 text-lg font-semibold text-text-strong group flex items-center gap-2">
+    <Tag id={id} className={className}>
       {children}
       <a
         href={`#${id}`}
@@ -502,7 +527,7 @@ export function RefAnchor({ id, children }: { id: string; children: ReactNode })
       >
         🔗
       </a>
-    </h3>
+    </Tag>
   );
 }
 ```
