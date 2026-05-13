@@ -362,16 +362,19 @@ Renders the registry from `_nav.ts` grouped by `NavGroup`; current page highligh
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/help/sidebar.test.tsx`:
+Create `tests/help/sidebar.test.tsx`. **Vitest env note (r2 — round-1 finding 1):** the live vitest config has `environment: "node"` + `globals: false`. React DOM tests MUST start with the `// @vitest-environment jsdom` comment AND import `vi` explicitly:
 
 ```tsx
-import { describe, it, expect } from "vitest";
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Sidebar } from "@/app/help/_components/Sidebar";
 
 // Mock usePathname so the current-page highlight is testable.
+const mockUsePathname = vi.fn(() => "/help/admin/dashboard");
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/help/admin/dashboard",
+  usePathname: () => mockUsePathname(),
 }));
 
 describe("<Sidebar>", () => {
@@ -459,10 +462,18 @@ function NavList({
                   <Link
                     href={entry.slug}
                     aria-current={isCurrent ? "page" : undefined}
+                    // r2 (round-1 finding 3): use live @theme tokens.
+                    // Verified at plan-write time via
+                    // grep -E "^\s*--color-(accent|surface)" app/globals.css:
+                    // available: surface, surface-raised, surface-sunken,
+                    // accent, accent-hover, accent-text, accent-on-bg.
+                    // No "accent-soft" or "surface-2" exist; use
+                    // surface-raised for hover + accent-text + accent
+                    // background for current.
                     className={
                       isCurrent
-                        ? "block min-h-tap-min py-1 px-2 -mx-2 rounded text-text-strong bg-accent-soft font-semibold"
-                        : "block min-h-tap-min py-1 px-2 -mx-2 rounded text-text-subtle hover:bg-surface-2"
+                        ? "block min-h-tap-min py-1 px-2 -mx-2 rounded bg-accent text-accent-text font-semibold"
+                        : "block min-h-tap-min py-1 px-2 -mx-2 rounded text-text-subtle hover:bg-surface-raised"
                     }
                   >
                     {entry.title}
@@ -504,9 +515,17 @@ Logo + theme toggle + "Back to admin →" link. Spec §6.1. Reuses theme toggle 
 Create `tests/help/header.test.tsx`:
 
 ```tsx
-import { describe, it, expect } from "vitest";
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Header } from "@/app/help/_components/Header";
+
+// ThemeToggle reads/writes localStorage; mock it so Header tests focus on
+// Header structure, not theme behavior.
+vi.mock("@/components/layout/ThemeToggle", () => ({
+  ThemeToggle: () => <button data-testid="theme-toggle">Theme</button>,
+}));
 
 describe("<Header>", () => {
   it("renders 'Back to admin →' link to /admin", () => {
@@ -518,6 +537,14 @@ describe("<Header>", () => {
   it("renders the FXAV brand mark", () => {
     render(<Header />);
     expect(screen.getByTestId("help-header-brand")).toBeInTheDocument();
+  });
+
+  it("renders the theme toggle (AC-12.4)", () => {
+    // r2 (Phase A round-1 finding 2): the Header MUST render the existing
+    // components/layout/ThemeToggle. Test asserts presence so the toggle
+    // can't silently drop out in a future Header edit.
+    render(<Header />);
+    expect(screen.getByTestId("theme-toggle")).toBeInTheDocument();
   });
 });
 ```
@@ -532,6 +559,7 @@ Expected: FAIL.
 ```tsx
 // app/help/_components/Header.tsx
 import Link from "next/link";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
 
 export function Header() {
   return (
@@ -540,9 +568,10 @@ export function Header() {
         FXAV Help
       </Link>
       <div className="flex items-center gap-4">
-        {/* Theme toggle: implementer reuses existing /admin or /show toggle component
-            (spec §10 open question #5). Falls back to a noscript-friendly anchor if no
-            existing toggle is found. */}
+        {/* r2 — round-1 finding 2: ThemeToggle is REQUIRED per AC-12.4.
+            The component lives at components/layout/ThemeToggle.tsx
+            (verified at plan-write time via `find components -name ThemeToggle`). */}
+        <ThemeToggle />
         <Link
           href="/admin"
           className="text-sm text-text-subtle hover:text-text-strong underline underline-offset-2 min-h-tap-min flex items-center"
@@ -580,16 +609,20 @@ git commit -m "feat(help): Header component with brand + back-to-admin link (Tas
 Create `tests/help/breadcrumb.test.tsx`:
 
 ```tsx
-import { describe, it, expect } from "vitest";
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Breadcrumb } from "@/app/help/_components/Breadcrumb";
 
+const mockUsePathname = vi.fn(() => "/help/admin/dashboard");
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/help/admin/dashboard",
+  usePathname: () => mockUsePathname(),
 }));
 
 describe("<Breadcrumb>", () => {
   it("renders Help > group > page for a known route", () => {
+    mockUsePathname.mockReturnValue("/help/admin/dashboard");
     render(<Breadcrumb />);
     expect(screen.getByText("Help")).toBeInTheDocument();
     expect(screen.getByText("The admin surface")).toBeInTheDocument();
@@ -597,7 +630,7 @@ describe("<Breadcrumb>", () => {
   });
 
   it("degrades to just 'Help' when pathname is not in the registry", () => {
-    vi.mocked(require("next/navigation").usePathname).mockReturnValueOnce("/help/unknown");
+    mockUsePathname.mockReturnValue("/help/unknown");
     render(<Breadcrumb />);
     expect(screen.getByText("Help")).toBeInTheDocument();
     expect(screen.queryByText("The admin surface")).not.toBeInTheDocument();
