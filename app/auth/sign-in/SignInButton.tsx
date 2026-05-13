@@ -2,14 +2,16 @@
  * The sign-in CTA submits to a server Route Handler so the Supabase PKCE
  * verifier cookie is written from the HTTP response with HttpOnly attributes.
  *
- * M9 C5 / M5-D4: button carries the official Google G mark on the left of
- * the canonical "Sign in with Google" text. The G asset
- * (`public/brand/google-g.svg`) is the unmodified 40×40 SVG from Google's
- * official signin-assets.zip bundle (Web > svg > light > web_light_rd_na).
- * Google's brand guidelines require the mark to render unmodified at its
- * native aspect ratio — we render at 20px square with the original viewBox.
- * The button text uses one of Google's approved verbatim phrasings
- * (Sign in / Sign up / Continue with Google).
+ * M9 C5 / M5-D4 (R1 BLOCKER fix): button styled as Google's "Light"
+ * theme per the current brand guidelines — white background, dark text,
+ * gray border. The G mark on the left is the unmodified 40×40 SVG from
+ * Google's official signin-assets.zip bundle (Web → svg → light →
+ * web_light_rd_na). Google's brand guidelines forbid placing the
+ * standard color G on a non-prescribed colored button (the previous
+ * FXAV-accent variant violated that constraint). FXAV brand identity
+ * lives in the wordmark above the headline, not on the OAuth CTA.
+ * The button text uses Google's approved verbatim "Sign in with
+ * Google" phrasing.
  */
 export type SignInButtonProps = {
   /**
@@ -26,7 +28,13 @@ export function SignInButton({ validatedNext }: SignInButtonProps) {
       <button
         type="submit"
         data-testid="sign-in-with-google"
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-2 rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-60"
+        // Google "Light" theme: white surface (#fff) + #1f1f1f text +
+        // #747775 1px border + ≥40px height + medium-weight Roboto-
+        // equivalent (project Inter is metric-compatible). The
+        // `text-[#1f1f1f]` and `border-[#747775]` are pinned per
+        // Google's hex specs — not project tokens — so the button
+        // stays brand-compliant regardless of theme-token drift.
+        className="inline-flex h-10 min-w-tap-min items-center justify-center gap-3 rounded-sm border border-[#747775] bg-white px-4 font-medium text-[#1f1f1f] transition-colors duration-fast hover:bg-[#f6f6f6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg disabled:cursor-not-allowed disabled:opacity-60"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img

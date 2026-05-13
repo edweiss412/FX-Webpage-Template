@@ -162,22 +162,28 @@ export default async function SignInPage({
       */}
       <header aria-labelledby="sign-in-headline" className="mb-section-gap text-center">
         {/*
-          M9 C5 / M5-D4: FXAV wordmark above the headline.
+          M9 C5 / M5-D4 (R1 fixes): FXAV wordmark above the headline.
           Asset sourced from fxav.net (white-letter variant from the
           Wix CDN); cached locally under public/brand/fxav-wordmark.png.
-          aria-hidden because the headline directly below carries the
-          same brand identity in accessible text; the wordmark is
-          decorative reinforcement.
+          - HIGH-1 fix: alt="FX Audio Visual" + NO aria-hidden — the
+            wordmark IS the page's primary brand identity for AT users
+            (the headline only names the action, not the brand).
+          - HIGH-2 fix: `w-24 h-auto` preserves the 1554×1661 aspect
+            ratio instead of squashing into a 96×96 square (the prior
+            `size-24` class set width AND height = 96px).
+          - MED-1 fix: PNG resampled to 192×205 (2× retina) for the
+            ~96px display target. Original 1554×1661 file was 176KB;
+            resampled is much smaller. Source PNG is preserved in
+            git history.
         */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="/brand/fxav-wordmark.png"
-          alt=""
-          aria-hidden="true"
+          alt="FX Audio Visual"
           data-testid="sign-in-fxav-wordmark"
           width={96}
           height={102}
-          className="mx-auto mb-6 size-24 select-none"
+          className="mx-auto mb-6 h-auto w-24 select-none"
         />
         <h1
           id="sign-in-headline"

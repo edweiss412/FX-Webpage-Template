@@ -57,6 +57,25 @@ describe("M9 C5 / M5-D4 — SignInButton carries the official Google G mark", ()
     // First child of the button is the icon; the rest is text.
     expect(button.firstElementChild).toBe(icon);
   });
+
+  test("button uses Google 'Light' theme (R1 BLOCKER fix — white background, dark text, gray border)", () => {
+    const { getByTestId } = render(<SignInButton validatedNext="/show/abc" />);
+    const button = getByTestId("sign-in-with-google");
+    const className = button.getAttribute("class") ?? "";
+    // White surface per Google's prescribed Light theme.
+    expect(className).toContain("bg-white");
+    // Dark text (#1f1f1f) per Google's spec — pinned as arbitrary
+    // hex rather than a project token so brand-compliance survives
+    // theme-token drift.
+    expect(className).toContain("text-[#1f1f1f]");
+    // 1px #747775 border per Google's spec.
+    expect(className).toContain("border-[#747775]");
+    // The previous FXAV-accent variant used `bg-accent`. Negative
+    // assertion: that class MUST NOT appear on the button (it would
+    // re-introduce the brand violation R1 BLOCKER flagged).
+    expect(className).not.toContain("bg-accent");
+    expect(className).not.toContain("text-accent-text");
+  });
 });
 
 describe("M9 C5 / M5-D4 — Sign-in page sources the FXAV wordmark above the headline", () => {
@@ -75,17 +94,38 @@ describe("M9 C5 / M5-D4 — Sign-in page sources the FXAV wordmark above the hea
     expect(wordmarkIdx).toBeLessThan(headlineIdx);
   });
 
-  test("source: FXAV wordmark is aria-hidden (headline carries the accessible name)", async () => {
+  test("source: FXAV wordmark carries the brand alt text (R1 HIGH-1 fix — exposed to AT)", async () => {
     const { readFileSync } = await import("node:fs");
     const source = readFileSync("app/auth/sign-in/page.tsx", "utf8");
-    // Match the wordmark <img> opening tag + assert aria-hidden="true".
+    // Match the wordmark <img> opening tag and assert the accessible
+    // brand label. The wordmark is the page's PRIMARY brand identity
+    // (the headline only names the action "Sign in with Google");
+    // it MUST be exposed to AT users via meaningful alt text.
     const wordmarkMatch = source.match(
       /<img[\s\S]*?data-testid="sign-in-fxav-wordmark"[\s\S]*?\/>/,
     );
     expect(wordmarkMatch).not.toBeNull();
     const tag = wordmarkMatch?.[0] ?? "";
-    expect(tag).toContain('aria-hidden="true"');
-    expect(tag).toContain('alt=""');
+    expect(tag).toContain('alt="FX Audio Visual"');
+    // aria-hidden was REMOVED in R1 — the wordmark must not be
+    // hidden from screen readers.
+    expect(tag).not.toContain('aria-hidden="true"');
+  });
+
+  test("source: FXAV wordmark uses aspect-preserving sizing (R1 HIGH-2 fix)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync("app/auth/sign-in/page.tsx", "utf8");
+    const wordmarkMatch = source.match(
+      /<img[\s\S]*?data-testid="sign-in-fxav-wordmark"[\s\S]*?\/>/,
+    );
+    expect(wordmarkMatch).not.toBeNull();
+    const tag = wordmarkMatch?.[0] ?? "";
+    // h-auto preserves the source PNG's 1554×1661 aspect ratio; the
+    // prior size-24 class forced 96×96 square and distorted the
+    // wordmark (R1 finding).
+    expect(tag).toContain("h-auto");
+    expect(tag).toContain("w-24");
+    expect(tag).not.toMatch(/\bsize-24\b/);
   });
 });
 
