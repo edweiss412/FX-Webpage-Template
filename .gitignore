@@ -52,3 +52,6 @@ playwright/.cache/
 .serena/
 .claude/
 /next-env.d.ts
+
+# MCP playwright tool transient artifacts (console logs, page YAML snapshots).
+.playwright-mcp/
