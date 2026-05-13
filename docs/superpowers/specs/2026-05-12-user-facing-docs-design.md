@@ -87,7 +87,8 @@ Auth gating is **admin-only across the whole `/help/*` tree in v1**. Phase 2 spl
 ### 3.2 Pipeline choice
 
 - **`@next/mdx` (native).** Three deps (`@next/mdx` + `@mdx-js/loader` + `@mdx-js/react`), all maintained by the Next.js team. Integrates with App Router via `pageExtensions: ['ts','tsx','mdx']` and a `withMDX()` wrapper in `next.config.ts`. No content-collections layer; no third-party docs framework.
-- **Rationale.** 13 pages do not justify a framework. Reuses the existing `app/globals.css` Tailwind v4 theme tokens. Stays in the project's existing build pipeline (`pnpm build` produces static HTML for every page).
+- **Rationale.** 13 pages do not justify a framework. Reuses the existing `app/globals.css` Tailwind v4 theme tokens. Stays in the project's existing build pipeline.
+- **Compilation, not prerender (corrected r4).** `pnpm build` **compiles** every `.mdx`/`.tsx` page to an RSC chunk. It does NOT pre-generate static HTML because the `requireAdmin()` gate in the layout forces dynamic-at-request-time rendering (see §3.4). The compile step verifies MDX validity and component resolution; the per-request render happens on every authenticated GET. `app/help/layout.tsx` exports `export const dynamic = "force-dynamic"` to make this explicit to the framework.
 
 ### 3.3 File layout
 
@@ -162,6 +163,9 @@ The capture script MUST establish each precondition before any screenshot is tak
 | **Quiescence wait** | After navigation, await `waitFor` selector AND `page.waitForLoadState('networkidle')` AND optional `expectStableMs` settle period (default 500 ms). Captures only after a frame is rendered post-quiescence. | Manifest-driven |
 | **Theme application** | For each entry, run twice: once with `colorScheme: 'light'` + `<html data-theme="light">` set via `addInitScript`, once with `dark` equivalent. Theme is *imposed*, not inferred from OS. | App's existing `data-theme` mechanism |
 | **Output normalization** | WebP output via `sharp` with fixed encoder settings (`q=90`, `effort=4`, `smartSubsample=true`, `nearLossless=false`). Pinning encoder version prevents the same pixels from producing different bytes across machines. | `package.json` pins `sharp` version; CI uses the same version. |
+| **Fixed clock (r4)** | All time-dependent rendering is captured at a fixed instant. Specifically: (a) browser side — Playwright's `context.clock.install({ time: FIXED_INSTANT })` (or `page.addInitScript` overriding `Date` / `Date.now`) pins `new Date()` and `Date.now()` to the manifest's `frozenClockInstant`; (b) server side — the server-rendered relative-time formatter is stubbed via test-only env (`SCREENSHOT_FROZEN_NOW=<ISO>`), OR fixture seed data is timestamped relative to `frozenClockInstant` so "12 min ago" renders the same string every run. Default instant: `2026-04-15T14:30:00Z`. Manifest may override per-entry. | Existing `tests/e2e/right-now.spec.ts:87-114` pinning pattern; reuse. |
+| **CSRF / session-cookie volatility (r4)** | Sign in once at `globalSetup`, persist `storageState`, reuse across captures. Subsequent navigations carry stable cookies; no per-request CSRF nonce churn enters the rendered output. | Playwright's `storageState` pattern, already used by existing E2E suite |
+| **Supabase Realtime suppression (r4)** | The capture script disables Realtime subscriptions before navigation: either `page.addInitScript` overrides `window.WebSocket` to a no-op for the duration of capture, or the test-only build flag disables Realtime subscribe paths entirely. Live data flicker from Realtime push during the quiescence wait would otherwise produce non-deterministic captures. | Implementation picks the lighter option; both are reversible per-test. |
 
 #### 3.6.3 CI drift gate
 
@@ -261,18 +265,22 @@ export type MessageCatalogEntry = {
 
 Both new fields are declared `string | null` (matching the existing field shape — uniform with `dougFacing`/`crewFacing`/`followUp`/`helpfulContext`). Existing callers continue to compile: TS sees the type widen but every caller pre-r3 ignores these properties.
 
-**Required-when predicate:** `severity !== "info"`.
+**Required-when predicate (corrected r4):** `severity !== "info"` AND `dougFacing != null`.
 
-This is the load-bearing change from r2. Live `components/admin/AlertBanner.tsx:39-50` treats only `severity === "info"` as excluded from the alert banner; unset severity is rendered as warning-equivalent. Many user-visible entries currently omit `severity` (e.g., `LEAKED_LINK_DETECTED` at `lib/messages/catalog.ts:46-53`). The r2 predicate (`severity === "warning"`) would have let those ship without docs, breaking the §9.0.1 "every error has a help link" affordance. The corrected predicate covers them.
+This is the v1 admin-scoped predicate. Live `components/admin/AlertBanner.tsx:39-50` treats only `severity === "info"` as excluded from the alert banner; unset severity is rendered as warning-equivalent. The narrowed predicate covers warning + unset-severity entries AND restricts to admin-facing rows.
+
+**Why admin-only in v1.** v1 gates the entire `/help/*` tree to admin (§3.5 / §5.5). Crew-only catalog entries (e.g., `LINK_EXPIRED` at `lib/messages/catalog.ts:11-17` — `dougFacing: null`, `crewFacing` non-null) would link crew users to a page they cannot open (403). Forcing `helpHref` on those entries in v1 would create a broken UX. Phase 2 ships `/help/crew/*` and the predicate widens to cover crew-facing entries — at that point `LINK_EXPIRED` gets a help link.
 
 | Field | Type | Required when | Purpose |
 | --- | --- | --- | --- |
-| `longExplanation` | `string \| null`; non-null required | `severity !== "info"` AND (`dougFacing` is non-null OR `crewFacing` is non-null) | Long-form plain-language explanation; rendered on `/help/errors#<code>` |
+| `longExplanation` | `string \| null`; non-null required | `severity !== "info"` AND `dougFacing != null` | Long-form plain-language explanation; rendered on `/help/errors#<code>` |
 | `helpHref` | `string \| null`; non-null required | Same predicate as above | Deep-link target for "Learn more →" links |
 
-The compound predicate excludes catalog entries that have severity but no user-visible string (defensive — currently none, but future-proofs against records that are alerts-only). Info-tier entries are not required to carry docs but may opt in; the meta-test does not require them.
+Info-tier entries are not required to carry docs but may opt in. Crew-only entries (`dougFacing == null`, `crewFacing != null`): both fields stay `null` in v1; phase 2 fills them when crew docs ship.
 
-A meta-test (`tests/messages/_metaErrorCatalogDocs.test.ts`) asserts the contract. New codes added without docs fail CI.
+**Render-side guard:** The shared error renderer that displays `messageFor(code)` output adds a `Learn more →` link only when **both** of these hold: (a) `helpHref` is non-null, and (b) the rendering context is admin (the surface lives on `/admin/*` or `/help/admin/*`). Crew-facing surfaces (`/show/<slug>`) MUST NOT emit admin-gated `/help` links even if a future widening of the predicate accidentally populates `helpHref` on a crew-only entry. This is enforced by `tests/messages/_metaErrorRendererGate.test.ts` — see §7.1 test 12.
+
+A meta-test (`tests/messages/_metaErrorCatalogDocs.test.ts`) asserts the catalog contract. New codes added without docs fail CI.
 
 ### 5.2 Affordance wiring (retrofits to earlier milestones)
 
@@ -296,7 +304,32 @@ Page slugs and anchor IDs under `/help/*` are **committed contracts**. Renaming 
 
 ### 5.5 Auth interaction with deep-links
 
-A non-admin who hits a deep-linked `/help/...` URL gets the same `forbidden()` 403 as bare `/help`. Acceptable: only Doug should be following these links from inside `/admin`. Phase 2 will allow `/help/crew/*` to bypass auth without affecting admin links.
+A non-admin who hits a deep-linked `/help/...` URL gets the same `forbidden()` 403 as bare `/help`. Acceptable: only Doug should be following these links from inside `/admin`. Phase 2 will allow `/help/crew/*` to bypass auth without affecting admin links. The render-side gate (§5.1) ensures crew-facing surfaces don't emit admin-gated links even if the catalog accidentally populates `helpHref` on a crew-only entry.
+
+### 5.6 §9.0.1 surface affordance matrix (new in r4)
+
+Every `?` tooltip / "Learn more" / "What does this mean?" / "Take the tour" link in the master spec §9.0.1 is enumerated below with its M12 deep-link target. Test #13 (§7.1) walks this matrix and verifies every source surface emits the expected `/help/...` URL.
+
+| Source surface | Affordance | Target | Owning milestone |
+| --- | --- | --- | --- |
+| `/admin` dashboard — Active Shows panel header | `?` tooltip | `/help/admin/dashboard#active-shows` | M3 / M9 |
+| `/admin` dashboard — "Sheets we couldn't auto-apply" panel header | `?` tooltip | `/help/admin/review-queues#first-seen` | M3 / M9 |
+| `/admin` dashboard — "Review staged changes" status badge | `?` tooltip | `/help/admin/review-queues#re-stage` | M9 |
+| `/admin` dashboard footer | "Take the tour" link | `/help/tour` | M9 |
+| `/admin/show/<slug>` — Staged review card header | `?` tooltip | `/help/admin/review-queues#re-stage` | M9 |
+| `/admin/show/<slug>` — Sync health section header | `?` tooltip | `/help/admin/per-show-panel#sync-health` | M9 |
+| `/admin/show/<slug>` — Parse warnings section header | `?` tooltip | `/help/admin/parse-warnings` | M9 |
+| `/admin/show/<slug>` — individual parse-warning row | `Learn more →` | `/help/admin/parse-warnings#<warning-code>` via `messageFor(code).helpHref` | M9 |
+| `/admin/show/<slug>` — Crew preview links section header | `?` tooltip | `/help/admin/preview-as-crew` | M9 |
+| `/admin/show/<slug>/preview/<crew-id>` — sticky preview banner | `?` icon | `/help/admin/preview-as-crew#impersonation-banner` | M9 |
+| Onboarding wizard — Step 1 ("Share your show folder") | `?` icon next to the service-account email | `/help/admin/onboarding-wizard#service-account` | M10 |
+| Onboarding wizard — Step 2 + Step 3 headers | `?` tooltip per step | `/help/admin/onboarding-wizard#step-2` and `#step-3` | M10 |
+| Any error message rendered through `messageFor(code)` in `/admin/*` | `Learn more →` | `/help/errors#<code>` via `messageFor(code).helpHref` | M9 / M10 |
+| Crew-facing surfaces (`/show/<slug>`) | **No** `Learn more →` link emitted in v1 (admin-gated tree). Phase 2 introduces `/help/crew/*` and crew-facing entries get help links. | n/a in v1 | (Phase 2) |
+
+The matrix is the source of truth for test #13. Owning milestones (M3/M9/M10) ship the affordance text via spec §9.0.1; M12 retrofits the `helpHref` resolution and the link element. Every row that says "Test #13 verifies" is a concrete file:line assertion in the test.
+
+**Class-sweep guarantee:** any new section header in `/admin/*` that would carry a §9.0.1 tooltip MUST add a row to this matrix in the same PR (enforced by code review per AGENTS.md invariant #7 "spec is canonical"). Test #13 fails if a tooltip in the codebase is missing a matrix row OR if a matrix row's source surface is missing the affordance.
 
 ---
 
@@ -350,16 +383,17 @@ All components honor `prefers-reduced-motion`. None have motion in v1 (the contr
    - **Anti-tautology:** reads catalog source as the assertion side; reads MDX/TSX file as the page-under-test. The two cannot self-satisfy.
 
 2. **Catalog meta-test** (`tests/messages/_metaErrorCatalogDocs.test.ts`)
-   - Asserts: every catalog entry where `severity !== "info"` AND (`dougFacing != null` OR `crewFacing != null`) has `longExplanation` (non-null, non-empty) AND `helpHref` (non-null, matching `/^\/help\/.+/`) populated
-   - Predicate explicitly covers both `severity === "warning"` and entries with unset severity (per `components/admin/AlertBanner.tsx:39-50` default-warning rule)
+   - Asserts: every catalog entry where `severity !== "info"` AND `dougFacing != null` has `longExplanation` (non-null, non-empty) AND `helpHref` (non-null, matching `/^\/help\/.+/`) populated
+   - Predicate covers both `severity === "warning"` and entries with unset severity (per `components/admin/AlertBanner.tsx:39-50` default-warning rule), restricted to admin-facing rows so crew users never link to admin-gated `/help` URLs in v1
    - Mirrors the existing `_metaAdminAlertCatalog.test.ts` pattern (per AGENTS.md meta-test inventory invariant)
-   - Catches new error codes added without docs entries
+   - Catches new admin-facing error codes added without docs entries
+   - Phase 2: predicate widens to also cover `crewFacing != null` once `/help/crew/*` ships
 
 3. **Auth-gating + AdminInfraError mapping** (`tests/help/auth.test.ts`)
    - Unauthenticated GET on `/help/`, `/help/admin/dashboard`, `/help/errors`, `/help/tour` → 403
    - Authenticated-as-admin GET on the same → 200
    - Authenticated-as-crew (signed-link viewer) → 403 in v1 (phase-2 will relax for `/help/crew/*` only)
-   - **AdminInfraError mapping:** with the Supabase RPC stubbed to throw, GET on `/help/` returns the cataloged 500-class surface (matching the `data-testid="admin-layout-infra-error"` or `help-layout-infra-error` sibling per §3.5) — verified by rendering `messageFor("ADMIN_SESSION_LOOKUP_FAILED").dougFacing` text. Mirrors the existing `/admin` infra-error behavior test pattern.
+   - **AdminInfraError mapping:** with the Supabase RPC stubbed to throw, GET on `/help/` returns the cataloged 500-class surface (matching the `data-testid="admin-layout-infra-error"` or `help-layout-infra-error` sibling per §3.5). Assertion text is the **resolved fallback chain** `entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."` (mirroring `app/admin/layout.tsx:58-60` verbatim). For the live `ADMIN_SESSION_LOOKUP_FAILED` entry (`lib/messages/catalog.ts:148-154`) where `dougFacing == null`, this resolves to the `crewFacing` string ("Something is misconfigured for this show. Doug has been notified."). Test asserts the rendered text matches the fallback expression's actual output — NOT a hard-coded string the spec invents.
 
 4. **MDX smoke test** (`tests/help/render.test.ts`)
    - Every `.mdx` and `.tsx` page under `app/help/` returns a non-empty rendered HTML body via the Next.js test renderer
@@ -402,6 +436,17 @@ All components honor `prefers-reduced-motion`. None have motion in v1 (the contr
     - Then `git diff --exit-code public/help/screenshots/`
     - Non-zero exit → PR fails. The PR review surface shows the diff.
     - This is the load-bearing drift signal; idempotency (AC-12.19) is what makes it safe.
+
+12. **Error-renderer gate** (`tests/messages/_metaErrorRendererGate.test.ts`) — new in r4
+    - Renders each catalog entry through the shared error renderer in three contexts: admin (`/admin/*`), help-admin (`/help/admin/*`), and crew (`/show/<slug>`)
+    - Asserts: admin and help-admin contexts emit `Learn more →` when `helpHref` is non-null; crew context does NOT emit `Learn more →` regardless of `helpHref` value
+    - Prevents future widening of the catalog predicate from accidentally leaking admin-gated `/help` links into crew-rendered surfaces
+    - **Anti-tautology:** the rendering helper is called against a mock catalog entry with `helpHref` populated even on crew-only rows (a forced-mismatch); the test asserts the gate's behavior, not the catalog's predicate
+
+13. **Deep-link affordance walker** (`tests/help/deep-link-walker.test.ts`) — new in r4
+    - For every row in §5.6's affordance matrix, asserts: (a) the source surface component exists at the cited file:line, (b) the `Learn more →` link element (or the absence of one, where matrix says so) is present in the rendered output, (c) the link's `href` matches the matrix's target column
+    - Catches added or moved affordances that aren't reflected in the matrix
+    - Catches matrix rows that were never wired
 
 ### 7.2 Anti-tautology guardrails
 
@@ -478,10 +523,15 @@ These are all "consult the codebase" calls. None changes the design.
 | **`/help/errors` rendering** | TSX page iterating the catalog. MDX considered and rejected (would duplicate the short message). | §4.3 |
 | **`/help/admin/parse-warnings` rendering** | MDX with anchored sections. TSX considered and rejected (content is editorial). | §4.2 |
 | **Catalog API surface** | The accessor is `messageFor(code): MessageCatalogEntry` (per `lib/messages/lookup.ts:11`). M12 does NOT introduce a new `lookup` function — it extends the existing `MessageCatalogEntry` type (per `lib/messages/catalog.ts:1-8`) with two new optional fields. **Per round-1 finding 1.** | §5.1 |
-| **Catalog schema extension shape** | Two new fields: `longExplanation: string \| null` and `helpHref: string \| null`. Required when `severity !== "info"` AND (`dougFacing != null` OR `crewFacing != null`). The `severity !== "info"` predicate covers both `"warning"` and unset severity, matching the live `AlertBanner` default-warning rule at `components/admin/AlertBanner.tsx:39-50`. **r2's `severity === "warning"` predicate was wrong (round-1 finding 3); corrected here.** Enforced by meta-test. | §5.1 |
+| **Catalog schema extension shape** | Two new fields: `longExplanation: string \| null` and `helpHref: string \| null`. Required when `severity !== "info"` AND `dougFacing != null` (admin-facing only in v1). The `severity !== "info"` half covers warning + unset-severity entries per the live `AlertBanner` default-warning rule at `components/admin/AlertBanner.tsx:39-50`; the `dougFacing != null` half restricts to admin-navigable entries so crew users never link to admin-gated `/help` URLs. **r2's `severity === "warning"` was wrong (round-1 finding 3); r3's broader predicate would have linked crew users to 403s (round-2 finding 1); r4 narrows correctly.** Enforced by meta-test + render-side gate. | §5.1, §7.1 test 12 |
 | **Rendering posture** | **Dynamic at request time** for `/help/*` (not statically prerendered). `requireAdmin()` runs Supabase queries on every request. MDX content is statically compiled to RSC; the layout gate is dynamic. **Per round-1 finding 2.** | §3.4 |
 | **`AdminInfraError` handling on `/help`** | Mirrors `app/admin/layout.tsx:47-71` verbatim. `/help/layout.tsx` wraps `requireAdmin()` in try/catch, catches `AdminInfraError`, renders the cataloged 500-class surface via `messageFor("ADMIN_SESSION_LOOKUP_FAILED")`. Test #3 verifies. **Per round-1 finding 2.** | §3.5, §7.1 test 3 |
-| **Screenshot harness reproducibility** | The harness specifies a dedicated Playwright project, `globalSetup` running `pnpm db:seed`, reuse of `signInAs` from `tests/e2e/helpers/signInAs.ts`, pinned `sharp` encoder settings, deterministic browser settings (timezone, locale, color-scheme, reduced motion, font hinting, animations off), quiescence wait, and a CI `git diff --exit-code` gate. **Per round-1 finding 4.** | §3.6.2, §3.6.3 |
+| **Screenshot harness reproducibility** | The harness specifies a dedicated Playwright project, `globalSetup` running `pnpm db:seed`, reuse of `signInAs` from `tests/e2e/helpers/signInAs.ts`, pinned `sharp` encoder settings, deterministic browser settings (timezone, locale, color-scheme, reduced motion, font hinting, animations off), quiescence wait, **fixed clock (browser + server) per r4**, **CSRF/cookie stability via `storageState` reuse per r4**, **Supabase Realtime suppression per r4**, and a CI `git diff --exit-code` gate. **Per round-1 finding 4 + round-2 finding 3.** | §3.6.2, §3.6.3 |
+| **Crew-rendered errors never link to `/help`** | Predicate narrows to `dougFacing != null` in v1 + render-side gate strips `Learn more →` from crew contexts even if `helpHref` is accidentally populated. **Per round-2 finding 1.** Phase 2 widens predicate + renders crew links to `/help/crew/*`. | §5.1, §7.1 test 12 |
+| **AdminInfraError rendered text is the fallback chain, not `dougFacing` literally** | `entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."` (matches `app/admin/layout.tsx:58-60`). For live `ADMIN_SESSION_LOOKUP_FAILED` (`dougFacing: null`), resolves to `crewFacing`. **Per round-2 finding 2.** | §3.5, AC-12.24, §7.1 test 3 |
+| **Static-vs-dynamic build contract** | `pnpm build` **compiles** MDX to RSC chunks; does NOT prerender static HTML. `app/help/layout.tsx` exports `dynamic = "force-dynamic"` to be explicit. AC-12.1 asserts compilation, not prerender. **Per round-2 finding 4.** | §3.2, §3.4, AC-12.1, AC-12.31 |
+| **§9.0.1 surface coverage** | §5.6 enumerates every section header / `Learn more →` / "Take the tour" affordance per master-spec §9.0.1, with explicit `/help/...` target per row. Test #13 walks the matrix. New tooltips added in `/admin` must add a matrix row in the same PR. **Per round-2 finding 5.** | §5.6, §7.1 test 13 |
+| **Existing-code citation discipline** | All citations in §12 cite `file:line` (no "deferred to implementation"). r3's `next.config.ts:13` corrected to `:17` in r3; r3's directory-only citations corrected to file:line in r4 (`app/layout.tsx:1`, `app/globals.css:1`). **Per round-2 finding 6.** | §12 |
 | **Concept track** | Excluded from v1. Explanations live inline on operator pages. | §2 |
 | **Doug as bug-report triager** | **No.** Doug receives content questions from crew via his existing channels (phone/text); app bug reports route to Eric via M8 GitHub pipeline. `/help` covers no bug-triage surface. | (Resolved during brainstorm; codified here.) |
 | **`Learn more →` text vs. icon** | Implementation chooses based on `impeccable` audit; spec does not constrain. | §10 |
@@ -503,8 +553,8 @@ These are all "consult the codebase" calls. None changes the design.
 | Test-auth pattern: `signInAs(page, fixture)` POSTing to `/api/test-auth/set-session` with `Authorization: Bearer ${TEST_AUTH_SECRET}` | `tests/e2e/helpers/signInAs.ts:43-73` | ✅ |
 | `ENABLE_TEST_AUTH` + `TEST_AUTH_SECRET` env vars required at server start for test-auth | `tests/e2e/helpers/signInAs.ts:1-23` (documentation block) | ✅ |
 | `ADMIN_SESSION_LOOKUP_FAILED` is the cataloged code thrown by `AdminInfraError` | `lib/auth/requireAdmin.ts:42` | ✅ |
-| App Router uses `app/` not `pages/` | `app/layout.tsx` exists; `app/admin/`, `app/api/`, `app/show/` exist | ✅ |
-| Tailwind v4 is in use, with `app/globals.css` `@theme` tokens | AGENTS.md global-rules § (the flex-stretch warning) | ✅ |
+| App Router uses `app/` not `pages/` | `app/layout.tsx:1` (root layout) | ✅ |
+| Tailwind v4 in use; `app/globals.css` declares `@theme` tokens | `app/globals.css:1` (`@import "tailwindcss"`) and `@theme` block within | ✅ |
 | Existing crew-pages spec section §9.0.1 mandates the "?" / "What does this mean?" / "Take the tour" affordances | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md:2540–2549` | ✅ |
 | §12.4 is the error-code catalog | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md:2681` heading | ✅ |
 | §9.2 parse-warnings panel is at `/admin/show/<slug>` | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md:2581` heading | ✅ |
@@ -512,7 +562,7 @@ These are all "consult the codebase" calls. None changes the design.
 | `pageExtensions` is the App Router escape hatch for MDX routing | `@next/mdx` documentation; standard Next 16 pattern | n/a (Next.js framework convention) |
 | `requireAdmin` is the project's existing admin gate (not a new helper) | next.config.ts comment block confirms its existence | ✅ |
 
-The exact file/line for `requireAdmin.ts` and the catalog-codes file are **deferred to the implementation phase** — implementation begins by reading the existing source-of-truth files. The spec does not name internal lines that would rot if the catalog file is moved.
+All citations in this table cite `file:line` as required by AGENTS.md self-review additions. Where the spec previously deferred internal line numbers to implementation, that text has been replaced with verified `file:line` evidence (r4). Future moves of these files require updating the citations in the same PR (caught by code review per invariant #7).
 
 ---
 
@@ -520,18 +570,18 @@ The exact file/line for `requireAdmin.ts` and the catalog-codes file are **defer
 
 | ID | Criterion |
 | --- | --- |
-| **AC-12.1** | All 13 pages under `app/help/*` exist and render non-empty HTML at build time. |
+| **AC-12.1** | All 13 pages under `app/help/*` exist and **compile** to RSC chunks during `pnpm build` (no static HTML prerender — see §3.2 / §3.4). At runtime, each page renders non-empty HTML when GET'd by an authenticated admin. |
 | **AC-12.2** | `app/help/layout.tsx` gates the tree to admin via `requireAdmin()`. Unauthenticated and crew requests → 403. |
 | **AC-12.3** | Sidebar renders on every `/help/*` page; current page is visually highlighted; collapses to top-of-page disclosure under 768 px. |
 | **AC-12.4** | Theme toggle is present in `<Header>` on every page and respects `prefers-color-scheme` on first paint. |
 | **AC-12.5** | `MessageCatalogEntry` (declared in `lib/messages/catalog.ts:1-8`) is extended with `longExplanation: string \| null` and `helpHref: string \| null` per §5.1. `messageFor` signature unchanged; all existing callers continue to compile. |
-| **AC-12.6** | Every §12.4 catalog entry where `severity !== "info"` AND (`dougFacing != null` OR `crewFacing != null`) has `longExplanation` (non-null, non-empty) AND `helpHref` (non-null, `^/help/...`) populated; meta-test (§7.1 test 2) enforces. |
+| **AC-12.6** | Every §12.4 catalog entry where `severity !== "info"` AND `dougFacing != null` has `longExplanation` (non-null, non-empty) AND `helpHref` (non-null, `^/help/...`) populated; meta-test (§7.1 test 2) enforces. Crew-only entries (`dougFacing == null`) keep both fields `null` in v1 and gain docs in phase 2 when `/help/crew/*` ships. |
 | **AC-12.7** | The build-time anchor resolver passes — every `helpHref` resolves to a real `<RefAnchor>` on a real page. |
 | **AC-12.8** | Parse-warning rows in the §9.2 panel render a `Learn more →` link when `helpHref` is present. |
 | **AC-12.9** | Dashboard tooltips per §9.0.1 render a trailing `Learn more →` link when their mapped page exists. |
 | **AC-12.10** | Dashboard footer renders `Take the tour →` linking to `/help/tour`. |
 | **AC-12.11** | `/help/errors` iterates the catalog and renders one anchored section per entry matching the AC-12.6 predicate (i.e., every entry that would surface to a user). |
-| **AC-12.12** | All 10 unit/integration tests in §7.1 pass; nav-consistency, anchor-resolver, screenshot-coverage, manifest-integrity, and `<picture>`-contract tests are red on the conditions they guard. CI drift gate (§7.1 item 11) is wired and fails on uncommitted screenshot drift. |
+| **AC-12.12** | All 12 unit/integration tests in §7.1 (items 1–10 plus 12 + 13) pass; nav-consistency, anchor-resolver, screenshot-coverage, manifest-integrity, `<picture>`-contract, error-renderer-gate, and deep-link-walker tests are red on the conditions they guard. CI drift gate (§7.1 item 11) is wired and fails on uncommitted screenshot drift. |
 | **AC-12.13** | `/impeccable critique` and `/impeccable audit` pass on every `app/help/*` page (per invariant #8). |
 | **AC-12.14** | No `<ScreenshotPlaceholder>` references in `app/help/**/*.mdx` at v1 close-out (lint enforces, §7.1 test 7). Every documented surface ships with a real `<Screenshot key="...">`. |
 | **AC-12.15** | Mobile Playwright test at 390 × 844 passes the dimensional + no-horizontal-scroll + 44 × 44 px-target assertions. |
@@ -543,11 +593,16 @@ The exact file/line for `requireAdmin.ts` and the catalog-codes file are **defer
 | **AC-12.21** | Manifest-integrity meta-test (§7.1 test 9) passes: no stale entries, no orphan WebPs, every named fixture exists in `fixtures/shows/`. |
 | **AC-12.22** | M12 work begins only after M10 closes (sequencing constraint, recorded in milestone-routing handoff). |
 | **AC-12.23** | `/help/*` renders dynamically (not statically prerendered) — auth gate runs Supabase queries per request. Verified by the auth-gating test (#3) observing distinct responses for admin vs. unauthenticated vs. AdminInfraError-stubbed cases. |
-| **AC-12.24** | `app/help/layout.tsx` catches `AdminInfraError` and renders the cataloged 500-class surface via `messageFor("ADMIN_SESSION_LOOKUP_FAILED").dougFacing`. Mirrors `app/admin/layout.tsx:47-71`. Test #3 verifies. |
+| **AC-12.24** | `app/help/layout.tsx` catches `AdminInfraError` and renders the cataloged 500-class surface using the same fallback chain as `app/admin/layout.tsx:58-60`: `entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."` For the live `ADMIN_SESSION_LOOKUP_FAILED` entry (`lib/messages/catalog.ts:148-154`, `dougFacing: null`), this resolves to the `crewFacing` string. Test #3 verifies the rendered text equals the fallback expression's actual output (not a hard-coded string). |
 | **AC-12.25** | `<Screenshot>` `<picture>` contract test (§7.1 test 10) passes — output contains `<source media="(prefers-color-scheme: dark)" srcset="…-dark.webp">` and a default light `<img>` with the provided `alt`. |
 | **AC-12.26** | CI drift gate is wired: a CI step runs `pnpm screenshot:help` against a clean checkout, then `git diff --exit-code public/help/screenshots/`. PR fails on non-zero exit. |
 | **AC-12.27** | The `screenshots-help` Playwright project in `playwright.config.ts` declares: a dedicated `webServer` with `ENABLE_TEST_AUTH=true` + `TEST_AUTH_SECRET` env, a `globalSetup` running `pnpm db:seed`, deterministic browser settings (`timezoneId`, `locale`, `colorScheme`, `reducedMotion`, font-render-hinting=none, animations-off CSS injection), and reuses `signInAs` from `tests/e2e/helpers/signInAs.ts`. |
 | **AC-12.28** | The `messageFor` signature is unchanged. Existing call sites (e.g., `app/admin/layout.tsx:51`, `components/admin/AlertBanner.tsx`) continue to compile and behave identically. Only the return type widens. |
+| **AC-12.29** | Error-renderer gate test (§7.1 test 12) passes: admin / help-admin contexts emit `Learn more →` when `helpHref` is non-null; crew context never emits the link regardless of catalog `helpHref` value. |
+| **AC-12.30** | Deep-link affordance walker test (§7.1 test 13) passes: every row in §5.6's matrix is wired (or explicitly absent where the matrix says so). |
+| **AC-12.31** | `app/help/layout.tsx` exports `export const dynamic = "force-dynamic"` to make the dynamic-rendering posture explicit to Next.js. |
+| **AC-12.32** | Screenshot harness pins a fixed clock per §3.6.2 row "Fixed clock": browser `Date`/`Date.now` overridden via `addInitScript` or `context.clock.install`; server-rendered relative time stubbed via `SCREENSHOT_FROZEN_NOW` env OR fixture timestamps seeded relative to `frozenClockInstant`. Default instant `2026-04-15T14:30:00Z`; per-entry override permitted. |
+| **AC-12.33** | Screenshot harness suppresses Supabase Realtime push during capture (per §3.6.2). Stable cookies persist across captures via `globalSetup` `storageState` reuse. |
 
 ---
 

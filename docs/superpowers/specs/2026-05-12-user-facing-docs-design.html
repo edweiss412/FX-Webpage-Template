@@ -296,7 +296,7 @@
     <div><strong>Primary reader</strong><br>Doug Larson (admin)</div>
     <div><strong>Phase 2</strong><br>Crew docs at <code>/help/crew/*</code></div>
     <div><strong>Depends on</strong><br>M10 close-out (real screenshots)</div>
-    <div><strong>Revision</strong><br>r3 (round-1 adversarial fixes)</div>
+    <div><strong>Revision</strong><br>r4 (round-2 adversarial fixes)</div>
   </div>
 </div>
 
@@ -418,8 +418,9 @@
     <path class="flow-accent" d="M 380 220 Q 200 200 160 160" marker-end="url(#arrow-accent)"/>
   </svg>
 
-  <h3>3.2 Pipeline choice</h3>
-  <p><strong><code>@next/mdx</code> (native).</strong> Three deps (<code>@next/mdx</code>, <code>@mdx-js/loader</code>, <code>@mdx-js/react</code>), all maintained by Next.js. Integrates with App Router via <code>pageExtensions: ['ts','tsx','mdx']</code> and <code>withMDX()</code> in <code>next.config.ts</code>. Reuses <code>app/globals.css</code> Tailwind v4 theme tokens. No content-collections layer; no third-party docs framework. 13 pages do not justify a framework.</p>
+  <h3>3.2 Pipeline choice <span class="pill accent">corrected r4</span></h3>
+  <p><strong><code>@next/mdx</code> (native).</strong> Three deps, all maintained by Next.js. Integrates via <code>pageExtensions: ['ts','tsx','mdx']</code> and <code>withMDX()</code> in <code>next.config.ts</code>. Reuses <code>app/globals.css</code> Tailwind v4 theme tokens. 13 pages do not justify a framework.</p>
+  <p><strong>Compilation, not prerender.</strong> <code>pnpm build</code> <strong>compiles</strong> every <code>.mdx</code>/<code>.tsx</code> page to an RSC chunk. It does NOT pre-generate static HTML because the <code>requireAdmin()</code> gate (§3.4) forces dynamic-at-request-time rendering. Compile verifies MDX validity + component resolution; the per-request render happens on every authenticated GET. <code>app/help/layout.tsx</code> exports <code>export const dynamic = "force-dynamic"</code> to make this explicit.</p>
 
   <h3>3.3 File layout</h3>
   <pre><code>app/help/
@@ -478,6 +479,9 @@ scripts/help-screenshots.manifest.ts    # { key, route, fixture, viewport, theme
       <tr><td>Quiescence wait</td><td>Manifest <code>waitFor</code> selector + <code>page.waitForLoadState('networkidle')</code> + optional <code>expectStableMs</code> (default 500 ms).</td><td>Manifest-driven</td></tr>
       <tr><td>Theme application</td><td>Per entry, run twice: <code>colorScheme: 'light'</code> + <code>&lt;html data-theme="light"&gt;</code>, and the dark equivalent. Theme is imposed via <code>addInitScript</code>, not inferred.</td><td>App's existing <code>data-theme</code> mechanism</td></tr>
       <tr><td>Output normalization</td><td>WebP via <code>sharp</code> with pinned encoder settings (<code>q=90</code>, <code>effort=4</code>, <code>smartSubsample=true</code>, <code>nearLossless=false</code>). <code>sharp</code> version pinned in <code>package.json</code>; CI uses the same.</td><td><code>package.json</code></td></tr>
+      <tr><td>Fixed clock <span class="pill accent">r4</span></td><td>Browser: Playwright <code>context.clock.install({ time: FIXED_INSTANT })</code> or <code>addInitScript</code> overriding <code>Date</code>/<code>Date.now</code>. Server: <code>SCREENSHOT_FROZEN_NOW</code> env stubs the server-side time formatter OR fixture timestamps seeded relative to <code>frozenClockInstant</code>. Default: <code>2026-04-15T14:30:00Z</code>. Otherwise "12 min ago" labels drift between runs.</td><td><code>tests/e2e/right-now.spec.ts:87-114</code> pinning pattern</td></tr>
+      <tr><td>CSRF / cookie stability <span class="pill accent">r4</span></td><td>Sign in once at <code>globalSetup</code>, persist <code>storageState</code>, reuse across captures. Stable cookies; no per-request CSRF nonce churn in rendered output.</td><td>Playwright <code>storageState</code> (existing E2E pattern)</td></tr>
+      <tr><td>Realtime suppression <span class="pill accent">r4</span></td><td><code>addInitScript</code> stubs <code>window.WebSocket</code> to a no-op, OR a test-only build flag disables Realtime subscribe paths. Prevents live-data flicker during the quiescence wait from producing non-deterministic captures.</td><td>Implementation picks; both reversible per-test</td></tr>
     </tbody>
   </table>
   </div>
@@ -710,18 +714,19 @@ export type MessageCatalogEntry = {
   helpHref: string | null;          // NEW in M12
 };</code></pre>
   <p>Both new fields are <code>string | null</code>, matching the existing field shape. Existing callers continue to compile — TS sees the return type widen but every pre-r3 caller ignores these properties.</p>
-  <p><strong>Required-when predicate (corrected r3):</strong> <code>severity !== "info"</code> AND (<code>dougFacing != null</code> OR <code>crewFacing != null</code>).</p>
-  <p>This is the load-bearing change from r2. Live <code>components/admin/AlertBanner.tsx:39-50</code> treats only <code>severity === "info"</code> as excluded; unset severity is rendered as warning-equivalent. Many user-visible entries currently omit severity (e.g. <code>LEAKED_LINK_DETECTED</code> at <code>lib/messages/catalog.ts:46-53</code>). The r2 predicate (<code>severity === "warning"</code>) would have let those ship without docs, breaking the §9.0.1 "every error has a help link" affordance. The corrected predicate covers them.</p>
+  <p><strong>Required-when predicate (narrowed r4):</strong> <code>severity !== "info"</code> AND <code>dougFacing != null</code>.</p>
+  <p>v1 gates all of <code>/help/*</code> to admin (§3.5 / §5.5). Crew-only entries (e.g., <code>LINK_EXPIRED</code> at <code>lib/messages/catalog.ts:11-17</code>) would link crew users to a 403-gated page. Forcing <code>helpHref</code> on those would create broken UX. r4 narrows to admin-facing rows; phase 2 widens when <code>/help/crew/*</code> ships. (r3's <code>OR crewFacing != null</code> predicate would have produced exactly this bug — caught in round 2.)</p>
   <div class="table-wrap">
   <table class="spec-table">
     <thead><tr><th>Field</th><th>Type</th><th>Required when</th><th>Purpose</th></tr></thead>
     <tbody>
-      <tr><td><code>longExplanation</code></td><td><code>string | null</code>; non-null required</td><td><code>severity !== "info"</code> AND (<code>dougFacing != null</code> OR <code>crewFacing != null</code>)</td><td>Long-form explanation; rendered on <code>/help/errors#&lt;code&gt;</code></td></tr>
-      <tr><td><code>helpHref</code></td><td><code>string | null</code>; non-null required</td><td>Same predicate as above</td><td>Deep-link target for "Learn more →"</td></tr>
+      <tr><td><code>longExplanation</code></td><td><code>string | null</code>; non-null required</td><td><code>severity !== "info"</code> AND <code>dougFacing != null</code></td><td>Long-form explanation; rendered on <code>/help/errors#&lt;code&gt;</code></td></tr>
+      <tr><td><code>helpHref</code></td><td><code>string | null</code>; non-null required</td><td>Same predicate</td><td>Deep-link target for "Learn more →"</td></tr>
     </tbody>
   </table>
   </div>
-  <p>The compound predicate excludes catalog entries that have severity but no user-visible string (defensive). Info-tier entries are not required to carry docs but may opt in; meta-test does not require them. <code>tests/messages/_metaErrorCatalogDocs.test.ts</code> enforces; new codes without docs fail CI.</p>
+  <p>Info-tier entries may opt in but are not required. Crew-only entries (<code>dougFacing == null</code>, <code>crewFacing != null</code>) keep both fields <code>null</code> in v1; phase 2 fills them when crew docs ship.</p>
+  <p><strong>Render-side gate <span class="pill accent">new r4</span>:</strong> The shared error renderer emits <code>Learn more →</code> only when BOTH hold: <code>helpHref</code> is non-null AND the rendering context is admin (<code>/admin/*</code> or <code>/help/admin/*</code>). Crew-facing surfaces (<code>/show/&lt;slug&gt;</code>) MUST NOT emit admin-gated <code>/help</code> links even if a future predicate widening accidentally populates <code>helpHref</code> on a crew-only entry. Enforced by <code>tests/messages/_metaErrorRendererGate.test.ts</code> (§7.1 test 12).</p>
 
   <h3>5.3 Affordance wiring (retrofits)</h3>
   <p>This milestone does not change the text content of any tooltip, error message, or expansion shipped by M4/M9/M10. <strong>Link-only retrofit.</strong></p>
@@ -742,7 +747,32 @@ export type MessageCatalogEntry = {
   <p>Page slugs and anchor IDs under <code>/help/*</code> are <strong>committed contracts</strong>. Renaming any requires a redirect entry in the same change. The build-time anchor resolver (<a href="#s7">§7</a> test 1) fails CI on any <code>helpHref</code> that points at a missing anchor or page.</p>
 
   <h3>5.5 Auth interaction</h3>
-  <p>A non-admin who hits a deep-linked <code>/help/...</code> URL gets the same <code>forbidden()</code> 403 as bare <code>/help</code>. Acceptable: only Doug should be following these links from inside <code>/admin</code>. Phase 2 relaxes <code>/help/crew/*</code> only.</p>
+  <p>A non-admin who hits a deep-linked <code>/help/...</code> URL gets the same <code>forbidden()</code> 403 as bare <code>/help</code>. Acceptable: only Doug should be following these links from inside <code>/admin</code>. Phase 2 relaxes <code>/help/crew/*</code> only. The render-side gate (§5.2) ensures crew-facing surfaces never emit admin-gated links.</p>
+
+  <h3>5.6 §9.0.1 surface affordance matrix <span class="pill accent">new r4</span></h3>
+  <p>Every <code>?</code> tooltip / "Learn more" / "Take the tour" link in master-spec §9.0.1 is enumerated with its M12 deep-link target. Test #13 walks this matrix and verifies every source surface emits the expected <code>/help/...</code> URL.</p>
+  <div class="table-wrap">
+  <table class="spec-table">
+    <thead><tr><th>Source surface</th><th>Affordance</th><th>Target</th><th>Owning milestone</th></tr></thead>
+    <tbody>
+      <tr><td><code>/admin</code> dashboard — Active Shows header</td><td><code>?</code> tooltip</td><td><code>/help/admin/dashboard#active-shows</code></td><td>M3 / M9</td></tr>
+      <tr><td><code>/admin</code> dashboard — "Sheets we couldn't auto-apply" header</td><td><code>?</code> tooltip</td><td><code>/help/admin/review-queues#first-seen</code></td><td>M3 / M9</td></tr>
+      <tr><td><code>/admin</code> dashboard — "Review staged changes" badge</td><td><code>?</code> tooltip</td><td><code>/help/admin/review-queues#re-stage</code></td><td>M9</td></tr>
+      <tr><td><code>/admin</code> dashboard footer</td><td>"Take the tour"</td><td><code>/help/tour</code></td><td>M9</td></tr>
+      <tr><td><code>/admin/show/&lt;slug&gt;</code> — Staged review card header</td><td><code>?</code> tooltip</td><td><code>/help/admin/review-queues#re-stage</code></td><td>M9</td></tr>
+      <tr><td><code>/admin/show/&lt;slug&gt;</code> — Sync health header</td><td><code>?</code> tooltip</td><td><code>/help/admin/per-show-panel#sync-health</code></td><td>M9</td></tr>
+      <tr><td><code>/admin/show/&lt;slug&gt;</code> — Parse warnings header</td><td><code>?</code> tooltip</td><td><code>/help/admin/parse-warnings</code></td><td>M9</td></tr>
+      <tr><td><code>/admin/show/&lt;slug&gt;</code> — individual parse-warning row</td><td><code>Learn more →</code></td><td><code>/help/admin/parse-warnings#&lt;code&gt;</code> via <code>messageFor(code).helpHref</code></td><td>M9</td></tr>
+      <tr><td><code>/admin/show/&lt;slug&gt;</code> — Crew preview links header</td><td><code>?</code> tooltip</td><td><code>/help/admin/preview-as-crew</code></td><td>M9</td></tr>
+      <tr><td><code>/admin/show/&lt;slug&gt;/preview/&lt;crew-id&gt;</code> — sticky banner</td><td><code>?</code> icon</td><td><code>/help/admin/preview-as-crew#impersonation-banner</code></td><td>M9</td></tr>
+      <tr><td>Onboarding wizard — Step 1 (service-account email)</td><td><code>?</code> icon</td><td><code>/help/admin/onboarding-wizard#service-account</code></td><td>M10</td></tr>
+      <tr><td>Onboarding wizard — Step 2 + Step 3 headers</td><td><code>?</code> tooltip per step</td><td><code>/help/admin/onboarding-wizard#step-2</code>, <code>#step-3</code></td><td>M10</td></tr>
+      <tr><td>Any <code>messageFor(code)</code> error in <code>/admin/*</code></td><td><code>Learn more →</code></td><td><code>/help/errors#&lt;code&gt;</code> via <code>messageFor(code).helpHref</code></td><td>M9 / M10</td></tr>
+      <tr><td>Crew-facing surfaces (<code>/show/&lt;slug&gt;</code>)</td><td><strong>No</strong> <code>Learn more →</code> emitted in v1</td><td>n/a in v1</td><td>(Phase 2)</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p><strong>Class-sweep guarantee:</strong> any new section header in <code>/admin/*</code> with a §9.0.1 tooltip MUST add a row to this matrix in the same PR. Test #13 fails if a tooltip in the codebase is missing a matrix row OR if a matrix row's source surface is missing the affordance.</p>
 </section>
 
 <!-- ===== Section 6 ===== -->
@@ -881,14 +911,14 @@ export type MessageCatalogEntry = {
 <!-- ===== Section 7 ===== -->
 <section class="spec-section" id="s7">
   <h2>7. Testing strategy</h2>
-  <h3>7.1 Test inventory (10 unit/integration tests + 1 CI gate)</h3>
+  <h3>7.1 Test inventory (12 unit/integration tests + 1 CI gate)</h3>
   <div class="table-wrap">
   <table class="spec-table">
     <thead><tr><th>#</th><th>Test</th><th>File</th><th>What it catches</th></tr></thead>
     <tbody>
       <tr><td>1</td><td><strong>Build-time anchor resolver</strong></td><td><code>tests/help/anchor-resolver.test.ts</code></td><td>Broken deep-link from catalog <code>helpHref</code> to a missing page or <code>&lt;RefAnchor&gt;</code>.</td></tr>
-      <tr><td>2</td><td><strong>Catalog meta-test</strong> <span class="pill accent">r3</span></td><td><code>tests/messages/_metaErrorCatalogDocs.test.ts</code></td><td>Asserts: every entry where <code>severity !== "info"</code> AND (<code>dougFacing != null</code> OR <code>crewFacing != null</code>) has non-null <code>longExplanation</code> + <code>helpHref</code> matching <code>^/help/...</code>. Covers warning + unset-severity entries per the live AlertBanner default rule.</td></tr>
-      <tr><td>3</td><td><strong>Auth-gating + AdminInfraError mapping</strong> <span class="pill accent">r3</span></td><td><code>tests/help/auth.test.ts</code></td><td>Unauth → 403; admin → 200; crew (signed link) → 403 in v1. <strong>Plus:</strong> Supabase RPC stubbed to throw → 500-class surface rendered via <code>messageFor("ADMIN_SESSION_LOOKUP_FAILED")</code>, mirroring <code>app/admin/layout.tsx:47-71</code>.</td></tr>
+      <tr><td>2</td><td><strong>Catalog meta-test</strong> <span class="pill accent">narrowed r4</span></td><td><code>tests/messages/_metaErrorCatalogDocs.test.ts</code></td><td>Asserts: every entry where <code>severity !== "info"</code> AND <code>dougFacing != null</code> has non-null <code>longExplanation</code> + <code>helpHref</code> matching <code>^/help/...</code>. Admin-facing only in v1; phase 2 widens to <code>crewFacing != null</code> when <code>/help/crew/*</code> ships.</td></tr>
+      <tr><td>3</td><td><strong>Auth-gating + AdminInfraError mapping</strong> <span class="pill accent">corrected r4</span></td><td><code>tests/help/auth.test.ts</code></td><td>Unauth → 403; admin → 200; crew → 403 in v1. <strong>AdminInfraError:</strong> Supabase RPC stubbed to throw → 500-class surface. Assertion text is the <strong>resolved fallback chain</strong> <code>entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."</code> (mirrors <code>app/admin/layout.tsx:58-60</code>). For live <code>ADMIN_SESSION_LOOKUP_FAILED</code> (<code>lib/messages/catalog.ts:148-154</code>, <code>dougFacing: null</code>), resolves to the <code>crewFacing</code> string. Test asserts the rendered text equals the fallback's actual output — NOT a hard-coded literal.</td></tr>
       <tr><td>4</td><td><strong>MDX smoke</strong></td><td><code>tests/help/render.test.ts</code></td><td>Malformed MDX, missing component, broken import.</td></tr>
       <tr><td>5</td><td><strong>Nav consistency meta-test</strong></td><td><code>tests/help/_metaNavSync.test.ts</code></td><td>Orphan page (FS but not in <code>_nav.ts</code>) or dead nav (in <code>_nav.ts</code> but not on FS).</td></tr>
       <tr><td>6</td><td><strong>Mobile layout (Playwright)</strong></td><td><code>tests/playwright/help-mobile.spec.ts</code></td><td>Horizontal scroll at 390px, sub-44px tap targets, sidebar that doesn't collapse. Real browser only — jsdom insufficient per Tailwind v4 flex-stretch lesson.</td></tr>
@@ -897,6 +927,8 @@ export type MessageCatalogEntry = {
       <tr><td>9</td><td><strong>Manifest integrity meta-test</strong> <span class="pill accent">r2</span></td><td><code>tests/help/_metaScreenshotManifest.test.ts</code></td><td>Stale manifest entry (route gone but entry remains), orphan WebP (entry deleted but file remains), or fixture name not present in <code>fixtures/shows/</code>.</td></tr>
       <tr><td>10</td><td><strong><code>&lt;Screenshot&gt;</code> <code>&lt;picture&gt;</code> contract test</strong> <span class="pill accent">r3</span></td><td><code>tests/help/screenshot-picture-contract.test.ts</code></td><td>Renders <code>&lt;Screenshot&gt;</code> against a stub manifest. Asserts the output contains <code>&lt;source media="(prefers-color-scheme: dark)" srcset="…-dark.webp"&gt;</code> and a default light <code>&lt;img&gt;</code> with the provided <code>alt</code>. Enforces AC-12.25 directly — without this, the <code>&lt;picture&gt;</code> contract has only visual fixtures to prove it works.</td></tr>
       <tr><td>11</td><td><strong>CI drift gate</strong> <span class="pill accent">r3</span></td><td>CI workflow step</td><td>CI runs <code>pnpm screenshot:help</code> on a clean checkout (with <code>pnpm db:seed</code> precondition), then <code>git diff --exit-code public/help/screenshots/</code>. Non-zero exit → PR fails.</td></tr>
+      <tr><td>12</td><td><strong>Error-renderer gate</strong> <span class="pill accent">new r4</span></td><td><code>tests/messages/_metaErrorRendererGate.test.ts</code></td><td>Renders each catalog entry through the shared error renderer in three contexts (<code>/admin/*</code>, <code>/help/admin/*</code>, <code>/show/&lt;slug&gt;</code>). Admin and help-admin emit <code>Learn more →</code> when <code>helpHref</code> is non-null; crew context never emits the link, even with <code>helpHref</code> mocked non-null on a crew-only entry. Prevents future predicate widening from leaking admin-gated links into crew surfaces.</td></tr>
+      <tr><td>13</td><td><strong>Deep-link affordance walker</strong> <span class="pill accent">new r4</span></td><td><code>tests/help/deep-link-walker.test.ts</code></td><td>For every row in §5.6's matrix: (a) the source surface component exists at the cited file:line, (b) the <code>Learn more →</code> link (or its declared absence) is present in the rendered output, (c) the link's <code>href</code> matches the matrix's target column. Catches affordances missing from the matrix AND matrix rows that were never wired.</td></tr>
     </tbody>
   </table>
   </div>
@@ -981,7 +1013,12 @@ export type MessageCatalogEntry = {
       <tr><td><strong>Catalog schema extension shape</strong> <span class="pill accent">r3</span></td><td>Two new fields: <code>longExplanation: string | null</code> and <code>helpHref: string | null</code>. Required when <code>severity !== "info"</code> AND (<code>dougFacing != null</code> OR <code>crewFacing != null</code>). r2's <code>=== "warning"</code> predicate was wrong (round-1 finding 3); corrected here.</td><td><a href="#s5">§5.2</a></td></tr>
       <tr><td><strong>Rendering posture</strong> <span class="pill accent">r3</span></td><td><strong>Dynamic at request time</strong> for <code>/help/*</code>. <code>requireAdmin()</code> runs Supabase queries per request. MDX content is statically compiled to RSC; the layout gate is dynamic. <strong>Per round-1 finding 2.</strong></td><td><a href="#s3">§3.4</a></td></tr>
       <tr><td><strong><code>AdminInfraError</code> handling on <code>/help</code></strong> <span class="pill accent">r3</span></td><td>Mirrors <code>app/admin/layout.tsx:47-71</code> verbatim. Layout catches <code>AdminInfraError</code>, renders cataloged 500-class surface via <code>messageFor("ADMIN_SESSION_LOOKUP_FAILED")</code>. Test #3 verifies. <strong>Per round-1 finding 2.</strong></td><td><a href="#s3">§3.4</a>, <a href="#s7">§7.1 test 3</a></td></tr>
-      <tr><td><strong>Screenshot harness reproducibility</strong> <span class="pill accent">r3</span></td><td>Dedicated Playwright project, <code>globalSetup</code> with <code>pnpm db:seed</code>, reuses <code>signInAs</code>, pinned <code>sharp</code> encoder, deterministic browser settings, quiescence wait, CI <code>git diff --exit-code</code> gate. <strong>Per round-1 finding 4.</strong></td><td><a href="#s3">§3.5.2</a>, <a href="#s3">§3.5.3</a></td></tr>
+      <tr><td><strong>Screenshot harness reproducibility</strong> <span class="pill accent">r3 + r4</span></td><td>Dedicated Playwright project, <code>globalSetup</code> with <code>pnpm db:seed</code>, reuses <code>signInAs</code>, pinned <code>sharp</code> encoder, deterministic browser settings, quiescence wait, <strong>fixed clock (r4)</strong>, <strong>CSRF/cookie stability via <code>storageState</code> (r4)</strong>, <strong>Realtime suppression (r4)</strong>, CI <code>git diff --exit-code</code> gate. <strong>Round-1 finding 4 + round-2 finding 3.</strong></td><td><a href="#s3">§3.5.2</a>, <a href="#s3">§3.5.3</a></td></tr>
+      <tr><td><strong>Crew-rendered errors never link to <code>/help</code></strong> <span class="pill accent">new r4</span></td><td>Predicate narrows to <code>dougFacing != null</code> in v1 + render-side gate strips <code>Learn more →</code> from crew contexts. <strong>Per round-2 finding 1.</strong> Phase 2 widens predicate + renders crew links to <code>/help/crew/*</code>.</td><td><a href="#s5">§5.2</a>, <a href="#s7">§7.1 test 12</a></td></tr>
+      <tr><td><strong>AdminInfraError rendered text is the fallback chain, not <code>dougFacing</code> literally</strong> <span class="pill accent">new r4</span></td><td><code>entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."</code> (matches <code>app/admin/layout.tsx:58-60</code>). For live <code>ADMIN_SESSION_LOOKUP_FAILED</code> (<code>dougFacing: null</code>), resolves to <code>crewFacing</code>. <strong>Per round-2 finding 2.</strong></td><td><a href="#s3">§3.5</a>, AC-12.24, <a href="#s7">§7.1 test 3</a></td></tr>
+      <tr><td><strong>Static-vs-dynamic build contract</strong> <span class="pill accent">new r4</span></td><td><code>pnpm build</code> <strong>compiles</strong> MDX to RSC chunks; does NOT prerender static HTML. <code>app/help/layout.tsx</code> exports <code>dynamic = "force-dynamic"</code>. AC-12.1 asserts compilation, not prerender. <strong>Per round-2 finding 4.</strong></td><td><a href="#s3">§3.2</a>, <a href="#s3">§3.4</a>, AC-12.1, AC-12.31</td></tr>
+      <tr><td><strong>§9.0.1 surface coverage</strong> <span class="pill accent">new r4</span></td><td>§5.6 enumerates every section header / "Learn more" / "Take the tour" affordance per master-spec §9.0.1, with explicit <code>/help/...</code> target per row. Test #13 walks the matrix. New tooltips added in <code>/admin</code> must add a matrix row in the same PR. <strong>Per round-2 finding 5.</strong></td><td><a href="#s5">§5.6</a>, <a href="#s7">§7.1 test 13</a></td></tr>
+      <tr><td><strong>Existing-code citation discipline</strong> <span class="pill accent">new r4</span></td><td>All §12 rows cite <code>file:line</code>. r3's directory-only and prose-only citations corrected (<code>app/layout.tsx:1</code>, <code>app/globals.css:1</code>). r3's "deferred to implementation" note replaced with verified citations. <strong>Per round-2 finding 6.</strong></td><td><a href="#s12">§12</a></td></tr>
       <tr><td><strong>Concept track</strong></td><td>Excluded from v1. Explanations live inline on operator pages.</td><td><a href="#s2">§2</a></td></tr>
       <tr><td><strong>Doug as bug-report triager</strong></td><td><strong>No.</strong> Doug receives content questions from crew via existing channels (phone/text); app bug reports route to Eric via M8 GitHub pipeline. <code>/help</code> covers no bug-triage surface.</td><td>(Resolved during brainstorm.)</td></tr>
     </tbody>
@@ -1006,8 +1043,8 @@ export type MessageCatalogEntry = {
       <tr><td>Test-auth pattern: <code>signInAs</code> POSTing to <code>/api/test-auth/set-session</code> with <code>Authorization: Bearer ${TEST_AUTH_SECRET}</code></td><td><code>tests/e2e/helpers/signInAs.ts:43-73</code></td><td class="center">✅</td></tr>
       <tr><td><code>ENABLE_TEST_AUTH</code> + <code>TEST_AUTH_SECRET</code> env vars required at server start</td><td><code>tests/e2e/helpers/signInAs.ts:1-23</code></td><td class="center">✅</td></tr>
       <tr><td><code>ADMIN_SESSION_LOOKUP_FAILED</code> is the cataloged code thrown by <code>AdminInfraError</code></td><td><code>lib/auth/requireAdmin.ts:42</code></td><td class="center">✅</td></tr>
-      <tr><td>App Router (not Pages); <code>app/admin/</code>, <code>app/api/</code>, <code>app/show/</code> exist</td><td><code>app/layout.tsx</code> + sibling routes</td><td class="center">✅</td></tr>
-      <tr><td>Tailwind v4 with <code>app/globals.css</code> <code>@theme</code> tokens</td><td>AGENTS.md global-rules § (flex-stretch warning)</td><td class="center">✅</td></tr>
+      <tr><td>App Router uses <code>app/</code> not <code>pages/</code></td><td><code>app/layout.tsx:1</code> (root layout)</td><td class="center">✅</td></tr>
+      <tr><td>Tailwind v4 in use; <code>app/globals.css</code> declares <code>@theme</code> tokens</td><td><code>app/globals.css:1</code> (<code>@import "tailwindcss"</code>) + <code>@theme</code> block</td><td class="center">✅</td></tr>
       <tr><td>Spec §9.0.1 mandates "?" / "What does this mean?" / "Take the tour" affordances</td><td><code>docs/.../2026-04-30-fxav-crew-pages-design.md:2540–2549</code></td><td class="center">✅</td></tr>
       <tr><td>§12.4 is the user-facing message catalog</td><td><code>docs/.../2026-04-30-fxav-crew-pages-design.md:2681</code> heading</td><td class="center">✅</td></tr>
       <tr><td>§9.2 parse-warnings panel is at <code>/admin/show/&lt;slug&gt;</code></td><td><code>docs/.../2026-04-30-fxav-crew-pages-design.md:2581</code> heading</td><td class="center">✅</td></tr>
@@ -1015,26 +1052,26 @@ export type MessageCatalogEntry = {
     </tbody>
   </table>
   </div>
-  <p>The exact line for <code>requireAdmin.ts</code> internals is deferred to implementation. The spec avoids naming internal lines that would rot if files are moved.</p>
+  <p>All citations in this table cite <code>file:line</code> as required by AGENTS.md self-review additions. r4 replaced r3's directory-only and prose-only citations with verified file:line evidence. Future file moves require updating the citations in the same PR.</p>
 </section>
 
 <!-- ===== Section 13 — interactive checklist ===== -->
 <section class="spec-section" id="s13">
   <h2>13. Acceptance criteria</h2>
-  <p class="ac-progress"><strong id="acDone">0</strong> / <strong id="acTotal">28</strong> complete. State persists locally in this browser (<code>localStorage</code>).</p>
+  <p class="ac-progress"><strong id="acDone">0</strong> / <strong id="acTotal">33</strong> complete. State persists locally in this browser (<code>localStorage</code>).</p>
   <ul class="ac-list" id="acList">
-    <li><input type="checkbox" id="ac1"><span class="ac-id">AC-12.1</span><span class="ac-text">All 13 pages under <code>app/help/*</code> exist and render non-empty HTML at build time.</span></li>
+    <li><input type="checkbox" id="ac1"><span class="ac-id">AC-12.1</span><span class="ac-text">All 13 pages under <code>app/help/*</code> exist and <strong>compile</strong> to RSC chunks during <code>pnpm build</code> (no static HTML prerender — see §3.2 / §3.4). At runtime each renders non-empty HTML when GET'd by an authenticated admin.</span></li>
     <li><input type="checkbox" id="ac2"><span class="ac-id">AC-12.2</span><span class="ac-text"><code>app/help/layout.tsx</code> gates the tree via <code>requireAdmin()</code>. Unauthenticated and crew requests → 403.</span></li>
     <li><input type="checkbox" id="ac3"><span class="ac-id">AC-12.3</span><span class="ac-text">Sidebar renders on every <code>/help/*</code> page with current-page highlight; collapses to top-of-page disclosure under 768 px.</span></li>
     <li><input type="checkbox" id="ac4"><span class="ac-id">AC-12.4</span><span class="ac-text">Theme toggle is present in <code>&lt;Header&gt;</code> on every page and respects <code>prefers-color-scheme</code> on first paint.</span></li>
     <li><input type="checkbox" id="ac5"><span class="ac-id">AC-12.5</span><span class="ac-text"><code>MessageCatalogEntry</code> (per <code>lib/messages/catalog.ts:1-8</code>) is extended with <code>longExplanation: string | null</code> and <code>helpHref: string | null</code> per §5.2. <code>messageFor</code> signature unchanged; all existing callers compile and behave identically.</span></li>
-    <li><input type="checkbox" id="ac6"><span class="ac-id">AC-12.6</span><span class="ac-text">Every catalog entry where <code>severity !== "info"</code> AND (<code>dougFacing != null</code> OR <code>crewFacing != null</code>) has non-null <code>longExplanation</code> AND <code>helpHref</code> matching <code>^/help/...</code>; meta-test enforces.</span></li>
+    <li><input type="checkbox" id="ac6"><span class="ac-id">AC-12.6</span><span class="ac-text">Every catalog entry where <code>severity !== "info"</code> AND <code>dougFacing != null</code> has non-null <code>longExplanation</code> AND <code>helpHref</code> matching <code>^/help/...</code>; meta-test enforces. Crew-only entries stay <code>null</code> in v1; phase 2 widens predicate when <code>/help/crew/*</code> ships.</span></li>
     <li><input type="checkbox" id="ac7"><span class="ac-id">AC-12.7</span><span class="ac-text">Build-time anchor resolver passes — every <code>helpHref</code> resolves to a real <code>&lt;RefAnchor&gt;</code>.</span></li>
     <li><input type="checkbox" id="ac8"><span class="ac-id">AC-12.8</span><span class="ac-text">Parse-warning rows in the §9.2 panel render <code>Learn more →</code> when <code>helpHref</code> is present.</span></li>
     <li><input type="checkbox" id="ac9"><span class="ac-id">AC-12.9</span><span class="ac-text">Dashboard tooltips render trailing <code>Learn more →</code> link when mapped.</span></li>
     <li><input type="checkbox" id="ac10"><span class="ac-id">AC-12.10</span><span class="ac-text">Dashboard footer renders <code>Take the tour →</code> linking to <code>/help/tour</code>.</span></li>
-    <li><input type="checkbox" id="ac11"><span class="ac-id">AC-12.11</span><span class="ac-text"><code>/help/errors</code> iterates the catalog and renders one anchored section per entry matching the AC-12.6 predicate (every entry that would surface to a user).</span></li>
-    <li><input type="checkbox" id="ac12"><span class="ac-id">AC-12.12</span><span class="ac-text">All 10 unit/integration tests in §7.1 pass; nav-consistency, anchor-resolver, screenshot-coverage, manifest-integrity, and <code>&lt;picture&gt;</code>-contract meta-tests are red on the conditions they guard. CI drift gate (item 11) is wired.</span></li>
+    <li><input type="checkbox" id="ac11"><span class="ac-id">AC-12.11</span><span class="ac-text"><code>/help/errors</code> iterates the catalog and renders one anchored section per entry matching the AC-12.6 predicate (admin-facing entries with non-info severity).</span></li>
+    <li><input type="checkbox" id="ac12"><span class="ac-id">AC-12.12</span><span class="ac-text">All 12 unit/integration tests in §7.1 pass; nav-consistency, anchor-resolver, screenshot-coverage, manifest-integrity, <code>&lt;picture&gt;</code>-contract, error-renderer-gate, and deep-link-walker meta-tests are red on the conditions they guard. CI drift gate (item 11) is wired.</span></li>
     <li><input type="checkbox" id="ac13"><span class="ac-id">AC-12.13</span><span class="ac-text"><code>/impeccable critique</code> + <code>/impeccable audit</code> pass on every <code>app/help/*</code> page (per invariant #8).</span></li>
     <li><input type="checkbox" id="ac14"><span class="ac-id">AC-12.14</span><span class="ac-text">No <code>&lt;ScreenshotPlaceholder&gt;</code> references in shipped v1 MDX (lint, §7.1 test 7). Every documented surface ships with a real <code>&lt;Screenshot key&gt;</code>.</span></li>
     <li><input type="checkbox" id="ac15"><span class="ac-id">AC-12.15</span><span class="ac-text">Mobile Playwright at 390×844 passes: sidebar collapsed, no horizontal scroll, every tap target ≥ 44×44 px.</span></li>
@@ -1046,11 +1083,16 @@ export type MessageCatalogEntry = {
     <li><input type="checkbox" id="ac21"><span class="ac-id">AC-12.21</span><span class="ac-text">Manifest-integrity meta-test (§7.1 test 9) passes: no stale entries, no orphan WebPs, every named fixture exists in <code>fixtures/shows/</code>.</span></li>
     <li><input type="checkbox" id="ac22"><span class="ac-id">AC-12.22</span><span class="ac-text">M12 work begins only after M10 closes (sequencing constraint, recorded in milestone-routing handoff).</span></li>
     <li><input type="checkbox" id="ac23"><span class="ac-id">AC-12.23</span><span class="ac-text"><code>/help/*</code> renders dynamically (not statically prerendered) — auth gate runs Supabase queries per request. Test #3 observes distinct responses for admin / unauthenticated / AdminInfraError-stubbed cases.</span></li>
-    <li><input type="checkbox" id="ac24"><span class="ac-id">AC-12.24</span><span class="ac-text"><code>app/help/layout.tsx</code> catches <code>AdminInfraError</code> and renders the cataloged 500-class surface via <code>messageFor("ADMIN_SESSION_LOOKUP_FAILED").dougFacing</code>; mirrors <code>app/admin/layout.tsx:47-71</code>. Test #3 verifies.</span></li>
+    <li><input type="checkbox" id="ac24"><span class="ac-id">AC-12.24</span><span class="ac-text"><code>app/help/layout.tsx</code> catches <code>AdminInfraError</code> and renders the cataloged 500-class surface using the fallback chain <code>entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."</code> (mirrors <code>app/admin/layout.tsx:58-60</code>). For live <code>ADMIN_SESSION_LOOKUP_FAILED</code> (<code>dougFacing: null</code>), this resolves to <code>crewFacing</code>. Test #3 asserts rendered text equals the fallback's actual output.</span></li>
     <li><input type="checkbox" id="ac25"><span class="ac-id">AC-12.25</span><span class="ac-text"><code>&lt;Screenshot&gt;</code> <code>&lt;picture&gt;</code> contract test (§7.1 test 10) passes — output contains <code>&lt;source media="(prefers-color-scheme: dark)" srcset="…-dark.webp"&gt;</code> and a default light <code>&lt;img&gt;</code> with the provided <code>alt</code>.</span></li>
     <li><input type="checkbox" id="ac26"><span class="ac-id">AC-12.26</span><span class="ac-text">CI drift gate is wired: <code>pnpm screenshot:help</code> runs against a clean checkout, then <code>git diff --exit-code public/help/screenshots/</code>. PR fails on non-zero exit.</span></li>
     <li><input type="checkbox" id="ac27"><span class="ac-id">AC-12.27</span><span class="ac-text">The <code>screenshots-help</code> Playwright project declares: dedicated <code>webServer</code> with <code>ENABLE_TEST_AUTH=true</code> + <code>TEST_AUTH_SECRET</code> env, <code>globalSetup</code> running <code>pnpm db:seed</code>, deterministic browser settings, and reuses <code>signInAs</code> from <code>tests/e2e/helpers/signInAs.ts</code>.</span></li>
     <li><input type="checkbox" id="ac28"><span class="ac-id">AC-12.28</span><span class="ac-text"><code>messageFor</code> signature is unchanged. Existing call sites (e.g., <code>app/admin/layout.tsx:51</code>) continue to compile and behave identically — only the return type widens.</span></li>
+    <li><input type="checkbox" id="ac29"><span class="ac-id">AC-12.29</span><span class="ac-text">Error-renderer gate test (§7.1 test 12) passes: admin / help-admin contexts emit <code>Learn more →</code> when <code>helpHref</code> is non-null; crew context never emits the link, even with <code>helpHref</code> mocked non-null on a crew-only entry.</span></li>
+    <li><input type="checkbox" id="ac30"><span class="ac-id">AC-12.30</span><span class="ac-text">Deep-link affordance walker test (§7.1 test 13) passes: every row in §5.6's matrix is wired (or explicitly absent where the matrix says so).</span></li>
+    <li><input type="checkbox" id="ac31"><span class="ac-id">AC-12.31</span><span class="ac-text"><code>app/help/layout.tsx</code> exports <code>export const dynamic = "force-dynamic"</code> to make the dynamic-rendering posture explicit to Next.js.</span></li>
+    <li><input type="checkbox" id="ac32"><span class="ac-id">AC-12.32</span><span class="ac-text">Screenshot harness pins a fixed clock per §3.5.2: browser <code>Date</code>/<code>Date.now</code> overridden via <code>addInitScript</code>; server-rendered relative time stubbed via <code>SCREENSHOT_FROZEN_NOW</code> env OR fixture timestamps seeded relative to <code>frozenClockInstant</code>. Default <code>2026-04-15T14:30:00Z</code>.</span></li>
+    <li><input type="checkbox" id="ac33"><span class="ac-id">AC-12.33</span><span class="ac-text">Screenshot harness suppresses Supabase Realtime push during capture (per §3.5.2). Stable cookies persist across captures via <code>globalSetup</code> <code>storageState</code> reuse.</span></li>
   </ul>
 </section>
 
