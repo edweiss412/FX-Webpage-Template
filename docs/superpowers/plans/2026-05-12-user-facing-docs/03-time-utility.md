@@ -127,6 +127,25 @@ describe("lib/time/now — three-precondition gate (test #15)", () => {
     expect((await nowDate()).toISOString()).toBe(realNow.toISOString());
   });
 
+  it("TEST_AUTH_SECRET unset (env env missing) + Bearer undefined → gate refuses (defense-in-depth against interpolation accept)", async () => {
+    // r6 fix per C-r5 finding 2: a naive `if (!expected)` check could still
+    // accept `Authorization: Bearer undefined` if any path in production
+    // somehow interpolated `${process.env.TEST_AUTH_SECRET}` into a string.
+    // This fixture pins the refuse-when-unset contract distinctly from the
+    // short-secret case.
+    headerStore["x-screenshot-frozen-now"] = FROZEN;
+    headerStore.authorization = "Bearer undefined"; // the literal token an interpolation would produce
+    process.env.ENABLE_TEST_AUTH = "true";
+    delete process.env.TEST_AUTH_SECRET; // env intentionally unset
+
+    vi.useFakeTimers();
+    const realNow = new Date("2099-01-01T00:00:00.000Z");
+    vi.setSystemTime(realNow);
+
+    const { nowDate } = await import("@/lib/time/now");
+    expect((await nowDate()).toISOString()).toBe(realNow.toISOString());
+  });
+
   it("TEST_AUTH_SECRET shorter than 16 chars → gate refuses (mirrors route guard at api/test-auth:95)", async () => {
     headerStore["x-screenshot-frozen-now"] = FROZEN;
     headerStore.authorization = "Bearer short";
@@ -359,9 +378,17 @@ Expected: unchanged behavior (the utility falls back to `new Date()` when the sc
 
     **r5 fix per C-r4 finding 1 (HIGH) — waiver path REMOVED.** Earlier drafts allowed waiving `new Date()` if callers passed a frozen `now`. But the screenshot harness sends `X-Screenshot-Frozen-Now` as an HTTP header (consumed by `lib/time/now.ts`), NOT as a component prop. A waiver leaves the default branch wall-clock-bound — screenshots drift even when callers update later. Required migration:
 
-    1. Modify `StaleFooter` so it always derives `currentNow` from `await nowDate()` at the server-render boundary. The cleanest implementation: change `StaleFooter`'s signature to optionally accept `now` for unit testing, but if `now` is omitted, the component MUST `await nowDate()` rather than `new Date()`. This requires converting `StaleFooter` to an async server component (or wrapping the `now` default fetch in a server-only helper).
-    2. Update every screenshot-reachable caller (currently `app/show/[slug]/page.tsx` and any other show / admin pages) to either pass `now={await nowDate()}` explicitly OR let the component's own server-side default fetch handle it.
-    3. Add a structural test `tests/components/shared/staleFooter-now-prop.test.ts` that scans every `<StaleFooter ... />` JSX usage under `app/` AND asserts the rendered output is deterministic across two simulated screenshot captures (with a fixed `X-Screenshot-Frozen-Now` header, the rendered "X min ago" text must be byte-identical on two consecutive renders).
+    **r6 — TDD ordering per C-r5 finding 1 (HIGH).** Earlier drafts had the implementation steps first, then the structural test. The migration is now ordered red→green:
+
+    Step 5b.1 (RED): Write `tests/components/shared/staleFooter-now-prop.test.ts` BEFORE editing any component. The test imports `StaleFooter` from its current location AND renders it twice with the screenshot fixture's `X-Screenshot-Frozen-Now` header simulated (vitest `vi.mock("next/headers")` per C.1's pattern). Assert the rendered output is byte-identical across the two renders. Run the test: expect FAIL because the current `now ?? new Date()` default branches on real wall-clock between the two renders.
+
+    Step 5b.2 (RED → GREEN implementation): Modify `StaleFooter` so its default branch awaits `nowDate()`. The cleanest implementation: change `StaleFooter`'s signature to optionally accept `now` for unit testing; if `now` is omitted, the component MUST `await nowDate()` rather than `new Date()`. This requires converting `StaleFooter` to an async server component (or wrapping the `now` default fetch in a server-only helper).
+
+    Step 5b.3: Update every screenshot-reachable caller (currently `app/show/[slug]/page.tsx` and any other show / admin pages) to either pass `now={await nowDate()}` explicitly OR let the component's own server-side default fetch handle it.
+
+    Step 5b.4 (GREEN): Re-run the structural test from Step 5b.1. Expected: PASS.
+
+    The test must also scan every `<StaleFooter ... />` JSX usage under `app/` for callers that omit `now`, so future regressions in caller-side prop threading are caught (the byte-identical assertion alone wouldn't catch a NEW caller that omits `now`).
 
   Run the C.4 guard after the migration:
 
@@ -640,9 +667,19 @@ function isClientComponent(src: string): boolean {
     }
     break;
   }
-  // First real token must be the directive (string literal followed by EOL or
-  // optional `;`).
-  return /^["']use client["']\s*;?/.test(src.slice(i));
+  // r6 fix per C-r5 finding 3: a directive MUST be a complete statement —
+  // a string-literal expression followed only by whitespace + `;` or
+  // line-terminator / EOF. Without this guard, an expression like
+  // `'use client' + sideEffect();` (the literal as part of a larger
+  // expression) would falsely classify the file as client and skip the
+  // raw-time guard.
+  //
+  // Match: `"use client"` (or `'use client'`) followed by EITHER
+  //   - optional whitespace + `;` (terminated statement), OR
+  //   - end of line / end of file
+  // anything else (e.g., `+ foo` continuation) → server.
+  const rest = src.slice(i);
+  return /^["']use client["'][ \t]*(?:;|$|\r?\n)/.test(rest);
 }
 
 describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
@@ -729,6 +766,19 @@ describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
       `import React from "react";`,
     ].join("\n");
     expect(isClientComponent(synthetic)).toBe(true);
+  });
+
+  // r6 fix per C-r5 finding 3: a string literal that begins with "use client"
+  // but is part of a larger expression (e.g., `'use client' + foo()`) is NOT
+  // a directive. The classifier MUST require statement termination.
+  it("directive-prologue boundary: 'use client' + foo() is an expression, NOT a directive → server", () => {
+    const synthetic = `'use client' + sideEffect();\n`;
+    expect(isClientComponent(synthetic)).toBe(false);
+  });
+
+  it("directive-prologue boundary: `'use client'.length` is a member expression, NOT a directive → server", () => {
+    const synthetic = `'use client'.length;\n`;
+    expect(isClientComponent(synthetic)).toBe(false);
   });
 });
 ```
