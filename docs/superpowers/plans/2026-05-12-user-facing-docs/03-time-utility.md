@@ -341,7 +341,13 @@ pnpm test:e2e -g "schedule-tile|right-now"
 
 Expected: unchanged behavior (the utility falls back to `new Date()` when the screenshot header isn't present; production behavior is identical).
 
-- [ ] **Step 5b: Migrate render-side `new Date()` in `components/` surfaces reachable from `app/show/[slug]/page.tsx`** (per C-r2 finding 3 — the C.4 guard now scans `components/`):
+- [ ] **Step 5b: Migrate render-side `new Date()` in SERVER `components/` surfaces reachable from `app/show/[slug]/page.tsx`** (per C-r2 finding 3 — the C.4 guard scans `components/`, EXCLUDING `"use client"` files per C-r3 finding 1):
+
+  **Inventory (r4 — server-only):** the C.4 guard now skips files with a top-level `"use client"` directive (RightNowCard, ReportModal, etc.). The server-component inventory that C.2 must migrate is:
+  - `components/layout/Footer.tsx` — server component, no `"use client"` directive (verified)
+  - `components/shared/StaleFooter.tsx` — server component, no `"use client"` directive (verified)
+
+  Client components like `components/right-now/RightNowCard.tsx` and `components/shared/ReportModal.tsx` are EXCLUDED from the guard because their clocks are pinned by Playwright's `context.clock.install()` at the browser. Do NOT migrate them.
 
   ```bash
   rg -n "new Date\(\)" components/layout/Footer.tsx components/shared/StaleFooter.tsx
@@ -439,16 +445,28 @@ describe("lib/time/now — capture-boundary + alt-style envelope (test #15)", ()
 Pre-flight: `git status --short lib/time/now.ts` MUST be empty (else the restore step would discard unrelated edits). Then temporarily break the C.1 implementation so the new capture-boundary case would fail:
 
 ```bash
-# Backup, then patch lib/time/now.ts so frozen reads ignore the header on
-# every other call (simulates a regression where the gate "leaks" on
-# repeated invocations):
+# Backup, then patch lib/time/now.ts so the frozen path UNCONDITIONALLY
+# returns `new Date()` (real time) after auth passes — deterministic, not
+# random. The capture-boundary test asserts the first call returns FROZEN;
+# with this mutation, both calls return real Date() values that differ from
+# FROZEN and from each other.
+#
+# r4 fix per C-r3 finding 2: original suggestion used Math.random() which
+# could randomly pass.
 cp lib/time/now.ts lib/time/now.ts.bak
-# Hand-edit: e.g., change the final `return new Date(parsed)` to
-# `return Math.random() > 0.5 ? new Date(parsed) : new Date()`
+
+# Hand-edit lib/time/now.ts — change the trailing two lines from:
+#   const parsed = new Date(frozen);
+#   if (Number.isNaN(parsed.getTime())) return new Date();
+#   return parsed;
+# to:
+#   const parsed = new Date(frozen);
+#   if (Number.isNaN(parsed.getTime())) return new Date();
+#   return new Date(); // r4 verify-red — deterministic fall-through after auth
 ```
 
 Run: `pnpm test tests/time/now.test.ts`
-Expected: FAIL on "capture-boundary: same frozen header returns byte-identical ISO across 60+s wall clock". Restore:
+Expected: FAIL on "capture-boundary: same frozen header returns byte-identical ISO across 60+s wall clock" with a deterministic, reproducible error message (no Math.random non-determinism). Restore:
 
 ```bash
 mv lib/time/now.ts.bak lib/time/now.ts
@@ -469,9 +487,9 @@ Expected: PASS — C.1's gate tests + C.3's envelope tests all green.
 git add tests/time/now.test.ts
 git commit -m "test(time): lib/time/now.ts capture-boundary + envelope coverage (Task C.3 — test #15)
 
-Verify-red observed: patched lib/time/now.ts to return Math.random()-based
-real-time on every other call -> capture-boundary assertion failed with
-non-byte-identical ISO across simulated 60+s wall clock.
+Verify-red observed: patched lib/time/now.ts to unconditionally return
+new Date() after auth passes -> capture-boundary assertion failed
+deterministically (first ISO != FROZEN; second != FROZEN; second != first).
 Restored and re-ran -> PASS."
 ```
 
@@ -577,6 +595,23 @@ function walkTsTsx(dir: string, found: string[] = []): string[] {
   return found;
 }
 
+/**
+ * r4 fix per C-r3 finding 1: only server-rendered code violates the render-
+ * side time invariant. Client components (`"use client"` directive present)
+ * run in the browser where Playwright's `context.clock.install()` pins time
+ * deterministically — their `new Date()` / `Date.now()` calls are NOT a
+ * screenshot-drift source. Skip them to avoid forcing legitimate client-clock
+ * paths into needless waivers.
+ *
+ * Per Next.js spec, the `"use client"` directive must be the first non-comment
+ * statement in the module (it CAN come after a leading JSDoc/license comment).
+ * Detect presence anywhere in the source as a defensive overapproximation —
+ * false-positive exclusion is bounded by source's own self-declaration.
+ */
+function isClientComponent(src: string): boolean {
+  return /^\s*["']use client["']\s*;?\s*$/m.test(src);
+}
+
 describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
   const scanRoots = discoverScanRoots();
   it(`has at least one scan root (got ${scanRoots.join(", ")})`, () => {
@@ -590,11 +625,17 @@ describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
 
   for (const file of allFiles) {
     const src = readFileSync(file, "utf8");
+    // Only allow inside lib/time/now.ts itself (the utility implementation).
+    if (file.endsWith("lib/time/now.ts")) continue;
+    // r4 fix per C-r3 finding 1: skip client components — their clocks are
+    // pinned by Playwright's `context.clock.install()` at the browser, not
+    // by `X-Screenshot-Frozen-Now`. Including them would force legitimate
+    // browser-clock paths (RightNowCard, ReportModal) into needless waivers
+    // AND mask future server-side drift behind them.
+    if (isClientComponent(src)) continue;
     const lines = src.split("\n");
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      // Only allow inside lib/time/now.ts itself (the utility implementation).
-      if (file.endsWith("lib/time/now.ts")) continue;
       for (const pat of FORBIDDEN_PATTERNS) {
         if (pat.test(line)) {
           if (!WAIVER_COMMENT.test(line)) {
@@ -609,6 +650,19 @@ describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
 
   it("every render-side time call uses lib/time/now.ts or carries a per-line waiver", () => {
     expect(violations, violations.join("\n")).toEqual([]);
+  });
+
+  // r4 fix per C-r3 finding 1: prove client components are excluded AND server
+  // components are still checked. Anchor on the live files we know about.
+  it("client-vs-server classification: includes Footer/StaleFooter (server), excludes RightNowCard/ReportModal (use client)", () => {
+    const fooSrc = readFileSync(join(process.cwd(), "components/layout/Footer.tsx"), "utf8");
+    const staleSrc = readFileSync(join(process.cwd(), "components/shared/StaleFooter.tsx"), "utf8");
+    const rightSrc = readFileSync(join(process.cwd(), "components/right-now/RightNowCard.tsx"), "utf8");
+    const reportSrc = readFileSync(join(process.cwd(), "components/shared/ReportModal.tsx"), "utf8");
+    expect(isClientComponent(fooSrc)).toBe(false);
+    expect(isClientComponent(staleSrc)).toBe(false);
+    expect(isClientComponent(rightSrc)).toBe(true);
+    expect(isClientComponent(reportSrc)).toBe(true);
   });
 });
 ```
