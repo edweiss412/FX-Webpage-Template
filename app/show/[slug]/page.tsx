@@ -645,7 +645,12 @@ export default async function ShowPage({ params }: PageProps) {
           <WrappedTile
             tileId="lodging-tile"
             showId={showId}
-            load={() => loadLodgingTileData({ hotelReservations: data.hotelReservations })}
+            load={() => {
+              if (data.tileErrors["hotel"]) {
+                throw new Error(`hotel fetch failed: ${data.tileErrors["hotel"]}`);
+              }
+              return loadLodgingTileData({ hotelReservations: data.hotelReservations });
+            }}
             View={LodgingTileView}
           />
           <WrappedTile
@@ -663,7 +668,12 @@ export default async function ShowPage({ params }: PageProps) {
           <WrappedTile
             tileId="contacts-tile"
             showId={showId}
-            load={() => loadContactsTileData({ contacts: data.contacts })}
+            load={() => {
+              if (data.tileErrors["contacts"]) {
+                throw new Error(`contacts fetch failed: ${data.tileErrors["contacts"]}`);
+              }
+              return loadContactsTileData({ contacts: data.contacts });
+            }}
             View={ContactsTileView}
           />
           {(() => {
@@ -690,36 +700,59 @@ export default async function ShowPage({ params }: PageProps) {
                 <WrappedTile
                   tileId="audio-scope-tile"
                   showId={showId}
-                  load={() =>
-                    loadAudioScopeTileData({ rooms: data.rooms, viewerFlags: ctx.viewerFlags })
-                  }
+                  load={() => {
+                    if (data.tileErrors["rooms"]) {
+                      throw new Error(`rooms fetch failed: ${data.tileErrors["rooms"]}`);
+                    }
+                    return loadAudioScopeTileData({
+                      rooms: data.rooms,
+                      viewerFlags: ctx.viewerFlags,
+                    });
+                  }}
                   View={AudioScopeTileView}
                 />
                 <WrappedTile
                   tileId="video-scope-tile"
                   showId={showId}
-                  load={() =>
-                    loadVideoScopeTileData({ rooms: data.rooms, viewerFlags: ctx.viewerFlags })
-                  }
+                  load={() => {
+                    if (data.tileErrors["rooms"]) {
+                      throw new Error(`rooms fetch failed: ${data.tileErrors["rooms"]}`);
+                    }
+                    return loadVideoScopeTileData({
+                      rooms: data.rooms,
+                      viewerFlags: ctx.viewerFlags,
+                    });
+                  }}
                   View={VideoScopeTileView}
                 />
                 <WrappedTile
                   tileId="lighting-scope-tile"
                   showId={showId}
-                  load={() =>
-                    loadLightingScopeTileData({ rooms: data.rooms, viewerFlags: ctx.viewerFlags })
-                  }
+                  load={() => {
+                    if (data.tileErrors["rooms"]) {
+                      throw new Error(`rooms fetch failed: ${data.tileErrors["rooms"]}`);
+                    }
+                    return loadLightingScopeTileData({
+                      rooms: data.rooms,
+                      viewerFlags: ctx.viewerFlags,
+                    });
+                  }}
                   View={LightingScopeTileView}
                 />
                 <WrappedTile
                   tileId="transport-tile"
                   showId={showId}
-                  load={() =>
-                    loadTransportTileData({
+                  load={() => {
+                    if (data.tileErrors["transportation"]) {
+                      throw new Error(
+                        `transportation fetch failed: ${data.tileErrors["transportation"]}`,
+                      );
+                    }
+                    return loadTransportTileData({
                       transportation: data.transportation,
                       visible: transportVisible,
-                    })
-                  }
+                    });
+                  }}
                   View={TransportTileView}
                 />
                 {/* ShowStatusTile (Task 4.8 / AC-4.1) — public, every-crew surface. */}
@@ -759,13 +792,18 @@ export default async function ShowPage({ params }: PageProps) {
                 <WrappedTile
                   tileId="financials-tile"
                   showId={showId}
-                  load={() =>
-                    loadFinancialsTileData({
+                  load={() => {
+                    if (data.tileErrors["financials"]) {
+                      throw new Error(
+                        `financials fetch failed: ${data.tileErrors["financials"]}`,
+                      );
+                    }
+                    return loadFinancialsTileData({
                       financials: data.financials,
                       viewerFlags: ctx.viewerFlags,
                       isAdmin: ctx.isAdmin,
-                    })
-                  }
+                    });
+                  }}
                   View={FinancialsTileView}
                 />
                 {/* PackListTile — visibility decided by lib/visibility/packList.ts predicate. */}

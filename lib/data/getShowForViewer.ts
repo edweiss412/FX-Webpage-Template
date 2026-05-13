@@ -154,6 +154,17 @@ export type ShowForViewer = {
    */
   lastSyncedAt: string | null;
   lastSyncStatus: string | null;
+  /**
+   * Per-tile-domain sub-query errors (M9 Codex round-1 H1). Each
+   * tile-owned query (hotel_reservations, rooms, transportation, contacts,
+   * shows_internal) wraps its own try/catch and records errors here keyed
+   * by tile id. The page passes this map to each `<WrappedTile>`'s `load`
+   * callback so a single failed sub-query produces a per-tile fallback —
+   * not a whole-page failure. Critical page-level queries (shows,
+   * crew_members, viewer_version_token RPC) still throw because the page
+   * cannot render without them.
+   */
+  tileErrors: Record<string, string>;
   financials?: FinancialsRow;
   /**
    * Resolved viewer name for the active crew / admin_preview viewer, or
@@ -307,29 +318,41 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     stageRestriction: (row.stage_restriction as StageRestriction | null) ?? { kind: "none" },
   }));
 
-  // === Hotel reservations ===
+  // Per-tile-domain error map (M9 H1 fix). Each tile-owned sub-query
+  // populates this on failure; the page passes it to each WrappedTile's
+  // load callback to convert a sub-query failure into a per-tile fallback
+  // instead of a whole-page failure.
+  const tileErrors: Record<string, string> = {};
+
+  // === Hotel reservations (lodging tile + notes tile) ===
   // For crew / admin_preview viewers, filter to those that name the viewer.
   // Admin viewers see ALL reservations.
-  const hotelRes = await supabase
-    .from("hotel_reservations")
-    .select(
-      "ordinal, hotel_name, hotel_address, names, confirmation_no, check_in, check_out, notes",
-    )
-    .eq("show_id", showId)
-    .order("ordinal", { ascending: true });
-  if (hotelRes.error) {
-    throw new Error(`getShowForViewer: hotel fetch failed: ${hotelRes.error.message}`);
+  let allHotels: HotelReservationRow[] = [];
+  try {
+    const hotelRes = await supabase
+      .from("hotel_reservations")
+      .select(
+        "ordinal, hotel_name, hotel_address, names, confirmation_no, check_in, check_out, notes",
+      )
+      .eq("show_id", showId)
+      .order("ordinal", { ascending: true });
+    if (hotelRes.error) {
+      tileErrors["hotel"] = hotelRes.error.message;
+    } else {
+      allHotels = (hotelRes.data ?? []).map((row) => ({
+        ordinal: row.ordinal as number,
+        hotel_name: (row.hotel_name as string | null) ?? null,
+        hotel_address: (row.hotel_address as string | null) ?? null,
+        names: ((row.names as string[]) ?? []) as string[],
+        confirmation_no: (row.confirmation_no as string | null) ?? null,
+        check_in: (row.check_in as string | null) ?? null,
+        check_out: (row.check_out as string | null) ?? null,
+        notes: (row.notes as string | null) ?? null,
+      }));
+    }
+  } catch (e) {
+    tileErrors["hotel"] = e instanceof Error ? e.message : String(e);
   }
-  const allHotels: HotelReservationRow[] = (hotelRes.data ?? []).map((row) => ({
-    ordinal: row.ordinal as number,
-    hotel_name: (row.hotel_name as string | null) ?? null,
-    hotel_address: (row.hotel_address as string | null) ?? null,
-    names: ((row.names as string[]) ?? []) as string[],
-    confirmation_no: (row.confirmation_no as string | null) ?? null,
-    check_in: (row.check_in as string | null) ?? null,
-    check_out: (row.check_out as string | null) ?? null,
-    notes: (row.notes as string | null) ?? null,
-  }));
   const hotelReservations: HotelReservationRow[] =
     isAdmin || viewerName === null
       ? allHotels
@@ -337,41 +360,48 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
           res.names.some((n) => n.toLowerCase().includes((viewerName as string).toLowerCase())),
         );
 
-  // === Rooms ===
-  const roomRes = await supabase.from("rooms").select("*").eq("show_id", showId);
-  if (roomRes.error) {
-    throw new Error(`getShowForViewer: rooms fetch failed: ${roomRes.error.message}`);
+  // === Rooms (schedule + audio/video/lighting scope tiles + notes) ===
+  let rooms: RoomRow[] = [];
+  try {
+    const roomRes = await supabase.from("rooms").select("*").eq("show_id", showId);
+    if (roomRes.error) {
+      tileErrors["rooms"] = roomRes.error.message;
+    } else {
+      rooms = (roomRes.data ?? []).map((row) => ({
+        kind: row.kind as RoomRow["kind"],
+        name: row.name as string,
+        dimensions: (row.dimensions as string | null) ?? null,
+        floor: (row.floor as string | null) ?? null,
+        setup: (row.setup as string | null) ?? null,
+        set_time: (row.set_time as string | null) ?? null,
+        show_time: (row.show_time as string | null) ?? null,
+        strike_time: (row.strike_time as string | null) ?? null,
+        audio: (row.audio as string | null) ?? null,
+        video: (row.video as string | null) ?? null,
+        lighting: (row.lighting as string | null) ?? null,
+        scenic: (row.scenic as string | null) ?? null,
+        power: (row.power as string | null) ?? null,
+        digital_signage: (row.digital_signage as string | null) ?? null,
+        other: (row.other as string | null) ?? null,
+        notes: (row.notes as string | null) ?? null,
+      }));
+    }
+  } catch (e) {
+    tileErrors["rooms"] = e instanceof Error ? e.message : String(e);
   }
-  const rooms: RoomRow[] = (roomRes.data ?? []).map((row) => ({
-    kind: row.kind as RoomRow["kind"],
-    name: row.name as string,
-    dimensions: (row.dimensions as string | null) ?? null,
-    floor: (row.floor as string | null) ?? null,
-    setup: (row.setup as string | null) ?? null,
-    set_time: (row.set_time as string | null) ?? null,
-    show_time: (row.show_time as string | null) ?? null,
-    strike_time: (row.strike_time as string | null) ?? null,
-    audio: (row.audio as string | null) ?? null,
-    video: (row.video as string | null) ?? null,
-    lighting: (row.lighting as string | null) ?? null,
-    scenic: (row.scenic as string | null) ?? null,
-    power: (row.power as string | null) ?? null,
-    digital_signage: (row.digital_signage as string | null) ?? null,
-    other: (row.other as string | null) ?? null,
-    notes: (row.notes as string | null) ?? null,
-  }));
 
   // === Transportation (1:1 with show; null when no row) ===
-  const transRes = await supabase
-    .from("transportation")
-    .select("*")
-    .eq("show_id", showId)
-    .maybeSingle();
-  if (transRes.error) {
-    throw new Error(`getShowForViewer: transportation fetch failed: ${transRes.error.message}`);
-  }
-  const transportation: TransportationRow | null = transRes.data
-    ? {
+  let transportation: TransportationRow | null = null;
+  try {
+    const transRes = await supabase
+      .from("transportation")
+      .select("*")
+      .eq("show_id", showId)
+      .maybeSingle();
+    if (transRes.error) {
+      tileErrors["transportation"] = transRes.error.message;
+    } else if (transRes.data) {
+      transportation = {
         driver_name: (transRes.data.driver_name as string | null) ?? null,
         driver_phone: (transRes.data.driver_phone as string | null) ?? null,
         driver_email: (transRes.data.driver_email as string | null) ?? null,
@@ -397,21 +427,30 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
           assigned_names: Array.isArray(entry.assigned_names) ? entry.assigned_names : [],
         })),
         notes: (transRes.data.notes as string | null) ?? null,
-      }
-    : null;
-
-  // === Contacts ===
-  const contactsRes = await supabase.from("contacts").select("*").eq("show_id", showId);
-  if (contactsRes.error) {
-    throw new Error(`getShowForViewer: contacts fetch failed: ${contactsRes.error.message}`);
+      };
+    }
+  } catch (e) {
+    tileErrors["transportation"] = e instanceof Error ? e.message : String(e);
   }
-  const contacts: ContactRow[] = (contactsRes.data ?? []).map((row) => ({
-    kind: row.kind as ContactRow["kind"],
-    name: (row.name as string | null) ?? null,
-    email: (row.email as string | null) ?? null,
-    phone: (row.phone as string | null) ?? null,
-    notes: (row.notes as string | null) ?? null,
-  }));
+
+  // === Contacts (contacts tile + notes tile) ===
+  let contacts: ContactRow[] = [];
+  try {
+    const contactsRes = await supabase.from("contacts").select("*").eq("show_id", showId);
+    if (contactsRes.error) {
+      tileErrors["contacts"] = contactsRes.error.message;
+    } else {
+      contacts = (contactsRes.data ?? []).map((row) => ({
+        kind: row.kind as ContactRow["kind"],
+        name: (row.name as string | null) ?? null,
+        email: (row.email as string | null) ?? null,
+        phone: (row.phone as string | null) ?? null,
+        notes: (row.notes as string | null) ?? null,
+      }));
+    }
+  } catch (e) {
+    tileErrors["contacts"] = e instanceof Error ? e.message : String(e);
+  }
 
   // === Pull sheet (JSONB on shows) ===
   const pullSheet: PullSheetCase[] | null =
@@ -424,24 +463,25 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
   // (financials NOT on `shows`) is the third.
   let financials: FinancialsRow | undefined;
   if (isLead) {
-    const internalRes = await supabase
-      .from("shows_internal")
-      .select("financials")
-      .eq("show_id", showId)
-      .maybeSingle();
-    if (internalRes.error) {
-      throw new Error(
-        `getShowForViewer: shows_internal fetch failed: ${internalRes.error.message}`,
-      );
-    }
-    if (internalRes.data?.financials) {
-      const f = internalRes.data.financials as FinancialsRow;
-      financials = {
-        po: f.po ?? null,
-        proposal: f.proposal ?? null,
-        invoice: f.invoice ?? null,
-        invoice_notes: f.invoice_notes ?? null,
-      };
+    try {
+      const internalRes = await supabase
+        .from("shows_internal")
+        .select("financials")
+        .eq("show_id", showId)
+        .maybeSingle();
+      if (internalRes.error) {
+        tileErrors["financials"] = internalRes.error.message;
+      } else if (internalRes.data?.financials) {
+        const f = internalRes.data.financials as FinancialsRow;
+        financials = {
+          po: f.po ?? null,
+          proposal: f.proposal ?? null,
+          invoice: f.invoice ?? null,
+          invoice_notes: f.invoice_notes ?? null,
+        };
+      }
+    } catch (e) {
+      tileErrors["financials"] = e instanceof Error ? e.message : String(e);
     }
   }
 
@@ -487,6 +527,7 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     openingReelHasVideo,
     lastSyncedAt: (showRowDb.last_synced_at as string | null | undefined) ?? null,
     lastSyncStatus: (showRowDb.last_sync_status as string | null | undefined) ?? null,
+    tileErrors,
     ...(financials ? { financials } : {}),
   };
 }

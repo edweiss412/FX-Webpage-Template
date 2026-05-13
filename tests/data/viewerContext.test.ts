@@ -47,6 +47,7 @@ function makeData(crewMembers: ShowForViewer["crewMembers"]): ShowForViewer {
     openingReelHasVideo: false,
     lastSyncedAt: null,
     lastSyncStatus: null,
+    tileErrors: {},
   };
 }
 

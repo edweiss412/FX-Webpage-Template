@@ -29,11 +29,18 @@ export function WrappedTile<P>({ tileId, showId, load, View, fallback }: Wrapped
   // With strict exactOptionalPropertyTypes, conditionally include `fallback`
   // only when the caller supplied one. Passing undefined to a required-ish
   // ReactElement prop is a type error under strict settings.
+  //
+  // CRITICAL: `render` must invoke `View(data)` as a function call (not
+  // `<View {...data} />`). The JSX element form returns a React element whose
+  // component function is called LATER by the RSC renderer, outside the
+  // wrapper's try/catch — so synchronous throws inside View's body escape the
+  // boundary (M9 Codex round-1 H2). Direct invocation runs the body NOW,
+  // inside <TileServerFallback>'s try/catch.
   return (
     <TileErrorBoundary tileId={tileId} {...(fallback ? { fallback } : {})}>
       <TileServerFallback
         load={load}
-        render={(data) => <View {...(data as P & object)} />}
+        render={(data) => View(data) ?? <></>}
         tileId={tileId}
         showId={showId}
         {...(fallback ? { fallback } : {})}

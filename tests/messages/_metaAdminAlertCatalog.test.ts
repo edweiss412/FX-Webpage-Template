@@ -250,6 +250,52 @@ describe("META admin_alerts catalog contract", () => {
     },
   );
 
+  // Codes whose dougFacing copy intentionally carries an interpolation
+  // placeholder AND whose producer (admin_alerts.context) reliably
+  // supplies the corresponding param at upsert time.
+  //
+  // KNOWN RENDERER GAP (tracked separately from M9 C0): AlertBanner
+  // currently renders MESSAGE_CATALOG[code].dougFacing verbatim via
+  // <ErrorExplainer surface="admin"> without passing alert.context as
+  // params. So even when a producer supplies context here, Doug still
+  // sees literal placeholders today. The producers below ARE writing
+  // context.sheet_name / crew_count / show_date at upsert time, so the
+  // renderer plumbing fix is purely on the read side — see
+  // components/admin/AlertBanner.tsx and components/messages/ErrorExplainer.tsx.
+  //
+  // Registering a code here is a TWO-SIDED commitment:
+  //   (a) the producer call site supplies the matching keys in context;
+  //   (b) the renderer routes through messageFor(code, alert.context).
+  // (a) is in place today for the two codes below; (b) is pending the
+  // ErrorExplainer interpolation plumbing follow-up.
+  const INTERPOLATED_DOUG_FACING_CODES: ReadonlyArray<(typeof ADMIN_ALERTS_CODES)[number]> = [
+    "SHOW_FIRST_PUBLISHED", // lib/sync/runScheduledCronSync.ts:1558 supplies sheet_name, crew_count, show_date, unpublish_token
+    "SHOW_UNPUBLISHED", //     lib/sync/unpublishShow.ts:230 supplies sheet_name
+  ];
+
+  test.each(ADMIN_ALERTS_CODES)(
+    "registered producer code %s has no unresolved <placeholder> in dougFacing",
+    (code) => {
+      if (INTERPOLATED_DOUG_FACING_CODES.includes(code)) return;
+      const entry = (MESSAGE_CATALOG as Record<string, { dougFacing: string | null } | undefined>)[
+        code
+      ];
+      if (!entry || entry.dougFacing === null) return; // dougFacing-null already flagged above
+      // Match the same `<name>` pattern messageFor() uses (lookup.ts). A
+      // bare `<word>` token would render literally to Doug in AlertBanner,
+      // which renders via ErrorExplainer with NO interpolation today
+      // (M9 Codex round-1 H4). If an admin_alerts producer wants to keep
+      // a placeholder, register the code in INTERPOLATED_DOUG_FACING_CODES
+      // AND ensure the renderer route interpolates with the producer's
+      // context.
+      const placeholderRe = /<[a-zA-Z][a-zA-Z0-9_-]*>/;
+      expect(
+        placeholderRe.test(entry.dougFacing),
+        `catalog code ${code} dougFacing contains an unresolved <placeholder> but no producer is registered to supply params. AlertBanner renders dougFacing verbatim, so Doug would see the literal placeholder. Either remove the placeholder from the catalog row, or register ${code} in INTERPOLATED_DOUG_FACING_CODES AND extend the renderer to interpolate.`,
+      ).toBe(false);
+    },
+  );
+
   test("ROLE_FLAGS_NOTICE is info severity; existing admin alerts remain warning by default", () => {
     const entries = MESSAGE_CATALOG as Record<
       string,

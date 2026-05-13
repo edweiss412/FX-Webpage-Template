@@ -889,7 +889,7 @@ export const MESSAGE_CATALOG = {
   TILE_SERVER_RENDER_FAILED: {
     code: "TILE_SERVER_RENDER_FAILED",
     dougFacing:
-      "*<sheet-name>*: a section couldn't load on the server. The page will keep trying - refresh in a minute. Tell the developer if this keeps happening.",
+      "A section couldn't load on the server. The page will keep trying - refresh in a minute. Tell the developer if this keeps happening.",
     crewFacing: "This section couldn't load - last good data shown.",
     followUp: "Doug -> refresh / Report; Eric -> investigate",
     helpfulContext:

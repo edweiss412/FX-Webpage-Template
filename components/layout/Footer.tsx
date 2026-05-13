@@ -96,20 +96,22 @@ export function Footer({
   return (
     <footer data-testid="page-footer" className="mt-auto border-t border-border bg-bg">
       <div className="mx-auto flex w-full max-w-300 flex-col items-start gap-3 px-4 py-6 text-xs text-text-subtle sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-8 sm:py-7">
-        <p data-testid="page-footer-as-of" className="min-w-0">
+        <div data-testid="page-footer-as-of" className="min-w-0">
           {lastSyncedAt ? (
             <StaleFooter lastSyncedAt={lastSyncedAt} lastSyncStatus={lastSyncStatus ?? null} />
           ) : asOf ? (
-            <>
+            <p>
               <span className="text-text-faint">as of </span>
               <time dateTime={asOf} className="font-medium text-text">
                 {formatAsOf(asOf)}
               </time>
-            </>
+            </p>
           ) : (
-            <span className="text-text-faint">syncing…</span>
+            <p>
+              <span className="text-text-faint">syncing…</span>
+            </p>
           )}
-        </p>
+        </div>
         <p className="font-semibold uppercase tracking-[0.18em] text-text-subtle">
           FXAV{" "}
           <span aria-hidden="true" className="font-regular text-text-faint">

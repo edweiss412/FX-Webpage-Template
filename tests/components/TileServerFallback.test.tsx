@@ -126,6 +126,26 @@ describe("TileServerFallback — server-side render isolation", () => {
     );
   });
 
+  test("when render() directly invokes a View whose body throws synchronously, throw is caught (H2 contract)", async () => {
+    // The "direct invocation" contract enforced by <WrappedTile>:
+    //   render: (data) => View(data)        // function call — throws caught HERE
+    //   render: (data) => <View {...data} />  // element creation — throws escape
+    // This test exercises the former and asserts the wrapper's catch path
+    // engages. The latter is the bug from M9 Codex round-1 H2.
+    function ExplodingView(): never {
+      throw new Error("synthetic View body throw");
+    }
+    const element = await TileServerFallback({
+      load: async () => ({ value: "ok" }),
+      render: () => ExplodingView(),
+      tileId: "test-tile",
+      showId: "show-1",
+    });
+    render(element);
+    expect(screen.getByTestId("tile-error-fallback")).not.toBeNull();
+    expect(upsertAdminAlert).toHaveBeenCalledTimes(1);
+  });
+
   test("showId defaults to null in the admin alert when not provided", async () => {
     await TileServerFallback({
       load: async () => {

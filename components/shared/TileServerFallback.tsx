@@ -5,11 +5,21 @@
  * of the page renders normally. Spec §12.1 / AC-9.3 / Task 9.2.
  *
  * Critical contract: the `render` callback is INVOKED inside the
- * try/catch (not just returned). React then calls the returned
- * element's component function later — outside this try/catch — so
- * the View component MUST be pure (no `await`, no DB calls, no
- * throwing helpers). All throwing work (DB queries, Drive calls,
- * heavy derivation that can throw) MUST live in `load`.
+ * try/catch — but the JSX it RETURNS may contain function components
+ * whose bodies React invokes LATER (outside this try/catch). To
+ * actually catch synchronous View-body throws, `render` MUST INVOKE
+ * the View as a function call: `render: (data) => View(data)`, NOT
+ * `render: (data) => <View {...data} />`. The JSX-element form
+ * defers the function call to React's renderer; the direct-call form
+ * runs the body NOW and lets throws bubble to this wrapper.
+ *
+ * <WrappedTile> already enforces this pattern. Direct callers of
+ * <TileServerFallback> must follow the same rule.
+ *
+ * The View component MUST be pure (no `await`, no DB calls, no
+ * throwing helpers) so the direct invocation is safe. All throwing
+ * work (DB queries, Drive calls, heavy derivation that can throw)
+ * MUST live in `load`.
  *
  * The "pure-render compliance" static-analysis test (Task 9.2 Step 1c)
  * enforces this on every `*TileView.tsx` in the components/tiles tree.

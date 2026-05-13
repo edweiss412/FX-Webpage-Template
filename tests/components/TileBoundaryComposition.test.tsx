@@ -79,6 +79,50 @@ describe("TileErrorBoundary + TileServerFallback composition", () => {
     expect(screen.queryByTestId("happy")).toBeNull();
   });
 
+  test("H1 isolation: one tile's load() throws but other tiles' loads remain unaffected", async () => {
+    // Simulates the page-level wiring where each tile's load() checks
+    // data.tileErrors[<domain>] and throws on a per-tile basis. A failure
+    // in the "hotel" domain should NOT propagate to other tiles —
+    // each WrappedTile/TileServerFallback pair catches its own throw.
+    const tileErrors: Record<string, string> = { hotel: "hotel fetch failed: connection reset" };
+
+    // Tile 1: depends on hotel, will throw via the page-style guard.
+    const lodgingResolved = await TileServerFallback({
+      load: async () => {
+        if (tileErrors["hotel"]) throw new Error(tileErrors["hotel"]);
+        return { hotelReservations: [] };
+      },
+      render: () => <HappyView value="lodging-ok" />,
+      tileId: "lodging-tile",
+      showId: "show-1",
+    });
+
+    // Tile 2: depends on contacts, no error → renders normally.
+    const contactsResolved = await TileServerFallback({
+      load: async () => {
+        if (tileErrors["contacts"]) throw new Error(tileErrors["contacts"]);
+        return { value: "contacts-ok" };
+      },
+      render: (d) => <HappyView value={d.value} />,
+      tileId: "contacts-tile",
+      showId: "show-1",
+    });
+
+    const { container } = render(
+      <>
+        <TileErrorBoundary tileId="lodging-tile">{lodgingResolved}</TileErrorBoundary>
+        <TileErrorBoundary tileId="contacts-tile">{contactsResolved}</TileErrorBoundary>
+      </>,
+    );
+    // Lodging tile shows fallback; contacts tile renders successfully.
+    // Use container.querySelectorAll because both tiles share the testid.
+    const fallbacks = container.querySelectorAll('[data-testid="tile-error-fallback"]');
+    const happy = container.querySelectorAll('[data-testid="happy"]');
+    expect(fallbacks.length).toBe(1);
+    expect(happy.length).toBe(1);
+    expect(happy[0]?.textContent).toBe("contacts-ok");
+  });
+
   test("client render-throw: server resolves OK, then a descendant render throws → client boundary catches", async () => {
     // Server side resolves successfully — load doesn't throw and the
     // render callback returns a valid element. The element's component
