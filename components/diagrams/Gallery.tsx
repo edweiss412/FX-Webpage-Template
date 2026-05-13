@@ -27,7 +27,6 @@
  * sees the `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` warning).
  */
 import { useState } from "react";
-import Image from "next/image";
 import { AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronUp, ImageOff } from "lucide-react";
 
@@ -71,6 +70,10 @@ function assetUrl(showId: string, rev: string, key: string): string {
 export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
   const [expanded, setExpanded] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  // M9 C6b R1 P1: track per-thumbnail runtime load failures so a
+  // proxy 4xx/5xx falls back to the same `item.available === false`
+  // placeholder branch as parse-time-known-unavailable items.
+  const [failedKeys, setFailedKeys] = useState<ReadonlySet<string>>(() => new Set());
 
   if (items.length === 0) return null;
 
@@ -85,37 +88,59 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
         className="grid grid-cols-3 gap-2 sm:grid-cols-4"
         aria-label="Diagrams gallery thumbnails"
       >
-        {visible.map((item, i) => (
+        {visible.map((item, i) => {
+          const runtimeFailed = failedKeys.has(item.key);
+          const isAvailable = item.available && !runtimeFailed;
+          return (
           <li
             key={item.key}
             data-testid={`diagram-slot-${i}`}
-            {...(item.available ? {} : { "data-unavailable": "true" })}
+            {...(isAvailable ? {} : { "data-unavailable": "true" })}
             className="aspect-square overflow-hidden rounded-sm border border-border bg-surface-sunken"
           >
-            {item.available ? (
+            {isAvailable ? (
               <button
                 type="button"
                 onClick={() => setLightboxIndex(i)}
                 aria-label={`Open ${item.alt || `Diagram ${i + 1}`}`}
-                className="relative block size-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                className="block size-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
                 {/*
-                  M9 C6b / M7-D3 — Migrated from <img> to next/image so
-                  Next.js's `/_next/image` proxy applies responsive
-                  sizing, AVIF/WebP negotiation, and lazy-load
-                  observability. The upstream diagram proxy still owns
-                  the auth+revision contract; `/_next/image` is a
-                  transparent caching+resize layer in front of it.
-                  Same-origin URLs need no remotePatterns entry; we
-                  pass `unoptimized={false}` (default) to opt in to
-                  the `/_next/image` pipeline.
+                  M9 C6b / M7-D3 — next/image migration was REVERTED
+                  after Codex C6b round-1 P0 finding: the /_next/image
+                  optimizer (a) does NOT forward the user's auth
+                  cookies to the upstream /api/asset/diagram/... route
+                  (server-side fetch under a different context), so
+                  the route's auth chain rejects every request with
+                  401/403, and (b) overwrites the proxy's
+                  `Cache-Control: private, max-age=0, must-revalidate`
+                  with public-cache headers. For authenticated private
+                  asset routes, the raw <img> tag is the correct
+                  choice; the @next/next/no-img-element lint warning
+                  is disabled inline with this rationale. Adoption of
+                  next/image for these URLs requires either a custom
+                  loader that forwards cookies AND preserves private
+                  caching, or a different image pipeline entirely.
+
+                  onError handler (C6b R1 P1): runtime 4xx/5xx failures
+                  fall back to the same unavailable placeholder branch
+                  as parse-time-known-unavailable items.
                 */}
-                <Image
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
                   src={assetUrl(showId, snapshotRevisionId, item.key)}
                   alt={item.alt || `Diagram ${i + 1}`}
-                  fill
-                  sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-                  className="object-cover"
+                  loading="lazy"
+                  decoding="async"
+                  onError={() =>
+                    setFailedKeys((prev) => {
+                      if (prev.has(item.key)) return prev;
+                      const next = new Set(prev);
+                      next.add(item.key);
+                      return next;
+                    })
+                  }
+                  className="size-full object-cover"
                 />
               </button>
             ) : (
@@ -127,7 +152,8 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
               </div>
             )}
           </li>
-        ))}
+          );
+        })}
       </ul>
       {needsToggle ? (
         <button
