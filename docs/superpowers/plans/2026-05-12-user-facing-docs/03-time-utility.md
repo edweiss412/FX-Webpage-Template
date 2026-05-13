@@ -380,7 +380,65 @@ Expected: unchanged behavior (the utility falls back to `new Date()` when the sc
 
     **r6 — TDD ordering per C-r5 finding 1 (HIGH).** Earlier drafts had the implementation steps first, then the structural test. The migration is now ordered red→green:
 
-    Step 5b.1 (RED): Write `tests/components/shared/staleFooter-now-prop.test.ts` BEFORE editing any component. The test imports `StaleFooter` from its current location AND renders it twice with the screenshot fixture's `X-Screenshot-Frozen-Now` header simulated (vitest `vi.mock("next/headers")` per C.1's pattern). Assert the rendered output is byte-identical across the two renders. Run the test: expect FAIL because the current `now ?? new Date()` default branches on real wall-clock between the two renders.
+    Step 5b.1 (RED): Write `tests/components/shared/staleFooter-now-prop.test.ts` BEFORE editing any component.
+
+    **r7 fix per C-r6 finding 1 (HIGH):** simply rendering StaleFooter twice in quick succession with `now ?? new Date()` would usually produce byte-identical text because the formatter floors at minute boundaries. The test must explicitly **advance fake timers** between renders so the wall-clock variant changes its output across a relative-label boundary, proving the test catches the drift. With the fixed `nowDate()` implementation, the output stays byte-identical because the frozen header takes precedence regardless of wall clock.
+
+    Test shape:
+
+    ```ts
+    // @vitest-environment node
+    import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+    import { renderToStaticMarkup } from "react-dom/server";
+    import { StaleFooter } from "@/components/shared/StaleFooter";
+
+    let headerStore: Record<string, string> = {};
+    vi.mock("next/headers", () => ({
+      headers: () => ({ get: (k: string) => headerStore[k.toLowerCase()] ?? null }),
+    }));
+
+    const FROZEN = "2026-03-24T15:00:00.000Z";
+    // lastSyncedAt 30 seconds before the frozen instant — close to the "less than a minute ago" -> "1 minute ago" threshold for relative-time output.
+    const LAST_SYNCED_AT = "2026-03-24T14:59:30.000Z";
+
+    beforeEach(() => {
+      headerStore = {
+        "x-screenshot-frozen-now": FROZEN,
+        authorization: "Bearer test-secret-fixture-19c",
+      };
+      process.env.ENABLE_TEST_AUTH = "true";
+      process.env.TEST_AUTH_SECRET = "test-secret-fixture-19c"; // ≥16 chars per route guard
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    describe("StaleFooter deterministic-output contract (Step 5b.1)", () => {
+      it("byte-identical across a 61s wall-clock advance when X-Screenshot-Frozen-Now is pinned", async () => {
+        vi.useFakeTimers();
+        // First render at wall-clock = LAST_SYNCED_AT + 30s
+        vi.setSystemTime(new Date("2026-03-24T15:00:00.000Z"));
+        const first = renderToStaticMarkup(
+          await StaleFooter({ lastSyncedAt: LAST_SYNCED_AT, lastSyncStatus: "ok" }) as any,
+        );
+
+        // Advance 61 seconds — the unfixed `now ?? new Date()` path would now
+        // render "1 minute ago" instead of "less than a minute ago".
+        vi.setSystemTime(new Date("2026-03-24T15:01:01.000Z"));
+        const second = renderToStaticMarkup(
+          await StaleFooter({ lastSyncedAt: LAST_SYNCED_AT, lastSyncStatus: "ok" }) as any,
+        );
+
+        // With the FIXED `await nowDate()` default branch, the frozen header
+        // wins → both renders show the same relative text.
+        // With the BROKEN `new Date()` default, the second render reflects the
+        // advanced system time → relative-time text changes between renders.
+        expect(second).toBe(first);
+      });
+    });
+    ```
+
+    Run the test against the unmodified `StaleFooter`: expect FAIL — the "X seconds ago" or "less than a minute ago" relative-time text on the first render becomes "1 minute ago" on the second because `new Date()` reads the advanced fake-timer system clock. Capture the diff in the commit message body as verify-red evidence.
 
     Step 5b.2 (RED → GREEN implementation): Modify `StaleFooter` so its default branch awaits `nowDate()`. The cleanest implementation: change `StaleFooter`'s signature to optionally accept `now` for unit testing; if `now` is omitted, the component MUST `await nowDate()` rather than `new Date()`. This requires converting `StaleFooter` to an async server component (or wrapping the `now` default fetch in a server-only helper).
 
@@ -693,24 +751,50 @@ describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
     walkTsTsx(join(process.cwd(), root)),
   );
 
+  /**
+   * r7 fix per C-r6 finding 2: strip comments before scanning. Live server
+   * files (e.g., `components/tiles/PackListTile.tsx`) contain comments that
+   * MENTION `new Date()` as documentation; matching them would force engineers
+   * to add `// not-render-side:` waivers to commentary or break the guard.
+   *
+   * Strip both `// line` and `/* block */` comments. Note this is a regex-
+   * level strip that does NOT understand strings (so a forbidden call inside
+   * a literal string would still be visible), but the FORBIDDEN_PATTERNS
+   * regex matches the source-level call shape `new Date()` / `Date.now()` —
+   * a stringified mention like `"new Date()"` is the same shape but typically
+   * appears in test setup or in non-render-side contexts. For now, accept the
+   * trade-off: false-positive on stringified mentions is fine (waivable), but
+   * false-positive on docstring comments is annoying (the live PackListTile
+   * comments). If a future PR needs strict accuracy, swap for a TypeScript
+   * AST that walks NewExpression/CallExpression nodes.
+   */
+  function stripComments(src: string): string {
+    return src
+      // Block comments — non-greedy, multi-line.
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      // Line comments — preserve the newline so line numbers stay aligned.
+      .replace(/\/\/[^\n]*/g, "");
+  }
+
   for (const file of allFiles) {
     const src = readFileSync(file, "utf8");
     // Only allow inside lib/time/now.ts itself (the utility implementation).
     if (file.endsWith("lib/time/now.ts")) continue;
-    // r4 fix per C-r3 finding 1: skip client components — their clocks are
-    // pinned by Playwright's `context.clock.install()` at the browser, not
-    // by `X-Screenshot-Frozen-Now`. Including them would force legitimate
-    // browser-clock paths (RightNowCard, ReportModal) into needless waivers
-    // AND mask future server-side drift behind them.
     if (isClientComponent(src)) continue;
-    const lines = src.split("\n");
+    const stripped = stripComments(src);
+    const lines = stripped.split("\n");
+    // Keep the original lines alongside so we can preserve waiver detection
+    // (the waiver IS a comment — so we check the ORIGINAL line for the
+    // waiver, but the STRIPPED line for the forbidden pattern).
+    const originalLines = src.split("\n");
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
+      const originalLine = originalLines[i] ?? "";
       for (const pat of FORBIDDEN_PATTERNS) {
         if (pat.test(line)) {
-          if (!WAIVER_COMMENT.test(line)) {
+          if (!WAIVER_COMMENT.test(originalLine)) {
             violations.push(
-              `${relative(process.cwd(), file)}:${i + 1}: ${line.trim()}`,
+              `${relative(process.cwd(), file)}:${i + 1}: ${originalLine.trim()}`,
             );
           }
         }
@@ -733,6 +817,33 @@ describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
     expect(isClientComponent(staleSrc)).toBe(false);
     expect(isClientComponent(rightSrc)).toBe(true);
     expect(isClientComponent(reportSrc)).toBe(true);
+  });
+
+  // r7 fix per C-r6 finding 2: comment-only mentions of `new Date()` /
+  // `Date.now()` MUST NOT trigger the guard (e.g., PackListTile's docstring
+  // comments). The stripComments() helper handles both `//` and `/* */`.
+  it("comment-stripping: comment-only mentions of new Date() do NOT register as violations", () => {
+    const synthetic = [
+      `// This function returns the equivalent of new Date() but...`,
+      `/* Block: new Date() is bad here */`,
+      `export function f() { return 1; }`,
+    ].join("\n");
+    const stripped = synthetic
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\/\/[^\n]*/g, "");
+    // After stripping, no `new Date()` remains.
+    expect(/\bnew Date\(\s*\)/.test(stripped)).toBe(false);
+  });
+
+  it("comment-stripping: real new Date() OUTSIDE a comment IS flagged", () => {
+    const synthetic = [
+      `// This is a comment about new Date()`,
+      `const x = new Date(); // a real call`,
+    ].join("\n");
+    const stripped = synthetic
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/\/\/[^\n]*/g, "");
+    expect(/\bnew Date\(\s*\)/.test(stripped)).toBe(true);
   });
 
   // r5 fix per C-r4 finding 2: prove the directive-prologue boundary is
@@ -819,7 +930,7 @@ After C.1 – C.4 commits land:
 
 - [ ] `lib/time/now.ts` exists and gates correctly on all three preconditions
 - [ ] `app/show/[slug]/page.tsx`'s render-side `today` migrated to `nowDate()`
-- [ ] Test #15 (lib/time/now.ts gate) PASSES with 9 cases + capture-boundary
+- [ ] Test #15 (lib/time/now.ts gate) PASSES with 11 cases total — **8 C.1 gate fixtures** (all-three-met, header-missing, ENABLE_TEST_AUTH-unset, Bearer-missing, Bearer-mismatch, malformed-ISO, TEST_AUTH_SECRET-unset+Bearer-undefined, short-secret) + **3 C.3 envelope fixtures** (capture-boundary, header casing tolerance, Bearer case-sensitivity)
 - [ ] Test #16 (server-time grep guard) PASSES against the current call-site inventory
 - [ ] Mutation paths carry `// not-render-side: <reason>` per-line waivers
 - [ ] Existing `pnpm test:e2e` for crew page passes — production behavior unchanged when header isn't present
