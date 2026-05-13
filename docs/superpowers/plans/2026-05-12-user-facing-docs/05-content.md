@@ -380,10 +380,12 @@ Commit: `feat(help): /help/whats-different page content (Task E.4)`
 
 1. H1: "Reading the dashboard"
 2. `<Screenshot name="dashboard-overview" alt="...">` showing the dashboard at a normal state (Phase F populates the WebP)
-3. H2 "The Active Shows panel" — `<RefAnchor id="ACTIVE_SHOWS">` (the §5.6 matrix says the `?` tooltip on this header links here)
+3. H2 "The Active Shows panel" — `<h2 id="active-shows">` (the §5.6 matrix targets `/help/admin/dashboard#active-shows`). **r6 fix per D-r5 finding 1:** matrix uses lowercase kebab fragment; non-catalog section anchor → plain `<h2>`, not `<RefAnchor>`.
    - Per-column explanation
    - What status badges mean (green, yellow, red — but never use color alone per PRODUCT.md a11y floor)
-4. H2 "The Sheets-we-couldn't-auto-apply panel" — `<RefAnchor id="PENDING_INGESTION">`
+4. H2 "The Sheets-we-couldn't-auto-apply panel" — `<h2 id="first-seen">` (the §5.6 matrix targets `/help/admin/review-queues#first-seen`; this section on the dashboard page mirrors the canonical "first-seen review" anchor that lives on the review-queues page — but **DO NOT** duplicate the id on this page if the review-queues page already owns it; instead change this dashboard-page anchor to a distinct id like `<h2 id="pending-ingestion">` and update the §5.6 matrix row to target `/help/admin/dashboard#pending-ingestion`).
+
+**r6 cross-phase fix per D-r5 finding 1:** the matrix at line 362 of the spec targets `/help/admin/review-queues#first-seen` from the dashboard `?` tooltip, which would cross-link the user from the dashboard's pending-ingestion panel description to the dedicated review-queues page's first-seen anchor. That cross-page linking is fine; the only thing to fix is the dashboard's OWN heading anchor. Match the matrix exactly.
    - When sheets land here (first-seen + parse failure)
    - Retry vs. Discard
 5. H2 "Staged-changes review" — short pointer to `/help/admin/review-queues#re-stage`
@@ -420,8 +422,8 @@ Commit: `feat(help): /help/admin/dashboard page + relevant catalog title/longExp
 
 1. H1: "Review queues"
 2. Intro: two queues, two reasons for queueing
-3. H2 `<RefAnchor id="FIRST_SEEN">` "First-seen review" — when, what you're looking at, Apply vs. Discard semantics (Apply mints `shows` row + Discard leaves no slug); `<Callout type="warning">` about Discard being irreversible only in that it deletes the staged data — the sheet itself is fine
-4. H2 `<RefAnchor id="RE_STAGE">` "Re-stage review" — your edits to an already-published show that the app paused for review (link to master spec §9.1.1 explanation of triggers via plain language)
+3. H2 `<h2 id="first-seen">` "First-seen review" — when, what you're looking at, Apply vs. Discard semantics (Apply mints `shows` row + Discard leaves no slug); `<Callout type="warning">` about Discard being irreversible only in that it deletes the staged data — the sheet itself is fine. **r6 fix per D-r5 finding 1:** matrix targets `#first-seen` (kebab) → plain `<h2>`.
+4. H2 `<h2 id="re-stage">` "Re-stage review" — your edits to an already-published show that the app paused for review (link to master spec §9.1.1 explanation of triggers via plain language). **r6 fix:** matrix targets `#re-stage` (kebab) → plain `<h2>`.
 5. H2 "When to Apply" — short bullet list
 6. H2 "When to Discard" — short bullet list
 7. `<Screenshot name="review-queues-side-by-side" alt="...">`
@@ -494,12 +496,12 @@ Commit: `feat(help): /help/admin/parse-warnings + catalog backfill for every Dou
 
 1. H1: "Per-show panel"
 2. Intro: one paragraph
-3. H2 `<RefAnchor id="STAGED_REVIEW_CARD">` (if entry exists; otherwise plain H2) — explains when the yellow card appears + links to `/help/admin/review-queues#re-stage`
+3. H2 `<h2 id="staged-review-card">` — explains when the yellow card appears + links to `/help/admin/review-queues#re-stage`. **r6 fix per D-r5 finding 1:** matrix targets a kebab fragment on this surface; plain `<h2>` not `<RefAnchor>`.
 4. H2 `<h2 id="sync-health">` "Sync health" — last 5 sync attempts, manual re-sync, what to do if syncs keep failing. **r5 fix per D-r4 finding 2:** kebab-case `id` is non-catalog → plain `<h2>`, not `<RefAnchor>` (which is restricted to catalog-code shape per D.5).
 5. H2 "Parse warnings" — short pointer to `/help/admin/parse-warnings`
 6. H2 "Crew preview links" — what these are + how to use Preview as Crew
 
-(Note: anchor IDs that are NOT catalog codes are kebab-case per the RefAnchor regex — actually the RefAnchor regex requires `^[A-Z][A-Z0-9_]*$`. For non-catalog section anchors, EITHER expand the regex or use plain heading IDs. Plan choice: use plain `<h2 id="sync-health">` for non-catalog anchors; reserve `<RefAnchor>` for catalog code IDs. **Update D.5 regex or use plain h2 — implementer chooses.**)
+(Note: **r6 fix per D-r5 finding 2** — `<RefAnchor>` is exclusively for catalog-code-shaped IDs (`/^[A-Z][A-Z0-9_]*$/` per D.5). Non-catalog section anchors MUST use plain heading IDs like `<h2 id="sync-health">`. The earlier draft offered an "expand the regex" option — that's RETIRED. D.5's regex is the hardened contract; do not widen it. Non-catalog kebab anchors live on plain `<h2>` / `<h3>` elements.)
 
 Smoke test similar to E.5.
 
