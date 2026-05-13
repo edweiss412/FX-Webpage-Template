@@ -165,6 +165,14 @@ Per spec §5.6 — the matrix is the typed source of truth. Three row classes (p
     { kind: "concrete", sourceSurface: "Per-show — Parse warnings header", sourceRoute: "/admin/show/rpas-central-2026",
       affordance: "? tooltip", testid: "help-affordance--per-show-parse-warnings--tooltip",
       target: "/help/admin/parse-warnings", owningMilestone: "M9" },
+    // r2 fix per G-r1 finding 1 — §5.6 row for individual parse-warning rows
+    // (per AC-12.8). Each rendered warning carries a Learn-more link with this
+    // testid pattern; G.4's walker discovers/asserts via testid; G.0
+    // pre-execution discovery pins the ParsePanel.tsx call site.
+    { kind: "concrete", sourceSurface: "Per-show — Parse warning row Learn-more link",
+      sourceRoute: "/admin/show/rpas-central-2026",
+      affordance: "Learn more →", testid: "help-affordance--parse-warning-row--learn-more",
+      target: "/help/admin/parse-warnings", owningMilestone: "M9" },
     { kind: "concrete", sourceSurface: "Per-show — Crew preview links header", sourceRoute: "/admin/show/rpas-central-2026",
       affordance: "? tooltip", testid: "help-affordance--per-show-preview-links--tooltip",
       target: "/help/admin/preview-as-crew", owningMilestone: "M9" },
@@ -310,7 +318,13 @@ Per spec §5.3 affordance wiring. The retrofit is LINK-ONLY — does not change 
   - Compute `shouldEmitLearnMore({ route, helpHref })` from G.2.
   - When `true`, render an inline `<a href={helpHref} data-testid={...}>Learn more →</a>`.
 - [ ] Step 5: Run test → PASS. Also run existing AlertBanner tests; they should still pass (the link is additive).
-- [ ] Step 6: Wire the dashboard footer — add `<a href="/help/tour" data-testid="help-affordance--dashboard-footer--tour">Take the tour →</a>` to the dashboard footer component.
+
+- [ ] **Step 5b: Add failing tests for the concrete-UI affordances BEFORE implementing them** (r2 fix per G-r1 finding 2 — concrete UI was previously added in Step 6 without a corresponding failing test):
+
+  Write `tests/admin/dashboard-footer-affordance.test.tsx` asserting the dashboard footer renders `<a href="/help/tour" data-testid="help-affordance--dashboard-footer--tour">` AND `tests/admin/section-header-affordance.test.tsx` asserting each section-header tooltip component renders its corresponding inline `Learn more →` link with the matrix's testid+target (parameterize via AFFORDANCE_MATRIX). Run both → FAIL (the components don't yet have these affordances).
+
+- [ ] Step 6: Wire the dashboard footer — add `<a href="/help/tour" data-testid="help-affordance--dashboard-footer--tour">Take the tour →</a>` to the dashboard footer component. Wire section-header tooltips inline-link per matrix rows. Re-run Step 5b's tests → PASS.
+
 - [ ] Step 7: Commit: `feat(messages): wire Learn-more + Take-the-tour links via helpHref (Task G.3)`
 
 ---
@@ -398,7 +412,7 @@ Per spec §7.1 test 13 (r10 row-class split, r11 split between G.4 and G.5 per B
   - Grep the codebase for `data-testid="help-affordance--*"` literals.
   - For each found testid: assert it's enumerated in the matrix (concrete rows) OR matches the template-family pattern `/^help-affordance--error-message--[a-z0-9-]+--learn-more$/`.
 - [ ] Step 5: **Matrix-target resolver** — vitest test (**r7 add per Phase-D-r6 finding 2 (MEDIUM)**):
-  - Import `AFFORDANCE_MATRIX` from `lib/help/affordanceMatrix.ts`.
+  - Import `AFFORDANCE_MATRIX` from `@/app/help/_affordanceMatrix` (r2 fix per G-r1 finding 3 — G.1 creates the registry at `app/help/_affordanceMatrix.ts`; the earlier draft cited `lib/help/affordanceMatrix.ts`, a non-existent path).
   - For each `kind === "concrete"` row, take `row.target` (e.g., `/help/admin/dashboard#active-shows`), split on `#`, resolve the path to a file under `app/help/` (`.mdx` or `.tsx`, page.mdx/page.tsx convention as in H.1's anchor resolver).
   - Assert the file exists AND the fragment appears in the source as either `<RefAnchor id="...">` (catalog-code anchors) OR a plain `id="..."` attribute (kebab-case section anchors).
   - For template-family rows, expand by iterating MESSAGE_CATALOG and computing each expanded `target`; resolve each.
