@@ -741,32 +741,62 @@ describe("_nav.ts ↔ filesystem consistency (test #5)", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify the current state**
+- [ ] **Step 2: Run test to verify it fails**
 
 Run: `pnpm test tests/help/_metaNavSync.test.ts`
-Expected: At this point, only `/help` exists on disk (Task A.2's placeholder). The "every NAV entry has a real page" half of the test FAILS for 12 of the 13 entries; the "every page on disk is in NAV" half PASSES (`/help` is in NAV).
+Expected: at this point only `/help` exists on disk (Task A.2's placeholder). The "every NAV entry has a real page" assertion FAILS for 12 of the 13 entries.
 
-That's the desired failing state for Phase A. Phase E creates the 12 remaining pages and the test goes green.
+- [ ] **Step 3: Create stub `page.mdx` files for the other 12 routes (TDD: implementation step that makes the test pass)**
 
-- [ ] **Step 3: Commit the test in its currently-red state**
+Per AGENTS.md plan-wide invariant #1, every task commits in a green state. A.7 makes the test pass by creating 12 placeholder pages — Phase E tasks then REPLACE the placeholder content (each E.N task edits in place, not creating new files).
 
-The plan handles this with an `xit`/`test.skip` for the failing half until Phase E lands; alternatively, mark the test `test.todo` for the 12 unbuilt pages. **Implementation chooses:** simplest path is to land the test now (red), assigned to Phase E for green. Or implementer creates 12 empty stub `page.mdx` files in Task E.1 prologue so the test goes green immediately and content authoring is just edit-in-place.
+Create each of the 12 stub files. Each stub is a single line of MDX:
 
-Annotate the test file with a Phase E reminder:
+```mdx
+{/* M12 Phase A.7 stub — Phase E task E.<N> replaces the entire body. */}
 
-```ts
-// NOTE: This test is RED until Phase E creates the 12 remaining pages.
-// Tracking: Phase E (tasks E.1 – E.13). Do NOT skip — leaving it red is the
-// signal that Phase E work remains. When Phase E lands, this test must be
-// green without test edits.
+# <Page Title>
 ```
 
-- [ ] **Step 4: Commit**
+The `<Page Title>` matches each entry's `title` field in `_nav.ts`. Files to create (one stub each):
+
+```
+app/help/getting-started/page.mdx        # E.2 will replace
+app/help/daily-rhythm/page.mdx           # E.3
+app/help/whats-different/page.mdx        # E.4
+app/help/admin/dashboard/page.mdx        # E.5
+app/help/admin/review-queues/page.mdx    # E.6
+app/help/admin/parse-warnings/page.mdx   # E.7
+app/help/admin/per-show-panel/page.mdx   # E.8
+app/help/admin/preview-as-crew/page.mdx  # E.9
+app/help/admin/sharing-links/page.mdx    # E.10
+app/help/admin/onboarding-wizard/page.mdx # E.11
+app/help/tour/page.mdx                   # E.12
+app/help/errors/page.tsx                 # E.13 (TSX, not MDX — see below)
+```
+
+For `app/help/errors/page.tsx` specifically (it's TSX iterating the catalog, not MDX), the stub is:
+
+```tsx
+// M12 Phase A.7 stub — Phase E.13 replaces with the catalog-iterating implementation.
+export default function ErrorsPage() {
+  return <h1>Errors</h1>;
+}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pnpm test tests/help/_metaNavSync.test.ts`
+Expected: PASS — every NAV entry has a page on disk; every page on disk is in NAV.
+
+- [ ] **Step 5: Commit (green state)**
 
 ```bash
-git add tests/help/_metaNavSync.test.ts
-git commit -m "test(help): _metaNavSync meta-test scaffolded; Phase E will green (Task A.7)"
+git add tests/help/_metaNavSync.test.ts app/help/
+git commit -m "test(help): _metaNavSync meta-test + 12 page stubs (Task A.7 — TDD green)"
 ```
+
+(r4: earlier draft committed the test in a red state pending Phase E. AGENTS.md plan-wide invariant #1 requires every commit to be green; r4 creates stubs so A.7 lands green. Phase E tasks now edit-in-place rather than create.)
 
 ---
 
@@ -774,10 +804,11 @@ git commit -m "test(help): _metaNavSync meta-test scaffolded; Phase E will green
 
 After A.1 – A.7 commits land:
 
-- [ ] All Phase A tests pass except `_metaNavSync` (red until Phase E)
+- [ ] All Phase A tests pass green (including `_metaNavSync` thanks to A.7's stub creation — r4 fix per AGENTS.md invariant #1)
 - [ ] `pnpm dev` + visit `/help` as admin: header + sidebar (with one entry highlighted) + breadcrumb render
 - [ ] `pnpm dev` + visit `/help` unauth: 403
 - [ ] `pnpm build` completes without static-prerender errors
+- [ ] 13 page files exist (1 fully implemented landing placeholder, 12 stubs); Phase E tasks edit-in-place
 - [ ] **Hand off to Phase B** ([02-catalog-extension.md](02-catalog-extension.md))
 
-Phase A introduces ~7 commits, ~250 LOC of new code, 0 changes to existing routes outside `next.config.ts` (pageExtensions append) and `package.json` (three deps).
+Phase A introduces ~7 commits, ~250 LOC of new code + 12 single-line stub MDX/TSX files.

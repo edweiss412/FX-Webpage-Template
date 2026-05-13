@@ -4,7 +4,56 @@
 
 **Prereqs:** Phase F complete (strict sequential per 00-overview.md — implies A through F also complete). Catalog with `helpHref` populated (Phase B + Phase E backfill); target pages exist (Phase E); manifest entries with WebPs (Phase F). M3/M9/M10 source components must exist — confirmed by M10 close-out (AC-12.22).
 
-**Tasks:** G.1 → G.6 (6 tasks). G.1 → G.2 → G.3 are linear. G.4 (testid retrofits) touches existing components; can interleave with G.5 (walker test). G.6 can run anytime after G.2.
+**Tasks:** G.0 → G.6 (7 tasks). G.0 (pre-execution discovery) MUST land before any other G.* commit because G.3 and G.4 both edit M9/M10-owned components whose concrete paths aren't pinned in the plan inventory yet. G.0 → G.1 → G.2 → G.3 → G.4 → G.5 → G.6 are linear.
+
+---
+
+### Task G.0: Pre-execution discovery (pin remaining M9/M10 component paths)
+
+**Files:**
+- Modify: `docs/superpowers/plans/2026-05-12-user-facing-docs/00-overview.md` (replace the file-inventory placeholder rows with concrete paths)
+
+Per r4 (addresses round-3 finding 2): G.3 and G.4 both edit components whose paths are placeholder entries in 00-overview.md's file inventory. The placeholders exist because M9/M10 components hadn't shipped at plan-write time. G.0 runs at M10 close-out (the AC-12.22 gate) and pins every remaining placeholder to a real path.
+
+- [ ] **Step 1: Grep the live tree for each matrix row's source surface text**
+
+For each `AFFORDANCE_MATRIX` concrete-testid row, find the owning component by grepping its `sourceSurface` description (which uses the exact UI text the affordance lives near):
+
+```bash
+# Dashboard rows:
+grep -rln "Active Shows" components/ app/admin/
+grep -rln "Sheets we couldn't" components/ app/admin/
+grep -rln "Review staged changes" components/ app/admin/
+
+# Per-show panel rows:
+grep -rln "Sync health" components/ app/admin/
+grep -rln "Crew preview links" components/ app/admin/
+
+# Preview-as-crew banner:
+grep -rln "Previewing as" components/ app/admin/
+
+# Onboarding wizard steps:
+grep -rln "Share your show folder" components/ app/admin/   # Step 1
+# (Steps 2 + 3 grep similarly per master spec §9.0)
+```
+
+- [ ] **Step 2: Update `00-overview.md` file inventory**
+
+Replace each placeholder entry with the discovered concrete file path. Known anchors from r2 plan-write time:
+- `components/admin/AlertBanner.tsx` (Phase G.3 — shared error renderer)
+- `components/admin/ParsePanel.tsx` (G.4 — parse warnings)
+- `components/admin/ReSyncButton.tsx` (G.4 — sync health)
+- `components/admin/StagedReviewCard.tsx` (G.4 — staged review)
+- `components/messages/ErrorExplainer.tsx` (G.3 — "What does this mean?" expansion, confirmed live at r4)
+
+M9/M10-discovered additions land here as a single commit.
+
+- [ ] **Step 3: Commit the inventory update**
+
+```bash
+git add docs/superpowers/plans/2026-05-12-user-facing-docs/00-overview.md
+git commit -m "docs(plan): G.0 pre-execution discovery — pin M9/M10 component paths for Phase G retrofit"
+```
 
 ---
 
@@ -241,20 +290,8 @@ Per spec §5.3 affordance wiring. The retrofit is LINK-ONLY — does not change 
 
 ### Task G.4: Retrofit `data-testid` on M3/M9/M10 source surfaces
 
-**Pre-execution discovery (r2 — addresses round-2 finding 2):** Before G.4 begins, the implementer runs a discovery pass to pin the exact file path for every matrix row's source surface. Updates 00-overview.md's file-inventory `<placeholder>` paths with the concrete files. The discovery pass is unblocked when M10 closes (per AC-12.22). Commands:
-
-```bash
-# For each matrix row, grep for the source-surface text to locate its owning component:
-grep -rn "Active Shows" components/ app/admin/    # → /admin dashboard Active Shows panel header
-grep -rn "Sheets we couldn't" components/ app/admin/
-grep -rn "Review staged changes" components/ app/admin/
-# ... repeat for each row's source surface text
-```
-
-Commit the inventory update as `docs(plan): pin M9/M10 component paths for Phase G.4 retrofit` BEFORE the G.4 task block begins.
-
 **Files:**
-- Modify: existing components per the `AFFORDANCE_MATRIX` concrete-testid rows. Concrete paths are pinned by the discovery pass above. Known anchors from the r2 plan inventory: `components/admin/AlertBanner.tsx`, `components/admin/ParsePanel.tsx`, `components/admin/ReSyncButton.tsx`, `components/admin/StagedReviewCard.tsx` (live at plan-write time); plus M9/M10-owned files (dashboard rows, onboarding wizard steps) discovered post-M10.
+- Modify: existing components per the `AFFORDANCE_MATRIX` concrete-testid rows. Concrete paths were pinned by Task G.0 (pre-execution discovery). Known live anchors: `components/admin/AlertBanner.tsx`, `components/admin/ParsePanel.tsx`, `components/admin/ReSyncButton.tsx`, `components/admin/StagedReviewCard.tsx`, `components/messages/ErrorExplainer.tsx`. M9/M10-owned files (dashboard rows, onboarding wizard steps) were discovered + added to the inventory by G.0.
 
 For every concrete-testid row in the matrix, the owning component must carry the `data-testid` attribute on the affordance element (the `?` icon, "Take the tour" link, etc.). Most M3/M9/M10 work already shipped these affordances without testids; G.4 retrofits them.
 
@@ -327,7 +364,7 @@ Per spec §7.1 test 12 (r10 expanded to 4 contexts). Renders catalog entries thr
 
 ## Phase G close-out
 
-After G.1 – G.6 commits land:
+After G.0 – G.6 commits land:
 
 - [ ] `AFFORDANCE_MATRIX` enumerates every §5.6 row with the typed three-class shape
 - [ ] `lib/messages/renderer-gate.ts` correctly classifies all four contexts including the preview exception

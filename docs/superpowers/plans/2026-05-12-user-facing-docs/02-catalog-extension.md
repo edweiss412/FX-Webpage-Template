@@ -385,7 +385,7 @@ Per spec §7.1 test 2 — biconditional predicate ↔ "all three M12 fields non-
 ```ts
 // tests/messages/_metaErrorCatalogDocs.test.ts
 import { describe, it, expect } from "vitest";
-import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
+import { type MessageCatalogEntry } from "@/lib/messages/catalog";
 
 const HELP_HREF_RE = /^\/help\/.+/;
 
@@ -393,6 +393,10 @@ const HELP_HREF_RE = /^\/help\/.+/;
  * The r8 biconditional predicate (spec §5.2):
  *   predicate := severity !== "info" AND dougFacing != null
  *   biconditional: predicate ↔ (title !== null AND longExplanation !== null AND helpHref !== null)
+ *
+ * B.4 commits ONLY the forced-fixture coverage below (TDD green).
+ * Phase H Task H.6 extends this file with the live-catalog biconditional
+ * assertion after all Phase E backfills land.
  */
 function predicate(entry: MessageCatalogEntry): boolean {
   return entry.severity !== "info" && entry.dougFacing !== null;
@@ -402,24 +406,7 @@ function allM12FieldsNonNull(entry: MessageCatalogEntry): boolean {
   return entry.title !== null && entry.longExplanation !== null && entry.helpHref !== null;
 }
 
-describe("Catalog meta-test (test #2 — biconditional)", () => {
-  it("every live entry satisfies the biconditional", () => {
-    const violations: string[] = [];
-    for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
-      const lhs = predicate(entry);
-      const rhs = allM12FieldsNonNull(entry);
-      if (lhs !== rhs) {
-        violations.push(
-          `${code}: predicate=${lhs}, all M12 fields non-null=${rhs}`,
-        );
-      }
-      if (rhs && entry.helpHref && !HELP_HREF_RE.test(entry.helpHref)) {
-        violations.push(`${code}: helpHref does not match /^\\/help\\/.+/ : ${entry.helpHref}`);
-      }
-    }
-    expect(violations, violations.join("\n")).toEqual([]);
-  });
-
+describe("Catalog meta-test (test #2 — biconditional forced fixtures)", () => {
   // Anti-tautology forced fixtures — synthetic entries proving each exclusion band.
   function makeEntry(overrides: Partial<MessageCatalogEntry>): MessageCatalogEntry {
     return {
@@ -471,30 +458,27 @@ describe("Catalog meta-test (test #2 — biconditional)", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails (or passes — depending on catalog state)**
+- [ ] **Step 2: Strip the "every live entry" assertion from Task B.4's commit (r4 TDD fix)**
+
+Per AGENTS.md plan-wide invariant #1, every task commits in a green state. The forward direction of the biconditional ("predicate fires → all three M12 fields non-null") FAILS for every Doug-facing entry at B.4 commit time — those entries aren't backfilled until Phase E.5 – E.11.
+
+**Restructure (r4):** Task B.4 commits ONLY the forced-fixture tests (5 synthetic cases that exercise the predicate's logic). The live-catalog biconditional assertion is deferred to Phase H Task H.6 (after all Phase E backfills land). At H.6 commit time, every Doug-facing admin entry has `title` / `longExplanation` / `helpHref` populated (Phase E.5 – E.11 + the parse-warnings backfill of E.7); the live-catalog biconditional passes.
+
+Replace the test body with the forced fixtures only — drop the `it("every live entry satisfies the biconditional", ...)` block. Keep the synthetic-fixture `it()` blocks.
+
+- [ ] **Step 3: Run test to verify it passes**
 
 Run: `pnpm test tests/messages/_metaErrorCatalogDocs.test.ts`
-Expected: the biconditional test FAILS for every Doug-facing entry that hasn't been content-authored yet (Phase E will populate `title`/`longExplanation`/`helpHref` on each).
+Expected: PASS — forced fixtures exercise the predicate logic against synthetic entries; no live-catalog assertion at this commit.
 
-Forced-fixture tests PASS immediately (they exercise the predicate logic with synthetic entries).
-
-- [ ] **Step 3: Add the same Phase E reminder comment as Task A.7**
-
-```ts
-/**
- * NOTE: The "every live entry satisfies the biconditional" assertion is RED
- * until Phase E populates title / longExplanation / helpHref on every
- * Doug-facing admin entry. Tracking: Phase E tasks E.1 – E.13. Do NOT skip —
- * leaving it red is the signal that Phase E work remains.
- */
-```
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Commit (green state)**
 
 ```bash
 git add tests/messages/_metaErrorCatalogDocs.test.ts
-git commit -m "test(messages): catalog meta-test #2 — biconditional with 5 forced fixtures (Task B.4)"
+git commit -m "test(messages): catalog meta-test #2 — 5 forced fixtures only; live-catalog biconditional deferred to H.6 (Task B.4 — TDD green)"
 ```
+
+**Note:** Phase H Task H.6 (new in r4) extends this file with the live-catalog biconditional assertion AFTER Phase E backfills land. The forced fixtures stay; the live-catalog assertion is the H.6 deliverable.
 
 ---
 

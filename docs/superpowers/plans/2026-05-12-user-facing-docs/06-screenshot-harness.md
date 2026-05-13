@@ -161,7 +161,7 @@ Per spec §7.1 test 9. Three assertions:
 - [ ] Step 1: Write failing test per the three assertions.
 - [ ] Step 2: Run test → FAIL on the fixture-existence assertion if any seed-manifest entry's fixture name is wrong; FAIL on the WebPs assertion until F.11 captures real bytes.
 - [ ] Step 3: Iterate manifest entries (fix fixture names) until fixture-existence passes.
-- [ ] Step 4: Commit (WebPs assertion stays partially red until F.11): `test(help): _metaScreenshotManifest integrity (Task F.7 — test #9)`
+- [ ] Step 4: Commit (test PASSES at F.7; the WebP-existence assertion short-circuits when `public/help/screenshots/` doesn't yet exist — F.11 creates the dir and the assertion starts firing on a green baseline): `test(help): _metaScreenshotManifest integrity (Task F.7 — test #9, TDD green)`
 
 ---
 

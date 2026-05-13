@@ -9,10 +9,10 @@
 **Shared page pattern (applies to every E.N task):**
 
 1. Write a failing test in `tests/help/page-<slug>.test.tsx` that asserts: the page renders, contains expected section headings, includes the required component usages (e.g., at least one `<Callout>`).
-2. Run the test — fails (file doesn't exist or content missing).
-3. Create `app/help/<slug>/page.mdx` (or `page.tsx` for E.13) with the page structure + content brief implemented.
-4. **For the 7 admin-reference pages (E.5 – E.11):** also populate `title` / `longExplanation` / `helpHref` on the corresponding catalog entries (per Phase B.4's biconditional meta-test). Edit `lib/messages/catalog.ts` to set these three fields on every entry that points to this page via `helpHref`. Most pages cover a class of error codes; populate accordingly.
-5. Run the test + the catalog biconditional test — both pass.
+2. Run the test — fails (Phase A.7 created a single-line stub; the test asserts on the real content shape that doesn't exist yet).
+3. **Replace the stub content** at `app/help/<slug>/page.mdx` (or `page.tsx` for E.13) with the page structure + content brief implemented. The file already exists from Phase A.7; E.N edits in place rather than creating new files. (r4 change — earlier draft had Phase E creating files, which conflicted with Phase A.7's stub-creation step.)
+4. **For the 7 admin-reference pages (E.5 – E.11):** also populate `title` / `longExplanation` / `helpHref` on the corresponding catalog entries (per Phase B.4's catalog-meta-test forced-fixture coverage; the LIVE-catalog biconditional assertion runs in Phase H Task H.6). Edit `lib/messages/catalog.ts` to set these three fields on every entry that points to this page via `helpHref`. Most pages cover a class of error codes; populate accordingly.
+5. Run the test — passes.
 6. Run `pnpm dev`, visit the page as admin, do a sanity scan — content reads cleanly, no dev-only artifacts.
 7. Commit.
 
