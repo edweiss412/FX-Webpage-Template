@@ -52,7 +52,10 @@ describe("lib/time/now — three-precondition gate (test #15)", () => {
 
     const { nowDate, now } = await import("@/lib/time/now");
     expect((await nowDate()).toISOString()).toBe(FROZEN);
-    expect(await now()).toBe(new Date(FROZEN).getTime());
+    // r3 fix per C-r2 finding 1: `now()` returns ISO string (matches spec
+    // §3.6.2 frozen-instant contract), NOT epoch ms. Original assertion
+    // expected a number which contradicted the implementation contract.
+    expect(await now()).toBe(FROZEN);
   });
 
   it("header missing → falls back to real Date.now (gate refuses)", async () => {
@@ -115,6 +118,20 @@ describe("lib/time/now — three-precondition gate (test #15)", () => {
     headerStore.authorization = "Bearer test-secret-fixture";
     process.env.ENABLE_TEST_AUTH = "true";
     process.env.TEST_AUTH_SECRET = "test-secret-fixture";
+
+    vi.useFakeTimers();
+    const realNow = new Date("2099-01-01T00:00:00.000Z");
+    vi.setSystemTime(realNow);
+
+    const { nowDate } = await import("@/lib/time/now");
+    expect((await nowDate()).toISOString()).toBe(realNow.toISOString());
+  });
+
+  it("TEST_AUTH_SECRET shorter than 16 chars → gate refuses (mirrors route guard at api/test-auth:95)", async () => {
+    headerStore["x-screenshot-frozen-now"] = FROZEN;
+    headerStore.authorization = "Bearer short";
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = "short"; // 5 chars — below the 16-min from app/api/test-auth/set-session/route.ts
 
     vi.useFakeTimers();
     const realNow = new Date("2099-01-01T00:00:00.000Z");
@@ -192,7 +209,10 @@ export async function nowDate(): Promise<Date> {
 
   const authz = h.get("authorization");
   const expectedSecret = process.env.TEST_AUTH_SECRET;
-  if (!expectedSecret) return new Date();
+  // r3 fix per C-r2 finding 4: mirror `app/api/test-auth/set-session/route.ts:95`
+  // which requires expectedSecret.length >= 16. Without this, a one-char
+  // TEST_AUTH_SECRET would let a guess-attacker pin the clock.
+  if (!expectedSecret || expectedSecret.length < 16) return new Date();
   if (authz !== `Bearer ${expectedSecret}`) return new Date();
 
   const parsed = new Date(frozen);
@@ -321,11 +341,30 @@ pnpm test:e2e -g "schedule-tile|right-now"
 
 Expected: unchanged behavior (the utility falls back to `new Date()` when the screenshot header isn't present; production behavior is identical).
 
+- [ ] **Step 5b: Migrate render-side `new Date()` in `components/` surfaces reachable from `app/show/[slug]/page.tsx`** (per C-r2 finding 3 — the C.4 guard now scans `components/`):
+
+  ```bash
+  rg -n "new Date\(\)" components/layout/Footer.tsx components/shared/StaleFooter.tsx
+  ```
+
+  Two known render-side call sites:
+  - `components/layout/Footer.tsx:91` — `const year = new Date().getUTCFullYear()` for the copyright year. Migrate to `const year = (await nowDate()).getUTCFullYear()`. Since `Footer` is a Client Component (`"use client"` at top? if not, currently a Server Component — verify), it may need conversion: if it's a Server Component, replace with `await nowDate()` directly and ensure the caller awaits the now-async Footer; if it's a Client Component, move the year computation to a Server Component wrapper, OR keep `new Date().getUTCFullYear()` but add `// not-render-side: copyright year is wall-clock-stable across screenshot capture` waiver since copyright-year is OK to drift across years (screenshot fixtures are pinned to 2026; year is stable mid-March).
+  - `components/shared/StaleFooter.tsx:72` — `const currentNow = now ?? new Date()`. The component ALREADY accepts a `now` prop for deterministic testing (line 27: "Override for deterministic testing"). The render-time default is the risk surface. Option A: make the prop required (defensive) and pass `await nowDate()` from every server caller. Option B: add `// not-render-side: defaulted only when caller omits the prop; screenshot harness always passes a frozen `now`` and ensure every screenshot-reachable call site passes the prop explicitly.
+
+  Choose per-component based on the architecture; the C.4 guard test will FAIL for any unwaived raw `new Date()`. Update test #16 + AC-12.38 outcome documentation if a waiver is the chosen approach.
+
+  Run the C.4 guard after the migration:
+
+  ```bash
+  pnpm test tests/help/_metaServerTimeGuard.test.ts
+  ```
+  Expected: PASS — either the call sites are migrated to `nowDate()` or carry an explicit `// not-render-side:` waiver.
+
 - [ ] **Step 6: Commit**
 
 ```bash
-git add app/show/[slug]/page.tsx tests/show/page-today-uses-now-utility.test.ts
-git commit -m "refactor(show): migrate page.tsx schedule today to nowDate() utility (Task C.2)"
+git add app/show/[slug]/page.tsx components/layout/Footer.tsx components/shared/StaleFooter.tsx tests/show/page-today-uses-now-utility.test.ts
+git commit -m "refactor(show): migrate render-side new Date() to nowDate() utility (Task C.2 — page.tsx + Footer + StaleFooter)"
 ```
 
 ---
@@ -341,140 +380,56 @@ Per spec §7.1 test 15 / AC-12.37. **r2 restructure per C-r1 finding 1 (HIGH):**
 
 - [ ] **Step 1: Write the new failing tests**
 
-Append to `tests/time/now.test.ts` (or rename file):
+**r3 fix per C-r2 finding 2 (HIGH) — append-only, no duplicate bindings/mocks.** The r2 snippet duplicated `vi.mock("next/headers")`, re-declared `FROZEN`, and re-imported vitest + the SUT. r3 rewrites C.3 as **incremental additions inside the existing C.1 file**, reusing C.1's `headerStore`/`FROZEN`/`vi.mock` setup. The new tests live in a NEW `describe` block at the bottom of the same file but share C.1's module-level mocks and constants.
+
+Append this `describe` block to `tests/time/now.test.ts` AFTER C.1's existing block (do NOT re-import anything; the imports at the top of the file already cover what we need):
 
 ```ts
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { now, nowDate } from "@/lib/time/now";
-
-// Mock next/headers to control the request scope per test.
-let mockHeaders = new Map<string, string>();
-vi.mock("next/headers", () => ({
-  headers: async () => ({
-    get: (k: string) => mockHeaders.get(k.toLowerCase()) ?? null,
-  }),
-}));
-
-function setHeaders(record: Record<string, string>) {
-  mockHeaders = new Map(Object.entries(record).map(([k, v]) => [k.toLowerCase(), v]));
-}
-
-const FROZEN = "2026-03-24T15:00:00.000Z";
-
-describe("lib/time/now.ts gating biconditional (test #15 — AC-12.37)", () => {
-  const ORIGINAL_ENV = { ...process.env };
-
-  beforeEach(() => {
-    mockHeaders = new Map();
-    process.env = { ...ORIGINAL_ENV };
-  });
-
-  afterEach(() => {
-    process.env = { ...ORIGINAL_ENV };
-  });
-
-  it("returns the frozen instant when ALL three preconditions hold", async () => {
-    process.env.ENABLE_TEST_AUTH = "true";
-    process.env.TEST_AUTH_SECRET = "test-secret-abc";
-    setHeaders({
-      "X-Screenshot-Frozen-Now": FROZEN,
-      Authorization: "Bearer test-secret-abc",
-    });
-    expect(await now()).toBe(FROZEN);
-    expect((await nowDate()).toISOString()).toBe(FROZEN);
-  });
-
-  it("returns real Date.now() when ENABLE_TEST_AUTH is unset (production)", async () => {
-    delete process.env.ENABLE_TEST_AUTH;
-    setHeaders({
-      "X-Screenshot-Frozen-Now": FROZEN,
-      Authorization: "Bearer whatever",
-    });
-    const before = Date.now();
-    const result = await nowDate();
-    const after = Date.now();
-    expect(result.getTime()).toBeGreaterThanOrEqual(before);
-    expect(result.getTime()).toBeLessThanOrEqual(after);
-  });
-
-  it("returns real time when ENABLE_TEST_AUTH is 'false' string", async () => {
-    process.env.ENABLE_TEST_AUTH = "false";
-    process.env.TEST_AUTH_SECRET = "test-secret-abc";
-    setHeaders({
-      "X-Screenshot-Frozen-Now": FROZEN,
-      Authorization: "Bearer test-secret-abc",
-    });
-    const result = await nowDate();
-    expect(result.toISOString()).not.toBe(FROZEN);
-  });
-
-  it("returns real time when header is missing", async () => {
-    process.env.ENABLE_TEST_AUTH = "true";
-    process.env.TEST_AUTH_SECRET = "test-secret-abc";
-    setHeaders({ Authorization: "Bearer test-secret-abc" });
-    const result = await nowDate();
-    expect(result.toISOString()).not.toBe(FROZEN);
-  });
-
-  it("returns real time when Authorization is missing", async () => {
-    process.env.ENABLE_TEST_AUTH = "true";
-    process.env.TEST_AUTH_SECRET = "test-secret-abc";
-    setHeaders({ "X-Screenshot-Frozen-Now": FROZEN });
-    const result = await nowDate();
-    expect(result.toISOString()).not.toBe(FROZEN);
-  });
-
-  it("returns real time when Authorization secret mismatches", async () => {
-    process.env.ENABLE_TEST_AUTH = "true";
-    process.env.TEST_AUTH_SECRET = "test-secret-abc";
-    setHeaders({
-      "X-Screenshot-Frozen-Now": FROZEN,
-      Authorization: "Bearer WRONG-SECRET",
-    });
-    const result = await nowDate();
-    expect(result.toISOString()).not.toBe(FROZEN);
-  });
-
-  it("returns real time when TEST_AUTH_SECRET env is unset", async () => {
-    process.env.ENABLE_TEST_AUTH = "true";
-    delete process.env.TEST_AUTH_SECRET;
-    setHeaders({
-      "X-Screenshot-Frozen-Now": FROZEN,
-      Authorization: "Bearer anything",
-    });
-    const result = await nowDate();
-    expect(result.toISOString()).not.toBe(FROZEN);
-  });
-
-  it("returns real time when header value is not a valid ISO date", async () => {
-    process.env.ENABLE_TEST_AUTH = "true";
-    process.env.TEST_AUTH_SECRET = "test-secret-abc";
-    setHeaders({
-      "X-Screenshot-Frozen-Now": "not-a-date",
-      Authorization: "Bearer test-secret-abc",
-    });
-    const result = await nowDate();
-    expect(Number.isNaN(result.getTime())).toBe(false);
-    expect(result.toISOString()).not.toBe(FROZEN);
-  });
-
-  // AC-12.37 capture-boundary case: two consecutive calls with the same frozen
-  // header 60+ seconds apart return byte-identical ISO strings.
+// r3: C.3 envelope coverage — capture-boundary + alt-style. Re-uses C.1's
+// module-level vi.mock("next/headers"), `headerStore`, and `FROZEN` constant.
+describe("lib/time/now — capture-boundary + alt-style envelope (test #15)", () => {
   it("capture-boundary: same frozen header returns byte-identical ISO across 60+s wall clock", async () => {
+    headerStore["x-screenshot-frozen-now"] = FROZEN;
+    headerStore.authorization = "Bearer test-secret-fixture";
     process.env.ENABLE_TEST_AUTH = "true";
-    process.env.TEST_AUTH_SECRET = "test-secret-abc";
-    setHeaders({
-      "X-Screenshot-Frozen-Now": FROZEN,
-      Authorization: "Bearer test-secret-abc",
-    });
+    process.env.TEST_AUTH_SECRET = "test-secret-fixture";
+
+    const { now } = await import("@/lib/time/now");
     const first = await now();
-    // Simulate 61 seconds of wall clock passing. We don't actually wait;
-    // we advance the system clock via vi.useFakeTimers.
+    // Simulate 61s of wall-clock advancing — the frozen path MUST ignore it.
     vi.useFakeTimers();
     vi.setSystemTime(Date.now() + 61_000);
     const second = await now();
     vi.useRealTimers();
     expect(second).toBe(first);
+    expect(second).toBe(FROZEN);
+  });
+
+  it("alt-style: header casing tolerance — frozen returned for `X-SCREENSHOT-FROZEN-NOW`", async () => {
+    // The mock's get() lower-cases the key (mirrors Next 16 behavior); the
+    // production gate looks up "x-screenshot-frozen-now" only. This test
+    // documents the casing contract.
+    headerStore["x-screenshot-frozen-now"] = FROZEN;
+    headerStore.authorization = "Bearer test-secret-fixture";
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = "test-secret-fixture";
+
+    const { nowDate } = await import("@/lib/time/now");
+    expect((await nowDate()).toISOString()).toBe(FROZEN);
+  });
+
+  it("alt-style: Bearer prefix is case-sensitive (`bearer ...` rejected — defense-in-depth)", async () => {
+    headerStore["x-screenshot-frozen-now"] = FROZEN;
+    headerStore.authorization = "bearer test-secret-fixture"; // lowercase b
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = "test-secret-fixture";
+
+    vi.useFakeTimers();
+    const realNow = new Date("2099-01-01T00:00:00.000Z");
+    vi.setSystemTime(realNow);
+
+    const { nowDate } = await import("@/lib/time/now");
+    expect((await nowDate()).toISOString()).toBe(realNow.toISOString());
   });
 });
 ```
@@ -576,21 +531,32 @@ import { join, relative } from "node:path";
  * "app/admin").
  */
 function discoverScanRoots(): string[] {
+  // r3 fix per C-r2 finding 3 (CROSS-PHASE): `app/<segment>` alone misses
+  // components imported BY those routes. The live `app/show/[slug]/page.tsx`
+  // imports `components/layout/Footer.tsx` and `components/shared/StaleFooter.tsx`,
+  // both of which contain render-time `new Date()` calls. Without scanning
+  // `components/`, AC-12.38 can pass while screenshots still drift with the
+  // wall clock. Always include `components/` (it's the project's UI primitive
+  // root) in addition to manifest-derived app routes.
+  const roots = new Set<string>(["components"]);
+
   const manifestPath = join(process.cwd(), "scripts/help-screenshots.manifest.ts");
   if (!existsSync(manifestPath)) {
-    return ["app/show", "app/admin"]; // pre-Phase-F fallback
+    // Pre-Phase-F fallback: cover the known app surfaces + components.
+    roots.add("app/show");
+    roots.add("app/admin");
+    return [...roots].sort();
   }
   // Phase F manifest expected shape:
   //   export const MANIFEST: ReadonlyArray<{ route: string; ... }> = [...]
   // Static-parse by regex (avoid eval).
   const src = readFileSync(manifestPath, "utf8");
   const routes = [...src.matchAll(/route:\s*["']([^"']+)["']/g)].map((m) => m[1]);
-  const topSegments = new Set<string>();
   for (const r of routes) {
     const seg = r.split("/").filter(Boolean)[0]; // "admin", "show", etc.
-    if (seg) topSegments.add(join("app", seg));
+    if (seg) roots.add(join("app", seg));
   }
-  return [...topSegments].sort();
+  return [...roots].sort();
 }
 
 // r2 fix per C-r1 finding 4 — drop the `/g` flag. Global regexes keep
