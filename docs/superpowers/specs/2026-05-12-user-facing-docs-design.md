@@ -275,11 +275,20 @@ All three new fields are `string | null`. Existing callers continue to compile.
 
 **M12 catalog-alignment subtask (r8 — replaces selfContainedAction):**
 
-M12 reconciles `lib/messages/catalog.ts` with master-spec §12.4 admin-log-only contract by setting `dougFacing: null`, `crewFacing: null`, and `helpfulContext: null` on every code master-spec line 2691 names as admin-log-only:
+M12 reconciles `lib/messages/catalog.ts` with master-spec §12.4 admin-log-only contract by setting `dougFacing: null`, `crewFacing: null`, and `helpfulContext: null` on every code master-spec line 2691 names as admin-log-only. **The canonical list is derived programmatically** from master-spec §12.4 via `scripts/extract-admin-log-only-codes.ts` (plan Phase B). The derived set is the source of truth — any hand-enumeration below is illustrative only.
 
-> `STALE_WRITE_ABORTED`, `STALE_PUSH_ABORTED`, `WEBHOOK_NOOP_ALREADY_SYNCED`, `CONCURRENT_SYNC_SKIPPED`, `WIZARD_SESSION_SUPERSEDED_DURING_SCAN`, `LOCK_OWNERSHIP_ASSERTION_FAILED`, `STAGED_PARSE_REVISION_RACE`, `LINK_CROSS_SHOW_REUSE`, `UNEXPECTED_PARENT`, `DIAGRAMS_TAB_MISSING`, `TYPO_NORMALIZED`
+Illustrative subset (master-spec line 2691 examples; non-exhaustive):
 
-(plus the asset-recovery and cooldown variants that follow the same pattern: `STALE_MANUAL_REPLAY_ABORTED`, `STAGED_PARSE_REVISION_RACE_COOLDOWN`, `ASSET_RECOVERY_REVISION_DRIFT`, `ASSET_RECOVERY_DRIFT_COOLDOWN`). Behavior change: AlertBanner stops surfacing these to Doug — which is master-spec-correct. Any test exercising the current (drifted) behavior breaks; those tests were testing drift.
+> `STALE_WRITE_ABORTED`, `STALE_PUSH_ABORTED`, `WEBHOOK_NOOP_ALREADY_SYNCED`, `CONCURRENT_SYNC_SKIPPED`, `WIZARD_SESSION_SUPERSEDED_DURING_SCAN`, `LOCK_OWNERSHIP_ASSERTION_FAILED`, `STAGED_PARSE_REVISION_RACE`, `DIAGRAMS_TAB_MISSING`
+
+(plus the asset-recovery and cooldown variants that follow the same pattern: `STAGED_PARSE_REVISION_RACE_COOLDOWN`, `ASSET_RECOVERY_REVISION_DRIFT`, `ASSET_RECOVERY_DRIFT_COOLDOWN`).
+
+**r11 amendment (reconciliation against master-spec §12.4):**
+
+- `STALE_MANUAL_REPLAY_ABORTED` is **NOT** admin-log-only. Master-spec line 2724 carries explicit Doug-facing copy ("This manual sync is stale — a newer parse has already been applied. Refresh the page to see the current state."). Earlier spec drafts grouped it with the asset-recovery cooldown variants by surface-pattern similarity, but its master-spec row contradicts that grouping. The extractor (parser at master-spec line 2691's contract) correctly does not derive it. STALE_MANUAL_REPLAY_ABORTED is a Doug-facing entry that gets `title` / `longExplanation` / `helpHref` like any other Doug-facing entry in Phase E.
+- `LINK_CROSS_SHOW_REUSE`, `UNEXPECTED_PARENT`, `TYPO_NORMALIZED`, and other §12.4 entries that are admin-log-only per master-spec but **absent from live `lib/messages/catalog.ts`** are added as null-stub entries during Phase B's catalog-alignment subtask (plan Task B.3). The alignment task derives the full canonical set from the parser output and either nulls existing entries or adds null stubs.
+
+Behavior change: AlertBanner stops surfacing the derived admin-log-only codes to Doug — which is master-spec-correct. Any test exercising the current (drifted) behavior breaks; those tests were testing drift.
 
 With the catalog aligned, the docs-required predicate becomes a simple admin-visible filter without needing a `selfContainedAction` opt-out.
 

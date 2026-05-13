@@ -725,23 +725,22 @@ Append to `tests/messages/_metaErrorCatalogDocs.test.ts`:
 
 ```ts
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+// r3 fix: import the single-source-of-truth validator from Phase B.4 instead
+// of redefining the predicate inline. This keeps the live-catalog assertion
+// in lockstep with B.4's forced fixtures — any update to the contract
+// (e.g., adding a new M12 field) propagates to both surfaces automatically.
+import { contractViolations } from "@/lib/messages/catalogDocsValidator";
 
-describe("Catalog meta-test (test #2 — live-catalog biconditional, added in E.13 per r6)", () => {
-  it("every live entry satisfies the biconditional", () => {
-    const violations: string[] = [];
-    const HELP_HREF_RE = /^\/help\/.+/;
+describe("Catalog meta-test (test #2 — live-catalog full contract, added in E.13 per r6)", () => {
+  it("every live entry satisfies the spec §5.2 full contract", () => {
+    const lines: string[] = [];
     for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
-      const lhs = entry.severity !== "info" && entry.dougFacing !== null;
-      const rhs =
-        entry.title !== null && entry.longExplanation !== null && entry.helpHref !== null;
-      if (lhs !== rhs) {
-        violations.push(`${code}: predicate=${lhs}, M12 fields non-null=${rhs}`);
-      }
-      if (rhs && entry.helpHref && !HELP_HREF_RE.test(entry.helpHref)) {
-        violations.push(`${code}: helpHref invalid: ${entry.helpHref}`);
+      const violations = contractViolations(entry);
+      if (violations.length > 0) {
+        for (const v of violations) lines.push(`${code}: ${v}`);
       }
     }
-    expect(violations, violations.join("\n")).toEqual([]);
+    expect(lines, lines.join("\n")).toEqual([]);
   });
 });
 ```
