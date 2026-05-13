@@ -65,7 +65,7 @@ const VARIANTS = {
   note: {
     bg: "bg-info-bg",
     border: "border-border",
-    text: "text-callout-note-text",
+    text: "text-text-strong",
     role: "note" as const,
     icon: "ℹ",
     iconTestid: "callout-icon-note",
@@ -73,7 +73,7 @@ const VARIANTS = {
   warning: {
     bg: "bg-warning-bg",
     border: "border-warning-text",
-    text: "text-callout-warning-text",
+    text: "text-warning-text",
     role: "alert" as const,
     icon: "⚠",
     iconTestid: "callout-icon-warning",
@@ -81,7 +81,7 @@ const VARIANTS = {
   tip: {
     bg: "bg-stale-tint",
     border: "border-accent",
-    text: "text-callout-tip-text",
+    text: "text-accent-text",
     role: "note" as const,
     icon: "✓",
     iconTestid: "callout-icon-tip",
@@ -137,8 +137,8 @@ Per spec §6.2 — numbered procedural step. Used in adoption-track + onboarding
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
-// tests/help/step.test.tsx
 // @vitest-environment jsdom
+// tests/help/step.test.tsx
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -212,8 +212,8 @@ Per spec §6.2 — labeled empty box for pages authored before the underlying su
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
-// tests/help/screenshot-placeholder.test.tsx
 // @vitest-environment jsdom
+// tests/help/screenshot-placeholder.test.tsx
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -420,8 +420,8 @@ Per spec §6.2 / §5.4 (slug-stability invariant). Renders a heading with `id={i
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
-// tests/help/ref-anchor.test.tsx
 // @vitest-environment jsdom
+// tests/help/ref-anchor.test.tsx
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -506,8 +506,8 @@ Per spec §6.2 — adoption-track aside framing "In your old workflow, you'd …
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
-// tests/help/tip-from-sheets.test.tsx
 // @vitest-environment jsdom
+// tests/help/tip-from-sheets.test.tsx
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";

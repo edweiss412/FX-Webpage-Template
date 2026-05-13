@@ -410,7 +410,7 @@ The matrix is the source of truth for test #13. Owning milestones ship the affor
 | --- | --- | --- | --- |
 | `<Callout>` | `type` is required; missing → TypeScript error, never reaches runtime. `children` optional → renders empty bubble (acceptable). | n/a | Unknown `type` value → defaults to `note` styling (defensive). |
 | `<Step>` | `n` is required; missing → TypeScript error. `children` required for content. | Empty children → renders empty step (acceptable for skeleton drafts). | `n=0` or negative → renders as given; spec does not constrain values. |
-| `<Screenshot>` | `key` and `alt` required; `caption` optional. Missing → TS error. | Empty `key` → build fails (manifest lookup throws). | Manifest key without on-disk WebP → screenshot-coverage test fails (§7.1 test 8). |
+| `<Screenshot>` | **r14:** `name` and `alt` required; `caption` optional. Missing → TS error. (Prop renamed from `key` to `name` because `key` is React-reserved and never delivered to component props.) | Empty `name` → build fails (manifest lookup throws). | Manifest entry without on-disk WebP → screenshot-coverage test fails (§7.1 test 8). |
 | `<ScreenshotPlaceholder>` | `alt` required for a11y. `caption` optional. | Missing `alt` → TypeScript error. | Width/height fixed via CSS aspect-ratio. **Lint-prohibited in shipped v1 MDX (§7.1 test 7).** |
 | `<RefAnchor>` | `id` required, must match regex `/^[A-Z_]+$/` (catalog code shape). | Empty `id` → build-time anchor-resolver fails. | Duplicate `id` on same page → React duplicate-key warning + anchor-resolver flags as ambiguous. |
 | `<TipFromSheets>` | `children` required; empty → renders empty aside (acceptable). | n/a | n/a |
