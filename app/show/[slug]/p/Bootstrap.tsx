@@ -342,7 +342,11 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
           {NO_FRAGMENT_COPY}
         </p>
       ) : ui.kind === "error" ? (
-        <p data-testid="bootstrap-error" role="alert" className="text-base text-warning-text">
+        // M9 C8 R1 P2: removed inner role="alert" — the outer
+        // aria-live="polite" wrapper now announces the error state
+        // change once. Nested live regions / alert + polite double-
+        // fire is a known screen-reader anti-pattern.
+        <p data-testid="bootstrap-error" className="text-base text-warning-text">
           {GENERIC_ERROR_COPY}
         </p>
       ) : (
