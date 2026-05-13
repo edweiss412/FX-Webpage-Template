@@ -351,7 +351,7 @@ For every concrete-testid row in the matrix, the owning component must carry the
 ### Task G.5: Deep-link affordance walker (test #13)
 
 **Files:**
-- Create: `tests/playwright/deep-link-walker.spec.ts` (concrete rows — E2E via Playwright)
+- Create: `tests/e2e/deep-link-walker.spec.ts` (concrete rows — E2E via Playwright)
 - Create: `tests/help/deep-link-walker-template-family.test.tsx` (template-family row — unit-level per r7)
 - Create: `tests/help/deep-link-walker-reverse.test.ts` (reverse-direction codebase grep)
 

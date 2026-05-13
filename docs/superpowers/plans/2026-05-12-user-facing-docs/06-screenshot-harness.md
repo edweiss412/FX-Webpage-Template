@@ -191,7 +191,7 @@ This split honors AGENTS.md plan-wide invariant #1 (TDD: every commit green). r4
 ### Task F.9: E2E clock-pipeline proof (test #18)
 
 **Files:**
-- Create: `tests/playwright/help-screenshots-clock-pipeline.spec.ts`
+- Create: `tests/e2e/help-screenshots-clock-pipeline.spec.ts`
 
 Per spec §7.1 test 18 / AC-12.39. Captures the `preview-as-crew-banner` manifest entry TWICE with two different `frozenClockInstant` values; asserts WebP bytes differ — proving the header reaches the server's render path.
 

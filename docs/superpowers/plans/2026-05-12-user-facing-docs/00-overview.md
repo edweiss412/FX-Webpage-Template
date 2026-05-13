@@ -210,18 +210,18 @@ tests/help/playwright-config.test.ts                      # Phase F.4
 tests/help/screenshot-picture-contract.test.tsx           # Phase F.6 — test #10
 tests/help/_metaScreenshotManifest.test.ts                # Phase F.7 — meta-test #9
 tests/help/screenshot-coverage.test.ts                    # Phase F.8 — test #8
-tests/playwright/help-screenshots-clock-pipeline.spec.ts  # Phase F.9 — test #18
+tests/e2e/help-screenshots-clock-pipeline.spec.ts  # Phase F.9 — test #18
 tests/help/_affordance-matrix-shape.test.ts               # Phase G.1
 tests/messages/renderer-gate-unit.test.ts                 # Phase G.2
 tests/messages/renderer-emits-learn-more.test.tsx         # Phase G.3
-tests/playwright/deep-link-walker.spec.ts                 # Phase G.5 — test #13 (concrete rows, E2E)
+tests/e2e/deep-link-walker.spec.ts                 # Phase G.5 — test #13 (concrete rows, E2E)
 tests/help/deep-link-walker-template-family.test.tsx      # Phase G.5 — test #13 (template-family, unit)
 tests/help/deep-link-walker-reverse.test.ts               # Phase G.5 — test #13 reverse-direction structural guard
 tests/messages/_metaErrorRendererGate.test.ts             # Phase G.6 — meta-test #12
 tests/help/anchor-resolver.test.ts                        # Phase H.1 — test #1
-tests/playwright/help-auth.spec.ts                        # Phase H.2 — test #3 (full Playwright auth gate + AdminInfraError mapping)
+tests/e2e/help-auth.spec.ts                        # Phase H.2 — test #3 (full Playwright auth gate + AdminInfraError mapping)
 tests/help/render.test.ts                                 # Phase H.3 — test #4 (MDX smoke renderer)
-tests/playwright/help-mobile.spec.ts                      # Phase H.4 — test #6 (Playwright real-browser layout)
+tests/e2e/help-mobile.spec.ts                      # Phase H.4 — test #6 (Playwright real-browser layout)
 tests/help/no-placeholders.test.ts                        # Phase H.5 — test #7 (no-placeholder lint)
 
 # Test infrastructure — created

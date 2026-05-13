@@ -151,7 +151,7 @@ git commit -m "test(help): anchor resolver test #1 (Task H.1)"
 ### Task H.2: Auth-gating + AdminInfraError mapping (test #3)
 
 **Files:**
-- Create: `tests/playwright/help-auth.spec.ts`
+- Create: `tests/e2e/help-auth.spec.ts`
 - Modify: `app/help/layout.tsx` (test-only `?force_infra_fail=1` trigger inside the existing AdminInfraError catch — Step 2)
 
 Per spec §7.1 test 3 (r10 expanded for AdminInfraError + fallback chain). Three GET paths × three auth states + the AdminInfraError surface.
@@ -170,7 +170,7 @@ Record this observation in the eventual commit message.
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-// tests/playwright/help-auth.spec.ts
+// tests/e2e/help-auth.spec.ts
 import { test, expect } from "@playwright/test";
 import { signInAs, signOut } from "../e2e/helpers/signInAs";
 
@@ -201,22 +201,27 @@ test.describe("/help auth gate (test #3)", () => {
 });
 
 test.describe("/help AdminInfraError mapping (test #3 r10)", () => {
-  // r10 (round-9 finding 2): negative case — empty TEST_AUTH_SECRET with
-  // ENABLE_TEST_AUTH=true MUST NOT accept an empty-bearer-suffix request as
-  // a valid forced-infra-fail trigger. Test stubs the env via a Playwright
-  // beforeAll fixture; assertion is "the help page renders normally (200
-  // for admin), NOT the infra-error surface."
+  // r10 (round-9 finding 2) → r11 (round-10 finding 2): negative case —
+  // empty TEST_AUTH_SECRET with ENABLE_TEST_AUTH=true MUST NOT accept an
+  // empty-bearer-suffix request as a valid forced-infra-fail trigger.
+  //
+  // r11 fix: don't sign in (signInAs requires a non-empty TEST_AUTH_SECRET
+  // and would fail before reaching the trigger gate). Send the request
+  // unauthenticated; assert the response falls through to the normal
+  // requireAdmin() 403, NOT the infra-error surface.
   test("empty TEST_AUTH_SECRET does NOT accept Bearer empty-string as the trigger gate", async ({ page }) => {
-    // Implementer stubs TEST_AUTH_SECRET="" for this specific test via
-    // a per-test webServer env or a process.env override matching the
-    // project's existing test-env-override pattern.
-    await signInAs(page, { email: "admin-fixture@example.com", label: "admin" } as never);
+    // Implementer stubs TEST_AUTH_SECRET="" for this specific test via a
+    // per-test webServer env or a process.env override matching the project's
+    // existing test-env-override pattern. The test runs WITHOUT signInAs.
     await page.setExtraHTTPHeaders({
       "X-Help-Force-Infra-Fail": "1",
       Authorization: "Bearer ", // matches empty secret pattern
     });
     const response = await page.goto("/help");
-    expect(response?.status()).toBe(200);
+    // Forced trigger rejected → normal requireAdmin() → unauthenticated → 403.
+    // If the gate accepted empty secret + empty bearer, response would be
+    // 500-class with the infra-error testid. Assert the inverse:
+    expect(response?.status()).toBe(403);
     await expect(page.getByTestId("help-layout-infra-error")).not.toBeVisible();
   });
 
@@ -302,14 +307,14 @@ The Playwright test (Step 1) sends both headers via `page.setExtraHTTPHeaders({ 
 
 - [ ] **Step 3: Run + commit BOTH files together**
 
-Run: `pnpm test:e2e tests/playwright/help-auth.spec.ts`
+Run: `pnpm test:e2e tests/e2e/help-auth.spec.ts`
 Expected: all 10 tests PASS (9 base auth + 1 AdminInfraError mapping). **No skip path** per AC-12.24.
 
 ```bash
 # IMPORTANT: stage BOTH the test AND the layout file (r8 fix to round-7
 # finding 1 — earlier draft only staged the test, leaving the production
 # trigger uncommitted).
-git add tests/playwright/help-auth.spec.ts app/help/layout.tsx
+git add tests/e2e/help-auth.spec.ts app/help/layout.tsx
 git commit -m "test(playwright): /help auth gate + AdminInfraError mapping with trigger (Task H.2)"
 ```
 
@@ -416,7 +421,7 @@ git commit -m "test(help): MDX smoke renderer (Task H.3 — test #4)"
 ### Task H.4: Mobile-layout Playwright test (test #6)
 
 **Files:**
-- Create: `tests/playwright/help-mobile.spec.ts`
+- Create: `tests/e2e/help-mobile.spec.ts`
 
 Per spec §7.1 test 6 (real-browser assertion — jsdom not sufficient per project's Tailwind v4 flex-stretch lesson). At 390 × 844 viewport, navigates to `/help/admin/dashboard`, asserts:
 
@@ -452,7 +457,7 @@ Restored and re-ran → PASS."
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-// tests/playwright/help-mobile.spec.ts
+// tests/e2e/help-mobile.spec.ts
 import { test, expect } from "@playwright/test";
 import { signInAs } from "../e2e/helpers/signInAs";
 
@@ -497,13 +502,13 @@ test.describe("/help mobile layout (test #6)", () => {
 
 - [ ] **Step 2: Run**
 
-Run: `pnpm test:e2e tests/playwright/help-mobile.spec.ts`
+Run: `pnpm test:e2e tests/e2e/help-mobile.spec.ts`
 Expected: PASS. Any sub-44×44 hits → fix the offending component (likely the click-to-copy `<RefAnchor>` icon, or a tooltip `?` icon; adjust their CSS to `min-h-tap-min` + `min-w-tap-min` or pad with `before`/`after`).
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add tests/playwright/help-mobile.spec.ts
+git add tests/e2e/help-mobile.spec.ts
 git commit -m "test(playwright): /help mobile layout assertions (Task H.4 — test #6)"
 ```
 
