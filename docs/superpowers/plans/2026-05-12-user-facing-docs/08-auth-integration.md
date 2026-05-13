@@ -170,7 +170,8 @@ git commit -m "test(help): anchor resolver test #1 (Task H.1)"
 
 **Files:**
 - Create: `tests/e2e/help-auth.spec.ts`
-- Modify: `app/help/layout.tsx` (test-only `?force_infra_fail=1` trigger inside the existing AdminInfraError catch — Step 2)
+- Modify: `lib/auth/requireAdmin.ts` (r3 fix per H-r2 finding 2 — test-only `X-Help-Force-Infra-Fail` trigger at the top of requireAdmin BEFORE Supabase calls, so the throw exercises the same catch path a real RPC failure would take). Earlier drafts incorrectly listed `app/help/layout.tsx`; HelpLayout already has the AdminInfraError catch from M9, no changes needed there.
+- Create: `tests/auth/requireAdmin-infra-boundary.test.ts` (r3 fix per H-r2 finding 1 — direct unit test that mocks `createSupabaseServerClient()` to make `getUser()` and `rpc("is_admin")` throw, asserts requireAdmin re-throws as AdminInfraError. This drives the REAL Supabase boundary the e2e header-trigger test can only proxy.)
 
 Per spec §7.1 test 3 (r10 expanded for AdminInfraError + fallback chain). Three GET paths × three auth states + the AdminInfraError surface.
 
@@ -230,25 +231,26 @@ test.describe("/help AdminInfraError mapping (test #3 r10)", () => {
   // empty TEST_AUTH_SECRET with ENABLE_TEST_AUTH=true MUST NOT accept an
   // empty-bearer-suffix request as a valid forced-infra-fail trigger.
   //
-  // r11 fix: don't sign in (signInAs requires a non-empty TEST_AUTH_SECRET
-  // and would fail before reaching the trigger gate). Send the request
-  // unauthenticated; assert the response falls through to the normal
-  // requireAdmin() 403, NOT the infra-error surface.
-  test("empty TEST_AUTH_SECRET does NOT accept Bearer empty-string as the trigger gate", async ({ page }) => {
-    // Implementer stubs TEST_AUTH_SECRET="" for this specific test via a
-    // per-test webServer env or a process.env override matching the project's
-    // existing test-env-override pattern. The test runs WITHOUT signInAs.
-    await page.setExtraHTTPHeaders({
-      "X-Help-Force-Infra-Fail": "1",
-      Authorization: "Bearer ", // matches empty secret pattern
-    });
-    const response = await page.goto("/help");
-    // Forced trigger rejected → normal requireAdmin() → unauthenticated → 403.
-    // If the gate accepted empty secret + empty bearer, response would be
-    // 500-class with the infra-error testid. Assert the inverse:
-    expect(response?.status()).toBe(403);
-    await expect(page.getByTestId("help-layout-infra-error")).not.toBeVisible();
-  });
+  // r3 fix per H-r2 finding 3: the Playwright webServer is started ONCE
+  // with `TEST_AUTH_SECRET=test-secret-fixture` per project config; mutating
+  // the env from the test process doesn't change the already-started server.
+  // A Playwright assertion that "Bearer " is rejected would PASS even if
+  // the production code lacked the `expectedSecret.length >= 16` length
+  // check, because the live server has a non-empty (and 16+ char) secret.
+  //
+  // The empty-secret + short-secret length contract is correctly pinned by
+  // the direct unit test `tests/auth/requireAdmin-infra-boundary.test.ts`
+  // (Phase H.2 unit test, see Files list above) — which mutates
+  // `process.env.TEST_AUTH_SECRET` in-process per test case (mirrors
+  // Phase C.1's gate test pattern). That test asserts:
+  //   - TEST_AUTH_SECRET="" + Bearer "" + X-Help-Force-Infra-Fail=1 →
+  //     gate refuses (forced trigger does not fire)
+  //   - TEST_AUTH_SECRET="short" (< 16) + Bearer "short" → gate refuses
+  //   - TEST_AUTH_SECRET="test-secret-fixture" (>= 16) + Bearer "test-
+  //     secret-fixture" → gate fires (AdminInfraError thrown)
+  // The Playwright spec below covers only the e2e happy path; the gate's
+  // negative-space contract belongs in the unit test where in-process env
+  // mutation actually works.
 
   test("when requireAdmin throws AdminInfraError, /help renders cataloged 500-class surface", async ({ page, request }) => {
     // r7 (round-6 finding 2): NO SKIP allowed. AC-12.24 requires this test to
@@ -355,8 +357,13 @@ Expected: all 10 tests PASS (9 base auth + 1 AdminInfraError mapping). **No skip
 # IMPORTANT: stage BOTH the test AND the layout file (r8 fix to round-7
 # finding 1 — earlier draft only staged the test, leaving the production
 # trigger uncommitted).
-git add tests/e2e/help-auth.spec.ts app/help/layout.tsx
-git commit -m "test(playwright): /help auth gate + AdminInfraError mapping with trigger (Task H.2)"
+git add tests/e2e/help-auth.spec.ts tests/auth/requireAdmin-infra-boundary.test.ts lib/auth/requireAdmin.ts
+git commit -m "test(playwright,auth): /help auth gate + AdminInfraError boundary (Task H.2)
+
+Includes (1) e2e Playwright header-trigger test for the cataloged 500-class
+surface, (2) direct unit test that mocks Supabase getUser/rpc to throw +
+asserts requireAdmin re-throws as AdminInfraError (per H-r2 finding 1), and
+(3) the test-only trigger inside requireAdmin.ts (NOT HelpLayout)."
 ```
 
 ---
@@ -517,7 +524,10 @@ Restored and re-ran → PASS."
 ```ts
 // tests/e2e/help-mobile.spec.ts
 import { test, expect } from "@playwright/test";
-import { signInAs } from "../e2e/helpers/signInAs";
+import { signInAs } from "./helpers/signInAs";
+// r3 fix per H-r2 finding 4: import the shared ADMIN_FIXTURE (matches the
+// e2e import style used in other specs).
+import { ADMIN_FIXTURE } from "./helpers/fixtures";
 
 test.describe("/help mobile layout (test #6)", () => {
   test.use({ viewport: { width: 390, height: 844 } });
