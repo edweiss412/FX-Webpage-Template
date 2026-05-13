@@ -9,8 +9,10 @@
  *      `app/globals.css` already maps `--font-sans` to "Inter, ..." so
  *      every component that reads the body's inherited font-family gets
  *      Inter for free. Including the variable here also makes it usable
- *      inline (e.g., `font-[var(--font-inter)]` if a future component
- *      needs to escape a font override).
+ *      inline via the named `--font-inter` token (the arbitrary
+ *      square-bracket form is forbidden — bracket-form arbitrary
+ *      classes get scanned by Tailwind v4 and leak into the built
+ *      CSS, even from comments).
  *
  *   2. The min-h-screen flex column container so the footer's `mt-auto`
  *      anchors to the viewport bottom on short pages — the §8.4 sticky-vs-

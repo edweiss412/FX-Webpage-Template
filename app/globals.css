@@ -15,6 +15,9 @@
  */
 @source not "../docs";
 @source not "../tests";
+@source not "../lib";
+/* admin dev surface — disabled in production builds (ADMIN_DEV_PANEL_ENABLED). */
+@source not "../app/admin/dev";
 
 /*
  * Token surface for FXAV Crew Pages — pairs with DESIGN.md.
@@ -116,9 +119,11 @@
    * transition height; spec lines 2420-2421). Components MUST consume
    * this via the canonical `min-h-right-now-min-h` Tailwind v4
    * utility (the `@theme` `--spacing-right-now-min-h` token compiles
-   * to that namespaced class) — NEVER inline a `min-h-[176px]`
-   * literal, and prefer the canonical form over the `min-h-(…)` arrow
-   * variable syntax (eslint-plugin-better-tailwindcss enforces this).
+   * to that namespaced class) — NEVER inline an arbitrary
+   * square-bracket value (the bracket-form arbitrary class is
+   * forbidden; eslint-plugin-better-tailwindcss enforces this; the
+   * named-token form is the only one that survives the Tailwind v4
+   * auto-content scan into the built CSS).
    */
   --spacing-right-now-min-h: 176px;
   --spacing-page-pad-mobile: 16px;
@@ -154,9 +159,10 @@
    * pure-black drop tuned for the warm-charcoal `--color-bg`.
    *
    * Components MUST consume this via the canonical `shadow-tile`
-   * Tailwind v4 utility — NEVER inline a `shadow-[…]` literal, and
-   * prefer the canonical form over the `shadow-(--shadow-tile)` arrow
-   * variable syntax (eslint-plugin-better-tailwindcss enforces this).
+   * Tailwind v4 utility — NEVER inline an arbitrary square-bracket
+   * shadow value, and prefer the canonical form over the
+   * `shadow-(--shadow-tile)` arrow variable syntax
+   * (eslint-plugin-better-tailwindcss enforces this).
    * The runtime value lives under :root / [data-theme="dark"] /
    * @media(prefers-color-scheme:dark) so a single token spans both modes.
    */

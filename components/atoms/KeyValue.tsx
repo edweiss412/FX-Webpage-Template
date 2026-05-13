@@ -25,8 +25,10 @@
  *     for list-valued fields can change this; today's atom is scalar).
  *
  * Tap targets: when `linkAs` is `'tel'` or `'mailto'`, the value is
- * wrapped in an <a> with the §3 `min-h-[var(--spacing-tap-min)]` floor
- * and `inline-flex items-center` so the entire 44px row is the tap
+ * wrapped in an <a> with the §3 tap-min floor (the
+ * --spacing-tap-min token, applied via the named utility — not an
+ * arbitrary square-bracket value) and `inline-flex items-center` so
+ * the entire 44px row is the tap
  * target. The display label keeps the source formatting; the href
  * digits-strips for `tel:` so the dialer opens cleanly across phone-
  * format variations (e.g., "508-404-4496" → tel:5084044496).
