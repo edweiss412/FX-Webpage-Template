@@ -1067,9 +1067,20 @@ Base: `1875fa7` (C0 close SHA). 4 rounds to approve.
 | R3 | needs-attention | M1 runtime comments still leak; L1 admin/dev page | `789d87a` | `@source not "../lib"` + `@source not "../app/admin/dev"`; rewrote 3 runtime-file comments to remove bracket-form examples. |
 | R4 | **approve** | none | `789d87a` | C2 cluster CONVERGED. No HIGH/CRITICAL findings. |
 
-### Cluster C5 (DEFERRED — external assets)
+### Cluster C5 convergence (Codex) — UNBLOCKED + CONVERGED
 
-C5 / M5-D4 (sign-in brand) requires FXAV wordmark + official Google G icon, plan explicitly forbids hand-recreating either. Deferred to a session where Doug-supplied brand kit is available. No code shipped; convergence loop skipped.
+Base: `2574061` (post-M9-close-out). Assets sourced from canonical origins (FXAV wordmark from fxav.net Wix CDN; Google G + full Sign In button SVG from Google's official signin-assets.zip). 4 rounds to approve.
+
+| Round | Verdict | Findings | Fix SHA | Notes |
+|-------|---------|----------|---------|-------|
+| R1 | **block** | BLOCKER button on FXAV-accent violates Google brand guide; HIGH wordmark `aria-hidden` hides primary identity; HIGH wordmark squashed by `size-24`; MED 176KB PNG; MED source-grep tests only | `568ee65` | Button restyled as Google "Light" theme (white surface + #1f1f1f text + #747775 border + h-10 + gap-3). Wordmark gets `alt="FX Audio Visual"`, `w-24 h-auto`. PNG resampled to 192×205 / 30KB via `sips`. New jsdom test asserts Light-theme classes + negative-asserts the previous FXAV-accent variant. |
+| R2 | needs-attention | HIGH G effective size ~10×10 (rendered the 40×40 tile asset at 20×20 — actual G inside shrunk proportionally); HIGH focus-ring orange ~1.6:1 on white (below WCAG 3:1) | `684c282` | Switched to Google's full text-bearing button SVG `web_light_rd_SI.svg` (native 175×40); the wrapping `<button>` becomes a thin focus-ring container; focus ring uses Google Interaction Blue `#1a73e8` for ≥3:1 contrast. |
+| R3 | needs-attention | HIGH wrapper button only 40px tall — below DESIGN.md §3 44px tap-target floor + WCAG 2.5.5 | `f45acbc` | `h-10` → `min-h-tap-min`. SVG image stays 175×40; wrapper extends the hit area via transparent padding. New test asserts the floor is present + negative-asserts `h-10` alone. |
+| R4 | **approve** | none | `f45acbc` | C5 CONVERGED. |
+
+Assets pinned in tests:
+- `public/brand/fxav-wordmark.png` — 192×205 PNG (resampled from fxav.net's 1554×1661 source).
+- `public/brand/google-signin-button.svg` — verbatim copy of Google bundle's `web_light_rd_SI.svg` (175×40, Light theme, all four Google brand colors verified).
 
 ### Cluster C6 convergence (Codex)
 
