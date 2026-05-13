@@ -701,7 +701,12 @@ export const MESSAGE_CATALOG = {
     dougFacing:
       "_<sheet-name>_'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail.",
     crewFacing:
-      "We couldn't read the latest edit to Doug's sheet. Showing what we had at _<time>_.",
+      // NB: matches §12.4 spec line 2721 verbatim. The trailing `*` after
+      // `_<time>` (instead of a closing `_`) appears to be a spec typo
+      // (mismatched markdown emphasis markers), but spec is canonical
+      // per AGENTS.md §1.7 — surface for amendment rather than silently
+      // fix. M9 C0 round-10 verifier flagged this as the last spec drift.
+      "We couldn't read the latest edit to Doug's sheet. Showing what we had at _<time>*.",
     followUp: "Doug -> fix sheet (see parse panel); Crew -> mention to Doug",
     helpfulContext:
       "A recent edit to the sheet introduced something the parser couldn't read, but we kept the previously approved version live so crew aren't blocked. Open the per-show parse panel to see the specific MI-N code explaining what went wrong, fix it in the sheet, and the next sync will replace the stale data.",
