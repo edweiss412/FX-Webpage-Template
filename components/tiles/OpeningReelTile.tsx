@@ -85,7 +85,7 @@ export function OpeningReelTile({ showId, eventDetails, hasVideo }: OpeningReelT
         // (`tests/e2e/empty-state.spec.ts`). The outer `opening-reel-tile`
         // scope is the AC-7.25 contract.
         <div data-testid="opening-reel" className="flex flex-col gap-1">
-          <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
+          <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
             Status
           </dt>
           <dd className="text-sm/snug font-medium text-text">{stripped}</dd>

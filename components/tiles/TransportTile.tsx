@@ -160,7 +160,7 @@ export function TransportTile({ transportation, visible }: TransportTileProps) {
                 data-testid="transport-schedule-row"
                 className="flex flex-col gap-1"
               >
-                <p className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
+                <p className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
                   {leg.stage}
                 </p>
                 <p className="text-sm text-text">

@@ -107,6 +107,17 @@ Apply at the smallest semantic boundary — the `<time>` element, the `.call-tim
 - Body line length: cap at **65–75ch**. Tile copy will rarely hit this; the cap matters for the Right Now card body and admin paragraphs.
 - No serif body. PRODUCT.md explicitly rejects this — it pulls toward the paper-skeuomorph aesthetic the project is replacing.
 
+### 2.6 Eyebrow letter-spacing tokens (M9 M4-D5 consolidation)
+
+Uppercase eyebrow labels (`text-xs uppercase` + meta-label voice) use one of two named letter-spacing tokens — never an arbitrary `tracking-[X.YYem]` value:
+
+| Token                       | em     | Use                                                                                                                            |
+| --------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `--tracking-eyebrow`        | 0.12em | Standard eyebrow voice — KeyValue dt, Section heading eyebrow, tile field labels (Schedule day labels, Contacts kind, etc.).   |
+| `--tracking-eyebrow-strong` | 0.18em | Emphasis eyebrow — Right Now card "RIGHT NOW" tag, Footer FXAV wordmark, Header crew tag.                                      |
+
+The consolidation absorbed four prior inline values (0.12 / 0.14 / 0.18 / 0.22em) into two semantic tokens. `tests/styles/eyebrow-tracking.test.ts` enforces the contract — adding a new arbitrary `tracking-[X.YYem]` value to any file under `components/` or `app/` fails the build. If a future surface genuinely needs a different tracking value, declare it as a named token in `app/globals.css` `@theme` and add a row to the table above before using it.
+
 ---
 
 ## 3. Spacing scale

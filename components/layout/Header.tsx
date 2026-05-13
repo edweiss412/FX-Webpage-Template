@@ -47,7 +47,7 @@ export function Header({ show }: HeaderProps) {
     <header data-testid="page-header" className="border-b border-border bg-bg">
       <div className="mx-auto flex w-full max-w-[1200px] items-end justify-between gap-6 px-4 pb-5 pt-7 sm:px-8 sm:pb-6 sm:pt-9">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium uppercase tracking-[0.14em] text-text-faint">
+          <p className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
             {show.client_label}
           </p>
           <h1 className="mt-1.5 text-2xl font-bold leading-tight tracking-tight text-text-strong sm:text-3xl">
@@ -71,7 +71,7 @@ export function Header({ show }: HeaderProps) {
         </div>
         <p
           aria-label="FXAV"
-          className="hidden shrink-0 self-start text-xs font-semibold uppercase tracking-[0.22em] text-text-subtle sm:block"
+          className="hidden shrink-0 self-start text-xs font-semibold uppercase tracking-eyebrow-strong text-text-subtle sm:block"
         >
           FXAV
         </p>

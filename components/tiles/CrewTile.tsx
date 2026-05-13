@@ -96,7 +96,7 @@ export function CrewTile({ crewMembers }: CrewTileProps) {
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <p className="truncate text-sm/tight font-semibold text-text-strong">{member.name}</p>
             {member.role ? (
-              <p className="truncate text-xs uppercase tracking-[0.12em] text-text-faint">
+              <p className="truncate text-xs uppercase tracking-eyebrow text-text-faint">
                 {member.role}
               </p>
             ) : null}

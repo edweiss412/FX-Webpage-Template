@@ -84,7 +84,7 @@ export function ContactsTile({ contacts }: ContactsTileProps) {
                 {contact.name}
               </p>
             ) : null}
-            <p className="truncate text-xs uppercase tracking-[0.12em] text-text-faint">
+            <p className="truncate text-xs uppercase tracking-eyebrow text-text-faint">
               {kindLabel(contact.kind)}
             </p>
             <div className="flex flex-wrap gap-2 pt-1">

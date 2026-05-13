@@ -231,7 +231,7 @@ export function NotesTile({
                   ].join(" ")}
                 >
                   <span className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
+                    <span className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
                       {entry.label}
                     </span>
                     {truncated ? (

@@ -187,7 +187,7 @@ export function Section({
   const headingClass =
     headingTone === "prominent"
       ? "text-lg font-semibold leading-tight tracking-tight text-text-strong"
-      : "text-xs font-medium uppercase tracking-[0.14em] text-text-faint";
+      : "text-xs font-medium uppercase tracking-eyebrow text-text-faint";
 
   // Resolve body element (caller override > variant default).
   const Body = bodyAs ?? VARIANT_BODY_DEFAULT[variant];

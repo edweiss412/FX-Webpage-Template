@@ -126,7 +126,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
             contain dates ("SENT 4/15") or ID numbers.
           */}
           <div className="flex flex-col gap-1">
-            <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">COI</dt>
+            <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">COI</dt>
             <dd
               data-testid="coi-status"
               className="text-sm font-semibold tabular-nums text-text-strong"
@@ -139,7 +139,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
           {venueNotes ? <KeyValue label="Venue notes" value={venueNotes} /> : null}
           {power ? (
             <div data-testid="power" className="flex flex-col gap-1">
-              <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
+              <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
                 Power
               </dt>
               <dd className="text-sm/snug text-text">{power}</dd>
@@ -147,7 +147,7 @@ export function ShowStatusTile({ show }: ShowStatusTileProps) {
           ) : null}
           {internet ? (
             <div data-testid="internet" className="flex flex-col gap-1">
-              <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">
+              <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
                 Internet
               </dt>
               <dd className="text-sm/snug text-text">{internet}</dd>

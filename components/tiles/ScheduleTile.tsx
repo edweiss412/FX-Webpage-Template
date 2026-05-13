@@ -222,7 +222,7 @@ export function ScheduleTile({ show, dateRestriction, today }: ScheduleTileProps
                   {formatIsoDate(day.date, "weekday-short")}
                 </time>
               </span>
-              <span className="text-xs uppercase tracking-[0.12em] text-text-faint">
+              <span className="text-xs uppercase tracking-eyebrow text-text-faint">
                 {day.phase}
               </span>
             </li>

@@ -71,6 +71,18 @@
   --font-weight-semibold: 600;
   --font-weight-bold: 700;
 
+  /*
+   * Letter-spacing tokens for uppercase eyebrow labels (M9 M4-D5
+   * consolidation). The C0 site sweep found four inline ems
+   * (0.12 / 0.14 / 0.18 / 0.22) used as small differences across
+   * eyebrow surfaces; consolidated to two values per DESIGN.md §2.
+   *   --tracking-eyebrow         standard eyebrow tracking
+   *   --tracking-eyebrow-strong  emphasis eyebrow (RightNowCard,
+   *                              Footer wordmark, Header crew tag)
+   */
+  --tracking-eyebrow: 0.12em;
+  --tracking-eyebrow-strong: 0.18em;
+
   /* ── Spacing ── */
   --spacing-tap-min: 44px;
   --spacing-tile-pad: 20px;

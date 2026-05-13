@@ -612,7 +612,7 @@ export function RightNowCard({ context }: RightNowCardProps) {
         data-state={state.kind}
         data-rendered-state={renderState.kind}
         data-treatment={treatment}
-        className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-accent-on-bg"
+        className="flex items-center gap-2 text-xs font-semibold uppercase tracking-eyebrow-strong text-accent-on-bg"
       >
         <span aria-hidden="true" className="inline-block size-1.5 rounded-pill bg-accent" />
         Right now

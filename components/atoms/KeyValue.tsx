@@ -95,7 +95,7 @@ export function KeyValue({ label, value, linkAs, tabular, emptyLabel }: KeyValue
   if (isMissing(value)) {
     return (
       <div className="flex flex-col gap-1">
-        <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">{label}</dt>
+        <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">{label}</dt>
         <dd>
           <EmptyState {...(emptyLabel !== undefined ? { label: emptyLabel } : {})} />
         </dd>
@@ -146,7 +146,7 @@ export function KeyValue({ label, value, linkAs, tabular, emptyLabel }: KeyValue
 
   return (
     <div className="flex flex-col gap-1">
-      <dt className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint">{label}</dt>
+      <dt className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">{label}</dt>
       <dd className="text-sm/snug">{renderedValue}</dd>
     </div>
   );

@@ -193,7 +193,7 @@ export function PackListTile({ pullSheet, show, stageRestriction, today }: PackL
                   <span className="truncate">{c.caseLabel || `Case ${idx + 1}`}</span>
                 </span>
                 <span className="flex items-center gap-2">
-                  <span className="text-xs font-medium uppercase tracking-[0.12em] text-text-faint tabular-nums">
+                  <span className="text-xs font-medium uppercase tracking-eyebrow text-text-faint tabular-nums">
                     {c.items.length} {c.items.length === 1 ? "item" : "items"}
                   </span>
                   {/*

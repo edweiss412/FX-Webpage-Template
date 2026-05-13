@@ -112,7 +112,7 @@ export function Footer({
             </p>
           )}
         </div>
-        <p className="font-semibold uppercase tracking-[0.18em] text-text-subtle">
+        <p className="font-semibold uppercase tracking-eyebrow-strong text-text-subtle">
           FXAV{" "}
           <span aria-hidden="true" className="font-regular text-text-faint">
             ·
