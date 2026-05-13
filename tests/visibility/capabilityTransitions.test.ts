@@ -121,12 +121,13 @@ describe("affectedTilesOnFlip(flipped, held, direction) — symmetric lookup", (
   });
 
   test("true→false swaps appears↔disappears", () => {
-    // Pick the hasLead × hasL1 entry — hasL1 has a non-empty appears
-    // delta that's a clean test of the swap invariant.
-    const trueToFalse = affectedTilesOnFlip("hasL1", "hasLead", "true_to_false");
+    // Pick the hasA1 × hasV1 entry — both are independent atomic flags
+    // with a non-empty appears delta. hasA1 unlocks AudioScopeTile when
+    // no LEAD is held, providing a clean test of the swap invariant.
+    const trueToFalse = affectedTilesOnFlip("hasA1", "hasV1", "true_to_false");
     expect(trueToFalse).toEqual({
       appears: [], // was disappears
-      disappears: ["LightingScopeTile"], // was appears
+      disappears: ["AudioScopeTile"], // was appears
     });
   });
 });
@@ -158,11 +159,20 @@ describe("Plan Step 4 worked examples — three compound cases", () => {
    * matrix records the SINGLE-PREDICATE delta — the compound is
    * exercised by composing the two flip lookups.
    *
-   * hasLead true→false (with hasL1=false): Financials, Audio, Video
-   * disappear.
-   * hasL1 false→true (with hasLead=false): Lighting appears.
+   * Post-amendment (§8.1, 2026-05-13): LEAD unlocks Lighting. The
+   * matrix's single-flip deltas now reflect that Lighting is jointly
+   * unlocked by hasLead OR hasL1; flipping either with the other held
+   * has a CONDITIONAL effect on Lighting. The definitive delta records
+   * only the unconditional effects:
+   *
+   *   hasLead true→false (with hasL1 held): Financials, Audio, Video
+   *     disappear unconditionally. Lighting depends on hasL1, so not
+   *     in the definitive delta.
+   *   hasL1 false→true (with hasLead held): Lighting depends on hasLead
+   *     (already visible if hasLead true, appears if hasLead false), so
+   *     the definitive delta is empty.
    */
-  test("['LEAD'] → ['L1']: composed deltas — 3 disappear, 1 appears", () => {
+  test("['LEAD'] → ['L1']: composed deltas — Fin/Audio/Video definitively disappear; Lighting conditional", () => {
     const leadDelta = affectedTilesOnFlip("hasLead", "hasL1", "true_to_false");
     const l1Delta = affectedTilesOnFlip("hasL1", "hasLead", "false_to_true");
     expect(leadDelta).toEqual({
@@ -170,7 +180,7 @@ describe("Plan Step 4 worked examples — three compound cases", () => {
       disappears: ["FinancialsTile", "AudioScopeTile", "VideoScopeTile"],
     });
     expect(l1Delta).toEqual({
-      appears: ["LightingScopeTile"],
+      appears: [],
       disappears: [],
     });
   });
@@ -235,11 +245,16 @@ describe("Plan Step 4 worked examples — three compound cases", () => {
     const after = visibleGatedTiles(["V1"]);
 
     // BEFORE: LEAD unlocks Financials + Audio (LEAD branch) + Video
-    // (LEAD branch). A1 also unlocks Audio (already unlocked). L1 not
-    // present → no Lighting.
-    expect(before).toEqual(["FinancialsTile", "AudioScopeTile", "VideoScopeTile"]);
-    // AFTER: V1 unlocks Video only. No LEAD → no Financials, no Audio.
-    // No L1 → no Lighting.
+    // (LEAD branch) + Lighting (§8.1 amendment 2026-05-13: LEAD reads-in
+    // to Lighting). A1 also unlocks Audio (already unlocked).
+    expect(before).toEqual([
+      "FinancialsTile",
+      "AudioScopeTile",
+      "VideoScopeTile",
+      "LightingScopeTile",
+    ]);
+    // AFTER: V1 unlocks Video only. No LEAD → no Financials, no Audio,
+    // no Lighting. No L1 → no Lighting via atomic branch either.
     expect(after).toEqual(["VideoScopeTile"]);
 
     // Compute the net delta: which tiles appear / disappear net.
@@ -248,7 +263,7 @@ describe("Plan Step 4 worked examples — three compound cases", () => {
     const appears: GatedTile[] = after.filter((t) => !beforeSet.has(t));
     const disappears: GatedTile[] = before.filter((t) => !afterSet.has(t));
     expect(appears).toEqual([]);
-    expect(disappears).toEqual(["FinancialsTile", "AudioScopeTile"]);
+    expect(disappears).toEqual(["FinancialsTile", "AudioScopeTile", "LightingScopeTile"]);
 
     // No-flicker invariant: VideoScopeTile is in BOTH sets. Its REASON
     // for being visible shifted (LEAD branch → V1 branch) but its

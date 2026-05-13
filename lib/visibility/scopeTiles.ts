@@ -30,12 +30,14 @@
  *   greps this file for the words "freshly" and "role_flags" — those
  *   anchors keep the contract visible.
  *
- * Spec §8.1 mapping (verbatim plan lines 343-355):
+ * Spec §8.1 mapping (post-amendment 2026-05-13):
  *   audioScopeVisible    → A1, A2, or LEAD
  *   videoScopeVisible    → V1 or LEAD
- *   lightingScopeVisible → L1 ONLY (LEAD intentionally NOT included —
- *                          spec §8.1 says lighting is a discipline
- *                          LEADs don't manage hands-on)
+ *   lightingScopeVisible → L1 or LEAD (§8.1 amended 2026-05-13: LEAD
+ *                          now reads-in to Lighting scope, symmetric
+ *                          with Audio and Video — LEADs need visibility
+ *                          into lighting scope details even when not
+ *                          managing hands-on)
  *   financialsVisible    → admin OR LEAD (load-bearing for FinancialsTile
  *                          in Task 4.8 + the transition-audit gate in
  *                          Task 4.12)
@@ -51,8 +53,8 @@ import type { RoleFlag, TransportationRow } from "@/lib/parser/types";
  * The page mounts every scope tile for an admin viewer (kind: 'admin'
  * has no specific crew row, so admins are super-LEADs per §4.4). The
  * scope-tile predicates already accept this — A1 unlocks audio, V1
- * unlocks video, L1 unlocks lighting, LEAD adds defense-in-depth for
- * any future predicate that gates on it. Centralizing the array here
+ * unlocks video, L1 unlocks lighting (LEAD also unlocks lighting
+ * post-§8.1 amendment 2026-05-13). Centralizing the array here
  * (instead of an inline magic-string literal in `page.tsx`) means a
  * future scope-tile addition only needs to add its unlocking flag here.
  *
@@ -95,20 +97,20 @@ export function videoScopeVisible(flags: RoleFlag[]): boolean {
 }
 
 /**
- * Lighting scope tile visibility (§8.1).
+ * Lighting scope tile visibility (§8.1, amended 2026-05-13).
  *
  * The viewer sees the Lighting scope tile when their freshly-derived
- * role_flags contain L1. **LEAD is INTENTIONALLY NOT INCLUDED** — spec
- * §8.1 carves lighting out as a discipline LEADs don't manage hands-on.
- * A LEAD-only viewer (no L1 atomic flag) sees Audio + Video + Financials
- * but NOT Lighting. A LEAD+L1 compound viewer sees Lighting via the
- * atomic flag.
+ * role_flags contain ANY of: L1, LEAD. Symmetric with `audioScopeVisible`
+ * and `videoScopeVisible` post-amendment — LEADs need read-in to
+ * lighting scope details even when not managing the discipline hands-on.
  *
- * Do NOT add `flags.includes("LEAD")` here without revising the spec
- * and the §8.1 documentation in tandem — the asymmetry is the point.
+ * Amendment history: prior to 2026-05-13 the spec carved Lighting out
+ * as LEAD-excluded ("a discipline LEADs don't manage hands-on"). The
+ * exclusion was reversed because LEADs need lighting visibility to
+ * coordinate across disciplines; the AVL triad is now symmetric.
  */
 export function lightingScopeVisible(flags: RoleFlag[]): boolean {
-  return flags.includes("L1");
+  return flags.includes("L1") || flags.includes("LEAD");
 }
 
 /**

@@ -6,10 +6,9 @@
  * (`lightingScopeVisible`), data field (`room.lighting`), heading, and
  * testIds.
  *
- * IMPORTANT — visibility asymmetry: lightingScopeVisible returns true ONLY
- * for L1, NOT for LEAD. Spec §8.1 carves lighting out as a discipline
- * LEADs don't manage hands-on. A LEAD-only viewer (no L1 atomic flag)
- * sees Audio + Video + Financials but NOT Lighting.
+ * Visibility (§8.1 amended 2026-05-13): lightingScopeVisible returns true
+ * for L1 OR LEAD — symmetric with AudioScopeTile and VideoScopeTile.
+ * A LEAD-only viewer sees Audio + Video + Lighting + Financials.
  *
  * Server Component (no `'use client'`).
  */

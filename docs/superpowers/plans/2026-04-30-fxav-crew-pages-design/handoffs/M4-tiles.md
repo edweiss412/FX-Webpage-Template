@@ -107,7 +107,7 @@ M4 has not yet been implemented; no prior convergence log exists. Watchpoints be
 
 6. **Cross-show binding fail-closed.** `getShowForViewer` lookup binds BOTH `id` AND `show_id` against `crew_members`. A `crewMemberId` from a different show throws `LINK_NO_CREW_MATCH` (§7.2.2 step 5; spec §12.4). Cross-show seed regression test mandatory.
 
-7. **Canonical SCOPE_TILE_VISIBILITY_RULE** (Task 4.6, §8.1). Single source of truth at `lib/visibility/scopeTiles.ts`: `audioScopeVisible = hasA1 || hasLead`, `videoScopeVisible = hasV1 || hasLead`, `lightingScopeVisible = hasL1` (LEAD intentionally excluded). NO ad-hoc inline `viewerRole === 'LEAD'` checks anywhere. Task 4.12's transition matrix imports the predicates — no inline rule restatement.
+7. **Canonical SCOPE_TILE_VISIBILITY_RULE** (Task 4.6, §8.1, amended 2026-05-13). Single source of truth at `lib/visibility/scopeTiles.ts`: `audioScopeVisible = hasA1 || hasLead`, `videoScopeVisible = hasV1 || hasLead`, `lightingScopeVisible = hasL1 || hasLead` (post-amendment: AVL triad is uniform; LEAD reads-in to Lighting). NO ad-hoc inline `viewerRole === 'LEAD'` checks anywhere. Task 4.12's transition matrix imports the predicates — no inline rule restatement.
 
 8. **End-to-end `assigned_names` contract** (Task 4.7). The field flows parser → seed → persistence (Phase-2 JSONB write) → `getShowForViewer` projection → TransportTile predicate. Layer-spanning fixture test required: any layer that strips it silently breaks branch-2 visibility. The `getShowForViewer` projection regression test (Task 4.3) is the upstream check; the TransportTile end-to-end test (Task 4.7) is the downstream check.
 

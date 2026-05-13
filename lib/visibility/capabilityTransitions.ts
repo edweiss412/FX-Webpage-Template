@@ -11,8 +11,9 @@
  *                  AudioScopeTile (via the `flags.includes('LEAD')`
  *                  branch of `audioScopeVisible`) + VideoScopeTile
  *                  (via the `flags.includes('LEAD')` branch of
- *                  `videoScopeVisible`). LightingScopeTile is
- *                  INTENTIONALLY NOT unlocked by LEAD per §8.1.
+ *                  `videoScopeVisible`) + LightingScopeTile (via the
+ *                  LEAD branch of `lightingScopeVisible` post-§8.1
+ *                  amendment 2026-05-13).
  *   • `hasA1`    → `flags.includes('A1') || flags.includes('A2')`.
  *                  Unlocks AudioScopeTile via the A1/A2 branch.
  *   • `hasV1`    → `flags.includes('V1')`. Unlocks VideoScopeTile via
@@ -119,7 +120,7 @@ export interface TileVisibilityDelta {
  *
  *   audioScopeVisible    = A1 || A2 || LEAD       (so flip(hasA1) toggles audio iff LEAD is false; flip(hasLead) toggles audio iff hasA1 is false)
  *   videoScopeVisible    = V1 || LEAD              (so flip(hasV1) toggles video iff LEAD is false; flip(hasLead) toggles video iff hasV1 is false)
- *   lightingScopeVisible = L1                       (LEAD intentionally NOT included)
+ *   lightingScopeVisible = L1 || LEAD              (§8.1 amended 2026-05-13: LEAD now reads-in to Lighting; flip(hasL1) toggles lighting iff LEAD is false; flip(hasLead) toggles lighting iff hasL1 is false)
  *   financialsVisible    = isAdmin || LEAD          (LEAD-or-admin)
  *
  * For each pair, the delta records the tiles that DEFINITIVELY change
@@ -166,15 +167,23 @@ export const CAPABILITY_TRANSITION_MATRIX: CapabilityTransitionEntry[] = [
   {
     a: "hasLead",
     b: "hasL1",
+    // hasLead flip definitively toggles Financials + Audio + Video.
+    // Lighting is now also unlocked by hasLead (§8.1 amendment
+    // 2026-05-13) but its visibility depends on hasL1 — if hasL1 is
+    // held true, Lighting was already visible; if held false, hasLead
+    // flip toggles it. Per the matrix convention (definitive deltas
+    // only), Lighting is NOT recorded here.
     aFlipDelta: {
       appears: ["FinancialsTile", "AudioScopeTile", "VideoScopeTile"],
       disappears: [],
     },
-    // hasL1 unconditionally toggles LightingScopeTile (LEAD never
-    // unlocks lighting per §8.1).
-    bFlipDelta: { appears: ["LightingScopeTile"], disappears: [] },
+    // hasL1 flip is no longer unconditional post-§8.1 amendment — if
+    // hasLead is held true, Lighting was already visible via the LEAD
+    // branch. Definitive delta is empty; the conditional case is
+    // covered by the composed-flip tests.
+    bFlipDelta: { appears: [], disappears: [] },
     reason:
-      "hasLead unlocks Financials + Audio + Video. hasL1 ALONE unlocks LightingScopeTile (LEAD intentionally NOT included per §8.1, so the L1 flip delta is unconditional regardless of hasLead).",
+      "hasLead unlocks Financials + Audio + Video unconditionally. Lighting is jointly unlocked by hasLead || hasL1 (§8.1 amended 2026-05-13); per the matrix convention only definitive deltas are recorded, so Lighting appears in neither side here — its conditional unlock is exercised by the composed-flip tests.",
   },
   // ── hasLead × hasAdmin ────────────────────────────────────────────
   {
@@ -210,7 +219,7 @@ export const CAPABILITY_TRANSITION_MATRIX: CapabilityTransitionEntry[] = [
     aFlipDelta: { appears: ["AudioScopeTile"], disappears: [] },
     bFlipDelta: { appears: ["LightingScopeTile"], disappears: [] },
     reason:
-      "Independent atomic flags. hasA1 unlocks Audio; hasL1 unlocks Lighting (LEAD never gates lighting).",
+      "Independent atomic flags evaluated against the no-LEAD-no-admin viewer (matrix convention). hasA1 unlocks Audio; hasL1 unlocks Lighting. LEAD-compound interactions on Lighting are covered by the hasLead × hasL1 entry post-§8.1 amendment 2026-05-13.",
   },
   // ── hasA1 × hasAdmin ──────────────────────────────────────────────
   {

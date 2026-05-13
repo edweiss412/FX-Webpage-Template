@@ -6,8 +6,10 @@
  *
  *   audioScopeVisible(flags)    → true iff flags has A1, A2, or LEAD
  *   videoScopeVisible(flags)    → true iff flags has V1 or LEAD
- *   lightingScopeVisible(flags) → true iff flags has L1
- *                                 (LEAD INTENTIONALLY NOT included — §8.1)
+ *   lightingScopeVisible(flags) → true iff flags has L1 or LEAD
+ *                                 (§8.1 amended 2026-05-13: LEAD now
+ *                                  reads-in to Lighting scope, symmetric
+ *                                  with Audio and Video)
  *   financialsVisible(flags, isAdmin)
  *                               → true iff isAdmin OR flags has LEAD
  *
@@ -88,21 +90,21 @@ describe("scope-tile visibility predicates (Task 4.6)", () => {
     expect(lightingScopeVisible(flags)).toBe(true);
   });
 
-  test("['LEAD'] viewer → Audio AND Video visible; Lighting hidden (LEAD does NOT include L1)", () => {
+  test("['LEAD'] viewer → Audio AND Video AND Lighting visible (§8.1 amendment 2026-05-13: LEAD reads-in to all three scope tiles)", () => {
     const flags: RoleFlag[] = ["LEAD"];
     expect(audioScopeVisible(flags)).toBe(true);
     expect(videoScopeVisible(flags)).toBe(true);
-    expect(lightingScopeVisible(flags)).toBe(false);
+    expect(lightingScopeVisible(flags)).toBe(true);
   });
 
-  test("['LEAD','A1'] viewer → Audio AND Video visible; Lighting hidden (compound)", () => {
+  test("['LEAD','A1'] viewer → Audio AND Video AND Lighting visible (compound; LEAD unlocks Lighting per §8.1 amendment)", () => {
     const flags: RoleFlag[] = ["LEAD", "A1"];
     expect(audioScopeVisible(flags)).toBe(true);
     expect(videoScopeVisible(flags)).toBe(true);
-    expect(lightingScopeVisible(flags)).toBe(false);
+    expect(lightingScopeVisible(flags)).toBe(true);
   });
 
-  test("['LEAD','L1'] viewer → Audio AND Video AND Lighting visible (Lighting from L1, not LEAD)", () => {
+  test("['LEAD','L1'] viewer → Audio AND Video AND Lighting visible (Lighting unlocked by either LEAD or L1)", () => {
     const flags: RoleFlag[] = ["LEAD", "L1"];
     expect(audioScopeVisible(flags)).toBe(true);
     expect(videoScopeVisible(flags)).toBe(true);

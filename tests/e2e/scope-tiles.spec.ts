@@ -12,9 +12,9 @@
  *   ['A1']        → audio visible; video + lighting hidden
  *   ['V1']        → video visible; audio + lighting hidden
  *   ['L1']        → lighting visible; audio + video hidden
- *   ['LEAD']      → audio + video visible; lighting hidden
- *   ['LEAD','A1'] → audio + video visible; lighting hidden
- *   ['LEAD','L1'] → audio + video + lighting visible (Lighting from L1)
+ *   ['LEAD']      → audio + video + lighting visible (§8.1 amendment 2026-05-13)
+ *   ['LEAD','A1'] → audio + video + lighting visible
+ *   ['LEAD','L1'] → audio + video + lighting visible (Lighting from either branch)
  *
  * The seeded Waldorf show provides a LEAD crew member; we mutate their
  * `role_flags` between tests to drive each case, then revert in afterEach.
@@ -176,26 +176,27 @@ test.describe.skip("crew page — AVL scope tiles (Task 4.6, §8.1)", () => {
     await expect(page.getByTestId("video-scope-tile")).toHaveCount(0);
   });
 
-  test("['LEAD'] viewer → Audio + Video visible; Lighting hidden", async ({ page }) => {
+  test("['LEAD'] viewer → Audio + Video + Lighting visible (§8.1 amendment 2026-05-13)", async ({
+    page,
+  }) => {
     await setRoleFlags(seeded.leadCrewId, ["LEAD"]);
     const r = await page.goto(`/show/${seeded.slug}?crew=${seeded.leadCrewId}`);
     expect(r?.status()).toBe(200);
 
     await expect(page.getByTestId("audio-scope-tile")).toBeVisible();
     await expect(page.getByTestId("video-scope-tile")).toBeVisible();
-    await expect(page.getByTestId("lighting-scope-tile")).toHaveCount(0);
+    await expect(page.getByTestId("lighting-scope-tile")).toBeVisible();
+    await expect(page.getByTestId("lighting-scope-tile")).toContainText(/Lighting:/);
   });
 
-  test("['LEAD','A1'] compound viewer → Audio + Video visible; Lighting hidden", async ({
-    page,
-  }) => {
+  test("['LEAD','A1'] compound viewer → Audio + Video + Lighting visible", async ({ page }) => {
     await setRoleFlags(seeded.leadCrewId, ["LEAD", "A1"]);
     const r = await page.goto(`/show/${seeded.slug}?crew=${seeded.leadCrewId}`);
     expect(r?.status()).toBe(200);
 
     await expect(page.getByTestId("audio-scope-tile")).toBeVisible();
     await expect(page.getByTestId("video-scope-tile")).toBeVisible();
-    await expect(page.getByTestId("lighting-scope-tile")).toHaveCount(0);
+    await expect(page.getByTestId("lighting-scope-tile")).toBeVisible();
   });
 
   test("['LEAD','L1'] compound viewer → Audio + Video + Lighting visible (Lighting from L1)", async ({

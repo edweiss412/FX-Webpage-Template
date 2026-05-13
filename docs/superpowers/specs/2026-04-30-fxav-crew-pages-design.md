@@ -2372,9 +2372,11 @@ The bridge renders nothing (`return null`); on subscription failure it logs a wa
 
 - `audioScopeVisible = hasA1 || hasLead` — LEAD is scope-tile-eligible on Audio per §8.1.
 - `videoScopeVisible = hasV1 || hasLead` — LEAD is scope-tile-eligible on Video per §8.1.
-- `lightingScopeVisible = hasL1` — LEAD is **NOT** scope-tile-eligible on Lighting (operational separation: lighting is a discipline LEADs don't manage hands-on).
+- `lightingScopeVisible = hasL1 || hasLead` — LEAD is scope-tile-eligible on Lighting per §8.1 (amended 2026-05-13; see Amendment §8.1-A1 below).
 
-`hasA1`, `hasV1`, `hasL1`, `hasLead` are atomic-flag predicates over `crew_members.role_flags[]` per §6.6 (`hasA1 = role_flags.includes('A1') || role_flags.includes('A2')`, etc.). Compound viewers like `['LEAD','A1']` get Audio + Financials + (Video by virtue of LEAD). LEAD-only viewers (`['LEAD']`) see Financials AND Audio AND Video scope tiles unconditionally — they do NOT see the Lighting scope tile.
+> **Amendment §8.1-A1 (ratified 2026-05-13):** The Lighting scope tile is now LEAD-readable, symmetric with Audio and Video. The original rule excluded LEAD ("lighting is a discipline LEADs don't manage hands-on"), but LEADs need read-in to lighting scope details to coordinate across disciplines — the operational-separation rationale did not survive review. The AVL triad is now uniformly `hasX || hasLead`. Code (`lib/visibility/scopeTiles.ts:lightingScopeVisible`), unit tests (`tests/visibility/scopeTiles.test.ts`), the capability-flip matrix (`lib/visibility/capabilityTransitions.ts` `hasLead × hasL1` entry), and the e2e suite (`tests/e2e/scope-tiles.spec.ts`) all reflect the amendment. The matrix's single-flip definitive deltas for hasLead and hasL1 are now both empty on the Lighting axis (Lighting is jointly unlocked, conditionally on the held predicate); the composed-flip tests cover the actual visibility transitions.
+
+`hasA1`, `hasV1`, `hasL1`, `hasLead` are atomic-flag predicates over `crew_members.role_flags[]` per §6.6 (`hasA1 = role_flags.includes('A1') || role_flags.includes('A2')`, etc.). Compound viewers like `['LEAD','A1']` get Audio + Video + Lighting + Financials. LEAD-only viewers (`['LEAD']`) see Audio AND Video AND Lighting scope tiles AND Financials unconditionally.
 
 - **Audio scope tile** — visible per `audioScopeVisible`. Aggregates `rooms[*].audio` across GS, breakouts, additional rooms.
 - **Video scope tile** — visible per `videoScopeVisible`. Same for `rooms[*].video`.
