@@ -131,6 +131,28 @@ function simulateScale(scale: number): void {
   });
 }
 
+/**
+ * Simulates the FULL gesture lifecycle: emit a scale frame via
+ * useTransformEffect AND trigger the wrapper's onPinchStop callback.
+ * This mirrors what react-zoom-pan-pinch does at the end of a real
+ * pinch gesture (or wheel/zoom completion), which the lightbox
+ * relies on to sync requestedScaleRef (Codex R8). Tests that need
+ * to put the lightbox into a "user-just-zoomed-to-N" state must
+ * use this helper, not bare simulateScale.
+ */
+function simulateGestureEnd(scale: number): void {
+  act(() => {
+    for (const cb of libState.scaleListeners) {
+      cb({ state: { scale } });
+    }
+    const props = libState.lastWrapperProps;
+    const onPinchStop = props?.onPinchStop as
+      | ((ref: { state: { scale: number } }) => void)
+      | undefined;
+    if (onPinchStop) onPinchStop({ state: { scale } });
+  });
+}
+
 // React is imported via dynamic import inside the mock factory
 // because vi.mock hoists above other imports — eager top-level
 // import would race the mock registration. The factory runs after
@@ -585,6 +607,38 @@ describe("M9 C6c — Keyboard map (lightbox-owned; library v4 has no keyEvents p
     expect(libState.recenterViewCalls).toBeGreaterThanOrEqual(1);
   });
 
+  test("Codex R8 HIGH: rapid '+' '+' during animation window computes from requestedScaleRef, not animated intermediate scale", () => {
+    // Production bug shape (before R8): keyboard handler computed
+    // target from activeScale (React state), which lagged behind
+    // the user's last requested target during the library's
+    // animation. After R8, requestedScaleRef tracks the LAST
+    // REQUESTED target; animation-frame transform events update
+    // activeScale (for chrome/live-region) but NOT
+    // requestedScaleRef.
+    render(
+      <GalleryLightbox
+        showId={SHOW_ID}
+        snapshotRevisionId={REV}
+        items={items(3)}
+        startIndex={0}
+        onClose={() => {}}
+      />,
+    );
+    // First +: requestedScaleRef 1 → 1.5, library animates.
+    fireEvent.keyDown(window, { key: "+" });
+    expect(libState.centerViewCalls).toHaveLength(1);
+    expect(libState.centerViewCalls[0]?.scale).toBeCloseTo(1.5, 6);
+    // Simulate the library mid-animation: a transform frame fires
+    // with scale=1.12 (representative of an in-flight value
+    // between 1.0 and 1.5).
+    simulateScale(1.12);
+    // Second +: must compute from requestedScaleRef (1.5), not
+    // activeScale (1.12). Target should be 2.0, not 1.62.
+    fireEvent.keyDown(window, { key: "+" });
+    expect(libState.centerViewCalls).toHaveLength(2);
+    expect(libState.centerViewCalls[1]?.scale).toBeCloseTo(2.0, 6);
+  });
+
   test("Codex R6 HIGH: '+' from scale=1 invokes setTransform with target=1.5 (LINEAR +0.5, not library's exp math)", () => {
     render(
       <GalleryLightbox
@@ -615,7 +669,9 @@ describe("M9 C6c — Keyboard map (lightbox-owned; library v4 has no keyEvents p
         onClose={() => {}}
       />,
     );
-    simulateScale(4);
+    // simulateGestureEnd (not bare simulateScale) so requestedScaleRef
+    // syncs to 4 via onPinchStop — mirrors real user pinching to 4x.
+    simulateGestureEnd(4);
     fireEvent.keyDown(window, { key: "-" });
     expect(libState.centerViewCalls).toHaveLength(1);
     expect(libState.centerViewCalls[0]?.scale).toBeCloseTo(3.5, 6);
@@ -634,7 +690,7 @@ describe("M9 C6c — Keyboard map (lightbox-owned; library v4 has no keyEvents p
         onClose={() => {}}
       />,
     );
-    simulateScale(4);
+    simulateGestureEnd(4);
     fireEvent.keyDown(window, { key: "+" });
     // setScale clamps target to 4; already at 4, so no setTransform call.
     expect(libState.centerViewCalls).toHaveLength(0);
@@ -816,7 +872,8 @@ describe("M9 C6c — Codex R3 HIGH: reduced-motion threads animationTime=0 throu
         onClose={() => {}}
       />,
     );
-    simulateScale(3);
+    // simulateGestureEnd syncs requestedScaleRef to 3 via onPinchStop.
+    simulateGestureEnd(3);
     fireEvent.keyDown(window, { key: "-" });
     expect(libState.centerViewCalls).toHaveLength(1);
     expect(libState.centerViewCalls[0]?.animationTime).toBe(0);

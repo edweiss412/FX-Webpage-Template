@@ -192,6 +192,17 @@ export function GalleryLightbox({
   // shortcuts (+/-/0) call through this. See the ZoomController
   // comment above for why the lightbox owns the full keymap.
   const controlsSlotRef = useRef<ZoomControls | null>(null);
+  // Codex R8 HIGH: the library's animated centerView/resetTransform
+  // publishes intermediate scale values per animation frame BEFORE
+  // settling at the target. activeScale (the lifted React state)
+  // reflects whatever frame React last committed, which may lag the
+  // user's last requested target. Rapid +/- keystrokes computed
+  // from activeScale would compound the wrong base (e.g., 1.12 +
+  // 0.5 instead of the intended 1.5 + 0.5). requestedScaleRef holds
+  // the LAST USER-REQUESTED target; +/- compute the next target from
+  // this ref, decoupling keyboard intent from animation timing. The
+  // gesture path is unaffected — pinch/wheel still drive activeScale.
+  const requestedScaleRef = useRef(1);
 
   useEffect(() => {
     if (!emblaApi) return;
@@ -201,8 +212,10 @@ export function GalleryLightbox({
       // previous slide's TransformWrapper unmounts when we re-key on
       // activeIndex, so its scale state is gone — but we also need
       // the lightbox's lifted scale to drop back to 1 immediately so
-      // the chrome (Reset chip, live region, keyEvents) tracks.
+      // the chrome (Reset chip, live region) tracks. requestedScaleRef
+      // also resets so the next keyboard +/- bases targets on 1.
       setActiveScale(1);
+      requestedScaleRef.current = 1;
     }
     emblaApi.on("select", onSelect);
     return () => {
@@ -301,19 +314,26 @@ export function GalleryLightbox({
       }
       if (!dialogRef.current?.contains(document.activeElement)) return;
       if (e.key === "0") {
+        requestedScaleRef.current = 1;
         controlsSlotRef.current?.resetTransform();
         return;
       }
       if (e.key === "+" || e.key === "=") {
-        // Linear +0.5 step on the lifted scale. setScale clamps to
-        // [1, 4] internally so we don't need to here. Reading
-        // activeScale (rendered state) is fine because keystrokes
-        // come in human-time, after React commits.
-        controlsSlotRef.current?.setScale(activeScale + 0.5);
+        // Codex R8: compute next target from requestedScaleRef (last
+        // user intent), not activeScale (in-flight animation frame).
+        // Clamp to [1, 4] mirrors setScale's internal clamp so the
+        // ref stays consistent at the boundary.
+        const next = Math.max(1, Math.min(4, requestedScaleRef.current + 0.5));
+        if (next === requestedScaleRef.current) return;
+        requestedScaleRef.current = next;
+        controlsSlotRef.current?.setScale(next);
         return;
       }
       if (e.key === "-" || e.key === "_") {
-        controlsSlotRef.current?.setScale(activeScale - 0.5);
+        const next = Math.max(1, Math.min(4, requestedScaleRef.current - 0.5));
+        if (next === requestedScaleRef.current) return;
+        requestedScaleRef.current = next;
+        controlsSlotRef.current?.setScale(next);
         return;
       }
       if (e.key === "ArrowLeft") scrollPrev();
@@ -433,8 +453,11 @@ export function GalleryLightbox({
                 // Audit P1-A: move focus to the close button BEFORE
                 // unmounting the chip via resetTransform. Otherwise
                 // focus falls to document.body and the user has to
-                // Tab back into the dialog.
+                // Tab back into the dialog. Codex R8: also reset
+                // requestedScaleRef so the next keyboard +/- starts
+                // from 1.
                 closeRef.current?.focus();
+                requestedScaleRef.current = 1;
                 controlsSlotRef.current?.resetTransform();
               }}
               aria-label="Reset zoom"
@@ -486,6 +509,21 @@ export function GalleryLightbox({
                         // setScale already calls centerView; this
                         // covers the gesture path symmetrically.
                         centerZoomedOut={true}
+                        // Codex R8: sync requestedScaleRef to the
+                        // library's final scale at the end of a
+                        // user-driven gesture (pinch, wheel, zoom).
+                        // Without this, pressing + after pinching to
+                        // 3x would target 1.5x because the keyboard
+                        // handler bases targets on requestedScaleRef.
+                        onPinchStop={(ref) => {
+                          requestedScaleRef.current = ref.state.scale;
+                        }}
+                        onZoomStop={(ref) => {
+                          requestedScaleRef.current = ref.state.scale;
+                        }}
+                        onWheelStop={(ref) => {
+                          requestedScaleRef.current = ref.state.scale;
+                        }}
                         smooth={!prefersReducedMotion}
                         // Codex R5 HIGH: library's `toggle` mode uses
                         // exponential button-zoom math (scale *
@@ -617,6 +655,12 @@ export function GalleryLightbox({
                               ) {
                                 closeRef.current?.focus();
                               }
+                              // Codex R8: reset requestedScaleRef on
+                              // error path so the next keyboard +/-
+                              // (after the placeholder renders and
+                              // user perhaps navigates to a working
+                              // diagram) starts from 1.
+                              requestedScaleRef.current = 1;
                               controlsSlotRef.current?.resetTransform();
                               setActiveScale(1);
                               setFailedKeys((prev) => {
