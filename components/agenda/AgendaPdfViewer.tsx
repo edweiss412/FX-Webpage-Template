@@ -189,10 +189,16 @@ export function AgendaPdfViewer({ src }: AgendaPdfViewerProps) {
           className="flex flex-col items-center gap-3 py-8 text-text-subtle"
         >
           <p className="text-sm">
-            {errorCode
-              ? (messageFor(errorCode).crewFacing ??
-                "Couldn’t open the agenda right now.")
-              : "Couldn’t open the agenda right now."}
+            {/*
+              Always catalog-bound. Before the HEAD probe settles
+              errorCode is null; we render AGENDA_ASSET_LOOKUP_FAILED's
+              crew copy as the catalog-bound default so the alert
+              never contains an inline literal even momentarily
+              (M9 C6 R2 finding). Once the probe resolves errorCode
+              switches to AGENDA_GONE_FOR_CREW / AGENDA_UNAUTHENTICATED
+              for the recoverable variants.
+            */}
+            {messageFor(errorCode ?? "AGENDA_ASSET_LOOKUP_FAILED").crewFacing}
           </p>
           <button
             type="button"
