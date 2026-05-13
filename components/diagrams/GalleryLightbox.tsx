@@ -106,12 +106,12 @@ function ZoomController({
   prefersReducedMotion: boolean;
 }) {
   const controls = useControls();
-  // Keep latest transform state in a ref so setScale can read x/y
+  // Keep latest scale in a ref so setScale can compare against it
   // synchronously when the user presses + or -.
-  const transformStateRef = useRef({ scale: 1, positionX: 0, positionY: 0 });
+  const transformScaleRef = useRef(1);
   useEffect(() => {
     // Codex R3 HIGH: library v4.0.3 control functions default to
-    // animated durations (200ms reset, 300ms setTransform). Under
+    // animated durations (200ms reset, 300ms zoom). Under
     // prefers-reduced-motion the brief calls for instant scale
     // changes. Pass animationTime=0 so the imperative path mirrors
     // the gesture path (smooth=false + velocityAnimation.disabled).
@@ -119,13 +119,16 @@ function ZoomController({
     controlsSlotRef.current = {
       resetTransform: () => controls.resetTransform(animTime),
       setScale: (target: number) => {
-        // Clamp to [minScale=1, maxScale=4]; the library will also
-        // clamp internally but doing it here avoids no-op
-        // setTransform calls at the boundary.
+        // Codex R7 HIGH: an earlier attempt used setTransform(x, y,
+        // target, animTime) carrying the prior pan offset. The
+        // library's setTransform does NOT apply limitToBounds, so
+        // a 4x pan-to-edge → keyboard down to 1x left the content
+        // translated off-screen at fit-to-screen. centerView
+        // (re)centers AND scales atomically, naturally producing
+        // a centered fit-to-screen at scale=1.
         const clamped = Math.max(1, Math.min(4, target));
-        const s = transformStateRef.current;
-        if (clamped === s.scale) return;
-        controls.setTransform(s.positionX, s.positionY, clamped, animTime);
+        if (clamped === transformScaleRef.current) return;
+        controls.centerView(clamped, animTime);
       },
     };
     return () => {
@@ -135,11 +138,7 @@ function ZoomController({
     };
   }, [controls, controlsSlotRef, prefersReducedMotion]);
   useTransformEffect(({ state }) => {
-    transformStateRef.current = {
-      scale: state.scale,
-      positionX: state.positionX,
-      positionY: state.positionY,
-    };
+    transformScaleRef.current = state.scale;
     onScaleChange(state.scale);
   });
   return null;
@@ -480,6 +479,13 @@ export function GalleryLightbox({
                         initialScale={1}
                         limitToBounds={true}
                         centerOnInit={true}
+                        // Codex R7 defense-in-depth: auto-recenter
+                        // when the user zooms out (gesture path), so
+                        // a 4x pan-to-corner pinch-out never leaves
+                        // the image at a stale translated position.
+                        // setScale already calls centerView; this
+                        // covers the gesture path symmetrically.
+                        centerZoomedOut={true}
                         smooth={!prefersReducedMotion}
                         // Codex R5 HIGH: library's `toggle` mode uses
                         // exponential button-zoom math (scale *

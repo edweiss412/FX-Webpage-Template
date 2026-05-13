@@ -90,18 +90,16 @@ beforeAll(() => {
 // stateful so reset between tests in beforeEach.
 type TransformEffectCb = (snap: { state: { scale: number } }) => void;
 
-interface SetTransformCall {
-  positionX: number;
-  positionY: number;
+interface CenterViewCall {
   scale: number;
   animationTime: number | undefined;
 }
 
 interface LibTestState {
   scaleListeners: TransformEffectCb[];
-  resetTransformCalls: number;
+  recenterViewCalls: number;
   resetTransformAnimTimes: Array<number | undefined>;
-  setTransformCalls: SetTransformCall[];
+  centerViewCalls: CenterViewCall[];
   lastWrapperProps: Record<string, unknown> | null;
   // When true, the mock's resetTransform records the call but does
   // NOT emit a scale=1 listener callback. Used to test that the
@@ -114,9 +112,9 @@ interface LibTestState {
 
 const libState: LibTestState = {
   scaleListeners: [],
-  resetTransformCalls: 0,
+  recenterViewCalls: 0,
   resetTransformAnimTimes: [],
-  setTransformCalls: [],
+  centerViewCalls: [],
   lastWrapperProps: null,
   silenceResetTransform: false,
 };
@@ -169,7 +167,7 @@ vi.mock("react-zoom-pan-pinch", async () => {
   function useControls() {
     return {
       resetTransform: (animationTime?: number) => {
-        libState.resetTransformCalls += 1;
+        libState.recenterViewCalls += 1;
         libState.resetTransformAnimTimes.push(animationTime);
         // Library behavior: resetTransform fires a transform event back
         // to listeners with scale=1. silenceResetTransform suppresses
@@ -179,29 +177,23 @@ vi.mock("react-zoom-pan-pinch", async () => {
           simulateScale(1);
         }
       },
-      setTransform: (
-        positionX: number,
-        positionY: number,
-        scale: number,
-        animationTime?: number,
-      ) => {
-        libState.setTransformCalls.push({
-          positionX,
-          positionY,
-          scale,
+      centerView: (scale?: number, animationTime?: number) => {
+        // centerView is the path used by the lightbox's keyboard
+        // +/- after Codex R7. It atomically re-centers + scales,
+        // avoiding the stale-pan-offset bug that setTransform had.
+        const targetScale = scale ?? 1;
+        libState.centerViewCalls.push({
+          scale: targetScale,
           animationTime,
         });
-        // setTransform is the LINEAR scale-set path used by the
-        // lightbox's keyboard +/- after Codex R6. The mock emits
-        // the new scale immediately so the lifted activeScale and
-        // chrome track the keystroke.
-        simulateScale(scale);
+        simulateScale(targetScale);
       },
-      // zoomIn/zoomOut retained on the mock because the library
-      // exposes them; production no longer calls them after R6 so
-      // these are documentation-only (a stray production call would
-      // hit the wrong-math bug, but the integration tests assert
-      // setTransformCalls is the path actually taken).
+      // setTransform / zoomIn / zoomOut retained on the mock
+      // because the library exposes them; production no longer
+      // calls them. The integration tests assert centerViewCalls
+      // is the path actually taken so a regression that switches
+      // back to setTransform or zoomIn would fail those tests.
+      setTransform: () => {},
       zoomIn: () => {},
       zoomOut: () => {},
     };
@@ -232,9 +224,9 @@ afterEach(() => {
 
 beforeEach(() => {
   libState.scaleListeners = [];
-  libState.resetTransformCalls = 0;
+  libState.recenterViewCalls = 0;
   libState.resetTransformAnimTimes = [];
-  libState.setTransformCalls = [];
+  libState.centerViewCalls = [];
   libState.lastWrapperProps = null;
   libState.silenceResetTransform = false;
   __matchMediaQuery = () => false;
@@ -528,9 +520,9 @@ describe("M9 C6c — Reset chip visibility tracks scale", () => {
     );
     simulateScale(2);
     const chip = await screen.findByTestId("lightbox-reset-chip");
-    expect(libState.resetTransformCalls).toBe(0);
+    expect(libState.recenterViewCalls).toBe(0);
     fireEvent.click(chip);
-    expect(libState.resetTransformCalls).toBe(1);
+    expect(libState.recenterViewCalls).toBe(1);
     await waitFor(() => {
       expect(screen.queryByTestId("lightbox-reset-chip")).toBeNull();
     });
@@ -590,7 +582,7 @@ describe("M9 C6c — Keyboard map (lightbox-owned; library v4 has no keyEvents p
     );
     simulateScale(2);
     fireEvent.keyDown(window, { key: "0" });
-    expect(libState.resetTransformCalls).toBeGreaterThanOrEqual(1);
+    expect(libState.recenterViewCalls).toBeGreaterThanOrEqual(1);
   });
 
   test("Codex R6 HIGH: '+' from scale=1 invokes setTransform with target=1.5 (LINEAR +0.5, not library's exp math)", () => {
@@ -604,13 +596,13 @@ describe("M9 C6c — Keyboard map (lightbox-owned; library v4 has no keyEvents p
       />,
     );
     fireEvent.keyDown(window, { key: "+" });
-    expect(libState.setTransformCalls).toHaveLength(1);
-    expect(libState.setTransformCalls[0]?.scale).toBeCloseTo(1.5, 6);
+    expect(libState.centerViewCalls).toHaveLength(1);
+    expect(libState.centerViewCalls[0]?.scale).toBeCloseTo(1.5, 6);
     // Second keystroke from 1.5 → 2.0 (mock auto-emits scale=1.5
     // after first call, so activeScale follows).
     fireEvent.keyDown(window, { key: "=" });
-    expect(libState.setTransformCalls).toHaveLength(2);
-    expect(libState.setTransformCalls[1]?.scale).toBeCloseTo(2.0, 6);
+    expect(libState.centerViewCalls).toHaveLength(2);
+    expect(libState.centerViewCalls[1]?.scale).toBeCloseTo(2.0, 6);
   });
 
   test("Codex R6 HIGH: '-' from scale=4 invokes setTransform with target=3.5 (clamped LINEAR -0.5)", () => {
@@ -625,11 +617,11 @@ describe("M9 C6c — Keyboard map (lightbox-owned; library v4 has no keyEvents p
     );
     simulateScale(4);
     fireEvent.keyDown(window, { key: "-" });
-    expect(libState.setTransformCalls).toHaveLength(1);
-    expect(libState.setTransformCalls[0]?.scale).toBeCloseTo(3.5, 6);
+    expect(libState.centerViewCalls).toHaveLength(1);
+    expect(libState.centerViewCalls[0]?.scale).toBeCloseTo(3.5, 6);
     fireEvent.keyDown(window, { key: "_" });
-    expect(libState.setTransformCalls).toHaveLength(2);
-    expect(libState.setTransformCalls[1]?.scale).toBeCloseTo(3.0, 6);
+    expect(libState.centerViewCalls).toHaveLength(2);
+    expect(libState.centerViewCalls[1]?.scale).toBeCloseTo(3.0, 6);
   });
 
   test("Codex R6: '+' clamps at maxScale=4 (no setTransform call when at boundary)", () => {
@@ -645,7 +637,7 @@ describe("M9 C6c — Keyboard map (lightbox-owned; library v4 has no keyEvents p
     simulateScale(4);
     fireEvent.keyDown(window, { key: "+" });
     // setScale clamps target to 4; already at 4, so no setTransform call.
-    expect(libState.setTransformCalls).toHaveLength(0);
+    expect(libState.centerViewCalls).toHaveLength(0);
   });
 
   test("Codex R6: '-' clamps at minScale=1 (no setTransform call when at boundary)", () => {
@@ -661,7 +653,7 @@ describe("M9 C6c — Keyboard map (lightbox-owned; library v4 has no keyEvents p
     // activeScale starts at 1; - would try target=0.5 → clamped to 1
     // → no-op.
     fireEvent.keyDown(window, { key: "-" });
-    expect(libState.setTransformCalls).toHaveLength(0);
+    expect(libState.centerViewCalls).toHaveLength(0);
   });
 
   test("'Escape' closes lightbox regardless of scale", () => {
@@ -693,14 +685,14 @@ describe("M9 C6c — Diagram navigation resets scale (per-diagram zoom context)"
       />,
     );
     simulateScale(2);
-    expect(libState.resetTransformCalls).toBe(0);
+    expect(libState.recenterViewCalls).toBe(0);
     const next = screen.getByRole("button", { name: /next diagram/i });
     fireEvent.click(next);
     // The chevron handler should call resetTransform before (or
     // alongside) Embla's scrollNext. The contract: at least one
     // resetTransform call after the chevron click.
     await waitFor(() => {
-      expect(libState.resetTransformCalls).toBeGreaterThanOrEqual(1);
+      expect(libState.recenterViewCalls).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -718,7 +710,7 @@ describe("M9 C6c — Diagram navigation resets scale (per-diagram zoom context)"
     const prev = screen.getByRole("button", { name: /previous diagram/i });
     fireEvent.click(prev);
     await waitFor(() => {
-      expect(libState.resetTransformCalls).toBeGreaterThanOrEqual(1);
+      expect(libState.recenterViewCalls).toBeGreaterThanOrEqual(1);
     });
   });
 });
@@ -750,7 +742,7 @@ describe("M9 C6c — image error while zoomed (Codex R2 HIGH regression)", () =>
     // wrapper (for library-state hygiene) AND the local
     // setActiveScale(1) must drop the lifted chrome state — that's
     // the contract the production code owns.
-    expect(libState.resetTransformCalls).toBeGreaterThanOrEqual(1);
+    expect(libState.recenterViewCalls).toBeGreaterThanOrEqual(1);
     await waitFor(() => {
       expect(screen.queryByTestId("lightbox-reset-chip")).toBeNull();
     });
@@ -807,10 +799,10 @@ describe("M9 C6c — Codex R3 HIGH: reduced-motion threads animationTime=0 throu
       />,
     );
     fireEvent.keyDown(window, { key: "+" });
-    expect(libState.setTransformCalls).toHaveLength(1);
-    expect(libState.setTransformCalls[0]?.animationTime).toBe(0);
+    expect(libState.centerViewCalls).toHaveLength(1);
+    expect(libState.centerViewCalls[0]?.animationTime).toBe(0);
     // Reduced motion + + still produces exactly 1.5, not exp math.
-    expect(libState.setTransformCalls[0]?.scale).toBeCloseTo(1.5, 6);
+    expect(libState.centerViewCalls[0]?.scale).toBeCloseTo(1.5, 6);
   });
 
   test("reduced motion → setTransform for zoom-out invoked with animationTime=0 + linear delta", () => {
@@ -826,9 +818,9 @@ describe("M9 C6c — Codex R3 HIGH: reduced-motion threads animationTime=0 throu
     );
     simulateScale(3);
     fireEvent.keyDown(window, { key: "-" });
-    expect(libState.setTransformCalls).toHaveLength(1);
-    expect(libState.setTransformCalls[0]?.animationTime).toBe(0);
-    expect(libState.setTransformCalls[0]?.scale).toBeCloseTo(2.5, 6);
+    expect(libState.centerViewCalls).toHaveLength(1);
+    expect(libState.centerViewCalls[0]?.animationTime).toBe(0);
+    expect(libState.centerViewCalls[0]?.scale).toBeCloseTo(2.5, 6);
   });
 
   test("full motion → resetTransform invoked with default animationTime (undefined)", () => {
