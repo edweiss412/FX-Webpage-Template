@@ -2,7 +2,16 @@
 
 **Scope:** The remaining structural tests from spec §7.1 that exercise the integrated `/help` surface: anchor resolver (#1, deferred from Phase A), auth + AdminInfraError mapping (#3), MDX smoke (#4), mobile-layout Playwright (#6), no-placeholder lint (#7).
 
-**Prereqs:** Phases A, B, C, D, E, F, G complete. Phase H tests the full integration — they will be partially or fully red until those phases land.
+**Per-task TDD discipline (r7 — addresses round-6 finding 3 about green-only batching):** Every Phase H task explicitly demonstrates a red-then-green TDD loop by introducing the test BEFORE its implementation OR by **stashing** a representative piece of the implementation to verify the test fails meaningfully. The exact "stash" pattern per task is documented in each task's Step 0:
+
+```
+Step 0 (verify-red): git stash an artifact the test depends on, run the test, confirm FAIL with the expected error, then `git stash pop` to restore.
+Step 1+: standard TDD red→green from the restored state.
+```
+
+This converts each Phase H task from "green-only verification commit" into a documented red-then-green loop. The stash step doesn't change repo state long-term — it only proves the test would catch a regression.
+
+**Prereqs:** Phase G complete (strict sequential per 00-overview.md — implies A through G also complete).
 
 **Tasks:** H.1 → H.5 (5 tasks). r4's H.6 (live-catalog biconditional) was REMOVED in r6 — see the H.6 section below for the rationale; the assertion now lives in Phase E Task E.13.
 
@@ -140,22 +149,26 @@ test.describe("/help auth gate (test #3)", () => {
 
 test.describe("/help AdminInfraError mapping (test #3 r10)", () => {
   test("when requireAdmin throws AdminInfraError, /help renders cataloged 500-class surface", async ({ page, request }) => {
-    // To exercise the infra-error path: temporarily set ADMIN_DEV_FORCE_INFRA_FAIL=1
-    // (or a similar test-only env knob) on the screenshots-help webServer.
-    // Implementer surveys existing /admin AdminInfraError tests for the pattern;
-    // they may already exist for the /admin layout (app/admin/layout.tsx:47-71).
-
-    // Assertion: the page contains the data-testid="help-layout-infra-error"
-    // surface, and its body text matches the fallback chain:
-    //   entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."
-    // For ADMIN_SESSION_LOOKUP_FAILED (lib/messages/catalog.ts:148-154),
-    // dougFacing is null → falls through to crewFacing: "Something is
-    // misconfigured for this show. Doug has been notified."
-
-    // Implementer wires the env-driven infra-fail mode. Sketch:
+    // r7 (round-6 finding 2): NO SKIP allowed. AC-12.24 requires this test to
+    // run unconditionally. The infra-fail trigger is implemented as part of
+    // H.2 (see Step 2 below) — a test-only query-param `?force_infra_fail=1`
+    // recognized ONLY when ENABLE_TEST_AUTH === "true" AND the request
+    // includes a valid Authorization: Bearer ${TEST_AUTH_SECRET}, identical
+    // gating to lib/time/now.ts (Phase C).
     await signInAs(page, { email: "admin-fixture@example.com", label: "admin" } as never);
+    await page.setExtraHTTPHeaders({
+      Authorization: `Bearer ${process.env.TEST_AUTH_SECRET}`,
+    });
     await page.goto("/help?force_infra_fail=1");
     await expect(page.getByTestId("help-layout-infra-error")).toBeVisible();
+    // Fallback chain per spec §3.5 + AC-12.24:
+    //   entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."
+    // For ADMIN_SESSION_LOOKUP_FAILED (lib/messages/catalog.ts:148-154 post
+    // Phase B.2 alignment), all fields are null AFTER B.2 sets them to null.
+    // Wait — review: ADMIN_SESSION_LOOKUP_FAILED is NOT a master-spec
+    // admin-log-only code; B.2 only touches admin-log-only entries. So
+    // ADMIN_SESSION_LOOKUP_FAILED keeps its current crewFacing value:
+    // "Something is misconfigured for this show. Doug has been notified."
     await expect(page.locator("body")).toContainText(
       "Something is misconfigured for this show. Doug has been notified.",
     );
@@ -163,10 +176,35 @@ test.describe("/help AdminInfraError mapping (test #3 r10)", () => {
 });
 ```
 
-- [ ] **Step 2: Run + iterate**
+- [ ] **Step 2: Implement the infra-fail trigger as part of H.2 (TDD red→implementation→green per round-6 finding 2)**
+
+The infra-fail test is RED at first run because the trigger doesn't exist yet. H.2 IMPLEMENTS the trigger:
+
+Edit `app/help/layout.tsx` to honor a test-only `?force_infra_fail=1` query param:
+
+```tsx
+// app/help/layout.tsx — H.2 r7 (test-only infra-fail trigger)
+import { headers } from "next/headers";
+
+// ...inside HelpLayout, BEFORE the `try { await requireAdmin() } catch (...)`:
+const reqHeaders = await headers();
+const url = new URL(reqHeaders.get("x-url") ?? "/", "http://localhost");
+if (
+  url.searchParams.get("force_infra_fail") === "1" &&
+  process.env.ENABLE_TEST_AUTH === "true" &&
+  reqHeaders.get("authorization") === `Bearer ${process.env.TEST_AUTH_SECRET}`
+) {
+  throw new AdminInfraError("test-forced infra fail (H.2)");
+}
+// ...then proceed with the normal try/catch around requireAdmin().
+```
+
+(Implementation note: Next 16's `headers()` doesn't expose the request URL directly; the implementer may need middleware or `next/headers`'s `cookies()` + a custom header pattern. The exact mechanism matches whatever pattern the project's existing test-only infra triggers use — survey at execution time. The CONTRACT is: a way to force `AdminInfraError` triggered ONLY when test-auth is on AND the bearer matches.)
+
+- [ ] **Step 3: Run + iterate**
 
 Run: `pnpm test:e2e tests/playwright/help-auth.spec.ts`
-Expected: the 9 base auth tests PASS (Phase A's `requireAdmin()` already gates the tree). The AdminInfraError mapping test requires implementer to wire a test-only infra-fail trigger; without one, that test is skipped with a clear reason.
+Expected: the 9 base auth tests PASS (Phase A's `requireAdmin()` already gates). The AdminInfraError mapping test PASSES once the H.2 Step 2 trigger lands — there is **no skip path** (r7 fix per round-6 finding 2: AC-12.24 must have unconditional coverage).
 
 - [ ] **Step 3: Commit**
 

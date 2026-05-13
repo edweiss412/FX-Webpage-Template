@@ -232,9 +232,9 @@ Phase E used `<ScreenshotPlaceholder>` for surfaces that weren't capturable yet.
 - Modify: `tests/help/screenshot-coverage.test.ts` (append Half B — F.8 only committed Half A)
 
 - [ ] Step 1: Reset to a clean working tree on the branch (commit/stash any pending changes).
-- [ ] Step 2: Run `pnpm screenshot:help` → captures every manifest entry.
-- [ ] Step 3: Run `git diff --exit-code public/help/screenshots/` → should exit 0 on a clean re-run (idempotent). If exit non-zero: investigate. Causes: unstable browser timing (`expectStableMs` too low), unmigrated server-side `Date.now()`, Realtime escape.
-- [ ] Step 4: **Append Half B to the screenshot-coverage test (TDD-clean: WebPs are now committed, so the new assertion goes green at this commit).** Edit `tests/help/screenshot-coverage.test.ts` and add a second `describe()` block:
+- [ ] Step 2: **Write Half B BEFORE capturing WebPs (TDD-clean red-then-green per r7 — round-6 finding 1).** The previous draft wrote Half B after captures, producing a green-only commit. r7 fixes by ordering: write the assertion → run it red (WebPs don't exist yet) → run capture (makes it green) → commit both.
+
+  Edit `tests/help/screenshot-coverage.test.ts` and append:
 
   ```ts
   describe("Screenshot coverage Half B — on-disk WebP existence (Task F.11)", () => {
@@ -251,9 +251,12 @@ Phase E used `<ScreenshotPlaceholder>` for surfaces that weren't capturable yet.
   });
   ```
 
-- [ ] Step 5: Run `pnpm test tests/help/screenshot-coverage.test.ts` → both Half A (committed at F.8) and Half B (just added) PASS.
-- [ ] Step 6: Commit captured WebPs + Half B together: `feat(screenshots): final WebP captures + coverage Half B (Task F.11 — completes test #8)`
-- [ ] Step 7: Run the manifest-integrity test (F.7) → all three assertions PASS (the WebP-existence assertion that short-circuited at F.7 now fires green).
+- [ ] Step 3: Run the test — expected RED (WebPs not captured yet OR `public/help/screenshots/` empty if first F.11 run): `pnpm test tests/help/screenshot-coverage.test.ts`. This proves Half B catches missing WebPs.
+- [ ] Step 4: Run `pnpm screenshot:help` → captures every manifest entry.
+- [ ] Step 5: Run `git diff --exit-code public/help/screenshots/` → should exit 0 on a re-run after first capture (idempotent). On first F.11 run, expect new WebP bytes.
+- [ ] Step 6: Re-run `pnpm test tests/help/screenshot-coverage.test.ts` → both Half A and Half B PASS now (WebPs on disk).
+- [ ] Step 7: Commit captured WebPs + Half B together: `feat(screenshots): final WebP captures + coverage Half B (Task F.11 — completes test #8, TDD red→green)`
+- [ ] Step 8: Run the manifest-integrity test (F.7) → all three assertions PASS (the WebP-existence assertion that short-circuited at F.7 now fires green).
 
 ---
 
