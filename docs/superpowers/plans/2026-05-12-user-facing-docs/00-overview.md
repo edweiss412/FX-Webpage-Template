@@ -20,7 +20,7 @@
 ## How to use this plan
 
 1. **Spec is canonical**, with no ratified amendments at M12 plan-write time. Every task references a spec section (`§5.2`) or AC (`AC-12.5`). When a task and the spec disagree, the spec wins — open a question, do not silently fix in the plan (AGENTS.md invariant #7).
-2. **Work phase-by-phase, top-to-bottom within each file.** Phase order is A → B → C → D → E → F → G → H → I. Phase B (catalog) blocks Phase E (content) because §5 deep-link contract resolves through extended `MessageCatalogEntry`. Phase C (time utility) blocks Phase F (screenshot harness). Phase D (components) blocks Phase E (content authors `<Callout>`, `<Step>`, etc.). Phase F + G in parallel are safe; Phase H verifies the combination.
+2. **Work phase-by-phase, top-to-bottom within each file.** Phase order is **strictly sequential** A → B → C → D → E → F → G → H → I (r2 — no parallelization). Rationale: Phase G's affordance retrofit needs Phase F's manifest entries to be in place so the §5.6 matrix's screenshot-bearing rows resolve to real WebPs; Phase F's WebP capture exercises pages from Phase E with components from Phase D referencing catalog content from Phase B with time utility from Phase C and chrome from Phase A. The earlier-draft claim that "F + G can run in parallel" is removed. Earlier-draft soft-start permission for B/C/D before A is also removed (see "Sequencing dependency on M10" below).
 3. **TDD per task** (AGENTS.md invariant #1). Each task: failing test → minimal implementation → passing test → commit. Never write implementation before its test.
 4. **Commit per task** (AGENTS.md invariant #6). Conventional-commits style `<type>(help): <summary>` — common types: `feat`, `fix`, `test`, `docs`, `refactor`, `chore`. Scope `help` for content/components; `messages` for catalog work; `time` for the time utility; `screenshots` for the harness.
 
@@ -28,9 +28,9 @@
 
 ## Sequencing dependency on M10
 
-**AC-12.22 forbids M12 from beginning until M10 close-out.** Justification: real screenshots require the documented UI surfaces (`/admin` dashboard, per-show panel, preview-as-crew, onboarding wizard) to exist and be stable. M3/M4/M9/M10 own those surfaces.
+**AC-12.22 forbids M12 from beginning until M10 close-out.** Justification: real screenshots require the documented UI surfaces (`/admin` dashboard, per-show panel, preview-as-crew, onboarding wizard) to exist and be stable. M3/M4/M9/M10 own those surfaces. Additionally, Phase B mutates the shared message catalog (sets `dougFacing: null` on master-spec admin-log-only entries currently rendered by M9 AlertBanner), and Phase D creates new UI files under `app/help/` — both interact with assumptions M9/M10 are still establishing.
 
-**Practical impact:** When M10's handoff doc marks all M10 tasks complete and impeccable v3 has been run, this plan's Phase A is unblocked. Phases B + C + D have no M10 dependency strictly speaking (catalog extension, time utility, MDX components don't depend on surface implementations) — they CAN start earlier as a soft-start if the schedule allows, but Phase E (content authoring) and Phase F (screenshot capture) absolutely require M10 to be done.
+**No soft-start.** Earlier plan drafts permitted Phases B/C/D to begin before M10 close-out. **That permission is removed (r2):** AC-12.22 is unconditional, and pre-M10 commits to the catalog or `app/help/` risk invalidating the assumption that screenshot capture (Phase F) and affordance retrofit (Phase G) run against stable M10 surfaces. If the schedule warrants earlier work, the right path is to ratify a spec amendment to AC-12.22 — not silently start work.
 
 **Routing note for plan execution:** Per the project's "UI work is always Opus" hard rule (AGENTS.md), every task in this plan is Opus/Claude Code territory. Codex (cross-CLI) runs adversarial review only.
 
@@ -65,12 +65,13 @@ This milestone CREATES the following structural meta-tests. Declaring this inven
 
 | Meta-test | Phase | Created in task | Purpose |
 | --- | --- | --- | --- |
-| `tests/help/_metaNavSync.test.ts` | A | Task A.6 | Every `_nav.ts` entry resolves to a real route under `app/help/`; every route under `app/help/` is referenced in `_nav.ts` (nav-consistency, test #5) |
+| `tests/help/_metaNavSync.test.ts` | A | Task A.7 | Every `_nav.ts` entry resolves to a real route under `app/help/`; every route under `app/help/` is referenced in `_nav.ts` (nav-consistency, test #5) |
 | `tests/messages/_metaErrorCatalogDocs.test.ts` | B | Task B.4 | Catalog meta-test biconditional: predicate ↔ "all three M12 fields non-null" (test #2). Includes 5 forced-fixture cases. |
 | `tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts` | B | Task B.5 | Reads master-spec §12.4 markdown via `extract-admin-log-only-codes.ts`; asserts every derived admin-log-only code has all six user-facing fields `null` (test #17) |
 | `tests/help/_metaServerTimeGuard.test.ts` | C | Task C.4 | Greps server-side `Date.now()`/`new Date()` under manifest-derived scan roots; per-line waiver rule (test #16) |
-| `tests/help/_metaScreenshotManifest.test.ts` | F | Task F.9 | Stale manifest entries, orphan WebPs, fixture name validation (test #9) |
-| `tests/messages/_metaErrorRendererGate.test.ts` | G | Task G.5 | Renderer-gate 4-context coverage (admin / help-admin / crew / preview-as-crew) — test #12 |
+| `tests/help/_metaScreenshotManifest.test.ts` | F | Task F.7 | Stale manifest entries, orphan WebPs, fixture name validation (test #9) |
+| `tests/messages/_metaErrorRendererGate.test.ts` | G | Task G.6 | Renderer-gate 4-context coverage (admin / help-admin / crew / preview-as-crew) — test #12 |
+| `tests/help/deep-link-walker-reverse.test.ts` (structural guard, not `_meta`-named) | G | Task G.5 | Reverse-direction codebase grep: every `data-testid="help-affordance--*"` in the codebase must appear in `affordanceMatrix.ts` (concrete row) OR match the template-family pattern. Catches affordances added to source surfaces without matrix rows. Treated as a structural meta-test for the same reason `_metaNavSync` is — it enforces matrix-completeness against a registry. |
 
 This milestone EXTENDS:
 - `tests/auth/_metaInfraContract.test.ts` — no new registry entry required, but Phase A confirms `requireAdmin` is still registered.
@@ -100,71 +101,127 @@ Per AGENTS.md "Same-vector recurrence triggers comprehensive re-analysis": if th
 
 ---
 
-## File structure (created by M12)
+## File structure (created or modified by M12)
+
+This list is reconciled exhaustively against the `Files:` blocks in every phase file (r2 — earlier draft had drift). Files marked **(create)** are net-new; **(modify)** edits an existing file.
 
 ```
-app/help/
-  layout.tsx                              # Phase A — requireAdmin gate + AdminInfraError catch + sidebar/header chrome
-  page.mdx                                # Phase E — landing
-  getting-started/page.mdx                # Phase E
-  daily-rhythm/page.mdx                   # Phase E
-  whats-different/page.mdx                # Phase E
-  tour/page.mdx                           # Phase E
-  errors/page.tsx                         # Phase E — TSX iterating §12.4 catalog
-  admin/
-    dashboard/page.mdx                    # Phase E
-    review-queues/page.mdx                # Phase E
-    parse-warnings/page.mdx               # Phase E (anchored sections per warning code)
-    per-show-panel/page.mdx               # Phase E
-    preview-as-crew/page.mdx              # Phase E
-    sharing-links/page.mdx                # Phase E
-    onboarding-wizard/page.mdx            # Phase E
-  _components/                            # Phase D
-    Sidebar.tsx
-    Header.tsx
-    Breadcrumb.tsx
-    Callout.tsx
-    Step.tsx
-    Screenshot.tsx                        # primary; renders <picture>
-    ScreenshotPlaceholder.tsx             # draft-only; lint-prohibited at v1 close-out
-    RefAnchor.tsx
-    TipFromSheets.tsx
-  _nav.ts                                 # Phase A — sidebar nav registry
-  _affordanceMatrix.ts                    # Phase G — §5.6 matrix as typed export
-mdx-components.tsx                        # Phase A — project root, required by @next/mdx
-lib/time/now.ts                           # Phase C — request-scoped clock with header injection
-lib/messages/catalog.ts                   # Phase B — schema extended (title, longExplanation, helpHref)
-lib/messages/lookup.ts                    # Phase B — signature unchanged, return type widens
-public/help/screenshots/                  # Phase F — WebP output, committed
-  <key>-light.webp  ·  <key>-dark.webp    # per manifest entry × theme
-scripts/help-screenshots.ts               # Phase F — Playwright capture entry point
-scripts/help-screenshots.manifest.ts      # Phase F — single source of truth (per-entry frozenClockInstant required)
-scripts/help-screenshots-fixture-range.ts # Phase F — INFO-tab DATES parser
-scripts/extract-admin-log-only-codes.ts   # Phase B — master-spec §12.4 derivation parser
-tests/help/                               # all M12 help-specific tests
-  anchor-resolver.test.ts                 # Phase A (test #1)
-  auth.test.ts                            # Phase H (test #3)
-  render.test.ts                          # Phase H (test #4)
-  _metaNavSync.test.ts                    # Phase A (test #5)
-  no-placeholders.test.ts                 # Phase H (test #7)
-  screenshot-coverage.test.ts             # Phase F (test #8)
-  _metaScreenshotManifest.test.ts         # Phase F (test #9)
-  screenshot-picture-contract.test.ts     # Phase F (test #10)
-  deep-link-walker.test.ts                # Phase G (test #13)
-  fixture-range-parser.test.ts            # Phase F (test #14)
-  _metaServerTimeGuard.test.ts            # Phase C (test #16)
-tests/messages/
-  _metaErrorCatalogDocs.test.ts           # Phase B (test #2)
-  _metaErrorRendererGate.test.ts          # Phase G (test #12)
-  _metaCatalogAdminLogOnlyAlignment.test.ts # Phase B (test #17)
-tests/time/
-  now-gate.test.ts                        # Phase C (test #15)
-tests/playwright/
-  help-mobile.spec.ts                     # Phase H (test #6 — Playwright real-browser layout)
-  help-screenshots-clock-pipeline.spec.ts # Phase F (test #18 — E2E clock-pipeline proof)
-playwright.config.ts                      # Phase F — add `screenshots-help` project
-next.config.ts                            # Phase A — add withMDX + pageExtensions
-package.json                              # Phase A + F — new deps + screenshot:help script
+# Production source — created
+app/help/layout.tsx                                       # Phase A.2 (create) — requireAdmin gate + AdminInfraError catch + chrome
+app/help/page.mdx                                         # Phase A.2 (create placeholder) → Phase E.1 (modify with content)
+app/help/getting-started/page.mdx                         # Phase E.2 (create)
+app/help/daily-rhythm/page.mdx                            # Phase E.3 (create)
+app/help/whats-different/page.mdx                         # Phase E.4 (create)
+app/help/tour/page.mdx                                    # Phase E.12 (create)
+app/help/errors/page.tsx                                  # Phase E.13 (create — TSX iterates §12.4 catalog)
+app/help/admin/dashboard/page.mdx                         # Phase E.5 (create)
+app/help/admin/review-queues/page.mdx                     # Phase E.6 (create)
+app/help/admin/parse-warnings/page.mdx                    # Phase E.7 (create — anchored sections per warning code)
+app/help/admin/per-show-panel/page.mdx                    # Phase E.8 (create)
+app/help/admin/preview-as-crew/page.mdx                   # Phase E.9 (create)
+app/help/admin/sharing-links/page.mdx                     # Phase E.10 (create)
+app/help/admin/onboarding-wizard/page.mdx                 # Phase E.11 (create)
+app/help/_components/Sidebar.tsx                          # Phase A.4 (create)
+app/help/_components/Header.tsx                           # Phase A.5 (create)
+app/help/_components/Breadcrumb.tsx                       # Phase A.6 (create)
+app/help/_components/Callout.tsx                          # Phase D.1 (create)
+app/help/_components/Step.tsx                             # Phase D.2 (create)
+app/help/_components/ScreenshotPlaceholder.tsx            # Phase D.3 (create — draft scaffold, lint-prohibited at close-out)
+app/help/_components/Screenshot.tsx                       # Phase D.4 (create — production component)
+app/help/_components/RefAnchor.tsx                        # Phase D.5 (create)
+app/help/_components/TipFromSheets.tsx                    # Phase D.6 (create)
+app/help/_nav.ts                                          # Phase A.3 (create)
+app/help/_affordanceMatrix.ts                             # Phase G.1 (create — §5.6 matrix typed registry)
+mdx-components.tsx                                        # Phase A.1 (create placeholder) → Phase D.7 (modify to register components)
+lib/time/now.ts                                           # Phase C.1 (create — request-scoped clock with header gating)
+lib/messages/renderer-gate.ts                             # Phase G.2 (create — shouldEmitLearnMore admin-context check)
+
+# Production source — modified
+lib/messages/catalog.ts                                   # Phase B.1 (extend type) + B.2 (align admin-log-only) + E.5–E.11 (per-page backfill)
+lib/messages/lookup.ts                                    # Phase B.1 (signature unchanged; return type widens) — no edits required if re-export is generic
+app/show/[slug]/page.tsx                                  # Phase C.2 (migrate `today` to nowDate())
+app/admin/actions.ts                                      # Phase C.4 (add `// not-render-side` waiver on existing new Date() call)
+app/show/[slug]/p/actions.ts                              # Phase C.4 (waiver)
+app/admin/dev/actions.ts                                  # Phase C.4 (waivers)
+components/admin/*.tsx                                    # Phase G.3 (Learn-more link wiring inside shared error-renderer call sites)
+components/admin/<dashboard-and-per-show-components>.tsx  # Phase G.4 (data-testid retrofit per §5.6 matrix concrete rows)
+components/<onboarding-wizard>.tsx                        # Phase G.4 (testid retrofit, M10-owned)
+next.config.ts                                            # Phase A.1 (add withMDX + pageExtensions ['ts','tsx','mdx'])
+package.json + pnpm-lock.yaml                             # Phase A.1 (@next/mdx + loaders) + F.3 (sharp) + F.5 (screenshot:help script)
+playwright.config.ts                                      # Phase F.4 (add `screenshots-help` project + webServer entry)
+
+# Scripts — created
+scripts/help-screenshots.ts                               # Phase F.3 (Playwright capture entry point)
+scripts/help-screenshots.manifest.ts                      # Phase F.1 (single source of truth)
+scripts/help-screenshots-fixture-range.ts                 # Phase F.2 (INFO-tab DATES parser)
+scripts/extract-admin-log-only-codes.ts                   # Phase B.3 (master-spec §12.4 derivation parser)
+scripts/seed-m12-catalog-fields.ts                        # Phase B.1 (one-shot migration adding title/longExplanation/helpHref nulls)
+
+# CI / workflows — created (or extends existing)
+.github/workflows/screenshots-drift.yml                   # Phase F.5 (CI drift gate; alternatively extend an existing workflow)
+
+# Public assets — created
+public/help/screenshots/<key>-light.webp                  # Phase F.11 (per manifest entry; committed to repo)
+public/help/screenshots/<key>-dark.webp                   # Phase F.11
+
+# Tests — created
+tests/help/_mdx-pipeline.test.ts                          # Phase A.1
+tests/help/auth-stub.test.ts                              # Phase A.2 (Phase A smoke; Phase H.2 has the full Playwright auth spec)
+tests/help/_nav-shape.test.ts                             # Phase A.3
+tests/help/sidebar.test.tsx                               # Phase A.4
+tests/help/header.test.tsx                                # Phase A.5
+tests/help/breadcrumb.test.tsx                            # Phase A.6
+tests/help/_metaNavSync.test.ts                           # Phase A.7 — meta-test #5
+tests/messages/catalog-schema-extension.test.ts           # Phase B.1 + B.2 (extended for alignment cases)
+tests/messages/extract-admin-log-only-codes.test.ts       # Phase B.3
+tests/messages/_metaErrorCatalogDocs.test.ts              # Phase B.4 — meta-test #2
+tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts  # Phase B.5 — meta-test #17
+tests/time/now.test.ts                                    # Phase C.1 (smoke) → Phase C.3 (full gating)
+tests/show/page-today-uses-now-utility.test.ts            # Phase C.2
+tests/help/_metaServerTimeGuard.test.ts                   # Phase C.4 — meta-test #16
+tests/help/callout.test.tsx                               # Phase D.1
+tests/help/step.test.tsx                                  # Phase D.2
+tests/help/screenshot-placeholder.test.tsx                # Phase D.3
+tests/help/screenshot.test.tsx                            # Phase D.4
+tests/help/ref-anchor.test.tsx                            # Phase D.5
+tests/help/tip-from-sheets.test.tsx                       # Phase D.6
+tests/help/mdx-components-registration.test.ts            # Phase D.7
+tests/help/page-landing.test.tsx                          # Phase E.1
+tests/help/page-getting-started.test.tsx                  # Phase E.2
+tests/help/page-daily-rhythm.test.tsx                     # Phase E.3
+tests/help/page-whats-different.test.tsx                  # Phase E.4
+tests/help/page-dashboard.test.tsx                        # Phase E.5
+tests/help/page-review-queues.test.tsx                    # Phase E.6 (one similar file per content task)
+tests/help/page-parse-warnings.test.tsx                   # Phase E.7
+tests/help/page-per-show-panel.test.tsx                   # Phase E.8
+tests/help/page-preview-as-crew.test.tsx                  # Phase E.9
+tests/help/page-sharing-links.test.tsx                    # Phase E.10
+tests/help/page-onboarding-wizard.test.tsx                # Phase E.11
+tests/help/page-tour.test.tsx                             # Phase E.12
+tests/help/page-errors.test.tsx                           # Phase E.13
+tests/help/manifest-shape.test.ts                         # Phase F.1
+tests/help/fixture-range-parser.test.ts                   # Phase F.2 — test #14
+tests/help/capture-script.test.ts                         # Phase F.3
+tests/help/playwright-config.test.ts                      # Phase F.4
+tests/help/screenshot-picture-contract.test.tsx           # Phase F.6 — test #10
+tests/help/_metaScreenshotManifest.test.ts                # Phase F.7 — meta-test #9
+tests/help/screenshot-coverage.test.ts                    # Phase F.8 — test #8
+tests/playwright/help-screenshots-clock-pipeline.spec.ts  # Phase F.9 — test #18
+tests/help/_affordance-matrix-shape.test.ts               # Phase G.1
+tests/messages/renderer-gate-unit.test.ts                 # Phase G.2
+tests/messages/renderer-emits-learn-more.test.tsx         # Phase G.3
+tests/playwright/deep-link-walker.spec.ts                 # Phase G.5 — test #13 (concrete rows, E2E)
+tests/help/deep-link-walker-template-family.test.tsx      # Phase G.5 — test #13 (template-family, unit)
+tests/help/deep-link-walker-reverse.test.ts               # Phase G.5 — test #13 reverse-direction structural guard
+tests/messages/_metaErrorRendererGate.test.ts             # Phase G.6 — meta-test #12
+tests/help/anchor-resolver.test.ts                        # Phase H.1 — test #1
+tests/playwright/help-auth.spec.ts                        # Phase H.2 — test #3 (full Playwright auth gate + AdminInfraError mapping)
+tests/help/render.test.ts                                 # Phase H.3 — test #4 (MDX smoke renderer)
+tests/playwright/help-mobile.spec.ts                      # Phase H.4 — test #6 (Playwright real-browser layout)
+tests/help/no-placeholders.test.ts                        # Phase H.5 — test #7 (no-placeholder lint)
+
+# Test infrastructure — created
+tests/e2e/global-setup-screenshots.ts                     # Phase F.4 (Playwright globalSetup running pnpm db:seed)
 ```
 
 ---
