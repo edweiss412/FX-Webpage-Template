@@ -112,7 +112,14 @@ Same soft cap as overview: 10 rounds per phase. At round 10, remaining findings 
 
 ## Phase H — `08-auth-integration.md`
 
-(Pending — task #19.)
+| Round | Verdict | Findings | Resolved in commit | Notes |
+|---|---|---|---|---|
+| R1 | needs-attention | 4 (3 high, 1 medium) | r2 — `b13dd98` | Forced infra trigger in HelpLayout bypassed requireAdmin RPC boundary; ad-hoc test fixtures NOT in allowlist; run commands missed `--project=help-docs` + runner env; AdminInfraError assertion hard-coded copy |
+| R2 | needs-attention | 4 (3 high, 1 medium) | r3 — `5e900fc` | Trigger at top of requireAdmin still bypassed real Supabase boundary; Files list + commit stale (`app/help/layout.tsx`); empty-secret e2e was false-positive (server already started); H.4 missing ADMIN_FIXTURE import |
+| R3 | needs-attention | 1 (1 high) | r4 — `15298be` | Direct unit test was in Files list but Step 3 only ran the e2e Playwright spec — unit test could ship malformed/skipped |
+| **Close** | **approved-by-trajectory** | — | — | **Phase H closed at round-3 per user direction** ("Declare Phase H approved"). 9 findings across rounds. r4 added concrete unit test code for 3 Supabase boundary cases (getUser throw, rpc throw, rpc error response) + Step 2b unit-test run before Step 3 e2e. Trajectory r1:4→r2:4→r3:1 — sharp severity drop. |
+
+**Phase H converged at round 3** (soft cap, user-approved close). Total findings raised + resolved: 9.
 
 ---
 
