@@ -48,11 +48,36 @@ Replace each placeholder entry with the discovered concrete file path. Known anc
 
 M9/M10-discovered additions land here as a single commit.
 
-- [ ] **Step 3: Commit the inventory update**
+- [ ] **Step 3: G.0 acceptance checklist (hard exit signal — r5 per round-4 finding 3)**
+
+G.0 cannot be marked complete until ALL of these pass; G.1 cannot start until G.0 is complete:
+
+```bash
+# (a) No placeholder tokens remain in the file inventory:
+rg '<dashboard-row-component>|<onboarding-wizard>' docs/superpowers/plans/2026-05-12-user-facing-docs/
+# Expected: zero matches.
+
+# (b) Every AFFORDANCE_MATRIX concrete-testid row's sourceSurface text is found in exactly one component file under app/ or components/:
+# For each row, run a grep and confirm the count is 1:
+grep -rl "Active Shows" components/ app/admin/ | wc -l       # must be 1
+grep -rl "Sheets we couldn't" components/ app/admin/ | wc -l # must be 1
+# (continue for every concrete row's source-surface text)
+
+# (c) Every owning file from (b) appears in the 00-overview.md inventory's modify section:
+# Hand-check or grep the updated overview for each path.
+
+# (d) Ambiguous matches (count > 1) MUST be resolved before G.0 commits:
+# either narrow the matrix's sourceSurface description to a more unique substring,
+# or pin the specific file the affordance lives on with a comment explaining the disambiguation.
+```
+
+If any of (a)-(d) fails, G.0 is not done. Iterate the discovery + inventory update until all checks pass.
+
+- [ ] **Step 4: Commit the inventory update (only after the checklist passes)**
 
 ```bash
 git add docs/superpowers/plans/2026-05-12-user-facing-docs/00-overview.md
-git commit -m "docs(plan): G.0 pre-execution discovery — pin M9/M10 component paths for Phase G retrofit"
+git commit -m "docs(plan): G.0 pre-execution discovery — pin M9/M10 component paths (Phase G unblocked)"
 ```
 
 ---

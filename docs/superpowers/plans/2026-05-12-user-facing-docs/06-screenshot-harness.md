@@ -165,23 +165,26 @@ Per spec §7.1 test 9. Three assertions:
 
 ---
 
-### Task F.8: Screenshot-coverage test (test #8)
+### Task F.8: Screenshot-coverage test (test #8) — manifest-key-only at F.8 commit
 
 **Files:**
 - Create: `tests/help/screenshot-coverage.test.ts`
 
-Per spec §7.1 test 8. Walks `app/help/**/*.mdx`, extracts every `<Screenshot key="...">` reference, asserts:
+Per spec §7.1 test 8 (TDD-compliant split per r5). The full test has two halves:
+- **Half A (F.8 commit, TDD-green):** every `<Screenshot key="...">` reference resolves to a `MANIFEST` entry.
+- **Half B (F.11 commit, after captures):** the on-disk WebP existence + non-empty checks. F.11 appends these to the same test file once the WebPs are committed.
 
-1. Every referenced `key` exists in `MANIFEST`.
-2. Both WebPs exist on disk under `public/help/screenshots/`.
-3. Both WebP files are non-empty.
+This split honors AGENTS.md plan-wide invariant #1 (TDD: every commit green). r4 missed this — F.8 was committing red until F.11.
 
-- [ ] Step 1: Write failing test:
+- [ ] Step 1: Write the failing test (Half A only):
   - Walk `app/help/` recursively, collect `.mdx` files.
   - For each file, regex `/(<Screenshot)\s+[^>]*key=["']([^"']+)["']/g` to extract references.
-  - Per reference: assert key ∈ manifest; both WebPs exist; both `statSync(path).size > 0`.
-- [ ] Step 2: Run test — FAIL until F.11 captures WebPs for every referenced key (or until F.10's retrofit removes placeholders).
-- [ ] Step 3: Commit: `test(help): screenshot-coverage (Task F.8 — test #8)`
+  - Per reference: assert `key ∈ manifest`. NO on-disk WebP assertion at F.8 commit.
+- [ ] Step 2: Run test — FAILS if any Phase E page references a `<Screenshot key>` that's not yet in the manifest. Phase E may have authored against not-yet-added manifest keys; F.8 catches these.
+- [ ] Step 3: Add manifest entries (or fix MDX `key` typos) until Half A passes.
+- [ ] Step 4: Commit (Half A green): `test(help): screenshot-coverage Half A — manifest-key reachability (Task F.8 — test #8)`
+
+**F.11 appends Half B:** after captures land, extend this same file with the on-disk WebP existence + non-empty assertions. F.11 commits green on its own (because the captures are present).
 
 ---
 

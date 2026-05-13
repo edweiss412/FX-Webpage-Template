@@ -550,9 +550,9 @@ After B.1 – B.5 commits land:
 - [ ] `MessageCatalogEntry` has three new nullable fields; every entry has them present
 - [ ] 18+ master-spec admin-log-only codes have all six user-facing fields `null` (B.2 hand-list + B.5 meta-test net)
 - [ ] `extract-admin-log-only-codes.ts` parses master-spec §12.4 and emits the canonical set
-- [ ] Test #2 (catalog meta-test) is RED for Doug-facing entries until Phase E populates title/longExplanation/helpHref; forced-fixture cases PASS
+- [ ] Test #2 (catalog meta-test) PASSES with forced-fixture coverage only — no live-catalog biconditional assertion exists at Phase B. The live-catalog biconditional lives in Phase H Task H.6 (added in r4), which runs after every Phase E backfill lands.
 - [ ] Test #17 (catalog-alignment) PASSES
-- [ ] `pnpm test tests/messages/` is green except for the documented red items
+- [ ] `pnpm test tests/messages/` is **fully green** at Phase B close-out (no documented-red exception — r5 fix per AGENTS.md invariant #1)
 - [ ] **Hand off to Phase C** ([03-time-utility.md](03-time-utility.md))
 
 Phase B introduces ~5 commits, ~150 LOC of new code + ~50 LOC of catalog mutations.
