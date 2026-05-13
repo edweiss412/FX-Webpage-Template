@@ -755,10 +755,23 @@ export default async function ShowPage({ params }: PageProps) {
                   tileId="transport-tile"
                   showId={showId}
                   load={() => {
-                    // Round-3 H1: only escalate if the viewer was going to
-                    // see Transport at all. Non-driver / not-on-schedule
-                    // viewers must not see a Transport failure card.
-                    if (transportVisible && data.tileErrors["transportation"]) {
+                    // Round-4 H1: transportTileVisible derives from
+                    // data.transportation, which is null when the fetch
+                    // failed — so the predicate goes silent and a crew
+                    // throw would never fire. The fix has two halves:
+                    //   • Admins always see Transport (per §8.1); admin
+                    //     escalation is independent of data, so a
+                    //     ctx.isAdmin clause is the privacy-safe gate.
+                    //   • Crew/non-admin fail CLOSED: skip the throw so
+                    //     the tile reflows away (matches whole-tile-missing
+                    //     §8.3 behavior — we can't tell from the failed
+                    //     data whether the viewer was authorized for
+                    //     Transport, so we don't expose a fallback card
+                    //     to someone who might not have been authorized).
+                    if (
+                      (ctx.isAdmin || transportVisible) &&
+                      data.tileErrors["transportation"]
+                    ) {
                       throw new Error(
                         `transportation fetch failed: ${data.tileErrors["transportation"]}`,
                       );

@@ -188,6 +188,64 @@ describe("TileErrorBoundary + TileServerFallback composition", () => {
     expect(container.querySelector('[data-testid="happy"]')).toBeNull();
   });
 
+  test("H1-r4 admin bypass: transport error escalates for admin even when transportVisible is false (null data)", async () => {
+    // Reproduces R4 H1: a transportation fetch failure leaves
+    // data.transportation null, which makes transportTileVisible return
+    // false, which would orphan the tileError under a "visible &&
+    // tileError" guard. The fix: admin bypasses the visibility gate.
+    const tileErrors: Record<string, string> = {
+      transportation: "transportation fetch failed: connection reset",
+    };
+    const transportVisibleFromNull = false; // transportTileVisible(null) → false
+    const isAdmin = true;
+
+    const resolved = await TileServerFallback({
+      load: async () => {
+        if ((isAdmin || transportVisibleFromNull) && tileErrors["transportation"]) {
+          throw new Error(tileErrors["transportation"]);
+        }
+        return { transportation: null, visible: false };
+      },
+      render: () => <HappyView value="transport" />,
+      tileId: "transport-tile",
+      showId: "show-1",
+    });
+
+    const { container } = render(
+      <TileErrorBoundary tileId="transport-tile">{resolved}</TileErrorBoundary>,
+    );
+    expect(container.querySelector('[data-testid="tile-error-fallback"]')).not.toBeNull();
+  });
+
+  test("H1-r4 crew fail-closed: transport error does NOT escalate for crew when transportVisible is false", async () => {
+    // The crew side of R4: when transportVisible is false (either
+    // because the viewer isn't on the schedule OR because data is null),
+    // a non-admin viewer sees no fallback — the tile reflows away.
+    const tileErrors: Record<string, string> = {
+      transportation: "transportation fetch failed: connection reset",
+    };
+    const transportVisibleFromNull = false;
+    const isAdmin = false;
+
+    const resolved = await TileServerFallback({
+      load: async () => {
+        if ((isAdmin || transportVisibleFromNull) && tileErrors["transportation"]) {
+          throw new Error(tileErrors["transportation"]);
+        }
+        return { transportation: null, visible: false };
+      },
+      render: () => <></>, // TransportTile View returns null when !visible
+      tileId: "transport-tile",
+      showId: "show-1",
+    });
+
+    const { container } = render(
+      <TileErrorBoundary tileId="transport-tile">{resolved}</TileErrorBoundary>,
+    );
+    expect(container.querySelector('[data-testid="tile-error-fallback"]')).toBeNull();
+    expect(container.querySelector('[data-testid="happy"]')).toBeNull();
+  });
+
   test("client render-throw: server resolves OK, then a descendant render throws → client boundary catches", async () => {
     // Server side resolves successfully — load doesn't throw and the
     // render callback returns a valid element. The element's component
