@@ -74,7 +74,13 @@ Same soft cap as overview: 10 rounds per phase. At round 10, remaining findings 
 
 ## Phase E — `05-content.md`
 
-(Pending — task #16.)
+| Round | Verdict | Findings | Resolved in commit | Notes |
+|---|---|---|---|---|
+| R1 | needs-attention | 3 (3 high) | r2 — `5a2d5d0` | Smoke tests source-grep-only (don't catch invalid MDX); E.7 helpHref to topic page (contradicts §5.6 template-family); E.6/E.8/E.9/E.10/E.12 lack explicit TDD blocks |
+| R2 | needs-attention | 4 (3 high, 1 medium) | r3 — `6909c3f` | E.5/E.6 task-local still set non-canonical helpHref; task-local smoke tests still grep-only; E.10 still bare; E.13 test predicate vs page predicate mismatch (dereferences null title) |
+| **Close** | **approved-by-trajectory** | — | — | **Phase E closed at round-2 soft cap per user direction** ("Apply remaining r2 fixes, declare approved"). 7 findings across 2 rounds; r3 applied final fixes incl. real-render assertion injected into 9 task-local smoke tests + canonical helpHref sweep + E.10 TDD block + E.13 predicate alignment. Trajectory mirrors Phase B/C/D arc. Remaining content-quality drift surfaces at impeccable v3 close-out (per AGENTS.md invariant #8). |
+
+**Phase E converged at round 2** (soft cap, user-approved close). Total findings raised + resolved: 7.
 
 ---
 
