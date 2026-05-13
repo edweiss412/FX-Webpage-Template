@@ -36,6 +36,10 @@ afterEach(() => cleanup());
 
 describe("Gallery — thumbnail grid", () => {
   test("emits asset URLs with bare-UUID rev segment (no `r=` prefix)", () => {
+    // M9 C6b / M7-D3: thumbnails now go through next/image, which
+    // rewrites src to `/_next/image?url=<encoded-path>&w=...&q=...`.
+    // Anti-tautology: parse the inner `url` param and assert the
+    // original asset path matches the bare-UUID-rev contract.
     render(
       <Gallery showId={SHOW_ID} snapshotRevisionId={REV} items={items(3)} />,
     );
@@ -43,10 +47,13 @@ describe("Gallery — thumbnail grid", () => {
     expect(imgs).toHaveLength(3);
     for (const img of imgs) {
       const src = img.getAttribute("src") ?? "";
-      expect(src).toMatch(
+      // Extract the inner asset path from /_next/image?url=...
+      const match = src.match(/\/_next\/image\?url=([^&]+)/);
+      const innerUrl = match ? decodeURIComponent(match[1]!) : src;
+      expect(innerUrl).toMatch(
         new RegExp(`^/api/asset/diagram/${SHOW_ID}/${REV}/embedded-obj-\\d+\\.png$`),
       );
-      expect(src).not.toContain("r=");
+      expect(innerUrl).not.toContain("r=");
     }
   });
 

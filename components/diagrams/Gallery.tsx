@@ -27,6 +27,7 @@
  * sees the `DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE` warning).
  */
 import { useState } from "react";
+import Image from "next/image";
 import { AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronUp, ImageOff } from "lucide-react";
 
@@ -96,14 +97,25 @@ export function Gallery({ showId, snapshotRevisionId, items }: GalleryProps) {
                 type="button"
                 onClick={() => setLightboxIndex(i)}
                 aria-label={`Open ${item.alt || `Diagram ${i + 1}`}`}
-                className="block size-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                className="relative block size-full cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
-                <img
+                {/*
+                  M9 C6b / M7-D3 — Migrated from <img> to next/image so
+                  Next.js's `/_next/image` proxy applies responsive
+                  sizing, AVIF/WebP negotiation, and lazy-load
+                  observability. The upstream diagram proxy still owns
+                  the auth+revision contract; `/_next/image` is a
+                  transparent caching+resize layer in front of it.
+                  Same-origin URLs need no remotePatterns entry; we
+                  pass `unoptimized={false}` (default) to opt in to
+                  the `/_next/image` pipeline.
+                */}
+                <Image
                   src={assetUrl(showId, snapshotRevisionId, item.key)}
                   alt={item.alt || `Diagram ${i + 1}`}
-                  loading="lazy"
-                  decoding="async"
-                  className="size-full object-cover"
+                  fill
+                  sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                  className="object-cover"
                 />
               </button>
             ) : (

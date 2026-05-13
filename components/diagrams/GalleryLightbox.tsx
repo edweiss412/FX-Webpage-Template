@@ -14,6 +14,7 @@
  * collapsed state never trigger Embla.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import useEmblaCarousel from "embla-carousel-react";
 import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
@@ -169,15 +170,23 @@ export function GalleryLightbox({
             {items.map((item, i) => (
               <figure
                 key={item.key}
-                className="flex size-full shrink-0 grow-0 basis-full items-center justify-center px-4"
+                className="relative flex size-full shrink-0 grow-0 basis-full items-center justify-center px-4"
               >
                 {item.available ? (
-                  <img
+                  // M9 C6b / M7-D3 — Lightbox full-size image via
+                  // next/image. `fill` mode + `object-contain`
+                  // preserves the original aspect ratio inside the
+                  // figure (the parent <figure> has size constraints
+                  // from the carousel's full-viewport slide). The
+                  // `priority` flag on the start image avoids the
+                  // lazy-load delay when the lightbox first opens.
+                  <Image
                     src={assetUrl(showId, snapshotRevisionId, item.key)}
                     alt={item.alt || `Diagram ${i + 1}`}
-                    loading={i === startIndex ? "eager" : "lazy"}
-                    decoding="async"
-                    className="max-h-full max-w-full object-contain"
+                    fill
+                    sizes="100vw"
+                    priority={i === startIndex}
+                    className="object-contain"
                   />
                 ) : (
                   <div className="flex flex-col items-center gap-2 text-text-subtle">
