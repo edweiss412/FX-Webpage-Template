@@ -141,14 +141,15 @@ function copyForCode(code: MessageCode, surface: ReportSurface): string | null {
   return surface === "admin" ? entry.dougFacing : entry.crewFacing;
 }
 
-// not-subject:M5-D8 — GENERIC_NETWORK_COPY is the offline / fetch-
-// failed fallback rendered when the POST to /api/report didn't reach
-// the server. No §12.4 catalog code currently maps to "network is
-// down between the client and our origin"; adding one requires a
-// spec amendment per AGENTS.md §1.7. Deferred to a future
-// spec-amendment session. The other ReportModal error branches DO
-// route through messageFor(parsed.code) via getCatalogMessage —
-// only the pre-server-reach network failure carries inline copy.
+// GENERIC_NETWORK_COPY is the offline / fetch-failed fallback
+// rendered when the POST to /api/report didn't reach the server.
+// No §12.4 catalog code currently maps to "network is down between
+// the client and our origin"; adding one requires a spec amendment
+// per AGENTS.md §1.7. Deferred to a future spec-amendment session.
+// The other ReportModal error branches DO route through
+// messageFor(parsed.code) via getCatalogMessage — only the
+// pre-server-reach network failure carries inline copy.
+// not-subject:M5-D8 — see rationale above
 const GENERIC_NETWORK_COPY =
   "Couldn't reach the server. Check your connection and try again.";
 

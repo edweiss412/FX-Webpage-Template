@@ -54,7 +54,12 @@ function walkFiles(dir: string): string[] {
 // comment within ±3 lines of the match exempts that callsite.
 const PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   { name: "setError literal", re: /setError\((["'])[^"']+["']\)/ },
-  { name: "ERROR/COPY/MESSAGE const literal", re: /const\s+[A-Z_]*(COPY|MESSAGE|ERROR)\s*=\s*["']/ },
+  // Match `const FOO_COPY = ` regardless of whether the value lives on
+  // the same line or the next one. The match line is the const
+  // declaration; the exemption window (±3 lines) catches an annotation
+  // on either side. Without the multi-line detection this regex
+  // misses GENERIC_ERROR_COPY / GENERIC_NETWORK_COPY (M9 C7 R2 fix).
+  { name: "ERROR/COPY/MESSAGE const declaration", re: /const\s+[A-Z_]*(COPY|MESSAGE|ERROR)\s*=\s*$|const\s+[A-Z_]*(COPY|MESSAGE|ERROR)\s*=\s*["']/ },
   { name: "object error message literal", re: /\bmessage:\s*(["'])[^"']{8,}["']/ },
 ];
 
