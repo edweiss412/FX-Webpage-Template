@@ -45,6 +45,8 @@ function makeData(crewMembers: ShowForViewer["crewMembers"]): ShowForViewer {
     viewerVersionToken: "",
     diagrams: null,
     openingReelHasVideo: false,
+    lastSyncedAt: null,
+    lastSyncStatus: null,
   };
 }
 

@@ -144,6 +144,16 @@ export type ShowForViewer = {
    * server-internal so the crew DOM never carries `https://drive...`.
    */
   openingReelHasVideo: boolean;
+  /**
+   * `shows.last_synced_at` ISO timestamp + `shows.last_sync_status` — surfaced
+   * to the page so the chrome <Footer asOf=...> slot can render <StaleFooter>
+   * (M9 Task 9.1) with tier-aware status precedence. Kept at the
+   * ShowForViewer top level (not inside `show`) because these are sync-time
+   * metadata fields, not parser-emitted shape — ShowRow stays the parser
+   * contract surface.
+   */
+  lastSyncedAt: string | null;
+  lastSyncStatus: string | null;
   financials?: FinancialsRow;
   /**
    * Resolved viewer name for the active crew / admin_preview viewer, or
@@ -475,6 +485,8 @@ export async function getShowForViewer(showId: string, viewer: Viewer): Promise<
     viewerVersionToken,
     diagrams,
     openingReelHasVideo,
+    lastSyncedAt: (showRowDb.last_synced_at as string | null | undefined) ?? null,
+    lastSyncStatus: (showRowDb.last_sync_status as string | null | undefined) ?? null,
     ...(financials ? { financials } : {}),
   };
 }

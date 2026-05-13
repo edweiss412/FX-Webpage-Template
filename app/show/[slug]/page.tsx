@@ -811,6 +811,8 @@ export default async function ShowPage({ params }: PageProps) {
         showId={showId}
         showSlug={slug}
         reportAutocapture={{ rightNowState: rightNowCtx }}
+        lastSyncedAt={data.lastSyncedAt}
+        lastSyncStatus={data.lastSyncStatus}
       />
     </>
   );

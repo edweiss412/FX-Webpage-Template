@@ -26,6 +26,7 @@
  */
 import { ThemeToggle } from "./ThemeToggle";
 import { ReportButton } from "@/components/shared/ReportButton";
+import { StaleFooter } from "@/components/shared/StaleFooter";
 
 type FooterProps = {
   /**
@@ -54,6 +55,15 @@ type FooterProps = {
    * context. Forwarded verbatim into POST /api/report.
    */
   reportAutocapture?: React.ComponentProps<typeof ReportButton>["autocapture"];
+  /**
+   * `shows.last_synced_at` ISO timestamp. When provided alongside
+   * `lastSyncStatus`, the asOf slot renders <StaleFooter> (Task 9.1)
+   * with tier-aware copy + status precedence. When omitted, the slot
+   * falls back to the legacy raw "as of …" rendering (or "syncing…").
+   */
+  lastSyncedAt?: string | null;
+  /** `shows.last_sync_status`. Pairs with lastSyncedAt — see above. */
+  lastSyncStatus?: string | null;
 };
 
 /** Render an ISO timestamp as a short "as of …" line. */
@@ -70,7 +80,14 @@ function formatAsOf(iso: string): string {
   });
 }
 
-export function Footer({ asOf, showId, showSlug, reportAutocapture }: FooterProps) {
+export function Footer({
+  asOf,
+  showId,
+  showSlug,
+  reportAutocapture,
+  lastSyncedAt,
+  lastSyncStatus,
+}: FooterProps) {
   const year = new Date().getUTCFullYear();
   // surfaceId scope: one stable id per crew-page slug so sessionStorage
   // hydration finds the right persisted attempt across tab refresh.
@@ -80,7 +97,9 @@ export function Footer({ asOf, showId, showSlug, reportAutocapture }: FooterProp
     <footer data-testid="page-footer" className="mt-auto border-t border-border bg-bg">
       <div className="mx-auto flex w-full max-w-300 flex-col items-start gap-3 px-4 py-6 text-xs text-text-subtle sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-8 sm:py-7">
         <p data-testid="page-footer-as-of" className="min-w-0">
-          {asOf ? (
+          {lastSyncedAt ? (
+            <StaleFooter lastSyncedAt={lastSyncedAt} lastSyncStatus={lastSyncStatus ?? null} />
+          ) : asOf ? (
             <>
               <span className="text-text-faint">as of </span>
               <time dateTime={asOf} className="font-medium text-text">
