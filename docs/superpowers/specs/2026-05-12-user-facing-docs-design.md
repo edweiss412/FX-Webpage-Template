@@ -144,7 +144,7 @@ Real screenshots ship in v1. Capture is scripted, deterministic, and reproducibl
 
 #### 3.6.1 Pipeline
 
-1. **Manifest** at `scripts/help-screenshots.manifest.ts` is the single source of truth. Per-entry shape: `{ key, route, fixture, viewport, theme, waitFor, captureSelector?, expectStableMs? }`. `<Screenshot key="...">` references manifest keys.
+1. **Manifest** at `scripts/help-screenshots.manifest.ts` is the single source of truth. Per-entry shape: `{ key, route, fixture, viewport, theme, waitFor, captureSelector?, expectStableMs? }`. `<Screenshot name="...">` references manifest keys.
 2. **Capture script** at `scripts/help-screenshots.ts` reads the manifest, drives Playwright through the **reproducibility preconditions** below, captures one screenshot per `{key, theme}` pair, and writes WebP output (quality 90) to `public/help/screenshots/<key>-{light,dark}.webp`.
 3. **`<Screenshot>` component** at `app/help/_components/Screenshot.tsx` renders `<picture>` with `<source media="(prefers-color-scheme: dark)" srcset="…-dark.webp">` + a default `<img src="…-light.webp" alt={alt}>`. Reader's theme picks the variant automatically. AC-12.20 is enforced by a component-level test (§7.1 test 10).
 4. **Invocation:** `pnpm screenshot:help` runs the full pipeline end-to-end on a clean checkout.
@@ -399,7 +399,7 @@ The matrix is the source of truth for test #13. Owning milestones ship the affor
 | --- | --- | --- |
 | `<Callout type>` | `note` / `warning` / `tip` — colored block using `app/globals.css` palette tokens. Each type has a fixed icon + heading color. | `app/help/_components/Callout.tsx` |
 | `<Step n>` | Numbered procedural step. Used in adoption-track and onboarding-wizard pages. | `app/help/_components/Step.tsx` |
-| `<Screenshot key>` | Renders `<picture>` with light/dark WebP sources from `public/help/screenshots/<key>-{light,dark}.webp`. Key must exist in the manifest at `scripts/help-screenshots.manifest.ts`. Required props: `key`, `alt`. Optional: `caption`. | `app/help/_components/Screenshot.tsx` |
+| `<Screenshot name>` | Renders `<picture>` with light/dark WebP sources from `public/help/screenshots/<name>-{light,dark}.webp`. The `name` value must exist in the manifest at `scripts/help-screenshots.manifest.ts` (the manifest's field is still called `key` as a plain JS object property; only the React prop is renamed). Required props: `name`, `alt`. Optional: `caption`. **r14 amendment:** prop renamed from `key` to `name` because `key` is a React reserved attribute and is never delivered to component props. | `app/help/_components/Screenshot.tsx` |
 | `<ScreenshotPlaceholder>` | **Draft-only.** Labeled empty box for pages authored before the underlying surface exists. Must not appear in any MDX file at v1 close-out — lint enforces (§7.1 test 7). | `app/help/_components/ScreenshotPlaceholder.tsx` |
 | `<RefAnchor id>` | Stable anchor wrapper for catalog deep-links; renders as a heading with `id={id}` and a click-to-copy link icon. | `app/help/_components/RefAnchor.tsx` |
 | `<TipFromSheets>` | Adoption-track aside: "In your old workflow, you'd … now …" framing. Distinct background color so it reads as a side-note, not body. | `app/help/_components/TipFromSheets.tsx` |
@@ -470,11 +470,11 @@ All components honor `prefers-reduced-motion`. None have motion in v1 (the contr
 
 7. **No-placeholder-in-shipped-v1 lint** (`tests/help/no-placeholders.test.ts`)
    - Greps `app/help/**/*.mdx` for `<ScreenshotPlaceholder` and fails if found
-   - Forces every documented surface to ship with a real `<Screenshot key="...">` referencing a manifest entry
+   - Forces every documented surface to ship with a real `<Screenshot name="...">` referencing a manifest entry
    - Inverts the previous (revision-1) lint, which prohibited real screenshots
 
 8. **Screenshot coverage** (`tests/help/screenshot-coverage.test.ts`)
-   - For every `<Screenshot key="...">` reference across `app/help/**/*.mdx`, asserts: (a) the key exists in `scripts/help-screenshots.manifest.ts`, (b) both `<key>-light.webp` and `<key>-dark.webp` exist on disk under `public/help/screenshots/`, (c) both files are non-empty
+   - For every `<Screenshot name="...">` reference across `app/help/**/*.mdx`, asserts: (a) the key exists in `scripts/help-screenshots.manifest.ts`, (b) both `<key>-light.webp` and `<key>-dark.webp` exist on disk under `public/help/screenshots/`, (c) both files are non-empty
    - Anti-tautology: assertion reads MDX source + manifest source + filesystem; the rendered page is not the side of the test
 
 9. **Manifest integrity** (`tests/help/_metaScreenshotManifest.test.ts`)
@@ -484,7 +484,7 @@ All components honor `prefers-reduced-motion`. None have motion in v1 (the contr
    - Catches stale manifest entries (UI deleted but manifest not pruned) and orphan WebP files (output for a removed entry)
 
 10. **`<Screenshot>` `<picture>` contract test** (`tests/help/screenshot-picture-contract.test.ts`)
-    - Renders `<Screenshot key="<test-key>" alt="<test-alt>" />` against a stub manifest with a known key
+    - Renders `<Screenshot name="<test-key>" alt="<test-alt>" />` against a stub manifest with a known key
     - Asserts the rendered output contains `<picture>` with a `<source media="(prefers-color-scheme: dark)" srcset="…-dark.webp">` and a default `<img src="…-light.webp" alt="<test-alt>">`
     - **Anti-tautology:** assertion reads the rendered HTML from the component; the snapshot/regex specifically pins both the media query string and the WebP path pattern. A broken `<picture>` rendering cannot pass because the absence of either element would fail the regex.
     - Directly enforces AC-12.20 — without this test, the `<picture>` contract has only the visual fixtures to prove it works.
@@ -695,11 +695,11 @@ All citations in this table cite `file:line` as required by AGENTS.md self-revie
 | **AC-12.11** | `/help/errors` iterates the catalog and renders one anchored section per entry matching the AC-12.6 predicate — `severity !== "info"` AND `dougFacing != null`. Each section's visible heading is `entry.title` (NOT the code — invariant #5). Body is `entry.longExplanation`. **Trailing call-to-action (r10 corrected per round-8 finding 5):** the trailing link is "If this keeps happening, tell Eric →" pointing to the bug-report flow (per §4.3), NOT a `Learn more →` to `entry.helpHref` (which would self-link to the same page). The `Learn more →` affordance lives on the SOURCE surfaces (admin pages where the error renders) per §5.6 matrix — `/help/errors` is the destination, not a hop. |
 | **AC-12.12** | All 17 unit/integration tests in §7.1 (items 1–10 plus 12 + 13 + 14 + 15 + 16 + 17 + 18) pass; nav-consistency, anchor-resolver, screenshot-coverage, manifest-integrity, `<picture>`-contract, error-renderer-gate (4 contexts), deep-link-walker, fixture-range-parser, `lib/time/now.ts`-gate, server-time grep-guard, catalog-alignment meta-test, and end-to-end clock-pipeline proof are red on the conditions they guard. CI drift gate (§7.1 item 11) is wired and fails on uncommitted screenshot drift. |
 | **AC-12.13** | `/impeccable critique` and `/impeccable audit` pass on every `app/help/*` page (per invariant #8). |
-| **AC-12.14** | No `<ScreenshotPlaceholder>` references in `app/help/**/*.mdx` at v1 close-out (lint enforces, §7.1 test 7). Every documented surface ships with a real `<Screenshot key="...">`. |
+| **AC-12.14** | No `<ScreenshotPlaceholder>` references in `app/help/**/*.mdx` at v1 close-out (lint enforces, §7.1 test 7). Every documented surface ships with a real `<Screenshot name="...">`. |
 | **AC-12.15** | Mobile Playwright test at 390 × 844 passes the dimensional + no-horizontal-scroll + 44 × 44 px-target assertions. |
 | **AC-12.16** | No new boolean flags, no new env vars (r7 — r6's `SCREENSHOT_FROZEN_NOW` env was infeasible with the server-start env model, replaced by a request-scoped header), no new Supabase tables. The screenshot harness uses a request-scoped test-only header `X-Screenshot-Frozen-Now: <ISO>` plus the existing `Authorization: Bearer ${TEST_AUTH_SECRET}` for gating — both honored only when `ENABLE_TEST_AUTH === "true"`. AC-12.37 enforces production-build rejection. |
 | **AC-12.17** | All milestone work is committed in conventional-commits format (`feat(help): …`, `test(help): …`, etc.) per invariant #6. |
-| **AC-12.18** | `scripts/help-screenshots.manifest.ts` exists and is the single source of truth for every documented surface. Every `<Screenshot key>` reference resolves to a manifest entry. |
+| **AC-12.18** | `scripts/help-screenshots.manifest.ts` exists and is the single source of truth for every documented surface. Every `<Screenshot name>` reference resolves to a manifest entry. |
 | **AC-12.19** | `scripts/help-screenshots.ts` (the capture script) runs end-to-end via `pnpm screenshot:help` against a clean checkout and produces every manifest entry's light + dark WebP output. Idempotent: a second run on unchanged UI produces byte-identical output. |
 | **AC-12.20** | `<Screenshot>` MDX component renders `<picture>` with a `(prefers-color-scheme: dark)` `<source>` and a default light `<img>`. Reader's theme picks the variant automatically. |
 | **AC-12.21** | Manifest-integrity meta-test (§7.1 test 9) passes: no stale entries, no orphan WebPs, every named fixture exists in `fixtures/shows/`. |

@@ -20,7 +20,7 @@
 
 - Tone matches PRODUCT.md ("Professional · Bold-modern · Intuitive" — plain language, no jargon, no error codes in visible text, glanceable on mobile)
 - All time + date references use the existing tabular-figures pattern (`tabular-nums` class) when shown in tile-style components
-- Every `<Screenshot key="...">` reference resolves to a manifest entry (Phase F will add these; until then, use `<ScreenshotPlaceholder>` and convert during Phase F.11)
+- Every `<Screenshot name="...">` reference resolves to a manifest entry (Phase F will add these; until then, use `<ScreenshotPlaceholder>` and convert during Phase F.11)
 - No `<ScreenshotPlaceholder>` references at v1 close-out (Phase H.4 lint enforces)
 - Page mobile-first; sections separated by appropriate spacing tokens
 
@@ -379,7 +379,7 @@ Commit: `feat(help): /help/whats-different page content (Task E.4)`
 **Page structure:**
 
 1. H1: "Reading the dashboard"
-2. `<Screenshot key="dashboard-overview" alt="...">` showing the dashboard at a normal state (Phase F populates the WebP)
+2. `<Screenshot name="dashboard-overview" alt="...">` showing the dashboard at a normal state (Phase F populates the WebP)
 3. H2 "The Active Shows panel" — `<RefAnchor id="ACTIVE_SHOWS">` (the §5.6 matrix says the `?` tooltip on this header links here)
    - Per-column explanation
    - What status badges mean (green, yellow, red — but never use color alone per PRODUCT.md a11y floor)
@@ -424,7 +424,7 @@ Commit: `feat(help): /help/admin/dashboard page + relevant catalog title/longExp
 4. H2 `<RefAnchor id="RE_STAGE">` "Re-stage review" — your edits to an already-published show that the app paused for review (link to master spec §9.1.1 explanation of triggers via plain language)
 5. H2 "When to Apply" — short bullet list
 6. H2 "When to Discard" — short bullet list
-7. `<Screenshot key="review-queues-side-by-side" alt="...">`
+7. `<Screenshot name="review-queues-side-by-side" alt="...">`
 
 Smoke test (similar shape to E.5).
 
@@ -518,7 +518,7 @@ Commit: `feat(help): /help/admin/per-show-panel page (Task E.8)`
 
 1. H1: "Preview as crew"
 2. Intro: what impersonation is and why it exists
-3. `<Screenshot key="preview-as-crew-banner" alt="...">` showing the sticky banner
+3. `<Screenshot name="preview-as-crew-banner" alt="...">` showing the sticky banner
 4. H2 `<RefAnchor id="impersonation-banner">` — the banner UX (sticky, yellow, Exit button) — note this is the `?` icon target per §5.6 matrix
 5. H2 "What to verify" — bulleted checklist (call time correct, hotel info present, role-restricted info hidden as expected)
 6. H2 "Why some fields are hidden" — short explanation of role-based filtering; reassures Doug that not-seeing-a-field is correct behavior, not a bug

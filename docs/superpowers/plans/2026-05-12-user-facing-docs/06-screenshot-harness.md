@@ -2,7 +2,7 @@
 
 **Scope:** Build the deterministic screenshot capture pipeline. Manifest of `(key, route, fixture, viewport, frozenClockInstant)` entries; fixture-INFO-tab date-range parser; Playwright capture script using `signInAs` + `context.clock.install` + `X-Screenshot-Frozen-Now` header; `sharp` encoder with pinned settings; CI drift gate; structural meta-tests (#8, #9, #10, #14); E2E clock-pipeline proof (#18); real screenshot captures committed.
 
-**Prereqs:** Phase E complete (strict sequential per 00-overview.md — implies A + B + C + D also complete). Phase E may have left `<ScreenshotPlaceholder>` references in some pages — Task F.10 converts those to `<Screenshot key>` references in lockstep with capturing the WebPs.
+**Prereqs:** Phase E complete (strict sequential per 00-overview.md — implies A + B + C + D also complete). Phase E may have left `<ScreenshotPlaceholder>` references in some pages — Task F.10 converts those to `<Screenshot name>` references in lockstep with capturing the WebPs.
 
 **Tasks:** F.1 → F.11 (11 tasks). F.1 → F.2 → F.3 are linear (manifest defines the contract; parser validates entries; capture script consumes both). F.4 + F.5 run after F.3. F.6 – F.9 are tests that can interleave. F.10 (E2E proof) requires F.5 (the screenshot:help script). F.11 (capture real WebPs) is the deliverable that ships the final bytes.
 
@@ -13,7 +13,7 @@
 **Files:**
 - Create: `scripts/help-screenshots.manifest.ts`
 
-Per spec §3.6.1 — the manifest is the single source of truth. `<Screenshot key="...">` references look up here; `_metaScreenshotManifest.test.ts` validates the manifest matches filesystem + fixture corpus.
+Per spec §3.6.1 — the manifest is the single source of truth. `<Screenshot name="...">` references look up here; `_metaScreenshotManifest.test.ts` validates the manifest matches filesystem + fixture corpus.
 
 **Required fields per entry:** `key`, `route`, `fixture`, `frozenClockInstant`, `viewport`. Optional: `theme` ("light" / "dark" / "both"; default "both"), `waitFor`, `captureSelector`, `expectStableMs`.
 
@@ -167,7 +167,7 @@ git status --short app/help/_components/Screenshot.tsx
 # Expected: empty output.
 ```
 
-- [ ] Step 1: Write the test. Iterates `MANIFEST`; for each entry, renders `<Screenshot key={entry.key} alt="Test alt" />`, asserts the output contains:
+- [ ] Step 1: Write the test. Iterates `MANIFEST`; for each entry, renders `<Screenshot name={entry.key} alt="Test alt" />`, asserts the output contains:
   - `<picture>` element
   - `<source media="(prefers-color-scheme: dark)" srcset="/help/screenshots/<key>-dark.webp">`
   - `<img src="/help/screenshots/<key>-light.webp" alt="Test alt">`
@@ -208,7 +208,7 @@ Per spec §7.1 test 9. Three assertions:
 - Create: `tests/help/screenshot-coverage.test.ts`
 
 Per spec §7.1 test 8 (TDD-compliant split per r5). The full test has two halves:
-- **Half A (F.8 commit, TDD-green):** every `<Screenshot key="...">` reference resolves to a `MANIFEST` entry.
+- **Half A (F.8 commit, TDD-green):** every `<Screenshot name="...">` reference resolves to a `MANIFEST` entry.
 - **Half B (F.11 commit, after captures):** the on-disk WebP existence + non-empty checks. F.11 appends these to the same test file once the WebPs are committed.
 
 This split honors AGENTS.md plan-wide invariant #1 (TDD: every commit green). r4 missed this — F.8 was committing red until F.11.
@@ -217,7 +217,7 @@ This split honors AGENTS.md plan-wide invariant #1 (TDD: every commit green). r4
   - Walk `app/help/` recursively, collect `.mdx` files.
   - For each file, regex `/(<Screenshot)\s+[^>]*key=["']([^"']+)["']/g` to extract references.
   - Per reference: assert `key ∈ manifest`. NO on-disk WebP assertion at F.8 commit.
-- [ ] Step 2: Run test — FAILS if any Phase E page references a `<Screenshot key>` that's not yet in the manifest. Phase E may have authored against not-yet-added manifest keys; F.8 catches these.
+- [ ] Step 2: Run test — FAILS if any Phase E page references a `<Screenshot name>` that's not yet in the manifest. Phase E may have authored against not-yet-added manifest keys; F.8 catches these.
 - [ ] Step 3: Add manifest entries (or fix MDX `key` typos) until Half A passes.
 - [ ] Step 4: Commit (Half A green): `test(help): screenshot-coverage Half A — manifest-key reachability (Task F.8 — test #8)`
 
@@ -253,11 +253,11 @@ Per spec §7.1 test 18 / AC-12.39. Captures the `preview-as-crew-banner` manifes
 - Modify: each `app/help/**/*.mdx` that has `<ScreenshotPlaceholder>` references from Phase E
 - Modify: `scripts/help-screenshots.manifest.ts` (add entries as needed)
 
-Phase E used `<ScreenshotPlaceholder>` for surfaces that weren't capturable yet. Replace each with a real `<Screenshot key="...">` reference + manifest entry.
+Phase E used `<ScreenshotPlaceholder>` for surfaces that weren't capturable yet. Replace each with a real `<Screenshot name="...">` reference + manifest entry.
 
 - [ ] Step 1: Audit — `grep -rn "<ScreenshotPlaceholder" app/help/`.
 - [ ] Step 2: For each occurrence, decide:
-  - **Needs a real screenshot:** pick a key, add a manifest entry (route + fixture + frozenClockInstant + viewport + waitFor selector), replace placeholder with `<Screenshot key="<new-key>" alt="<copy alt from placeholder>" />`.
+  - **Needs a real screenshot:** pick a key, add a manifest entry (route + fixture + frozenClockInstant + viewport + waitFor selector), replace placeholder with `<Screenshot name="<new-key>" alt="<copy alt from placeholder>" />`.
   - **Doesn't need a screenshot:** delete the placeholder.
 - [ ] Step 3: Run `pnpm screenshot:help` to capture the new WebPs.
 - [ ] Step 4: For each retrofitted page, commit: `feat(screenshots): retrofit <page> placeholders with real Screenshot entries (Task F.10 — <page>)`.
@@ -309,7 +309,7 @@ After F.1 – F.11 commits land:
 - [ ] `pnpm screenshot:help` is idempotent on a clean checkout
 - [ ] CI workflow exits 0 on `git diff --exit-code public/help/screenshots/`
 - [ ] Tests #8, #9, #10, #14, #18 all PASS
-- [ ] All `<Screenshot key>` references in MDX resolve; no `<ScreenshotPlaceholder>` references remain (or only on pages explicitly excluded)
+- [ ] All `<Screenshot name>` references in MDX resolve; no `<ScreenshotPlaceholder>` references remain (or only on pages explicitly excluded)
 - [ ] WebPs under `public/help/screenshots/` are committed
 - [ ] **Hand off to Phase G** ([07-affordance-retrofit.md](07-affordance-retrofit.md))
 

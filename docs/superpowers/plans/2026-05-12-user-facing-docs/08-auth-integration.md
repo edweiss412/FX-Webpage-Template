@@ -554,7 +554,7 @@ git commit -m "test(playwright): /help mobile layout assertions (Task H.4 — te
 **Files:**
 - Create: `tests/help/no-placeholders.test.ts`
 
-Per spec §7.1 test 7 (r2 inverted lint). At v1 close-out, no `<ScreenshotPlaceholder>` references exist in any `.mdx` file under `app/help/`. Phase F.10 should have replaced every placeholder with a real `<Screenshot key>` or deleted it; H.5 enforces.
+Per spec §7.1 test 7 (r2 inverted lint). At v1 close-out, no `<ScreenshotPlaceholder>` references exist in any `.mdx` file under `app/help/`. Phase F.10 should have replaced every placeholder with a real `<Screenshot name>` or deleted it; H.5 enforces.
 
 - [ ] **Step 0: Verify-red-via-restore (r8 per round-7 finding 2; cross-phase verify-red sweep per B-r7 finding 1)**
 
@@ -621,7 +621,7 @@ describe("No <ScreenshotPlaceholder> in shipped v1 MDX (test #7)", () => {
   it("no .mdx file references <ScreenshotPlaceholder>", () => {
     expect(
       violations,
-      `Violations:\n${violations.join("\n")}\n\nPhase F.10 retrofits these to <Screenshot key="..."> or removes them.`,
+      `Violations:\n${violations.join("\n")}\n\nPhase F.10 retrofits these to <Screenshot name="..."> or removes them.`,
     ).toEqual([]);
   });
 });

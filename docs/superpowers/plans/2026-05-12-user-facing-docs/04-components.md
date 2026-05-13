@@ -20,7 +20,9 @@ Per spec §6.2 — `note` / `warning` / `tip` variants, palette tokens from `app
 Create `tests/help/callout.test.tsx`:
 
 ```tsx
-import { describe, it, expect } from "vitest";
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Callout } from "@/app/help/_components/Callout";
 
@@ -61,24 +63,24 @@ import type { ReactNode } from "react";
 
 const VARIANTS = {
   note: {
-    bg: "bg-callout-note",
-    border: "border-callout-note-border",
+    bg: "bg-info-bg",
+    border: "border-border",
     text: "text-callout-note-text",
     role: "note" as const,
     icon: "ℹ",
     iconTestid: "callout-icon-note",
   },
   warning: {
-    bg: "bg-callout-warning",
-    border: "border-callout-warning-border",
+    bg: "bg-warning-bg",
+    border: "border-warning-text",
     text: "text-callout-warning-text",
     role: "alert" as const,
     icon: "⚠",
     iconTestid: "callout-icon-warning",
   },
   tip: {
-    bg: "bg-callout-tip",
-    border: "border-callout-tip-border",
+    bg: "bg-stale-tint",
+    border: "border-accent",
     text: "text-callout-tip-text",
     role: "note" as const,
     icon: "✓",
@@ -109,7 +111,7 @@ export function Callout({
 }
 ```
 
-(Token classes like `bg-callout-note` must be added to `app/globals.css` `@theme` if not already present — coordinate with the impeccable v3 design audit during Phase I.)
+(Token classes like `bg-info-bg` must be added to `app/globals.css` `@theme` if not already present — coordinate with the impeccable v3 design audit during Phase I.)
 
 - [ ] **Step 4: Run test + typecheck**
 
@@ -136,7 +138,9 @@ Per spec §6.2 — numbered procedural step. Used in adoption-track + onboarding
 
 ```tsx
 // tests/help/step.test.tsx
-import { describe, it, expect } from "vitest";
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Step } from "@/app/help/_components/Step";
 
@@ -170,7 +174,7 @@ export function Step({ n, children }: { n: number; children: ReactNode }) {
   return (
     <div className="my-3 flex gap-3 items-start">
       <span
-        className="shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent text-text-on-accent font-semibold text-sm tabular-nums"
+        className="shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent text-accent-text font-semibold text-sm tabular-nums"
         aria-hidden="true"
       >
         {n}
@@ -209,7 +213,9 @@ Per spec §6.2 — labeled empty box for pages authored before the underlying su
 
 ```tsx
 // tests/help/screenshot-placeholder.test.tsx
-import { describe, it, expect } from "vitest";
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { ScreenshotPlaceholder } from "@/app/help/_components/ScreenshotPlaceholder";
 
@@ -240,7 +246,7 @@ Expected: FAIL.
 //
 // DRAFT-ONLY component. Phase H Task H.4 enforces zero references in shipped
 // v1 MDX. Use during Phase E content authoring before Phase F captures real
-// screenshots, then replace each with <Screenshot key="..." alt="..." />.
+// screenshots, then replace each with <Screenshot name="..." alt="..." />.
 
 export function ScreenshotPlaceholder({
   alt,
@@ -254,7 +260,7 @@ export function ScreenshotPlaceholder({
       <div
         role="img"
         aria-label={alt}
-        className="aspect-video w-full rounded border-2 border-dashed border-border-strong bg-surface-2 flex items-center justify-center text-center p-4"
+        className="aspect-video w-full rounded border-2 border-dashed border-border-strong bg-surface-raised flex items-center justify-center text-center p-4"
       >
         <span className="text-sm italic text-text-subtle">
           Screenshot pending — {alt}
@@ -284,24 +290,28 @@ git commit -m "feat(help): ScreenshotPlaceholder draft component (Task D.3)"
 
 ---
 
-### Task D.4: `<Screenshot key>` (production component)
+### Task D.4: `<Screenshot name>` (production component)
 
 **Files:**
 - Create: `app/help/_components/Screenshot.tsx`
 
-Per spec §6.2 / AC-12.25 — renders `<picture>` with light/dark WebP sources from `public/help/screenshots/<key>-{light,dark}.webp`. Key must exist in the screenshot manifest (Phase F). The `<picture>`-contract test is Phase F Task F.10.
+Per spec §6.2 / AC-12.25 — renders `<picture>` with light/dark WebP sources from `public/help/screenshots/<name>-{light,dark}.webp`. The `name` value must exist in the screenshot manifest (Phase F). The `<picture>`-contract test is Phase F Task F.6.
+
+**r2 fix per D-r1 finding 1 (CRITICAL):** the r1 draft used `<Screenshot name="...">`. `key` is a React reserved attribute — it's consumed by React's reconciler and never reaches component props. The r1 implementation destructured `key: screenshotKey` from props, but React strips `key` BEFORE props arrive, so `screenshotKey` would always be `undefined` and every page would render `/help/screenshots/undefined-light.webp`. Renaming the public prop to **`name`** is cross-phase: Phase D component + Phase E MDX call sites + Phase F manifest walker test (F.6) + Phase F.10 retrofit + Phase F.8 coverage + manifest meta-test references all migrate from `key=` to `name=`.
 
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
+// @vitest-environment jsdom
 // tests/help/screenshot.test.tsx
-import { describe, it, expect } from "vitest";
+import "@testing-library/jest-dom/vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render } from "@testing-library/react";
 import { Screenshot } from "@/app/help/_components/Screenshot";
 
 describe("<Screenshot>", () => {
   it("renders a <picture> with light + dark sources at the expected paths", () => {
-    const { container } = render(<Screenshot key="dashboard-active-shows" alt="The dashboard." />);
+    const { container } = render(<Screenshot name="dashboard-active-shows" alt="The dashboard." />);
     const picture = container.querySelector("picture");
     expect(picture).not.toBeNull();
 
@@ -317,9 +327,18 @@ describe("<Screenshot>", () => {
 
   it("renders an optional caption", () => {
     const { container } = render(
-      <Screenshot key="x" alt="Y" caption="Dashboard, mid-show" />,
+      <Screenshot name="x" alt="Y" caption="Dashboard, mid-show" />,
     );
     expect(container.querySelector("figcaption")?.textContent).toContain("Dashboard, mid-show");
+  });
+
+  // r2 fix per D-r1 finding 1: regression guard. If someone reintroduces
+  // `key` as the public prop, React would strip it and the rendered src
+  // would contain "undefined".
+  it("never renders a src/srcset containing the literal 'undefined' (regression guard for reserved-key trap)", () => {
+    const { container } = render(<Screenshot name="dashboard-overview" alt="x" />);
+    const html = container.innerHTML;
+    expect(html).not.toContain("undefined");
   });
 });
 ```
@@ -327,7 +346,7 @@ describe("<Screenshot>", () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pnpm test tests/help/screenshot.test.tsx`
-Expected: FAIL.
+Expected: FAIL (module not found).
 
 - [ ] **Step 3: Implement `Screenshot`**
 
@@ -337,14 +356,18 @@ Expected: FAIL.
 const BASE = "/help/screenshots";
 
 export function Screenshot({
-  key: screenshotKey,
+  name,
   alt,
   caption,
 }: {
-  // Manifest key (matches scripts/help-screenshots.manifest.ts). Phase F's
-  // _metaScreenshotManifest meta-test (test #9) catches missing manifest entries.
-  // Phase F's screenshot-coverage test (test #8) catches missing WebPs on disk.
-  key: string;
+  // Manifest key (matches scripts/help-screenshots.manifest.ts `key` field).
+  // Phase F's _metaScreenshotManifest meta-test (test #9) catches missing
+  // manifest entries. Phase F's screenshot-coverage test (test #8) catches
+  // missing WebPs on disk.
+  //
+  // NOTE: prop is `name`, NOT `key`. `key` is React-reserved and would never
+  // arrive in props.
+  name: string;
   alt: string;
   caption?: string;
 }) {
@@ -353,10 +376,10 @@ export function Screenshot({
       <picture>
         <source
           media="(prefers-color-scheme: dark)"
-          srcSet={`${BASE}/${screenshotKey}-dark.webp`}
+          srcSet={`${BASE}/${name}-dark.webp`}
         />
         <img
-          src={`${BASE}/${screenshotKey}-light.webp`}
+          src={`${BASE}/${name}-light.webp`}
           alt={alt}
           className="block w-full rounded border border-border"
           loading="lazy"
@@ -382,7 +405,7 @@ Expected: PASS.
 
 ```bash
 git add app/help/_components/Screenshot.tsx tests/help/screenshot.test.tsx
-git commit -m "feat(help): Screenshot production component with <picture> + dark source (Task D.4)"
+git commit -m "feat(help): Screenshot production component with <picture> + dark source; prop is name (not React-reserved key) (Task D.4)"
 ```
 
 ---
@@ -398,7 +421,9 @@ Per spec §6.2 / §5.4 (slug-stability invariant). Renders a heading with `id={i
 
 ```tsx
 // tests/help/ref-anchor.test.tsx
-import { describe, it, expect } from "vitest";
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { RefAnchor } from "@/app/help/_components/RefAnchor";
 
@@ -482,7 +507,9 @@ Per spec §6.2 — adoption-track aside framing "In your old workflow, you'd …
 
 ```tsx
 // tests/help/tip-from-sheets.test.tsx
-import { describe, it, expect } from "vitest";
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { TipFromSheets } from "@/app/help/_components/TipFromSheets";
 
@@ -508,8 +535,8 @@ import type { ReactNode } from "react";
 
 export function TipFromSheets({ children }: { children: ReactNode }) {
   return (
-    <aside className="my-4 rounded-md border-l-4 border-accent bg-accent-soft px-4 py-3">
-      <span className="block text-xs uppercase tracking-wider font-bold text-accent-strong mb-1">
+    <aside className="my-4 rounded-md border-l-4 border-accent bg-info-bg px-4 py-3">
+      <span className="block text-xs uppercase tracking-wider font-bold text-accent-text mb-1">
         From Sheets
       </span>
       <div className="leading-relaxed text-sm">{children}</div>
