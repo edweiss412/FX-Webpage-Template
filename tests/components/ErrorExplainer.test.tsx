@@ -57,11 +57,13 @@ describe("ErrorExplainer", () => {
   });
 
   test("when helpfulContext={true} AND catalog.helpfulContext is non-null, renders the helpful-context block", () => {
+    // CSRF_KEY_ROTATED has both non-null crewFacing and non-null helpfulContext
+    // post Task 9.4 part 2 (spec invariant: helpfulContext tied to non-null dougFacing).
     const { getByTestId } = render(
-      <ErrorExplainer code="CSRF_NONCE_EXPIRED" surface="crew" helpfulContext />,
+      <ErrorExplainer code="CSRF_KEY_ROTATED" surface="crew" helpfulContext />,
     );
     expect(getByTestId("error-explainer-helpful-context").textContent).toBe(
-      MESSAGE_CATALOG.CSRF_NONCE_EXPIRED.helpfulContext!,
+      MESSAGE_CATALOG.CSRF_KEY_ROTATED.helpfulContext!,
     );
   });
 
@@ -74,7 +76,7 @@ describe("ErrorExplainer", () => {
   });
 
   test("when helpfulContext is omitted/false, the block does not render even if catalog has copy", () => {
-    const { queryByTestId } = render(<ErrorExplainer code="CSRF_NONCE_EXPIRED" surface="crew" />);
+    const { queryByTestId } = render(<ErrorExplainer code="CSRF_KEY_ROTATED" surface="crew" />);
     expect(queryByTestId("error-explainer-helpful-context")).toBeNull();
   });
 
