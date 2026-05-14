@@ -109,4 +109,27 @@ describe("Header rebalance (M4-D3)", () => {
     // Title still renders
     expect(container.querySelector("h1")?.textContent).toBe("Spring Tour 2026");
   });
+
+  it("omits the client-label eyebrow entirely when client_label is null (R2 M2 — title carries alone)", () => {
+    const showNoLabel = { ...baseShow, client_label: null as never };
+    const { container } = render(<Header show={showNoLabel} />);
+    const h1 = container.querySelector("h1");
+    expect(h1?.textContent).toBe("Spring Tour 2026");
+    // No empty eyebrow <p> sits above the h1 — the title is the first
+    // child of the inner div.
+    const inner = container.querySelector("header > div > div");
+    const firstChildTag = inner?.firstElementChild?.tagName.toLowerCase();
+    expect(firstChildTag).toBe("h1");
+    // h1 drops its mt-1 top margin when there's no eyebrow above it
+    // (brief: shrink-to-context with no orphan whitespace).
+    expect(h1?.className ?? "").not.toContain("mt-1");
+  });
+
+  it("omits the client-label eyebrow entirely when client_label is empty string", () => {
+    const showEmptyLabel = { ...baseShow, client_label: "" };
+    const { container } = render(<Header show={showEmptyLabel} />);
+    expect(container.querySelector("h1")?.textContent).toBe("Spring Tour 2026");
+    const inner = container.querySelector("header > div > div");
+    expect(inner?.firstElementChild?.tagName.toLowerCase()).toBe("h1");
+  });
 });

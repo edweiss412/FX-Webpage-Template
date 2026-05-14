@@ -634,11 +634,20 @@ export default async function ShowPage({ params }: PageProps) {
     viewerName: data.viewerName,
     isAdmin: ctx.isAdmin,
   });
-  const packListVisibleForToday = isPackListVisibleToday({
-    show: data.show,
-    restriction: ctx.stageRestriction,
-    today,
-  });
+  // R2 H2 (codex): mirror EVERY null-render predicate from PackListTile,
+  // not just the phase/restriction gate. The tile (components/tiles/
+  // PackListTile.tsx:126-138) returns null when pullSheet is null OR
+  // empty OR when isPackListVisibleToday() returns false. The TODAY
+  // band has to agree with all three or the grid-cols and skip rule
+  // will desync from the actually-rendered set.
+  const packListVisibleForToday =
+    data.pullSheet !== null &&
+    data.pullSheet.length > 0 &&
+    isPackListVisibleToday({
+      show: data.show,
+      restriction: ctx.stageRestriction,
+      today,
+    });
   const todayTiles = filterVisibleTodayTiles(selectTodayTiles(todayState.kind), {
     transportVisible: transportVisibleForToday,
     packListVisible: packListVisibleForToday,

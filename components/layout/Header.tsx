@@ -46,10 +46,16 @@ export function Header({ show }: HeaderProps) {
     <header data-testid="page-header" className="border-b border-border bg-bg">
       <div className="mx-auto flex w-full max-w-[1200px] items-baseline justify-between gap-6 px-4 py-3 sm:px-8 sm:py-4">
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
-            {show.client_label}
-          </p>
-          <h1 className="mt-1 text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg">
+          {show.client_label ? (
+            <p className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
+              {show.client_label}
+            </p>
+          ) : null}
+          <h1
+            className={`text-base font-semibold leading-tight tracking-tight text-text-strong sm:text-lg ${
+              show.client_label ? "mt-1" : ""
+            }`}
+          >
             {show.title}
           </h1>
           {(date || venueLine) && (

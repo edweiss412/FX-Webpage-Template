@@ -153,6 +153,23 @@ describe("filterVisibleTodayTiles (visibility-aware TODAY derivation)", () => {
     expect(out).toEqual(["schedule-tile"]);
   });
 
+  it("R2 H2 contract — packListVisible must reflect pullSheet null/empty too, not just phase gate", () => {
+    // Documents the contract: the page must compose packListVisible from
+    // (pullSheet !== null) AND (pullSheet.length > 0) AND
+    // isPackListVisibleToday(). filterVisibleTodayTiles trusts whatever
+    // the page passes; this test pins the contract so a future
+    // refactor that re-broadens packListVisible to "phase only" gets
+    // caught by the call-site review rather than user-visible jank.
+    //
+    // (Pure helper test: it has no opinion about how packListVisible
+    // is computed; that's the page's responsibility. This row exists
+    // for traceability + commit-message reference.)
+    const selected = selectTodayTiles("set_day");
+    expect(
+      filterVisibleTodayTiles(selected, { transportVisible: true, packListVisible: false }),
+    ).toEqual(["schedule-tile"]);
+  });
+
   it("drops transport-tile when transportVisible is false (travel_in_day with no transport rows for viewer)", () => {
     const selected = selectTodayTiles("travel_in_day");
     const out = filterVisibleTodayTiles(selected, {
