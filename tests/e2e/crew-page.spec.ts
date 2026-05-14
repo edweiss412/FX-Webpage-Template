@@ -115,6 +115,13 @@ test.describe.skip("crew page — layout shell (Task 4.2)", () => {
   test("renders page-shell + tile-grid (2 cols mobile) + right-now-card + footer at /show/[slug]?crew=…", async ({
     page,
   }) => {
+    // M9 C1 / M4-D6: assertion is mobile-specific (§8.4: 2 cols < 640px).
+    // Without setViewportSize the desktop-chromium project (default 1280px)
+    // would render the 4-col desktop grid and the trackCount assertion
+    // would fail. Pin the viewport at the mobile target (390×667 — iPhone
+    // 12/13/14 reference) so the assertion runs at the breakpoint it tests.
+    await page.setViewportSize({ width: 390, height: 667 });
+
     const { slug, leadCrewId } = await lookupSeededShow();
 
     const response = await page.goto(`/show/${slug}?crew=${leadCrewId}`);
