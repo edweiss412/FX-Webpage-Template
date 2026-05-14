@@ -606,17 +606,28 @@ export function RightNowCard({ context }: RightNowCardProps) {
           accent surface in the card per DESIGN.md §1 (orange ≤10% of
           viewport). The dot uses bg-accent (full orange) at 6px; the
           uppercase label uses text-accent-on-bg for AA body contrast
-          on light bg. */}
-      <p
+          on light bg.
+
+          M9 C1 / M4-D4: test-only debug attributes (data-state,
+          data-rendered-state, data-treatment) used to live on this <p>
+          alongside its screen-reader text. They are now relocated to a
+          hidden sibling span (below) so the AT-traversed eyebrow is
+          free of test-only chrome. The right-now-state testid moved
+          with them — existing tests + e2e selectors continue to read
+          the attributes by the same testid. */}
+      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-eyebrow-strong text-accent-on-bg">
+        <span aria-hidden="true" className="inline-block size-1.5 rounded-pill bg-accent" />
+        Right now
+      </p>
+      <span
         data-testid="right-now-state"
         data-state={state.kind}
         data-rendered-state={renderState.kind}
         data-treatment={treatment}
-        className="flex items-center gap-2 text-xs font-semibold uppercase tracking-eyebrow-strong text-accent-on-bg"
-      >
-        <span aria-hidden="true" className="inline-block size-1.5 rounded-pill bg-accent" />
-        Right now
-      </p>
+        hidden
+        aria-hidden="true"
+      />
+
 
       {/* §8.2 body crossfade. AnimatePresence with mode="wait" so the
           outgoing body fully exits (opacity → 0) BEFORE the new one
