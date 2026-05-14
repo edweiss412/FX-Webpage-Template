@@ -970,7 +970,11 @@ export default async function ShowPage({ params }: PageProps) {
                 </h2>
                 <div
                   data-testid="today-band-tiles"
-                  className="grid grid-cols-1 items-stretch gap-tile-gap sm:grid-cols-2"
+                  className={
+                    todayTiles.length === 2
+                      ? "grid grid-cols-1 items-stretch gap-tile-gap sm:grid-cols-2"
+                      : "grid grid-cols-1 items-stretch gap-tile-gap"
+                  }
                 >
                   {todayTiles.map((id) => tileRenderers[id])}
                 </div>
