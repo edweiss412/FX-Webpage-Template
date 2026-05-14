@@ -113,7 +113,9 @@ import { validateLinkSession } from "@/lib/auth/validateLinkSession";
 import { getShowForViewer, type Viewer, type ShowForViewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { messageFor } from "@/lib/messages/lookup";
+import { selectTodayTiles, type TodayTileId } from "@/lib/show/selectTodayTiles";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { selectRightNowState } from "@/lib/time/rightNow";
 
 /**
  * Resolve a slug to {id, published} via a single bound SELECT.
@@ -605,6 +607,18 @@ export default async function ShowPage({ params }: PageProps) {
     contacts: data.contacts,
   });
 
+  // M9 C1 / M4-D2: TODAY band selection. Phase derived once server-side
+  // using the same selectRightNowState path the client RightNowCard uses
+  // (lib/time/rightNow.ts). The selected tiles render in the TODAY band
+  // above the flat grid; the flat-grid renderer skips any tile already
+  // in TODAY so each tile mounts at most once per page.
+  const today = new Date();
+  const todayState = selectRightNowState(today, rightNowCtx.dates, rightNowCtx.dateRestriction, {
+    timezone: rightNowCtx.timezone,
+  });
+  const todayTiles = selectTodayTiles(todayState.kind);
+  const isInToday = (id: TodayTileId): boolean => todayTiles.includes(id);
+
   return (
     <>
       <Header show={data.show} />
@@ -626,306 +640,366 @@ export default async function ShowPage({ params }: PageProps) {
         */}
         <RightNowCard context={rightNowCtx} />
 
-        {/*
-          Tile grid — responsive columns per §8.4 grid contract:
-            <640px (mobile)  : 2 cols
-            640-1024 (tablet): 3 cols
-            >=1024 (desktop) : 4 cols
+        {(() => {
+          const transportVisible = transportTileVisible({
+            transportation: data.transportation,
+            viewerName: data.viewerName,
+            isAdmin: ctx.isAdmin,
+          });
 
-          Tailwind v4 stretch gotcha (DESIGN.md §7,
-          memory/feedback_tailwind_v4_flex_items_stretch.md): Tailwind v4
-          does NOT default `.flex` to `align-items: stretch`. `items-stretch`
-          here tells the grid to stretch row tracks; child tile wrappers
-          MUST also declare `h-full`.
-        */}
-        <section
-          data-testid="tile-grid"
-          aria-label="Show tiles"
-          className="grid grid-cols-2 items-stretch gap-tile-gap sm:grid-cols-3 lg:grid-cols-4"
-        >
-          {/*
-            Tile mounts. LodgingTile may return null (whole-tile-missing
-            reflow per §8.3) — that's intentional and verified by the e2e
-            suite.
-          */}
-          <WrappedTile
-            tileId="lodging-tile"
-            showId={showId}
-            sheetName={data.show.title}
-            load={() => {
-              // Round-5 M1: LodgingTile visibility (whole-tile-missing when
-              // hotelReservations is empty per §8.3) derives from the same
-              // hotel query that may have failed. For crew, we cannot tell
-              // whether the viewer was named on a reservation, so we fail
-              // closed (tile reflows away — matches normal whole-tile-missing
-              // behavior). Admin always sees all reservations and should
-              // see the fallback so the failure is surfaced.
-              if (ctx.isAdmin && data.tileErrors["hotel"]) {
-                throw new Error(`hotel fetch failed: ${data.tileErrors["hotel"]}`);
-              }
-              return loadLodgingTileData({ hotelReservations: data.hotelReservations });
-            }}
-            View={LodgingTileView}
-          />
-          <WrappedTile
-            tileId="venue-tile"
-            showId={showId}
-            sheetName={data.show.title}
-            load={() => loadVenueTileData({ venue: data.show.venue })}
-            View={VenueTileView}
-          />
-          <WrappedTile
-            tileId="crew-tile"
-            showId={showId}
-            sheetName={data.show.title}
-            load={() => loadCrewTileData({ crewMembers: data.crewMembers })}
-            View={CrewTileView}
-          />
-          <WrappedTile
-            tileId="contacts-tile"
-            showId={showId}
-            sheetName={data.show.title}
-            load={() => {
-              if (data.tileErrors["contacts"]) {
-                throw new Error(`contacts fetch failed: ${data.tileErrors["contacts"]}`);
-              }
-              return loadContactsTileData({ contacts: data.contacts });
-            }}
-            View={ContactsTileView}
-          />
-          {(() => {
-            const today = new Date();
-            const transportVisible = transportTileVisible({
-              transportation: data.transportation,
-              viewerName: data.viewerName,
-              isAdmin: ctx.isAdmin,
-            });
-            return (
-              <>
-                <WrappedTile
-                  tileId="schedule-tile"
-                  showId={showId}
-                  sheetName={data.show.title}
-                  load={() =>
-                    loadScheduleTileData({
-                      show: data.show,
-                      dateRestriction: ctx.dateRestriction,
-                      today,
-                    })
+          // M9 C1 / M4-D2: tile renderers keyed by tileId. Each entry
+          // returns a JSX element (or null if the tile should never
+          // mount for this viewer). The TODAY band and the flat grid
+          // both consume this map; the flat grid skips any tileId
+          // already mounted in TODAY so each tile renders at most once.
+          const tileRenderers: Record<TodayTileId | "lodging-tile" | "venue-tile" | "crew-tile" | "contacts-tile" | "audio-scope-tile" | "video-scope-tile" | "lighting-scope-tile" | "show-status-tile" | "opening-reel-tile" | "diagrams-tile" | "financials-tile" | "notes-tile", React.ReactNode> = {
+            "lodging-tile": (
+              <WrappedTile
+                key="lodging-tile"
+                tileId="lodging-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() => {
+                  // Round-5 M1: LodgingTile visibility (whole-tile-missing when
+                  // hotelReservations is empty per §8.3) derives from the same
+                  // hotel query that may have failed. For crew, we cannot tell
+                  // whether the viewer was named on a reservation, so we fail
+                  // closed (tile reflows away — matches normal whole-tile-missing
+                  // behavior). Admin always sees all reservations and should
+                  // see the fallback so the failure is surfaced.
+                  if (ctx.isAdmin && data.tileErrors["hotel"]) {
+                    throw new Error(`hotel fetch failed: ${data.tileErrors["hotel"]}`);
                   }
-                  View={ScheduleTileView}
-                />
-                <WrappedTile
-                  tileId="audio-scope-tile"
-                  showId={showId}
-                  sheetName={data.show.title}
-                  load={() => {
-                    // Round-3 H1: only escalate the rooms-domain error if the
-                    // viewer would otherwise see this tile (§8.1 role gate).
-                    // Otherwise the View's own audioScopeVisible() check
-                    // returns null and we should let the tile reflow away,
-                    // not show an error card to someone who wouldn't see
-                    // the tile at all.
-                    if (audioScopeVisible(ctx.viewerFlags) && data.tileErrors["rooms"]) {
-                      throw new Error(`rooms fetch failed: ${data.tileErrors["rooms"]}`);
-                    }
-                    return loadAudioScopeTileData({
-                      rooms: data.rooms,
-                      viewerFlags: ctx.viewerFlags,
-                    });
-                  }}
-                  View={AudioScopeTileView}
-                />
-                <WrappedTile
-                  tileId="video-scope-tile"
-                  showId={showId}
-                  sheetName={data.show.title}
-                  load={() => {
-                    if (videoScopeVisible(ctx.viewerFlags) && data.tileErrors["rooms"]) {
-                      throw new Error(`rooms fetch failed: ${data.tileErrors["rooms"]}`);
-                    }
-                    return loadVideoScopeTileData({
-                      rooms: data.rooms,
-                      viewerFlags: ctx.viewerFlags,
-                    });
-                  }}
-                  View={VideoScopeTileView}
-                />
-                <WrappedTile
-                  tileId="lighting-scope-tile"
-                  showId={showId}
-                  sheetName={data.show.title}
-                  load={() => {
-                    if (lightingScopeVisible(ctx.viewerFlags) && data.tileErrors["rooms"]) {
-                      throw new Error(`rooms fetch failed: ${data.tileErrors["rooms"]}`);
-                    }
-                    return loadLightingScopeTileData({
-                      rooms: data.rooms,
-                      viewerFlags: ctx.viewerFlags,
-                    });
-                  }}
-                  View={LightingScopeTileView}
-                />
-                <WrappedTile
-                  tileId="transport-tile"
-                  showId={showId}
-                  sheetName={data.show.title}
-                  load={() => {
-                    // Round-4 H1: transportTileVisible derives from
-                    // data.transportation, which is null when the fetch
-                    // failed — so the predicate goes silent and a crew
-                    // throw would never fire. The fix has two halves:
-                    //   • Admins always see Transport (per §8.1); admin
-                    //     escalation is independent of data, so a
-                    //     ctx.isAdmin clause is the privacy-safe gate.
-                    //   • Crew/non-admin fail CLOSED: skip the throw so
-                    //     the tile reflows away (matches whole-tile-missing
-                    //     §8.3 behavior — we can't tell from the failed
-                    //     data whether the viewer was authorized for
-                    //     Transport, so we don't expose a fallback card
-                    //     to someone who might not have been authorized).
-                    if (
-                      (ctx.isAdmin || transportVisible) &&
-                      data.tileErrors["transportation"]
-                    ) {
-                      throw new Error(
-                        `transportation fetch failed: ${data.tileErrors["transportation"]}`,
-                      );
-                    }
-                    return loadTransportTileData({
-                      transportation: data.transportation,
-                      visible: transportVisible,
-                    });
-                  }}
-                  View={TransportTileView}
-                />
-                {/* ShowStatusTile (Task 4.8 / AC-4.1) — public, every-crew surface. */}
-                <WrappedTile
-                  tileId="show-status-tile"
-                  showId={showId}
-                  sheetName={data.show.title}
-                  load={() => loadShowStatusTileData({ show: data.show })}
-                  View={ShowStatusTileView}
-                />
-                {/* OpeningReelTile (M7 Task 7.9 / AC-7.3 / AC-7.25). */}
-                <WrappedTile
-                  tileId="opening-reel-tile"
-                  showId={showId}
-                  sheetName={data.show.title}
-                  load={() =>
-                    loadOpeningReelTileData({
-                      showId,
-                      eventDetails: data.show.event_details,
-                      hasVideo: data.openingReelHasVideo,
-                    })
+                  return loadLodgingTileData({ hotelReservations: data.hotelReservations });
+                }}
+                View={LodgingTileView}
+              />
+            ),
+            "venue-tile": (
+              <WrappedTile
+                key="venue-tile"
+                tileId="venue-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() => loadVenueTileData({ venue: data.show.venue })}
+                View={VenueTileView}
+              />
+            ),
+            "crew-tile": (
+              <WrappedTile
+                key="crew-tile"
+                tileId="crew-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() => loadCrewTileData({ crewMembers: data.crewMembers })}
+                View={CrewTileView}
+              />
+            ),
+            "contacts-tile": (
+              <WrappedTile
+                key="contacts-tile"
+                tileId="contacts-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() => {
+                  if (data.tileErrors["contacts"]) {
+                    throw new Error(`contacts fetch failed: ${data.tileErrors["contacts"]}`);
                   }
-                  View={OpeningReelTileView}
-                />
-                {/* DiagramsTile (M7 Task 7.9 / §10 / AC-7.1 / AC-7.2 / AC-7.2b / AC-7.4 / AC-7.7). */}
-                <WrappedTile
-                  tileId="diagrams-tile"
-                  showId={showId}
-                  sheetName={data.show.title}
-                  load={() =>
-                    loadDiagramsTileData({
-                      showId,
-                      diagrams: data.diagrams,
-                      agendaLinks: data.show.agenda_links,
-                    })
+                  return loadContactsTileData({ contacts: data.contacts });
+                }}
+                View={ContactsTileView}
+              />
+            ),
+            "schedule-tile": (
+              <WrappedTile
+                key="schedule-tile"
+                tileId="schedule-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() =>
+                  loadScheduleTileData({
+                    show: data.show,
+                    dateRestriction: ctx.dateRestriction,
+                    today,
+                  })
+                }
+                View={ScheduleTileView}
+              />
+            ),
+            "audio-scope-tile": (
+              <WrappedTile
+                key="audio-scope-tile"
+                tileId="audio-scope-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() => {
+                  // Round-3 H1: only escalate the rooms-domain error if the
+                  // viewer would otherwise see this tile (§8.1 role gate).
+                  if (audioScopeVisible(ctx.viewerFlags) && data.tileErrors["rooms"]) {
+                    throw new Error(`rooms fetch failed: ${data.tileErrors["rooms"]}`);
                   }
-                  View={DiagramsTileView}
-                />
-                {/* FinancialsTile (Task 4.8 / AC-4.2) — LEAD/admin only. */}
-                <WrappedTile
-                  tileId="financials-tile"
-                  showId={showId}
-                  sheetName={data.show.title}
-                  load={() => {
-                    // Round-3 H1: financialsVisible is the public LEAD/admin
-                    // gate. Non-LEAD non-admin viewers never see Financials,
-                    // so an error card for that domain would be a privacy
-                    // leak (signals presence of internal data to viewers who
-                    // shouldn't know it exists).
-                    if (
-                      financialsVisible(ctx.viewerFlags, ctx.isAdmin) &&
-                      data.tileErrors["financials"]
-                    ) {
-                      throw new Error(
-                        `financials fetch failed: ${data.tileErrors["financials"]}`,
-                      );
-                    }
-                    return loadFinancialsTileData({
-                      financials: data.financials,
-                      viewerFlags: ctx.viewerFlags,
-                      isAdmin: ctx.isAdmin,
-                    });
-                  }}
-                  View={FinancialsTileView}
-                />
-                {/* PackListTile — visibility decided by lib/visibility/packList.ts predicate. */}
-                <WrappedTile
-                  tileId="pack-list-tile"
-                  showId={showId}
-                  sheetName={data.show.title}
-                  load={() =>
-                    loadPackListTileData({
-                      pullSheet: data.pullSheet,
-                      show: data.show,
-                      stageRestriction: ctx.stageRestriction,
-                      today,
-                    })
+                  return loadAudioScopeTileData({
+                    rooms: data.rooms,
+                    viewerFlags: ctx.viewerFlags,
+                  });
+                }}
+                View={AudioScopeTileView}
+              />
+            ),
+            "video-scope-tile": (
+              <WrappedTile
+                key="video-scope-tile"
+                tileId="video-scope-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() => {
+                  if (videoScopeVisible(ctx.viewerFlags) && data.tileErrors["rooms"]) {
+                    throw new Error(`rooms fetch failed: ${data.tileErrors["rooms"]}`);
                   }
-                  View={PackListTileView}
-                />
-                {/*
-                  NotesTile — aggregates every block-level `notes` field.
-                  Codex round-21 MEDIUM: gate `transportation` on
-                  `transportVisible` to keep the privacy boundary local.
-                */}
-                <WrappedTile
-                  tileId="notes-tile"
-                  showId={showId}
-                  sheetName={data.show.title}
-                  load={() => {
-                    // NotesTile aggregates four source domains. If ANY failed
-                    // upstream, the tile would silently render partial content;
-                    // raise to the per-tile fallback instead. (Round-2 H1
-                    // partial-data leak.) transportation is checked only when
-                    // the viewer is authorized to see it (privacy boundary
-                    // preserved per Codex round-21 MEDIUM).
-                    const failed = ["hotel", "rooms", "contacts"].find(
-                      (k) => data.tileErrors[k],
+                  return loadVideoScopeTileData({
+                    rooms: data.rooms,
+                    viewerFlags: ctx.viewerFlags,
+                  });
+                }}
+                View={VideoScopeTileView}
+              />
+            ),
+            "lighting-scope-tile": (
+              <WrappedTile
+                key="lighting-scope-tile"
+                tileId="lighting-scope-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() => {
+                  if (lightingScopeVisible(ctx.viewerFlags) && data.tileErrors["rooms"]) {
+                    throw new Error(`rooms fetch failed: ${data.tileErrors["rooms"]}`);
+                  }
+                  return loadLightingScopeTileData({
+                    rooms: data.rooms,
+                    viewerFlags: ctx.viewerFlags,
+                  });
+                }}
+                View={LightingScopeTileView}
+              />
+            ),
+            "transport-tile": (
+              <WrappedTile
+                key="transport-tile"
+                tileId="transport-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() => {
+                  // Round-4 H1: admins always see Transport (§8.1); crew fail
+                  // closed when the fetch errored so the tile reflows away.
+                  if (
+                    (ctx.isAdmin || transportVisible) &&
+                    data.tileErrors["transportation"]
+                  ) {
+                    throw new Error(
+                      `transportation fetch failed: ${data.tileErrors["transportation"]}`,
                     );
-                    if (failed) {
-                      throw new Error(`${failed} fetch failed: ${data.tileErrors[failed]}`);
-                    }
-                    // Round-5 H1: NotesTile transport guard mirrors the
-                    // TransportTile R4 admin-bypass. Without it, admin
-                    // sees partial NotesTile content with transport notes
-                    // silently dropped when transportTileVisible(null)
-                    // returns false on a failed query.
-                    if (
-                      (ctx.isAdmin || transportVisible) &&
-                      data.tileErrors["transportation"]
-                    ) {
-                      throw new Error(
-                        `transportation fetch failed: ${data.tileErrors["transportation"]}`,
-                      );
-                    }
-                    return loadNotesTileData({
-                      show: data.show,
-                      hotelReservations: data.hotelReservations,
-                      rooms: data.rooms,
-                      transportation: transportVisible ? data.transportation : null,
-                      contacts: data.contacts,
-                    });
-                  }}
-                  View={NotesTileView}
-                />
-              </>
-            );
-          })()}
-        </section>
+                  }
+                  return loadTransportTileData({
+                    transportation: data.transportation,
+                    visible: transportVisible,
+                  });
+                }}
+                View={TransportTileView}
+              />
+            ),
+            "show-status-tile": (
+              <WrappedTile
+                key="show-status-tile"
+                tileId="show-status-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() => loadShowStatusTileData({ show: data.show })}
+                View={ShowStatusTileView}
+              />
+            ),
+            "opening-reel-tile": (
+              <WrappedTile
+                key="opening-reel-tile"
+                tileId="opening-reel-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() =>
+                  loadOpeningReelTileData({
+                    showId,
+                    eventDetails: data.show.event_details,
+                    hasVideo: data.openingReelHasVideo,
+                  })
+                }
+                View={OpeningReelTileView}
+              />
+            ),
+            "diagrams-tile": (
+              <WrappedTile
+                key="diagrams-tile"
+                tileId="diagrams-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() =>
+                  loadDiagramsTileData({
+                    showId,
+                    diagrams: data.diagrams,
+                    agendaLinks: data.show.agenda_links,
+                  })
+                }
+                View={DiagramsTileView}
+              />
+            ),
+            "financials-tile": (
+              <WrappedTile
+                key="financials-tile"
+                tileId="financials-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() => {
+                  // Round-3 H1: financialsVisible gates the privacy leak.
+                  if (
+                    financialsVisible(ctx.viewerFlags, ctx.isAdmin) &&
+                    data.tileErrors["financials"]
+                  ) {
+                    throw new Error(
+                      `financials fetch failed: ${data.tileErrors["financials"]}`,
+                    );
+                  }
+                  return loadFinancialsTileData({
+                    financials: data.financials,
+                    viewerFlags: ctx.viewerFlags,
+                    isAdmin: ctx.isAdmin,
+                  });
+                }}
+                View={FinancialsTileView}
+              />
+            ),
+            "pack-list-tile": (
+              <WrappedTile
+                key="pack-list-tile"
+                tileId="pack-list-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() =>
+                  loadPackListTileData({
+                    pullSheet: data.pullSheet,
+                    show: data.show,
+                    stageRestriction: ctx.stageRestriction,
+                    today,
+                  })
+                }
+                View={PackListTileView}
+              />
+            ),
+            "notes-tile": (
+              <WrappedTile
+                key="notes-tile"
+                tileId="notes-tile"
+                showId={showId}
+                sheetName={data.show.title}
+                load={() => {
+                  // NotesTile aggregates four source domains. If ANY failed
+                  // upstream, the tile would silently render partial content;
+                  // raise to the per-tile fallback instead.
+                  const failed = ["hotel", "rooms", "contacts"].find(
+                    (k) => data.tileErrors[k],
+                  );
+                  if (failed) {
+                    throw new Error(`${failed} fetch failed: ${data.tileErrors[failed]}`);
+                  }
+                  if (
+                    (ctx.isAdmin || transportVisible) &&
+                    data.tileErrors["transportation"]
+                  ) {
+                    throw new Error(
+                      `transportation fetch failed: ${data.tileErrors["transportation"]}`,
+                    );
+                  }
+                  return loadNotesTileData({
+                    show: data.show,
+                    hotelReservations: data.hotelReservations,
+                    rooms: data.rooms,
+                    transportation: transportVisible ? data.transportation : null,
+                    contacts: data.contacts,
+                  });
+                }}
+                View={NotesTileView}
+              />
+            ),
+          };
+
+          // Flat-grid persona-urgency order (M9 C1 / M4-D2 shape brief §5.4).
+          // Schedule is omitted — it lives in TODAY exclusively. Any tile in
+          // todayTiles is skipped here so each tile renders at most once.
+          const flatGridOrder = [
+            "lodging-tile",
+            "venue-tile",
+            "transport-tile",
+            "crew-tile",
+            "contacts-tile",
+            "show-status-tile",
+            "diagrams-tile",
+            "opening-reel-tile",
+            "audio-scope-tile",
+            "video-scope-tile",
+            "lighting-scope-tile",
+            "pack-list-tile",
+            "financials-tile",
+            "notes-tile",
+          ] as const;
+
+          return (
+            <>
+              {/*
+                M9 C1 / M4-D2: TODAY band — Schedule pinned every day plus a
+                phase-derived second tile (PackList on set/strike, Transport
+                on travel-in). Promotion is positional, not chromatic: the
+                tiles share the same WrappedTile shell as the flat grid; the
+                only differentiation is position and the eyebrow label.
+              */}
+              <section
+                data-testid="today-band"
+                aria-labelledby="today-band-heading"
+                className="flex flex-col gap-tile-gap"
+              >
+                <h2
+                  id="today-band-heading"
+                  className="text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+                >
+                  Today
+                </h2>
+                <div
+                  data-testid="today-band-tiles"
+                  className="grid grid-cols-1 items-stretch gap-tile-gap sm:grid-cols-2"
+                >
+                  {todayTiles.map((id) => tileRenderers[id])}
+                </div>
+              </section>
+
+              {/*
+                Tile grid — responsive columns per §8.4 grid contract:
+                  <640px (mobile)  : 2 cols
+                  640-1024 (tablet): 3 cols
+                  >=1024 (desktop) : 4 cols
+
+                Tailwind v4 stretch gotcha (DESIGN.md §7,
+                memory/feedback_tailwind_v4_flex_items_stretch.md): Tailwind
+                v4 does NOT default `.flex` to `align-items: stretch`.
+                `items-stretch` here tells the grid to stretch row tracks;
+                child tile wrappers MUST also declare `h-full`.
+              */}
+              <section
+                data-testid="tile-grid"
+                aria-label="Show tiles"
+                className="grid grid-cols-2 items-stretch gap-tile-gap sm:grid-cols-3 lg:grid-cols-4"
+              >
+                {flatGridOrder
+                  .filter((id) => !isInToday(id as TodayTileId))
+                  .map((id) => tileRenderers[id])}
+              </section>
+            </>
+          );
+        })()}
       </main>
       <Footer
         asOf={null}
