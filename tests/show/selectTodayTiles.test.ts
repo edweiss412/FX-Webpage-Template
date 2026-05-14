@@ -1,15 +1,13 @@
 /**
- * tests/show/selectTodayTiles.test.ts — pure phase→tile mapping for the
- * TODAY band above the show-page flat tile grid (M9 C1 / M4-D2 shape brief
- * §5.3).
+ * tests/show/selectTodayTiles.test.ts — pure phase→tile mapping AND the
+ * visibility filter for the TODAY band (M9 C1 / M4-D2 shape brief §5.3).
  *
  * Phase semantics align with `lib/time/rightNow.ts` `RightNowState` kinds.
  * The rule, restated from the brief:
  *
  *   set_day         → ["schedule-tile", "pack-list-tile"]
  *   travel_in_day   → ["schedule-tile", "transport-tile"]
- *   travel_out_day  → ["schedule-tile", "pack-list-tile"]  (strike collapses
- *                                                            into travel_out)
+ *   travel_out_day  → ["schedule-tile", "transport-tile"]
  *   show_day_n      → ["schedule-tile"]
  *   pre_travel      → ["schedule-tile"]
  *   post_show       → ["schedule-tile"]
@@ -17,16 +15,28 @@
  *   unknown         → ["schedule-tile"]
  *   dateless        → ["schedule-tile"]
  *
- * Schedule is universal. PackList rides with set/strike (load-in pack +
- * tear-down pack). Transport rides with travel-in (you're on the road
- * today; that's the actionable answer). Strike-day PackList wins over
- * travel-out Transport because tear-down is the in-day work; transport is
- * the after-work event already captured in the Right Now hero card.
+ * Schedule is universal. PackList rides with set days (load-in pack).
+ * Transport rides with both travel days (in AND out — actionable
+ * "you're on the road today" answer). The RightNowState machine has no
+ * `strike_day` kind; strike collapses into `travel_out_day` and the
+ * brief's literal table chose transport priority for travel-out.
+ *
+ * `filterVisibleTodayTiles` applies per-tile visibility predicates so
+ * the TODAY band doesn't promote a tile that's about to render null.
  */
 
 import { describe, expect, it } from "vitest";
 
-import { selectTodayTiles } from "@/lib/show/selectTodayTiles";
+import {
+  filterVisibleTodayTiles,
+  selectTodayTiles,
+  type TodayTileVisibility,
+} from "@/lib/show/selectTodayTiles";
+
+const allVisible: TodayTileVisibility = {
+  transportVisible: true,
+  packListVisible: true,
+};
 
 describe("selectTodayTiles", () => {
   it("returns Schedule only for pre_travel", () => {
@@ -51,10 +61,10 @@ describe("selectTodayTiles", () => {
     expect(selectTodayTiles("show_day_n")).toEqual(["schedule-tile"]);
   });
 
-  it("returns Schedule + PackList for travel_out_day (strike pattern)", () => {
+  it("returns Schedule + Transport for travel_out_day (brief literal — strike collapses into travel-out)", () => {
     expect(selectTodayTiles("travel_out_day")).toEqual([
       "schedule-tile",
-      "pack-list-tile",
+      "transport-tile",
     ]);
   });
 
@@ -122,5 +132,61 @@ describe("selectTodayTiles", () => {
         expect(["pack-list-tile", "transport-tile"]).toContain(second);
       }
     }
+  });
+});
+
+describe("filterVisibleTodayTiles (visibility-aware TODAY derivation)", () => {
+  it("passes through when both promoted tiles are visible (set_day)", () => {
+    const selected = selectTodayTiles("set_day");
+    expect(filterVisibleTodayTiles(selected, allVisible)).toEqual([
+      "schedule-tile",
+      "pack-list-tile",
+    ]);
+  });
+
+  it("drops pack-list-tile when packListVisible is false (set_day with no pull-sheet data)", () => {
+    const selected = selectTodayTiles("set_day");
+    const out = filterVisibleTodayTiles(selected, {
+      transportVisible: true,
+      packListVisible: false,
+    });
+    expect(out).toEqual(["schedule-tile"]);
+  });
+
+  it("drops transport-tile when transportVisible is false (travel_in_day with no transport rows for viewer)", () => {
+    const selected = selectTodayTiles("travel_in_day");
+    const out = filterVisibleTodayTiles(selected, {
+      transportVisible: false,
+      packListVisible: true,
+    });
+    expect(out).toEqual(["schedule-tile"]);
+  });
+
+  it("drops transport-tile on travel_out_day when transportVisible is false", () => {
+    const selected = selectTodayTiles("travel_out_day");
+    const out = filterVisibleTodayTiles(selected, {
+      transportVisible: false,
+      packListVisible: true,
+    });
+    expect(out).toEqual(["schedule-tile"]);
+  });
+
+  it("never drops schedule-tile — Schedule is universal", () => {
+    const selected = selectTodayTiles("set_day");
+    const out = filterVisibleTodayTiles(selected, {
+      transportVisible: false,
+      packListVisible: false,
+    });
+    expect(out).toEqual(["schedule-tile"]);
+  });
+
+  it("is a no-op for kinds that select only schedule-tile (visibility flags don't matter)", () => {
+    const selected = selectTodayTiles("show_day_n");
+    expect(
+      filterVisibleTodayTiles(selected, {
+        transportVisible: false,
+        packListVisible: false,
+      }),
+    ).toEqual(["schedule-tile"]);
   });
 });

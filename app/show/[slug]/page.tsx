@@ -113,9 +113,14 @@ import { validateLinkSession } from "@/lib/auth/validateLinkSession";
 import { getShowForViewer, type Viewer, type ShowForViewer } from "@/lib/data/getShowForViewer";
 import { resolveViewerContext } from "@/lib/data/viewerContext";
 import { messageFor } from "@/lib/messages/lookup";
-import { selectTodayTiles, type TodayTileId } from "@/lib/show/selectTodayTiles";
+import {
+  filterVisibleTodayTiles,
+  selectTodayTiles,
+  type TodayTileId,
+} from "@/lib/show/selectTodayTiles";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { selectRightNowState } from "@/lib/time/rightNow";
+import { isPackListVisibleToday } from "@/lib/visibility/packList";
 
 /**
  * Resolve a slug to {id, published} via a single bound SELECT.
@@ -612,11 +617,32 @@ export default async function ShowPage({ params }: PageProps) {
   // (lib/time/rightNow.ts). The selected tiles render in the TODAY band
   // above the flat grid; the flat-grid renderer skips any tile already
   // in TODAY so each tile mounts at most once per page.
+  //
+  // R1 M1 (codex): visibility-aware derivation. Transport / PackList can
+  // be hidden by their own per-tile predicates (transportTileVisible,
+  // isPackListVisibleToday). Without filtering, the TODAY band's
+  // grid-cols-2 layout would still apply when the promoted second tile
+  // renders null, leaving Schedule alone in the left column on `sm:`
+  // width. filterVisibleTodayTiles applies the same gates so the
+  // layout-cols count tracks the actually-renderable set.
   const today = new Date();
   const todayState = selectRightNowState(today, rightNowCtx.dates, rightNowCtx.dateRestriction, {
     timezone: rightNowCtx.timezone,
   });
-  const todayTiles = selectTodayTiles(todayState.kind);
+  const transportVisibleForToday = transportTileVisible({
+    transportation: data.transportation,
+    viewerName: data.viewerName,
+    isAdmin: ctx.isAdmin,
+  });
+  const packListVisibleForToday = isPackListVisibleToday({
+    show: data.show,
+    restriction: ctx.stageRestriction,
+    today,
+  });
+  const todayTiles = filterVisibleTodayTiles(selectTodayTiles(todayState.kind), {
+    transportVisible: transportVisibleForToday,
+    packListVisible: packListVisibleForToday,
+  });
   const isInToday = (id: TodayTileId): boolean => todayTiles.includes(id);
 
   return (
