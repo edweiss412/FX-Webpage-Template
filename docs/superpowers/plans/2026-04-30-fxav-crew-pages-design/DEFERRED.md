@@ -227,25 +227,7 @@ This is the same class of bug tracked upstream:
 - vercel/next.js#71618 — Google fonts not bundled in Next.js 15 turbopack dev builds
 - vercel/next.js#92671 — `next/font/google` fails to build on 16.2.3 — Turbopack font resolution broken
 
-**Current workaround (in this repo):** the C1 R3+R4 e2e suites require the production build path. Run sequence:
-1. `JWT_SIGNING_SECRET=… ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=… pnpm build`
-2. Same env + `pnpm start -H 127.0.0.1` (background)
-3. `MS_ONLY=1 pnpm exec playwright test crew-page --project=mobile-safari --workers=1`
-
-`MS_ONLY=1` (added to `playwright.config.ts` in C1 R3) elides the dev-build / prod-build / prod-runtime-flip webservers so the manually-started production server isn't competed against by playwright's auto-spawned `pnpm dev` and so the with-admin-dev-flag.mjs lock can't race builds.
-
-**Why deferred:** The bug is not in this repo's code — it's a Next.js Turbopack regression. The C1 e2e suite proves the dimensional invariants in production-build mode, which is the right gate (production is what crew uses). The dev-mode hang is a developer-experience papercut, not a correctness gap.
-
-**Likely fix (untested on this repo):** Next.js 16.2.4 shipped a related fix via PR #92713 — bumped `reqwest` to v0.13.2 to resolve `http2 feature is not enabled` for Turbopack font fetching. Upstream root cause was Windows-on-ARM64 specifically; our hang is on macOS, so the same patch may or may not resolve our symptom — but the underlying HTTP/2 client library bump likely has broader effects worth testing. We are currently on Next.js 16.0.0.
-
-**Trigger to remove the workaround:**
-- Upgrade Next.js to ≥16.2.4 (the version containing PR #92713's reqwest bump).
-- Smoke-test by running `pnpm dev` and curl-ing the show page with admin cookies — if it returns 200 with a today-band-tiles section in <2s, the bug is fixed for our environment.
-- If still hung, file a fresh upstream issue with macOS-specific reproduction (we have a clean repro: production build serves in ~150ms, dev build holds 8 ESTABLISHED HTTPS connections to fonts.gstatic.com indefinitely).
-- Once dev mode works: drop `MS_ONLY` env-guard from `playwright.config.ts`; restore default playwright command (CI=1 builds the artifact, `pnpm start` runs it, all 4 webservers spawn under the original lock-serialized order).
-- Update `tests/e2e/crew-page.spec.ts` header comment to reflect the new run-sequence.
-
-**Suggested home:** Pair with the next Next.js minor/major upgrade — specifically the 16.0 → 16.2.4+ bump. Track in the upgrade PR's checklist.
+**Historical workaround (no longer required as of commit 889347a):** while pinned to Next.js 16.0.0, the C1 R3+R4 e2e suites required a manually pre-built production server with an `MS_ONLY=1` env-guard on `playwright.config.ts` to elide the other webservers. That workaround has been removed; the suite now runs under the default `pnpm exec playwright test` command path. See the resolution note above for the verification timing.
 
 ### M9-D-C6c-1 — Pinch discoverability hint (declined HIGH from C6c critique)
 
