@@ -1190,6 +1190,22 @@ Five batched P2/P3 a11y items per DEFERRED.md M5-D6:
 | R2 | needs-attention | P1 tests were source-regex too brittle (comment confusion + attribute-order + substring bugs) | `15e3389` | Tests strengthened with `stripComments` helper + attribute-order-independent matching + `\sid="..."` boundary to avoid `data-testid` substring confusion. 7/7 pass. |
 | R3 | **approve** | none | `15e3389` | C8 CONVERGED. |
 
+### Cluster C1 convergence (Codex)
+
+Base: `db393a6` (C8 close + housekeeping). 4 implementation commits + 5 fix commits across 8 rounds (one initial APPROVE, then a follow-up Next.js bump + 1 LOW finding cycle).
+
+| Round | Verdict | Findings | Fix SHA | Notes |
+|-------|---------|----------|---------|-------|
+| R1 | needs-attention | H1 travel_out_day map promotes PackList instead of Transport; M1 TODAY layout uses selected count not rendered count | `afbcb8c` | Aligned phase map with shape brief; added visibility-aware filter to derive todayTiles from actually-renderable set. |
+| R2 | needs-attention | H1 TODAY PackList visibility doesn't match render predicate (pullSheet null/empty); M1 Header renders empty eyebrow when client_label absent | `c68a60b` | packListVisibleForToday composed from (pullSheet !== null) AND (length > 0) AND isPackListVisibleToday; Header eyebrow gated on truthy client_label + 1 new test. |
+| R3 | needs-attention | H1 TODAY-band layout invariant not covered by active browser test (M4-D6 viewport pin landed inside test.describe.skip; no active TODAY stretch assertion) | `6a409c3` | Active layout-invariants e2e suite added; surgical Next 16 strict-validator fix split GET/POST handlers in `app/api/cron/report-reaper/route.ts` + `app/api/report/route.ts` (private deps-injectable + clean wrapper); meta-test registry updated; MS_ONLY env-guard added to playwright.config to elide other webservers for the manually-pre-built run. |
+| R4 | needs-attention | M1 R3 TODAY stretch test only runs the mobile/single-tile path; sm:>=640px 2-tile branch never exercised | `b4bc55f` | New "TODAY sm:grid-cols-2 stretch" test forces travel_in_day via temporary dates mutation + temporary transport driver_name = test viewer's name; restores in afterAll; asserts 2 tracks, equal heights, equal widths. Five debugging discoveries baked into setup comments (schema_phases JSONB nesting, hasFullDates showDays gate, show timezone vs UTC, admin email maps to crew row, dev-mode font hang). |
+| R5 | needs-attention | M1 TODAY transport admin error-fallback path missing from visibility predicate; L1 R4 width assertion doesn't prove tiles+gap=parent | `b694bff` | Extracted `transportVisibleForToday` helper (lib/show/selectTodayTiles.ts) ORing canonical `transportTileVisible` with `(isAdmin && tileErrors.transportation)`; 5 truth-table tests cover the composition; R4 e2e extended with columnGap-sum assertion. Also added DEFERRED.md M9-D-C1-2 documenting the dev-mode font hang. |
+| R6 | **approve** | none | `b694bff` | C1 CONVERGED (initial). No material blocker found. |
+| (bump) | n/a | n/a | `889347a` + `6ef820f` | Next.js 16.0.0 → 16.2.4 (resolves M9-D-C1-2 — dev-mode font hang fixed via PR #92713 / reqwest v0.13.2). MS_ONLY guard removed; e2e suite runs under default playwright command path (3/3 pass in 1.1min). Side-fix: added `.claude/**` to eslint globalIgnores (worktree double-scan was OOMing bare `pnpm lint`). |
+| R7 | needs-attention | L1 DEFERRED M9-D-C1-2 entry internally contradictory (resolution note says RESOLVED but body still describes MS_ONLY workaround as current) | `79da5b2` | Collapsed stale "Current workaround" / "Why deferred" / "Likely fix" / "Trigger to remove" sections into a single "Historical workaround (no longer required as of commit 889347a)" paragraph. |
+| R8 | **approve** | none | `79da5b2` | C1 CONVERGED (final). |
+
 ---
 
 ## M9 close-out summary
