@@ -211,7 +211,7 @@ When picking up a deferred item:
 
 ### M9-D-C1-2 — Next 16 + Turbopack `next/font/google` dev-mode fetch hang — RESOLVED 2026-05-14 (Next 16.2.4 upgrade)
 
-**Resolution:** Bumped `next` from 16.0.0 → 16.2.4 in commit `<TBD>`. Next.js 16.2.4 included PR #92713 (reqwest v0.13.2) which resolved the upstream Turbopack font-fetch issue (#91653 / #92671). Worktree smoke-test confirmed: `/show/[slug]` renders in 1.7s cold compile / 37-84ms warm under `pnpm dev` with admin auth (vs. 180s+ hang on 16.0.0). The MS_ONLY env-guard was removed from `playwright.config.ts` and the run-sequence comment in `tests/e2e/crew-page.spec.ts` was simplified — the layout-invariant suite now runs under the default `pnpm exec playwright test` command path with no manual pre-build required. All 3 layout-invariant Playwright tests pass under the standard webserver-spawn flow (1.0min total including the other 3 webservers building).
+**Resolution:** Bumped `next` from 16.0.0 → 16.2.4 in commit `889347a`. Next.js 16.2.4 included PR #92713 (reqwest v0.13.2) which resolved the upstream Turbopack font-fetch issue (#91653 / #92671). Worktree smoke-test confirmed: `/show/[slug]` renders in 1.7s cold compile / 37-84ms warm under `pnpm dev` with admin auth (vs. 180s+ hang on 16.0.0). The MS_ONLY env-guard was removed from `playwright.config.ts` and the run-sequence comment in `tests/e2e/crew-page.spec.ts` was simplified — the layout-invariant suite now runs under the default `pnpm exec playwright test` command path with no manual pre-build required. All 3 layout-invariant Playwright tests pass under the standard webserver-spawn flow (1.0min total including the other 3 webservers building).
 
 
 
