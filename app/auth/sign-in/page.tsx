@@ -33,6 +33,7 @@
  * MessageCode prop the explainer consumes — which never re-renders
  * the literal string).
  */
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { isAdminSession } from "@/lib/auth/isAdminSession";
@@ -201,6 +202,33 @@ export default async function SignInPage({
         <SignInButton validatedNext={validatedNext} />
       </div>
 
+      {/*
+        M9 C3 / M5-D5: secondary path for already-signed-in crew who
+        landed on the sign-in page accidentally. Per shape brief
+        2026-05-14-auth-flow-polish.md §5.3, sits between the primary
+        Google button and the inline-error region. The OR divider is
+        a hairline rule + the literal "OR" centered on it.
+      */}
+      <div data-testid="sign-in-secondary-path" className="mt-6 flex flex-col items-center gap-3">
+        <div className="relative w-full" aria-hidden="true">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-border" />
+          </div>
+          <div className="relative flex justify-center">
+            <span className="bg-bg px-2 text-xs uppercase tracking-eyebrow text-text-faint">
+              OR
+            </span>
+          </div>
+        </div>
+        <Link
+          data-testid="sign-in-view-show-list"
+          href="/me"
+          className="inline-flex min-h-tap-min items-center text-sm text-text-subtle underline-offset-2 hover:text-text"
+        >
+          View show list
+        </Link>
+      </div>
+
       {errorCode !== null ? (
         <section
           data-testid="sign-in-error-block"
@@ -214,6 +242,20 @@ export default async function SignInPage({
           <ErrorExplainer code={errorCode} surface="crew" helpfulContext />
         </section>
       ) : null}
+
+      {/*
+        M9 C3 / M5-D5: help disclosure at page bottom per brief §5.3.
+        Sits AFTER the inline-error region so an active error doesn't
+        push it off-screen. Spec-check (§13.1 channel boundary): "your
+        project manager" is the correct channel — Doug IS the project
+        manager. Does NOT include "report this to the developer"
+        (that's the §13.1 inversion the M8 R2 M2 watchpoint flagged).
+        No email exposed in v1 per brief §5.3 footgun rationale.
+      */}
+      <p data-testid="sign-in-help-disclosure" className="mt-section-gap text-center text-xs text-text-subtle">
+        <span className="font-medium">Need help signing in?</span>{" "}
+        Contact your project manager.
+      </p>
     </main>
   );
 }

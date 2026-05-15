@@ -70,6 +70,7 @@
  * no open-redirect risk.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { bootstrapMint } from "./actions";
@@ -125,11 +126,17 @@ const STILL_WORKING_TIMEOUT_MS = 6_000;
 // per the above. The meta-test below treats inline literal-string copy
 // in this file as exempt via the `not-subject:` annotation.
 // not-subject:M5-D8 (callsite-scoped — applies to both literals below)
-const GENERIC_ERROR_COPY =
-  "Something went wrong opening this link. Try the original link Doug shared again, or contact Doug if it keeps happening.";
+//
+// M9 C3 / M5-D5 (shape brief 2026-05-14-auth-flow-polish.md §5.2):
+// the brief replaced both copy strings to align with the M5-D5 self-serve
+// fallback path. Error → 'sign in instead' nudge points the user at the
+// page-level [Sign in with Google instead] CTA below; no_fragment uses
+// 'go to your shows' wayfinding that pairs with the [Go to my shows] link.
+const GENERIC_ERROR_COPY = "Couldn't reach the server. Try signing in instead.";
 
 // not-subject:M5-D8 — wayfinding, not an error
-const NO_FRAGMENT_COPY = "Open this link from the message Doug sent you.";
+const NO_FRAGMENT_COPY =
+  "This link is incomplete. If you already have a session, go to your shows.";
 
 export function Bootstrap({ showId, slug }: BootstrapProps) {
   const router = useRouter();
@@ -398,32 +405,65 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
   // state change (connecting → still_working → no_fragment / error)
   // as the same logical region updates. Without a stable live region,
   // the separate elements mount/unmount and the announcement is lost.
+  // M9 C3 / M5-D5: the [Sign in with Google instead] fallback link
+  // points at /auth/sign-in?next=/show/<slug> so a successful Google
+  // sign-in lands the crew member on the show they were trying to
+  // reach. Same target across error + still_working states; the
+  // no_fragment state uses [Go to my shows] (→ /me) instead since
+  // there's no specific show to land on.
+  const signInFallbackHref = `/auth/sign-in?next=${encodeURIComponent(`/show/${slug}`)}`;
+
   return (
     <div data-testid="bootstrap-live-region" aria-live="polite">
       {ui.kind === "no_fragment" ? (
-        <p data-testid="bootstrap-no-fragment" className="text-base text-text-subtle">
-          {NO_FRAGMENT_COPY}
-        </p>
+        <div data-testid="bootstrap-no-fragment-block" className="flex flex-col gap-3">
+          <p data-testid="bootstrap-no-fragment" className="text-base text-text-subtle">
+            {NO_FRAGMENT_COPY}
+          </p>
+          <Link
+            data-testid="bootstrap-no-fragment-fallback"
+            href="/me"
+            className="inline-flex min-h-tap-min items-center text-sm text-text underline underline-offset-2 hover:text-text-strong"
+          >
+            Go to my shows
+          </Link>
+        </div>
       ) : ui.kind === "error" ? (
         // M9 C8 R1 P2: removed inner role="alert" — the outer
         // aria-live="polite" wrapper now announces the error state
         // change once. Nested live regions / alert + polite double-
         // fire is a known screen-reader anti-pattern.
-        <p data-testid="bootstrap-error" className="text-base text-warning-text">
-          {GENERIC_ERROR_COPY}
-        </p>
+        //
+        // M9 C3 / M5-D5: error state pairs the cataloged copy with a
+        // [Sign in with Google instead] primary CTA so the crew member
+        // can self-recover without re-opening the original link.
+        <div data-testid="bootstrap-error-block" className="flex flex-col gap-3">
+          <p data-testid="bootstrap-error" className="text-base text-warning-text">
+            {GENERIC_ERROR_COPY}
+          </p>
+          <Link
+            data-testid="bootstrap-error-fallback"
+            href={signInFallbackHref}
+            className="inline-flex min-h-tap-min items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-text transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+          >
+            Sign in with Google instead
+          </Link>
+        </div>
       ) : ui.kind === "still_working" ? (
         // M9 C3 / M5-D2: 6s elapsed in connecting; the original fetch
         // is still in flight. Render the named-state escalation +
         // [Retry] button per shape brief §5.2. Dots continue from the
         // connecting state — they ARE the loading affordance.
+        // M9 C3 / M5-D5: the secondary "Sign in with Google instead"
+        // link sits beside Retry so a user who'd rather not wait can
+        // peel off to the sign-in flow without reloading.
         <div data-testid="bootstrap-still-working" className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
             <p className="text-base font-medium text-text-strong">Still working&hellip;</p>
             <p className="text-sm text-text-subtle">This is taking longer than usual.</p>
           </div>
           <BootstrapDots />
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-4">
             <button
               data-testid="bootstrap-retry"
               type="button"
@@ -432,6 +472,13 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
             >
               Retry
             </button>
+            <Link
+              data-testid="bootstrap-still-working-fallback"
+              href={signInFallbackHref}
+              className="inline-flex min-h-tap-min items-center text-sm text-text-subtle underline underline-offset-2 hover:text-text"
+            >
+              Sign in with Google instead
+            </Link>
           </div>
         </div>
       ) : (

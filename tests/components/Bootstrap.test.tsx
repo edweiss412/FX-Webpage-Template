@@ -144,7 +144,7 @@ describe("Bootstrap Retry button", () => {
 });
 
 describe("Bootstrap no_fragment branch", () => {
-  test("renders no-fragment copy when location.hash is empty", () => {
+  test("renders no-fragment copy + 'Go to my shows' fallback link", () => {
     Object.defineProperty(window, "location", {
       value: {
         ...window.location,
@@ -155,12 +155,30 @@ describe("Bootstrap no_fragment branch", () => {
       writable: true,
     });
     render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
-    // The no_fragment branch fires synchronously inside the IIFE (no
-    // bootstrapMint call). After the microtask flushes the no_fragment
-    // copy is present.
     return Promise.resolve().then(() => {
       expect(screen.queryByTestId("bootstrap-connecting")).toBeNull();
       expect(screen.getByTestId("bootstrap-no-fragment")).toBeTruthy();
+      // M9 C3 / M5-D5: self-serve fallback link.
+      const fallback = screen.getByTestId("bootstrap-no-fragment-fallback") as HTMLAnchorElement;
+      expect(fallback.textContent).toBe("Go to my shows");
+      expect(fallback.getAttribute("href")).toBe("/me");
     });
+  });
+});
+
+describe("Bootstrap M5-D5 fallback links", () => {
+  test("still_working state renders 'Sign in with Google instead' fallback link", () => {
+    render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
+    act(() => {
+      vi.advanceTimersByTime(6_000);
+    });
+    const fallback = screen.getByTestId("bootstrap-still-working-fallback") as HTMLAnchorElement;
+    expect(fallback.textContent).toBe("Sign in with Google instead");
+    // Per brief §5.2: "Link to /auth/sign-in?next=/show/${slug} so
+    // successful Google sign-in lands the crew member on the show they
+    // were trying to reach."
+    expect(fallback.getAttribute("href")).toBe(
+      `/auth/sign-in?next=${encodeURIComponent(`/show/${SLUG}`)}`,
+    );
   });
 });
