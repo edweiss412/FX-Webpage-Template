@@ -28,6 +28,28 @@ vi.mock("@/lib/supabase/server", () => ({
       return {
         select(columns: string) {
           expect(columns).toContain("shows!inner");
+          // R9 F2 (codex finding): the mock previously returned the
+          // FULL fixture row regardless of which columns were
+          // requested, so a regression that dropped `venue` from the
+          // production .select(...) call would still see venue in
+          // the mocked response — silently undermining the R5 venue
+          // tests. Capture the requested column names from the
+          // shows!inner(...) projection and strip the response to
+          // only those fields. If venue is no longer requested, it
+          // falls out of `row.shows` and the venue assertions break.
+          const inner = /shows!inner\(([^)]+)\)/.exec(columns);
+          const requested: Set<string> = inner
+            ? new Set(inner[1]!.split(",").map((s) => s.trim()))
+            : new Set<string>();
+          const projectShow = (
+            shows: JoinedCrewShowRow["shows"],
+          ): JoinedCrewShowRow["shows"] => {
+            const filtered: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(shows as Record<string, unknown>)) {
+              if (requested.has(k)) filtered[k] = v;
+            }
+            return filtered as JoinedCrewShowRow["shows"];
+          };
           return {
             eq(column: string, value: string | boolean) {
               dataMock.filters.push([column, value]);
@@ -38,11 +60,12 @@ vi.mock("@/lib/supabase/server", () => ({
               const email = filters.get("email");
               const archived = filters.get("shows.archived");
               const published = filters.get("shows.published");
+              const rows =
+                email === "alice@fxav.net" && archived === false && published === true
+                  ? dataMock.rows.filter((row) => !row.shows.archived && row.shows.published)
+                  : [];
               resolve({
-                data:
-                  email === "alice@fxav.net" && archived === false && published === true
-                    ? dataMock.rows.filter((row) => !row.shows.archived && row.shows.published)
-                    : [],
+                data: rows.map((row) => ({ id: row.id, shows: projectShow(row.shows) })),
                 error: null,
               });
             },

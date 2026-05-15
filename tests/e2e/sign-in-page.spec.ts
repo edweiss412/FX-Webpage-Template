@@ -227,6 +227,39 @@ test.describe("Sign-In Page — error block render gate", () => {
     // [data-testid=error-explainer-message] element.
     const message = page.getByTestId("error-explainer-message");
     await expect(message).toHaveText(MESSAGE_CATALOG.OAUTH_STATE_INVALID.crewFacing!);
+    // R8 + R9 F1 (codex finding): the error block MUST rank closer to
+    // the failed action than the secondary path. DOM order:
+    //   sign-in-with-google → sign-in-error-block → sign-in-secondary-
+    //   path → sign-in-help-disclosure
+    // A revert to the original brief-literal ordering (error AFTER
+    // secondary path) would push the actionable failure below an
+    // escape hatch the user didn't trigger; this assertion catches
+    // that regression.
+    const positions = await page.evaluate(() => {
+      const ids = [
+        "sign-in-with-google",
+        "sign-in-error-block",
+        "sign-in-secondary-path",
+        "sign-in-help-disclosure",
+      ] as const;
+      const elements = ids.map((id) => document.querySelector(`[data-testid="${id}"]`));
+      // documentPosition compare via getBoundingClientRect().top is
+      // robust against intervening wrappers and stays correct in any
+      // future layout shuffle that doesn't change the semantic order.
+      return elements.map((el) => ({
+        present: el !== null,
+        top: el ? (el as HTMLElement).getBoundingClientRect().top : null,
+      }));
+    });
+    expect(positions.every((p) => p.present)).toBe(true);
+    const tops = positions.map((p) => p.top!);
+    // Strictly increasing — error block above secondary path.
+    expect(tops[0]).toBeLessThan(tops[1]!);
+    expect(tops[1]).toBeLessThan(tops[2]!);
+    expect(tops[2]).toBeLessThan(tops[3]!);
+    // R8 also pinned: error block keeps role="alert" so screen
+    // readers announce the failure even after the DOM reorder.
+    await expect(errorBlock).toHaveAttribute("role", "alert");
   });
 
   test("OAUTH_REDIRECT_INVALID renders the catalog crewFacing copy (verbatim, anti-tautology)", async ({
