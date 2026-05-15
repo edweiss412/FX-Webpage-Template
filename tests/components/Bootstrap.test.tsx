@@ -240,10 +240,26 @@ describe("Bootstrap R3: prior attempt success still navigates after Retry", () =
     //      explicitly resolve it; attempt 2's fetch never resolves.
     //   4. Trigger the 6s flip → click Retry → resolve attempt 1's
     //      fetch with 200 → assert router.replace is called.
+    // R7 (codex finding): the mock MUST honor init.signal — otherwise
+    // an abort-on-retry regression would still appear to pass (the
+    // manually-resolved 200 fires regardless of abort state). Wire
+    // the AbortSignal so attempt 1 rejects with AbortError if its
+    // controller is aborted; this turns the would-be regression into
+    // a visible test failure.
     let resolveAttempt1Fetch: (res: Response) => void = () => {};
+    let attempt1Signal: AbortSignal | null = null;
     const fetchMock = vi.fn().mockImplementationOnce(
-      () =>
-        new Promise<Response>((resolve) => {
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          attempt1Signal = init?.signal ?? null;
+          if (attempt1Signal) {
+            attempt1Signal.addEventListener("abort", () => {
+              // DOMException's `name` is a getter; constructor's
+              // second arg sets it. The object literal { name: ... }
+              // would crash with "only a getter" — pass directly.
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          }
           resolveAttempt1Fetch = resolve;
         }),
     );
@@ -283,6 +299,11 @@ describe("Bootstrap R3: prior attempt success still navigates after Retry", () =
         fireEvent.click(screen.getByTestId("bootstrap-retry"));
       });
       expect(bootstrapMintMock).toHaveBeenCalledTimes(2);
+      // R7 (codex finding): explicit assert that attempt 1's
+      // AbortController was NOT aborted by Retry. If a future change
+      // re-introduces controller.abort() on Retry, this fails directly
+      // (not just via the implicit "no router.replace" assertion).
+      expect(attempt1Signal?.aborted).toBe(false);
 
       // NOW resolve attempt 1's fetch with 200 — simulates the slow-
       // network case where the original redemption succeeds after
