@@ -46,32 +46,20 @@ import { redirect } from "next/navigation";
 import { validateGoogleIdentity } from "@/lib/auth/validateGoogleIdentity";
 import { listShowsForCrew, type CrewShowSummary } from "@/lib/data/listShowsForCrew";
 import { messageFor } from "@/lib/messages/lookup";
-import { partitionMeShows, type PartitionedMeShow } from "@/lib/me/partitionMeShows";
+import {
+  partitionMeShows,
+  resolveDisplayDate,
+  type PartitionedMeShow,
+} from "@/lib/me/partitionMeShows";
 import { relativeDayChip } from "@/lib/time/relative";
 
-/**
- * Pluck the most useful "when" string from the JSONB dates blob. Mirrors
- * lib/me/partitionMeShows.ts's resolveDisplayDate; kept here so the
- * formatted card date works even when the partition helper drops a show
- * (it doesn't drop here — partition + render share the same fallback chain).
- */
-function pickShowDate(dates: unknown): string | null {
-  if (typeof dates !== "object" || dates === null || Array.isArray(dates)) {
-    return null;
-  }
-  const obj = dates as {
-    set?: unknown;
-    travelIn?: unknown;
-    showDays?: unknown;
-  };
-  if (typeof obj.set === "string" && obj.set.length > 0) return obj.set;
-  if (typeof obj.travelIn === "string" && obj.travelIn.length > 0) return obj.travelIn;
-  if (Array.isArray(obj.showDays)) {
-    const first = obj.showDays.find((d): d is string => typeof d === "string" && d.length > 0);
-    if (first) return first;
-  }
-  return null;
-}
+// R14 (codex finding): the local pickShowDate helper accepted any
+// non-empty string and rendered normalized bogus dates that Doug
+// never typed (split-brain: partition used the valid fallback,
+// render used the invalid earlier field). Replaced with
+// `resolveDisplayDate` from lib/me/partitionMeShows.ts which gates
+// every candidate through isIsoDate's strict YYYY-MM-DD round-trip
+// check. Single source of truth for both partition + render.
 
 /** Render an ISO date as "Month D, YYYY" — same shape as Header.tsx. */
 function formatShowDate(iso: string): string {
@@ -324,7 +312,7 @@ function UndatedShowRow({ show }: { show: CrewShowSummary }) {
  */
 function NextUpCard({ entry }: { entry: PartitionedMeShow }) {
   const { show, chipAnchor } = entry;
-  const isoDate = pickShowDate(show.dates);
+  const isoDate = resolveDisplayDate(show.dates);
   const dateLabel = isoDate ? formatShowDate(isoDate) : null;
   const chip = relativeDayChip(chipAnchor);
   const chipTone = chipToneClass(chip);
@@ -370,7 +358,7 @@ function NextUpCard({ entry }: { entry: PartitionedMeShow }) {
  */
 function ShowListRow({ entry }: { entry: PartitionedMeShow }) {
   const { show, chipAnchor } = entry;
-  const isoDate = pickShowDate(show.dates);
+  const isoDate = resolveDisplayDate(show.dates);
   const dateLabel = isoDate ? formatShowDate(isoDate) : null;
   const chip = relativeDayChip(chipAnchor);
   const chipTone = chipToneClass(chip);

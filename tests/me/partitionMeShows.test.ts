@@ -16,7 +16,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { partitionMeShows } from "@/lib/me/partitionMeShows";
+import { partitionMeShows, resolveDisplayDate } from "@/lib/me/partitionMeShows";
 import type { CrewShowSummary } from "@/lib/data/listShowsForCrew";
 
 const today = new Date(Date.UTC(2026, 4, 15)); // May 15 2026
@@ -209,6 +209,29 @@ describe("partitionMeShows", () => {
         `bad-${bad}`,
       ]);
     }
+  });
+
+  it("R14: resolveDisplayDate falls through invalid earlier field to valid fallback", () => {
+    // Pre-R14 split-brain: partition uses fallback (showDays[0]),
+    // render uses set (invalid → normalized → wrong date). Confirm
+    // the shared resolver picks the valid fallback so render +
+    // partition agree.
+    expect(
+      resolveDisplayDate({
+        set: "2026-02-31", // calendar-impossible
+        travelIn: null,
+        showDays: ["2026-03-05"],
+        travelOut: null,
+      }),
+    ).toBe("2026-03-05");
+    expect(
+      resolveDisplayDate({
+        set: "TBD",
+        travelIn: "2026-04-01",
+        showDays: [],
+        travelOut: null,
+      }),
+    ).toBe("2026-04-01");
   });
 
   it("R13: leap-year valid dates (2024-02-29) survive the round-trip check", () => {

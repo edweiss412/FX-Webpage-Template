@@ -90,7 +90,7 @@ function isIsoDate(value: unknown): value is string {
   return new Date(ms).toISOString().slice(0, 10) === value;
 }
 
-function resolveDisplayDate(dates: unknown): string | null {
+export function resolveDisplayDate(dates: unknown): string | null {
   const obj = asDates(dates);
   if (!obj) return null;
   if (isIsoDate(obj.set)) return obj.set;
