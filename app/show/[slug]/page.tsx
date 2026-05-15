@@ -116,6 +116,7 @@ import { messageFor } from "@/lib/messages/lookup";
 import {
   filterVisibleTodayTiles,
   selectTodayTiles,
+  transportVisibleForToday,
   type TodayTileId,
 } from "@/lib/show/selectTodayTiles";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -629,10 +630,19 @@ export default async function ShowPage({ params }: PageProps) {
   const todayState = selectRightNowState(today, rightNowCtx.dates, rightNowCtx.dateRestriction, {
     timezone: rightNowCtx.timezone,
   });
-  const transportVisibleForToday = transportTileVisible({
-    transportation: data.transportation,
-    viewerName: data.viewerName,
+  // R5 M1 (codex finding 1): compose the TODAY visibility predicate to also
+  // account for the admin error-fallback mount path. transportVisibleForToday
+  // (lib/show/selectTodayTiles.ts) ORs the canonical transportTileVisible
+  // result with `(isAdmin && tileErrors.transportation)` so TODAY promotion
+  // follows the same mount contract the tileRenderer at lines ~820-844 uses.
+  const transportVisibleForTodayBand = transportVisibleForToday({
+    transportTileVisible: transportTileVisible({
+      transportation: data.transportation,
+      viewerName: data.viewerName,
+      isAdmin: ctx.isAdmin,
+    }),
     isAdmin: ctx.isAdmin,
+    hasTransportationFetchError: Boolean(data.tileErrors["transportation"]),
   });
   // R2 H2 (codex): mirror EVERY null-render predicate from PackListTile,
   // not just the phase/restriction gate. The tile (components/tiles/
@@ -649,7 +659,7 @@ export default async function ShowPage({ params }: PageProps) {
       today,
     });
   const todayTiles = filterVisibleTodayTiles(selectTodayTiles(todayState.kind), {
-    transportVisible: transportVisibleForToday,
+    transportVisible: transportVisibleForTodayBand,
     packListVisible: packListVisibleForToday,
   });
   const isInToday = (id: TodayTileId): boolean => todayTiles.includes(id);

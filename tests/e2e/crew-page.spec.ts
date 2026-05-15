@@ -438,12 +438,17 @@ test.describe("crew page — TODAY sm:grid-cols-2 stretch (M9 C1 R4)", () => {
       const childRects = Array.from(parent.children).map((c) =>
         (c as HTMLElement).getBoundingClientRect(),
       );
-      const cols = getComputedStyle(parent).gridTemplateColumns;
+      const style = getComputedStyle(parent);
       return {
         parentHeight: parentRect.height,
         parentWidth: parentRect.width,
         childRects: childRects.map((r) => ({ height: r.height, width: r.width })),
-        gridTemplateColumns: cols,
+        gridTemplateColumns: style.gridTemplateColumns,
+        // columnGap resolves to a px string like "16px" once the gap-tile-gap
+        // token is applied (or "normal" when unset). Capture for the
+        // (a.width + b.width + columnGap === parentWidth) sum assertion that
+        // proves the two tiles actually fill the row, not just split half each.
+        columnGap: style.columnGap,
       };
     });
 
@@ -487,6 +492,24 @@ test.describe("crew page — TODAY sm:grid-cols-2 stretch (M9 C1 R4)", () => {
     expect(
       Math.abs(a.width - b.width),
       `sm:grid-cols-2 TODAY tiles must split width evenly; a=${a.width} b=${b.width}`,
+    ).toBeLessThanOrEqual(0.5);
+
+    // R5 L1 (codex finding 2): the two-tile row must FILL the parent. A
+    // regression to two equal narrow tracks with a large unused gap (or
+    // alignment that left both tiles short) would still pass the
+    // <= parent/2 + equal-to-each-other checks above. Asserting
+    // a.width + b.width + columnGap === parentWidth pins the actual
+    // fill contract.
+    const columnGapPx = parseFloat(layout.columnGap);
+    if (Number.isNaN(columnGapPx)) {
+      throw new Error(
+        `R5 L1: columnGap must resolve to a px value at sm:grid-cols-2; got "${layout.columnGap}"`,
+      );
+    }
+    const tilesPlusGap = a.width + b.width + columnGapPx;
+    expect(
+      Math.abs(tilesPlusGap - layout.parentWidth),
+      `sm:grid-cols-2 TODAY tiles + columnGap must fill parent width; a=${a.width} b=${b.width} gap=${columnGapPx} sum=${tilesPlusGap} parent=${layout.parentWidth}`,
     ).toBeLessThanOrEqual(0.5);
   });
 });

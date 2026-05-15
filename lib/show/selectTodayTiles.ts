@@ -54,3 +54,32 @@ export function filterVisibleTodayTiles(
     return true; // schedule-tile — universal
   });
 }
+
+/**
+ * R5 M1 (codex finding 1): compose the TODAY-band's transport visibility
+ * predicate to match the tileRenderer mount contract end-to-end.
+ *
+ * The flat-grid `transport-tile` renderer in app/show/[slug]/page.tsx
+ * intentionally throws — and renders a TileErrorFallback — when admin
+ * sees a transportation fetch error, even though `data.transportation`
+ * is null on that path. `transportTileVisible` returns false on that
+ * path (its first guard is `!transportation`), so the TODAY band would
+ * exclude transport while the flat grid still mounted the error
+ * fallback — TODAY's grid-cols and skip-set diverged from the actually-
+ * rendered surface.
+ *
+ * This helper composes the OR-fallback gate so callers don't drift.
+ *
+ * @param transportTileVisible - output of `transportTileVisible(...)` from
+ *   `lib/visibility/scopeTiles.ts` (the canonical predicate).
+ * @param isAdmin - viewer's admin posture.
+ * @param hasTransportationFetchError - truthy when
+ *   `data.tileErrors["transportation"]` is set.
+ */
+export function transportVisibleForToday(opts: {
+  transportTileVisible: boolean;
+  isAdmin: boolean;
+  hasTransportationFetchError: boolean;
+}): boolean {
+  return opts.transportTileVisible || (opts.isAdmin && opts.hasTransportationFetchError);
+}

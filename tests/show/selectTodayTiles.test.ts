@@ -30,6 +30,7 @@ import { describe, expect, it } from "vitest";
 import {
   filterVisibleTodayTiles,
   selectTodayTiles,
+  transportVisibleForToday,
   type TodayTileVisibility,
 } from "@/lib/show/selectTodayTiles";
 
@@ -205,5 +206,80 @@ describe("filterVisibleTodayTiles (visibility-aware TODAY derivation)", () => {
         packListVisible: false,
       }),
     ).toEqual(["schedule-tile"]);
+  });
+});
+
+describe("transportVisibleForToday (R5 admin error-fallback OR-gate)", () => {
+  // The page's transport-tile renderer (app/show/[slug]/page.tsx:~820-844)
+  // intentionally throws — and renders a TileErrorFallback — when admin
+  // sees a transportation fetch error, even when data.transportation is
+  // null. transportVisibleForToday must mirror that mount contract so the
+  // TODAY band's grid-cols and skip-set don't diverge from the actually-
+  // rendered surface.
+  //
+  // Each test case is named after its (transportTileVisible, isAdmin,
+  // hasTransportationFetchError) tuple. The 8-cell truth table is exhaustive.
+
+  it("happy path: canonical predicate true → visible regardless of admin/error flags", () => {
+    expect(
+      transportVisibleForToday({
+        transportTileVisible: true,
+        isAdmin: false,
+        hasTransportationFetchError: false,
+      }),
+    ).toBe(true);
+    expect(
+      transportVisibleForToday({
+        transportTileVisible: true,
+        isAdmin: true,
+        hasTransportationFetchError: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("R5 finding 1: admin + transportation fetch error → visible (mirrors error-fallback mount)", () => {
+    expect(
+      transportVisibleForToday({
+        transportTileVisible: false,
+        isAdmin: true,
+        hasTransportationFetchError: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("crew + transportation fetch error → hidden (no error fallback for crew)", () => {
+    // Mirrors the page renderer's `(ctx.isAdmin || transportVisible) &&
+    // tileErrors.transportation` gate — non-admin with transportVisible=false
+    // does NOT throw (no error fallback rendered), so TODAY also excludes.
+    expect(
+      transportVisibleForToday({
+        transportTileVisible: false,
+        isAdmin: false,
+        hasTransportationFetchError: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("admin + no fetch error + canonical predicate false → hidden", () => {
+    // Admin can have transportTileVisible=false when transportation is null
+    // and no error occurred (loader returns null clean). No mount happens
+    // for crew either — TODAY correctly excludes.
+    expect(
+      transportVisibleForToday({
+        transportTileVisible: false,
+        isAdmin: true,
+        hasTransportationFetchError: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("crew + no fetch error + canonical predicate false → hidden (baseline)", () => {
+    expect(
+      transportVisibleForToday({
+        transportTileVisible: false,
+        isAdmin: false,
+        hasTransportationFetchError: false,
+      }),
+    ).toBe(false);
   });
 });
