@@ -20,6 +20,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Claude Code worktrees — full repo checkouts that would double-scan
+    // every source file and OOM the eslint process when bare `pnpm lint`
+    // runs from the main checkout.
+    ".claude/**",
   ]),
   // ── Tailwind v4 canonical-class enforcement ─────────────────────────────
   // Implements the Tailwind PR-19059 canonical-class suggestions (same logic

@@ -209,7 +209,11 @@ When picking up a deferred item:
 **Description:** Add `react-zoom-pan-pinch` (or equivalent) inside each `<figure>` of `GalleryLightbox.tsx` so a crew member can pinch-zoom a diagram for detail (truss positions, stage plot dimensions). Embla's swipe gesture must be temporarily disabled while a zoom is in flight; restore on pinch-end. Verify gesture priority: pinch wins over swipe when two fingers are down; single-finger swipe still navigates between images.
 **Resolution (M9 C6c, 2026-05-13):** Shipped via `react-zoom-pan-pinch@4.0.3`. Single-finger pan when zoomed; Embla `watchDrag` gated on `wasZoomedRef` boundary; chevrons auto-reset zoom. Reset chip absolutely-positioned inside the relative image container so the figure does not reflow on mount. 28 jsdom unit tests + impeccable critique + audit dual gate passed. See shape brief `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/shape-sessions/2026-05-13-pinch-zoom-lightbox.md` and handoff §12 for the convergence log. Real-device iOS smoke is the remaining manual verification per shape brief §14.
 
-### M9-D-C1-2 — Next 16 + Turbopack `next/font/google` dev-mode fetch hang
+### M9-D-C1-2 — Next 16 + Turbopack `next/font/google` dev-mode fetch hang — RESOLVED 2026-05-14 (Next 16.2.4 upgrade)
+
+**Resolution:** Bumped `next` from 16.0.0 → 16.2.4 in commit `<TBD>`. Next.js 16.2.4 included PR #92713 (reqwest v0.13.2) which resolved the upstream Turbopack font-fetch issue (#91653 / #92671). Worktree smoke-test confirmed: `/show/[slug]` renders in 1.7s cold compile / 37-84ms warm under `pnpm dev` with admin auth (vs. 180s+ hang on 16.0.0). The MS_ONLY env-guard was removed from `playwright.config.ts` and the run-sequence comment in `tests/e2e/crew-page.spec.ts` was simplified — the layout-invariant suite now runs under the default `pnpm exec playwright test` command path with no manual pre-build required. All 3 layout-invariant Playwright tests pass under the standard webserver-spawn flow (1.0min total including the other 3 webservers building).
+
+
 
 **Source:** M9 C1 R3+R4 e2e implementation, 2026-05-14. Discovered while wiring the active layout-invariants suite and its sm:>=640px companion.
 **Description:** `pnpm dev` (Next 16 + Turbopack default bundler) hangs the first request to any route whose layout imports `next/font/google` Inter — `app/show/[slug]/layout.tsx:31` is the trigger for the crew page. Reproducer:

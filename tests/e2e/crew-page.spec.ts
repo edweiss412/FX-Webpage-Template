@@ -108,9 +108,9 @@ async function lookupSeededShow(): Promise<{
 }
 
 /*
- * M9 C1 / R3 — active layout-invariants suite. The legacy ?crew=/?as=admin
- * suites below stay skipped pending the §B follow-up (per-test crew identity
- * needs custom seeded auth.users rows). For the M4-D6 mobile 2-col tile-grid
+ * M9 C1 — active layout-invariants suite. The legacy ?crew=/?as=admin suites
+ * below stay skipped pending the §B follow-up (per-test crew identity needs
+ * custom seeded auth.users rows). For the M4-D6 mobile 2-col tile-grid
  * assertion AND the M4-D2 TODAY-band dimensional invariant we don't need
  * crew-specific identity — admin sees every show — so this block runs as
  * ADMIN_FIXTURE via signInAs() and pins the mobile viewport explicitly.
@@ -120,27 +120,12 @@ async function lookupSeededShow(): Promise<{
  * chromium project at 1280px renders the 4-col grid and would (correctly)
  * fail this assertion.
  *
- * IMPORTANT: This suite requires the production-build webserver path
- * because Next.js's `next/font/google` Inter import in
- * `app/show/[slug]/layout.tsx` hangs indefinitely under `pnpm dev` on
- * first show-page request (8 ESTABLISHED HTTPS connections to
- * fonts.gstatic.com that never resolve, despite the URL being directly
- * reachable in <100ms via curl — appears to be a Next 16 + Turbopack
- * dev-mode font-fetch bug). Production builds pre-fetch fonts at build
- * time, so the request renders in ~150ms.
- *
- * Run sequence (manual until the dev-mode font fetch is fixed):
- *   1. pnpm build   (with ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true ...)
- *   2. pnpm start -H 127.0.0.1   (background, same env)
- *   3. MS_ONLY=1 pnpm exec playwright test crew-page \
- *        --project=mobile-safari -g "layout invariants" --workers=1
- *
- * MS_ONLY=1 restricts playwright.config.ts to the mobile-safari/desktop-
- * chromium baseline webserver only — without it, the other webservers
- * (3001/3002/3003) race on the with-admin-dev-flag.mjs lock and one of
- * the prod-* builds wins the rename window mid-build for port 3000.
- * `reuseExistingServer: !CI` (default) makes playwright use the manually-
- * started server.
+ * Historical note: through Next.js 16.0–16.1 this suite required a manually-
+ * pre-built `pnpm start` server + an MS_ONLY env-guard on playwright.config.ts
+ * because `pnpm dev` hung indefinitely on next/font/google Inter fetch (see
+ * resolved DEFERRED.md M9-D-C1-2). Next.js 16.2.4 fixed the upstream
+ * fonts.gstatic.com hang via PR #92713; the suite now runs under the default
+ * playwright command.
  */
 test.describe("crew page — layout invariants (M9 C1 / M4-D6 + M4-D2)", () => {
   // 180s per-test budget absorbs the production-build first-hit cost
