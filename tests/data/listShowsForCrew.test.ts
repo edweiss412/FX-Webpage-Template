@@ -9,6 +9,7 @@ type JoinedCrewShowRow = {
     slug: string;
     title: string;
     dates: { set?: string | null } | null;
+    venue?: unknown;
     archived: boolean;
     published: boolean;
   };
@@ -123,6 +124,7 @@ describe("listShowsForCrew", () => {
         slug: "new-show",
         title: "New Show",
         dates: { set: "2026-05-10" },
+        venue: null,
         crewMemberId: "crew-new",
       },
       {
@@ -130,6 +132,7 @@ describe("listShowsForCrew", () => {
         slug: "old-show",
         title: "Old Show",
         dates: { set: "2026-01-10" },
+        venue: null,
         crewMemberId: "crew-old",
       },
     ]);
@@ -170,9 +173,69 @@ describe("listShowsForCrew", () => {
         slug: "published-show",
         title: "Published Show",
         dates: { set: "2026-07-10" },
+        venue: null,
         crewMemberId: "crew-published",
       },
     ]);
+  });
+
+  test("R2 F2: surfaces shows.venue.name when present; defensive null otherwise", async () => {
+    dataMock.rows = [
+      {
+        id: "crew-with-venue",
+        shows: {
+          id: "show-with-venue",
+          slug: "with-venue",
+          title: "With Venue",
+          dates: { set: "2026-08-01" },
+          venue: { name: "Hilton Anatole", address: "Dallas, TX" },
+          archived: false,
+          published: true,
+        },
+      },
+      {
+        id: "crew-no-venue-key",
+        shows: {
+          id: "show-no-venue-key",
+          slug: "no-venue-key",
+          title: "No Venue Key",
+          dates: { set: "2026-08-02" },
+          // venue absent — undefined
+          archived: false,
+          published: true,
+        },
+      },
+      {
+        id: "crew-malformed-venue",
+        shows: {
+          id: "show-malformed-venue",
+          slug: "malformed-venue",
+          title: "Malformed Venue",
+          dates: { set: "2026-08-03" },
+          venue: ["array shape, not object"],
+          archived: false,
+          published: true,
+        },
+      },
+      {
+        id: "crew-empty-name",
+        shows: {
+          id: "show-empty-name",
+          slug: "empty-name",
+          title: "Empty Name",
+          dates: { set: "2026-08-04" },
+          venue: { name: "" },
+          archived: false,
+          published: true,
+        },
+      },
+    ];
+    const shows = await listShowsForCrew(identity);
+    const byId = Object.fromEntries(shows.map((s) => [s.id, s]));
+    expect(byId["show-with-venue"]?.venue).toEqual({ name: "Hilton Anatole" });
+    expect(byId["show-no-venue-key"]?.venue).toBeNull();
+    expect(byId["show-malformed-venue"]?.venue).toBeNull();
+    expect(byId["show-empty-name"]?.venue).toBeNull();
   });
 
   test("returns an empty list when the identity email is not canonicalizable", async () => {

@@ -155,13 +155,18 @@ export function partitionMeShows(
 
   // Active = NOT ended (covers both purely-future shows AND
   // active-multi-day shows whose set day was yesterday but show days
-  // include today). Sort ascending by chipAnchor so the soonest
-  // active show is featured first — this aligns the "next up"
-  // ordering with the user-visible chip label rather than a stale
-  // load-in date that already passed.
-  const active = dated
-    .filter((d) => !d.ended)
-    .sort((a, b) => a.chipAnchor.localeCompare(b.chipAnchor));
+  // include today). Sort key per shape brief §5.1 "Most soonest" rule:
+  // earliest display date (set ?? travelIn ?? showDays[0]) >= today.
+  // For active multi-day shows whose display date is already PAST
+  // (set=yesterday but showDays still active), fall back to chipAnchor
+  // so they slot into the ordering by their actual remaining work
+  // window. R2 R5 F2 (codex finding): the chip-anchor fix from R2 must
+  // drive chip COPY, not silently replace the section ordering key for
+  // ordinary future shows whose display date is the contract.
+  const sortKeyFor = (d: Indexed): string => {
+    return d.iso >= todayIso ? d.iso : d.chipAnchor;
+  };
+  const active = dated.filter((d) => !d.ended).sort((a, b) => sortKeyFor(a).localeCompare(sortKeyFor(b)));
   const ended = dated.filter((d) => d.ended).sort((a, b) => b.iso.localeCompare(a.iso));
 
   const project = (d: Indexed): PartitionedMeShow => ({ show: d.show, chipAnchor: d.chipAnchor });

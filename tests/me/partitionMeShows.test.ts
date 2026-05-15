@@ -253,6 +253,55 @@ describe("partitionMeShows", () => {
     expect(out.featured?.chipAnchor).toBe("2026-05-11");
   });
 
+  it("R5 F2: two future shows ordered by display date, NOT by chipAnchor (when display date >= today)", () => {
+    // Brief §5.1 "Most soonest" = earliest display date (set ??
+    // travelIn ?? showDays[0]) >= today. For purely-future shows, the
+    // sort key MUST be display date, NOT chipAnchor — otherwise a show
+    // whose travelIn is earlier (chipAnchor) but whose set/display is
+    // later would incorrectly feature ahead of a show with an earlier
+    // set date.
+    //
+    // showA: set=2026-05-20, travelIn=2026-05-16. Display=set=2026-05-20.
+    //         chipAnchor=earliest known >= today = travelIn=2026-05-16.
+    // showB: set=2026-05-18, travelIn=2026-05-18. Display=set=2026-05-18.
+    //         chipAnchor=2026-05-18.
+    //
+    // Brief contract: showB features (set=May 18) ahead of showA
+    // (set=May 20). Pre-fix sort by chipAnchor would feature showA
+    // (chipAnchor=May 16) — WRONG.
+    const shows: CrewShowSummary[] = [
+      {
+        id: "showA",
+        slug: "a",
+        title: "Show A — early travel-in",
+        crewMemberId: "cm-a",
+        venue: null,
+        dates: {
+          set: "2026-05-20",
+          travelIn: "2026-05-16",
+          showDays: ["2026-05-21"],
+          travelOut: "2026-05-22",
+        },
+      },
+      {
+        id: "showB",
+        slug: "b",
+        title: "Show B — earlier set",
+        crewMemberId: "cm-b",
+        venue: null,
+        dates: {
+          set: "2026-05-18",
+          travelIn: "2026-05-18",
+          showDays: ["2026-05-19"],
+          travelOut: "2026-05-20",
+        },
+      },
+    ];
+    const out = partitionMeShows(shows, today);
+    expect(out.featured?.show.id).toBe("showB"); // Earlier display date wins.
+    expect(out.upcoming.map((p) => p.show.id)).toEqual(["showA"]);
+  });
+
   it("R2 F1: purely-future show's chipAnchor matches its earliest known date (set in this case)", () => {
     const shows: CrewShowSummary[] = [
       {
