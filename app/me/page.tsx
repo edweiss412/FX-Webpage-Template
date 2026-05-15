@@ -207,7 +207,7 @@ function MeShowSections({ shows }: { shows: readonly CrewShowSummary[] }) {
           >
             Next up
           </h2>
-          <NextUpCard entry={featured} />
+          <NextUpCard entry={featured} now={now} />
         </section>
       )}
 
@@ -221,7 +221,7 @@ function MeShowSections({ shows }: { shows: readonly CrewShowSummary[] }) {
           </h2>
           <ul className="flex flex-col gap-2">
             {upcoming.map((entry) => (
-              <ShowListRow key={entry.show.id} entry={entry} />
+              <ShowListRow key={entry.show.id} entry={entry} now={now} />
             ))}
           </ul>
         </section>
@@ -240,7 +240,7 @@ function MeShowSections({ shows }: { shows: readonly CrewShowSummary[] }) {
           </summary>
           <ul data-testid="me-past-list" className="mt-3 flex flex-col gap-2">
             {past.map((entry) => (
-              <ShowListRow key={entry.show.id} entry={entry} />
+              <ShowListRow key={entry.show.id} entry={entry} now={now} />
             ))}
           </ul>
         </details>
@@ -310,11 +310,11 @@ function UndatedShowRow({ show }: { show: CrewShowSummary }) {
  * going next?" answer (Venue · Date). Surfaces show.venue.name when
  * present; gracefully omits when absent.
  */
-function NextUpCard({ entry }: { entry: PartitionedMeShow }) {
+function NextUpCard({ entry, now }: { entry: PartitionedMeShow; now: Date }) {
   const { show, chipAnchor } = entry;
   const isoDate = resolveDisplayDate(show.dates);
   const dateLabel = isoDate ? formatShowDate(isoDate) : null;
-  const chip = relativeDayChip(chipAnchor);
+  const chip = relativeDayChip(chipAnchor, now);
   const chipTone = chipToneClass(chip);
   const venueLabel = pickVenueLabel(show);
 
@@ -356,11 +356,11 @@ function NextUpCard({ entry }: { entry: PartitionedMeShow }) {
  * uses the partition's chipAnchor, not the display date — same fix as
  * NextUpCard.
  */
-function ShowListRow({ entry }: { entry: PartitionedMeShow }) {
+function ShowListRow({ entry, now }: { entry: PartitionedMeShow; now: Date }) {
   const { show, chipAnchor } = entry;
   const isoDate = resolveDisplayDate(show.dates);
   const dateLabel = isoDate ? formatShowDate(isoDate) : null;
-  const chip = relativeDayChip(chipAnchor);
+  const chip = relativeDayChip(chipAnchor, now);
   const chipTone = chipToneClass(chip);
   const venueLabel = pickVenueLabel(show);
 
