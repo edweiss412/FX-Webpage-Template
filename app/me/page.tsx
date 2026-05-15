@@ -195,13 +195,13 @@ export default async function MePage() {
  */
 function MeShowSections({ shows }: { shows: readonly CrewShowSummary[] }) {
   const now = new Date();
-  const { featured, upcoming, past } = partitionMeShows(shows, now);
+  const { featured, upcoming, past, undated } = partitionMeShows(shows, now);
 
-  // Defensive: every show in the input had at least one display date except
-  // when the entire dates blob was unparseable. partitionMeShows drops those.
-  // If everything dropped, render the empty state's neighborhood — otherwise
-  // featured is always set when shows.length > 0 AND at least one had a date.
-  if (!featured) {
+  // R11 (codex finding): the only true empty state is shows.length === 0,
+  // handled in the parent. If we're here AND featured is null AND undated
+  // is empty, something dropped a show without surfacing it — render a
+  // diagnostic placeholder so the user isn't stranded.
+  if (!featured && undated.length === 0) {
     return (
       <div data-testid="me-no-dated-shows" className="py-12 text-center text-base text-text-subtle">
         <p>Your shows are missing dates. Doug will fill them in.</p>
@@ -211,15 +211,17 @@ function MeShowSections({ shows }: { shows: readonly CrewShowSummary[] }) {
 
   return (
     <div data-testid="me-show-sections" className="flex flex-col gap-section-gap">
-      <section data-testid="me-next-up" aria-labelledby="me-next-up-heading">
-        <h2
-          id="me-next-up-heading"
-          className="mb-3 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
-        >
-          Next up
-        </h2>
-        <NextUpCard entry={featured} />
-      </section>
+      {featured && (
+        <section data-testid="me-next-up" aria-labelledby="me-next-up-heading">
+          <h2
+            id="me-next-up-heading"
+            className="mb-3 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+          >
+            Next up
+          </h2>
+          <NextUpCard entry={featured} />
+        </section>
+      )}
 
       {upcoming.length > 0 && (
         <section data-testid="me-upcoming" aria-labelledby="me-upcoming-heading">
@@ -255,7 +257,54 @@ function MeShowSections({ shows }: { shows: readonly CrewShowSummary[] }) {
           </ul>
         </details>
       )}
+
+      {/*
+        R11 (codex finding): undated shows render in their own section
+        so the user retains the link to the show even when Doug hasn't
+        filled in dates yet. No chip (no chip-meaningful date), but
+        same row chrome as Upcoming/Past — title + link target.
+      */}
+      {undated.length > 0 && (
+        <section data-testid="me-undated" aria-labelledby="me-undated-heading">
+          <h2
+            id="me-undated-heading"
+            className="mb-3 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+          >
+            Date pending
+          </h2>
+          <ul data-testid="me-undated-list" className="flex flex-col gap-2">
+            {undated.map((show) => (
+              <UndatedShowRow key={show.id} show={show} />
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
+  );
+}
+
+/**
+ * R11: undated show row. Same compact chrome as ShowListRow but no
+ * chip (no date to anchor) and no date label. Title + venue (when
+ * present) + link to the show.
+ */
+function UndatedShowRow({ show }: { show: CrewShowSummary }) {
+  const venueLabel = pickVenueLabel(show);
+  return (
+    <li>
+      <Link
+        data-testid={`me-show-card-${show.slug}`}
+        href={`/show/${show.slug}`}
+        className="flex min-h-tap-min items-center gap-3 rounded-md border border-border bg-surface px-tile-pad py-3 transition-colors hover:border-border-strong"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-base font-medium text-text-strong">{show.title}</div>
+          {venueLabel && (
+            <div className="mt-0.5 truncate text-xs text-text-subtle">{venueLabel}</div>
+          )}
+        </div>
+      </Link>
+    </li>
   );
 }
 

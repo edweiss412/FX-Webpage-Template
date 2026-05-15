@@ -106,7 +106,10 @@ describe("partitionMeShows", () => {
     expect(out.past.map((p) => p.show.id)).toEqual(["p2", "p3"]); // older past, excluding featured
   });
 
-  it("show with null dates → excluded from all buckets (no display date to sort by)", () => {
+  it("R11: show with null dates → surfaced in undated bucket (NOT silently dropped)", () => {
+    // Pre-R11 the partition silently dropped undated shows. R11 fix:
+    // preserve them in their own bucket so the page renders a
+    // "Date pending" section with the show link still reachable.
     const shows = [
       show("a", "2026-05-20"),
       show("b", null, "No-date show"),
@@ -115,6 +118,24 @@ describe("partitionMeShows", () => {
     expect(out.featured?.show.id).toBe("a");
     expect(out.upcoming).toEqual([]);
     expect(out.past).toEqual([]);
+    expect(out.undated.map((s) => s.id)).toEqual(["b"]);
+  });
+
+  it("R11: only-undated shows → featured null, undated bucket carries them", () => {
+    const shows = [
+      show("a", null, "Show A no date"),
+      show("b", null, "Show B no date"),
+    ];
+    const out = partitionMeShows(shows, today);
+    expect(out.featured).toBeNull();
+    expect(out.upcoming).toEqual([]);
+    expect(out.past).toEqual([]);
+    expect(out.undated.map((s) => s.id).sort()).toEqual(["a", "b"]);
+  });
+
+  it("R11: empty input → empty undated bucket too", () => {
+    const out = partitionMeShows([], today);
+    expect(out.undated).toEqual([]);
   });
 
   it("R1 F1: multi-day show whose set day was yesterday but showDays includes today is NOT past", () => {

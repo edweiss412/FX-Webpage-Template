@@ -45,6 +45,15 @@ export type PartitionedMeShows = {
   upcoming: PartitionedMeShow[];
   /** Past shows excluding featured, descending by display date. */
   past: PartitionedMeShow[];
+  /**
+   * R11 (codex finding): assigned shows whose `dates` blob carries no
+   * sortable date (null, empty showDays, malformed JSON). Pre-R11 these
+   * silently disappeared; the brief is silent on this state but the
+   * old card-grid layout rendered them. Surface them in their own
+   * "Date pending" section so the user retains the link to the show
+   * even when Doug hasn't filled in the dates yet.
+   */
+  undated: CrewShowSummary[];
 };
 
 type DatesShape = {
@@ -139,18 +148,34 @@ export function partitionMeShows(
   const todayIso = now.toISOString().slice(0, 10);
 
   type Indexed = { show: CrewShowSummary; iso: string; ended: boolean; chipAnchor: string };
-  const dated: Indexed[] = shows
-    .map((s) => {
-      const iso = resolveDisplayDate(s.dates);
-      if (!iso) return null;
-      const ended = isShowEnded(s.dates, todayIso);
-      const chipAnchor = chipAnchorIso(s.dates, iso, todayIso, ended);
-      return { show: s, iso, ended, chipAnchor };
-    })
-    .filter((x): x is Indexed => x !== null);
+  const dated: Indexed[] = [];
+  // R11 (codex finding): undated shows are not lost — preserve them
+  // in their own bucket so the page renders them with a link + no
+  // chip in a "Date pending" section.
+  const undated: CrewShowSummary[] = [];
+  for (const s of shows) {
+    const iso = resolveDisplayDate(s.dates);
+    if (!iso) {
+      undated.push(s);
+      continue;
+    }
+    const ended = isShowEnded(s.dates, todayIso);
+    const chipAnchor = chipAnchorIso(s.dates, iso, todayIso, ended);
+    dated.push({ show: s, iso, ended, chipAnchor });
+  }
 
   if (dated.length === 0) {
-    return { featured: null, upcoming: [], past: [] };
+    // No dated shows; surface undated as a degenerate featured + the
+    // rest in the undated bucket. If undated is also empty (no shows
+    // at all), featured remains null.
+    if (undated.length === 0) {
+      return { featured: null, upcoming: [], past: [], undated: [] };
+    }
+    // R11: even with no dated shows, the user still has assigned
+    // shows; render them via the undated bucket. featured stays null
+    // because we have no chip-meaningful date to anchor a Next-up
+    // card on. The page renders the undated section directly.
+    return { featured: null, upcoming: [], past: [], undated };
   }
 
   // Active = NOT ended (covers both purely-future shows AND
@@ -189,6 +214,7 @@ export function partitionMeShows(
       featured: project(active[0]!),
       upcoming: active.slice(1).map(project),
       past: ended.map(project),
+      undated,
     };
   }
 
@@ -197,5 +223,6 @@ export function partitionMeShows(
     featured: project(ended[0]!),
     upcoming: [],
     past: ended.slice(1).map(project),
+    undated,
   };
 }
