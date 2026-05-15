@@ -23,10 +23,15 @@
  *
  * If no unresolved alerts exist, the banner returns null (no chrome).
  */
+import Link from "next/link";
+
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { resolveAdminAlertFormAction } from "@/app/admin/actions";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
+import { raisedAtSuffix } from "@/lib/time/raisedAt";
+
+import { ResolveAlertButton } from "./ResolveAlertButton";
 
 type AlertRow = {
   id: string;
@@ -90,6 +95,30 @@ export async function AlertBanner() {
     return null;
   }
 
+  // M9 C4 / M5-D3: queue-depth probe. Build the SAME filter chain
+  // (resolved_at IS NULL + info-severity exclusion) and request the
+  // exact count via head:true so no row payload comes back. The chip
+  // renders only when (count - 1) >= 1, i.e., there are alerts beyond
+  // the topmost shown.
+  let countQuery = supabase
+    .from("admin_alerts")
+    .select("id", { count: "exact", head: true })
+    .is("resolved_at", null);
+  if (INFO_SEVERITY_CODES.length > 0) {
+    countQuery = countQuery.not(
+      "code",
+      "in",
+      `(${INFO_SEVERITY_CODES.map((code) => `"${code}"`).join(",")})`,
+    );
+  }
+  const { count: queueDepth, error: countError } = await countQuery;
+  if (countError) {
+    // Non-fatal: the banner still renders the topmost alert without
+    // the count chip. Log so an operator sees the partial degradation.
+    console.error("[AlertBanner] admin_alerts COUNT failed:", countError.message);
+  }
+  const moreCount = typeof queueDepth === "number" && queueDepth > 1 ? queueDepth - 1 : 0;
+
   const alert = data[0] as AlertRow;
   const show = Array.isArray(alert.shows) ? alert.shows[0] : alert.shows;
   const showSlug = show?.slug ?? null;
@@ -134,6 +163,33 @@ export async function AlertBanner() {
           : {})}
       />
 
+      {/*
+        M9 C4 / M5-D3 §5.2 + §5.3: raised_at relative time on the left
+        + queue-depth `+N more ▸` chip on the right. The chip renders
+        only when there are alerts queued behind the topmost shown.
+      */}
+      <div
+        data-testid="admin-alert-meta-row"
+        className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-subtle"
+      >
+        <p data-testid="admin-alert-raised-at" className="tabular-nums">
+          Raised{" "}
+          <time dateTime={alert.raised_at} title={absoluteRaisedAt(alert.raised_at)}>
+            {raisedAtSuffix(alert.raised_at, new Date())}
+          </time>
+        </p>
+        {moreCount > 0 && (
+          <Link
+            data-testid="admin-alert-queue-chip"
+            href="/admin#alerts"
+            aria-label={`View ${moreCount} more unresolved alerts`}
+            className="inline-flex min-h-tap-min items-center px-3 py-2 text-xs text-text-subtle underline-offset-2 hover:text-accent-on-bg hover:underline"
+          >
+            +{moreCount} more ▸
+          </Link>
+        )}
+      </div>
+
       {isPerShowAlert ? (
         showSlug ? (
           <a
@@ -145,17 +201,35 @@ export async function AlertBanner() {
           </a>
         ) : null
       ) : (
+        // M9 C4 / M5-D3 §5.4: two-tap inline confirm. ResolveAlertButton
+        // is a small client island that handles idle → confirm →
+        // resolving state transitions; the parent form still owns the
+        // hidden id input + Server Action so the existing resolve
+        // posture (bound to resolveAdminAlertFormAction) is preserved.
         <form action={resolveAdminAlertFormAction} className="mt-4">
           <input type="hidden" name="id" value={alert.id} data-testid="admin-alert-id-input" />
-          <button
-            type="submit"
-            data-testid="admin-alert-resolve-button"
-            className="min-h-tap-min min-w-tap-min rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Resolve
-          </button>
+          <ResolveAlertButton />
         </form>
       )}
     </section>
   );
+}
+
+/**
+ * Format a raised_at ISO timestamp for the <time title> tooltip per
+ * brief §5.2: human-readable absolute. UTC for cross-server stability.
+ */
+function absoluteRaisedAt(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return iso;
+  const d = new Date(ms);
+  return d.toLocaleString("en-US", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
 }

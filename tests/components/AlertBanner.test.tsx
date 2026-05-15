@@ -56,34 +56,23 @@ const mockState = vi.hoisted(() => ({
 vi.mock("@/lib/supabase/server", () => {
   return {
     createSupabaseServerClient: async () => {
-      // Build a chained mock that mirrors the production call pattern:
-      //   supabase
-      //     .from('admin_alerts')
-      //     .select('id, code, raised_at, show_id, shows(slug)')
-      //     .is('resolved_at', null)
-      //     .not('code', 'in', '("INFO_CODE_A","INFO_CODE_B")')   // info-severity exclusion
-      //     .order('raised_at', { ascending: false })
-      //     .limit(1)
-      // .not() filtering is honored so that an info-severity row sitting at
-      // the top of raised_at DESC does NOT mask a lower warning row in the
-      // .limit(1) result — replicates real PostgREST semantics.
-      const filters: Array<{ kind: "not_in"; column: string; values: string[] }> = [];
-      const builder = {
-        select: () => builder,
-        is: () => builder,
-        not: (column: string, op: string, valueList: string) => {
-          if (op === "in") {
-            const inner = valueList.replace(/^\(/, "").replace(/\)$/, "");
-            const values = inner
-              .split(",")
-              .map((v) => v.trim().replace(/^"/, "").replace(/"$/, ""))
-              .filter(Boolean);
-            filters.push({ kind: "not_in", column, values });
-          }
-          return builder;
-        },
-        order: () => builder,
-        limit: (n: number) => {
+      // Build a chained mock that mirrors TWO production call patterns:
+      //   1. data probe (awaited via .order().limit(1)):
+      //      .from('admin_alerts').select('id, code, raised_at, ...').is(...)
+      //      .not(...).order(...).limit(1)
+      //   2. count probe (M9 C4 / R0 — awaited directly off the builder):
+      //      .from('admin_alerts').select('id', { count: 'exact', head: true })
+      //      .is(...).not(...)
+      //
+      // The mock honors the .not() filter chain for both — info-severity
+      // rows that sit at the top must be excluded from BOTH the .limit(1)
+      // payload AND the count probe, matching real PostgREST semantics.
+      // `from()` returns a fresh builder per call so the count probe's
+      // filters don't leak into the data probe (and vice versa).
+      function createBuilder() {
+        const filters: Array<{ kind: "not_in"; column: string; values: string[] }> = [];
+        let countMode = false;
+        const apply = () => {
           let rows: typeof mockState.rows = mockState.rows;
           for (const f of filters) {
             if (f.kind === "not_in") {
@@ -93,11 +82,47 @@ vi.mock("@/lib/supabase/server", () => {
               });
             }
           }
-          return Promise.resolve({ data: rows.slice(0, n), error: null });
-        },
-      };
+          return rows;
+        };
+        const builder = {
+          select: (
+            _columns?: string,
+            options?: { count?: "exact" | "planned" | "estimated"; head?: boolean },
+          ) => {
+            if (options?.count === "exact" && options.head === true) countMode = true;
+            return builder;
+          },
+          is: () => builder,
+          not: (column: string, op: string, valueList: string) => {
+            if (op === "in") {
+              const inner = valueList.replace(/^\(/, "").replace(/\)$/, "");
+              const values = inner
+                .split(",")
+                .map((v) => v.trim().replace(/^"/, "").replace(/"$/, ""))
+                .filter(Boolean);
+              filters.push({ kind: "not_in", column, values });
+            }
+            return builder;
+          },
+          order: () => builder,
+          limit: (n: number) => Promise.resolve({ data: apply().slice(0, n), error: null }),
+          // Awaiting the builder (no .order().limit()) returns the count
+          // probe shape. Required for the M9 C4 queue-depth chip path.
+          then: (onFulfilled: (value: { data: null; error: null; count: number }) => void) => {
+            if (countMode) {
+              return Promise.resolve({ data: null, error: null, count: apply().length }).then(
+                onFulfilled,
+              );
+            }
+            return Promise.resolve({ data: apply(), error: null }).then(
+              onFulfilled as unknown as (v: { data: typeof mockState.rows; error: null }) => void,
+            );
+          },
+        };
+        return builder;
+      }
       return {
-        from: () => builder,
+        from: () => createBuilder(),
       };
     },
   };
@@ -349,5 +374,107 @@ describe("AlertBanner", () => {
     const { getByTestId } = render(await AlertBanner());
     const text = getByTestId("error-explainer-message").textContent ?? "";
     expect(text).toContain("<sheet-name>"); // placeholder remains
+  });
+
+  test("M9 C4 / M5-D3: renders raised_at relative time + absolute tooltip", async () => {
+    setRows([
+      {
+        id: "alert-with-time",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-15T11:46:00Z", // 14 minutes before mock now
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    // Use fake timers so `new Date()` inside the component returns a
+    // stable wall clock; raisedAtSuffix consumes the Date directly so
+    // spying on Date.now alone is not sufficient.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(Date.UTC(2026, 4, 15, 12, 0, 0)));
+    try {
+      const { getByTestId } = render(await AlertBanner());
+      const raised = getByTestId("admin-alert-raised-at");
+      // Anti-tautology: assert against the LITERAL string "Raised 14
+      // minutes ago" (not a computed value), so a regression in either
+      // raisedAtSuffix or the wrapping copy fails the test.
+      expect(raised.textContent?.replace(/\s+/g, " ").trim()).toBe("Raised 14 minutes ago");
+      const time = raised.querySelector("time");
+      expect(time?.getAttribute("datetime")).toBe("2026-05-15T11:46:00Z");
+      // Absolute tooltip on the <time> title for hover/long-press.
+      expect(time?.getAttribute("title")).toMatch(/May 15.*2026/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("M9 C4 / M5-D3: renders +N more chip when 2+ unresolved alerts queued", async () => {
+    setRows([
+      {
+        id: "top",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-15T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+      {
+        id: "queued-1",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-15T09:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+      {
+        id: "queued-2",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-15T08:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+      {
+        id: "queued-3",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-15T07:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    const { getByTestId } = render(await AlertBanner());
+    const chip = getByTestId("admin-alert-queue-chip");
+    // Anti-tautology: literal "+3 more ▸" — derived from fixture (4
+    // total, 1 shown, 3 queued).
+    expect(chip.textContent?.trim()).toBe("+3 more ▸");
+    // ARIA label for screen readers per brief §5.3.
+    expect(chip.getAttribute("aria-label")).toBe("View 3 more unresolved alerts");
+  });
+
+  test("M9 C4 / M5-D3: queue chip absent when only 1 unresolved alert", async () => {
+    setRows([
+      {
+        id: "only-one",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-15T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    const { queryByTestId } = render(await AlertBanner());
+    expect(queryByTestId("admin-alert-queue-chip")).toBeNull();
+  });
+
+  test("M9 C4 / M5-D3: Resolve button starts in idle state (text 'Resolve')", async () => {
+    setRows([
+      {
+        id: "alert-resolve-idle",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-15T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    const { getByTestId, queryByTestId } = render(await AlertBanner());
+    const btn = getByTestId("admin-alert-resolve-button");
+    expect(btn.textContent?.trim()).toBe("Resolve");
+    // The confirm-row is NOT in the DOM in idle state.
+    expect(queryByTestId("admin-alert-confirm-row")).toBeNull();
   });
 });
