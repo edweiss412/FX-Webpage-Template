@@ -167,7 +167,20 @@ export function partitionMeShows(
     return d.iso >= todayIso ? d.iso : d.chipAnchor;
   };
   const active = dated.filter((d) => !d.ended).sort((a, b) => sortKeyFor(a).localeCompare(sortKeyFor(b)));
-  const ended = dated.filter((d) => d.ended).sort((a, b) => b.iso.localeCompare(a.iso));
+  // R6 (codex finding): sort ended shows by chipAnchor (the actual end
+  // date — most recent of set/travelIn/travelOut/showDays) descending,
+  // not by display date. A multi-day show that started earlier but
+  // ended later (e.g., set=Apr 1 + travelOut=Apr 30) was incorrectly
+  // ranked behind a shorter show with later set (e.g., set=Apr 15 +
+  // travelOut=Apr 16). Display date / id tie-break keeps the order
+  // stable across runs.
+  const ended = dated.filter((d) => d.ended).sort((a, b) => {
+    const cmp = b.chipAnchor.localeCompare(a.chipAnchor);
+    if (cmp !== 0) return cmp;
+    const isoCmp = b.iso.localeCompare(a.iso);
+    if (isoCmp !== 0) return isoCmp;
+    return a.show.id.localeCompare(b.show.id);
+  });
 
   const project = (d: Indexed): PartitionedMeShow => ({ show: d.show, chipAnchor: d.chipAnchor });
 

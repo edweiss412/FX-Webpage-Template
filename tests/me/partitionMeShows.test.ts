@@ -253,6 +253,55 @@ describe("partitionMeShows", () => {
     expect(out.featured?.chipAnchor).toBe("2026-05-11");
   });
 
+  it("R6: ended shows sorted by chipAnchor (actual end date) descending, NOT by display date", () => {
+    // Brief §5.1 all-past branch: featured = most recent past show.
+    // For multi-day shows the "most recent" must be measured by the
+    // ACTUAL END date (most recent known date), not by the display
+    // date (set ?? travelIn ?? showDays[0]). Pre-fix: ended shows
+    // sorted by display date — a long multi-day show that started
+    // earlier but ended LATER lost to a shorter show with a later set.
+    //
+    // showLong: set=2026-04-01 (earlier display); travelOut=2026-05-10
+    //           (most recent ending; chipAnchor=2026-05-10).
+    // showShort: set=2026-04-20 (later display); travelOut=2026-04-21
+    //            (chipAnchor=2026-04-21).
+    //
+    // showLong ended MORE RECENTLY (May 10 > Apr 21); brief contract
+    // says it features. Pre-fix sorted by display date → showShort
+    // (Apr 20 > Apr 1) — WRONG.
+    const shows: CrewShowSummary[] = [
+      {
+        id: "showLong",
+        slug: "long",
+        title: "Long Multi-day",
+        crewMemberId: "cm-long",
+        venue: null,
+        dates: {
+          set: "2026-04-01",
+          travelIn: "2026-03-31",
+          showDays: ["2026-04-15", "2026-05-08"],
+          travelOut: "2026-05-10", // most recent end
+        },
+      },
+      {
+        id: "showShort",
+        slug: "short",
+        title: "Short Show",
+        crewMemberId: "cm-short",
+        venue: null,
+        dates: {
+          set: "2026-04-20",
+          travelIn: "2026-04-19",
+          showDays: ["2026-04-20"],
+          travelOut: "2026-04-21",
+        },
+      },
+    ];
+    const out = partitionMeShows(shows, today);
+    expect(out.featured?.show.id).toBe("showLong"); // Most recent end wins
+    expect(out.past.map((p) => p.show.id)).toEqual(["showShort"]);
+  });
+
   it("R5 F2: two future shows ordered by display date, NOT by chipAnchor (when display date >= today)", () => {
     // Brief §5.1 "Most soonest" = earliest display date (set ??
     // travelIn ?? showDays[0]) >= today. For purely-future shows, the
