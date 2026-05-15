@@ -46,8 +46,15 @@ import { redirect } from "next/navigation";
 import { validateGoogleIdentity } from "@/lib/auth/validateGoogleIdentity";
 import { listShowsForCrew, type CrewShowSummary } from "@/lib/data/listShowsForCrew";
 import { messageFor } from "@/lib/messages/lookup";
+import { partitionMeShows } from "@/lib/me/partitionMeShows";
+import { relativeDayChip } from "@/lib/time/relative";
 
-/** Pluck the most useful "when" string from the JSONB dates blob. */
+/**
+ * Pluck the most useful "when" string from the JSONB dates blob. Mirrors
+ * lib/me/partitionMeShows.ts's resolveDisplayDate; kept here so the
+ * formatted card date works even when the partition helper drops a show
+ * (it doesn't drop here — partition + render share the same fallback chain).
+ */
 function pickShowDate(dates: unknown): string | null {
   if (typeof dates !== "object" || dates === null || Array.isArray(dates)) {
     return null;
@@ -174,33 +181,202 @@ export default async function MePage() {
           </p>
         </div>
       ) : (
-        <ul data-testid="me-card-grid" className="grid gap-tile-gap sm:grid-cols-2 lg:grid-cols-3">
-          {shows.map((show) => (
-            <ShowCard key={show.id} show={show} />
-          ))}
-        </ul>
+        <MeShowSections shows={shows} />
       )}
     </main>
   );
 }
 
-function ShowCard({ show }: { show: CrewShowSummary }) {
-  const isoDate = pickShowDate(show.dates);
-  const dateLabel = isoDate ? formatShowDate(isoDate) : null;
+/**
+ * Render the partitioned NEXT UP / UPCOMING / PAST sections per shape brief
+ * §5.1. Pure render function over the partition output; no I/O. Today is
+ * resolved once here so all three sections share the same reference (chip
+ * labels and partition use identical comparisons).
+ */
+function MeShowSections({ shows }: { shows: readonly CrewShowSummary[] }) {
+  const now = new Date();
+  const { featured, upcoming, past } = partitionMeShows(shows, now);
+
+  // Defensive: every show in the input had at least one display date except
+  // when the entire dates blob was unparseable. partitionMeShows drops those.
+  // If everything dropped, render the empty state's neighborhood — otherwise
+  // featured is always set when shows.length > 0 AND at least one had a date.
+  if (!featured) {
+    return (
+      <div data-testid="me-no-dated-shows" className="py-12 text-center text-base text-text-subtle">
+        <p>Your shows are missing dates. Doug will fill them in.</p>
+      </div>
+    );
+  }
 
   return (
-    <li
+    <div data-testid="me-show-sections" className="flex flex-col gap-section-gap">
+      <section data-testid="me-next-up" aria-labelledby="me-next-up-heading">
+        <h2
+          id="me-next-up-heading"
+          className="mb-3 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+        >
+          Next up
+        </h2>
+        <NextUpCard show={featured} now={now} />
+      </section>
+
+      {upcoming.length > 0 && (
+        <section data-testid="me-upcoming" aria-labelledby="me-upcoming-heading">
+          <h2
+            id="me-upcoming-heading"
+            className="mb-3 text-xs font-semibold uppercase tracking-eyebrow text-text-subtle"
+          >
+            Upcoming
+          </h2>
+          <ul className="flex flex-col gap-2">
+            {upcoming.map((show) => (
+              <ShowListRow key={show.id} show={show} now={now} />
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {past.length > 0 && (
+        <details data-testid="me-past" className="group">
+          <summary
+            data-testid="me-past-summary"
+            className="cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text"
+          >
+            Past ({past.length}){" "}
+            <span aria-hidden="true" className="ml-1 inline-block transition-transform group-open:rotate-90">
+              ▸
+            </span>
+          </summary>
+          <ul data-testid="me-past-list" className="mt-3 flex flex-col gap-2">
+            {past.map((show) => (
+              <ShowListRow key={show.id} show={show} now={now} />
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Featured card — emphasized vertical padding, larger title, accent chip
+ * for relative-time. Brief §5.1: "Tomorrow" / "Today" use orange chip;
+ * "In N days" uses neutral info chip; past uses no chip background.
+ */
+function NextUpCard({ show, now }: { show: CrewShowSummary; now: Date }) {
+  const isoDate = pickShowDate(show.dates);
+  const dateLabel = isoDate ? formatShowDate(isoDate) : null;
+  const chip = isoDate ? relativeDayChip(isoDate, now) : null;
+  const chipTone = chip ? chipToneClass(chip) : "";
+  const venueLabel = pickVenueLabel(show);
+
+  return (
+    <Link
       data-testid={`me-show-card-${show.slug}`}
-      className="rounded-md border border-border bg-surface p-tile-pad shadow-tile"
+      href={`/show/${show.slug}`}
+      className="block rounded-md border border-border bg-surface p-tile-pad py-6 shadow-tile transition-colors hover:border-border-strong sm:py-8"
     >
-      <Link href={`/show/${show.slug}`} className="block">
-        <h2 className="text-lg font-semibold text-text-strong">{show.title}</h2>
-        {dateLabel && isoDate ? (
-          <time dateTime={isoDate} className="mt-1 block text-sm text-text-subtle">
-            {dateLabel}
-          </time>
-        ) : null}
+      {chip && (
+        <span
+          data-testid="me-next-up-chip"
+          className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${chipTone}`}
+        >
+          {chip}
+        </span>
+      )}
+      <h3 className="mt-2 text-lg font-semibold text-text-strong sm:text-xl">{show.title}</h3>
+      {(dateLabel || venueLabel) && (
+        <p className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm text-text-subtle">
+          {venueLabel && <span>{venueLabel}</span>}
+          {venueLabel && dateLabel && (
+            <span aria-hidden="true" className="text-text-faint">
+              ·
+            </span>
+          )}
+          {dateLabel && isoDate && (
+            <time dateTime={isoDate}>{dateLabel}</time>
+          )}
+        </p>
+      )}
+    </Link>
+  );
+}
+
+/**
+ * UPCOMING / PAST list row — compact 56px tap-target row with chip on the
+ * right. Per brief §5.1: "regular list row, 56px tap target".
+ */
+function ShowListRow({ show, now }: { show: CrewShowSummary; now: Date }) {
+  const isoDate = pickShowDate(show.dates);
+  const dateLabel = isoDate ? formatShowDate(isoDate) : null;
+  const chip = isoDate ? relativeDayChip(isoDate, now) : null;
+  const chipTone = chip ? chipToneClass(chip) : "";
+  const venueLabel = pickVenueLabel(show);
+
+  return (
+    <li>
+      <Link
+        data-testid={`me-show-card-${show.slug}`}
+        href={`/show/${show.slug}`}
+        className="flex min-h-tap-min items-center justify-between gap-3 rounded-md border border-border bg-surface px-tile-pad py-3 transition-colors hover:border-border-strong"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-base font-medium text-text-strong">{show.title}</div>
+          {(venueLabel || dateLabel) && (
+            <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-xs text-text-subtle">
+              {venueLabel && <span className="truncate">{venueLabel}</span>}
+              {venueLabel && dateLabel && (
+                <span aria-hidden="true" className="text-text-faint">
+                  ·
+                </span>
+              )}
+              {dateLabel && isoDate && (
+                <time dateTime={isoDate}>{dateLabel}</time>
+              )}
+            </div>
+          )}
+        </div>
+        {chip && (
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${chipTone}`}
+          >
+            {chip}
+          </span>
+        )}
       </Link>
     </li>
   );
+}
+
+/**
+ * Map a chip label to its chrome class per brief §5.1:
+ *   "Today" / "Tomorrow"     → accent (the singular brand moment on /me)
+ *   "In N days" / "In N weeks" → info-bg (neutral)
+ *   "Ended …"                  → text-subtle, no background
+ */
+function chipToneClass(chip: string): string {
+  if (chip === "Today" || chip === "Tomorrow") {
+    return "bg-accent text-accent-text";
+  }
+  if (chip.startsWith("In ")) {
+    return "bg-info-bg text-text";
+  }
+  // Ended / Ended N days ago / Ended N weeks ago
+  return "text-text-subtle";
+}
+
+/**
+ * Pull a venue label from the JSONB dates+venue blobs that listShowsForCrew
+ * exposes. CrewShowSummary doesn't currently include venue; we read the show
+ * row's `venue.name` if present via the dates JSON's sibling. Fallback: null
+ * (the row collapses to title + date only).
+ *
+ * Defensive across schemas — listShowsForCrew may project venue in the
+ * future. For now this returns null because CrewShowSummary type does not
+ * include venue. The function exists as a forward-compat hook so adding
+ * venue to CrewShowSummary later doesn't churn the row layout.
+ */
+function pickVenueLabel(_show: CrewShowSummary): string | null {
+  return null;
 }

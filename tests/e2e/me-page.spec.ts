@@ -224,15 +224,34 @@ test.describe("/me — signed-in crew with shows", () => {
     const response = await page.goto(`${TEST_BASE_URL}/me`);
     expect(response?.status()).toBe(200);
 
-    const olderCard = page.getByTestId(`me-show-card-${olderSlug}`);
+    // M9 C3 / M5-D1: the rendered shape is now partitioned (Next up /
+    // Upcoming / Past collapsed) per shape brief 2026-05-14-auth-flow-
+    // polish.md §5.1. Today is 2026-05-15 (relative to the test's wall-
+    // clock); olderSetDate (2026-04-10) is past and newerSetDate
+    // (2026-09-15) is future — so featured = newer, past = [older].
     const newerCard = page.getByTestId(`me-show-card-${newerSlug}`);
-    await expect(olderCard).toBeVisible();
     await expect(newerCard).toBeVisible();
+    // Featured anchor renders inside the me-next-up section (newest first
+    // in DOM order, as expected by the brief's NEXT UP placement).
+    await expect(page.getByTestId("me-next-up")).toBeVisible();
+    await expect(page.getByTestId("me-next-up").getByTestId(`me-show-card-${newerSlug}`)).toBeVisible();
 
-    // Sort order assertion: derive expected order from the SEED
-    // fixture's dates (newer set DESC first), then compare against
-    // the rendered order. Anti-tautology: ordering is computed from
-    // the fixture, not pinned to a hardcoded literal.
+    // Past disclosure is collapsed by default (brief §5.1: "Default
+    // collapsed; click `(N) ▸` reveals."). The older card is in the DOM
+    // but hidden until the user opens the disclosure. Assert presence of
+    // the disclosure summary first; then expand and assert the card.
+    const pastSummary = page.getByTestId("me-past-summary");
+    await expect(pastSummary).toBeVisible();
+    await expect(pastSummary).toContainText("Past (1)");
+    await pastSummary.click();
+    const olderCard = page.getByTestId(`me-show-card-${olderSlug}`);
+    await expect(olderCard).toBeVisible();
+
+    // DOM order: featured (newer) renders before the past disclosure
+    // (older). Assert the newerIdx < olderIdx invariant against the
+    // post-expansion DOM. Anti-tautology: order is derived from the
+    // partition contract (future before past) defined in the brief, not
+    // pinned to a hardcoded literal.
     const cards = page.getByTestId(/^me-show-card-/);
     const orderedSlugs = await cards.evaluateAll((nodes) =>
       nodes.map((n) => (n as HTMLElement).getAttribute("data-testid")),
@@ -241,7 +260,6 @@ test.describe("/me — signed-in crew with shows", () => {
     const olderIdx = orderedSlugs.indexOf(`me-show-card-${olderSlug}`);
     expect(newerIdx).toBeGreaterThanOrEqual(0);
     expect(olderIdx).toBeGreaterThanOrEqual(0);
-    // Newer set date precedes older — DESC.
     expect(newerIdx).toBeLessThan(olderIdx);
   });
 
@@ -255,8 +273,12 @@ test.describe("/me — signed-in crew with shows", () => {
 
     await expect(page.getByTestId("me-page")).toBeVisible();
     await expect(page.getByTestId("me-empty-state")).toBeVisible();
-    // No card grid.
-    await expect(page.getByTestId("me-card-grid")).toHaveCount(0);
+    // M9 C3 / M5-D1: empty-state branch must NOT render the partitioned
+    // sections (Next up / Upcoming / Past). The me-card-grid testid was
+    // retired with the card-grid layout when the featured-anchor + lists
+    // pattern shipped; assert the new section testids are absent instead.
+    await expect(page.getByTestId("me-show-sections")).toHaveCount(0);
+    await expect(page.getByTestId("me-next-up")).toHaveCount(0);
     await expect(page.getByTestId(/^me-show-card-/)).toHaveCount(0);
   });
 
