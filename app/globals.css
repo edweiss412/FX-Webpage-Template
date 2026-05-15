@@ -272,6 +272,39 @@
 }
 
 /*
+ * M9 C3 / M5-D2 — Bootstrap shell sequenced-dots pulse. Three dots stagger
+ * via inline animation-delay (Bootstrap.tsx) so they cascade left → right.
+ * Per shape brief 2026-05-14-auth-flow-polish.md §5.2: opacity 0.3 → 1.0
+ * → 0.3 over var(--duration-normal). The reduced-motion override above
+ * collapses --duration-normal to 0ms, which makes the keyframe a no-op
+ * and the dots present as static "•••" — matching the brief's
+ * "no animation, spaced horizontally" reduced-motion contract.
+ */
+@keyframes bootstrap-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.bootstrap-dot {
+  animation: bootstrap-dot-pulse var(--duration-normal) ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bootstrap-dot {
+    /* Belt-and-suspenders: even if a future change uncouples the dot
+       animation from --duration-normal, this rule guarantees the static
+       "•••" reduced-motion contract holds. */
+    animation: none;
+    opacity: 1;
+  }
+}
+
+/*
  * Tabular figures default for elements that semantically carry numbers.
  * Components MAY opt in at any element via class="tabular-nums" or via
  * Tailwind's font-variant-numeric utility — this rule covers <time> by

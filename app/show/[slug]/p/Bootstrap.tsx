@@ -69,7 +69,7 @@
  * was mounted under (server-rendered, NOT user-controlled), so there's
  * no open-redirect risk.
  */
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { bootstrapMint } from "./actions";
@@ -88,7 +88,21 @@ type BootstrapProps = {
   slug: string;
 };
 
-type UiState = { kind: "connecting" } | { kind: "no_fragment" } | { kind: "error" };
+type UiState =
+  | { kind: "connecting" }
+  /**
+   * M9 C3 / M5-D2: 6s elapsed in connecting without resolution. The
+   * original bootstrapMint + redeem-link fetch are STILL IN FLIGHT —
+   * still_working is a presentation flip, not an abort. The Retry
+   * button calls runBootstrap() again from the top, which mints a
+   * fresh nonce; the original in-flight fetch's success unmounts the
+   * component before either retry result lands.
+   */
+  | { kind: "still_working" }
+  | { kind: "no_fragment" }
+  | { kind: "error" };
+
+const STILL_WORKING_TIMEOUT_MS = 6_000;
 
 // M9 C7 / M5-D8 — These two inline strings remain inline by deliberate
 // scope decision, NOT by oversight:
@@ -130,13 +144,45 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
   // effect body.
   const didRunRef = useRef(false);
 
-  useEffect(() => {
-    if (didRunRef.current) return;
-    didRunRef.current = true;
+  // M9 C3 / M5-D2: refs for the in-flight controller + still_working
+  // timer so the Retry button can abort/clear them and start fresh.
+  const controllerRef = useRef<AbortController | null>(null);
+  const stillWorkingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * runBootstrap — extracted from the original useEffect IIFE so the
+   * Retry button can re-invoke it from scratch (mints a fresh nonce,
+   * re-POSTs to redeem-link). On every call: aborts any prior in-flight
+   * controller, clears the still_working timer, sets state to connecting,
+   * arms a new 6s timer, and runs the bootstrap fetch sequence.
+   *
+   * NOTE: this function does NOT consume `didRunRef` — the StrictMode
+   * guard is on the useEffect's first invocation only. Retry must run
+   * regardless of whether the dev-mode double-invoke already fired.
+   */
+  const runBootstrap = useCallback(() => {
+    // Abort any prior in-flight controller (idempotent if already aborted).
+    if (controllerRef.current) {
+      controllerRef.current.abort();
+    }
+    if (stillWorkingTimerRef.current !== null) {
+      clearTimeout(stillWorkingTimerRef.current);
+      stillWorkingTimerRef.current = null;
+    }
+    setUi({ kind: "connecting" });
+    // Arm the 6s still_working flip. Per brief §5.2 this is a presentation
+    // flip, NOT an abort — the in-flight bootstrapMint + redeem-link fetch
+    // continue. If they resolve before Retry is clicked, the connecting
+    // state's success path navigates away and the still_working render
+    // unmounts.
+    stillWorkingTimerRef.current = setTimeout(() => {
+      setUi((prev) => (prev.kind === "connecting" ? { kind: "still_working" } : prev));
+    }, STILL_WORKING_TIMEOUT_MS);
 
     // Capture an AbortController so the in-flight POST is cancelled if
     // the component unmounts (e.g., user navigates away mid-request).
     const controller = new AbortController();
+    controllerRef.current = controller;
 
     // The async IIFE below performs all DB / network I/O. EVERY setState
     // call is awaited (inside the IIFE) — there are NO synchronous
@@ -324,17 +370,34 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
         setUi({ kind: "error" });
       }
     })();
-
-    return () => {
-      controller.abort();
-    };
   }, [router, showId, slug]);
+
+  // Mount-only useEffect that fires runBootstrap once (StrictMode-guarded)
+  // and cleans up on unmount.
+  useEffect(() => {
+    if (didRunRef.current) return;
+    didRunRef.current = true;
+    runBootstrap();
+    return () => {
+      if (controllerRef.current) controllerRef.current.abort();
+      if (stillWorkingTimerRef.current !== null) clearTimeout(stillWorkingTimerRef.current);
+    };
+  }, [runBootstrap]);
+
+  // Retry handler — invoked from the still_working state's [Retry] button.
+  // Re-invokes runBootstrap to mint a fresh nonce + re-POST. Per brief
+  // §5.2 + §11 anti-goal "no timeout-as-abort", the original in-flight
+  // fetch may STILL succeed and navigate away before retry resolves; the
+  // component handles whichever lands first.
+  const handleRetry = useCallback(() => {
+    runBootstrap();
+  }, [runBootstrap]);
 
   // M9 C8 / M5-D6 #4: wrap the state-transition region in a single
   // aria-live="polite" container so screen readers announce each
-  // state change (connecting → no_fragment / error) as the same
-  // logical region updates. Without a stable live region, the
-  // separate <p>s mount/unmount and the announcement is lost.
+  // state change (connecting → still_working → no_fragment / error)
+  // as the same logical region updates. Without a stable live region,
+  // the separate elements mount/unmount and the announcement is lost.
   return (
     <div data-testid="bootstrap-live-region" aria-live="polite">
       {ui.kind === "no_fragment" ? (
@@ -349,12 +412,75 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
         <p data-testid="bootstrap-error" className="text-base text-warning-text">
           {GENERIC_ERROR_COPY}
         </p>
+      ) : ui.kind === "still_working" ? (
+        // M9 C3 / M5-D2: 6s elapsed in connecting; the original fetch
+        // is still in flight. Render the named-state escalation +
+        // [Retry] button per shape brief §5.2. Dots continue from the
+        // connecting state — they ARE the loading affordance.
+        <div data-testid="bootstrap-still-working" className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <p className="text-base font-medium text-text-strong">Still working&hellip;</p>
+            <p className="text-sm text-text-subtle">This is taking longer than usual.</p>
+          </div>
+          <BootstrapDots />
+          <div className="flex items-center gap-3">
+            <button
+              data-testid="bootstrap-retry"
+              type="button"
+              onClick={handleRetry}
+              className="inline-flex min-h-tap-min items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-text transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
       ) : (
         // ui.kind === "connecting"
-        <p data-testid="bootstrap-connecting" className="text-base text-text-subtle">
-          Connecting…
-        </p>
+        <div className="flex flex-col gap-2">
+          <p data-testid="bootstrap-connecting" className="text-base text-text-subtle">
+            Connecting
+          </p>
+          <BootstrapDots />
+        </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Sequenced-dots loading affordance per shape brief §5.2. Three dots
+ * pulse opacity 0.3 → 1.0 → 0.3 over `--duration-normal` (220ms),
+ * staggered by `--duration-normal / 3` so the dots cascade left-to-right.
+ *
+ * `prefers-reduced-motion: reduce` is honored via a CSS @media query in
+ * `app/globals.css` — the keyframes resolve to `none` and the dots
+ * present as static "•••" spaced horizontally. This component renders
+ * the same DOM regardless; the motion is CSS-driven so the
+ * accessibility contract lives entirely in the stylesheet.
+ */
+function BootstrapDots() {
+  return (
+    <span
+      data-testid="bootstrap-dots"
+      role="presentation"
+      aria-hidden="true"
+      className="inline-flex items-center gap-1"
+    >
+      <span
+        data-testid="bootstrap-dot"
+        className="bootstrap-dot inline-block size-1.5 rounded-full bg-text-subtle"
+        style={{ animationDelay: "0ms" }}
+      />
+      <span
+        data-testid="bootstrap-dot"
+        className="bootstrap-dot inline-block size-1.5 rounded-full bg-text-subtle"
+        style={{ animationDelay: "73ms" }}
+      />
+      <span
+        data-testid="bootstrap-dot"
+        className="bootstrap-dot inline-block size-1.5 rounded-full bg-text-subtle"
+        style={{ animationDelay: "146ms" }}
+      />
+    </span>
   );
 }
