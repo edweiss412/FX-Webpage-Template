@@ -432,14 +432,33 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
   }, [router, showId, slug]);
 
   // Mount-only useEffect that fires runBootstrap once (StrictMode-guarded)
-  // and cleans up on unmount. R3: cleanup walks every in-flight
-  // controller (initial + each Retry attempt) so unmount aborts the
-  // whole racing set, not just the latest.
+  // and cleans up on unmount.
+  //
+  // R4 (codex finding): React dev StrictMode runs effects as
+  // setup → cleanup → setup with refs preserved. The naive
+  // "didRunRef.current = true; runBootstrap()" pattern broke under
+  // StrictMode because the first cleanup aborted every in-flight
+  // controller while the second setup hit didRunRef and returned
+  // early — leaving the shell stuck in connecting with no live fetch.
+  //
+  // Pattern: defer the actual start to a setTimeout(0) macrotask. The
+  // first StrictMode probe cleanup runs synchronously, cancels the
+  // queued macrotask before it fires (so didRunRef stays false), and
+  // the second setup queues a fresh macrotask that DOES start the
+  // single real attempt. In production (no double-invoke), the
+  // macrotask fires once on the first setup. R3 cleanup contract
+  // (abort the entire racing controller set) still applies on the
+  // final unmount.
   useEffect(() => {
-    if (didRunRef.current) return;
-    didRunRef.current = true;
-    runBootstrap();
+    let cancelled = false;
+    const startTimer = setTimeout(() => {
+      if (cancelled || didRunRef.current) return;
+      didRunRef.current = true;
+      runBootstrap();
+    }, 0);
     return () => {
+      cancelled = true;
+      clearTimeout(startTimer);
       const controllers = inflightControllersRef.current;
       for (const c of Array.from(controllers)) {
         c.abort();

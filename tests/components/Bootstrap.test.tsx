@@ -26,6 +26,7 @@
  *     present (the actual CSS-driven animation is verified by manual review
  *     since jsdom doesn't compute media queries).
  */
+import { StrictMode as ReactStrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
@@ -83,6 +84,12 @@ afterEach(() => {
 describe("Bootstrap connecting state", () => {
   test("renders 'Connecting' + sequenced-dots affordance on initial mount", async () => {
     render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
+    // R4: bootstrap start is deferred via setTimeout(0) to survive
+    // StrictMode dev double-invoke. Flush the macrotask so the first
+    // attempt actually fires before the test asserts on it.
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     // The connecting copy is present immediately (initial state).
     expect(screen.getByTestId("bootstrap-connecting")).toBeTruthy();
     // The sequenced-dots affordance is present from the same initial mount.
@@ -97,6 +104,12 @@ describe("Bootstrap connecting state", () => {
 describe("Bootstrap still_working transition (6s timeout)", () => {
   test("at 5.99s: still in connecting state", () => {
     render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
+    // R4: bootstrap start is deferred via setTimeout(0) to survive
+    // StrictMode dev double-invoke. Flush the macrotask so the first
+    // attempt actually fires before the test asserts on it.
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     act(() => {
       vi.advanceTimersByTime(5_990);
     });
@@ -106,6 +119,12 @@ describe("Bootstrap still_working transition (6s timeout)", () => {
 
   test("at 6.0s: transitions to still_working state with Retry button", () => {
     render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
+    // R4: bootstrap start is deferred via setTimeout(0) to survive
+    // StrictMode dev double-invoke. Flush the macrotask so the first
+    // attempt actually fires before the test asserts on it.
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     act(() => {
       vi.advanceTimersByTime(6_000);
     });
@@ -125,6 +144,12 @@ describe("Bootstrap still_working transition (6s timeout)", () => {
 describe("Bootstrap Retry button", () => {
   test("clicking Retry resets to connecting + re-runs bootstrapMint", async () => {
     render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
+    // R4: bootstrap start is deferred via setTimeout(0) to survive
+    // StrictMode dev double-invoke. Flush the macrotask so the first
+    // attempt actually fires before the test asserts on it.
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     // Wait for initial bootstrapMint call (1).
     expect(bootstrapMintMock).toHaveBeenCalledTimes(1);
     // Trigger still_working.
@@ -155,6 +180,12 @@ describe("Bootstrap no_fragment branch", () => {
       writable: true,
     });
     render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
+    // R4: bootstrap start is deferred via setTimeout(0) to survive
+    // StrictMode dev double-invoke. Flush the macrotask so the first
+    // attempt actually fires before the test asserts on it.
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     return Promise.resolve().then(() => {
       expect(screen.queryByTestId("bootstrap-connecting")).toBeNull();
       expect(screen.getByTestId("bootstrap-no-fragment")).toBeTruthy();
@@ -163,6 +194,34 @@ describe("Bootstrap no_fragment branch", () => {
       expect(fallback.textContent).toBe("Go to my shows");
       expect(fallback.getAttribute("href")).toBe("/me");
     });
+  });
+});
+
+describe("Bootstrap R4: StrictMode dev double-invoke leaves single live attempt", () => {
+  test("under StrictMode, bootstrapMint fires exactly once after the first cleanup probe", () => {
+    // React 18+ StrictMode runs effects as setup → cleanup → setup with
+    // refs preserved. R4 (codex finding): pre-fix the first cleanup
+    // aborted the only in-flight attempt, then the second setup hit
+    // didRunRef and returned early — leaving the shell stuck with no
+    // live fetch. Fix: defer initial start to setTimeout(0) so the
+    // first probe cleanup cancels the queued task before it sets
+    // didRunRef; the second setup queues a fresh task that actually
+    // runs.
+    //
+    // Under StrictMode in jsdom, render fires the same effect twice
+    // synchronously. We advance fake timers past 0 to flush the
+    // setTimeout(0) macrotask. Assert bootstrapMint was called
+    // exactly once (NOT zero — the StrictMode-stuck pre-fix bug —
+    // and NOT twice — the unguarded double-invoke regression).
+    render(
+      <ReactStrictMode>
+        <Bootstrap showId={SHOW_ID} slug={SLUG} />
+      </ReactStrictMode>,
+    );
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(bootstrapMintMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -198,6 +257,12 @@ describe("Bootstrap R3: prior attempt success still navigates after Retry", () =
 
     try {
       render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
+    // R4: bootstrap start is deferred via setTimeout(0) to survive
+    // StrictMode dev double-invoke. Flush the macrotask so the first
+    // attempt actually fires before the test asserts on it.
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
       // Flush attempt 1's bootstrapMint resolution → fetch starts.
       await act(async () => {
         await Promise.resolve();
@@ -258,6 +323,12 @@ describe("Bootstrap retry race guard (R1 F2)", () => {
       .mockImplementationOnce(() => new Promise<never>(() => {})); // attempt 2 never resolves
 
     render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
+    // R4: bootstrap start is deferred via setTimeout(0) to survive
+    // StrictMode dev double-invoke. Flush the macrotask so the first
+    // attempt actually fires before the test asserts on it.
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     expect(bootstrapMintMock).toHaveBeenCalledTimes(1);
 
     // 6s flip → Retry visible
@@ -289,6 +360,12 @@ describe("Bootstrap retry race guard (R1 F2)", () => {
 
   test("rapid double-click on Retry within 500ms only fires bootstrapMint once", () => {
     render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
+    // R4: bootstrap start is deferred via setTimeout(0) to survive
+    // StrictMode dev double-invoke. Flush the macrotask so the first
+    // attempt actually fires before the test asserts on it.
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     expect(bootstrapMintMock).toHaveBeenCalledTimes(1);
     act(() => {
       vi.advanceTimersByTime(6_000);
@@ -307,6 +384,12 @@ describe("Bootstrap retry race guard (R1 F2)", () => {
 describe("Bootstrap M5-D5 fallback links", () => {
   test("still_working state renders 'Sign in with Google instead' fallback link", () => {
     render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
+    // R4: bootstrap start is deferred via setTimeout(0) to survive
+    // StrictMode dev double-invoke. Flush the macrotask so the first
+    // attempt actually fires before the test asserts on it.
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
     act(() => {
       vi.advanceTimersByTime(6_000);
     });
