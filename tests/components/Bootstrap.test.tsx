@@ -247,13 +247,14 @@ describe("Bootstrap R3: prior attempt success still navigates after Retry", () =
     // controller is aborted; this turns the would-be regression into
     // a visible test failure.
     let resolveAttempt1Fetch: (res: Response) => void = () => {};
-    let attempt1Signal: AbortSignal | null = null;
+    const signalCapture: { current: AbortSignal | null } = { current: null };
     const fetchMock = vi.fn().mockImplementationOnce(
       (_url: string, init?: RequestInit) =>
         new Promise<Response>((resolve, reject) => {
-          attempt1Signal = init?.signal ?? null;
-          if (attempt1Signal) {
-            attempt1Signal.addEventListener("abort", () => {
+          const sig = init?.signal ?? null;
+          signalCapture.current = sig;
+          if (sig) {
+            sig.addEventListener("abort", () => {
               // DOMException's `name` is a getter; constructor's
               // second arg sets it. The object literal { name: ... }
               // would crash with "only a getter" — pass directly.
@@ -303,7 +304,7 @@ describe("Bootstrap R3: prior attempt success still navigates after Retry", () =
       // AbortController was NOT aborted by Retry. If a future change
       // re-introduces controller.abort() on Retry, this fails directly
       // (not just via the implicit "no router.replace" assertion).
-      expect(attempt1Signal?.aborted).toBe(false);
+      expect(signalCapture.current?.aborted).toBe(false);
 
       // NOW resolve attempt 1's fetch with 200 — simulates the slow-
       // network case where the original redemption succeeds after

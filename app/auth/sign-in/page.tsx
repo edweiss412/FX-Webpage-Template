@@ -202,12 +202,39 @@ export default async function SignInPage({
         <SignInButton validatedNext={validatedNext} />
       </div>
 
+      {errorCode !== null ? (
+        <section
+          data-testid="sign-in-error-block"
+          // Visual chrome MATCHES the AlertBanner: same warning-bg /
+          // warning-text token pair, same border-strong + rounded-md
+          // chip, same tile-pad. Keeps the admin/error visual language
+          // consistent across crew + admin surfaces.
+          //
+          // M9 C3 R8 (codex finding): error block is placed
+          // IMMEDIATELY after SignInButton — before the sign-in-
+          // secondary-path — so an OAuth failure's explanation +
+          // recovery copy sits next to the action that failed, not
+          // pushed below an escape hatch the user didn't trigger.
+          // This deviates from shape brief §5.3 line 142 ("View show
+          // list link sits between the Google button and the inline-
+          // error region") in favor of Codex's UX argument that the
+          // actionable failure should rank ahead of the no-op-ish
+          // /me escape on small screens. Brief amendment captured in
+          // commit message; brief itself NOT updated since the
+          // deviation is small and one-directional (error always
+          // ranks higher than escape hatch).
+          className="mt-section-gap rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
+          role="alert"
+        >
+          <ErrorExplainer code={errorCode} surface="crew" helpfulContext />
+        </section>
+      ) : null}
+
       {/*
         M9 C3 / M5-D5: secondary path for already-signed-in crew who
         landed on the sign-in page accidentally. Per shape brief
-        2026-05-14-auth-flow-polish.md §5.3, sits between the primary
-        Google button and the inline-error region. The OR divider is
-        a hairline rule + the literal "OR" centered on it.
+        2026-05-14-auth-flow-polish.md §5.3 the OR divider is a
+        hairline rule + the literal "OR" centered on it.
       */}
       <div data-testid="sign-in-secondary-path" className="mt-6 flex flex-col items-center gap-3">
         <div className="relative w-full" aria-hidden="true">
@@ -228,20 +255,6 @@ export default async function SignInPage({
           View show list
         </Link>
       </div>
-
-      {errorCode !== null ? (
-        <section
-          data-testid="sign-in-error-block"
-          // Visual chrome MATCHES the AlertBanner: same warning-bg /
-          // warning-text token pair, same border-strong + rounded-md
-          // chip, same tile-pad. Keeps the admin/error visual language
-          // consistent across crew + admin surfaces.
-          className="mt-section-gap rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
-          role="alert"
-        >
-          <ErrorExplainer code={errorCode} surface="crew" helpfulContext />
-        </section>
-      ) : null}
 
       {/*
         M9 C3 / M5-D5: help disclosure at page bottom per brief §5.3.
