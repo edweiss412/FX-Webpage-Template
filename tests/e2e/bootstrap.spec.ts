@@ -831,8 +831,18 @@ test("(h) /show/<slug>/p WITHOUT #t= → friendly 'Open this link...' message; n
     await expect(page.getByTestId("bootstrap-no-fragment")).toBeVisible({
       timeout: 5_000,
     });
+    // M9 C3 / M5-D5 brief copy update: "Open this link from the message
+    // Doug sent you" → "This link is incomplete. If you already have a
+    // session, go to your shows." paired with the [Go to my shows]
+    // fallback link.
     await expect(page.getByTestId("bootstrap-no-fragment")).toContainText(
-      "Open this link from the message Doug sent you",
+      "This link is incomplete",
+    );
+    await expect(page.getByTestId("bootstrap-no-fragment-fallback")).toBeVisible();
+    await expect(page.getByTestId("bootstrap-no-fragment-fallback")).toHaveText("Go to my shows");
+    await expect(page.getByTestId("bootstrap-no-fragment-fallback")).toHaveAttribute(
+      "href",
+      "/me",
     );
 
     // No row written (the bootstrapMint Server Action is gated on a
@@ -869,8 +879,18 @@ test("(i) /show/<slug>/p#t=<invalid-jwt> → redeem-link rejects; generic inline
     await expect(page.getByTestId("bootstrap-error")).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.getByTestId("bootstrap-error")).toContainText(
-      "Something went wrong opening this link",
+    // M9 C3 / M5-D5 brief copy update: "Something went wrong opening
+    // this link..." → "Couldn't reach the server. Try signing in
+    // instead." paired with the [Sign in with Google instead]
+    // fallback that points at /auth/sign-in?next=/show/<slug>.
+    await expect(page.getByTestId("bootstrap-error")).toContainText("Couldn't reach the server");
+    await expect(page.getByTestId("bootstrap-error-fallback")).toBeVisible();
+    await expect(page.getByTestId("bootstrap-error-fallback")).toHaveText(
+      "Sign in with Google instead",
+    );
+    await expect(page.getByTestId("bootstrap-error-fallback")).toHaveAttribute(
+      "href",
+      `/auth/sign-in?next=${encodeURIComponent(`/show/${fix.slug}`)}`,
     );
 
     // No infinite loop / runaway nonce minting — exactly one row written

@@ -191,11 +191,10 @@ test.describe("/me — signed-in crew with shows", () => {
     await expect(card).toBeVisible();
     await expect(card).toContainText(soloTitle);
 
-    // Link target: /show/<slug>. Use locator over the anchor element
-    // inside the card so a refactor that wraps the title in an inner
-    // span doesn't accidentally match the body.
-    const link = card.getByRole("link");
-    await expect(link).toHaveAttribute("href", `/show/${soloSlug}`);
+    // M9 C3 / M5-D1: the card IS the anchor (the testid moved from a
+    // wrapping <li> onto the inner <Link> when the partition layout
+    // shipped). Assert href directly on the card locator.
+    await expect(card).toHaveAttribute("href", `/show/${soloSlug}`);
   });
 
   test("signed-in crew with multiple shows → both cards render in dates.set DESC order", async ({
