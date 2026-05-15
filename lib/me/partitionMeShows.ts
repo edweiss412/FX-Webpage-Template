@@ -25,13 +25,26 @@
  */
 import type { CrewShowSummary } from "@/lib/data/listShowsForCrew";
 
+/**
+ * R2 F1 (codex finding): the chip label uses a STATUS-AWARE anchor date,
+ * not the display date. For an active multi-day show (set=yesterday,
+ * showDays=[today,…]), display date stays yesterday → would render
+ * "Ended"; the chip anchor is today's first show day → renders "Today".
+ * For an ended show, the anchor is the most recent known date.
+ */
+export type PartitionedMeShow = {
+  show: CrewShowSummary;
+  /** ISO YYYY-MM-DD used by the chip-tone helper for relative-day labelling. */
+  chipAnchor: string;
+};
+
 export type PartitionedMeShows = {
   /** The single emphasized show (next up, or most-recent past if no future). */
-  featured: CrewShowSummary | null;
+  featured: PartitionedMeShow | null;
   /** Future shows after the featured one, ascending by display date. */
-  upcoming: CrewShowSummary[];
+  upcoming: PartitionedMeShow[];
   /** Past shows excluding featured, descending by display date. */
-  past: CrewShowSummary[];
+  past: PartitionedMeShow[];
 };
 
 type DatesShape = {
@@ -75,21 +88,48 @@ function resolveDisplayDate(dates: unknown): string | null {
  * sort + render the chip. resolveDisplayDate stays the brief's
  * `set ?? travelIn ?? showDays[0]` chain.
  */
-function isShowEnded(dates: unknown, todayIso: string): boolean {
+function knownDates(dates: unknown): string[] {
   const obj = asDates(dates);
-  if (!obj) return false;
-  const candidates: string[] = [];
-  if (typeof obj.set === "string" && obj.set.length > 0) candidates.push(obj.set);
-  if (typeof obj.travelIn === "string" && obj.travelIn.length > 0) candidates.push(obj.travelIn);
-  if (typeof obj.travelOut === "string" && obj.travelOut.length > 0) candidates.push(obj.travelOut);
+  if (!obj) return [];
+  const out: string[] = [];
+  if (typeof obj.set === "string" && obj.set.length > 0) out.push(obj.set);
+  if (typeof obj.travelIn === "string" && obj.travelIn.length > 0) out.push(obj.travelIn);
+  if (typeof obj.travelOut === "string" && obj.travelOut.length > 0) out.push(obj.travelOut);
   if (Array.isArray(obj.showDays)) {
     for (const d of obj.showDays) {
-      if (typeof d === "string" && d.length > 0) candidates.push(d);
+      if (typeof d === "string" && d.length > 0) out.push(d);
     }
   }
+  return out;
+}
+
+function isShowEnded(dates: unknown, todayIso: string): boolean {
+  const candidates = knownDates(dates);
   if (candidates.length === 0) return false;
   // Ended iff every candidate is strictly before today.
   return candidates.every((iso) => iso < todayIso);
+}
+
+/**
+ * R2 F1: the chip-anchor for relative-day labelling. For active shows,
+ * pick the EARLIEST known date >= today (so an active multi-day show
+ * with set=yesterday + showDays=[today] anchors on today, not yesterday).
+ * For ended shows, pick the MOST RECENT known date (the natural "Ended
+ * N days ago" anchor). Falls back to displayDate when no future date
+ * exists in an unended show (defensive — shouldn't happen given
+ * isShowEnded's contract).
+ */
+function chipAnchorIso(dates: unknown, displayDate: string, todayIso: string, ended: boolean): string {
+  const candidates = knownDates(dates);
+  if (candidates.length === 0) return displayDate;
+  if (ended) {
+    // Most recent (largest) past date.
+    return candidates.reduce((max, iso) => (iso > max ? iso : max), candidates[0]!);
+  }
+  // Active: earliest date that is >= today; fall back to displayDate.
+  const future = candidates.filter((iso) => iso >= todayIso);
+  if (future.length === 0) return displayDate;
+  return future.reduce((min, iso) => (iso < min ? iso : min), future[0]!);
 }
 
 export function partitionMeShows(
@@ -98,12 +138,14 @@ export function partitionMeShows(
 ): PartitionedMeShows {
   const todayIso = now.toISOString().slice(0, 10);
 
-  type Indexed = { show: CrewShowSummary; iso: string; ended: boolean };
+  type Indexed = { show: CrewShowSummary; iso: string; ended: boolean; chipAnchor: string };
   const dated: Indexed[] = shows
     .map((s) => {
       const iso = resolveDisplayDate(s.dates);
       if (!iso) return null;
-      return { show: s, iso, ended: isShowEnded(s.dates, todayIso) };
+      const ended = isShowEnded(s.dates, todayIso);
+      const chipAnchor = chipAnchorIso(s.dates, iso, todayIso, ended);
+      return { show: s, iso, ended, chipAnchor };
     })
     .filter((x): x is Indexed => x !== null);
 
@@ -113,20 +155,29 @@ export function partitionMeShows(
 
   // Active = NOT ended (covers both purely-future shows AND
   // active-multi-day shows whose set day was yesterday but show days
-  // include today). Sort ascending by display date so the soonest
-  // active show is featured first.
-  const active = dated.filter((d) => !d.ended).sort((a, b) => a.iso.localeCompare(b.iso));
+  // include today). Sort ascending by chipAnchor so the soonest
+  // active show is featured first — this aligns the "next up"
+  // ordering with the user-visible chip label rather than a stale
+  // load-in date that already passed.
+  const active = dated
+    .filter((d) => !d.ended)
+    .sort((a, b) => a.chipAnchor.localeCompare(b.chipAnchor));
   const ended = dated.filter((d) => d.ended).sort((a, b) => b.iso.localeCompare(a.iso));
 
+  const project = (d: Indexed): PartitionedMeShow => ({ show: d.show, chipAnchor: d.chipAnchor });
+
   if (active.length > 0) {
-    const featured = active[0]!.show;
-    const upcoming = active.slice(1).map((d) => d.show);
-    const past = ended.map((d) => d.show);
-    return { featured, upcoming, past };
+    return {
+      featured: project(active[0]!),
+      upcoming: active.slice(1).map(project),
+      past: ended.map(project),
+    };
   }
 
   // All-ended: featured = most recent past (ended[0]); past list excludes it.
-  const featured = ended[0]!.show;
-  const past = ended.slice(1).map((d) => d.show);
-  return { featured, upcoming: [], past };
+  return {
+    featured: project(ended[0]!),
+    upcoming: [],
+    past: ended.slice(1).map(project),
+  };
 }

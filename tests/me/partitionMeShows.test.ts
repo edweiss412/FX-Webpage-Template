@@ -27,6 +27,7 @@ function show(id: string, dateIso: string | null, title?: string): CrewShowSumma
     slug: `slug-${id}`,
     title: title ?? `Show ${id}`,
     crewMemberId: `cm-${id}`,
+    venue: null,
     dates:
       dateIso === null
         ? null
@@ -45,7 +46,7 @@ describe("partitionMeShows", () => {
   it("single future show → featured only, no upcoming, no past", () => {
     const shows = [show("a", "2026-05-20")];
     const out = partitionMeShows(shows, today);
-    expect(out.featured?.id).toBe("a");
+    expect(out.featured?.show.id).toBe("a");
     expect(out.upcoming).toEqual([]);
     expect(out.past).toEqual([]);
   });
@@ -53,7 +54,7 @@ describe("partitionMeShows", () => {
   it("single past show → featured = that past show, no upcoming, no past list", () => {
     const shows = [show("a", "2026-05-01")];
     const out = partitionMeShows(shows, today);
-    expect(out.featured?.id).toBe("a");
+    expect(out.featured?.show.id).toBe("a");
     expect(out.upcoming).toEqual([]);
     expect(out.past).toEqual([]);
   });
@@ -62,7 +63,7 @@ describe("partitionMeShows", () => {
     // Brief: 'most soonest' = earliest >= today.
     const shows = [show("a", "2026-05-15")];
     const out = partitionMeShows(shows, today);
-    expect(out.featured?.id).toBe("a");
+    expect(out.featured?.show.id).toBe("a");
     expect(out.past).toEqual([]);
   });
 
@@ -73,9 +74,9 @@ describe("partitionMeShows", () => {
       show("done", "2026-04-10"),
     ];
     const out = partitionMeShows(shows, today);
-    expect(out.featured?.id).toBe("near");
-    expect(out.upcoming.map((s) => s.id)).toEqual(["far"]);
-    expect(out.past.map((s) => s.id)).toEqual(["done"]);
+    expect(out.featured?.show.id).toBe("near");
+    expect(out.upcoming.map((p) => p.show.id)).toEqual(["far"]);
+    expect(out.past.map((p) => p.show.id)).toEqual(["done"]);
   });
 
   it("upcoming sorted ascending; past sorted descending", () => {
@@ -88,9 +89,9 @@ describe("partitionMeShows", () => {
       show("p2", "2026-04-01"),
     ];
     const out = partitionMeShows(shows, today);
-    expect(out.featured?.id).toBe("u1"); // earliest future
-    expect(out.upcoming.map((s) => s.id)).toEqual(["u2", "u3"]); // ascending
-    expect(out.past.map((s) => s.id)).toEqual(["p1", "p2", "p3"]); // descending
+    expect(out.featured?.show.id).toBe("u1"); // earliest future
+    expect(out.upcoming.map((p) => p.show.id)).toEqual(["u2", "u3"]); // ascending
+    expect(out.past.map((p) => p.show.id)).toEqual(["p1", "p2", "p3"]); // descending
   });
 
   it("all-past → featured = most recent past, past list excludes the featured", () => {
@@ -100,9 +101,9 @@ describe("partitionMeShows", () => {
       show("p3", "2026-02-15"),
     ];
     const out = partitionMeShows(shows, today);
-    expect(out.featured?.id).toBe("p1"); // most recent past
+    expect(out.featured?.show.id).toBe("p1"); // most recent past
     expect(out.upcoming).toEqual([]);
-    expect(out.past.map((s) => s.id)).toEqual(["p2", "p3"]); // older past, excluding featured
+    expect(out.past.map((p) => p.show.id)).toEqual(["p2", "p3"]); // older past, excluding featured
   });
 
   it("show with null dates → excluded from all buckets (no display date to sort by)", () => {
@@ -111,7 +112,7 @@ describe("partitionMeShows", () => {
       show("b", null, "No-date show"),
     ];
     const out = partitionMeShows(shows, today);
-    expect(out.featured?.id).toBe("a");
+    expect(out.featured?.show.id).toBe("a");
     expect(out.upcoming).toEqual([]);
     expect(out.past).toEqual([]);
   });
@@ -129,6 +130,7 @@ describe("partitionMeShows", () => {
         slug: "future",
         title: "Future Show",
         crewMemberId: "cm-future",
+        venue: null,
         dates: { set: "2026-08-01", travelIn: null, showDays: [], travelOut: null },
       },
       {
@@ -136,6 +138,7 @@ describe("partitionMeShows", () => {
         slug: "active",
         title: "Active Multi-day",
         crewMemberId: "cm-active",
+        venue: null,
         dates: {
           set: "2026-05-14", // yesterday
           travelIn: "2026-05-13",
@@ -145,8 +148,8 @@ describe("partitionMeShows", () => {
       },
     ];
     const out = partitionMeShows(shows, today);
-    expect(out.featured?.id).toBe("active"); // Active show is "soonest"
-    expect(out.upcoming.map((s) => s.id)).toEqual(["future"]);
+    expect(out.featured?.show.id).toBe("active"); // Active show is "soonest"
+    expect(out.upcoming.map((p) => p.show.id)).toEqual(["future"]);
     expect(out.past).toEqual([]);
   });
 
@@ -158,6 +161,7 @@ describe("partitionMeShows", () => {
         slug: "wrap",
         title: "Wrap-up day",
         crewMemberId: "cm-wrap",
+        venue: null,
         dates: {
           set: "2026-05-12",
           travelIn: "2026-05-11",
@@ -167,7 +171,7 @@ describe("partitionMeShows", () => {
       },
     ];
     const out = partitionMeShows(shows, today);
-    expect(out.featured?.id).toBe("wrap");
+    expect(out.featured?.show.id).toBe("wrap");
     expect(out.past).toEqual([]);
   });
 
@@ -178,6 +182,7 @@ describe("partitionMeShows", () => {
         slug: "active",
         title: "Active",
         crewMemberId: "cm-active",
+        venue: null,
         dates: { set: "2026-05-20", travelIn: null, showDays: [], travelOut: null },
       },
       {
@@ -185,6 +190,7 @@ describe("partitionMeShows", () => {
         slug: "ended",
         title: "Truly ended",
         crewMemberId: "cm-ended",
+        venue: null,
         dates: {
           set: "2026-04-10",
           travelIn: "2026-04-09",
@@ -194,8 +200,78 @@ describe("partitionMeShows", () => {
       },
     ];
     const out = partitionMeShows(shows, today);
-    expect(out.featured?.id).toBe("active");
-    expect(out.past.map((s) => s.id)).toEqual(["ended"]);
+    expect(out.featured?.show.id).toBe("active");
+    expect(out.past.map((p) => p.show.id)).toEqual(["ended"]);
+  });
+
+  it("R2 F1: active multi-day show's chipAnchor is the earliest known date >= today (NOT display date)", () => {
+    // The whole point of the R2 F1 fix: an active multi-day show with
+    // set=2026-05-14 + showDays=[2026-05-15] + travelOut=2026-05-16 on
+    // today=2026-05-15 must chip as "Today" (anchor=2026-05-15), not
+    // "Ended" (anchor=2026-05-14, the display date). Pre-fix, the chip
+    // helper read display date and rendered Ended for an actively-on-
+    // site crew member.
+    const shows: CrewShowSummary[] = [
+      {
+        id: "active",
+        slug: "active",
+        title: "Active Multi-day",
+        crewMemberId: "cm-active",
+        venue: null,
+        dates: {
+          set: "2026-05-14",
+          travelIn: "2026-05-13",
+          showDays: ["2026-05-15", "2026-05-16"],
+          travelOut: "2026-05-17",
+        },
+      },
+    ];
+    const out = partitionMeShows(shows, today);
+    expect(out.featured?.show.id).toBe("active");
+    // Earliest known date >= today (2026-05-15). That'll chip as "Today".
+    expect(out.featured?.chipAnchor).toBe("2026-05-15");
+  });
+
+  it("R2 F1: ended show's chipAnchor is the most recent known date (for 'Ended N days ago')", () => {
+    const shows: CrewShowSummary[] = [
+      {
+        id: "ended",
+        slug: "ended",
+        title: "Ended",
+        crewMemberId: "cm-ended",
+        venue: null,
+        dates: {
+          set: "2026-05-08",
+          travelIn: "2026-05-07",
+          showDays: ["2026-05-09", "2026-05-10"],
+          travelOut: "2026-05-11", // most recent of the past dates
+        },
+      },
+    ];
+    const out = partitionMeShows(shows, today);
+    expect(out.featured?.show.id).toBe("ended");
+    expect(out.featured?.chipAnchor).toBe("2026-05-11");
+  });
+
+  it("R2 F1: purely-future show's chipAnchor matches its earliest known date (set in this case)", () => {
+    const shows: CrewShowSummary[] = [
+      {
+        id: "future",
+        slug: "future",
+        title: "Future",
+        crewMemberId: "cm-future",
+        venue: null,
+        dates: {
+          set: "2026-05-20",
+          travelIn: "2026-05-19", // earliest >= today
+          showDays: ["2026-05-21"],
+          travelOut: "2026-05-22",
+        },
+      },
+    ];
+    const out = partitionMeShows(shows, today);
+    expect(out.featured?.show.id).toBe("future");
+    expect(out.featured?.chipAnchor).toBe("2026-05-19");
   });
 
   it("R1 F1: featured for an active multi-day show uses the future-most relevant date for chip math", () => {
@@ -213,6 +289,7 @@ describe("partitionMeShows", () => {
         slug: "active",
         title: "Active Multi-day",
         crewMemberId: "cm-active",
+        venue: null,
         dates: {
           set: "2026-05-14",
           travelIn: null,
@@ -222,7 +299,7 @@ describe("partitionMeShows", () => {
       },
     ];
     const out = partitionMeShows(shows, today);
-    expect(out.featured?.id).toBe("active");
+    expect(out.featured?.show.id).toBe("active");
     expect(out.upcoming).toEqual([]);
     expect(out.past).toEqual([]);
   });
@@ -231,13 +308,15 @@ describe("partitionMeShows", () => {
     // dates.set absent → use travelIn.
     const shows: CrewShowSummary[] = [
       { id: "a", slug: "a", title: "A", crewMemberId: "cma",
+        venue: null,
         dates: { set: null, travelIn: "2026-05-20", showDays: [], travelOut: null } },
       // dates.set + travelIn absent → use showDays[0].
       { id: "b", slug: "b", title: "B", crewMemberId: "cmb",
+        venue: null,
         dates: { set: null, travelIn: null, showDays: ["2026-06-01"], travelOut: null } },
     ];
     const out = partitionMeShows(shows, today);
-    expect(out.featured?.id).toBe("a"); // earliest future via travelIn
-    expect(out.upcoming.map((s) => s.id)).toEqual(["b"]); // showDays[0] sort
+    expect(out.featured?.show.id).toBe("a"); // earliest future via travelIn
+    expect(out.upcoming.map((p) => p.show.id)).toEqual(["b"]); // showDays[0] sort
   });
 });

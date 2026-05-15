@@ -46,7 +46,7 @@ import { redirect } from "next/navigation";
 import { validateGoogleIdentity } from "@/lib/auth/validateGoogleIdentity";
 import { listShowsForCrew, type CrewShowSummary } from "@/lib/data/listShowsForCrew";
 import { messageFor } from "@/lib/messages/lookup";
-import { partitionMeShows } from "@/lib/me/partitionMeShows";
+import { partitionMeShows, type PartitionedMeShow } from "@/lib/me/partitionMeShows";
 import { relativeDayChip } from "@/lib/time/relative";
 
 /**
@@ -218,7 +218,7 @@ function MeShowSections({ shows }: { shows: readonly CrewShowSummary[] }) {
         >
           Next up
         </h2>
-        <NextUpCard show={featured} now={now} />
+        <NextUpCard entry={featured} />
       </section>
 
       {upcoming.length > 0 && (
@@ -230,8 +230,8 @@ function MeShowSections({ shows }: { shows: readonly CrewShowSummary[] }) {
             Upcoming
           </h2>
           <ul className="flex flex-col gap-2">
-            {upcoming.map((show) => (
-              <ShowListRow key={show.id} show={show} now={now} />
+            {upcoming.map((entry) => (
+              <ShowListRow key={entry.show.id} entry={entry} />
             ))}
           </ul>
         </section>
@@ -249,8 +249,8 @@ function MeShowSections({ shows }: { shows: readonly CrewShowSummary[] }) {
             </span>
           </summary>
           <ul data-testid="me-past-list" className="mt-3 flex flex-col gap-2">
-            {past.map((show) => (
-              <ShowListRow key={show.id} show={show} now={now} />
+            {past.map((entry) => (
+              <ShowListRow key={entry.show.id} entry={entry} />
             ))}
           </ul>
         </details>
@@ -263,12 +263,22 @@ function MeShowSections({ shows }: { shows: readonly CrewShowSummary[] }) {
  * Featured card — emphasized vertical padding, larger title, accent chip
  * for relative-time. Brief §5.1: "Tomorrow" / "Today" use orange chip;
  * "In N days" uses neutral info chip; past uses no chip background.
+ *
+ * R2 F1 (codex finding): chip uses `entry.chipAnchor` (status-aware)
+ * not the display date — for an active multi-day show with set=yesterday
+ * + showDays=[today], chipAnchor = today → "Today", whereas display
+ * date = yesterday would render "Ended" while crew are on-site.
+ *
+ * R2 F2 (codex finding): venue is now part of the brief's "Where am I
+ * going next?" answer (Venue · Date). Surfaces show.venue.name when
+ * present; gracefully omits when absent.
  */
-function NextUpCard({ show, now }: { show: CrewShowSummary; now: Date }) {
+function NextUpCard({ entry }: { entry: PartitionedMeShow }) {
+  const { show, chipAnchor } = entry;
   const isoDate = pickShowDate(show.dates);
   const dateLabel = isoDate ? formatShowDate(isoDate) : null;
-  const chip = isoDate ? relativeDayChip(isoDate, now) : null;
-  const chipTone = chip ? chipToneClass(chip) : "";
+  const chip = relativeDayChip(chipAnchor);
+  const chipTone = chipToneClass(chip);
   const venueLabel = pickVenueLabel(show);
 
   return (
@@ -305,13 +315,16 @@ function NextUpCard({ show, now }: { show: CrewShowSummary; now: Date }) {
 
 /**
  * UPCOMING / PAST list row — compact 56px tap-target row with chip on the
- * right. Per brief §5.1: "regular list row, 56px tap target".
+ * right. Per brief §5.1: "regular list row, 56px tap target". R2 F1: chip
+ * uses the partition's chipAnchor, not the display date — same fix as
+ * NextUpCard.
  */
-function ShowListRow({ show, now }: { show: CrewShowSummary; now: Date }) {
+function ShowListRow({ entry }: { entry: PartitionedMeShow }) {
+  const { show, chipAnchor } = entry;
   const isoDate = pickShowDate(show.dates);
   const dateLabel = isoDate ? formatShowDate(isoDate) : null;
-  const chip = isoDate ? relativeDayChip(isoDate, now) : null;
-  const chipTone = chip ? chipToneClass(chip) : "";
+  const chip = relativeDayChip(chipAnchor);
+  const chipTone = chipToneClass(chip);
   const venueLabel = pickVenueLabel(show);
 
   return (
@@ -367,16 +380,12 @@ function chipToneClass(chip: string): string {
 }
 
 /**
- * Pull a venue label from the JSONB dates+venue blobs that listShowsForCrew
- * exposes. CrewShowSummary doesn't currently include venue; we read the show
- * row's `venue.name` if present via the dates JSON's sibling. Fallback: null
- * (the row collapses to title + date only).
- *
- * Defensive across schemas — listShowsForCrew may project venue in the
- * future. For now this returns null because CrewShowSummary type does not
- * include venue. The function exists as a forward-compat hook so adding
- * venue to CrewShowSummary later doesn't churn the row layout.
+ * R2 F2 (codex finding): the brief's /me card answers
+ * "Where am I going next?" with `Venue · Date`. listShowsForCrew now
+ * projects `shows.venue` so this surfaces the venue.name. Returns null
+ * defensively when the venue is missing or doesn't carry a name —
+ * the row gracefully collapses to title + date only.
  */
-function pickVenueLabel(_show: CrewShowSummary): string | null {
-  return null;
+function pickVenueLabel(show: CrewShowSummary): string | null {
+  return show.venue?.name ?? null;
 }
