@@ -34,9 +34,21 @@ export type PartitionedMeShows = {
   past: CrewShowSummary[];
 };
 
-function resolveDisplayDate(dates: unknown): string | null {
+type DatesShape = {
+  set?: unknown;
+  travelIn?: unknown;
+  showDays?: unknown;
+  travelOut?: unknown;
+};
+
+function asDates(dates: unknown): DatesShape | null {
   if (typeof dates !== "object" || dates === null || Array.isArray(dates)) return null;
-  const obj = dates as { set?: unknown; travelIn?: unknown; showDays?: unknown };
+  return dates as DatesShape;
+}
+
+function resolveDisplayDate(dates: unknown): string | null {
+  const obj = asDates(dates);
+  if (!obj) return null;
   if (typeof obj.set === "string" && obj.set.length > 0) return obj.set;
   if (typeof obj.travelIn === "string" && obj.travelIn.length > 0) return obj.travelIn;
   if (Array.isArray(obj.showDays)) {
@@ -46,17 +58,52 @@ function resolveDisplayDate(dates: unknown): string | null {
   return null;
 }
 
+/**
+ * R1 F1 (codex finding): a show is past ONLY when EVERY known date is
+ * strictly before today. Per shape brief §5.1: "all shows ended
+ * (`dates.set < today` AND no upcoming show-day)". We extend the brief's
+ * test to cover travelOut as well — a wrap-up day after the last show
+ * day still means the crew is on-site.
+ *
+ * Rule: a show is ENDED when set, travelIn, every showDays entry, AND
+ * travelOut are ALL strictly < todayIso. If ANY known date is >= today,
+ * the show is still active and goes to upcoming/featured. Missing dates
+ * are treated as "no signal" — they don't keep an otherwise-past show
+ * alive, but they don't end an otherwise-active show either.
+ *
+ * This separates STATUS classification from the DISPLAY-DATE used to
+ * sort + render the chip. resolveDisplayDate stays the brief's
+ * `set ?? travelIn ?? showDays[0]` chain.
+ */
+function isShowEnded(dates: unknown, todayIso: string): boolean {
+  const obj = asDates(dates);
+  if (!obj) return false;
+  const candidates: string[] = [];
+  if (typeof obj.set === "string" && obj.set.length > 0) candidates.push(obj.set);
+  if (typeof obj.travelIn === "string" && obj.travelIn.length > 0) candidates.push(obj.travelIn);
+  if (typeof obj.travelOut === "string" && obj.travelOut.length > 0) candidates.push(obj.travelOut);
+  if (Array.isArray(obj.showDays)) {
+    for (const d of obj.showDays) {
+      if (typeof d === "string" && d.length > 0) candidates.push(d);
+    }
+  }
+  if (candidates.length === 0) return false;
+  // Ended iff every candidate is strictly before today.
+  return candidates.every((iso) => iso < todayIso);
+}
+
 export function partitionMeShows(
   shows: readonly CrewShowSummary[],
   now: Date,
 ): PartitionedMeShows {
   const todayIso = now.toISOString().slice(0, 10);
 
-  type Indexed = { show: CrewShowSummary; iso: string };
+  type Indexed = { show: CrewShowSummary; iso: string; ended: boolean };
   const dated: Indexed[] = shows
     .map((s) => {
       const iso = resolveDisplayDate(s.dates);
-      return iso ? { show: s, iso } : null;
+      if (!iso) return null;
+      return { show: s, iso, ended: isShowEnded(s.dates, todayIso) };
     })
     .filter((x): x is Indexed => x !== null);
 
@@ -64,18 +111,22 @@ export function partitionMeShows(
     return { featured: null, upcoming: [], past: [] };
   }
 
-  const future = dated.filter((d) => d.iso >= todayIso).sort((a, b) => a.iso.localeCompare(b.iso));
-  const pastAll = dated.filter((d) => d.iso < todayIso).sort((a, b) => b.iso.localeCompare(a.iso));
+  // Active = NOT ended (covers both purely-future shows AND
+  // active-multi-day shows whose set day was yesterday but show days
+  // include today). Sort ascending by display date so the soonest
+  // active show is featured first.
+  const active = dated.filter((d) => !d.ended).sort((a, b) => a.iso.localeCompare(b.iso));
+  const ended = dated.filter((d) => d.ended).sort((a, b) => b.iso.localeCompare(a.iso));
 
-  if (future.length > 0) {
-    const featured = future[0]!.show;
-    const upcoming = future.slice(1).map((d) => d.show);
-    const past = pastAll.map((d) => d.show);
+  if (active.length > 0) {
+    const featured = active[0]!.show;
+    const upcoming = active.slice(1).map((d) => d.show);
+    const past = ended.map((d) => d.show);
     return { featured, upcoming, past };
   }
 
-  // All-past: featured = most recent past (pastAll[0]); past list excludes it.
-  const featured = pastAll[0]!.show;
-  const past = pastAll.slice(1).map((d) => d.show);
+  // All-ended: featured = most recent past (ended[0]); past list excludes it.
+  const featured = ended[0]!.show;
+  const past = ended.slice(1).map((d) => d.show);
   return { featured, upcoming: [], past };
 }

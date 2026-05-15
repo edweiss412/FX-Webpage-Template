@@ -166,6 +166,71 @@ describe("Bootstrap no_fragment branch", () => {
   });
 });
 
+describe("Bootstrap retry race guard (R1 F2)", () => {
+  test("stale attempt's late failure does NOT overwrite a fresher attempt's connecting state", async () => {
+    // Plan: attempt 1 starts with a deferred-rejection mint. Trigger
+    // 6s flip so Retry button is visible. Click Retry → attempt 2 starts
+    // with its own never-resolving mint. NOW reject attempt 1's mint
+    // (simulating the server-action returning AFTER the user retried).
+    // Without the attempt-id guard, attempt 1's catch arm would call
+    // setUi({kind:'error'}) over attempt 2's connecting state.
+    let rejectAttempt1: (e: unknown) => void = () => {};
+    bootstrapMintMock
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectAttempt1 = reject;
+          }),
+      )
+      .mockImplementationOnce(() => new Promise<never>(() => {})); // attempt 2 never resolves
+
+    render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
+    expect(bootstrapMintMock).toHaveBeenCalledTimes(1);
+
+    // 6s flip → Retry visible
+    act(() => {
+      vi.advanceTimersByTime(6_000);
+    });
+    expect(screen.getByTestId("bootstrap-retry")).toBeTruthy();
+
+    // Click Retry → attempt 2 launches.
+    act(() => {
+      fireEvent.click(screen.getByTestId("bootstrap-retry"));
+    });
+    expect(bootstrapMintMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("bootstrap-connecting")).toBeTruthy();
+
+    // NOW reject attempt 1 — simulates the late-arriving stale failure.
+    await act(async () => {
+      rejectAttempt1(new Error("attempt 1 stale failure"));
+      // Allow the rejection to propagate through the async chain.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Attempt 2 is still connecting; the late rejection MUST NOT have
+    // flipped to error.
+    expect(screen.queryByTestId("bootstrap-error")).toBeNull();
+    expect(screen.getByTestId("bootstrap-connecting")).toBeTruthy();
+  });
+
+  test("rapid double-click on Retry within 500ms only fires bootstrapMint once", () => {
+    render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
+    expect(bootstrapMintMock).toHaveBeenCalledTimes(1);
+    act(() => {
+      vi.advanceTimersByTime(6_000);
+    });
+    // Two clicks back-to-back. The 500ms debounce ref blocks the second.
+    act(() => {
+      fireEvent.click(screen.getByTestId("bootstrap-retry"));
+      fireEvent.click(screen.getByTestId("bootstrap-retry"));
+    });
+    // Initial mount = 1, single retry = 1. Total = 2. Without debounce
+    // the second click would also call bootstrapMint (= 3 total).
+    expect(bootstrapMintMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("Bootstrap M5-D5 fallback links", () => {
   test("still_working state renders 'Sign in with Google instead' fallback link", () => {
     render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);

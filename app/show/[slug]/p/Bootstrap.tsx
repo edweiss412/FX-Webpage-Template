@@ -155,6 +155,15 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
   // timer so the Retry button can abort/clear them and start fresh.
   const controllerRef = useRef<AbortController | null>(null);
   const stillWorkingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // M9 C3 / R1 F2 (codex finding): monotonic attempt id used to guard
+  // every post-await setUi/router.replace so a stale attempt's late
+  // resolution can't overwrite a fresher attempt's UI. Incremented on
+  // every runBootstrap call (initial mount + each Retry click). The
+  // bootstrapMint Server Action isn't cancellable via AbortController
+  // (it runs server-side), so the race is real: without this guard, an
+  // older attempt's catch arm could call setUi({kind:'error'}) over the
+  // current retry's connecting state.
+  const attemptIdRef = useRef(0);
 
   /**
    * runBootstrap — extracted from the original useEffect IIFE so the
@@ -167,6 +176,7 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
    * guard is on the useEffect's first invocation only. Retry must run
    * regardless of whether the dev-mode double-invoke already fired.
    */
+
   const runBootstrap = useCallback(() => {
     // Abort any prior in-flight controller (idempotent if already aborted).
     if (controllerRef.current) {
@@ -176,13 +186,19 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
       clearTimeout(stillWorkingTimerRef.current);
       stillWorkingTimerRef.current = null;
     }
+    // R1 F2: bump attempt generation. Every async branch below captures
+    // this id and only mutates UI if it still matches the latest attempt.
+    attemptIdRef.current += 1;
+    const myAttempt = attemptIdRef.current;
     setUi({ kind: "connecting" });
     // Arm the 6s still_working flip. Per brief §5.2 this is a presentation
     // flip, NOT an abort — the in-flight bootstrapMint + redeem-link fetch
     // continue. If they resolve before Retry is clicked, the connecting
     // state's success path navigates away and the still_working render
-    // unmounts.
+    // unmounts. Guarded by attempt id so a stale timer (cleared but
+    // already queued by the runtime) can't flip a fresher attempt.
     stillWorkingTimerRef.current = setTimeout(() => {
+      if (attemptIdRef.current !== myAttempt) return;
       setUi((prev) => (prev.kind === "connecting" ? { kind: "still_working" } : prev));
     }, STILL_WORKING_TIMEOUT_MS);
 
@@ -198,18 +214,32 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
     // off the effect-execution microtask, matching the
     // /react.dev/learn/you-might-not-need-an-effect contract.
     (async () => {
+      // R1 F2: every setUi/router.replace below MUST first verify
+      // attemptIdRef.current === myAttempt. The bootstrapMint Server
+      // Action is NOT cancellable via AbortController, so a Retry click
+      // bumps attemptIdRef but the older attempt's awaited mint can
+      // still resolve later — without this guard its catch/error path
+      // would overwrite the fresher attempt's UI. The
+      // synchronousChecks below the immediate fragment reads are also
+      // guarded for symmetry; they're cheap and correct for the case
+      // where Retry fires before the no-fragment branch even reads.
+      const stale = () => attemptIdRef.current !== myAttempt;
+      const safeSetUi = (next: UiState) => {
+        if (stale()) return;
+        setUi(next);
+      };
       // Read the URL fragment client-side. Fragments are browser-only —
       // never sent to the server — so this read is the FIRST place the
       // JWT enters the application.
       const hash = window.location.hash;
       const match = hash.match(/^#t=(.+)$/);
       if (!match) {
-        setUi({ kind: "no_fragment" });
+        safeSetUi({ kind: "no_fragment" });
         return;
       }
       const tokenRaw = match[1];
       if (!tokenRaw || tokenRaw.length === 0) {
-        setUi({ kind: "no_fragment" });
+        safeSetUi({ kind: "no_fragment" });
         return;
       }
       // Decode the URL-encoded JWT (Doug's signed-link generator may
@@ -222,7 +252,7 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
       } catch {
         // Malformed URL encoding — treat as a generic error (the user
         // can re-open the original link to retry).
-        setUi({ kind: "error" });
+        safeSetUi({ kind: "error" });
         return;
       }
 
@@ -344,7 +374,7 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
           // surface the §A error code (per invariant 5: no raw error
           // codes in user-visible UI). The error code is read by the
           // browser's network tab if Doug needs to debug.
-          setUi({ kind: "error" });
+          safeSetUi({ kind: "error" });
           return;
         }
 
@@ -364,7 +394,10 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
         // push) keeps the bootstrap shell out of the back-button
         // history; the user's "Back" should land them on whatever they
         // were on before clicking the signed link, NOT on the
-        // bootstrap shell.
+        // bootstrap shell. R1 F2 stale-attempt guard: a stale attempt's
+        // late success must NOT navigate away from the user's current
+        // retry session.
+        if (stale()) return;
         router.replace(`/show/${slug}`);
       } catch (err) {
         // Suppress AbortError — it's the unmount-on-navigate path, not
@@ -374,7 +407,7 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
         }
         // Server Action throw OR fetch network error → generic inline
         // error. The user can re-open the original link to retry.
-        setUi({ kind: "error" });
+        safeSetUi({ kind: "error" });
       }
     })();
   }, [router, showId, slug]);
@@ -396,7 +429,17 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
   // §5.2 + §11 anti-goal "no timeout-as-abort", the original in-flight
   // fetch may STILL succeed and navigate away before retry resolves; the
   // component handles whichever lands first.
+  //
+  // R1 F2 (codex finding): single-flight rapid double-clicks via a 500ms
+  // debounce ref. The attempt-id guard above already serializes async
+  // races at the data layer — this debounce is UX defense-in-depth so a
+  // venue-floor double-tap doesn't bombard the server with three+
+  // concurrent bootstrapMint calls.
+  const lastRetryAtRef = useRef(0);
   const handleRetry = useCallback(() => {
+    const now = Date.now();
+    if (now - lastRetryAtRef.current < 500) return;
+    lastRetryAtRef.current = now;
     runBootstrap();
   }, [runBootstrap]);
 
