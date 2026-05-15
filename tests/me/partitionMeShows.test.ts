@@ -186,6 +186,50 @@ describe("partitionMeShows", () => {
     expect(out.undated).toEqual([]);
   });
 
+  it("R13: calendar-impossible dates that JS rolls over (2026-02-31, 2026-04-31, 2026-02-29 non-leap) are rejected", () => {
+    // Pre-R13 these passed the gate because Date.parse silently
+    // normalizes (2026-02-31 → 2026-03-03), so a corrupt row would
+    // render the wrong date that Doug never typed. The round-trip
+    // check rejects normalization-rewritten values.
+    const cases = ["2026-02-31", "2026-04-31", "2026-02-29"]; // 2026 is not a leap year
+    for (const bad of cases) {
+      const shows: CrewShowSummary[] = [
+        {
+          id: `bad-${bad}`,
+          slug: `bad-${bad}`,
+          title: `Bad ${bad}`,
+          crewMemberId: `cm-${bad}`,
+          venue: null,
+          dates: { set: bad, travelIn: null, showDays: [], travelOut: null },
+        },
+      ];
+      const out = partitionMeShows(shows, today);
+      expect(out.featured, `${bad} must NOT be featured (rolls over silently)`).toBeNull();
+      expect(out.undated.map((s) => s.id), `${bad} must land in undated`).toEqual([
+        `bad-${bad}`,
+      ]);
+    }
+  });
+
+  it("R13: leap-year valid dates (2024-02-29) survive the round-trip check", () => {
+    // Defensive: 2024 IS a leap year, so 2024-02-29 round-trips
+    // cleanly. The gate must not over-reject valid leap dates.
+    const shows: CrewShowSummary[] = [
+      {
+        id: "leap",
+        slug: "leap",
+        title: "Leap day",
+        crewMemberId: "cm-leap",
+        venue: null,
+        dates: { set: "2024-02-29", travelIn: null, showDays: [], travelOut: null },
+      },
+    ];
+    const out = partitionMeShows(shows, today);
+    expect(out.featured?.show.id).toBe("leap");
+    expect(out.past.map((p) => p.show.id)).toEqual([]); // featured = leap, no remaining past
+    expect(out.undated).toEqual([]);
+  });
+
   it("R12 F1: invalid ISO format (2026-13-99) is rejected", () => {
     const shows: CrewShowSummary[] = [
       {

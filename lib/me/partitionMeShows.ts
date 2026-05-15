@@ -81,7 +81,13 @@ function isIsoDate(value: unknown): value is string {
   if (typeof value !== "string") return false;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const ms = Date.parse(`${value}T00:00:00Z`);
-  return Number.isFinite(ms);
+  if (!Number.isFinite(ms)) return false;
+  // R13 (codex finding): JavaScript's Date.parse normalizes
+  // calendar-impossible dates (2026-02-31 → 2026-03-03,
+  // 2026-04-31 → 2026-05-01). Round-trip the parsed timestamp back
+  // to YYYY-MM-DD and require it to equal the input — only true
+  // for canonical calendar dates.
+  return new Date(ms).toISOString().slice(0, 10) === value;
 }
 
 function resolveDisplayDate(dates: unknown): string | null {
