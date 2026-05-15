@@ -248,6 +248,249 @@ test.describe("crew page — layout invariants (M9 C1 / M4-D6 + M4-D2)", () => {
   });
 });
 
+/*
+ * M9 C1 / R4 — TODAY 2-tile sm:grid-cols-2 stretch contract (covers the gap
+ * R4 found in the R3 suite above: pinning to 390px never exercises the
+ * sm:>=640px two-column row-stretch contract introduced in page.tsx).
+ *
+ * The seeded Waldorf show's calendar dates may put any given test run in
+ * post_show / unknown phase (TODAY=Schedule only). To deterministically
+ * exercise the 2-tile branch we temporarily override the show's `dates`
+ * field to put today on the set day (forces RightNowState=set_day →
+ * TODAY=[Schedule, PackList]). Restore in afterAll. Service-role bypasses
+ * RLS; the mutation is gated to the mobile-safari project so a parallel
+ * desktop-chromium run doesn't compete on the same row.
+ */
+test.describe("crew page — TODAY sm:grid-cols-2 stretch (M9 C1 R4)", () => {
+  test.setTimeout(180_000);
+
+  let originalShowState: { dates: unknown; event_details: unknown } | null = null;
+  let originalTransportDriver: string | null | undefined = undefined;
+  let savedShowId: string | null = null;
+
+  test.beforeAll(async ({}, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return; // desktop-chromium skips this suite
+    const { showId } = await lookupSeededShow();
+    savedShowId = showId;
+
+    // schedule_phases lives nested inside event_details (JSONB) per
+    // getShowForViewer.ts:263-269; there is no top-level column. Read the
+    // two fields we mutate, save originals for afterAll restore.
+    const orig = await admin
+      .from("shows")
+      .select("dates,event_details")
+      .eq("id", showId)
+      .single();
+    if (orig.error || !orig.data) {
+      throw new Error(`R4 setup: read original show failed: ${orig.error?.message ?? "no row"}`);
+    }
+    originalShowState = orig.data as typeof originalShowState;
+
+    // Use the show's venue timezone (America/Chicago for the Waldorf seed)
+    // for the date keys — selectRightNowState compares against todayIso in
+    // the show timezone (lib/time/rightNow.ts:209-210). UTC-only would
+    // diverge by one calendar day during the night-of-Chicago window and
+    // mis-classify today as pre_travel.
+    const showTz = "America/Chicago";
+    const todayInTz = new Date().toLocaleDateString("en-CA", { timeZone: showTz }); // YYYY-MM-DD
+    const addDays = (iso: string, n: number): string => {
+      const [y, m, d] = iso.split("-").map(Number);
+      if (y === undefined || m === undefined || d === undefined) {
+        throw new Error(`addDays: bad iso: ${iso}`);
+      }
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      dt.setUTCDate(dt.getUTCDate() + n);
+      return dt.toISOString().slice(0, 10);
+    };
+    const todayIso = todayInTz;
+    const showDayIso = addDays(todayIso, 2);
+    const fiveDaysLater = addDays(todayIso, 5);
+    // Force travel_in_day at UTC. selectRightNowState (lib/time/rightNow.ts:
+    // 216-222) returns "unknown" unless `hasFullDates` (line 179-191) is
+    // true — that requires travelIn AND travelOut AND showDays.length > 0.
+    // We need ALL THREE: travelIn=today (so §8.2 row 6 fires for kind
+    // "travel_in_day"), travelOut=today+5d, and at least one showDay
+    // (today+2d works — placement only matters for hasFullDates here, the
+    // travel_in_day rule fires before show-day comparisons).
+    //
+    // Today-band then selects [schedule-tile, transport-tile]. We use
+    // travel-in (not set_day) because the seeded Waldorf show has no
+    // pull_sheet — forcing set_day would suppress PackList via the
+    // (pullSheet !== null) gate and we'd get a 1-tile band again.
+    //
+    // Strip any persisted event_details.schedule_phases so the page's
+    // derivation falls through to dates-only mapping (otherwise a stale
+    // persisted map would shadow the new dates).
+    const eventDetailsCleaned = (() => {
+      const ed = (originalShowState?.event_details as Record<string, unknown> | null) ?? {};
+      const { schedule_phases: _drop, ...rest } = ed;
+      void _drop;
+      return rest;
+    })();
+    const upd = await admin
+      .from("shows")
+      .update({
+        dates: { travelIn: todayIso, set: null, showDays: [showDayIso], travelOut: fiveDaysLater },
+        event_details: eventDetailsCleaned,
+      })
+      .eq("id", showId);
+    if (upd.error) {
+      throw new Error(`R4 setup: dates override failed: ${upd.error.message}`);
+    }
+
+    // The chain-adapter resolves ADMIN_FIXTURE.email as a CREW viewer
+    // when a crew_members row matches that email (Eric Weiss is on the
+    // Waldorf seed). For crew viewers, transportTileVisible requires
+    // viewerName ∈ transportation.driver_name OR viewerName ∈
+    // schedule[*].assigned_names — Eric Weiss is on neither in the seed,
+    // so Transport drops from today-band and we get a single-tile band.
+    // Temporarily make Eric the driver so the 2-tile branch triggers;
+    // restore in afterAll.
+    const crewLookup = await admin
+      .from("crew_members")
+      .select("name")
+      .eq("show_id", showId)
+      .eq("email", ADMIN_FIXTURE.email)
+      .maybeSingle();
+    const viewerName = (crewLookup.data?.name as string | undefined) ?? null;
+    if (!viewerName) {
+      throw new Error(
+        `R4 setup: no crew_members row found for ${ADMIN_FIXTURE.email} on show ${showId}`,
+      );
+    }
+
+    const transRead = await admin
+      .from("transportation")
+      .select("driver_name")
+      .eq("show_id", showId)
+      .single();
+    if (transRead.error || !transRead.data) {
+      throw new Error(
+        `R4 setup: transportation row missing on Waldorf seed: ${transRead.error?.message ?? "no row"}`,
+      );
+    }
+    originalTransportDriver = transRead.data.driver_name as string | null;
+
+    const transUpd = await admin
+      .from("transportation")
+      .update({ driver_name: viewerName })
+      .eq("show_id", showId);
+    if (transUpd.error) {
+      throw new Error(`R4 setup: transport driver_name override failed: ${transUpd.error.message}`);
+    }
+  });
+
+  test.afterAll(async ({}, testInfo) => {
+    if (testInfo.project.name !== "mobile-safari") return;
+    if (!originalShowState || !savedShowId) return;
+    const restore = await admin
+      .from("shows")
+      .update({
+        dates: originalShowState.dates,
+        event_details: originalShowState.event_details,
+      })
+      .eq("id", savedShowId);
+    if (restore.error) {
+      console.error(`R4 teardown: shows restore failed (manual reseed needed): ${restore.error.message}`);
+    }
+    if (originalTransportDriver !== undefined) {
+      const transRestore = await admin
+        .from("transportation")
+        .update({ driver_name: originalTransportDriver })
+        .eq("show_id", savedShowId);
+      if (transRestore.error) {
+        console.error(
+          `R4 teardown: transportation restore failed (manual reseed needed): ${transRestore.error.message}`,
+        );
+      }
+    }
+  });
+
+  test.beforeEach(async ({ page }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "mobile-safari",
+      "mobile-safari project only — sm:>=640px stretch verified at 800px viewport on this single project to keep the temporary show mutation single-writer",
+    );
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  test("TODAY 2-tile branch fills sm:grid-cols-2 with equal heights at 800px", async ({ page }) => {
+    // Pin viewport above sm: breakpoint (640px). At >=640px the today-band
+    // template is `sm:grid-cols-2` per page.tsx line 1010, so two promoted
+    // tiles render as a 2-column row whose heights are stretched by
+    // `items-stretch` + `h-full` per shape brief §5.5.
+    await page.setViewportSize({ width: 800, height: 900 });
+
+    const { slug } = await lookupSeededShow();
+    const response = await page.goto(`/show/${slug}`, { waitUntil: "domcontentloaded" });
+    expect(response?.status(), "page render must succeed").toBe(200);
+
+    await expect(page.getByTestId("today-band-tiles")).toBeVisible();
+    // Wait for the second promoted tile (Transport, on travel-in days) to
+    // mount — Next 16's Suspense streaming can render the band shell
+    // before the WrappedTile <TileServerFallback> async-render resolves.
+    // Without waiting, parent.children may snapshot an in-progress state.
+    await expect(page.getByTestId("transport-tile")).toBeVisible();
+
+    const layout = await page.getByTestId("today-band-tiles").evaluate((parent) => {
+      const parentRect = parent.getBoundingClientRect();
+      const childRects = Array.from(parent.children).map((c) =>
+        (c as HTMLElement).getBoundingClientRect(),
+      );
+      const cols = getComputedStyle(parent).gridTemplateColumns;
+      return {
+        parentHeight: parentRect.height,
+        parentWidth: parentRect.width,
+        childRects: childRects.map((r) => ({ height: r.height, width: r.width })),
+        gridTemplateColumns: cols,
+      };
+    });
+
+    expect(
+      layout.childRects.length,
+      "travel_in_day forced TODAY band must render exactly 2 tiles (Schedule + Transport)",
+    ).toBe(2);
+
+    const trackCount = layout.gridTemplateColumns.trim().split(/\s+/).filter(Boolean).length;
+    expect(
+      trackCount,
+      `at >=640px TODAY must be 2 columns; got "${layout.gridTemplateColumns}"`,
+    ).toBe(2);
+
+    const [a, b] = layout.childRects;
+    if (!a || !b) throw new Error("unreachable: length === 2 implies both indexes exist");
+
+    // Equal-height contract — the M4-D2 dimensional invariant. Without
+    // items-stretch + h-full this would fail when one tile has more
+    // content than the other (e.g., PackList with 3 cases vs Schedule
+    // with 1 row).
+    expect(
+      Math.abs(a.height - b.height),
+      `sm:grid-cols-2 TODAY tiles must have equal heights via items-stretch+h-full; a=${a.height} b=${b.height}`,
+    ).toBeLessThanOrEqual(0.5);
+
+    // Each tile fills ~half the parent width. Allow up to 4px gap (the
+    // gap-tile-gap value resolves to ~16px, split between two tiles is
+    // 8px each side; enforce that each tile is between (parent-gap)/2
+    // and parent/2).
+    const eachTileMaxWidth = layout.parentWidth / 2;
+    expect(
+      a.width,
+      `tile A must fit within half the parent width at sm:grid-cols-2; a=${a.width} parent/2=${eachTileMaxWidth}`,
+    ).toBeLessThanOrEqual(eachTileMaxWidth + 0.5);
+    expect(
+      b.width,
+      `tile B must fit within half the parent width at sm:grid-cols-2; b=${b.width} parent/2=${eachTileMaxWidth}`,
+    ).toBeLessThanOrEqual(eachTileMaxWidth + 0.5);
+    // And the widths should be roughly equal to each other.
+    expect(
+      Math.abs(a.width - b.width),
+      `sm:grid-cols-2 TODAY tiles must split width evenly; a=${a.width} b=${b.width}`,
+    ).toBeLessThanOrEqual(0.5);
+  });
+});
+
 // TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
 // The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration
 // is non-trivial because each test renders as a SPECIFIC crew identity (often non-LEAD),
