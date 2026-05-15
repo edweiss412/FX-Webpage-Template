@@ -24,6 +24,8 @@
  * different ASCII-fold would still pass.
  */
 import { test, expect } from "@playwright/test";
+import { ADMIN_FIXTURE } from "./helpers/fixtures";
+import { signInAs, signOut } from "./helpers/signInAs";
 import { admin } from "./helpers/supabaseAdmin";
 
 const SEED_DRIVE_FILE_ID = "seed-fixture:2026-04-asset-mgmt-cfo-coo-waldorf";
@@ -104,6 +106,147 @@ async function lookupSeededShow(): Promise<{
     lodgingUnnamedCrewId: unnamedCrew.id as string,
   };
 }
+
+/*
+ * M9 C1 / R3 — active layout-invariants suite. The legacy ?crew=/?as=admin
+ * suites below stay skipped pending the §B follow-up (per-test crew identity
+ * needs custom seeded auth.users rows). For the M4-D6 mobile 2-col tile-grid
+ * assertion AND the M4-D2 TODAY-band dimensional invariant we don't need
+ * crew-specific identity — admin sees every show — so this block runs as
+ * ADMIN_FIXTURE via signInAs() and pins the mobile viewport explicitly.
+ *
+ * Restricted to the mobile-safari project: the §8.4 contract being verified
+ * is "<640px = 2 cols", which only holds at mobile widths. The desktop-
+ * chromium project at 1280px renders the 4-col grid and would (correctly)
+ * fail this assertion.
+ *
+ * IMPORTANT: This suite requires the production-build webserver path
+ * because Next.js's `next/font/google` Inter import in
+ * `app/show/[slug]/layout.tsx` hangs indefinitely under `pnpm dev` on
+ * first show-page request (8 ESTABLISHED HTTPS connections to
+ * fonts.gstatic.com that never resolve, despite the URL being directly
+ * reachable in <100ms via curl — appears to be a Next 16 + Turbopack
+ * dev-mode font-fetch bug). Production builds pre-fetch fonts at build
+ * time, so the request renders in ~150ms.
+ *
+ * Run sequence (manual until the dev-mode font fetch is fixed):
+ *   1. pnpm build   (with ADMIN_DEV_PANEL_ENABLED=true ENABLE_TEST_AUTH=true ...)
+ *   2. pnpm start -H 127.0.0.1   (background, same env)
+ *   3. MS_ONLY=1 pnpm exec playwright test crew-page \
+ *        --project=mobile-safari -g "layout invariants" --workers=1
+ *
+ * MS_ONLY=1 restricts playwright.config.ts to the mobile-safari/desktop-
+ * chromium baseline webserver only — without it, the other webservers
+ * (3001/3002/3003) race on the with-admin-dev-flag.mjs lock and one of
+ * the prod-* builds wins the rename window mid-build for port 3000.
+ * `reuseExistingServer: !CI` (default) makes playwright use the manually-
+ * started server.
+ */
+test.describe("crew page — layout invariants (M9 C1 / M4-D6 + M4-D2)", () => {
+  // 180s per-test budget absorbs the production-build first-hit cost
+  // (cold-start serverful render of the show page touches a wide module
+  // graph). The render itself is sub-second once warm; the budget is the
+  // first-hit cost only.
+  test.setTimeout(180_000);
+
+  test.beforeEach(async ({ page }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "mobile-safari",
+      "mobile-only invariants — §8.4 mobile-2-col + TODAY-band stretch at mobile width",
+    );
+    await signOut(page);
+    await signInAs(page, ADMIN_FIXTURE);
+  });
+
+  test("tile-grid resolves to 2 grid tracks at mobile width (M4-D6)", async ({ page }) => {
+    // Pin viewport explicitly — defense-in-depth even though mobile-safari's
+    // project default is 390x844. The R1 finding for M4-D6 was that the
+    // desktop-chromium project would silently render the 4-col grid; the
+    // explicit setViewportSize makes the assertion robust to project-config
+    // drift even within the mobile-safari run.
+    await page.setViewportSize({ width: 390, height: 667 });
+
+    const { slug } = await lookupSeededShow();
+    const response = await page.goto(`/show/${slug}`, { waitUntil: "domcontentloaded" });
+    expect(response?.status(), "page render must succeed").toBe(200);
+
+    await expect(page.getByTestId("tile-grid")).toBeVisible();
+
+    const cols = await page
+      .getByTestId("tile-grid")
+      .evaluate((el) => getComputedStyle(el).gridTemplateColumns);
+    const trackCount = cols.trim().split(/\s+/).filter(Boolean).length;
+    expect(trackCount, `mobile tile-grid must be 2 columns (§8.4); got "${cols}"`).toBe(2);
+  });
+
+  test("today-band tiles share equal height + match parent height (M4-D2 dimensional invariant)", async ({
+    page,
+  }) => {
+    // Per shape brief §5.5: Tailwind v4 does NOT default `.flex` to
+    // `align-items: stretch`. The TODAY band uses grid + items-stretch +
+    // h-full on each child WrappedTile. Real-browser layout is the only
+    // way to catch a Tailwind v4 stretch regression — jsdom doesn't
+    // compute layout. Tolerance is 0.5px to absorb sub-pixel rendering.
+    await page.setViewportSize({ width: 390, height: 667 });
+
+    const { slug } = await lookupSeededShow();
+    const response = await page.goto(`/show/${slug}`, { waitUntil: "domcontentloaded" });
+    expect(response?.status(), "page render must succeed").toBe(200);
+
+    await expect(page.getByTestId("today-band")).toBeVisible();
+    await expect(page.getByTestId("today-band-tiles")).toBeVisible();
+
+    // Read the rendered child rects directly — assert based on what the
+    // page actually mounted, not what we assumed it would. Phase varies
+    // with calendar date relative to fixture dates, so the test must
+    // adapt to either the 1-tile or 2-tile branch.
+    const layout = await page.getByTestId("today-band-tiles").evaluate((parent) => {
+      const parentRect = parent.getBoundingClientRect();
+      const childRects = Array.from(parent.children).map((c) =>
+        (c as HTMLElement).getBoundingClientRect(),
+      );
+      return {
+        parentHeight: parentRect.height,
+        parentWidth: parentRect.width,
+        childRects: childRects.map((r) => ({ height: r.height, width: r.width })),
+      };
+    });
+
+    const rects = layout.childRects;
+    expect(rects.length, "TODAY band must render at least one tile").toBeGreaterThan(0);
+
+    if (rects.length === 1) {
+      const [a] = rects;
+      if (!a) throw new Error("unreachable: rects.length === 1 implies rects[0] exists");
+      // Single-tile branch: the lone tile fills the full parent width
+      // (per shape brief §5.5 — promotion is positional, no half-width
+      // orphan in the 2-col grid).
+      expect(
+        Math.abs(a.width - layout.parentWidth),
+        `single-tile TODAY must fill full parent width within 0.5px; got tile=${a.width} parent=${layout.parentWidth}`,
+      ).toBeLessThanOrEqual(0.5);
+    } else if (rects.length === 2) {
+      const [a, b] = rects;
+      if (!a || !b) throw new Error("unreachable: rects.length === 2 implies both indexes exist");
+      // Two-tile branch: equal heights (items-stretch + h-full contract).
+      // At mobile width the brief specifies 1-col below `sm:` (640px), so
+      // children stack and EACH child width === parent width. We pin
+      // 390px (<640px), so assert stacked behaviour.
+      expect(
+        Math.abs(a.height - b.height),
+        `two-tile TODAY must have equal child heights; a=${a.height} b=${b.height}`,
+      ).toBeLessThanOrEqual(0.5);
+      expect(
+        Math.abs(a.width - layout.parentWidth),
+        `mobile <640px TODAY tiles must fill full parent width (1-col stack); a=${a.width} parent=${layout.parentWidth}`,
+      ).toBeLessThanOrEqual(0.5);
+      expect(
+        Math.abs(b.width - layout.parentWidth),
+        `mobile <640px TODAY tiles must fill full parent width (1-col stack); b=${b.width} parent=${layout.parentWidth}`,
+      ).toBeLessThanOrEqual(0.5);
+    }
+  });
+});
 
 // TODO(M5 §B follow-up): migrate off ?crew=/?as=admin mock to signInAs(non-admin-crew-fixture).
 // The dev-only mock surface was retired in Task 5.7 follow-up (Issue 4). The migration

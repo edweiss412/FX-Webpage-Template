@@ -159,7 +159,17 @@ const defaultDeps: ReportRouteDeps = {
   readCrewRoleFlags,
 };
 
-export async function POST(req: Request, deps: ReportRouteDeps = defaultDeps): Promise<Response> {
+/**
+ * Internal handler — accepts a `deps` injection slot for unit tests.
+ * `POST` (the actual route export) delegates here with no deps so its
+ * signature matches Next.js 16's strict `RouteHandlerConfig` shape
+ * (request + context only). Exported so tests can inject without
+ * fighting Next 16's route-handler validator.
+ */
+export async function handleReport(
+  req: Request,
+  deps: ReportRouteDeps = defaultDeps,
+): Promise<Response> {
   const body = await readRequestBody(req);
   if (!body) return errorJson(400, { ok: false });
 
@@ -177,4 +187,8 @@ export async function POST(req: Request, deps: ReportRouteDeps = defaultDeps): P
     throw error;
   }
   return errorJson(result.status, result.body);
+}
+
+export async function POST(req: Request): Promise<Response> {
+  return handleReport(req);
 }

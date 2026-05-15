@@ -1,5 +1,14 @@
 import { defineConfig, devices } from "@playwright/test";
 
+/*
+ * MS_ONLY=1 — restrict webServer spawning to the mobile-safari/desktop-chromium
+ * baseline (port 3000) only. Used by the M9 C1 layout-invariants suite when
+ * running against a manually pre-built `pnpm start -H 127.0.0.1` server, since
+ * the multi-webServer build path races on the with-admin-dev-flag.mjs lock
+ * when invoked under CI=1 from an unrelated project filter.
+ */
+const MS_ONLY = process.env.MS_ONLY === "1";
+
 /**
  * Playwright config — three test surfaces:
  *
@@ -140,7 +149,7 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: process.env.CI ? 120_000 : 60_000,
     },
-    {
+    ...(MS_ONLY ? [] : [{
       // dev-build artifact (port 3001) — built with ADMIN_DEV_PANEL_ENABLED=true
       // via the canonical `pnpm build` script (which routes through
       // scripts/with-admin-dev-flag.mjs per Round 2 Finding 1). NEXT_DIST_DIR
@@ -208,6 +217,6 @@ export default defineConfig({
       url: "http://localhost:3003",
       reuseExistingServer: !process.env.CI,
       timeout: 300_000,
-    },
+    }]),
   ],
 });

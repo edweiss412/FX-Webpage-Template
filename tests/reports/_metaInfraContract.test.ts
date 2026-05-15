@@ -67,11 +67,11 @@ import {
   submitReport,
 } from "@/lib/reports/submit";
 import {
-  GET as reportReaperGET,
   ReportReaperInfraError,
+  runReaperGet,
   runReportReaper,
 } from "@/app/api/cron/report-reaper/route";
-import { POST as reportPOST } from "@/app/api/report/route";
+import { handleReport } from "@/app/api/report/route";
 
 const REGISTERED_INFRA_EXPORTS = [
   "acquireReportLease",
@@ -86,8 +86,10 @@ const REGISTERED_INFRA_EXPORTS = [
   "handleTailUpdateMiss",
   "submitReport",
   "POST",
+  "handleReport",
   "runReportReaper",
   "GET",
+  "runReaperGet",
 ] as const;
 
 const META_SOURCE_FILES = [
@@ -360,7 +362,7 @@ describe("META reports infra-failure contract", () => {
   });
 
   test("POST returns cataloged 500 when submitReport throws typed infra error", async () => {
-    const response = await reportPOST(
+    const response = await handleReport(
       new Request("https://crew.fxav.test/api/report", {
         method: "POST",
         body: JSON.stringify(validBody()),
@@ -401,7 +403,7 @@ describe("META reports infra-failure contract", () => {
     const originalSecret = process.env.CRON_SECRET;
     process.env.CRON_SECRET = "meta-secret";
     try {
-      const response = await reportReaperGET(
+      const response = await runReaperGet(
         new NextRequest("https://crew.fxav.test/api/cron/report-reaper", {
           headers: { authorization: "Bearer meta-secret" },
         }),

@@ -100,7 +100,14 @@ export async function runReportReaper(
   }
 }
 
-export async function GET(
+/**
+ * Internal handler — accepts a `deps` injection slot for unit tests.
+ * `GET` (the actual route export) delegates here with no deps so its
+ * signature matches Next.js 16's strict `RouteHandlerConfig` shape
+ * (request + context only). Exported so tests can inject without
+ * fighting Next 16's route-handler validator.
+ */
+export async function runReaperGet(
   request: NextRequest,
   deps: Pick<ReportReaperDeps, "runReportReaper"> = {},
 ): Promise<Response> {
@@ -118,4 +125,8 @@ export async function GET(
     throw error;
   }
   return NextResponse.json({ ok: true, deleted: result.deleted });
+}
+
+export async function GET(request: NextRequest): Promise<Response> {
+  return runReaperGet(request);
 }
