@@ -68,13 +68,29 @@ function asDates(dates: unknown): DatesShape | null {
   return dates as DatesShape;
 }
 
+/**
+ * R12 F1 (codex finding): the partition treats any non-empty string as
+ * a sortable date. A legacy/corrupt row with `dates.set: "TBD"` would
+ * pass the type guard, land in the dated bucket, and produce
+ * `Ended NaN weeks ago` chip copy downstream. Gate every candidate
+ * through a strict YYYY-MM-DD shape check + Date.parse finite-time
+ * check; invalid candidates are treated as missing (fall through to
+ * the next field, ultimately to undated).
+ */
+function isIsoDate(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const ms = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(ms);
+}
+
 function resolveDisplayDate(dates: unknown): string | null {
   const obj = asDates(dates);
   if (!obj) return null;
-  if (typeof obj.set === "string" && obj.set.length > 0) return obj.set;
-  if (typeof obj.travelIn === "string" && obj.travelIn.length > 0) return obj.travelIn;
+  if (isIsoDate(obj.set)) return obj.set;
+  if (isIsoDate(obj.travelIn)) return obj.travelIn;
   if (Array.isArray(obj.showDays)) {
-    const first = obj.showDays.find((d): d is string => typeof d === "string" && d.length > 0);
+    const first = obj.showDays.find((d): d is string => isIsoDate(d));
     if (first) return first;
   }
   return null;
@@ -101,12 +117,15 @@ function knownDates(dates: unknown): string[] {
   const obj = asDates(dates);
   if (!obj) return [];
   const out: string[] = [];
-  if (typeof obj.set === "string" && obj.set.length > 0) out.push(obj.set);
-  if (typeof obj.travelIn === "string" && obj.travelIn.length > 0) out.push(obj.travelIn);
-  if (typeof obj.travelOut === "string" && obj.travelOut.length > 0) out.push(obj.travelOut);
+  // R12 F1: only ISO YYYY-MM-DD entries count. Non-ISO sentinels
+  // (TBD/N/A/empty) are dropped here so isShowEnded + chipAnchorIso
+  // never compute against malformed strings.
+  if (isIsoDate(obj.set)) out.push(obj.set);
+  if (isIsoDate(obj.travelIn)) out.push(obj.travelIn);
+  if (isIsoDate(obj.travelOut)) out.push(obj.travelOut);
   if (Array.isArray(obj.showDays)) {
     for (const d of obj.showDays) {
-      if (typeof d === "string" && d.length > 0) out.push(d);
+      if (isIsoDate(d)) out.push(d);
     }
   }
   return out;

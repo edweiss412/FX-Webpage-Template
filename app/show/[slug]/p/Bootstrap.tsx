@@ -173,6 +173,16 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
   // against a late stale rejection painting setUi({kind:'error'}) over
   // the current retry's connecting state.
   const attemptIdRef = useRef(0);
+  // R12 F2 (codex finding): brief §7 requires the Retry button to be
+  // DISABLED while a user-initiated retry attempt is in flight (not
+  // just debounced for 500ms). Track the user's latest retry attempt
+  // id; the button is disabled while that specific attempt is pending.
+  // Cleared in the async IIFE when the LATEST attempt reaches a
+  // terminal state (no_fragment / error / success-via-router.replace
+  // unmount). The initial mount attempt is NOT user-initiated, so
+  // userRetryPending starts false and the button stays available
+  // immediately when still_working flips at 6s.
+  const [userRetryPending, setUserRetryPending] = useState(false);
 
   /**
    * runBootstrap — extracted from the original useEffect IIFE so the
@@ -186,7 +196,8 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
    * regardless of whether the dev-mode double-invoke already fired.
    */
 
-  const runBootstrap = useCallback(() => {
+  const runBootstrap = useCallback((options?: { userInitiated?: boolean }) => {
+    const userInitiated = options?.userInitiated === true;
     // R3 (codex finding): do NOT abort prior controllers. Brief §11
     // anti-goal "no timeout-as-abort" — the original fetch races the
     // retry. Whichever resolves first navigates; stale failures are
@@ -202,6 +213,13 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
     attemptIdRef.current += 1;
     const myAttempt = attemptIdRef.current;
     setUi({ kind: "connecting" });
+    // R12 F2: a userInitiated retry locks the button until THIS
+    // attempt resolves. Helper closure clears pending only if this
+    // attempt is still the latest user-initiated one (a fresher
+    // user-click would bump userInitiatedAttemptId).
+    const clearPendingIfMine = () => {
+      if (userInitiated) setUserRetryPending(false);
+    };
     // Arm the 6s still_working flip. Per brief §5.2 this is a presentation
     // flip, NOT an abort — the in-flight bootstrapMint + redeem-link fetch
     // continue. If they resolve before Retry is clicked, the connecting
@@ -252,11 +270,13 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
       const match = hash.match(/^#t=(.+)$/);
       if (!match) {
         safeSetUi({ kind: "no_fragment" });
+        clearPendingIfMine();
         return;
       }
       const tokenRaw = match[1];
       if (!tokenRaw || tokenRaw.length === 0) {
         safeSetUi({ kind: "no_fragment" });
+        clearPendingIfMine();
         return;
       }
       // Decode the URL-encoded JWT (Doug's signed-link generator may
@@ -270,6 +290,7 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
         // Malformed URL encoding — treat as a generic error (the user
         // can re-open the original link to retry).
         safeSetUi({ kind: "error" });
+        clearPendingIfMine();
         return;
       }
 
@@ -392,6 +413,7 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
           // codes in user-visible UI). The error code is read by the
           // browser's network tab if Doug needs to debug.
           safeSetUi({ kind: "error" });
+          clearPendingIfMine();
           return;
         }
 
@@ -427,6 +449,7 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
         // Server Action throw OR fetch network error → generic inline
         // error. The user can re-open the original link to retry.
         safeSetUi({ kind: "error" });
+        clearPendingIfMine();
       }
     })();
   }, [router, showId, slug]);
@@ -481,11 +504,17 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
   // concurrent bootstrapMint calls.
   const lastRetryAtRef = useRef(0);
   const handleRetry = useCallback(() => {
+    // R12 F2: gate the click on retry-pending state too. If the
+    // disabled attribute slips (a programmatic .click(), a future
+    // refactor that drops `disabled`), the function still no-ops
+    // until the prior user-initiated retry completes.
+    if (userRetryPending) return;
     const now = Date.now();
     if (now - lastRetryAtRef.current < 500) return;
     lastRetryAtRef.current = now;
-    runBootstrap();
-  }, [runBootstrap]);
+    setUserRetryPending(true);
+    runBootstrap({ userInitiated: true });
+  }, [runBootstrap, userRetryPending]);
 
   // M9 C8 / M5-D6 #4: wrap the state-transition region in a single
   // aria-live="polite" container so screen readers announce each
@@ -555,7 +584,9 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
               data-testid="bootstrap-retry"
               type="button"
               onClick={handleRetry}
-              className="inline-flex min-h-tap-min items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-text transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+              disabled={userRetryPending}
+              aria-busy={userRetryPending}
+              className="inline-flex min-h-tap-min items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-semibold text-accent-text transition-colors hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-accent"
             >
               Retry
             </button>

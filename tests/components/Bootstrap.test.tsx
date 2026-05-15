@@ -225,6 +225,44 @@ describe("Bootstrap R4: StrictMode dev double-invoke leaves single live attempt"
   });
 });
 
+describe("Bootstrap R12 F2: Retry disabled while user-initiated retry is pending", () => {
+  test("clicking Retry disables the button until the retry attempt resolves", () => {
+    // First attempt mint never resolves so we can flip to still_working;
+    // user clicks Retry → second attempt mint also never resolves; the
+    // button stays disabled. Advance another 6s → still_working flips
+    // again (R3 contract: prior + retry race; retry is still pending);
+    // button MUST stay disabled.
+    bootstrapMintMock
+      .mockImplementationOnce(() => new Promise<never>(() => {}))
+      .mockImplementationOnce(() => new Promise<never>(() => {}));
+
+    render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+    act(() => {
+      vi.advanceTimersByTime(6_000);
+    });
+    const retryBtn = screen.getByTestId("bootstrap-retry") as HTMLButtonElement;
+    expect(retryBtn.disabled).toBe(false);
+
+    act(() => {
+      fireEvent.click(retryBtn);
+    });
+    // Click resets state to connecting (button unmounts). Advance
+    // past the next 6s window so still_working re-flips. The retry
+    // mint is STILL pending — when the button re-mounts it MUST be
+    // disabled. Pre-fix the user could spam retries here.
+    expect(screen.queryByTestId("bootstrap-retry")).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(6_000);
+    });
+    const retryBtnAfter6s = screen.getByTestId("bootstrap-retry") as HTMLButtonElement;
+    expect(retryBtnAfter6s.disabled).toBe(true);
+    expect(retryBtnAfter6s.getAttribute("aria-busy")).toBe("true");
+  });
+});
+
 describe("Bootstrap R3: prior attempt success still navigates after Retry", () => {
   test("attempt 1 in fetch → Retry starts attempt 2 → attempt 1 resolves OK → router.replace fires", async () => {
     // R3 (codex finding): brief §11 anti-goal "no timeout-as-abort" —

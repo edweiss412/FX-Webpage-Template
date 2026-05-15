@@ -138,6 +138,71 @@ describe("partitionMeShows", () => {
     expect(out.undated).toEqual([]);
   });
 
+  it("R12 F1: malformed date strings (TBD, N/A, empty) → undated, NOT dated", () => {
+    // Pre-R12 the partition accepted any non-empty string as dated.
+    // A row with set="TBD" landed in dated → relativeDayChip(NaN) →
+    // "Ended NaN weeks ago" rendered to crew. Strict ISO gating now
+    // routes these into the undated bucket so the user sees the
+    // "Date pending" section instead of broken chip copy.
+    const shows: CrewShowSummary[] = [
+      {
+        id: "tbd-set",
+        slug: "tbd-set",
+        title: "TBD set",
+        crewMemberId: "cm-tbd-set",
+        venue: null,
+        dates: { set: "TBD", travelIn: null, showDays: [], travelOut: null },
+      },
+      {
+        id: "tbd-traveldays",
+        slug: "tbd-traveldays",
+        title: "TBD travel + show days",
+        crewMemberId: "cm-tbd-traveldays",
+        venue: null,
+        dates: { set: null, travelIn: "TBA", showDays: ["N/A", ""], travelOut: null },
+      },
+      {
+        id: "valid",
+        slug: "valid",
+        title: "Valid future",
+        crewMemberId: "cm-valid",
+        venue: null,
+        dates: { set: "2026-08-01", travelIn: null, showDays: [], travelOut: null },
+      },
+    ];
+    const out = partitionMeShows(shows, today);
+    expect(out.featured?.show.id).toBe("valid");
+    expect(out.upcoming).toEqual([]);
+    expect(out.past).toEqual([]);
+    expect(out.undated.map((s) => s.id).sort()).toEqual(["tbd-set", "tbd-traveldays"]);
+  });
+
+  it("R12 F1: valid YYYY-MM-DD survives the ISO gate", () => {
+    // Defensive: confirm the gate doesn't false-reject valid input.
+    const shows = [show("a", "2026-05-20"), show("b", "2026-04-01")];
+    const out = partitionMeShows(shows, today);
+    expect(out.featured?.show.id).toBe("a");
+    expect(out.past.map((p) => p.show.id)).toEqual(["b"]);
+    expect(out.undated).toEqual([]);
+  });
+
+  it("R12 F1: invalid ISO format (2026-13-99) is rejected", () => {
+    const shows: CrewShowSummary[] = [
+      {
+        id: "bad-month",
+        slug: "bad",
+        title: "Bad month",
+        crewMemberId: "cm-bad",
+        venue: null,
+        dates: { set: "2026-13-99", travelIn: null, showDays: [], travelOut: null },
+      },
+    ];
+    const out = partitionMeShows(shows, today);
+    // 2026-13-99 doesn't match the regex AND fails Date.parse — undated.
+    expect(out.featured).toBeNull();
+    expect(out.undated.map((s) => s.id)).toEqual(["bad-month"]);
+  });
+
   it("R1 F1: multi-day show whose set day was yesterday but showDays includes today is NOT past", () => {
     // Brief §5.1 Past rule: "all shows ended (`dates.set < today` AND no
     // upcoming show-day)". A show with set=yesterday, showDays=[today,
