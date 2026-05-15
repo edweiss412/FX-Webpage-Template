@@ -110,7 +110,12 @@ export function ResolveAlertButton() {
         data-testid="admin-alert-cancel-button"
         onClick={onCancelClick}
         disabled={isResolving}
-        className="text-sm text-text-subtle underline-offset-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
+        // C4 R1: brief §5.5 requires Cancel meet the 44×44 tap target
+        // floor. The visual chrome stays text-only (no border/fill — UX
+        // intent is "secondary, recoverable") but the hit area is full
+        // tap-min via inline-flex padding. Prevents Doug from missing
+        // the cancel control on a glance-and-thumb interaction.
+        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-sm text-text-subtle underline-offset-2 hover:text-text disabled:cursor-not-allowed disabled:opacity-60"
       >
         Cancel
       </button>
