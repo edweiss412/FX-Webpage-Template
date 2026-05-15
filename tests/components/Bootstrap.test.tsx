@@ -166,6 +166,79 @@ describe("Bootstrap no_fragment branch", () => {
   });
 });
 
+describe("Bootstrap R3: prior attempt success still navigates after Retry", () => {
+  test("attempt 1 in fetch → Retry starts attempt 2 → attempt 1 resolves OK → router.replace fires", async () => {
+    // R3 (codex finding): brief §11 anti-goal "no timeout-as-abort" —
+    // Retry races the original attempt, doesn't kill it. If the
+    // ORIGINAL attempt resolves successfully after Retry has launched
+    // attempt 2, it must still navigate (router.replace).
+    //
+    // We simulate this by:
+    //   1. attempt 1 mint resolves immediately (so the IIFE proceeds to
+    //      the redeem-link fetch).
+    //   2. attempt 2 mint is a never-resolving promise.
+    //   3. Mock global fetch so attempt 1's fetch is held until we
+    //      explicitly resolve it; attempt 2's fetch never resolves.
+    //   4. Trigger the 6s flip → click Retry → resolve attempt 1's
+    //      fetch with 200 → assert router.replace is called.
+    let resolveAttempt1Fetch: (res: Response) => void = () => {};
+    const fetchMock = vi.fn().mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveAttempt1Fetch = resolve;
+        }),
+    );
+    fetchMock.mockImplementationOnce(() => new Promise<never>(() => {}));
+    const originalFetch = global.fetch;
+    global.fetch = fetchMock as typeof global.fetch;
+
+    bootstrapMintMock
+      .mockImplementationOnce(async () => ({ nonce: "nonce-attempt-1" }))
+      .mockImplementationOnce(() => new Promise<never>(() => {}));
+
+    try {
+      render(<Bootstrap showId={SHOW_ID} slug={SLUG} />);
+      // Flush attempt 1's bootstrapMint resolution → fetch starts.
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(bootstrapMintMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // 6s flip → Retry visible.
+      act(() => {
+        vi.advanceTimersByTime(6_000);
+      });
+      expect(screen.getByTestId("bootstrap-retry")).toBeTruthy();
+
+      // Click Retry → attempt 2 starts. Attempt 1's fetch is STILL in
+      // flight (R3 fix: prior attempts not aborted).
+      act(() => {
+        fireEvent.click(screen.getByTestId("bootstrap-retry"));
+      });
+      expect(bootstrapMintMock).toHaveBeenCalledTimes(2);
+
+      // NOW resolve attempt 1's fetch with 200 — simulates the slow-
+      // network case where the original redemption succeeds after
+      // Retry has launched a fresh attempt. Attempt 1 MUST still
+      // navigate via router.replace.
+      const okResponse = new Response(null, { status: 200 });
+      await act(async () => {
+        resolveAttempt1Fetch(okResponse);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(navMock.replaceMock).toHaveBeenCalledTimes(1);
+      expect(navMock.replaceMock).toHaveBeenCalledWith(`/show/${SLUG}`);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+});
+
 describe("Bootstrap retry race guard (R1 F2)", () => {
   test("stale attempt's late failure does NOT overwrite a fresher attempt's connecting state", async () => {
     // Plan: attempt 1 starts with a deferred-rejection mint. Trigger

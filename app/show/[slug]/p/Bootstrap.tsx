@@ -151,18 +151,27 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
   // effect body.
   const didRunRef = useRef(false);
 
-  // M9 C3 / M5-D2: refs for the in-flight controller + still_working
-  // timer so the Retry button can abort/clear them and start fresh.
-  const controllerRef = useRef<AbortController | null>(null);
+  // M9 C3 / M5-D2: ref for the still_working timer so the Retry button
+  // can clear it and start fresh.
   const stillWorkingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // M9 C3 / R3 (codex finding): the brief §11 anti-goal "no timeout-as-
+  // abort" requires the original bootstrap fetch to KEEP RUNNING when
+  // the user clicks Retry — Retry races the original, doesn't kill it.
+  // Track ALL in-flight controllers so unmount can abort them, but
+  // runBootstrap does NOT abort prior controllers. Whichever attempt
+  // resolves first navigates the user away (router.replace is idempotent
+  // — both attempts target the same /show/<slug>). The attempt-id ref
+  // remains for stale-FAILURE guarding so a late rejection from an
+  // older attempt can't overwrite a newer attempt's UI; SUCCESS paths
+  // are intentionally NOT guarded (any attempt's success is a win).
+  const inflightControllersRef = useRef<Set<AbortController>>(new Set());
   // M9 C3 / R1 F2 (codex finding): monotonic attempt id used to guard
-  // every post-await setUi/router.replace so a stale attempt's late
-  // resolution can't overwrite a fresher attempt's UI. Incremented on
-  // every runBootstrap call (initial mount + each Retry click). The
-  // bootstrapMint Server Action isn't cancellable via AbortController
-  // (it runs server-side), so the race is real: without this guard, an
-  // older attempt's catch arm could call setUi({kind:'error'}) over the
-  // current retry's connecting state.
+  // post-await setUi calls so a stale attempt's late FAILURE can't
+  // overwrite a fresher attempt's UI. Incremented on every runBootstrap
+  // call (initial mount + each Retry click). bootstrapMint is a Server
+  // Action and isn't cancellable, so this guard is the only protection
+  // against a late stale rejection painting setUi({kind:'error'}) over
+  // the current retry's connecting state.
   const attemptIdRef = useRef(0);
 
   /**
@@ -178,16 +187,18 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
    */
 
   const runBootstrap = useCallback(() => {
-    // Abort any prior in-flight controller (idempotent if already aborted).
-    if (controllerRef.current) {
-      controllerRef.current.abort();
-    }
+    // R3 (codex finding): do NOT abort prior controllers. Brief §11
+    // anti-goal "no timeout-as-abort" — the original fetch races the
+    // retry. Whichever resolves first navigates; stale failures are
+    // suppressed via the attempt-id guard below.
     if (stillWorkingTimerRef.current !== null) {
       clearTimeout(stillWorkingTimerRef.current);
       stillWorkingTimerRef.current = null;
     }
-    // R1 F2: bump attempt generation. Every async branch below captures
-    // this id and only mutates UI if it still matches the latest attempt.
+    // R1 F2: bump attempt generation. Every setUi branch below captures
+    // this id and only writes UI if it still matches the latest attempt.
+    // SUCCESS paths (router.replace) intentionally do NOT consult the
+    // guard — any attempt's success is a win for the user.
     attemptIdRef.current += 1;
     const myAttempt = attemptIdRef.current;
     setUi({ kind: "connecting" });
@@ -204,8 +215,14 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
 
     // Capture an AbortController so the in-flight POST is cancelled if
     // the component unmounts (e.g., user navigates away mid-request).
+    // R3 (codex finding): each attempt has its OWN controller. Prior
+    // attempts are NOT aborted on Retry — they keep racing. The unmount
+    // cleanup walks inflightControllersRef and aborts every entry.
     const controller = new AbortController();
-    controllerRef.current = controller;
+    inflightControllersRef.current.add(controller);
+    controller.signal.addEventListener("abort", () => {
+      inflightControllersRef.current.delete(controller);
+    });
 
     // The async IIFE below performs all DB / network I/O. EVERY setState
     // call is awaited (inside the IIFE) — there are NO synchronous
@@ -394,10 +411,12 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
         // push) keeps the bootstrap shell out of the back-button
         // history; the user's "Back" should land them on whatever they
         // were on before clicking the signed link, NOT on the
-        // bootstrap shell. R1 F2 stale-attempt guard: a stale attempt's
-        // late success must NOT navigate away from the user's current
-        // retry session.
-        if (stale()) return;
+        // bootstrap shell. R3 (codex finding): SUCCESS paths
+        // intentionally do NOT consult the stale-attempt guard. Both
+        // attempts target the same /show/<slug> — whichever resolves
+        // first wins; the brief §11 "no timeout-as-abort" contract
+        // requires the original attempt's success to still navigate
+        // even if the user has since clicked Retry.
         router.replace(`/show/${slug}`);
       } catch (err) {
         // Suppress AbortError — it's the unmount-on-navigate path, not
@@ -413,13 +432,19 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
   }, [router, showId, slug]);
 
   // Mount-only useEffect that fires runBootstrap once (StrictMode-guarded)
-  // and cleans up on unmount.
+  // and cleans up on unmount. R3: cleanup walks every in-flight
+  // controller (initial + each Retry attempt) so unmount aborts the
+  // whole racing set, not just the latest.
   useEffect(() => {
     if (didRunRef.current) return;
     didRunRef.current = true;
     runBootstrap();
     return () => {
-      if (controllerRef.current) controllerRef.current.abort();
+      const controllers = inflightControllersRef.current;
+      for (const c of Array.from(controllers)) {
+        c.abort();
+      }
+      controllers.clear();
       if (stillWorkingTimerRef.current !== null) clearTimeout(stillWorkingTimerRef.current);
     };
   }, [runBootstrap]);
