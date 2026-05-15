@@ -98,7 +98,7 @@ test.describe("admin AlertBanner (mobile-safari, /admin/dev)", () => {
     );
   });
 
-  test("Resolve action: clicking the button hides the banner and stamps resolved_at on the row", async ({
+  test("Resolve action: two-tap confirm submits + hides banner + stamps resolved_at on the row", async ({
     page,
   }) => {
     await signInAs(page, ADMIN_FIXTURE);
@@ -107,11 +107,25 @@ test.describe("admin AlertBanner (mobile-safari, /admin/dev)", () => {
     await page.goto("/admin/dev");
     await expect(page.locator("[data-testid=admin-alert-banner]")).toBeVisible();
 
-    // Click Resolve. The form submits a Server Action which UPDATEs the
-    // row and revalidates /admin so the banner re-renders empty.
+    // M9 C4 / M5-D3 (R2 fix): Resolve is now a two-tap confirm flow per
+    // shape brief §5.4. First tap moves idle → confirm; the form
+    // submits only on the second tap (Confirm resolve). This test pins
+    // both transitions plus the eventual server-side resolve.
+
+    // First tap: idle → confirm. The Confirm + Cancel sibling pair
+    // appears; the original Resolve button unmounts.
+    await page.click("[data-testid=admin-alert-resolve-button]");
+    await expect(page.locator("[data-testid=admin-alert-confirm-row]")).toBeVisible();
+    await expect(
+      page.locator("[data-testid=admin-alert-confirm-resolve-button]"),
+    ).toBeVisible();
+    await expect(page.locator("[data-testid=admin-alert-cancel-button]")).toBeVisible();
+
+    // Second tap: Confirm resolve submits the parent <form> Server Action
+    // which UPDATEs the row and revalidates /admin so the banner re-renders empty.
     await Promise.all([
       page.waitForLoadState("networkidle"),
-      page.click("[data-testid=admin-alert-resolve-button]"),
+      page.click("[data-testid=admin-alert-confirm-resolve-button]"),
     ]);
 
     // Banner is gone (no longer mounts because the SELECT now returns 0 rows).
@@ -133,6 +147,29 @@ test.describe("admin AlertBanner (mobile-safari, /admin/dev)", () => {
       .single();
     expect(error).toBeNull();
     expect((data as { resolved_by: string | null } | null)?.resolved_by).toBe(ADMIN_FIXTURE.email);
+  });
+
+  test("M9 C4 / M5-D3: Cancel during two-tap confirm reverts to idle (no DB write)", async ({
+    page,
+  }) => {
+    await signInAs(page, ADMIN_FIXTURE);
+    const id = await insertAlert(ALERT_CODE);
+
+    await page.goto("/admin/dev");
+    await expect(page.locator("[data-testid=admin-alert-banner]")).toBeVisible();
+
+    // First tap → confirm.
+    await page.click("[data-testid=admin-alert-resolve-button]");
+    await expect(page.locator("[data-testid=admin-alert-confirm-row]")).toBeVisible();
+
+    // Cancel → idle. Confirm row unmounts; original Resolve returns.
+    await page.click("[data-testid=admin-alert-cancel-button]");
+    await expect(page.locator("[data-testid=admin-alert-confirm-row]")).toHaveCount(0);
+    await expect(page.locator("[data-testid=admin-alert-resolve-button]")).toBeVisible();
+
+    // No server round-trip happened: the row is still unresolved.
+    const resolvedAt = await rowResolvedAt(id);
+    expect(resolvedAt).toBeNull();
   });
 
   test("non-admin user: /admin/dev → 403 from the layout's requireAdmin gate (banner never mounts)", async ({

@@ -111,7 +111,11 @@ export async function AlertBanner() {
       `(${INFO_SEVERITY_CODES.map((code) => `"${code}"`).join(",")})`,
     );
   }
-  const { count: queueDepth, error: countError } = await countQuery;
+  // C4 R2 fix: invariant 9 (Supabase call-boundary discipline) requires
+  // every call destructure `{ data, error }`. head:true makes the data
+  // payload null but the binding shape stays uniform across the codebase.
+  const { data: _countData, count: queueDepth, error: countError } = await countQuery;
+  void _countData;
   if (countError) {
     // Non-fatal: the banner still renders the topmost alert without
     // the count chip. Log so an operator sees the partial degradation.

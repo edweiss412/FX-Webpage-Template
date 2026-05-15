@@ -34,18 +34,26 @@ const MONTH_ABBR = [
   "Dec",
 ];
 
+const SEVEN_DAYS_SEC = 7 * 24 * 60 * 60;
+
 export function raisedAtSuffix(iso: string, now: Date): string {
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms)) return "just now";
   const deltaSec = Math.floor((now.getTime() - ms) / 1000);
   if (deltaSec < 60) return "just now";
+  // C4 R2 fix: gate the relative bucket on raw deltaSec (not floored
+  // days). Brief §8 defines >7 days → "on <Mon D>". An alert 7 days
+  // + 1 second old must already render the absolute form. The
+  // previous `days <= 7` predicate kept "7 days ago" for almost a
+  // full extra day because Math.floor stripped the overflow seconds.
+  if (deltaSec > SEVEN_DAYS_SEC) {
+    const d = new Date(ms);
+    return `on ${MONTH_ABBR[d.getUTCMonth()]} ${d.getUTCDate()}`;
+  }
   const minutes = Math.floor(deltaSec / 60);
   if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
   const days = Math.floor(hours / 24);
-  if (days <= 7) return `${days} ${days === 1 ? "day" : "days"} ago`;
-  // > 7 days — absolute "on Mon D" using UTC for cross-server stability.
-  const d = new Date(ms);
-  return `on ${MONTH_ABBR[d.getUTCMonth()]} ${d.getUTCDate()}`;
+  return `${days} ${days === 1 ? "day" : "days"} ago`;
 }

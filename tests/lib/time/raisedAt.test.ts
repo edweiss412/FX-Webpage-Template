@@ -70,6 +70,16 @@ describe("raisedAtSuffix", () => {
     expect(raisedAtSuffix(isoDaysAgo(31), now)).toBe("on Apr 14");
   });
 
+  it("C4 R2: 7-day boundary — exactly 7d renders relative, 7d+1s renders absolute", () => {
+    // Brief §8: >7 days → "on <Mon D>". Exactly 7d is the last bucket
+    // boundary for the relative form; 7d + 1 second must already be
+    // absolute. Pre-fix code (`days <= 7` after Math.floor) kept the
+    // relative bucket for almost a full extra day.
+    expect(raisedAtSuffix(isoDaysAgo(7), now)).toBe("7 days ago");
+    const sevenDaysOneSec = new Date(now.getTime() - (7 * 24 * 60 * 60 + 1) * 1000).toISOString();
+    expect(raisedAtSuffix(sevenDaysOneSec, now)).toMatch(/^on /);
+  });
+
   it("'on <Mon D>' uses UTC for stable cross-server output", () => {
     // Same-day-different-zone: a US/Pacific noon ISO would be Apr 15
     // 19:00 UTC. From now=May 15 12:00 UTC, that's 30 days ago.

@@ -41,6 +41,14 @@ type AlertRow = {
   /** Test fixture optional — defaults to null in setRows. Real row is required. */
   context?: Record<string, unknown> | null;
   shows: { slug: string } | null;
+  /**
+   * C4 R2 fix: model `resolved_at` so the mock can prove the production
+   * `.is("resolved_at", null)` filter is load-bearing. Defaults to `null`
+   * in setRows() (i.e., unresolved). Set to an ISO string to mark the row
+   * resolved — it must be excluded from BOTH the data SELECT and the
+   * count probe.
+   */
+  resolved_at?: string | null;
 };
 const mockState = vi.hoisted(() => ({
   rows: [] as Array<{
@@ -50,6 +58,7 @@ const mockState = vi.hoisted(() => ({
     show_id: string | null;
     context: Record<string, unknown> | null;
     shows: { slug: string } | null;
+    resolved_at: string | null;
   }>,
 }));
 
@@ -70,7 +79,10 @@ vi.mock("@/lib/supabase/server", () => {
       // `from()` returns a fresh builder per call so the count probe's
       // filters don't leak into the data probe (and vice versa).
       function createBuilder() {
-        const filters: Array<{ kind: "not_in"; column: string; values: string[] }> = [];
+        const filters: Array<
+          | { kind: "not_in"; column: string; values: string[] }
+          | { kind: "is"; column: string; value: null | boolean }
+        > = [];
         let countMode = false;
         const apply = () => {
           let rows: typeof mockState.rows = mockState.rows;
@@ -79,6 +91,16 @@ vi.mock("@/lib/supabase/server", () => {
               rows = rows.filter((row) => {
                 const cell = (row as unknown as Record<string, unknown>)[f.column];
                 return typeof cell === "string" ? !f.values.includes(cell) : true;
+              });
+            } else if (f.kind === "is") {
+              // C4 R2 fix: honor `.is(column, null)` so the
+              // production `resolved_at IS NULL` filter is load-bearing
+              // in tests. Without this, dropping the .is() call from
+              // either the data SELECT or count probe would still pass.
+              rows = rows.filter((row) => {
+                const cell = (row as unknown as Record<string, unknown>)[f.column];
+                if (f.value === null) return cell === null;
+                return cell === f.value;
               });
             }
           }
@@ -92,7 +114,10 @@ vi.mock("@/lib/supabase/server", () => {
             if (options?.count === "exact" && options.head === true) countMode = true;
             return builder;
           },
-          is: () => builder,
+          is: (column: string, value: null | boolean) => {
+            filters.push({ kind: "is", column, value });
+            return builder;
+          },
           not: (column: string, op: string, valueList: string) => {
             if (op === "in") {
               const inner = valueList.replace(/^\(/, "").replace(/\)$/, "");
@@ -134,7 +159,7 @@ function setRows(rows: AlertRow[]) {
   // production AlertBanner SELECT shape ({ context: Record<string, unknown>
   // | null } is required on the production row).
   mockState.rows = [...rows]
-    .map((r) => ({ ...r, context: r.context ?? null }))
+    .map((r) => ({ ...r, context: r.context ?? null, resolved_at: r.resolved_at ?? null }))
     .sort((a, b) => new Date(b.raised_at).getTime() - new Date(a.raised_at).getTime());
 }
 
@@ -445,6 +470,45 @@ describe("AlertBanner", () => {
     expect(chip.textContent?.trim()).toBe("+3 more ▸");
     // ARIA label for screen readers per brief §5.3.
     expect(chip.getAttribute("aria-label")).toBe("View 3 more unresolved alerts");
+  });
+
+  test("M9 C4 R2: resolved rows are excluded from BOTH top-alert SELECT and queue-depth count", async () => {
+    // Brief §5.3 + AGENTS.md invariant: production filter is
+    // `resolved_at IS NULL` on both chains. This test pins it: a
+    // fixture with two unresolved rows + one resolved row must render
+    // the top unresolved row and a "+1 more ▸" chip (NOT "+2 more ▸").
+    setRows([
+      {
+        id: "unresolved-top",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-15T10:00:00Z",
+        show_id: null,
+        shows: null,
+        // resolved_at omitted → null (unresolved)
+      },
+      {
+        id: "unresolved-queued",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-15T09:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+      {
+        id: "RESOLVED-row",
+        code: "GITHUB_BOT_LOGIN_MISSING",
+        raised_at: "2026-05-15T11:00:00Z", // newest, but RESOLVED — must be hidden
+        show_id: null,
+        shows: null,
+        resolved_at: "2026-05-15T11:30:00Z",
+      },
+    ]);
+    const { getByTestId } = render(await AlertBanner());
+    const banner = getByTestId("admin-alert-banner");
+    // Top row is the newest UNRESOLVED, not the (newer) resolved row.
+    expect(banner.getAttribute("data-alert-id")).toBe("unresolved-top");
+    // Queue chip = unresolved count - 1 = 1 (NOT 2; the resolved row is excluded).
+    const chip = getByTestId("admin-alert-queue-chip");
+    expect(chip.textContent?.trim()).toBe("+1 more ▸");
   });
 
   test("M9 C4 / M5-D3: queue chip absent when only 1 unresolved alert", async () => {
