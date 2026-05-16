@@ -75,6 +75,11 @@ const AUDITED_PATHS = [
   "lib/auth/validateGoogleIdentity.ts",
   "lib/auth/validateGoogleSession.ts",
   "lib/data/listShowsForCrew.ts",
+  // M9 C9 / M2-D1 — runtime-mutable admin allow-list. Email is the
+  // primary key on public.admin_emails; every add/revoke surface MUST
+  // route through canonicalize() at exactly one boundary.
+  "lib/data/adminEmails.ts",
+  "app/admin/settings/admins/actions.ts",
   ...collectSourceFiles("lib/drive"),
   ...collectSourceFiles("lib/sync"),
 ];

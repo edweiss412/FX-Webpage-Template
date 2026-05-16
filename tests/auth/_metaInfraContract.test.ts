@@ -314,4 +314,42 @@ describe("META infra-failure contract", () => {
       await expect(requireAdmin()).rejects.toBeInstanceOf(AdminInfraError);
     });
   });
+
+  // M9 C9 / M2-D1 — runtime-mutable admin allow-list. Every helper in
+  // lib/data/adminEmails.ts is auth-surface mutation; infra faults
+  // (network, RLS denial, mis-applied migration) MUST surface as
+  // AdminEmailsInfraError so the caller can render a 500-class admin
+  // alert instead of silently treating the failure as an empty list
+  // or "already an admin" benign case.
+  describe("lib/data/adminEmails", () => {
+    test("listAdminEmails: server-client construction throw → AdminEmailsInfraError", async () => {
+      infraMock.throwOnConstruct = true;
+      const { listAdminEmails, AdminEmailsInfraError } = await import(
+        "@/lib/data/adminEmails"
+      );
+      await expect(listAdminEmails()).rejects.toBeInstanceOf(AdminEmailsInfraError);
+    });
+
+    test("addAdminEmail: from() throw → AdminEmailsInfraError", async () => {
+      infraMock.throwOnFrom = true;
+      const { addAdminEmail, AdminEmailsInfraError } = await import("@/lib/data/adminEmails");
+      await expect(
+        addAdminEmail({ rawEmail: "infra-test@example.com", addedBy: null }),
+      ).rejects.toBeInstanceOf(AdminEmailsInfraError);
+    });
+
+    test("revokeAdminEmail: from() throw → AdminEmailsInfraError", async () => {
+      infraMock.throwOnFrom = true;
+      const { revokeAdminEmail, AdminEmailsInfraError } = await import(
+        "@/lib/data/adminEmails"
+      );
+      await expect(
+        revokeAdminEmail({
+          rawEmail: "infra-test@example.com",
+          revokedBy: "u-actor",
+          actorCanonicalEmail: "actor@example.com",
+        }),
+      ).rejects.toBeInstanceOf(AdminEmailsInfraError);
+    });
+  });
 });

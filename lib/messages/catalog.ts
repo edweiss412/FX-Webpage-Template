@@ -241,6 +241,42 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "Admin-only endpoints return this when the request does not carry a valid admin session.",
   },
+  // M9 C9 / M2-D1 — admin allow-list runtime-mutable. Catalog rows for
+  // the /admin/settings/admins surface (per amendment §5.8 + brief §8).
+  LAST_ADMIN_LOCKOUT_REFUSED: {
+    code: "LAST_ADMIN_LOCKOUT_REFUSED",
+    dougFacing:
+      "You can't revoke the last administrator. Add another admin first, then revoke this one.",
+    crewFacing: null,
+    followUp: "Doug -> add another admin first",
+    helpfulContext:
+      "Self-revoke of the only active administrator is refused at the Server Action layer to prevent admin lockout. Other-revoke (rogue admin revoking peers) is by-design allowed; see the spec amendment §5.5 + §11 anti-goal.",
+  },
+  ADMIN_EMAIL_INVALID: {
+    code: "ADMIN_EMAIL_INVALID",
+    dougFacing: "Enter a valid email address.",
+    crewFacing: null,
+    followUp: "Doug -> retype the email",
+    helpfulContext:
+      "The submitted email failed canonicalization or HTML5 type=email validation.",
+  },
+  ADMIN_EMAIL_ALREADY_ACTIVE: {
+    code: "ADMIN_EMAIL_ALREADY_ACTIVE",
+    dougFacing: "<email> is already an administrator.",
+    crewFacing: null,
+    followUp: null,
+    helpfulContext:
+      "Idempotent re-add of an already-active admin email. Not a destructive condition; the row is unchanged.",
+  },
+  ADMIN_EMAIL_RE_ADD_PROMPT: {
+    code: "ADMIN_EMAIL_RE_ADD_PROMPT",
+    dougFacing:
+      "<email> was previously revoked. Re-add this email to restore admin access?",
+    crewFacing: null,
+    followUp: "Doug -> confirm re-add or cancel",
+    helpfulContext:
+      "The submitted email matches a row with revoked_at set. UI surfaces this as a confirmation prompt; submitting the same form with confirm_re_add=true re-activates the row per amendment §5.4.",
+  },
   APPLY_STATUS_NOT_FOUND: {
     code: "APPLY_STATUS_NOT_FOUND",
     dougFacing:
