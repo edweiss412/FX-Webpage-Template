@@ -4,16 +4,23 @@
  * Typed query helpers for `public.admin_emails`. Every helper:
  *   - Destructures `{ data, error }` from Supabase calls (AGENTS.md
  *     invariant 9 — call-boundary discipline).
- *   - Surfaces infra faults as a typed `AdminEmailsInfraError` so
- *     callers can distinguish RLS denial from network failure from
- *     business-logic refusal.
+ *   - Surfaces infra faults as a typed `AdminEmailsInfraError`.
  *   - Canonicalizes email at the boundary via `lib/email/canonicalize.ts`
- *     (AGENTS.md invariant 3) BEFORE the DB INSERT/UPDATE/SELECT.
+ *     (AGENTS.md invariant 3). The DB-side RPCs ALSO canonicalize
+ *     defense-in-depth so a slip-through still hits a canonical key.
  *
- * Read-only helpers run via the cookie-bound server client; the RLS
- * `admin_only` policy gates them. Server Actions invoke these from the
- * `/admin/settings/admins` page where the layout's `requireAdmin()` has
- * already authorized the request.
+ * R1 fix (HIGH + MEDIUM): write paths now delegate to two Postgres
+ * RPCs that own the atomic logic under a shared advisory lock —
+ * `public.upsert_admin_email_rpc` and `public.revoke_admin_email_rpc`.
+ * Previously, addAdminEmail / revokeAdminEmail were read-then-write
+ * chains race-prone to concurrent operator clicks, and the upsert
+ * branch surfaced unique-violation conflicts as infra errors instead
+ * of the documented `already_active` branch. The RPCs return a
+ * discriminated jsonb result this module translates to
+ * AdminEmailWriteOutcome.
+ *
+ * Read-only listAdminEmails stays as a direct .select() — RLS gates
+ * it and zero rows is a legitimate non-admin steady-state.
  */
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -43,7 +50,7 @@ export type AdminEmailRow = {
 
 /** Discriminated outcome for write paths. */
 export type AdminEmailWriteOutcome =
-  | { kind: "ok"; row: AdminEmailRow }
+  | { kind: "ok"; row: AdminEmailRow | null }
   | { kind: "already_active"; email: string }
   | { kind: "re_add_required"; email: string; previously_revoked_at: string }
   | { kind: "last_admin_lockout"; email: string }
@@ -52,54 +59,27 @@ export type AdminEmailWriteOutcome =
 /**
  * List all admin_emails rows the caller is authorized to read.
  * RLS gates this — non-admins get an empty array.
- *
- * Both arms wrapped in try/catch: a synchronous throw from
- * createSupabaseServerClient() (missing env, broken cookie store) OR
- * from the .from() call chain (per AGENTS.md invariant 9 meta-test
- * registry) MUST surface as AdminEmailsInfraError so the caller can
- * render a 500-class admin alert instead of an empty list.
  */
 export async function listAdminEmails(): Promise<AdminEmailRow[]> {
-  let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
-  try {
-    supabase = await createSupabaseServerClient();
-  } catch (err) {
-    throw new AdminEmailsInfraError(
-      `listAdminEmails: server client construction failed: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-  }
-  let result: { data: unknown; error: { message: string } | null };
-  try {
-    result = await supabase
+  return wrapInfra("listAdminEmails", async () => {
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase
       .from("admin_emails")
       .select("email, added_by, added_at, revoked_by, revoked_at, note")
       .order("revoked_at", { ascending: true, nullsFirst: true })
       .order("added_at", { ascending: false });
-  } catch (err) {
-    throw new AdminEmailsInfraError(
-      `listAdminEmails: from threw: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  if (result.error) {
-    throw new AdminEmailsInfraError(`listAdminEmails: ${result.error.message}`);
-  }
-  // The RLS-gated SELECT can legitimately return zero rows for non-admins.
-  // Empty array is the steady-state "no rows" signal, NOT an infra fault.
-  return (result.data ?? []) as AdminEmailRow[];
+    if (error) {
+      throw new AdminEmailsInfraError(`listAdminEmails: ${error.message}`);
+    }
+    return (data ?? []) as AdminEmailRow[];
+  });
 }
 
 /**
- * Add a new active admin row, or re-add a revoked one.
- * - If the email is already active: returns `{ kind: 'already_active' }`.
- * - If the email exists but is revoked: returns
- *   `{ kind: 're_add_required', previously_revoked_at }` UNLESS
- *   `confirmReAdd` is true, in which case the revoked row is reactivated.
- * - If the email is new: inserts a fresh active row.
- *
- * Canonicalizes `rawEmail` before any DB call. Empty / whitespace
- * input returns `{ kind: 'invalid_email' }` without touching the DB.
+ * Add a new active admin row, or re-add a revoked one. Delegates to
+ * `public.upsert_admin_email_rpc` so the lookup + insert/update happen
+ * atomically under an advisory lock — concurrent retries of the same
+ * email cannot collide on the unique constraint.
  */
 export async function addAdminEmail(opts: {
   rawEmail: string;
@@ -110,96 +90,25 @@ export async function addAdminEmail(opts: {
   const email = canonicalize(opts.rawEmail);
   if (email === null) return { kind: "invalid_email", raw: opts.rawEmail };
 
-  return wrapInfra("addAdminEmail", () => addAdminEmailInner(opts, email));
-}
-
-async function addAdminEmailInner(
-  opts: {
-    rawEmail: string;
-    addedBy: string | null;
-    note?: string | null;
-    confirmReAdd?: boolean;
-  },
-  email: string,
-): Promise<AdminEmailWriteOutcome> {
-  const supabase = await createSupabaseServerClient();
-
-  // Check existing row first — this gates the re-add prompt (UI needs
-  // the previously_revoked_at to render the "<email> was revoked X
-  // days ago" copy). Single SELECT keeps the round-trip count minimal.
-  const { data: existing, error: existingError } = await supabase
-    .from("admin_emails")
-    .select("email, added_by, added_at, revoked_by, revoked_at, note")
-    .eq("email", email)
-    .maybeSingle();
-  if (existingError) {
-    throw new AdminEmailsInfraError(`addAdminEmail.lookup: ${existingError.message}`);
-  }
-
-  if (existing) {
-    const row = existing as AdminEmailRow;
-    if (row.revoked_at === null) {
-      return { kind: "already_active", email };
+  return wrapInfra("addAdminEmail", async () => {
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase.rpc("upsert_admin_email_rpc", {
+      p_email: email,
+      p_added_by: opts.addedBy,
+      p_note: opts.note ?? null,
+      p_confirm_re_add: opts.confirmReAdd ?? false,
+    });
+    if (error) {
+      throw new AdminEmailsInfraError(`addAdminEmail.rpc: ${error.message}`);
     }
-    // Revoked row exists. Without explicit confirmation, surface the
-    // re-add prompt; the UI displays "previously revoked X days ago"
-    // and re-submits with confirmReAdd=true.
-    if (!opts.confirmReAdd) {
-      return {
-        kind: "re_add_required",
-        email,
-        previously_revoked_at: row.revoked_at,
-      };
-    }
-    // Re-add: clear revoked_*, refresh added_*, replace note. Single
-    // UPDATE with a guard on revoked_at IS NOT NULL so a concurrent
-    // reactivation can't double-flip.
-    const { data: updated, error: updateError } = await supabase
-      .from("admin_emails")
-      .update({
-        revoked_at: null,
-        revoked_by: null,
-        added_at: new Date().toISOString(),
-        added_by: opts.addedBy,
-        note: opts.note ?? null,
-      })
-      .eq("email", email)
-      .not("revoked_at", "is", null)
-      .select("email, added_by, added_at, revoked_by, revoked_at, note")
-      .single();
-    if (updateError) {
-      throw new AdminEmailsInfraError(`addAdminEmail.reactivate: ${updateError.message}`);
-    }
-    return { kind: "ok", row: updated as AdminEmailRow };
-  }
-
-  // Fresh INSERT.
-  const { data: inserted, error: insertError } = await supabase
-    .from("admin_emails")
-    .insert({
-      email,
-      added_by: opts.addedBy,
-      added_at: new Date().toISOString(),
-      note: opts.note ?? null,
-    })
-    .select("email, added_by, added_at, revoked_by, revoked_at, note")
-    .single();
-  if (insertError) {
-    throw new AdminEmailsInfraError(`addAdminEmail.insert: ${insertError.message}`);
-  }
-  return { kind: "ok", row: inserted as AdminEmailRow };
+    return translateUpsertResult(data, email, opts.rawEmail);
+  });
 }
 
 /**
- * Revoke an active admin row. Sets `revoked_at = now()` + `revoked_by`.
- *
- * Last-admin-lockout: if the actor is revoking THEMSELVES AND no other
- * active rows exist, returns `{ kind: 'last_admin_lockout' }`. Caller
- * (Server Action) maps to `LAST_ADMIN_LOCKOUT_REFUSED` catalog code.
- *
- * Other-revoke (rogue admin revoking peers, including the last seed
- * admin while leaving themselves active) is by-design allowed; see
- * amendment §5.5 + §11 anti-goal.
+ * Revoke an active admin row. Delegates to
+ * `public.revoke_admin_email_rpc` so the count-then-update happens
+ * atomically — two concurrent self-revokes cannot both proceed.
  */
 export async function revokeAdminEmail(opts: {
   rawEmail: string;
@@ -209,68 +118,82 @@ export async function revokeAdminEmail(opts: {
   const email = canonicalize(opts.rawEmail);
   if (email === null) return { kind: "invalid_email", raw: opts.rawEmail };
 
-  return wrapInfra("revokeAdminEmail", () => revokeAdminEmailInner(opts, email));
+  return wrapInfra("revokeAdminEmail", async () => {
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase.rpc("revoke_admin_email_rpc", {
+      p_email: email,
+      p_revoked_by: opts.revokedBy,
+      p_actor_email: opts.actorCanonicalEmail,
+    });
+    if (error) {
+      throw new AdminEmailsInfraError(`revokeAdminEmail.rpc: ${error.message}`);
+    }
+    return translateRevokeResult(data, email, opts.rawEmail);
+  });
 }
 
-async function revokeAdminEmailInner(
-  opts: { rawEmail: string; revokedBy: string; actorCanonicalEmail: string },
-  email: string,
-): Promise<AdminEmailWriteOutcome> {
-  const supabase = await createSupabaseServerClient();
+// ---- private translation helpers ----------------------------------------
 
-  // Last-admin-lockout check: if the actor is revoking themselves AND
-  // no other active rows exist, refuse before mutating.
-  if (email === opts.actorCanonicalEmail) {
-    const { count: otherActiveCount, error: countError } = await supabase
-      .from("admin_emails")
-      .select("email", { count: "exact", head: true })
-      .is("revoked_at", null)
-      .neq("email", email);
-    if (countError) {
-      throw new AdminEmailsInfraError(`revokeAdminEmail.lockout_check: ${countError.message}`);
-    }
-    if ((otherActiveCount ?? 0) === 0) {
-      return { kind: "last_admin_lockout", email };
-    }
-  }
+type RpcEnvelope = {
+  status: "ok" | "already_active" | "re_add_required" | "last_admin_lockout" | "invalid_email";
+  email?: string;
+  previously_revoked_at?: string;
+  row?: AdminEmailRow | null;
+};
 
-  // Guarded UPDATE — only flip rows still active. Idempotent on
-  // re-submit (zero rows updated → still success outcome below if the
-  // row is now revoked; we re-SELECT to confirm).
-  const { data: updated, error: updateError } = await supabase
-    .from("admin_emails")
-    .update({
-      revoked_at: new Date().toISOString(),
-      revoked_by: opts.revokedBy,
-    })
-    .eq("email", email)
-    .is("revoked_at", null)
-    .select("email, added_by, added_at, revoked_by, revoked_at, note")
-    .maybeSingle();
-  if (updateError) {
-    throw new AdminEmailsInfraError(`revokeAdminEmail.update: ${updateError.message}`);
+function translateUpsertResult(
+  data: unknown,
+  canonicalEmail: string,
+  rawEmail: string,
+): AdminEmailWriteOutcome {
+  const env = data as RpcEnvelope | null;
+  if (!env || typeof env.status !== "string") {
+    throw new AdminEmailsInfraError(
+      `addAdminEmail: malformed RPC envelope: ${JSON.stringify(data)}`,
+    );
   }
-  if (!updated) {
-    // No active row matched — either already revoked or never existed.
-    // Either way, the post-condition (email is not an active admin) is
-    // satisfied. Re-SELECT to return the current row state.
-    const { data: current, error: currentError } = await supabase
-      .from("admin_emails")
-      .select("email, added_by, added_at, revoked_by, revoked_at, note")
-      .eq("email", email)
-      .maybeSingle();
-    if (currentError) {
-      throw new AdminEmailsInfraError(`revokeAdminEmail.confirm: ${currentError.message}`);
-    }
-    if (!current) {
-      // Email never existed — treat as already-not-an-admin.
-      return { kind: "already_active", email }; // mis-named; caller
-      // doesn't distinguish the never-existed case; brief §6.4 only
-      // surfaces RE_ADD prompt on revoked rows.
-    }
-    return { kind: "ok", row: current as AdminEmailRow };
+  switch (env.status) {
+    case "ok":
+      return { kind: "ok", row: env.row ?? null };
+    case "already_active":
+      return { kind: "already_active", email: env.email ?? canonicalEmail };
+    case "re_add_required":
+      return {
+        kind: "re_add_required",
+        email: env.email ?? canonicalEmail,
+        previously_revoked_at: env.previously_revoked_at ?? "",
+      };
+    case "invalid_email":
+      return { kind: "invalid_email", raw: rawEmail };
+    case "last_admin_lockout":
+      // Not produced by upsert RPC; defensive switch arm.
+      return { kind: "last_admin_lockout", email: env.email ?? canonicalEmail };
   }
-  return { kind: "ok", row: updated as AdminEmailRow };
+}
+
+function translateRevokeResult(
+  data: unknown,
+  canonicalEmail: string,
+  rawEmail: string,
+): AdminEmailWriteOutcome {
+  const env = data as RpcEnvelope | null;
+  if (!env || typeof env.status !== "string") {
+    throw new AdminEmailsInfraError(
+      `revokeAdminEmail: malformed RPC envelope: ${JSON.stringify(data)}`,
+    );
+  }
+  switch (env.status) {
+    case "ok":
+      return { kind: "ok", row: env.row ?? null };
+    case "last_admin_lockout":
+      return { kind: "last_admin_lockout", email: env.email ?? canonicalEmail };
+    case "invalid_email":
+      return { kind: "invalid_email", raw: rawEmail };
+    case "already_active":
+    case "re_add_required":
+      // Not produced by revoke RPC; defensive switch arms.
+      return { kind: "ok", row: null };
+  }
 }
 
 /**
