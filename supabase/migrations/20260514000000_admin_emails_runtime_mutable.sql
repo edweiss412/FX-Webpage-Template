@@ -60,6 +60,19 @@ alter table public.admin_emails
     or (revoked_at is not null and revoked_by is not null)
   );
 
+-- R6 fix: email-shape CHECK. Pre-R6 the table only enforced
+-- canonicalization (lower(trim())); a non-email string like "x" or
+-- "/" was allowed. A bogus active row would defeat the last-admin
+-- lockout predicate (it counts as an "other active admin" and lets
+-- the real email-based admin self-revoke into nothing). Regex is
+-- pragmatic local@domain.tld — not RFC 5322, just enough to reject
+-- obvious garbage. Idempotent via DROP IF EXISTS + ADD.
+alter table public.admin_emails
+  drop constraint if exists admin_emails_email_shape;
+alter table public.admin_emails
+  add constraint admin_emails_email_shape
+  check (email ~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$');
+
 -- 2. RLS on admin_emails -----------------------------------------------------
 -- The admin_only policy gates SELECT/INSERT/UPDATE/DELETE on
 -- public.is_admin(). Recursion is broken by the SECURITY DEFINER on
@@ -173,10 +186,15 @@ begin
   v_actor_uid := auth.uid();
 
   -- Canonicalize at the boundary (defense-in-depth alongside the
-  -- application-side canonicalize() call). Empty / whitespace-only
-  -- input is the only branch this guards against.
+  -- application-side canonicalize() call). R6 fix: also validate
+  -- email shape so non-email strings (e.g., "x", "/") can't land in
+  -- the table and inflate the last-admin-lockout active count. The
+  -- regex matches local@domain.tld pragmatically — same shape as
+  -- the table's admin_emails_email_shape CHECK so the rejection is
+  -- consistent at both layers.
   v_canonical := lower(btrim(coalesce(p_email, '')));
-  if length(v_canonical) = 0 then
+  if length(v_canonical) = 0
+     or v_canonical !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then
     return jsonb_build_object('status', 'invalid_email');
   end if;
 

@@ -170,6 +170,50 @@ describe("public.admin_emails table + replacement is_admin() (M9 C9 / M2-D1)", (
     ).toThrow(/admin_emails_revoke_atomicity|check constraint/i);
   });
 
+  test("R6 fix: CHECK rejects non-email strings (no @ + domain shape)", () => {
+    for (const bogus of ["x", "/", "no-at-sign", "@no-local.com", "x@y"]) {
+      expect(() =>
+        runPsql(`
+          begin;
+          insert into public.admin_emails (email, added_by, added_at)
+          values ('${bogus.replaceAll("'", "''")}', null, now());
+          rollback;
+        `),
+      ).toThrow(/admin_emails_email_shape|check constraint/i);
+    }
+  });
+
+  test("R6 fix: upsert RPC returns invalid_email for non-email strings (not check_violation)", () => {
+    const out = runPsql(`
+      begin;
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin()}';
+      select 'status_x=' || ((public.upsert_admin_email_rpc('x', null, false))->>'status');
+      select 'status_noat=' || ((public.upsert_admin_email_rpc('no-at-sign', null, false))->>'status');
+      select 'status_emptylocal=' || ((public.upsert_admin_email_rpc('@example.com', null, false))->>'status');
+      rollback;
+    `);
+    expect(out).toContain("status_x=invalid_email");
+    expect(out).toContain("status_noat=invalid_email");
+    expect(out).toContain("status_emptylocal=invalid_email");
+  });
+
+  test("R6 fix: lockout count cannot be inflated by non-email rows", () => {
+    // Pre-R6: a forged INSERT of a non-email string would land an
+    // "active" row; the self-revoke predicate would count it and let
+    // the only real admin self-revoke into a non-functional state.
+    // Post-R6: the CHECK rejects the forged INSERT outright AND the
+    // RPC returns invalid_email — neither path can inflate the count.
+    expect(() =>
+      runPsql(`
+        begin;
+        insert into public.admin_emails (email, added_by, added_at)
+        values ('bogus', null, now());
+        rollback;
+      `),
+    ).toThrow(/admin_emails_email_shape|check constraint/i);
+  });
+
   test("R1 fix: CHECK rejects revoked_by without revoked_at (tightened atomicity)", () => {
     expect(() =>
       runPsql(`
