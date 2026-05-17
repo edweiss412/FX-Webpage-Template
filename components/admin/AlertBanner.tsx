@@ -185,7 +185,7 @@ export async function AlertBanner() {
         {moreCount > 0 && (
           <Link
             data-testid="admin-alert-queue-chip"
-            href="/admin/dev#alerts"
+            href="/admin#alerts"
             aria-label={`View ${moreCount} more unresolved alerts`}
             className="inline-flex min-h-tap-min items-center px-3 py-2 text-xs text-text-subtle underline-offset-2 hover:text-accent-on-bg hover:underline"
           >

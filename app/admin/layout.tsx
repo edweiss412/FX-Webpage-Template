@@ -59,7 +59,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
             {entry.dougFacing ?? entry.crewFacing ?? "Please try again in a moment."}
           </p>
           <a
-            href="/admin/dev"
+            href="/admin"
             className="mt-section-gap inline-flex min-h-tap-min items-center px-4 py-2 text-base text-text-strong underline underline-offset-2"
           >
             Try again

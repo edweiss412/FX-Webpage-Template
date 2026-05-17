@@ -329,22 +329,30 @@ This is the same class of bug tracked upstream:
 
 **Source:** M9 C4 R3 adversarial review (Codex), 2026-05-15 — MEDIUM finding from APPROVE verdict.
 
-### M9-D-dead-admin-href — Sweep `/admin` dead-href class — **RESOLVED 2026-05-17 via M9 final-review R12 + R13**
+### M9-D-dead-admin-href — Sweep `/admin` dead-href class — **RESOLVED 2026-05-17 via M9 final-review R12 + R13 + R14 + R15**
 
-**Status:** **Resolved.** R12 + R13 identified that `href="/admin"` 404s because the route tree has no `app/admin/page.tsx`. Three files contained the dead-link class:
+**Status:** **Resolved.** Four review rounds converged the dead-href class:
+- R12/R13 caught that `href="/admin"` 404'd because the route tree had no `app/admin/page.tsx` — retargeted all UI links to `/admin/dev`.
+- R14 caught the same class in the auth-redirect default `DEFAULT_AUTH_NEXT_PATH = "/admin"` and `ALLOWED_NEXT_RE` — retargeted to `/admin/dev`.
+- **R15** caught that `/admin/dev` is itself build-gated out of production via `scripts/with-admin-dev-flag.mjs` (ADMIN_DEV_PANEL_ENABLED env var unset = `/admin/dev/page.tsx` renamed away). The `/admin/dev` fallback would 404 in prod the same way `/admin` did before.
 
-| File | Source | Fix |
+**R15 final resolution:**
+- Created `app/admin/page.tsx` — an always-built admin landing page with links to available admin sub-pages (Administrators settings + Dev parse panel when ADMIN_DEV_PANEL_ENABLED). Section anchored as `id="alerts"` so the AlertBanner queue chip's `#alerts` fragment lands meaningfully (the layout's AlertBanner renders above this).
+- All four UI links + DEFAULT_AUTH_NEXT_PATH + ALLOWED_NEXT_RE restored to `/admin`.
+
+| File | Source | Final R15 Fix |
 |---|---|---|
-| `app/admin/settings/admins/error.tsx:88` | R11 added (M9 final-review) | R12 retargeted to `/admin/dev` |
-| `components/admin/AlertBanner.tsx:188` | M9 C4 commit `eaf9fe9` | R13 retargeted to `/admin/dev#alerts` |
-| `app/admin/layout.tsx:62` | pre-M9 (commit `1a777ea`) | R13 retargeted to `/admin/dev` (hygiene cleanup; out of strict M9 scope but same bug class) |
-| `app/admin/show/[slug]/page.tsx:130` | pre-M9 (commit `098b820`) | R13 retargeted to `/admin/dev` (hygiene cleanup) |
+| `app/admin/settings/admins/error.tsx:88` | R11 | `/admin` (Back to admin) |
+| `components/admin/AlertBanner.tsx:188` | M9 C4 commit `eaf9fe9` | `/admin#alerts` |
+| `app/admin/layout.tsx:62` | pre-M9 commit `1a777ea` | `/admin` (Try again) |
+| `app/admin/show/[slug]/page.tsx:130` | pre-M9 commit `098b820` | `/admin` (← Admin home) |
+| `lib/auth/validateNextParam.ts:DEFAULT_AUTH_NEXT_PATH` | M5 sign-in flow | `/admin` (production-safe landing now exists) |
 
-**Defense going forward:** route-reachability test gates added in:
-- `tests/components/admins-error-boundary.test.tsx` ("R12 fix: escape Link target exists")
-- `tests/components/AlertBanner.test.tsx` ("R13 fix: queue chip href target exists")
+**Defense going forward:** route-reachability tests in:
+- `tests/components/admins-error-boundary.test.tsx` asserts `app/admin/page.tsx` exists.
+- `tests/components/AlertBanner.test.tsx` asserts `app/admin/page.tsx` exists.
 
-If a future refactor moves `app/admin/dev/page.tsx`, both gates trip before the dead-link reaches production. Future re-introduction of the bug pattern (`/admin` href) on any new surface should be added to its own surface's test file as a route-reachability gate following the same pattern.
+If a future refactor moves `app/admin/page.tsx`, both gates trip before the dead-link reaches production.
 
 ### M9-D-error-tsx-1 — `app/admin/settings/admins/error.tsx` post-R1 impeccable dispositions — **RESOLVED 2026-05-17 via M9 final-review R11**
 

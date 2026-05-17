@@ -74,16 +74,18 @@ describe("admins/error.tsx — M9 final-review fix", () => {
     // 404'd because the route tree has no `app/admin/page.tsx`).
     // /admin/dev is the only /admin/* page that doesn't depend on
     // admin_emails and therefore can't re-fail the same way.
-    expect(back.getAttribute("href")).toBe("/admin/dev");
-    expect(back.textContent?.trim()).toBe("Back to admin dev");
+    // R15: target is /admin (the production-safe landing added in
+    // R15; R12-14 used /admin/dev which is build-gated out of prod).
+    expect(back.getAttribute("href")).toBe("/admin");
+    expect(back.textContent?.trim()).toBe("Back to admin");
   });
 
-  it("R12 fix: escape Link target exists in the route tree (reachability gate)", () => {
-    // Compile-time route-reachability check: assert the file backing
-    // `/admin/dev` exists. If a future refactor moves the page, this
-    // breaks AND the escape Link href would silently 404.
-    const adminDevPage = join(process.cwd(), "app/admin/dev/page.tsx");
-    expect(existsSync(adminDevPage)).toBe(true);
+  it("R15 fix: escape Link target is the production-safe /admin landing", () => {
+    // Compile-time route-reachability check: assert the always-built
+    // landing exists. /admin/dev was build-gated, so R15 added the
+    // unconditional /admin landing at app/admin/page.tsx.
+    const adminLandingPage = join(process.cwd(), "app/admin/page.tsx");
+    expect(existsSync(adminLandingPage)).toBe(true);
   });
 
   it("R11 P2 fix: Retry button starts in idle state with 'Retry' label + not disabled", () => {

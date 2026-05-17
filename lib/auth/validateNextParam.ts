@@ -1,20 +1,19 @@
-// M9 final-review R14 fix: was "/admin" which 404'd because the route
-// tree has no `app/admin/page.tsx`. /admin/dev is the only /admin/*
-// landing that exists and doesn't depend on admin_emails (so a sign-in
-// landing won't re-fail the same way a broken admin_emails route
-// would).
-export const DEFAULT_AUTH_NEXT_PATH = "/admin/dev";
+// M9 final-review R15: target `/admin` (now a real production-safe
+// landing page at app/admin/page.tsx). R14 tried `/admin/dev` but
+// that route is build-gated out of production via
+// scripts/with-admin-dev-flag.mjs — same 404 in prod. The new
+// `/admin` landing is always built and lists the available admin
+// sub-pages.
+export const DEFAULT_AUTH_NEXT_PATH = "/admin";
 
 export type ValidateNextParamOutcome =
   | { ok: true; path: string }
   | { ok: false; path: typeof DEFAULT_AUTH_NEXT_PATH; code: "OAUTH_REDIRECT_INVALID" };
 
-// M9 final-review R14 fix: was `admin(\/.*)?` which accepted bare
-// `/admin` (404). Now require a sub-path under /admin so callers
-// can't redirect to the missing landing route. /me retains its
-// optional-sub-path form because `/me` IS a real route
-// (`app/me/page.tsx`).
-const ALLOWED_NEXT_RE = /^\/(show\/[a-z0-9-]+|admin\/[a-z0-9-]+(\/.*)?|me(\/.*)?)$/;
+// /admin restored to the allowlist after R15 created the landing
+// page. /me retains its optional-sub-path form because `/me` IS a
+// real route (`app/me/page.tsx`).
+const ALLOWED_NEXT_RE = /^\/(show\/[a-z0-9-]+|admin(\/.*)?|me(\/.*)?)$/;
 const BOOTSTRAP_SURFACE_RE = /^\/show\/[a-z0-9-]+\/p$/;
 const CONTROL_CHAR_RE = /[\u0000-\u001f\u007f]/;
 

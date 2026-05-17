@@ -90,7 +90,7 @@ describe("OAuth start route", () => {
     expect(server.client.auth.signInWithOAuth).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
     expect(locationOf(response)).toBe(
-      "https://crew.fxav.test/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin%2Fdev",
+      "https://crew.fxav.test/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin",
     );
   });
 
@@ -171,9 +171,11 @@ describe("OAuth callback route", () => {
     expect(locationOf(response)).toBe("https://crew.fxav.test/me");
   });
 
-  test("admin successful callback with no next keeps the /admin/dev fallback (R14)", async () => {
-    // M9 final-review R14: DEFAULT_AUTH_NEXT_PATH retargeted from
-    // "/admin" (404) to "/admin/dev".
+  test("admin successful callback with no next keeps the /admin fallback (R15)", async () => {
+    // M9 final-review R15: DEFAULT_AUTH_NEXT_PATH stays at "/admin"
+    // (R15 created the production-safe landing at app/admin/page.tsx
+    // so /admin is now a real route). R14's intermediate /admin/dev
+    // fix was reverted because /admin/dev is build-gated out of prod.
     server.client.auth.getUser.mockResolvedValue({
       data: { user: { email: "admin@fxav.test" } },
       error: null,
@@ -184,7 +186,7 @@ describe("OAuth callback route", () => {
     const response = await GET(new NextRequest("https://crew.fxav.test/auth/callback?code=abc"));
 
     expect(response.status).toBe(302);
-    expect(locationOf(response)).toBe("https://crew.fxav.test/admin/dev");
+    expect(locationOf(response)).toBe("https://crew.fxav.test/admin");
   });
 
   test("admin successful callback honors explicit /admin/dev next path", async () => {
@@ -269,7 +271,7 @@ describe("OAuth callback route", () => {
     expect(server.client.auth.exchangeCodeForSession).toHaveBeenCalledWith("abc");
     expect(response.status).toBe(302);
     expect(locationOf(response)).toBe(
-      "https://crew.fxav.test/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin%2Fdev",
+      "https://crew.fxav.test/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin",
     );
   });
 

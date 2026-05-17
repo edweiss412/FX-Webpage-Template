@@ -1,0 +1,87 @@
+/**
+ * app/admin/page.tsx (M9 final-review R15)
+ *
+ * Production-safe `/admin` landing. Pre-R15 the route tree had no
+ * `/admin` page, so every redirect/href that targeted `/admin`
+ * landed on Next's 404. R14 retargeted them all to `/admin/dev`,
+ * but R15 caught that `/admin/dev` is build-gated out of production
+ * via `scripts/with-admin-dev-flag.mjs` — same 404 in prod.
+ *
+ * This page is intentionally minimal: a list of the available admin
+ * surfaces. Doug lands here from sign-in / OAuth callback /
+ * AlertBanner queue chip / error-boundary escape, then picks where
+ * to go. The layout's <AlertBanner /> renders above this (per the
+ * admin layout) so the `#alerts` anchor used by the AlertBanner
+ * queue chip points to the top of the layout where alerts actually
+ * surface.
+ *
+ * Server Component. requireAdmin() at the layout level still gates;
+ * this page assumes the layout's gate has passed.
+ */
+import Link from "next/link";
+
+export const dynamic = "force-dynamic";
+export const metadata = {
+  title: "Admin · FXAV",
+};
+
+const ADMIN_DEV_PANEL_ENABLED = process.env.ADMIN_DEV_PANEL_ENABLED === "true";
+
+type AdminLink = { href: string; label: string; description: string };
+
+const ALWAYS_BUILT_LINKS: AdminLink[] = [
+  {
+    href: "/admin/settings/admins",
+    label: "Administrators",
+    description: "Add or revoke who can view and edit show data.",
+  },
+];
+
+const DEV_LINKS: AdminLink[] = [
+  {
+    href: "/admin/dev",
+    label: "Dev parse panel",
+    description: "Upload a fixture and walk the full parse pipeline (dev builds only).",
+  },
+];
+
+export default function AdminLandingPage() {
+  const links: AdminLink[] = [
+    ...ALWAYS_BUILT_LINKS,
+    ...(ADMIN_DEV_PANEL_ENABLED ? DEV_LINKS : []),
+  ];
+
+  return (
+    <main className="mx-auto max-w-2xl px-tile-pad pb-section-gap">
+      <header className="mb-section-gap">
+        <h1 className="text-xl font-semibold text-text-strong">Admin</h1>
+        <p className="mt-1 text-sm text-text-subtle">
+          Pick where to go. Active alerts surface in the banner above.
+        </p>
+      </header>
+      <section
+        id="alerts"
+        data-testid="admin-landing-sections"
+        aria-label="Admin sections"
+      >
+        <ul className="flex flex-col gap-3">
+          {links.map((link) => (
+            <li
+              key={link.href}
+              className="rounded-md border border-border bg-surface p-tile-pad"
+            >
+              <Link
+                href={link.href}
+                data-testid={`admin-landing-link-${link.href}`}
+                className="text-base font-medium text-accent-on-bg underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              >
+                {link.label}
+              </Link>
+              <p className="mt-1 text-sm text-text-subtle">{link.description}</p>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </main>
+  );
+}

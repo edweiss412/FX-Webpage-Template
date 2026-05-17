@@ -78,18 +78,18 @@ export default function AdminsPageError({
             {isRetrying ? "Retrying…" : "Retry"}
           </button>
           {/* P1 fix: secondary escape so Doug isn't trapped in a
-              retry loop on a persistent failure. Routes to
-              /admin/dev — the only `/admin/*` page that exists and
-              renders successfully without depending on
-              admin_emails (and therefore can't re-fail the same
-              way). R12 caught the original `/admin` Link 404'd
-              because the route tree has no `app/admin/page.tsx`. */}
+              retry loop on a persistent failure. Routes to /admin
+              (the production-safe landing page added in R15;
+              R11/R12/R13/R14 history: R11 targeted /admin which
+              404'd, R12-14 retargeted to /admin/dev which is build-
+              gated out of production, R15 created the always-built
+              /admin landing). */}
           <Link
-            href="/admin/dev"
+            href="/admin"
             data-testid="admin-allowlist-error-back"
             className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-sm font-medium underline-offset-2 hover:underline"
           >
-            Back to admin dev
+            Back to admin
           </Link>
         </div>
       </section>

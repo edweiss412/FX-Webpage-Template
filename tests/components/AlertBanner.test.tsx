@@ -470,19 +470,21 @@ describe("AlertBanner", () => {
     expect(chip.textContent?.trim()).toBe("+3 more ▸");
     // ARIA label for screen readers per brief §5.3.
     expect(chip.getAttribute("aria-label")).toBe("View 3 more unresolved alerts");
-    // M9 final-review R13 fix: chip href targets an EXISTING route.
-    // Originally `/admin#alerts` which 404'd because the route tree
-    // has no `app/admin/page.tsx`. /admin/dev is the closest existing
-    // admin landing.
-    expect(chip.getAttribute("href")).toBe("/admin/dev#alerts");
+    // M9 final-review R15: chip href targets /admin (the
+    // production-safe landing). R13 retargeted to /admin/dev but R15
+    // caught that /admin/dev is build-gated out of prod, so /admin
+    // (which now exists at app/admin/page.tsx, added in R15) is the
+    // always-built target. #alerts anchor scrolls to the layout
+    // AlertBanner that renders above the admin landing.
+    expect(chip.getAttribute("href")).toBe("/admin#alerts");
   });
 
-  test("R13 fix: queue chip href target exists in the route tree (reachability gate)", async () => {
+  test("R15 fix: queue chip href target is the production-safe /admin landing", async () => {
     const { existsSync } = await import("node:fs");
     const { join } = await import("node:path");
-    // Compile-time route-reachability check. Breaks if a future
-    // refactor moves /admin/dev so the chip silently 404s.
-    expect(existsSync(join(process.cwd(), "app/admin/dev/page.tsx"))).toBe(true);
+    // Compile-time route-reachability check. R15 added the always-
+    // built /admin landing at app/admin/page.tsx.
+    expect(existsSync(join(process.cwd(), "app/admin/page.tsx"))).toBe(true);
   });
 
   test("M9 C4 R2: resolved rows are excluded from BOTH top-alert SELECT and queue-depth count", async () => {

@@ -127,7 +127,7 @@ export default async function AdminShowPage({
     <main data-testid="admin-show-page" className="space-y-section-gap">
       <header className="space-y-2">
         <p className="text-sm text-text-subtle">
-          <a href="/admin/dev" className="underline underline-offset-2">
+          <a href="/admin" className="underline underline-offset-2">
             ← Admin home
           </a>
         </p>
