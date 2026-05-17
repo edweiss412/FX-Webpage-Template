@@ -371,12 +371,20 @@ If a future refactor moves `app/admin/page.tsx`, both gates trip before the dead
 
 **Tests:** 7 cases in `tests/components/admins-error-boundary.test.tsx` cover catalog message render, defense-in-depth coverage for unknown throws, Retry wiring, role="alert" contract, the new "Back to admin" Link, the Retry idle-state contract, and the escalation sub-line presence.
 
-### M9-D-9.3-1 — AC-9.2 empty-state reachability e2e spec is `test.describe.skip` pending auth-fixture migration
+### M9-D-9.3-1 — AC-9.2 empty-state reachability e2e spec is `test.describe.skip` pending auth-fixture migration — **RESOLVED 2026-05-17**
+
+**Status:** **Resolved.** Migration shipped in the same session as the deferral. `tests/e2e/empty-state-reachability.spec.ts` is now `test.describe()` (no skip); all 4 §8.3 scenarios pass and have committed screenshot baselines at `tests/e2e/empty-state-reachability.spec.ts-snapshots/`.
+
+**Migration changes:**
+- `tests/e2e/empty-state-reachability.spec.ts`: dropped `test.describe.skip` → `test.describe`. `beforeAll` now creates a per-suite `crew_members` row tied to `NON_ADMIN_CREW_FIXTURE.email` with `role_flags=['LEAD']` so categories 1/2/4 see a LEAD viewer; category 3 stays valid because the test crew is NOT on any seed `hotel_reservations` row. `beforeEach` calls `signInAs(NON_ADMIN_CREW_FIXTURE)` per-test. `afterAll` deletes the crew row + restores show state.
+- Dropped all `?crew=${s.leadCrewId}` query params from `goto()` calls (the retired query-mock); the route resolves crew identity from auth cookies → canonical email → crew_members lookup.
+- Snapshot type pruned to remove `leadCrewId` field (no longer needed).
+- `playwright.config.ts` testMatch regex extended to include `empty-state-reachability` (previously only matched `empty-state.spec.ts` exactly).
+- One DOM contract assertion fixed: the spec's "Doug hasn't filled this in yet" copy was hypothetical; actual `VenueTile.tsx:70` copy is "Venue details haven't been added yet." — corrected.
+
+**Verification:** ran `pnpm test:e2e tests/e2e/empty-state-reachability.spec.ts --project=mobile-safari` twice — first run generated baselines via `--update-snapshots`; second run vs baselines passed 4/4 in 5.6 minutes.
 
 **Source:** M9 final-review R8 (Codex), 2026-05-17 — HIGH finding.
-**Description:** `tests/e2e/empty-state-reachability.spec.ts` (shipped at Task 9.3 commit `f4797cc`) contains four §8.3 scenarios (required-field-missing, optional-field-missing, whole-tile-missing, stale-sync) wrapped in `test.describe.skip()`. The skip is documented inline at lines 32-38: the spec was written against the retired `?crew=<id>` query-param mock that no longer mocks identity (M5 OAuth gate is now authoritative). Activating the spec requires a fixture migration: each scenario needs a signed-in crew fixture user (via the existing `signInAs(NON_ADMIN_CREW_FIXTURE)` helper) + a per-test crew row in `crew_members` tied to that user, with cleanup. The handoff Task 9.3 §A originally specified the screenshot-baseline mechanism; the auth migration was orthogonal scope and not absorbed at close-out.
-**Why deferred (R8 finding accepted as residual, not silently dropped):** The fixture migration is a substantive infrastructure change (per-test signed-in user + per-test crew_members row + per-test cleanup) that affects every e2e test, not just empty-state-reachability. The unit + integration test coverage at lib/visibility/emptyState + per-tile sentinel hiding meta-tests + manual smoke against PRODUCT.md fixtures already validates the visibility logic; the e2e gap is screenshot-baseline + actual-DOM-render reachability. Risk class: regression in tile-emptiness hiding would surface as visible "TBD" / blank-tile-grid in the dev panel before reaching production. Acceptable to ship without the e2e baselines if the unit tests pin the dispatch logic.
-**Suggested home:** Earliest of (a) the next M-task that lands a signed-in-crew e2e fixture for any reason (which would unblock this spec essentially for free), OR (b) a dedicated e2e-fixture-migration milestone, OR (c) when a real-world reachability bug surfaces and forces the issue.
 
 ### M9-D-C9-1 — `/impeccable critique` + `/impeccable audit` dual gate pending on `/admin/settings/admins` UI — **RESOLVED 2026-05-17**
 
