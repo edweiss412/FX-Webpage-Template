@@ -7,13 +7,24 @@
  *   - addAdminAction:   add a new admin OR re-add a revoked one (with
  *                       optional confirm_re_add second-tap).
  *   - revokeAdminAction: revoke an active admin row. Self-revoke of the
- *                        only active admin is refused at this layer
+ *                        only active admin is refused inside the RPC
  *                        (LAST_ADMIN_LOCKOUT_REFUSED catalog code).
  *
  * Defense-in-depth: every action calls requireAdminIdentity() so the
- * caller is always re-authorized, even though the page-level layout
- * has already gated the request. RLS on admin_emails enforces the
- * same gate at the database (admin_only policy from the C9 migration).
+ * caller is always re-authorized at the Server Action boundary. If the
+ * helper throws AdminInfraError (Supabase / cookie store fault), Next
+ * propagates the throw to the catalog 500 surface — actions DO NOT
+ * swallow infra faults into benign action results (AGENTS.md §1.9).
+ *
+ * R3 fix: actor identity is owned by the two SECURITY DEFINER RPCs
+ * (upsert_admin_email_rpc + revoke_admin_email_rpc) — they derive
+ * added_by / revoked_by from auth.uid() and the self-revoke predicate's
+ * actor email from public.auth_email_canonical() at the database
+ * boundary. The Server Action no longer performs a redundant
+ * supabase.auth.getUser() lookup to populate caller-supplied actor
+ * fields (R3 finding: that lookup violated invariant 9 by turning
+ * getUser() errors into either a successful mutation with uid=null
+ * for add, or a misleading "invalid_email" result for revoke).
  *
  * Email canonicalization happens INSIDE lib/data/adminEmails.ts at the
  * single canonicalize() boundary (AGENTS.md §1.3 invariant); these
@@ -24,10 +35,8 @@
 
 import { revalidatePath } from "next/cache";
 
-import { requireAdminIdentity, type AdminIdentity } from "@/lib/auth/requireAdmin";
+import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { addAdminEmail, revokeAdminEmail } from "@/lib/data/adminEmails";
-import { canonicalize } from "@/lib/email/canonicalize";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 /**
  * Discriminated outcome the page reads back through the React 19
@@ -41,31 +50,16 @@ export type AdminEmailActionResult =
   | { kind: "re_add_required"; email: string; previously_revoked_at: string }
   | { kind: "last_admin_lockout"; email: string };
 
-/**
- * Resolve the actor's auth.users row id (UUID) so we can stamp it on
- * added_by / revoked_by. requireAdminIdentity() returns the email
- * only; we look up the uid via supabase.auth.getUser() against the
- * cookie-bound client (the same gate requireAdmin already passed).
- */
-async function getActorUid(): Promise<{ uid: string | null; identity: AdminIdentity }> {
-  const identity = await requireAdminIdentity();
-  const supabase = await createSupabaseServerClient();
-  const { data: userData, error } = await supabase.auth.getUser();
-  if (error) {
-    // Should be unreachable — requireAdminIdentity() succeeded so the
-    // session is valid. Defense in depth: if Supabase returns an error
-    // here we still proceed with uid=null (the columns are nullable).
-    console.error("[admins/actions] getActorUid: getUser failed:", error.message);
-    return { uid: null, identity };
-  }
-  return { uid: userData.user?.id ?? null, identity };
-}
-
 export async function addAdminAction(
   _prev: AdminEmailActionResult | null,
   formData: FormData,
 ): Promise<AdminEmailActionResult> {
-  const { uid } = await getActorUid();
+  // Defense-in-depth admin gate at the Server Action boundary. If the
+  // session is missing or Supabase throws an infra fault, the
+  // AdminInfraError propagates to Next's error boundary (cataloged 500
+  // path) — invariant 9: infra faults are never swallowed into a
+  // benign action result.
+  await requireAdminIdentity();
 
   const rawEmail = formData.get("email");
   const note = formData.get("note");
@@ -75,7 +69,6 @@ export async function addAdminAction(
 
   const outcome = await addAdminEmail({
     rawEmail,
-    addedBy: uid,
     // M9 C9 — store note as-submitted (no inline normalization here so
     // the no-inline-email-normalization meta-test stays clean). Empty
     // string → NULL so the UI's "render only if truthy" branch hides
@@ -110,24 +103,14 @@ export async function revokeAdminAction(
   _prev: AdminEmailActionResult | null,
   formData: FormData,
 ): Promise<AdminEmailActionResult> {
-  const { uid, identity } = await getActorUid();
+  // Defense-in-depth admin gate. AdminInfraError propagates per
+  // invariant 9 (see addAdminAction docstring).
+  await requireAdminIdentity();
 
   const rawEmail = formData.get("email");
   if (typeof rawEmail !== "string") return { kind: "invalid_email" };
-  if (uid === null) {
-    // Defense in depth — revoke without an actor uid would write a
-    // NULL revoked_by which violates revoke_atomicity CHECK. Refuse.
-    console.error("[admins/actions] revoke: actor uid missing despite requireAdmin pass");
-    return { kind: "invalid_email" };
-  }
 
-  const actorCanonicalEmail = canonicalize(identity.email) ?? "";
-
-  const outcome = await revokeAdminEmail({
-    rawEmail,
-    revokedBy: uid,
-    actorCanonicalEmail,
-  });
+  const outcome = await revokeAdminEmail({ rawEmail });
 
   switch (outcome.kind) {
     case "ok":

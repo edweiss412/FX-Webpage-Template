@@ -315,6 +315,23 @@ describe("META infra-failure contract", () => {
     });
   });
 
+  // M9 C9 R3 — requireAdminIdentity is the entry point the
+  // /admin/settings/admins Server Actions use; same infra-fault
+  // discipline as requireAdmin (it shares the underlying gate).
+  describe("requireAdminIdentity", () => {
+    test("server-client construction throw → AdminInfraError", async () => {
+      infraMock.throwOnConstruct = true;
+      const { requireAdminIdentity, AdminInfraError } = await import("@/lib/auth/requireAdmin");
+      await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
+    });
+
+    test("getUser throw → AdminInfraError", async () => {
+      infraMock.throwOnGetUser = true;
+      const { requireAdminIdentity, AdminInfraError } = await import("@/lib/auth/requireAdmin");
+      await expect(requireAdminIdentity()).rejects.toBeInstanceOf(AdminInfraError);
+    });
+  });
+
   // M9 C9 / M2-D1 — runtime-mutable admin allow-list. Every helper in
   // lib/data/adminEmails.ts is auth-surface mutation; infra faults
   // (network, RLS denial, mis-applied migration) MUST surface as
