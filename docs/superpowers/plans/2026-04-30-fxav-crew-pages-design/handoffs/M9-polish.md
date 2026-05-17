@@ -1007,6 +1007,46 @@ After C9.0 + C9.1 + C9.2 + C9.3 commit, run `/impeccable critique` + `/impeccabl
 
 - **Commit `f4797cc`** — `tests/e2e/empty-state-reachability.spec.ts` with 4 scenarios per §8.3 category (required-field-missing, optional-field-missing, whole-tile-missing, stale-sync). Each scenario combines a DOM contract assertion (anti-tautology) with a `toHaveScreenshot` baseline. Spec is `test.describe.skip()` pending the auth-fixture migration tracked in `tests/e2e/empty-state.spec.ts:83-87`; baseline-generation command documented in JSDoc.
 
+## §12 — C9 close-out impeccable findings + dispositions
+
+Run date: 2026-05-17. Target: `app/admin/settings/admins/{page,AddAdminForm,RevokeRowButton,ReAddRowButton}.tsx` (4 files). User-triggered after adversarial review converged at R11.
+
+### Critique (LLM design review + deterministic detector)
+
+Deterministic detector: 0 findings across all 4 files (`npx impeccable --json app/admin/settings/admins/` → `[]`).
+
+LLM review: no AI-slop patterns; tokens consistent; two-tap state machine echoes C4 ResolveAlertButton (reference-implementation consistency); Server Action retains authority on every control; no modal, no gradient text, no glassmorphism, no hero-metric, no identical card grids.
+
+Nielsen heuristics: **30/40 (Solid — ship after P1 fixes)**.
+
+| ID | Severity | Finding | Disposition |
+|----|----------|---------|-------------|
+| P1a | HIGH | Lockout error `max-w-xs text-right text-xs` tucked under disabled Revoke button — easy to miss on Doug's phone. | **FIXED in commit `4e438b0`** — full container-width, left-aligned `text-sm` with `bg-warning-bg text-warning-text` wash for visual anchoring. |
+| P1b | HIGH | No success confirmation after Add (server revalidates silently, peak-end ambiguity). | **FIXED in commit `4e438b0`** — inline `"Added <email>."` success message with `role="status"`; inputs auto-clear via `formRef.reset()` from a useEffect (DOM mutation, not setState — satisfies react-hooks/set-state-in-effect rule). |
+| P2a | MEDIUM | Revoked-row recovery was 3 steps (retype → re_add_required prompt → confirm). | **FIXED in commit `4e438b0`** — new `ReAddRowButton.tsx` client island renders a one-tap "Re-add" on each RevokedRow that submits to addAdminAction with `confirm_re_add=true`. |
+| P2b | MEDIUM | AdminRow meta-line ran-on for seed+actor+note (four facts on one line, awkward phone wrap). | **FIXED in commit `4e438b0`** — "You" promoted to a small pill next to email; "Seed admin" demoted to inline `<em>`; note moved to its own italic line. |
+| P3 | LOW | Re-add Cancel left stale `re_add_required` result behind (retype same email → prompt re-fires without server round-trip). | **FIXED in commit `4e438b0`** — AddAdminForm split into outer + inner; Cancel bumps formKey state; inner form re-mounts; useActionState resets. |
+
+### Audit (5-dimension technical health)
+
+Run on the patched code (post-critique-fixes).
+
+| # | Dimension | Score | Key Finding |
+|---|-----------|-------|-------------|
+| 1 | Accessibility | 3 | "You" pill `text-[10px] font-semibold` on `bg-accent` measured 4.07:1 (fails WCAG 1.4.3 for small text); disabled-Revoke tooltip in `title` attr only |
+| 2 | Performance | 4 | No layout thrash, no expensive animations, cheap form-reset useEffect |
+| 3 | Theming | 4 | All design tokens; no hard-coded colors; no new tokens (brief §11 anti-goal preserved) |
+| 4 | Responsive Design | 4 | flex-wrap throughout; `min-h-tap-min`/`min-w-tap-min` on every interactive control |
+| 5 | Anti-Patterns | 4 | Detector `[]` — zero matches; no AI slop tells |
+| **Total** | | **19/20** | **Excellent (minor polish)** |
+
+| ID | Severity | Finding | Disposition |
+|----|----------|---------|-------------|
+| A-P2 | MEDIUM | "You" pill contrast 4.07:1 fails WCAG 1.4.3 for small text (text-[10px] ≈ 7.5pt doesn't qualify for "large text" 3:1 exemption even bold). | **FIXED in commit `72af2f1`** — swapped pill chrome to neutral `border border-border bg-surface-raised text-text-strong text-xs`. "You" is identification, not CTA — neutral chrome reads correctly and avoids competing with bg-accent button or bg-warning-bg lockout/re-add surfaces. |
+| A-P3 | LOW | Disabled-Revoke explanation hidden in `title` tooltip (mobile devices don't surface title; screen readers often ignore title on disabled buttons). | **FIXED in commit `72af2f1`** — replaced with visible inline `<p>` hint below the button ("Can't revoke yourself, add another admin first.") wired via `aria-describedby`. Hint only renders when `disabled` is true. |
+
+**Gate verdict: PASS.** Zero unresolved HIGH/CRITICAL findings; both polish items fixed in the same close-out pass. DEFERRED.md M9-D-C9-1 moved to RESOLVED 2026-05-17.
+
 ## §12 — C0 close-out impeccable findings + dispositions
 
 ### Critique (LLM design review + deterministic detector)
@@ -1272,8 +1312,10 @@ The four largest sub-shape-required clusters (C1/C3/C4/C9) converged in the auto
 
 **Convergence trajectory by cluster:** C0 11×R, C1 8×R, C2 4×R, C3 16×R, C4 3×R, C5 4×R, C6 3×R, C6b 3×R, C6c 11×R, C7 3×R, C8 3×R, C9 11×R. Findings narrow within each cluster; round counts vary by surface complexity and same-vector recurrence (C0/C3/C6c/C9 all hit the rule and closed via structural defensive layers per memory `feedback_class_sweep_must_be_code_shape_not_name_list`).
 
-### Final M9 close-out actions (USER-driven)
+### Final M9 close-out actions — COMPLETED 2026-05-17
 
-1. **User runs `/impeccable critique` + `/impeccable audit`** on the three C9 admin UI files (`app/admin/settings/admins/page.tsx`, `AddAdminForm.tsx`, `RevokeRowButton.tsx`) per DEFERRED.md M9-D-C9-1. Findings either land as a follow-up commit or get added to DEFERRED.md as accepted residual risk.
-2. After the dual gate closes, M9-D-C9-1 (and optionally M9-D-C4-1 if `useFormStatus` hardening is bundled) move to Resolved in DEFERRED.md.
-3. M9 marked "completed" — every routed deliverable has either shipped via adversarial-convergence APPROVE OR is tracked as a documented Resolved-pending DEFERRED.md entry with explicit resolution path.
+1. **`/impeccable critique` + `/impeccable audit` ran cleanly on C9 UI** (commits `4e438b0` + `72af2f1`). Both gates returned no HIGH/CRITICAL after dispositions; detector `[]` on both passes. See §12 above for full findings tables.
+2. **DEFERRED.md M9-D-C9-1 moved to RESOLVED 2026-05-17.**
+3. **M9-D-C4-1 (`useFormStatus` hardening)** intentionally not bundled — left as a documented MEDIUM follow-up for a future admin hardening pass. The C4 cluster shipped at APPROVE without it; recovery path today is "reload the admin page."
+
+**M9 status: COMPLETED.** 12/12 routed clusters converged through adversarial review. C9 closed its impeccable dual-gate cleanly in the same session. The one remaining tracked-residual (M9-D-C4-1) is a non-blocking hardening opportunity, not a deferral of in-scope work.
