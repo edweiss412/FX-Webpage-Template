@@ -154,6 +154,22 @@ type RpcEnvelope = {
   row?: AdminEmailRow | null;
 };
 
+// R5 HIGH FIX: per-RPC status whitelists. The previous implementation
+// translated impossible statuses (already_active / re_add_required
+// returned by the revoke RPC; last_admin_lockout returned by upsert)
+// as benign success no-ops. Under PostgREST schema-cache skew or a
+// DB-side regression that returned a valid-looking envelope from the
+// wrong RPC, the action would revalidate and report ok — Doug could
+// believe a revoke succeeded when no revoke happened. Invariant 9:
+// infra faults must NOT become benign signals.
+const UPSERT_STATUS_SET = new Set([
+  "ok",
+  "already_active",
+  "re_add_required",
+  "invalid_email",
+]);
+const REVOKE_STATUS_SET = new Set(["ok", "last_admin_lockout", "invalid_email"]);
+
 function translateUpsertResult(
   data: unknown,
   canonicalEmail: string,
@@ -163,6 +179,11 @@ function translateUpsertResult(
   if (!env || typeof env.status !== "string") {
     throw new AdminEmailsInfraError(
       `addAdminEmail: malformed RPC envelope: ${JSON.stringify(data)}`,
+    );
+  }
+  if (!UPSERT_STATUS_SET.has(env.status)) {
+    throw new AdminEmailsInfraError(
+      `addAdminEmail: unexpected RPC status '${env.status}' (envelope: ${JSON.stringify(env)})`,
     );
   }
   switch (env.status) {
@@ -178,9 +199,14 @@ function translateUpsertResult(
       };
     case "invalid_email":
       return { kind: "invalid_email", raw: rawEmail };
-    case "last_admin_lockout":
-      // Not produced by upsert RPC; defensive switch arm.
-      return { kind: "last_admin_lockout", email: env.email ?? canonicalEmail };
+    default:
+      // Defense-in-depth: the whitelist gate above already throws, so
+      // this branch is unreachable. Kept so a future addition to
+      // RpcEnvelope.status that bypasses the whitelist still
+      // structurally fails closed.
+      throw new AdminEmailsInfraError(
+        `addAdminEmail: switch fell through on status '${env.status}'`,
+      );
   }
 }
 
@@ -195,6 +221,14 @@ function translateRevokeResult(
       `revokeAdminEmail: malformed RPC envelope: ${JSON.stringify(data)}`,
     );
   }
+  if (!REVOKE_STATUS_SET.has(env.status)) {
+    // R5 HIGH FIX: impossible statuses (already_active, re_add_required)
+    // AND unknown strings BOTH throw — neither can silently become a
+    // false-success revoke.
+    throw new AdminEmailsInfraError(
+      `revokeAdminEmail: unexpected RPC status '${env.status}' (envelope: ${JSON.stringify(env)})`,
+    );
+  }
   switch (env.status) {
     case "ok":
       return { kind: "ok", row: env.row ?? null };
@@ -202,10 +236,10 @@ function translateRevokeResult(
       return { kind: "last_admin_lockout", email: env.email ?? canonicalEmail };
     case "invalid_email":
       return { kind: "invalid_email", raw: rawEmail };
-    case "already_active":
-    case "re_add_required":
-      // Not produced by revoke RPC; defensive switch arms.
-      return { kind: "ok", row: null };
+    default:
+      throw new AdminEmailsInfraError(
+        `revokeAdminEmail: switch fell through on status '${env.status}'`,
+      );
   }
 }
 

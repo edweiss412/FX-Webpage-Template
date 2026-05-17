@@ -174,6 +174,24 @@ describe("addAdminEmail (M9 C9 / M2-D1 R1)", () => {
       addAdminEmail({ rawEmail: "x@example.com", addedBy: "u1" }),
     ).rejects.toBeInstanceOf(AdminEmailsInfraError);
   });
+
+  test("R5 HIGH FIX: upsert throws on unknown status string (schema-drift defense)", async () => {
+    mockState.rpcResponse = { status: "totally_made_up_status" };
+    await expect(
+      addAdminEmail({ rawEmail: "x@example.com", addedBy: "u1" }),
+    ).rejects.toBeInstanceOf(AdminEmailsInfraError);
+  });
+
+  test("R5 HIGH FIX: upsert throws on impossible 'last_admin_lockout' status (revoke-RPC status)", async () => {
+    // last_admin_lockout is produced by revoke_admin_email_rpc, never
+    // by upsert_admin_email_rpc. If PostgREST schema-cache skew routed
+    // a response from the wrong RPC, the pre-R5 code translated it as
+    // last_admin_lockout silently. Post-R5 the whitelist throws.
+    mockState.rpcResponse = { status: "last_admin_lockout", email: "x@example.com" };
+    await expect(
+      addAdminEmail({ rawEmail: "x@example.com", addedBy: "u1" }),
+    ).rejects.toBeInstanceOf(AdminEmailsInfraError);
+  });
 });
 
 describe("revokeAdminEmail (M9 C9 / M2-D1 R1)", () => {
@@ -252,6 +270,42 @@ describe("revokeAdminEmail (M9 C9 / M2-D1 R1)", () => {
         actorCanonicalEmail: "actor@example.com",
       }),
     ).rejects.toBeInstanceOf(AdminEmailsInfraError);
+  });
+
+  test("R5 HIGH FIX: revoke throws on unknown status string (schema-drift defense)", async () => {
+    mockState.rpcResponse = { status: "totally_made_up_status" };
+    await expect(revokeAdminEmail({ rawEmail: "x@example.com" })).rejects.toBeInstanceOf(
+      AdminEmailsInfraError,
+    );
+  });
+
+  test("R5 HIGH FIX: revoke throws on impossible 'already_active' status (upsert-RPC status)", async () => {
+    // already_active is produced by upsert_admin_email_rpc, never by
+    // revoke_admin_email_rpc. Pre-R5, this was silently translated as
+    // { kind: "ok" } — a false-success revoke. Post-R5 the whitelist
+    // throws so Doug never sees "revoked" when no revoke happened.
+    mockState.rpcResponse = { status: "already_active", email: "x@example.com" };
+    await expect(revokeAdminEmail({ rawEmail: "x@example.com" })).rejects.toBeInstanceOf(
+      AdminEmailsInfraError,
+    );
+  });
+
+  test("R5 HIGH FIX: revoke throws on impossible 're_add_required' status", async () => {
+    mockState.rpcResponse = {
+      status: "re_add_required",
+      email: "x@example.com",
+      previously_revoked_at: "2026-05-01T00:00:00Z",
+    };
+    await expect(revokeAdminEmail({ rawEmail: "x@example.com" })).rejects.toBeInstanceOf(
+      AdminEmailsInfraError,
+    );
+  });
+
+  test("R5: revoke throws on malformed RPC envelope (no status key)", async () => {
+    mockState.rpcResponse = { unexpected_shape: true };
+    await expect(revokeAdminEmail({ rawEmail: "x@example.com" })).rejects.toBeInstanceOf(
+      AdminEmailsInfraError,
+    );
   });
 });
 
