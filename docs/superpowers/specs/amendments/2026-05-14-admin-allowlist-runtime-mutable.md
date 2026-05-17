@@ -71,13 +71,31 @@ grant execute on function public.is_admin() to anon, authenticated, service_role
 ```sql
 alter table public.admin_emails enable row level security;
 
+-- Read-only access for authenticated admins. Mutations route through
+-- the two SECURITY DEFINER RPCs (upsert_admin_email_rpc +
+-- revoke_admin_email_rpc) so the advisory lock, auth.uid()-derived
+-- actor identity, last-admin-lockout, and email-shape validation
+-- gates apply uniformly. Direct PostgREST writes are blocked at the
+-- grant layer (no INSERT/UPDATE/DELETE granted to authenticated)
+-- AND at the policy layer (no write policies installed).
+revoke all on table public.admin_emails from anon, authenticated;
+grant select on table public.admin_emails to authenticated;
+grant all privileges on table public.admin_emails to service_role;
+
 create policy admin_only on public.admin_emails
-  for all to authenticated
-  using (public.is_admin())
-  with check (public.is_admin());
+  for select to authenticated
+  using (public.is_admin());
 ```
 
-Single `FOR ALL` policy mirrors the 21-table Class A pattern (per M9 handoff §A.f). Admin-only for SELECT/INSERT/UPDATE/DELETE; non-admin gets zero rows + permission denied on writes.
+**Ratified post-R7 (2026-05-17):** earlier drafts canonized a
+`FOR ALL` policy with `SELECT/INSERT/UPDATE/DELETE` grants to
+authenticated, matching the 21-table Class A admin-only pattern.
+The C9 review (R7) caught that this gives any current admin a
+PostgREST bypass around the RPC safety gates (advisory lock +
+auth.uid() derivation + last-admin lockout + email-shape). For
+this table the RPCs are the only sanctioned write path, so the
+amendment authorizes SELECT-only at the grant and policy layers.
+service_role retains full access for ops investigation / SQL editor.
 
 ### Initial seed
 

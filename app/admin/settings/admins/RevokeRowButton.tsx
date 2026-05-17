@@ -54,6 +54,17 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   };
   useEffect(() => clearAutoRevert, []);
 
+  // R8 MEDIUM FIX: when the Server Action returns a non-ok terminal
+  // result (last_admin_lockout, invalid_email), the page does NOT
+  // revalidate so the component stays mounted with stale state.
+  // Without this guard, ui would remain "resolving" and Revoking… +
+  // disabled controls would persist indefinitely. Instead of mirroring
+  // result into ui via setState (which the react-hooks
+  // set-state-in-effect rule rejects), derive the effective UI state:
+  // any non-ok terminal result snaps the rendered ui back to idle.
+  const refused = result && result.kind !== "ok";
+  const effectiveUi: UiState = refused ? "idle" : ui;
+
   const onRevokeClick = () => {
     clearAutoRevert();
     setUi("confirm");
@@ -77,7 +88,7 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
       ? getDougFacing("LAST_ADMIN_LOCKOUT_REFUSED")
       : null;
 
-  if (ui === "idle") {
+  if (effectiveUi === "idle") {
     return (
       <div className="flex flex-col items-end gap-2">
         <form action={formAction}>
