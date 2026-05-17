@@ -18,14 +18,23 @@ describe("SignInButton", () => {
     cleanup();
   });
 
-  test("renders a submit button with accessible 'Sign in with Google' text", () => {
-    const { getByTestId } = render(<SignInButton validatedNext="/admin" />);
+  test("renders a submit button with accessible 'Sign in with Google' name", () => {
+    // M9 C5 (commits 6be8a1d / 684c282) replaced the literal text node
+    // with Google's official sign-in <img>; the accessible name moved
+    // to the img's alt attribute (and the button's aria-label). The
+    // contract this test pins is the ACCESSIBLE NAME, not raw
+    // textContent — screen readers + automation key off the
+    // accessible-name computation, not the DOM text.
+    const { getByTestId, getByRole } = render(<SignInButton validatedNext="/admin" />);
 
     const button = getByTestId("sign-in-with-google") as HTMLButtonElement;
     expect(button.tagName.toLowerCase()).toBe("button");
     expect(button.type).toBe("submit");
-    expect(button.textContent).toBe("Sign in with Google");
     expect(button.disabled).toBe(false);
+    // getByRole + name = the accessible-name contract. Trips if the
+    // brand image's alt is dropped OR the button's aria-label is
+    // removed without restoring a text fallback.
+    expect(getByRole("button", { name: /sign in with google/i })).toBe(button);
   });
 
   test("submits to the server OAuth start route with validated next", () => {
