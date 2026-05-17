@@ -52,31 +52,76 @@ function runPsql(sql: string): string {
 }
 
 describe("public.admin_emails table + replacement is_admin() (M9 C9 / M2-D1)", () => {
-  test("R4 fix: admin_emails has explicit grants to authenticated + service_role", () => {
-    // Without these grants, an authenticated client (the cookie-bound
-    // server-side Supabase client used by /admin/settings/admins)
-    // hits `permission denied for table admin_emails` BEFORE RLS
-    // evaluates is_admin(). Matches the established pattern from the
-    // 21 other admin-gated tables (admin_alerts is the canonical
-    // example at supabase/migrations/20260501002000_rls_policies.sql).
+  test("R4 + R7 fix: admin_emails grants — SELECT for authenticated, full for service_role", () => {
+    // R4: authenticated needs SELECT so listAdminEmails works (the
+    // page's read path).
+    // R7: authenticated MUST NOT have INSERT/UPDATE/DELETE; otherwise
+    // a current admin can mutate the table directly via PostgREST,
+    // bypassing the advisory-locked RPCs (and their last-admin-lockout
+    // + email-shape + auth.uid()-derived actor identity gates). All
+    // mutations route through upsert_admin_email_rpc /
+    // revoke_admin_email_rpc.
     const out = runPsql(`
-      select 'authenticated_select=' || bool_or(privilege_type = 'SELECT')
+      select 'auth_select=' || bool_or(privilege_type = 'SELECT')
         from information_schema.role_table_grants
-       where table_schema = 'public' and table_name = 'admin_emails'
-         and grantee = 'authenticated';
-      select 'service_role_select=' || bool_or(privilege_type = 'SELECT')
+       where table_schema='public' and table_name='admin_emails' and grantee='authenticated';
+      select 'auth_writes=' || coalesce(string_agg(privilege_type, ',' order by privilege_type), '')
         from information_schema.role_table_grants
-       where table_schema = 'public' and table_name = 'admin_emails'
-         and grantee = 'service_role';
-      select 'authenticated_grants_count=' || count(distinct privilege_type)
+       where table_schema='public' and table_name='admin_emails' and grantee='authenticated'
+         and privilege_type in ('INSERT','UPDATE','DELETE');
+      select 'service_select=' || bool_or(privilege_type = 'SELECT')
         from information_schema.role_table_grants
-       where table_schema = 'public' and table_name = 'admin_emails'
-         and grantee = 'authenticated'
-         and privilege_type in ('SELECT','INSERT','UPDATE','DELETE');
+       where table_schema='public' and table_name='admin_emails' and grantee='service_role';
     `);
-    expect(out).toContain("authenticated_select=true");
-    expect(out).toContain("service_role_select=true");
-    expect(out).toContain("authenticated_grants_count=4");
+    expect(out).toContain("auth_select=true");
+    // R7: NO write privileges for authenticated.
+    expect(out).toContain("auth_writes=");
+    expect(out).not.toContain("auth_writes=INSERT");
+    expect(out).not.toContain("auth_writes=UPDATE");
+    expect(out).not.toContain("auth_writes=DELETE");
+    expect(out).toContain("service_select=true");
+  });
+
+  test("R7 HIGH FIX: authenticated admin cannot direct-INSERT into admin_emails", () => {
+    // Without the GRANT INSERT, even an admin's PostgREST POST is
+    // rejected at the privilege layer (before RLS). This proves the
+    // RPC is the only write path for adding rows.
+    expect(() =>
+      runPsql(`
+        begin;
+        set local role authenticated;
+        set local request.jwt.claims = '${jwtAdmin("dlarson@fxav.net")}';
+        insert into public.admin_emails (email, added_by, added_at)
+        values ('r7-direct-insert@example.com', null, now());
+        rollback;
+      `),
+    ).toThrow(/permission denied/i);
+  });
+
+  test("R7 HIGH FIX: authenticated admin cannot direct-UPDATE admin_emails", () => {
+    expect(() =>
+      runPsql(`
+        begin;
+        set local role authenticated;
+        set local request.jwt.claims = '${jwtAdmin("dlarson@fxav.net")}';
+        update public.admin_emails
+           set revoked_at = now(), revoked_by = '00000000-0000-0000-0000-000000000040'
+         where email = 'edweiss412@gmail.com';
+        rollback;
+      `),
+    ).toThrow(/permission denied/i);
+  });
+
+  test("R7 HIGH FIX: authenticated admin cannot direct-DELETE from admin_emails", () => {
+    expect(() =>
+      runPsql(`
+        begin;
+        set local role authenticated;
+        set local request.jwt.claims = '${jwtAdmin("dlarson@fxav.net")}';
+        delete from public.admin_emails where email = 'edweiss412@gmail.com';
+        rollback;
+      `),
+    ).toThrow(/permission denied/i);
   });
 
   test("table exists with email PK + canonical-email CHECK + revoke-atomicity CHECK", () => {

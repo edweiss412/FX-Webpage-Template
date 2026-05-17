@@ -81,21 +81,32 @@ alter table public.admin_emails
 
 alter table public.admin_emails enable row level security;
 
--- R4 fix: explicit table privileges. Without these the cookie-bound
--- authenticated client gets `permission denied for table admin_emails`
--- BEFORE RLS evaluates, breaking /admin/settings/admins for valid
--- admins. Matches the established pattern from the 21 other
--- admin-gated tables (supabase/migrations/20260501002000_rls_policies.sql
--- — see e.g. admin_alerts at line ~140). RLS remains the enforcement
--- surface; grants are the precondition.
-grant select, insert, update, delete on table public.admin_emails to anon, authenticated;
+-- R7 fix: SELECT-only grant for authenticated. The C9 RPCs
+-- (upsert_admin_email_rpc + revoke_admin_email_rpc) own the only
+-- write path; they enforce advisory locking (R1), actor-derived-from
+-- auth.uid() identity (R2), last-admin-lockout (R1), and
+-- email-shape validation (R6). A direct PostgREST INSERT / UPDATE /
+-- DELETE from authenticated would bypass ALL of those gates, so we
+-- remove the write privilege entirely. Direct admin investigation
+-- via the service_role (Supabase Studio, SQL editor) keeps full
+-- access via the service_role grant below.
+--
+-- Earlier R4 added INSERT/UPDATE/DELETE to authenticated to make
+-- listAdminEmails work — but listAdminEmails only needs SELECT.
+-- The write privileges were over-broad and created the R7 bypass.
+revoke all on table public.admin_emails from anon, authenticated;
+grant select on table public.admin_emails to authenticated;
 grant all privileges on table public.admin_emails to service_role;
 
 drop policy if exists admin_only on public.admin_emails;
+-- SELECT-only policy for authenticated admins. There is intentionally
+-- no INSERT/UPDATE/DELETE policy for authenticated — the grant above
+-- doesn't include those privileges, so RLS would block them anyway,
+-- but omitting the policies makes the lock-down explicit at the
+-- policy layer.
 create policy admin_only on public.admin_emails
-  for all to authenticated
-  using (public.is_admin())
-  with check (public.is_admin());
+  for select to authenticated
+  using (public.is_admin());
 
 -- 3. Seed --------------------------------------------------------------------
 -- Insert the literal seed admins so deployments aren't admin-less after
