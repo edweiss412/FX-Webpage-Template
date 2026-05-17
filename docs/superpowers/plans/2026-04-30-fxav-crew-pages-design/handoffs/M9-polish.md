@@ -1316,6 +1316,6 @@ The four largest sub-shape-required clusters (C1/C3/C4/C9) converged in the auto
 
 1. **`/impeccable critique` + `/impeccable audit` ran cleanly on C9 UI** (commits `4e438b0` + `72af2f1`). Both gates returned no HIGH/CRITICAL after dispositions; detector `[]` on both passes. See §12 above for full findings tables.
 2. **DEFERRED.md M9-D-C9-1 moved to RESOLVED 2026-05-17.**
-3. **M9-D-C4-1 (`useFormStatus` hardening)** intentionally not bundled — left as a documented MEDIUM follow-up for a future admin hardening pass. The C4 cluster shipped at APPROVE without it; recovery path today is "reload the admin page."
+3. **M9-D-C4-1 (`useFormStatus` hardening for ResolveAlertButton failure path)** also resolved in the same session — commit `c195747`. Local `"resolving"` UiState removed; pending state now derived from `useFormStatus().pending` inside a ConfirmRow child of the parent form. Regression test pins the previously-stuck failure-path: action returns without revalidatePath → controls re-enable instead of staying disabled forever.
 
-**M9 status: COMPLETED.** 12/12 routed clusters converged through adversarial review. C9 closed its impeccable dual-gate cleanly in the same session. The one remaining tracked-residual (M9-D-C4-1) is a non-blocking hardening opportunity, not a deferral of in-scope work.
+**M9 status: COMPLETED — zero tracked residuals.** 12/12 routed clusters converged through adversarial review. C9 closed its impeccable dual-gate cleanly. C4's deferred hardening folded in. Every M9 deliverable shipped at APPROVE OR closed-as-RESOLVED in DEFERRED.md.
