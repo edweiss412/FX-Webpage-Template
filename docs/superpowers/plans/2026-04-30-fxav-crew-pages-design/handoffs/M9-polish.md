@@ -1068,18 +1068,33 @@ LLM design review: AI slop verdict CLEAN ("intentional minimalism, not a templat
 | P3 | LOW | Dev panel link description had redundant "(dev builds only)" parenthetical — the parent gate (ADMIN_DEV_PANEL_ENABLED) already guarantees the link is hidden in prod. | **FIXED** — parenthetical removed. |
 | P3 | LOW | `data-testid` includes raw href with slashes — works but fragile if href ever gains a query string. | **DEFERRED** — current test selectors handle it via attribute-prefix; a slug-based scheme is a polish-pass concern not a correctness issue. |
 
-### Audit (5-dimension technical health, self-attested post-fix)
+### Audit (5-dimension technical health — REAL external pass, R17 post-fix)
 
-| # | Dimension | Score | Note |
-|---|-----------|-------|------|
-| 1 | Accessibility | 4 | Semantic landmarks (`<main>`/`<header>`/`<section>`/`<ul>`); aria-label on section; focus-visible:ring on every Link. Full-card tap targets ≥ 44×44 via `min-h-tap-min`. |
-| 2 | Performance | 4 | Pure server component, conditional dev-link via env check at render. No animations beyond `transition-colors duration-fast`. |
-| 3 | Theming | 4 | Tokens-only (`text-text-strong`, `text-text-subtle`, `text-accent-on-bg`, `bg-surface`, `border-border`, `border-border-strong`). No hard-coded colors. No new tokens. |
-| 4 | Responsive Design | 4 | `max-w-2xl px-tile-pad` container; cards reflow naturally in `<ul>`. No fixed widths. |
-| 5 | Anti-Patterns | 4 | Detector `[]`. No gradients, glassmorphism, hero metric, identical card grids, side-stripe borders. |
-| **Total** | | **20/20** | **Excellent.** |
+R16 originally self-attested this audit; R17 correctly rejected the self-attestation and a real `/impeccable audit` pass ran via a dedicated subagent. Initial score 19/20; 2 P2 + 2 P3 findings; the 2 P2s fixed in this commit, bringing the post-fix score to 20/20.
 
-**Gate verdict: PASS.** No HIGH/CRITICAL after R16 structural fixes + critique dispositions. The one DEFERRED P3 (testid slash naming) is recorded in DEFERRED.md as polish.
+**Initial findings (pre-fix at commit `1414a58`):**
+
+| # | Dimension | Score | Key Finding |
+|---|-----------|-------|-------------|
+| 1 | Accessibility | 3 | Duplicate `<h1>` with layout; missing `<nav>` landmark on the list of internal destinations |
+| 2 | Performance | 4 | Server Component, no JS, no images |
+| 3 | Theming | 4 | All tokens verified in globals.css |
+| 4 | Responsive Design | 4 | Full-bleed `min-h-tap-min` Link tap targets |
+| 5 | Anti-Patterns | 4 | Detector `[]` |
+| **Initial Total** | | **19/20** | Excellent |
+
+**Dispositions:**
+
+| ID | Severity | Finding | Disposition |
+|----|----------|---------|-------------|
+| P2 | MEDIUM | Duplicate H1 between `layout.tsx:79` and `page.tsx:57` — screen readers announce "Admin" twice as top-level heading. | **FIXED** — removed page-level `<h1>` (layout owns it); page subtitle is now a bare `<p>` directly under the layout header. |
+| P2 | MEDIUM | `<section aria-label="Admin sections">` housing a list of nav Links was missing the `<nav>` landmark. | **FIXED** — `<section>` → `<nav aria-label="Admin">`. Screen-reader rotor now surfaces it under landmarks → navigation. |
+| P3 | LOW | `aria-label` redundancy with visible H1 (the H1 had a label, the section had aria-label). | **FIXED automatically by the H1 removal above** — only the nav now owns the accessible name. |
+| P3 | LOW | `data-testid` includes raw href with slashes — works but unconventional. | **DEFERRED** — slug refactor is polish; current selectors handle it via attribute-prefix matching. |
+
+**Post-fix re-score:** A1 → 4 (semantic nav + single H1 chain); other dimensions unchanged. **Total: 20/20 Excellent.**
+
+**Gate verdict: PASS.** No HIGH/CRITICAL after R16 structural fixes + R17 real-audit dispositions. Both P2 a11y findings fixed inline; one P3 deferred as polish.
 
 ## §12 — `error.tsx` post-f669e18 impeccable re-run (M9 final-review R11)
 

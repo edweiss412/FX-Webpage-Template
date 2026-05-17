@@ -53,13 +53,18 @@ export default function AdminLandingPage() {
 
   return (
     <main className="mx-auto max-w-2xl px-tile-pad pb-section-gap">
-      <header className="mb-section-gap">
-        <h1 className="text-xl font-semibold text-text-strong">Admin</h1>
-        <p className="mt-1 text-sm text-text-subtle">
-          Pick where to go. When there are active alerts, they appear in the banner above.
-        </p>
-      </header>
-      <section data-testid="admin-landing-sections" aria-label="Admin sections">
+      {/* R17 fix: page-level H1 removed — layout already owns the
+          "Admin" H1 (app/admin/layout.tsx:79). Page subtitle stays as
+          a paragraph below the layout header. */}
+      <p className="mb-section-gap text-sm text-text-subtle">
+        Pick where to go. When there are active alerts, they appear in the banner above.
+      </p>
+      {/* R17 fix: was a <section aria-label="Admin sections"> which
+          screen-reader rotor doesn't surface as a navigation landmark.
+          <nav> is the canonical landmark for a list of internal
+          destinations and the rotor will surface it under
+          landmarks → navigation. */}
+      <nav data-testid="admin-landing-sections" aria-label="Admin">
         {/* R16 fix: each card is the full Link (block, min-h-tap-min,
             focus ring on the card). Pre-fix the Link was inline text
             inside a padded card and only the text was clickable —
@@ -80,7 +85,7 @@ export default function AdminLandingPage() {
             </li>
           ))}
         </ul>
-      </section>
+      </nav>
     </main>
   );
 }
