@@ -268,6 +268,15 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "Idempotent re-add of an already-active admin email. Not a destructive condition; the row is unchanged.",
   },
+  ADMIN_EMAIL_LIST_FAILED: {
+    code: "ADMIN_EMAIL_LIST_FAILED",
+    dougFacing:
+      "We can't load the administrator list right now. Refresh in a moment; if the problem continues, check the database connection.",
+    crewFacing: null,
+    followUp: "Doug -> retry; if persistent, check Supabase admin_emails RLS + grants",
+    helpfulContext:
+      "AdminEmailsInfraError thrown from listAdminEmails() — typically RLS denial, missing grant, schema-cache skew, or network fault. The route-level error boundary at app/admin/settings/admins/error.tsx renders this message + a retry button.",
+  },
   ADMIN_EMAIL_RE_ADD_PROMPT: {
     code: "ADMIN_EMAIL_RE_ADD_PROMPT",
     dougFacing:
