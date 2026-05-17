@@ -37,6 +37,7 @@ import { revalidatePath } from "next/cache";
 
 import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { addAdminEmail, revokeAdminEmail } from "@/lib/data/adminEmails";
+import { canonicalize } from "@/lib/email/canonicalize";
 
 /**
  * Discriminated outcome the page reads back through the React 19
@@ -64,8 +65,27 @@ export async function addAdminAction(
   const rawEmail = formData.get("email");
   const note = formData.get("note");
   const confirmReAdd = formData.get("confirm_re_add") === "true";
+  const confirmEmail = formData.get("confirm_email");
 
   if (typeof rawEmail !== "string") return { kind: "invalid_email" };
+
+  // M9 final-review R14 fix: when re-add is confirmed, REJECT a
+  // mismatch between the prompted email (confirm_email) and the
+  // submitted email (email). The UI binds both via hidden inputs to
+  // result.email; a forged submit that flips email but leaves
+  // confirm_email + confirm_re_add intact gets rejected here.
+  // Canonicalize both sides before comparison so case/space drift
+  // doesn't break the gate.
+  if (confirmReAdd && typeof confirmEmail === "string") {
+    const submittedCanonical = canonicalize(rawEmail);
+    const confirmedCanonical = canonicalize(confirmEmail);
+    if (submittedCanonical === null || confirmedCanonical === null) {
+      return { kind: "invalid_email" };
+    }
+    if (submittedCanonical !== confirmedCanonical) {
+      return { kind: "invalid_email" };
+    }
+  }
 
   const outcome = await addAdminEmail({
     rawEmail,

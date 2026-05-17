@@ -95,6 +95,25 @@ function AddAdminFormInner({ onReset }: { onReset: () => void }) {
             <strong>{result.email}</strong> was previously revoked. Re-add this email to restore
             admin access?
           </p>
+          {/* R14 fix: bind the re-add submission to the email that was
+              actually prompted. Without this binding, the user could
+              edit the visible email input AFTER the prompt appeared
+              and submit a DIFFERENT email with confirm_re_add=true,
+              bypassing the per-email second-tap gate.
+
+              Two hidden inputs:
+                - `email` overrides the visible (still-editable but
+                  ignored) field because FormData.get returns the
+                  FIRST element with that name and we render this
+                  hidden input here, AFTER the visible one above…
+              In FormData semantics for multiple same-name fields,
+              getAll() returns both. The server's formData.get("email")
+              returns the FIRST value found. To force the hidden bind
+              to win, we ALSO send `confirm_email` and the server
+              asserts `email === confirm_email` when confirm_re_add is
+              true. */}
+          <input type="hidden" name="email" value={result.email} />
+          <input type="hidden" name="confirm_email" value={result.email} />
           <input type="hidden" name="confirm_re_add" value="true" />
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <button

@@ -74,11 +74,13 @@ describe("sign-in page already-authenticated redirect fallback", () => {
     await expect(expectSignInRedirect({ next: "/admin/users" })).resolves.toBe("/me");
   });
 
-  test("admin already signed in with missing next redirects to /admin", async () => {
+  test("admin already signed in with missing next redirects to /admin/dev", async () => {
+    // M9 final-review R14: DEFAULT_AUTH_NEXT_PATH retargeted from
+    // "/admin" (404 — no app/admin/page.tsx) to "/admin/dev".
     authState.userEmail = "admin@fxav.test";
     authState.isAdmin = true;
 
-    await expect(expectSignInRedirect({})).resolves.toBe("/admin");
+    await expect(expectSignInRedirect({})).resolves.toBe("/admin/dev");
   });
 
   test("admin already signed in with explicit /admin/dev next keeps /admin/dev", async () => {

@@ -9,7 +9,10 @@ describe("validateNextParam", () => {
 
   test.each([
     ["/show/rpas-central", "/show/rpas-central"],
-    ["/admin", "/admin"],
+    // M9 final-review R14: bare "/admin" no longer accepted (route
+    // tree has no app/admin/page.tsx → 404). Sub-paths remain valid.
+    ["/admin/dev", "/admin/dev"],
+    ["/admin/settings/admins", "/admin/settings/admins"],
     ["/admin/show/foo", "/admin/show/foo"],
     ["/me", "/me"],
     ["/me/profile", "/me/profile"],
@@ -32,7 +35,11 @@ describe("validateNextParam", () => {
     String.raw`/admin\..\..\foo`,
     "/show/x%2e%2e/p",
     "/me/\u0000profile",
-  ])("falls back to /admin for invalid input %#", (raw) => {
-    expect(validateNextParam(raw)).toBe("/admin");
+  ])("falls back to /admin/dev for invalid input %#", (raw) => {
+    expect(validateNextParam(raw)).toBe("/admin/dev");
+  });
+
+  test("M9 R14: bare /admin is rejected (route tree has no app/admin/page.tsx)", () => {
+    expect(validateNextParam("/admin")).toBe("/admin/dev");
   });
 });

@@ -90,7 +90,7 @@ describe("OAuth start route", () => {
     expect(server.client.auth.signInWithOAuth).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
     expect(locationOf(response)).toBe(
-      "https://crew.fxav.test/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin",
+      "https://crew.fxav.test/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin%2Fdev",
     );
   });
 
@@ -171,7 +171,9 @@ describe("OAuth callback route", () => {
     expect(locationOf(response)).toBe("https://crew.fxav.test/me");
   });
 
-  test("admin successful callback with no next keeps the /admin fallback", async () => {
+  test("admin successful callback with no next keeps the /admin/dev fallback (R14)", async () => {
+    // M9 final-review R14: DEFAULT_AUTH_NEXT_PATH retargeted from
+    // "/admin" (404) to "/admin/dev".
     server.client.auth.getUser.mockResolvedValue({
       data: { user: { email: "admin@fxav.test" } },
       error: null,
@@ -182,7 +184,7 @@ describe("OAuth callback route", () => {
     const response = await GET(new NextRequest("https://crew.fxav.test/auth/callback?code=abc"));
 
     expect(response.status).toBe(302);
-    expect(locationOf(response)).toBe("https://crew.fxav.test/admin");
+    expect(locationOf(response)).toBe("https://crew.fxav.test/admin/dev");
   });
 
   test("admin successful callback honors explicit /admin/dev next path", async () => {
@@ -267,7 +269,7 @@ describe("OAuth callback route", () => {
     expect(server.client.auth.exchangeCodeForSession).toHaveBeenCalledWith("abc");
     expect(response.status).toBe(302);
     expect(locationOf(response)).toBe(
-      "https://crew.fxav.test/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin",
+      "https://crew.fxav.test/auth/sign-in?code=OAUTH_REDIRECT_INVALID&next=%2Fadmin%2Fdev",
     );
   });
 
