@@ -1,0 +1,28 @@
+{
+  "description": "M9 C9.0.5 baseline — derived from pg_policies at HEAD f669e18 (post-C9 migration). Class A admin_only FOR ALL tables (excluding admin_emails which has its own FOR SELECT policy). A future migration that adds a new admin_only FOR ALL table MUST update this baseline AND the per-table test count in admin-rls-runtime.test.ts.",
+  "captured_at": "2026-05-17",
+  "captured_at_sha": "f669e18",
+  "class_a_tables": [
+    "admin_alerts",
+    "app_settings",
+    "bootstrap_nonces",
+    "crew_member_auth",
+    "deferred_ingestions",
+    "drive_watch_channels",
+    "link_sessions",
+    "onboarding_scan_manifest",
+    "pending_ingestions",
+    "pending_snapshot_uploads",
+    "pending_syncs",
+    "recovery_drift_cooldowns",
+    "report_rate_limits",
+    "reports",
+    "revision_race_cooldowns",
+    "revoked_links",
+    "shows_internal",
+    "shows_pending_changes",
+    "sync_audit",
+    "sync_log",
+    "wizard_finalize_checkpoints"
+  ]
+}

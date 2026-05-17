@@ -26,12 +26,13 @@ When picking up a deferred item:
 **Why deferred:** Out of M2 schema scope. Doesn't block anything functional — admins work, the allow-list is honored. It's an ops-hardening question.
 **Suggested home:** **M9 polish — C9 cluster (routed 2026-05-12 at Task 9.0).** Shipping as code-driven self-service UI: spec amendment to §14.3 retiring the zombie env var + replacing the hardcoded array with an `admin_emails` table lookup + `/admin/settings/admins` page with add/revoke Server Actions. See `handoffs/M9-polish.md` §A Cluster C9 for the full task list. Original alternative dispositions (X.\* cross-cutting; ops doc only) were considered and rejected at 9.0 in favor of the self-service UI path.
 
-### M2-D2 — Static-vs-runtime breadth for the 21 admin-table RLS matrix
+### M2-D2 — Static-vs-runtime breadth for the 21 admin-table RLS matrix — **RESOLVED 2026-05-17**
 
-**Source:** M2 adversarial review, Round 1 advisory note
-**Description:** AC-2.5 tests pin the §4.3 admin-only table list (21 tables × 4 verbs = 84 cells) at schema-introspection time. There is no runtime probe that the _live_ policy set still matches §4.3 after future migrations land. A future migration could silently drop or weaken a policy and current tests wouldn't catch it.
-**Why deferred:** M2's introspection coverage is correct for "what shipped at M2." Runtime drift detection is a separate concern, and the right time to add it is when there are actually multiple migrations in play (M3+).
-**Suggested home:** **M9 polish — C9 cluster Task 9.C9.0.5 (routed 2026-05-12 at R1 review repair of Task 9.0 commit `00620cb`).** Codex adversarial review of the 9.0 scope commit flagged that C9's `is_admin()` replacement (M2-D1) without a runtime RLS guard would be a structural gap — the exact gap M2-D2 describes. Closure path: Task 9.C9.0.5 creates `tests/db/admin-rls-runtime.test.ts` as a permanent 8N-cell behavioral-parity meta-test (DERIVED from `pg_policies` at runtime). Resolved-SHA backfilled here once C9.0.5 + C9.1 ship.
+**Status:** **Resolved.** `tests/db/admin-rls-runtime.test.ts` shipped with `tests/db/admin-rls-runtime.baseline.json` (M9 final-review R2 fix). Probe DERIVES the Class A admin_only FOR ALL table list from `pg_policies` at runtime (so a future migration that adds a 22nd table automatically enters the matrix), fires admin/non-admin SELECT + INSERT per table, and asserts the runtime-derived list matches the frozen baseline (zero-drift gate). Closes the M2-D2 worry — a future migration that silently drops or weakens an admin policy will trip the SELECT-returns-0 / INSERT-rejected assertion on the affected table AND/OR the baseline-mismatch gate.
+
+**Coverage:** 21 tables × 2 roles × 2 verbs = 84 assertions + 1 baseline-equality assertion = 85 cells. admin_emails is excluded (it has its own FOR SELECT policy under C9's SELECT-only grant pattern, exhaustively covered in `tests/db/admin-emails.test.ts`). Class B (crew-readable `admin_insert`/`admin_update`/`admin_delete`) is out of scope for this probe — exercising the crew-session-bound SELECT branch requires fixture infrastructure not yet built; the existing `tests/db/rls.test.ts` text-based policy audit mitigates that gap.
+
+**Source:** M2 adversarial review, Round 1 advisory note. Pulled into C9 at Task 9.C9.0.5 per M9-polish handoff §A.9.C9.0.5; surfaced AGAIN at M9 final-review R2 as the missing artifact. Built in the same session.
 
 ### M2-D3 — `transportation.show_id` single-row uniqueness model
 
