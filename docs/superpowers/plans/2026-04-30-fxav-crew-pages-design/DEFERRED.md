@@ -307,9 +307,21 @@ This is the same class of bug tracked upstream:
 **Why deferred (accepted residual risk, AGENTS.md invariant 8):** Pinch-zoom is a gesture-universal convention on mobile (iOS Photos, every consumer image viewer teaches it culturally). Mobile crew members will instinctively try pinch on any photographic image. The "stuck while zoomed" failure mode the hint primarily protects against is already handled by the Reset chip (which is visible by definition when scale > 1, the only state where the user could be stuck). Adding a persistent hint chip would compete for header chrome real-estate against the page indicator (1 of N) and the close button on a 390px viewport; a session-scoped one-shot hint adds localStorage state machinery and an additional dismiss interaction surface. No user-research signal that discoverability is an actual barrier on this surface. Recommendation revisits if FXAV venue-floor crew feedback explicitly identifies pinch-discovery friction in a future round.
 **Suggested home:** Re-open when there is a real-user data point. Currently no scheduled milestone.
 
-### M9-D-C4-1 — `useFormStatus` hardening for Resolve failure path — **RESOLVED 2026-05-17**
+### M9-D-C4-1 — `useFormStatus` hardening for Resolve failure path — **RESOLVED 2026-05-17 (impeccable gate re-run 2026-05-17 via M9 final-review R10)**
 
 **Status:** **Resolved.** `components/admin/ResolveAlertButton.tsx` refactored to derive the "Resolving…" / disabled-controls state from `useFormStatus().pending` instead of a local `ui="resolving"` flag.
+
+**Impeccable dual-gate (re-run post-c195747 per AGENTS.md invariant 8, M9 final-review R10):**
+
+| Gate | Score | Detector | Verdict |
+|---|---|---|---|
+| `/impeccable critique` | 33/40 Nielsen (+3 vs prior C4 baseline of 30/40 — useFormStatus is a net win on H1 Visibility, H5 Error Prevention, H9 Error Recovery) | `[]` | Clean. No CRITICAL/P0/P1. |
+| `/impeccable audit` | 19/20 (Excellent) | `[]` | Same as prior C4 baseline. |
+
+**c195747 critique dispositions (2 findings; both DEFERRED with rationale):**
+
+- **P2 — Double-tap window between pending=false and banner re-mount on happy path.** When `revalidatePath` fires, there's a brief window where Confirm re-enables before the server re-render swaps the banner; Doug could double-tap Confirm against an already-resolved row. **DEFERRED** — the Server Action is idempotent (the `WHERE resolved_at IS NULL AND show_id IS NULL` guard at `app/admin/actions.ts:80-86` makes the second UPDATE a no-op). Not destructive. A `useActionState` migration could close this window but adds complexity for a benign no-op race. Re-open if a real-world double-tap surfaces a visible UX glitch.
+- **P3 — No live-region announcement on pending→idle failure transition.** Doug glancing away mid-show wouldn't hear that a failed submit silently re-enabled. **DEFERRED** — the parent banner's `role="status" aria-live="polite"` covers the alert's content; explicit failure-announcement would require a visually-hidden span toggled by a derived `failureTransition` state. Re-open if Doug-on-phone feedback shows the silent re-enable is missed in practice.
 
 **Mechanism:** Removed the `"resolving"` UiState entirely. The retained `idle | confirm` states are local, but pending submission lifecycle is owned by the parent `<form action={resolveAdminAlertFormAction}>` via a small `ConfirmRow` child component (required because `useFormStatus` must be called from a descendant of the form, not the form itself). When pending=true the Confirm button shows "Resolving…" + disabled + aria-busy; when the action returns (success OR failure), pending naturally flips back to false. On happy path the page revalidates and the banner re-mounts as before; on failure path Doug now sees Confirm + Cancel re-enabled without needing to reload.
 

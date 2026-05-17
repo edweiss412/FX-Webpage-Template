@@ -1047,7 +1047,27 @@ Run on the patched code (post-critique-fixes).
 
 **Gate verdict: PASS.** Zero unresolved HIGH/CRITICAL findings; both polish items fixed in the same close-out pass. DEFERRED.md M9-D-C9-1 moved to RESOLVED 2026-05-17.
 
-## §12 — C0 close-out impeccable findings + dispositions
+## §12 — C4 post-c195747 impeccable re-run (M9 final-review R10)
+
+Run date: 2026-05-17. Target: `components/admin/ResolveAlertButton.tsx` + `components/admin/AlertBanner.tsx` (parent form host). Triggered by R10 finding that the `useFormStatus` hardening commit (`c195747`) was a UI surface mutation per AGENTS.md invariant 8 but never had a follow-up impeccable gate.
+
+### Critique
+- Detector: `[]` zero findings.
+- LLM design review: **33/40 Nielsen** — UP 3 from the prior C4 close-out 30/40 baseline. H1 Visibility +1 (`aria-busy={pending}` now driven by actual submission lifecycle, not a local flag), H5 Error Prevention +1 (Cancel correctly disables during pending preventing mid-flight reset class), H9 Error Recovery +2 (the load-bearing M9-D-C4-1 win).
+- No CRITICAL/P0/P1. 2 polish findings:
+
+| ID | Severity | Finding | Disposition |
+|----|----------|---------|-------------|
+| P2 | MEDIUM | Double-tap window between pending=false and banner re-mount on happy path — Doug could double-tap Confirm against an already-resolved row. | **DEFERRED** — Server Action is idempotent (WHERE resolved_at IS NULL guard). Not destructive. See DEFERRED.md M9-D-C4-1. |
+| P3 | LOW | No live-region announcement on pending→idle failure transition. | **DEFERRED** — parent banner role="status" aria-live="polite" covers alert content; explicit failure announcement is a follow-up if Doug-on-phone feedback shows it's missed. See DEFERRED.md M9-D-C4-1. |
+
+### Audit
+- Detector: `[]` zero findings.
+- 5-dimension score: **19/20 Excellent** (Accessibility 3 / Performance 4 / Theming 4 / Responsive 4 / Anti-patterns 4). The 1-point Accessibility deduction is the P3 live-region gap above; deferred.
+
+**Gate verdict: PASS.** No HIGH/CRITICAL. Both polish findings explicitly deferred in DEFERRED.md M9-D-C4-1.
+
+## §12 — C9 close-out impeccable findings + dispositions
 
 ### Critique (LLM design review + deterministic detector)
 
