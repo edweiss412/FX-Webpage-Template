@@ -30,7 +30,7 @@ When picking up a deferred item:
 
 ### M2-D2 — Static-vs-runtime breadth for the 21 admin-table RLS matrix — **RESOLVED 2026-05-17**
 
-**Status:** **Resolved.** `tests/db/admin-rls-runtime.test.ts` shipped with `tests/db/admin-rls-runtime.baseline.json` (M9 final-review R2 fix). Probe DERIVES the Class A admin_only FOR ALL table list from `pg_policies` at runtime (so a future migration that adds a 22nd table automatically enters the matrix), fires admin/non-admin SELECT + INSERT per table, and asserts the runtime-derived list matches the frozen baseline (zero-drift gate). Closes the M2-D2 worry — a future migration that silently drops or weakens an admin policy will trip the SELECT-returns-0 / INSERT-rejected assertion on the affected table AND/OR the baseline-mismatch gate.
+**Status:** **Resolved.** `tests/db/admin-rls-runtime.test.ts` shipped with `tests/db/admin-rls-runtime.baseline.json` (M9 final-review R2 fix; R3 strengthening at `69d4c6f`). Probe DERIVES the Class A admin_only FOR ALL table list from `pg_policies` at runtime (so a future migration that adds a 22nd table automatically enters the matrix). Per-table gates: BEHAVIORAL admin/non-admin SELECT + STRUCTURAL qual ILIKE '%is_admin()%' + with_check ILIKE '%is_admin()%' + cmd=ALL + qual=with_check predicate-equivalence. Closes the M2-D2 worry — a future migration that silently drops or weakens an admin policy trips EITHER the SELECT-returns-0 behavioral OR the structural-predicate-equivalence assertion on the affected table OR the baseline-mismatch gate. INSERT/UPDATE/DELETE verbs are NOT directly probed (see Coverage paragraph below for the rationale).
 
 **Coverage (post-R3 strengthening at commit `69d4c6f`):**
 - BEHAVIORAL: 21 tables × 2 roles × SELECT verb = 42 assertions (admin sees rows without RLS denial; non-admin gets 0 rows).
@@ -258,9 +258,11 @@ When picking up a deferred item:
 **Why deferred:** v1 collapses every PDF load failure to a single retry-able message. The retry-able framing is correct for transient infra faults but wrong for permanent 410 (file removed / non-PDF / drift) where retrying spins. The fix needs new catalog rows and the X.1 spec extractor parity test pinned, which is more scope than the M7 close-out could absorb. AC-7.1 closes at M7 — the proxy route + inline embed works; only the failure-state copy is deferred.
 **Suggested home:** M9 polish OR earlier if a §12.4 catalog row for crew-facing PDF errors lands.
 
-### M7-D3 — Diagrams gallery `<img>` → `next/image` — **RESOLVED 2026-05-17 via M9 Cluster C6b**
+### M7-D3 — Diagrams gallery `<img>` → `next/image` — **RE-DEFERRED at M9 C6b (2026-05-13); BLOCKED on private-image-pipeline design**
 
-**Status:** Resolved in M9 Cluster C6b (Lightbox media perf). See `handoffs/M9-polish.md` §Convergence log → Cluster C6b (R3 APPROVE).
+**Status:** **Open / Re-deferred.** R5 correction: M7-D3 was incorrectly marked RESOLVED in the R4 sweep (commit `d22ea75`). The actual status is RE-DEFERRED at M9 C6b. M9 C6b attempted the next/image migration (commit `d433c32`); Codex adversarial review returned BLOCK with a P0 finding (cookie-forwarding + Cache-Control rewrite — see "M9 close-out update (2026-05-13)" paragraph below). The migration was REVERTED at commit `22623ad`. Live code still uses raw `<img>` in `components/diagrams/Gallery.tsx` and `GalleryLightbox.tsx` with lint suppressions. Adoption requires either (a) a custom Next.js image loader that forwards cookies AND preserves private caching, or (b) a different image pipeline entirely. The C6b commits DID close one adjacent item — runtime `<img onError>` fallback for 4xx/5xx routing to the existing unavailable placeholder (P1 of C6b round-1 review).
+
+**Suggested home:** Future milestone with a private-image-pipeline brainstorming session (NOT M9; the in-cluster attempt failed P0).
 
 **Source (original):**
 
