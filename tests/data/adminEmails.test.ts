@@ -101,17 +101,19 @@ describe("addAdminEmail (M9 C9 / M2-D1 R1)", () => {
     expect(mockState.lastRpc?.args.p_email).toBe("newadmin@example.com");
   });
 
-  test("RPC args carry addedBy + note + confirmReAdd flags", async () => {
+  test("RPC args carry email + note + confirmReAdd (R2: actor uid derived from auth.uid())", async () => {
     mockState.rpcResponse = { status: "ok", row: null };
     await addAdminEmail({
       rawEmail: "x@example.com",
-      addedBy: "u-actor",
+      addedBy: "u-actor", // accepted but NOT forwarded post-R2
       note: "Q3",
       confirmReAdd: true,
     });
-    expect(mockState.lastRpc?.args.p_added_by).toBe("u-actor");
+    expect(mockState.lastRpc?.args.p_email).toBe("x@example.com");
     expect(mockState.lastRpc?.args.p_note).toBe("Q3");
     expect(mockState.lastRpc?.args.p_confirm_re_add).toBe(true);
+    // R2 fix: p_added_by removed from RPC signature.
+    expect(mockState.lastRpc?.args.p_added_by).toBeUndefined();
   });
 
   test("ok envelope translates to ok kind with row", async () => {
@@ -196,15 +198,16 @@ describe("revokeAdminEmail (M9 C9 / M2-D1 R1)", () => {
     expect(mockState.lastRpc?.args.p_email).toBe("target@example.com");
   });
 
-  test("RPC args carry revokedBy + actorCanonicalEmail", async () => {
+  test("R2 fix: RPC args carry email only (actor derived from auth.* inside SECURITY DEFINER)", async () => {
     mockState.rpcResponse = { status: "ok", row: null };
     await revokeAdminEmail({
       rawEmail: "x@example.com",
-      revokedBy: "u-actor",
-      actorCanonicalEmail: "actor@example.com",
+      revokedBy: "u-actor", // accepted but NOT forwarded post-R2
+      actorCanonicalEmail: "actor@example.com", // ditto
     });
-    expect(mockState.lastRpc?.args.p_revoked_by).toBe("u-actor");
-    expect(mockState.lastRpc?.args.p_actor_email).toBe("actor@example.com");
+    expect(mockState.lastRpc?.args.p_email).toBe("x@example.com");
+    expect(mockState.lastRpc?.args.p_revoked_by).toBeUndefined();
+    expect(mockState.lastRpc?.args.p_actor_email).toBeUndefined();
   });
 
   test("ok envelope translates to ok kind with row", async () => {

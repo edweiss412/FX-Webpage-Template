@@ -135,7 +135,6 @@ grant execute on function public.is_admin() to anon, authenticated, service_role
 
 create or replace function public.upsert_admin_email_rpc(
   p_email text,
-  p_added_by uuid,
   p_note text,
   p_confirm_re_add boolean
 )
@@ -146,9 +145,23 @@ set search_path = public, pg_temp
 as $$
 declare
   v_canonical text;
+  v_actor_uid uuid;
   v_existing public.admin_emails%rowtype;
   v_new public.admin_emails%rowtype;
 begin
+  -- R2 CRITICAL FIX: gate inside the SECURITY DEFINER boundary.
+  -- Without this, any signed-in non-admin could call this RPC
+  -- directly via PostgREST (the grant to `authenticated` is required
+  -- so admins can invoke it; the is_admin() check makes the gate
+  -- authoritative). The added_by column is also derived from
+  -- auth.uid() here (not trusted from a caller param) so a forged
+  -- request can't spoof the actor identity.
+  if not public.is_admin() then
+    raise exception 'permission denied: admin_emails mutation requires is_admin()'
+      using errcode = '42501';
+  end if;
+  v_actor_uid := auth.uid();
+
   -- Canonicalize at the boundary (defense-in-depth alongside the
   -- application-side canonicalize() call). Empty / whitespace-only
   -- input is the only branch this guards against.
@@ -184,7 +197,7 @@ begin
        set revoked_at = null,
            revoked_by = null,
            added_at = now(),
-           added_by = p_added_by,
+           added_by = v_actor_uid,
            note = p_note
      where email = v_canonical
        and revoked_at is not null
@@ -196,20 +209,23 @@ begin
   -- of the same email is serialized (the second caller sees the row
   -- and returns already_active above).
   insert into public.admin_emails (email, added_by, added_at, note)
-  values (v_canonical, p_added_by, now(), p_note)
+  values (v_canonical, v_actor_uid, now(), p_note)
   returning * into v_new;
   return jsonb_build_object('status', 'ok', 'row', row_to_json(v_new));
 end;
 $$;
 
-revoke all on function public.upsert_admin_email_rpc(text, uuid, text, boolean) from public;
-grant execute on function public.upsert_admin_email_rpc(text, uuid, text, boolean)
+-- R2 fix: signature changed (removed p_added_by — derived from
+-- auth.uid() inside SECURITY DEFINER body). Drop the prior signature
+-- if a previous apply registered it so the new function isn't
+-- shadowed.
+drop function if exists public.upsert_admin_email_rpc(text, uuid, text, boolean);
+revoke all on function public.upsert_admin_email_rpc(text, text, boolean) from public;
+grant execute on function public.upsert_admin_email_rpc(text, text, boolean)
   to authenticated, service_role;
 
 create or replace function public.revoke_admin_email_rpc(
-  p_email text,
-  p_revoked_by uuid,
-  p_actor_email text
+  p_email text
 )
 returns jsonb
 language plpgsql
@@ -218,15 +234,27 @@ set search_path = public, pg_temp
 as $$
 declare
   v_canonical text;
+  v_actor_uid uuid;
   v_actor_canonical text;
   v_other_active_count integer;
   v_row public.admin_emails%rowtype;
 begin
+  -- R2 CRITICAL FIX: gate inside the SECURITY DEFINER boundary.
+  -- Without this any signed-in non-admin could revoke peers. Actor
+  -- identity (uid + canonical email for self-revoke check) is derived
+  -- from auth.* so a forged caller-supplied actor can't trigger an
+  -- "other-revoke" treatment of their own revoke.
+  if not public.is_admin() then
+    raise exception 'permission denied: admin_emails mutation requires is_admin()'
+      using errcode = '42501';
+  end if;
+  v_actor_uid := auth.uid();
+  v_actor_canonical := public.auth_email_canonical();
+
   v_canonical := lower(btrim(coalesce(p_email, '')));
   if length(v_canonical) = 0 then
     return jsonb_build_object('status', 'invalid_email');
   end if;
-  v_actor_canonical := lower(btrim(coalesce(p_actor_email, '')));
 
   -- Serialize against concurrent mutations. The count-then-update
   -- branch below would otherwise be race-prone (R1 HIGH).
@@ -250,7 +278,7 @@ begin
   -- revoked_at set).
   update public.admin_emails
      set revoked_at = now(),
-         revoked_by = p_revoked_by
+         revoked_by = v_actor_uid
    where email = v_canonical
      and revoked_at is null
    returning * into v_row;
@@ -267,6 +295,10 @@ begin
 end;
 $$;
 
-revoke all on function public.revoke_admin_email_rpc(text, uuid, text) from public;
-grant execute on function public.revoke_admin_email_rpc(text, uuid, text)
+-- R2 fix: signature changed (removed p_revoked_by + p_actor_email —
+-- both derived from auth.* inside SECURITY DEFINER body). Drop the
+-- prior signature if a previous apply registered it.
+drop function if exists public.revoke_admin_email_rpc(text, uuid, text);
+revoke all on function public.revoke_admin_email_rpc(text) from public;
+grant execute on function public.revoke_admin_email_rpc(text)
   to authenticated, service_role;

@@ -83,7 +83,13 @@ export async function listAdminEmails(): Promise<AdminEmailRow[]> {
  */
 export async function addAdminEmail(opts: {
   rawEmail: string;
-  addedBy: string | null;
+  /**
+   * R2 fix: caller-supplied actor identity is no longer trusted — the
+   * RPC derives added_by from auth.uid() inside its SECURITY DEFINER
+   * body. The field is accepted for caller-side audit/log purposes
+   * only and is NOT forwarded to the RPC.
+   */
+  addedBy?: string | null;
   note?: string | null;
   confirmReAdd?: boolean;
 }): Promise<AdminEmailWriteOutcome> {
@@ -92,9 +98,11 @@ export async function addAdminEmail(opts: {
 
   return wrapInfra("addAdminEmail", async () => {
     const supabase = await createSupabaseServerClient();
+    // R2 fix: added_by is derived from auth.uid() inside the RPC's
+    // SECURITY DEFINER body — caller-supplied p_added_by removed so a
+    // forged request can't spoof the actor identity.
     const { data, error } = await supabase.rpc("upsert_admin_email_rpc", {
       p_email: email,
-      p_added_by: opts.addedBy,
       p_note: opts.note ?? null,
       p_confirm_re_add: opts.confirmReAdd ?? false,
     });
@@ -112,8 +120,15 @@ export async function addAdminEmail(opts: {
  */
 export async function revokeAdminEmail(opts: {
   rawEmail: string;
-  revokedBy: string;
-  actorCanonicalEmail: string;
+  /**
+   * R2 fix: caller-supplied actor identity is no longer trusted — the
+   * RPC derives both revoked_by (auth.uid()) AND the self-revoke
+   * predicate's actor email (auth_email_canonical()) inside its
+   * SECURITY DEFINER body. These optional fields are accepted for
+   * caller-side audit/log purposes only and are NOT forwarded.
+   */
+  revokedBy?: string;
+  actorCanonicalEmail?: string;
 }): Promise<AdminEmailWriteOutcome> {
   const email = canonicalize(opts.rawEmail);
   if (email === null) return { kind: "invalid_email", raw: opts.rawEmail };
@@ -122,8 +137,6 @@ export async function revokeAdminEmail(opts: {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.rpc("revoke_admin_email_rpc", {
       p_email: email,
-      p_revoked_by: opts.revokedBy,
-      p_actor_email: opts.actorCanonicalEmail,
     });
     if (error) {
       throw new AdminEmailsInfraError(`revokeAdminEmail.rpc: ${error.message}`);

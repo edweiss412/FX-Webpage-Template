@@ -219,10 +219,29 @@ describe("public.admin_emails table + replacement is_admin() (M9 C9 / M2-D1)", (
   });
 });
 
-describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 fixes)", () => {
+// R2 fix: JWT helper. Both new RPCs check is_admin() inside the
+// SECURITY DEFINER body. Tests must set a JWT (and authenticated role)
+// so is_admin() returns true. Most tests use the JWT-role bypass for
+// authorization simplicity; self-revoke tests set the JWT email to
+// the target so auth_email_canonical() returns the target.
+const ADMIN_JWT_SUB = "00000000-0000-0000-0000-000000000020";
+function jwtAdmin(email?: string): string {
+  const claims: Record<string, unknown> = {
+    sub: ADMIN_JWT_SUB,
+    app_metadata: { role: "admin" },
+  };
+  if (email) claims.email = email;
+  return JSON.stringify(claims);
+}
+
+describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)", () => {
   test("upsert_admin_email_rpc: invalid_email branch on empty input", () => {
     const out = runPsql(`
-      select 'status=' || ((public.upsert_admin_email_rpc('', null, null, false))->>'status');
+      begin;
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin()}';
+      select 'status=' || ((public.upsert_admin_email_rpc('', null, false))->>'status');
+      rollback;
     `);
     expect(out).toContain("status=invalid_email");
   });
@@ -232,8 +251,10 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 fixes)", () 
     const lowered = `c9-upsert-canon-${suffix}@example.com`;
     const out = runPsql(`
       begin;
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin()}';
       select 'status=' || ((public.upsert_admin_email_rpc(
-        '  C9-Upsert-CANON-${suffix}@Example.COM  ', null, null, false
+        '  C9-Upsert-CANON-${suffix}@Example.COM  ', null, false
       ))->>'status');
       select 'has_lower=' || (count(*) > 0)
         from public.admin_emails where email = ${sqlString(lowered)};
@@ -251,7 +272,9 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 fixes)", () 
       insert into public.admin_emails (email, added_by, added_at, revoked_at, revoked_by)
       values (${sqlString(email)}, null, now() - interval '7 days',
               now() - interval '1 day', '00000000-0000-0000-0000-000000000004');
-      select 'status=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, null, null, false))->>'status');
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin()}';
+      select 'status=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, null, false))->>'status');
       rollback;
     `);
     expect(out).toContain("status=re_add_required");
@@ -264,7 +287,9 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 fixes)", () 
       begin;
       insert into public.admin_emails (email, added_by, added_at)
       values (${sqlString(email)}, null, now() - interval '1 day');
-      select 'status=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, null, null, false))->>'status');
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin()}';
+      select 'status=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, null, false))->>'status');
       rollback;
     `);
     expect(out).toContain("status=already_active");
@@ -273,14 +298,12 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 fixes)", () 
   test("upsert_admin_email_rpc: duplicate fresh-add returns already_active (idempotent retry)", () => {
     const suffix = randomUUID();
     const email = `c9-dup-add-${suffix}@example.com`;
-    // R1 MEDIUM #2: previously, a concurrent / retried add hit the
-    // unique constraint and surfaced as infra error. The RPC + advisory
-    // lock serializes the operation so the second call sees the row
-    // and returns already_active.
     const out = runPsql(`
       begin;
-      select 'first=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, null, null, false))->>'status');
-      select 'second=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, null, null, false))->>'status');
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin()}';
+      select 'first=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, null, false))->>'status');
+      select 'second=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, null, false))->>'status');
       rollback;
     `);
     expect(out).toContain("first=ok");
@@ -296,7 +319,9 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 fixes)", () 
       values (${sqlString(email)}, null, now() - interval '7 days',
               now() - interval '1 day', '00000000-0000-0000-0000-000000000005',
               'Q1 contractor');
-      select 'status=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, '00000000-0000-0000-0000-000000000006', 'back for Q3', true))->>'status');
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin()}';
+      select 'status=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, 'back for Q3', true))->>'status');
       select 'row_revoked_null=' || (revoked_at is null)
         from public.admin_emails where email = ${sqlString(email)};
       select 'row_note=' || note from public.admin_emails where email = ${sqlString(email)};
@@ -309,7 +334,11 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 fixes)", () 
 
   test("revoke_admin_email_rpc: invalid_email branch on empty input", () => {
     const out = runPsql(`
-      select 'status=' || ((public.revoke_admin_email_rpc('', '00000000-0000-0000-0000-000000000007', 'actor@example.com'))->>'status');
+      begin;
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin()}';
+      select 'status=' || ((public.revoke_admin_email_rpc(''))->>'status');
+      rollback;
     `);
     expect(out).toContain("status=invalid_email");
   });
@@ -317,19 +346,17 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 fixes)", () 
   test("revoke_admin_email_rpc: last_admin_lockout when actor revokes self AND no other active rows", () => {
     const suffix = randomUUID();
     const email = `c9-lockout-${suffix}@example.com`;
-    // R1 HIGH FIX: this is the atomic version of the predicate. The
-    // count + UPDATE happen under one advisory lock so two concurrent
-    // self-revokes can't both proceed. This single-actor test exercises
-    // the refusal branch; the concurrency test below exercises the
-    // mutual-exclusion property under load.
+    // Actor is the target (JWT email = target email) AND no other
+    // active admins exist.
     const out = runPsql(`
       begin;
-      -- Revoke all other actives so this is the only one.
       update public.admin_emails set revoked_at = now(), revoked_by = '00000000-0000-0000-0000-000000000008'
         where revoked_at is null;
       insert into public.admin_emails (email, added_by, added_at)
       values (${sqlString(email)}, null, now());
-      select 'status=' || ((public.revoke_admin_email_rpc(${sqlString(email)}, '00000000-0000-0000-0000-000000000009', ${sqlString(email)}))->>'status');
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin(email)}';
+      select 'status=' || ((public.revoke_admin_email_rpc(${sqlString(email)}))->>'status');
       rollback;
     `);
     expect(out).toContain("status=last_admin_lockout");
@@ -338,14 +365,16 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 fixes)", () 
   test("revoke_admin_email_rpc: other-revoke of last admin is ALLOWED (rogue revoke per §5.5)", () => {
     const suffix = randomUUID();
     const email = `c9-rogue-victim-${suffix}@example.com`;
+    // Actor JWT email is DIFFERENT from target — rogue revoke per §5.5.
     const out = runPsql(`
       begin;
       update public.admin_emails set revoked_at = now(), revoked_by = '00000000-0000-0000-0000-00000000000a'
         where revoked_at is null;
       insert into public.admin_emails (email, added_by, added_at)
       values (${sqlString(email)}, null, now());
-      -- Actor is NOT the victim — rogue revoke is allowed.
-      select 'status=' || ((public.revoke_admin_email_rpc(${sqlString(email)}, '00000000-0000-0000-0000-00000000000b', 'rogue@example.com'))->>'status');
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin("rogue@example.com")}';
+      select 'status=' || ((public.revoke_admin_email_rpc(${sqlString(email)}))->>'status');
       select 'is_revoked=' || (revoked_at is not null) from public.admin_emails where email = ${sqlString(email)};
       rollback;
     `);
@@ -361,10 +390,80 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 fixes)", () 
       begin;
       insert into public.admin_emails (email, added_by, added_at)
       values (${sqlString(self)}, null, now()), (${sqlString(peer)}, null, now());
-      select 'status=' || ((public.revoke_admin_email_rpc(${sqlString(self)}, '00000000-0000-0000-0000-00000000000c', ${sqlString(self)}))->>'status');
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin(self)}';
+      select 'status=' || ((public.revoke_admin_email_rpc(${sqlString(self)}))->>'status');
       rollback;
     `);
     expect(out).toContain("status=ok");
+  });
+
+  // R2 CRITICAL FIX: non-admin direct RPC denial. These tests prove
+  // the SECURITY DEFINER boundary check (is_admin()) prevents a
+  // signed-in non-admin from calling the mutation RPCs directly via
+  // PostgREST. Pre-R2 the grant to `authenticated` was the only gate
+  // and any signed-in user could self-promote to admin.
+  test("R2 CRITICAL: non-admin direct upsert_admin_email_rpc call is denied", () => {
+    expect(() =>
+      runPsql(`
+        begin;
+        set local role authenticated;
+        -- Non-admin JWT: no app_metadata.role AND not in admin_emails.
+        set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000030","email":"attacker@example.com"}';
+        select public.upsert_admin_email_rpc('attacker@example.com', null, false);
+        rollback;
+      `),
+    ).toThrow(/permission denied|admin_emails mutation requires is_admin/i);
+  });
+
+  test("R2 CRITICAL: non-admin direct upsert leaves admin_emails unchanged", () => {
+    const attacker = `attacker-${randomUUID()}@example.com`;
+    // First attempt should error; verify no row exists afterward.
+    try {
+      runPsql(`
+        set role authenticated;
+        set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000031","email":"${attacker}"}';
+        select public.upsert_admin_email_rpc('${attacker}', null, false);
+      `);
+    } catch {
+      // expected
+    }
+    const out = runPsql(`
+      reset role;
+      reset request.jwt.claims;
+      select 'count=' || count(*) from public.admin_emails where email = '${attacker}';
+    `);
+    expect(out).toContain("count=0");
+  });
+
+  test("R2 CRITICAL: non-admin direct revoke_admin_email_rpc call is denied", () => {
+    expect(() =>
+      runPsql(`
+        begin;
+        set local role authenticated;
+        set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000032","email":"attacker@example.com"}';
+        select public.revoke_admin_email_rpc('dlarson@fxav.net');
+        rollback;
+      `),
+    ).toThrow(/permission denied|admin_emails mutation requires is_admin/i);
+  });
+
+  test("R2 CRITICAL: non-admin direct revoke leaves target row active", () => {
+    try {
+      runPsql(`
+        set role authenticated;
+        set request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000033","email":"attacker@example.com"}';
+        select public.revoke_admin_email_rpc('dlarson@fxav.net');
+      `);
+    } catch {
+      // expected
+    }
+    const out = runPsql(`
+      reset role;
+      reset request.jwt.claims;
+      select 'active=' || (revoked_at is null) from public.admin_emails where email = 'dlarson@fxav.net';
+    `);
+    expect(out).toContain("active=true");
   });
 
   test("R1 HIGH FIX: concurrent self-revoke of two-active deployment leaves exactly one active", async () => {
@@ -398,10 +497,14 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 fixes)", () 
       // lock inside revoke_admin_email_rpc serializes them.
       const [outA, outB] = await Promise.all([
         runPsqlAsync(
-          `select 'a=' || ((public.revoke_admin_email_rpc(${sqlString(alpha)}, '00000000-0000-0000-0000-000000000011', ${sqlString(alpha)}))->>'status');`,
+          `set role authenticated;
+           set request.jwt.claims = '${jwtAdmin(alpha)}';
+           select 'a=' || ((public.revoke_admin_email_rpc(${sqlString(alpha)}))->>'status');`,
         ),
         runPsqlAsync(
-          `select 'b=' || ((public.revoke_admin_email_rpc(${sqlString(beta)}, '00000000-0000-0000-0000-000000000012', ${sqlString(beta)}))->>'status');`,
+          `set role authenticated;
+           set request.jwt.claims = '${jwtAdmin(beta)}';
+           select 'b=' || ((public.revoke_admin_email_rpc(${sqlString(beta)}))->>'status');`,
         ),
       ]);
       // One of the two must observe last_admin_lockout (the one that
