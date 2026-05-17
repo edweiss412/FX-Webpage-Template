@@ -1047,22 +1047,39 @@ Run on the patched code (post-critique-fixes).
 
 **Gate verdict: PASS.** Zero unresolved HIGH/CRITICAL findings; both polish items fixed in the same close-out pass. DEFERRED.md M9-D-C9-1 moved to RESOLVED 2026-05-17.
 
-## §12 — `app/admin/page.tsx` minimum-viable landing (M9 final-review R15)
+## §12 — `app/admin/page.tsx` impeccable run (M9 final-review R16 post-fix)
 
-Run date: 2026-05-17. Target: `app/admin/page.tsx` (NEW landing added in R15 commit `bd1fff7` to close the dead-href class — `/admin` was being targeted by sign-in default + AlertBanner queue chip + 3 other links, but the route tree had no page.tsx. R14 tried `/admin/dev` but it's build-gated out of production.)
+Run date: 2026-05-17. Target: `app/admin/page.tsx` (NEW landing added in R15 commit `bd1fff7`). R16 correctly rejected R15's self-attestation (invariant 8 mandates an external pass) AND caught two concrete UX bugs the self-attest missed: (a) tap target was sub-44px because Link was inline text, not block-level; (b) `id="alerts"` was on the page-level navigation section, so `/admin#alerts` would scroll PAST the AlertBanner instead of TO it.
 
-### Critique disposition (pragmatic, no external pass)
+### R16 structural fixes (pre-critique)
+- Each landing card is now a full-bleed `<Link className="group block min-h-tap-min ...">` — the whole card is the tap target.
+- `id="alerts"` moved to a `<div id="alerts">` wrapper around `<AlertBanner />` in `app/admin/layout.tsx` so the queue chip's fragment lands ON the banner.
 
-The landing's design intent is minimum-viable router: be an always-built destination for sign-in / AlertBanner queue chip / error.tsx escape. NOT a primary admin surface (Doug works mostly in /admin/settings/admins + the AlertBanner above). A heavy /impeccable critique would surface "recent activity feed", "quick-jump to current alerts", etc. — over-scoping for the role.
+### Critique (LLM design review + deterministic detector)
 
-Accepted dispositions inline:
-- **Copy**: cataloged-free; "Admin / Pick where to go" is informational and brief.
-- **Tokens**: matches the C9 settings/admins page chrome (max-w-2xl, p-tile-pad, bg-surface, border-border). No new tokens.
-- **Tap targets**: each list item is a full-bleed Link inside a `p-tile-pad` border; the link itself meets text-base tap area. Acceptable for an admin-internal navigation; no min-h-tap-min explicit since the surrounding card padding (20px tile-pad) already provides ~44px.
-- **A11y**: `<section aria-label="Admin sections">` + `<ul>/<li>` semantic list + accessible Link text.
-- **Anti-patterns**: detector run on file shows `[]` zero matches.
+Detector: `[]` zero findings.
 
-**Gate verdict: PASS (self-attested).** No CRITICAL/HIGH design or process issues; full external impeccable run can land in a follow-up if R16 surfaces specific concerns or if a future operator/Doug feedback signals the landing needs upgrading.
+LLM design review: AI slop verdict CLEAN ("intentional minimalism, not a templated dashboard"). Nielsen 4-heuristic targeted scores: H2 Match Real World 3, H4 Aesthetic & Minimalist 4, H1 Visibility 3, H10 Help & Documentation 3. **13/16 — Excellent for a minimum-viable router page.**
+
+| ID | Severity | Finding | Disposition |
+|----|----------|---------|-------------|
+| P2 | MEDIUM | `group-hover:underline` on the label `<span>` was silently broken — parent Link had no `group` class so hover never triggered the underline affordance. | **FIXED** — added `group` to the Link className. |
+| P3 | LOW | "Active alerts surface in the banner above" sentence assumes banner is visible; in clean state it collapses to null. | **FIXED** — copy softened to "When there are active alerts, they appear in the banner above." |
+| P3 | LOW | Dev panel link description had redundant "(dev builds only)" parenthetical — the parent gate (ADMIN_DEV_PANEL_ENABLED) already guarantees the link is hidden in prod. | **FIXED** — parenthetical removed. |
+| P3 | LOW | `data-testid` includes raw href with slashes — works but fragile if href ever gains a query string. | **DEFERRED** — current test selectors handle it via attribute-prefix; a slug-based scheme is a polish-pass concern not a correctness issue. |
+
+### Audit (5-dimension technical health, self-attested post-fix)
+
+| # | Dimension | Score | Note |
+|---|-----------|-------|------|
+| 1 | Accessibility | 4 | Semantic landmarks (`<main>`/`<header>`/`<section>`/`<ul>`); aria-label on section; focus-visible:ring on every Link. Full-card tap targets ≥ 44×44 via `min-h-tap-min`. |
+| 2 | Performance | 4 | Pure server component, conditional dev-link via env check at render. No animations beyond `transition-colors duration-fast`. |
+| 3 | Theming | 4 | Tokens-only (`text-text-strong`, `text-text-subtle`, `text-accent-on-bg`, `bg-surface`, `border-border`, `border-border-strong`). No hard-coded colors. No new tokens. |
+| 4 | Responsive Design | 4 | `max-w-2xl px-tile-pad` container; cards reflow naturally in `<ul>`. No fixed widths. |
+| 5 | Anti-Patterns | 4 | Detector `[]`. No gradients, glassmorphism, hero metric, identical card grids, side-stripe borders. |
+| **Total** | | **20/20** | **Excellent.** |
+
+**Gate verdict: PASS.** No HIGH/CRITICAL after R16 structural fixes + critique dispositions. The one DEFERRED P3 (testid slash naming) is recorded in DEFERRED.md as polish.
 
 ## §12 — `error.tsx` post-f669e18 impeccable re-run (M9 final-review R11)
 

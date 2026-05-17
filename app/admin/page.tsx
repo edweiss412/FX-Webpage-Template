@@ -41,7 +41,7 @@ const DEV_LINKS: AdminLink[] = [
   {
     href: "/admin/dev",
     label: "Dev parse panel",
-    description: "Upload a fixture and walk the full parse pipeline (dev builds only).",
+    description: "Upload a fixture and walk the full parse pipeline.",
   },
 ];
 
@@ -56,28 +56,27 @@ export default function AdminLandingPage() {
       <header className="mb-section-gap">
         <h1 className="text-xl font-semibold text-text-strong">Admin</h1>
         <p className="mt-1 text-sm text-text-subtle">
-          Pick where to go. Active alerts surface in the banner above.
+          Pick where to go. When there are active alerts, they appear in the banner above.
         </p>
       </header>
-      <section
-        id="alerts"
-        data-testid="admin-landing-sections"
-        aria-label="Admin sections"
-      >
+      <section data-testid="admin-landing-sections" aria-label="Admin sections">
+        {/* R16 fix: each card is the full Link (block, min-h-tap-min,
+            focus ring on the card). Pre-fix the Link was inline text
+            inside a padded card and only the text was clickable —
+            sub-44px tap area on mobile. */}
         <ul className="flex flex-col gap-3">
           {links.map((link) => (
-            <li
-              key={link.href}
-              className="rounded-md border border-border bg-surface p-tile-pad"
-            >
+            <li key={link.href}>
               <Link
                 href={link.href}
                 data-testid={`admin-landing-link-${link.href}`}
-                className="text-base font-medium text-accent-on-bg underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                className="group block min-h-tap-min rounded-md border border-border bg-surface p-tile-pad transition-colors duration-fast hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
               >
-                {link.label}
+                <span className="block text-base font-medium text-accent-on-bg underline-offset-2 group-hover:underline">
+                  {link.label}
+                </span>
+                <span className="mt-1 block text-sm text-text-subtle">{link.description}</span>
               </Link>
-              <p className="mt-1 text-sm text-text-subtle">{link.description}</p>
             </li>
           ))}
         </ul>

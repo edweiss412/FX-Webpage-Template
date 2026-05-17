@@ -83,8 +83,15 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
       {/* AlertBanner is async — it self-fetches admin_alerts and renders
           null when the queue is empty, so this slot is invisible in
-          clean state. */}
-      <AlertBanner />
+          clean state. The wrapping `<div id="alerts">` is the scroll
+          target for the AlertBanner queue-chip's `/admin#alerts`
+          fragment (R16 final-review fix; the chip used to point at a
+          section on the admin LANDING which would scroll the banner
+          itself off-screen — the anchor is now on the banner's own
+          wrapper so the fragment lands precisely where Doug expects). */}
+      <div id="alerts">
+        <AlertBanner />
+      </div>
 
       {children}
     </div>
