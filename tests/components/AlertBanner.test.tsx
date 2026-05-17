@@ -470,6 +470,19 @@ describe("AlertBanner", () => {
     expect(chip.textContent?.trim()).toBe("+3 more ▸");
     // ARIA label for screen readers per brief §5.3.
     expect(chip.getAttribute("aria-label")).toBe("View 3 more unresolved alerts");
+    // M9 final-review R13 fix: chip href targets an EXISTING route.
+    // Originally `/admin#alerts` which 404'd because the route tree
+    // has no `app/admin/page.tsx`. /admin/dev is the closest existing
+    // admin landing.
+    expect(chip.getAttribute("href")).toBe("/admin/dev#alerts");
+  });
+
+  test("R13 fix: queue chip href target exists in the route tree (reachability gate)", async () => {
+    const { existsSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    // Compile-time route-reachability check. Breaks if a future
+    // refactor moves /admin/dev so the chip silently 404s.
+    expect(existsSync(join(process.cwd(), "app/admin/dev/page.tsx"))).toBe(true);
   });
 
   test("M9 C4 R2: resolved rows are excluded from BOTH top-alert SELECT and queue-depth count", async () => {
