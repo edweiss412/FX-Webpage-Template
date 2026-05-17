@@ -32,7 +32,13 @@ When picking up a deferred item:
 
 **Status:** **Resolved.** `tests/db/admin-rls-runtime.test.ts` shipped with `tests/db/admin-rls-runtime.baseline.json` (M9 final-review R2 fix). Probe DERIVES the Class A admin_only FOR ALL table list from `pg_policies` at runtime (so a future migration that adds a 22nd table automatically enters the matrix), fires admin/non-admin SELECT + INSERT per table, and asserts the runtime-derived list matches the frozen baseline (zero-drift gate). Closes the M2-D2 worry — a future migration that silently drops or weakens an admin policy will trip the SELECT-returns-0 / INSERT-rejected assertion on the affected table AND/OR the baseline-mismatch gate.
 
-**Coverage:** 21 tables × 2 roles × 2 verbs = 84 assertions + 1 baseline-equality assertion = 85 cells. admin_emails is excluded (it has its own FOR SELECT policy under C9's SELECT-only grant pattern, exhaustively covered in `tests/db/admin-emails.test.ts`). Class B (crew-readable `admin_insert`/`admin_update`/`admin_delete`) is out of scope for this probe — exercising the crew-session-bound SELECT branch requires fixture infrastructure not yet built; the existing `tests/db/rls.test.ts` text-based policy audit mitigates that gap.
+**Coverage (post-R3 strengthening at commit `69d4c6f`):**
+- BEHAVIORAL: 21 tables × 2 roles × SELECT verb = 42 assertions (admin sees rows without RLS denial; non-admin gets 0 rows).
+- STRUCTURAL: 21 tables × 2 gates (qual+with_check + cmd=ALL + qual=with_check predicate-equivalence) = 63 cells across 3 test.each blocks.
+- META: 1 derived-count assertion + 1 baseline-equality assertion = 65 total cells.
+- The v1 R2 probe attempted per-table DEFAULT VALUES INSERT but false-passed when NOT NULL constraints fired before RLS (caught by R3). R3 replaced the INSERT behavioral with structural pinning of qual + with_check + their equivalence — for FOR ALL admin_only policies one predicate gates every verb, so structural-equivalence + the SELECT behavioral proves the write paths are gated without needing per-table INSERT payload fixtures.
+- admin_emails is excluded (it has its own FOR SELECT policy under C9's SELECT-only grant pattern, exhaustively covered in `tests/db/admin-emails.test.ts`).
+- Class B (crew-readable `admin_insert`/`admin_update`/`admin_delete`) is out of scope for this probe — exercising the crew-session-bound SELECT branch requires fixture infrastructure not yet built; the existing `tests/db/rls.test.ts` text-based policy audit mitigates that gap.
 
 **Source:** M2 adversarial review, Round 1 advisory note. Pulled into C9 at Task 9.C9.0.5 per M9-polish handoff §A.9.C9.0.5; surfaced AGAIN at M9 final-review R2 as the missing artifact. Built in the same session.
 
@@ -64,77 +70,121 @@ When picking up a deferred item:
 **Why deferred:** Crosses into M1-parser territory. Out of M4 catch-up scope; the tile-side variant-tolerant probe is acceptable until the parser exposes canonical keys.
 **Suggested home:** M1 follow-up touch OR a cross-cutting key-canonicalization task. When picked up, simplify the tile to read `event_details.dress_code` only, parser-side guarantees the canonical form.
 
-### M4-D2 — Tile reorder by persona urgency
+### M4-D2 — Tile reorder by persona urgency — **RESOLVED 2026-05-17 via M9 Cluster C1**
+
+**Status:** Resolved. Shipped in M9 Cluster C1 (Crew-page IA redesign). See `handoffs/M9-polish.md` §Convergence log → Cluster C1 (R8 APPROVE). TODAY-band promotion + visibility-aware filter + sm:grid-cols-2 stretch test landed across the 4 C1 commits documented in the handoff.
+
+**Source (original):**
 
 **Source:** M4 catch-up `/impeccable critique`, 2026-05-03 (Finding 1 HIGH)
 **Description:** Tile mount order in `app/show/[slug]/page.tsx` is parser-output order (Lodging→Venue→Crew→Contacts→Schedule→Audio→Video→Lighting→Transport→ShowStatus→Financials→PackList→Notes). Crew on the venue floor scans top-to-bottom; the answer to "what's my call time" (ScheduleTile + relevant scope tile) sits buried 5+ tiles in. PackListTile (set/strike-day primary answer) renders 12th.
 **Why deferred:** Reorder is a UX/IA judgment call that benefits from a proper `/impeccable shape` session — the canonical v3 flow we skipped on this milestone. Doing it under M4 close-out pressure would risk a parser-order-to-persona-order refactor without the design context.
 **Suggested home:** M9 polish with explicit `/impeccable shape <crew page reorder>` session before crafting. Group tiles by Today / Logistics / People / Reference, OR introduce a "Today" cluster that promotes 1-2 today-relevant tiles above the general grid.
 
-### M4-D3 — Header weight competes with RightNowCard for the page hero
+### M4-D3 — Header weight competes with RightNowCard for the page hero — **RESOLVED 2026-05-17 via M9 Cluster C1**
+
+**Status:** Resolved in M9 Cluster C1 (commit `c68a60b` per handoff convergence log R2 row: "Header eyebrow gated on truthy client_label").
+
+**Source (original):**
 
 **Source:** M4 catch-up `/impeccable critique`, 2026-05-03 (Finding 5 MEDIUM)
 **Description:** `components/layout/Header.tsx` show title is `text-2xl sm:text-3xl font-bold` — same scale as the RightNowCard lead. The eyebrow `client_label` is the same `text-xs uppercase` as every tile heading. Result: header competes visually with both the hero card and the tile grid; nothing dominates.
 **Why deferred:** Visual-rebalance call that benefits from a `/impeccable shape` session.
 **Suggested home:** M9 polish. Either shrink the header (smaller title, condense to a sticky-thin bar) so the RightNowCard wins the page's primary moment unambiguously, OR commit to header-as-context (smaller title, drop the orange hairline which fights the RightNowCard's accent dot for the eye).
 
-### M4-D4 — RightNowCard data-\* test attribute relocation
+### M4-D4 — RightNowCard data-\* test attribute relocation — **RESOLVED 2026-05-17 via M9 Cluster C1**
+
+**Status:** Resolved in M9 Cluster C1 (commit `9c5b98a` in recent log: "relocate RightNowCard debug attributes off AT-traversed p (M4-D4)").
+
+**Source (original):**
 
 **Source:** M4 catch-up `/impeccable critique`, 2026-05-03 (Finding 6 MEDIUM)
 **Description:** `components/right-now/RightNowCard.tsx` carries 3 `data-*` test attributes (`data-state`, `data-rendered-state`, `data-treatment`) on a screen-reader-traversed `<p>`. Over-instrumented for a hero element.
 **Why deferred:** Relocation requires updating the e2e tests that read these attributes (transition matrix, AC-4.3 tests). Mechanical but non-trivial; safer to do alongside the broader M9 polish pass.
 **Suggested home:** M9 polish. Move test-only attributes onto a sibling `<span data-testid="right-now-debug" hidden>` outside the AT tree. Update e2e tests at the same time.
 
-### M4-D5 — `--tracking-eyebrow` token consolidation
+### M4-D5 — `--tracking-eyebrow` token consolidation — **RESOLVED 2026-05-17 via M9 Cluster C2**
+
+**Status:** Resolved in M9 Cluster C2 (Tokens). See `handoffs/M9-polish.md` §Convergence log → Cluster C2 (R4 APPROVE).
+
+**Source (original):**
 
 **Source:** M4 catch-up `/impeccable critique`, 2026-05-03 (Finding 7 LOW)
 **Description:** Five different `tracking-[...]` values for uppercase eyebrows across Section + KeyValue + Header + RightNowCard + Footer (`0.12em` / `0.14em` / `0.18em` / `0.22em` / inline arbitrary values). Token-discipline contract violation — inline arbitrary values where a named token would unify the spec.
 **Why deferred:** LOW finding; cosmetic. Easy to do but not blocking anything.
 **Suggested home:** M9 polish. Add `--tracking-eyebrow` (and maybe `-eyebrow-strong`) to `app/globals.css` `@theme`, document in DESIGN.md §2, replace the 5 inline values.
 
-### M4-D6 — `tests/e2e/crew-page.spec.ts:118` desktop-chromium viewport bug
+### M4-D6 — `tests/e2e/crew-page.spec.ts:118` desktop-chromium viewport bug — **RESOLVED 2026-05-17 via M9 Cluster C1**
+
+**Status:** Resolved in M9 Cluster C1 (commit `fe16928` per recent git log: "pin mobile viewport for tile-grid 2-col assertion (M4-D6)").
+
+**Source (original):**
 
 **Source:** Task 4.13 spec compliance review, 2026-05-03 (pre-existing failure flagged)
 **Description:** Task 4.2's `crew-page.spec.ts:118` test asserts 2-col grid without `setViewportSize(390, ...)`. On `desktop-chromium` (1280×800 default) the grid renders 4 cols, so the assertion fails. Pre-existing failure introduced at commit `c518006` (predates Task 4.13). The current `playwright.config.ts` testMatch may be excluding it from `desktop-chromium` — verify.
 **Why deferred:** Not introduced by Task 4.13; pre-existing. Minor scope.
 **Suggested home:** Next M4-touching change OR M9 polish. Either add `await page.setViewportSize({ width: 390, height: 667 })` at the top of the test, OR scope the test's testMatch to `mobile-safari` only.
 
-### M5-D1 — /me page lacks "what's next" anchor
+### M5-D1 — /me page lacks "what's next" anchor — **RESOLVED 2026-05-17 via M9 Cluster C3**
+
+**Status:** Resolved in M9 Cluster C3 (Auth flow + /me page + Bootstrap). See `handoffs/M9-polish.md` §Convergence log → Cluster C3 (R16 APPROVE). 16-round convergence covered the partition logic (active/upcoming/past/undated), chip-anchor sorting, ISO-date gate, calendar-impossible date rejection. Final commit `6114abc`.
+
+**Source (original):**
 
 **Source:** M5 §B `/impeccable critique`, 2026-05-04 (Finding C1, P0)
 **Description:** `app/me/page.tsx` renders shows as an identical card grid (DESIGN.md anti-pattern: "no identical card grids"). Crew member with multiple shows must visually scan every card to find the one happening today/tomorrow. The most-soonest show should be visually emphasized (larger card, "Tomorrow" / "In 3 days" relative-time chip) and the rest grouped under "Upcoming" / "Past" headers.
 **Why deferred:** UX/IA judgment call best handled in a dedicated `/impeccable shape /me page reorder with what's-next anchor` session, not under M5 close-out pressure. Spec §7.3 says `/me` lists shows; visual hierarchy across the list is M9 polish territory.
 **Suggested home:** M9 polish.
 
-### M5-D2 — Bootstrap shell has no liveness signal or timeout
+### M5-D2 — Bootstrap shell has no liveness signal or timeout — **RESOLVED 2026-05-17 via M9 Cluster C3**
+
+**Status:** Resolved in M9 Cluster C3 (Bootstrap retry race + StrictMode + signal-aware fetch + 6s still_working flip + Retry button). Final commit `6114abc`.
+
+**Source (original):**
 
 **Source:** M5 §B `/impeccable critique`, 2026-05-04 (Finding C2, P0)
 **Description:** `app/show/[slug]/p/Bootstrap.tsx` "Connecting…" state has no animated indicator and no timeout. On slow venue Wi-Fi, frozen and working states look identical. User stares at static text for 2-8 seconds with no feedback. No retry mechanism if the bootstrap mint or redeem-link POST stalls.
 **Why deferred:** Animation choice + timeout-with-retry UX is best designed in a `/impeccable animate` + `/impeccable shape` session, not bolted on under M5 close-out. The §A redeem-link route is correct; this is a pure §B presentation polish.
 **Suggested home:** M9 polish. Consider: animated dot per `--duration-normal` + 6s timeout flipping to "Still working… [Retry]" intermediate state.
 
-### M5-D3 — AlertBanner shows only top alert, no queue depth, no Resolve confirmation
+### M5-D3 — AlertBanner shows only top alert, no queue depth, no Resolve confirmation — **RESOLVED 2026-05-17 via M9 Cluster C4**
+
+**Status:** Resolved in M9 Cluster C4 (queue chip + two-tap Resolve + raised_at relative time). See `handoffs/M9-polish.md` §Convergence log → Cluster C4 (R3 APPROVE). Final commit `b6e4cc1`. The useFormStatus hardening follow-up (M9-D-C4-1) also resolved in commit `c195747`.
+
+**Source (original):**
 
 **Source:** M5 §B `/impeccable critique`, 2026-05-04 (Finding C3, P1)
 **Description:** `components/admin/AlertBanner.tsx` SELECTs `LIMIT 1` and shows only the topmost unresolved alert. Doug has no signal that more alerts are queued. Resolve button has no confirmation step — accidental tap on a P0 alert (REPORT_ORPHANED_LOST_LEASE etc.) silently resolves without undo. Also missing `raised_at` display ("Raised 14 minutes ago").
 **Why deferred:** Banner UX (queue badge, two-tap confirm, raised_at format) is shape work that benefits from a `/impeccable shape components/admin/AlertBanner.tsx` session. M5 ships the catalog wiring + RLS + Server Action correctly; the visual polish around queue depth and confirmation is M9 territory.
 **Suggested home:** M9 polish.
 
-### M5-D4 — Sign-in page lacks FXAV brand mark and Google G icon
+### M5-D4 — Sign-in page lacks FXAV brand mark and Google G icon — **RESOLVED 2026-05-17 via M9 Cluster C5**
+
+**Status:** Resolved in M9 Cluster C5 (Sign-in brand). See `handoffs/M9-polish.md` §Convergence log → Cluster C5 (R4 APPROVE — closed via FXAV wordmark sourced from fxav.net + official Google sign-in-button SVG from Google's signin-assets.zip; no hand-recreation; brand-compliant).
+
+**Source (original):**
 
 **Source:** M5 §B `/impeccable critique`, 2026-05-04 (Finding C4, P1)
 **Description:** `app/auth/sign-in/page.tsx` has no FXAV wordmark above the headline. `SignInButton.tsx` has text-only "Sign in with Google" with no Google G SVG. Trust signal missing on the highest-stakes form on the site (where users hand over Google credentials). Also violates Google's official Sign-In button brand guidelines.
 **Why deferred:** Requires brand asset sourcing (FXAV wordmark; Google's official G SVG download). Better handled in a coordinated polish pass with proper assets + Google brand-guide conformance, not under M5 close-out.
 **Suggested home:** M9 polish.
 
-### M5-D5 — Help/recovery copy assumes Doug is reachable (P2)
+### M5-D5 — Help/recovery copy assumes Doug is reachable (P2) — **RESOLVED 2026-05-17 via M9 Cluster C3**
+
+**Status:** Resolved in M9 Cluster C3 (sign-in error block placement above secondary path + View show list affordance per R8 disposition; brief §5.3 deviation documented in JSX comment per user authorization).
+
+**Source (original):**
 
 **Source:** M5 §B `/impeccable critique`, 2026-05-04 (Finding C5, P2 — non-blocking, recorded for completeness)
 **Description:** Bootstrap.tsx error path and SignInButton inline error both fall back to "Try again" or "ask Doug." Doug-on-stage cannot be reached. Self-serve fallbacks ("Sign in with Google instead" link from bootstrap error; "Go to my shows" link from no-fragment state; "View show list" secondary path on sign-in) would let crew members recover without Doug.
 **Why deferred:** P2 — copy iteration is best handled with `/impeccable clarify` after the structural shape work in M5-D1 / M5-D2 lands.
 **Suggested home:** M9 polish, after M5-D1 / M5-D2.
 
-### M5-D6 — Audit-pass minor findings batched (P2-P3)
+### M5-D6 — Audit-pass minor findings batched (P2-P3) — **RESOLVED 2026-05-17 via M9 Cluster C8**
+
+**Status:** Resolved in M9 Cluster C8 (A11y batch). See `handoffs/M9-polish.md` §Convergence log → Cluster C8 (R3 APPROVE).
+
+**Source (original):**
 
 **Source:** M5 §B `/impeccable audit`, 2026-05-04 (Findings P2 #3, P2 #5, P2 #7, P3 #2, P3 #3 — batched)
 **Description:** Five small audit findings deferred:
@@ -154,7 +204,11 @@ When picking up a deferred item:
 **Why deferred:** Atom extraction is M6+ territory (when M6's UI components introduce a 4th button variant, the case for extraction will be clear). Premature extraction at 3 variants is YAGNI.
 **Suggested home:** M6 or first M-task that introduces a 4th accent button variant.
 
-### M5-D8 — Inline error copy duplication; no catalog routing (Systemic)
+### M5-D8 — Inline error copy duplication; no catalog routing (Systemic) — **RESOLVED 2026-05-17 via M9 Cluster C7**
+
+**Status:** Resolved in M9 Cluster C7 (Inline-error consolidation). See `handoffs/M9-polish.md` §Convergence log → Cluster C7 (R3 APPROVE).
+
+**Source (original):**
 
 **Source:** M5 §B `/impeccable audit`, 2026-05-04 (Patterns & Systemic Issues #2)
 **Description:** SignInButton (`app/auth/sign-in/SignInButton.tsx:139-141`) and Bootstrap (`app/show/[slug]/p/Bootstrap.tsx:96-99`) both hand-code generic operator-friendly copy with no routing through `lib/messages/lookup.ts`. As §A's catalog grows (`BOOTSTRAP_NETWORK_ERROR`, `OAUTH_INITIATE_FAILED` candidates), these strings should route through ErrorExplainer.
@@ -182,21 +236,33 @@ When picking up a deferred item:
 **Why deferred:** The structured operator-log sink does not yet exist — same reason as M5-D9 / M5-D10. Producing entries now would require either a stub sink or a write to `admin_alerts` that doesn't match the spec's eventual shape.
 **Suggested home:** M11 ops-hardening. M8 kickoff verified M6 / M6.5 / M7 did not land `lib/operatorLog/`, and M8 chose not to introduce the sink because §13.2.3 report-pipeline lease/recovery work is already the milestone's convergence risk; landing operator-log storage plus sign-out producers would double the review surface. When picking up: add emit calls in `app/auth/sign-out/route.ts` for the two failure branches (link_sessions delete error, Supabase signOut error), with regression tests asserting an operator-log entry is written before the 500 response.
 
-### M7-D1 — Gallery + agenda lightbox entry/exit motion
+### M7-D1 — Gallery + agenda lightbox entry/exit motion — **RESOLVED 2026-05-17 via M9 Cluster C6**
+
+**Status:** Resolved in M9 Cluster C6 (Lightbox motion). See `handoffs/M9-polish.md` §Convergence log → Cluster C6 (R3 APPROVE).
+
+**Source (original):**
 
 **Source:** M7 Task 7.9 §12 `/impeccable critique`, 2026-05-11 (round 1)
 **Description:** Wrap `GalleryLightbox` and `AgendaSheet` openings in a `framer-motion` `AnimatePresence` transition: opacity 0→1 and `scale: 0.96 → 1` enter / reverse exit. Duration consumes `--duration-normal` (220ms) and easing consumes `--ease-out-quart` from DESIGN.md §5. Gate motion via `prefers-reduced-motion` so the existing `app/globals.css` reduction sets duration to 0ms.
 **Why deferred:** Shipping the lightbox + sheet without an entry crossfade is a perceptible "first-pass implementation" tell against native phone galleries (Apple Photos / Google Photos both use a brief shared-element scale). v1 ships functional + accessible (focus trap, page counter, swipe carries information about position) but the polish moment is M9's job to land alongside the other motion-touch tasks. AC-7.1 / AC-7.2 / AC-7.7 do not require entry motion; M7 close was not blocked.
 **Suggested home:** M9 polish.
 
-### M7-D2 — AgendaPdfViewer error states routed through messageFor
+### M7-D2 — AgendaPdfViewer error states routed through messageFor — **RESOLVED 2026-05-17 via M9 Cluster C6**
+
+**Status:** Resolved in M9 Cluster C6 (Lightbox + sentinel + error routing). The new §12.4 catalog rows AGENDA_GONE_FOR_CREW + AGENDA_UNAUTHENTICATED (ratified spec amendment `2026-05-12-catalog-agenda-codes.md`) are consumed by `components/agenda/AgendaPdfViewer.tsx`. See `handoffs/M9-polish.md` §Convergence log → Cluster C6 (R3 APPROVE).
+
+**Source (original):**
 
 **Source:** M7 Task 7.9 §12 `/impeccable audit`, 2026-05-11 (Finding G.3)
 **Description:** Replace the single "couldn't open the agenda right now" copy in `components/agenda/AgendaPdfViewer.tsx` with a `messageFor(...)` lookup so 410 / 401 / 500 surface distinct crew-facing copy (per AGENTS.md §1.5 — no raw error codes, but also: distinct user-facing messages should map to distinct catalog entries). Inspect `react-pdf`'s `onLoadError` payload to derive an HTTP status hint. If `react-pdf` doesn't expose status, run a HEAD fetch against the proxy URL first and route on its status. Add new §12.4 catalog rows where needed: `AGENDA_GONE_FOR_CREW` (410) and `AGENDA_UNAUTHENTICATED` (401) with crew-facing copy that suggests reopening Doug's link.
 **Why deferred:** v1 collapses every PDF load failure to a single retry-able message. The retry-able framing is correct for transient infra faults but wrong for permanent 410 (file removed / non-PDF / drift) where retrying spins. The fix needs new catalog rows and the X.1 spec extractor parity test pinned, which is more scope than the M7 close-out could absorb. AC-7.1 closes at M7 — the proxy route + inline embed works; only the failure-state copy is deferred.
 **Suggested home:** M9 polish OR earlier if a §12.4 catalog row for crew-facing PDF errors lands.
 
-### M7-D3 — Diagrams gallery `<img>` → `next/image`
+### M7-D3 — Diagrams gallery `<img>` → `next/image` — **RESOLVED 2026-05-17 via M9 Cluster C6b**
+
+**Status:** Resolved in M9 Cluster C6b (Lightbox media perf). See `handoffs/M9-polish.md` §Convergence log → Cluster C6b (R3 APPROVE).
+
+**Source (original):**
 
 **Source:** M7 Task 7.9 §12 `/impeccable audit`, 2026-05-11 (`@next/next/no-img-element` lint warnings)
 **Description:** Migrate `components/diagrams/Gallery.tsx` and `components/diagrams/GalleryLightbox.tsx` from `<img>` to `next/image`. Asset URLs are proxied through `/api/asset/diagram/...` which already returns auth-checked bytes with `private, max-age=0, must-revalidate` — `next/image`'s `/_next/image` optimizer would either need to bypass the auth proxy OR add a second redirect layer. Most likely path: declare the proxy origin as a `next.config.ts` remote pattern (same origin) and let `next/image` proxy through it; verify the resulting Cache-Control is still `private` so revocation propagates.
@@ -263,7 +329,11 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 **Source:** M9 C9 R10 adversarial review (Codex), 2026-05-17 — CRITICAL finding (process gate).
 **Resolution path traversed:** User ran `/impeccable critique` → 5 findings dispositioned in commit `4e438b0`. User ran `/impeccable audit` on patched code → 2 findings dispositioned in follow-up commit. M9 C9 is now structurally + technically + process-gate complete.
 
-### M7-D5 — Sentinel-hiding helper for diagrams + agenda emptiness
+### M7-D5 — Sentinel-hiding helper for diagrams + agenda emptiness — **RESOLVED 2026-05-17 via M9 Cluster C6**
+
+**Status:** Resolved in M9 Cluster C6 (sentinel hiding consolidation). See `handoffs/M9-polish.md` §Convergence log → Cluster C6 (R3 APPROVE).
+
+**Source (original):**
 
 **Source:** M7 Task 7.9 §12 `/impeccable audit`, 2026-05-11 (Finding G.5)
 **Description:** Add `shouldHideDiagrams(diagrams, agendaLinks)` to `lib/visibility/emptyState.ts` so the §8.3 generic-optional sentinel-hiding contract has a single source of truth for diagram-tile emptiness. Register the new helper in `tests/components/tiles/_metaSentinelHidingContract.test.ts` so the meta-contract walks DiagramsTile alongside the other sentinel-bearing tiles.

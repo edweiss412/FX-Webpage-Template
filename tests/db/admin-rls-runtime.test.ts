@@ -17,13 +17,26 @@
  * future migration that adds a 22nd admin_only table automatically
  * enters the matrix.
  *
- * Scope:
- *   - Class A only (21 tables; FOR ALL admin_only policies)
- *   - 2 roles: admin (JWT-role bypass) + non-admin (random email)
- *   - SELECT verb: admin gets a SELECT response (count ≥ 0, no
+ * Scope (post-R3):
+ *   - Class A only (21 tables; FOR ALL admin_only policies).
+ *   - 2 roles: admin (JWT-role bypass) + non-admin (random email).
+ *   - BEHAVIORAL SELECT: admin gets a SELECT response (count ≥ 0, no
  *     permission denied); non-admin gets 0 rows.
- *   - INSERT verb: non-admin INSERT raises "new row violates row-
- *     level security policy" (RLS WITH CHECK gate).
+ *   - STRUCTURAL gates per table (from pg_policies):
+ *       qual ILIKE '%is_admin()%' (USING read gate)
+ *       with_check ILIKE '%is_admin()%' (WITH CHECK write gate)
+ *       cmd = 'ALL' (one policy gates all four verbs)
+ *       qual = with_check (predicate equivalence: removing or
+ *         weakening EITHER arm trips the assertion)
+ *   - INSERT/UPDATE/DELETE behavioral verbs: NOT directly probed.
+ *     The v1 probe used DEFAULT VALUES INSERT and false-passed when
+ *     NOT NULL / CHECK constraints fired before RLS. R3 replaced it
+ *     with the structural gates above — for FOR ALL admin_only
+ *     policies, one predicate gates every verb in both USING and
+ *     WITH CHECK, so structural-equivalence + the SELECT-denial
+ *     behavioral proves the write paths are gated without needing
+ *     per-table INSERT payload fixtures. See the scope-rationale
+ *     note at the file tail.
  *
  * Class B (`admin_insert`/`admin_update`/`admin_delete` policies on
  * crew-readable tables) is out of scope for this probe — exercising
