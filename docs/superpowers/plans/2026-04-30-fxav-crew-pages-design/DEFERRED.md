@@ -317,6 +317,13 @@ This is the same class of bug tracked upstream:
 
 **Source:** M9 C4 R3 adversarial review (Codex), 2026-05-15 — MEDIUM finding from APPROVE verdict.
 
+### M9-D-9.3-1 — AC-9.2 empty-state reachability e2e spec is `test.describe.skip` pending auth-fixture migration
+
+**Source:** M9 final-review R8 (Codex), 2026-05-17 — HIGH finding.
+**Description:** `tests/e2e/empty-state-reachability.spec.ts` (shipped at Task 9.3 commit `f4797cc`) contains four §8.3 scenarios (required-field-missing, optional-field-missing, whole-tile-missing, stale-sync) wrapped in `test.describe.skip()`. The skip is documented inline at lines 32-38: the spec was written against the retired `?crew=<id>` query-param mock that no longer mocks identity (M5 OAuth gate is now authoritative). Activating the spec requires a fixture migration: each scenario needs a signed-in crew fixture user (via the existing `signInAs(NON_ADMIN_CREW_FIXTURE)` helper) + a per-test crew row in `crew_members` tied to that user, with cleanup. The handoff Task 9.3 §A originally specified the screenshot-baseline mechanism; the auth migration was orthogonal scope and not absorbed at close-out.
+**Why deferred (R8 finding accepted as residual, not silently dropped):** The fixture migration is a substantive infrastructure change (per-test signed-in user + per-test crew_members row + per-test cleanup) that affects every e2e test, not just empty-state-reachability. The unit + integration test coverage at lib/visibility/emptyState + per-tile sentinel hiding meta-tests + manual smoke against PRODUCT.md fixtures already validates the visibility logic; the e2e gap is screenshot-baseline + actual-DOM-render reachability. Risk class: regression in tile-emptiness hiding would surface as visible "TBD" / blank-tile-grid in the dev panel before reaching production. Acceptable to ship without the e2e baselines if the unit tests pin the dispatch logic.
+**Suggested home:** Earliest of (a) the next M-task that lands a signed-in-crew e2e fixture for any reason (which would unblock this spec essentially for free), OR (b) a dedicated e2e-fixture-migration milestone, OR (c) when a real-world reachability bug surfaces and forces the issue.
+
 ### M9-D-C9-1 — `/impeccable critique` + `/impeccable audit` dual gate pending on `/admin/settings/admins` UI — **RESOLVED 2026-05-17**
 
 **Status:** **Resolved.** Both impeccable gates closed cleanly on the C9 UI surfaces (`app/admin/settings/admins/page.tsx`, `AddAdminForm.tsx`, `RevokeRowButton.tsx`, `ReAddRowButton.tsx`). All dispositions:
