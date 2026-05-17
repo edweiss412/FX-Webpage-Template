@@ -78,4 +78,35 @@ describe("RevokeRowButton — R8 MEDIUM lockout UI reset", () => {
     });
     expect(getByTestId("admin-allowlist-revoke-button").textContent?.trim()).toBe("Revoke");
   });
+
+  it("R9 fix: retry-after-refusal works (stale result does NOT suppress new confirm row)", async () => {
+    // The R8 derived-state pattern initially used
+    // `refused = result && result.kind !== "ok"` which permanently
+    // overrode the rendered UI to idle for any future render — a
+    // subsequent Revoke click would set ui=confirm but effectiveUi
+    // stayed idle, blocking the retry. R9 refined the guard to
+    // `ui === "resolving"` so the snap fires once per resolving→
+    // refused transition and clears the moment the user re-enters
+    // the confirm state.
+    mockState.nextResult = { kind: "last_admin_lockout", email: "lonely@example.com" };
+    const { getByTestId, queryByTestId } = render(
+      <RevokeRowButton email="lonely@example.com" disabled={false} />,
+    );
+    // First attempt: tap Revoke → tap Confirm → action returns
+    // last_admin_lockout → snap to idle.
+    fireEvent.click(getByTestId("admin-allowlist-revoke-button"));
+    await act(async () => {
+      fireEvent.click(getByTestId("admin-allowlist-revoke-confirm-button"));
+    });
+    await waitFor(() => {
+      expect(queryByTestId("admin-allowlist-revoke-confirm-row")).toBeNull();
+    });
+    // Second attempt: tap Revoke again. The confirm row MUST appear
+    // even though the stale `result` is still last_admin_lockout.
+    fireEvent.click(getByTestId("admin-allowlist-revoke-button"));
+    expect(queryByTestId("admin-allowlist-revoke-confirm-row")).not.toBeNull();
+    expect(getByTestId("admin-allowlist-revoke-confirm-button").textContent?.trim()).toBe(
+      "Confirm revoke",
+    );
+  });
 });

@@ -54,15 +54,18 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
   };
   useEffect(() => clearAutoRevert, []);
 
-  // R8 MEDIUM FIX: when the Server Action returns a non-ok terminal
-  // result (last_admin_lockout, invalid_email), the page does NOT
-  // revalidate so the component stays mounted with stale state.
-  // Without this guard, ui would remain "resolving" and Revoking… +
-  // disabled controls would persist indefinitely. Instead of mirroring
-  // result into ui via setState (which the react-hooks
-  // set-state-in-effect rule rejects), derive the effective UI state:
-  // any non-ok terminal result snaps the rendered ui back to idle.
-  const refused = result && result.kind !== "ok";
+  // R8 MEDIUM FIX (refined at R9): when the Server Action returns a
+  // non-ok terminal result (last_admin_lockout, invalid_email), the
+  // page does NOT revalidate so the component stays mounted with
+  // stale ui="resolving". The snap-to-idle is scoped to the
+  // resolving→refused transition ONLY — otherwise (per R9 finding)
+  // the stale result keeps overriding future revoke attempts so a
+  // retry click that moves ui→confirm would stay rendered as idle.
+  // The guard `ui === "resolving"` means: the snap fires once when
+  // the action returns; any subsequent click that moves ui away
+  // from resolving (e.g., user clicks Revoke again → ui=confirm)
+  // bypasses the snap and the confirm row renders normally.
+  const refused = result && result.kind !== "ok" && ui === "resolving";
   const effectiveUi: UiState = refused ? "idle" : ui;
 
   const onRevokeClick = () => {

@@ -19,17 +19,30 @@ The JWT-role arm of `public.is_admin()` is **preserved verbatim** — it remains
 ```sql
 create table public.admin_emails (
   email       text primary key,
-  added_by    uuid references auth.users(id) on delete set null,
+  -- R1 fix: NO foreign-key reference to auth.users. An FK with
+  -- ON DELETE SET NULL would nullify revoked_by when an auth.users
+  -- row is deleted, violating the tightened revoke_atomicity CHECK
+  -- below. The audit column stores the historical UUID; admin
+  -- investigations join out-of-band.
+  added_by    uuid,
   added_at    timestamptz not null default now(),
-  revoked_by  uuid references auth.users(id) on delete set null,
+  revoked_by  uuid,
   revoked_at  timestamptz null,
   note        text null,
   constraint admin_emails_canonical_email
     check (email = lower(trim(email))),
+  -- R6 fix: email-shape regex prevents non-email strings (e.g., "x",
+  -- "/") from being inserted. A bogus active row would defeat the
+  -- last-admin-lockout predicate by counting as another "other
+  -- active admin" toward the self-revoke gate.
+  constraint admin_emails_email_shape
+    check (email ~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$'),
+  -- R1 fix: tightened atomicity — revoked_by MUST be NOT NULL when
+  -- revoked_at is set, preventing audit-trail-breaking rows.
   constraint admin_emails_revoke_atomicity
     check (
       (revoked_at is null and revoked_by is null)
-      or (revoked_at is not null)
+      or (revoked_at is not null and revoked_by is not null)
     )
 );
 
@@ -39,7 +52,9 @@ create index admin_emails_active_idx
 ```
 
 - `email` column is canonicalized at every boundary. Inline `lower(trim(...))` CHECK is the safety net per AGENTS.md invariant 3 (`lib/email/canonicalize.ts` is the primary mechanism on the application side).
-- `revoke_atomicity` CHECK guarantees `revoked_by` and `revoked_at` are either both NULL (active) or both NOT NULL (revoked) — prevents partial-revocation rows.
+- `email_shape` CHECK rejects non-email strings (R6 fix; the §5.5 last-admin-lockout discussion documents the bypass class this closes).
+- `revoke_atomicity` CHECK guarantees `revoked_by` and `revoked_at` are BOTH NULL (active) or BOTH NOT NULL (revoked) — prevents partial-revocation rows (R1 fix tightened this; the earlier draft accepted `revoked_at not null` regardless of `revoked_by`).
+- No `auth.users` FK on `added_by` / `revoked_by` (R1 fix): the FK's `ON DELETE SET NULL` cascade would conflict with the tightened atomicity CHECK on auth-user deletion. Audit columns hold historical UUIDs.
 - Partial index on active rows accelerates the common predicate `WHERE revoked_at IS NULL` consumed by `is_admin()` and the page list query.
 
 ### Replacement `public.is_admin()`
