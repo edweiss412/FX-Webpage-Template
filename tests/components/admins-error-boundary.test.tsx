@@ -16,6 +16,9 @@
  *
  * Both branches expose a Retry button wired to Next's reset() callback.
  */
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
@@ -61,14 +64,26 @@ describe("admins/error.tsx — M9 final-review fix", () => {
     expect(getByTestId("admin-allowlist-error-boundary").getAttribute("role")).toBe("alert");
   });
 
-  it("R11 P1 fix: 'Back to admin' Link is present so retry-loop isn't a trap", () => {
+  it("R11 P1 fix: escape Link is present so retry-loop isn't a trap", () => {
     const err = new AdminEmailsInfraError("persistent rls denial");
     const reset = vi.fn();
     const { getByTestId } = render(<AdminsPageError error={err} reset={reset} />);
     const back = getByTestId("admin-allowlist-error-back");
     expect(back.tagName.toLowerCase()).toBe("a");
-    expect(back.getAttribute("href")).toBe("/admin");
-    expect(back.textContent?.trim()).toBe("Back to admin");
+    // R12 fix: must target an EXISTING route (R11's original `/admin`
+    // 404'd because the route tree has no `app/admin/page.tsx`).
+    // /admin/dev is the only /admin/* page that doesn't depend on
+    // admin_emails and therefore can't re-fail the same way.
+    expect(back.getAttribute("href")).toBe("/admin/dev");
+    expect(back.textContent?.trim()).toBe("Back to admin dev");
+  });
+
+  it("R12 fix: escape Link target exists in the route tree (reachability gate)", () => {
+    // Compile-time route-reachability check: assert the file backing
+    // `/admin/dev` exists. If a future refactor moves the page, this
+    // breaks AND the escape Link href would silently 404.
+    const adminDevPage = join(process.cwd(), "app/admin/dev/page.tsx");
+    expect(existsSync(adminDevPage)).toBe(true);
   });
 
   it("R11 P2 fix: Retry button starts in idle state with 'Retry' label + not disabled", () => {

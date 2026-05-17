@@ -78,14 +78,18 @@ export default function AdminsPageError({
             {isRetrying ? "Retrying…" : "Retry"}
           </button>
           {/* P1 fix: secondary escape so Doug isn't trapped in a
-              retry loop on a persistent failure. Goes back to the
-              admin landing route. */}
+              retry loop on a persistent failure. Routes to
+              /admin/dev — the only `/admin/*` page that exists and
+              renders successfully without depending on
+              admin_emails (and therefore can't re-fail the same
+              way). R12 caught the original `/admin` Link 404'd
+              because the route tree has no `app/admin/page.tsx`. */}
           <Link
-            href="/admin"
+            href="/admin/dev"
             data-testid="admin-allowlist-error-back"
             className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-sm font-medium underline-offset-2 hover:underline"
           >
-            Back to admin
+            Back to admin dev
           </Link>
         </div>
       </section>
