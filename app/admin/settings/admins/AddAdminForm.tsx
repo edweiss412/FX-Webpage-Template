@@ -6,42 +6,60 @@
  * Client-side wrapper around the addAdminAction Server Action. Wires
  * useActionState (React 19) to the action so we can read the
  * discriminated outcome and render:
+ *   - inline success message + auto-clear inputs on ok (P1b)
  *   - inline error region for invalid_email / already_active
  *   - re-add prompt for re_add_required (with a confirm_re_add hidden
  *     field that re-submits the same email + note)
+ *   - re-add cancel resets useActionState via formKey bump (P3)
  *
- * The Add button is disabled when the email field is empty (HTML5 +
- * controlled state). Authoritative validation is server-side via the
- * canonicalize() boundary in lib/data/adminEmails.ts.
+ * Inputs are uncontrolled (no value/onChange) so a successful submit
+ * can clear them via `formRef.current?.reset()` from a useEffect —
+ * the reset() call is a DOM mutation, not a setState in this
+ * component, so it satisfies the react-hooks set-state-in-effect rule
+ * AND keeps the success message visible (useActionState's result is
+ * unaffected by form.reset()).
+ *
+ * Authoritative validation is server-side via the canonicalize()
+ * boundary in lib/data/adminEmails.ts; the HTML5 required +
+ * type=email gates obvious-garbage at the input layer.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useActionState } from "react";
 
-import { canonicalize } from "@/lib/email/canonicalize";
 import { getDougFacing } from "@/lib/messages/lookup";
 
 import { addAdminAction, type AdminEmailActionResult } from "./actions";
 
 export function AddAdminForm() {
-  const [email, setEmail] = useState("");
-  const [note, setNote] = useState("");
+  // P3 fix: formKey bumps on re-add Cancel to remount the form,
+  // resetting useActionState so the stale re_add_required result
+  // doesn't keep overriding the rendered prompt.
+  const [formKey, setFormKey] = useState(0);
+  return <AddAdminFormInner key={formKey} onReset={() => setFormKey((k) => k + 1)} />;
+}
+
+function AddAdminFormInner({ onReset }: { onReset: () => void }) {
+  const formRef = useRef<HTMLFormElement | null>(null);
   const [result, formAction, isPending] = useActionState<AdminEmailActionResult | null, FormData>(
     addAdminAction,
     null,
   );
 
-  // Re-add second-tap: if the previous submit returned re_add_required
-  // for the email currently in the field, the form swaps to a "Re-add"
-  // affirm pair instead of the regular Add button. Email comparison
-  // uses canonicalize() so the prior server result (canonicalized) and
-  // the current input agree even when the user retyped with different
-  // case or spacing.
-  const canonicalEmail = canonicalize(email);
-  const isReAddPrompt =
-    result?.kind === "re_add_required" && result.email === canonicalEmail;
+  // P1b fix: clear inputs after a successful add OR re-add so Doug
+  // can chain entries without manually deleting the previous email.
+  // form.reset() resets native input values without touching component
+  // state — invariant 9-safe (no setState in this useEffect).
+  useEffect(() => {
+    if (result?.kind === "ok") {
+      formRef.current?.reset();
+    }
+  }, [result]);
+
+  const isReAddPrompt = result?.kind === "re_add_required";
 
   return (
     <form
+      ref={formRef}
       action={formAction}
       data-testid="admin-allowlist-add-form"
       className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
@@ -53,8 +71,6 @@ export function AddAdminForm() {
           type="email"
           required
           autoComplete="off"
-          value={email}
-          onChange={(e) => setEmail(e.currentTarget.value)}
           data-testid="admin-allowlist-email-input"
           className="rounded-sm border border-border bg-background px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         />
@@ -65,8 +81,6 @@ export function AddAdminForm() {
           name="note"
           type="text"
           maxLength={200}
-          value={note}
-          onChange={(e) => setNote(e.currentTarget.value)}
           data-testid="admin-allowlist-note-input"
           className="rounded-sm border border-border bg-background px-3 py-2 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         />
@@ -93,10 +107,7 @@ export function AddAdminForm() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setEmail("");
-                setNote("");
-              }}
+              onClick={onReset}
               data-testid="admin-allowlist-re-add-cancel"
               className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center px-3 text-sm text-text-subtle underline-offset-2 hover:text-text"
             >
@@ -109,7 +120,7 @@ export function AddAdminForm() {
           <button
             type="submit"
             data-testid="admin-allowlist-add-button"
-            disabled={canonicalEmail === null || isPending}
+            disabled={isPending}
             className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isPending ? "Adding…" : "Add"}
@@ -117,11 +128,26 @@ export function AddAdminForm() {
         </div>
       )}
 
+      {/* P1b: success confirmation. The row also appears in the
+          ACTIVE list on revalidation but Doug needs an explicit
+          "yes, that happened" signal at the form. */}
+      {result?.kind === "ok" && (
+        <p
+          data-testid="admin-allowlist-success"
+          role="status"
+          className="rounded-sm bg-info-bg px-2 py-1 text-sm font-medium text-text-strong"
+        >
+          {result.email
+            ? `Added ${result.email}.`
+            : "Added."}
+        </p>
+      )}
+
       {result?.kind === "invalid_email" && (
         <p
           data-testid="admin-allowlist-error-invalid"
           role="alert"
-          className="text-sm text-error-text"
+          className="text-sm text-warning-text"
         >
           {getDougFacing("ADMIN_EMAIL_INVALID")}
         </p>

@@ -115,7 +115,11 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
           <p
             data-testid="admin-allowlist-lockout-error"
             role="alert"
-            className="max-w-xs text-right text-xs text-error-text"
+            // P1 fix: was max-w-xs text-right text-xs — easy to miss
+          // after refusal on Doug's phone. Now full container width,
+          // left-aligned, text-sm with a subtle error wash so the
+          // refusal anchors visually next to the disabled control.
+          className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
           >
             {lockoutMessage}
           </p>
@@ -158,7 +162,11 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
         <p
           data-testid="admin-allowlist-lockout-error"
           role="alert"
-          className="max-w-xs text-right text-xs text-error-text"
+          // P1 fix: was max-w-xs text-right text-xs — easy to miss
+          // after refusal on Doug's phone. Now full container width,
+          // left-aligned, text-sm with a subtle error wash so the
+          // refusal anchors visually next to the disabled control.
+          className="w-full rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
         >
           {lockoutMessage}
         </p>

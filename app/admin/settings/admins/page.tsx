@@ -25,6 +25,7 @@ import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { formatRelative } from "@/lib/time/relative";
 
 import { AddAdminForm } from "./AddAdminForm";
+import { ReAddRowButton } from "./ReAddRowButton";
 import { RevokeRowButton } from "./RevokeRowButton";
 
 export const dynamic = "force-dynamic";
@@ -112,20 +113,40 @@ function AdminRow({
   isOnlyActiveAdmin: boolean;
 }) {
   const isSeed = row.added_by === null;
-  const meta = buildAdminRowMeta(row, isActor, isSeed);
   // Self-revoke + last-admin: client disables the button as a UX
   // preview; the Server Action remains the authority and refuses with
   // LAST_ADMIN_LOCKOUT_REFUSED if forged.
   const disableSelfLastRevoke = isActor && isOnlyActiveAdmin;
+  const hasNote = Boolean(row.note && row.note.trim().length > 0);
   return (
     <li
       data-testid="admin-allowlist-row"
       data-row-email={row.email}
-      className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface p-tile-pad"
+      className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-border bg-surface p-tile-pad"
     >
       <div className="min-w-0 flex-1">
-        <p className="wrap-break-word text-base font-medium text-text-strong">{row.email}</p>
-        <p className="mt-1 text-xs text-text-subtle">{meta}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* P2 fix: promote "You" to a small pill instead of a
+              dot-separated chip on the meta-line; demote "Seed admin"
+              to italic; surface note on its own line below. */}
+          {isActor && (
+            <span
+              data-testid="admin-allowlist-you-badge"
+              className="inline-flex items-center rounded bg-accent px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-text"
+            >
+              You
+            </span>
+          )}
+          <p className="wrap-break-word text-base font-medium text-text-strong">
+            {row.email}
+          </p>
+        </div>
+        <p className="mt-1 text-xs text-text-subtle">{buildAddedLine(row, isSeed)}</p>
+        {hasNote && (
+          <p className="mt-1 text-xs italic text-text-subtle">
+            &ldquo;{row.note?.trim()}&rdquo;
+          </p>
+        )}
       </div>
       <RevokeRowButton email={row.email} disabled={disableSelfLastRevoke} />
     </li>
@@ -138,31 +159,32 @@ function RevokedRow({ row }: { row: AdminEmailRow }) {
     <li
       data-testid="admin-allowlist-revoked-row"
       data-row-email={row.email}
-      className="flex items-center justify-between text-sm"
+      className="flex flex-wrap items-center justify-between gap-2 text-sm"
     >
       <span className="text-text-subtle">{row.email}</span>
-      <span className="text-xs text-text-faint">Revoked {revokedRelative}</span>
+      <span className="flex items-center gap-3 text-xs text-text-faint">
+        <span>Revoked {revokedRelative}</span>
+        {/* P2 fix: one-tap re-add (was 3 steps via Add form prompt). */}
+        <ReAddRowButton email={row.email} />
+      </span>
     </li>
   );
 }
 
 /**
- * Build the metadata line for an active admin row per brief §6.2.
- * Composition: ["You" if actor] · ["Seed admin" if seed | "Added <ago>"]
- *              · ['"<note>"' if note set]
+ * Build the "Added <when>" line for an active admin row per brief §6.2,
+ * post-critique. The note + "You" badge are now their own elements
+ * (see AdminRow) so this returns just the seed-vs-actor-vs-relative
+ * line with "Seed admin" italicized inline.
  */
-function buildAdminRowMeta(row: AdminEmailRow, isActor: boolean, isSeed: boolean): string {
-  const pieces: string[] = [];
-  if (isActor) pieces.push("You");
+function buildAddedLine(row: AdminEmailRow, isSeed: boolean) {
   if (isSeed) {
-    pieces.push("Seed admin");
-    pieces.push("Added at deploy");
-  } else {
-    const added = formatRelative(row.added_at);
-    pieces.push(`Added ${added}`);
+    return (
+      <>
+        <em>Seed admin</em>
+        <span aria-hidden="true"> · </span>Added at deploy
+      </>
+    );
   }
-  if (row.note && row.note.trim().length > 0) {
-    pieces.push(`"${row.note.trim()}"`);
-  }
-  return pieces.join(" · ");
+  return <>Added {formatRelative(row.added_at)}</>;
 }

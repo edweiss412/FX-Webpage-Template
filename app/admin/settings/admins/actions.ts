@@ -44,7 +44,7 @@ import { addAdminEmail, revokeAdminEmail } from "@/lib/data/adminEmails";
  * a catalog-driven message or a state mutation.
  */
 export type AdminEmailActionResult =
-  | { kind: "ok" }
+  | { kind: "ok"; email?: string }
   | { kind: "invalid_email" }
   | { kind: "already_active"; email: string }
   | { kind: "re_add_required"; email: string; previously_revoked_at: string }
@@ -81,7 +81,9 @@ export async function addAdminAction(
   switch (outcome.kind) {
     case "ok":
       revalidatePath("/admin/settings/admins");
-      return { kind: "ok" };
+      return outcome.row?.email
+        ? { kind: "ok", email: outcome.row.email }
+        : { kind: "ok" };
     case "invalid_email":
       return { kind: "invalid_email" };
     case "already_active":
