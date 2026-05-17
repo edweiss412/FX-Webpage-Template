@@ -1047,6 +1047,28 @@ Run on the patched code (post-critique-fixes).
 
 **Gate verdict: PASS.** Zero unresolved HIGH/CRITICAL findings; both polish items fixed in the same close-out pass. DEFERRED.md M9-D-C9-1 moved to RESOLVED 2026-05-17.
 
+## §12 — `error.tsx` post-f669e18 impeccable re-run (M9 final-review R11)
+
+Run date: 2026-05-17. Target: `app/admin/settings/admins/error.tsx` (added in R1 commit `f669e18`; the C9 close-out dual-gate at commits `4e438b0` + `72af2f1` predated this file and missed it; R11 caught the gap).
+
+### Critique
+- Detector: `[]` zero findings.
+- LLM design review (targeted, 4 heuristics): H1 Visibility 2, H9 Error Recovery 3, H6 Recognition 3, H10 Help 1. Post-fix: H1 → 3 (pending state), H10 → 2-3 (escalation line + secondary escape).
+- 1 P1 + 2 P2 + 1 P3, no CRITICAL/P0:
+
+| ID | Severity | Finding | Disposition |
+|----|----------|---------|-------------|
+| P1 | HIGH | Retry-loop trap: no fallback if Retry keeps failing. | **FIXED** — added "Back to admin" Link to /admin as secondary escape. |
+| P2a | MEDIUM | Retry button no pending/disabled state during async re-render. | **FIXED** — wrapped reset() in useTransition; button shows "Retrying…" + disabled + aria-busy. |
+| P2b | MEDIUM | No escalation/help line for persistent failures. | **FIXED** — added non-catalog UX text "If this keeps happening, the server-side log has the stack — check Supabase health or page the on-call admin." |
+| P3 | LOW | Decorative `<h1>Administrators</h1>` eats space when page hasn't loaded. | **DEFERRED** — consistent page-title chrome preserves sense-of-place across Retry re-mounts. See DEFERRED.md M9-D-error-tsx-1. |
+
+### Audit
+- Detector: `[]` zero findings.
+- Token discipline preserved (min-h-tap-min / min-w-tap-min / focus-visible:ring-focus-ring / bg-warning-bg from prior baseline). No regression.
+
+**Gate verdict: PASS.** No HIGH/CRITICAL remaining. 1 LOW deferred. 7 regression tests in `tests/components/admins-error-boundary.test.tsx` cover all fixes.
+
 ## §12 — C4 post-c195747 impeccable re-run (M9 final-review R10)
 
 Run date: 2026-05-17. Target: `components/admin/ResolveAlertButton.tsx` + `components/admin/AlertBanner.tsx` (parent form host). Triggered by R10 finding that the `useFormStatus` hardening commit (`c195747`) was a UI surface mutation per AGENTS.md invariant 8 but never had a follow-up impeccable gate.

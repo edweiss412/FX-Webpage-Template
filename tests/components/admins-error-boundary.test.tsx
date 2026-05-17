@@ -60,4 +60,32 @@ describe("admins/error.tsx — M9 final-review fix", () => {
     const { getByTestId } = render(<AdminsPageError error={err} reset={reset} />);
     expect(getByTestId("admin-allowlist-error-boundary").getAttribute("role")).toBe("alert");
   });
+
+  it("R11 P1 fix: 'Back to admin' Link is present so retry-loop isn't a trap", () => {
+    const err = new AdminEmailsInfraError("persistent rls denial");
+    const reset = vi.fn();
+    const { getByTestId } = render(<AdminsPageError error={err} reset={reset} />);
+    const back = getByTestId("admin-allowlist-error-back");
+    expect(back.tagName.toLowerCase()).toBe("a");
+    expect(back.getAttribute("href")).toBe("/admin");
+    expect(back.textContent?.trim()).toBe("Back to admin");
+  });
+
+  it("R11 P2 fix: Retry button starts in idle state with 'Retry' label + not disabled", () => {
+    const err = new AdminEmailsInfraError("rls denial");
+    const reset = vi.fn();
+    const { getByTestId } = render(<AdminsPageError error={err} reset={reset} />);
+    const retry = getByTestId("admin-allowlist-error-retry") as HTMLButtonElement;
+    expect(retry.textContent?.trim()).toBe("Retry");
+    expect(retry.disabled).toBe(false);
+    expect(retry.getAttribute("aria-busy")).toBe("false");
+  });
+
+  it("R11 P2 fix: escalation sub-line is rendered (operator visibility cue)", () => {
+    const err = new AdminEmailsInfraError("rls denial");
+    const reset = vi.fn();
+    const { getByTestId } = render(<AdminsPageError error={err} reset={reset} />);
+    const boundary = getByTestId("admin-allowlist-error-boundary");
+    expect(boundary.textContent).toContain("server-side log");
+  });
 });

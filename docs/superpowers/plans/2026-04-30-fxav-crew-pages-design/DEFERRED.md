@@ -329,6 +329,23 @@ This is the same class of bug tracked upstream:
 
 **Source:** M9 C4 R3 adversarial review (Codex), 2026-05-15 — MEDIUM finding from APPROVE verdict.
 
+### M9-D-error-tsx-1 — `app/admin/settings/admins/error.tsx` post-R1 impeccable dispositions — **RESOLVED 2026-05-17 via M9 final-review R11**
+
+**Status:** **Resolved.** Impeccable dual-gate ran on the R1-added `error.tsx` route-segment error boundary per AGENTS.md invariant 8 (R11 finding caught the missed gate from R1 commit `f669e18`).
+
+| Gate | Score | Detector | Findings |
+|---|---|---|---|
+| `/impeccable critique` | mixed (4-heuristic targeted): H1=2 (improved to 3 post-fix), H9=3, H6=3, H10=1 → improved to ~2-3 post-fix | `[]` | 1 P1 + 2 P2 + 1 P3 — all fixed except P3 (deferred). |
+| `/impeccable audit` | mirrored prior C9 baseline (token discipline + 44×44 tap targets preserved) | `[]` | No CRITICAL/HIGH. |
+
+**R11 c195747-style polish dispositions on `error.tsx`:**
+- **P1 — Retry-loop trap.** No fallback if Retry keeps failing on a persistent infra fault. **FIXED:** added "Back to admin" `Link` to `/admin` as secondary escape route. Doug never traps in a single-button retry loop.
+- **P2 — Retry button no pending state.** `reset()` is sync-fire-and-forget but the segment re-render is async; user got no signal the tap registered. **FIXED:** wrapped `reset()` in `useTransition()`; button shows "Retrying…" + `disabled` + `aria-busy="true"` during the transition.
+- **P2 — No escalation/help line.** Catalog message alone didn't tell Doug what to do if retry fails twice. **FIXED:** added a `text-sm` sub-line: "If this keeps happening, the server-side log has the stack — check Supabase health or page the on-call admin." (Non-catalog UX text per invariant 5; no error code surfaced.)
+- **P3 — Decorative `<h1>Administrators</h1>` header eats vertical space when the page hasn't loaded.** **DEFERRED:** the consistent page-title chrome preserves Doug's sense of place when the route segment re-mounts on Retry. Re-open if a future user-research signal shows the title is misleading mid-failure.
+
+**Tests:** 7 cases in `tests/components/admins-error-boundary.test.tsx` cover catalog message render, defense-in-depth coverage for unknown throws, Retry wiring, role="alert" contract, the new "Back to admin" Link, the Retry idle-state contract, and the escalation sub-line presence.
+
 ### M9-D-9.3-1 — AC-9.2 empty-state reachability e2e spec is `test.describe.skip` pending auth-fixture migration
 
 **Source:** M9 final-review R8 (Codex), 2026-05-17 — HIGH finding.
