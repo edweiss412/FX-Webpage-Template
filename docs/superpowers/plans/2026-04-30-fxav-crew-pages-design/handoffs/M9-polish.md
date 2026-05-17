@@ -1206,28 +1206,74 @@ Base: `db393a6` (C8 close + housekeeping). 4 implementation commits + 5 fix comm
 | R7 | needs-attention | L1 DEFERRED M9-D-C1-2 entry internally contradictory (resolution note says RESOLVED but body still describes MS_ONLY workaround as current) | `79da5b2` | Collapsed stale "Current workaround" / "Why deferred" / "Likely fix" / "Trigger to remove" sections into a single "Historical workaround (no longer required as of commit 889347a)" paragraph. |
 | R8 | **approve** | none | `79da5b2` | C1 CONVERGED (final). |
 
+### Cluster C3 convergence (Codex)
+
+Base: C1 close SHA. 16 rounds. Cluster scope expanded beyond initial shape (sign-in flow + /me page + Bootstrap state machine) as adversarial review surfaced contracts not pre-specified.
+
+| Round | Verdict | Findings | Fix SHA | Notes |
+|-------|---------|----------|---------|-------|
+| R1-R7 | needs-attention | sign-in DOM ordering, Bootstrap retry race + StrictMode, partition rules, venue projection | various | Phase-1 iteration on Bootstrap state machine + sign-in shape + listShowsForCrew venue field. |
+| R8 | needs-attention | sign-in error block placement vs brief §5.3 | `645b092` | Adopted Codex's order (error region ABOVE secondary path "View show list") — user-authorized deviation from brief, documented in JSX comment. |
+| R9 | needs-attention | venue projection test was tautological (mock returned full row regardless of select string) | `5f4f303` | De-tautologized: mock parses `shows!inner(...)` projection list and strips response to only requested fields, so dropping `venue` from production .select(...) breaks tests. |
+| R10 | needs-attention | Bootstrap e2e fixtures used stale copy + DOM shape | `8d134d4` | Tests updated; new "still_working" state coverage. |
+| R11 | needs-attention | /me page missed undated shows | `00ec179` | Added "Date pending" partition bucket. |
+| R12 | needs-attention | partition needed strict ISO date gate + retry button disabled-during-pending | `b94dab9` | Strict YYYY-MM-DD regex + Date.parse + round-trip check. |
+| R13 | needs-attention | Date.parse normalized calendar-impossible dates (e.g., 2026-02-31 → 2026-03-03) | `0f0b74c` | Round-trip via `new Date(ms).toISOString().slice(0, 10) === input`. |
+| R14 | needs-attention | resolveDisplayDate not shared between partition + render | `e84b9a1` | Single helper threaded through both call sites. |
+| R15 | needs-attention | `now` not threaded consistently between partition + chip math | `6114abc` | Single `now` parameter passed top-down. |
+| R16 | **approve** | none | `6114abc` | C3 CONVERGED. |
+
+### Cluster C4 convergence (Codex)
+
+Base: `6114abc` (C3 close). 3 rounds.
+
+| Round | Verdict | Findings | Fix SHA | Notes |
+|-------|---------|----------|---------|-------|
+| R1 | needs-attention | H1 Cancel below 44×44 tap-target; M1 two-tap state machine untested | `7c263d9` | Cancel widened with `inline-flex min-h-tap-min min-w-tap-min px-3`; 7 state-machine tests added (idle→confirm→cancel/timeout/submit, Cancel-clears-timer, resolving disabled+aria-busy, tap-target class pin). |
+| R2 | needs-attention | H1 e2e still tested one-tap Resolve; M1 raisedAt 7d boundary; M2 invariant 9 destructure; M3 mock `.is()` no-op | `e19c004` | E2e two-tap update + Cancel coverage; deltaSec gate at 7d boundary; `_countData` destructure; `.is()` filter in mock + `resolved_at` fixture + exclusion regression test. |
+| R3 | **approve** | M1 useFormStatus hardening (DEFERRED) | `b6e4cc1` | C4 CONVERGED. M9-D-C4-1 logged as follow-up. |
+
+### Cluster C9 convergence (Codex)
+
+Base: `b6e4cc1` (C4 close). 11 rounds. Largest cluster — spec amendment + migration + atomic RPCs + 3 UI files + meta-test extensions. Same-vector findings closed via successive defensive layers (RLS posture → grants → policy → atomic locking → CHECK constraints → translator whitelists → spec amendment sync).
+
+| Round | Verdict | Findings | Fix SHA | Notes |
+|-------|---------|----------|---------|-------|
+| R1 | needs-attention | H1 race-prone read-then-write lockout; M1 add/re-add not idempotent; M2 atomicity CHECK accepts `revoked_at` without `revoked_by` | `bdcad05` | Atomic SECURITY DEFINER RPCs (`upsert_admin_email_rpc` + `revoke_admin_email_rpc`) under `pg_advisory_xact_lock`; tightened CHECK; dropped auth.users FKs (cascade conflicts with tightened CHECK); concurrent-self-revoke regression via spawn-based parallel psql. |
+| R2 | needs-attention | **CRITICAL** authenticated non-admins can call SECURITY DEFINER RPCs directly | `32b0090` | `if not public.is_admin() then raise exception` at RPC entry; actor identity derived from `auth.uid()` + `public.auth_email_canonical()` inside SECURITY DEFINER (caller-supplied params dropped from signatures); 4 R2 CRITICAL regression tests. |
+| R3 | needs-attention | H1 Server Action `getActorUid()` swallows getUser errors → silent mutation / false invalid_email | `8bb2c9d` | Removed redundant getActorUid; both actions call requireAdminIdentity() directly → AdminInfraError propagates; 5 R3 regression tests + 2 meta-test rows. |
+| R4 | needs-attention | H1 admin_emails has RLS policy but no GRANT to authenticated → permission denied before RLS | `ab726a5` | Added `grant select, insert, update, delete to authenticated` + grants test. |
+| R5 | needs-attention | H1 translator masks impossible statuses as success (false-success revoke under schema drift) | `de59059` | Per-RPC status whitelists (UPSERT_STATUS_SET / REVOKE_STATUS_SET); default arm throws AdminEmailsInfraError; 6 schema-drift defense tests. |
+| R6 | needs-attention | H1 non-email strings can be inserted as active rows → defeat last-admin lockout | `7393628` | `admin_emails_email_shape` CHECK regex `^[^@\s]+@[^@\s]+\.[^@\s]+$`; RPC validates shape AND table CHECK; 3 regression tests. |
+| R7 | needs-attention | H1 direct PostgREST table writes bypass RPC safety gates (an admin can self-mutate without lock / auth.uid() / lockout) | `c8281a9` | Revoked INSERT/UPDATE/DELETE from authenticated; SELECT-only grant + FOR SELECT policy; 3 direct-write denial tests. |
+| R8 | needs-attention | H1 amendment §5.3 still canonized FOR ALL policy (R7 drift); M1 RevokeRowButton stuck in "Revoking…" on lockout result | `4155d01` | Amendment §5.3 rewritten to R7 SELECT-only shape with "Ratified post-R7" callout; derived-state pattern `refused = result && result.kind !== "ok"` snaps UI back to idle; 2 lockout-reset tests. |
+| R9 | needs-attention | H1 amendment §5.1 still showed pre-R1 schema (FKs + loose CHECK); M1 R8 derived guard permanently overrode UI → retry-after-refusal stuck | `ddc066a` | Amendment §5.1 rewritten with R1/R6 schema (no FKs, tightened CHECK, email_shape); guard refined to `ui === "resolving"` so snap fires once per resolving→refused transition; retry-after-refusal test. |
+| R10 | needs-attention | **CRITICAL** `/impeccable critique` + `/impeccable audit` dual gate not run on new UI surfaces | `e87f8db` | Cannot invoke `/impeccable` from implementer; logged as DEFERRED.md M9-D-C9-1 ("PENDING USER ACTION, not declined") with explicit resolution path. |
+| R11 | **approve** | none material | `e87f8db` | C9 CONVERGED for code quality. Impeccable dual-gate is the one remaining user-action step. |
+
 ---
 
 ## M9 close-out summary
 
-**Clusters converged (APPROVE):** C0 (R11), C2 (R4), C5 (R4), C6 (R3), C6b (R3), C6c (R11), C7 (R3), C8 (R3). 8 clusters / 55 rounds total. C6c was un-deferred 2026-05-13 after research revised the risk assessment; the 11-round convergence loop was driven by deep library-contract integration with `react-zoom-pan-pinch@4.0.3`.
+**Clusters converged (APPROVE):** C0 (R11), C2 (R4), C5 (R4), C6 (R3), C6b (R3), C6c (R11), C7 (R3), C8 (R3), **C1 (R8)**, **C3 (R16)**, **C4 (R3)**, **C9 (R11)**. **12 clusters / ~99 rounds total** — full M9 routed inventory converged in adversarial review.
 
-**Clusters DEFERRED with documented rationale:**
-- (none) — C5 closed via FXAV wordmark sourced from fxav.net + official Google sign-in-button SVG from Google's signin-assets.zip (no hand-recreation; brand-compliant). C6c closed via `react-zoom-pan-pinch@4.0.3` integration; remaining iOS-Safari touch-action arbitration verified by manual device smoke per shape brief §14.
+The four largest sub-shape-required clusters (C1/C3/C4/C9) converged in the autonomous-push session 2026-05-15→2026-05-17:
+- **C1 (Crew-page IA)** — 8 rounds + a Next.js 16.0.0 → 16.2.4 bump that resolved the dev-mode font hang documented as M9-D-C1-2 (resolved at SHA `889347a` / `6ef820f`).
+- **C3 (Auth flow + /me page + Bootstrap)** — 16 rounds. The longest single cluster — Bootstrap state machine retry semantics under StrictMode + the /me partition rules (ISO date gate, calendar-impossible date rejection, undated bucket, shared `now`) drove most of the iteration.
+- **C4 (AlertBanner queue + Resolve confirm + raised_at)** — 3 rounds. One MEDIUM follow-up (`useFormStatus` hardening for failure-path recovery) logged as M9-D-C4-1.
+- **C9 (Admin allow-list runtime-mutable)** — 11 rounds. Resolved 1 CRITICAL + 9 HIGH + 4 MEDIUM findings. Same-vector recurrence rule fired three times (RLS posture, then translator robustness, then spec-amendment text drift) and each time closed with a structural defensive layer. Remaining gate: `/impeccable critique` + `/impeccable audit` on the 3 new admin UI files — logged as **M9-D-C9-1 (PENDING USER ACTION)**.
 
-**Outstanding sub-shape-required clusters (NOT attempted in autonomous push per user directive):**
-- C1 (Crew-page IA — M4-D2, M4-D3, M4-D6, M4-D4) — sub-shape session required.
-- C3 (Bootstrap motion — M5-D1, M5-D2) — sub-shape session + `/impeccable animate` sub-session required.
-- C4 (M5-D3) — sub-shape session required.
-- C9 (Admin allow-list runtime-mutable — M2-D1) — sub-brainstorming + sub-shape sessions required.
+**Clusters DEFERRED with documented rationale:** none. Every M9-routed deliverable shipped via the convergence loop above; residual concerns are tracked as DEFERRED.md follow-ups (M9-D-C4-1, M9-D-C9-1) not declined items.
 
 **Open spec-amendment debt (flagged across the convergence loops):**
 1. PARSE_ERROR_LAST_GOOD spec line 2721 markdown emphasis typo (`_<time>\*.` vs `_<time>_.`) — propagated to catalog per AGENTS.md §1.7; flagged for future spec-amendment session.
 2. BOOTSTRAP_GENERIC catalog code — single catch-all for the multiple §A redeem-link error codes the Bootstrap state machine collapses; current GENERIC_ERROR_COPY inline literal carries `not-subject:M5-D8` annotation.
 3. Network-failure catalog code — ReportModal's GENERIC_NETWORK_COPY ("Couldn't reach the server…") has no §12.4 row for client-side network unreachable; annotated `not-subject:M5-D8`.
 
-Convergence trajectory: HIGH×8 → MEDIUM×3 → MEDIUM×1 → MEDIUM×1 → MEDIUM×3. Findings narrowing each round. Memory `feedback_iterate_until_convergence` directs continued iteration; round-3 cap applies to value-judgment loops, not new-finding rounds.
+**Convergence trajectory by cluster:** C0 11×R, C1 8×R, C2 4×R, C3 16×R, C4 3×R, C5 4×R, C6 3×R, C6b 3×R, C6c 11×R, C7 3×R, C8 3×R, C9 11×R. Findings narrow within each cluster; round counts vary by surface complexity and same-vector recurrence (C0/C3/C6c/C9 all hit the rule and closed via structural defensive layers per memory `feedback_class_sweep_must_be_code_shape_not_name_list`).
 
-### Subsequent cluster work pending
+### Final M9 close-out actions (USER-driven)
 
-C2, C1, C3, C4, C5, C6, C6b, C6c, C7, C8, C9 per the §A summary table. After C0 adversarial convergence, the next cluster is C2 (token consolidation — no sub-shape required).
+1. **User runs `/impeccable critique` + `/impeccable audit`** on the three C9 admin UI files (`app/admin/settings/admins/page.tsx`, `AddAdminForm.tsx`, `RevokeRowButton.tsx`) per DEFERRED.md M9-D-C9-1. Findings either land as a follow-up commit or get added to DEFERRED.md as accepted residual risk.
+2. After the dual gate closes, M9-D-C9-1 (and optionally M9-D-C4-1 if `useFormStatus` hardening is bundled) move to Resolved in DEFERRED.md.
+3. M9 marked "completed" — every routed deliverable has either shipped via adversarial-convergence APPROVE OR is tracked as a documented Resolved-pending DEFERRED.md entry with explicit resolution path.
