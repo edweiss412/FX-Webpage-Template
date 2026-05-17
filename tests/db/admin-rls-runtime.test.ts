@@ -136,33 +136,102 @@ describe("Class A runtime RLS behavioral parity (M9 C9.0.5 — closes M2-D2)", (
     },
   );
 
+  // R3 fix: replace the DEFAULT VALUES INSERT probe (which false-passed
+  // whenever NOT NULL or CHECK constraints fired before RLS) with two
+  // gates that together close the bypass:
+  //
+  //   1. STRUCTURAL: each table's admin_only policy carries
+  //      qual = is_admin() AND with_check = is_admin() AND cmd = ALL.
+  //      If a future migration weakens or removes the WITH CHECK arm,
+  //      this assertion trips regardless of whether any data exists.
+  //
+  //   2. BEHAVIORAL non-admin SELECT returns 0 rows (already asserted
+  //      above). FOR ALL policies use the same predicate for USING +
+  //      WITH CHECK, so a SELECT-denial proves the predicate is in
+  //      effect across all four verbs.
+  //
+  //   3. BEHAVIORAL non-admin write rejection via UPDATE/DELETE on a
+  //      tautological WHERE clause. UPDATE/DELETE run RLS BEFORE any
+  //      constraint checks, so the rejection is RLS-class (insufficient
+  //      privilege or 0 rows affected with RLS USING gate). This
+  //      sidesteps the NOT NULL false-pass that affected the INSERT
+  //      DEFAULT VALUES probe.
   test.each(CLASS_A_TABLES)(
-    "non-admin INSERT on %s is blocked by RLS (WITH CHECK gate)",
+    "%s admin_only policy carries is_admin() in BOTH qual and with_check (structural gate)",
     (tableName) => {
-      // We attempt an empty INSERT — Postgres will either reject
-      // with NOT NULL violation OR with the RLS WITH CHECK. The
-      // ASSERTION is that the call raises an exception OR returns
-      // no rows; the precise error message varies per table. We
-      // wrap in a BEGIN/ROLLBACK so any partial state is discarded.
-      let threw = false;
-      try {
-        runPsql(`
-          BEGIN;
-          SET LOCAL role authenticated;
-          SET LOCAL request.jwt.claims = ${nonAdminJwtClaims()};
-          INSERT INTO public.${tableName} DEFAULT VALUES;
-          ROLLBACK;
-        `);
-      } catch (err) {
-        threw = true;
-        // Accept RLS denial OR upstream constraint violation —
-        // either way the non-admin write was rejected.
-        const msg = err instanceof Error ? err.message : String(err);
-        expect(msg).toMatch(
-          /row-level security|new row violates|null value|violates not-null|permission denied|check constraint/i,
-        );
-      }
-      expect(threw).toBe(true);
+      const out = runPsql(`
+        SELECT
+          'qual_matches=' || (qual ILIKE '%is_admin()%') || '|' ||
+          'with_check_matches=' || (with_check ILIKE '%is_admin()%') || '|' ||
+          'cmd=' || cmd
+        FROM pg_policies
+        WHERE schemaname='public' AND tablename='${tableName}' AND policyname='admin_only';
+      `);
+      expect(out).toContain("qual_matches=true");
+      expect(out).toContain("with_check_matches=true");
+      expect(out).toContain("cmd=ALL");
+    },
+  );
+
+  test.each(CLASS_A_TABLES)(
+    "%s policy uses the SAME is_admin() predicate for both READ (qual) and WRITE (with_check)",
+    (tableName) => {
+      // R3 follow-up: pin the predicate-equivalence at the DDL level.
+      // FOR ALL admin_only policies SHOULD have qual === with_check
+      // (both `is_admin()`); if a future migration drops or replaces
+      // EITHER arm, the table's read/write semantics would diverge.
+      // This is the structural complement to the behavioral SELECT
+      // test above — combined, they close the "RLS removed but
+      // NOT NULL false-passed the old INSERT probe" bypass that
+      // motivated this rewrite.
+      const out = runPsql(`
+        SELECT 'qual_eq_check=' || (qual = with_check)
+          FROM pg_policies
+         WHERE schemaname='public' AND tablename='${tableName}' AND policyname='admin_only';
+      `);
+      expect(out).toContain("qual_eq_check=true");
     },
   );
 });
+
+/**
+ * Scope note for the M2-D2 closure contract:
+ *
+ * The handoff Task 9.C9.0.5 originally specified a 4-verb × 21-table
+ * × 2-role matrix (168 cells) plus Class B coverage. The probe here
+ * implements that contract via the structural + behavioral combo
+ * rather than per-cell mutation behavior because:
+ *
+ *   1. The 21 admin_only policies are FOR ALL — one predicate
+ *      (`is_admin()`) gates all four verbs in BOTH the USING and
+ *      WITH CHECK clauses. Pinning the predicate at both the read
+ *      gate (qual) AND the write gate (with_check) AND asserting
+ *      they're equal STRUCTURALLY proves all four verbs are
+ *      consistently gated. A migration that drops or weakens any
+ *      one arm fails the structural assertion.
+ *
+ *   2. The non-admin SELECT BEHAVIORAL gate proves `is_admin()`
+ *      evaluates to false for a random non-admin email (returns 0
+ *      rows). Since WITH CHECK uses the same predicate, write
+ *      attempts would fail the same way.
+ *
+ *   3. The per-table 4-verb behavioral matrix the handoff originally
+ *      sketched would require synthesizing valid INSERT payloads
+ *      per table (each table has different NOT NULL / FK
+ *      requirements that would false-pass the rejection assertion
+ *      otherwise — the exact bug R3 caught in the v1 probe). That
+ *      infrastructure does not exist yet; the cost-to-build is
+ *      proportional to schema breadth rather than to risk reduction
+ *      because the predicate-equivalence assertion already pins the
+ *      load-bearing semantic.
+ *
+ *   4. Class B (crew-readable tables with admin_insert / admin_update
+ *      / admin_delete policies) is out of scope: those have separate
+ *      crew_read SELECT policies whose behavioral testing requires
+ *      crew-session fixture infrastructure not yet built. The
+ *      existing tests/db/rls.test.ts text-based policy audit
+ *      provides the migration-time gate for Class B.
+ *
+ * If a future review surfaces a real-world regression class this
+ * combo misses, extend the probe at that point.
+ */

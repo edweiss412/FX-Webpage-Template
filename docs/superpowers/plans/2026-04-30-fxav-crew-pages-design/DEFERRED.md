@@ -8,6 +8,8 @@ When picking up a deferred item:
 2. Resolve it in that milestone's handoff doc convergence log.
 3. Update the row to "Resolved" with the commit SHA + milestone reference.
 
+**De facto practice (codified post-M9):** small-scope items resolved in the same milestone they were deferred under MAY stay physically in the `## Open` section with `— **RESOLVED <date>**` suffixed to the heading + a Status: Resolved bullet. The single source of truth for "is this open?" is the heading suffix, NOT section placement. This matches the existing M6-D12 / M7-D4 / M9-D-C1-2 / M9-D-C9-1 / M9-D-C4-1 / M2-D2 / M2-D1 pattern. Larger items that resolved in a DIFFERENT milestone (e.g., M6-D12 which closed in M6.5 coda) move to `## Resolved`. Grep `RESOLVED` to find every resolved entry regardless of section.
+
 ---
 
 ## Open
@@ -19,12 +21,12 @@ When picking up a deferred item:
 **Why deferred:** Out of M6–M10 scope; the core sync + admin + onboarding surfaces need to stabilize first. Push depends on a real email-provider integration (Resend / Postmark / SES) and on Doug's actual workflow being observed, not assumed. The design memo also notes that the MI-8/MI-8b modtime-stability debounce ratified in plan amendment 7 becomes redundant once push-debounce lands — both achieve the same anti-spam UX outcome from different layers.
 **Suggested home:** New milestone (M11+ or post-v1) once core sync + admin surfaces stabilize. Spec amendment + dedicated milestone plan rather than retrofit into an existing milestone — the surface is too cross-cutting (schema, routes, email provider, report-pipeline integration, action-token signing) for a sub-milestone task.
 
-### M2-D1 — Hardcoded admin allow-list rotation
+### M2-D1 — Hardcoded admin allow-list rotation — **RESOLVED 2026-05-17**
 
-**Source:** M2 adversarial review, Round 1 advisory note
-**Description (corrected 2026-05-12 at M9 Task 9.0 close):** The admin allow-list is HARDCODED IN A POSTGRES MIGRATION (`supabase/migrations/20260501002000_rls_policies.sql:23-37`, the `public.is_admin()` function — `array['dlarson@fxav.net', 'edweiss412@gmail.com']`). The `ADMIN_EMAILS` env var listed at spec §14.3:3290 and `.env.local.example:26` is **NOT consumed by any code path**. Original deferral text claimed env-driven; live mechanism is migration-driven. There is no documented rotation procedure, audit trail, or in-product UX for adding/removing admins. Today the only path is "edit migration, deploy."
-**Why deferred:** Out of M2 schema scope. Doesn't block anything functional — admins work, the allow-list is honored. It's an ops-hardening question.
-**Suggested home:** **M9 polish — C9 cluster (routed 2026-05-12 at Task 9.0).** Shipping as code-driven self-service UI: spec amendment to §14.3 retiring the zombie env var + replacing the hardcoded array with an `admin_emails` table lookup + `/admin/settings/admins` page with add/revoke Server Actions. See `handoffs/M9-polish.md` §A Cluster C9 for the full task list. Original alternative dispositions (X.\* cross-cutting; ops doc only) were considered and rejected at 9.0 in favor of the self-service UI path.
+**Status:** **Resolved.** Shipped via M9 Cluster C9 (commits `e060766` through `c8281a9` covering the full convergence loop; final commits `4e438b0` + `72af2f1` for the impeccable critique+audit polish; spec integration in `f669e18`). Ratified spec amendment at `docs/superpowers/specs/amendments/2026-05-14-admin-allowlist-runtime-mutable.md` retires the migration-hardcoded array + zombie `ADMIN_EMAILS` env var; replaces with `public.admin_emails` table + two atomic SECURITY DEFINER RPCs (`upsert_admin_email_rpc` + `revoke_admin_email_rpc`) holding `pg_advisory_xact_lock` + `/admin/settings/admins` CRUD UI. JWT-role override arm preserved verbatim. SELECT-only grant + `for select` policy for authenticated; mutations route exclusively through the RPCs which enforce `is_admin()` + last-admin-lockout + email-shape validation. Canonical spec §14.3 row retired with cross-reference; 00-overview.md ratified-amendments index updated. Eleven adversarial-review rounds + impeccable dual-gate + final-review whole-M9 R1/R2 all closed.
+
+**Source:** M2 adversarial review, Round 1 advisory note.
+**Original description:** admin allow-list HARDCODED IN A POSTGRES MIGRATION (`supabase/migrations/20260501002000_rls_policies.sql:23-37`); no rotation procedure, audit trail, or in-product UX. Only path was "edit migration, deploy."
 
 ### M2-D2 — Static-vs-runtime breadth for the 21 admin-table RLS matrix — **RESOLVED 2026-05-17**
 
