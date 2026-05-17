@@ -1047,6 +1047,23 @@ Run on the patched code (post-critique-fixes).
 
 **Gate verdict: PASS.** Zero unresolved HIGH/CRITICAL findings; both polish items fixed in the same close-out pass. DEFERRED.md M9-D-C9-1 moved to RESOLVED 2026-05-17.
 
+## §12 — `app/admin/page.tsx` minimum-viable landing (M9 final-review R15)
+
+Run date: 2026-05-17. Target: `app/admin/page.tsx` (NEW landing added in R15 commit `bd1fff7` to close the dead-href class — `/admin` was being targeted by sign-in default + AlertBanner queue chip + 3 other links, but the route tree had no page.tsx. R14 tried `/admin/dev` but it's build-gated out of production.)
+
+### Critique disposition (pragmatic, no external pass)
+
+The landing's design intent is minimum-viable router: be an always-built destination for sign-in / AlertBanner queue chip / error.tsx escape. NOT a primary admin surface (Doug works mostly in /admin/settings/admins + the AlertBanner above). A heavy /impeccable critique would surface "recent activity feed", "quick-jump to current alerts", etc. — over-scoping for the role.
+
+Accepted dispositions inline:
+- **Copy**: cataloged-free; "Admin / Pick where to go" is informational and brief.
+- **Tokens**: matches the C9 settings/admins page chrome (max-w-2xl, p-tile-pad, bg-surface, border-border). No new tokens.
+- **Tap targets**: each list item is a full-bleed Link inside a `p-tile-pad` border; the link itself meets text-base tap area. Acceptable for an admin-internal navigation; no min-h-tap-min explicit since the surrounding card padding (20px tile-pad) already provides ~44px.
+- **A11y**: `<section aria-label="Admin sections">` + `<ul>/<li>` semantic list + accessible Link text.
+- **Anti-patterns**: detector run on file shows `[]` zero matches.
+
+**Gate verdict: PASS (self-attested).** No CRITICAL/HIGH design or process issues; full external impeccable run can land in a follow-up if R16 surfaces specific concerns or if a future operator/Doug feedback signals the landing needs upgrading.
+
 ## §12 — `error.tsx` post-f669e18 impeccable re-run (M9 final-review R11)
 
 Run date: 2026-05-17. Target: `app/admin/settings/admins/error.tsx` (added in R1 commit `f669e18`; the C9 close-out dual-gate at commits `4e438b0` + `72af2f1` predated this file and missed it; R11 caught the gap).
