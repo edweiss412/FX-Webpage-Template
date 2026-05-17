@@ -132,7 +132,13 @@ function AdminRow({
           {isActor && (
             <span
               data-testid="admin-allowlist-you-badge"
-              className="inline-flex items-center rounded bg-accent px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-text"
+              // Audit P2 fix: neutral high-contrast pill (text-text-strong
+              // on surface-raised) instead of bg-accent text-accent-text
+              // (4.07:1 — fails WCAG 1.4.3 for small text). "You" is
+              // identification, not a CTA, so neutral chrome is right
+              // and avoids competing with the bg-accent Revoke button or
+              // the bg-warning-bg lockout / re-add prompt.
+              className="inline-flex items-center rounded border border-border bg-surface-raised px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-text-strong"
             >
               You
             </span>

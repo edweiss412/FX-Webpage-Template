@@ -243,13 +243,19 @@ This is the same class of bug tracked upstream:
 **Why deferred:** R3 verdict was APPROVE (no HIGH/CRITICAL), and the brief §5.4 spec ("Until Server Action completes") describes the happy path. Current implementation matches the spec literally. The reviewer flagged this as a hardening opportunity, not a contract violation. The recovery path today is "reload the admin page" — slow but functional. `useFormStatus` is a small follow-up that improves operator recovery for P0 alert misfires; deferred to keep C4 scope tight and let M9 close as-approved per the user's "iterate until APPROVE then move on" rule.
 **Suggested home:** M9 polish coda OR a future admin hardening pass.
 
-### M9-D-C9-1 — `/impeccable critique` + `/impeccable audit` dual gate pending on `/admin/settings/admins` UI
+### M9-D-C9-1 — `/impeccable critique` + `/impeccable audit` dual gate pending on `/admin/settings/admins` UI — **RESOLVED 2026-05-17**
 
-**Source:** M9 C9 R10 adversarial review (Codex), 2026-05-17 — CRITICAL finding.
-**Description:** AGENTS.md invariant 8 requires `/impeccable critique` + `/impeccable audit` run on every UI surface before ship, with HIGH/CRITICAL findings either fixed or explicitly deferred in handoff §12 / DEFERRED.md. The C9 cluster ships three new client UI surfaces (`app/admin/settings/admins/page.tsx`, `AddAdminForm.tsx`, `RevokeRowButton.tsx`) without the impeccable dual-gate run. The implementer agent cannot invoke `/impeccable` directly (it is a user-triggered skill); the gate must be completed before C9 is fully closed.
-**Why deferred (PENDING USER ACTION, not declined):** The adversarial-review convergence loop closed every code-quality finding through R9 (1 HIGH at R1 + 1 CRITICAL at R2 + 3 HIGH at R3-R5 + 1 HIGH at R6 + 1 HIGH at R7 + 1 HIGH + 1 MEDIUM at R8 + 1 HIGH + 1 MEDIUM at R9 — all resolved). The user's standing instruction was "iterate until APPROVE, don't stop between clusters." The impeccable gate is a separate process surface that requires user-triggered invocation. C9 implementation is structurally complete; the gate is the one residual step.
-**Resolution path:** User runs `/impeccable critique` and `/impeccable audit` on the C9 UI diff (the 3 files above). Findings either land as a follow-up commit OR get added to this DEFERRED.md as accepted residual risk. Once dispositions are recorded, this entry moves to Resolved.
-**Suggested home:** Same M9 polish milestone — final close-out step before tagging M9 complete.
+**Status:** **Resolved.** Both impeccable gates closed cleanly on the C9 UI surfaces (`app/admin/settings/admins/page.tsx`, `AddAdminForm.tsx`, `RevokeRowButton.tsx`, `ReAddRowButton.tsx`). All dispositions:
+
+| Gate | Score | Verdict | Findings + dispositions |
+|---|---|---|---|
+| `/impeccable critique` | 30/40 Nielsen, detector `[]` | Solid — ship after P1 fixes | 2 P1 + 2 P2 + 1 P3, all FIXED in commit `4e438b0` (lockout error placement; success confirmation + form reset; one-tap re-add affordance on RevokedRow; "You" pill + meta-line typography; re-add cancel result reset via formKey bump) |
+| `/impeccable audit` | 19/20 Excellent, detector `[]` | Excellent (minor polish) | 1 P2 + 1 P3, both FIXED in follow-up commit (this entry): P2 "You" pill contrast (`text-[10px]` on `bg-accent` = 4.07:1 fails WCAG 1.4.3 for small text — swapped to neutral high-contrast pill `border border-border bg-surface-raised text-text-strong text-xs`); P3 disabled-Revoke `title` tooltip → visible inline hint with `aria-describedby` (mobile devices don't surface `title`; screen readers often ignore `title` on disabled buttons) |
+
+Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md ✓, command_reference ✓, shape not-required, image-gate skipped:critique-evaluate-only, mutation closed→open for fixes). Detector returned `[]` (zero pattern matches) on both passes. No new tokens introduced (brief §11 anti-goal preserved).
+
+**Source:** M9 C9 R10 adversarial review (Codex), 2026-05-17 — CRITICAL finding (process gate).
+**Resolution path traversed:** User ran `/impeccable critique` → 5 findings dispositioned in commit `4e438b0`. User ran `/impeccable audit` on patched code → 2 findings dispositioned in follow-up commit. M9 C9 is now structurally + technically + process-gate complete.
 
 ### M7-D5 — Sentinel-hiding helper for diagrams + agenda emptiness
 

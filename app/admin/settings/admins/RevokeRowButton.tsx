@@ -92,6 +92,13 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
       : null;
 
   if (effectiveUi === "idle") {
+    // Audit P3 fix: when the Revoke button is disabled because actor
+    // is the only active admin, render the explanation as a visible
+    // sibling hint (not a `title` tooltip — mobile devices don't
+    // surface title, and screen readers often ignore title on
+    // disabled buttons). aria-describedby ties the hint to the
+    // button so AT users get the same context.
+    const hintId = disabled ? `${email}-revoke-hint` : undefined;
     return (
       <div className="flex flex-col items-end gap-2">
         <form action={formAction}>
@@ -101,16 +108,21 @@ export function RevokeRowButton({ email, disabled }: { email: string; disabled: 
             onClick={onRevokeClick}
             disabled={disabled}
             data-testid="admin-allowlist-revoke-button"
-            title={
-              disabled
-                ? "You can't revoke yourself when you're the last administrator."
-                : undefined
-            }
+            aria-describedby={hintId}
             className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-medium text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
           >
             Revoke
           </button>
         </form>
+        {disabled && (
+          <p
+            id={hintId}
+            data-testid="admin-allowlist-self-last-hint"
+            className="max-w-xs text-right text-xs text-text-subtle"
+          >
+            Can&rsquo;t revoke yourself, add another admin first.
+          </p>
+        )}
         {lockoutMessage && (
           <p
             data-testid="admin-allowlist-lockout-error"
