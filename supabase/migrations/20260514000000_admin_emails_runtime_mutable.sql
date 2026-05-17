@@ -68,6 +68,16 @@ alter table public.admin_emails
 
 alter table public.admin_emails enable row level security;
 
+-- R4 fix: explicit table privileges. Without these the cookie-bound
+-- authenticated client gets `permission denied for table admin_emails`
+-- BEFORE RLS evaluates, breaking /admin/settings/admins for valid
+-- admins. Matches the established pattern from the 21 other
+-- admin-gated tables (supabase/migrations/20260501002000_rls_policies.sql
+-- — see e.g. admin_alerts at line ~140). RLS remains the enforcement
+-- surface; grants are the precondition.
+grant select, insert, update, delete on table public.admin_emails to anon, authenticated;
+grant all privileges on table public.admin_emails to service_role;
+
 drop policy if exists admin_only on public.admin_emails;
 create policy admin_only on public.admin_emails
   for all to authenticated

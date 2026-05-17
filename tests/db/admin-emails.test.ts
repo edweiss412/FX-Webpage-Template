@@ -52,6 +52,33 @@ function runPsql(sql: string): string {
 }
 
 describe("public.admin_emails table + replacement is_admin() (M9 C9 / M2-D1)", () => {
+  test("R4 fix: admin_emails has explicit grants to authenticated + service_role", () => {
+    // Without these grants, an authenticated client (the cookie-bound
+    // server-side Supabase client used by /admin/settings/admins)
+    // hits `permission denied for table admin_emails` BEFORE RLS
+    // evaluates is_admin(). Matches the established pattern from the
+    // 21 other admin-gated tables (admin_alerts is the canonical
+    // example at supabase/migrations/20260501002000_rls_policies.sql).
+    const out = runPsql(`
+      select 'authenticated_select=' || bool_or(privilege_type = 'SELECT')
+        from information_schema.role_table_grants
+       where table_schema = 'public' and table_name = 'admin_emails'
+         and grantee = 'authenticated';
+      select 'service_role_select=' || bool_or(privilege_type = 'SELECT')
+        from information_schema.role_table_grants
+       where table_schema = 'public' and table_name = 'admin_emails'
+         and grantee = 'service_role';
+      select 'authenticated_grants_count=' || count(distinct privilege_type)
+        from information_schema.role_table_grants
+       where table_schema = 'public' and table_name = 'admin_emails'
+         and grantee = 'authenticated'
+         and privilege_type in ('SELECT','INSERT','UPDATE','DELETE');
+    `);
+    expect(out).toContain("authenticated_select=true");
+    expect(out).toContain("service_role_select=true");
+    expect(out).toContain("authenticated_grants_count=4");
+  });
+
   test("table exists with email PK + canonical-email CHECK + revoke-atomicity CHECK", () => {
     const out = runPsql(`
       select
