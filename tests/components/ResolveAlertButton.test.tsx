@@ -91,31 +91,88 @@ describe("ResolveAlertButton state machine", () => {
     expect(getByTestId("admin-alert-resolve-button").textContent?.trim()).toBe("Resolve");
   });
 
-  it("confirm → resolving on Confirm click: button shows 'Resolving…' + disabled", () => {
-    // Wrap in a <form onSubmit> stub so the type=submit click doesn't
-    // navigate jsdom to about:blank. Stub event.preventDefault so the
-    // form swallow is explicit.
+  it("confirm → resolving on Confirm click: button shows 'Resolving…' + disabled (useFormStatus)", async () => {
+    // M9-D-C4-1: pending state is now derived from useFormStatus(),
+    // not local UI state. The test needs a real <form action={fn}>
+    // with an async action so React tracks the submission. A
+    // controlled promise lets us assert the pending-state mid-flight
+    // before the action resolves.
+    vi.useRealTimers();
+    let resolveAction: () => void = () => {};
+    const actionPromise = new Promise<void>((resolve) => {
+      resolveAction = resolve;
+    });
+    const action = async () => {
+      await actionPromise;
+    };
     const { getByTestId } = render(
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-        }}
-      >
+      <form action={action}>
         <ResolveAlertButton />
       </form>,
     );
     fireEvent.click(getByTestId("admin-alert-resolve-button"));
-    fireEvent.click(getByTestId("admin-alert-confirm-resolve-button"));
+    await act(async () => {
+      fireEvent.click(getByTestId("admin-alert-confirm-resolve-button"));
+      // Yield to React so useFormStatus observes the submission.
+      await Promise.resolve();
+    });
     const confirm = getByTestId("admin-alert-confirm-resolve-button");
     expect(confirm.textContent?.trim()).toBe("Resolving…");
-    // Brief §5.4: button disables (prevents double-fire).
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
-    // aria-busy signals to screen readers that work is in flight.
     expect(confirm.getAttribute("aria-busy")).toBe("true");
-    // Cancel also disables in resolving state so user can't reset
-    // mid-submit.
     const cancel = getByTestId("admin-alert-cancel-button");
     expect((cancel as HTMLButtonElement).disabled).toBe(true);
+    // Resolve the action so the test exits cleanly.
+    await act(async () => {
+      resolveAction();
+      await actionPromise;
+    });
+    // Restore fake timers for the rest of the suite.
+    vi.useFakeTimers();
+  });
+
+  it("M9-D-C4-1: pending flips back to false on action failure → Confirm + Cancel re-enabled (no stuck Resolving…)", async () => {
+    vi.useRealTimers();
+    let rejectAction: (err: Error) => void = () => {};
+    const actionPromise = new Promise<void>((_resolve, reject) => {
+      rejectAction = reject;
+    });
+    const action = async () => {
+      try {
+        await actionPromise;
+      } catch {
+        // Swallow — Server Action contract is to return without
+        // revalidating on failure. We simulate that here.
+      }
+    };
+    const { getByTestId } = render(
+      <form action={action}>
+        <ResolveAlertButton />
+      </form>,
+    );
+    fireEvent.click(getByTestId("admin-alert-resolve-button"));
+    await act(async () => {
+      fireEvent.click(getByTestId("admin-alert-confirm-resolve-button"));
+      await Promise.resolve();
+    });
+    // Mid-flight: pending=true, both buttons disabled.
+    expect((getByTestId("admin-alert-confirm-resolve-button") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    // Simulate failure: action returns without revalidatePath.
+    await act(async () => {
+      rejectAction(new Error("simulated supabase RLS denial"));
+      await actionPromise.catch(() => {});
+    });
+    // Post-failure: pending=false, Confirm + Cancel re-enabled, label
+    // reverts to "Confirm resolve". Pre-fix, the local `ui="resolving"`
+    // flag never cleared and the controls stayed disabled forever.
+    const confirmAfter = getByTestId("admin-alert-confirm-resolve-button") as HTMLButtonElement;
+    expect(confirmAfter.disabled).toBe(false);
+    expect(confirmAfter.textContent?.trim()).toBe("Confirm resolve");
+    const cancelAfter = getByTestId("admin-alert-cancel-button") as HTMLButtonElement;
+    expect(cancelAfter.disabled).toBe(false);
+    vi.useFakeTimers();
   });
 
   it("Cancel meets the 44×44 tap-target floor (C4 R1 finding)", () => {
