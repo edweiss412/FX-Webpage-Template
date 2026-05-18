@@ -276,6 +276,116 @@ export declare function POST(request: Request): Promise<Response>;
 // | { outcome: "superseded"; code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN"; ... }
 ```
 
+### Pinned contract @ 47d2b9c (Pin-stop 2 — 2026-05-18)
+
+```ts
+// app/api/admin/onboarding/finalize/route.ts
+export type FinalizePerRow =
+  | { drive_file_id: string; wizard_session_id: string; code: "OK" }
+  | {
+      drive_file_id: string;
+      wizard_session_id: string;
+      code:
+        | "DRIVE_FETCH_FAILED"
+        | "STAGED_PARSE_SOURCE_OUT_OF_SCOPE"
+        | "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE"
+        | "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED";
+      re_apply_url: `/admin/onboarding/staged/${string}/${string}`;
+    };
+export type FinalizeResponse =
+  | {
+      status: "batch_complete" | "all_batches_complete";
+      wizard_session_id: string;
+      remaining_count: number;
+      unresolved_manifest_count: number;
+      per_row: FinalizePerRow[];
+    }
+  | { ok: false; code: "WIZARD_FINALIZE_CHECKPOINT_MISSING" | "CONCURRENT_FINALIZE_IN_FLIGHT" | "ONBOARDING_NOT_RESOLVED" };
+export declare function handleOnboardingFinalize(request: Request, deps?: FinalizeRouteDeps): Promise<Response>;
+
+// app/api/admin/onboarding/finalize-cas/route.ts
+export type FinalizeCasResponse =
+  | {
+      status: "finalize_complete";
+      wizard_session_id: string;
+      watched_folder_id: string;
+      idempotent?: true;
+      per_row?: Array<{ drive_file_id: string; code: "OK" | "STAGED_PARSE_OUTDATED_AT_PHASE_D" }>;
+    }
+  | { ok: false; code: "WIZARD_FINALIZE_CHECKPOINT_MISSING" | "WIZARD_FINALIZE_BATCHES_PENDING" | "ONBOARDING_NOT_RESOLVED" };
+export declare function handleOnboardingFinalizeCas(request: Request, deps?: FinalizeCasRouteDeps): Promise<Response>;
+
+// app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts
+export type CleanupAbandonedFinalizeRouteResponse =
+  | { status: "cleaned" | "already_cleaned" }
+  | { ok: false; code: "CLEANUP_REQUIRES_STALE_SESSION"; reason: "session_too_fresh" | "finalize_active_within_last_hour"; context: Record<string, unknown> };
+export declare function handleCleanupAbandonedFinalize(request: Request, context: { params: Promise<{ sessionId: string }> }, deps?: CleanupAbandonedFinalizeRouteDeps): Promise<Response>;
+
+// app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply|discard
+export type WizardStagedApplyRequest = { stagedId: string; reviewerChoicesVersion: 1; reviewerChoices: ReviewerChoice[] };
+export type WizardStagedApplyResponse =
+  | { status: "reapplied"; wizard_session_id: string; drive_file_id: string }
+  | { ok: false; code: "STALE_DISCARD_REJECTED" | "STAGED_PARSE_SUPERSEDED" | "WIZARD_SESSION_SUPERSEDED" | "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED" | string };
+export type WizardStagedDiscardRequest = { stagedId: string; kind: "try_again_next_sync" | "defer_until_modified" | "permanent_ignore" };
+export type WizardStagedDiscardResponse =
+  | { status: "discarded"; wizard_session_id: string; drive_file_id: string; variant: "try_again" | "defer_until_modified" | "permanent_ignore" }
+  | { ok: false; code: "STALE_DISCARD_REJECTED" | "WIZARD_SESSION_SUPERSEDED" | string };
+
+// lib/sync/retrySingleFile.ts
+export declare function retrySingleFile_unlocked(tx: LockedShowTx<RetrySingleFileTx>, driveFileId: string, wizardSessionId: string, deps?: RetrySingleFileDeps): Promise<RetrySingleFileResult>;
+export declare function retrySingleFile(driveFileId: string, wizardSessionId: string, deps?: RetrySingleFileDeps): Promise<RetrySingleFileResult | ConcurrentSyncSkipped>;
+
+// app/api/admin/onboarding/pending_ingestions/[id]/retry|defer_until_modified|permanent_ignore
+export type WizardPendingIngestionRetryResponse =
+  | { status: "staged" }
+  | { status: "hard_failed_again"; code: string }
+  | { status: "live_row_conflict" }
+  | { ok: false; code: "PENDING_INGESTION_NOT_FOUND" | "WIZARD_SESSION_SUPERSEDED" | "LOCK_OWNERSHIP_ASSERTION_FAILED" };
+export type WizardPendingIngestionActionResponse =
+  | { status: "deferred" | "ignored" }
+  | { ok: false; code: "PENDING_INGESTION_NOT_FOUND" | "WIZARD_SESSION_SUPERSEDED" | "LOCK_OWNERSHIP_ASSERTION_FAILED" };
+
+// lib/sync/runManualStageForFirstSeen.ts
+export declare function runManualStageForFirstSeen(tx: LockedShowTx<RunManualStageForFirstSeenTx>, driveFileId: string, deps: RunManualStageForFirstSeenDeps): Promise<
+  | { outcome: "parsed_pending_review"; stagedId: string }
+  | { outcome: "hard_failed"; errorCode: string }
+  | { outcome: "deferred"; reason: "mi8_modtime_unstable" | "mi8b_modtime_unstable" }
+  | { outcome: "parsed"; stagedId?: string }
+>;
+
+// lib/sync/runManualSyncForShow.ts
+export declare function runManualSyncForShow_unlocked(tx: LockedShowTx<SyncPipelineTx>, driveFileId: string, mode: "manual", fileMeta: DriveListedFile, deps?: RunManualSyncForShowDeps): Promise<ProcessOneFileResult>;
+export declare function readFinalizeOwnershipGuard_unlocked(tx: LockedShowTx<SyncPipelineTx>, driveFileId: string): Promise<boolean>;
+
+// app/api/admin/pending-ingestions/[id]/retry|discard
+export type LivePendingIngestionRetryResponse =
+  | { status: "parsed_pending_review"; stagedId: string }
+  | { status: "applied"; slug: string | null }
+  | { status: "parsed"; stagedId?: string }
+  | { status: "still_failed"; errorCode: string }
+  | { status: "deferred"; reason: "mi8_modtime_unstable" | "mi8b_modtime_unstable" }
+  | { ok: false; code: "CONCURRENT_SYNC_SKIPPED" | "PENDING_INGESTION_TRANSITIONED" | "LIVE_ROW_REQUIRED" | "FINALIZE_OWNED_SHOW" | "LOCK_OWNERSHIP_ASSERTION_FAILED" | "DRIVE_FETCH_FAILED" | "SHEET_UNAVAILABLE" };
+export type LivePendingIngestionDiscardResponse =
+  | { status: "discarded"; kind: "defer_until_modified" | "permanent_ignore" }
+  | { ok: false; code: "CONCURRENT_SYNC_SKIPPED" | "PENDING_INGESTION_TRANSITIONED" | "LIVE_ROW_REQUIRED" | "MISSING_PENDING_INGESTION_MODTIME" | "LOCK_OWNERSHIP_ASSERTION_FAILED" };
+
+// app/api/admin/admin-alerts/[id]/resolve and app/api/admin/show/[slug]/alerts/[id]/resolve
+export type AdminAlertResolveResponse =
+  | { status: "resolved"; id: string; resolved_at: string }
+  | { ok: false; code: "ALERT_REQUIRES_SHOW_SCOPED_RESOLVE"; id: string; show_id: string; redirect_to?: string }
+  | { ok: false; code: "ADMIN_ALERT_NOT_FOUND" };
+
+// app/api/admin/show/staged/[stagedId]/apply|discard
+export type LiveFirstSeenStagedApplyRequest = { reviewer_choices: ReviewerChoice[] } | { reviewerChoices: ReviewerChoice[] };
+export type LiveFirstSeenStagedApplyResponse =
+  | { slug: string | null }
+  | { ok: false; code: "STALE_DISCARD_REJECTED" | "STAGED_PARSE_SUPERSEDED" | "SLUG_COLLISION_EXHAUSTED" | "MISSING_REVIEWER_CHOICE" | "EXTRA_REVIEWER_CHOICE" | "DUPLICATE_REVIEWER_CHOICE" | "INVALID_REVIEWER_ACTION" | string };
+export type LiveFirstSeenStagedDiscardRequest = { kind: "try_again_next_sync" | "defer_until_modified" | "permanent_ignore" };
+export type LiveFirstSeenStagedDiscardResponse =
+  | { status: "discarded"; variant: "try_again" | "defer_until_modified" | "permanent_ignore" }
+  | { ok: false; code: "STALE_DISCARD_REJECTED" | "CONCURRENT_SYNC_SKIPPED" };
+```
+
 ### Re-pin / rebase coordination protocol
 
 Two coordinated terminals running against the same branch creates two scenarios this protocol must address:
