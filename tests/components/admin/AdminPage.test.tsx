@@ -165,9 +165,12 @@ describe("AdminPage Phase 1 routing", () => {
     expect(queryByTestId("admin-dashboard-placeholder")).toBeNull();
   });
 
-  test("?show_finalize=true renders FinalizeReentry placeholder (Phase 1 stub)", async () => {
+  test("?show_finalize=true renders FinalizeReentry placeholder ONLY when a pending wizard session exists", async () => {
+    // The URL hint is paired with rerunSetupServerAction's suppression
+    // branch, which preserves pending_wizard_session_id. So the hint
+    // is honored only when an in-flight session is actually present.
     purgeAndRotateIfStaleMock.mockResolvedValue({
-      settings: SETTLED_SETTINGS,
+      settings: WIZARD_IN_FLIGHT_SETTINGS,
       rotated: false,
     });
     const { getByTestId, queryByTestId } = render(
@@ -178,6 +181,39 @@ describe("AdminPage Phase 1 routing", () => {
     expect(getByTestId("admin-finalize-reentry-placeholder")).toBeTruthy();
     expect(queryByTestId("onboarding-wizard-spy")).toBeNull();
     expect(queryByTestId("admin-dashboard-placeholder")).toBeNull();
+  });
+
+  test("?show_finalize=true is IGNORED on settled admin (no pending session) — Dashboard still renders", async () => {
+    // Hand-edited URL must not force a false finalize state when there
+    // is no in-flight wizard session. SETTLED_SETTINGS has
+    // watched_folder_id non-null AND pending_wizard_session_id NULL.
+    purgeAndRotateIfStaleMock.mockResolvedValue({
+      settings: SETTLED_SETTINGS,
+      rotated: false,
+    });
+    const { getByTestId, queryByTestId } = render(
+      await AdminPage({
+        searchParams: Promise.resolve({ show_finalize: "true" }),
+      }),
+    );
+    expect(getByTestId("admin-dashboard-placeholder")).toBeTruthy();
+    expect(queryByTestId("admin-finalize-reentry-placeholder")).toBeNull();
+  });
+
+  test("?show_finalize=true is IGNORED on fresh first-visit (no pending session) — wizard still renders", async () => {
+    // Truly fresh DB: watched_folder_id NULL AND pending NULL. A
+    // hand-edited URL must not divert away from the first-visit wizard.
+    purgeAndRotateIfStaleMock.mockResolvedValue({
+      settings: FRESH_SETTINGS,
+      rotated: false,
+    });
+    const { getByTestId, queryByTestId } = render(
+      await AdminPage({
+        searchParams: Promise.resolve({ show_finalize: "true" }),
+      }),
+    );
+    expect(getByTestId("onboarding-wizard-spy")).toBeTruthy();
+    expect(queryByTestId("admin-finalize-reentry-placeholder")).toBeNull();
   });
 
   test("result.suppressed=WIZARD_FINALIZE_BATCHES_PENDING renders FinalizeReentry placeholder", async () => {

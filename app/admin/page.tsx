@@ -135,10 +135,26 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   const sp = await searchParams;
 
   // Precedence 1: finalize re-entry / suppressed auto-rotate.
+  //
+  // `result.suppressed` is the authoritative server signal — purgeAndRotateIfStale
+  // emits it inside the SQL transaction when a wizard_finalize_checkpoints row
+  // with batches_completed > 0 exists for the current pending session.
+  //
+  // The `?show_finalize=true` URL hint is set by rerunSetupServerAction's
+  // suppression branch (which uses a checkpoint-existence predicate, NOT a
+  // staleness predicate, so it can fire even when purgeAndRotateIfStale here
+  // does not). To preserve that signal WITHOUT letting a hand-edited URL force
+  // a false finalize state on a truly fresh or settled admin, the hint is
+  // accepted only when there is actually a pending wizard session
+  // (pending_wizard_session_id non-null) — otherwise it is ignored and the
+  // page falls through to the wizard or dashboard branch. Phase 2 will replace
+  // this URL-hint shim with a direct wizard_finalize_checkpoints query.
   const suppressed =
     "suppressed" in result &&
     result.suppressed === "WIZARD_FINALIZE_BATCHES_PENDING";
-  if (suppressed || sp.show_finalize === "true") {
+  const finalizeHint =
+    sp.show_finalize === "true" && settings.pending_wizard_session_id !== null;
+  if (suppressed || finalizeHint) {
     return <FinalizeReentryPhase1Placeholder />;
   }
 
