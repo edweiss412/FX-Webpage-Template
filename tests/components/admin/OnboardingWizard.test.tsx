@@ -149,6 +149,47 @@ describe("OnboardingWizard", () => {
     expect(getByTestId("wizard-step1")).toBeTruthy();
   });
 
+  test("HIDES Start Over when watched_folder_id is non-null (re-run setup must route through /admin/settings)", async () => {
+    // Per spec §9.0: "After onboarding succeeds the [pre-onboarding
+    // 'Start over'] affordance disappears — restart goes through
+    // `/admin/settings` instead." The destructive
+    // startOverServerAction lacks the checkpoint-aware suppression
+    // that rerunSetupServerAction has, so post-onboarding restarts
+    // MUST flow through Re-run Setup so a stale tab cannot strand
+    // published=false finalize rows.
+    const reRunSettings: AppSettingsRow = {
+      ...WIZARD_IN_FLIGHT_SETTINGS,
+      watched_folder_id: "folder-abc",
+      watched_folder_name: "Shows 2026",
+      watched_folder_set_at: new Date().toISOString(),
+    };
+    const { queryByTestId, getByTestId } = render(
+      await OnboardingWizard({ settings: reRunSettings, searchParams: {} }),
+    );
+    // Wizard itself still renders (Step 1).
+    expect(getByTestId("wizard-step1")).toBeTruthy();
+    // But Start Over must be absent.
+    expect(queryByTestId("wizard-start-over-form")).toBeNull();
+    expect(queryByTestId("wizard-start-over-button")).toBeNull();
+  });
+
+  test("HIDES Start Over on operator-error path when watched_folder_id is non-null", async () => {
+    // Even when the env is broken, the post-onboarding restart path is
+    // /admin/settings Re-run Setup. The unconditional purge form must
+    // stay hidden.
+    delete process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    const reRunSettings: AppSettingsRow = {
+      ...WIZARD_IN_FLIGHT_SETTINGS,
+      watched_folder_id: "folder-abc",
+    };
+    const { queryByTestId } = render(
+      await OnboardingWizard({ settings: reRunSettings, searchParams: {} }),
+    );
+    expect(queryByTestId("wizard-operator-error")).toBeTruthy();
+    expect(queryByTestId("wizard-start-over-form")).toBeNull();
+    expect(queryByTestId("wizard-start-over-button")).toBeNull();
+  });
+
   test("when GOOGLE_SERVICE_ACCOUNT_JSON is missing, renders cataloged operator-error copy (no raw code)", async () => {
     delete process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
     const { container, queryByTestId } = render(

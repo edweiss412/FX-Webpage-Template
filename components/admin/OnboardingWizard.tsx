@@ -177,11 +177,25 @@ function OperatorErrorBlock() {
 }
 
 export async function OnboardingWizard({
-  settings: _settings,
+  settings,
   searchParams,
 }: OnboardingWizardProps) {
   const service = readServiceAccountEmail();
   const step = pickStep(searchParams.step);
+
+  // Pre-onboarding only. Per spec §9.0:
+  //   "After onboarding succeeds the [pre-onboarding 'Start over']
+  //    affordance disappears — restart goes through `/admin/settings`
+  //    instead."
+  // The post-onboarding re-run-setup path uses /admin/settings's
+  // Re-run Setup, which calls `rerunSetupServerAction` with the
+  // checkpoint-aware suppression gate. Rendering the unconditional
+  // `startOverServerAction` here in the re-run-setup window would
+  // let a stale tab bypass the suppression and strand
+  // `published = false` finalize rows. Gate by `watched_folder_id`
+  // so the destructive purge path is available ONLY when no live
+  // folder is connected yet.
+  const showStartOver = settings.watched_folder_id === null;
 
   return (
     <div
@@ -200,8 +214,12 @@ export async function OnboardingWizard({
         <OperatorErrorBlock />
       )}
 
-      <hr className="border-border" />
-      <StartOverForm />
+      {showStartOver ? (
+        <>
+          <hr className="border-border" />
+          <StartOverForm />
+        </>
+      ) : null}
     </div>
   );
 }
