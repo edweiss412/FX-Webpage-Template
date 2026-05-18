@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
-  purgeAndRotateOnboardingSession: vi.fn(async () => ({ rotated: true })),
+  purgeAndRotateOnboardingSession: vi.fn<() => Promise<unknown>>(async () => ({ rotated: true })),
   redirect: vi.fn((url: string) => {
     throw Object.assign(new Error("NEXT_REDIRECT"), { url });
   }),

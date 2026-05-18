@@ -110,6 +110,7 @@ class FakeScanDb implements OnboardingScanRouteTx {
 }
 
 function deps(db: FakeScanDb, overrides: Partial<ScanRouteDeps> = {}): ScanRouteDeps {
+  const emptyCompleted: OnboardingScanResult = { outcome: "completed", processed: [] };
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
     randomUUID: () => W1,
@@ -123,7 +124,7 @@ function deps(db: FakeScanDb, overrides: Partial<ScanRouteDeps> = {}): ScanRoute
         throw error;
       }
     },
-    runOnboardingScan: vi.fn(async () => ({ outcome: "completed", processed: [] })),
+    runOnboardingScan: vi.fn(async () => emptyCompleted),
     ...overrides,
   };
 }
@@ -137,8 +138,8 @@ describe("POST /api/admin/onboarding/scan", () => {
     const db = new FakeScanDb();
     const routeDeps = deps(db, {
       runOnboardingScan: vi.fn(async () => ({
-        outcome: "completed",
-        processed: [{ driveFileId: "sheet-1", outcome: "staged" }],
+        outcome: "completed" as const,
+        processed: [{ driveFileId: "sheet-1", outcome: "staged" as const }],
       })),
     });
 
@@ -267,8 +268,8 @@ describe("POST /api/admin/onboarding/scan", () => {
           status: "staged",
         });
         return {
-          outcome: "completed",
-          processed: [{ driveFileId: "clean-first-seen", outcome: "staged" }],
+          outcome: "completed" as const,
+          processed: [{ driveFileId: "clean-first-seen", outcome: "staged" as const }],
         };
       }),
     });
