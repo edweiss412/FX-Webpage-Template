@@ -20,6 +20,7 @@ import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { ParsePanel } from "@/components/admin/ParsePanel";
+import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
 import type { StagedRow } from "@/components/admin/StagedReviewCard";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
@@ -72,11 +73,14 @@ function asTriggeredReviewItems(value: unknown): TriggeredReviewItem[] {
 
 export default async function AdminShowPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams?: Promise<{ alert_id?: string }>;
 }) {
   await requireAdmin();
   const { slug } = await params;
+  const sp = (await searchParams) ?? {};
 
   const supabase = await createSupabaseServerClient();
 
@@ -138,6 +142,12 @@ export default async function AdminShowPage({
           Slug: <code className="rounded-sm bg-surface-sunken px-1">{show.slug}</code>
         </p>
       </header>
+
+      <PerShowAlertSection
+        showId={show.id}
+        slug={show.slug}
+        highlightAlertId={sp.alert_id ?? null}
+      />
 
       <ReSyncButton slug={show.slug} />
 
