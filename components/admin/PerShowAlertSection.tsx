@@ -78,7 +78,7 @@ export async function PerShowAlertSection({
 }: PerShowAlertSectionProps) {
   const result = await fetchPerShowAlerts(showId);
 
-  if ("kind" in result && result.kind === "infra_error") {
+  if (!Array.isArray(result)) {
     return (
       <section
         data-testid="per-show-alert-section-infra-error"

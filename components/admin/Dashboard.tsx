@@ -47,7 +47,7 @@ async function fetchDashboardData(): Promise<
   const showsQuery = await supabase
     .from("shows")
     .select(
-      "id, slug, title, show_date_start, show_date_end, last_synced_at, last_sync_status, published",
+      "id, slug, title, drive_file_id, show_date_start, show_date_end, last_synced_at, last_sync_status, published",
     )
     .eq("published", true)
     .order("show_date_start", { ascending: true, nullsFirst: false });
@@ -152,7 +152,7 @@ async function fetchDashboardData(): Promise<
 export async function Dashboard() {
   const result = await fetchDashboardData();
 
-  if ("kind" in result && result.kind === "infra_error") {
+  if ("kind" in result) {
     return (
       <main
         data-testid="admin-dashboard-infra-error"

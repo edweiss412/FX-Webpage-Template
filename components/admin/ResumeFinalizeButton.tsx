@@ -55,6 +55,7 @@ function lookupDougFacing(code: string | undefined | null): string | null {
   return messageFor(code as MessageCode).dougFacing ?? null;
 }
 
+// not-subject:M5-D8 — defensive fallback when catalog lookup returns null; all real error copy routes through messageFor(code).dougFacing first.
 const GENERIC_ERROR =
   "We could not resume publishing. Refresh and try again, or contact the developer if this keeps happening.";
 
@@ -79,8 +80,9 @@ export function ResumeFinalizeButton({ sessionId: _sessionId }: ResumeFinalizeBu
         });
         return;
       }
-      if (body.per_row && body.per_row.length > 0) {
-        setState({ kind: "race_row", failures: body.per_row });
+      const batchBody = body as FinalizeBatchResponse;
+      if (batchBody.per_row && batchBody.per_row.length > 0) {
+        setState({ kind: "race_row", failures: batchBody.per_row });
         return;
       }
       setState({ kind: "idle" });
