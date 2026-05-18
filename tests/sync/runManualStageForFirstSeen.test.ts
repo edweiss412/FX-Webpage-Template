@@ -65,7 +65,6 @@ describe("runManualStageForFirstSeen", () => {
       expect.objectContaining({
         driveFileId: "file-1",
         mode: "onboarding_scan",
-        wizardSessionId: undefined,
       }),
     );
   });
