@@ -1,0 +1,254 @@
+import { describe, expect, test, vi } from "vitest";
+import type {
+  FinalizeCasRouteDeps,
+  FinalizeCasRouteTx,
+} from "@/app/api/admin/onboarding/finalize-cas/route";
+import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
+
+const W1 = "11111111-1111-4111-8111-111111111111";
+
+function parseResult() {
+  return {
+    show: {
+      title: "Existing Show",
+      client_label: "Client",
+      client_contact: null,
+      template_version: "v4",
+      venue: null,
+      dates: {
+        travelIn: "2026-05-07",
+        set: "2026-05-08",
+        showDays: ["2026-05-09"],
+        travelOut: "2026-05-10",
+      },
+      event_details: {},
+      agenda_links: [],
+      coi_status: null,
+    },
+    diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+    openingReel: null,
+    pullSheet: null,
+  };
+}
+
+function request(): Request {
+  return new Request("https://crew.fxav.test/api/admin/onboarding/finalize-cas", {
+    method: "POST",
+  });
+}
+
+class FakeFinalizeCasDb implements FinalizeCasRouteTx {
+  activeSessionId: string | null = W1;
+  pendingFolderId: string | null = "folder-1";
+  watchedFolderId: string | null = null;
+  checkpoint:
+    | { status: "in_progress" | "all_batches_complete" | "final_cas_done"; batches_completed: number }
+    | null = { status: "all_batches_complete", batches_completed: 1 };
+  finalizeLocked = true;
+  approvedCount = 0;
+  unresolvedManifestCount = 0;
+  shadowRows: Array<{ drive_file_id: string; payload: Record<string, unknown> }> = [];
+  appliedShadows: string[] = [];
+  published = false;
+  deletedWizardDeferrals = false;
+  operations: string[] = [];
+
+  async query<T>(sql: string, params: readonly unknown[] = []) {
+    const normalized = sql.replace(/\s+/g, " ").trim();
+    this.operations.push(this.classify(normalized));
+
+    if (normalized.startsWith("select pending_wizard_session_id")) {
+      return {
+        rows: [
+          {
+            pending_wizard_session_id: this.activeSessionId,
+            pending_folder_id: this.pendingFolderId,
+          } as T,
+        ],
+        rowCount: 1,
+      };
+    }
+
+    if (normalized.includes("pg_try_advisory_xact_lock(hashtext('finalize:'")) {
+      return { rows: [{ locked: this.finalizeLocked } as T], rowCount: 1 };
+    }
+
+    if (normalized.startsWith("select status, batches_completed")) {
+      return {
+        rows: this.checkpoint ? [this.checkpoint as T] : [],
+        rowCount: this.checkpoint ? 1 : 0,
+      };
+    }
+
+    if (normalized.startsWith("select count(*)::int as approved_count")) {
+      return { rows: [{ approved_count: this.approvedCount } as T], rowCount: 1 };
+    }
+
+    if (normalized.startsWith("select count(*)::int as unresolved_count")) {
+      return {
+        rows: [{ unresolved_count: this.unresolvedManifestCount } as T],
+        rowCount: 1,
+      };
+    }
+
+    if (normalized.startsWith("select drive_file_id, payload")) {
+      return { rows: this.shadowRows as T[], rowCount: this.shadowRows.length };
+    }
+
+    if (normalized.startsWith("update public.shows") && normalized.includes("set title")) {
+      this.appliedShadows.push(params[0] as string);
+      return { rows: [{ applied: true } as T], rowCount: 1 };
+    }
+
+    if (normalized.startsWith("delete from public.shows_pending_changes")) {
+      this.shadowRows = this.shadowRows.filter((_row) => false);
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (normalized.startsWith("update public.shows")) {
+      this.published = true;
+      return { rows: [{ published: true } as T], rowCount: 1 };
+    }
+
+    if (normalized.startsWith("delete from public.deferred_ingestions")) {
+      this.deletedWizardDeferrals = true;
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (normalized.startsWith("update public.app_settings")) {
+      if (this.activeSessionId !== params[0]) return { rows: [], rowCount: 0 };
+      this.watchedFolderId = this.pendingFolderId;
+      this.activeSessionId = null;
+      this.pendingFolderId = null;
+      return {
+        rows: [{ watched_folder_id: this.watchedFolderId } as T],
+        rowCount: 1,
+      };
+    }
+
+    if (normalized.startsWith("update public.wizard_finalize_checkpoints")) {
+      if (this.checkpoint) this.checkpoint.status = "final_cas_done";
+      return { rows: [this.checkpoint as T], rowCount: this.checkpoint ? 1 : 0 };
+    }
+
+    throw new Error(`Unhandled SQL in finalize-cas fake: ${normalized}`);
+  }
+
+  private classify(sql: string): string {
+    if (sql.startsWith("select pending_wizard_session_id")) return "read-session";
+    if (sql.includes("pg_try_advisory_xact_lock(hashtext('finalize:'")) return "try-finalize-lock";
+    if (sql.startsWith("select status, batches_completed")) return "read-checkpoint";
+    if (sql.startsWith("select drive_file_id, payload")) return "read-shadows";
+    if (sql.startsWith("update public.shows") && sql.includes("set title")) return "apply-shadow";
+    if (sql.startsWith("update public.shows")) return "publish";
+    if (sql.startsWith("delete from public.deferred_ingestions")) return "delete-deferrals";
+    if (sql.startsWith("update public.app_settings")) return "promote-settings";
+    if (sql.startsWith("update public.wizard_finalize_checkpoints")) return "mark-final-cas-done";
+    return "other";
+  }
+}
+
+function deps(db: FakeFinalizeCasDb, overrides: Partial<FinalizeCasRouteDeps> = {}): FinalizeCasRouteDeps {
+  return {
+    requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
+    withTx: async (fn) => fn(db),
+    withRowTx: async (_driveFileId, fn) => fn(db),
+    subscribeToWatchedFolder: vi.fn(async () => undefined),
+    ...overrides,
+  };
+}
+
+async function json(response: Response): Promise<unknown> {
+  return await response.json();
+}
+
+describe("POST /api/admin/onboarding/finalize-cas", () => {
+  test("commits Phase D atomically then subscribes to the watched folder after commit", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [{ drive_file_id: "existing-1", payload: { parse_result: parseResult() } }];
+    const routeDeps = deps(db);
+
+    const response = await handleOnboardingFinalizeCas(request(), routeDeps);
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toEqual({
+      status: "finalize_complete",
+      wizard_session_id: W1,
+      watched_folder_id: "folder-1",
+    });
+    expect(db.appliedShadows).toEqual(["existing-1"]);
+    expect(db.published).toBe(true);
+    expect(db.deletedWizardDeferrals).toBe(true);
+    expect(db.checkpoint?.status).toBe("final_cas_done");
+    expect(routeDeps.subscribeToWatchedFolder).toHaveBeenCalledWith("folder-1");
+    expect(db.operations.at(-1)).toBe("mark-final-cas-done");
+  });
+
+  test("is idempotent after final_cas_done and does not resubscribe", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.checkpoint = { status: "final_cas_done", batches_completed: 2 };
+    const routeDeps = deps(db);
+
+    const response = await handleOnboardingFinalizeCas(request(), routeDeps);
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toEqual({
+      status: "finalize_complete",
+      wizard_session_id: W1,
+      watched_folder_id: "folder-1",
+      idempotent: true,
+    });
+    expect(routeDeps.subscribeToWatchedFolder).not.toHaveBeenCalled();
+  });
+
+  test("rejects early-fire before all batches are complete", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.checkpoint = { status: "in_progress", batches_completed: 1 };
+
+    const response = await handleOnboardingFinalizeCas(request(), deps(db));
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({ ok: false, code: "WIZARD_FINALIZE_BATCHES_PENDING" });
+  });
+
+  test("rejects missing checkpoint or missing active wizard session", async () => {
+    const missingCheckpoint = new FakeFinalizeCasDb();
+    missingCheckpoint.checkpoint = null;
+
+    await expect(json(await handleOnboardingFinalizeCas(request(), deps(missingCheckpoint)))).resolves.toEqual({
+      ok: false,
+      code: "WIZARD_FINALIZE_CHECKPOINT_MISSING",
+    });
+
+    const missingSession = new FakeFinalizeCasDb();
+    missingSession.activeSessionId = null;
+
+    const response = await handleOnboardingFinalizeCas(request(), deps(missingSession));
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({ ok: false, code: "WIZARD_FINALIZE_CHECKPOINT_MISSING" });
+  });
+
+  test("rejects when approved pending rows or unresolved manifest rows remain", async () => {
+    const approved = new FakeFinalizeCasDb();
+    approved.approvedCount = 1;
+
+    const approvedResponse = await handleOnboardingFinalizeCas(request(), deps(approved));
+    expect(approvedResponse.status).toBe(409);
+    expect(await json(approvedResponse)).toEqual({
+      ok: false,
+      code: "WIZARD_FINALIZE_BATCHES_PENDING",
+      approved_count: 1,
+    });
+
+    const unresolved = new FakeFinalizeCasDb();
+    unresolved.unresolvedManifestCount = 1;
+
+    const unresolvedResponse = await handleOnboardingFinalizeCas(request(), deps(unresolved));
+    expect(unresolvedResponse.status).toBe(409);
+    expect(await json(unresolvedResponse)).toEqual({
+      ok: false,
+      code: "ONBOARDING_NOT_RESOLVED",
+      unresolved_manifest_count: 1,
+    });
+  });
+});
