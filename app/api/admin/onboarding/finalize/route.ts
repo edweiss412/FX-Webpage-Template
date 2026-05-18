@@ -1,0 +1,538 @@
+import { NextResponse } from "next/server";
+import postgres from "postgres";
+import type { DriveListedFile } from "@/lib/drive/list";
+import { fetchDriveFileMetadata as defaultFetchDriveFileMetadata } from "@/lib/drive/fetch";
+import { deriveSlug } from "@/lib/parser/slug";
+import type { ParseResult } from "@/lib/parser/types";
+import { insertFirstSeenShowWithSlugRetry } from "@/lib/sync/runScheduledCronSync";
+
+const BATCH_CAP = 100;
+const REVIEWER_CHOICES_VERSION = 1;
+const STAGED_PARSE_REVISION_RACE_DURING_FINALIZE =
+  "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE" as const;
+const WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED =
+  "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED" as const;
+
+export type FinalizeRouteTx = {
+  query<T>(
+    sql: string,
+    params?: readonly unknown[],
+  ): Promise<{ rows: T[]; rowCount: number }>;
+};
+
+export type FinalizeRouteDeps = {
+  requireAdminIdentity?: () => Promise<{ email: string }>;
+  withTx?: <R>(fn: (tx: FinalizeRouteTx) => Promise<R>) => Promise<R>;
+  withRowTx?: <R>(
+    driveFileId: string,
+    fn: (tx: FinalizeRouteTx) => Promise<R>,
+  ) => Promise<R>;
+  fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
+  batchCap?: number;
+};
+
+type ActiveSessionRow = {
+  pending_wizard_session_id: string | null;
+};
+
+type CheckpointRow = {
+  wizard_session_id: string;
+  status: "in_progress" | "all_batches_complete" | "final_cas_done";
+  batches_completed: number;
+};
+
+type PendingFinalizeRow = {
+  drive_file_id: string;
+  staged_id: string;
+  staged_modified_time: string;
+  parse_result: ParseResult;
+  wizard_reviewer_choices: unknown[];
+  wizard_reviewer_choices_version: number | null;
+  wizard_approved_by_email: string | null;
+};
+
+type PerRowResult =
+  | {
+      drive_file_id: string;
+      status: "applied_first_seen_draft" | "staged_existing_show";
+    }
+  | {
+      drive_file_id: string;
+      status: "needs_reapply";
+      code:
+        | typeof STAGED_PARSE_REVISION_RACE_DURING_FINALIZE
+        | typeof WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED
+        | "DRIVE_FETCH_FAILED";
+      re_apply_url: string;
+    };
+
+function databaseUrl(): string {
+  const configured = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
+  if (configured) return configured;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("onboarding finalize route requires DATABASE_URL in production");
+  }
+  return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+}
+
+function postgresTxAdapter(rawTx: { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> }) {
+  return {
+    async query<T>(sql: string, params: readonly unknown[] = []) {
+      const rows = (await rawTx.unsafe(sql, [...params])) as T[];
+      return { rows, rowCount: rows.length };
+    },
+  } satisfies FinalizeRouteTx;
+}
+
+async function defaultWithTx<R>(fn: (tx: FinalizeRouteTx) => Promise<R>): Promise<R> {
+  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+  try {
+    return (await sql.begin(async (rawTx) =>
+      fn(postgresTxAdapter(rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> })),
+    )) as R;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
+async function defaultWithRowTx<R>(
+  driveFileId: string,
+  fn: (tx: FinalizeRouteTx) => Promise<R>,
+): Promise<R> {
+  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+  try {
+    return (await sql.begin(async (rawTx) => {
+      const tx = postgresTxAdapter(rawTx as { unsafe(sql: string, params?: unknown[]): Promise<unknown[]> });
+      await tx.query(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
+      return await fn(tx);
+    })) as R;
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
+async function defaultRequireAdminIdentity(): Promise<{ email: string }> {
+  const { requireAdminIdentity } = await import("@/lib/auth/requireAdmin");
+  return await requireAdminIdentity();
+}
+
+function depsWithDefaults(deps: FinalizeRouteDeps) {
+  return {
+    requireAdminIdentity: deps.requireAdminIdentity ?? defaultRequireAdminIdentity,
+    withTx: deps.withTx ?? defaultWithTx,
+    withRowTx: deps.withRowTx ?? defaultWithRowTx,
+    fetchDriveFileMetadata: deps.fetchDriveFileMetadata ?? defaultFetchDriveFileMetadata,
+    batchCap: deps.batchCap ?? BATCH_CAP,
+  };
+}
+
+function errorResponse(status: number, code: string, extra: Record<string, unknown> = {}): Response {
+  return NextResponse.json({ ok: false, code, ...extra }, { status });
+}
+
+function sameTimestamp(left: string | null | undefined, right: string | null | undefined): boolean {
+  if (!left || !right) return false;
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  return Number.isFinite(leftMs) && Number.isFinite(rightMs) && leftMs === rightMs;
+}
+
+function reApplyUrl(wizardSessionId: string, driveFileId: string): string {
+  return `/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/apply`;
+}
+
+async function readActiveSession(tx: FinalizeRouteTx): Promise<string | null> {
+  const { rows } = await tx.query<ActiveSessionRow>(
+    `
+      select pending_wizard_session_id
+        from public.app_settings
+       where id = 'default'
+       for update
+    `,
+  );
+  return rows[0]?.pending_wizard_session_id ?? null;
+}
+
+async function tryFinalizeLock(tx: FinalizeRouteTx, wizardSessionId: string): Promise<boolean> {
+  const { rows } = await tx.query<{ locked: boolean }>(
+    `select pg_try_advisory_xact_lock(hashtext('finalize:' || $1)) as locked`,
+    [wizardSessionId],
+  );
+  return rows[0]?.locked === true;
+}
+
+async function ensureCheckpoint(
+  tx: FinalizeRouteTx,
+  wizardSessionId: string,
+): Promise<CheckpointRow | null> {
+  const inserted = await tx.query<CheckpointRow>(
+    `
+      insert into public.wizard_finalize_checkpoints (wizard_session_id)
+      values ($1::uuid)
+      on conflict (wizard_session_id) do nothing
+      returning wizard_session_id, status, batches_completed
+    `,
+    [wizardSessionId],
+  );
+  if (inserted.rows[0]) return inserted.rows[0];
+
+  const existing = await tx.query<CheckpointRow>(
+    `
+      select status, batches_completed, wizard_session_id
+        from public.wizard_finalize_checkpoints
+       where wizard_session_id = $1::uuid
+       for update
+    `,
+    [wizardSessionId],
+  );
+  return existing.rows[0] ?? null;
+}
+
+async function unresolvedManifestCount(
+  tx: FinalizeRouteTx,
+  wizardSessionId: string,
+): Promise<number> {
+  const { rows } = await tx.query<{ unresolved_count: number }>(
+    `
+      select count(*)::int as unresolved_count
+        from public.onboarding_scan_manifest
+       where wizard_session_id = $1::uuid
+         and status in ('staged', 'hard_failed', 'discard_retryable', 'live_row_conflict')
+    `,
+    [wizardSessionId],
+  );
+  return rows[0]?.unresolved_count ?? 0;
+}
+
+async function selectApprovedRows(
+  tx: FinalizeRouteTx,
+  wizardSessionId: string,
+  limit: number,
+): Promise<PendingFinalizeRow[]> {
+  const { rows } = await tx.query<PendingFinalizeRow>(
+    `
+      select drive_file_id, staged_id, staged_modified_time, parse_result,
+             wizard_reviewer_choices, wizard_reviewer_choices_version,
+             wizard_approved_by_email
+        from public.pending_syncs
+       where wizard_session_id = $1::uuid
+         and wizard_approved = true
+       order by drive_file_id
+       limit $2
+    `,
+    [wizardSessionId, limit],
+  );
+  return rows;
+}
+
+async function demotePending(
+  tx: FinalizeRouteTx,
+  wizardSessionId: string,
+  driveFileId: string,
+  code:
+    | typeof STAGED_PARSE_REVISION_RACE_DURING_FINALIZE
+    | typeof WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED
+    | "DRIVE_FETCH_FAILED",
+): Promise<void> {
+  await tx.query<{ demoted: boolean }>(
+    `
+      update public.pending_syncs
+         set wizard_approved = false,
+             wizard_approved_by_email = null,
+             wizard_approved_at = null,
+             wizard_reviewer_choices = null,
+             wizard_reviewer_choices_version = null,
+             last_finalize_failure_code = $3
+       where drive_file_id = $1
+         and wizard_session_id = $2::uuid
+      returning true as demoted
+    `,
+    [driveFileId, wizardSessionId, code],
+  );
+  await tx.query(
+    `
+      update public.onboarding_scan_manifest
+         set status = 'staged',
+             transitioned_at = now()
+       where drive_file_id = $1
+         and wizard_session_id = $2::uuid
+    `,
+    [driveFileId, wizardSessionId],
+  );
+}
+
+async function showExists(tx: FinalizeRouteTx, driveFileId: string): Promise<boolean> {
+  const { rows } = await tx.query<{ exists: boolean }>(
+    `
+      select exists (
+        select 1 from public.shows where drive_file_id = $1
+      )
+    `,
+    [driveFileId],
+  );
+  return rows[0]?.exists === true;
+}
+
+async function applyFirstSeenDraft(
+  tx: FinalizeRouteTx,
+  row: PendingFinalizeRow,
+): Promise<string | null> {
+  const parseResult = row.parse_result;
+  return await insertFirstSeenShowWithSlugRetry({
+    baseSlug: deriveSlug(parseResult, []),
+    insert: async (slug) => {
+      const inserted = await tx.query<{ show_id: string }>(
+        `
+          insert into public.shows (
+            drive_file_id, slug, title, client_label, client_contact, template_version,
+            venue, dates, event_details, agenda_links, diagrams,
+            opening_reel_drive_file_id, opening_reel_drive_modified_time,
+            opening_reel_head_revision_id, opening_reel_mime_type,
+            last_seen_modified_time, coi_status, pull_sheet,
+            last_synced_at, last_sync_status, last_sync_error, published
+          )
+          values ($1, $2, $3, $4, $5::jsonb, $6, $7::jsonb, $8::jsonb,
+                  $9::jsonb, $10::jsonb, $11::jsonb, $12, $13::timestamptz,
+                  $14, $15, $16::timestamptz, $17, $18::jsonb,
+                  now(), 'ok', null, false)
+          on conflict (drive_file_id) do nothing
+          returning id as show_id
+        `,
+        [
+          row.drive_file_id,
+          slug,
+          parseResult.show.title,
+          parseResult.show.client_label,
+          JSON.stringify(parseResult.show.client_contact),
+          parseResult.show.template_version,
+          JSON.stringify(parseResult.show.venue),
+          JSON.stringify(parseResult.show.dates),
+          JSON.stringify(parseResult.show.event_details),
+          JSON.stringify(parseResult.show.agenda_links),
+          JSON.stringify(parseResult.diagrams),
+          parseResult.openingReel?.driveFileId ?? null,
+          parseResult.openingReel?.drive_modified_time ?? null,
+          parseResult.openingReel?.headRevisionId ?? null,
+          parseResult.openingReel?.mimeType ?? null,
+          row.staged_modified_time,
+          parseResult.show.coi_status,
+          JSON.stringify(parseResult.pullSheet),
+        ],
+      );
+      return inserted.rows[0] ?? null;
+    },
+  });
+}
+
+async function stageExistingShowShadow(
+  tx: FinalizeRouteTx,
+  wizardSessionId: string,
+  row: PendingFinalizeRow,
+): Promise<void> {
+  await tx.query<{ show_id: string }>(
+    `
+      insert into public.shows_pending_changes (
+        drive_file_id, wizard_session_id, show_id, payload,
+        applied_by_email, applied_at_intent
+      )
+      select $1, $2::uuid, s.id,
+             jsonb_build_object(
+               'parse_result', $3::jsonb,
+               'staged_modified_time', $4::timestamptz,
+               'staged_id', $5::uuid,
+               'reviewer_choices', $6::jsonb
+             ),
+             $7, now()
+        from public.shows s
+       where s.drive_file_id = $1
+      on conflict (wizard_session_id, drive_file_id)
+      do update set
+        show_id = excluded.show_id,
+        payload = excluded.payload,
+        applied_by_email = excluded.applied_by_email,
+        applied_at_intent = excluded.applied_at_intent,
+        staged_at = now()
+      returning show_id
+    `,
+    [
+      row.drive_file_id,
+      wizardSessionId,
+      JSON.stringify(row.parse_result),
+      row.staged_modified_time,
+      row.staged_id,
+      JSON.stringify(row.wizard_reviewer_choices ?? []),
+      row.wizard_approved_by_email ?? "unknown-admin@example.invalid",
+    ],
+  );
+}
+
+async function deleteApprovedPending(
+  tx: FinalizeRouteTx,
+  wizardSessionId: string,
+  row: PendingFinalizeRow,
+): Promise<void> {
+  await tx.query<{ deleted: boolean }>(
+    `
+      delete from public.pending_syncs
+       where drive_file_id = $1
+         and wizard_session_id = $2::uuid
+         and staged_id = $3::uuid
+         and wizard_approved = true
+      returning true as deleted
+    `,
+    [row.drive_file_id, wizardSessionId, row.staged_id],
+  );
+}
+
+async function advanceCheckpoint(
+  tx: FinalizeRouteTx,
+  wizardSessionId: string,
+  status: "in_progress" | "all_batches_complete",
+): Promise<void> {
+  await tx.query<CheckpointRow>(
+    `
+      update public.wizard_finalize_checkpoints
+         set status = $2,
+             batches_completed = batches_completed + 1,
+             last_processed_at = now()
+       where wizard_session_id = $1::uuid
+      returning wizard_session_id, status, batches_completed
+    `,
+    [wizardSessionId, status],
+  );
+}
+
+async function processApprovedRow(input: {
+  row: PendingFinalizeRow;
+  wizardSessionId: string;
+  tx: FinalizeRouteTx;
+  fetchDriveFileMetadata: (driveFileId: string) => Promise<DriveListedFile>;
+}): Promise<PerRowResult> {
+  const { row, wizardSessionId, tx } = input;
+
+  if (row.wizard_reviewer_choices_version !== REVIEWER_CHOICES_VERSION) {
+    await demotePending(tx, wizardSessionId, row.drive_file_id, WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED);
+    return {
+      drive_file_id: row.drive_file_id,
+      status: "needs_reapply",
+      code: WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED,
+      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    };
+  }
+
+  let metadata: DriveListedFile;
+  try {
+    metadata = await input.fetchDriveFileMetadata(row.drive_file_id);
+  } catch {
+    await demotePending(tx, wizardSessionId, row.drive_file_id, "DRIVE_FETCH_FAILED");
+    return {
+      drive_file_id: row.drive_file_id,
+      status: "needs_reapply",
+      code: "DRIVE_FETCH_FAILED",
+      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    };
+  }
+
+  if (!sameTimestamp(metadata.modifiedTime, row.staged_modified_time)) {
+    await demotePending(tx, wizardSessionId, row.drive_file_id, STAGED_PARSE_REVISION_RACE_DURING_FINALIZE);
+    return {
+      drive_file_id: row.drive_file_id,
+      status: "needs_reapply",
+      code: STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
+      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    };
+  }
+
+  if (await showExists(tx, row.drive_file_id)) {
+    await stageExistingShowShadow(tx, wizardSessionId, row);
+    await deleteApprovedPending(tx, wizardSessionId, row);
+    return { drive_file_id: row.drive_file_id, status: "staged_existing_show" };
+  }
+
+  await applyFirstSeenDraft(tx, row);
+  await deleteApprovedPending(tx, wizardSessionId, row);
+  return { drive_file_id: row.drive_file_id, status: "applied_first_seen_draft" };
+}
+
+export async function handleOnboardingFinalize(
+  _request: Request,
+  deps: FinalizeRouteDeps = {},
+): Promise<Response> {
+  const runtime = depsWithDefaults(deps);
+  try {
+    await runtime.requireAdminIdentity();
+  } catch (error) {
+    const code = typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    if (code === "ADMIN_SESSION_LOOKUP_FAILED") {
+      return errorResponse(500, "ADMIN_SESSION_LOOKUP_FAILED");
+    }
+    return errorResponse(403, "ADMIN_FORBIDDEN");
+  }
+
+  return await runtime.withTx(async (tx) => {
+    const wizardSessionId = await readActiveSession(tx);
+    if (!wizardSessionId) {
+      return errorResponse(409, "WIZARD_FINALIZE_CHECKPOINT_MISSING");
+    }
+
+    const locked = await tryFinalizeLock(tx, wizardSessionId);
+    if (!locked) return errorResponse(409, "CONCURRENT_FINALIZE_IN_FLIGHT");
+
+    const checkpoint = await ensureCheckpoint(tx, wizardSessionId);
+    if (!checkpoint) return errorResponse(409, "WIZARD_FINALIZE_CHECKPOINT_MISSING");
+    if (checkpoint.status === "final_cas_done" || checkpoint.status === "all_batches_complete") {
+      return NextResponse.json({
+        status: "all_batches_complete",
+        wizard_session_id: wizardSessionId,
+        remaining_count: 0,
+        unresolved_manifest_count: 0,
+        per_row: [],
+      });
+    }
+
+    const approvedRows = await selectApprovedRows(tx, wizardSessionId, runtime.batchCap);
+    const unresolved = await unresolvedManifestCount(tx, wizardSessionId);
+    if (approvedRows.length === 0 && unresolved > 0) {
+      return errorResponse(409, "ONBOARDING_NOT_RESOLVED", {
+        unresolved_manifest_count: unresolved,
+      });
+    }
+
+    if (approvedRows.length === 0) {
+      await advanceCheckpoint(tx, wizardSessionId, "all_batches_complete");
+      return NextResponse.json({
+        status: "all_batches_complete",
+        wizard_session_id: wizardSessionId,
+        remaining_count: 0,
+        unresolved_manifest_count: 0,
+        per_row: [],
+      });
+    }
+
+    const perRow: PerRowResult[] = [];
+    for (const row of approvedRows) {
+      const result = await runtime.withRowTx(row.drive_file_id, (rowTx) =>
+        processApprovedRow({
+          row,
+          wizardSessionId,
+          tx: rowTx,
+          fetchDriveFileMetadata: runtime.fetchDriveFileMetadata,
+        }),
+      );
+      perRow.push(result);
+    }
+
+    await advanceCheckpoint(tx, wizardSessionId, "in_progress");
+    return NextResponse.json({
+      status: "batch_complete",
+      wizard_session_id: wizardSessionId,
+      remaining_count: Math.max(0, approvedRows.length - perRow.length),
+      unresolved_manifest_count: unresolved,
+      per_row: perRow,
+    });
+  });
+}
+
+export async function POST(request: Request): Promise<Response> {
+  return await handleOnboardingFinalize(request);
+}
