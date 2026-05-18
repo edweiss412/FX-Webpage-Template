@@ -138,6 +138,144 @@ After Pin-2 clears, §B's wizard step 2 (Step2Verify), step 3 (Step3Review inclu
 
 **Anti-pattern:** §A resuming work past a pin-stop without orchestrator confirmation.
 
+### Pinned contract @ d92e46a (Pin-stop 1 — 2026-05-18)
+
+```ts
+// lib/onboarding/sessionLifecycle.ts
+export type AppSettingsRow = {
+  id: "default";
+  watched_folder_id: string | null;
+  watched_folder_name: string | null;
+  watched_folder_set_by_email: string | null;
+  watched_folder_set_at: string | null;
+  active_signing_key_id: string;
+  pending_folder_id: string | null;
+  pending_folder_name: string | null;
+  pending_folder_set_by_email: string | null;
+  pending_folder_set_at: string | null;
+  pending_wizard_session_id: string | null;
+  pending_wizard_session_at: string | null;
+  updated_at: string;
+};
+
+export type OnboardingRotateResult =
+  | { settings: AppSettingsRow; rotated: true }
+  | {
+      settings: AppSettingsRow;
+      rotated: false;
+      suppressed: "WIZARD_FINALIZE_BATCHES_PENDING";
+    };
+
+export type PurgeAndRotateIfStaleResult =
+  | { settings: AppSettingsRow; rotated: true }
+  | {
+      settings: AppSettingsRow;
+      rotated: false;
+      suppressed?: "WIZARD_FINALIZE_BATCHES_PENDING";
+    };
+
+export type CleanupAbandonedFinalizeResult = {
+  status: "cleaned" | "already_cleaned";
+  settings?: AppSettingsRow;
+};
+
+export type OnboardingSessionTx = {
+  query<T>(
+    sql: string,
+    params?: readonly unknown[],
+  ): Promise<{ rows: T[]; rowCount: number }>;
+};
+
+export declare class OnboardingSessionInfraError extends Error {
+  readonly code: "ONBOARDING_SESSION_INFRA";
+}
+
+export declare class CleanupRequiresStaleSessionError extends Error {
+  readonly code: "CLEANUP_REQUIRES_STALE_SESSION";
+  readonly status: 409;
+  readonly reason: "session_too_fresh" | "finalize_active_within_last_hour";
+  readonly context: Record<string, unknown>;
+}
+
+export type SessionLifecycleDeps = {
+  randomUUID?: () => string;
+  withTx?: <R>(fn: (tx: OnboardingSessionTx) => Promise<R>) => Promise<R>;
+  requireAdminIdentity?: () => Promise<{ email: string }>;
+  suppressIfFinalizePending?: boolean;
+};
+
+export declare function purgeAndRotateOnboardingSession(
+  deps?: SessionLifecycleDeps,
+): Promise<OnboardingRotateResult>;
+
+export declare function purgeAndRotateIfStale(
+  deps?: SessionLifecycleDeps,
+): Promise<PurgeAndRotateIfStaleResult>;
+
+export declare function cleanupAbandonedFinalize(
+  sessionId: string,
+  deps?: SessionLifecycleDeps,
+): Promise<CleanupAbandonedFinalizeResult>;
+
+// lib/onboarding/serverActions.ts
+export declare function startOverServerAction(): Promise<never>;
+export declare function rerunSetupServerAction(): Promise<never>;
+
+// app/api/admin/onboarding/scan/route.ts
+export type OnboardingScanRouteRequest = {
+  folderUrl: string;
+};
+
+export type OnboardingScanRouteError =
+  | { ok: false; code: "ADMIN_FORBIDDEN" }
+  | { ok: false; code: "ADMIN_SESSION_LOOKUP_FAILED" }
+  | { ok: false; code: "INVALID_FOLDER_URL" }
+  | { ok: false; code: "FOLDER_NOT_SHARED" }
+  | { ok: false; code: "FOLDER_NOT_FOUND" }
+  | {
+      ok: false;
+      code: "OPERATOR_ERROR_NOT_FOLDER" | "OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA";
+    };
+
+export type FolderVerificationResult =
+  | { ok: true; folderId: string; folderName: string }
+  | { ok: false; status: 400; code: "OPERATOR_ERROR_NOT_FOLDER" }
+  | { ok: false; status: 400; code: "OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA" }
+  | { ok: false; status: 403; code: "FOLDER_NOT_SHARED" }
+  | { ok: false; status: 404; code: "FOLDER_NOT_FOUND" };
+
+export type ScanRouteDeps = {
+  requireAdminIdentity?: () => Promise<{ email: string }>;
+  verifyFolder?: (folderId: string) => Promise<FolderVerificationResult>;
+  randomUUID?: () => string;
+  withTx?: <R>(fn: (tx: OnboardingScanRouteTx) => Promise<R>) => Promise<R>;
+  runOnboardingScan?: (
+    folderId: string,
+    wizardSessionId: string,
+  ) => Promise<OnboardingScanResult>;
+};
+
+export type OnboardingScanRouteTx = {
+  query<T>(
+    sql: string,
+    params?: readonly unknown[],
+  ): Promise<{ rows: T[]; rowCount: number }>;
+};
+
+export declare function handleOnboardingScan(
+  request: Request,
+  deps?: ScanRouteDeps,
+): Promise<Response>;
+
+export declare function POST(request: Request): Promise<Response>;
+
+// Successful scan responses are the existing OnboardingScanResult union from
+// lib/sync/runOnboardingScan.ts, passed through without route-layer rewriting:
+// | { outcome: "completed"; wizardSessionId; folderId; totals; items; ... }
+// | { outcome: "schema_missing"; code: "WIZARD_ISOLATION_INDEXES_MISSING"; ... }
+// | { outcome: "superseded"; code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN"; ... }
+```
+
 ### Re-pin / rebase coordination protocol
 
 Two coordinated terminals running against the same branch creates two scenarios this protocol must address:
