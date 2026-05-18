@@ -295,6 +295,52 @@ describe("POST /api/admin/onboarding/scan", () => {
     expect(db.pendingSyncs[0]?.triggered_review_items).not.toContain("FIRST_SEEN_REVIEW");
   });
 
+  test("Amendment 9 MI-6..MI-14 first-seen fixture stages MI-specific sentinels without onboarding auto-publish", async () => {
+    const db = new FakeScanDb();
+    const miItems = ["MI-6", "MI-7", "MI-8", "MI-9", "MI-10", "MI-11", "MI-12", "MI-13", "MI-14"];
+    const routeDeps = deps(db, {
+      runOnboardingScan: vi.fn(async (_folderId, wizardSessionId) => {
+        db.pendingSyncs.push({
+          drive_file_id: "mi-trip-first-seen",
+          wizard_session_id: wizardSessionId,
+          wizard_approved: false,
+          triggered_review_items: miItems,
+        });
+        db.manifest.push({
+          drive_file_id: "mi-trip-first-seen",
+          wizard_session_id: wizardSessionId,
+          status: "staged",
+        });
+        return {
+          outcome: "completed" as const,
+          processed: [{ driveFileId: "mi-trip-first-seen", outcome: "staged" as const }],
+        };
+      }),
+    });
+
+    const response = await handleOnboardingScan(
+      request("https://drive.google.com/drive/folders/folder-1"),
+      routeDeps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(db.shows).toEqual([]);
+    expect(db.pendingSyncs).toEqual([
+      {
+        drive_file_id: "mi-trip-first-seen",
+        wizard_session_id: W1,
+        wizard_approved: false,
+        triggered_review_items: miItems,
+      },
+    ]);
+    expect(db.manifest).toEqual([
+      { drive_file_id: "mi-trip-first-seen", wizard_session_id: W1, status: "staged" },
+    ]);
+    expect(db.pendingSyncs[0]?.triggered_review_items).toContain("MI-12");
+    expect(db.pendingSyncs[0]?.triggered_review_items).not.toContain("ONBOARDING_SCAN_REVIEW");
+    expect(db.pendingSyncs[0]?.triggered_review_items).not.toContain("FIRST_SEEN_REVIEW");
+  });
+
   test.each([
     [
       "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
