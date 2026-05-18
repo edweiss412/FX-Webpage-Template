@@ -24,10 +24,16 @@ export type OnboardingSessionTx = {
   ): Promise<{ rows: T[]; rowCount: number }>;
 };
 
-export type OnboardingRotateResult = {
-  settings: AppSettingsRow;
-  rotated: true;
-};
+export type OnboardingRotateResult =
+  | {
+      settings: AppSettingsRow;
+      rotated: true;
+    }
+  | {
+      settings: AppSettingsRow;
+      rotated: false;
+      suppressed: "WIZARD_FINALIZE_BATCHES_PENDING";
+    };
 
 export type PurgeAndRotateIfStaleResult =
   | { settings: AppSettingsRow; rotated: true }
@@ -68,6 +74,7 @@ export type SessionLifecycleDeps = {
   randomUUID?: () => string;
   withTx?: <R>(fn: (tx: OnboardingSessionTx) => Promise<R>) => Promise<R>;
   requireAdminIdentity?: () => Promise<{ email: string }>;
+  suppressIfFinalizePending?: boolean;
 };
 
 function databaseUrl(): string {
@@ -144,6 +151,42 @@ export async function purgeAndRotateOnboardingSession(
 ): Promise<OnboardingRotateResult> {
   const runtime = depsWithDefaults(deps);
   return await runtime.withTx(async (tx) => {
+    if (deps.suppressIfFinalizePending) {
+      const suppressed = await tx.query<{ one: number }>(
+        `
+          select 1 as one
+            from public.app_settings a
+            join public.wizard_finalize_checkpoints c
+              on c.wizard_session_id = a.pending_wizard_session_id
+           where a.id = 'default'
+             and c.batches_completed > 0
+             and c.status <> 'final_cas_done'
+           limit 1
+        `,
+      );
+      if (suppressed.rowCount > 0) {
+        const { rows } = await tx.query<AppSettingsRow>(
+          `select ${APP_SETTINGS_COLUMNS} from public.app_settings where id = 'default'`,
+        );
+        const settings = rows[0];
+        if (!settings) {
+          throw new OnboardingSessionInfraError("app_settings default row was not found");
+        }
+        await tx.query(
+          `
+            insert into public.sync_log (status, message, parse_warnings)
+            values (
+              $1,
+              'onboarding re-run setup suppressed because finalize batches are pending',
+              jsonb_build_array(jsonb_build_object('wizard_session_id', $2::uuid, 'source', 'rerun_setup_suppressed', 'code', $1))
+            )
+          `,
+          ["WIZARD_FINALIZE_BATCHES_PENDING", settings.pending_wizard_session_id],
+        );
+        return { settings, rotated: false, suppressed: "WIZARD_FINALIZE_BATCHES_PENDING" };
+      }
+    }
+
     const newSessionId = runtime.randomUUID();
     const { rows } = await tx.query<AppSettingsRow>(
       `
