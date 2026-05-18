@@ -16,7 +16,8 @@ export type RetrySingleFileTx = {
 };
 
 export type RetrySingleFileResult =
-  | { outcome: "retried"; status: "staged" | "hard_failed" | "live_row_conflict" }
+  | { outcome: "retried"; status: "staged" | "live_row_conflict" }
+  | { outcome: "retried"; status: "hard_failed"; code: string }
   | { outcome: "not_found"; code: "PENDING_INGESTION_NOT_FOUND" }
   | { outcome: "wizard_superseded"; code: "WIZARD_SESSION_SUPERSEDED" }
   | { outcome: "schema_missing"; code: "WIZARD_ISOLATION_INDEXES_MISSING" };
@@ -35,6 +36,7 @@ type PendingIngestionRow = {
   drive_file_id: string;
   wizard_session_id: string;
   discovered_during_folder_id: string | null;
+  last_error_code: string | null;
 };
 
 async function readWizardSettings(
@@ -59,7 +61,7 @@ async function readPendingIngestion(
 ): Promise<PendingIngestionRow | null> {
   return await tx.queryOne<PendingIngestionRow | null>(
     `
-      select drive_file_id, wizard_session_id, discovered_during_folder_id
+      select drive_file_id, wizard_session_id, discovered_during_folder_id, last_error_code
         from public.pending_ingestions
        where drive_file_id = $1
          and wizard_session_id = $2::uuid
@@ -85,7 +87,11 @@ async function deletePendingIngestion(
   );
 }
 
-function statusFromScan(result: OnboardingScanResult, driveFileId: string): RetrySingleFileResult {
+function statusFromScan(
+  result: OnboardingScanResult,
+  driveFileId: string,
+  pending: PendingIngestionRow,
+): RetrySingleFileResult {
   if (result.outcome === "schema_missing") {
     return { outcome: "schema_missing", code: "WIZARD_ISOLATION_INDEXES_MISSING" };
   }
@@ -94,7 +100,13 @@ function statusFromScan(result: OnboardingScanResult, driveFileId: string): Retr
   }
   const processed = result.processed.find((row) => row.driveFileId === driveFileId);
   if (processed?.outcome === "staged") return { outcome: "retried", status: "staged" };
-  if (processed?.outcome === "hard_failed") return { outcome: "retried", status: "hard_failed" };
+  if (processed?.outcome === "hard_failed") {
+    return {
+      outcome: "retried",
+      status: "hard_failed",
+      code: pending.last_error_code ?? "SYNC_INFRA_ERROR",
+    };
+  }
   if (processed?.outcome === "live_row_conflict") {
     return { outcome: "retried", status: "live_row_conflict" };
   }
@@ -138,7 +150,7 @@ export async function retrySingleFile_unlocked(
       listFolder: async () => [metadata],
     },
   );
-  const result = statusFromScan(scan, driveFileId);
+  const result = statusFromScan(scan, driveFileId, pending);
   if (result.outcome === "retried" && result.status === "staged") {
     await deletePendingIngestion(tx, driveFileId, wizardSessionId);
   }

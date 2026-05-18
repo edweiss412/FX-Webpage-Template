@@ -8,6 +8,7 @@ import { insertFirstSeenShowWithSlugRetry } from "@/lib/sync/runScheduledCronSyn
 
 const BATCH_CAP = 100;
 const REVIEWER_CHOICES_VERSION = 1;
+const OK_CODE = "OK" as const;
 const STAGED_PARSE_REVISION_RACE_DURING_FINALIZE =
   "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE" as const;
 const WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED =
@@ -55,7 +56,7 @@ type PerRowResult =
   | {
       drive_file_id: string;
       wizard_session_id: string;
-      code: "OK";
+      code: typeof OK_CODE;
     }
   | {
       drive_file_id: string;
@@ -464,12 +465,12 @@ async function processApprovedRow(input: {
   if (await showExists(tx, row.drive_file_id)) {
     await stageExistingShowShadow(tx, wizardSessionId, row);
     await deleteApprovedPending(tx, wizardSessionId, row);
-    return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: "OK" };
+    return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: OK_CODE };
   }
 
   await applyFirstSeenDraft(tx, row);
   await deleteApprovedPending(tx, wizardSessionId, row);
-  return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: "OK" };
+  return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: OK_CODE };
 }
 
 export async function handleOnboardingFinalize(

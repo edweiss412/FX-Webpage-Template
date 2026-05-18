@@ -104,7 +104,7 @@ function retryResponse(result: RetrySingleFileResult): Response {
   if (result.outcome === "retried") {
     if (result.status === "staged") return NextResponse.json({ status: "staged" });
     if (result.status === "hard_failed") {
-      return NextResponse.json({ status: "hard_failed_again", code: "PARSE_HARD_FAIL" });
+      return NextResponse.json({ status: "hard_failed_again", code: result.code });
     }
     return NextResponse.json({ status: "live_row_conflict" });
   }

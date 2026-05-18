@@ -12,11 +12,13 @@ class FakeRetrySingleFileTx implements RetrySingleFileTx {
         drive_file_id: string;
         wizard_session_id: string;
         discovered_during_folder_id: string;
+        last_error_code: string;
       }
     | null = {
     drive_file_id: "file-1",
     wizard_session_id: W1,
     discovered_during_folder_id: "folder-1",
+    last_error_code: "MI_1_MISSING_REQUIRED_TAB",
   };
   deletedPendingIngestion = false;
 
@@ -79,6 +81,7 @@ describe("retrySingleFile_unlocked", () => {
       drive_file_id: "file-1",
       wizard_session_id: W1,
       discovered_during_folder_id: "other-folder",
+      last_error_code: "MI_1_MISSING_REQUIRED_TAB",
     };
 
     const result = await retrySingleFile_unlocked(tx as never, "file-1", W1, { runOnboardingScan: vi.fn() });
@@ -86,6 +89,32 @@ describe("retrySingleFile_unlocked", () => {
     expect(result).toEqual({
       outcome: "not_found",
       code: "PENDING_INGESTION_NOT_FOUND",
+    });
+  });
+
+  test("returns the refreshed pending-ingestion code when retry hard-fails again", async () => {
+    const tx = new FakeRetrySingleFileTx();
+    tx.pendingRow!.last_error_code = "MI_2_INVALID_DATE";
+    const runOnboardingScan = vi.fn(async () => ({
+      outcome: "completed" as const,
+      processed: [{ driveFileId: "file-1", outcome: "hard_failed" as const }],
+    }));
+
+    const result = await retrySingleFile_unlocked(tx as never, "file-1", W1, {
+      runOnboardingScan,
+      fetchDriveFileMetadata: vi.fn(async () => ({
+        driveFileId: "file-1",
+        name: "file-1.xlsx",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        parents: ["folder-1"],
+      })),
+    });
+
+    expect(result).toEqual({
+      outcome: "retried",
+      status: "hard_failed",
+      code: "MI_2_INVALID_DATE",
     });
   });
 });
