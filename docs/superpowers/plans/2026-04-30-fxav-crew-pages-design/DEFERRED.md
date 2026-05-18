@@ -14,6 +14,13 @@ When picking up a deferred item:
 
 ## Open
 
+### M10-D-PHASE1-1 — ONBOARDING_OPERATOR_ERROR durable notification (Sentry + admin-visible banner)
+
+**Source:** M10 §B Phase 1 cross-model adversarial review (Codex R1, 2026-05-17). Single MEDIUM finding routed against the §B Phase 1 wizard cluster.
+**Description:** The wizard's operator-error fallback path (`components/admin/OnboardingWizard.tsx` `OperatorErrorBlock`) renders the §12.4 `ONBOARDING_OPERATOR_ERROR` Doug-facing copy whenever `GOOGLE_SERVICE_ACCOUNT_JSON` is missing, malformed, or lacks `client_email`. Spec §9.0 step 2 reserves a paired Sentry alert + admin-visible banner for the operator-error path (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md:2486-2489`). Phase 1 ships the inline Doug-facing surface only — no Sentry call, no `admin_alerts` row, no admin-visible banner producer. Phase 1's catalog entry was softened in R1 so the Doug-facing copy ("Please contact the developer to fix this") does not falsely claim notification was sent; the durable notification path is the deferral.
+**Why deferred:** The Phase 1 surface is the wizard step-1 / env-broken edge case (a server-side configuration regression — Doug never causes it). Wiring the durable notification path requires (a) an `admin_alerts` upsert producer keyed on `ONBOARDING_OPERATOR_ERROR` with the existing single-active-row-per-code idempotency pattern, (b) an entry in `tests/messages/_metaAdminAlertCatalog.test.ts` registering the new producer, (c) a Sentry/Bug-pipeline call site, (d) AlertBanner visibility on `/admin/settings` so Eric sees the alert when he comes back. (a) + (b) cleanly belong with the rest of the M10 admin-alerts producer work landing in Phase 2 / Phase 3 (alongside the FinalizeInProgress / Dashboard surfaces). (c) + (d) reuse existing M8 / M9 infrastructure — small scope but cleaner to land in one commit with (a) + (b).
+**Suggested home:** M10 Phase 2 (paired with `<FinalizeInProgress>` and the cleanup-abandoned-finalize affordance, both of which need `admin_alerts` producers as well) OR M10 Phase 3 (paired with the Dashboard `AdminAlertsBanner` so the banner-visibility wiring lands in one commit). Either is appropriate — pick whichever phase opens the admin_alerts producer surface first.
+
 ### M6-D1 — Push notification surface (operator-facing)
 
 **Source:** Conversation thread 2026-05-09 following ratification of plan amendments 7 + 8 (MI-8/MI-8b debounce, MI-9 LEAD-bit narrowing). Triggered by the observation that the spec's MI staging system requires Doug to check the dashboard to discover staged events, but Doug's natural surface is Drive — not the dashboard.

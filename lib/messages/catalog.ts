@@ -526,11 +526,12 @@ export const MESSAGE_CATALOG = {
   // ===== M10-§B codes (Opus) =====
   ONBOARDING_OPERATOR_ERROR: {
     code: "ONBOARDING_OPERATOR_ERROR",
-    dougFacing: "Something is wrong on our end. The developer has been notified.",
+    dougFacing:
+      "The wizard cannot read its service-account credentials. Please contact the developer to fix this before continuing.",
     crewFacing: null,
     followUp: "Eric -> inspect server logs / restore service-account credentials",
     helpfulContext:
-      "The onboarding wizard could not read its service-account credentials, so the share-with-this-email screen has no email to display. This is a server configuration problem, not anything Doug did. The developer (Eric) needs to restore the GOOGLE_SERVICE_ACCOUNT_JSON environment variable. Once that is back in place, Doug can refresh the wizard and continue.",
+      "The onboarding wizard could not read its service-account credentials, so the share-with-this-email screen has no email to display. This is a server configuration problem, not anything Doug did. The developer (Eric) needs to restore the GOOGLE_SERVICE_ACCOUNT_JSON environment variable. Once that is back in place, Doug can refresh the wizard and continue. Spec §9.0 step 2 reserves a paired Sentry alert plus an admin-visible banner for the operator-error path; that durable notification path is wired in a later milestone alongside the rest of the operator-banner surface — Phase 1 surfaces the failure inline only, which is why the Doug-facing copy does not claim the developer has already been notified.",
   },
   // ===== /M10-§B codes =====
   WIZARD_SESSION_SUPERSEDED_DURING_SCAN: {
