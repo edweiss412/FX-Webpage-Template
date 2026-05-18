@@ -29,6 +29,7 @@ type RouteContext = {
 
 type ApplyBody = {
   reviewerChoices?: unknown;
+  reviewer_choices?: unknown;
 };
 
 function databaseUrl(): string {
@@ -140,7 +141,8 @@ export async function handleLiveStagedApply(
   if (!driveFileId) return errorResponse(404, "STALE_DISCARD_REJECTED");
 
   const body = await readBody(request);
-  const reviewerChoices = Array.isArray(body.reviewerChoices) ? body.reviewerChoices : [];
+  const candidateChoices = body.reviewer_choices ?? body.reviewerChoices;
+  const reviewerChoices = Array.isArray(candidateChoices) ? candidateChoices : [];
   if (!reviewerChoices.every(isReviewerChoice)) return errorResponse(400, "INVALID_REVIEWER_ACTION");
 
   const result = await deps.applyStaged(
@@ -155,7 +157,7 @@ export async function handleLiveStagedApply(
   );
   if (!("skipped" in result) && result.outcome === "applied") {
     const slug = await deps.readShowSlug(result.showId);
-    return NextResponse.json({ status: "applied", slug });
+    return NextResponse.json({ slug });
   }
   const mapped = statusFor(result);
   return errorResponse(mapped.status, mapped.code);

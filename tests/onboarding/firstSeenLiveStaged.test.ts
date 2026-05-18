@@ -58,13 +58,13 @@ describe("live first-seen staged apply/discard", () => {
     const routeDeps = deps(tx);
 
     const response = await handleLiveStagedApply(
-      req({ reviewerChoices: [] }),
+      req({ reviewer_choices: [] }),
       context,
       routeDeps,
     );
 
     expect(response.status).toBe(200);
-    expect(await json(response)).toEqual({ status: "applied", slug: "first-seen-show" });
+    expect(await json(response)).toEqual({ slug: "first-seen-show" });
     expect(routeDeps.applyStaged).toHaveBeenCalledWith(
       {
         sourceScope: "live",
