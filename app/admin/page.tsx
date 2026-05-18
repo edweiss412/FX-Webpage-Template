@@ -1,91 +1,160 @@
 /**
- * app/admin/page.tsx (M9 final-review R15)
+ * app/admin/page.tsx (M10 §B Task 10.1 §B / Phase 1)
  *
- * Production-safe `/admin` landing. Pre-R15 the route tree had no
- * `/admin` page, so every redirect/href that targeted `/admin`
- * landed on Next's 404. R14 retargeted them all to `/admin/dev`,
- * but R15 caught that `/admin/dev` is build-gated out of production
- * via `scripts/with-admin-dev-flag.mjs` — same 404 in prod.
+ * Phase 1 of the wizard-mode `/admin` routing. Calls the §A Pin-1
+ * helper `purgeAndRotateIfStale` (which may rotate the wizard session
+ * if `pending_wizard_session_at` is past 24h with no in-flight finalize
+ * checkpoint, OR may suppress the auto-rotate when a multi-batch
+ * finalize is pending), then dispatches on the post-mutation settings:
  *
- * This page is intentionally minimal: a list of the available admin
- * surfaces. Doug lands here from sign-in / OAuth callback /
- * AlertBanner queue chip / error-boundary escape, then picks where
- * to go. The layout's <AlertBanner /> renders above this (per the
- * admin layout) so the `#alerts` anchor used by the AlertBanner
- * queue chip points to the top of the layout where alerts actually
- * surface.
+ *   1. result.suppressed === 'WIZARD_FINALIZE_BATCHES_PENDING' OR
+ *      ?show_finalize=true                            -> FinalizeReentry
+ *      stub (Phase 1 placeholder; Phase 2 splits into
+ *      FinalizeInProgress / ReadyToPublish / StaleReadyToPublish).
+ *   2. settings.watched_folder_id IS NULL OR
+ *      settings.pending_wizard_session_id IS NOT NULL -> OnboardingWizard.
+ *   3. Otherwise                                       -> Dashboard stub
+ *      (Phase 3 ships the real Dashboard, panels, alerts banner).
  *
- * Server Component. requireAdmin() at the layout level still gates;
- * this page assumes the layout's gate has passed.
+ * Fresh-settings invariant (spec §9.0): we pass `result.settings` into
+ * the dispatcher, never a pre-call capture from app_settings. The
+ * helper returns the post-mutation row read inside the same SQL
+ * transaction as the rotate/purge, so the dispatch decision reflects
+ * authoritative state regardless of whether the rotate fired.
+ *
+ * Admin gate: requireAdmin() runs at the layout level (M5 §B Task 5.9);
+ * we re-call here defensively so a direct-render path that bypassed
+ * the layout (future routing change) still gates correctly.
+ *
+ * No build-gated routes are reachable from this page (memory
+ * `feedback_build_gated_routes_never_fallback_target`): the Phase 1
+ * placeholders link to `/admin/settings` and to the wizard URL itself
+ * (`/admin`), both of which exist in every production build.
  */
+import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { purgeAndRotateIfStale } from "@/lib/onboarding/sessionLifecycle";
+import { OnboardingWizard } from "@/components/admin/OnboardingWizard";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
-export const metadata = {
-  title: "Admin · FXAV",
+export const metadata = { title: "Admin · FXAV" };
+
+type AdminPageProps = {
+  searchParams: Promise<{ step?: string; show_finalize?: string }>;
 };
 
-const ADMIN_DEV_PANEL_ENABLED = process.env.ADMIN_DEV_PANEL_ENABLED === "true";
-
-type AdminLink = { href: string; label: string; description: string };
-
-const ALWAYS_BUILT_LINKS: AdminLink[] = [
-  {
-    href: "/admin/settings/admins",
-    label: "Administrators",
-    description: "Add or revoke who can view and edit show data.",
-  },
-];
-
-const DEV_LINKS: AdminLink[] = [
-  {
-    href: "/admin/dev",
-    label: "Dev parse panel",
-    description: "Upload a fixture and walk the full parse pipeline.",
-  },
-];
-
-export default function AdminLandingPage() {
-  const links: AdminLink[] = [
-    ...ALWAYS_BUILT_LINKS,
-    ...(ADMIN_DEV_PANEL_ENABLED ? DEV_LINKS : []),
-  ];
-
+function DashboardPhase1Placeholder() {
   return (
-    <main className="mx-auto max-w-2xl px-tile-pad pb-section-gap">
-      {/* R17 fix: page-level H1 removed — layout already owns the
-          "Admin" H1 (app/admin/layout.tsx:79). Page subtitle stays as
-          a paragraph below the layout header. */}
-      <p className="mb-section-gap text-sm text-text-subtle">
-        Pick where to go. When there are active alerts, they appear in the banner above.
-      </p>
-      {/* R17 fix: was a <section aria-label="Admin sections"> which
-          screen-reader rotor doesn't surface as a navigation landmark.
-          <nav> is the canonical landmark for a list of internal
-          destinations and the rotor will surface it under
-          landmarks → navigation. */}
-      <nav data-testid="admin-landing-sections" aria-label="Admin">
-        {/* R16 fix: each card is the full Link (block, min-h-tap-min,
-            focus ring on the card). Pre-fix the Link was inline text
-            inside a padded card and only the text was clickable —
-            sub-44px tap area on mobile. */}
-        <ul className="flex flex-col gap-3">
-          {links.map((link) => (
-            <li key={link.href}>
-              <Link
-                href={link.href}
-                data-testid={`admin-landing-link-${link.href}`}
-                className="group block min-h-tap-min rounded-md border border-border bg-surface p-tile-pad transition-colors duration-fast hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-              >
-                <span className="block text-base font-medium text-accent-on-bg underline-offset-2 group-hover:underline">
-                  {link.label}
-                </span>
-                <span className="mt-1 block text-sm text-text-subtle">{link.description}</span>
-              </Link>
-            </li>
-          ))}
+    <main
+      data-testid="admin-dashboard-placeholder"
+      className="mx-auto flex max-w-2xl flex-col gap-section-gap"
+    >
+      <header className="flex flex-col gap-2">
+        <p
+          className="text-xs font-medium uppercase text-text-subtle"
+          style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+        >
+          Admin
+        </p>
+        <h2 className="text-2xl font-semibold text-text-strong">
+          Setup is complete
+        </h2>
+        <p className="max-w-prose text-base text-text-subtle">
+          Your Drive folder is connected and the live sync is running.
+          Dashboard is coming in the next phase.
+        </p>
+      </header>
+      <div className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad">
+        <h3 className="text-lg font-semibold text-text-strong">
+          What you can do today
+        </h3>
+        <ul className="flex flex-col gap-2 text-base text-text">
+          <li>
+            <Link
+              href="/admin/settings"
+              data-testid="admin-dashboard-placeholder-settings-link"
+              className="text-accent-on-bg underline-offset-2 hover:underline"
+            >
+              Open settings
+            </Link>
+            <span className="text-text-subtle">
+              {" "}
+              to re-run setup or manage administrators.
+            </span>
+          </li>
         </ul>
-      </nav>
+      </div>
     </main>
   );
+}
+
+function FinalizeReentryPhase1Placeholder() {
+  return (
+    <main
+      data-testid="admin-finalize-reentry-placeholder"
+      className="mx-auto flex max-w-2xl flex-col gap-section-gap"
+    >
+      <header className="flex flex-col gap-2">
+        <p
+          className="text-xs font-medium uppercase text-text-subtle"
+          style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+        >
+          Admin
+        </p>
+        <h2 className="text-2xl font-semibold text-text-strong">
+          A setup is in progress
+        </h2>
+        <p className="max-w-prose text-base text-text-subtle">
+          The previous setup wizard was paused while it was publishing
+          sheets to the live folder. The full resume-and-publish surface is
+          coming in the next phase. For now, please wait or contact the
+          developer.
+        </p>
+      </header>
+      <div className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad">
+        <p className="max-w-prose text-sm text-text-subtle">
+          You can still open the settings page to manage administrators.
+        </p>
+        <Link
+          href="/admin/settings"
+          data-testid="admin-finalize-reentry-placeholder-settings-link"
+          className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-4 text-base font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        >
+          Open settings
+        </Link>
+      </div>
+    </main>
+  );
+}
+
+export default async function AdminPage({ searchParams }: AdminPageProps) {
+  await requireAdmin();
+
+  const result = await purgeAndRotateIfStale();
+  const settings = result.settings;
+  const sp = await searchParams;
+
+  // Precedence 1: finalize re-entry / suppressed auto-rotate.
+  const suppressed =
+    "suppressed" in result &&
+    result.suppressed === "WIZARD_FINALIZE_BATCHES_PENDING";
+  if (suppressed || sp.show_finalize === "true") {
+    return <FinalizeReentryPhase1Placeholder />;
+  }
+
+  // Precedence 2: wizard mode (first-visit OR re-run-setup mid-flight).
+  if (
+    settings.watched_folder_id === null ||
+    settings.pending_wizard_session_id !== null
+  ) {
+    return (
+      <OnboardingWizard
+        settings={settings}
+        searchParams={{ step: sp.step }}
+      />
+    );
+  }
+
+  // Precedence 3: settled — Phase 1 dashboard stub.
+  return <DashboardPhase1Placeholder />;
 }
