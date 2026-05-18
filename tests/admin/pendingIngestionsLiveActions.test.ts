@@ -22,6 +22,7 @@ class FakeLivePendingTx {
   } | null;
   showExists = false;
   watchedFolderId = "folder-1";
+  slug = "show-slug";
   deferrals: Array<{ kind: string; driveFileId: string }> = [];
   deleted = false;
 
@@ -33,6 +34,7 @@ class FakeLivePendingTx {
     if (normalized.startsWith("select watched_folder_id")) {
       return { watched_folder_id: this.watchedFolderId } as T;
     }
+    if (normalized.startsWith("select slug")) return { slug: this.slug } as T;
     if (normalized.startsWith("insert into public.deferred_ingestions")) {
       this.deferrals.push({ kind: params[1] as string, driveFileId: params[0] as string });
       return { upserted: true } as T;
@@ -60,7 +62,10 @@ function deps(
       modifiedTime: "2026-05-08T12:00:00.000Z",
       parents: ["folder-1"],
     })),
-    runManualStageForFirstSeen: vi.fn(async () => ({ outcome: "stage" as const, stagedId: "staged-1" })),
+    runManualStageForFirstSeen: vi.fn(async () => ({
+      outcome: "parsed_pending_review" as const,
+      stagedId: "staged-1",
+    })),
     runManualSyncForShowUnlocked: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" })),
     ...overrides,
   };
@@ -88,7 +93,7 @@ describe("live pending-ingestions actions", () => {
     const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
 
     expect(response.status).toBe(200);
-    expect(await json(response)).toEqual({ status: "retried", result: { outcome: "stage", stagedId: "staged-1" } });
+    expect(await json(response)).toEqual({ status: "parsed_pending_review", stagedId: "staged-1" });
     expect(routeDeps.withRowTryLock).toHaveBeenCalledWith("file-1", expect.any(Function));
     expect(routeDeps.runManualStageForFirstSeen).toHaveBeenCalledWith(tx, "file-1", expect.any(Object));
     expect(routeDeps.runManualSyncForShowUnlocked).not.toHaveBeenCalled();
@@ -102,6 +107,7 @@ describe("live pending-ingestions actions", () => {
     const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
 
     expect(response.status).toBe(200);
+    expect(await json(response)).toEqual({ status: "applied", slug: "show-slug" });
     expect(routeDeps.fetchDriveFileMetadata).toHaveBeenCalledWith("file-1");
     expect(routeDeps.runManualSyncForShowUnlocked).toHaveBeenCalledWith(
       tx,

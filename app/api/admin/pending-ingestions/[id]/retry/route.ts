@@ -143,8 +143,52 @@ async function readWatchedFolderId(tx: LivePendingIngestionRouteTx): Promise<str
   return row?.watched_folder_id ?? null;
 }
 
+async function readShowSlug(tx: LivePendingIngestionRouteTx, driveFileId: string): Promise<string | null> {
+  const row = await tx.queryOne<{ slug: string } | null>(
+    `select slug from public.shows where drive_file_id = $1 limit 1`,
+    [driveFileId],
+  );
+  return row?.slug ?? null;
+}
+
 function transitioned(): Response {
   return errorResponse(409, "PENDING_INGESTION_TRANSITIONED");
+}
+
+async function manualSyncResponse(
+  tx: LivePendingIngestionRouteTx,
+  driveFileId: string,
+  result: ManualSyncResult,
+): Promise<Response> {
+  if (result.outcome === "applied") {
+    return NextResponse.json({
+      status: "applied",
+      slug: await readShowSlug(tx, driveFileId),
+    });
+  }
+  if (result.outcome === "stage") {
+    return NextResponse.json({ status: "parsed_pending_review", stagedId: result.stagedId });
+  }
+  if (result.outcome === "hard_fail") {
+    return NextResponse.json({ status: "still_failed", errorCode: result.code });
+  }
+  if ("code" in result) {
+    return NextResponse.json({ status: "still_failed", errorCode: result.code });
+  }
+  if ("reason" in result) {
+    return NextResponse.json({ status: "still_failed", errorCode: result.reason });
+  }
+  return NextResponse.json({ status: "parsed" });
+}
+
+function firstSeenStageResponse(result: RunManualStageForFirstSeenResult): Response {
+  if (result.outcome === "parsed_pending_review") {
+    return NextResponse.json({ status: "parsed_pending_review", stagedId: result.stagedId });
+  }
+  if (result.outcome === "hard_failed") {
+    return NextResponse.json({ status: "still_failed", errorCode: result.errorCode });
+  }
+  return NextResponse.json({ status: "parsed", stagedId: result.stagedId });
 }
 
 export async function handleLivePendingIngestionRetry(
@@ -190,10 +234,10 @@ export async function handleLivePendingIngestionRetry(
         metadata,
         {},
       );
-      return NextResponse.json({ status: "retried", result: syncResult });
+      return await manualSyncResponse(tx, row.drive_file_id, syncResult);
     }
     const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, {});
-    return NextResponse.json({ status: "retried", result: stageResult });
+    return firstSeenStageResponse(stageResult);
   });
   if ("skipped" in result) return errorResponse(409, "CONCURRENT_SYNC_SKIPPED");
   return result;
