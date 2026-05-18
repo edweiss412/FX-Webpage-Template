@@ -208,29 +208,13 @@ async function readShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string): 
   const { rows } = await tx.query<ShadowRow>(
     `
       select drive_file_id, show_id, applied_by_email, applied_at_intent, payload
-        from public.shows_pending_changes
+       from public.shows_pending_changes
        where wizard_session_id = $1::uuid
        order by drive_file_id
-       for update
     `,
     [wizardSessionId],
   );
   return rows;
-}
-
-async function deleteShadowRow(
-  tx: FinalizeCasRouteTx,
-  wizardSessionId: string,
-  driveFileId: string,
-): Promise<void> {
-  await tx.query(
-    `
-      delete from public.shows_pending_changes
-       where wizard_session_id = $1::uuid
-         and drive_file_id = $2
-    `,
-    [wizardSessionId, driveFileId],
-  );
 }
 
 async function deleteShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string): Promise<void> {
@@ -242,7 +226,6 @@ async function deleteShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string)
 
 async function applyShadow(
   tx: FinalizeCasRouteTx,
-  wizardSessionId: string,
   row: ShadowRow,
 ): Promise<ShadowApplyResult> {
   const parseResult = row.payload.parse_result;
@@ -297,7 +280,6 @@ async function applyShadow(
     return { drive_file_id: row.drive_file_id, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" };
   }
   await insertShadowAudit(tx, row);
-  await deleteShadowRow(tx, wizardSessionId, row.drive_file_id);
   return { drive_file_id: row.drive_file_id, code: OK_CODE };
 }
 
@@ -442,7 +424,7 @@ async function runFinalizeCas(
 
   const shadowResults: ShadowApplyResult[] = [];
   for (const row of await readShadowRows(tx, wizardSessionId)) {
-    shadowResults.push(await deps.withRowTx(row.drive_file_id, (rowTx) => applyShadow(rowTx, wizardSessionId, row)));
+    shadowResults.push(await deps.withRowTx(row.drive_file_id, (rowTx) => applyShadow(rowTx, row)));
   }
   const blocked = shadowResults.filter((row) => row.code !== "OK");
   await deleteShadowRows(tx, wizardSessionId);
