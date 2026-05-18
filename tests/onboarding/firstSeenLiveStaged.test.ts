@@ -110,4 +110,22 @@ describe("live first-seen staged apply/discard", () => {
     expect(response.status).toBe(404);
     expect(await json(response)).toEqual({ ok: false, code: "STALE_DISCARD_REJECTED" });
   });
+
+  test("apply preserves staged parse superseded errors from applyStaged", async () => {
+    const tx = new FakeLiveStagedTx();
+
+    const response = await handleLiveStagedApply(
+      req({ reviewer_choices: [] }),
+      context,
+      deps(tx, {
+        applyStaged: vi.fn(async () => ({
+          outcome: "superseded" as const,
+          code: "STAGED_PARSE_SUPERSEDED" as const,
+        })),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({ ok: false, code: "STAGED_PARSE_SUPERSEDED" });
+  });
 });

@@ -11,6 +11,7 @@ const REVIEWER_CHOICES_VERSION = 1;
 const OK_CODE = "OK" as const;
 const STAGED_PARSE_REVISION_RACE_DURING_FINALIZE =
   "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE" as const;
+const STAGED_PARSE_SOURCE_OUT_OF_SCOPE = "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" as const;
 const WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED =
   "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED" as const;
 
@@ -63,6 +64,7 @@ type PerRowResult =
       wizard_session_id: string;
       code:
         | typeof STAGED_PARSE_REVISION_RACE_DURING_FINALIZE
+        | typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE
         | typeof WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED
         | "DRIVE_FETCH_FAILED";
       re_apply_url: string;
@@ -233,6 +235,7 @@ async function demotePending(
   driveFileId: string,
   code:
     | typeof STAGED_PARSE_REVISION_RACE_DURING_FINALIZE
+    | typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE
     | typeof WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED
     | "DRIVE_FETCH_FAILED",
 ): Promise<void> {
@@ -331,6 +334,41 @@ async function applyFirstSeenDraft(
       return inserted.rows[0]?.show_id ?? null;
     },
   });
+}
+
+async function insertFinalizeAudit(
+  tx: FinalizeRouteTx,
+  input: {
+    showId: string;
+    row: PendingFinalizeRow;
+    appliedByEmail: string;
+  },
+): Promise<void> {
+  await tx.query<{ id: string }>(
+    `
+      insert into public.sync_audit (
+        show_id, drive_file_id, applied_by, staged_id, triggered_review_items,
+        reviewer_choices, derived_side_effects, parse_result_summary,
+        base_modified_time, staged_modified_time
+      )
+      values (
+        $1::uuid, $2, $3, $4::uuid, '[]'::jsonb,
+        $5::jsonb, '{}'::jsonb,
+        jsonb_build_object('title', $6, 'source', 'onboarding_finalize'),
+        null, $7::timestamptz
+      )
+      returning id
+    `,
+    [
+      input.showId,
+      input.row.drive_file_id,
+      input.appliedByEmail,
+      input.row.staged_id,
+      JSON.stringify(input.row.wizard_reviewer_choices ?? []),
+      input.row.parse_result.show.title,
+      input.row.staged_modified_time,
+    ],
+  );
 }
 
 async function stageExistingShowShadow(
@@ -443,11 +481,11 @@ async function processApprovedRow(input: {
   }
   const pendingFolderId = await readPendingFolderId(tx);
   if (!pendingFolderId || !metadata.parents.includes(pendingFolderId)) {
-    await demotePending(tx, wizardSessionId, row.drive_file_id, "DRIVE_FETCH_FAILED");
+    await demotePending(tx, wizardSessionId, row.drive_file_id, STAGED_PARSE_SOURCE_OUT_OF_SCOPE);
     return {
       drive_file_id: row.drive_file_id,
       wizard_session_id: wizardSessionId,
-      code: "DRIVE_FETCH_FAILED",
+      code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE,
       re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
     };
   }
@@ -468,7 +506,14 @@ async function processApprovedRow(input: {
     return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: OK_CODE };
   }
 
-  await applyFirstSeenDraft(tx, row);
+  const showId = await applyFirstSeenDraft(tx, row);
+  if (showId) {
+    await insertFinalizeAudit(tx, {
+      showId,
+      row,
+      appliedByEmail: row.wizard_approved_by_email ?? "unknown-admin@example.invalid",
+    });
+  }
   await deleteApprovedPending(tx, wizardSessionId, row);
   return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: OK_CODE };
 }
@@ -499,7 +544,7 @@ export async function handleOnboardingFinalize(
 
     const checkpoint = await ensureCheckpoint(tx, wizardSessionId);
     if (!checkpoint) return errorResponse(409, "WIZARD_FINALIZE_CHECKPOINT_MISSING");
-    if (checkpoint.status === "final_cas_done" || checkpoint.status === "all_batches_complete") {
+    if (checkpoint.status === "final_cas_done") {
       return NextResponse.json({
         status: "all_batches_complete",
         wizard_session_id: wizardSessionId,
@@ -510,6 +555,15 @@ export async function handleOnboardingFinalize(
     }
 
     const approvedRows = await selectApprovedRows(tx, wizardSessionId, runtime.batchCap);
+    if (checkpoint.status === "all_batches_complete" && approvedRows.length === 0) {
+      return NextResponse.json({
+        status: "all_batches_complete",
+        wizard_session_id: wizardSessionId,
+        remaining_count: 0,
+        unresolved_manifest_count: 0,
+        per_row: [],
+      });
+    }
     const unresolved = await unresolvedManifestCount(tx, wizardSessionId);
     if (approvedRows.length === 0 && unresolved > 0) {
       return errorResponse(409, "ONBOARDING_NOT_RESOLVED", {

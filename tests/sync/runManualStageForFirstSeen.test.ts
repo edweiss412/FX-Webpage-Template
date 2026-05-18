@@ -74,6 +74,10 @@ describe("runManualStageForFirstSeen", () => {
         hardErrors: [],
       },
       runPhase1,
+      binding: {
+        bindingToken: "rev-1",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+      },
     });
 
     expect(result).toEqual({ outcome: "parsed_pending_review", stagedId: "staged-1" });
@@ -127,6 +131,10 @@ describe("runManualStageForFirstSeen", () => {
         hardErrors: [],
       },
       runPhase1: vi.fn(async () => ({ outcome: "auto_publish_ready" as const })),
+      binding: {
+        bindingToken: "rev-1",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+      },
     });
 
     expect(result).toEqual({ outcome: "parsed_pending_review", stagedId: "staged-forced" });

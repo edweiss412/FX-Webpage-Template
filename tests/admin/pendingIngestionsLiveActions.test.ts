@@ -3,6 +3,7 @@ import type {
   LivePendingIngestionRouteDeps,
   LivePendingIngestionRouteTx,
 } from "@/app/api/admin/pending-ingestions/[id]/retry/route";
+import type { ParseResult } from "@/lib/parser/types";
 import { handleLivePendingIngestionRetry } from "@/app/api/admin/pending-ingestions/[id]/retry/route";
 import { handleLivePendingIngestionDiscard } from "@/app/api/admin/pending-ingestions/[id]/discard/route";
 
@@ -67,6 +68,40 @@ function deps(
       stagedId: "staged-1",
     })),
     runManualSyncForShowUnlocked: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" })),
+    readFinalizeOwnershipGuardUnlocked: vi.fn(async () => false),
+    prepareFirstSeenStage: vi.fn(async (fileMeta) => ({
+      fileMeta,
+      binding: { bindingToken: "rev-1", modifiedTime: fileMeta.modifiedTime },
+      parseResult: {
+        show: {
+          title: "First Seen",
+          client_label: "Client",
+          client_contact: null,
+          template_version: "v4",
+          venue: null,
+          dates: { travelIn: null, set: "2026-05-08", showDays: [], travelOut: null },
+          schedule_phases: {},
+          event_details: {},
+          agenda_links: [],
+          coi_status: null,
+          po: null,
+          proposal: null,
+          invoice: null,
+          invoice_notes: null,
+        },
+        crewMembers: [],
+        hotelReservations: [],
+        rooms: [],
+        transportation: null,
+        contacts: [],
+        pullSheet: null,
+        diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+        openingReel: null,
+        raw_unrecognized: [],
+        warnings: [],
+        hardErrors: [],
+      } satisfies ParseResult,
+    })),
     ...overrides,
   };
 }
@@ -95,7 +130,12 @@ describe("live pending-ingestions actions", () => {
     expect(response.status).toBe(200);
     expect(await json(response)).toEqual({ status: "parsed_pending_review", stagedId: "staged-1" });
     expect(routeDeps.withRowTryLock).toHaveBeenCalledWith("file-1", expect.any(Function));
-    expect(routeDeps.runManualStageForFirstSeen).toHaveBeenCalledWith(tx, "file-1", expect.any(Object));
+    expect(routeDeps.prepareFirstSeenStage).toHaveBeenCalledWith(expect.objectContaining({ driveFileId: "file-1" }));
+    expect(routeDeps.runManualStageForFirstSeen).toHaveBeenCalledWith(
+      tx,
+      "file-1",
+      expect.objectContaining({ binding: expect.any(Object), parseResult: expect.any(Object) }),
+    );
     expect(routeDeps.runManualSyncForShowUnlocked).not.toHaveBeenCalled();
   });
 
@@ -135,6 +175,20 @@ describe("live pending-ingestions actions", () => {
 
     expect(response.status).toBe(409);
     expect(await json(response)).toEqual({ ok: false, code: "SHEET_UNAVAILABLE" });
+    expect(routeDeps.runManualSyncForShowUnlocked).not.toHaveBeenCalled();
+  });
+
+  test("retry existing-show branch refuses rows owned by an in-flight finalize", async () => {
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+    const routeDeps = deps(tx, {
+      readFinalizeOwnershipGuardUnlocked: vi.fn(async () => true),
+    });
+
+    const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({ ok: false, code: "FINALIZE_OWNED_SHOW" });
     expect(routeDeps.runManualSyncForShowUnlocked).not.toHaveBeenCalled();
   });
 

@@ -3,6 +3,8 @@ import postgres from "postgres";
 import { subscribeToWatchedFolder as defaultSubscribeToWatchedFolder } from "@/lib/drive/watch";
 import type { ParseResult } from "@/lib/parser/types";
 
+const OK_CODE = "OK" as const;
+
 export type FinalizeCasRouteTx = {
   query<T>(
     sql: string,
@@ -23,6 +25,7 @@ export type FinalizeCasRouteDeps = {
 type SessionRow = {
   pending_wizard_session_id: string | null;
   pending_folder_id: string | null;
+  watched_folder_id: string | null;
 };
 
 type CheckpointRow = {
@@ -32,11 +35,20 @@ type CheckpointRow = {
 
 type ShadowRow = {
   drive_file_id: string;
+  show_id: string;
+  applied_by_email: string;
+  applied_at_intent: string;
   payload: {
     parse_result?: ParseResult;
     staged_modified_time?: string;
+    staged_id?: string;
+    reviewer_choices?: unknown[];
   };
 };
+
+type ShadowApplyResult =
+  | { drive_file_id: string; code: typeof OK_CODE }
+  | { drive_file_id: string; code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" };
 
 type FinalizeCasResult =
   | {
@@ -113,13 +125,30 @@ function errorResponse(status: number, code: string, extra: Record<string, unkno
 async function readSession(tx: FinalizeCasRouteTx): Promise<SessionRow> {
   const { rows } = await tx.query<SessionRow>(
     `
-      select pending_wizard_session_id, pending_folder_id
+      select pending_wizard_session_id, pending_folder_id, watched_folder_id
         from public.app_settings
        where id = 'default'
        for update
     `,
   );
-  return rows[0] ?? { pending_wizard_session_id: null, pending_folder_id: null };
+  return rows[0] ?? {
+    pending_wizard_session_id: null,
+    pending_folder_id: null,
+    watched_folder_id: null,
+  };
+}
+
+async function readLatestFinalizedCheckpoint(tx: FinalizeCasRouteTx): Promise<{ wizard_session_id: string } | null> {
+  const { rows } = await tx.query<{ wizard_session_id: string }>(
+    `
+      select wizard_session_id
+        from public.wizard_finalize_checkpoints
+       where status = 'final_cas_done'
+       order by last_processed_at desc nulls last
+       limit 1
+    `,
+  );
+  return rows[0] ?? null;
 }
 
 async function tryFinalizeLock(tx: FinalizeCasRouteTx, wizardSessionId: string): Promise<boolean> {
@@ -178,7 +207,7 @@ async function unresolvedManifestCount(
 async function readShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string): Promise<ShadowRow[]> {
   const { rows } = await tx.query<ShadowRow>(
     `
-      select drive_file_id, payload
+      select drive_file_id, show_id, applied_by_email, applied_at_intent, payload
         from public.shows_pending_changes
        where wizard_session_id = $1::uuid
        order by drive_file_id
@@ -189,10 +218,10 @@ async function readShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string): 
   return rows;
 }
 
-async function applyShadow(tx: FinalizeCasRouteTx, row: ShadowRow): Promise<void> {
+async function applyShadow(tx: FinalizeCasRouteTx, row: ShadowRow): Promise<ShadowApplyResult> {
   const parseResult = row.payload.parse_result;
-  if (!parseResult) return;
-  await tx.query<{ applied: boolean }>(
+  if (!parseResult) return { drive_file_id: row.drive_file_id, code: OK_CODE };
+  const applied = await tx.query<{ applied: boolean }>(
     `
       update public.shows
          set title = $2,
@@ -215,6 +244,7 @@ async function applyShadow(tx: FinalizeCasRouteTx, row: ShadowRow): Promise<void
              last_sync_status = 'ok',
              last_sync_error = null
        where drive_file_id = $1
+         and (last_seen_modified_time is null or last_seen_modified_time <= $15::timestamptz)
        returning true as applied
     `,
     [
@@ -235,6 +265,39 @@ async function applyShadow(tx: FinalizeCasRouteTx, row: ShadowRow): Promise<void
       row.payload.staged_modified_time ?? null,
       parseResult.show.coi_status,
       JSON.stringify(parseResult.pullSheet),
+    ],
+  );
+  if (applied.rowCount === 0) {
+    return { drive_file_id: row.drive_file_id, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" };
+  }
+  await insertShadowAudit(tx, row);
+  return { drive_file_id: row.drive_file_id, code: OK_CODE };
+}
+
+async function insertShadowAudit(tx: FinalizeCasRouteTx, row: ShadowRow): Promise<void> {
+  await tx.query<{ id: string }>(
+    `
+      insert into public.sync_audit (
+        show_id, drive_file_id, applied_by, staged_id, triggered_review_items,
+        reviewer_choices, derived_side_effects, parse_result_summary,
+        base_modified_time, staged_modified_time
+      )
+      values (
+        $1::uuid, $2, $3, ($4)::uuid, '[]'::jsonb,
+        $5::jsonb, '{}'::jsonb,
+        jsonb_build_object('title', $6, 'source', 'onboarding_finalize_cas'),
+        null, $7::timestamptz
+      )
+      returning id
+    `,
+    [
+      row.show_id,
+      row.drive_file_id,
+      row.applied_by_email,
+      row.payload.staged_id ?? null,
+      JSON.stringify(row.payload.reviewer_choices ?? []),
+      row.payload.parse_result?.show.title ?? null,
+      row.payload.staged_modified_time ?? null,
     ],
   );
 }
@@ -323,6 +386,15 @@ async function runFinalizeCas(
   const session = await readSession(tx);
   const wizardSessionId = session.pending_wizard_session_id;
   if (!wizardSessionId || !session.pending_folder_id) {
+    const finalized = await readLatestFinalizedCheckpoint(tx);
+    if (finalized && session.watched_folder_id) {
+      return {
+        status: "finalize_complete",
+        wizard_session_id: finalized.wizard_session_id,
+        watched_folder_id: session.watched_folder_id,
+        idempotent: true,
+      };
+    }
     return errorResponse(409, "WIZARD_FINALIZE_CHECKPOINT_MISSING");
   }
 
@@ -356,8 +428,13 @@ async function runFinalizeCas(
     });
   }
 
+  const shadowResults: ShadowApplyResult[] = [];
   for (const row of await readShadowRows(tx, wizardSessionId)) {
-    await deps.withRowTx(row.drive_file_id, (rowTx) => applyShadow(rowTx, row));
+    shadowResults.push(await deps.withRowTx(row.drive_file_id, (rowTx) => applyShadow(rowTx, row)));
+  }
+  const blocked = shadowResults.filter((row) => row.code !== "OK");
+  if (blocked.length > 0) {
+    return errorResponse(409, "STAGED_PARSE_OUTDATED_AT_PHASE_D", { per_row: blocked });
   }
   await deleteShadowRows(tx, wizardSessionId);
   await publishAppliedWizardShows(tx, wizardSessionId);

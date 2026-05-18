@@ -490,6 +490,14 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "Finalize re-checks the Drive head modified time before committing each reviewed row. A mismatch demotes the row back to staged review.",
   },
+  STAGED_PARSE_OUTDATED_AT_PHASE_D: {
+    code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+    dougFacing: "A live show changed after setup staged its publish changes.",
+    crewFacing: null,
+    followUp: "Doug -> re-run setup review for that sheet before final publish",
+    helpfulContext:
+      "Finalize Phase D only promotes shadow changes when the live show has not advanced past the wizard-staged modified time.",
+  },
   WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED: {
     code: "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED",
     dougFacing: "This reviewed setup decision came from an older or newer form version.",

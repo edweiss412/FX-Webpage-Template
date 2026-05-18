@@ -70,6 +70,7 @@ class FakeFinalizeDb implements FinalizeRouteTx {
   demoted: Array<{ driveFileId: string; code: string }> = [];
   stagedShadows: string[] = [];
   firstSeenApplied: string[] = [];
+  auditRows: string[] = [];
   deletedPending: string[] = [];
   operations: string[] = [];
 
@@ -148,6 +149,11 @@ class FakeFinalizeDb implements FinalizeRouteTx {
     if (normalized.startsWith("insert into public.shows")) {
       this.firstSeenApplied.push(params[0] as string);
       return { rows: [{ show_id: "show-first-seen" } as T], rowCount: 1 };
+    }
+
+    if (normalized.startsWith("insert into public.sync_audit")) {
+      this.auditRows.push(params[1] as string);
+      return { rows: [{ id: "audit-1" } as T], rowCount: 1 };
     }
 
     if (normalized.startsWith("delete from public.pending_syncs")) {
@@ -232,6 +238,7 @@ describe("POST /api/admin/onboarding/finalize", () => {
       ],
     });
     expect(db.firstSeenApplied).toEqual(["first-seen-1"]);
+    expect(db.auditRows).toEqual(["first-seen-1"]);
     expect(db.stagedShadows).toEqual(["existing-1"]);
     expect(db.deletedPending).toEqual(["first-seen-1", "existing-1"]);
   });
@@ -335,12 +342,12 @@ describe("POST /api/admin/onboarding/finalize", () => {
         {
           drive_file_id: "moved-1",
           wizard_session_id: W1,
-          code: "DRIVE_FETCH_FAILED",
+          code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE",
           re_apply_url: "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/moved-1",
         },
       ],
     });
-    expect(db.demoted).toEqual([{ driveFileId: "moved-1", code: "DRIVE_FETCH_FAILED" }]);
+    expect(db.demoted).toEqual([{ driveFileId: "moved-1", code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE" }]);
     expect(db.deletedPending).toEqual([]);
   });
 

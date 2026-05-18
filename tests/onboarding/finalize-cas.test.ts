@@ -47,8 +47,16 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
   finalizeLocked = true;
   approvedCount = 0;
   unresolvedManifestCount = 0;
-  shadowRows: Array<{ drive_file_id: string; payload: Record<string, unknown> }> = [];
+  shadowRows: Array<{
+    drive_file_id: string;
+    show_id: string;
+    applied_by_email: string;
+    applied_at_intent: string;
+    payload: Record<string, unknown>;
+  }> = [];
   appliedShadows: string[] = [];
+  auditRows: string[] = [];
+  phaseDCasFails = false;
   published = false;
   deletedWizardDeferrals = false;
   operations: string[] = [];
@@ -63,6 +71,7 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
           {
             pending_wizard_session_id: this.activeSessionId,
             pending_folder_id: this.pendingFolderId,
+            watched_folder_id: this.watchedFolderId,
           } as T,
         ],
         rowCount: 1,
@@ -80,6 +89,13 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
       };
     }
 
+    if (normalized.startsWith("select wizard_session_id")) {
+      return {
+        rows: this.checkpoint?.status === "final_cas_done" ? [{ wizard_session_id: W1 } as T] : [],
+        rowCount: this.checkpoint?.status === "final_cas_done" ? 1 : 0,
+      };
+    }
+
     if (normalized.startsWith("select count(*)::int as approved_count")) {
       return { rows: [{ approved_count: this.approvedCount } as T], rowCount: 1 };
     }
@@ -91,13 +107,19 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
       };
     }
 
-    if (normalized.startsWith("select drive_file_id, payload")) {
+    if (normalized.startsWith("select drive_file_id")) {
       return { rows: this.shadowRows as T[], rowCount: this.shadowRows.length };
     }
 
     if (normalized.startsWith("update public.shows") && normalized.includes("set title")) {
+      if (this.phaseDCasFails) return { rows: [], rowCount: 0 };
       this.appliedShadows.push(params[0] as string);
       return { rows: [{ applied: true } as T], rowCount: 1 };
+    }
+
+    if (normalized.startsWith("insert into public.sync_audit")) {
+      this.auditRows.push(params[1] as string);
+      return { rows: [{ id: "audit-1" } as T], rowCount: 1 };
     }
 
     if (normalized.startsWith("delete from public.shows_pending_changes")) {
@@ -165,7 +187,13 @@ async function json(response: Response): Promise<unknown> {
 describe("POST /api/admin/onboarding/finalize-cas", () => {
   test("commits Phase D atomically then subscribes to the watched folder after commit", async () => {
     const db = new FakeFinalizeCasDb();
-    db.shadowRows = [{ drive_file_id: "existing-1", payload: { parse_result: parseResult() } }];
+    db.shadowRows = [{
+      drive_file_id: "existing-1",
+      show_id: "22222222-2222-4222-8222-222222222222",
+      applied_by_email: "apply-admin@example.com",
+      applied_at_intent: "2026-05-08T12:00:00.000Z",
+      payload: { parse_result: parseResult(), staged_modified_time: "2026-05-08T12:00:00.000Z" },
+    }];
     const routeDeps = deps(db);
 
     const response = await handleOnboardingFinalizeCas(request(), routeDeps);
@@ -177,6 +205,7 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
       watched_folder_id: "folder-1",
     });
     expect(db.appliedShadows).toEqual(["existing-1"]);
+    expect(db.auditRows).toEqual(["existing-1"]);
     expect(db.published).toBe(true);
     expect(db.deletedWizardDeferrals).toBe(true);
     expect(db.checkpoint?.status).toBe("final_cas_done");
@@ -184,8 +213,53 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
     expect(db.operations.at(-1)).toBe("mark-final-cas-done");
   });
 
+  test("rejects Phase D shadow rows whose live show advanced after Phase B", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.phaseDCasFails = true;
+    db.shadowRows = [{
+      drive_file_id: "existing-1",
+      show_id: "22222222-2222-4222-8222-222222222222",
+      applied_by_email: "apply-admin@example.com",
+      applied_at_intent: "2026-05-08T12:00:00.000Z",
+      payload: { parse_result: parseResult(), staged_modified_time: "2026-05-08T12:00:00.000Z" },
+    }];
+
+    const response = await handleOnboardingFinalizeCas(request(), deps(db));
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({
+      ok: false,
+      code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+      per_row: [
+        { drive_file_id: "existing-1", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" },
+      ],
+    });
+    expect(db.shadowRows).toHaveLength(1);
+    expect(db.published).toBe(false);
+  });
+
   test("is idempotent after final_cas_done and does not resubscribe", async () => {
     const db = new FakeFinalizeCasDb();
+    db.checkpoint = { status: "final_cas_done", batches_completed: 2 };
+    const routeDeps = deps(db);
+
+    const response = await handleOnboardingFinalizeCas(request(), routeDeps);
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toEqual({
+      status: "finalize_complete",
+      wizard_session_id: W1,
+      watched_folder_id: "folder-1",
+      idempotent: true,
+    });
+    expect(routeDeps.subscribeToWatchedFolder).not.toHaveBeenCalled();
+  });
+
+  test("is idempotent after settings were already promoted", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.activeSessionId = null;
+    db.pendingFolderId = null;
+    db.watchedFolderId = "folder-1";
     db.checkpoint = { status: "final_cas_done", batches_completed: 2 };
     const routeDeps = deps(db);
 

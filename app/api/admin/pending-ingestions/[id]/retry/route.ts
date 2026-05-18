@@ -1,7 +1,18 @@
 import { NextResponse } from "next/server";
 import postgres from "postgres";
 import type { DriveListedFile } from "@/lib/drive/list";
-import { fetchDriveFileMetadata as defaultFetchDriveFileMetadata } from "@/lib/drive/fetch";
+import { listFolder as listDriveFolder } from "@/lib/drive/list";
+import {
+  fetchDriveFileMetadata as defaultFetchDriveFileMetadata,
+  fetchSheetAsMarkdownAtRevision,
+} from "@/lib/drive/fetch";
+import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
+import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
+import {
+  enrichWithDrivePins,
+  type DriveClient,
+  type DriveFileMeta,
+} from "@/lib/sync/enrichWithDrivePins";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { CONCURRENT_SYNC_SKIPPED } from "@/lib/sync/lockedShowTx";
 import {
@@ -9,6 +20,7 @@ import {
   type RunManualStageForFirstSeenResult,
 } from "@/lib/sync/runManualStageForFirstSeen";
 import {
+  readFinalizeOwnershipGuard_unlocked as defaultReadFinalizeOwnershipGuardUnlocked,
   runManualSyncForShow_unlocked as defaultRunManualSyncForShowUnlocked,
   type ManualSyncResult,
 } from "@/lib/sync/runManualSyncForShow";
@@ -38,6 +50,15 @@ export type LivePendingIngestionRouteDeps = {
     fileMeta: DriveListedFile,
     deps?: Parameters<typeof defaultRunManualSyncForShowUnlocked>[4],
   ) => Promise<ManualSyncResult>;
+  readFinalizeOwnershipGuardUnlocked?: (
+    tx: LivePendingIngestionRouteTx,
+    driveFileId: string,
+  ) => Promise<boolean>;
+  prepareFirstSeenStage?: (fileMeta: DriveListedFile) => Promise<{
+    fileMeta: DriveListedFile;
+    parseResult: ParseResult;
+    binding: { bindingToken: string; modifiedTime: string };
+  }>;
 };
 
 type RouteContext = {
@@ -85,6 +106,52 @@ async function defaultRequireAdminIdentity(): Promise<{ email: string }> {
   return await requireAdminIdentity();
 }
 
+function toDriveFileMeta(file: DriveListedFile): DriveFileMeta {
+  return {
+    driveFileId: file.driveFileId,
+    headRevisionId: file.headRevisionId ?? "",
+    md5Checksum: file.md5Checksum ?? "",
+    mimeType: file.mimeType,
+    modifiedTime: file.modifiedTime,
+    name: file.name,
+  };
+}
+
+function defaultDriveClient(): DriveClient {
+  return {
+    async getFile(fileId) {
+      return toDriveFileMeta(await defaultFetchDriveFileMetadata(fileId));
+    },
+    async listFolder(folderId) {
+      return {
+        folderId,
+        files: (await listDriveFolder(folderId)).map(toDriveFileMeta),
+      };
+    },
+  };
+}
+
+async function defaultPrepareFirstSeenStage(fileMeta: DriveListedFile): Promise<{
+  fileMeta: DriveListedFile;
+  parseResult: ParseResult;
+  binding: { bindingToken: string; modifiedTime: string };
+}> {
+  const binding = {
+    bindingToken: fileMeta.headRevisionId ?? fileMeta.modifiedTime,
+    modifiedTime: fileMeta.modifiedTime,
+  };
+  const markdown = await fetchSheetAsMarkdownAtRevision(fileMeta.driveFileId, binding.bindingToken);
+  const parsed: ParsedSheet = parseMarkdownSheet(markdown, fileMeta.name);
+  return {
+    fileMeta,
+    binding,
+    parseResult: await enrichWithDrivePins(parsed, defaultDriveClient(), {
+      driveFileId: fileMeta.driveFileId,
+      fileMeta: toDriveFileMeta(fileMeta),
+    }),
+  };
+}
+
 function depsWithDefaults(deps: LivePendingIngestionRouteDeps) {
   return {
     requireAdminIdentity: deps.requireAdminIdentity ?? defaultRequireAdminIdentity,
@@ -102,6 +169,12 @@ function depsWithDefaults(deps: LivePendingIngestionRouteDeps) {
       (defaultRunManualSyncForShowUnlocked as unknown as NonNullable<
         LivePendingIngestionRouteDeps["runManualSyncForShowUnlocked"]
       >),
+    readFinalizeOwnershipGuardUnlocked:
+      deps.readFinalizeOwnershipGuardUnlocked ??
+      (defaultReadFinalizeOwnershipGuardUnlocked as unknown as NonNullable<
+        LivePendingIngestionRouteDeps["readFinalizeOwnershipGuardUnlocked"]
+      >),
+    prepareFirstSeenStage: deps.prepareFirstSeenStage ?? defaultPrepareFirstSeenStage,
   };
 }
 
@@ -220,6 +293,9 @@ export async function handleLivePendingIngestionRetry(
       return errorResponse(500, "LOCK_OWNERSHIP_ASSERTION_FAILED");
     }
     if (await liveShowExists(tx, row.drive_file_id)) {
+      if (await deps.readFinalizeOwnershipGuardUnlocked(tx, row.drive_file_id)) {
+        return errorResponse(409, "FINALIZE_OWNED_SHOW");
+      }
       let metadata: DriveListedFile;
       try {
         metadata = await deps.fetchDriveFileMetadata(row.drive_file_id);
@@ -239,7 +315,18 @@ export async function handleLivePendingIngestionRetry(
       );
       return await manualSyncResponse(tx, row.drive_file_id, syncResult);
     }
-    const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, {});
+    let metadata: DriveListedFile;
+    try {
+      metadata = await deps.fetchDriveFileMetadata(row.drive_file_id);
+    } catch {
+      return errorResponse(502, "DRIVE_FETCH_FAILED");
+    }
+    const watchedFolderId = await readWatchedFolderId(tx);
+    if (!watchedFolderId || !metadata.parents.includes(watchedFolderId)) {
+      return errorResponse(409, "SHEET_UNAVAILABLE");
+    }
+    const stageDeps = await deps.prepareFirstSeenStage(metadata);
+    const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, stageDeps);
     return firstSeenStageResponse(stageResult);
   });
   if ("skipped" in result) return errorResponse(409, "CONCURRENT_SYNC_SKIPPED");

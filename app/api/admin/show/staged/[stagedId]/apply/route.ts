@@ -114,7 +114,10 @@ function isReviewerChoice(value: unknown): value is ReviewerChoice {
 
 function statusFor(result: ApplyStagedResult | { skipped: "CONCURRENT_SYNC_SKIPPED" }) {
   if ("skipped" in result) return { status: 409, code: "CONCURRENT_SYNC_SKIPPED" };
-  if (result.outcome === "not_found" || result.outcome === "superseded") {
+  if (result.outcome === "superseded") {
+    return { status: 409, code: result.code };
+  }
+  if (result.outcome === "not_found") {
     return { status: 404, code: "STALE_DISCARD_REJECTED" };
   }
   if ("code" in result) return { status: 409, code: result.code };

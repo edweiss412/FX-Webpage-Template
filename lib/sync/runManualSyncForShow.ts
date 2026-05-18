@@ -95,7 +95,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function readFinalizeOwnershipGuard_unlocked(
+export async function readFinalizeOwnershipGuard_unlocked(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
 ): Promise<boolean> {

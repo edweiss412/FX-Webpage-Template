@@ -27,50 +27,9 @@ export type RunManualStageForFirstSeenResult =
 export type RunManualStageForFirstSeenDeps = {
   fileMeta?: DriveListedFile;
   parseResult?: ParseResult;
+  binding?: { bindingToken: string; modifiedTime: string };
   runPhase1?: typeof runPhase1;
 };
-
-function fallbackFileMeta(driveFileId: string): DriveListedFile {
-  return {
-    driveFileId,
-    name: driveFileId,
-    mimeType: "application/vnd.google-apps.spreadsheet",
-    modifiedTime: new Date(0).toISOString(),
-    parents: [],
-  };
-}
-
-function fallbackParseResult(): ParseResult {
-  return {
-    show: {
-      title: "First Seen",
-      client_label: "Client",
-      client_contact: null,
-      template_version: "v4",
-      venue: null,
-      dates: { travelIn: null, set: null, showDays: [], travelOut: null },
-      schedule_phases: {},
-      event_details: {},
-      agenda_links: [],
-      coi_status: null,
-      po: null,
-      proposal: null,
-      invoice: null,
-      invoice_notes: null,
-    },
-    crewMembers: [],
-    hotelReservations: [],
-    rooms: [],
-    transportation: null,
-    contacts: [],
-    pullSheet: null,
-    diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
-    openingReel: null,
-    raw_unrecognized: [],
-    warnings: [],
-    hardErrors: [],
-  };
-}
 
 function warningSummary(parseResult: ParseResult): string {
   return parseResult.warnings
@@ -124,17 +83,18 @@ export async function runManualStageForFirstSeen(
   deps: RunManualStageForFirstSeenDeps = {},
 ): Promise<RunManualStageForFirstSeenResult> {
   await assertShowLockHeld(tx, driveFileId);
-  const fileMeta = deps.fileMeta ?? fallbackFileMeta(driveFileId);
-  const parseResult = deps.parseResult ?? fallbackParseResult();
+  if (!deps.fileMeta || !deps.parseResult || !deps.binding) {
+    throw new Error("runManualStageForFirstSeen requires pre-fetched fileMeta, parseResult, and binding");
+  }
+  const fileMeta = deps.fileMeta;
+  const binding = deps.binding;
+  const parseResult = deps.parseResult;
   const result = await (deps.runPhase1 ?? runPhase1)(tx as never, {
     driveFileId,
     mode: "manual",
     fileMeta,
     parseResult,
-    binding: {
-      bindingToken: fileMeta.headRevisionId ?? fileMeta.modifiedTime,
-      modifiedTime: fileMeta.modifiedTime,
-    },
+    binding,
   });
   return toResult(result) ?? await forceFirstSeenReviewStage(tx, driveFileId, fileMeta, parseResult);
 }
