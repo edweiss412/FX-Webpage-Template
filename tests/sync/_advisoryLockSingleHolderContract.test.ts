@@ -69,6 +69,38 @@ const lockHolderRegistry = [
     key: "hashtext('finalize:' || wizard_session_id) -> hashtext('show:' || drive_file_id)",
   },
   {
+    path: "app/api/admin/onboarding/finalize/route.ts",
+    holder: "handleOnboardingFinalize",
+    layer:
+      "takes a session finalize try-lock, then one blocking show lock per approved row in route-owned row transactions",
+    key: "hashtext('finalize:' || wizard_session_id) -> hashtext('show:' || drive_file_id)",
+  },
+  {
+    path: "app/api/admin/onboarding/finalize-cas/route.ts",
+    holder: "handleOnboardingFinalizeCas",
+    layer:
+      "takes a session finalize try-lock, then sorted shadow-row show locks before Phase D promotion",
+    key: "hashtext('finalize:' || wizard_session_id) -> hashtext('show:' || drive_file_id)",
+  },
+  {
+    path: "lib/sync/retrySingleFile.ts",
+    holder: "retrySingleFile",
+    layer: "delegates to withPostgresSyncPipelineLock; retrySingleFile_unlocked never locks",
+    key: "hashtext('show:' || drive_file_id)",
+  },
+  {
+    path: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
+    holder: "handleWizardPendingIngestionRetry",
+    layer: "bootstraps drive_file_id read-only, then delegates mutations to a blocking show lock",
+    key: "hashtext('show:' || drive_file_id)",
+  },
+  {
+    path: "app/api/admin/pending-ingestions/[id]/retry/route.ts",
+    holder: "handleLivePendingIngestionRetry",
+    layer: "bootstraps drive_file_id read-only, then delegates mutations to a nonblocking show lock",
+    key: "hashtext('show:' || drive_file_id)",
+  },
+  {
     path: "lib/sync/lockedPromoteTx.ts",
     holder: "withPromoteLock",
     layer: "JS-side transaction wrapper for post-commit storage promotion",
@@ -308,6 +340,26 @@ describe("M6 advisory-lock single-holder contract", () => {
           key: "hashtext('finalize:' || wizard_session_id) -> hashtext('show:' || drive_file_id)",
         }),
         expect.objectContaining({
+          holder: "handleOnboardingFinalize",
+          layer: expect.stringContaining("one blocking show lock per approved row"),
+        }),
+        expect.objectContaining({
+          holder: "handleOnboardingFinalizeCas",
+          layer: expect.stringContaining("shadow-row show locks"),
+        }),
+        expect.objectContaining({
+          holder: "retrySingleFile",
+          layer: expect.stringContaining("retrySingleFile_unlocked never locks"),
+        }),
+        expect.objectContaining({
+          holder: "handleWizardPendingIngestionRetry",
+          layer: expect.stringContaining("bootstraps drive_file_id read-only"),
+        }),
+        expect.objectContaining({
+          holder: "handleLivePendingIngestionRetry",
+          layer: expect.stringContaining("nonblocking show lock"),
+        }),
+        expect.objectContaining({
           holder: "withPromoteLock",
           key: "hashtext('promote:' || show_id)",
         }),
@@ -338,6 +390,9 @@ describe("M6 advisory-lock single-holder contract", () => {
       ...tsFiles("app/api/drive"),
       ...tsFiles("app/api/admin/sync"),
       ...tsFiles("app/api/admin/staged"),
+      ...tsFiles("app/api/admin/onboarding"),
+      ...tsFiles("app/api/admin/pending-ingestions"),
+      ...tsFiles("app/api/admin/show"),
       ...tsFiles("app/api/admin/snapshot-rollback"),
       ...tsFiles("app/api/show"),
     ];
@@ -345,7 +400,12 @@ describe("M6 advisory-lock single-holder contract", () => {
       .filter((path) => /\bpg_(?:try_)?advisory_xact_lock\s*\(/i.test(read(path)))
       .sort();
 
-    expect(holders).toEqual(["lib/sync/lockedPromoteTx.ts", "lib/sync/lockedShowTx.ts"]);
+    expect(holders).toEqual([
+      "app/api/admin/onboarding/finalize-cas/route.ts",
+      "app/api/admin/onboarding/finalize/route.ts",
+      "lib/sync/lockedPromoteTx.ts",
+      "lib/sync/lockedShowTx.ts",
+    ]);
     const source = read("lib/sync/lockedShowTx.ts");
     expect(source).toContain("hashtext('show:' ||");
     expect(source).not.toMatch(/show_id|slug/i);

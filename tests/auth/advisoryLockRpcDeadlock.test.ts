@@ -97,4 +97,17 @@ describe("advisory-lock RPC deadlock guard", () => {
     expect(source).toMatch(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/);
     expect(source).not.toMatch(/\.rpc\(/);
   });
+
+  test("onboarding finalize routes use direct SQL advisory locks and no lock-taking RPC boundary", () => {
+    for (const file of [
+      "app/api/admin/onboarding/finalize/route.ts",
+      "app/api/admin/onboarding/finalize-cas/route.ts",
+    ]) {
+      const source = stripComments(readFileSync(join(ROOT, file), "utf8"));
+
+      expect(source).toMatch(/pg_try_advisory_xact_lock\(hashtext\('finalize:' \|\| \$1\)\)/);
+      expect(source).toMatch(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/);
+      expect(source).not.toMatch(/\.rpc\(/);
+    }
+  });
 });

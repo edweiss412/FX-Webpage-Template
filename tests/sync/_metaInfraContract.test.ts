@@ -197,6 +197,108 @@ const infraRegistry = [
     contract:
       "scan route gates admin, validates Drive folder, reserves wizard session transactionally, and passes through OnboardingScanResult",
   },
+  {
+    helper: "handleOnboardingFinalize",
+    path: "app/api/admin/onboarding/finalize/route.ts",
+    contract:
+      "finalize route gates admin, owns finalize checkpoint transactions, and demotes per-row races as catalog codes",
+  },
+  {
+    helper: "handleOnboardingFinalizeCas",
+    path: "app/api/admin/onboarding/finalize-cas/route.ts",
+    contract:
+      "finalize CAS route gates admin, checks checkpoint preconditions, promotes settings transactionally, and subscribes after commit",
+  },
+  {
+    helper: "handleCleanupAbandonedFinalize",
+    path: "app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts",
+    contract:
+      "cleanup route gates admin, writes before/after audit records, and delegates stale-session cleanup errors as typed 409 responses",
+  },
+  {
+    helper: "handleWizardStagedApply",
+    path: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts",
+    contract:
+      "wizard staged apply route gates admin and delegates to applyStaged_unlocked under caller-owned show lock",
+  },
+  {
+    helper: "handleWizardStagedDiscard",
+    path: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard/route.ts",
+    contract:
+      "wizard staged discard route gates admin and delegates to discardStaged_unlocked under caller-owned show lock",
+  },
+  {
+    helper: "retrySingleFile_unlocked",
+    path: "lib/sync/retrySingleFile.ts",
+    contract:
+      "wizard single-file retry asserts caller-held show lock and preserves wizard CAS/provenance failures as typed outcomes",
+  },
+  {
+    helper: "handleWizardPendingIngestionRetry",
+    path: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
+    contract:
+      "wizard pending-ingestion retry gates admin, locks by drive_file_id, and delegates to retrySingleFile_unlocked",
+  },
+  {
+    helper: "handleWizardPendingIngestionDeferUntilModified",
+    path: "app/api/admin/onboarding/pending_ingestions/[id]/defer_until_modified/route.ts",
+    contract:
+      "wizard pending-ingestion defer route gates admin and writes wizard-scoped deferrals under the show lock",
+  },
+  {
+    helper: "handleWizardPendingIngestionPermanentIgnore",
+    path: "app/api/admin/onboarding/pending_ingestions/[id]/permanent_ignore/route.ts",
+    contract:
+      "wizard pending-ingestion permanent-ignore route gates admin and writes wizard-scoped deferrals under the show lock",
+  },
+  {
+    helper: "runManualStageForFirstSeen",
+    path: "lib/sync/runManualStageForFirstSeen.ts",
+    contract:
+      "live first-seen staging helper asserts caller-held show lock and forces Phase 1 review staging",
+  },
+  {
+    helper: "runManualSyncForShow_unlocked",
+    path: "lib/sync/runManualSyncForShow.ts",
+    contract:
+      "live pending-ingestion existing-show retry uses the exported unlocked manual sync helper under the route-owned show lock",
+  },
+  {
+    helper: "handleLivePendingIngestionRetry",
+    path: "app/api/admin/pending-ingestions/[id]/retry/route.ts",
+    contract:
+      "live pending-ingestion retry gates admin, bootstraps the lock key read-only, then re-selects under nonblocking show lock",
+  },
+  {
+    helper: "handleLivePendingIngestionDiscard",
+    path: "app/api/admin/pending-ingestions/[id]/discard/route.ts",
+    contract:
+      "live pending-ingestion discard gates admin, bootstraps the lock key read-only, then writes live deferrals under show lock",
+  },
+  {
+    helper: "handleAdminAlertGlobalResolve",
+    path: "app/api/admin/admin-alerts/[id]/resolve/route.ts",
+    contract:
+      "global alert resolve gates admin and refuses show-scoped alerts with cataloged redirect response",
+  },
+  {
+    helper: "handleAdminAlertShowResolve",
+    path: "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts",
+    contract:
+      "show-scoped alert resolve gates admin and hides cross-show alert probes as not found",
+  },
+  {
+    helper: "handleLiveStagedApply",
+    path: "app/api/admin/show/staged/[stagedId]/apply/route.ts",
+    contract:
+      "live first-seen staged apply gates admin and delegates to applyStaged with live source scope",
+  },
+  {
+    helper: "handleLiveStagedDiscard",
+    path: "app/api/admin/show/staged/[stagedId]/discard/route.ts",
+    contract:
+      "live first-seen staged discard gates admin and delegates to discardStaged with live source scope",
+  },
 ] as const;
 
 function read(path: string): string {
