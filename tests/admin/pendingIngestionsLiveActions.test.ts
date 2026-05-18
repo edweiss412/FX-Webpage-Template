@@ -21,6 +21,7 @@ class FakeLivePendingTx {
     last_seen_modified_time: string | null;
   } | null;
   showExists = false;
+  watchedFolderId = "folder-1";
   deferrals: Array<{ kind: string; driveFileId: string }> = [];
   deleted = false;
 
@@ -29,6 +30,9 @@ class FakeLivePendingTx {
     if (/pg_locks/i.test(normalized)) return { held: true } as T;
     if (normalized.startsWith("select id, drive_file_id")) return this.row as T;
     if (normalized.startsWith("select exists")) return { exists: this.showExists } as T;
+    if (normalized.startsWith("select watched_folder_id")) {
+      return { watched_folder_id: this.watchedFolderId } as T;
+    }
     if (normalized.startsWith("insert into public.deferred_ingestions")) {
       this.deferrals.push({ kind: params[1] as string, driveFileId: params[0] as string });
       return { upserted: true } as T;
@@ -106,6 +110,26 @@ describe("live pending-ingestions actions", () => {
       expect.objectContaining({ driveFileId: "file-1" }),
       expect.any(Object),
     );
+  });
+
+  test("retry existing-show branch rejects files outside watched folder", async () => {
+    const tx = new FakeLivePendingTx();
+    tx.showExists = true;
+    const routeDeps = deps(tx, {
+      fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
+        driveFileId,
+        name: `${driveFileId}.xlsx`,
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        parents: ["other-folder"],
+      })),
+    });
+
+    const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({ ok: false, code: "SHEET_UNAVAILABLE" });
+    expect(routeDeps.runManualSyncForShowUnlocked).not.toHaveBeenCalled();
   });
 
   test("retry rejects transitioned and wizard rows", async () => {

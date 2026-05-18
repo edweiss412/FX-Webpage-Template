@@ -135,6 +135,14 @@ async function liveShowExists(
   return row.exists;
 }
 
+async function readWatchedFolderId(tx: LivePendingIngestionRouteTx): Promise<string | null> {
+  const row = await tx.queryOne<{ watched_folder_id: string | null } | null>(
+    `select watched_folder_id from public.app_settings where id = 'default' limit 1`,
+    [],
+  );
+  return row?.watched_folder_id ?? null;
+}
+
 function transitioned(): Response {
   return errorResponse(409, "PENDING_INGESTION_TRANSITIONED");
 }
@@ -165,17 +173,21 @@ export async function handleLivePendingIngestionRetry(
       return errorResponse(500, "LOCK_OWNERSHIP_ASSERTION_FAILED");
     }
     if (await liveShowExists(tx, row.drive_file_id)) {
-      let fileMeta: DriveListedFile;
+      let metadata: DriveListedFile;
       try {
-        fileMeta = await deps.fetchDriveFileMetadata(row.drive_file_id);
+        metadata = await deps.fetchDriveFileMetadata(row.drive_file_id);
       } catch {
         return errorResponse(502, "DRIVE_FETCH_FAILED");
+      }
+      const watchedFolderId = await readWatchedFolderId(tx);
+      if (!watchedFolderId || !metadata.parents.includes(watchedFolderId)) {
+        return errorResponse(409, "SHEET_UNAVAILABLE");
       }
       const syncResult = await deps.runManualSyncForShowUnlocked(
         tx,
         row.drive_file_id,
         "manual",
-        fileMeta,
+        metadata,
         {},
       );
       return NextResponse.json({ status: "retried", result: syncResult });

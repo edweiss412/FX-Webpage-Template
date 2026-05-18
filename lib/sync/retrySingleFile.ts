@@ -116,19 +116,23 @@ export async function retrySingleFile_unlocked(
   ) {
     return { outcome: "wizard_superseded", code: "WIZARD_SESSION_SUPERSEDED" };
   }
+  const pendingFolderId = settings.pending_folder_id;
 
   const pending = await readPendingIngestion(tx, driveFileId, wizardSessionId);
   if (
     !pending ||
-    pending.discovered_during_folder_id !== settings.pending_folder_id ||
+    pending.discovered_during_folder_id !== pendingFolderId ||
     pending.wizard_session_id !== wizardSessionId
   ) {
     return { outcome: "not_found", code: "PENDING_INGESTION_NOT_FOUND" };
   }
 
   const metadata = await (deps.fetchDriveFileMetadata ?? fetchDriveFileMetadata)(driveFileId);
+  if (!metadata.parents.includes(pendingFolderId)) {
+    return { outcome: "not_found", code: "PENDING_INGESTION_NOT_FOUND" };
+  }
   const scan = await (deps.runOnboardingScan ?? runOnboardingScan)(
-    settings.pending_folder_id,
+    pendingFolderId,
     wizardSessionId,
     {
       listFolder: async () => [metadata],

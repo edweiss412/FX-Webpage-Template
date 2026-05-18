@@ -57,6 +57,7 @@ function parseResult(title: string): Record<string, unknown> {
 
 class FakeFinalizeDb implements FinalizeRouteTx {
   activeSessionId: string | null = W1;
+  pendingFolderId: string | null = "folder-1";
   finalizeLocked = true;
   checkpoint: {
     wizard_session_id: string;
@@ -83,6 +84,13 @@ class FakeFinalizeDb implements FinalizeRouteTx {
     if (normalized.startsWith("select pending_wizard_session_id")) {
       return {
         rows: [{ pending_wizard_session_id: this.activeSessionId } as T],
+        rowCount: 1,
+      };
+    }
+
+    if (normalized.startsWith("select pending_folder_id")) {
+      return {
+        rows: [{ pending_folder_id: this.pendingFolderId } as T],
         rowCount: 1,
       };
     }
@@ -300,6 +308,38 @@ describe("POST /api/admin/onboarding/finalize", () => {
     expect(db.demoted).toEqual([
       { driveFileId: "race-1", code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE" },
     ]);
+    expect(db.deletedPending).toEqual([]);
+  });
+
+  test("demotes a row when Drive head is outside the pending folder", async () => {
+    const db = new FakeFinalizeDb();
+    db.approved = [pending("moved-1")];
+
+    const response = await handleOnboardingFinalize(
+      request(),
+      deps(db, {
+        fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
+          driveFileId,
+          name: `${driveFileId}.xlsx`,
+          mimeType: "application/vnd.google-apps.spreadsheet",
+          modifiedTime: "2026-05-08T12:00:00.000Z",
+          parents: ["other-folder"],
+        })),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({
+      status: "batch_complete",
+      per_row: [
+        {
+          drive_file_id: "moved-1",
+          status: "needs_reapply",
+          code: "DRIVE_FETCH_FAILED",
+        },
+      ],
+    });
+    expect(db.demoted).toEqual([{ driveFileId: "moved-1", code: "DRIVE_FETCH_FAILED" }]);
     expect(db.deletedPending).toEqual([]);
   });
 

@@ -273,6 +273,13 @@ async function showExists(tx: FinalizeRouteTx, driveFileId: string): Promise<boo
   return rows[0]?.exists === true;
 }
 
+async function readPendingFolderId(tx: FinalizeRouteTx): Promise<string | null> {
+  const { rows } = await tx.query<{ pending_folder_id: string | null }>(
+    `select pending_folder_id from public.app_settings where id = 'default' limit 1`,
+  );
+  return rows[0]?.pending_folder_id ?? null;
+}
+
 async function applyFirstSeenDraft(
   tx: FinalizeRouteTx,
   row: PendingFinalizeRow,
@@ -424,6 +431,16 @@ async function processApprovedRow(input: {
   try {
     metadata = await input.fetchDriveFileMetadata(row.drive_file_id);
   } catch {
+    await demotePending(tx, wizardSessionId, row.drive_file_id, "DRIVE_FETCH_FAILED");
+    return {
+      drive_file_id: row.drive_file_id,
+      status: "needs_reapply",
+      code: "DRIVE_FETCH_FAILED",
+      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    };
+  }
+  const pendingFolderId = await readPendingFolderId(tx);
+  if (!pendingFolderId || !metadata.parents.includes(pendingFolderId)) {
     await demotePending(tx, wizardSessionId, row.drive_file_id, "DRIVE_FETCH_FAILED");
     return {
       drive_file_id: row.drive_file_id,
