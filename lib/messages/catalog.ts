@@ -369,6 +369,50 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "Setup wizards run one at a time. While your tab was open, another wizard was started (probably from a second browser tab or device) and your session was retired. Refresh and start setup over in a single tab; whatever the other wizard scanned is the new state.",
   },
+  // ===== M10-§A codes (Codex) =====
+  INVALID_FOLDER_URL: {
+    code: "INVALID_FOLDER_URL",
+    dougFacing: "Paste a Google Drive folder link.",
+    crewFacing: null,
+    followUp: "Doug -> paste the folder link from Drive",
+    helpfulContext:
+      "The setup wizard needs the URL for a Google Drive folder, usually shaped like drive.google.com/drive/folders/<folder-id>. Open the folder in Drive, copy the browser URL, and paste that full link here.",
+  },
+  FOLDER_NOT_SHARED: {
+    code: "FOLDER_NOT_SHARED",
+    dougFacing: "This folder is not shared with the sync account yet.",
+    crewFacing: null,
+    followUp: "Doug -> share the folder with the FXAV service account, then retry",
+    helpfulContext:
+      "The app reads show sheets through a Google service account. Share the Drive folder with that account using Viewer access, then click Verify again. If the folder is in a shared drive, make sure the service account can see that shared drive too.",
+  },
+  FOLDER_NOT_FOUND: {
+    code: "FOLDER_NOT_FOUND",
+    dougFacing: "We could not find that Drive folder.",
+    crewFacing: null,
+    followUp: "Doug -> check the link or restore the folder",
+    helpfulContext:
+      "Drive returned missing, deleted, or trashed for the folder ID in the link. Confirm the folder still exists, that the URL points to the folder itself, and that it has not been moved to trash.",
+  },
+  OPERATOR_ERROR_NOT_FOLDER: {
+    code: "OPERATOR_ERROR_NOT_FOLDER",
+    dougFacing: "That link points to a file, not a folder.",
+    crewFacing: null,
+    followUp: "Doug -> open the parent folder and copy that folder link",
+    helpfulContext:
+      "The wizard scans every sheet inside one folder. A direct Google Sheet link cannot be used for setup because it does not tell the app which sibling sheets belong in the same onboarding run.",
+  },
+  OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA: {
+    code: "OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA",
+    dougFacing: "Drive returned an incomplete folder response. Try again in a moment.",
+    crewFacing: null,
+    followUp: "Doug -> retry; Eric if this repeats",
+    helpfulContext:
+      "The app reached Google Drive, but the metadata response did not include the fields needed to prove the link is a readable folder. This is usually transient. If it repeats, the developer should inspect the Drive API response and service-account configuration.",
+  },
+  // ===== /M10-§A codes =====
+  // ===== M10-§B codes (Opus) =====
+  // ===== /M10-§B codes =====
   WIZARD_SESSION_SUPERSEDED_DURING_SCAN: {
     code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
     dougFacing: "A newer onboarding scan started before this one finished.",

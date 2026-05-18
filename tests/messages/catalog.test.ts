@@ -54,6 +54,14 @@ const REQUIRED_M7_WARNING_CODES = [
   "EMBEDDED_ASSET_DRIFTED",
 ] as const satisfies readonly MessageCode[];
 
+const REQUIRED_M10_ONBOARDING_SCAN_CODES = [
+  "INVALID_FOLDER_URL",
+  "FOLDER_NOT_SHARED",
+  "FOLDER_NOT_FOUND",
+  "OPERATOR_ERROR_NOT_FOLDER",
+  "OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA",
+] as const satisfies readonly MessageCode[];
+
 function walkFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((entry) => {
     const path = join(dir, entry);
@@ -105,6 +113,12 @@ describe("message catalog", () => {
   test("contains every M7 linked-asset warning producer code", () => {
     expect(Object.keys(MESSAGE_CATALOG).sort()).toEqual(
       expect.arrayContaining([...REQUIRED_M7_WARNING_CODES].sort()),
+    );
+  });
+
+  test("contains every Pin-1 onboarding scan route code", () => {
+    expect(Object.keys(MESSAGE_CATALOG).sort()).toEqual(
+      expect.arrayContaining([...REQUIRED_M10_ONBOARDING_SCAN_CODES].sort()),
     );
   });
 
