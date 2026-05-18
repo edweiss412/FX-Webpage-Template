@@ -1,0 +1,112 @@
+import { describe, expect, test, vi } from "vitest";
+import type {
+  LiveStagedRouteDeps,
+  LiveStagedRouteTx,
+} from "@/app/api/admin/show/staged/[stagedId]/apply/route";
+import { handleLiveStagedApply } from "@/app/api/admin/show/staged/[stagedId]/apply/route";
+import { handleLiveStagedDiscard } from "@/app/api/admin/show/staged/[stagedId]/discard/route";
+
+const STAGED = "22222222-2222-4222-8222-222222222222";
+
+class FakeLiveStagedTx implements LiveStagedRouteTx {
+  driveFileId: string | null = "file-1";
+  slug = "first-seen-show";
+  async queryOne<T>(sql: string, params: unknown[]) {
+    const normalized = sql.replace(/\s+/g, " ").trim();
+    if (/pg_locks/i.test(normalized)) return { held: true } as T;
+    if (normalized.startsWith("select drive_file_id")) {
+      return this.driveFileId ? ({ drive_file_id: this.driveFileId } as T) : null;
+    }
+    if (normalized.startsWith("select slug")) return { slug: this.slug } as T;
+    throw new Error(`Unhandled live staged SQL: ${normalized} ${JSON.stringify(params)}`);
+  }
+}
+
+function deps(
+  tx: FakeLiveStagedTx,
+  overrides: Partial<LiveStagedRouteDeps> = {},
+): LiveStagedRouteDeps {
+  return {
+    requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
+    withRowTx: vi.fn(async (_driveFileId, fn) => fn(tx)),
+    readDriveFileIdForStagedId: vi.fn(async () => tx.driveFileId),
+    readShowSlug: vi.fn(async () => tx.slug),
+    applyStaged: vi.fn(async () => ({ outcome: "applied", showId: "show-1", syncAuditId: null, derivedSideEffects: { revokeFloorForNames: [] } })),
+    discardStaged: vi.fn(async () => ({ outcome: "discarded", variant: "defer_until_modified" })),
+    ...overrides,
+  };
+}
+
+const context = { params: Promise.resolve({ stagedId: STAGED }) };
+
+function req(body: Record<string, unknown> = {}): Request {
+  return new Request("https://crew.fxav.test/api/admin/show/staged/id/action", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+  });
+}
+
+async function json(response: Response): Promise<unknown> {
+  return await response.json();
+}
+
+describe("live first-seen staged apply/discard", () => {
+  test("apply delegates to applyStaged with sourceScope live and returns slug", async () => {
+    const tx = new FakeLiveStagedTx();
+    const routeDeps = deps(tx);
+
+    const response = await handleLiveStagedApply(
+      req({ reviewerChoices: [] }),
+      context,
+      routeDeps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toEqual({ status: "applied", slug: "first-seen-show" });
+    expect(routeDeps.applyStaged).toHaveBeenCalledWith(
+      {
+        sourceScope: "live",
+        driveFileId: "file-1",
+        stagedId: STAGED,
+        reviewerChoices: [],
+        appliedByEmail: "doug@example.com",
+      },
+      expect.any(Object),
+    );
+  });
+
+  test("discard delegates to discardStaged with live scope", async () => {
+    const tx = new FakeLiveStagedTx();
+    const routeDeps = deps(tx);
+
+    const response = await handleLiveStagedDiscard(
+      req({ kind: "defer_until_modified" }),
+      context,
+      routeDeps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toEqual({ status: "discarded", variant: "defer_until_modified" });
+    expect(routeDeps.discardStaged).toHaveBeenCalledWith(
+      {
+        sourceScope: "live",
+        driveFileId: "file-1",
+        stagedId: STAGED,
+        discardedByEmail: "doug@example.com",
+        variant: "defer_until_modified",
+      },
+      expect.any(Object),
+    );
+  });
+
+  test("missing live staged row returns STALE_DISCARD_REJECTED", async () => {
+    const tx = new FakeLiveStagedTx();
+    tx.driveFileId = null;
+
+    const response = await handleLiveStagedApply(req({ reviewerChoices: [] }), context, deps(tx));
+
+    expect(response.status).toBe(404);
+    expect(await json(response)).toEqual({ ok: false, code: "STALE_DISCARD_REJECTED" });
+  });
+});
