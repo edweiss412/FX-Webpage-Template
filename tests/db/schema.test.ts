@@ -7,6 +7,10 @@ const migrationPath = join(
   "supabase/migrations/20260501000000_initial_public_schema.sql",
 );
 const migrationExists = existsSync(migrationPath);
+const m10LastFinalizeFailureMigrationPath = join(
+  process.cwd(),
+  "supabase/migrations/20260518010444_pending_syncs_last_finalize_failure_code.sql",
+);
 
 function migrationSql(): string {
   if (!migrationExists) {
@@ -14,6 +18,14 @@ function migrationSql(): string {
   }
 
   return readFileSync(migrationPath, "utf8");
+}
+
+function m10LastFinalizeFailureMigrationSql(): string {
+  if (!existsSync(m10LastFinalizeFailureMigrationPath)) {
+    throw new Error(`Missing migration file: ${m10LastFinalizeFailureMigrationPath}`);
+  }
+
+  return readFileSync(m10LastFinalizeFailureMigrationPath, "utf8");
 }
 
 function tableBody(sql: string, tableName: string): string {
@@ -193,4 +205,54 @@ describe("initial public schema migration", () => {
       });
     });
   }
+});
+
+describe("M10 pending_syncs last finalize failure schema migration", () => {
+  test("adds nullable failure-code columns idempotently for public and dev pending_syncs", () => {
+    const sql = m10LastFinalizeFailureMigrationSql();
+
+    for (const schema of ["public", "dev"]) {
+      expect(sql).toMatch(
+        new RegExp(
+          String.raw`alter\s+table\s+${schema}\.pending_syncs\s+add\s+column\s+if\s+not\s+exists\s+last_finalize_failure_code\s+text\s*;`,
+          "i",
+        ),
+      );
+    }
+  });
+
+  test("rebuilds the approval symmetry checks idempotently for public and dev", () => {
+    const sql = m10LastFinalizeFailureMigrationSql();
+
+    for (const schema of ["public", "dev"]) {
+      for (const constraint of [
+        "pending_syncs_live_rows_have_no_approval_payload",
+        "pending_syncs_approved_requires_full_payload",
+      ]) {
+        expect(sql).toMatch(
+          new RegExp(
+            String.raw`alter\s+table\s+${schema}\.pending_syncs\s+drop\s+constraint\s+if\s+exists\s+${constraint}\s*;`,
+            "i",
+          ),
+        );
+        expect(sql).toMatch(
+          new RegExp(
+            String.raw`alter\s+table\s+${schema}\.pending_syncs\s+add\s+constraint\s+${constraint}\s+check`,
+            "i",
+          ),
+        );
+      }
+    }
+  });
+
+  test("symmetry matrix accepts the per-row finalize failure retry state only on unapproved rows", () => {
+    const sql = m10LastFinalizeFailureMigrationSql().replace(/\s+/g, " ");
+
+    expect(sql).toMatch(
+      /wizard_session_id is not null or \( wizard_approved_by_email is null and wizard_approved_at is null and wizard_reviewer_choices is null and wizard_reviewer_choices_version is null and last_finalize_failure_code is null \)/i,
+    );
+    expect(sql).toMatch(
+      /\( wizard_approved = true and wizard_approved_by_email is not null and wizard_approved_at is not null and wizard_reviewer_choices is not null and wizard_reviewer_choices_version is not null and last_finalize_failure_code is null \) or \( wizard_approved = false and wizard_approved_by_email is null and wizard_approved_at is null and wizard_reviewer_choices is null and wizard_reviewer_choices_version is null \)/i,
+    );
+  });
 });
