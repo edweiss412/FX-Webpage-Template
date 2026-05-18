@@ -3,6 +3,7 @@ import type {
   WizardStagedRouteDeps,
   WizardStagedRouteTx,
 } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route";
+import type { WizardDiscardRouteDeps } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard/route";
 import { handleWizardStagedApply } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route";
 import { handleWizardStagedDiscard } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard/route";
 
@@ -34,7 +35,7 @@ function discardRequest(body: Record<string, unknown> = {}): Request {
   });
 }
 
-class FakeWizardStagedTx implements WizardStagedRouteTx {
+class FakeWizardStagedTx {
   lockedDriveIds: string[] = [];
   async queryOne<T>(sql: string, params: unknown[]) {
     if (/pg_locks/i.test(sql)) return { held: true } as T;
@@ -46,16 +47,16 @@ class FakeWizardStagedTx implements WizardStagedRouteTx {
 function deps(
   tx: FakeWizardStagedTx,
   overrides: Partial<WizardStagedRouteDeps> = {},
-): WizardStagedRouteDeps {
+): WizardStagedRouteDeps & WizardDiscardRouteDeps {
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
-    withRowTx: vi.fn(async (_driveFileId, fn) => fn(tx)),
+    withRowTx: vi.fn(async (_driveFileId, fn) => fn(tx as unknown as WizardStagedRouteTx)),
     applyStagedUnlocked: vi.fn(async () => ({
-      outcome: "wizard_applied",
+      outcome: "wizard_applied" as const,
       wizardSessionId: W1,
       stagedId: STAGED,
     })),
-    discardStagedUnlocked: vi.fn(async () => ({ outcome: "discarded", variant: "try_again" })),
+    discardStagedUnlocked: vi.fn(async () => ({ outcome: "discarded" as const, variant: "try_again" as const })),
     ...overrides,
   };
 }
@@ -102,8 +103,8 @@ describe("wizard-scoped staged apply/discard routes", () => {
       context,
       deps(new FakeWizardStagedTx(), {
         applyStagedUnlocked: vi.fn(async () => ({
-          outcome: "superseded",
-          code: "STAGED_PARSE_SUPERSEDED",
+          outcome: "superseded" as const,
+          code: "STAGED_PARSE_SUPERSEDED" as const,
         })),
       }),
     );

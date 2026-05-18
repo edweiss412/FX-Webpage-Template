@@ -7,9 +7,10 @@ import {
   type ReviewerChoice,
 } from "@/lib/sync/applyStaged";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
-import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 
-export type LiveStagedRouteTx = LockedShowTx<SyncPipelineTx>;
+export type LiveStagedRouteTx = LockedShowTx<{
+  queryOne<T>(sql: string, params: unknown[]): Promise<T>;
+}>;
 
 export type LiveStagedRouteDeps = {
   requireAdminIdentity?: () => Promise<{ email: string }>;

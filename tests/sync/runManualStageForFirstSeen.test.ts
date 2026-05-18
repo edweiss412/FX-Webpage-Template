@@ -15,11 +15,11 @@ describe("runManualStageForFirstSeen", () => {
     const tx = new FakeManualStageTx();
     const runPhase1 = vi.fn(async () => ({
       outcome: "stage" as const,
-      triggeredReviewItems: [{ id: "item-1", invariant: "ONBOARDING_SCAN_REVIEW" }],
+      triggeredReviewItems: [{ id: "item-1", invariant: "ONBOARDING_SCAN_REVIEW" as const }],
       stagedId: "staged-1",
     }));
 
-    const result = await runManualStageForFirstSeen(tx, "file-1", {
+    const result = await runManualStageForFirstSeen(tx as never, "file-1", {
       fileMeta: {
         driveFileId: "file-1",
         name: "file-1.xlsx",
@@ -75,7 +75,7 @@ describe("runManualStageForFirstSeen", () => {
     tx.held = false;
 
     await expect(
-      runManualStageForFirstSeen(tx, "file-1", {
+      runManualStageForFirstSeen(tx as never, "file-1", {
         runPhase1: vi.fn(),
       }),
     ).rejects.toMatchObject({ code: "LOCK_OWNERSHIP_ASSERTION_FAILED" });

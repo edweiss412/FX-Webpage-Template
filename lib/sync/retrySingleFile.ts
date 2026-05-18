@@ -9,12 +9,11 @@ import {
   type ConcurrentSyncSkipped,
   type LockedShowTx,
 } from "@/lib/sync/lockedShowTx";
-import {
-  type SyncPipelineTx,
-  withPostgresSyncPipelineLock,
-} from "@/lib/sync/runScheduledCronSync";
+import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 
-export type RetrySingleFileTx = SyncPipelineTx;
+export type RetrySingleFileTx = {
+  queryOne<T>(sql: string, params: unknown[]): Promise<T>;
+};
 
 export type RetrySingleFileResult =
   | { outcome: "retried"; status: "staged" | "hard_failed" | "live_row_conflict" }

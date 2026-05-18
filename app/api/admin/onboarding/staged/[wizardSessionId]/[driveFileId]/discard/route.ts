@@ -38,7 +38,9 @@ async function defaultWithRowTx<R>(
   fn: (tx: WizardStagedRouteTx) => Promise<R> | R,
 ): Promise<R> {
   const result = await withPostgresSyncPipelineLock(driveFileId, fn, { tryOnly: false });
-  if ("skipped" in result) throw new Error("blocking wizard staged route returned skipped lock");
+  if (typeof result === "object" && result !== null && "skipped" in result) {
+    throw new Error("blocking wizard staged route returned skipped lock");
+  }
   return result;
 }
 
@@ -46,7 +48,11 @@ function depsWithDefaults(deps: WizardDiscardRouteDeps) {
   return {
     requireAdminIdentity: deps.requireAdminIdentity ?? defaultRequireAdminIdentity,
     withRowTx: deps.withRowTx ?? defaultWithRowTx,
-    discardStagedUnlocked: deps.discardStagedUnlocked ?? defaultDiscardStagedUnlocked,
+    discardStagedUnlocked:
+      deps.discardStagedUnlocked ??
+      (defaultDiscardStagedUnlocked as unknown as NonNullable<
+        WizardDiscardRouteDeps["discardStagedUnlocked"]
+      >),
   };
 }
 

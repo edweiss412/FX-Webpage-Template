@@ -3,19 +3,20 @@ import type {
   LiveStagedRouteDeps,
   LiveStagedRouteTx,
 } from "@/app/api/admin/show/staged/[stagedId]/apply/route";
+import type { LiveStagedDiscardRouteDeps } from "@/app/api/admin/show/staged/[stagedId]/discard/route";
 import { handleLiveStagedApply } from "@/app/api/admin/show/staged/[stagedId]/apply/route";
 import { handleLiveStagedDiscard } from "@/app/api/admin/show/staged/[stagedId]/discard/route";
 
 const STAGED = "22222222-2222-4222-8222-222222222222";
 
-class FakeLiveStagedTx implements LiveStagedRouteTx {
+class FakeLiveStagedTx {
   driveFileId: string | null = "file-1";
   slug = "first-seen-show";
   async queryOne<T>(sql: string, params: unknown[]) {
     const normalized = sql.replace(/\s+/g, " ").trim();
     if (/pg_locks/i.test(normalized)) return { held: true } as T;
     if (normalized.startsWith("select drive_file_id")) {
-      return this.driveFileId ? ({ drive_file_id: this.driveFileId } as T) : null;
+      return (this.driveFileId ? { drive_file_id: this.driveFileId } : null) as T;
     }
     if (normalized.startsWith("select slug")) return { slug: this.slug } as T;
     throw new Error(`Unhandled live staged SQL: ${normalized} ${JSON.stringify(params)}`);
@@ -25,14 +26,14 @@ class FakeLiveStagedTx implements LiveStagedRouteTx {
 function deps(
   tx: FakeLiveStagedTx,
   overrides: Partial<LiveStagedRouteDeps> = {},
-): LiveStagedRouteDeps {
+): LiveStagedRouteDeps & LiveStagedDiscardRouteDeps {
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
-    withRowTx: vi.fn(async (_driveFileId, fn) => fn(tx)),
+    withRowTx: vi.fn(async (_driveFileId, fn) => fn(tx as unknown as LiveStagedRouteTx)),
     readDriveFileIdForStagedId: vi.fn(async () => tx.driveFileId),
     readShowSlug: vi.fn(async () => tx.slug),
-    applyStaged: vi.fn(async () => ({ outcome: "applied", showId: "show-1", syncAuditId: null, derivedSideEffects: { revokeFloorForNames: [] } })),
-    discardStaged: vi.fn(async () => ({ outcome: "discarded", variant: "defer_until_modified" })),
+    applyStaged: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1", syncAuditId: null, derivedSideEffects: { revokeFloorForNames: [] } })),
+    discardStaged: vi.fn(async () => ({ outcome: "discarded" as const, variant: "defer_until_modified" as const })),
     ...overrides,
   };
 }

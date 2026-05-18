@@ -319,7 +319,7 @@ async function applyFirstSeenDraft(
           JSON.stringify(parseResult.pullSheet),
         ],
       );
-      return inserted.rows[0] ?? null;
+      return inserted.rows[0]?.show_id ?? null;
     },
   });
 }

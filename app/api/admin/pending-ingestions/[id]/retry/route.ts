@@ -12,12 +12,11 @@ import {
   runManualSyncForShow_unlocked as defaultRunManualSyncForShowUnlocked,
   type ManualSyncResult,
 } from "@/lib/sync/runManualSyncForShow";
-import {
-  type SyncPipelineTx,
-  withPostgresSyncPipelineLock,
-} from "@/lib/sync/runScheduledCronSync";
+import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 
-export type LivePendingIngestionRouteTx = LockedShowTx<SyncPipelineTx>;
+export type LivePendingIngestionRouteTx = LockedShowTx<{
+  queryOne<T>(sql: string, params: unknown[]): Promise<T>;
+}>;
 
 export type LivePendingIngestionRouteDeps = {
   requireAdminIdentity?: () => Promise<{ email: string }>;
@@ -94,9 +93,15 @@ function depsWithDefaults(deps: LivePendingIngestionRouteDeps) {
     withRowTryLock: deps.withRowTryLock ?? defaultWithRowTryLock,
     fetchDriveFileMetadata: deps.fetchDriveFileMetadata ?? defaultFetchDriveFileMetadata,
     runManualStageForFirstSeen:
-      deps.runManualStageForFirstSeen ?? defaultRunManualStageForFirstSeen,
+      deps.runManualStageForFirstSeen ??
+      (defaultRunManualStageForFirstSeen as unknown as NonNullable<
+        LivePendingIngestionRouteDeps["runManualStageForFirstSeen"]
+      >),
     runManualSyncForShowUnlocked:
-      deps.runManualSyncForShowUnlocked ?? defaultRunManualSyncForShowUnlocked,
+      deps.runManualSyncForShowUnlocked ??
+      (defaultRunManualSyncForShowUnlocked as unknown as NonNullable<
+        LivePendingIngestionRouteDeps["runManualSyncForShowUnlocked"]
+      >),
   };
 }
 

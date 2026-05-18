@@ -49,7 +49,7 @@ function deps(
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
     withTx: async (fn) => fn(tx),
-    cleanupAbandonedFinalize: vi.fn(async () => ({ status: "cleaned" })),
+    cleanupAbandonedFinalize: vi.fn(async () => ({ status: "cleaned" as const })),
     randomUUID: () => "22222222-2222-4222-8222-222222222222",
     ...overrides,
   };

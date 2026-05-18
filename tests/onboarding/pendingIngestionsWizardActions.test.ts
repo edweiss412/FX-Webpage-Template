@@ -10,7 +10,7 @@ import { handleWizardPendingIngestionPermanentIgnore } from "@/app/api/admin/onb
 const W1 = "11111111-1111-4111-8111-111111111111";
 const ID1 = "33333333-3333-4333-8333-333333333333";
 
-class FakeWizardPendingTx implements WizardPendingIngestionRouteTx {
+class FakeWizardPendingTx {
   activeWizardSessionId: string | null = W1;
   pendingFolderId: string | null = "folder-1";
   row = {
@@ -57,9 +57,9 @@ function deps(
 ): WizardPendingIngestionRouteDeps {
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
-    withRowTx: vi.fn(async (_driveFileId, fn) => fn(tx)),
+    withRowTx: vi.fn(async (_driveFileId, fn) => fn(tx as unknown as WizardPendingIngestionRouteTx)),
     readDriveFileIdForPendingIngestion: vi.fn(async () => tx.row?.drive_file_id ?? null),
-    retrySingleFileUnlocked: vi.fn(async () => ({ outcome: "retried", status: "staged" })),
+    retrySingleFileUnlocked: vi.fn(async () => ({ outcome: "retried" as const, status: "staged" as const })),
     ...overrides,
   };
 }

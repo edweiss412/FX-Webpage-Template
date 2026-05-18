@@ -46,7 +46,7 @@ describe("retrySingleFile_unlocked", () => {
       processed: [{ driveFileId: "file-1", outcome: "staged" as const }],
     }));
 
-    const result = await retrySingleFile_unlocked(tx, "file-1", W1, {
+    const result = await retrySingleFile_unlocked(tx as never, "file-1", W1, {
       runOnboardingScan,
       fetchDriveFileMetadata: vi.fn(async () => ({
         driveFileId: "file-1",
@@ -67,7 +67,7 @@ describe("retrySingleFile_unlocked", () => {
     tx.activeWizardSessionId = "22222222-2222-4222-8222-222222222222";
     const runOnboardingScan = vi.fn();
 
-    const result = await retrySingleFile_unlocked(tx, "file-1", W1, { runOnboardingScan });
+    const result = await retrySingleFile_unlocked(tx as never, "file-1", W1, { runOnboardingScan });
 
     expect(result).toEqual({ outcome: "wizard_superseded", code: "WIZARD_SESSION_SUPERSEDED" });
     expect(runOnboardingScan).not.toHaveBeenCalled();
@@ -81,7 +81,7 @@ describe("retrySingleFile_unlocked", () => {
       discovered_during_folder_id: "other-folder",
     };
 
-    const result = await retrySingleFile_unlocked(tx, "file-1", W1, { runOnboardingScan: vi.fn() });
+    const result = await retrySingleFile_unlocked(tx as never, "file-1", W1, { runOnboardingScan: vi.fn() });
 
     expect(result).toEqual({
       outcome: "not_found",

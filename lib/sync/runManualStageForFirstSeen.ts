@@ -8,9 +8,10 @@ import {
   runPhase1,
   type Phase1Result,
 } from "@/lib/sync/phase1";
-import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 
-export type RunManualStageForFirstSeenTx = SyncPipelineTx;
+export type RunManualStageForFirstSeenTx = {
+  queryOne<T>(sql: string, params: unknown[]): Promise<T>;
+};
 
 export type RunManualStageForFirstSeenResult =
   | { outcome: "stage"; stagedId: string }
@@ -79,7 +80,7 @@ export async function runManualStageForFirstSeen(
   await assertShowLockHeld(tx, driveFileId);
   const fileMeta = deps.fileMeta ?? fallbackFileMeta(driveFileId);
   const parseResult = deps.parseResult ?? fallbackParseResult();
-  const result = await (deps.runPhase1 ?? runPhase1)(tx, {
+  const result = await (deps.runPhase1 ?? runPhase1)(tx as never, {
     driveFileId,
     mode: "onboarding_scan",
     fileMeta,
@@ -88,7 +89,6 @@ export async function runManualStageForFirstSeen(
       bindingToken: fileMeta.headRevisionId ?? fileMeta.modifiedTime,
       modifiedTime: fileMeta.modifiedTime,
     },
-    wizardSessionId: undefined,
   });
   return toResult(result);
 }

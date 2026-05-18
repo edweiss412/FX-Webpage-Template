@@ -20,14 +20,15 @@ class FakeShowAlertTx implements AdminAlertShowResolveTx {
     const normalized = sql.replace(/\s+/g, " ").trim();
     if (normalized.startsWith("select id, slug")) return this.show as T;
     if (normalized.startsWith("select id, show_id")) {
-      if (this.alert?.id !== params[0]) return null as T;
-      if (this.alert.show_id !== params[1]) return null as T;
-      return this.alert as T;
+      const alert = this.alert;
+      if (!alert || alert.id !== params[0]) return null as T;
+      if (alert.show_id !== params[1]) return null as T;
+      return alert as T;
     }
     if (normalized.startsWith("update public.admin_alerts")) {
       if (!this.alert || this.alert.show_id !== params[1]) return null as T;
       this.updated = true;
-      this.alert = { ...this.alert, resolved_at: "DB_NOW" };
+      this.alert = { ...this.alert!, resolved_at: "DB_NOW" };
       return this.alert as T;
     }
     throw new Error(`Unhandled show alert SQL: ${normalized}`);

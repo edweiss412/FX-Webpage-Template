@@ -8,7 +8,7 @@ import { handleLivePendingIngestionDiscard } from "@/app/api/admin/pending-inges
 
 const ID1 = "33333333-3333-4333-8333-333333333333";
 
-class FakeLivePendingTx implements LivePendingIngestionRouteTx {
+class FakeLivePendingTx {
   row = {
     id: ID1,
     drive_file_id: "file-1",
@@ -48,7 +48,7 @@ function deps(
   return {
     requireAdminIdentity: vi.fn(async () => ({ email: "doug@example.com" })),
     readDriveFileIdForPendingIngestion: vi.fn(async () => tx.row?.drive_file_id ?? null),
-    withRowTryLock: vi.fn(async (_driveFileId, fn) => fn(tx)),
+    withRowTryLock: vi.fn(async (_driveFileId, fn) => fn(tx as unknown as LivePendingIngestionRouteTx)),
     fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
       driveFileId,
       name: `${driveFileId}.xlsx`,
@@ -56,8 +56,8 @@ function deps(
       modifiedTime: "2026-05-08T12:00:00.000Z",
       parents: ["folder-1"],
     })),
-    runManualStageForFirstSeen: vi.fn(async () => ({ outcome: "stage", stagedId: "staged-1" })),
-    runManualSyncForShowUnlocked: vi.fn(async () => ({ outcome: "applied", showId: "show-1" })),
+    runManualStageForFirstSeen: vi.fn(async () => ({ outcome: "stage" as const, stagedId: "staged-1" })),
+    runManualSyncForShowUnlocked: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" })),
     ...overrides,
   };
 }

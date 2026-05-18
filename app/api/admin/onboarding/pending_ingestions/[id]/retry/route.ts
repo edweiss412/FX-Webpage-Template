@@ -6,12 +6,11 @@ import {
   type RetrySingleFileDeps,
   type RetrySingleFileResult,
 } from "@/lib/sync/retrySingleFile";
-import {
-  type SyncPipelineTx,
-  withPostgresSyncPipelineLock,
-} from "@/lib/sync/runScheduledCronSync";
+import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 
-export type WizardPendingIngestionRouteTx = LockedShowTx<SyncPipelineTx>;
+export type WizardPendingIngestionRouteTx = LockedShowTx<{
+  queryOne<T>(sql: string, params: unknown[]): Promise<T>;
+}>;
 
 export type WizardPendingIngestionRouteDeps = {
   requireAdminIdentity?: () => Promise<{ email: string }>;
@@ -72,7 +71,9 @@ async function defaultWithRowTx<R>(
   fn: (tx: WizardPendingIngestionRouteTx) => Promise<R> | R,
 ): Promise<R> {
   const result = await withPostgresSyncPipelineLock(driveFileId, fn, { tryOnly: false });
-  if ("skipped" in result) throw new Error("blocking wizard pending-ingestion route skipped lock");
+  if (typeof result === "object" && result !== null && "skipped" in result) {
+    throw new Error("blocking wizard pending-ingestion route skipped lock");
+  }
   return result;
 }
 
@@ -87,7 +88,11 @@ function depsWithDefaults(deps: WizardPendingIngestionRouteDeps) {
     readDriveFileIdForPendingIngestion:
       deps.readDriveFileIdForPendingIngestion ?? defaultReadDriveFileIdForPendingIngestion,
     withRowTx: deps.withRowTx ?? defaultWithRowTx,
-    retrySingleFileUnlocked: deps.retrySingleFileUnlocked ?? defaultRetrySingleFileUnlocked,
+    retrySingleFileUnlocked:
+      deps.retrySingleFileUnlocked ??
+      (defaultRetrySingleFileUnlocked as unknown as NonNullable<
+        WizardPendingIngestionRouteDeps["retrySingleFileUnlocked"]
+      >),
   };
 }
 
