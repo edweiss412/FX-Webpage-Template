@@ -51,8 +51,16 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { ReportButton } from "@/components/shared/ReportButton";
+import { messageFor } from "@/lib/messages/lookup";
+import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import type { MessageCode } from "@/lib/messages/catalog";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 import type { ReviewerChoice } from "@/lib/sync/applyStaged";
+
+function safeDougFacing(code: string): string | null {
+  if (!(code in MESSAGE_CATALOG)) return null;
+  return messageFor(code as MessageCode).dougFacing ?? null;
+}
 
 const ASSET_REVIEW_INVARIANTS = new Set<TriggeredReviewItem["invariant"]>([
   "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
@@ -205,9 +213,39 @@ export type StagedReviewCardProps = {
    * a show in scope (none today, but defensively) don't render it.
    */
   showId?: string;
+  /**
+   * Card mode (M10 §B Task 10.1 §B / Phase 2):
+   *   - 'live' (default) → POST to the live /api/admin/staged routes
+   *     with the source_scope='live' payload (M6 / M7 contract).
+   *   - 'wizard_failed_reapply' → POST to the wizard-scoped
+   *     /api/admin/onboarding/staged/[wsid]/[dfid] routes with the
+   *     Pin-2 wizard payload shape ({ stagedId, reviewerChoicesVersion,
+   *     reviewerChoices } for apply; { stagedId, kind } for discard).
+   *     Requires `wizardSessionId`. Surfaces `lastFinalizeFailureCode`
+   *     above the review items if provided.
+   */
+  mode?: "live" | "wizard_failed_reapply";
+  /** Required when mode === 'wizard_failed_reapply'. */
+  wizardSessionId?: string;
+  /**
+   * Per-row finalize failure code (M10 §4.5 amendment —
+   * pending_syncs.last_finalize_failure_code). Only meaningful when
+   * mode === 'wizard_failed_reapply'. Surfaced via messageFor() at
+   * render time so the operator sees the Doug-facing reason their
+   * per-row commit aborted.
+   */
+  lastFinalizeFailureCode?: string | null;
 };
 
-export function StagedReviewCard({ row, onMutated, showId }: StagedReviewCardProps) {
+export function StagedReviewCard({
+  row,
+  onMutated,
+  showId,
+  mode = "live",
+  wizardSessionId,
+  lastFinalizeFailureCode,
+}: StagedReviewCardProps) {
+  const isWizardMode = mode === "wizard_failed_reapply";
   // Items with a single allowed action default to that action so an
   // operator can apply immediately. Multi-action items (MI-12 / MI-13 /
   // MI-14) start unset and force an explicit choice.
@@ -237,8 +275,12 @@ export function StagedReviewCard({ row, onMutated, showId }: StagedReviewCardPro
     });
   };
 
-  const applyEndpoint = `/api/admin/staged/${encodeURIComponent(row.driveFileId)}/apply`;
-  const discardEndpoint = `/api/admin/staged/${encodeURIComponent(row.driveFileId)}/discard`;
+  const applyEndpoint = isWizardMode
+    ? `/api/admin/onboarding/staged/${encodeURIComponent(wizardSessionId ?? "")}/${encodeURIComponent(row.driveFileId)}/apply`
+    : `/api/admin/staged/${encodeURIComponent(row.driveFileId)}/apply`;
+  const discardEndpoint = isWizardMode
+    ? `/api/admin/onboarding/staged/${encodeURIComponent(wizardSessionId ?? "")}/${encodeURIComponent(row.driveFileId)}/discard`
+    : `/api/admin/staged/${encodeURIComponent(row.driveFileId)}/discard`;
 
   const handleApply = async () => {
     if (pending) return;
@@ -259,21 +301,35 @@ export function StagedReviewCard({ row, onMutated, showId }: StagedReviewCardPro
     }
     setPending(true);
     try {
+      const applyBody = isWizardMode
+        ? {
+            stagedId: row.stagedId,
+            reviewerChoicesVersion: 1,
+            reviewerChoices,
+          }
+        : {
+            source_scope: "live",
+            staged_id: row.stagedId,
+            choices: reviewerChoices,
+          };
       const res = await fetch(applyEndpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          source_scope: "live",
-          staged_id: row.stagedId,
-          choices: reviewerChoices,
-        }),
+        body: JSON.stringify(applyBody),
       });
-      const json = (await res.json()) as { ok: boolean; error?: string };
-      if (json.ok) {
+      const json = (await res.json()) as
+        | { ok: boolean; error?: string }
+        | { status: string }
+        | { ok: false; code: string };
+      const succeeded = isWizardMode
+        ? "status" in json && (json as { status: string }).status === "reapplied"
+        : "ok" in json && (json as { ok: boolean }).ok === true;
+      if (succeeded) {
         onMutated?.();
         router.refresh();
       } else {
-        setErrorCode(typeof json.error === "string" ? json.error : "SYNC_INFRA_ERROR");
+        const errMaybe = (json as { error?: string; code?: string });
+        setErrorCode(errMaybe.error ?? errMaybe.code ?? "SYNC_INFRA_ERROR");
       }
     } catch {
       setErrorCode("SYNC_INFRA_ERROR");
@@ -287,21 +343,38 @@ export function StagedReviewCard({ row, onMutated, showId }: StagedReviewCardPro
     setErrorCode(null);
     setPending(true);
     try {
+      // Wizard-scoped discard uses `kind` (try_again_next_sync /
+      // defer_until_modified / permanent_ignore) per Pin-2 contract.
+      // Live-scope discard uses `variant` (try_again / ...). Translate
+      // the legacy `try_again` shorthand to the canonical
+      // `try_again_next_sync` for the wizard route.
+      const wizardKind: "try_again_next_sync" | "defer_until_modified" | "permanent_ignore" =
+        variant === "try_again" ? "try_again_next_sync" : variant;
+      const discardBody = isWizardMode
+        ? { stagedId: row.stagedId, kind: wizardKind }
+        : {
+            source_scope: "live",
+            staged_id: row.stagedId,
+            variant,
+          };
       const res = await fetch(discardEndpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          source_scope: "live",
-          staged_id: row.stagedId,
-          variant,
-        }),
+        body: JSON.stringify(discardBody),
       });
-      const json = (await res.json()) as { ok: boolean; error?: string };
-      if (json.ok) {
+      const json = (await res.json()) as
+        | { ok: boolean; error?: string }
+        | { status: string }
+        | { ok: false; code: string };
+      const succeeded = isWizardMode
+        ? "status" in json && (json as { status: string }).status === "discarded"
+        : "ok" in json && (json as { ok: boolean }).ok === true;
+      if (succeeded) {
         onMutated?.();
         router.refresh();
       } else {
-        setErrorCode(typeof json.error === "string" ? json.error : "SYNC_INFRA_ERROR");
+        const errMaybe = (json as { error?: string; code?: string });
+        setErrorCode(errMaybe.error ?? errMaybe.code ?? "SYNC_INFRA_ERROR");
       }
     } catch {
       setErrorCode("SYNC_INFRA_ERROR");
@@ -356,6 +429,15 @@ export function StagedReviewCard({ row, onMutated, showId }: StagedReviewCardPro
         {row.warningSummary ? (
           <p className="text-sm text-warning-text" data-testid="staged-warning-summary">
             {row.warningSummary}
+          </p>
+        ) : null}
+        {isWizardMode && lastFinalizeFailureCode ? (
+          <p
+            className="text-sm text-warning-text"
+            data-testid="staged-wizard-failure-code"
+          >
+            {safeDougFacing(lastFinalizeFailureCode) ??
+              "This sheet could not be published in the last batch."}
           </p>
         ) : null}
       </header>
