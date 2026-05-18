@@ -38,6 +38,8 @@ class FakeLifecycleTx implements OnboardingSessionTx {
   hasCheckpoint = false;
   recentCheckpoint = false;
   staleByDbClock = false;
+  appliedManifestDriveFileIds = ["drive-b", "drive-a"];
+  shadowDriveFileIds = ["drive-c", "drive-a"];
   failAfterOperation: string | null = null;
   operations: string[] = [];
   syncLog: string[] = [];
@@ -45,7 +47,7 @@ class FakeLifecycleTx implements OnboardingSessionTx {
   async query<T>(sql: string, params: readonly unknown[] = []) {
     const normalized = sql.replace(/\s+/g, " ").trim();
     const op = this.classify(normalized);
-    this.operations.push(op);
+    this.operations.push(op === "lock-show" ? `lock-show:${String(params[0])}` : op);
 
     if (this.failAfterOperation === op) {
       throw new Error(`simulated failure after ${op}`);
@@ -108,6 +110,10 @@ class FakeLifecycleTx implements OnboardingSessionTx {
       return { rows: [], rowCount: 0 };
     }
 
+    if (op === "lock-show") {
+      return { rows: [], rowCount: 0 };
+    }
+
     if (op === "select-stale-session") {
       return {
         rows:
@@ -124,6 +130,16 @@ class FakeLifecycleTx implements OnboardingSessionTx {
         rows: this.recentCheckpoint ? ([{ id: "checkpoint-1" }] as T[]) : [],
         rowCount: this.recentCheckpoint ? 1 : 0,
       };
+    }
+
+    if (op === "select-applied-manifest-drive-files") {
+      const rows = this.appliedManifestDriveFileIds.map((drive_file_id) => ({ drive_file_id }));
+      return { rows: rows as T[], rowCount: rows.length };
+    }
+
+    if (op === "select-shadow-drive-files") {
+      const rows = this.shadowDriveFileIds.map((drive_file_id) => ({ drive_file_id }));
+      return { rows: rows as T[], rowCount: rows.length };
     }
 
     if (op === "delete-shadow" || op === "delete-interim-shows" || op === "delete-checkpoint") {
@@ -144,7 +160,12 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     if (sql.startsWith("delete from public.pending_syncs")) return "purge-pending-syncs";
     if (sql.startsWith("delete from public.pending_ingestions")) return "purge-pending-ingestions";
     if (sql.startsWith("delete from public.onboarding_scan_manifest")) return "purge-manifest";
-    if (sql.startsWith("select pg_advisory_xact_lock")) return "lock-finalize";
+    if (sql.startsWith("select pg_advisory_xact_lock") && sql.includes("finalize:")) {
+      return "lock-finalize";
+    }
+    if (sql.startsWith("select pg_advisory_xact_lock") && sql.includes("show:")) {
+      return "lock-show";
+    }
     if (sql.includes("pending_wizard_session_id = $1") && sql.includes("for update")) {
       return "select-stale-session";
     }
@@ -156,6 +177,12 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     }
     if (sql.startsWith("delete from public.shows_pending_changes")) return "delete-shadow";
     if (sql.startsWith("delete from public.shows")) return "delete-interim-shows";
+    if (sql.includes("from public.onboarding_scan_manifest") && sql.includes("status = 'applied'")) {
+      return "select-applied-manifest-drive-files";
+    }
+    if (sql.includes("from public.shows_pending_changes") && sql.includes("for update")) {
+      return "select-shadow-drive-files";
+    }
     if (sql.startsWith("delete from public.wizard_finalize_checkpoints")) return "delete-checkpoint";
     throw new Error(`Could not classify SQL: ${sql}`);
   }
@@ -169,6 +196,8 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     next.hasCheckpoint = this.hasCheckpoint;
     next.recentCheckpoint = this.recentCheckpoint;
     next.staleByDbClock = this.staleByDbClock;
+    next.appliedManifestDriveFileIds = [...this.appliedManifestDriveFileIds];
+    next.shadowDriveFileIds = [...this.shadowDriveFileIds];
     next.failAfterOperation = this.failAfterOperation;
     next.operations = [...this.operations];
     next.syncLog = [...this.syncLog];
@@ -180,6 +209,8 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     this.pendingSyncSessions = new Set(snapshot.pendingSyncSessions);
     this.pendingIngestionSessions = new Set(snapshot.pendingIngestionSessions);
     this.manifestSessions = new Set(snapshot.manifestSessions);
+    this.appliedManifestDriveFileIds = [...snapshot.appliedManifestDriveFileIds];
+    this.shadowDriveFileIds = [...snapshot.shadowDriveFileIds];
     this.operations = [...snapshot.operations];
     this.syncLog = [...snapshot.syncLog];
   }
@@ -336,5 +367,38 @@ describe("onboarding session lifecycle helpers", () => {
       "select-recent-finalize",
     ]);
     expect(tx.settingsRow.pending_wizard_session_id).toBe(W2);
+  });
+
+  test("cleanupAbandonedFinalize takes per-show locks in deterministic drive-file order before deleting show rows", async () => {
+    const tx = new FakeLifecycleTx();
+    tx.staleByDbClock = true;
+
+    await cleanupAbandonedFinalize(W1, {
+      randomUUID: () => W2,
+      requireAdminIdentity: async () => ({ email: "doug@example.com" }),
+      withTx: withFakeTx(tx),
+    });
+
+    expect(tx.operations).toEqual(
+      expect.arrayContaining([
+        "select-applied-manifest-drive-files",
+        "select-shadow-drive-files",
+        "lock-show:drive-a",
+        "lock-show:drive-b",
+        "lock-show:drive-c",
+      ]),
+    );
+    expect(tx.operations.indexOf("lock-show:drive-a")).toBeLessThan(
+      tx.operations.indexOf("lock-show:drive-b"),
+    );
+    expect(tx.operations.indexOf("lock-show:drive-b")).toBeLessThan(
+      tx.operations.indexOf("lock-show:drive-c"),
+    );
+    expect(tx.operations.indexOf("lock-show:drive-c")).toBeLessThan(
+      tx.operations.indexOf("delete-shadow"),
+    );
+    expect(tx.operations.indexOf("lock-show:drive-c")).toBeLessThan(
+      tx.operations.indexOf("delete-interim-shows"),
+    );
   });
 });

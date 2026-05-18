@@ -87,4 +87,14 @@ describe("advisory-lock RPC deadlock guard", () => {
     expect(source).not.toMatch(/withShowAdvisoryLock\s*\(/);
     expect(source).toMatch(/\.rpc\(\s*["']mint_bootstrap_nonce_atomic["']/);
   });
+
+  test("abandoned finalize cleanup uses direct SQL locks and no lock-taking RPC boundary", () => {
+    const source = stripComments(
+      readFileSync(join(ROOT, "lib/onboarding/sessionLifecycle.ts"), "utf8"),
+    );
+
+    expect(source).toMatch(/pg_advisory_xact_lock\(hashtext\('finalize:' \|\| \$1\)\)/);
+    expect(source).toMatch(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/);
+    expect(source).not.toMatch(/\.rpc\(/);
+  });
 });

@@ -62,6 +62,13 @@ const lockHolderRegistry = [
     key: "hashtext('show:' || drive_file_id)",
   },
   {
+    path: "lib/onboarding/sessionLifecycle.ts",
+    holder: "cleanupAbandonedFinalize",
+    layer:
+      "takes a session-scoped finalize lock, then sorted per-drive_file_id show locks before abandoned finalize cleanup deletes",
+    key: "hashtext('finalize:' || wizard_session_id) -> hashtext('show:' || drive_file_id)",
+  },
+  {
     path: "lib/sync/lockedPromoteTx.ts",
     holder: "withPromoteLock",
     layer: "JS-side transaction wrapper for post-commit storage promotion",
@@ -296,6 +303,11 @@ describe("M6 advisory-lock single-holder contract", () => {
           key: "hashtext('show:' || drive_file_id)",
         }),
         expect.objectContaining({
+          holder: "cleanupAbandonedFinalize",
+          layer: expect.stringContaining("sorted per-drive_file_id show locks"),
+          key: "hashtext('finalize:' || wizard_session_id) -> hashtext('show:' || drive_file_id)",
+        }),
+        expect.objectContaining({
           holder: "withPromoteLock",
           key: "hashtext('promote:' || show_id)",
         }),
@@ -338,6 +350,18 @@ describe("M6 advisory-lock single-holder contract", () => {
     expect(source).toContain("hashtext('show:' ||");
     expect(source).not.toMatch(/show_id|slug/i);
     expect(read("lib/sync/lockedPromoteTx.ts")).toContain("hashtext('promote:' ||");
+  });
+
+  test("abandoned onboarding finalize cleanup documents its direct lock topology", () => {
+    const source = read("lib/onboarding/sessionLifecycle.ts");
+    const cleanupSource = source.slice(source.indexOf("export async function cleanupAbandonedFinalize"));
+
+    expect(source).toContain("hashtext('finalize:' ||");
+    expect(source).toContain("hashtext('show:' || $1)");
+    expect(source).toMatch(/sort\(\(left, right\) => left\.localeCompare\(right\)\)/);
+    expect(cleanupSource).toMatch(
+      /await lockCleanupDriveFiles\(tx, sessionId\);[\s\S]*delete from public\.shows_pending_changes[\s\S]*delete from public\.shows/,
+    );
   });
 
   test("snapshot rollback repair keeps the mandated promote-then-show lock order", () => {

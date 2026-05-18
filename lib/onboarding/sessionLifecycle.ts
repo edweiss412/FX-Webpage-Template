@@ -77,6 +77,10 @@ export type SessionLifecycleDeps = {
   suppressIfFinalizePending?: boolean;
 };
 
+type DriveFileIdRow = {
+  drive_file_id: string;
+};
+
 function databaseUrl(): string {
   const configured = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
   if (configured) return configured;
@@ -144,6 +148,38 @@ async function purgeWizardRows(tx: OnboardingSessionTx): Promise<void> {
   await tx.query(`delete from public.pending_syncs where wizard_session_id is not null`);
   await tx.query(`delete from public.pending_ingestions where wizard_session_id is not null`);
   await tx.query(`delete from public.onboarding_scan_manifest`);
+}
+
+async function lockCleanupDriveFiles(
+  tx: OnboardingSessionTx,
+  sessionId: string,
+): Promise<void> {
+  const appliedManifest = await tx.query<DriveFileIdRow>(
+    `
+      select drive_file_id
+        from public.onboarding_scan_manifest
+       where wizard_session_id = $1::uuid
+         and status = 'applied'
+       for update
+    `,
+    [sessionId],
+  );
+  const shadowRows = await tx.query<DriveFileIdRow>(
+    `
+      select drive_file_id
+        from public.shows_pending_changes
+       where wizard_session_id = $1::uuid
+       for update
+    `,
+    [sessionId],
+  );
+
+  const driveFileIds = [...new Set([...appliedManifest.rows, ...shadowRows.rows].map((row) => row.drive_file_id))]
+    .sort((left, right) => left.localeCompare(right));
+
+  for (const driveFileId of driveFileIds) {
+    await tx.query(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
+  }
 }
 
 export async function purgeAndRotateOnboardingSession(
@@ -333,6 +369,8 @@ export async function cleanupAbandonedFinalize(
         wizard_session_id: sessionId,
       });
     }
+
+    await lockCleanupDriveFiles(tx, sessionId);
 
     await tx.query(`delete from public.shows_pending_changes where wizard_session_id = $1::uuid`, [
       sessionId,
