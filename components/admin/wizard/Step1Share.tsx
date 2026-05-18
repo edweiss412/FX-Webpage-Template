@@ -92,7 +92,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
         <li className="flex gap-3">
           <span
             aria-hidden="true"
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-pill bg-surface-sunken text-sm font-semibold text-text-subtle tabular-nums"
+            className="flex size-6 shrink-0 items-center justify-center rounded-pill bg-surface-sunken text-sm font-semibold text-text-subtle tabular-nums"
           >
             1
           </span>
@@ -104,7 +104,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
         <li className="flex gap-3">
           <span
             aria-hidden="true"
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-pill bg-surface-sunken text-sm font-semibold text-text-subtle tabular-nums"
+            className="flex size-6 shrink-0 items-center justify-center rounded-pill bg-surface-sunken text-sm font-semibold text-text-subtle tabular-nums"
           >
             2
           </span>
@@ -114,7 +114,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
           <div className="flex gap-3">
             <span
               aria-hidden="true"
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-pill bg-surface-sunken text-sm font-semibold text-text-subtle tabular-nums"
+              className="flex size-6 shrink-0 items-center justify-center rounded-pill bg-surface-sunken text-sm font-semibold text-text-subtle tabular-nums"
             >
               3
             </span>
@@ -151,7 +151,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
         <li className="flex gap-3">
           <span
             aria-hidden="true"
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-pill bg-surface-sunken text-sm font-semibold text-text-subtle tabular-nums"
+            className="flex size-6 shrink-0 items-center justify-center rounded-pill bg-surface-sunken text-sm font-semibold text-text-subtle tabular-nums"
           >
             4
           </span>

@@ -91,7 +91,7 @@ function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
             data-testid={`wizard-step-indicator-${n}`}
             aria-current={isActive ? "step" : undefined}
             className={[
-              "flex h-7 w-7 items-center justify-center rounded-pill text-xs font-semibold tabular-nums",
+              "flex size-7 items-center justify-center rounded-pill text-xs font-semibold tabular-nums",
               isActive
                 ? "bg-accent text-accent-text"
                 : "bg-surface-sunken text-text-subtle",

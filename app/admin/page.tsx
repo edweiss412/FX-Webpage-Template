@@ -150,7 +150,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     return (
       <OnboardingWizard
         settings={settings}
-        searchParams={{ step: sp.step }}
+        searchParams={sp.step !== undefined ? { step: sp.step } : {}}
       />
     );
   }
