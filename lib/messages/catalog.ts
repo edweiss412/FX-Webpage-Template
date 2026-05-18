@@ -412,6 +412,14 @@ export const MESSAGE_CATALOG = {
   },
   // ===== /M10-§A codes =====
   // ===== M10-§B codes (Opus) =====
+  ONBOARDING_OPERATOR_ERROR: {
+    code: "ONBOARDING_OPERATOR_ERROR",
+    dougFacing: "Something is wrong on our end. The developer has been notified.",
+    crewFacing: null,
+    followUp: "Eric -> inspect server logs / restore service-account credentials",
+    helpfulContext:
+      "The onboarding wizard could not read its service-account credentials, so the share-with-this-email screen has no email to display. This is a server configuration problem, not anything Doug did. The developer (Eric) needs to restore the GOOGLE_SERVICE_ACCOUNT_JSON environment variable. Once that is back in place, Doug can refresh the wizard and continue.",
+  },
   // ===== /M10-§B codes =====
   WIZARD_SESSION_SUPERSEDED_DURING_SCAN: {
     code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
