@@ -227,8 +227,8 @@ describe("POST /api/admin/onboarding/finalize", () => {
       status: "batch_complete",
       wizard_session_id: W1,
       per_row: [
-        { drive_file_id: "first-seen-1", status: "applied_first_seen_draft" },
-        { drive_file_id: "existing-1", status: "staged_existing_show" },
+        { drive_file_id: "first-seen-1", wizard_session_id: W1, code: "OK" },
+        { drive_file_id: "existing-1", wizard_session_id: W1, code: "OK" },
       ],
     });
     expect(db.firstSeenApplied).toEqual(["first-seen-1"]);
@@ -299,9 +299,9 @@ describe("POST /api/admin/onboarding/finalize", () => {
       per_row: [
         {
           drive_file_id: "race-1",
-          status: "needs_reapply",
+          wizard_session_id: W1,
           code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
-          re_apply_url: "/api/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/race-1/apply",
+          re_apply_url: "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/race-1",
         },
       ],
     });
@@ -334,8 +334,9 @@ describe("POST /api/admin/onboarding/finalize", () => {
       per_row: [
         {
           drive_file_id: "moved-1",
-          status: "needs_reapply",
+          wizard_session_id: W1,
           code: "DRIVE_FETCH_FAILED",
+          re_apply_url: "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/moved-1",
         },
       ],
     });
@@ -354,8 +355,9 @@ describe("POST /api/admin/onboarding/finalize", () => {
       per_row: [
         {
           drive_file_id: "version-1",
-          status: "needs_reapply",
+          wizard_session_id: W1,
           code: "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED",
+          re_apply_url: "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/version-1",
         },
       ],
     });

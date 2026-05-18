@@ -54,11 +54,12 @@ type PendingFinalizeRow = {
 type PerRowResult =
   | {
       drive_file_id: string;
-      status: "applied_first_seen_draft" | "staged_existing_show";
+      wizard_session_id: string;
+      code: "OK";
     }
   | {
       drive_file_id: string;
-      status: "needs_reapply";
+      wizard_session_id: string;
       code:
         | typeof STAGED_PARSE_REVISION_RACE_DURING_FINALIZE
         | typeof WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED
@@ -138,7 +139,7 @@ function sameTimestamp(left: string | null | undefined, right: string | null | u
 }
 
 function reApplyUrl(wizardSessionId: string, driveFileId: string): string {
-  return `/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/apply`;
+  return `/admin/onboarding/staged/${encodeURIComponent(wizardSessionId)}/${encodeURIComponent(driveFileId)}`;
 }
 
 async function readActiveSession(tx: FinalizeRouteTx): Promise<string | null> {
@@ -421,7 +422,7 @@ async function processApprovedRow(input: {
     await demotePending(tx, wizardSessionId, row.drive_file_id, WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED);
     return {
       drive_file_id: row.drive_file_id,
-      status: "needs_reapply",
+      wizard_session_id: wizardSessionId,
       code: WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED,
       re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
     };
@@ -434,7 +435,7 @@ async function processApprovedRow(input: {
     await demotePending(tx, wizardSessionId, row.drive_file_id, "DRIVE_FETCH_FAILED");
     return {
       drive_file_id: row.drive_file_id,
-      status: "needs_reapply",
+      wizard_session_id: wizardSessionId,
       code: "DRIVE_FETCH_FAILED",
       re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
     };
@@ -444,7 +445,7 @@ async function processApprovedRow(input: {
     await demotePending(tx, wizardSessionId, row.drive_file_id, "DRIVE_FETCH_FAILED");
     return {
       drive_file_id: row.drive_file_id,
-      status: "needs_reapply",
+      wizard_session_id: wizardSessionId,
       code: "DRIVE_FETCH_FAILED",
       re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
     };
@@ -454,7 +455,7 @@ async function processApprovedRow(input: {
     await demotePending(tx, wizardSessionId, row.drive_file_id, STAGED_PARSE_REVISION_RACE_DURING_FINALIZE);
     return {
       drive_file_id: row.drive_file_id,
-      status: "needs_reapply",
+      wizard_session_id: wizardSessionId,
       code: STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
       re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
     };
@@ -463,12 +464,12 @@ async function processApprovedRow(input: {
   if (await showExists(tx, row.drive_file_id)) {
     await stageExistingShowShadow(tx, wizardSessionId, row);
     await deleteApprovedPending(tx, wizardSessionId, row);
-    return { drive_file_id: row.drive_file_id, status: "staged_existing_show" };
+    return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: "OK" };
   }
 
   await applyFirstSeenDraft(tx, row);
   await deleteApprovedPending(tx, wizardSessionId, row);
-  return { drive_file_id: row.drive_file_id, status: "applied_first_seen_draft" };
+  return { drive_file_id: row.drive_file_id, wizard_session_id: wizardSessionId, code: "OK" };
 }
 
 export async function handleOnboardingFinalize(
