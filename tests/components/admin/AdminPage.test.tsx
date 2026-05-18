@@ -1,23 +1,26 @@
 // @vitest-environment jsdom
 /**
- * tests/components/admin/AdminPage.test.tsx (M10 §B Task 10.1 §B / Phase 1)
+ * tests/components/admin/AdminPage.test.tsx
+ * (M10 §B Task 10.1 §B — Phase 1 + Phase 2 dispatcher)
  *
- * Pins the dispatch contract of `/admin` (Phase 1 routing): based on
- * `result.settings` from `purgeAndRotateIfStale` + URL `?show_finalize`,
- * render OnboardingWizard / Dashboard stub / FinalizeReentry stub.
+ * Pins the dispatch contract of /admin:
  *
- * Phase 1 routing precedence (deterministic, top-down):
- *   1. result.suppressed === 'WIZARD_FINALIZE_BATCHES_PENDING' OR
- *      searchParams.show_finalize === 'true' → FinalizeReentry stub.
- *   2. settings.watched_folder_id === null OR
- *      settings.pending_wizard_session_id !== null → OnboardingWizard.
- *   3. Otherwise → Dashboard stub.
+ * Precedence (top-down):
+ *   1. settings.pending_wizard_session_id !== null →
+ *      query wizard_finalize_checkpoints and branch:
+ *        - 'in_progress'                       → <FinalizeInProgress />
+ *        - 'all_batches_complete' (fresh < 24h) → <ReadyToPublish />
+ *        - 'all_batches_complete' (stale ≥ 24h) → <StaleReadyToPublish />
+ *        - 'final_cas_done'                    → Dashboard (defensive)
+ *        - null                                → <OnboardingWizard />
+ *   2. settings.watched_folder_id === null     → <OnboardingWizard />
+ *   3. otherwise                                → Dashboard stub
  *
- * Fresh-settings invariant (spec §9.0): the page MUST pass
- * `result.settings` (the post-mutation row returned by the helper) into
- * the wizard renderer — never a pre-call capture. This test pins the
- * invariant by checking that, when the helper rotates the session, the
- * id reaching OnboardingWizard is the post-rotation id.
+ * Fresh-settings invariant (spec §9.0): result.settings (post-mutation)
+ * reaches the dispatcher; never a pre-call capture.
+ *
+ * Infra-error guard: if readFinalizeCheckpoint returns an infra_error,
+ * render the cataloged infra-error placeholder (no raw codes).
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
@@ -25,8 +28,8 @@ import type { AppSettingsRow } from "@/lib/onboarding/sessionLifecycle";
 
 const purgeAndRotateIfStaleMock = vi.fn();
 const requireAdminIdentityMock = vi.fn();
-const onboardingWizardSpy =
-  vi.fn<(props: { settings: AppSettingsRow; searchParams: { step?: string } }) => unknown>();
+const readFinalizeCheckpointMock = vi.fn();
+const onboardingWizardSpy = vi.fn();
 
 vi.mock("@/lib/onboarding/sessionLifecycle", async () => {
   const actual = await vi.importActual<typeof import("@/lib/onboarding/sessionLifecycle")>(
@@ -43,6 +46,24 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdmin: () => requireAdminIdentityMock(),
 }));
 
+vi.mock("@/app/admin/_finalizeCheckpoint", () => ({
+  readFinalizeCheckpoint: (sessionId: string) =>
+    readFinalizeCheckpointMock(sessionId),
+  isInfraError: (
+    result: unknown,
+  ): result is { kind: "infra_error"; message: string } =>
+    result !== null &&
+    typeof result === "object" &&
+    "kind" in (result as Record<string, unknown>) &&
+    (result as Record<string, unknown>).kind === "infra_error",
+  isCheckpointStale: (lastProcessedAt: string | null): boolean => {
+    if (!lastProcessedAt) return false;
+    const parsed = Date.parse(lastProcessedAt);
+    if (Number.isNaN(parsed)) return false;
+    return Date.now() - parsed > 24 * 3600 * 1000;
+  },
+}));
+
 vi.mock("@/components/admin/OnboardingWizard", () => ({
   OnboardingWizard: (props: { settings: AppSettingsRow; searchParams: { step?: string } }) => {
     onboardingWizardSpy(props);
@@ -55,6 +76,36 @@ vi.mock("@/components/admin/OnboardingWizard", () => ({
       />
     );
   },
+}));
+
+vi.mock("@/components/admin/FinalizeInProgress", () => ({
+  FinalizeInProgress: (props: {
+    sessionId: string;
+    batchesCompleted: number;
+    lastProcessedAt?: string;
+  }) => (
+    <div
+      data-testid="admin-finalize-in-progress-spy"
+      data-session={props.sessionId}
+      data-batches={String(props.batchesCompleted)}
+      data-last-at={props.lastProcessedAt ?? ""}
+    />
+  ),
+}));
+
+vi.mock("@/components/admin/ReadyToPublish", () => ({
+  ReadyToPublish: (props: { sessionId: string }) => (
+    <div data-testid="admin-ready-to-publish-spy" data-session={props.sessionId} />
+  ),
+}));
+
+vi.mock("@/components/admin/StaleReadyToPublish", () => ({
+  StaleReadyToPublish: (props: { sessionId: string }) => (
+    <div
+      data-testid="admin-stale-ready-to-publish-spy"
+      data-session={props.sessionId}
+    />
+  ),
 }));
 
 import AdminPage from "@/app/admin/page";
@@ -104,13 +155,15 @@ const ROTATED_SETTINGS: AppSettingsRow = {
 beforeEach(() => {
   purgeAndRotateIfStaleMock.mockReset();
   requireAdminIdentityMock.mockReset();
+  readFinalizeCheckpointMock.mockReset();
   onboardingWizardSpy.mockReset();
   requireAdminIdentityMock.mockResolvedValue({ email: "edweiss412@gmail.com" });
+  readFinalizeCheckpointMock.mockResolvedValue(null);
 });
 
 afterEach(() => cleanup());
 
-describe("AdminPage Phase 1 routing", () => {
+describe("AdminPage Phase 2 routing", () => {
   test("fresh DB (watched_folder_id NULL, pending NULL) renders OnboardingWizard", async () => {
     purgeAndRotateIfStaleMock.mockResolvedValue({
       settings: FRESH_SETTINGS,
@@ -121,7 +174,8 @@ describe("AdminPage Phase 1 routing", () => {
     );
     expect(getByTestId("onboarding-wizard-spy")).toBeTruthy();
     expect(queryByTestId("admin-dashboard-placeholder")).toBeNull();
-    expect(queryByTestId("admin-finalize-reentry-placeholder")).toBeNull();
+    expect(queryByTestId("admin-finalize-in-progress-spy")).toBeNull();
+    expect(readFinalizeCheckpointMock).not.toHaveBeenCalled();
   });
 
   test("settled (watched_folder_id non-null, pending NULL) renders Dashboard placeholder", async () => {
@@ -136,13 +190,15 @@ describe("AdminPage Phase 1 routing", () => {
       /Dashboard is coming/i,
     );
     expect(queryByTestId("onboarding-wizard-spy")).toBeNull();
+    expect(readFinalizeCheckpointMock).not.toHaveBeenCalled();
   });
 
-  test("wizard mid-flight (pending_wizard_session_id non-null) renders OnboardingWizard", async () => {
+  test("wizard mid-flight (pending non-null) + no checkpoint → OnboardingWizard", async () => {
     purgeAndRotateIfStaleMock.mockResolvedValue({
       settings: WIZARD_IN_FLIGHT_SETTINGS,
       rotated: false,
     });
+    readFinalizeCheckpointMock.mockResolvedValue(null);
     const { getByTestId } = render(
       await AdminPage({ searchParams: Promise.resolve({}) }),
     );
@@ -150,83 +206,116 @@ describe("AdminPage Phase 1 routing", () => {
     expect(getByTestId("onboarding-wizard-spy").dataset.pendingSession).toBe(
       "11111111-1111-1111-1111-111111111111",
     );
+    expect(readFinalizeCheckpointMock).toHaveBeenCalledWith(
+      "11111111-1111-1111-1111-111111111111",
+    );
   });
 
-  test("re-run-setup (watched_folder_id non-null AND pending non-null) renders OnboardingWizard", async () => {
+  test("wizard mid-flight + checkpoint status='in_progress' → FinalizeInProgress", async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({
+      settings: WIZARD_IN_FLIGHT_SETTINGS,
+      rotated: false,
+    });
+    readFinalizeCheckpointMock.mockResolvedValue({
+      status: "in_progress",
+      batches_completed: 100,
+      last_processed_drive_file_id: "drive-100",
+      last_processed_at: new Date().toISOString(),
+    });
+    const { getByTestId, queryByTestId } = render(
+      await AdminPage({ searchParams: Promise.resolve({}) }),
+    );
+    expect(getByTestId("admin-finalize-in-progress-spy").dataset.batches).toBe(
+      "100",
+    );
+    expect(queryByTestId("onboarding-wizard-spy")).toBeNull();
+  });
+
+  test("wizard mid-flight + checkpoint status='all_batches_complete' fresh → ReadyToPublish", async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({
+      settings: WIZARD_IN_FLIGHT_SETTINGS,
+      rotated: false,
+    });
+    readFinalizeCheckpointMock.mockResolvedValue({
+      status: "all_batches_complete",
+      batches_completed: 50,
+      last_processed_drive_file_id: "drive-50",
+      last_processed_at: new Date(Date.now() - 60 * 1000).toISOString(),
+    });
+    const { getByTestId, queryByTestId } = render(
+      await AdminPage({ searchParams: Promise.resolve({}) }),
+    );
+    expect(getByTestId("admin-ready-to-publish-spy")).toBeTruthy();
+    expect(queryByTestId("admin-stale-ready-to-publish-spy")).toBeNull();
+  });
+
+  test("wizard mid-flight + checkpoint status='all_batches_complete' stale (≥24h) → StaleReadyToPublish", async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({
+      settings: WIZARD_IN_FLIGHT_SETTINGS,
+      rotated: false,
+    });
+    readFinalizeCheckpointMock.mockResolvedValue({
+      status: "all_batches_complete",
+      batches_completed: 50,
+      last_processed_drive_file_id: "drive-50",
+      last_processed_at: new Date(Date.now() - 25 * 3600 * 1000).toISOString(),
+    });
+    const { getByTestId, queryByTestId } = render(
+      await AdminPage({ searchParams: Promise.resolve({}) }),
+    );
+    expect(getByTestId("admin-stale-ready-to-publish-spy")).toBeTruthy();
+    expect(queryByTestId("admin-ready-to-publish-spy")).toBeNull();
+  });
+
+  test("wizard mid-flight + checkpoint status='final_cas_done' (defensive) → Dashboard placeholder", async () => {
+    purgeAndRotateIfStaleMock.mockResolvedValue({
+      settings: WIZARD_IN_FLIGHT_SETTINGS,
+      rotated: false,
+    });
+    readFinalizeCheckpointMock.mockResolvedValue({
+      status: "final_cas_done",
+      batches_completed: 100,
+      last_processed_drive_file_id: "drive-100",
+      last_processed_at: new Date().toISOString(),
+    });
+    const { getByTestId, queryByTestId } = render(
+      await AdminPage({ searchParams: Promise.resolve({}) }),
+    );
+    // OnboardingWizard renders (the wizard's settings-based step picker takes over).
+    expect(getByTestId("onboarding-wizard-spy")).toBeTruthy();
+    expect(queryByTestId("admin-finalize-in-progress-spy")).toBeNull();
+    expect(queryByTestId("admin-ready-to-publish-spy")).toBeNull();
+    expect(queryByTestId("admin-stale-ready-to-publish-spy")).toBeNull();
+  });
+
+  test("re-run-setup mid-flight (watched_folder_id non-null AND pending non-null) + no checkpoint → OnboardingWizard", async () => {
     purgeAndRotateIfStaleMock.mockResolvedValue({
       settings: RE_RUN_SETUP_SETTINGS,
       rotated: false,
     });
+    readFinalizeCheckpointMock.mockResolvedValue(null);
     const { getByTestId, queryByTestId } = render(
       await AdminPage({ searchParams: Promise.resolve({}) }),
     );
     expect(getByTestId("onboarding-wizard-spy")).toBeTruthy();
-    // The dashboard stub must NOT render even though watched_folder_id is set.
     expect(queryByTestId("admin-dashboard-placeholder")).toBeNull();
   });
 
-  test("?show_finalize=true renders FinalizeReentry placeholder ONLY when a pending wizard session exists", async () => {
-    // The URL hint is paired with rerunSetupServerAction's suppression
-    // branch, which preserves pending_wizard_session_id. So the hint
-    // is honored only when an in-flight session is actually present.
+  test("infra error from checkpoint reader → cataloged infra-error placeholder", async () => {
     purgeAndRotateIfStaleMock.mockResolvedValue({
       settings: WIZARD_IN_FLIGHT_SETTINGS,
       rotated: false,
     });
-    const { getByTestId, queryByTestId } = render(
-      await AdminPage({
-        searchParams: Promise.resolve({ show_finalize: "true" }),
-      }),
-    );
-    expect(getByTestId("admin-finalize-reentry-placeholder")).toBeTruthy();
-    expect(queryByTestId("onboarding-wizard-spy")).toBeNull();
-    expect(queryByTestId("admin-dashboard-placeholder")).toBeNull();
-  });
-
-  test("?show_finalize=true is IGNORED on settled admin (no pending session) — Dashboard still renders", async () => {
-    // Hand-edited URL must not force a false finalize state when there
-    // is no in-flight wizard session. SETTLED_SETTINGS has
-    // watched_folder_id non-null AND pending_wizard_session_id NULL.
-    purgeAndRotateIfStaleMock.mockResolvedValue({
-      settings: SETTLED_SETTINGS,
-      rotated: false,
-    });
-    const { getByTestId, queryByTestId } = render(
-      await AdminPage({
-        searchParams: Promise.resolve({ show_finalize: "true" }),
-      }),
-    );
-    expect(getByTestId("admin-dashboard-placeholder")).toBeTruthy();
-    expect(queryByTestId("admin-finalize-reentry-placeholder")).toBeNull();
-  });
-
-  test("?show_finalize=true is IGNORED on fresh first-visit (no pending session) — wizard still renders", async () => {
-    // Truly fresh DB: watched_folder_id NULL AND pending NULL. A
-    // hand-edited URL must not divert away from the first-visit wizard.
-    purgeAndRotateIfStaleMock.mockResolvedValue({
-      settings: FRESH_SETTINGS,
-      rotated: false,
-    });
-    const { getByTestId, queryByTestId } = render(
-      await AdminPage({
-        searchParams: Promise.resolve({ show_finalize: "true" }),
-      }),
-    );
-    expect(getByTestId("onboarding-wizard-spy")).toBeTruthy();
-    expect(queryByTestId("admin-finalize-reentry-placeholder")).toBeNull();
-  });
-
-  test("result.suppressed=WIZARD_FINALIZE_BATCHES_PENDING renders FinalizeReentry placeholder", async () => {
-    purgeAndRotateIfStaleMock.mockResolvedValue({
-      settings: WIZARD_IN_FLIGHT_SETTINGS,
-      rotated: false,
-      suppressed: "WIZARD_FINALIZE_BATCHES_PENDING",
+    readFinalizeCheckpointMock.mockResolvedValue({
+      kind: "infra_error",
+      message: "Supabase connection failed",
     });
     const { getByTestId, queryByTestId } = render(
       await AdminPage({ searchParams: Promise.resolve({}) }),
     );
-    expect(getByTestId("admin-finalize-reentry-placeholder")).toBeTruthy();
+    expect(getByTestId("admin-checkpoint-infra-error")).toBeTruthy();
     expect(queryByTestId("onboarding-wizard-spy")).toBeNull();
+    expect(queryByTestId("admin-finalize-in-progress-spy")).toBeNull();
   });
 
   test("fresh-settings invariant: post-rotation settings reach OnboardingWizard, not pre-call values", async () => {
@@ -234,9 +323,12 @@ describe("AdminPage Phase 1 routing", () => {
       settings: ROTATED_SETTINGS,
       rotated: true,
     });
+    readFinalizeCheckpointMock.mockResolvedValue(null);
     render(await AdminPage({ searchParams: Promise.resolve({}) }));
     expect(onboardingWizardSpy).toHaveBeenCalledTimes(1);
-    const [props] = onboardingWizardSpy.mock.calls[0]!;
+    const [props] = onboardingWizardSpy.mock.calls[0]! as [
+      { settings: AppSettingsRow },
+    ];
     expect(props.settings.pending_wizard_session_id).toBe(
       "33333333-3333-3333-3333-333333333333",
     );
@@ -253,7 +345,9 @@ describe("AdminPage Phase 1 routing", () => {
       }),
     );
     expect(onboardingWizardSpy).toHaveBeenCalledTimes(1);
-    const [props] = onboardingWizardSpy.mock.calls[0]!;
+    const [props] = onboardingWizardSpy.mock.calls[0]! as [
+      { searchParams: { step?: string } },
+    ];
     expect(props.searchParams.step).toBe("2");
   });
 
