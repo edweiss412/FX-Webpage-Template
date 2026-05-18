@@ -161,6 +161,42 @@ const infraRegistry = [
     contract:
       "unpublish route delegates to registered locked backend helper and returns catalog codes only for token state",
   },
+  {
+    helper: "purgeAndRotateOnboardingSession",
+    path: "lib/onboarding/sessionLifecycle.ts",
+    contract:
+      "onboarding session rotation runs in one transaction; transaction faults throw OnboardingSessionInfraError",
+  },
+  {
+    helper: "purgeAndRotateIfStale",
+    path: "lib/onboarding/sessionLifecycle.ts",
+    contract:
+      "stale onboarding rotation uses a SQL-clock transaction gate; transaction faults throw OnboardingSessionInfraError",
+  },
+  {
+    helper: "cleanupAbandonedFinalize",
+    path: "lib/onboarding/sessionLifecycle.ts",
+    contract:
+      "abandoned finalize cleanup uses admin auth and transaction guards; infra faults do not become cleaned results",
+  },
+  {
+    helper: "startOverServerAction",
+    path: "lib/onboarding/serverActions.ts",
+    contract:
+      "server action gates admin before delegating to the registered lifecycle helper and redirecting post-commit",
+  },
+  {
+    helper: "rerunSetupServerAction",
+    path: "lib/onboarding/serverActions.ts",
+    contract:
+      "server action gates admin before delegated rotation; finalize suppression redirects without purging",
+  },
+  {
+    helper: "handleOnboardingScan",
+    path: "app/api/admin/onboarding/scan/route.ts",
+    contract:
+      "scan route gates admin, validates Drive folder, reserves wizard session transactionally, and passes through OnboardingScanResult",
+  },
 ] as const;
 
 function read(path: string): string {
