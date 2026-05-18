@@ -498,6 +498,14 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "Finalize Phase D only promotes shadow changes when the live show has not advanced past the wizard-staged modified time.",
   },
+  STAGED_PARSE_FAILED: {
+    code: "STAGED_PARSE_FAILED",
+    dougFacing: "That sheet could not be parsed during retry.",
+    crewFacing: null,
+    followUp: "Doug -> open the sheet and fix its structure, then retry",
+    helpfulContext:
+      "The live first-seen retry path fetched the sheet but the parser could not convert it into a show payload.",
+  },
   WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED: {
     code: "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED",
     dougFacing: "This reviewed setup decision came from an older or newer form version.",

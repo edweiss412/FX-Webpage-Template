@@ -72,6 +72,17 @@ type PendingIngestionRow = {
   last_seen_modified_time: string | null;
 };
 
+class FirstSeenStagePrepareError extends Error {
+  readonly code: "DRIVE_FETCH_FAILED" | "STAGED_PARSE_FAILED";
+
+  constructor(code: "DRIVE_FETCH_FAILED" | "STAGED_PARSE_FAILED", cause: unknown) {
+    super(code);
+    this.name = "FirstSeenStagePrepareError";
+    this.code = code;
+    this.cause = cause;
+  }
+}
+
 function databaseUrl(): string {
   const configured = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
   if (configured) return configured;
@@ -140,16 +151,31 @@ async function defaultPrepareFirstSeenStage(fileMeta: DriveListedFile): Promise<
     bindingToken: fileMeta.headRevisionId ?? fileMeta.modifiedTime,
     modifiedTime: fileMeta.modifiedTime,
   };
-  const markdown = await fetchSheetAsMarkdownAtRevision(fileMeta.driveFileId, binding.bindingToken);
-  const parsed: ParsedSheet = parseMarkdownSheet(markdown, fileMeta.name);
-  return {
-    fileMeta,
-    binding,
-    parseResult: await enrichWithDrivePins(parsed, defaultDriveClient(), {
+  let markdown: string;
+  try {
+    markdown = await fetchSheetAsMarkdownAtRevision(fileMeta.driveFileId, binding.bindingToken);
+  } catch (cause) {
+    throw new FirstSeenStagePrepareError("DRIVE_FETCH_FAILED", cause);
+  }
+  let parsed: ParsedSheet;
+  try {
+    parsed = parseMarkdownSheet(markdown, fileMeta.name);
+  } catch (cause) {
+    throw new FirstSeenStagePrepareError("STAGED_PARSE_FAILED", cause);
+  }
+  try {
+    const parseResult = await enrichWithDrivePins(parsed, defaultDriveClient(), {
       driveFileId: fileMeta.driveFileId,
       fileMeta: toDriveFileMeta(fileMeta),
-    }),
-  };
+    });
+    return {
+      fileMeta,
+      binding,
+      parseResult,
+    };
+  } catch (cause) {
+    throw new FirstSeenStagePrepareError("DRIVE_FETCH_FAILED", cause);
+  }
 }
 
 function depsWithDefaults(deps: LivePendingIngestionRouteDeps) {
@@ -331,8 +357,9 @@ export async function handleLivePendingIngestionRetry(
     let stageDeps: Awaited<ReturnType<typeof deps.prepareFirstSeenStage>>;
     try {
       stageDeps = await deps.prepareFirstSeenStage(metadata);
-    } catch {
-      return errorResponse(502, "DRIVE_FETCH_FAILED");
+    } catch (error) {
+      const code = error instanceof FirstSeenStagePrepareError ? error.code : "DRIVE_FETCH_FAILED";
+      return errorResponse(code === "DRIVE_FETCH_FAILED" ? 502 : 409, code);
     }
     const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, stageDeps);
     return firstSeenStageResponse(stageResult);

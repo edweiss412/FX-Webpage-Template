@@ -218,7 +218,26 @@ async function readShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string): 
   return rows;
 }
 
-async function applyShadow(tx: FinalizeCasRouteTx, row: ShadowRow): Promise<ShadowApplyResult> {
+async function deleteShadowRow(
+  tx: FinalizeCasRouteTx,
+  wizardSessionId: string,
+  driveFileId: string,
+): Promise<void> {
+  await tx.query(
+    `
+      delete from public.shows_pending_changes
+       where wizard_session_id = $1::uuid
+         and drive_file_id = $2
+    `,
+    [wizardSessionId, driveFileId],
+  );
+}
+
+async function applyShadow(
+  tx: FinalizeCasRouteTx,
+  wizardSessionId: string,
+  row: ShadowRow,
+): Promise<ShadowApplyResult> {
   const parseResult = row.payload.parse_result;
   if (!parseResult) return { drive_file_id: row.drive_file_id, code: OK_CODE };
   const applied = await tx.query<{ applied: boolean }>(
@@ -271,6 +290,7 @@ async function applyShadow(tx: FinalizeCasRouteTx, row: ShadowRow): Promise<Shad
     return { drive_file_id: row.drive_file_id, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" };
   }
   await insertShadowAudit(tx, row);
+  await deleteShadowRow(tx, wizardSessionId, row.drive_file_id);
   return { drive_file_id: row.drive_file_id, code: OK_CODE };
 }
 
@@ -299,13 +319,6 @@ async function insertShadowAudit(tx: FinalizeCasRouteTx, row: ShadowRow): Promis
       row.payload.parse_result?.show.title ?? null,
       row.payload.staged_modified_time ?? null,
     ],
-  );
-}
-
-async function deleteShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string): Promise<void> {
-  await tx.query(
-    `delete from public.shows_pending_changes where wizard_session_id = $1::uuid`,
-    [wizardSessionId],
   );
 }
 
@@ -404,14 +417,6 @@ async function runFinalizeCas(
 
   const checkpoint = await readCheckpoint(tx, wizardSessionId);
   if (!checkpoint) return errorResponse(409, "WIZARD_FINALIZE_CHECKPOINT_MISSING");
-  if (checkpoint.status === "final_cas_done") {
-    return {
-      status: "finalize_complete",
-      wizard_session_id: wizardSessionId,
-      watched_folder_id: session.pending_folder_id,
-      idempotent: true,
-    };
-  }
   if (checkpoint.status !== "all_batches_complete") {
     return errorResponse(409, "WIZARD_FINALIZE_BATCHES_PENDING");
   }
@@ -430,13 +435,12 @@ async function runFinalizeCas(
 
   const shadowResults: ShadowApplyResult[] = [];
   for (const row of await readShadowRows(tx, wizardSessionId)) {
-    shadowResults.push(await deps.withRowTx(row.drive_file_id, (rowTx) => applyShadow(rowTx, row)));
+    shadowResults.push(await deps.withRowTx(row.drive_file_id, (rowTx) => applyShadow(rowTx, wizardSessionId, row)));
   }
   const blocked = shadowResults.filter((row) => row.code !== "OK");
   if (blocked.length > 0) {
     return errorResponse(409, "STAGED_PARSE_OUTDATED_AT_PHASE_D", { per_row: blocked });
   }
-  await deleteShadowRows(tx, wizardSessionId);
   await publishAppliedWizardShows(tx, wizardSessionId);
   await deleteWizardDeferrals(tx, wizardSessionId);
   const watchedFolderId = await promoteSettings(tx, wizardSessionId);

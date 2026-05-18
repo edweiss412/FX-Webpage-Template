@@ -128,4 +128,22 @@ describe("live first-seen staged apply/discard", () => {
     expect(response.status).toBe(409);
     expect(await json(response)).toEqual({ ok: false, code: "STAGED_PARSE_SUPERSEDED" });
   });
+
+  test("apply maps reviewer-choice engine validation to 400", async () => {
+    const tx = new FakeLiveStagedTx();
+
+    const response = await handleLiveStagedApply(
+      req({ reviewer_choices: [] }),
+      context,
+      deps(tx, {
+        applyStaged: vi.fn(async () => ({
+          outcome: "invalid_request" as const,
+          code: "MISSING_REVIEWER_CHOICE" as const,
+        })),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await json(response)).toEqual({ ok: false, code: "MISSING_REVIEWER_CHOICE" });
+  });
 });

@@ -120,6 +120,9 @@ function statusFor(result: ApplyStagedResult | { skipped: "CONCURRENT_SYNC_SKIPP
   if (result.outcome === "not_found") {
     return { status: 404, code: "STALE_DISCARD_REJECTED" };
   }
+  if (result.outcome === "invalid_request") {
+    return { status: 400, code: result.code };
+  }
   if ("code" in result) return { status: 409, code: result.code };
   return { status: 409, code: "STALE_DISCARD_REJECTED" };
 }

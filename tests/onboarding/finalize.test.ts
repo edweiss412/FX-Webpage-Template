@@ -372,4 +372,13 @@ describe("POST /api/admin/onboarding/finalize", () => {
       { driveFileId: "version-1", code: "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED" },
     ]);
   });
+
+  test("throws instead of fabricating attribution when an approved row has no approver email", async () => {
+    const db = new FakeFinalizeDb();
+    db.approved = [pending("missing-email-1", { wizard_approved_by_email: null })];
+
+    await expect(handleOnboardingFinalize(request(), deps(db))).rejects.toThrow(
+      "approved onboarding row is missing wizard_approved_by_email",
+    );
+  });
 });

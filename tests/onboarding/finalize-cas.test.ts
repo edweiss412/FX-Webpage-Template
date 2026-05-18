@@ -123,7 +123,10 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
     }
 
     if (normalized.startsWith("delete from public.shows_pending_changes")) {
-      this.shadowRows = this.shadowRows.filter((_row) => false);
+      const driveFileId = params[1] as string | undefined;
+      this.shadowRows = driveFileId
+        ? this.shadowRows.filter((row) => row.drive_file_id !== driveFileId)
+        : [];
       return { rows: [], rowCount: 0 };
     }
 
@@ -206,11 +209,44 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
     });
     expect(db.appliedShadows).toEqual(["existing-1"]);
     expect(db.auditRows).toEqual(["existing-1"]);
+    expect(db.shadowRows).toEqual([]);
     expect(db.published).toBe(true);
     expect(db.deletedWizardDeferrals).toBe(true);
     expect(db.checkpoint?.status).toBe("final_cas_done");
     expect(routeDeps.subscribeToWatchedFolder).toHaveBeenCalledWith("folder-1");
     expect(db.operations.at(-1)).toBe("mark-final-cas-done");
+  });
+
+  test("Phase D success deletes each shadow row in the row transaction before later rows fail", async () => {
+    const db = new FakeFinalizeCasDb();
+    db.shadowRows = [
+      {
+        drive_file_id: "existing-1",
+        show_id: "22222222-2222-4222-8222-222222222222",
+        applied_by_email: "apply-admin@example.com",
+        applied_at_intent: "2026-05-08T12:00:00.000Z",
+        payload: { parse_result: parseResult(), staged_modified_time: "2026-05-08T12:00:00.000Z" },
+      },
+      {
+        drive_file_id: "existing-2",
+        show_id: "33333333-3333-4333-8333-333333333333",
+        applied_by_email: "apply-admin@example.com",
+        applied_at_intent: "2026-05-08T12:00:00.000Z",
+        payload: { parse_result: parseResult(), staged_modified_time: "2026-05-08T12:00:00.000Z" },
+      },
+    ];
+    const routeDeps = deps(db, {
+      withRowTx: async (driveFileId, fn) => {
+        if (driveFileId === "existing-2") db.phaseDCasFails = true;
+        return fn(db);
+      },
+    });
+
+    const response = await handleOnboardingFinalizeCas(request(), routeDeps);
+
+    expect(response.status).toBe(409);
+    expect(db.auditRows).toEqual(["existing-1"]);
+    expect(db.shadowRows.map((row) => row.drive_file_id)).toEqual(["existing-2"]);
   });
 
   test("rejects Phase D shadow rows whose live show advanced after Phase B", async () => {
@@ -236,23 +272,6 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
     });
     expect(db.shadowRows).toHaveLength(1);
     expect(db.published).toBe(false);
-  });
-
-  test("is idempotent after final_cas_done and does not resubscribe", async () => {
-    const db = new FakeFinalizeCasDb();
-    db.checkpoint = { status: "final_cas_done", batches_completed: 2 };
-    const routeDeps = deps(db);
-
-    const response = await handleOnboardingFinalizeCas(request(), routeDeps);
-
-    expect(response.status).toBe(200);
-    expect(await json(response)).toEqual({
-      status: "finalize_complete",
-      wizard_session_id: W1,
-      watched_folder_id: "folder-1",
-      idempotent: true,
-    });
-    expect(routeDeps.subscribeToWatchedFolder).toHaveBeenCalledWith("folder-1");
   });
 
   test("is idempotent after settings were already promoted", async () => {
