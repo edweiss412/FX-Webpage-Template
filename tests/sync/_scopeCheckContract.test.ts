@@ -62,6 +62,10 @@ const INTENTIONAL_EXCEPTIONS = new Map<string, string>([
     "app/api/asset/agenda/[show]/[id]/route.ts::authorizeAgendaRequest",
     "agenda-route auth helper extracted from GET; looks up metadata for a fileId already bound to shows.agenda_links and does not admit sheets",
   ],
+  [
+    "app/api/admin/onboarding/scan/route.ts::defaultVerifyFolder",
+    "onboarding verify-folder route checks a folder id before any sheet admission; runOnboardingScan lists sheets from that pending_folder_id",
+  ],
 ]);
 
 function walkTsFiles(dir: string): string[] {
