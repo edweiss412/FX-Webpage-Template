@@ -160,6 +160,9 @@ async function manualSyncResponse(
   driveFileId: string,
   result: ManualSyncResult,
 ): Promise<Response> {
+  if ("skipped" in result) {
+    return errorResponse(409, "CONCURRENT_SYNC_SKIPPED");
+  }
   if (result.outcome === "applied") {
     return NextResponse.json({
       status: "applied",
