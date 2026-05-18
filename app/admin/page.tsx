@@ -38,6 +38,7 @@ import { OnboardingWizard } from "@/components/admin/OnboardingWizard";
 import { FinalizeInProgress } from "@/components/admin/FinalizeInProgress";
 import { ReadyToPublish } from "@/components/admin/ReadyToPublish";
 import { StaleReadyToPublish } from "@/components/admin/StaleReadyToPublish";
+import { Dashboard } from "@/components/admin/Dashboard";
 import {
   readFinalizeCheckpoint,
   isCheckpointStale,
@@ -187,5 +188,5 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   }
 
   // Precedence 3: settled (post-onboarding steady state).
-  return <DashboardPhase1Placeholder />;
+  return <Dashboard />;
 }

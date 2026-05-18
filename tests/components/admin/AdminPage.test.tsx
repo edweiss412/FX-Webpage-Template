@@ -108,6 +108,10 @@ vi.mock("@/components/admin/StaleReadyToPublish", () => ({
   ),
 }));
 
+vi.mock("@/components/admin/Dashboard", () => ({
+  Dashboard: () => <div data-testid="admin-dashboard-placeholder" />,
+}));
+
 import AdminPage from "@/app/admin/page";
 
 const FRESH_SETTINGS: AppSettingsRow = {
@@ -186,9 +190,9 @@ describe("AdminPage Phase 2 routing", () => {
     const { getByTestId, queryByTestId } = render(
       await AdminPage({ searchParams: Promise.resolve({}) }),
     );
-    expect(getByTestId("admin-dashboard-placeholder").textContent ?? "").toMatch(
-      /Dashboard is coming/i,
-    );
+    // Dashboard is mocked in this test file; the mock renders a marker
+    // testid so we don't depend on the real Supabase fetch path here.
+    expect(getByTestId("admin-dashboard-placeholder")).toBeTruthy();
     expect(queryByTestId("onboarding-wizard-spy")).toBeNull();
     expect(readFinalizeCheckpointMock).not.toHaveBeenCalled();
   });
