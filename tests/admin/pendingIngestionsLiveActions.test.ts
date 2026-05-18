@@ -192,6 +192,21 @@ describe("live pending-ingestions actions", () => {
     expect(routeDeps.runManualSyncForShowUnlocked).not.toHaveBeenCalled();
   });
 
+  test("retry first-seen branch maps prepare failures to DRIVE_FETCH_FAILED", async () => {
+    const tx = new FakeLivePendingTx();
+    const routeDeps = deps(tx, {
+      prepareFirstSeenStage: vi.fn(async () => {
+        throw new Error("drive export failed");
+      }),
+    });
+
+    const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(response.status).toBe(502);
+    expect(await json(response)).toEqual({ ok: false, code: "DRIVE_FETCH_FAILED" });
+    expect(routeDeps.runManualStageForFirstSeen).not.toHaveBeenCalled();
+  });
+
   test("retry rejects transitioned and wizard rows", async () => {
     const transitioned = new FakeLivePendingTx();
     transitioned.row = null;

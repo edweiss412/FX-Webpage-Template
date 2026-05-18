@@ -252,7 +252,7 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
       watched_folder_id: "folder-1",
       idempotent: true,
     });
-    expect(routeDeps.subscribeToWatchedFolder).not.toHaveBeenCalled();
+    expect(routeDeps.subscribeToWatchedFolder).toHaveBeenCalledWith("folder-1");
   });
 
   test("is idempotent after settings were already promoted", async () => {
@@ -272,7 +272,7 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
       watched_folder_id: "folder-1",
       idempotent: true,
     });
-    expect(routeDeps.subscribeToWatchedFolder).not.toHaveBeenCalled();
+    expect(routeDeps.subscribeToWatchedFolder).toHaveBeenCalledWith("folder-1");
   });
 
   test("rejects early-fire before all batches are complete", async () => {

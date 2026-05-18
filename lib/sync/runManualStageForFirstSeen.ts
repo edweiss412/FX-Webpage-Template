@@ -22,6 +22,7 @@ export type RunManualStageForFirstSeenTx = {
 export type RunManualStageForFirstSeenResult =
   | { outcome: "parsed_pending_review"; stagedId: string }
   | { outcome: "hard_failed"; errorCode: string }
+  | { outcome: "deferred"; reason: "mi8_modtime_unstable" | "mi8b_modtime_unstable" }
   | { outcome: "parsed"; stagedId?: string };
 
 export type RunManualStageForFirstSeenDeps = {
@@ -72,7 +73,7 @@ function toResult(result: Phase1Result): RunManualStageForFirstSeenResult | null
   }
   if (result.outcome === "pass") return { outcome: "parsed" };
   if (result.outcome === "defer") {
-    return { outcome: "hard_failed", errorCode: result.reason };
+    return { outcome: "deferred", reason: result.reason };
   }
   return null;
 }

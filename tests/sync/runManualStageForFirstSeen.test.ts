@@ -146,6 +146,56 @@ describe("runManualStageForFirstSeen", () => {
     ]);
   });
 
+  test("preserves Phase 1 debounce as deferred rather than hard failed", async () => {
+    const tx = new FakeManualStageTx();
+
+    const result = await runManualStageForFirstSeen(tx as never, "file-1", {
+      fileMeta: {
+        driveFileId: "file-1",
+        name: "file-1.xlsx",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        parents: ["folder-1"],
+      },
+      binding: {
+        bindingToken: "rev-1",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+      },
+      parseResult: {
+        show: {
+          title: "First Seen",
+          client_label: "Client",
+          client_contact: null,
+          template_version: "v4",
+          venue: null,
+          dates: { travelIn: null, set: "2026-05-08", showDays: [], travelOut: null },
+          schedule_phases: {},
+          event_details: {},
+          agenda_links: [],
+          coi_status: null,
+          po: null,
+          proposal: null,
+          invoice: null,
+          invoice_notes: null,
+        },
+        crewMembers: [],
+        hotelReservations: [],
+        rooms: [],
+        transportation: null,
+        contacts: [],
+        pullSheet: null,
+        diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+        openingReel: null,
+        raw_unrecognized: [],
+        warnings: [],
+        hardErrors: [],
+      },
+      runPhase1: vi.fn(async () => ({ outcome: "defer" as const, reason: "mi8_modtime_unstable" as const })),
+    });
+
+    expect(result).toEqual({ outcome: "deferred", reason: "mi8_modtime_unstable" });
+  });
+
   test("rejects calls when the show lock is not held", async () => {
     const tx = new FakeManualStageTx();
     tx.held = false;

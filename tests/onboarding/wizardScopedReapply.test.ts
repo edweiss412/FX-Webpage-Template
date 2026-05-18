@@ -97,7 +97,7 @@ describe("wizard-scoped staged apply/discard routes", () => {
     );
   });
 
-  test("apply maps stale/CAS races to the route-specific stale discard code", async () => {
+  test("apply preserves superseded parse errors from applyStaged_unlocked", async () => {
     const response = await handleWizardStagedApply(
       applyRequest(),
       context,
@@ -110,7 +110,7 @@ describe("wizard-scoped staged apply/discard routes", () => {
     );
 
     expect(response.status).toBe(409);
-    expect(await json(response)).toEqual({ ok: false, code: "STALE_DISCARD_REJECTED" });
+    expect(await json(response)).toEqual({ ok: false, code: "STAGED_PARSE_SUPERSEDED" });
   });
 
   test("apply rejects unsupported reviewer choice versions before locking", async () => {

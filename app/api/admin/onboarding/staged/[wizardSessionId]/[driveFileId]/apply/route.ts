@@ -90,7 +90,10 @@ async function readBody(request: Request): Promise<ApplyBody> {
 }
 
 function statusForApplyResult(result: ApplyStagedResult): { status: number; code: string } {
-  if (result.outcome === "superseded" || result.outcome === "not_found") {
+  if (result.outcome === "superseded") {
+    return { status: 409, code: result.code };
+  }
+  if (result.outcome === "not_found") {
     return { status: 409, code: "STALE_DISCARD_REJECTED" };
   }
   if (result.outcome === "wizard_superseded") {

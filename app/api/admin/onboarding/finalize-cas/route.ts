@@ -467,9 +467,7 @@ export async function handleOnboardingFinalizeCas(
 
   const result = await deps.withTx((tx) => runFinalizeCas(tx, deps));
   if (result instanceof Response) return result;
-  if (!result.idempotent) {
-    await deps.subscribeToWatchedFolder(result.watched_folder_id);
-  }
+  await deps.subscribeToWatchedFolder(result.watched_folder_id);
   return NextResponse.json(result);
 }
 

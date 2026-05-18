@@ -145,6 +145,13 @@ function reApplyUrl(wizardSessionId: string, driveFileId: string): string {
   return `/admin/onboarding/staged/${encodeURIComponent(wizardSessionId)}/${encodeURIComponent(driveFileId)}`;
 }
 
+function requireApprovedByEmail(row: PendingFinalizeRow): string {
+  if (!row.wizard_approved_by_email) {
+    throw new Error("approved onboarding row is missing wizard_approved_by_email");
+  }
+  return row.wizard_approved_by_email;
+}
+
 async function readActiveSession(tx: FinalizeRouteTx): Promise<string | null> {
   const { rows } = await tx.query<ActiveSessionRow>(
     `
@@ -408,7 +415,7 @@ async function stageExistingShowShadow(
       row.staged_modified_time,
       row.staged_id,
       JSON.stringify(row.wizard_reviewer_choices ?? []),
-      row.wizard_approved_by_email ?? "unknown-admin@example.invalid",
+      requireApprovedByEmail(row),
     ],
   );
 }
@@ -511,7 +518,7 @@ async function processApprovedRow(input: {
     await insertFinalizeAudit(tx, {
       showId,
       row,
-      appliedByEmail: row.wizard_approved_by_email ?? "unknown-admin@example.invalid",
+      appliedByEmail: requireApprovedByEmail(row),
     });
   }
   await deleteApprovedPending(tx, wizardSessionId, row);

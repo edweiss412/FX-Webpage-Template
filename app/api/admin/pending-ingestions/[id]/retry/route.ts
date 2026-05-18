@@ -264,6 +264,9 @@ function firstSeenStageResponse(result: RunManualStageForFirstSeenResult): Respo
   if (result.outcome === "hard_failed") {
     return NextResponse.json({ status: "still_failed", errorCode: result.errorCode });
   }
+  if (result.outcome === "deferred") {
+    return NextResponse.json({ status: "deferred", reason: result.reason });
+  }
   return NextResponse.json({ status: "parsed", stagedId: result.stagedId });
 }
 
@@ -325,7 +328,12 @@ export async function handleLivePendingIngestionRetry(
     if (!watchedFolderId || !metadata.parents.includes(watchedFolderId)) {
       return errorResponse(409, "SHEET_UNAVAILABLE");
     }
-    const stageDeps = await deps.prepareFirstSeenStage(metadata);
+    let stageDeps: Awaited<ReturnType<typeof deps.prepareFirstSeenStage>>;
+    try {
+      stageDeps = await deps.prepareFirstSeenStage(metadata);
+    } catch {
+      return errorResponse(502, "DRIVE_FETCH_FAILED");
+    }
     const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, stageDeps);
     return firstSeenStageResponse(stageResult);
   });
