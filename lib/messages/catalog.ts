@@ -410,6 +410,118 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "The app reached Google Drive, but the metadata response did not include the fields needed to prove the link is a readable folder. This is usually transient. If it repeats, the developer should inspect the Drive API response and service-account configuration.",
   },
+  PENDING_INGESTION_NOT_FOUND: {
+    code: "PENDING_INGESTION_NOT_FOUND",
+    dougFacing: "That pending sheet is no longer waiting for action.",
+    crewFacing: null,
+    followUp: "Doug -> refresh the admin page",
+    helpfulContext:
+      "The pending-ingestion row was gone by the time the action ran, usually because another admin action or sync already transitioned it.",
+  },
+  PENDING_INGESTION_TRANSITIONED: {
+    code: "PENDING_INGESTION_TRANSITIONED",
+    dougFacing: "That pending sheet changed before the action could run.",
+    crewFacing: null,
+    followUp: "Doug -> refresh the admin page",
+    helpfulContext:
+      "The route found the row before locking, then it was changed or removed before the locked re-check. Refresh to see the current state.",
+  },
+  LIVE_ROW_REQUIRED: {
+    code: "LIVE_ROW_REQUIRED",
+    dougFacing: "Use the onboarding action for this wizard-scoped pending sheet.",
+    crewFacing: null,
+    followUp: "Doug -> refresh and use the setup wizard panel",
+    helpfulContext:
+      "The live pending-ingestions action only accepts rows outside the onboarding wizard. This row belongs to an active wizard session.",
+  },
+  MISSING_PENDING_INGESTION_MODTIME: {
+    code: "MISSING_PENDING_INGESTION_MODTIME",
+    dougFacing: "That pending sheet is missing the Drive modified time needed to defer it.",
+    crewFacing: null,
+    followUp: "Eric -> inspect pending_ingestions.last_seen_modified_time",
+    helpfulContext:
+      "Deferring until modified requires a baseline modified time. The database row did not have one, so the route refused to create a broken deferral.",
+  },
+  ALERT_REQUIRES_SHOW_SCOPED_RESOLVE: {
+    code: "ALERT_REQUIRES_SHOW_SCOPED_RESOLVE",
+    dougFacing: "Resolve this alert from the show page so the show context is visible.",
+    crewFacing: null,
+    followUp: "Doug -> open the show-specific alert link",
+    helpfulContext:
+      "Global alert resolution intentionally refuses show-scoped alerts. The route returns a show-scoped resolve URL when it can resolve the show slug.",
+  },
+  ADMIN_ALERT_NOT_FOUND: {
+    code: "ADMIN_ALERT_NOT_FOUND",
+    dougFacing: "That alert is no longer available.",
+    crewFacing: null,
+    followUp: "Doug -> refresh the admin page",
+    helpfulContext:
+      "The alert may already have been resolved or may belong to a different show. Show-scoped resolve routes return this same code for cross-show probes.",
+  },
+  WIZARD_FINALIZE_BATCHES_PENDING: {
+    code: "WIZARD_FINALIZE_BATCHES_PENDING",
+    dougFacing: "Setup publishing still has batches to finish before final publish.",
+    crewFacing: null,
+    followUp: "Doug -> keep the setup tab open until the batch step completes",
+    helpfulContext:
+      "The final CAS publish step only runs after every approved onboarding row has been processed and no unresolved review rows remain.",
+  },
+  WIZARD_FINALIZE_CHECKPOINT_MISSING: {
+    code: "WIZARD_FINALIZE_CHECKPOINT_MISSING",
+    dougFacing: "The setup publish checkpoint is missing or no longer active.",
+    crewFacing: null,
+    followUp: "Doug -> refresh setup; Eric if this repeats",
+    helpfulContext:
+      "Finalize routes are driven by a server-owned checkpoint row for the active wizard session. This code means the expected row/session pair was not present.",
+  },
+  CONCURRENT_FINALIZE_IN_FLIGHT: {
+    code: "CONCURRENT_FINALIZE_IN_FLIGHT",
+    dougFacing: "Setup publishing is already running in another tab.",
+    crewFacing: null,
+    followUp: "Doug -> wait for the active setup tab",
+    helpfulContext:
+      "Only one finalize worker can hold the wizard finalize advisory lock for a session. A second request returns this code instead of racing the first.",
+  },
+  STAGED_PARSE_REVISION_RACE_DURING_FINALIZE: {
+    code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
+    dougFacing: "A sheet changed after review and needs to be reviewed again before publishing.",
+    crewFacing: null,
+    followUp: "Doug -> re-apply that sheet in setup",
+    helpfulContext:
+      "Finalize re-checks the Drive head modified time before committing each reviewed row. A mismatch demotes the row back to staged review.",
+  },
+  WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED: {
+    code: "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED",
+    dougFacing: "This reviewed setup decision came from an older or newer form version.",
+    crewFacing: null,
+    followUp: "Doug -> refresh setup and apply the sheet again",
+    helpfulContext:
+      "Reviewer choices are versioned so finalize can safely replay them. This row needs a fresh apply from the current UI version.",
+  },
+  SLUG_COLLISION_EXHAUSTED: {
+    code: "SLUG_COLLISION_EXHAUSTED",
+    dougFacing: "We could not create a unique show URL for that sheet.",
+    crewFacing: null,
+    followUp: "Eric -> inspect show slug allocation",
+    helpfulContext:
+      "The first-seen publish path retried slug suffixes and still hit unique conflicts. This should be rare unless many sheets produce the same title/date slug.",
+  },
+  CLEANUP_REQUIRES_STALE_SESSION: {
+    code: "CLEANUP_REQUIRES_STALE_SESSION",
+    dougFacing: "Cleanup is only available for stale setup sessions.",
+    crewFacing: null,
+    followUp: "Doug -> wait or finish setup; Eric if the session is stuck",
+    helpfulContext:
+      "Abandoned finalize cleanup is guarded by a stale-session check and a finalize-recency check so it cannot interrupt an active setup publish.",
+  },
+  ONBOARDING_NOT_RESOLVED: {
+    code: "ONBOARDING_NOT_RESOLVED",
+    dougFacing: "Resolve all setup review items before final publish.",
+    crewFacing: null,
+    followUp: "Doug -> review, retry, defer, or ignore every unresolved setup row",
+    helpfulContext:
+      "Finalize cannot complete while the onboarding manifest still contains staged, hard-failed, retryable discard, or live-conflict rows.",
+  },
   // ===== /M10-§A codes =====
   // ===== M10-§B codes (Opus) =====
   ONBOARDING_OPERATOR_ERROR: {
