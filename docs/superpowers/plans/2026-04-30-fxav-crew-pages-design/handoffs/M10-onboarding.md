@@ -600,6 +600,12 @@ If "None applies because <reason>," say so explicitly — empty cells silently l
 
 (Append per cluster / per round below; oldest at top.)
 
+### Pin-1 (§A Codex)
+
+- **2026-05-18, Pin-1 cleared at d92e46a (impl) + c085dce (contract block appended):** Codex shipped schema migration (`pending_syncs.last_finalize_failure_code`) + `lib/onboarding/sessionLifecycle.ts` (3 exports) + `lib/onboarding/serverActions.ts` (`startOverServerAction`, `rerunSetupServerAction`) + thick `app/api/admin/onboarding/scan/route.ts` (verify-folder mutation per Task 10.3 step 2) + `tests/onboarding/scanRoute.test.ts` covering all 4 AC-10.2 paths + Amendment 9 clean-first-seen fixture. In-session cross-model Opus review converged in 2 rounds: R1 surfaced 1 HIGH (cleanupAbandonedFinalize missing per-show locks before show cleanup) — fixed at d92e46a with deterministic `show:` advisory locks + lifecycle/advisory-topology tests; R2 APPROVE no findings. Verification gate at c085dce: 3169/3174 tests pass (5 pre-existing skips); 4 lint warnings (all M9 pre-existing — Bootstrap.tsx C3 + StaleFooter.test.tsx + TileServerFallback.test.tsx — none introduced by Pin-1); typecheck clean. Amendment 9 preserved + AC-10.2 paths covered + session mint-or-reuse semantics tested.
+- **§B unblocks** on Task 10.2 (wizard shell + Step1Share + Start-over button) AND Task 10.1 §B Phase 1 (`app/admin/page.tsx` wizard-mode routing using `purgeAndRotateIfStale`) — both have all Pin-1 dependencies. Phase 2 of Task 10.1 §B (FinalizeInProgress/ReadyToPublish/StaleReadyToPublish dispatch) waits on Pin-2.
+- **§A continues to Pin-2** in parallel — finalize + finalize-cas + cleanup-abandoned-finalize routes + wizard-scoped re-apply/discard + Task 10.4/10.6/10.7/10.10 routes per handoff §0 Pin-2 contract list.
+
 ### Pre-kickoff handoff §0 review (Codex, targeted)
 
 - **2026-05-17, R5 + consolidation (closing the review cycle):** Codex round-5 returned OUTCOME C again, but with a different shape — internal contradictions across §A/Pin-1/Pin-2/§7/§13, NOT missing surfaces. Each per-instance patch in R1–R4 resolved a finding but created a new inconsistency between sections. Orchestrator + user judgment: 5 rounds with diminishing returns; consolidate R5's findings in ONE commit + close the cycle + kick off Pin-1 (the residual gaps are auto-detectable by the static gates and meta-tests this handoff specifies). **R5 findings resolved in the consolidation commit:**
