@@ -223,8 +223,14 @@ export type StagedReviewCardProps = {
    *     reviewerChoices } for apply; { stagedId, kind } for discard).
    *     Requires `wizardSessionId`. Surfaces `lastFinalizeFailureCode`
    *     above the review items if provided.
+   *   - 'first_seen' → POST to the LIVE first-seen route
+   *     /api/admin/show/staged/[stagedId]/apply|discard with the
+   *     Pin-2 LiveFirstSeenStagedApply/DiscardRequest shape
+   *     ({ reviewerChoices } for apply; { kind } for discard). On
+   *     apply success the response carries `{ slug }`; the parent
+   *     route redirects to /admin/show/[slug].
    */
-  mode?: "live" | "wizard_failed_reapply";
+  mode?: "live" | "wizard_failed_reapply" | "first_seen";
   /** Required when mode === 'wizard_failed_reapply'. */
   wizardSessionId?: string;
   /**
@@ -246,6 +252,7 @@ export function StagedReviewCard({
   lastFinalizeFailureCode,
 }: StagedReviewCardProps) {
   const isWizardMode = mode === "wizard_failed_reapply";
+  const isFirstSeenMode = mode === "first_seen";
   // Items with a single allowed action default to that action so an
   // operator can apply immediately. Multi-action items (MI-12 / MI-13 /
   // MI-14) start unset and force an explicit choice.
@@ -277,10 +284,14 @@ export function StagedReviewCard({
 
   const applyEndpoint = isWizardMode
     ? `/api/admin/onboarding/staged/${encodeURIComponent(wizardSessionId ?? "")}/${encodeURIComponent(row.driveFileId)}/apply`
-    : `/api/admin/staged/${encodeURIComponent(row.driveFileId)}/apply`;
+    : isFirstSeenMode
+      ? `/api/admin/show/staged/${encodeURIComponent(row.stagedId)}/apply`
+      : `/api/admin/staged/${encodeURIComponent(row.driveFileId)}/apply`;
   const discardEndpoint = isWizardMode
     ? `/api/admin/onboarding/staged/${encodeURIComponent(wizardSessionId ?? "")}/${encodeURIComponent(row.driveFileId)}/discard`
-    : `/api/admin/staged/${encodeURIComponent(row.driveFileId)}/discard`;
+    : isFirstSeenMode
+      ? `/api/admin/show/staged/${encodeURIComponent(row.stagedId)}/discard`
+      : `/api/admin/staged/${encodeURIComponent(row.driveFileId)}/discard`;
 
   const handleApply = async () => {
     if (pending) return;
@@ -307,11 +318,13 @@ export function StagedReviewCard({
             reviewerChoicesVersion: 1,
             reviewerChoices,
           }
-        : {
-            source_scope: "live",
-            staged_id: row.stagedId,
-            choices: reviewerChoices,
-          };
+        : isFirstSeenMode
+          ? { reviewerChoices }
+          : {
+              source_scope: "live",
+              staged_id: row.stagedId,
+              choices: reviewerChoices,
+            };
       const res = await fetch(applyEndpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -323,9 +336,18 @@ export function StagedReviewCard({
         | { ok: false; code: string };
       const succeeded = isWizardMode
         ? "status" in json && (json as { status: string }).status === "reapplied"
-        : "ok" in json && (json as { ok: boolean }).ok === true;
+        : isFirstSeenMode
+          ? "slug" in json
+          : "ok" in json && (json as { ok: boolean }).ok === true;
       if (succeeded) {
         onMutated?.();
+        if (isFirstSeenMode) {
+          const slug = (json as { slug?: string | null }).slug;
+          if (typeof slug === "string" && slug.length > 0) {
+            router.push(`/admin/show/${encodeURIComponent(slug)}`);
+            return;
+          }
+        }
         router.refresh();
       } else {
         const errMaybe = (json as { error?: string; code?: string });
@@ -352,11 +374,13 @@ export function StagedReviewCard({
         variant === "try_again" ? "try_again_next_sync" : variant;
       const discardBody = isWizardMode
         ? { stagedId: row.stagedId, kind: wizardKind }
-        : {
-            source_scope: "live",
-            staged_id: row.stagedId,
-            variant,
-          };
+        : isFirstSeenMode
+          ? { kind: wizardKind }
+          : {
+              source_scope: "live",
+              staged_id: row.stagedId,
+              variant,
+            };
       const res = await fetch(discardEndpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -368,7 +392,9 @@ export function StagedReviewCard({
         | { ok: false; code: string };
       const succeeded = isWizardMode
         ? "status" in json && (json as { status: string }).status === "discarded"
-        : "ok" in json && (json as { ok: boolean }).ok === true;
+        : isFirstSeenMode
+          ? "status" in json && (json as { status: string }).status === "discarded"
+          : "ok" in json && (json as { ok: boolean }).ok === true;
       if (succeeded) {
         onMutated?.();
         router.refresh();
