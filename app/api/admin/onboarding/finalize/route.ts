@@ -236,6 +236,19 @@ async function selectApprovedRows(
   return rows;
 }
 
+async function countApprovedRows(tx: FinalizeRouteTx, wizardSessionId: string): Promise<number> {
+  const { rows } = await tx.query<{ approved_count: number }>(
+    `
+      select count(*)::int as approved_count
+        from public.pending_syncs
+       where wizard_session_id = $1::uuid
+         and wizard_approved = true
+    `,
+    [wizardSessionId],
+  );
+  return rows[0]?.approved_count ?? 0;
+}
+
 async function demotePending(
   tx: FinalizeRouteTx,
   wizardSessionId: string,
@@ -602,11 +615,12 @@ export async function handleOnboardingFinalize(
       perRow.push(result);
     }
 
+    const remainingCount = await countApprovedRows(tx, wizardSessionId);
     await advanceCheckpoint(tx, wizardSessionId, "in_progress");
     return NextResponse.json({
       status: "batch_complete",
       wizard_session_id: wizardSessionId,
-      remaining_count: Math.max(0, approvedRows.length - perRow.length),
+      remaining_count: remainingCount,
       unresolved_manifest_count: unresolved,
       per_row: perRow,
     });

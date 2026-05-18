@@ -56,6 +56,7 @@ type FinalizeCasResult =
       wizard_session_id: string;
       watched_folder_id: string;
       idempotent?: true;
+      per_row?: ShadowApplyResult[];
     }
   | Response;
 
@@ -128,7 +129,6 @@ async function readSession(tx: FinalizeCasRouteTx): Promise<SessionRow> {
       select pending_wizard_session_id, pending_folder_id, watched_folder_id
         from public.app_settings
        where id = 'default'
-       for update
     `,
   );
   return rows[0] ?? {
@@ -230,6 +230,13 @@ async function deleteShadowRow(
          and drive_file_id = $2
     `,
     [wizardSessionId, driveFileId],
+  );
+}
+
+async function deleteShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string): Promise<void> {
+  await tx.query(
+    `delete from public.shows_pending_changes where wizard_session_id = $1::uuid`,
+    [wizardSessionId],
   );
 }
 
@@ -438,9 +445,7 @@ async function runFinalizeCas(
     shadowResults.push(await deps.withRowTx(row.drive_file_id, (rowTx) => applyShadow(rowTx, wizardSessionId, row)));
   }
   const blocked = shadowResults.filter((row) => row.code !== "OK");
-  if (blocked.length > 0) {
-    return errorResponse(409, "STAGED_PARSE_OUTDATED_AT_PHASE_D", { per_row: blocked });
-  }
+  await deleteShadowRows(tx, wizardSessionId);
   await publishAppliedWizardShows(tx, wizardSessionId);
   await deleteWizardDeferrals(tx, wizardSessionId);
   const watchedFolderId = await promoteSettings(tx, wizardSessionId);
@@ -451,6 +456,7 @@ async function runFinalizeCas(
     status: "finalize_complete",
     wizard_session_id: wizardSessionId,
     watched_folder_id: watchedFolderId,
+    ...(blocked.length > 0 ? { per_row: shadowResults } : {}),
   };
 }
 

@@ -217,7 +217,7 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
     expect(db.operations.at(-1)).toBe("mark-final-cas-done");
   });
 
-  test("Phase D success deletes each shadow row in the row transaction before later rows fail", async () => {
+  test("Phase D bulk-clears shadows and completes promotion when later rows CAS-block", async () => {
     const db = new FakeFinalizeCasDb();
     db.shadowRows = [
       {
@@ -244,12 +244,20 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
 
     const response = await handleOnboardingFinalizeCas(request(), routeDeps);
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({
+      status: "finalize_complete",
+      per_row: [
+        { drive_file_id: "existing-1", code: "OK" },
+        { drive_file_id: "existing-2", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" },
+      ],
+    });
     expect(db.auditRows).toEqual(["existing-1"]);
-    expect(db.shadowRows.map((row) => row.drive_file_id)).toEqual(["existing-2"]);
+    expect(db.shadowRows).toEqual([]);
+    expect(db.published).toBe(true);
   });
 
-  test("rejects Phase D shadow rows whose live show advanced after Phase B", async () => {
+  test("reports Phase D shadow rows whose live show advanced after Phase B", async () => {
     const db = new FakeFinalizeCasDb();
     db.phaseDCasFails = true;
     db.shadowRows = [{
@@ -262,16 +270,15 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
 
     const response = await handleOnboardingFinalizeCas(request(), deps(db));
 
-    expect(response.status).toBe(409);
-    expect(await json(response)).toEqual({
-      ok: false,
-      code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({
+      status: "finalize_complete",
       per_row: [
         { drive_file_id: "existing-1", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" },
       ],
     });
-    expect(db.shadowRows).toHaveLength(1);
-    expect(db.published).toBe(false);
+    expect(db.shadowRows).toHaveLength(0);
+    expect(db.published).toBe(true);
   });
 
   test("is idempotent after settings were already promoted", async () => {

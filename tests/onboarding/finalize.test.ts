@@ -118,6 +118,13 @@ class FakeFinalizeDb implements FinalizeRouteTx {
       };
     }
 
+    if (normalized.startsWith("select count(*)::int as approved_count")) {
+      return {
+        rows: [{ approved_count: this.approved.filter((row) => row.wizard_approved_by_email !== null).length } as T],
+        rowCount: 1,
+      };
+    }
+
     if (normalized.startsWith("select drive_file_id, staged_id")) {
       return {
         rows: this.approved.slice(0, 100) as T[],
