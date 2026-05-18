@@ -1,5 +1,7 @@
 # Handoff — M9: Stale-data UX, error states, polish (AC-9.1..AC-9.3) + deferral basket
 
+**Status: COMPLETED 2026-05-17.** 12/12 routed clusters converged through per-cluster adversarial review; whole-milestone review converged at R18 APPROVE; impeccable dual-gate cleared on every UI surface (C9 + C4 + error.tsx + /admin landing); 4 mid-loop residuals resolved post-review (M2-D2 RLS probe, M9-D-C9-1 impeccable gate, M9-D-C4-1 useFormStatus, M9-D-9.3-1 AC-9.2 e2e fixture migration). 2 standing residuals with explicit re-open triggers: **M7-D3** (private-image-pipeline brainstorm needed) and **M9-D-C6c-1** (declined with evidence-tied trigger — re-open when FXAV crew identifies pinch-discovery friction). See §"Final M9 close-out actions" below for the full closure trail.
+
 **Handed off:** 2026-05-12 by Eric Weiss
 **Implementer:** Opus 4.7 / Claude Code (per ROUTING.md M9 row — all-Opus; the UI hard rule reinforces this regardless of routing)
 **Adversarial reviewer:** GPT-5.5 / Codex CLI (per ROUTING.md M9 row — Opus implements → Codex reviews)
@@ -1394,10 +1396,11 @@ The four largest sub-shape-required clusters (C1/C3/C4/C9) converged in the auto
 - **C4 (AlertBanner queue + Resolve confirm + raised_at)** — 3 rounds. One MEDIUM follow-up (`useFormStatus` hardening for failure-path recovery) logged as M9-D-C4-1 — **RESOLVED 2026-05-17 in commit `c195747`** during final close-out (see §"Final M9 close-out actions" below).
 - **C9 (Admin allow-list runtime-mutable)** — 11 rounds. Resolved 1 CRITICAL + 9 HIGH + 4 MEDIUM findings. Same-vector recurrence rule fired three times (RLS posture, then translator robustness, then spec-amendment text drift) and each time closed with a structural defensive layer. The impeccable critique + audit dual gate (logged as M9-D-C9-1) was **RESOLVED 2026-05-17 in commits `4e438b0` + `72af2f1`** during final close-out.
 
-**Tracked residuals (3):**
-1. **M7-D3** (Diagrams gallery `<img>` → `next/image`) — **RE-DEFERRED at C6b**. The migration attempt at commit `d433c32` was reverted at `22623ad` after Codex returned BLOCK with a P0 (`/_next/image` doesn't forward auth cookies + rewrites private Cache-Control). Adoption requires a private-image-pipeline brainstorming session.
+**Tracked residuals (2):**
+1. **M7-D3** (Diagrams gallery `<img>` → `next/image`) — **RE-DEFERRED at C6b**. The migration attempt at commit `d433c32` was reverted at `22623ad` after Codex returned BLOCK with a P0 (`/_next/image` doesn't forward auth cookies + rewrites private Cache-Control). Adoption requires a private-image-pipeline brainstorming session — options are (a) custom Next.js `loader` prop targeting an auth-respecting image-transform service built on `sharp`, (b) opportunistic `<img>` polish (explicit dims + preload LCP candidate — ~2-4 hours, no infra), or (c) signed-URL CDN. Re-open trigger: measured LCP regression OR strategic decision on image-CDN posture.
 2. **M9-D-C6c-1** (Pinch-zoom discoverability hint) — **DECLINED with rationale at C6c `/impeccable critique`** (HIGH-1 from the LLM design review). Reviewer recommended a session-scoped one-shot chip or persistent low-contrast hint. Declined: pinch-zoom is gesture-universal on mobile, "stuck while zoomed" already handled by the Reset chip (visible by definition when scale > 1), no user-research signal of actual barrier. Re-open trigger: FXAV venue-floor crew explicitly identifies pinch-discovery friction. See DEFERRED.md.
-3. ~~**M9-D-9.3-1** (AC-9.2 empty-state reachability e2e spec)~~ — **RESOLVED 2026-05-17 post-R18.** Migration shipped: `tests/e2e/empty-state-reachability.spec.ts` now `test.describe()` (no skip); 4/4 §8.3 scenarios pass; baselines committed at `tests/e2e/empty-state-reachability.spec.ts-snapshots/`. Each test signs in as `NON_ADMIN_CREW_FIXTURE` with a per-suite `crew_members` row tied to that email + `role_flags=['LEAD']`. `playwright.config.ts` testMatch regex updated to include the spec. See DEFERRED.md M9-D-9.3-1 for the migration detail.
+
+**Resolved-post-R18 (this session):** M9-D-9.3-1 — AC-9.2 empty-state reachability e2e spec migrated off `?crew=` mock onto `signInAs(NON_ADMIN_CREW_FIXTURE)` + per-suite crew_members row. 4/4 §8.3 scenarios pass against committed baselines. Commit `86cbbcc`. See DEFERRED.md.
 
 All other M9-routed deliverables shipped at APPROVE OR closed-as-RESOLVED in DEFERRED.md.
 
