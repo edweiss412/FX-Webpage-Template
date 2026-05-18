@@ -100,6 +100,17 @@ function errorResponse(status: number, code: string, extra: Record<string, unkno
   return NextResponse.json({ ok: false, code, ...extra }, { status });
 }
 
+function retryResponse(result: RetrySingleFileResult): Response {
+  if (result.outcome === "retried") {
+    if (result.status === "staged") return NextResponse.json({ status: "staged" });
+    if (result.status === "hard_failed") {
+      return NextResponse.json({ status: "hard_failed_again", code: "PARSE_HARD_FAIL" });
+    }
+    return NextResponse.json({ status: "live_row_conflict" });
+  }
+  return NextResponse.json(result);
+}
+
 async function readLockedPendingIngestion(
   tx: WizardPendingIngestionRouteTx,
   id: string,
@@ -237,13 +248,13 @@ async function handleAction(
       if (result.outcome === "not_found") {
         return errorResponse(404, result.code);
       }
-      return NextResponse.json({ status: "retried", result });
+      return retryResponse(result);
     }
 
     await upsertWizardDeferral(tx, current.row, action);
     await deletePendingIngestion(tx, id);
     return NextResponse.json({
-      status: action === "defer_until_modified" ? "deferred_until_modified" : "permanent_ignore",
+      status: action === "defer_until_modified" ? "deferred" : "ignored",
     });
   });
 }

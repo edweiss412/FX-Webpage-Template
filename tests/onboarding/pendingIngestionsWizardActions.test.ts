@@ -82,7 +82,7 @@ describe("wizard pending_ingestions actions", () => {
     const response = await handleWizardPendingIngestionRetry(req("/retry"), context, routeDeps);
 
     expect(response.status).toBe(200);
-    expect(await json(response)).toEqual({ status: "retried", result: { outcome: "retried", status: "staged" } });
+    expect(await json(response)).toEqual({ status: "staged" });
     expect(routeDeps.withRowTx).toHaveBeenCalledWith("file-1", expect.any(Function));
     expect(routeDeps.retrySingleFileUnlocked).toHaveBeenCalledWith(tx, "file-1", W1, expect.any(Object));
   });
@@ -103,7 +103,7 @@ describe("wizard pending_ingestions actions", () => {
     const response = await handleWizardPendingIngestionDeferUntilModified(req("/defer"), context, deps(tx));
 
     expect(response.status).toBe(200);
-    expect(await json(response)).toEqual({ status: "deferred_until_modified" });
+    expect(await json(response)).toEqual({ status: "deferred" });
     expect(tx.deferrals).toEqual([{ driveFileId: "file-1", kind: "defer_until_modified" }]);
     expect(tx.deleted).toBe(true);
   });
@@ -114,7 +114,7 @@ describe("wizard pending_ingestions actions", () => {
     const response = await handleWizardPendingIngestionPermanentIgnore(req("/ignore"), context, deps(tx));
 
     expect(response.status).toBe(200);
-    expect(await json(response)).toEqual({ status: "permanent_ignore" });
+    expect(await json(response)).toEqual({ status: "ignored" });
     expect(tx.deferrals).toEqual([{ driveFileId: "file-1", kind: "permanent_ignore" }]);
     expect(tx.deleted).toBe(true);
   });
