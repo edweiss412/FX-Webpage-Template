@@ -14,6 +14,20 @@ When picking up a deferred item:
 
 ## Open
 
+### M10-D-PHASE2-1 — Cluster I-5 impersonation / preview-as
+
+**Source:** M10 §B Phase 2 implementation, 2026-05-18 critical-path-first delivery decision.
+**Description:** Cluster I-5 per plan §M10 Task 10.8: `app/admin/show/[slug]/preview/[crewId]/page.tsx` Server Component preview-as + `components/admin/PreviewBanner.tsx` sticky banner + a third `Viewer` kind (`'admin_preview'`) on the locked `getShowForViewer` signature. Phase 2 ships the wizard end-to-end (Step 2 verify + Step 3 review + finalize loop + finalize re-entry) plus the post-onboarding Dashboard (active shows + pending panel + per-show alerts), all of which are on Doug's critical path. Preview-as is admin tooling that Doug does NOT need to complete first-onboarding or steady-state operation.
+**Why deferred:** The "third Viewer kind" requires extending `getShowForViewer` in `lib/` — §A territory. The full preview surface also requires rendering the crew-page view from an admin identity, which crosses M4 (crew-page) and M5 (auth) abstractions. Phase 2's scope was already dominated by the wizard finalize loop + re-entry dispatcher; preview-as was triaged out.
+**Suggested home:** Phase 3 (after the rest of M10 §B closes). Implementation steps: (a) §A extends `getShowForViewer` with `admin_preview` Viewer kind (Pin-3 contract); (b) §B authors the preview page + banner.
+
+### M10-D-PHASE2-2 — Cluster I-6 help / tour / ErrorExplainer + helpfulContext fill-in
+
+**Source:** Same as M10-D-PHASE2-1.
+**Description:** Cluster I-6 per plan §M10 Task 10.9 + §9.0.1: `components/admin/HelpTooltip.tsx` + `components/admin/Tour.tsx` + `components/admin/ErrorExplainer.tsx` (the latter already exists at `components/messages/ErrorExplainer.tsx` from M5/M7 — would be extended for admin surfaces). Plus `helpfulContext` fill-in for any M10 catalog codes that don't already have one.
+**Why deferred:** Help/tour/ErrorExplainer are quality-of-life polish — they don't block the operator's onboarding or steady-state flow. Every M10-§B-emitted code already has Doug-facing copy via `messageFor()` (AGENTS.md §1.5 invariant holds without this cluster). The "Take the tour" affordance per spec §9.0.1 is post-onboarding polish.
+**Suggested home:** Phase 3. Implementation includes: (a) `helpfulContext` audit pass of M10 catalog codes; (b) `<HelpTooltip />` mounted next to every section header on the dashboard + per-show page; (c) `<Tour />` linked from the dashboard footer; (d) Resolve M10-D-PHASE1-1 (ONBOARDING_OPERATOR_ERROR durable notification — Sentry + admin-visible banner wiring) at the same time since the admin_alerts producer surface gets touched.
+
 ### M10-D-PHASE1-1 — ONBOARDING_OPERATOR_ERROR durable notification (Sentry + admin-visible banner)
 
 **Source:** M10 §B Phase 1 cross-model adversarial review (Codex R1, 2026-05-17). Single MEDIUM finding routed against the §B Phase 1 wizard cluster.
