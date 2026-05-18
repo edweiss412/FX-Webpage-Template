@@ -34,6 +34,7 @@ class FakeLifecycleTx implements OnboardingSessionTx {
   settingsRow = settings();
   pendingSyncSessions = new Set<string | null>([W1, null]);
   pendingIngestionSessions = new Set<string | null>([W1, null]);
+  deferredIngestionSessions = new Set<string | null>([W1, null]);
   manifestSessions = new Set<string>([W1]);
   hasCheckpoint = false;
   recentCheckpoint = false;
@@ -106,6 +107,13 @@ class FakeLifecycleTx implements OnboardingSessionTx {
       return { rows: [], rowCount: 0 };
     }
 
+    if (op === "purge-deferred-ingestions") {
+      this.deferredIngestionSessions = new Set(
+        [...this.deferredIngestionSessions].filter((id) => id === null),
+      );
+      return { rows: [], rowCount: 0 };
+    }
+
     if (op === "lock-finalize") {
       return { rows: [], rowCount: 0 };
     }
@@ -160,6 +168,7 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     if (sql.startsWith("delete from public.pending_syncs")) return "purge-pending-syncs";
     if (sql.startsWith("delete from public.pending_ingestions")) return "purge-pending-ingestions";
     if (sql.startsWith("delete from public.onboarding_scan_manifest")) return "purge-manifest";
+    if (sql.startsWith("delete from public.deferred_ingestions")) return "purge-deferred-ingestions";
     if (sql.startsWith("select pg_advisory_xact_lock") && sql.includes("finalize:")) {
       return "lock-finalize";
     }
@@ -192,6 +201,7 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     next.settingsRow = { ...this.settingsRow };
     next.pendingSyncSessions = new Set(this.pendingSyncSessions);
     next.pendingIngestionSessions = new Set(this.pendingIngestionSessions);
+    next.deferredIngestionSessions = new Set(this.deferredIngestionSessions);
     next.manifestSessions = new Set(this.manifestSessions);
     next.hasCheckpoint = this.hasCheckpoint;
     next.recentCheckpoint = this.recentCheckpoint;
@@ -208,6 +218,7 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     this.settingsRow = { ...snapshot.settingsRow };
     this.pendingSyncSessions = new Set(snapshot.pendingSyncSessions);
     this.pendingIngestionSessions = new Set(snapshot.pendingIngestionSessions);
+    this.deferredIngestionSessions = new Set(snapshot.deferredIngestionSessions);
     this.manifestSessions = new Set(snapshot.manifestSessions);
     this.appliedManifestDriveFileIds = [...snapshot.appliedManifestDriveFileIds];
     this.shadowDriveFileIds = [...snapshot.shadowDriveFileIds];
@@ -240,6 +251,7 @@ describe("onboarding session lifecycle helpers", () => {
     expect(tx.settingsRow.pending_wizard_session_id).toBe(W2);
     expect(tx.pendingSyncSessions).toEqual(new Set([null]));
     expect(tx.pendingIngestionSessions).toEqual(new Set([null]));
+    expect(tx.deferredIngestionSessions).toEqual(new Set([null]));
     expect(tx.manifestSessions.size).toBe(0);
   });
 
@@ -266,6 +278,7 @@ describe("onboarding session lifecycle helpers", () => {
     expect(result.rotated).toBe(true);
     expect(result.settings.pending_wizard_session_id).toBe(W2);
     expect(tx.pendingSyncSessions).toEqual(new Set([null]));
+    expect(tx.deferredIngestionSessions).toEqual(new Set([null]));
     vi.useRealTimers();
   });
 
@@ -307,6 +320,7 @@ describe("onboarding session lifecycle helpers", () => {
     expect(tx.settingsRow.pending_wizard_session_id).toBe(W1);
     expect(tx.pendingSyncSessions.has(W1)).toBe(true);
     expect(tx.pendingIngestionSessions.has(W1)).toBe(true);
+    expect(tx.deferredIngestionSessions.has(W1)).toBe(true);
     expect(tx.manifestSessions.has(W1)).toBe(true);
   });
 

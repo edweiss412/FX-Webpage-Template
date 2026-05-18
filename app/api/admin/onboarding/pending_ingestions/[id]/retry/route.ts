@@ -235,6 +235,9 @@ async function handleAction(
   return await deps.withRowTx(driveFileId, async (tx) => {
     const current = await requireCurrentWizardRow(tx, id);
     if (!current.ok) return current.response;
+    if (current.row.drive_file_id !== driveFileId) {
+      return errorResponse(500, "LOCK_OWNERSHIP_ASSERTION_FAILED");
+    }
     if (action === "retry") {
       const result = await deps.retrySingleFileUnlocked(
         tx,

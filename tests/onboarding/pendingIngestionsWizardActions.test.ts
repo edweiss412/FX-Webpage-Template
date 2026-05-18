@@ -97,6 +97,20 @@ describe("wizard pending_ingestions actions", () => {
     expect(await json(response)).toEqual({ ok: false, code: "WIZARD_SESSION_SUPERSEDED" });
   });
 
+  test("actions assert the locked drive id still owns the selected row", async () => {
+    const tx = new FakeWizardPendingTx();
+    const routeDeps = deps(tx, {
+      readDriveFileIdForPendingIngestion: vi.fn(async () => "file-locked"),
+    });
+
+    const response = await handleWizardPendingIngestionDeferUntilModified(req("/defer"), context, routeDeps);
+
+    expect(response.status).toBe(500);
+    expect(await json(response)).toEqual({ ok: false, code: "LOCK_OWNERSHIP_ASSERTION_FAILED" });
+    expect(tx.deferrals).toEqual([]);
+    expect(tx.deleted).toBe(false);
+  });
+
   test("defer_until_modified writes a wizard deferral and deletes the pending ingestion", async () => {
     const tx = new FakeWizardPendingTx();
 

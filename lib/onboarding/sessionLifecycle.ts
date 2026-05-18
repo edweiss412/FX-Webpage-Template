@@ -148,6 +148,7 @@ async function purgeWizardRows(tx: OnboardingSessionTx): Promise<void> {
   await tx.query(`delete from public.pending_syncs where wizard_session_id is not null`);
   await tx.query(`delete from public.pending_ingestions where wizard_session_id is not null`);
   await tx.query(`delete from public.onboarding_scan_manifest`);
+  await tx.query(`delete from public.deferred_ingestions where wizard_session_id is not null`);
 }
 
 async function lockCleanupDriveFiles(
