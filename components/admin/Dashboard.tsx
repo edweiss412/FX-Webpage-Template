@@ -60,20 +60,26 @@ async function fetchDashboardData(): Promise<
   }
 
   const showIds = (showsQuery.data ?? []).map((s) => s.id as string);
-  let crewCountByShow = new Map<string, number>();
+  const crewCountByShow = new Map<string, number>();
   if (showIds.length > 0) {
     const crewQuery = await supabase
       .from("crew_members")
       .select("show_id")
       .in("show_id", showIds);
-    if (!crewQuery.error && crewQuery.data) {
-      const acc = new Map<string, number>();
-      for (const row of crewQuery.data) {
-        const id = (row as { show_id?: string }).show_id;
-        if (!id) continue;
-        acc.set(id, (acc.get(id) ?? 0) + 1);
-      }
-      crewCountByShow = acc;
+    // Treat crew_members errors like other dashboard queries — fail closed.
+    // Silently converting a query error to "0 crew" hides RLS / schema /
+    // infra failures behind plausible-but-false dashboard data and violates
+    // the Supabase call-boundary invariant (AGENTS.md §1.9).
+    if (crewQuery.error) {
+      return {
+        kind: "infra_error",
+        message: `crew_members query failed: ${crewQuery.error.message}`,
+      };
+    }
+    for (const row of crewQuery.data ?? []) {
+      const id = (row as { show_id?: string }).show_id;
+      if (!id) continue;
+      crewCountByShow.set(id, (crewCountByShow.get(id) ?? 0) + 1);
     }
   }
 

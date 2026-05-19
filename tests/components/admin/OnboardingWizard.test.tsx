@@ -103,7 +103,7 @@ describe("OnboardingWizard", () => {
     expect(getByTestId("wizard-start-over-button").textContent).toContain("Start over");
   });
 
-  test("when ?step=2 is in the URL, renders the Phase 1 Step 2 placeholder", async () => {
+  test("when ?step=2 is in the URL, renders the real Step2Verify component", async () => {
     const { getByTestId, queryByTestId } = render(
       await OnboardingWizard({
         settings: FRESH_SETTINGS,
@@ -111,20 +111,23 @@ describe("OnboardingWizard", () => {
       }),
     );
     expect(queryByTestId("wizard-step1")).toBeNull();
-    expect(getByTestId("wizard-step2-placeholder").textContent).toMatch(
-      /Step 2 is coming/i,
-    );
+    // Step2Verify renders the folder URL input + verify-and-scan button.
+    expect(getByTestId("wizard-step2-folder-url-input")).toBeTruthy();
+    expect(getByTestId("wizard-step2-submit")).toBeTruthy();
   });
 
-  test("when ?step=3 is in the URL, renders the Phase 1 Step 3 placeholder", async () => {
+  test("when ?step=3 with no pending session, renders the no-session empty state", async () => {
+    // FRESH_SETTINGS has pending_wizard_session_id = null — step 3 can't
+    // fetch a manifest, so render the explanatory empty state instead of
+    // hitting the Supabase fetch.
     const { getByTestId } = render(
       await OnboardingWizard({
         settings: FRESH_SETTINGS,
         searchParams: { step: "3" },
       }),
     );
-    expect(getByTestId("wizard-step3-placeholder").textContent).toMatch(
-      /Step 3 is coming/i,
+    expect(getByTestId("wizard-step3-no-session").textContent ?? "").toMatch(
+      /Nothing scanned yet/i,
     );
   });
 

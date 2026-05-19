@@ -163,10 +163,14 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
           <ReadyToPublish sessionId={settings.pending_wizard_session_id} />
         );
       }
-      // 'final_cas_done' is defensive — Phase D atomically clears
-      // pending_wizard_session_id, so observing this state with a non-null
-      // session id means an inconsistent snapshot. Fall through to the
-      // Dashboard rather than strand the operator on a wizard surface.
+      if (checkpoint.status === "final_cas_done") {
+        // Defensive — Phase D atomically clears pending_wizard_session_id,
+        // so observing this state with a non-null session id means an
+        // inconsistent snapshot. Render Dashboard explicitly per plan
+        // §M10 Task 10.1 finding 2 dispatch logic rather than strand the
+        // operator on a wizard surface.
+        return <Dashboard />;
+      }
     }
     // No checkpoint yet → wizard pre-finalize (steps 1/2/3, possibly mid-Apply).
     return (

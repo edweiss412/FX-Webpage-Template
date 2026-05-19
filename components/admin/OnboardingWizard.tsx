@@ -27,6 +27,14 @@ import type { AppSettingsRow } from "@/lib/onboarding/sessionLifecycle";
 import { startOverServerAction } from "@/lib/onboarding/serverActions";
 import { messageFor } from "@/lib/messages/lookup";
 import { Step1Share } from "@/components/admin/wizard/Step1Share";
+import { Step2Verify } from "@/components/admin/wizard/Step2Verify";
+import {
+  Step3Review,
+  type Step3Row,
+  type Step3ManifestStatus,
+} from "@/components/admin/wizard/Step3Review";
+import { FinalizeButton } from "@/components/admin/FinalizeButton";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 type OnboardingWizardProps = {
   settings: AppSettingsRow;
@@ -106,46 +114,132 @@ function StepIndicator({ step }: { step: 1 | 2 | 3 }) {
   );
 }
 
-function Step2Placeholder() {
-  return (
-    <section
-      data-testid="wizard-step2-placeholder"
-      aria-labelledby="wizard-step2-placeholder-heading"
-      className="flex flex-col gap-4 rounded-md border border-border bg-surface p-tile-pad"
-    >
-      <h2
-        id="wizard-step2-placeholder-heading"
-        className="text-xl font-semibold text-text-strong"
-      >
-        Verify your folder
-      </h2>
-      <p className="max-w-prose text-base text-text-subtle">
-        Step 2 is coming in the next phase. The wizard will ask for the folder
-        URL, confirm read access, and show what is inside. For now, click
-        &quot;Start over&quot; to return to step 1.
-      </p>
-    </section>
-  );
+type Step3FetchResult =
+  | { kind: "ok"; rows: Step3Row[]; allResolved: boolean }
+  | { kind: "infra_error"; message: string };
+
+async function fetchStep3Data(wizardSessionId: string): Promise<Step3FetchResult> {
+  let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  try {
+    supabase = await createSupabaseServerClient();
+  } catch (err) {
+    return {
+      kind: "infra_error",
+      message: `supabase client failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const manifestQuery = await supabase
+    .from("onboarding_scan_manifest")
+    .select("drive_file_id, drive_file_name, status")
+    .eq("wizard_session_id", wizardSessionId)
+    .order("drive_file_id", { ascending: true });
+  if (manifestQuery.error) {
+    return {
+      kind: "infra_error",
+      message: `onboarding_scan_manifest query failed: ${manifestQuery.error.message}`,
+    };
+  }
+
+  const pendingSyncsQuery = await supabase
+    .from("pending_syncs")
+    .select("staged_id, drive_file_id, parse_result")
+    .eq("wizard_session_id", wizardSessionId);
+  if (pendingSyncsQuery.error) {
+    return {
+      kind: "infra_error",
+      message: `pending_syncs query failed: ${pendingSyncsQuery.error.message}`,
+    };
+  }
+
+  const pendingIngestionsQuery = await supabase
+    .from("pending_ingestions")
+    .select("id, drive_file_id, code")
+    .eq("wizard_session_id", wizardSessionId);
+  if (pendingIngestionsQuery.error) {
+    return {
+      kind: "infra_error",
+      message: `pending_ingestions query failed: ${pendingIngestionsQuery.error.message}`,
+    };
+  }
+
+  const stagedByDfid = new Map<string, { stagedId: string; title: string | null }>();
+  for (const ps of pendingSyncsQuery.data ?? []) {
+    const driveFileId = ps.drive_file_id as string;
+    const parseResult = ps.parse_result as { show?: { title?: string | null } } | null;
+    stagedByDfid.set(driveFileId, {
+      stagedId: ps.staged_id as string,
+      title: parseResult?.show?.title ?? null,
+    });
+  }
+
+  const ingestionByDfid = new Map<string, { id: string; code: string | null }>();
+  for (const pi of pendingIngestionsQuery.data ?? []) {
+    ingestionByDfid.set(pi.drive_file_id as string, {
+      id: pi.id as string,
+      code: (pi.code as string | null) ?? null,
+    });
+  }
+
+  const rows: Step3Row[] = (manifestQuery.data ?? []).map((m) => {
+    const driveFileId = m.drive_file_id as string;
+    const status = m.status as Step3ManifestStatus;
+    const driveFileName = (m.drive_file_name as string | null) ?? null;
+    const base: Step3Row = { driveFileId, status, driveFileName };
+    if (status === "staged") {
+      const staged = stagedByDfid.get(driveFileId);
+      if (staged?.title) return { ...base, stagedShowTitle: staged.title };
+    }
+    if (status === "hard_failed") {
+      const ingestion = ingestionByDfid.get(driveFileId);
+      if (ingestion) {
+        const withId: Step3Row = { ...base, pendingIngestionId: ingestion.id };
+        if (ingestion.code !== null) return { ...withId, errorCode: ingestion.code };
+        return withId;
+      }
+    }
+    return base;
+  });
+
+  const allResolved =
+    rows.length > 0 &&
+    rows.every(
+      (r) =>
+        r.status === "applied" ||
+        r.status === "defer_until_modified" ||
+        r.status === "permanent_ignore" ||
+        r.status === "skipped_non_sheet",
+    );
+
+  return { kind: "ok", rows, allResolved };
 }
 
-function Step3Placeholder() {
-  return (
-    <section
-      data-testid="wizard-step3-placeholder"
-      aria-labelledby="wizard-step3-placeholder-heading"
-      className="flex flex-col gap-4 rounded-md border border-border bg-surface p-tile-pad"
-    >
-      <h2
-        id="wizard-step3-placeholder-heading"
-        className="text-xl font-semibold text-text-strong"
+async function Step3Container({ wizardSessionId }: { wizardSessionId: string }) {
+  const result = await fetchStep3Data(wizardSessionId);
+  if (result.kind === "infra_error") {
+    return (
+      <section
+        data-testid="wizard-step3-infra-error"
+        className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
       >
-        Review your sheets
-      </h2>
-      <p className="max-w-prose text-base text-text-subtle">
-        Step 3 is coming in the next phase. The wizard will list every sheet
-        the scan found and let you approve or skip each one.
-      </p>
-    </section>
+        <p className="font-semibold">We could not load your sheets.</p>
+        <p className="text-sm">
+          The admin database query failed. Refresh in a moment. If this keeps
+          happening, contact the developer.
+        </p>
+      </section>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-section-gap">
+      <Step3Review wizardSessionId={wizardSessionId} rows={result.rows} />
+      {result.rows.length > 0 ? (
+        <FinalizeButton
+          wizardSessionId={wizardSessionId}
+          disabled={!result.allResolved}
+        />
+      ) : null}
+    </div>
   );
 }
 
@@ -207,8 +301,24 @@ export async function OnboardingWizard({
       {service.ok ? (
         <>
           {step === 1 ? <Step1Share serviceAccountEmail={service.email} /> : null}
-          {step === 2 ? <Step2Placeholder /> : null}
-          {step === 3 ? <Step3Placeholder /> : null}
+          {step === 2 ? <Step2Verify /> : null}
+          {step === 3 && settings.pending_wizard_session_id !== null ? (
+            <Step3Container wizardSessionId={settings.pending_wizard_session_id} />
+          ) : null}
+          {step === 3 && settings.pending_wizard_session_id === null ? (
+            <section
+              data-testid="wizard-step3-no-session"
+              className="flex flex-col gap-3 rounded-md border border-border bg-surface-sunken p-tile-pad text-base text-text-subtle"
+            >
+              <p className="font-semibold text-text-strong">
+                Nothing scanned yet.
+              </p>
+              <p>
+                Go back to step 2 and verify your folder. Once the scan
+                finishes we will list every sheet here for review.
+              </p>
+            </section>
+          ) : null}
         </>
       ) : (
         <OperatorErrorBlock />

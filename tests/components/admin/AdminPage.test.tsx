@@ -271,7 +271,13 @@ describe("AdminPage Phase 2 routing", () => {
     expect(queryByTestId("admin-ready-to-publish-spy")).toBeNull();
   });
 
-  test("wizard mid-flight + checkpoint status='final_cas_done' (defensive) → Dashboard placeholder", async () => {
+  test("wizard mid-flight + checkpoint status='final_cas_done' (defensive) → Dashboard", async () => {
+    // F-Codex-3 fix: the dispatcher MUST explicitly return Dashboard when
+    // it observes a final_cas_done checkpoint with a still-non-null
+    // pending_wizard_session_id (an inconsistent snapshot — Phase D
+    // atomically clears the session id, so this state should be
+    // unreachable in practice, but the dispatcher renders Dashboard
+    // defensively rather than strand the operator on the wizard).
     purgeAndRotateIfStaleMock.mockResolvedValue({
       settings: WIZARD_IN_FLIGHT_SETTINGS,
       rotated: false,
@@ -285,8 +291,8 @@ describe("AdminPage Phase 2 routing", () => {
     const { getByTestId, queryByTestId } = render(
       await AdminPage({ searchParams: Promise.resolve({}) }),
     );
-    // OnboardingWizard renders (the wizard's settings-based step picker takes over).
-    expect(getByTestId("onboarding-wizard-spy")).toBeTruthy();
+    expect(getByTestId("admin-dashboard-placeholder")).toBeTruthy();
+    expect(queryByTestId("onboarding-wizard-spy")).toBeNull();
     expect(queryByTestId("admin-finalize-in-progress-spy")).toBeNull();
     expect(queryByTestId("admin-ready-to-publish-spy")).toBeNull();
     expect(queryByTestId("admin-stale-ready-to-publish-spy")).toBeNull();
