@@ -469,6 +469,29 @@ async function advanceCheckpoint(
   );
 }
 
+async function finalizeBatchTailResponse(input: {
+  tx: FinalizeRouteTx;
+  wizardSessionId: string;
+  remainingCount: number;
+  unresolvedManifestCount: number;
+  perRow: PerRowResult[];
+}): Promise<Response> {
+  const status =
+    input.remainingCount === 0 ? "all_batches_complete" : "batch_complete";
+  await advanceCheckpoint(
+    input.tx,
+    input.wizardSessionId,
+    status === "all_batches_complete" ? "all_batches_complete" : "in_progress",
+  );
+  return NextResponse.json({
+    status,
+    wizard_session_id: input.wizardSessionId,
+    remaining_count: input.remainingCount,
+    unresolved_manifest_count: input.unresolvedManifestCount,
+    per_row: input.perRow,
+  });
+}
+
 async function processApprovedRow(input: {
   row: PendingFinalizeRow;
   wizardSessionId: string;
@@ -592,13 +615,12 @@ export async function handleOnboardingFinalize(
     }
 
     if (approvedRows.length === 0) {
-      await advanceCheckpoint(tx, wizardSessionId, "all_batches_complete");
-      return NextResponse.json({
-        status: "all_batches_complete",
-        wizard_session_id: wizardSessionId,
-        remaining_count: 0,
-        unresolved_manifest_count: 0,
-        per_row: [],
+      return await finalizeBatchTailResponse({
+        tx,
+        wizardSessionId,
+        remainingCount: 0,
+        unresolvedManifestCount: 0,
+        perRow: [],
       });
     }
 
@@ -616,13 +638,12 @@ export async function handleOnboardingFinalize(
     }
 
     const remainingCount = await countApprovedRows(tx, wizardSessionId);
-    await advanceCheckpoint(tx, wizardSessionId, "in_progress");
-    return NextResponse.json({
-      status: "batch_complete",
-      wizard_session_id: wizardSessionId,
-      remaining_count: remainingCount,
-      unresolved_manifest_count: unresolved,
-      per_row: perRow,
+    return await finalizeBatchTailResponse({
+      tx,
+      wizardSessionId,
+      remainingCount,
+      unresolvedManifestCount: unresolved,
+      perRow,
     });
   });
 }

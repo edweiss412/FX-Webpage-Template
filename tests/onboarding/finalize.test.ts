@@ -237,13 +237,15 @@ describe("POST /api/admin/onboarding/finalize", () => {
 
     expect(response.status).toBe(200);
     expect(await json(response)).toMatchObject({
-      status: "batch_complete",
+      status: "all_batches_complete",
       wizard_session_id: W1,
+      remaining_count: 0,
       per_row: [
         { drive_file_id: "first-seen-1", wizard_session_id: W1, code: "OK" },
         { drive_file_id: "existing-1", wizard_session_id: W1, code: "OK" },
       ],
     });
+    expect(db.checkpoint?.status).toBe("all_batches_complete");
     expect(db.firstSeenApplied).toEqual(["first-seen-1"]);
     expect(db.auditRows).toEqual(["first-seen-1"]);
     expect(db.stagedShadows).toEqual(["existing-1"]);
@@ -263,6 +265,60 @@ describe("POST /api/admin/onboarding/finalize", () => {
       unresolved_manifest_count: 0,
     });
     expect(db.checkpoint?.status).toBe("all_batches_complete");
+  });
+
+  test("final real batch transitions checkpoint to all_batches_complete when it processes every approved row", async () => {
+    const db = new FakeFinalizeDb();
+    db.approved = Array.from({ length: 50 }, (_, index) => pending(`single-${index}`));
+
+    const response = await handleOnboardingFinalize(request(), deps(db));
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toMatchObject({
+      status: "all_batches_complete",
+      wizard_session_id: W1,
+      remaining_count: 0,
+      unresolved_manifest_count: 0,
+    });
+    expect(db.checkpoint?.status).toBe("all_batches_complete");
+    expect(db.approved).toEqual([]);
+    expect(db.deletedPending).toHaveLength(50);
+  });
+
+  test("third multi-batch finalize call transitions checkpoint to all_batches_complete after processing the remaining approved rows", async () => {
+    const db = new FakeFinalizeDb();
+    db.approved = Array.from({ length: 250 }, (_, index) => pending(`multi-${index}`));
+    const routeDeps = deps(db);
+
+    const first = await handleOnboardingFinalize(request(), routeDeps);
+    expect(first.status).toBe(200);
+    expect(await json(first)).toMatchObject({
+      status: "batch_complete",
+      wizard_session_id: W1,
+      remaining_count: 150,
+    });
+    expect(db.checkpoint?.status).toBe("in_progress");
+
+    const second = await handleOnboardingFinalize(request(), routeDeps);
+    expect(second.status).toBe(200);
+    expect(await json(second)).toMatchObject({
+      status: "batch_complete",
+      wizard_session_id: W1,
+      remaining_count: 50,
+    });
+    expect(db.checkpoint?.status).toBe("in_progress");
+
+    const third = await handleOnboardingFinalize(request(), routeDeps);
+    expect(third.status).toBe(200);
+    expect(await json(third)).toMatchObject({
+      status: "all_batches_complete",
+      wizard_session_id: W1,
+      remaining_count: 0,
+      unresolved_manifest_count: 0,
+    });
+    expect(db.checkpoint?.status).toBe("all_batches_complete");
+    expect(db.approved).toEqual([]);
+    expect(db.deletedPending).toHaveLength(250);
   });
 
   test("rejects early completion when unresolved manifest rows remain", async () => {
