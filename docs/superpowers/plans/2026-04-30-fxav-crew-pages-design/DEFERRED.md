@@ -14,6 +14,13 @@ When picking up a deferred item:
 
 ## Open
 
+### M10-D-PHASE3-1 — `/api/report` auth precedence (admin preview reports can downgrade to crew)
+
+**Source:** M10 §B Phase 3 adversarial review, Codex R6 (commit `259fb6f`).
+**Description:** `app/api/report/route.ts` accepts a valid link / Google session before it checks `requireAdminIdentity`, so an admin previewing a show in a browser that ALSO carries a valid crew session for the same show submits the "Report this view" POST with `auth.kind === "crew"` despite the client setting `surface: "admin"` + `crewPreview` autocapture. `submitReport` then builds the crew issue body, omits `crewPreview`, labels it `reporter:crew`, and withholds the GitHub URL from the admin's modal. The Phase 3 §B client surfaces are correct (the override + autocapture are wired through both PreviewBanner and Footer); the downgrade happens server-side at the auth-ordering boundary.
+**Why deferred:** `app/api/report/route.ts` is §A territory per AGENTS.md §1.8 — Phase 3 §B owns components/ and app/ except app/api/. The fix is to give admin identity precedence on `surface === "admin"` POSTs (or unconditionally prefer `requireAdminIdentity` when it succeeds), then add a regression covering the mixed-session case. This belongs in §A's M10 admin-report-surface tasks rather than a §B retrofit.
+**Suggested home:** §A picks up alongside any future preview/report touch in M10 close-out OR M11 ops-hardening. Add a route-level test: `surface === "admin"` + `validateLinkSession` returns success + `requireAdminIdentity` returns success → asserted `submitReport` receives `{ kind: "admin" }` with `crewPreview` intact.
+
 ### M10-D-PHASE2-1 — Cluster I-5 impersonation / preview-as
 
 **Source:** M10 §B Phase 2 implementation, 2026-05-18 critical-path-first delivery decision.
