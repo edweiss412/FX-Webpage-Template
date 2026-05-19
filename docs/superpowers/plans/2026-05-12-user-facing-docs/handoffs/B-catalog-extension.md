@@ -1,6 +1,6 @@
 # Handoff — M11 Phase B: Catalog extension + alignment (Tasks B.1–B.5)
 
-**Status:** READY FOR KICKOFF — handoff authored 2026-05-19.
+**Status:** CLOSED 2026-05-19 at SHA `cd14865`.
 
 **Handed off:** 2026-05-19 by Eric Weiss (orchestrator session "Orchestrator — M11").
 **Implementer:** GPT-5.5 / Codex CLI via `codex exec` (per ROUTING.md row "B — Catalog extension"; `lib/messages/` has been Codex-owned since M5 §A and M8 §A).
@@ -25,12 +25,12 @@
 
 ## §2 Phase completed in this session
 
-- [ ] **Phase B — Catalog extension + alignment** (`02-catalog-extension.md`)
-  - [ ] Task B.1 — Extend `MessageCatalogEntry` with `title` + `longExplanation` + `helpHref` (all `string | null`, additive); one-shot seed script populates `null` on every existing entry.
-  - [ ] Task B.2 — `scripts/extract-admin-log-only-codes.ts` parser (master-spec §12.4 derivation) + 9 unit fixtures + live-spec assertion. **r3-reordered: lands BEFORE B.3.**
-  - [ ] Task B.3 — Catalog-alignment **hard gate**: every parser-derived code either already in catalog (six user-facing fields set to `null`) or newly added as null-stub entry. No follow-up deferrals.
-  - [ ] Task B.4 — `lib/messages/catalogDocsValidator.ts` (validator module) + `tests/messages/_metaErrorCatalogDocs.test.ts` (meta-test #2; 15 forced fixtures covering all 7 violation cases + 8 satisfying cases). Live-catalog full-contract assertion deferred to E.13.
-  - [ ] Task B.5 — `tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts` (meta-test #17; long-running canary; verify-red-via-restore protocol per AGENTS.md invariant #1).
+- [x] **Phase B — Catalog extension + alignment** (`02-catalog-extension.md`) — **CLOSED 2026-05-19 at SHA `cd14865`**
+  - [x] Task B.1 — Extend `MessageCatalogEntry` with `title` + `longExplanation` + `helpHref` (`5d081b9`). Seed script regex generalized to handle quoted MI keys (e.g., `"MI-1_VERSION_DETECTION_FAILED"`); seed verification passed `OK: 175 entries seeded`.
+  - [x] Task B.2 — `scripts/extract-admin-log-only-codes.ts` parser (`1971551`). Spec-canonical deviation: `PENDING_SNAPSHOT_{ROLLBACK,PROMOTE}_STUCK` confirmed Doug-facing per master-spec lines 2829-2830; fixture has NEGATIVE assertions for both per watchpoint #18.
+  - [x] Task B.3 — Catalog-alignment **hard gate** (`1daf1b7`). No catalog mutations needed: live catalog was already null-aligned (X.1 baseline at `2090dc2` had pre-cleaned). Hard-gate test was still red-proven via temporary `STALE_WRITE_ABORTED.dougFacing` drift then restored before commit.
+  - [x] Task B.4 — `lib/messages/catalogDocsValidator.ts` + `tests/messages/_metaErrorCatalogDocs.test.ts` (`c0c24b6`). 15 forced fixtures covering all 7 violation cases + 8 satisfying cases. Live-catalog assertion deferred to E.13.
+  - [x] Task B.5 — `tests/messages/_metaCatalogAdminLogOnlyAlignment.test.ts` (`cd14865`). Long-running canary; verify-red-via-restore protocol per AGENTS.md invariant #1 — observed FAIL on temporary `STALE_WRITE_ABORTED.dougFacing` drift, `git restore`d before commit.
 
 Other phases (A done at `e911078`; C–I tracked in their own per-phase handoffs).
 
@@ -196,18 +196,17 @@ Phase B close-implementation commits (B.1–B.5 — SHAs filled in as commits la
 | Task | SHA | Title |
 | --- | --- | --- |
 | B.1 | `5d081b9` | `feat(messages): extend MessageCatalogEntry with title/longExplanation/helpHref (Task B.1)` |
-| B.2 | `<TBD>` | `feat(messages): admin-log-only derivation parser for master-spec §12.4 (Task B.2)` |
-| B.3 | `<TBD>` | `feat(messages): align all derived admin-log-only codes (existing+new) to null per master-spec §12.4 (Task B.3 — hard gate)` |
-| B.4 | `<TBD>` | `test(messages): catalog meta-test #2 — validator module + 15 forced fixtures; live-catalog assertion deferred to E.13 (Task B.4 — TDD red→green)` |
-| B.5 | `<TBD>` | `test(messages): catalog-alignment meta-test #17 — long-running canary; verify-red-via-restore (Task B.5)` |
+| B.2 | `1971551` | `feat(messages): admin-log-only derivation parser for master-spec §12.4 (Task B.2)` |
+| B.3 | `1daf1b7` | `feat(messages): align all derived admin-log-only codes (existing+new) to null per master-spec §12.4 (Task B.3 — hard gate)` |
+| B.4 | `c0c24b6` | `test(messages): catalog meta-test #2 — validator module + 15 forced fixtures; live-catalog assertion deferred to E.13 (Task B.4 — TDD red→green)` |
+| B.5 | `cd14865` | `test(messages): catalog-alignment meta-test #17 — long-running canary; verify-red-via-restore (Task B.5)` |
 
 Two-stage review (spec compliance + code quality) APPROVED on every task — N/A under single-implementer Codex flow; convergence is captured at the cross-model adversarial layer instead.
 
 | Round | Date | Verdict | Findings (sev, summary) | Resolution commit | Notes |
 | --- | --- | --- | --- | --- | --- |
-| R1 Opus adversarial | TBD | TBD | TBD | TBD | First cross-model review fires on `<close-impl-SHA>` covering B.1..B.5 |
-| R2 ... | | | | | iterate until APPROVE per `feedback_iterate_until_convergence.md` |
-| Final | TBD | **APPROVE (target)** | — | — | Phase B closed; Phase C unblocked |
+| R1 Opus adversarial (fresh subagent) | 2026-05-19 | **APPROVE** at `cd14865` | — | — | Fresh Opus subagent (`agentId adae9874a333cd8d7`); confidence 96%. Verified: parser correctly derives from live spec at execution time (no hardcoded lists); B.3 alignment preserved `PENDING_SNAPSHOT_{ROLLBACK,PROMOTE}_STUCK` Doug-facing per watchpoint #18; `contractViolations` enforces both halves of the biconditional with specific violation strings (not a weak boolean); X.1 parity surface untouched (`tests/cross-cutting/codes.test.ts` + `lib/messages/__generated__/spec-codes.ts` unmodified); 15 forced fixtures cover all 7 contract-violation cases; B.5 canary re-derives every run; `BRANCH_PROTECTION_DRIFT` + `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` correctly null-aligned (Doug via `(admin log only — ...)` parenthetical matches `isNullShape` via `\b` after `only`). |
+| **Final stop-condition verification at `cd14865`** | 2026-05-19 | **PASSES** all 4 gates | typecheck ✅; lint ✅ (5 existing warnings, 0 errors, predate Phase B); vitest 3512 passed / 5 skipped / **0 failed** ✅; e2e mobile-safari 85 passed / 151 skipped / **0 failed** ✅; `tests/cross-cutting/codes.test.ts` 6/6 ✅; `tests/help/` 19/19 ✅; `tests/messages/` 9 files / 217 tests ✅ | — | Phase B officially closed; Phase C (time utility) unblocked |
 
 ---
 
@@ -251,19 +250,21 @@ No expected `DEFERRED.md` / `BACKLOG.md` entries from Phase B. If adversarial re
 
 ## §12 Sign-off
 
-- [ ] Implementer (GPT-5.5 / Codex CLI): __ date __ — final SHA `<TBD>`
-- [ ] Reviewer (Opus / Claude Code cross-CLI) APPROVE on __ date __
+- [x] Implementer (GPT-5.5 / Codex CLI): 2026-05-19 — final SHA `cd14865`
+- [x] Reviewer (Opus / Claude Code cross-CLI fresh subagent `adae9874a333cd8d7`) APPROVE on 2026-05-19 at 96% confidence
 - [ ] User review: __ date __
 
-Phase B will be marked **closed** in this handoff + `ROUTING.md` when:
+Phase B **closed** in this handoff. Marking in `ROUTING.md` is a follow-up admin step.
 
-- All five Phase-B commits landed (B.1 → B.5).
-- All Phase-B targeted tests green.
-- X.1 parity test (`tests/cross-cutting/codes.test.ts`) still green.
-- All Phase A tests (`tests/help/`) still green.
-- M9 catalog completeness test (`tests/messages/_metaAdminAlertCatalog.test.ts`) still green.
-- `pnpm test && pnpm lint && pnpm typecheck` clean at final SHA.
-- Adversarial review converged to APPROVE.
+Close-out gates satisfied:
+
+- [x] All five Phase-B commits landed (B.1 `5d081b9` → B.2 `1971551` → B.3 `1daf1b7` → B.4 `c0c24b6` → B.5 `cd14865`).
+- [x] All Phase-B targeted tests green (`tests/messages/` 9 files / 217 tests).
+- [x] X.1 parity test (`tests/cross-cutting/codes.test.ts`) still green (6/6).
+- [x] All Phase A tests (`tests/help/`) still green (7 files / 19 tests).
+- [x] M9 catalog completeness test (`tests/messages/_metaAdminAlertCatalog.test.ts`) still green (inside the 217-test sweep).
+- [x] `pnpm test && pnpm lint && pnpm typecheck` clean at final SHA `cd14865`.
+- [x] Adversarial review converged to APPROVE at R1 (no R2 needed).
 
 ---
 
