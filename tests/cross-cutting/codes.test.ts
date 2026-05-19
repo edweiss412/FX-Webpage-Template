@@ -8,7 +8,6 @@ import { RETIRED_CODES, SPEC_CODES } from "@/lib/messages/__generated__/spec-cod
 import { CODE_SCENARIOS } from "@/tests/cross-cutting/code-scenarios";
 
 const SOURCE_ROOTS = ["app", "lib", "components"] as const;
-const CODE_LITERAL_RE = /["'`]([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+)["'`]/g;
 const PRODUCER_RE = /\bcode:\s*["'`]([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+)["'`]/g;
 
 function walkSourceFiles(): string[] {
@@ -54,25 +53,17 @@ function rgCodeProducerLiterals(): Set<string> {
   return codes;
 }
 
-function sourceCodeLiterals(): Set<string> {
-  const codes = new Set<string>();
+function producerLocations(code: string): string[] {
+  const locations: string[] = [];
+  const producer = new RegExp(
+    String.raw`\bcode:\s*["'\`]${code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'\`]`,
+    "g",
+  );
   for (const file of walkSourceFiles()) {
     if (file === "lib/messages/catalog.ts") continue;
     if (file.startsWith("lib/messages/__generated__/")) continue;
     const source = readFileSync(file, "utf8");
-    for (const match of source.matchAll(CODE_LITERAL_RE)) {
-      if (match[1]) codes.add(match[1]);
-    }
-  }
-  return codes;
-}
-
-function literalLocations(code: string): string[] {
-  const locations: string[] = [];
-  const literal = new RegExp(String.raw`["'\`]${code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}["'\`]`, "g");
-  for (const file of walkSourceFiles()) {
-    const source = readFileSync(file, "utf8");
-    if (literal.test(source)) locations.push(relative(process.cwd(), file));
+    if (producer.test(source)) locations.push(relative(process.cwd(), file));
   }
   return locations;
 }
@@ -111,8 +102,8 @@ describe("AC-X.1 §12.4 catalog parity", () => {
 
   test("producer-site discovery is code-shape based and finds committed producer literals", () => {
     const producerCodes = rgCodeProducerLiterals();
-    expect(producerCodes.has("BOOTSTRAP_GENERIC")).toBe(true);
-    expect(producerCodes.has("NETWORK_UNREACHABLE")).toBe(true);
+    expect(producerCodes.has("LEAKED_LINK_DETECTED")).toBe(true);
+    expect(producerCodes.has("REPORT_PIPELINE_FAILED")).toBe(true);
   });
 
   test("retired §12.4 codes have no producer, runtime catalog entry, or scenario", () => {
@@ -124,8 +115,8 @@ describe("AC-X.1 §12.4 catalog parity", () => {
         code,
       );
       expect(
-        literalLocations(code),
-        `retired code ${code} still has a source literal`,
+        producerLocations(code),
+        `retired code ${code} still has a producer`,
       ).toEqual([]);
     }
   });

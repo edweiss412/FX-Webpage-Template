@@ -140,7 +140,7 @@ describe("message catalog", () => {
       code: "AGENDA_GONE_FOR_CREW",
       dougFacing: null,
       crewFacing: "This agenda isn't available anymore. Ask Doug for a fresh link.",
-      followUp: "Crew -> message Doug",
+      followUp: "Crew → message Doug",
       helpfulContext: null,
     });
   });
@@ -150,7 +150,7 @@ describe("message catalog", () => {
       code: "AGENDA_UNAUTHENTICATED",
       dougFacing: null,
       crewFacing: "Your link to this agenda expired. Reopen Doug's latest message to view it.",
-      followUp: "Crew -> reopen signed link",
+      followUp: "Crew → reopen signed link",
       helpfulContext: null,
     });
   });

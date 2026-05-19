@@ -237,31 +237,31 @@ export const SPEC_CODES = {
     "helpfulContext": "Between staging and Apply, the sheet was moved out of the watched folder. Anything outside the watched folder is invisible to the sync pipeline by design. Move the sheet back in and the next sync will produce a new staged parse.",
   },
   "LINKED_ASSET_DRIFTED": {
-    "dougFacing": "*<sheet-name>_: a linked-folder diagram has been edited in Drive since the last review. Crew see a placeholder for that image until your next sheet edit re-stages it.",
+    "dougFacing": "A linked-folder diagram has been edited in Drive since the last review. Crew see a placeholder for that image until your next sheet edit re-stages it.",
     "crewFacing": null,
     "followUp": "Doug → re-edit sheet to re-stage",
     "helpfulContext": "A diagram in the linked Google Drive folder was edited after the staged parse was reviewed. Crew see a placeholder where that diagram should be — we won't show drifted bytes that an operator hasn't approved. Save the sheet again (any edit advances the version) to re-stage the new diagram.",
   },
   "REEL_DRIFTED": {
-    "dougFacing": "_<sheet-name>_: the opening-reel video has been edited since you reviewed this parse. Crew see the text status only until your next sheet edit re-stages the new reel.",
+    "dougFacing": "The opening-reel video has been edited since you reviewed this parse. Crew see the text status only until your next sheet edit re-stages the new reel.",
     "crewFacing": null,
     "followUp": "Doug → re-edit sheet",
     "helpfulContext": "The opening-reel video was replaced or edited in Drive after the staged parse was reviewed. Crew see the text status only (e.g., 'YES') without the inline video until you save the sheet again to re-stage the new reel.",
   },
   "OPENING_REEL_NOT_VIDEO": {
-    "dougFacing": "*<sheet-name>_: the opening-reel link is not a video file. Crew see the text status only — replace the link with a video file URL to enable inline playback.",
+    "dougFacing": "The opening-reel link is not a video file. Crew see the text status only — replace the link with a video file URL to enable inline playback.",
     "crewFacing": "Opening reel link is not a video file",
     "followUp": "Doug → re-edit sheet",
     "helpfulContext": "The opening-reel cell in your sheet contains a Drive URL, but the file behind it isn't a video — it's a Google Doc, Slides deck, image, PDF, or some other file type. Crew see the text status only (e.g., 'YES', 'BACKUP ONLY') without an inline player, because we won't try to embed a non-video file in a `<video>` element. To enable inline playback, replace the link with a video file URL (the file's MIME type must start with `video/`).",
   },
   "OPENING_REEL_PERMISSION_DENIED": {
-    "dougFacing": "*<sheet-name>*: the opening-reel video is no longer shared with FXAV. Crew see the text status only — re-share the video file (or replace the link) to restore inline playback.",
+    "dougFacing": "The opening-reel video is no longer shared with FXAV. Crew see the text status only — re-share the video file (or replace the link) to restore inline playback.",
     "crewFacing": "Opening reel access revoked",
     "followUp": "Doug → re-share / replace link",
     "helpfulContext": "Drive returned a permission-denied response when we tried to fetch the opening-reel video. The file used to be accessible (we had it pinned at a previous Apply), but the share was revoked, the file was made private, or it was moved out of a shared drive the service account can read. Crew see the text status only without inline playback. To restore: re-share the video file with the service account email, or replace the link with a video file you do share.",
   },
   "EMBEDDED_RECOVERY_REQUIRES_RESTAGE": {
-    "dougFacing": "*<sheet-name>*: a diagram in your sheet can't be re-downloaded automatically. Save the sheet (any edit advances the version) and crew will see the image again on the next sync.",
+    "dougFacing": "A diagram in this sheet can't be re-downloaded automatically. Save the sheet (any edit advances the version) and crew will see the image again on the next sync.",
     "crewFacing": null,
     "followUp": "Doug → save sheet to advance version",
     "helpfulContext": "A diagram in your sheet can't be re-downloaded automatically because it doesn't have a content-derived approval token. The fix is to save the sheet — any edit advances the version and lets us mint a fresh approval token on the next sync, which restores the diagram for crew.",
@@ -279,16 +279,16 @@ export const SPEC_CODES = {
     "helpfulContext": null,
   },
   "ASSET_RECOVERY_REVISION_DRIFT": {
-    "dougFacing": null,
+    "dougFacing": "Diagram recovery paused because the show changed while recovery was checking files. We'll retry against the latest version on the next run.",
     "crewFacing": null,
     "followUp": "informational only",
-    "helpfulContext": null,
+    "helpfulContext": "Asset recovery fetched and verified diagram bytes against an older snapshot revision, but a newer Apply landed before recovery could write those bytes. The recovery run aborts so it does not attach old assets to the new approved revision.",
   },
   "ASSET_RECOVERY_DRIFT_COOLDOWN": {
-    "dougFacing": null,
+    "dougFacing": "Diagram recovery is backing off briefly because this show keeps changing during recovery. We'll retry automatically after the cooldown.",
     "crewFacing": null,
-    "followUp": null,
-    "helpfulContext": null,
+    "followUp": "informational only",
+    "helpfulContext": "The previous asset recovery attempt raced with a newer Apply, so recovery is briefly backing off for this snapshot revision. This bounds retry storms while the show is changing frequently.",
   },
   "APPLY_PROMOTE_PENDING": {
     "dougFacing": null,
@@ -297,7 +297,7 @@ export const SPEC_CODES = {
     "helpfulContext": null,
   },
   "ASSET_RECOVERY_BYTES_EXCEEDED": {
-    "dougFacing": "\\*<sheet-name>_: this show's diagram set is too large to recover automatically (more than 60 images, an image >50MB, or >3GB total). Crew see placeholders for the missing diagrams. Tell the developer if you need this raised, or trim the gallery.",
+    "dougFacing": "This show's diagram set is too large to recover automatically (more than 60 images, an image >50MB, or >3GB total). Crew see placeholders for the missing diagrams. Tell the developer if you need this raised, or trim the gallery.",
     "crewFacing": null,
     "followUp": "Doug → trim gallery / Eric → raise cap",
     "helpfulContext": "Asset recovery stops above 60 images, above 50MB for one image, or above 3GB per run so the per-show advisory lock stays short and other syncs are not blocked behind a huge gallery recovery. Trim the gallery or ask the developer to raise the ceiling if this show truly needs more.",
@@ -405,7 +405,7 @@ export const SPEC_CODES = {
     "helpfulContext": "A crew member's LEAD status changed — they either gained or lost LEAD. LEAD grants admin/ops surface access including the ability to see internal financials, so we hold every LEAD toggle for review. (Non-LEAD role_flags changes — like swapping a department designation from A1 to V1, or adding BO — auto-apply with a `ROLE_FLAGS_NOTICE` entry in the alert feed and do NOT trigger this code.) Confirm the LEAD change is intentional before applying.",
   },
   "ROLE_FLAGS_NOTICE": {
-    "dougFacing": "_<crew-name>_'s role flags changed from _<prior>_ to _<new>_. The LEAD bit is unchanged, so the change was applied automatically — this entry is here for audit.",
+    "dougFacing": "A crew member's role flags changed. The LEAD bit is unchanged, so the change was applied automatically — this entry is here for audit.",
     "crewFacing": null,
     "followUp": "none (informational)",
     "helpfulContext": "A crew member's role flags changed in a way that doesn't affect LEAD status — for example, a department designation swap (A1 → V1), or an additive flag like BO. These changes affect which scope tile the crew member sees on their own page but don't grant or remove admin/ops access, so we apply them automatically and log this entry for your audit trail. No action needed; if you want to see the prior value, the audit page captures it.",
@@ -437,7 +437,7 @@ export const SPEC_CODES = {
   "SHOW_FIRST_PUBLISHED": {
     "dougFacing": "_<sheet-name>_ is now live for crew. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](signed-link) within 24h.",
     "crewFacing": null,
-    "followUp": "none (informational confirmation; surfaces in admin alert feed at info severity AND fires the tier-1 push email)",
+    "followUp": null,
     "helpfulContext": "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live and signed links you send out will work. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and kill any links you've already sent.",
   },
   "SHOW_UNPUBLISHED": {
@@ -476,6 +476,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → fix sheet",
     "helpfulContext": "A crew member has the `***` day-restriction flag but the sheet does not name which days they work. Add a parenthetical such as `(6/24 and 6/26 ONLY)` to the name cell so their schedule can be filtered safely.",
   },
+  "DAY_RESTRICTION_DOUBLE_LOCATION": {
+    "dougFacing": "_<crew-name>_ has day restrictions written in both the name and role cells. We're using the role-cell version. Remove one copy so the schedule stays clear.",
+    "crewFacing": null,
+    "followUp": "Doug → fix sheet",
+    "helpfulContext": "The parser found day-restriction parentheticals in both the crew member's name cell and role cell. It uses the role-cell version because that is closer to the staffing assignment, but Doug should remove the duplicate marker to avoid conflicting instructions.",
+  },
   "UNKNOWN_ROLE_TOKEN": {
     "dougFacing": "_<crew-name>_'s role contains _<token>_ which we don't know. We're ignoring it. Tell the developer if this is a real new role you're using.",
     "crewFacing": null,
@@ -493,6 +499,12 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "followUp": "Doug → optional Report",
     "helpfulContext": "The parser found something that looks like a PULL SHEET block, but the columns do not match the expected format. Crew still see the preserved raw text, but structured packing data is degraded until the format is supported.",
+  },
+  "PULL_SHEET_UNKNOWN_VARIANT": {
+    "dougFacing": "_<sheet-name>_'s PULL SHEET has rows we can read, but the packed-column layout isn't one we recognize. We're using the default layout; tell the developer if the packing list looks wrong.",
+    "crewFacing": null,
+    "followUp": "Doug → optional Report",
+    "helpfulContext": "A pull-sheet case had data rows, but none of them exposed a TRUE/FALSE packed flag in the supported Variant A or Variant B positions. The parser defaults to Variant A so crew still see the list, but Doug should report it if quantities or packing columns look wrong.",
   },
   "DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE": {
     "dougFacing": "_<sheet-name>_: an image embedded in the DIAGRAMS tab couldn't be downloaded. Crew see a placeholder where it should be. Re-paste the image, or tell the developer if this keeps happening.",
@@ -639,7 +651,7 @@ export const SPEC_CODES = {
     "helpfulContext": null,
   },
   "LIVE_ROW_CONFLICT": {
-    "dougFacing": "*<sheet-name>* is already being processed by the live folder sync — we're skipping it during setup. Resolve it from the dashboard, then re-run setup if needed.",
+    "dougFacing": "A sheet is already being processed by the live folder sync, so we're skipping it during setup. Resolve it from the dashboard, then re-run setup if needed.",
     "crewFacing": null,
     "followUp": "Doug → resolve live row from dashboard, then re-run setup",
     "helpfulContext": "Setup tried to stage a parse for a sheet that the live folder sync is already processing. We skipped the wizard's stage to avoid clobbering the live row. Resolve the live row from the dashboard — either Apply or Discard it — then re-run setup if you still need to.",
@@ -651,16 +663,16 @@ export const SPEC_CODES = {
     "helpfulContext": "The setup wizard scans your folder by writing per-session staging rows into the same tables the live sync writes to (pending_syncs, pending_ingestions, onboarding_scan_manifest). To keep wizard rows from colliding with live rows, the database has four partial unique indexes that route writes to the right slot. The scan checks for those indexes before writing anything; if any are missing, the wizard aborts cleanly rather than risk a partial scan against a half-migrated schema. Eric is automatically notified to apply the migration; once that's done, click Re-run Setup to retry.",
   },
   "PENDING_SNAPSHOT_PROMOTE_STUCK": {
-    "dougFacing": null,
+    "dougFacing": "A diagram snapshot promotion has been stuck for more than 15 minutes. Eric needs to run the snapshot-promote repair tool before cleanup can finish.",
     "crewFacing": null,
     "followUp": "Eric → run snapshot-promote-repair admin tool",
-    "helpfulContext": null,
+    "helpfulContext": "A diagram snapshot promotion has been in the non-reclaimable promote-started state for more than 15 minutes. Eric needs to reconcile the temp and canonical prefixes before cleanup can continue.",
   },
   "PENDING_SNAPSHOT_ROLLBACK_STUCK": {
-    "dougFacing": null,
+    "dougFacing": "A diagram snapshot rollback stalled after moving some assets. Eric needs to run the snapshot-rollback repair tool before cleanup can finish.",
     "crewFacing": null,
     "followUp": "Eric → run snapshot-rollback-repair admin tool",
-    "helpfulContext": null,
+    "helpfulContext": "A diagram snapshot rollback failed midway, leaving assets split across temp and canonical prefixes. Eric needs to reconcile both prefixes and finish the rollback before cleanup can continue.",
   },
   "BRANCH_PROTECTION_DRIFT": {
     "dougFacing": null,

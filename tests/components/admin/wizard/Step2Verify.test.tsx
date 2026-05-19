@@ -263,9 +263,7 @@ describe("Step2Verify", () => {
     });
     await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
     expect(queryByTestId("wizard-step2-error")).toBeNull();
-    expect(container.textContent ?? "").not.toContain(
-      MESSAGE_CATALOG.WIZARD_SESSION_SUPERSEDED_DURING_SCAN.dougFacing ?? "",
-    );
+    expect(MESSAGE_CATALOG.WIZARD_SESSION_SUPERSEDED_DURING_SCAN.dougFacing).toBeNull();
     expect(container.textContent ?? "").not.toContain(
       "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
     );

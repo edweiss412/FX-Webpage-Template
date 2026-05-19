@@ -1,6 +1,5 @@
-import { randomUUID } from "node:crypto";
 import type { DriveListedFile } from "@/lib/drive/list";
-import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import type { ParseResult } from "@/lib/parser/types";
 import {
   assertShowLockHeld,
   type LockedShowTx,
@@ -32,38 +31,6 @@ export type RunManualStageForFirstSeenDeps = {
   runPhase1?: typeof runPhase1;
 };
 
-function warningSummary(parseResult: ParseResult): string {
-  return parseResult.warnings
-    .filter((warning) => warning.severity === "warn")
-    .map((warning) => warning.message)
-    .join("; ");
-}
-
-async function forceFirstSeenReviewStage(
-  tx: LockedShowTx<RunManualStageForFirstSeenTx>,
-  driveFileId: string,
-  fileMeta: DriveListedFile,
-  parseResult: ParseResult,
-): Promise<RunManualStageForFirstSeenResult> {
-  const triggeredReviewItems: TriggeredReviewItem[] = [
-    { id: randomUUID(), invariant: "FIRST_SEEN_REVIEW" },
-  ];
-  await tx.deleteLivePendingIngestion(driveFileId);
-  const upserted = await tx.upsertLivePendingSync({
-    driveFileId,
-    wizardSessionId: null,
-    baseModifiedTime: null,
-    stagedModifiedTime: fileMeta.modifiedTime,
-    parseResult,
-    triggeredReviewItems,
-    priorLastSyncStatus: null,
-    priorLastSyncError: null,
-    sourceKind: "manual",
-    warningSummary: warningSummary(parseResult),
-  });
-  return { outcome: "parsed_pending_review", stagedId: upserted.stagedId };
-}
-
 function toResult(result: Phase1Result): RunManualStageForFirstSeenResult | null {
   if (result.outcome === "stage") {
     return { outcome: "parsed_pending_review", stagedId: result.stagedId };
@@ -72,6 +39,7 @@ function toResult(result: Phase1Result): RunManualStageForFirstSeenResult | null
     return { outcome: "hard_failed", errorCode: result.code };
   }
   if (result.outcome === "pass") return { outcome: "parsed" };
+  if (result.outcome === "auto_publish_ready") return { outcome: "parsed" };
   if (result.outcome === "defer") {
     return { outcome: "deferred", reason: result.reason };
   }
@@ -97,5 +65,5 @@ export async function runManualStageForFirstSeen(
     parseResult,
     binding,
   });
-  return toResult(result) ?? await forceFirstSeenReviewStage(tx, driveFileId, fileMeta, parseResult);
+  return toResult(result) ?? { outcome: "parsed" };
 }

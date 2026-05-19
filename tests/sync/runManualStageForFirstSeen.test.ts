@@ -90,7 +90,7 @@ describe("runManualStageForFirstSeen", () => {
     );
   });
 
-  test("downgrades first-seen auto-publish readiness into FIRST_SEEN_REVIEW staging", async () => {
+  test("preserves first-seen auto-publish readiness without emitting retired FIRST_SEEN_REVIEW", async () => {
     const tx = new FakeManualStageTx();
 
     const result = await runManualStageForFirstSeen(tx as never, "file-1", {
@@ -137,13 +137,8 @@ describe("runManualStageForFirstSeen", () => {
       },
     });
 
-    expect(result).toEqual({ outcome: "parsed_pending_review", stagedId: "staged-forced" });
-    expect(tx.stagedRows).toEqual([
-      {
-        driveFileId: "file-1",
-        triggeredReviewItems: [expect.objectContaining({ invariant: "FIRST_SEEN_REVIEW" })],
-      },
-    ]);
+    expect(result).toEqual({ outcome: "parsed" });
+    expect(tx.stagedRows).toEqual([]);
   });
 
   test("preserves Phase 1 debounce as deferred rather than hard failed", async () => {
