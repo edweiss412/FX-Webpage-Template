@@ -154,7 +154,7 @@ async function fetchStep3Data(wizardSessionId: string): Promise<Step3FetchResult
 
   const pendingIngestionsQuery = await supabase
     .from("pending_ingestions")
-    .select("id, drive_file_id, code")
+    .select("id, drive_file_id, last_error_code")
     .eq("wizard_session_id", wizardSessionId);
   if (pendingIngestionsQuery.error) {
     return {
@@ -177,7 +177,7 @@ async function fetchStep3Data(wizardSessionId: string): Promise<Step3FetchResult
   for (const pi of pendingIngestionsQuery.data ?? []) {
     ingestionByDfid.set(pi.drive_file_id as string, {
       id: pi.id as string,
-      code: (pi.code as string | null) ?? null,
+      code: (pi.last_error_code as string | null) ?? null,
     });
   }
 

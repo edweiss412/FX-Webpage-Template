@@ -97,7 +97,9 @@ async function fetchDashboardData(): Promise<
 
   const pendingIngestionsQuery = await supabase
     .from("pending_ingestions")
-    .select("id, drive_file_id, drive_file_name, first_seen_at, attempt_count, code, message")
+    .select(
+      "id, drive_file_id, drive_file_name, first_seen_at, attempt_count, last_error_code, last_error_message",
+    )
     .is("wizard_session_id", null)
     .order("first_seen_at", { ascending: false });
 
@@ -116,8 +118,8 @@ async function fetchDashboardData(): Promise<
     driveFileName: (row.drive_file_name as string | null) ?? null,
     firstSeenAt: (row.first_seen_at as string | null) ?? null,
     attemptCount: (row.attempt_count as number) ?? 0,
-    errorCode: (row.code as string | null) ?? null,
-    errorMessage: (row.message as string | null) ?? null,
+    errorCode: (row.last_error_code as string | null) ?? null,
+    errorMessage: (row.last_error_message as string | null) ?? null,
   }));
 
   const firstSeenStaged: FirstSeenStagedRow[] = [];
