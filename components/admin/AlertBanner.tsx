@@ -57,7 +57,23 @@ const INFO_SEVERITY_CODES: string[] = (Object.values(MESSAGE_CATALOG) as Message
   .map((entry) => entry.code);
 
 export async function AlertBanner() {
-  const supabase = await createSupabaseServerClient();
+  // AGENTS.md §1.9 + Codex R6 R2 class-sweep: wrap client construction
+  // AND every awaited query-builder variable in try/catch. The banner
+  // is mounted by app/admin/layout.tsx, so a thrown Supabase fault
+  // here would take down the entire admin shell. Mirror the existing
+  // returned-`.error` posture: log + return null (the banner is
+  // intentionally invisible in any failure mode; the steady-state
+  // "no unresolved alerts" path also returns null).
+  let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  try {
+    supabase = await createSupabaseServerClient();
+  } catch (err) {
+    console.error(
+      "[AlertBanner] supabase client construction threw:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
 
   // RLS-gated SELECT. The admin_only policy on admin_alerts requires
   // public.is_admin() to return true; the layout's requireAdmin() has
@@ -78,15 +94,24 @@ export async function AlertBanner() {
       `(${INFO_SEVERITY_CODES.map((code) => `"${code}"`).join(",")})`,
     );
   }
-  const { data, error } = await query.order("raised_at", { ascending: false }).limit(1);
-
-  if (error) {
-    // I3 fix: distinguish DB error from empty result. Empty (no unresolved
-    // alerts) is the steady-state — banner stays invisible. An error means
-    // the banner system itself is broken (RLS denial after admin gate,
-    // network failure, mis-applied migration); log so an operator tailing
-    // server logs has a signal even though the visible behavior is the same.
-    console.error("[AlertBanner] admin_alerts SELECT failed:", error.message);
+  let data: Array<Record<string, unknown>> | null;
+  try {
+    const result = await query.order("raised_at", { ascending: false }).limit(1);
+    if (result.error) {
+      // I3 fix: distinguish DB error from empty result. Empty (no unresolved
+      // alerts) is the steady-state — banner stays invisible. An error means
+      // the banner system itself is broken (RLS denial after admin gate,
+      // network failure, mis-applied migration); log so an operator tailing
+      // server logs has a signal even though the visible behavior is the same.
+      console.error("[AlertBanner] admin_alerts SELECT failed:", result.error.message);
+      return null;
+    }
+    data = result.data as Array<Record<string, unknown>> | null;
+  } catch (err) {
+    console.error(
+      "[AlertBanner] admin_alerts SELECT threw:",
+      err instanceof Error ? err.message : String(err),
+    );
     return null;
   }
   if (!data || data.length === 0) {
@@ -114,12 +139,23 @@ export async function AlertBanner() {
   // C4 R2 fix: invariant 9 (Supabase call-boundary discipline) requires
   // every call destructure `{ data, error }`. head:true makes the data
   // payload null but the binding shape stays uniform across the codebase.
-  const { data: _countData, count: queueDepth, error: countError } = await countQuery;
-  void _countData;
-  if (countError) {
-    // Non-fatal: the banner still renders the topmost alert without
-    // the count chip. Log so an operator sees the partial degradation.
-    console.error("[AlertBanner] admin_alerts COUNT failed:", countError.message);
+  let queueDepth: number | null = null;
+  try {
+    const { data: _countData, count, error: countError } = await countQuery;
+    void _countData;
+    if (countError) {
+      // Non-fatal: the banner still renders the topmost alert without
+      // the count chip. Log so an operator sees the partial degradation.
+      console.error("[AlertBanner] admin_alerts COUNT failed:", countError.message);
+    } else {
+      queueDepth = count ?? null;
+    }
+  } catch (err) {
+    // Non-fatal mirror of the .error branch above — chip silently drops.
+    console.error(
+      "[AlertBanner] admin_alerts COUNT threw:",
+      err instanceof Error ? err.message : String(err),
+    );
   }
   const moreCount = typeof queueDepth === "number" && queueDepth > 1 ? queueDepth - 1 : 0;
 
