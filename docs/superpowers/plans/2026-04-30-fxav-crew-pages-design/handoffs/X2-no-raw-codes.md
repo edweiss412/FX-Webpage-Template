@@ -166,8 +166,8 @@ Pulled forward from X.1 R1–R3 (especially R2 Opus findings) + M10 close-out R3
 - [x] `pnpm typecheck && pnpm lint && pnpm test` exits 0 with no new warnings (the four pre-existing lint warnings carry forward).
 - [x] No new `// TODO` or `// FIXME` lines.
 - [ ] Adversarial review converged to APPROVE (expect at least one R2 round — X.1 demonstrated same-model self-review consistently misses class-of-error findings).
-- [ ] All commits follow `<type>(<scope>): <summary>` format with one logical task per commit.
-- [ ] Convergence log at the bottom of this file is filled in.
+- [x] All commits follow `<type>(<scope>): <summary>` format with one logical task per commit.
+- [x] Convergence log at the bottom of this file is filled in.
 
 ## 9. Sandbox / git protocol
 
