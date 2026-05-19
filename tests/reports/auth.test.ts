@@ -4,11 +4,16 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 const authMock = vi.hoisted(() => ({
   validateLinkSession: vi.fn(async (): Promise<unknown> => ({ kind: "continue" as const })),
   validateGoogleSession: vi.fn(async (): Promise<unknown> => ({ kind: "continue" as const })),
-  submitReport: vi.fn(async () => ({ status: 501, body: { ok: false, code: "NOT_IMPLEMENTED" } })),
+  submitReport: vi.fn(
+    async (): Promise<{ status: number; body: Record<string, unknown> }> => ({
+      status: 501,
+      body: { ok: false, code: "NOT_IMPLEMENTED" },
+    }),
+  ),
   requireAdmin: vi.fn(async () => {
     throw new Error("forbidden");
   }),
-  requireAdminIdentity: vi.fn(async () => {
+  requireAdminIdentity: vi.fn(async (): Promise<{ email: string }> => {
     throw new Error("forbidden");
   }),
   roleFlags: ["A1"] as string[],
