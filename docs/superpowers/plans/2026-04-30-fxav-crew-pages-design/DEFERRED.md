@@ -438,11 +438,11 @@ Both passes ran with the canonical v3 preflight gates (PRODUCT.md ✓, DESIGN.md
 
 ### M10-D-PHASE3-1 — `/api/report` auth precedence (admin preview reports can downgrade to crew)
 
-**Status:** **Resolved at SHA `a514daf` (M10 §A post-Pin-3 report auth hotfix)**.
+**Status:** **Resolved at SHA `e54babe` (M10 §A post-Pin-3 report auth hotfix)**.
 
 **Source:** M10 §B Phase 3 adversarial review, Codex R6 (commit `259fb6f`).
 **Description:** `app/api/report/route.ts` accepted a valid link / Google session before it checked `requireAdminIdentity`, so an admin previewing a show in a browser that ALSO carried a valid crew session for the same show submitted the "Report this view" POST with `auth.kind === "crew"` despite the client setting `surface: "admin"` + `crewPreview` autocapture. `submitReport` then built the crew issue body, omitted `crewPreview`, labeled it `reporter:crew`, and withheld the GitHub URL from the admin's modal. The Phase 3 §B client surfaces were correct (the override + autocapture were wired through both PreviewBanner and Footer); the downgrade happened server-side at the auth-ordering boundary.
-**Resolution:** `app/api/report/route.ts` now gives admin identity precedence when `body.surface === "admin"`: it attempts `requireAdminIdentity()` before link/Google session validation, submits with `{ kind: "admin", email }` on success, and returns 403 without falling through to crew auth on admin-auth failure. Route-level regressions in `tests/reports/auth.test.ts` cover mixed admin+link sessions, claimed-admin-without-admin, crew link behavior, and crew-surface admin fallback.
+**Resolution:** `app/api/report/route.ts` now gives admin identity precedence when `body.surface === "admin"`: it attempts `requireAdminIdentity()` before link/Google session validation, submits with `{ kind: "admin", email }` on success, returns 403 without falling through to crew auth on auth-denial, and preserves `AdminInfraError` as a cataloged 500. Route-level regressions in `tests/reports/auth.test.ts` cover mixed admin+link sessions, claimed-admin-without-admin, admin-auth infra failure, crew link behavior, and crew-surface admin fallback.
 
 ### M6-D12 — Amendment 9 first-seen auto-publish + 24h unpublish undo
 
