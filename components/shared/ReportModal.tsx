@@ -33,7 +33,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
-import { messageFor, type MessageCode } from "@/lib/messages/lookup";
+import { messageFor, MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 
 export type ReportSurface = "crew" | "admin";
@@ -84,6 +84,15 @@ type PersistedState = {
   draft: string;
   status: ModalStatus;
   surfaceId: string;
+  /**
+   * Last cataloged failure code, persisted on every failed-retryable
+   * transition so a cross-mount resume can rehydrate the §9.0.1
+   * "What does this mean?" affordance (Codex R4 disposition). When the
+   * persisted shape predates this field (legacy entries), the resume
+   * mount renders the failed-retryable banner without the explainer —
+   * acceptable graceful degradation rather than crash.
+   */
+  errorCode?: string | null;
 };
 
 type ErrorState =
@@ -189,7 +198,23 @@ export function ReportModal(props: ReportModalProps) {
     return "composing";
   });
 
-  const [error, setError] = useState<ErrorState>(null);
+  const [error, setError] = useState<ErrorState>(() => {
+    // Cross-mount resume rehydration: when sessionStorage carried us
+    // into a 'failed-retryable' shape AND the last failure was a
+    // cataloged code, rehydrate the ErrorState so the §9.0.1
+    // HelpAffordance renders on the resumed mount the same way it
+    // does on the original failure. Unknown codes (legacy or string
+    // that no longer matches MessageCode) fall through to no explainer
+    // rather than crashing — graceful degradation.
+    if (
+      persistedAtMount?.status === "failed-retryable" &&
+      typeof persistedAtMount.errorCode === "string" &&
+      persistedAtMount.errorCode in MESSAGE_CATALOG
+    ) {
+      return { kind: "code", code: persistedAtMount.errorCode as MessageCode };
+    }
+    return null;
+  });
   const [success, setSuccess] = useState<SuccessState>(null);
 
   // Distinguishes cross-mount resume (modal opens into hydrated nonterminal
@@ -211,8 +236,9 @@ export function ReportModal(props: ReportModalProps) {
   useEffect(() => {
     // Don't persist terminal states — they're cleared on transition.
     if (status === "succeeded" || status === "expired") return;
-    writePersisted({ idempotencyKey, draft, status, surfaceId });
-  }, [idempotencyKey, draft, status, surfaceId]);
+    const errorCode = error?.kind === "code" ? error.code : null;
+    writePersisted({ idempotencyKey, draft, status, surfaceId, errorCode });
+  }, [idempotencyKey, draft, status, surfaceId, error]);
 
   // Cross-mount sessionStorage hydration is handled by the `useState` lazy
   // initializers above (which run on every fresh mount). Parents render
@@ -365,6 +391,7 @@ export function ReportModal(props: ReportModalProps) {
       draft: "",
       status: "composing",
       surfaceId,
+      errorCode: null,
     });
   }
 

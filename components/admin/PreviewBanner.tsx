@@ -99,6 +99,18 @@ export function PreviewBanner({
             surface="admin"
             surfaceId={`admin-preview-${slug}-${crewMemberId}`}
             showId={showId}
+            // crewPreview autocapture so the GitHub issue body's "Crew
+            // context" field identifies WHICH viewer was being
+            // previewed when the operator hit Report (Codex R4 finding
+            // — preview-as is the surface that needs to flag role
+            // filtering / redaction bugs by viewer identity).
+            autocapture={{
+              crewPreview: {
+                crewMemberId,
+                name: crewMemberName,
+                role: crewMemberRoleLabel,
+              },
+            }}
             label="Report this view"
             variant="text"
           />

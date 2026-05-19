@@ -22,7 +22,7 @@
  *   - File-content audit: Tour.tsx step 4 string contains the U+201C /
  *     U+201D characters and NOT the `&ldquo;`/`&rdquo;` tokens.
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -101,6 +101,50 @@ describe("PreviewBanner (§9.3)", () => {
     const reportTrigger = screen.getByTestId("report-button-trigger");
     expect(reportTrigger.textContent).toBe("Report this view");
     expect(reportTrigger.getAttribute("data-surface")).toBe("admin");
+  });
+
+  test("ReportButton receives crewPreview autocapture so the GitHub issue body identifies the previewed viewer (Codex R4 finding 1)", async () => {
+    // Mock /api/report. The ReportButton -> ReportModal pipeline POSTs
+    // a body that includes `autocapture`. We assert the autocapture
+    // round-trips the crewPreview block populated from PreviewBanner.
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 201,
+      ok: true,
+      json: async () => ({ ok: true, status: "created" }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    render(
+      <PreviewBanner
+        crewMemberName="Eric Weiss"
+        crewMemberRoleLabel="A1"
+        slug="rpas-central-2026"
+        showId="00000000-0000-0000-0000-000000000001"
+        crewMemberId="00000000-0000-0000-0000-0000000000aa"
+      />,
+    );
+    fireEvent.click(screen.getByTestId("report-button-trigger"));
+    fireEvent.change(screen.getByTestId("report-modal-textarea"), {
+      target: { value: "role gate appears broken — A1 sees financials" },
+    });
+    fireEvent.click(screen.getByTestId("report-modal-submit"));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(fetchMock).toHaveBeenCalled();
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    // ReportModal spreads autocapture into the body root level
+    // (see components/shared/ReportModal.tsx body construction at
+    // line ~284: `...(autocapture ?? {})`), so the crewPreview block
+    // lands at body.crewPreview — that IS the contract the M8 GitHub
+    // issue formatter consumes.
+    const body = JSON.parse(init.body as string) as {
+      crewPreview?: { crewMemberId?: string; name?: string; role?: string };
+    };
+    expect(body.crewPreview).toEqual({
+      crewMemberId: "00000000-0000-0000-0000-0000000000aa",
+      name: "Eric Weiss",
+      role: "A1",
+    });
   });
 
   test("omits the role chip when label is null", () => {
