@@ -49,6 +49,7 @@
     ".next-dev",
     ".next-prod",
     ".next-prod-flip",
-    ".next-build-artifact-gate-test"
+    ".next-build-artifact-gate-test",
+    "tests/cross-cutting/fixtures/auth-x3"
   ]
 }

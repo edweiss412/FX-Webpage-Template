@@ -1,0 +1,20 @@
+import type { T00 } from "./t00";
+import type { T01 } from "./t01";
+import type { T02 } from "./t02";
+import type { T03 } from "./t03";
+import type { T04 } from "./t04";
+import type { T05 } from "./t05";
+import type { T06 } from "./t06";
+import type { T07 } from "./t07";
+import type { T08 } from "./t08";
+import type { T09 } from "./t09";
+
+export class SomeClass {
+  async lookup(tableName: string) {
+    return supabase
+      .from(
+        tableName,
+      )
+      .select("*");
+  }
+}

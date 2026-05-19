@@ -1,0 +1,5 @@
+export class SomeClass {
+  async lookup(tableName: string, suffix: string) {
+    return supabase.from(tableName + suffix).select("*");
+  }
+}

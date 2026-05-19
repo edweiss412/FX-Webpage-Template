@@ -1,0 +1,13 @@
+import { isAdminSession } from "@/lib/auth/isAdminSession";
+import { requireAdmin } from "@/lib/auth/requireAdmin";
+
+export async function GET(req: Request) {
+  if ((await isAdminSession(req)).ok) {
+    const result = await requireAdmin();
+    const admin = { kind: "success" as const, result };
+    if (admin.kind === "success") {
+      return getShowForViewer("show-id", { kind: "admin" });
+    }
+  }
+  return new Response("not found", { status: 404 });
+}

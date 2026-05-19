@@ -64,6 +64,10 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  {
+    files: ["lib/audit/admin-tables.generated.ts"],
+    rules: {},
+  },
   // Must be last: disables ESLint rules that conflict with Prettier formatting.
   prettier,
 ]);

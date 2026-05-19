@@ -1,0 +1,13 @@
+export const GET = withAdmin(
+  async (req: Request) => {
+    const tableName = "shows";
+    return supabase.from(tableName).select("*");
+  },
+);
+
+export const POST = withAdmin(
+  async (req: Request) => {
+    const otherTable = "reports";
+    return supabase.from(otherTable).select("*");
+  },
+);
