@@ -131,7 +131,7 @@ async function fetchStep3Data(wizardSessionId: string): Promise<Step3FetchResult
 
   const manifestQuery = await supabase
     .from("onboarding_scan_manifest")
-    .select("drive_file_id, drive_file_name, status")
+    .select("drive_file_id, name, status")
     .eq("wizard_session_id", wizardSessionId)
     .order("drive_file_id", { ascending: true });
   if (manifestQuery.error) {
@@ -184,7 +184,7 @@ async function fetchStep3Data(wizardSessionId: string): Promise<Step3FetchResult
   const rows: Step3Row[] = (manifestQuery.data ?? []).map((m) => {
     const driveFileId = m.drive_file_id as string;
     const status = m.status as Step3ManifestStatus;
-    const driveFileName = (m.drive_file_name as string | null) ?? null;
+    const driveFileName = (m.name as string | null) ?? null;
     const base: Step3Row = { driveFileId, status, driveFileName };
     if (status === "staged") {
       const staged = stagedByDfid.get(driveFileId);

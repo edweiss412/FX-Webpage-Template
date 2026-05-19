@@ -47,10 +47,10 @@ async function fetchDashboardData(): Promise<
   const showsQuery = await supabase
     .from("shows")
     .select(
-      "id, slug, title, drive_file_id, show_date_start, show_date_end, last_synced_at, last_sync_status, published",
+      "id, slug, title, drive_file_id, dates, last_synced_at, last_sync_status, published",
     )
     .eq("published", true)
-    .order("show_date_start", { ascending: true, nullsFirst: false });
+    .order("last_synced_at", { ascending: false, nullsFirst: false });
 
   if (showsQuery.error) {
     return {
@@ -83,17 +83,55 @@ async function fetchDashboardData(): Promise<
     }
   }
 
-  const shows: ActiveShowRow[] = (showsQuery.data ?? []).map((s) => ({
-    id: s.id as string,
-    slug: s.slug as string,
-    title: (s.title as string | null) ?? null,
-    showDateStart: (s.show_date_start as string | null) ?? null,
-    showDateEnd: (s.show_date_end as string | null) ?? null,
-    crewCount: crewCountByShow.get(s.id as string) ?? 0,
-    lastSyncedAt: (s.last_synced_at as string | null) ?? null,
-    lastSyncStatus: (s.last_sync_status as string | null) ?? null,
-    published: Boolean(s.published),
-  }));
+  // Derive show date range from the `dates` jsonb column. Real schema
+  // has dates: { travelIn, set, showDays: string[], travelOut }. Start =
+  // earliest of {travelIn, set, showDays[0]}; end = latest of
+  // {showDays[last], travelOut}. Each field can be null; missing rows
+  // collapse to null endpoints.
+  type DatesJson = {
+    travelIn?: string | null;
+    set?: string | null;
+    showDays?: unknown;
+    travelOut?: string | null;
+  };
+  const deriveStart = (dates: DatesJson | null): string | null => {
+    if (!dates) return null;
+    const candidates: string[] = [];
+    if (typeof dates.travelIn === "string") candidates.push(dates.travelIn);
+    if (typeof dates.set === "string") candidates.push(dates.set);
+    if (Array.isArray(dates.showDays) && dates.showDays.length > 0) {
+      const first = dates.showDays[0];
+      if (typeof first === "string") candidates.push(first);
+    }
+    if (candidates.length === 0) return null;
+    return candidates.sort()[0] ?? null;
+  };
+  const deriveEnd = (dates: DatesJson | null): string | null => {
+    if (!dates) return null;
+    const candidates: string[] = [];
+    if (Array.isArray(dates.showDays) && dates.showDays.length > 0) {
+      const last = dates.showDays[dates.showDays.length - 1];
+      if (typeof last === "string") candidates.push(last);
+    }
+    if (typeof dates.travelOut === "string") candidates.push(dates.travelOut);
+    if (candidates.length === 0) return null;
+    return candidates.sort().reverse()[0] ?? null;
+  };
+
+  const shows: ActiveShowRow[] = (showsQuery.data ?? []).map((s) => {
+    const dates = (s.dates as DatesJson | null) ?? null;
+    return {
+      id: s.id as string,
+      slug: s.slug as string,
+      title: (s.title as string | null) ?? null,
+      showDateStart: deriveStart(dates),
+      showDateEnd: deriveEnd(dates),
+      crewCount: crewCountByShow.get(s.id as string) ?? 0,
+      lastSyncedAt: (s.last_synced_at as string | null) ?? null,
+      lastSyncStatus: (s.last_sync_status as string | null) ?? null,
+      published: Boolean(s.published),
+    };
+  });
 
   const pendingIngestionsQuery = await supabase
     .from("pending_ingestions")
