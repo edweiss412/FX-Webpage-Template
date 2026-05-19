@@ -289,7 +289,7 @@ Declared at handoff time per memory `feedback_meta_test_at_plan_time_not_round_n
 
 ### Round 1 repair (Codex)
 
-- **Repair commit:** `f1fe9b0` (`fix(cross-cutting): repair no-global-cursor semantic audit`). Branch had advanced to `1971551` from parallel M11-B work before this repair commit; unrelated dirty `tests/messages/catalog-schema-extension.test.ts` was left unstaged.
+- **Repair commit:** `f1fe9b0` (`fix(cross-cutting): repair no-global-cursor semantic audit`). Branch had advanced to `1971551` from parallel M11-B work before this repair commit; a follow-on parallel B.3 commit (`1daf1b7`) landed before this handoff close-out commit.
 - **Finding dispositions:**
   - P0-1: fixed at `f1fe9b0` — `auditProjectNoGlobalCursor` now pushes the full `auditSemanticWatermarks(...)` result, not only precheck findings. Negative regression: temporarily restored the precheck-only filter; the synthetic project-audit fixture silently passed; restored full findings and the fixture failed/passed as expected.
   - P0-2a: fixed at `f1fe9b0` — entry discovery now uses AST declarations and requires real function-valued entry points. Negative regression: temporarily restored the old source-text/`Renamed` shortcut; `bad-missing-entry-point-v2.fixture` failed to catch the missing cron entry; restored AST discovery and the precheck test passed.
