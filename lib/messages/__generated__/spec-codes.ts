@@ -1064,25 +1064,31 @@ export const RETIRED_CODES = {
   "FIRST_SEEN_REVIEW": {
     "replacedBy": "SHOW_FIRST_PUBLISHED",
     "retiredIn": "§12.4",
+    "variant": null,
   },
-  "OAUTH_REDIRECT_INVALID (operator-log-only variant)": {
+  "OAUTH_REDIRECT_INVALID": {
     "replacedBy": "OAUTH_REDIRECT_INVALID",
     "retiredIn": "§12.4",
+    "variant": "operator-log-only variant",
   },
-  "OAUTH_STATE_INVALID (operator-log-only variant)": {
+  "OAUTH_STATE_INVALID": {
     "replacedBy": "OAUTH_STATE_INVALID",
     "retiredIn": "§12.4",
+    "variant": "operator-log-only variant",
   },
-  "SHEET_UNAVAILABLE (stale-footer variant)": {
+  "SHEET_UNAVAILABLE": {
     "replacedBy": "SHEET_UNAVAILABLE",
     "retiredIn": "§12.4",
+    "variant": "stale-footer variant",
   },
   "SLUG_COLLISION_LIMIT": {
     "replacedBy": "SLUG_COLLISION_EXHAUSTED",
     "retiredIn": "§12.4",
+    "variant": null,
   },
   "WATCH_CHANNEL_CREATE_FAILED": {
     "replacedBy": "WATCH_CHANNEL_ORPHANED",
     "retiredIn": "§12.4",
+    "variant": null,
   },
 } as const;

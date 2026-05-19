@@ -31,7 +31,13 @@ describe("§12.4 spec-code extractor", () => {
         helpfulContext: null,
       },
     });
-    expect(result.retiredCodes).toEqual({});
+    expect(result.retiredCodes).toEqual({
+      OAUTH_STATE_INVALID: {
+        replacedBy: "OAUTH_STATE_INVALID",
+        retiredIn: "§12.4",
+        variant: "operator-log-only variant",
+      },
+    });
   });
 
   test("fails when a Doug-facing row is missing helpfulContext", () => {
@@ -51,7 +57,7 @@ describe("§12.4 spec-code extractor", () => {
         sourcePath: "bad-orphan-yaml-key.md",
         validateRenderedHelpfulContext: false,
       }),
-    ).toThrow("§12.4 helpfulContext appendix references unknown code ORPHAN_CODE");
+    ).toThrow(/^§12\.4 helpfulContext appendix references unknown code ORPHAN_CODE$/);
   });
 
   test("fails when an admin-log-only row has helpfulContext", () => {
@@ -83,5 +89,19 @@ describe("§12.4 spec-code extractor", () => {
         validateRenderedHelpfulContext: false,
       }),
     ).toThrow(/SPEC_DUPLICATE_ACTIVE_CODE[\s\S]*SHEET_UNAVAILABLE[\s\S]*dougFacing/);
+  });
+
+  test("detects rendered Doug-facing messageFor sites across multiline argument lists", () => {
+    expect(() =>
+      extractSpecCodesFromMarkdown(fixture("bad-rendered-multiline-messagefor.md"), {
+        sourcePath: "bad-rendered-multiline-messagefor.md",
+        renderedContextRoots: [
+          "tests/cross-cutting/fixtures/extract-spec-codes/rendered-sites",
+        ],
+        validateRenderedHelpfulContext: true,
+      }),
+    ).toThrow(
+      /§12\.4 helpfulContext appendix missing entry for SHOW_VERSION_AUTH_FAILED; the code is rendered to Doug via messageFor at .*multiline-messageFor\.ts:4/,
+    );
   });
 });

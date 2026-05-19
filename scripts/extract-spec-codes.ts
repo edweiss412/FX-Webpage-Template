@@ -1,6 +1,8 @@
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 
 export type SpecCodePayload = {
   dougFacing: string | null;
@@ -12,10 +14,12 @@ export type SpecCodePayload = {
 export type RetiredCodePayload = {
   retiredIn: string;
   replacedBy: string | null;
+  variant: string | null;
 };
 
 export type ExtractSpecCodesOptions = {
   sourcePath: string;
+  renderedContextRoots?: readonly string[];
   validateRenderedHelpfulContext?: boolean;
 };
 
@@ -31,7 +35,7 @@ const CODE_RE = /^[A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)*$/;
 const PSEUDO_NULL_SENTINELS = new Set(["null", "none", "n/a", "na"]);
 const RENDERED_CONTEXT_ROOTS = ["app", "lib", "components", "middleware.ts"] as const;
 const RENDERED_MESSAGE_FOR_RE =
-  /messageFor\(\s*["'`]([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+)["'`][\s\S]{0,160}?\)\.dougFacing/g;
+  /messageFor\s*\(\s*["'`]([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+)["'`](?:(?!;)[\s\S])*?\)\s*\.dougFacing/g;
 const RENDERED_ERROR_EXPLAINER_RE =
   /<ErrorExplainer[^>\n]+code=["'`]([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+)["'`]/g;
 
@@ -124,10 +128,17 @@ function codeFromCell(raw: string): string | null {
   return code;
 }
 
-function retiredKeyFromCell(raw: string): string | null {
+function retiredCodeFromCell(raw: string): { key: string; variant: string | null } | null {
   const cleaned = cleanCodeCell(raw);
   if (!cleaned) return null;
-  return cleaned;
+  const match = cleaned.match(
+    /^([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)*)(?:\s+\(([^)]+)\))?$/,
+  );
+  if (!match?.[1]) return null;
+  return {
+    key: match[1],
+    variant: match[2] ?? null,
+  };
 }
 
 function isDelimiterRow(cells: readonly string[]): boolean {
@@ -214,11 +225,12 @@ function parseRows(section: string): {
 
     const retired = codeCell.trim().startsWith("~~");
     if (retired) {
-      const key = retiredKeyFromCell(codeCell);
-      if (!key) throw new Error(`Malformed retired §12.4 row at ${index + 1}`);
-      retiredCodes[key] = {
+      const retiredCode = retiredCodeFromCell(codeCell);
+      if (!retiredCode) throw new Error(`Malformed retired §12.4 row at ${index + 1}`);
+      retiredCodes[retiredCode.key] = {
         retiredIn: "§12.4",
         replacedBy: extractReplacement(cells.slice(1).join(" | ")),
+        variant: retiredCode.variant,
       };
       return;
     }
@@ -265,35 +277,15 @@ function diffPayload(
     .map((field) => `${field}: ${JSON.stringify(left[field])} != ${JSON.stringify(right[field])}`);
 }
 
-function walkSourceFiles(roots: readonly string[]): string[] {
-  const files: string[] = [];
-  const walk = (path: string) => {
-    const stats = statSync(path);
-    if (!stats.isDirectory()) {
-      if (/\.(ts|tsx)$/.test(path)) files.push(path);
-      return;
-    }
-
-    for (const entry of readdirSync(path)) {
-      const child = join(path, entry);
-      if (entry === "__generated__") continue;
-      walk(child);
-    }
-  };
-
-  for (const root of roots) {
-    walk(root);
-  }
-  return files.sort();
-}
-
 function lineNumberAt(source: string, index: number): number {
   return source.slice(0, index).split(/\r?\n/).length;
 }
 
-function renderedHelpfulContextSites(): Array<{ code: string; fileName: string; line: number }> {
+function renderedHelpfulContextSites(
+  roots: readonly string[] = RENDERED_CONTEXT_ROOTS,
+): Array<{ code: string; fileName: string; line: number }> {
   const sites: Array<{ code: string; fileName: string; line: number }> = [];
-  for (const fileName of walkSourceFiles(RENDERED_CONTEXT_ROOTS)) {
+  for (const fileName of walkSourceFiles(roots)) {
     const source = readFileSync(fileName, "utf8");
     for (const pattern of [RENDERED_MESSAGE_FOR_RE, RENDERED_ERROR_EXPLAINER_RE]) {
       pattern.lastIndex = 0;
@@ -347,7 +339,7 @@ export function extractSpecCodesFromMarkdown(
   }
 
   if (options.validateRenderedHelpfulContext ?? true) {
-    for (const site of renderedHelpfulContextSites()) {
+    for (const site of renderedHelpfulContextSites(options.renderedContextRoots)) {
       const row = specCodes[site.code];
       if (!row || row.helpfulContext === null) {
         throw new Error(

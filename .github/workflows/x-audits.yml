@@ -20,5 +20,21 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm gen:spec-codes
-      - run: git diff --exit-code lib/messages/__generated__/spec-codes.ts
-      - run: pnpm test:audit:x1-catalog-parity
+      - name: Check generated spec-code manifest
+        run: |
+          git diff -- lib/messages/__generated__/spec-codes.ts > x1-catalog-parity-generated.diff
+          git diff --exit-code lib/messages/__generated__/spec-codes.ts
+      - name: Run X.1 catalog parity audit
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test:audit:x1-catalog-parity 2>&1 | tee x1-catalog-parity.log
+      - name: Upload X.1 catalog parity audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x1-catalog-parity
+          if-no-files-found: warn
+          path: |
+            x1-catalog-parity-generated.diff
+            x1-catalog-parity.log

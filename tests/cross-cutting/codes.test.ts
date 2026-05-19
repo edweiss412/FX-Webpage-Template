@@ -1,7 +1,8 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { relative } from "node:path";
 import { describe, expect, test } from "vitest";
 
+import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { RETIRED_CODES, SPEC_CODES } from "@/lib/messages/__generated__/spec-codes";
 import { CODE_SCENARIOS } from "@/tests/cross-cutting/code-scenarios";
@@ -15,27 +16,6 @@ const RETIRED_LITERAL_ALLOWLIST: Record<string, ReadonlySet<string>> = {
     "lib/parser/types.ts",
   ]),
 };
-
-function walkSourceFiles(roots: readonly string[]): string[] {
-  const files: string[] = [];
-  const walk = (path: string) => {
-    const stats = statSync(path);
-    if (!stats.isDirectory()) {
-      if (/\.(ts|tsx)$/.test(path)) files.push(path);
-      return;
-    }
-    for (const entry of readdirSync(path)) {
-      const child = join(path, entry);
-      if (entry === "__generated__") continue;
-      walk(child);
-    }
-  };
-
-  for (const root of roots) {
-    walk(root);
-  }
-  return files.sort();
-}
 
 function codeProducerLiterals(): Set<string> {
   const codes = new Set<string>();
@@ -125,8 +105,30 @@ describe("AC-X.1 §12.4 catalog parity", () => {
     expect(producerCodes.has("REPORT_PIPELINE_FAILED")).toBe(true);
   });
 
+  test("retired variant rows use bare identifiers with variant metadata", () => {
+    expect(RETIRED_CODES.OAUTH_STATE_INVALID).toMatchObject({
+      replacedBy: "OAUTH_STATE_INVALID",
+      retiredIn: "§12.4",
+      variant: "operator-log-only variant",
+    });
+    expect(RETIRED_CODES.OAUTH_REDIRECT_INVALID).toMatchObject({
+      replacedBy: "OAUTH_REDIRECT_INVALID",
+      retiredIn: "§12.4",
+      variant: "operator-log-only variant",
+    });
+    expect(SPEC_CODES.OAUTH_STATE_INVALID).toBeDefined();
+    expect(SPEC_CODES.OAUTH_REDIRECT_INVALID).toBeDefined();
+  });
+
   test("retired §12.4 codes have no producer, runtime catalog entry, or scenario", () => {
-    for (const code of Object.keys(RETIRED_CODES)) {
+    for (const [code, retired] of Object.entries(RETIRED_CODES)) {
+      if (code in SPEC_CODES) {
+        expect(
+          retired.variant,
+          `retired variant ${code} collides with an active canonical row and must carry variant metadata`,
+        ).not.toBeNull();
+        continue;
+      }
       expect(Object.keys(MESSAGE_CATALOG), `retired code ${code} still in catalog`).not.toContain(
         code,
       );
@@ -159,5 +161,10 @@ describe("AC-X.1 §12.4 catalog parity", () => {
     expect(workflow).toContain("x1-catalog-parity:");
     expect(workflow).toContain("pnpm test:audit:x1-catalog-parity");
     expect(workflow).toContain("pnpm gen:spec-codes");
+    expect(workflow).toContain("uses: actions/upload-artifact@v4");
+    expect(workflow).toContain("if: always()");
+    expect(workflow).toContain("name: x1-catalog-parity");
+    expect(workflow).toContain("x1-catalog-parity-generated.diff");
+    expect(workflow).toContain("x1-catalog-parity.log");
   });
 });
