@@ -16,7 +16,6 @@
  *   - OPERATOR_ERROR_NOT_FOLDER (URL points at a file not a folder)
  *   - OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA (transient)
  *   - WIZARD_ISOLATION_INDEXES_MISSING (schema rollback)
- *   - WIZARD_SESSION_SUPERSEDED_DURING_SCAN (another wizard took over)
  *
  * Progress signal (M5-D2 carry-forward — no bare spinner):
  *   While the scan is in flight, display "Looking through your folder…"
@@ -31,10 +30,16 @@
  *   - "completed" → render scan summary (folder name + total items found)
  *     plus a "Continue to Step 3" advance link.
  *   - "schema_missing" → render WIZARD_ISOLATION_INDEXES_MISSING copy.
- *   - "superseded" → render WIZARD_SESSION_SUPERSEDED_DURING_SCAN copy.
+ *   - "superseded" → call router.refresh() so the Phase 2 dispatcher in
+ *     app/admin/page.tsx re-reads the rotated session and lands the
+ *     operator on the active wizard's surface. Per spec §12.4
+ *     (line 2693) WIZARD_SESSION_SUPERSEDED_DURING_SCAN is admin-log-
+ *     only and is NEVER rendered to Doug — the new session's UI
+ *     implicitly reflects the supersession.
  * 4xx errors render the matching catalog dougFacing copy.
  */
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
@@ -48,7 +53,6 @@ const RECOGNIZED_CODES = new Set<MessageCode>([
   "OPERATOR_ERROR_NOT_FOLDER",
   "OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA",
   "WIZARD_ISOLATION_INDEXES_MISSING",
-  "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
 ]);
 
 type ScanItemsTotals = {
@@ -71,6 +75,15 @@ type ScanResponseBody =
   | { outcome: "schema_missing"; code: "WIZARD_ISOLATION_INDEXES_MISSING" }
   | { outcome: "superseded"; code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN" }
   | { ok: false; code: string };
+
+// Spec §12.4 (line 2693): WIZARD_SESSION_SUPERSEDED_DURING_SCAN is
+// admin-log-only — emitted to structured logs + sync_log but NEVER
+// rendered to Doug. The plan (09-10-admin.md:1495) excludes it from
+// Step2Verify's handled-codes list. We accept the code on the wire so
+// the response-type union stays exhaustive against the §A scan-route
+// contract, but we route the "superseded" outcome through
+// router.refresh() rather than copyForCode(). Do NOT add this code to
+// RECOGNIZED_CODES.
 
 type FormState =
   | { kind: "idle" }
@@ -97,6 +110,7 @@ function copyForCode(code: string): string {
 }
 
 export function Step2Verify() {
+  const router = useRouter();
   const [folderUrl, setFolderUrl] = useState("");
   const [state, setState] = useState<FormState>({ kind: "idle" });
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -142,7 +156,16 @@ export function Step2Verify() {
           setState({ kind: "success", result: body });
           return;
         }
-        if (body.outcome === "schema_missing" || body.outcome === "superseded") {
+        if (body.outcome === "superseded") {
+          // Admin-log-only per spec §12.4:2693 — no Doug-facing copy.
+          // Reset to idle and refresh so the Phase 2 dispatcher reads
+          // the rotated wizard session and lands the operator on the
+          // active wizard's surface.
+          setState({ kind: "idle" });
+          router.refresh();
+          return;
+        }
+        if (body.outcome === "schema_missing") {
           setState({ kind: "error", copy: copyForCode(body.code), code: body.code });
           return;
         }

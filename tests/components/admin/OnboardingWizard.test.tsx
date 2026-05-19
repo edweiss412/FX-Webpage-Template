@@ -16,12 +16,19 @@
  * Server Component — tests await the async function and render its JSX
  * output through React Testing Library.
  */
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import type { AppSettingsRow } from "@/lib/onboarding/sessionLifecycle";
 import { OnboardingWizard } from "@/components/admin/OnboardingWizard";
 import { startOverServerAction } from "@/lib/onboarding/serverActions";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+
+// Step2Verify (rendered when ?step=2) uses useRouter() to call
+// router.refresh() on the admin-log-only "superseded" outcome. jsdom
+// has no app-router context, so we stub it here at the file level.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
+}));
 
 const SERVICE_ACCOUNT_JSON = JSON.stringify({
   client_email: "fxav-sync@fxav-project.iam.gserviceaccount.com",

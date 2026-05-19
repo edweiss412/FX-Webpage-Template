@@ -247,25 +247,28 @@ describe("Step2Verify", () => {
     );
   });
 
-  test("on 200 outcome=superseded renders WIZARD_SESSION_SUPERSEDED_DURING_SCAN copy", async () => {
+  test("on 200 outcome=superseded calls router.refresh() and renders no error copy (admin-log-only per spec §12.4:2693)", async () => {
     fetchMock.mockResolvedValue(
       mockJsonResponse({
         outcome: "superseded",
         code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
       }),
     );
-    const { getByTestId } = render(<Step2Verify />);
+    const { getByTestId, queryByTestId, container } = render(<Step2Verify />);
     fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
       target: { value: "https://drive.google.com/drive/folders/abc123" },
     });
     await act(async () => {
       fireEvent.click(getByTestId("wizard-step2-submit"));
     });
-    await waitFor(() => {
-      expect(getByTestId("wizard-step2-error").textContent ?? "").toContain(
-        MESSAGE_CATALOG.WIZARD_SESSION_SUPERSEDED_DURING_SCAN.dougFacing!,
-      );
-    });
+    await waitFor(() => expect(refreshMock).toHaveBeenCalledTimes(1));
+    expect(queryByTestId("wizard-step2-error")).toBeNull();
+    expect(container.textContent ?? "").not.toContain(
+      MESSAGE_CATALOG.WIZARD_SESSION_SUPERSEDED_DURING_SCAN.dougFacing ?? "",
+    );
+    expect(container.textContent ?? "").not.toContain(
+      "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
+    );
   });
 
   test("on network error renders a generic try-again copy without raw error", async () => {
