@@ -14,14 +14,18 @@ When picking up a deferred item:
 
 ## Open
 
-### M10-D-PHASE2-1 — Cluster I-5 impersonation / preview-as
+### M10-D-PHASE2-1 — Cluster I-5 impersonation / preview-as — **RESOLVED 2026-05-19**
+
+**Status:** **Resolved.** Shipped in M10 Phase 3 §B at SHA `9a36419` (`feat(admin): preview-as impersonation via identity-only admin_preview kind (§9.3)`). §A Pin-3 contract extension (Viewer kind `'admin_preview'`) landed at `f74a1ed` + `84a8bed`. Phase 3 §B convergence-log entry documents the full implementation; Codex cross-CLI adversarial review (7 rounds) APPROVE'd the §B slice at R7 with one routed §A finding (M10-D-PHASE3-1) which itself resolved at `e54babe`.
 
 **Source:** M10 §B Phase 2 implementation, 2026-05-18 critical-path-first delivery decision.
 **Description:** Cluster I-5 per plan §M10 Task 10.8: `app/admin/show/[slug]/preview/[crewId]/page.tsx` Server Component preview-as + `components/admin/PreviewBanner.tsx` sticky banner + a third `Viewer` kind (`'admin_preview'`) on the locked `getShowForViewer` signature. Phase 2 ships the wizard end-to-end (Step 2 verify + Step 3 review + finalize loop + finalize re-entry) plus the post-onboarding Dashboard (active shows + pending panel + per-show alerts), all of which are on Doug's critical path. Preview-as is admin tooling that Doug does NOT need to complete first-onboarding or steady-state operation.
 **Why deferred:** The "third Viewer kind" requires extending `getShowForViewer` in `lib/` — §A territory. The full preview surface also requires rendering the crew-page view from an admin identity, which crosses M4 (crew-page) and M5 (auth) abstractions. Phase 2's scope was already dominated by the wizard finalize loop + re-entry dispatcher; preview-as was triaged out.
 **Suggested home:** Phase 3 (after the rest of M10 §B closes). Implementation steps: (a) §A extends `getShowForViewer` with `admin_preview` Viewer kind (Pin-3 contract); (b) §B authors the preview page + banner.
 
-### M10-D-PHASE2-2 — Cluster I-6 help / tour / ErrorExplainer + helpfulContext fill-in
+### M10-D-PHASE2-2 — Cluster I-6 help / tour / ErrorExplainer + helpfulContext fill-in — **RESOLVED 2026-05-19**
+
+**Status:** **Resolved.** Shipped in M10 Phase 3 §B at SHA `e8eca04` (`feat(admin): help/tour/help-affordance for §9.0.1 first-class help (Cluster I-6)`). Delivered `<HelpAffordance>` + `<HelpTooltip>` + `<Tour>` + admin-wide wirings per spec §9.0.1. Catalog `helpfulContext` audit was a no-op — every M10 dougFacing-non-null code already had the field from §A Pin-2 + §B Phase 1 blocks. Phase 3 §B convergence-log entry documents the full implementation; impeccable v3 dual-gate APPROVE across 4 rounds (R1 CRITICAL Tour em-dash, R2 CRITICAL HTML-entity regression, R3/R4 SHIP) + Codex cross-CLI review APPROVE.
 
 **Source:** Same as M10-D-PHASE2-1.
 **Description:** Cluster I-6 per plan §M10 Task 10.9 + §9.0.1: `components/admin/HelpTooltip.tsx` + `components/admin/Tour.tsx` + `components/admin/ErrorExplainer.tsx` (the latter already exists at `components/messages/ErrorExplainer.tsx` from M5/M7 — would be extended for admin surfaces). Plus `helpfulContext` fill-in for any M10 catalog codes that don't already have one.
