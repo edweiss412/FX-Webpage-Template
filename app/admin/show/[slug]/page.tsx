@@ -85,34 +85,70 @@ export default async function AdminShowPage({
   const { slug } = await params;
   const sp = (await searchParams) ?? {};
 
-  const supabase = await createSupabaseServerClient();
+  // AGENTS.md §1.9: every Supabase await wraps in try/catch so a thrown
+  // infra fault (auth expiration, network reset, RLS reject mid-query)
+  // surfaces as the same Error("<surface>_lookup_failed") this file
+  // already throws on the returned `.error` branch — Next.js routes
+  // both through the same error boundary. Client construction is also
+  // wrapped so a thrown service-client construction failure does not
+  // leak as a raw framework exception.
+  let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  try {
+    supabase = await createSupabaseServerClient();
+  } catch (err) {
+    console.error(
+      "[/admin/show/[slug]] supabase client construction threw:",
+      err instanceof Error ? err.message : String(err),
+    );
+    throw new Error("supabase_client_construction_failed");
+  }
 
-  const { data: show, error: showError } = await supabase
-    .from("shows")
-    .select("id, slug, title, drive_file_id, published")
-    .eq("slug", slug)
-    .maybeSingle<ShowLookupRow>();
-
-  if (showError) {
-    console.error("[/admin/show/[slug]] show lookup failed:", showError.message);
+  let show: ShowLookupRow | null;
+  try {
+    const { data, error: showError } = await supabase
+      .from("shows")
+      .select("id, slug, title, drive_file_id, published")
+      .eq("slug", slug)
+      .maybeSingle<ShowLookupRow>();
+    if (showError) {
+      console.error("[/admin/show/[slug]] show lookup failed:", showError.message);
+      throw new Error("show_lookup_failed");
+    }
+    show = data;
+  } catch (err) {
+    if (err instanceof Error && err.message === "show_lookup_failed") throw err;
+    console.error(
+      "[/admin/show/[slug]] show lookup threw:",
+      err instanceof Error ? err.message : String(err),
+    );
     throw new Error("show_lookup_failed");
   }
   if (!show) {
     notFound();
   }
 
-  const { data: pendingRows, error: pendingError } = await supabase
-    .from("pending_syncs")
-    .select(
-      "staged_id, drive_file_id, source_kind, staged_modified_time, base_modified_time, warning_summary, triggered_review_items, parse_result",
-    )
-    .eq("drive_file_id", show.drive_file_id)
-    .is("wizard_session_id", null)
-    .order("staged_modified_time", { ascending: false })
-    .returns<PendingSyncRow[]>();
-
-  if (pendingError) {
-    console.error("[/admin/show/[slug]] pending_syncs lookup failed:", pendingError.message);
+  let pendingRows: PendingSyncRow[] | null;
+  try {
+    const { data, error: pendingError } = await supabase
+      .from("pending_syncs")
+      .select(
+        "staged_id, drive_file_id, source_kind, staged_modified_time, base_modified_time, warning_summary, triggered_review_items, parse_result",
+      )
+      .eq("drive_file_id", show.drive_file_id)
+      .is("wizard_session_id", null)
+      .order("staged_modified_time", { ascending: false })
+      .returns<PendingSyncRow[]>();
+    if (pendingError) {
+      console.error("[/admin/show/[slug]] pending_syncs lookup failed:", pendingError.message);
+      throw new Error("pending_syncs_lookup_failed");
+    }
+    pendingRows = data;
+  } catch (err) {
+    if (err instanceof Error && err.message === "pending_syncs_lookup_failed") throw err;
+    console.error(
+      "[/admin/show/[slug]] pending_syncs lookup threw:",
+      err instanceof Error ? err.message : String(err),
+    );
     throw new Error("pending_syncs_lookup_failed");
   }
 
@@ -135,12 +171,34 @@ export default async function AdminShowPage({
   // The lookup is admin-RLS gated by the surrounding requireAdmin + the
   // crew_members policy; failures fall through to an empty list and a small
   // explanatory note rather than blocking the page.
-  const { data: crewRows, error: crewError } = await supabase
-    .from("crew_members")
-    .select("id, name, role")
-    .eq("show_id", show.id)
-    .order("name", { ascending: true });
-  const crewLookupFailed = crewError !== null;
+  //
+  // AGENTS.md §1.9: wrap the await so a thrown Supabase fault is folded
+  // into the same `crewLookupFailed=true` empty-list branch as the
+  // returned `.error` branch. The "graceful empty list" disposition is
+  // an intentional, scoped exception to the "fail closed" rule for the
+  // entire dashboard — losing the crew list only hides the Preview-as
+  // affordance, it doesn't show stale state, and the page still
+  // renders the staged-row review (the page's primary purpose).
+  let crewRows: Array<{ id: string; name: string; role: string | null }> | null;
+  let crewLookupFailed: boolean;
+  try {
+    const { data, error: crewError } = await supabase
+      .from("crew_members")
+      .select("id, name, role")
+      .eq("show_id", show.id)
+      .order("name", { ascending: true });
+    crewLookupFailed = crewError !== null;
+    crewRows = data as
+      | Array<{ id: string; name: string; role: string | null }>
+      | null;
+  } catch (err) {
+    console.error(
+      "[/admin/show/[slug]] crew_members lookup threw:",
+      err instanceof Error ? err.message : String(err),
+    );
+    crewLookupFailed = true;
+    crewRows = null;
+  }
   const crew = crewLookupFailed ? [] : (crewRows ?? []);
 
   return (
