@@ -386,7 +386,7 @@ export type LiveFirstSeenStagedDiscardResponse =
   | { ok: false; code: "STALE_DISCARD_REJECTED" | "CONCURRENT_SYNC_SKIPPED" };
 ```
 
-### Pinned contract @ f74a1ed (Pin-stop 3 — 2026-05-18)
+### Pinned contract @ b3a0166 (Pin-stop 3 — 2026-05-18)
 
 ```ts
 // app/api/admin/onboarding/finalize-cas/route.ts
