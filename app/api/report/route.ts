@@ -95,6 +95,15 @@ async function authenticateReportRequest(
   | { ok: true; auth: ReportAuthContext }
   | { ok: false; status: number; body: Record<string, unknown> }
 > {
+  if (body.surface === "admin") {
+    try {
+      const admin = await deps.requireAdminIdentity();
+      return { ok: true, auth: { kind: "admin", email: admin.email } };
+    } catch {
+      return { ok: false, status: 403, body: { ok: false } };
+    }
+  }
+
   const linkResult = await deps.validateLinkSession(req, { showId: body.show_id });
   if (linkResult.kind === "success") {
     const roleFlags = await deps.readCrewRoleFlags(

@@ -78,6 +78,7 @@ describe("POST /api/report auth skeleton", () => {
     authMock.validateGoogleSession.mockReset();
     authMock.requireAdmin.mockReset();
     authMock.requireAdminIdentity.mockReset();
+    authMock.submitReport.mockReset();
     authMock.validateLinkSession.mockResolvedValue({ kind: "continue" });
     authMock.validateGoogleSession.mockResolvedValue({ kind: "continue" });
     authMock.submitReport.mockResolvedValue({
@@ -148,5 +149,112 @@ describe("POST /api/report auth skeleton", () => {
     await expect(response.json()).resolves.toEqual({ ok: false, code: "NOT_IMPLEMENTED" });
     expect(authMock.validateGoogleSession).not.toHaveBeenCalled();
     expect(authMock.requireAdminIdentity).not.toHaveBeenCalled();
+  });
+
+  test("admin surface prefers admin identity over an otherwise-valid link session and preserves crewPreview context", async () => {
+    const crewPreview = {
+      crewMemberId: "018f2f4c-0000-4000-9000-000000000003",
+      name: "Alice Preview",
+      role: "A1",
+    };
+    authMock.validateLinkSession.mockResolvedValueOnce({
+      kind: "success",
+      viewer: {
+        kind: "crew",
+        showId: validBody.show_id,
+        crewMemberId: "018f2f4c-0000-4000-9000-000000000002",
+      },
+    });
+    authMock.requireAdminIdentity.mockResolvedValueOnce({ email: "admin@example.com" });
+    authMock.submitReport.mockResolvedValueOnce({
+      status: 200,
+      body: { ok: true, status: "created", github_issue_url: "https://github.test/issue/1" },
+    });
+
+    const response = await POST(request({ ...validBody, surface: "admin", crewPreview }));
+
+    expect(response.status).toBe(200);
+    expect(authMock.requireAdminIdentity).toHaveBeenCalledOnce();
+    expect(authMock.validateLinkSession).not.toHaveBeenCalled();
+    expect(authMock.validateGoogleSession).not.toHaveBeenCalled();
+    expect(authMock.submitReport).toHaveBeenCalledWith(
+      { kind: "admin", email: "admin@example.com" },
+      expect.objectContaining({ surface: "admin", crewPreview }),
+    );
+  });
+
+  test("admin surface rejects when admin auth fails instead of falling through to a valid crew session", async () => {
+    authMock.validateLinkSession.mockResolvedValueOnce({
+      kind: "success",
+      viewer: {
+        kind: "crew",
+        showId: validBody.show_id,
+        crewMemberId: "018f2f4c-0000-4000-9000-000000000002",
+      },
+    });
+    authMock.requireAdminIdentity.mockRejectedValueOnce(new Error("forbidden"));
+
+    const response = await POST(request({ ...validBody, surface: "admin" }));
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ ok: false });
+    expect(authMock.requireAdminIdentity).toHaveBeenCalledOnce();
+    expect(authMock.validateLinkSession).not.toHaveBeenCalled();
+    expect(authMock.validateGoogleSession).not.toHaveBeenCalled();
+    expect(authMock.submitReport).not.toHaveBeenCalled();
+  });
+
+  test("crew surface keeps link-session auth and does not leak crewPreview into the auth context", async () => {
+    const crewPreview = {
+      crewMemberId: "018f2f4c-0000-4000-9000-000000000003",
+      name: "Alice Preview",
+      role: "A1",
+    };
+    authMock.validateLinkSession.mockResolvedValueOnce({
+      kind: "success",
+      viewer: {
+        kind: "crew",
+        showId: validBody.show_id,
+        crewMemberId: "018f2f4c-0000-4000-9000-000000000002",
+      },
+    });
+    authMock.submitReport.mockResolvedValueOnce({
+      status: 200,
+      body: { ok: true, status: "created" },
+    });
+
+    const response = await POST(request({ ...validBody, surface: "crew", crewPreview }));
+
+    expect(response.status).toBe(200);
+    expect(authMock.requireAdminIdentity).not.toHaveBeenCalled();
+    expect(authMock.submitReport).toHaveBeenCalledWith(
+      {
+        kind: "crew",
+        source: "link",
+        showId: validBody.show_id,
+        crewMemberId: "018f2f4c-0000-4000-9000-000000000002",
+        roleFlags: ["A1"],
+      },
+      expect.objectContaining({ surface: "crew", crewPreview }),
+    );
+  });
+
+  test("crew surface can still use admin auth when no crew session is present", async () => {
+    authMock.requireAdminIdentity.mockResolvedValueOnce({ email: "admin@example.com" });
+    authMock.submitReport.mockResolvedValueOnce({
+      status: 200,
+      body: { ok: true, status: "created", github_issue_url: "https://github.test/issue/2" },
+    });
+
+    const response = await POST(request({ ...validBody, surface: "crew" }));
+
+    expect(response.status).toBe(200);
+    expect(authMock.validateLinkSession).toHaveBeenCalledOnce();
+    expect(authMock.validateGoogleSession).toHaveBeenCalledOnce();
+    expect(authMock.requireAdminIdentity).toHaveBeenCalledOnce();
+    expect(authMock.submitReport).toHaveBeenCalledWith(
+      { kind: "admin", email: "admin@example.com" },
+      expect.objectContaining({ surface: "crew" }),
+    );
   });
 });
