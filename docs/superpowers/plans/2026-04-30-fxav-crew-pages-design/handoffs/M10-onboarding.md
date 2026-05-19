@@ -749,6 +749,11 @@ If "None applies because <reason>," say so explicitly — empty cells silently l
 
 (Append per cluster / per round below; oldest at top.)
 
+### Post-Pin-3 hotfix M10-D-PHASE3-1 (§A Codex)
+
+- **2026-05-18, hotfix cleared at SHA range a514daf..a53afc6 (resolved at e54babe).** §A shipped `/api/report` auth-precedence fix: when `surface === "admin"`, `requireAdminIdentity()` runs FIRST; admin success builds `auth = { kind: "admin", email }` regardless of any link/Google session also present; admin denial returns 403 (no crew fallthrough); `AdminInfraError` remains cataloged 500 `ADMIN_SESSION_LOOKUP_FAILED`. Non-admin surfaces preserve the existing link → Google → admin order. Class-sweep: no peer request-body-surface identity-selection routes found. Cross-CLI Opus review: 3 rounds → APPROVE (R1 HIGH `AdminInfraError` masked as 403 → fixed at e54babe; R2/R3 APPROVE). DEFERRED.md M10-D-PHASE3-1 moved to Resolved. Verification: 3339/3344 tests pass; 0 lint errors (6 M9 carry-forward warnings); typecheck clean.
+- **All M10 §A and §B work converged.** Open deferrals at close-out: M10-D-PHASE1-1 (ONBOARDING_OPERATOR_ERROR Sentry/admin_alerts producer) re-deferred to M11 ops-hardening per Phase 3 §B disposition. Whole-milestone close-out adversarial review per handoff §10 is next — final convergence gate before M10 COMPLETED.
+
 ### Phase 3 §B (Opus — help/tour/explainer + preview-as impersonation)
 
 - **2026-05-19, Phase 3 §B SHIPPED at 259fb6f.** Phase 3 SHA range `5b13f5a..259fb6f` spans 7 §B commits across 2 impeccable clusters (I-6 + I-5) plus the cross-CLI review fix passes:
