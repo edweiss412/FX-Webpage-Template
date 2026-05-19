@@ -22,7 +22,7 @@ export function Sidebar() {
         This keeps a single copy of NavList in the DOM so tests see no duplicates.
         spec §6.1 mobile-collapse requirement.
       */}
-      <details className="group">
+      <details className="group list-none [&::-webkit-details-marker]:hidden [&_summary]:list-none">
         <summary className="cursor-pointer min-h-tap-min text-base font-semibold py-2 md:hidden">
           Browse help pages
         </summary>
