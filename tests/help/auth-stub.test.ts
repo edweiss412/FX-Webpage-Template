@@ -9,8 +9,8 @@ describe("/help layout (Phase A smoke)", () => {
 
   it("app/help/layout.tsx calls requireAdmin and catches AdminInfraError", () => {
     const src = readFileSync(join(process.cwd(), "app/help/layout.tsx"), "utf8");
-    expect(src).toContain("requireAdmin");
-    expect(src).toContain("AdminInfraError");
+    expect(src).toMatch(/await\s+requireAdmin\(\)/);
+    expect(src).toMatch(/instanceof\s+AdminInfraError/);
   });
 
   it("app/help/layout.tsx exports dynamic = 'force-dynamic'", () => {
