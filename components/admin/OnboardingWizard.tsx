@@ -118,7 +118,10 @@ type Step3FetchResult =
   | { kind: "ok"; rows: Step3Row[]; allResolved: boolean }
   | { kind: "infra_error"; message: string };
 
-async function fetchStep3Data(wizardSessionId: string): Promise<Step3FetchResult> {
+// Exported for tests/admin/_metaInfraContract.test.ts — the helper is the
+// subject row of the §B Supabase call-boundary registry for the Step 3
+// wizard surface (AGENTS.md §1.9). Production callers use Step3Container.
+export async function fetchStep3Data(wizardSessionId: string): Promise<Step3FetchResult> {
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
@@ -129,42 +132,73 @@ async function fetchStep3Data(wizardSessionId: string): Promise<Step3FetchResult
     };
   }
 
-  const manifestQuery = await supabase
-    .from("onboarding_scan_manifest")
-    .select("drive_file_id, name, status")
-    .eq("wizard_session_id", wizardSessionId)
-    .order("drive_file_id", { ascending: true });
-  if (manifestQuery.error) {
+  // AGENTS.md §1.9: every Supabase await wraps in try/catch so a thrown
+  // infra fault (auth expiration, network reset, RLS reject mid-query)
+  // surfaces as the same typed `infra_error` result as the returned
+  // `.error` branch — never as an uncaught framework exception.
+  let manifestRows: ReadonlyArray<Record<string, unknown>>;
+  try {
+    const q = await supabase
+      .from("onboarding_scan_manifest")
+      .select("drive_file_id, name, status")
+      .eq("wizard_session_id", wizardSessionId)
+      .order("drive_file_id", { ascending: true });
+    if (q.error) {
+      return {
+        kind: "infra_error",
+        message: `onboarding_scan_manifest query failed: ${q.error.message}`,
+      };
+    }
+    manifestRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+  } catch (err) {
     return {
       kind: "infra_error",
-      message: `onboarding_scan_manifest query failed: ${manifestQuery.error.message}`,
+      message: `onboarding_scan_manifest query threw: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 
-  const pendingSyncsQuery = await supabase
-    .from("pending_syncs")
-    .select("staged_id, drive_file_id, parse_result")
-    .eq("wizard_session_id", wizardSessionId);
-  if (pendingSyncsQuery.error) {
+  let pendingSyncsRows: ReadonlyArray<Record<string, unknown>>;
+  try {
+    const q = await supabase
+      .from("pending_syncs")
+      .select("staged_id, drive_file_id, parse_result")
+      .eq("wizard_session_id", wizardSessionId);
+    if (q.error) {
+      return {
+        kind: "infra_error",
+        message: `pending_syncs query failed: ${q.error.message}`,
+      };
+    }
+    pendingSyncsRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+  } catch (err) {
     return {
       kind: "infra_error",
-      message: `pending_syncs query failed: ${pendingSyncsQuery.error.message}`,
+      message: `pending_syncs query threw: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 
-  const pendingIngestionsQuery = await supabase
-    .from("pending_ingestions")
-    .select("id, drive_file_id, last_error_code")
-    .eq("wizard_session_id", wizardSessionId);
-  if (pendingIngestionsQuery.error) {
+  let pendingIngestionsRows: ReadonlyArray<Record<string, unknown>>;
+  try {
+    const q = await supabase
+      .from("pending_ingestions")
+      .select("id, drive_file_id, last_error_code")
+      .eq("wizard_session_id", wizardSessionId);
+    if (q.error) {
+      return {
+        kind: "infra_error",
+        message: `pending_ingestions query failed: ${q.error.message}`,
+      };
+    }
+    pendingIngestionsRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+  } catch (err) {
     return {
       kind: "infra_error",
-      message: `pending_ingestions query failed: ${pendingIngestionsQuery.error.message}`,
+      message: `pending_ingestions query threw: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
 
   const stagedByDfid = new Map<string, { stagedId: string; title: string | null }>();
-  for (const ps of pendingSyncsQuery.data ?? []) {
+  for (const ps of pendingSyncsRows) {
     const driveFileId = ps.drive_file_id as string;
     const parseResult = ps.parse_result as { show?: { title?: string | null } } | null;
     stagedByDfid.set(driveFileId, {
@@ -174,14 +208,14 @@ async function fetchStep3Data(wizardSessionId: string): Promise<Step3FetchResult
   }
 
   const ingestionByDfid = new Map<string, { id: string; code: string | null }>();
-  for (const pi of pendingIngestionsQuery.data ?? []) {
+  for (const pi of pendingIngestionsRows) {
     ingestionByDfid.set(pi.drive_file_id as string, {
       id: pi.id as string,
       code: (pi.last_error_code as string | null) ?? null,
     });
   }
 
-  const rows: Step3Row[] = (manifestQuery.data ?? []).map((m) => {
+  const rows: Step3Row[] = manifestRows.map((m) => {
     const driveFileId = m.drive_file_id as string;
     const status = m.status as Step3ManifestStatus;
     const driveFileName = (m.name as string | null) ?? null;
