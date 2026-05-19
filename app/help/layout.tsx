@@ -5,6 +5,9 @@ import {
   requireAdmin,
 } from "@/lib/auth/requireAdmin";
 import { messageFor } from "@/lib/messages/lookup";
+import { Header } from "./_components/Header";
+import { Sidebar } from "./_components/Sidebar";
+import { Breadcrumb } from "./_components/Breadcrumb";
 
 // Spec §3.2 / §3.4: requireAdmin runs Supabase queries per request, so
 // the /help tree is dynamic, not statically prerendered. Explicit flag
@@ -40,7 +43,16 @@ export default async function HelpLayout({ children }: { children: ReactNode }) 
     throw err;
   }
 
-  // Phase A.4 + A.5 + A.6 will add the Sidebar / Header / Breadcrumb chrome
-  // around children. Placeholder until those tasks land.
-  return <div className="mx-auto max-w-4xl px-4 py-8">{children}</div>;
+  return (
+    <div className="mx-auto max-w-6xl px-4 py-6 md:py-8">
+      <Header />
+      <div className="md:flex md:gap-6">
+        <Sidebar />
+        <main className="min-w-0 flex-1">
+          <Breadcrumb />
+          {children}
+        </main>
+      </div>
+    </div>
+  );
 }
