@@ -25,6 +25,11 @@ import {
   withPostgresSyncPipelineLock,
 } from "@/lib/sync/runScheduledCronSync";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
+import {
+  runOnboardingScan,
+  type OnboardingScanTx,
+  type RunOnboardingScanDeps,
+} from "@/lib/sync/runOnboardingScan";
 
 export const PENDING_SYNC_NOT_FOUND = "PENDING_SYNC_NOT_FOUND" as const;
 export const STAGED_PARSE_SUPERSEDED = "STAGED_PARSE_SUPERSEDED" as const;
@@ -38,6 +43,7 @@ export const INVALID_REVIEWER_ACTION = "INVALID_REVIEWER_ACTION" as const;
 export const WIZARD_SESSION_SUPERSEDED = "WIZARD_SESSION_SUPERSEDED" as const;
 export const EMBEDDED_RECOVERY_REQUIRES_RESTAGE = "EMBEDDED_RECOVERY_REQUIRES_RESTAGE" as const;
 export const SYNC_INFRA_ERROR = "SYNC_INFRA_ERROR" as const;
+export const STAGED_PARSE_RESTAGED_INLINE = "STAGED_PARSE_RESTAGED_INLINE" as const;
 
 export type ReviewerChoice = {
   item_id: string;
@@ -99,6 +105,7 @@ type WizardDriveReverify =
       outcome: "revision_race";
       code: typeof STAGED_PARSE_REVISION_RACE;
       pendingFolderId: string | null;
+      metadata: DriveListedFile & { trashed?: boolean };
     };
 
 type LiveDriveReverify =
@@ -172,6 +179,14 @@ export type ApplyStagedResult =
   | { outcome: "source_out_of_scope"; code: typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE }
   | { outcome: "outdated"; code: typeof STAGED_PARSE_OUTDATED }
   | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
+  | {
+      outcome: "restaged_inline";
+      code: typeof STAGED_PARSE_RESTAGED_INLINE;
+      wizardSessionId: string;
+      driveFileId: string;
+      stagedId: string;
+      stagedModifiedTime: string;
+    }
   | {
       outcome: "invalid_request";
       code:
@@ -284,6 +299,7 @@ export type ApplyStagedDeps = {
     context: Record<string, unknown>;
   }) => Promise<unknown>;
   retryEmbeddedRevisionAvailability?: (spreadsheetId: string) => Promise<boolean>;
+  runOnboardingScan?: typeof runOnboardingScan;
 };
 
 function timestampMs(value: string | null | undefined): number | null {
@@ -898,6 +914,7 @@ type ApplyStagedDepsWithDefaults = RequiredPick<
   | "upsertAdminAlert"
   | "retryEmbeddedRevisionAvailability"
   | "verifyReelOnApply"
+  | "runOnboardingScan"
 > & {
   wizardDriveReverify?: WizardDriveReverify;
   liveDriveReverify?: LiveDriveReverify;
@@ -933,6 +950,7 @@ function depsWithDefaults(deps: ApplyStagedDeps): ApplyStagedDepsWithDefaults {
     retryEmbeddedRevisionAvailability:
       deps.retryEmbeddedRevisionAvailability ?? defaultRetryEmbeddedRevisionAvailability,
     verifyReelOnApply: deps.verifyReelOnApply ?? defaultVerifyReelOnApply,
+    runOnboardingScan: deps.runOnboardingScan ?? runOnboardingScan,
     ...(deps.wizardDriveReverify ? { wizardDriveReverify: deps.wizardDriveReverify } : {}),
     ...(deps.liveDriveReverify ? { liveDriveReverify: deps.liveDriveReverify } : {}),
     ...(deps.liveAssetReviewEffects ? { liveAssetReviewEffects: deps.liveAssetReviewEffects } : {}),
@@ -1389,10 +1407,136 @@ async function verifyWizardApplyDriveScope(
   }
 
   if (!sameTimestamp(metadata.modifiedTime, pending.stagedModifiedTime)) {
-    return { outcome: "revision_race", code: STAGED_PARSE_REVISION_RACE, pendingFolderId };
+    return {
+      outcome: "revision_race",
+      code: STAGED_PARSE_REVISION_RACE,
+      pendingFolderId,
+      metadata,
+    };
   }
 
   return { outcome: "ok", metadata, pendingFolderId };
+}
+
+function makeInlineOnboardingScanTx(
+  tx: LockedShowTx<SyncPipelineTx>,
+): LockedShowTx<OnboardingScanTx> {
+  return Object.assign(Object.create(tx), {
+    async ensureWizardIsolationIndexes() {
+      return { ok: true as const };
+    },
+    async upsertManifest(row) {
+      const written = await tx.queryOne<{ wizard_session_id: string } | null>(
+        `
+          insert into public.onboarding_scan_manifest (
+            folder_id, wizard_session_id, drive_file_id, mime_type, name, status
+          )
+          select $1, $2::uuid, $3, $4, $5, $6
+          where exists (
+            select 1 from public.app_settings
+             where id = 'default'
+               and pending_wizard_session_id = $2::uuid
+          )
+          on conflict (wizard_session_id, drive_file_id) do update
+            set folder_id = excluded.folder_id,
+                mime_type = excluded.mime_type,
+                name = excluded.name,
+                status = excluded.status,
+                transitioned_at = now()
+          returning wizard_session_id
+        `,
+        [row.folderId, row.wizardSessionId, row.driveFileId, row.mimeType, row.name, row.status],
+      );
+      return Boolean(written);
+    },
+    async logSync(entry) {
+      await tx.queryOne<unknown>(
+        `
+          insert into public.sync_log (drive_file_id, status, message, parse_warnings)
+          values ($1, $2, $3, $4::jsonb)
+          returning id
+        `,
+        [
+          entry.driveFileId ?? null,
+          entry.code,
+          `onboarding_scan:${entry.code}`,
+          JSON.stringify(entry.payload ? [{ ...entry.payload, code: entry.code }] : []),
+        ],
+      );
+    },
+    async upsertAdminAlert(input) {
+      const row = await tx.queryOne<{ id: string } | null>(
+        "select public.upsert_admin_alert($1::uuid, $2, $3::jsonb)::text as id",
+        [input.showId, input.code, JSON.stringify(input.context)],
+      );
+      return row?.id ?? null;
+    },
+  } satisfies Pick<
+    OnboardingScanTx,
+    "ensureWizardIsolationIndexes" | "upsertManifest" | "logSync" | "upsertAdminAlert"
+  >) as LockedShowTx<OnboardingScanTx>;
+}
+
+async function restageWizardRevisionRaceInline(
+  tx: LockedShowTx<SyncPipelineTx>,
+  args: Extract<ApplyStagedArgs, { sourceScope: "wizard" }>,
+  reverify: Extract<WizardDriveReverify, { outcome: "revision_race" }>,
+  deps: ReturnType<typeof depsWithDefaults>,
+): Promise<ApplyStagedResult> {
+  if (!reverify.pendingFolderId) {
+    return { outcome: "source_out_of_scope", code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE };
+  }
+
+  const scanTx = makeInlineOnboardingScanTx(tx);
+  const metadata = reverify.metadata;
+  const scanDeps: RunOnboardingScanDeps = {
+    tx: scanTx,
+    listFolder: async () => [metadata],
+    captureBinding: async () => ({
+      bindingToken: metadata.headRevisionId ?? metadata.modifiedTime,
+      modifiedTime: metadata.modifiedTime,
+    }),
+    withShowLock: async (_driveFileId, fn) => fn(scanTx),
+  };
+  const scan = await (deps.runOnboardingScan ?? runOnboardingScan)(
+    reverify.pendingFolderId,
+    args.wizardSessionId,
+    scanDeps,
+  );
+
+  if (scan.outcome === "superseded") {
+    return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
+  }
+  if (scan.outcome === "schema_missing") {
+    return { outcome: "infra_error", code: SYNC_INFRA_ERROR };
+  }
+
+  const processed = scan.processed.find((row) => row.driveFileId === args.driveFileId);
+  if (!processed || processed.outcome === "hard_failed") {
+    return { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE };
+  }
+  if (processed.outcome === "skipped_non_sheet" || processed.outcome === "live_row_conflict") {
+    return { outcome: "source_out_of_scope", code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE };
+  }
+
+  const fresh = await deps.readWizardPendingSyncForApply(
+    tx,
+    args.driveFileId,
+    args.wizardSessionId,
+  );
+  if (!fresh) return { outcome: "source_gone", code: STAGED_PARSE_SOURCE_GONE };
+  if (!sameTimestamp(fresh.stagedModifiedTime, metadata.modifiedTime)) {
+    return { outcome: "revision_race", code: STAGED_PARSE_REVISION_RACE };
+  }
+
+  return {
+    outcome: "restaged_inline",
+    code: STAGED_PARSE_RESTAGED_INLINE,
+    wizardSessionId: args.wizardSessionId,
+    driveFileId: args.driveFileId,
+    stagedId: fresh.stagedId,
+    stagedModifiedTime: fresh.stagedModifiedTime,
+  };
 }
 
 async function applyLiveWithDriveReverify(
@@ -1465,11 +1609,15 @@ async function applyWizardWithDriveReverify(
 
   return await withPipelineLock(
     args.driveFileId,
-    (tx) =>
-      applyStaged_unlocked(tx, args, {
+    (tx) => {
+      if (reverify.outcome === "revision_race") {
+        return restageWizardRevisionRaceInline(tx, args, reverify, deps);
+      }
+      return applyStaged_unlocked(tx, args, {
         ...injectedDeps,
         wizardDriveReverify: reverify,
-      }),
+      });
+    },
     { tryOnly: false },
   );
 }

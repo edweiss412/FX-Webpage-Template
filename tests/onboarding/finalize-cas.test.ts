@@ -282,7 +282,7 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
       {
         requireAdminIdentity: async () => ({ email: "doug@example.com" }),
         withRowTx: async (_driveFileId, fn) => fn(db as unknown as WizardStagedRouteTx),
-        applyStagedUnlocked: async () => {
+        applyStaged: async () => {
           db.phaseDCasFailDriveIds.delete("existing-3");
           db.shadowRows = [
             {

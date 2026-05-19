@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import {
-  applyStaged_unlocked as defaultApplyStagedUnlocked,
+  applyStaged as defaultApplyStaged,
   type ApplyStagedDeps,
   type ApplyStagedResult,
   type ReviewerChoice,
 } from "@/lib/sync/applyStaged";
+import type { ConcurrentSyncSkipped } from "@/lib/sync/lockedShowTx";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 
@@ -18,11 +19,10 @@ export type WizardStagedRouteDeps = {
     driveFileId: string,
     fn: (tx: WizardStagedRouteTx) => Promise<R> | R,
   ) => Promise<R>;
-  applyStagedUnlocked?: (
-    tx: WizardStagedRouteTx,
-    args: Parameters<typeof defaultApplyStagedUnlocked>[1],
+  applyStaged?: (
+    args: Parameters<typeof defaultApplyStaged>[0],
     deps?: ApplyStagedDeps,
-  ) => Promise<ApplyStagedResult>;
+  ) => Promise<ApplyStagedResult | ConcurrentSyncSkipped>;
 };
 
 type RouteContext = {
@@ -55,11 +55,7 @@ function depsWithDefaults(deps: WizardStagedRouteDeps) {
   return {
     requireAdminIdentity: deps.requireAdminIdentity ?? defaultRequireAdminIdentity,
     withRowTx: deps.withRowTx ?? defaultWithRowTx,
-    applyStagedUnlocked:
-      deps.applyStagedUnlocked ??
-      (defaultApplyStagedUnlocked as unknown as NonNullable<
-        WizardStagedRouteDeps["applyStagedUnlocked"]
-      >),
+    applyStaged: deps.applyStaged ?? defaultApplyStaged,
   };
 }
 
@@ -132,25 +128,42 @@ export async function handleWizardStagedApply(
     return errorResponse(400, "INVALID_REVIEWER_ACTION");
   }
 
-  const result = await deps.withRowTx(driveFileId, (tx) =>
-    deps.applyStagedUnlocked(
-      tx,
-      {
-        sourceScope: "wizard",
-        wizardSessionId,
-        driveFileId,
-        stagedId: body.stagedId as string,
-        reviewerChoices,
-        appliedByEmail: admin.email,
-      },
-      {},
-    ),
+  const result = await deps.applyStaged(
+    {
+      sourceScope: "wizard",
+      wizardSessionId,
+      driveFileId,
+      stagedId: body.stagedId as string,
+      reviewerChoices,
+      appliedByEmail: admin.email,
+    },
+    {
+      withPipelineLock: async (lockedDriveFileId, fn) =>
+        deps.withRowTx(lockedDriveFileId, (lockedTx) =>
+          fn(
+            lockedTx as unknown as Parameters<
+              Parameters<NonNullable<ApplyStagedDeps["withPipelineLock"]>>[1]
+            >[0],
+          ),
+        ),
+    },
   );
+  if ("skipped" in result) return errorResponse(409, "SHOW_BUSY_RETRY");
   if (result.outcome === "wizard_applied") {
     return NextResponse.json({
       status: "reapplied",
       wizard_session_id: wizardSessionId,
       drive_file_id: driveFileId,
+    });
+  }
+  if (result.outcome === "restaged_inline") {
+    return NextResponse.json({
+      status: "restaged_inline",
+      wizard_session_id: wizardSessionId,
+      drive_file_id: driveFileId,
+      staged_id: result.stagedId,
+      staged_modified_time: result.stagedModifiedTime,
+      code: "STAGED_PARSE_RESTAGED_INLINE",
     });
   }
   const mapped = statusForApplyResult(result);

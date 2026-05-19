@@ -27,7 +27,12 @@ type WizardDriveReverify =
       code: typeof STAGED_PARSE_SOURCE_OUT_OF_SCOPE;
       pendingFolderId: string;
     }
-  | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE; pendingFolderId: string };
+  | {
+      outcome: "revision_race";
+      code: typeof STAGED_PARSE_REVISION_RACE;
+      pendingFolderId: string;
+      metadata: DriveListedFile & { trashed?: boolean };
+    };
 
 type WizardReverifyDeps = ApplyStagedDeps & {
   wizardDriveReverify: WizardDriveReverify;
@@ -265,6 +270,7 @@ describe("wizard Apply Drive reverify", () => {
       outcome: "revision_race",
       code: STAGED_PARSE_REVISION_RACE,
       pendingFolderId: "pending-folder",
+      metadata: driveMeta({ modifiedTime: "2026-05-08T12:01:00.000Z" }),
     });
 
     const result = await applyWizard(syncDeps);
