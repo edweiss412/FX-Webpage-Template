@@ -54,7 +54,9 @@ function summaryFromParseResult(
   return typeof title === "string" && title.length > 0 ? title : undefined;
 }
 
-async function fetchWizardStagedRow(
+// Exported for tests/admin/_metaInfraContract.test.ts — registry row
+// for the §B Supabase call-boundary contract (AGENTS.md §1.9).
+export async function fetchWizardStagedRow(
   wizardSessionId: string,
   driveFileId: string,
 ): Promise<WizardStagedRow | null | { kind: "infra_error"; message: string }> {
@@ -67,23 +69,30 @@ async function fetchWizardStagedRow(
       message: `supabase client failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  const { data, error } = await supabase
-    .from("pending_syncs")
-    .select(
-      "staged_id, drive_file_id, staged_modified_time, base_modified_time, parse_result, triggered_review_items, last_finalize_failure_code, source_kind",
-    )
-    .eq("wizard_session_id", wizardSessionId)
-    .eq("drive_file_id", driveFileId)
-    .eq("wizard_approved", false)
-    .maybeSingle();
-  if (error) {
+  try {
+    const { data, error } = await supabase
+      .from("pending_syncs")
+      .select(
+        "staged_id, drive_file_id, staged_modified_time, base_modified_time, parse_result, triggered_review_items, last_finalize_failure_code, source_kind",
+      )
+      .eq("wizard_session_id", wizardSessionId)
+      .eq("drive_file_id", driveFileId)
+      .eq("wizard_approved", false)
+      .maybeSingle();
+    if (error) {
+      return {
+        kind: "infra_error",
+        message: `pending_syncs query failed: ${error.message}`,
+      };
+    }
+    if (!data) return null;
+    return data as unknown as WizardStagedRow;
+  } catch (err) {
     return {
       kind: "infra_error",
-      message: `pending_syncs query failed: ${error.message}`,
+      message: `pending_syncs query threw: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  if (!data) return null;
-  return data as unknown as WizardStagedRow;
 }
 
 export default async function WizardStagedReapplyPage({ params }: PageProps) {
