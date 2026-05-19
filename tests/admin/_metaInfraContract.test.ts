@@ -186,6 +186,16 @@ const infraRegistry = [
     path: "components/admin/PerShowAlertSection.tsx",
     contract: "admin_alerts await throws → infra_error",
   },
+  {
+    helper: "lookupShow",
+    path: "app/admin/show/[slug]/preview/[crewId]/page.tsx",
+    contract: "shows lookup throws → { kind: 'infra_error' }",
+  },
+  {
+    helper: "lookupCrewMember",
+    path: "app/admin/show/[slug]/preview/[crewId]/page.tsx",
+    contract: "crew_members lookup throws → { kind: 'infra_error' }",
+  },
 ];
 
 // Every helper file gets a grep-shape assertion that EVERY supabase-derived
@@ -312,7 +322,7 @@ describe("META §B Supabase call-boundary contract", () => {
           .slice(lineIdx + 1, Math.min(lines.length, lineIdx + 30))
           .join("\n");
         const hasTryBefore = /\btry\s*\{/.test(back);
-        const hasCatchAfter = /\}\s*catch\s*\(/.test(forward);
+        const hasCatchAfter = /\}\s*catch\s*[({]/.test(forward);
         expect(
           hasTryBefore && hasCatchAfter,
           `${entry.surface}: supabase-derived await at line ${lineIdx + 1} (${lines[lineIdx]?.trim()}) is not inside a try/catch (try-before=${hasTryBefore}, catch-after=${hasCatchAfter})`,
@@ -332,7 +342,7 @@ describe("META §B Supabase call-boundary contract", () => {
           .slice(lineIdx + 1, Math.min(lines.length, lineIdx + 30))
           .join("\n");
         const hasTryBefore = /\btry\s*\{/.test(back);
-        const hasCatchAfter = /\}\s*catch\s*\(/.test(forward);
+        const hasCatchAfter = /\}\s*catch\s*[({]/.test(forward);
         expect(
           hasTryBefore && hasCatchAfter,
           `${entry.surface}: supabase builder assignment at line ${lineIdx + 1} (${lines[lineIdx]?.trim()}) is not inside a try/catch (try-before=${hasTryBefore}, catch-after=${hasCatchAfter}). \`.from()\` is a synchronous throw site; the assignment MUST be inside the try, not just the eventual await.`,
@@ -580,6 +590,59 @@ describe("META §B Supabase call-boundary contract", () => {
       expect((result as { kind: string; message: string }).message).toMatch(
         /threw/,
       );
+    });
+  });
+
+  // Preview-as impersonation page helpers (R7 named gap). Both helpers
+  // wrap the entire body — client construction + builder + await +
+  // .error check — in try/catch and return `{ kind: 'infra_error' }`
+  // (no message field; the page collapses the failure into the same
+  // "We could not load that preview" UI for any infra failure mode).
+  // Behavioral tests pin: server-client construction throw + per-table
+  // .from() throw both surface as the typed infra_error result.
+  describe("lookupShow (preview-as page)", () => {
+    test("server-client construction throw → { kind: 'infra_error' }", async () => {
+      infraMock.throwOnConstruct = true;
+      const { lookupShow } = await import(
+        "@/app/admin/show/[slug]/preview/[crewId]/page"
+      );
+      const result = await lookupShow("any-slug");
+      expect(result).toEqual({ kind: "infra_error" });
+    });
+
+    test("from('shows') throw → { kind: 'infra_error' }", async () => {
+      infraMock.throwOnFromTable = "shows";
+      const { lookupShow } = await import(
+        "@/app/admin/show/[slug]/preview/[crewId]/page"
+      );
+      const result = await lookupShow("any-slug");
+      expect(result).toEqual({ kind: "infra_error" });
+    });
+  });
+
+  describe("lookupCrewMember (preview-as page)", () => {
+    test("server-client construction throw → { kind: 'infra_error' }", async () => {
+      infraMock.throwOnConstruct = true;
+      const { lookupCrewMember } = await import(
+        "@/app/admin/show/[slug]/preview/[crewId]/page"
+      );
+      const result = await lookupCrewMember(
+        "00000000-0000-0000-0000-000000000001",
+        "00000000-0000-0000-0000-0000000000aa",
+      );
+      expect(result).toEqual({ kind: "infra_error" });
+    });
+
+    test("from('crew_members') throw → { kind: 'infra_error' }", async () => {
+      infraMock.throwOnFromTable = "crew_members";
+      const { lookupCrewMember } = await import(
+        "@/app/admin/show/[slug]/preview/[crewId]/page"
+      );
+      const result = await lookupCrewMember(
+        "00000000-0000-0000-0000-000000000001",
+        "00000000-0000-0000-0000-0000000000aa",
+      );
+      expect(result).toEqual({ kind: "infra_error" });
     });
   });
 

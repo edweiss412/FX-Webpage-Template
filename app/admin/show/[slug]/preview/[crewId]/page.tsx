@@ -57,7 +57,9 @@ type ShowLookup =
   | { kind: "not_found" }
   | { kind: "infra_error" };
 
-async function lookupShow(slug: string): Promise<ShowLookup> {
+// Exported for tests/admin/_metaInfraContract.test.ts — registry row
+// for the §B Supabase call-boundary contract (AGENTS.md §1.9).
+export async function lookupShow(slug: string): Promise<ShowLookup> {
   try {
     // Session-bound server client (not service-role): keeps RLS engaged
     // so this surface cannot read shows the admin's session would
@@ -84,7 +86,9 @@ type CrewLookup =
   | { kind: "not_found" }
   | { kind: "infra_error" };
 
-async function lookupCrewMember(
+// Exported for tests/admin/_metaInfraContract.test.ts — registry row
+// for the §B Supabase call-boundary contract (AGENTS.md §1.9).
+export async function lookupCrewMember(
   showId: string,
   crewMemberId: string,
 ): Promise<CrewLookup> {
