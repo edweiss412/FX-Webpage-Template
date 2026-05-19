@@ -45,7 +45,19 @@ import { join } from "node:path";
 
 const infraMock = vi.hoisted(() => ({
   throwOnConstruct: false,
+  // Global throw-on-any-from() — the first call throws.
   throwOnFrom: false,
+  // Per-table throw: if set, only the named table's .from() call throws.
+  // Lets later-query assertions exercise the throw path independently of
+  // the first .from() reachable in a multi-query helper (Codex R6 #1).
+  throwOnFromTable: null as string | null,
+  // Per-table data seed: lets a test set data for one table (so later
+  // queries are reached) while another table's .from() throws. Without
+  // this, the default maybeSingle/limit/etc resolves with null data,
+  // and helpers that gate later queries on first-query data (e.g.
+  // fetchLiveFirstSeenRow's shows lookup runs only if pending_syncs
+  // returned a row) never exercise their later branches.
+  dataByTable: {} as Record<string, unknown>,
 }));
 
 type AwaitableQuery = Promise<{ data: null; error: null }> & {
@@ -64,10 +76,27 @@ function makeThrowingClient() {
       getUser: async () => ({ data: { user: null }, error: null }),
     },
     rpc: async () => ({ data: null, error: null }),
-    from: () => {
+    from: (table?: string) => {
       if (infraMock.throwOnFrom) {
         throw new Error("META: simulated from() infrastructure fault");
       }
+      if (
+        infraMock.throwOnFromTable !== null &&
+        typeof table === "string" &&
+        table === infraMock.throwOnFromTable
+      ) {
+        throw new Error(
+          `META: simulated from('${table}') infrastructure fault`,
+        );
+      }
+      const seededData =
+        typeof table === "string" && table in infraMock.dataByTable
+          ? (infraMock.dataByTable[table] as unknown)
+          : null;
+      const result = { data: seededData, error: null } as {
+        data: unknown;
+        error: null;
+      };
       const builder: Partial<AwaitableQuery> = {};
       const passthrough = () => builder as AwaitableQuery;
       builder.select = passthrough;
@@ -76,13 +105,14 @@ function makeThrowingClient() {
       builder.is = passthrough;
       builder.order = passthrough;
       builder.returns = passthrough;
-      builder.maybeSingle = async () => ({ data: null, error: null });
+      builder.maybeSingle = async () =>
+        result as { data: null; error: null };
       // Make the builder itself awaitable so `await supabase.from().select()...`
       // resolves with a `{data, error}` shape when no terminal is called.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (builder as unknown as { then: any }).then = (
-        onfulfilled?: ((v: { data: null; error: null }) => unknown) | null,
-      ) => (onfulfilled ? onfulfilled({ data: null, error: null }) : undefined);
+        onfulfilled?: ((v: { data: unknown; error: null }) => unknown) | null,
+      ) => (onfulfilled ? onfulfilled(result) : undefined);
       return builder as AwaitableQuery;
     },
   };
@@ -112,6 +142,8 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
 beforeEach(() => {
   infraMock.throwOnConstruct = false;
   infraMock.throwOnFrom = false;
+  infraMock.throwOnFromTable = null;
+  infraMock.dataByTable = {};
 });
 
 const REPO_ROOT = join(__dirname, "..", "..");
@@ -328,6 +360,30 @@ describe("META §B Supabase call-boundary contract", () => {
         /threw/,
       );
     });
+
+    // Codex R6 #1: pin each individual table's throw path so a regression
+    // in a LATER catch handler (returning null or wrong shape instead of
+    // the typed infra_error) cannot slip past the behavioral suite.
+    test.each([
+      ["onboarding_scan_manifest", /onboarding_scan_manifest.*threw/],
+      ["pending_syncs", /pending_syncs.*threw/],
+      ["pending_ingestions", /pending_ingestions.*threw/],
+    ])(
+      "from('%s') throw → typed infra_error with table-specific message",
+      async (table, messageRe) => {
+        infraMock.throwOnFromTable = table;
+        const { fetchStep3Data } = await import(
+          "@/components/admin/OnboardingWizard"
+        );
+        const result = await fetchStep3Data(
+          "00000000-0000-0000-0000-000000000001",
+        );
+        expect(result).toMatchObject({ kind: "infra_error" });
+        expect((result as { kind: string; message: string }).message).toMatch(
+          messageRe,
+        );
+      },
+    );
   });
 
   describe("fetchDashboardData", () => {
@@ -347,6 +403,51 @@ describe("META §B Supabase call-boundary contract", () => {
         /threw/,
       );
     });
+
+    // Codex R6 #1: pin every query in the pipeline. The shows table is
+    // exercised first; crew_members is conditionally reached only when
+    // showsRows is non-empty (the mock returns []), so the crew_members-
+    // throw path doesn't get exercised here without seeding showsRows.
+    // pending_ingestions and pending_syncs ARE reachable on the empty-
+    // shows path (the firstSeenStaged block runs regardless because
+    // showIds.length >= 0 is always true — that's the unreachable-else
+    // shape).
+    test.each([
+      ["shows", /shows.*threw/],
+      ["pending_ingestions", /pending_ingestions.*threw/],
+      ["pending_syncs", /pending_syncs.*threw/],
+    ])(
+      "from('%s') throw → typed infra_error with table-specific message",
+      async (table, messageRe) => {
+        infraMock.throwOnFromTable = table;
+        const { fetchDashboardData } = await import(
+          "@/components/admin/Dashboard"
+        );
+        const result = await fetchDashboardData();
+        expect(result).toMatchObject({ kind: "infra_error" });
+        expect((result as { kind: string; message: string }).message).toMatch(
+          messageRe,
+        );
+      },
+    );
+
+    test("from('crew_members') throw (with seeded shows row) → typed infra_error", async () => {
+      // crew_members lookup only fires if showsRows is non-empty. Seed
+      // one shows row so the helper proceeds past the empty-shows
+      // short-circuit and into the crew_members query, then throw.
+      infraMock.dataByTable = {
+        shows: [{ id: "s1", slug: "rpas", drive_file_id: "df-1" }],
+      };
+      infraMock.throwOnFromTable = "crew_members";
+      const { fetchDashboardData } = await import(
+        "@/components/admin/Dashboard"
+      );
+      const result = await fetchDashboardData();
+      expect(result).toMatchObject({ kind: "infra_error" });
+      expect((result as { kind: string; message: string }).message).toMatch(
+        /crew_members.*threw/,
+      );
+    });
   });
 
   describe("fetchLiveFirstSeenRow", () => {
@@ -359,15 +460,42 @@ describe("META §B Supabase call-boundary contract", () => {
       expect(result).toMatchObject({ kind: "infra_error" });
     });
 
-    test("from() throw → typed infra_error", async () => {
-      infraMock.throwOnFrom = true;
+    test("from('pending_syncs') throw → typed infra_error", async () => {
+      infraMock.throwOnFromTable = "pending_syncs";
       const { fetchLiveFirstSeenRow } = await import(
         "@/app/admin/show/staged/[stagedId]/page"
       );
       const result = await fetchLiveFirstSeenRow("00000000-0000-0000-0000-000000000abc");
       expect(result).toMatchObject({ kind: "infra_error" });
       expect((result as { kind: string; message: string }).message).toMatch(
-        /threw/,
+        /pending_syncs.*threw/,
+      );
+    });
+
+    test("from('shows') throw (with seeded pending_syncs row) → typed infra_error", async () => {
+      // Codex R6 #1: the shows-lookup branch only fires when pending_syncs
+      // returned a row. Seed the pending_syncs maybeSingle result so the
+      // helper proceeds past the not_found short-circuit into the shows
+      // lookup, then throw.
+      infraMock.dataByTable = {
+        pending_syncs: {
+          staged_id: "stg-1",
+          drive_file_id: "df-1",
+          staged_modified_time: "2026-05-19T00:00:00.000Z",
+          base_modified_time: null,
+          parse_result: null,
+          triggered_review_items: [],
+          source_kind: "manual",
+        },
+      };
+      infraMock.throwOnFromTable = "shows";
+      const { fetchLiveFirstSeenRow } = await import(
+        "@/app/admin/show/staged/[stagedId]/page"
+      );
+      const result = await fetchLiveFirstSeenRow("00000000-0000-0000-0000-000000000abc");
+      expect(result).toMatchObject({ kind: "infra_error" });
+      expect((result as { kind: string; message: string }).message).toMatch(
+        /shows.*threw/,
       );
     });
   });
