@@ -484,4 +484,9 @@ export async function discardStaged(
   );
 }
 
-export const discardStagedParse = discardStaged;
+export async function discardStagedParse(
+  args: DiscardStagedArgs,
+  deps: DiscardStagedDeps = {},
+): Promise<DiscardStagedResult | ConcurrentSyncSkipped> {
+  return discardStaged(args, deps);
+}

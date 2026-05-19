@@ -1,0 +1,8 @@
+declare const rows: any[];
+
+export async function runScheduledCronSync(db: QueryClient, fileMeta: { modifiedTime: string }) {
+  const expectedCursor = rows[0].runStartedAt;
+  if (fileMeta.modifiedTime > expectedCursor) {
+    await db.from("shows").update({ last_sync_status: "ok" });
+  }
+}

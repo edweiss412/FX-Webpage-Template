@@ -1,0 +1,12 @@
+async function readExpectedSnapshot(db: QueryClient, stagedId: string) {
+  const row = await db.from("pending_syncs").select("staged_id").eq("staged_id", stagedId).single();
+  return row.data.staged_id;
+}
+
+export async function applyStagedParse(db: QueryClient, reviewedStagedId: string) {
+  const pending = await db.from("pending_syncs").select("staged_id").eq("staged_id", reviewedStagedId).single();
+  const expectedSnapshot = await readExpectedSnapshot(db, reviewedStagedId);
+  if (pending.data.staged_id === expectedSnapshot) {
+    await db.from("pending_syncs").update({ warning_summary: "ok" }).eq("staged_id", reviewedStagedId);
+  }
+}

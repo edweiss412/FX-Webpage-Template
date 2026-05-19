@@ -1662,4 +1662,9 @@ export async function applyStaged(
   );
 }
 
-export const applyStagedParse = applyStaged;
+export async function applyStagedParse(
+  args: ApplyStagedArgs,
+  deps: ApplyStagedDeps = {},
+): Promise<ApplyStagedResult | ConcurrentSyncSkipped> {
+  return applyStaged(args, deps);
+}

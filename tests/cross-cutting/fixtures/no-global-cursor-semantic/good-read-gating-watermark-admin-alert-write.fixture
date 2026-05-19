@@ -1,0 +1,5 @@
+export async function applyStagedParse(db: QueryClient, reviewedStagedId: string) {
+  const pending = await db.from("pending_syncs").select("staged_id").eq("staged_id", reviewedStagedId).single();
+  console.log(pending.data.staged_id);
+  await db.from("admin_alerts").insert({ code: "SYNC_SKIPPED", context: {} });
+}

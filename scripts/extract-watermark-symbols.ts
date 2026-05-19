@@ -18,7 +18,7 @@ function unique(values: readonly string[]): string[] {
 function sectionAround(text: string, marker: string): string {
   const index = text.indexOf(marker);
   if (index < 0) throw new Error(`Could not find ${marker} in spec/plan text`);
-  return text.slice(index, Math.min(text.length, index + 18000));
+  return text.slice(index, Math.min(text.length, index + 40000));
 }
 
 function normalizeSymbol(value: string): string[] {
@@ -52,8 +52,6 @@ function collectBacktickSymbols(text: string): string[] {
     if (!raw) continue;
     for (const symbol of normalizeSymbol(raw)) {
       if (/\s/.test(symbol)) continue;
-      if (symbol === "shows.diagrams") continue;
-      if (symbol === "shows.snapshot_revision_id" || symbol === "shows.base_modified_time") continue;
       if (/^[a-zA-Z][a-zA-Z0-9_]*(?:\.|->>)[a-zA-Z0-9_]+/.test(symbol)) {
         symbols.push(symbol);
       }
@@ -62,7 +60,22 @@ function collectBacktickSymbols(text: string): string[] {
   return unique(symbols);
 }
 
+function collectLiteralStringArray(section: string, name: string): string[] | null {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = section.match(
+    new RegExp(`const\\s+${escaped}\\s*[^=]*=\\s*(?:new\\s+Set\\s*\\()?\\s*\\[([\\s\\S]*?)\\]\\s*\\)?\\s*;`),
+  );
+  if (!match?.[1]) return null;
+  return unique(
+    Array.from(match[1].matchAll(/"([^"]+)"/g), (entry) => entry[1]).filter(
+      (entry): entry is string => Boolean(entry),
+    ),
+  );
+}
+
 function collectSyncEntryPoints(section: string): string[] {
+  const literal = collectLiteralStringArray(section, "SYNC_ENTRY_POINTS");
+  if (literal) return literal;
   const match =
     section.match(/sync entry points include ([\s\S]*?); \(3\)/) ??
     section.match(/const SYNC_ENTRY_POINTS = \[([\s\S]*?)\];/);
@@ -72,21 +85,19 @@ function collectSyncEntryPoints(section: string): string[] {
   );
 }
 
-function collectAuthoritative(section: string, fullText: string): string[] {
+function collectAuthoritative(section: string): string[] {
+  const literal = collectLiteralStringArray(section, "AUTHORITATIVE_GATING_WATERMARKS");
+  if (literal) return literal;
   const match =
     section.match(/AUTHORITATIVE_GATING_WATERMARKS[\s\S]*?valid as the RHS of a sync-decision comparison: ([\s\S]*?\)) and `DISPLAY_ONLY_TIMESTAMPS`/) ??
     section.match(/AUTHORITATIVE_GATING_WATERMARKS[\s\S]*?\n([\s\S]*?)\n\s+\*\*DISPLAY_ONLY_TIMESTAMPS/);
   if (!match?.[1]) throw new Error("Could not find AUTHORITATIVE_GATING_WATERMARKS prose");
-  const symbols = collectBacktickSymbols(match[1]);
-  if (symbols.includes("drive_watch_channels.expires_at")) {
-    for (const field of ["activated_at", "superseded_at", "stopped_at", "created_at"]) {
-      if (new RegExp(`\\b${field}\\b`).test(fullText)) symbols.push(`drive_watch_channels.${field}`);
-    }
-  }
-  return unique(symbols);
+  return collectBacktickSymbols(match[1]);
 }
 
 function collectDisplayOnly(section: string): string[] {
+  const literal = collectLiteralStringArray(section, "DISPLAY_ONLY_TIMESTAMPS");
+  if (literal) return literal;
   const match =
     section.match(/DISPLAY_ONLY_TIMESTAMPS[\s\S]*?sync-decision comparison: ([\s\S]*?\)); a sync-decision read/) ??
     section.match(/DISPLAY_ONLY_TIMESTAMPS[\s\S]*?\n([\s\S]*?)\n\s+\*\*Out-of-scope timestamps/);
@@ -103,27 +114,13 @@ function collectBannedCombos(text: string): string[][] {
       ),
     ).filter((combo) => combo.length > 0);
   }
-  const shapeFamilies = [
-    "last watermark",
-    "global watermark",
-    "last cursor",
-    "global cursor",
-    "last poll",
-    "last sync at",
-    "last run",
-    "last processed",
-    "watermark at",
-    "cursor at",
-    "app watermark",
-    "app cursor",
-  ];
-  return shapeFamilies.map((combo) => combo.split(" "));
+  throw new Error("Could not find literal BANNED_COMBOS block in spec/plan text");
 }
 
 export function extractWatermarkSymbolsFromSpec(text: string): WatermarkSymbols {
   const section = sectionAround(text, "AC-X.4");
   return {
-    authoritativeGatingWatermarks: collectAuthoritative(section, text),
+    authoritativeGatingWatermarks: collectAuthoritative(section),
     displayOnlyTimestamps: collectDisplayOnly(section),
     syncEntryPoints: collectSyncEntryPoints(section),
     bannedCombos: collectBannedCombos(text),

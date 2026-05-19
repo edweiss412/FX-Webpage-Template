@@ -23,6 +23,8 @@ INSERT INTO _allowed_watermark_columns (table_name, column_name) VALUES
   ('pending_syncs', 'prior_last_sync_error'),
   ('pending_ingestions', 'last_attempt_at'),
   ('pending_ingestions', 'first_seen_at'),
+  -- pending_ingestions.last_seen_modified_time is a per-row retry watermark, not a global cursor.
+  -- Column exists at supabase/migrations/20260501001000_internal_and_admin.sql:197.
   ('pending_ingestions', 'last_seen_modified_time'),
   ('deferred_ingestions', 'deferred_at'),
   ('crew_member_auth', 'current_token_version'),

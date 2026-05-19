@@ -1702,6 +1702,9 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
        // Per-channel (push-mode subscription lifecycle; gates webhook activation):
        "drive_watch_channels.expires_at",
        "drive_watch_channels.activated_at",
+       "drive_watch_channels.superseded_at",
+       "drive_watch_channels.stopped_at",
+       "drive_watch_channels.created_at",
      ]);
 
      // Display-only timestamps — rendered to the operator (footer freshness, parse panel,

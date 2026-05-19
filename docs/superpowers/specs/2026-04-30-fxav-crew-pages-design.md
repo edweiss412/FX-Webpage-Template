@@ -3619,6 +3619,60 @@ Acceptance criteria are the contract between this spec and the implementation. I
 - AC-X.2 **No raw error codes in user-visible surfaces — AST audit + DOM property crawl.** Static analysis covers ACTIVE and RETIRED codes across `components/**/*.tsx` AND user-visible attribute values (`aria-label`, `title`, `alt`, `placeholder`, `value`); JSXAttribute-aware AST analysis (NOT regex over text). **Plus a runtime Playwright crawl** that reads each rendered surface's live DOM property values (`inputElement.value`, `<select>.selectedOptions[i].text`, `contenteditable` regions' `innerText`, shadow-DOM children) — not just `textContent`. A code present in any of these emit-points fails the audit.
 - AC-X.3 **Auth-chain — every protected sink runs AFTER terminal-validator success on every control-flow path.** Static analysis classifies every route by trust domain (crew-session / admin / me / auth-library / public-bootstrap / public-webhook / cron-internal / server-action / non-route); AST control-flow + dominator analysis with cross-import call graph asserts the validator chain (B1 admin-precedence, B2 link-wins, B3 link-continue → google, B4 link-continue → google-continue → admin) runs to a terminal `success` discriminator BEFORE any `PROTECTED_SINKS` member fires. **Outcome-discriminator audit (`verifyOutcomeDiscriminators`)**: every validator's `kind === 'success' | 'continue'` discriminator MUST be inspected before sinks/next-validator. **`PROTECTED_SINKS` table list is GENERATED from spec §4.3 admin-only list at build time** (NOT hand-rolled) — currently 19 admin-only tables; future §4.3 additions auto-propagate. **`AUTH_LIB_ALLOWLIST`** carries the small set of files that legitimately touch auth primitives. **`.rpc(...)` calls are protected-by-default** (empty initial `RPC_ALLOWLIST`); non-literal RPC names are ALWAYS sinks. **`.from(...)` calls with non-literal arguments** (e.g., `from(tableName)` where `tableName` is a parameter, or ``from(`${expr}`)``) are ALWAYS treated as protected sinks unless explicitly allowlisted via `DYNAMIC_FROM_ALLOWLIST` (initially empty; entries require reviewed justification). Without this rule, an attacker (or a refactor) could build a route that does `.from(req.query.t)` and bypass every regex-based table-name check.
 - AC-X.4 **No global cursor; gating watermarks are Drive-derived per-row only.** Static analysis (three-layer): (1) no source file references a `lastPollAt`-shape global variable, env var, or table column; (2) sync entry points include `runScheduledCronSync`, `runManualSyncForShow`, `runPushSyncForShow`, `runOnboardingScan`, `retrySingleFile`, `assetRecovery`, `applyStagedParse` (Task 6.11 Apply CAS), and `discardStagedParse` (Task 6.12 Discard CAS); (3) per-row sources are split into `AUTHORITATIVE_GATING_WATERMARKS` (Drive-derived; valid as the RHS of a sync-decision comparison: `shows.last_seen_modified_time`, `pending_syncs.base_modified_time` (the column lives on `pending_syncs`, not `shows`; the Apply-time CAS predicate `shows.last_seen_modified_time IS NOT DISTINCT FROM pending_syncs.base_modified_time` joins live-snapshot to staged-base across the two tables), `shows.diagrams ->> 'snapshot_revision_id'` (no top-level column; the value lives inside the `shows.diagrams` JSONB at JSON path `->> 'snapshot_revision_id'`. Apply-time snapshot-stability checks against the JSONB-path expression, e.g., `(shows.diagrams ->> 'snapshot_revision_id')::uuid = reviewed_revision_id`), `pending_syncs.staged_modified_time`, `pending_syncs.staged_id`, `fileMeta.modifiedTime`/`fileMeta.driveModifiedTime`/`fileMeta.headRevisionId`/`fileMeta.md5Checksum`, `deferred_ingestions.deferred_at_modified_time`, `drive_watch_channels.{expires_at, activated_at}`) and `DISPLAY_ONLY_TIMESTAMPS` (rendered to operator but NEVER read in a sync-decision comparison: `shows.last_synced_at`, `pending_syncs.parsed_at`, `pending_ingestions.last_attempt_at` (real column per §4.1 `create table pending_ingestions` is `last_attempt_at` with no `-ed`), `pending_ingestions.first_seen_at`, `deferred_ingestions.deferred_at`); a sync-decision read of any `DISPLAY_ONLY_TIMESTAMPS` member fails the audit. **The X.4 audit fixture set MUST exercise the JSONB-path form** — e.g., `(shows.diagrams ->> 'snapshot_revision_id')::uuid = reviewed_revision_id` SHOULD pass the audit; the audit recognizes JSONB-path expressions on the allowlist, not just bare column references. Plan Task X.4 audit code (owned by the X.1-X.6 subagent) implements the JSONB-path matching. The matcher rule is **driven from the symbol set itself** — a `BinaryExpression` is in scope iff at least one operand resolves to an `AUTHORITATIVE_GATING_WATERMARKS` member regardless of whether the operand name carries a `modified_time`/`last_synced_at` token, AND the audit performs **per-row UUID-CAS coverage** for `pending_syncs.staged_id` and `(shows.diagrams ->> 'snapshot_revision_id')::uuid` (provenance check + coverage sweep) — not just timestamp-shaped operands.
+
+  ```ts
+  const AUTHORITATIVE_GATING_WATERMARKS = [
+    "shows.last_seen_modified_time",
+    "pending_syncs.base_modified_time",
+    "shows.diagrams->>snapshot_revision_id",
+    "pending_syncs.staged_modified_time",
+    "pending_syncs.staged_id",
+    "fileMeta.modifiedTime",
+    "fileMeta.driveModifiedTime",
+    "fileMeta.headRevisionId",
+    "fileMeta.md5Checksum",
+    "deferred_ingestions.deferred_at_modified_time",
+    "drive_watch_channels.expires_at",
+    "drive_watch_channels.activated_at",
+    "drive_watch_channels.superseded_at",
+    "drive_watch_channels.stopped_at",
+    "drive_watch_channels.created_at",
+  ];
+
+  const DISPLAY_ONLY_TIMESTAMPS = [
+    "shows.last_synced_at",
+    "pending_syncs.parsed_at",
+    "pending_ingestions.last_attempt_at",
+    "pending_ingestions.first_seen_at",
+    "deferred_ingestions.deferred_at",
+  ];
+
+  const SYNC_ENTRY_POINTS = [
+    "runScheduledCronSync",
+    "runManualSyncForShow",
+    "runPushSyncForShow",
+    "runOnboardingScan",
+    "retrySingleFile",
+    "assetRecovery",
+    "applyStagedParse",
+    "discardStagedParse",
+  ];
+
+  const BANNED_COMBOS: ReadonlyArray<ReadonlyArray<string>> = [
+    ["last", "watermark"],
+    ["global", "watermark"],
+    ["last", "cursor"],
+    ["global", "cursor"],
+    ["last", "poll"],
+    ["last", "sync", "at"],
+    ["last", "run"],
+    ["last", "processed"],
+    ["watermark", "at"],
+    ["cursor", "at"],
+    ["app", "watermark"],
+    ["app", "cursor"],
+  ];
+  ```
 - AC-X.5 **Email canonicalization at every persistence boundary — full coverage.** Static analysis covers every spec-defined email persistence path including `crew_members.email`, `admin_alerts.context.*email*`, `report_rate_limits.identity` (when prefixed `email:`), `sync_audit.applied_by`, `app_settings.{watched_folder_set_by_email, pending_folder_set_by_email}`, `deferred_ingestions.deferred_by_email`, `admin_alerts.resolved_by`, AND read-side `WHERE email = $x` predicates in `listShowsForCrew` (`/me`) — every site MUST call `canonicalize(email)` or be documented as already-canonical (e.g., from `crew_members.email`). Plan Task X.5's boundary list is the canonical inventory.
 - AC-X.6 **Spec-to-implementation traceability — machine-generated matrix + cross-cutting build-time invariants.** Generator walks every spec heading + every `<!-- spec-id: ... -->` HTML-comment anchor (no implicit prose-mention fallback); plan tasks include structured `<!-- coverage: §N.M, AC-X.Y, spec-id-slug -->` markers; matrix has columns `Spec anchor | Title | Owning task ID(s) | Status | Implementation evidence | Notes`. Status ∈ {`planned`, `implemented`, `deferred`, `intentionally out of scope`, `MISSING`}. CI fails on `MISSING > 0` AND on failure of ANY substantive parity, coverage, or code-producer assertion enumerated in Plan Task X.6 Step 2 (gating only on the `MISSING` count would leave Step-2 parity assertions un-wired into the PR-required check; a spec drift that broke admin-table parity but left every anchor mapped would have a green CI). **The required GitHub status checks for the full X.\* gate set — all PR-required, all blocking merge — are named verbatim**: `traceability-audit` (X.6), `x1-catalog-parity` (X.1), `x2-no-raw-codes` (X.2), `x3-trust-domain` (X.3), `x4-no-global-cursor` (X.4), `x5-rls-coverage` (X.5), `verify-branch-protection-status` (X.6 drift-detector reader — the 7th required check is the LIGHTWEIGHT READER, NOT the privileged `verify-branch-protection` job itself, because GitHub does not send secrets on `pull_request` from forks (every fork PR would fail closed → permanent merge deadlock for every external contribution) and `pull_request_target` would expose secrets to untrusted PR_HEAD code — a documented security hole. The reader uses only the auto-injected read-only `GITHUB_TOKEN` to query the latest successful run of the privileged `verify-branch-protection` workflow on `main` and asserts it succeeded within an 8-day freshness window. The privileged `verify-branch-protection` job runs ONLY on `push` to `main` + weekly `schedule` cron — both contexts run committed-to-main code with secrets safely available. Recursive-bootstrap property: the privileged script asserts the reader is in the required-checks set (so an admin who removes it triggers drift on the next privileged run); the reader in turn requires the privileged job to have succeeded recently (so breaking the privileged job fails the merge gate within 8 days)). Each is a separate Vitest project / script in `.github/workflows/x-audits.yml`; the six audit jobs (traceability-audit, x1–x5) and the lightweight reader (`verify-branch-protection-status`) run on every pull request and every branch build; the privileged `verify-branch-protection` job runs on `push` to `main` + weekly `schedule` cron only. **Post-merge / deploy-only audits are NOT acceptable for any X.\* gate**. Each job uploads its audit artifact (`coverage.md` for X.6; named diffs for X.1–X.5; `branch-protection-report.json` for the privileged verify-branch-protection job) on every run regardless of pass/fail. **Cross-cutting parity assertion**: parse spec §4.3 admin-only bullet list to extract the canonical admin-only table set; parse Plan Task 2.3's `ADMIN_TABLES` registry AND Task X.3's `PROTECTED_SINKS` regex list; assert `setEqual(specAdminTables, ac25AdminTables)` AND `specAdminTables.every(t => protectedSinksRegexList.includes(t))`. Test fails with named diff (`+missing_in_ac25:bootstrap_nonces`) when any list drifts. Future admin-only tables added to §4.3 must auto-propagate to all three lists or CI fails. **Cross-cutting AC-X.4 spec ↔ plan parity**: `AUTHORITATIVE_GATING_WATERMARKS` and `DISPLAY_ONLY_TIMESTAMPS` symbol sets in spec §X.4 prose MUST match those in Plan Task X.4 step 1 — the parity assertion fails the build if a column name is absent or differs (catches the stale `shows.snapshot_revision_id`/`shows.base_modified_time`/`last_attempted_at` class of names drifting between spec and plan).
 
