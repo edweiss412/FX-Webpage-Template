@@ -61,7 +61,17 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
   // `{ kind: "infra_error" }`. Silent swallowing would be the §1.9
   // violation — propagation IS the contract here.
   const supabase = await createSupabaseServerClient();
-  const { data: userData } = await supabase.auth.getUser();
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  if (userError) {
+    // §1.9 returned-error path: getUser surfaced an infra fault. We MUST
+    // NOT fall through to the `!adminEmail` branch (which would silently
+    // no-op and the page would revalidate as if nothing happened). Throw
+    // so the Next.js error boundary renders, consistent with the
+    // not-subject-to-meta exemption's "propagation IS the contract" rule.
+    throw new Error(
+      `[resolveAdminAlertFormAction] supabase.auth.getUser failed: ${userError.message}`,
+    );
+  }
   const adminEmail = canonicalize(userData.user?.email);
   if (!adminEmail) {
     // Should be unreachable — requireAdmin() above would have thrown if the
