@@ -20,6 +20,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { ParsePanel } from "@/components/admin/ParsePanel";
 import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
@@ -33,6 +34,7 @@ type ShowLookupRow = {
   slug: string;
   title: string;
   drive_file_id: string;
+  published: boolean;
 };
 
 type PendingSyncRow = {
@@ -87,7 +89,7 @@ export default async function AdminShowPage({
 
   const { data: show, error: showError } = await supabase
     .from("shows")
-    .select("id, slug, title, drive_file_id")
+    .select("id, slug, title, drive_file_id, published")
     .eq("slug", slug)
     .maybeSingle<ShowLookupRow>();
 
@@ -168,20 +170,44 @@ export default async function AdminShowPage({
       <section
         data-testid="admin-show-preview-as-section"
         aria-labelledby="admin-show-preview-as-heading"
+        data-published={String(show.published)}
         className="flex flex-col gap-3"
       >
-        <h2
-          id="admin-show-preview-as-heading"
-          className="text-lg font-semibold text-text-strong"
-        >
-          Preview as a crew member
-        </h2>
-        <p className="max-w-prose text-sm text-text-subtle">
-          Open the crew page the way one of these crew members sees it.
-          A yellow banner at the top will remind you that you are
-          previewing.
-        </p>
-        {crewLookupFailed ? (
+        <div className="flex items-center gap-2">
+          <h2
+            id="admin-show-preview-as-heading"
+            className="text-lg font-semibold text-text-strong"
+          >
+            Preview as a crew member
+          </h2>
+          <HelpTooltip
+            label="Help: Preview as a crew member"
+            testId="admin-show-preview-as-help"
+          >
+            <p>
+              Open the crew page the way one of these crew members sees
+              it. A yellow banner at the top reminds you that you are
+              previewing. This is the same data Doug sees on the crew
+              page, including any role-based redactions.
+            </p>
+          </HelpTooltip>
+        </div>
+        {!show.published ? (
+          // Per spec §9.0 amendment: hide preview-as for shows that
+          // have not yet been published (the crew-side route gates
+          // non-admin viewers behind `published = TRUE`, and
+          // `admin_preview` resolves identically to crew inside
+          // `getShowForViewer`). Linking from here would 404 the
+          // operator on click, which is the broken admin flow the
+          // adversarial review flagged.
+          <p
+            data-testid="admin-show-preview-as-unpublished"
+            className="rounded-sm border border-border bg-info-bg p-3 text-sm text-text-subtle"
+          >
+            This show is not published to crew yet. Preview becomes
+            available once publishing finishes.
+          </p>
+        ) : crewLookupFailed ? (
           <p
             data-testid="admin-show-preview-as-error"
             className="rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"

@@ -31,7 +31,7 @@
  * AND ungated by build flags. Exit/Report links target
  * `/admin/show/<slug>` which is the canonical admin per-show page.
  */
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getShowForViewer, type ShowForViewer } from "@/lib/data/getShowForViewer";
@@ -152,7 +152,27 @@ export default async function AdminPreviewAsPage({ params }: PageProps) {
   const crewLookup = await lookupCrewMember(showId, crewId);
   if (crewLookup.kind === "not_found") notFound();
   if (crewLookup.kind === "infra_error") {
-    redirect(`/admin/show/${encodeURIComponent(slug)}`);
+    // AGENTS.md §1.9 Supabase call-boundary discipline: surface infra
+    // faults as a discriminable error UI rather than masking them as a
+    // benign navigation (the previous redirect made a DB/RLS failure
+    // look identical to the operator clicking Exit preview).
+    return (
+      <main
+        data-testid="admin-preview-crew-infra-error"
+        className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
+      >
+        <h1 className="text-2xl font-bold text-text-strong">
+          We could not load this preview
+        </h1>
+        <p className="mt-4 text-base text-text-subtle">{INFRA_ERROR_COPY}</p>
+        <a
+          href={`/admin/show/${encodeURIComponent(slug)}`}
+          className="mt-section-gap inline-flex min-h-tap-min items-center px-4 py-2 text-base text-text-strong underline underline-offset-2"
+        >
+          Back to show
+        </a>
+      </main>
+    );
   }
 
   // Pin-3 contract: identity-only Viewer.

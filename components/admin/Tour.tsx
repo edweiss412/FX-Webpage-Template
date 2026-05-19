@@ -48,7 +48,7 @@ const STEPS: ReadonlyArray<TourStep> = [
   {
     title: "If something looks wrong",
     body:
-      "Every admin error message has a &ldquo;What does this mean?&rdquo; link. Tap it for a plain-language explanation. If you still need help, use the Report this view button on any page.",
+      "Every admin error message has a “What does this mean?” link. Tap it for a plain-language explanation. If you still need help, use the Report this view button on any page.",
   },
 ];
 
