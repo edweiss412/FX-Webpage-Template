@@ -168,6 +168,20 @@ describe("getShowForViewer (§7.4)", () => {
     expect(src).not.toMatch(/viewerRole\s*:/);
   });
 
+  test("static-analysis: Viewer union exposes identity-only admin_preview without role-bearing caller data", () => {
+    const src = readFileSync(path.resolve(__dirname, "../../lib/data/getShowForViewer.ts"), "utf8");
+    const viewerUnion = src.match(/export type Viewer =[\s\S]*?;\n/)?.[0] ?? "";
+
+    expect(viewerUnion).toContain('{ kind: "crew"; crewMemberId: string }');
+    expect(viewerUnion).toContain('{ kind: "admin" }');
+    expect(viewerUnion).toContain('{ kind: "admin_preview"; crewMemberId: string }');
+    expect(viewerUnion.match(/kind: "/g)).toHaveLength(3);
+    expect(src).not.toMatch(/impersonate\s*:/);
+    expect(src).not.toMatch(/viewerRole\s*:/);
+    expect(viewerUnion).not.toMatch(/roleFlags\s*:/);
+    expect(viewerUnion).not.toMatch(/role_flags\s*:/);
+  });
+
   test("cross-show regression: foreign crew id throws LINK_NO_CREW_MATCH (no inheritance)", async () => {
     const showA = await seedShow({ title: "Show A — has Alice" });
     const aliceId = await seedCrew({
@@ -183,6 +197,42 @@ describe("getShowForViewer (§7.4)", () => {
     await expect(getShowForViewer(showB, { kind: "crew", crewMemberId: aliceId })).rejects.toThrow(
       "LINK_NO_CREW_MATCH",
     );
+  });
+
+  test("admin_preview cross-show regression: foreign crew id fails closed like crew", async () => {
+    const showA = await seedShow({ title: "Preview Show A — has Alice" });
+    const aliceId = await seedCrew({
+      showId: showA,
+      name: "Alice Lead",
+      roleFlags: ["LEAD", "A1"],
+    });
+    const showB = await seedShow({ title: "Preview Show B — has Bob" });
+    await seedCrew({ showId: showB, name: "Bob A1", roleFlags: ["A1"] });
+
+    await expect(
+      getShowForViewer(showB, { kind: "admin_preview", crewMemberId: aliceId }),
+    ).rejects.toThrow("LINK_NO_CREW_MATCH");
+  });
+
+  test("admin_preview re-derives role_flags from crew_members on every call", async () => {
+    const showId = await seedShow({ title: "Preview Demote Show" });
+    const crewId = await seedCrew({
+      showId,
+      name: "Preview Lead",
+      roleFlags: ["LEAD", "A1"],
+    });
+
+    const first = await getShowForViewer(showId, { kind: "admin_preview", crewMemberId: crewId });
+    expect(first.financials).toBeDefined();
+
+    const { error } = await admin
+      .from("crew_members")
+      .update({ role_flags: ["A1"] })
+      .eq("id", crewId);
+    if (error) throw new Error(`admin_preview demote update failed: ${error.message}`);
+
+    const second = await getShowForViewer(showId, { kind: "admin_preview", crewMemberId: crewId });
+    expect(second.financials).toBeUndefined();
   });
 
   test("transport projection regression: schedule[*].assigned_names round-trips", async () => {
