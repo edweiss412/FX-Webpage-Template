@@ -54,6 +54,12 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
   // here is purely a hardening measure against crafted POSTs.
   if (!UUID_RE.test(id)) return;
 
+  // not-subject-to-meta: server action with no typed-result contract.
+  // Throws (client construction, getUser, .update()) propagate to the
+  // Next.js error boundary, which is the intended loud-failure mode for
+  // this form-submission path; there is no caller checking for
+  // `{ kind: "infra_error" }`. Silent swallowing would be the §1.9
+  // violation — propagation IS the contract here.
   const supabase = await createSupabaseServerClient();
   const { data: userData } = await supabase.auth.getUser();
   const adminEmail = canonicalize(userData.user?.email);

@@ -1,4 +1,14 @@
 "use server";
+/*
+ * not-subject-to-meta: every Supabase call site in this file is dev-only
+ * scaffolding for the build-gated /admin/dev panel (scripts/with-admin-
+ * dev-flag.mjs guards production builds against shipping these routes).
+ * The functions throw `new Error(...)` on both returned `.error` and
+ * thrown-await paths — Next.js routes both through its dev error
+ * boundary, which is the intended contract for an internal-only seeding
+ * surface. None of these helpers return a typed `{ kind: "infra_error" }`
+ * union, so no §1.9 caller contract exists to silently violate.
+ */
 /**
  * app/admin/dev/actions.ts (M3 Task 3.1)
  *
