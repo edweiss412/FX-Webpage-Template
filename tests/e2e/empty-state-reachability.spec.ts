@@ -173,6 +173,12 @@ test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)",
     // generic-optional dispatch hides it (§8.3 line 2435).
     const text = (await showStatusTile.textContent()) ?? "";
     expect(text).not.toContain("TBD");
+    // Hydration + fonts barrier: waits for network quiescence and font
+    // rendering to settle before the screenshot, preventing sub-pixel
+    // layout/font jitter from dev-build module-cache state warmed by
+    // earlier specs (M11-A-D5).
+    await page.waitForLoadState("networkidle");
+    await page.evaluate(() => document.fonts.ready);
     await expect(showStatusTile).toHaveScreenshot("category-2-power-tbd-hidden.png");
   });
 
@@ -186,6 +192,12 @@ test.describe("crew page — §8.3 empty-state reachability (Task 9.3, AC-9.2)",
     await page.goto(`/show/${s.slug}`);
     await expect(page.getByTestId("tile-grid")).toBeVisible();
     await expect(page.getByTestId("lodging-tile")).toHaveCount(0);
+    // Hydration + fonts barrier: waits for network quiescence and font
+    // rendering to settle before the screenshot, preventing sub-pixel
+    // layout/font jitter from dev-build module-cache state warmed by
+    // earlier specs (M11-A-D5).
+    await page.waitForLoadState("networkidle");
+    await page.evaluate(() => document.fonts.ready);
     await expect(page.getByTestId("tile-grid")).toHaveScreenshot(
       "category-3-lodging-tile-absent.png",
     );
