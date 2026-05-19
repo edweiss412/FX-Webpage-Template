@@ -39,6 +39,27 @@ When picking up a deferred item:
 **Why deferred:** The Phase 1 surface is the wizard step-1 / env-broken edge case (a server-side configuration regression — Doug never causes it). Wiring the durable notification path requires (a) an `admin_alerts` upsert producer keyed on `ONBOARDING_OPERATOR_ERROR` with the existing single-active-row-per-code idempotency pattern, (b) an entry in `tests/messages/_metaAdminAlertCatalog.test.ts` registering the new producer, (c) a Sentry/Bug-pipeline call site, (d) AlertBanner visibility on `/admin/settings` so Eric sees the alert when he comes back. (a) + (b) cleanly belong with the rest of the M10 admin-alerts producer work landing in Phase 2 / Phase 3 (alongside the FinalizeInProgress / Dashboard surfaces). (c) + (d) reuse existing M8 / M9 infrastructure — small scope but cleaner to land in one commit with (a) + (b).
 **Suggested home:** **Re-deferred to M11 ops-hardening (2026-05-19, M10 close-out).** Phase 2 and Phase 3 both shipped without opening the producer surface; the Phase 3 Cluster I-6 `helpfulContext` audit was a no-op (didn't trigger any catalog/producer reconciliation that would have made (a) + (b) opportune). M11 ops-hardening is the right home alongside the existing M5-D9/D10/D11 operator-log producers and any forthcoming Sentry/Bug-pipeline integration. M10 runtime is acceptable without this — the Doug-facing copy was softened in Phase 1 R1 (commit `94f7c31`) to avoid falsely claiming notification was sent; the operator-error path still surfaces an actionable message to Doug inline.
 
+### POLISH-D1 — Semantic-wrong fallback if `isKnownCode` gate ever loosens
+
+**Source:** `/impeccable critique` on commit `36a2671` (post-spec-debt closure, pre-X.\*), 2026-05-19, Finding C2 (MEDIUM)
+**Description:** `ReportModal.tsx:631` falls back to `copyForCode("NETWORK_UNREACHABLE", surface)` when `errorCopy` is null. The fallback path is only architecturally reachable today when the IIFE's `error.kind === "code"` branch produces a null `copyForCode(error.code, surface)` — which the `isKnownCode` gate at line 142 prevents in practice. If a future change ever admits unknown codes or codes with null facing-for-surface (e.g., a Doug-null code rendered on admin surface), the fallback substitutes a network-unreachable message for what was actually a server-emitted §A code — semantically wrong copy for the user.
+**Why deferred:** Architecturally unreachable today; not a blocker for the catalog-routing diff. The right fix is to add a Doug-facing null guard at the `isKnownCode` layer so the fallback only fires for genuine null-after-known cases, not semantically-wrong substitutions.
+**Suggested home:** Future `/impeccable harden` pass on the `lib/messages/*` surface, OR fold into the next milestone that touches ReportModal's error rendering.
+
+### POLISH-D2 — `messageFor(...).crewFacing` null-render risk in Bootstrap
+
+**Source:** `/impeccable audit` on commit `36a2671`, 2026-05-19, Finding A2 (P2)
+**Description:** `app/show/[slug]/p/Bootstrap.tsx:548` renders `{messageFor("BOOTSTRAP_GENERIC").crewFacing}` directly. `.crewFacing` is typed `string | null` per `MessageCatalogEntry`. The catalog row currently has a non-null value, so the runtime is safe. If a future catalog edit nulls the field, the error branch silently renders an empty `<p data-testid="bootstrap-error">` next to a [Sign in with Google instead] CTA — confusing but not catastrophic (the CTA still leads to recovery).
+**Why deferred:** Runtime-safe today; the catalog test contract enforces non-null on this row. Type-discipline polish, not a correctness bug.
+**Suggested home:** Future `/impeccable harden` pass — add a non-null assertion or explicit fallback at the JSX render site, OR tighten the catalog type to encode "this row guarantees non-null crewFacing" via a per-row branded type.
+
+### POLISH-D3 — Same `string | null` flow-through in ReportModal lookups
+
+**Source:** `/impeccable audit` on commit `36a2671`, 2026-05-19, Finding A3 (P2)
+**Description:** `ReportModal.tsx:422` and `:631` both flow `copyForCode(...)` return values (typed `string | null`) into render expressions. The IIFE collapses the network branch to a known-non-null catalog value; the fallback at line 631 substitutes the network-unreachable copy when errorCopy is null. Same root cause as POLISH-D1 viewed from the type-discipline angle: the surface contract permits null but the render path doesn't guard explicitly.
+**Why deferred:** Same as POLISH-D2 — runtime-safe today; the codeIsKnown + catalog contract make the null branches architecturally unreachable. Polish, not correctness.
+**Suggested home:** Same as POLISH-D2 — bundle with POLISH-D1 + POLISH-D2 in a single `/impeccable harden` pass on `lib/messages/*` + the two producer sites.
+
 ### M6-D1 — Push notification surface (operator-facing)
 
 **Source:** Conversation thread 2026-05-09 following ratification of plan amendments 7 + 8 (MI-8/MI-8b debounce, MI-9 LEAD-bit narrowing). Triggered by the observation that the spec's MI staging system requires Doug to check the dashboard to discover staged events, but Doug's natural surface is Drive — not the dashboard.
