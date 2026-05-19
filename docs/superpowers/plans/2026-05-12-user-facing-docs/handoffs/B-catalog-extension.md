@@ -134,6 +134,15 @@ Per AGENTS.md "Same-vector recurrence" + Disagreement-loop preempt rules. These 
 
 17. **Iterate until convergence** (memory `feedback_iterate_until_convergence.md`). The X.1 lineage trend is 1–3 adversarial review rounds. Phase B may take 1–2 rounds for simple parser/predicate fixes, 2–3 for any structural reshaping. Keep iterating fix → review → fix → review until APPROVE. Stop only on (a) genuine value-judgment ambiguity (escalate to user), (b) tooling failures, OR (c) APPROVE.
 
+18. **Pre-flight spec deviation captured 2026-05-19 — `PENDING_SNAPSHOT_{ROLLBACK,PROMOTE}_STUCK` are Doug-facing, NOT admin-log-only** (Codex flagged at B.2 mid-execution; verified by orchestrator). Live master spec §12.4 lines 2829 (`PENDING_SNAPSHOT_PROMOTE_STUCK`) and 2830 (`PENDING_SNAPSHOT_ROLLBACK_STUCK`) carry real Doug-facing copy; X.1's generated manifest at `lib/messages/__generated__/spec-codes.ts:617-626` independently confirms `dougFacing != null` for both. The M11 spec r9 prose at `2026-05-12-user-facing-docs-design.md:638` (cites line numbers `2821/2822` for these codes) is stale historical narrative — the live master spec evolved after r9 was authored and acquired Doug copy on these rows. Per AGENTS.md §1.7 + memory `feedback_audit_derives_from_spec_not_handoff.md`: **parser-derived set is the source of truth; the plan-body "Known examples" list is advisory.** Disposition:
+    - **B.2 live-spec assertion:** drop `expect(codes).toContain("PENDING_SNAPSHOT_ROLLBACK_STUCK")` (and the symmetric `PENDING_SNAPSHOT_PROMOTE_STUCK` if asserted). Replace with NEGATIVE assertions `expect(codes).not.toContain(...)` for both, cite master-spec lines 2829-2830 in a code comment so future master-spec amendments can detect the contract change.
+    - **B.3 alignment:** remove both codes from the "Existing entries to null" target list. They are Doug-facing per live §12.4; nulling their `dougFacing` would break X.1's four-field parity (`tests/cross-cutting/codes.test.ts`).
+    - **B.5 canary:** no change needed (re-derives from master spec at every run, so naturally excludes both).
+    - **No master-spec amendment.** Master spec is canonical and already in the desired state.
+    - **M11 spec r9 prose at line 638:** opportunistic stale-narrative cleanup is OK if cheap, but the operational rule "derive at execution time" insulates the contract from the historical narrative drift. Phase B does NOT block on this cleanup.
+
+    **Pre-loaded for cross-model review:** the Opus adversarial reviewer should NOT relitigate this finding. The contract is parser-output-from-live-spec. If the reviewer surfaces "PENDING_SNAPSHOT_* should be admin-log-only per the plan body," cite this watchpoint + master-spec lines 2829-2830 + X.1 manifest lines 617-626.
+
 ---
 
 ## §7 Test commands
@@ -182,9 +191,11 @@ Format: per-round row appended at the bottom. Round 1's "previous SHA" is the Ph
 
 Phase B close-implementation commits (B.1–B.5 — SHAs filled in as commits land):
 
+**Pre-flight spec deviation captured (2026-05-19, pre-R1):** Codex flagged at B.2 mid-execution that the plan body's expected-derived list contains two stale codes (`PENDING_SNAPSHOT_{ROLLBACK,PROMOTE}_STUCK`) whose live master-spec §12.4 rows at lines 2829-2830 carry real Doug-facing copy. Disposition: spec-canonical (AGENTS.md §1.7) — parser correctly does NOT derive them; B.2 fixture + B.3 alignment list adjusted accordingly. See §6 watchpoint #18 for full rationale. **Pre-loaded for R1: do not relitigate.**
+
 | Task | SHA | Title |
 | --- | --- | --- |
-| B.1 | `<TBD>` | `feat(messages): extend MessageCatalogEntry with title/longExplanation/helpHref (Task B.1)` |
+| B.1 | `5d081b9` | `feat(messages): extend MessageCatalogEntry with title/longExplanation/helpHref (Task B.1)` |
 | B.2 | `<TBD>` | `feat(messages): admin-log-only derivation parser for master-spec §12.4 (Task B.2)` |
 | B.3 | `<TBD>` | `feat(messages): align all derived admin-log-only codes (existing+new) to null per master-spec §12.4 (Task B.3 — hard gate)` |
 | B.4 | `<TBD>` | `test(messages): catalog meta-test #2 — validator module + 15 forced fixtures; live-catalog assertion deferred to E.13 (Task B.4 — TDD red→green)` |
