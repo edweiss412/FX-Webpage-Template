@@ -174,7 +174,7 @@ Spec context: §17.2.
 
 ### Task X.2: No raw error codes in user-visible UI — substring leak detection (AC-X.2)
 
-**Files:** Test: `tests/e2e/cross-cutting.spec.ts`. Builds on Task X.1's `SPEC_CODES`.
+**Files:** Tests: `tests/cross-cutting/no-raw-codes.test.ts`, `tests/e2e/no-raw-codes.spec.ts`. Builds on Task X.1's `SPEC_CODES`.
 
 **Catalog-driven.** Earlier draft used `/^[A-Z][A-Z_]+$/` against text nodes. That regex misses real code shapes — `MI-5b_DUPLICATE_CREW_EMAIL` has lowercase + digits + hyphens; `LINK_REVOKED_FLOOR` is fine but appears INLINE in longer strings ("Got error LINK_REVOKED_FLOOR — try again") and the regex's `^...$` anchors only catch full-text-node leaks. The corrected design drives the test from `SPEC_CODES` directly and uses substring detection.
 
@@ -226,7 +226,7 @@ const ALL_FORBIDDEN_CODES = [
 
 The audit fails if any of these strings appear as text-content / user-visible attribute / JSX literal in app/components surfaces. Internal codes ALWAYS render via `messageFor` lookup that returns Doug-facing or crew-facing copy from §12.4; they MUST NOT be rendered raw. False-positive guard: `INTERNAL_CODE_ENUMS` keys shorter than `SUBSTRING_LEAK_MIN_LENGTH` (4) are excluded from substring scans at runtime; AST scans still enforce exact-match on those.
 
-- [ ] **Step 1: Failing test** — Playwright crawls every reachable surface (loop over fixture-seeded routes + admin routes + asset-route 410 / 401 surfaces). The audit covers BOTH visible text AND user-visible attributes. For every element on every surface, assert that **textContent AND the attribute set ['aria-label', 'title', 'alt', 'placeholder', 'value', 'aria-description', 'aria-roledescription']** do NOT contain any literal code from `SPEC_CODES` OR `RETIRED_CODES` OR `INTERNAL_CODE_ENUMS`:
+- [x] **Step 1: Failing test** — Playwright crawls every reachable surface (loop over fixture-seeded routes + admin routes + asset-route 410 / 401 surfaces). The audit covers BOTH visible text AND user-visible attributes. For every element on every surface, assert that **textContent AND the attribute set ['aria-label', 'title', 'alt', 'placeholder', 'value', 'aria-description', 'aria-roledescription']** do NOT contain any literal code from `SPEC_CODES` OR `RETIRED_CODES` OR `INTERNAL_CODE_ENUMS`:
 
   ```ts
   const ALL_FORBIDDEN_CODES = [
@@ -352,7 +352,7 @@ The audit fails if any of these strings appear as text-content / user-visible at
   - `bad-contenteditable.tsx`: a route renders `<div contentEditable>{errorCode}</div>`. Step 1c's `isContentEditable` branch MUST catch via the live `textContent`.
   - `good-noncontrolled.tsx`: a route renders `<input defaultValue="placeholder text" />` (no spec code anywhere). All three crawl phases (1a/1b/1c) MUST NOT flag this surface.
 
-- [ ] **Step 2: Static-analysis test**. Earlier draft used a regex grep for `\{[^}]*['"\`]CODE['"\`][^}]\*\}|>CODE<`which only catches text-content + plain interpolation. JSX-attribute leaks like`title="LINK_REVOKED_FLOOR"`, `alt={'MI-5b_DUPLICATE_CREW_EMAIL'}`, or `placeholder={someRetiredCode}`slip through. The corrected design uses ts-morph to walk every`JSXAttribute` node:
+- [x] **Step 2: Static-analysis test**. Earlier draft used a regex grep for `\{[^}]*['"\`]CODE['"\`][^}]\*\}|>CODE<`which only catches text-content + plain interpolation. JSX-attribute leaks like`title="LINK_REVOKED_FLOOR"`, `alt={'MI-5b_DUPLICATE_CREW_EMAIL'}`, or `placeholder={someRetiredCode}`slip through. The corrected design uses ts-morph to walk every`JSXAttribute` node:
 
   ```ts
   // tests/cross-cutting/no-raw-code-render.test.ts
@@ -426,7 +426,7 @@ The audit fails if any of these strings appear as text-content / user-visible at
   }
   ```
 
-- [ ] **Step 3: Commit** `test(cross-cutting): substring + AST raw-code leak detection (AC-X.2)`.
+- [x] **Step 3: Commit** `test(cross-cutting): substring + AST raw-code leak detection (AC-X.2)`.
 
 ### Task X.3: Single auth-validation entry point — semantic audit (AC-X.3)
 

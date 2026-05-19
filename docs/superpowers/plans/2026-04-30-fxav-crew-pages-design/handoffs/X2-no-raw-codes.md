@@ -74,16 +74,16 @@ Exhaustive, not representative.
 
 Of the three ratified §13.2.3 amendments (per `00-overview.md` and `AGENTS.md`):
 
-- [ ] Amendment 1 — `listForRepo` recovery contract — **N/A — M8-only.**
-- [ ] Amendment 2 — `created_at` horizon + lease-expired reaper predicate — **N/A — M8-only.**
-- [ ] Amendment 3 — `lease_holder` ownership protocol — **N/A — M8-only.**
+- [x] Amendment 1 — `listForRepo` recovery contract — **N/A — M8-only.**
+- [x] Amendment 2 — `created_at` horizon + lease-expired reaper predicate — **N/A — M8-only.**
+- [x] Amendment 3 — `lease_holder` ownership protocol — **N/A — M8-only.**
 
 No other spec amendments apply directly to X.2. The 2026-05-12 AGENDA amendment, 2026-05-14 admin-allowlist amendment, and 2026-05-19 §12.4 catalog cleanup amendment are inputs to the X.1-shipped `SPEC_CODES`/`RETIRED_CODES` manifest that X.2 consumes — X.2 does not re-process them.
 
 ## 4. Pre-handoff state
 
 - [x] **Previous milestones committed**: M0..M10 closed. X.1 closed at SHA `2090dc2` (`docs(handoff): X.1 catalog parity converged at R3 APPROVE 2026-05-19`). Current `git rev-parse --short HEAD` at handoff authoring is `2090dc2` (assuming clean tree). Working tree clean.
-- [ ] **Pre-flight tests passing in isolation** (verify at kickoff):
+- [x] **Pre-flight tests passing in isolation** (verified during implementation):
   - `pnpm lint` exits 0 (the four pre-existing M7 `<img>` warnings carry forward; X.2 does not change that count).
   - `pnpm typecheck` exits 0.
   - `pnpm test` exits 0.
@@ -97,7 +97,7 @@ No other spec amendments apply directly to X.2. The 2026-05-12 AGENDA amendment,
   - `lib/parser/types.ts` — defines `parse_warnings[].code` typed enum (X.2's generator extracts from here).
   - `lib/parser/invariants.ts` + `lib/sync/applyParseResult.ts` — write `pending_ingestions.last_error_code` values (X.2's generator unions them in).
   - `.github/workflows/x-audits.yml` — X.1 already shipped this; X.2 extends with a new job (`x2-no-raw-codes`).
-- [ ] **NEW X.2 deliverables**:
+- [x] **NEW X.2 deliverables**:
   - `scripts/extract-internal-code-enums.ts` — generator for the internal-enum manifest.
   - `lib/messages/__generated__/internal-code-enums.ts` — committed manifest.
   - `tests/cross-cutting/no-raw-codes.test.ts` — the AST audit (CI gate name `x2-no-raw-codes`).
@@ -105,7 +105,7 @@ No other spec amendments apply directly to X.2. The 2026-05-12 AGENDA amendment,
   - `tests/cross-cutting/fixtures/no-raw-codes/` — the 11 fixtures enumerated in §2 above.
   - `package.json` script entries: `gen:internal-code-enums`, `test:audit:x2-no-raw-codes` (or whatever pattern matches the X.1 `test:audit:x1-catalog-parity` convention).
   - `.github/workflows/x-audits.yml` job extension exposing the `x2-no-raw-codes` status check.
-- [ ] **DEFERRED.md** — no X.2 sub-items pre-listed at handoff. Small mechanical fixes the audit surfaces land in X.2 scope per memory `feedback_deferral_discipline.md`; do not file to DEFERRED.md or BACKLOG.md.
+- [x] **DEFERRED.md** — no X.2 sub-items pre-listed at handoff. The audit surfaced no rendered-raw-code production findings requiring a UI fix or deferral.
 
 ## 5. Plan-wide invariants that apply (from AGENTS.md §1)
 
@@ -154,17 +154,17 @@ Pulled forward from X.1 R1–R3 (especially R2 Opus findings) + M10 close-out R3
 
 ## 8. Exit criteria
 
-- [ ] All sub-steps in `11-cross-cutting.md` Task X.2 (Steps 1–3) checked off.
-- [ ] AC-X.2 has at least one passing test asserting each named surface (AST text + AST attr-literal + AST attr-expression + Playwright textContent + Playwright getAttribute + Playwright live-DOM property).
-- [ ] `lib/messages/__generated__/internal-code-enums.ts` is committed; `pnpm gen:internal-code-enums && git diff --exit-code` passes; CI regenerate is byte-identical.
-- [ ] All 11 regression fixtures under `tests/cross-cutting/fixtures/no-raw-codes/` exist (4 controlled-component + 1 internal-enum + 1 attr-template + 1 attr-string + 1 attr-expression + 1 jsx-text + good-via-messageFor + good-via-error-explainer + good-discriminated-union + good-switch-case + good-data-testid + good-noncontrolled-input — the count may shift; the contract is "every discrimination class has a paired good+bad twin").
-- [ ] AST audit's discrimination layer correctly handles the M10 R3 F1 false-positive list (catalog routers, discriminated-union types, switch cases, catalog-enum arrays, comments, `data-testid`). Negative-regression verification per memory `feedback_negative_regression_verification.md`: temporarily remove the discrimination rule and confirm the audit fires on a known-good site (e.g., `<ErrorExplainer code="LINK_REVOKED_FLOOR" />`); restore the rule and confirm the audit goes green.
-- [ ] Playwright crawl catches the four controlled-component fixtures (textarea / select / input / contenteditable) AND passes on `good-noncontrolled-input.tsx`.
-- [ ] M10's advisory raw-code grep gate is retired in the same commit range that ships the X.2 AST audit. Search `handoffs/M10-onboarding.md` for "advisory" + scan for any `tests/messages/_metaNoRawCodesInUI.test.ts` placeholder reference; remove or update.
-- [ ] CI exposes `x2-no-raw-codes` verbatim. Spot-check `.github/workflows/x-audits.yml`. Artifact name is unique per watchpoint 7; X.2 codifies the pattern X.3–X.5 will follow.
-- [ ] X.1 residuals (artifact-name collision + FIRST_SEEN_REVIEW allowlist registry) dispositioned per §11 below.
-- [ ] `pnpm typecheck && pnpm lint && pnpm test` exits 0 with no new warnings (the four pre-existing M7 `<img>` lint warnings carry forward).
-- [ ] No new `// TODO` or `// FIXME` lines.
+- [x] All sub-steps in `11-cross-cutting.md` Task X.2 (Steps 1–3) checked off.
+- [x] AC-X.2 has at least one passing test asserting each named surface (AST text + AST attr-literal + AST attr-expression + Playwright textContent + Playwright getAttribute + Playwright live-DOM property).
+- [x] `lib/messages/__generated__/internal-code-enums.ts` is committed; `pnpm gen:internal-code-enums && git diff --exit-code` passes; CI regenerate is byte-identical.
+- [x] All 11 regression fixtures under `tests/cross-cutting/fixtures/no-raw-codes/` exist (4 controlled-component + 1 internal-enum + 1 attr-template + 1 attr-string + 1 attr-expression + 1 jsx-text + good-via-messageFor + good-via-error-explainer + good-discriminated-union + good-switch-case + good-data-testid + good-noncontrolled-input — the count may shift; the contract is "every discrimination class has a paired good+bad twin").
+- [x] AST audit's discrimination layer correctly handles the M10 R3 F1 false-positive list (catalog routers, discriminated-union types, switch cases, catalog-enum arrays, comments, `data-testid`). Negative-regression verification per memory `feedback_negative_regression_verification.md`: temporarily remove the discrimination rule and confirm the audit fires on a known-good site (e.g., `<ErrorExplainer code="LINK_REVOKED_FLOOR" />`); restore the rule and confirm the audit goes green.
+- [x] Playwright crawl catches the four controlled-component fixtures (textarea / select / input / contenteditable) AND passes on `good-noncontrolled-input.tsx`.
+- [x] M10's advisory raw-code grep gate is retired in the same commit range that ships the X.2 AST audit. Search `handoffs/M10-onboarding.md` for "advisory" + scan for any `tests/messages/_metaNoRawCodesInUI.test.ts` placeholder reference; remove or update.
+- [x] CI exposes `x2-no-raw-codes` verbatim. Spot-check `.github/workflows/x-audits.yml`. Artifact name is unique per watchpoint 7; X.2 codifies the pattern X.3–X.5 will follow.
+- [x] X.1 residuals (artifact-name collision + FIRST_SEEN_REVIEW allowlist registry) dispositioned per §11 below.
+- [x] `pnpm typecheck && pnpm lint && pnpm test` exits 0 with no new warnings (the four pre-existing lint warnings carry forward).
+- [x] No new `// TODO` or `// FIXME` lines.
 - [ ] Adversarial review converged to APPROVE (expect at least one R2 round — X.1 demonstrated same-model self-review consistently misses class-of-error findings).
 - [ ] All commits follow `<type>(<scope>): <summary>` format with one logical task per commit.
 - [ ] Convergence log at the bottom of this file is filled in.
@@ -213,11 +213,21 @@ Declared at handoff time per memory `feedback_meta_test_at_plan_time_not_round_n
 - [x] **CREATE: no-raw-codes Playwright crawl** (`tests/e2e/no-raw-codes.spec.ts`) — runtime DOM-property crawl with the 1a textContent + 1b user-visible attributes + 1c live-DOM-property phases. Concrete failure mode: a controlled `<textarea value={rawCode}>` where the rendered HTML `value` attribute is never written; only `inputElement.value` catches it.
 - [x] **CREATE: regression fixtures** (`tests/cross-cutting/fixtures/no-raw-codes/`) — 11 paired-twin fixtures per §2 above.
 - [x] **CREATE: internal-code-enums extractor** (`scripts/extract-internal-code-enums.ts`) + **CREATE: manifest** (`lib/messages/__generated__/internal-code-enums.ts`) — committed; regenerated by CI; consumed by both the AST audit and the Playwright crawl.
-- [ ] **EXTEND (or coordinate-with): tests/messages/no-inline-error-strings.test.ts** — the existing M5-D8 meta-test catches inline English copy (`setError("Something failed")`). X.2 catches inline code-shape (`setError("LINK_REVOKED_FLOOR")`). They MUST stay orthogonal — X.2 does NOT subsume or duplicate it. Verify at X.2 ship: M5-D8 meta-test still green; X.2's audit doesn't fire on any line M5-D8 also fires on.
+- [x] **EXTEND (or coordinate-with): tests/messages/no-inline-error-strings.test.ts** — the existing M5-D8 meta-test catches inline English copy (`setError("Something failed")`). X.2 catches inline code-shape (`setError("LINK_REVOKED_FLOOR")`). They MUST stay orthogonal — X.2 does NOT subsume or duplicate it. Verified green during X.2 implementation.
 
 ---
 
 ## Convergence log
+
+### Implementation ready for adversarial review
+
+- **2026-05-19, Codex implementation.** Added `scripts/extract-internal-code-enums.ts`, committed `lib/messages/__generated__/internal-code-enums.ts`, and extended the shared `walkSourceFiles` helper with extension filtering so X.2 did not introduce a third walker.
+- **AST audit:** `tests/cross-cutting/no-raw-codes.test.ts` + `tests/cross-cutting/no-raw-codes-audit.ts` walk `app/**/*.tsx` (excluding `app/api/**`) and `components/**/*.tsx` using ts-morph. Concrete failure modes pinned by fixtures: raw JSX text, raw visible/non-router JSX attributes, expression attributes, template-literal attributes, and internal-code provenance in diagnostics. Good fixtures pin `messageFor`, `<ErrorExplainer code>`, `<HelpAffordance code>`, type/switch/code-array/control-flow comparisons, `data-testid`, and non-code inputs as non-rendered/non-user surfaces.
+- **Runtime crawl:** `tests/e2e/no-raw-codes.spec.ts` discovers runtime fixtures by directory walk and static app routes by `app/**/page.tsx` shape. It scans textContent, user-visible attributes, live DOM properties for input/textarea/select/contenteditable, and shadow DOM descendants. Negative regression: replacing `input.value` with an empty string caused `bad-controlled-input.html` to fail because only textContent leaks remained; restoring `input.value` returned the crawl to green.
+- **Negative-regression discrimination checks:** temporarily disabling `messageFor` discrimination failed `good-via-messageFor.tsx` and real `messageFor(... ?? "CODE")` call sites; disabling wrapper-component discrimination failed `good-via-error-explainer.tsx`; disabling `data-testid` discrimination failed `good-data-testid.tsx`; disabling comparison-literal discrimination failed the `result?.kind === "ok"` admin-settings control-flow site. Each rule was restored and `pnpm test tests/cross-cutting/no-raw-codes.test.ts` returned green.
+- **M10 advisory grep retired:** M10 handoff §5/§7 now names X.2's structural AST + DOM-property gates instead of the advisory prefix grep. No production rendered-raw-code findings were surfaced by the audit, so no UI fixes or deferrals were required.
+- **X.1 residuals:** X.1 and X.2 artifacts now use the canonical unique pattern `<job-name>-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}`. X.2 introduced no literal allowlist entries; combined FIRST_SEEN_REVIEW/X.2 allowlist count remains 1, so the shared display allowlist migration trigger did not fire.
+- **Verification at implementation close:** `pnpm test:audit:x1-catalog-parity && pnpm gen:internal-code-enums && git diff --exit-code lib/messages/__generated__/internal-code-enums.ts && pnpm test:audit:x2-no-raw-codes && pnpm gen:spec-codes && git diff --exit-code lib/messages/__generated__/spec-codes.ts && pnpm test && pnpm lint && pnpm typecheck` exited 0. Totals: X.1 audit 42/42, X.2 audit 17/17, full Vitest 3421 passed / 5 skipped, lint 0 errors / 4 pre-existing warnings, typecheck clean. `pnpm verify:spec-amendment` exited 0. `.github/workflows/x-audits.yml` parsed with Ruby YAML.
 
 _(filled in during execution)_
 

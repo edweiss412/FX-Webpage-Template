@@ -1,12 +1,21 @@
-import { readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-export function walkSourceFiles(roots: readonly string[]): string[] {
+export type WalkSourceFilesOptions = {
+  extensions?: readonly string[];
+};
+
+export function walkSourceFiles(
+  roots: readonly string[],
+  options: WalkSourceFilesOptions = {},
+): string[] {
   const files: string[] = [];
+  const extensions = options.extensions ?? [".ts", ".tsx"];
   const walk = (path: string) => {
+    if (!existsSync(path)) return;
     const stats = statSync(path);
     if (!stats.isDirectory()) {
-      if (/\.(ts|tsx)$/.test(path)) files.push(path);
+      if (extensions.some((extension) => path.endsWith(extension))) files.push(path);
       return;
     }
 
