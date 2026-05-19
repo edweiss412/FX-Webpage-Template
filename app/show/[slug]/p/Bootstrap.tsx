@@ -545,7 +545,7 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
         // can self-recover without re-opening the original link.
         <div data-testid="bootstrap-error-block" className="flex flex-col gap-3">
           <p data-testid="bootstrap-error" className="text-base text-warning-text">
-            {messageFor("BOOTSTRAP_GENERIC").crewFacing}
+            {messageFor("BOOTSTRAP_GENERIC").crewFacing ?? ""}
           </p>
           <Link
             data-testid="bootstrap-error-fallback"

@@ -417,10 +417,25 @@ export function ReportModal(props: ReportModalProps) {
       : "This files a GitHub issue for Eric to triage.";
   const submitLabel = showResumeBanner ? "Resume submission" : "Submit";
 
-  const errorCopy: string | null = (() => {
-    if (!error) return null;
-    if (error.kind === "network") return copyForCode("NETWORK_UNREACHABLE", surface);
-    return copyForCode(error.code, surface);
+  // POLISH-D1/D3: errorCopy is always a string (possibly empty) when error
+  // is set. Null in the catalog (e.g., a code with null facing-for-surface)
+  // falls back to the opposite surface's facing — preserves catalog routing
+  // discipline (no inline literals) and avoids silently substituting
+  // NETWORK_UNREACHABLE copy for a server-emitted §A code. Final "" guard is
+  // unreachable today (catalog test pins crewFacing non-null on every code
+  // with a producer; surface-flipped lookup covers admin-null cases) but
+  // keeps the type as string for the render site.
+  const errorCopy: string = (() => {
+    if (!error) return "";
+    if (error.kind === "network") {
+      return copyForCode("NETWORK_UNREACHABLE", surface) ?? "";
+    }
+    const oppositeSurface: ReportSurface = surface === "admin" ? "crew" : "admin";
+    return (
+      copyForCode(error.code, surface) ??
+      copyForCode(error.code, oppositeSurface) ??
+      ""
+    );
   })();
 
   return (
@@ -628,7 +643,7 @@ export function ReportModal(props: ReportModalProps) {
                   aria-live="polite"
                   className="mt-2 flex flex-col gap-1 text-sm text-warning-text"
                 >
-                  <p>{errorCopy ?? copyForCode("NETWORK_UNREACHABLE", surface)}</p>
+                  <p>{errorCopy}</p>
                   {surface === "admin" && error.kind === "code" ? (
                     <HelpAffordance code={error.code} />
                   ) : null}
