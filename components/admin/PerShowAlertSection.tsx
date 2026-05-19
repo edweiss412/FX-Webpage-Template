@@ -17,6 +17,8 @@
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
+import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 
@@ -118,12 +120,27 @@ export async function PerShowAlertSection({
       aria-labelledby="per-show-alert-section-heading"
       className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
     >
-      <h2
-        id="per-show-alert-section-heading"
-        className="text-lg font-semibold"
-      >
-        Alerts for this show ({result.length})
-      </h2>
+      <div className="flex items-center gap-2">
+        <h2
+          id="per-show-alert-section-heading"
+          className="text-lg font-semibold"
+        >
+          Alerts for this show ({result.length})
+        </h2>
+        <HelpTooltip
+          label="Help: Alerts for this show"
+          testId="per-show-alert-help"
+        >
+          <p>
+            Alerts collect anything we noticed about this show that you
+            should know about: parse warnings, ambiguous crew rows, sync
+            issues, and the like. Tap What does this mean on any alert
+            for a plain-language explanation. Mark resolved once you have
+            looked into it; the alert will return if the underlying
+            problem reappears.
+          </p>
+        </HelpTooltip>
+      </div>
       <ul className="flex flex-col gap-3">
         {result.map((alert) => {
           const copy = safeDougFacing(alert.code);
@@ -140,6 +157,7 @@ export async function PerShowAlertSection({
               <p className="text-sm font-semibold text-text-strong">
                 {copy ?? "Something needs your attention on this show."}
               </p>
+              <HelpAffordance code={alert.code} />
               <p className="text-xs text-text-subtle tabular-nums">
                 Raised{" "}
                 <time dateTime={alert.raised_at} suppressHydrationWarning>

@@ -7,6 +7,7 @@
  * <Dashboard />.
  */
 import Link from "next/link";
+import { HelpTooltip } from "@/components/admin/HelpTooltip";
 
 export type ActiveShowRow = {
   id: string;
@@ -87,12 +88,25 @@ export function ActiveShowsPanel({ rows }: ActiveShowsPanelProps) {
       aria-labelledby="active-shows-heading"
       className="flex flex-col gap-3"
     >
-      <h3
-        id="active-shows-heading"
-        className="text-lg font-semibold text-text-strong"
-      >
-        Active shows
-      </h3>
+      <div className="flex items-center gap-2">
+        <h3
+          id="active-shows-heading"
+          className="text-lg font-semibold text-text-strong"
+        >
+          Active shows
+        </h3>
+        <HelpTooltip
+          label="Help: Active shows"
+          testId="active-shows-help"
+        >
+          <p>
+            Every show whose sheet has been read and approved appears here.
+            Tap a title to open its detail page or preview it as a crew
+            member. The status next to each show tells you when it last
+            synced from Drive and whether anything needs your attention.
+          </p>
+        </HelpTooltip>
+      </div>
       {rows.length === 0 ? (
         <div
           data-testid="admin-active-shows-empty"

@@ -530,7 +530,7 @@ export function StagedReviewCard({
           role="alert"
           className="mt-4 rounded-sm border border-border-strong bg-warning-bg p-3 text-warning-text"
         >
-          <ErrorExplainer code={errorCode} surface="admin" />
+          <ErrorExplainer code={errorCode} surface="admin" helpfulContext />
         </div>
       ) : null}
 

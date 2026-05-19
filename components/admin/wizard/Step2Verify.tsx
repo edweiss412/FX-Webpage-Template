@@ -37,6 +37,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { messageFor } from "@/lib/messages/lookup";
+import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import type { MessageCode } from "@/lib/messages/catalog";
 
 const RECOGNIZED_CODES = new Set<MessageCode>([
@@ -74,7 +76,7 @@ type FormState =
   | { kind: "idle" }
   | { kind: "submitting"; startedAt: number; folderUrl: string }
   | { kind: "success"; result: ScanCompleted }
-  | { kind: "error"; copy: string };
+  | { kind: "error"; copy: string; code: string | null };
 
 function formatTotals(totals: ScanItemsTotals): number {
   return (
@@ -141,24 +143,26 @@ export function Step2Verify() {
           return;
         }
         if (body.outcome === "schema_missing" || body.outcome === "superseded") {
-          setState({ kind: "error", copy: copyForCode(body.code) });
+          setState({ kind: "error", copy: copyForCode(body.code), code: body.code });
           return;
         }
       }
       if ("ok" in body && body.ok === false) {
-        setState({ kind: "error", copy: copyForCode(body.code) });
+        setState({ kind: "error", copy: copyForCode(body.code), code: body.code });
         return;
       }
       setState({
         kind: "error",
         copy:
           "We could not verify that folder. Try the link again, or contact the developer if this keeps happening.",
+        code: null,
       });
     } catch {
       setState({
         kind: "error",
         copy:
           "We could not reach Drive just now. Check your connection and try again.",
+        code: null,
       });
     }
   }
@@ -180,12 +184,24 @@ export function Step2Verify() {
         >
           Step 2 of 3
         </p>
-        <h2
-          id="wizard-step2-heading"
-          className="text-2xl font-semibold text-text-strong"
-        >
-          Verify your folder
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2
+            id="wizard-step2-heading"
+            className="text-2xl font-semibold text-text-strong"
+          >
+            Verify your folder
+          </h2>
+          <HelpTooltip
+            label="Help: Verify your folder"
+            testId="wizard-step2-help"
+          >
+            <p>
+              Paste the URL of the Drive folder you shared in step 1. We
+              read every Google Sheet inside that folder, then walk you
+              through any that need a closer look in step 3.
+            </p>
+          </HelpTooltip>
+        </div>
         <p className="max-w-prose text-base text-text-subtle">
           Paste the link to the folder you just shared. We will read what is
           inside and bring it in for review.
@@ -304,6 +320,7 @@ export function Step2Verify() {
         >
           <p className="font-semibold">We could not verify that folder.</p>
           <p>{state.copy}</p>
+          <HelpAffordance code={state.code} />
         </div>
       ) : null}
     </section>

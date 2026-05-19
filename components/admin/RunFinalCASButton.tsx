@@ -13,6 +13,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
+import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 
 type FinalizeCasResponse =
@@ -28,7 +29,7 @@ type Props = { sessionId: string };
 type State =
   | { kind: "idle" }
   | { kind: "running" }
-  | { kind: "error"; copy: string }
+  | { kind: "error"; copy: string; code: string | null }
   | { kind: "complete" };
 
 function lookupDougFacing(code: string | undefined | null): string | null {
@@ -57,13 +58,14 @@ export function RunFinalCASButton({ sessionId: _sessionId }: Props) {
         setState({
           kind: "error",
           copy: lookupDougFacing(body.code) ?? GENERIC_ERROR,
+          code: body.code,
         });
         return;
       }
       setState({ kind: "complete" });
       router.refresh();
     } catch {
-      setState({ kind: "error", copy: GENERIC_ERROR });
+      setState({ kind: "error", copy: GENERIC_ERROR, code: null });
     }
   }
 
@@ -80,13 +82,14 @@ export function RunFinalCASButton({ sessionId: _sessionId }: Props) {
       </button>
 
       {state.kind === "error" ? (
-        <p
+        <div
           role="alert"
           data-testid="run-final-cas-error"
-          className="rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
+          className="flex flex-col gap-1 rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
         >
-          {state.copy}
-        </p>
+          <p>{state.copy}</p>
+          <HelpAffordance code={state.code} />
+        </div>
       ) : null}
     </div>
   );

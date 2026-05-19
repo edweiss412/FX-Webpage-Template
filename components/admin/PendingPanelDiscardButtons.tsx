@@ -14,6 +14,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+import { HelpAffordance } from "@/components/admin/HelpAffordance";
 
 type DiscardKind = "defer_until_modified" | "permanent_ignore";
 type Props = { pendingIngestionId: string };
@@ -21,7 +22,7 @@ type Props = { pendingIngestionId: string };
 type State =
   | { kind: "idle" }
   | { kind: "running"; pendingKind: DiscardKind }
-  | { kind: "error"; copy: string };
+  | { kind: "error"; copy: string; code: string | null };
 
 function lookupDougFacing(code: string | undefined | null): string | null {
   if (!code) return null;
@@ -56,13 +57,14 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
         setState({
           kind: "error",
           copy: lookupDougFacing(body.code) ?? GENERIC_ERROR,
+          code: body.code,
         });
         return;
       }
       setState({ kind: "idle" });
       router.refresh();
     } catch {
-      setState({ kind: "error", copy: GENERIC_ERROR });
+      setState({ kind: "error", copy: GENERIC_ERROR, code: null });
     }
   }
 
@@ -95,13 +97,14 @@ export function PendingPanelDiscardButtons({ pendingIngestionId }: Props) {
         </button>
       </div>
       {state.kind === "error" ? (
-        <p
+        <div
           role="alert"
           data-testid={`admin-pending-discard-error-${pendingIngestionId}`}
-          className="text-sm text-warning-text"
+          className="flex flex-col gap-1 text-sm text-warning-text"
         >
-          {state.copy}
-        </p>
+          <p>{state.copy}</p>
+          <HelpAffordance code={state.code} />
+        </div>
       ) : null}
     </div>
   );

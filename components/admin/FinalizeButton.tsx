@@ -33,6 +33,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
+import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 
 type PerRowFailure = {
@@ -79,7 +80,7 @@ type ButtonState =
   | { kind: "idle" }
   | { kind: "running"; phase: "batch" | "cas"; batchIndex: number }
   | { kind: "race_row"; failures: PerRowFailure[] }
-  | { kind: "error"; copy: string }
+  | { kind: "error"; copy: string; code: string | null }
   | { kind: "complete" };
 
 function lookupDougFacing(code: string | undefined | null): string | null {
@@ -108,7 +109,7 @@ export function FinalizeButton({ wizardSessionId, disabled }: FinalizeButtonProp
           method: "POST",
         });
       } catch {
-        setState({ kind: "error", copy: GENERIC_ERROR });
+        setState({ kind: "error", copy: GENERIC_ERROR, code: null });
         return;
       }
       const body = (await response.json()) as FinalizeResponse;
@@ -116,6 +117,7 @@ export function FinalizeButton({ wizardSessionId, disabled }: FinalizeButtonProp
         setState({
           kind: "error",
           copy: lookupDougFacing(body.code) ?? GENERIC_ERROR,
+          code: body.code,
         });
         return;
       }
@@ -144,7 +146,7 @@ export function FinalizeButton({ wizardSessionId, disabled }: FinalizeButtonProp
       if (batchBody.status === "all_batches_complete") {
         break;
       }
-      setState({ kind: "error", copy: GENERIC_ERROR });
+      setState({ kind: "error", copy: GENERIC_ERROR, code: null });
       return;
     }
 
@@ -155,7 +157,7 @@ export function FinalizeButton({ wizardSessionId, disabled }: FinalizeButtonProp
         method: "POST",
       });
     } catch {
-      setState({ kind: "error", copy: GENERIC_ERROR });
+      setState({ kind: "error", copy: GENERIC_ERROR, code: null });
       return;
     }
     const casBody = (await casResponse.json()) as FinalizeCasResponse;
@@ -163,6 +165,7 @@ export function FinalizeButton({ wizardSessionId, disabled }: FinalizeButtonProp
       setState({
         kind: "error",
         copy: lookupDougFacing(casBody.code) ?? GENERIC_ERROR,
+        code: casBody.code,
       });
       return;
     }
@@ -209,6 +212,7 @@ export function FinalizeButton({ wizardSessionId, disabled }: FinalizeButtonProp
                   {lookupDougFacing(failure.code) ??
                     "This sheet could not be published in the current batch."}
                 </span>
+                <HelpAffordance code={failure.code} />
                 <Link
                   data-testid={`wizard-finalize-reapply-${failure.drive_file_id}`}
                   href={failure.re_apply_url}
@@ -223,13 +227,14 @@ export function FinalizeButton({ wizardSessionId, disabled }: FinalizeButtonProp
       ) : null}
 
       {state.kind === "error" ? (
-        <p
+        <div
           role="alert"
           data-testid="wizard-finalize-error"
-          className="rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
+          className="flex flex-col gap-1 rounded-md border border-border bg-warning-bg p-tile-pad text-sm text-warning-text"
         >
-          {state.copy}
-        </p>
+          <p>{state.copy}</p>
+          <HelpAffordance code={state.code} />
+        </div>
       ) : null}
 
       {state.kind === "complete" ? (

@@ -23,6 +23,8 @@ import Link from "next/link";
 import { PendingPanelRetryButton } from "@/components/admin/PendingPanelRetryButton";
 import { PendingPanelDiscardButtons } from "@/components/admin/PendingPanelDiscardButtons";
 import { messageFor } from "@/lib/messages/lookup";
+import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 
 function lookupDougFacing(code: string | undefined | null): string | null {
@@ -65,12 +67,26 @@ export function PendingPanel({
       aria-labelledby="pending-panel-heading"
       className="flex flex-col gap-3"
     >
-      <h3
-        id="pending-panel-heading"
-        className="text-lg font-semibold text-text-strong"
-      >
-        Sheets we couldn&rsquo;t auto-apply
-      </h3>
+      <div className="flex items-center gap-2">
+        <h3
+          id="pending-panel-heading"
+          className="text-lg font-semibold text-text-strong"
+        >
+          Sheets we couldn&rsquo;t auto-apply
+        </h3>
+        <HelpTooltip
+          label="Help: Sheets we couldn't auto-apply"
+          testId="pending-panel-help"
+        >
+          <p>
+            New sheets land here for first-time review, and any sheet we
+            failed to parse stays here until you decide what to do. Use
+            Review and apply for a clean new sheet, or Retry, Defer, or
+            Ignore for a sheet that failed. Anything you decide here
+            disappears from this list right away.
+          </p>
+        </HelpTooltip>
+      </div>
 
       {isEmpty ? (
         <div
@@ -125,6 +141,7 @@ export function PendingPanel({
                     row.errorMessage ??
                     "We could not parse this sheet."}
                 </p>
+                <HelpAffordance code={row.errorCode} />
                 <p className="text-xs text-text-subtle tabular-nums">
                   attempts: {row.attemptCount}
                 </p>

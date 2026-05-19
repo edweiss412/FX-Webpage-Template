@@ -103,7 +103,7 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
           data-testid="admin-resync-error"
           className="rounded-sm border border-border-strong bg-warning-bg p-3 text-warning-text"
         >
-          <ErrorExplainer code={errorCode} surface="admin" />
+          <ErrorExplainer code={errorCode} surface="admin" helpfulContext />
         </div>
       ) : null}
       {successMessage && !errorCode ? (

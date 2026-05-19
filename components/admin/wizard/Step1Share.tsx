@@ -29,6 +29,7 @@
  */
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { HelpTooltip } from "@/components/admin/HelpTooltip";
 
 type Step1ShareProps = {
   serviceAccountEmail: string;
@@ -73,12 +74,25 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
         >
           Step 1 of 3
         </p>
-        <h2
-          id="wizard-step1-heading"
-          className="text-2xl font-semibold text-text-strong"
-        >
-          Share your show folder
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2
+            id="wizard-step1-heading"
+            className="text-2xl font-semibold text-text-strong"
+          >
+            Share your show folder
+          </h2>
+          <HelpTooltip
+            label="Help: Share your show folder"
+            testId="wizard-step1-help"
+          >
+            <p>
+              The app reads your show sheets straight from Google Drive.
+              You pick one folder and share it with the email we display
+              below. Anything you drop into that folder appears here in a
+              few minutes; nothing else on your Drive is touched.
+            </p>
+          </HelpTooltip>
+        </div>
         <p className="max-w-prose text-base text-text-subtle">
           The app reads sheets out of one Google Drive folder you pick. Share
           that folder with the email below so the app can see what is inside.

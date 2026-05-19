@@ -38,6 +38,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
+import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 
 function lookupDougFacing(code: string | undefined | null): string | null {
@@ -135,7 +137,9 @@ function HardFailedActions({
 }) {
   const router = useRouter();
   const [pending, setPending] = useState<ActionLabel | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ copy: string; code: string | null } | null>(
+    null,
+  );
 
   async function run(action: ActionLabel) {
     if (pending) return;
@@ -149,17 +153,21 @@ function HardFailedActions({
         | { status: string }
         | { ok: false; code: string };
       if ("ok" in body && body.ok === false) {
-        setError(
-          lookupDougFacing(body.code) ??
+        setError({
+          copy:
+            lookupDougFacing(body.code) ??
             "That action could not complete. Refresh the wizard and try again.",
-        );
+          code: body.code,
+        });
         return;
       }
       router.refresh();
     } catch {
-      setError(
-        "We could not reach the server. Check your connection and try again.",
-      );
+      setError({
+        copy:
+          "We could not reach the server. Check your connection and try again.",
+        code: null,
+      });
     } finally {
       setPending(null);
     }
@@ -197,13 +205,14 @@ function HardFailedActions({
         </button>
       </div>
       {error ? (
-        <p
+        <div
           role="alert"
           data-testid={`wizard-step3-error-${row.driveFileId}`}
-          className="text-sm text-warning-text"
+          className="flex flex-col gap-1 text-sm text-warning-text"
         >
-          {error}
-        </p>
+          <p>{error.copy}</p>
+          <HelpAffordance code={error.code} />
+        </div>
       ) : null}
     </div>
   );
@@ -260,6 +269,7 @@ function RowItem({
           {hardFailCopy ? (
             <p className="text-sm text-text-subtle">{hardFailCopy}</p>
           ) : null}
+          {row.errorCode ? <HelpAffordance code={row.errorCode} /> : null}
           <HardFailedActions
             row={row as Step3Row & { pendingIngestionId: string }}
           />
@@ -281,10 +291,13 @@ function RowItem({
       ) : null}
 
       {row.status === "live_row_conflict" ? (
-        <p className="text-sm text-warning-text">
-          {liveConflictCopy ??
-            "This sheet conflicts with a live row. Resolve it from the dashboard and re-run setup."}
-        </p>
+        <div className="flex flex-col gap-1 text-sm text-warning-text">
+          <p>
+            {liveConflictCopy ??
+              "This sheet conflicts with a live row. Resolve it from the dashboard and re-run setup."}
+          </p>
+          <HelpAffordance code="LIVE_ROW_CONFLICT" />
+        </div>
       ) : null}
     </article>
   );
@@ -308,12 +321,26 @@ export function Step3Review({ wizardSessionId, rows }: Step3ReviewProps) {
         >
           Step 3 of 3
         </p>
-        <h2
-          id="wizard-step3-heading"
-          className="text-2xl font-semibold text-text-strong"
-        >
-          Review your sheets
-        </h2>
+        <div className="flex items-center gap-2">
+          <h2
+            id="wizard-step3-heading"
+            className="text-2xl font-semibold text-text-strong"
+          >
+            Review your sheets
+          </h2>
+          <HelpTooltip
+            label="Help: Review your sheets"
+            testId="wizard-step3-help"
+          >
+            <p>
+              Each row below is one sheet from your folder. Approve good
+              ones, set aside any we could not read, and ignore anything
+              that does not belong. Setup will not finish until every row
+              has a decision. Tap What does this mean on any error for a
+              plain-language explanation.
+            </p>
+          </HelpTooltip>
+        </div>
         <p className="max-w-prose text-base text-text-subtle">
           Every sheet we found in your folder is listed below. Approve, set
           aside, or defer each one. Setup finishes once every row is resolved.
