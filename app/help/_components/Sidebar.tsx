@@ -68,7 +68,7 @@ function NavList({
                     // background for current.
                     className={
                       isCurrent
-                        ? "block min-h-tap-min py-1 px-2 -mx-2 rounded border-l-2 border-accent bg-surface-raised text-text-strong font-semibold"
+                        ? "block min-h-tap-min py-1 px-2 -mx-2 rounded bg-surface-raised text-text-strong font-semibold"
                         : "block min-h-tap-min py-1 px-2 -mx-2 rounded text-text hover:bg-surface-raised"
                     }
                   >
