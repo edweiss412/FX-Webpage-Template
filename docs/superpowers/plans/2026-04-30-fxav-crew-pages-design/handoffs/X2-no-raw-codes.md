@@ -1,3 +1,5 @@
+**Status: COMPLETED 2026-05-19.** Adversarial review converged at R1 APPROVE on SHA `a5bd9b7` — Codex's implementation passed Opus review on the first round, no fix cycles required. M10 advisory raw-code grep retired in same commit range; X.1 R3 residual #1 (artifact-name collision pattern) fully closed via canonical X.* naming convention. See "Convergence log" below.
+
 # Handoff — X.2: No raw error codes in user-visible UI (AC-X.2)
 
 **Handed off:** 2026-05-19 by Eric Weiss
@@ -165,7 +167,7 @@ Pulled forward from X.1 R1–R3 (especially R2 Opus findings) + M10 close-out R3
 - [x] X.1 residuals (artifact-name collision + FIRST_SEEN_REVIEW allowlist registry) dispositioned per §11 below.
 - [x] `pnpm typecheck && pnpm lint && pnpm test` exits 0 with no new warnings (the four pre-existing lint warnings carry forward).
 - [x] No new `// TODO` or `// FIXME` lines.
-- [ ] Adversarial review converged to APPROVE (expect at least one R2 round — X.1 demonstrated same-model self-review consistently misses class-of-error findings).
+- [x] Adversarial review converged to APPROVE on R1 (Opus reviewer at `a5bd9b7`, base `271bb22`). Codex's first delivery passed cross-model review on the first round — no fix cycles required. Discrimination correctness verified by hand-walk of the AST scoping for catalog routers, wrapper components, switch cases, discriminated-union types, data-testid attributes, and catalog-enum arrays. See Convergence log §"Adversarial review".
 - [x] All commits follow `<type>(<scope>): <summary>` format with one logical task per commit.
 - [x] Convergence log at the bottom of this file is filled in.
 
@@ -229,8 +231,8 @@ Declared at handoff time per memory `feedback_meta_test_at_plan_time_not_round_n
 - **X.1 residuals:** X.1 and X.2 artifacts now use the canonical unique pattern `<job-name>-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}`. X.2 introduced no literal allowlist entries; combined FIRST_SEEN_REVIEW/X.2 allowlist count remains 1, so the shared display allowlist migration trigger did not fire.
 - **Verification at implementation close:** `pnpm test:audit:x1-catalog-parity && pnpm gen:internal-code-enums && git diff --exit-code lib/messages/__generated__/internal-code-enums.ts && pnpm test:audit:x2-no-raw-codes && pnpm gen:spec-codes && git diff --exit-code lib/messages/__generated__/spec-codes.ts && pnpm test && pnpm lint && pnpm typecheck` exited 0. Totals: X.1 audit 42/42, X.2 audit 17/17, full Vitest 3421 passed / 5 skipped, lint 0 errors / 4 pre-existing warnings, typecheck clean. `pnpm verify:spec-amendment` exited 0. `.github/workflows/x-audits.yml` parsed with Ruby YAML.
 
-_(filled in during execution)_
+### Adversarial review
 
-- Round N (YYYY-MM-DD): _reviewer raised X issues. Y resolved, Z deferred to <where>._
-- ...
-- Converged at round R on YYYY-MM-DD.
+- **R1 (2026-05-19, Opus reviewer at `a5bd9b7`, base `271bb22`): APPROVE on first round.** Reviewer walked the AST discrimination logic by hand for multiple fixture pairs and confirmed: (1) catalog-router first-arg literals (`messageFor`, `getDougFacing`, `getCrewFacing`, `lookupHelpfulContext`, `setError`) correctly excluded via JsxAttribute-ancestor scoping; (2) wrapper-component-code-attr (`<ErrorExplainer code=>`, `<HelpAffordance code=>`) correctly excluded; (3) switch-case + discriminated-union + binary-equality literals correctly never visited because `auditJsxExpression` only walks descendants of `JsxExpression` nodes, not function-body `SwitchStatement`/`BinaryExpression` siblings; (4) `data-testid` not in `USER_VISIBLE_ATTRS`; (5) catalog-enum arrays in module scope never reached; (6) forbidden-set dedup names provenance in diagnostics; (7) manifest byte-stable + sorted (mirrors X.1 R2 F6 fix shape); (8) workflow exposes `x2-no-raw-codes` verbatim AND retroactively renamed X.1's artifact to the canonical pattern `<job-name>-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}` — X.1 R3 residual #1 fully closed; (9) Playwright crawl exercises `input.value` / `textarea.value` / `select.selectedOptions[0].value` / `contenteditable.textContent` / shadow-DOM walk; (10) route discovery code-shape-based via `app/**/page.tsx` glob with proper excludes (`app/api/`, `app/admin/dev/`, dynamic `[...]` segments); (11) negative-regression verifications match memory `feedback_negative_regression_verification.md` protocol shape. Strongest residual concern (non-blocking, flagged for X.3+ watchpoints): substring matching on long internal-enum tokens (`parse_error`, `drive_error`, `sheet_unavailable`, `pending_review`) could false-positive on future JSX-position literals like `'parse_error_recovery'`. Zero current production false positives; AST-scoping rule contains blast radius; audit failure mode is loud + named (operator can rename the surrounding value). Worth flagging if a future long internal token gets introduced near a JSX render path.
+
+**Converged at R1 on 2026-05-19** with verdict APPROVE. CI status check `x2-no-raw-codes` exposed verbatim per spec §17.2. M10 advisory raw-code grep retired; structural replacement is live. X.1 R3 residual #1 (artifact-name collision pattern) fully closed via the canonical X.* artifact naming convention. X.1 R3 residual #2 (FIRST_SEEN_REVIEW allowlist registry migration trigger) did not fire — combined count remains 1; defer until count > 3 trigger fires.
