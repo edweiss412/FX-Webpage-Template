@@ -93,7 +93,7 @@ function lookupDougFacing(code: string | undefined | null): string | null {
 const GENERIC_ERROR =
   "The publish step could not complete. Refresh and try again, or contact the developer if this keeps happening.";
 
-export function FinalizeButton({ wizardSessionId, disabled }: FinalizeButtonProps) {
+export function FinalizeButton({ wizardSessionId: _wizardSessionId, disabled }: FinalizeButtonProps) {
   const router = useRouter();
   const [state, setState] = useState<ButtonState>({ kind: "idle" });
 
