@@ -3,6 +3,7 @@ import type {
   FinalizeCasRouteDeps,
   FinalizeCasRouteTx,
 } from "@/app/api/admin/onboarding/finalize-cas/route";
+import type { WizardStagedRouteTx } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route";
 import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
 import { handleWizardStagedApply } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route";
 
@@ -164,6 +165,10 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
     throw new Error(`Unhandled SQL in finalize-cas fake: ${normalized}`);
   }
 
+  async queryOne<T>(): Promise<T> {
+    return { held: true } as T;
+  }
+
   private classify(sql: string): string {
     if (sql.startsWith("select pending_wizard_session_id")) return "read-session";
     if (sql.includes("pg_try_advisory_xact_lock(hashtext('finalize:'")) return "try-finalize-lock";
@@ -275,8 +280,8 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
       }),
       { params: Promise.resolve({ wizardSessionId: W1, driveFileId: "existing-3" }) },
       {
-        requireAdminIdentity: routeDeps.requireAdminIdentity,
-        withRowTx: async (_driveFileId, fn) => fn(db),
+        requireAdminIdentity: async () => ({ email: "doug@example.com" }),
+        withRowTx: async (_driveFileId, fn) => fn(db as unknown as WizardStagedRouteTx),
         applyStagedUnlocked: async () => {
           db.phaseDCasFailDriveIds.delete("existing-3");
           db.shadowRows = [
