@@ -12,157 +12,934 @@ export const MESSAGE_CATALOG = {
     code: "LINK_EXPIRED",
     dougFacing: null,
     crewFacing: "This link has expired. Ask Doug for a new one.",
-    followUp: "Crew -> text Doug",
+    followUp: "Crew → text Doug",
     helpfulContext: null,
   },
   LINK_REVOKED_FLOOR: {
     code: "LINK_REVOKED_FLOOR",
     dougFacing: null,
     crewFacing: "This link has been replaced. Ask Doug for a new link.",
-    followUp: "Crew -> text Doug",
+    followUp: "Crew → text Doug",
     helpfulContext: null,
   },
   LINK_REVOKED_SURGICAL: {
     code: "LINK_REVOKED_SURGICAL",
     dougFacing: null,
     crewFacing: "This link has been revoked. Ask Doug for a new link.",
-    followUp: "Crew -> text Doug",
+    followUp: "Crew → text Doug",
     helpfulContext: null,
   },
   LINK_VERSION_MISMATCH: {
     code: "LINK_VERSION_MISMATCH",
     dougFacing: null,
     crewFacing: "This link is out of date. Ask Doug for a new link.",
-    followUp: "Crew -> text Doug",
+    followUp: "Crew → text Doug",
     helpfulContext: null,
   },
   LINK_NO_CREW_MATCH: {
     code: "LINK_NO_CREW_MATCH",
     dougFacing: null,
     crewFacing: "You've been removed from this show. Contact Doug if this is a mistake.",
-    followUp: "Crew -> text Doug",
+    followUp: "Crew → text Doug",
     helpfulContext: null,
   },
   LEAKED_LINK_DETECTED: {
     code: "LEAKED_LINK_DETECTED",
-    dougFacing:
-      "A signed link was opened with `?t=` in the URL - we treat that as a possible leak. The affected link has been auto-revoked and the crew member's row is in 'no live link' state. Click 'Issue new link' for them when you're ready.",
+    dougFacing: "A signed link was opened with `?t=` in the URL — we treat that as a possible leak. The affected link has been auto-revoked and the crew member's row is in 'no live link' state. Click 'Issue new link' for them when you're ready.",
     crewFacing: "This link format isn't supported and has been revoked. Ask Doug for a new one.",
-    followUp: "Doug -> Issue new link",
-    helpfulContext:
-      "A signed link is meant to live in the URL fragment after `#t=`, never in the query string after `?t=`. When Vercel logged a `?t=` URL, that token may have been written to a request log or referrer header — we treat it as compromised and revoke it automatically. Click 'Issue new link' to send the affected crew member a fresh one.",
+    followUp: "Doug → Issue new link",
+    helpfulContext: "A signed link is meant to live in the URL fragment after `#t=`, never in the query string after `?t=`. When Vercel logged a `?t=` URL, that token may have been written to a request log or referrer header — we treat it as compromised and revoke it automatically. Click 'Issue new link' to send the affected crew member a fresh one.",
   },
   CSRF_DENIED: {
     code: "CSRF_DENIED",
     dougFacing: null,
-    crewFacing:
-      "We couldn't open this link. Try the original link Doug shared again, in the same browser.",
-    followUp: "Crew -> reopen original link; if persistent, Eric",
+    crewFacing: "We couldn't open this link. Try the original link Doug shared again, in the same browser.",
+    followUp: "Crew → reopen original link; if persistent, Eric",
     helpfulContext: null,
-  },
-  CSRF_NONCE_EXPIRED: {
-    code: "CSRF_NONCE_EXPIRED",
-    dougFacing: null,
-    crewFacing: "Please refresh and click the link again - your bootstrap window expired.",
-    followUp: "Crew -> re-click signed link",
-    helpfulContext: null,
-  },
-  CSRF_KEY_ROTATED: {
-    code: "CSRF_KEY_ROTATED",
-    dougFacing: "Sessions have been rotated; please open your original signed link again.",
-    crewFacing: "Your sign-in session was rotated. Refresh the page and click your link again.",
-    followUp: "Crew -> re-click signed link; Doug -> refresh and re-click",
-    helpfulContext:
-      "While you were using the app, the developer rotated the secret key the app uses to verify CSRF tokens. The token your browser was holding was minted under the old key, so it was rejected to keep stale tokens from authorizing actions after the rotation. Refresh the page and click your link again to mint a fresh CSRF token.",
-  },
-  BOOTSTRAP_GENERIC: {
-    code: "BOOTSTRAP_GENERIC",
-    dougFacing: null,
-    crewFacing: "Couldn't reach the server. Try signing in instead.",
-    followUp: "Crew -> try /auth/sign-in",
-    helpfulContext: null,
-  },
-  NETWORK_UNREACHABLE: {
-    code: "NETWORK_UNREACHABLE",
-    dougFacing:
-      "Couldn't reach the server. Check your connection and try again — there's no admin trail because the request never arrived.",
-    crewFacing: "Couldn't reach the server. Check your connection and try again.",
-    followUp: "Either -> check connection, retry; persistent -> Eric",
-    helpfulContext:
-      "The client-side fetch failed before reaching the server — typically the user's device is offline, DNS is failing, a captive portal is blocking the request, or a browser extension is intercepting the call. Because the request never arrived, no §A code was emitted and no admin trail exists; the only signal is the user-facing one. Recovery is the same regardless of audience: check connectivity and retry. If this code recurs against a known-online network, suspect a same-origin browser extension or a CSP block.",
   },
   GOOGLE_NO_CREW_MATCH: {
     code: "GOOGLE_NO_CREW_MATCH",
     dougFacing: null,
     crewFacing: "Your email isn't on the crew list for this show. Ask Doug to add you.",
-    followUp: "Crew -> text Doug",
+    followUp: "Crew → text Doug",
     helpfulContext: null,
   },
   AMBIGUOUS_EMAIL_BINDING: {
     code: "AMBIGUOUS_EMAIL_BINDING",
-    dougFacing:
-      "Two crew rows share the same email - Google login is unsafe to resolve. The duplicate-email check normally catches this; please re-share the sheet so we can re-parse, or contact the developer.",
+    dougFacing: "Two crew rows share the same email — Google login is unsafe to resolve. The duplicate-email check normally catches this; please re-share the sheet so we can re-parse, or contact the developer.",
     crewFacing: "Something is misconfigured for this show. Doug has been notified.",
-    followUp: "Doug -> fix sheet duplicate; if persistent, Eric",
-    helpfulContext:
-      "When two people on the crew list share the same email address, we can't safely tell who's logging in. The duplicate-email check should normally catch this in the parse step. If you're seeing this code, the safest fix is to look at the most recent edits to your crew block — usually one of the two emails is a typo or a paste mistake. Once you correct the duplicate in your sheet, this alert will clear automatically on the next sync.",
-  },
-  SESSION_NOT_FOUND: {
-    code: "SESSION_NOT_FOUND",
-    dougFacing: null,
-    crewFacing: "Open the original link Doug shared again.",
-    followUp: "Crew -> reopen link",
-    helpfulContext: null,
+    followUp: "Doug → fix sheet duplicate; if persistent, Eric",
+    helpfulContext: "When two people on the crew list share the same email address, we can't safely tell who's logging in. The duplicate-email check should normally catch this in the parse step. If you're seeing this code, the safest fix is to look at the most recent edits to your crew block — usually one of the two emails is a typo or a paste mistake. Once you correct the duplicate in your sheet, this alert will clear automatically on the next sync.",
   },
   SESSION_IDLE_TIMEOUT: {
     code: "SESSION_IDLE_TIMEOUT",
     dougFacing: null,
     crewFacing: "Your session timed out. Open the original link Doug shared again.",
-    followUp: "Crew -> reopen link",
+    followUp: "Crew → reopen link",
     helpfulContext: null,
   },
   SESSION_ABSOLUTE_TIMEOUT: {
     code: "SESSION_ABSOLUTE_TIMEOUT",
     dougFacing: null,
-    crewFacing: "Time to refresh - open the original link Doug shared again.",
-    followUp: "Crew -> reopen link",
+    crewFacing: "Time to refresh — open the original link Doug shared again.",
+    followUp: "Crew → reopen link",
+    helpfulContext: null,
+  },
+  DRIVE_FETCH_FAILED: {
+    code: "DRIVE_FETCH_FAILED",
+    dougFacing: "We couldn't fetch this sheet from Google Drive. Could be a transient network issue, or the sheet's been moved or unshared. We'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
+    crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
+    followUp: "Doug → check share / Retry",
+    helpfulContext: "Google Drive temporarily blocked or refused our request to read this sheet. The most common cause is a transient network or permissions hiccup; we keep retrying automatically. If this stays for more than an hour, double-check that the folder is still shared with the service account email and that the sheet hasn't been moved out of the watched folder.",
+  },
+  SHEET_UNAVAILABLE: {
+    code: "SHEET_UNAVAILABLE",
+    dougFacing: "_<sheet-name>_ isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back.",
+    crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
+    followUp: "Doug → re-share sheet",
+    helpfulContext: "We expected to find this sheet in your watched folder but it's not there anymore. Either someone moved it to a different folder, the share was removed, or the file was deleted. Crew see the last good version we have on file. Re-share or move the sheet back into the folder and we'll pick it up on the next sync.",
+  },
+  PARSE_ERROR_LAST_GOOD: {
+    code: "PARSE_ERROR_LAST_GOOD",
+    dougFacing: "_<sheet-name>_'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail.",
+    crewFacing: "We couldn't read the latest edit to Doug's sheet. Showing what we had at _<time>_.",
+    followUp: "Doug → fix sheet (see parse panel); Crew → mention to Doug",
+    helpfulContext: "A recent edit to the sheet introduced something the parser couldn't read, but we kept the previously approved version live so crew aren't blocked. Open the per-show parse panel to see the specific MI-N code explaining what went wrong, fix it in the sheet, and the next sync will replace the stale data.",
+  },
+  STALE_WRITE_ABORTED: {
+    code: "STALE_WRITE_ABORTED",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  STALE_MANUAL_REPLAY_ABORTED: {
+    code: "STALE_MANUAL_REPLAY_ABORTED",
+    dougFacing: "This manual sync is stale — a newer parse has already been applied. Refresh the page to see the current state.",
+    crewFacing: null,
+    followUp: "Doug → refresh admin",
+    helpfulContext: "You clicked 'Sync' against a version that's already been superseded by a newer parse. No work was lost — just refresh the admin page to see the current state and try again from there if needed.",
+  },
+  STALE_PUSH_ABORTED: {
+    code: "STALE_PUSH_ABORTED",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  WIZARD_SESSION_SUPERSEDED: {
+    code: "WIZARD_SESSION_SUPERSEDED",
+    dougFacing: "Your setup wizard was superseded by another wizard. Refresh and start setup again.",
+    crewFacing: null,
+    followUp: "Doug → restart wizard",
+    helpfulContext: "Setup wizards run one at a time. While your tab was open, another wizard was started (probably from a second browser tab or device) and your session was retired. Refresh and start setup over in a single tab; whatever the other wizard scanned is the new state.",
+  },
+  WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED: {
+    code: "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED",
+    dougFacing: "We made an update to the review process since you approved this sheet. Please review and Apply it again to finish setup.",
+    crewFacing: null,
+    followUp: "Doug → re-Apply the affected sheet",
+    helpfulContext: "Setup wizards stage your Apply decisions and finalize them in a separate step. Between when you Applied this sheet and when finalize ran, we updated the format used to record your review choices — usually because we added a new kind of decision or expanded what's tracked per item. Rather than silently replay your old-format choices through the new validator (which could mis-derive permissions), we hold this sheet for re-review. Open the wizard tab, re-Apply the affected sheet under the current version, then click Finalize again.",
+  },
+  STAGED_PARSE_REVISION_RACE_DURING_FINALIZE: {
+    code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
+    dougFacing: "_<sheet-name>_ was edited again while we were finishing setup. Please re-review and Apply it, then click Finalize again.",
+    crewFacing: null,
+    followUp: "Doug → re-Apply the affected sheet",
+    helpfulContext: "Doug edited this sheet again in Drive between when you clicked Apply (which staged your decisions) and when finalize tried to commit them. The snapshot we captured at Apply no longer represents the current head revision, and committing it would publish stale bytes. The other sheets in this finalize batch are unaffected and still committed; only the raced sheet needs your attention. Open the wizard, re-review the new edit, click Apply, then click Finalize.",
+  },
+  WIZARD_FINALIZE_BATCHES_PENDING: {
+    code: "WIZARD_FINALIZE_BATCHES_PENDING",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: "Doug → click Resume finalize OR Cleanup abandoned finalize",
+    helpfulContext: null,
+  },
+  IDEMPOTENCY_IN_FLIGHT: {
+    code: "IDEMPOTENCY_IN_FLIGHT",
+    dougFacing: "Hold on — your previous report is still being submitted. Try again in a moment if it doesn't go through.",
+    crewFacing: "Hold on — give it a sec.",
+    followUp: "client retries after backoff",
+    helpfulContext: "Your previous report submission is still being processed by the developer's GitHub. Don't worry — clicking again won't create a duplicate, but it also won't speed things up. If the original doesn't go through within a minute, try once more.",
+  },
+  WATCH_CHANNEL_ORPHANED: {
+    code: "WATCH_CHANNEL_ORPHANED",
+    dougFacing: "(admin_alerts banner) \"A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved.\"",
+    crewFacing: null,
+    followUp: "Eric → reconcile / retry",
+    helpfulContext: "We tried to register a real-time push subscription with Google Drive and didn't get a confirmation back. The cron job will keep this show in sync on its normal schedule; this just means edits won't appear instantly until the developer reconciles the subscription.",
+  },
+  WEBHOOK_TOKEN_INVALID: {
+    code: "WEBHOOK_TOKEN_INVALID",
+    dougFacing: "\"A push notification from Google Drive failed verification — possible spoofing or misconfiguration. The developer has been notified.\" (admin_alerts top-bar banner)",
+    crewFacing: null,
+    followUp: "Eric → investigate",
+    helpfulContext: "A push notification arrived from Google Drive carrying the wrong verification token. This usually means a stale subscription is still firing or someone's spoofing the endpoint. The developer has been notified and will rotate the token if needed.",
+  },
+  WEBHOOK_NOOP_ALREADY_SYNCED: {
+    code: "WEBHOOK_NOOP_ALREADY_SYNCED",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  CONCURRENT_SYNC_SKIPPED: {
+    code: "CONCURRENT_SYNC_SKIPPED",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  STAGED_PARSE_OUTDATED: {
+    code: "STAGED_PARSE_OUTDATED",
+    dougFacing: "The sheet was edited again since you reviewed this parse. We've discarded the staged version; a fresh parse will be ready in a few minutes.",
+    crewFacing: null,
+    followUp: "Doug → wait, review next",
+    helpfulContext: "Doug saved another edit to the sheet after the version you were reviewing was staged. The staged version is no longer the most recent state, so we discarded it. The next sync will produce a fresh staged parse to review.",
+  },
+  STAGED_PARSE_REVISION_RACE: {
+    code: "STAGED_PARSE_REVISION_RACE",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  STAGED_PARSE_REVISION_RACE_COOLDOWN: {
+    code: "STAGED_PARSE_REVISION_RACE_COOLDOWN",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  SHOW_REALTIME_BROADCAST_AUTH_FAILED: {
+    code: "SHOW_REALTIME_BROADCAST_AUTH_FAILED",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  SHOW_REALTIME_SUBSCRIPTION_FAILED: {
+    code: "SHOW_REALTIME_SUBSCRIPTION_FAILED",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  SHOW_REALTIME_CROSS_SHOW_FORBIDDEN: {
+    code: "SHOW_REALTIME_CROSS_SHOW_FORBIDDEN",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  SHOW_VERSION_CROSS_SHOW_FORBIDDEN: {
+    code: "SHOW_VERSION_CROSS_SHOW_FORBIDDEN",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  SHOW_REALTIME_JWT_RENEWED: {
+    code: "SHOW_REALTIME_JWT_RENEWED",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
     helpfulContext: null,
   },
   LINK_SESSION_KEY_ROTATED: {
     code: "LINK_SESSION_KEY_ROTATED",
     dougFacing: "Sessions have been rotated; please open your original signed link again.",
     crewFacing: null,
-    followUp: "User -> re-open original signed link",
-    helpfulContext:
-      "While you were finishing sign-in, the developer rotated the secret key the app uses to authenticate link sessions. Your session was bound to the old key, so it was retired to keep the old key from authorizing any new requests after the rotation. Open the original signed link Doug shared again to mint a fresh session.",
+    followUp: "User → re-open original signed link",
+    helpfulContext: "While you were finishing sign-in, the developer rotated the secret key the app uses to authenticate link sessions. Your session was bound to the old key, so it was retired to keep the old key from authorizing any new requests after the rotation. Open the original signed link Doug shared again to mint a fresh session.",
   },
   LINK_REDEEM_KEY_ROTATED: {
     code: "LINK_REDEEM_KEY_ROTATED",
     dougFacing: "Sessions have been rotated; please open your original signed link again.",
     crewFacing: null,
-    followUp: "User -> re-open original signed link",
-    helpfulContext:
-      "While you were finishing sign-in, the developer rotated the secret key the app uses to verify signed links. Your link was minted under the old key, so the redemption was rejected to keep the old key from authorizing any new sessions after the rotation. Open the original signed link Doug shared again.",
+    followUp: "User → re-open original signed link",
+    helpfulContext: "While you were finishing sign-in, the developer rotated the secret key the app uses to verify signed links — usually because a possible secret leak was being mitigated. Your link was minted under the old key, so the redemption was rejected to keep the old key from authorizing any new sessions after the rotation. Open the original signed link Doug shared again — the bootstrap step will mint a fresh proof under the new key, and sign-in will complete normally.",
+  },
+  STAGED_PARSE_SOURCE_GONE: {
+    code: "STAGED_PARSE_SOURCE_GONE",
+    dougFacing: "The source sheet is no longer accessible. The staged parse has been discarded. Re-share or restore the sheet to bring this show back.",
+    crewFacing: null,
+    followUp: "Doug → restore sheet",
+    helpfulContext: "Between staging and Apply, the source sheet was deleted, trashed, or unshared in Drive. Without a sheet to read, we can't apply the staged parse. Restore the sheet (or re-share it) and the next sync will produce a new staged parse.",
+  },
+  STAGED_PARSE_SOURCE_OUT_OF_SCOPE: {
+    code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE",
+    dougFacing: "The sheet is no longer in the watched folder. We've discarded the staged parse. Move the sheet back into the folder if you want to publish it.",
+    crewFacing: null,
+    followUp: "Doug → move sheet",
+    helpfulContext: "Between staging and Apply, the sheet was moved out of the watched folder. Anything outside the watched folder is invisible to the sync pipeline by design. Move the sheet back in and the next sync will produce a new staged parse.",
+  },
+  LINKED_ASSET_DRIFTED: {
+    code: "LINKED_ASSET_DRIFTED",
+    dougFacing: "*<sheet-name>_: a linked-folder diagram has been edited in Drive since the last review. Crew see a placeholder for that image until your next sheet edit re-stages it.",
+    crewFacing: null,
+    followUp: "Doug → re-edit sheet to re-stage",
+    helpfulContext: "A diagram in the linked Google Drive folder was edited after the staged parse was reviewed. Crew see a placeholder where that diagram should be — we won't show drifted bytes that an operator hasn't approved. Save the sheet again (any edit advances the version) to re-stage the new diagram.",
+  },
+  REEL_DRIFTED: {
+    code: "REEL_DRIFTED",
+    dougFacing: "_<sheet-name>_: the opening-reel video has been edited since you reviewed this parse. Crew see the text status only until your next sheet edit re-stages the new reel.",
+    crewFacing: null,
+    followUp: "Doug → re-edit sheet",
+    helpfulContext: "The opening-reel video was replaced or edited in Drive after the staged parse was reviewed. Crew see the text status only (e.g., 'YES') without the inline video until you save the sheet again to re-stage the new reel.",
+  },
+  OPENING_REEL_NOT_VIDEO: {
+    code: "OPENING_REEL_NOT_VIDEO",
+    dougFacing: "*<sheet-name>_: the opening-reel link is not a video file. Crew see the text status only — replace the link with a video file URL to enable inline playback.",
+    crewFacing: "Opening reel link is not a video file",
+    followUp: "Doug → re-edit sheet",
+    helpfulContext: "The opening-reel cell in your sheet contains a Drive URL, but the file behind it isn't a video — it's a Google Doc, Slides deck, image, PDF, or some other file type. Crew see the text status only (e.g., 'YES', 'BACKUP ONLY') without an inline player, because we won't try to embed a non-video file in a `<video>` element. To enable inline playback, replace the link with a video file URL (the file's MIME type must start with `video/`).",
+  },
+  OPENING_REEL_PERMISSION_DENIED: {
+    code: "OPENING_REEL_PERMISSION_DENIED",
+    dougFacing: "*<sheet-name>*: the opening-reel video is no longer shared with FXAV. Crew see the text status only — re-share the video file (or replace the link) to restore inline playback.",
+    crewFacing: "Opening reel access revoked",
+    followUp: "Doug → re-share / replace link",
+    helpfulContext: "Drive returned a permission-denied response when we tried to fetch the opening-reel video. The file used to be accessible (we had it pinned at a previous Apply), but the share was revoked, the file was made private, or it was moved out of a shared drive the service account can read. Crew see the text status only without inline playback. To restore: re-share the video file with the service account email, or replace the link with a video file you do share.",
+  },
+  EMBEDDED_RECOVERY_REQUIRES_RESTAGE: {
+    code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
+    dougFacing: "*<sheet-name>*: a diagram in your sheet can't be re-downloaded automatically. Save the sheet (any edit advances the version) and crew will see the image again on the next sync.",
+    crewFacing: null,
+    followUp: "Doug → save sheet to advance version",
+    helpfulContext: "A diagram in your sheet can't be re-downloaded automatically because it doesn't have a content-derived approval token. The fix is to save the sheet — any edit advances the version and lets us mint a fresh approval token on the next sync, which restores the diagram for crew.",
+  },
+  AGENDA_GONE_FOR_CREW: {
+    code: "AGENDA_GONE_FOR_CREW",
+    dougFacing: null,
+    crewFacing: "This agenda isn't available anymore. Ask Doug for a fresh link.",
+    followUp: "Crew → message Doug",
+    helpfulContext: null,
+  },
+  AGENDA_UNAUTHENTICATED: {
+    code: "AGENDA_UNAUTHENTICATED",
+    dougFacing: null,
+    crewFacing: "Your link to this agenda expired. Reopen Doug's latest message to view it.",
+    followUp: "Crew → reopen signed link",
+    helpfulContext: null,
+  },
+  ASSET_RECOVERY_REVISION_DRIFT: {
+    code: "ASSET_RECOVERY_REVISION_DRIFT",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: "informational only",
+    helpfulContext: null,
+  },
+  ASSET_RECOVERY_DRIFT_COOLDOWN: {
+    code: "ASSET_RECOVERY_DRIFT_COOLDOWN",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  APPLY_PROMOTE_PENDING: {
+    code: "APPLY_PROMOTE_PENDING",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  ASSET_RECOVERY_BYTES_EXCEEDED: {
+    code: "ASSET_RECOVERY_BYTES_EXCEEDED",
+    dougFacing: "\\*<sheet-name>_: this show's diagram set is too large to recover automatically (more than 60 images, an image >50MB, or >3GB total). Crew see placeholders for the missing diagrams. Tell the developer if you need this raised, or trim the gallery.",
+    crewFacing: null,
+    followUp: "Doug → trim gallery / Eric → raise cap",
+    helpfulContext: "Asset recovery stops above 60 images, above 50MB for one image, or above 3GB per run so the per-show advisory lock stays short and other syncs are not blocked behind a huge gallery recovery. Trim the gallery or ask the developer to raise the ceiling if this show truly needs more.",
+  },
+  DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE: {
+    code: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
+    dougFacing: "_<sheet-name>_'s diagrams couldn't be safely captured this sync. The previous version of those images is still showing. The developer has been notified.",
+    crewFacing: null,
+    followUp: "Eric → investigate; Doug → optionally Report",
+    helpfulContext: "Google Drive didn't return a usable revision token for this spreadsheet, so we can't safely capture an immutable snapshot of the embedded diagrams. The previous version is still live for crew. The developer has been notified; this is rare and usually clears on the next edit.",
+  },
+  STAGED_PARSE_RESTAGED_INLINE: {
+    code: "STAGED_PARSE_RESTAGED_INLINE",
+    dougFacing: "The sheet was edited since your last look — we re-parsed it inside the wizard. Here's the new review.",
+    crewFacing: null,
+    followUp: "Doug → review the refreshed parse",
+    helpfulContext: "The wizard re-parsed the sheet inside your current setup session because Doug edited it after the original scan. Review the refreshed parse — any decisions you made on the prior version were discarded.",
+  },
+  STAGED_PARSE_SUPERSEDED: {
+    code: "STAGED_PARSE_SUPERSEDED",
+    dougFacing: "A newer parse has already been applied. Refresh the admin page to review the latest state.",
+    crewFacing: null,
+    followUp: "Doug → refresh",
+    helpfulContext: "A newer parse was applied (probably by a different admin or a cron run) before your Apply landed. Refresh the admin page to see the current state.",
+  },
+  "MI-1_VERSION_DETECTION_FAILED": {
+    code: "MI-1_VERSION_DETECTION_FAILED",
+    dougFacing: "_<sheet-name>_ doesn't look like your usual show template — none of the version markers we expect (Contact Office row, MAIN/SECONDARY block for v4; Hotel Contact Info row for v2) are present. Either this is a different kind of document, or your template has changed in a way we don't recognize. Tell the developer if your template has changed.",
+    crewFacing: null,
+    followUp: "Doug → check sheet shape; Eric → add new version detector if real",
+    helpfulContext: "We look for specific row markers in your show template — the Contact Office row and MAIN/SECONDARY block (v4 sheets), or the Hotel Contact Info row (v2 sheets) — to recognize that this is a real show sheet. None of those markers were found. Either this isn't a show sheet, or your template has changed in a way the parser doesn't yet recognize. If your template has changed intentionally, tell the developer.",
+  },
+  "MI-2_TITLE_MISSING": {
+    code: "MI-2_TITLE_MISSING",
+    dougFacing: "_<sheet-name>_ doesn't have a recognizable show title. Add or fix the CLIENT row.",
+    crewFacing: null,
+    followUp: "Doug → fix sheet",
+    helpfulContext: "Every show needs a title — we read it from the CLIENT row in your sheet. Make sure the CLIENT cell is filled in with the show's title, then save the sheet.",
+  },
+  "MI-3_NO_PARSEABLE_DATE": {
+    code: "MI-3_NO_PARSEABLE_DATE",
+    dougFacing: "_<sheet-name>_ doesn't have any readable dates — we couldn't find Travel In, Set Day, or Show Day 1 as a parseable date. Check the DATES block.",
+    crewFacing: null,
+    followUp: "Doug → fix sheet",
+    helpfulContext: "We look for show dates in the DATES block (Travel In, Set Day, Show Day 1) and couldn't find anything we could read as a calendar date. Make sure your dates are in a familiar format like '6/24' or 'June 24' and that they're in the right cells.",
+  },
+  "MI-4_NO_CREW": {
+    code: "MI-4_NO_CREW",
+    dougFacing: "_<sheet-name>_ has no crew rows. Add at least one person to the CREW block.",
+    crewFacing: null,
+    followUp: "Doug → fix sheet",
+    helpfulContext: "Every show needs at least one crew member — we read names from the CREW block. The block exists but no rows have parseable names. Add at least one person to the CREW block.",
+  },
+  "MI-5_NO_ROOMS": {
+    code: "MI-5_NO_ROOMS",
+    dougFacing: "_<sheet-name>_ has no rooms — we couldn't find General Session, Breakouts, or Additional Rooms. Make sure your room blocks have setup and time fields filled in.",
+    crewFacing: null,
+    followUp: "Doug → fix sheet",
+    helpfulContext: "Every show needs at least one room — we read rooms from the General Session, Breakouts, and Additional Rooms blocks. None of those blocks had a row with both a setup and a time. Make sure your room blocks have those fields filled in.",
+  },
+  "MI-5a_DUPLICATE_CREW_NAME": {
+    code: "MI-5a_DUPLICATE_CREW_NAME",
+    dougFacing: "Two crew rows share the same name in _<sheet-name>_. Disambiguate them (e.g., 'John C.' vs 'John Carleo') so the app can tell them apart.",
+    crewFacing: null,
+    followUp: "Doug → fix sheet",
+    helpfulContext: "Two rows in the CREW block have identical names, which means the app can't reliably tell which schedule belongs to which person. Disambiguate them — for example, change one 'John' to 'John C.' or 'John Carleo'.",
+  },
+  "MI-5b_DUPLICATE_CREW_EMAIL": {
+    code: "MI-5b_DUPLICATE_CREW_EMAIL",
+    dougFacing: "Two crew rows share the same email in _<sheet-name>*. Each crew member needs their own email.",
+    crewFacing: null,
+    followUp: "Doug → fix sheet",
+    helpfulContext: "Two rows in the CREW block share the same email address. Email is how we identify a crew member across shows, so duplicates would let one person see another's view. Each crew row needs a distinct email — fix the typo or paste mistake and re-save.",
+  },
+  SLUG_COLLISION_EXHAUSTED: {
+    code: "SLUG_COLLISION_EXHAUSTED",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: "Eric → investigate",
+    helpfulContext: null,
+  },
+  NO_FOLDER_CONFIGURED: {
+    code: "NO_FOLDER_CONFIGURED",
+    dougFacing: "(admin-log only on first occurrence; the dashboard explicitly shows the onboarding wizard CTA when no folder is configured, not an error)",
+    crewFacing: null,
+    followUp: "Doug → run setup wizard",
+    helpfulContext: "Cron ran before the setup wizard saved a watched Drive folder. That is expected during first setup: the dashboard should show the setup call to action instead of treating it as a show error. Run the setup wizard to choose the folder.",
+  },
+  "MI-6_CREW_SHRINKAGE": {
+    code: "MI-6_CREW_SHRINKAGE",
+    dougFacing: "Heads-up: *<sheet-name>* now has _<N>_ crew rows (was _<M>_). Review the changes before applying.",
+    crewFacing: null,
+    followUp: "Doug → review staged",
+    helpfulContext: "More than one crew member was removed from the sheet since the last approved sync. We hold the change for review because crew shrinkage is sometimes accidental (a paste over the wrong cell range). Open the staged review to confirm the removals are intentional before applying.",
+  },
+  "MI-7_SECTION_SHRINKAGE": {
+    code: "MI-7_SECTION_SHRINKAGE",
+    dougFacing: "_<sheet-name>_ lost more than half of its _<section>_ — _<prior*count>* before, _<new_count>_ now. Review before applying.",
+    crewFacing: null,
+    followUp: "Doug → review staged",
+    helpfulContext: "More than half of the rows in the named section disappeared since the last approved sync. Section collapses are usually accidental (often a half-finished paste). Open the staged review to confirm before applying.",
+  },
+  "MI-7b_KEYED_PRESERVATION": {
+    code: "MI-7b_KEYED_PRESERVATION",
+    dougFacing: "_<sheet-name>_: _<entry>_ is no longer in the sheet. Review before applying.",
+    crewFacing: null,
+    followUp: "Doug → review staged",
+    helpfulContext: "A specific named entry — a particular hotel, room, or contact — that was in the sheet last sync is no longer there. We hold the change for review because keyed entries usually represent committed bookings or relationships. Confirm before applying.",
+  },
+  "MI-8_FINANCIAL_FIELD_COLLAPSE": {
+    code: "MI-8_FINANCIAL_FIELD_COLLAPSE",
+    dougFacing: "_<sheet-name>_: _<field>_ (e.g., PO#, Proposal, COI) was filled in before and is now blank. Confirm this was intentional.",
+    crewFacing: null,
+    followUp: "Doug → review staged",
+    helpfulContext: "A financial field (PO#, Proposal $, Invoice, Invoice Notes, COI) that was previously filled in is now blank. We hold the change for review because financial blanks are usually accidental. Confirm the blank is intentional before applying.",
+  },
+  "MI-9_ROLE_FLAGS_DELTA": {
+    code: "MI-9_ROLE_FLAGS_DELTA",
+    dougFacing: "_<crew-name>_'s LEAD status changed (was _<prior>_, now _<new>_). LEAD grants admin / ops / financials access — confirm before applying.",
+    crewFacing: null,
+    followUp: "Doug → review staged",
+    helpfulContext: "A crew member's LEAD status changed — they either gained or lost LEAD. LEAD grants admin/ops surface access including the ability to see internal financials, so we hold every LEAD toggle for review. (Non-LEAD role_flags changes — like swapping a department designation from A1 to V1, or adding BO — auto-apply with a `ROLE_FLAGS_NOTICE` entry in the alert feed and do NOT trigger this code.) Confirm the LEAD change is intentional before applying.",
+  },
+  ROLE_FLAGS_NOTICE: {
+    code: "ROLE_FLAGS_NOTICE",
+    severity: "info",
+    dougFacing: "_<crew-name>_'s role flags changed from _<prior>_ to _<new>_. The LEAD bit is unchanged, so the change was applied automatically — this entry is here for audit.",
+    crewFacing: null,
+    followUp: "none (informational)",
+    helpfulContext: "A crew member's role flags changed in a way that doesn't affect LEAD status — for example, a department designation swap (A1 → V1), or an additive flag like BO. These changes affect which scope tile the crew member sees on their own page but don't grant or remove admin/ops access, so we apply them automatically and log this entry for your audit trail. No action needed; if you want to see the prior value, the audit page captures it.",
+  },
+  "MI-11_EMAIL_CHANGE": {
+    code: "MI-11_EMAIL_CHANGE",
+    dougFacing: "_<crew-name>_'s email is changing from _<prior>_ to _<new>_. After applying, the new email will get sign-in access; their existing share-link will stop working until you Issue a new one.",
+    crewFacing: null,
+    followUp: "Doug → review staged",
+    helpfulContext: "A crew member's email address changed. After applying, the new email will get sign-in access; their existing share-link will stop working until you Issue them a new one. Confirm the email change is real before applying.",
+  },
+  "MI-12_PROBABLE_RENAME": {
+    code: "MI-12_PROBABLE_RENAME",
+    dougFacing: "Looks like _<old-name>_ was renamed to _<new-name>_ (same email). Approve the rename, or treat as two unrelated changes.",
+    crewFacing: null,
+    followUp: "Doug → review staged",
+    helpfulContext: "A row was removed and a new row added in the same sync, and they share the same email address. That usually means a name was edited (rename), not two unrelated changes. Confirm whether to treat as a rename or as two separate changes.",
+  },
+  "MI-13_NAME_AND_EMAIL_CHANGE": {
+    code: "MI-13_NAME_AND_EMAIL_CHANGE",
+    dougFacing: "Both name and email changed in _<sheet-name>_: _<old-pair>_ and _<new-pair>_. Are these the same person, or unrelated changes?",
+    crewFacing: null,
+    followUp: "Doug → review staged",
+    helpfulContext: "A row was removed and a new row added with both a different name AND a different email. We can't tell from the data whether this is the same person or two unrelated changes. Confirm before applying.",
+  },
+  "MI-14_NO_EMAIL_RENAME": {
+    code: "MI-14_NO_EMAIL_RENAME",
+    dougFacing: "Looks like _<old-name>_ was renamed to _<new-name>_ (no emails to compare). Approve the rename, or treat as two unrelated changes.",
+    crewFacing: null,
+    followUp: "Doug → review staged",
+    helpfulContext: "A row was removed and a new row added, both without emails. The names are similar enough that this might be a rename, but with no email to compare we can't be sure. Confirm whether to treat as a rename or two separate changes.",
+  },
+  SHOW_FIRST_PUBLISHED: {
+    code: "SHOW_FIRST_PUBLISHED",
+    severity: "info",
+    dougFacing: "_<sheet-name>_ is now live for crew. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](signed-link) within 24h.",
+    crewFacing: null,
+    followUp: "none (informational confirmation; surfaces in admin alert feed at info severity AND fires the tier-1 push email)",
+    helpfulContext: "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live and signed links you send out will work. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and kill any links you've already sent.",
+  },
+  SHOW_UNPUBLISHED: {
+    code: "SHOW_UNPUBLISHED",
+    dougFacing: "_<sheet-name>_ has been unpublished. Crew links no longer work. Drag the sheet back into your watched folder when you're ready to publish again.",
+    crewFacing: null,
+    followUp: "Doug → optionally re-share when ready",
+    helpfulContext: "You clicked Unpublish on a recently-published show. The show is now archived, any signed links you sent in the last 24h have been revoked, and crew can no longer reach the page. Nothing is lost — your sheet is unchanged. Drag it back into the watched folder when you're ready to publish for real.",
+  },
+  UNPUBLISH_TOKEN_CONSUMED: {
+    code: "UNPUBLISH_TOKEN_CONSUMED",
+    dougFacing: "This unpublish link has already been used. The show is already unpublished, or someone else (or another tab) clicked it before you.",
+    crewFacing: null,
+    followUp: "Doug → check show status in admin",
+    helpfulContext: "The unpublish link in your email is single-use, and it's already been used. Either the show is already unpublished, or you (or another tab) already clicked it. Check the admin dashboard to confirm the current state.",
+  },
+  UNPUBLISH_TOKEN_EXPIRED: {
+    code: "UNPUBLISH_TOKEN_EXPIRED",
+    dougFacing: "This unpublish link expired (24-hour window). To take this show offline now, archive it from the admin dashboard.",
+    crewFacing: null,
+    followUp: "Doug → archive via dashboard",
+    helpfulContext: "The unpublish link in the auto-publish confirmation email is only valid for 24 hours. After that, the safety net closes — the show is treated as a normal published show. To take it offline now, open the admin dashboard and archive it from the show's parse panel.",
+  },
+  ONBOARDING_SCAN_REVIEW: {
+    code: "ONBOARDING_SCAN_REVIEW",
+    dougFacing: "_<sheet-name>_ was found in your folder — review the parse before activating this folder.",
+    crewFacing: null,
+    followUp: "Doug → review (within wizard)",
+    helpfulContext: "This sheet was found by the setup wizard's folder scan. Review the parse before activating the folder so you're not committing to data you haven't seen.",
+  },
+  UNKNOWN_FIELD: {
+    code: "UNKNOWN_FIELD",
+    dougFacing: "We saw a row called _<key>_ in _<sheet-name>\\* that we don't know how to handle. It's not breaking anything; want to flag it to the developer?",
+    crewFacing: null,
+    followUp: "Doug → optional Report",
+    helpfulContext: "The parser scans every row of your sheet and matches each label against the canonical block list (CLIENT, DATES, CREW, MAIN/SECONDARY, etc.). Anything that doesn't match is captured into the show's `raw_unrecognized` map and surfaced here so you can decide whether it's noise (a typo, a one-off note) or a sign that your template is drifting. Nothing is broken either way — the row is preserved verbatim. If you'd like the developer to handle the row going forward, click Report; if it's intentional one-off content, ignore the warning.",
+  },
+  UNKNOWN_DAY_RESTRICTION: {
+    code: "UNKNOWN_DAY_RESTRICTION",
+    dougFacing: "_<crew-name>_ is flagged as day-restricted (`***` in the role) but the sheet doesn't say which days. Add a parenthetical to their name like `(6/24 and 6/26 ONLY)`. Until you do, their schedule will show 'days unconfirmed.'",
+    crewFacing: null,
+    followUp: "Doug → fix sheet",
+    helpfulContext: "A crew member has the `***` day-restriction flag but the sheet does not name which days they work. Add a parenthetical such as `(6/24 and 6/26 ONLY)` to the name cell so their schedule can be filtered safely.",
+  },
+  UNKNOWN_ROLE_TOKEN: {
+    code: "UNKNOWN_ROLE_TOKEN",
+    dougFacing: "_<crew-name>_'s role contains _<token>_ which we don't know. We're ignoring it. Tell the developer if this is a real new role you're using.",
+    crewFacing: null,
+    followUp: "Doug → optional Report",
+    helpfulContext: "A role cell contains a token outside the canonical role vocabulary. The parser ignores the unknown token so it does not grant accidental access or scope. If the token is intentional, report it so the developer can add it to the role vocabulary.",
+  },
+  PULL_SHEET_PARSE_PARTIAL: {
+    code: "PULL_SHEET_PARSE_PARTIAL",
+    dougFacing: "We couldn't fully parse _<N>_ row(s) in _<sheet-name>_'s PULL SHEET. They render as the raw text from the sheet. Tell the developer if you'd like us to handle that format.",
+    crewFacing: null,
+    followUp: "Doug → optional Report",
+    helpfulContext: "The PULL SHEET tab parses one row per case. For each row we extract the case label, the QTY column, and the per-item lines. When QTY can't be parsed (blank, non-numeric, range like `1-2`) or a critical column is missing, we keep the case in the manifest with `qty: null` and render the row's raw text on the crew page so techs still see what's in that case. Only the affected rows degrade — the rest of the manifest is unaffected. If you'd like the developer to handle the format you used, click Report.",
+  },
+  PULL_SHEET_AMBIGUOUS_FORMAT: {
+    code: "PULL_SHEET_AMBIGUOUS_FORMAT",
+    dougFacing: "_<sheet-name>_'s PULL SHEET has columns we don't recognize. The whole block renders as raw text on crew pages. Tell the developer if you'd like us to handle that format.",
+    crewFacing: null,
+    followUp: "Doug → optional Report",
+    helpfulContext: "The parser found something that looks like a PULL SHEET block, but the columns do not match the expected format. Crew still see the preserved raw text, but structured packing data is degraded until the format is supported.",
+  },
+  DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE: {
+    code: "DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE",
+    dougFacing: "_<sheet-name>_: an image embedded in the DIAGRAMS tab couldn't be downloaded. Crew see a placeholder where it should be. Re-paste the image, or tell the developer if this keeps happening.",
+    crewFacing: null,
+    followUp: "Doug → optionally fix",
+    helpfulContext: "An image embedded in the DIAGRAMS tab returned a 4xx HTTP status when we tried to download it. Crew see a placeholder where it should be. Re-paste the image (Drive sometimes loses object permissions on the underlying blob), or tell the developer if this keeps happening.",
+  },
+  DIAGRAMS_EMBEDDED_CAP_EXCEEDED: {
+    code: "DIAGRAMS_EMBEDDED_CAP_EXCEEDED",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: "Doug → optionally trim",
+    helpfulContext: null,
+  },
+  DIAGRAMS_TAB_MISSING: {
+    code: "DIAGRAMS_TAB_MISSING",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  DIAGRAMS_EMBEDDED_NONE_FOUND: {
+    code: "DIAGRAMS_EMBEDDED_NONE_FOUND",
+    dougFacing: "(first-seen) \"_<sheet-name>_ looks like it should have diagrams but we didn't find any embedded images. Confirm before we publish, or paste in the images and re-sync.\" (existing show with prior gallery) \"_<sheet-name>_'s DIAGRAMS tab returned no embedded images this sync — confirm before we replace the existing gallery with empty, or paste in the images and re-sync.\"",
+    crewFacing: null,
+    followUp: "Doug → confirm or add images",
+    helpfulContext: "We expected to find embedded diagrams in this sheet (the DIAGRAMS tab is configured for embedded delivery) but the spreadsheet returned zero embedded objects AND no linked-folder URL was provided. For a brand-new sheet we'd rather hold this for review than publish an empty gallery; for an existing show we just note the empty state and let crew see whatever was there before.",
+  },
+  TYPO_NORMALIZED: {
+    code: "TYPO_NORMALIZED",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  UNEXPECTED_PARENT: {
+    code: "UNEXPECTED_PARENT",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  MISSING_REVIEWER_CHOICE: {
+    code: "MISSING_REVIEWER_CHOICE",
+    dougFacing: "We need your decision for every item — looks like one was skipped. Refresh and try again.",
+    crewFacing: null,
+    followUp: "Doug → refresh admin",
+    helpfulContext: "When you Apply a sheet, every triggered review item needs your decision. Your submission was missing a decision for at least one item — usually because the form's state got out of sync with the items the server was tracking. Refresh the admin page (the panel will re-render with the current items) and re-submit your decisions.",
+  },
+  EXTRA_REVIEWER_CHOICE: {
+    code: "EXTRA_REVIEWER_CHOICE",
+    dougFacing: "Something doesn't match between what you reviewed and what we have on file. Refresh and try again.",
+    crewFacing: null,
+    followUp: "Doug → refresh admin",
+    helpfulContext: "Your Apply submission carried a decision for an item the server isn't tracking — usually because the staged parse you were viewing was replaced between when the page loaded and when you clicked Apply. Refresh the admin page so the panel re-renders against the current staged parse, then re-submit your decisions.",
+  },
+  DUPLICATE_REVIEWER_CHOICE: {
+    code: "DUPLICATE_REVIEWER_CHOICE",
+    dougFacing: "We got the same decision twice for one item. Refresh and try again.",
+    crewFacing: null,
+    followUp: "Doug → refresh admin",
+    helpfulContext: "Your Apply submission carried two decisions for the same item id. The form should normally prevent this; you've reached this code via a stale or duplicated form state. Refresh the admin page and re-submit your decisions cleanly.",
+  },
+  INVALID_REVIEWER_ACTION: {
+    code: "INVALID_REVIEWER_ACTION",
+    dougFacing: "That action isn't valid for this item. Refresh and try again.",
+    crewFacing: null,
+    followUp: "Doug → refresh admin",
+    helpfulContext: "Each review item has a fixed list of valid decisions (apply / reject / rename / independent, depending on the item's invariant). Your submission carried an action value that isn't in the allowed list for one of the items — usually because the form was hand-edited or the page is running a stale build. Refresh the admin page and re-submit using the form controls.",
+  },
+  REPORT_RATE_LIMITED_ADMIN: {
+    code: "REPORT_RATE_LIMITED_ADMIN",
+    dougFacing: "You've reported a lot already this hour — give the developer a beat to catch up. Try again in *<minutes>_ min, or message Eric directly.",
+    crewFacing: null,
+    followUp: "Doug → wait or message",
+    helpfulContext: "To keep the developer's inbox under control, the admin report endpoint is capped at 10 reports per hour. The window resets on a rolling basis. Wait the indicated time, or message Eric directly if it's urgent.",
+  },
+  REPORT_RATE_LIMITED_CREW: {
+    code: "REPORT_RATE_LIMITED_CREW",
+    dougFacing: null,
+    crewFacing: "We've already heard from you a few times — give the developer a moment to look. Or message Doug directly for show-content questions.",
+    followUp: "Crew → wait or text Doug",
+    helpfulContext: null,
+  },
+  ONBOARDING_FOLDER_INVALID_URL: {
+    code: "ONBOARDING_FOLDER_INVALID_URL",
+    dougFacing: "That doesn't look like a Google Drive folder URL. It should look like `https://drive.google.com/drive/folders/...`.",
+    crewFacing: null,
+    followUp: "Doug → re-paste URL",
+    helpfulContext: "The setup wizard expects a Google Drive folder URL like `https://drive.google.com/drive/folders/<id>` or `https://drive.google.com/drive/u/0/folders/<id>`. Either the URL you pasted isn't a folder URL, or it's malformed. Open the folder in Drive, copy the URL from the address bar, and paste it again.",
+  },
+  ONBOARDING_FOLDER_NOT_SHARED: {
+    code: "ONBOARDING_FOLDER_NOT_SHARED",
+    dougFacing: "We can't see this folder yet. Double-check that you shared it with `<service-account-email>` and try again.",
+    crewFacing: null,
+    followUp: "Doug → fix Drive share",
+    helpfulContext: "We tried to read your folder using the service account but Drive returned an access-denied response. Open the folder's share dialog and add the service-account email shown in the wizard. Once it's shared, click 'Try again'.",
+  },
+  ONBOARDING_OPERATOR_ERROR: {
+    code: "ONBOARDING_OPERATOR_ERROR",
+    dougFacing: "Something is wrong on our end. The developer has been notified.",
+    crewFacing: null,
+    followUp: "Doug → wait; Eric → fix",
+    helpfulContext: "Something on our end (not your sheet, not your folder) failed during the wizard. The developer has been notified and will fix the underlying issue. Try again in a few minutes; if it persists, message Eric.",
+  },
+  ONBOARDING_NOT_RESOLVED: {
+    code: "ONBOARDING_NOT_RESOLVED",
+    dougFacing: "Some sheets in your folder still need review before we can finish setup. Resolve them and try again.",
+    crewFacing: null,
+    followUp: "Doug → resolve remaining sheets, retry finalize",
+    helpfulContext: "Some sheets in your folder still need review before setup can finish. Open each unresolved sheet in the wizard, decide what to do with it (approve, defer, ignore), then click finalize again.",
+  },
+  FINALIZE_OWNED_SHOW: {
+    code: "FINALIZE_OWNED_SHOW",
+    dougFacing: "This show is currently being published as part of a setup wizard. Wait for the wizard to finish, then try again.",
+    crewFacing: null,
+    followUp: "Doug → wait for wizard finalize to complete",
+    helpfulContext: "This show is currently being published as part of a setup wizard's multi-batch finalize. Until the wizard's final-publish step commits, the row is held with `published = false` and admin write actions (Re-sync, Archive, Apply/Discard staged changes) are gated to prevent races against the in-flight finalize. Wait for the wizard tab to finish — the dashboard 'Publishing…' badge clears the moment the final-publish step commits, after which this action will succeed.",
+  },
+  WIZARD_FINALIZE_CHECKPOINT_MISSING: {
+    code: "WIZARD_FINALIZE_CHECKPOINT_MISSING",
+    dougFacing: "Setup isn't ready to publish yet. Click 'Promote next batch' until all sheets are processed, then publish.",
+    crewFacing: null,
+    followUp: "Doug → continue clicking 'Promote next batch'",
+    helpfulContext: "Setup's final-publish step was invoked before all sheets in the candidate folder finished publishing. The wizard UI normally auto-fires the next 'Promote next batch' click until the response indicates all batches are complete; this error means either the UI hadn't reached that state OR the operator manually invoked the final-publish endpoint. Continue clicking 'Promote next batch' in the wizard until the progress indicator says 'All sheets published'; the final-publish step will fire automatically at that point.",
+  },
+  WIZARD_FINALIZE_UNRESOLVED_ROWS: {
+    code: "WIZARD_FINALIZE_UNRESOLVED_ROWS",
+    dougFacing: "Some sheets still need review before we can finish setup. Resolve the rows highlighted on the wizard screen, then click 'Publish' again.",
+    crewFacing: null,
+    followUp: "Doug → re-Apply or re-Discard the unresolved rows",
+    helpfulContext: "Setup cannot publish while the scan manifest still has unresolved rows. Resolve each staged, hard-failed, discard-retryable, or live-row-conflict item in the wizard, then click Publish again.",
+  },
+  CSRF_NONCE_EXPIRED: {
+    code: "CSRF_NONCE_EXPIRED",
+    dougFacing: "Your sign-in link expired before you finished. Refresh the page and click the link again.",
+    crewFacing: "Your sign-in window expired. Click your link again to continue.",
+    followUp: "Crew → re-click signed link; Doug → refresh and re-click",
+    helpfulContext: "Signed-in links go through a small bootstrap step that proves your browser actually rendered the link's start page in the last 30 seconds. If the rendered page sits open longer than 30 seconds before you complete sign-in (phone-locked, slow network, you got distracted), or you opened a lot of bootstrap pages back-to-back in different tabs, the bootstrap proof expires. Refresh the page and click the link again — the bootstrap proof renews instantly when the page reloads. This protects your sign-in from being hijacked by a malicious page in another tab; the time limit is part of the protection, not a bug.",
+  },
+  CSRF_KEY_ROTATED: {
+    code: "CSRF_KEY_ROTATED",
+    dougFacing: "Sessions have been rotated; please open your original signed link again.",
+    crewFacing: "Your sign-in session was rotated. Refresh the page and click your link again.",
+    followUp: "Crew → re-click signed link; Doug → refresh and re-click",
+    helpfulContext: "While you were using the app, the developer rotated the secret key the app uses to verify CSRF tokens. The token your browser was holding was minted under the old key, so it was rejected to keep stale tokens from authorizing actions after the rotation. Refresh the page and click your link again to mint a fresh CSRF token.",
+  },
+  BOOTSTRAP_GENERIC: {
+    code: "BOOTSTRAP_GENERIC",
+    dougFacing: null,
+    crewFacing: "Couldn't reach the server. Try signing in instead.",
+    followUp: "Crew → try `/auth/sign-in`",
+    helpfulContext: null,
+  },
+  NETWORK_UNREACHABLE: {
+    code: "NETWORK_UNREACHABLE",
+    dougFacing: "Couldn't reach the server. Check your connection and try again — there's no admin trail because the request never arrived.",
+    crewFacing: "Couldn't reach the server. Check your connection and try again.",
+    followUp: "Either → check connection, retry; persistent → Eric",
+    helpfulContext: "The client-side fetch failed before reaching the server — typically the user's device is offline, DNS is failing, a captive portal is blocking the request, or a browser extension is intercepting the call. Because the request never arrived, no §A code was emitted and no admin trail exists; the only signal is the user-facing one. Recovery is the same regardless of audience: check connectivity and retry. If this code recurs against a known-online network, suspect a same-origin browser extension or a CSP block.",
+  },
+  WIZARD_SESSION_SUPERSEDED_DURING_SCAN: {
+    code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: "Doug → use the active wizard tab",
+    helpfulContext: null,
+  },
+  LIVE_ROW_CONFLICT: {
+    code: "LIVE_ROW_CONFLICT",
+    dougFacing: "*<sheet-name>* is already being processed by the live folder sync — we're skipping it during setup. Resolve it from the dashboard, then re-run setup if needed.",
+    crewFacing: null,
+    followUp: "Doug → resolve live row from dashboard, then re-run setup",
+    helpfulContext: "Setup tried to stage a parse for a sheet that the live folder sync is already processing. We skipped the wizard's stage to avoid clobbering the live row. Resolve the live row from the dashboard — either Apply or Discard it — then re-run setup if you still need to.",
+  },
+  WIZARD_ISOLATION_INDEXES_MISSING: {
+    code: "WIZARD_ISOLATION_INDEXES_MISSING",
+    dougFacing: "We can't safely scan your folder right now — a recent database update hasn't been applied yet. Eric has been notified; setup will be available again in a few minutes.",
+    crewFacing: null,
+    followUp: "Eric → apply migration; Doug → retry wizard once migration completes",
+    helpfulContext: "The setup wizard scans your folder by writing per-session staging rows into the same tables the live sync writes to (pending_syncs, pending_ingestions, onboarding_scan_manifest). To keep wizard rows from colliding with live rows, the database has four partial unique indexes that route writes to the right slot. The scan checks for those indexes before writing anything; if any are missing, the wizard aborts cleanly rather than risk a partial scan against a half-migrated schema. Eric is automatically notified to apply the migration; once that's done, click Re-run Setup to retry.",
+  },
+  PENDING_SNAPSHOT_PROMOTE_STUCK: {
+    code: "PENDING_SNAPSHOT_PROMOTE_STUCK",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: "Eric → run snapshot-promote-repair admin tool",
+    helpfulContext: null,
+  },
+  PENDING_SNAPSHOT_ROLLBACK_STUCK: {
+    code: "PENDING_SNAPSHOT_ROLLBACK_STUCK",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: "Eric → run snapshot-rollback-repair admin tool",
+    helpfulContext: null,
+  },
+  BRANCH_PROTECTION_DRIFT: {
+    code: "BRANCH_PROTECTION_DRIFT",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: "Eric → restore branch protection per X.6 contract",
+    helpfulContext: null,
+  },
+  BRANCH_PROTECTION_MONITOR_AUTH_FAILED: {
+    code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: "Eric → rotate GH App / PAT within 24h",
+    helpfulContext: null,
+  },
+  PENDING_INGESTION_NOT_FOUND: {
+    code: "PENDING_INGESTION_NOT_FOUND",
+    dougFacing: "We couldn't find that pending sheet anymore — it was probably resolved by another tab or browser. Refresh the dashboard to see the latest state.",
+    crewFacing: null,
+    followUp: "Doug → refresh dashboard",
+    helpfulContext: "The dashboard's pending-sheet panel renders rows by id. When you clicked Retry or Discard, the server looked up that id and didn't find a row — it had already been resolved (probably from another browser tab) between the time the panel rendered and your click. Refresh the dashboard to load the current state, then act on whatever's still pending.",
+  },
+  LIVE_ROW_REQUIRED: {
+    code: "LIVE_ROW_REQUIRED",
+    dougFacing: "That sheet belongs to an in-progress setup wizard. Open the wizard in this browser to act on it, or use the dashboard once setup is finished.",
+    crewFacing: null,
+    followUp: "Doug → use the wizard tab, or wait for setup to finish",
+    helpfulContext: "There are two flavors of pending-sheet rows: live rows (managed from the dashboard) and wizard-staged rows (managed inside the setup wizard). The dashboard's Retry / Discard endpoints only act on live rows; you reached this code by acting on a wizard-staged row from a stale dashboard view. The wizard owns its own action surface; open the wizard tab to act on those rows, or wait until setup finishes (which converts the wizard rows into live rows).",
+  },
+  MISSING_PENDING_INGESTION_MODTIME: {
+    code: "MISSING_PENDING_INGESTION_MODTIME",
+    dougFacing: "Something is wrong on our end with this sheet's tracking data — we can't safely defer it without a watermark. The developer has been notified. Try 'Permanently ignore' if you want to dismiss this row.",
+    crewFacing: null,
+    followUp: "Eric → investigate; Doug → use Permanently ignore as workaround",
+    helpfulContext: "Defer-until-modified needs to know the file's current `modifiedTime` so cron knows when to resume processing. Every place that creates a pending-sheet row (Phase 1 hard-fails, Drive-fetch failures, retry handlers) populates this column. If you're seeing this code, something we wrote produced a row without it — the developer has been notified. As a workaround you can use Permanently ignore (which doesn't need the watermark).",
+  },
+  PENDING_INGESTION_TRANSITIONED: {
+    code: "PENDING_INGESTION_TRANSITIONED",
+    dougFacing: "Another browser tab acted on this sheet a moment before you. Refresh the dashboard to see the latest state.",
+    crewFacing: null,
+    followUp: "Doug → refresh dashboard",
+    helpfulContext: "While you were clicking, another browser tab acted on the same sheet and finished its action a fraction of a second before yours. To prevent your click from writing on top of someone else's resolution, the server stopped before doing anything. Refresh the dashboard to see the latest state and act if anything still needs attention.",
+  },
+  LOCK_OWNERSHIP_ASSERTION_FAILED: {
+    code: "LOCK_OWNERSHIP_ASSERTION_FAILED",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: "Eric → investigate",
+    helpfulContext: null,
+  },
+  ADMIN_ALERT_NOT_FOUND: {
+    code: "ADMIN_ALERT_NOT_FOUND",
+    dougFacing: "We couldn't find that alert anymore. It may have been resolved already. Refresh the page to see the current state.",
+    crewFacing: null,
+    followUp: "Doug → refresh page",
+    helpfulContext: "When you clicked Mark resolved, the server looked up that alert by id and either didn't find it (already resolved + cleaned up, or never existed) or it belongs to a different show than the page you clicked from. Refresh the dashboard to see the current state.",
+  },
+  ALERT_REQUIRES_SHOW_SCOPED_RESOLVE: {
+    code: "ALERT_REQUIRES_SHOW_SCOPED_RESOLVE",
+    dougFacing: "This alert belongs to a specific show. Click through to the show's parse panel to resolve it from the show context, where the resolution is recorded with the show's audit trail.",
+    crewFacing: null,
+    followUp: "Doug → click through to show",
+    helpfulContext: "Per-show alerts are tied to a specific show and resolved from that show's parse panel — not from the global dashboard banner. We require the click-through to the show's page so that when you mark the alert resolved, the resolution is recorded in the context of the show you actually inspected. The dashboard's redirect link will take you straight to the show's alert section; click 'Mark resolved' there.",
   },
   OAUTH_STATE_INVALID: {
     code: "OAUTH_STATE_INVALID",
-    dougFacing:
-      "Something interrupted your sign-in. Please click the original link from Doug again to start over.",
-    crewFacing:
-      "Something interrupted your sign-in. Please click the original link from Doug again to start over.",
-    followUp: "Crew -> reopen the link; Eric if persistent",
-    helpfulContext:
-      "Google OAuth uses a one-time security token to make sure the sign-in callback came from the request your browser actually started. The token was missing, expired, or didn't match. Click the original link from Doug again to start fresh.",
+    dougFacing: "Something interrupted your sign-in. Please click the original link from Doug again to start over.",
+    crewFacing: "Something interrupted your sign-in. Please click the original link from Doug again to start over.",
+    followUp: "Crew → reopen the link; Eric if persistent",
+    helpfulContext: "Google OAuth uses a one-time security token (the `state` parameter) to make sure the sign-in callback came from the request your browser actually started. The token was missing, expired, or didn't match — most often because you started sign-in in one window and clicked the callback in another, or the cookie storing the expected value was cleared. Click the original link from Doug again to start fresh.",
   },
   OAUTH_REDIRECT_INVALID: {
     code: "OAUTH_REDIRECT_INVALID",
-    dougFacing:
-      "Sign-in landed somewhere we don't recognize. Please click the original link from Doug again to start over.",
-    crewFacing:
-      "Sign-in landed somewhere we don't recognize. Please click the original link from Doug again to start over.",
-    followUp: "Crew -> reopen the link; Eric if persistent",
-    helpfulContext:
-      "The Google OAuth callback's `next` parameter pointed somewhere outside the allowed list of post-sign-in destinations. Without this guard, an attacker could trick the round-trip into landing on a malicious origin or onto the bootstrap shell with no fragment.",
+    dougFacing: "admin(\\/.*)?",
+    crewFacing: "me(\\/.*)?)$`. **`/show/<slug>/p` is NEVER a valid `next` destination** — the validator has an explicit step-5 rejection (`^\\/show\\/[a-z0-9-]+\\/p$`) because the bootstrap surface mints a session ONLY when `#t=<jwt>` is present and URL fragments do not survive the OAuth round-trip. On any guard failure the route falls back to `/admin` and emits a structured `OAUTH_REDIRECT_INVALID` operator log entry with the offending input verbatim.",
+    followUp: "Sign-in landed somewhere we don't recognize. Please click the original link from Doug again to start over.",
+    helpfulContext: "The Google OAuth callback's `next` parameter pointed somewhere outside the allowed list of post-sign-in destinations (the canonical site origin + `/show/<slug>`, `/admin`, or `/me` paths — note: `/show/<slug>/p` is NOT a valid destination because the bootstrap surface requires a `#t=<jwt>` fragment that does not survive the OAuth round-trip). Without this guard, an attacker could trick the round-trip into landing on a malicious origin or onto the bootstrap shell with no fragment, while we were still minting your session cookie. Click the original link from Doug again.",
+  },
+  SYNC_DELAYED_MODERATE: {
+    code: "SYNC_DELAYED_MODERATE",
+    dougFacing: null,
+    crewFacing: "Last synced *<time>* ago. Check with Doug if anything looks off.",
+    followUp: "Crew → mention to Doug",
+    helpfulContext: null,
+  },
+  SYNC_DELAYED_SEVERE: {
+    code: "SYNC_DELAYED_SEVERE",
+    dougFacing: "*<sheet-name>*: crew page hasn't synced from Drive in over 6 hours. Push or cron is stalled — check the dashboard.",
+    crewFacing: "Couldn't sync recently — contact Doug.",
+    followUp: "Crew → text Doug; Doug → check dashboard",
+    helpfulContext: "The crew page hasn't synced from Drive in over six hours. That's well past the normal cron interval, so something is stalled. Open the dashboard to check whether push subscriptions are healthy and whether the cron job is running.",
+  },
+  TILE_SERVER_RENDER_FAILED: {
+    code: "TILE_SERVER_RENDER_FAILED",
+    dougFacing: "*<sheet-name>*: a section couldn't load on the server. The page will keep trying — refresh in a minute. Tell the developer if this keeps happening.",
+    crewFacing: "This section couldn't load — last good data shown.",
+    followUp: "Doug → refresh / Report; Eric → investigate",
+    helpfulContext: "One of the page sections crashed while the server was rendering it. The rest of the page rendered normally. The page will keep retrying — refresh in a minute. If this keeps happening, click 'Report' so the developer can investigate.",
+  },
+  STALE_DISCARD_REJECTED: {
+    code: "STALE_DISCARD_REJECTED",
+    dougFacing: "The staged parse you were viewing was replaced by a newer sync. Refresh and review the latest version before deciding.",
+    crewFacing: null,
+    followUp: "Doug → refresh admin",
+    helpfulContext: "A newer parse was staged for this sheet between when you opened the review and when you clicked Discard. Refresh the admin page to see the latest version before deciding.",
+  },
+  LINK_CROSS_SHOW_REUSE: {
+    code: "LINK_CROSS_SHOW_REUSE",
+    dougFacing: null,
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: null,
+  },
+  REPORT_ORPHANED_LOST_LEASE: {
+    code: "REPORT_ORPHANED_LOST_LEASE",
+    dougFacing: "An orphaned bug-report issue was created during a retry race and auto-closed. Click through to verify the issue closed correctly. If this code recurs frequently, increase the lease window.",
+    crewFacing: null,
+    followUp: "Eric → review orphan, tune lease window if recurring",
+    helpfulContext: "Two retries of the same bug-report submission both succeeded in creating GitHub issues — a lease race condition. We auto-closed the duplicate. Click through to confirm; if this code keeps appearing, the developer needs to extend the lease window.",
+  },
+  GITHUB_BOT_LOGIN_MISSING: {
+    code: "GITHUB_BOT_LOGIN_MISSING",
+    dougFacing: "GitHub bot login is unconfigured — the report-recovery path is degraded. Set `GITHUB_BOT_LOGIN` env var to the bot's GitHub username.",
+    crewFacing: null,
+    followUp: "Eric → configure env var",
+    helpfulContext: "The bug-report recovery path needs to know the GitHub username of the bot account so it can find issues created by previous attempts. The `GITHUB_BOT_LOGIN` environment variable isn't set. Configure it on the deployment and redeploy.",
+  },
+  REPORT_LEASE_THRASHING: {
+    code: "REPORT_LEASE_THRASHING",
+    dougFacing: "Bug-report processing is thrashing on this show — retries are racing against leases. Check Eric's status; this usually means the lease window needs tuning.",
+    crewFacing: null,
+    followUp: "Eric → tune lease window",
+    helpfulContext: "Bug-report submissions for this show are racing against their own leases — too many retries firing inside the lease window. Usually means the lease window is shorter than the GitHub API's response time under current conditions. The developer needs to tune the window.",
+  },
+  ADMIN_EMAIL_ALREADY_ACTIVE: {
+    code: "ADMIN_EMAIL_ALREADY_ACTIVE",
+    dougFacing: "<email> is already an administrator.",
+    crewFacing: null,
+    followUp: null,
+    helpfulContext: "Idempotent re-add of an already-active admin email. Not a destructive condition; the row is unchanged.",
+  },
+  ADMIN_EMAIL_INVALID: {
+    code: "ADMIN_EMAIL_INVALID",
+    dougFacing: "Enter a valid email address.",
+    crewFacing: null,
+    followUp: "Doug -> retype the email",
+    helpfulContext: "The submitted email failed canonicalization or HTML5 type=email validation.",
+  },
+  ADMIN_EMAIL_LIST_FAILED: {
+    code: "ADMIN_EMAIL_LIST_FAILED",
+    dougFacing: "We can't load the administrator list right now. Refresh in a moment; if the problem continues, check the database connection.",
+    crewFacing: null,
+    followUp: "Doug -> retry; if persistent, check Supabase admin_emails RLS + grants",
+    helpfulContext: "AdminEmailsInfraError thrown from listAdminEmails() — typically RLS denial, missing grant, schema-cache skew, or network fault. The route-level error boundary at app/admin/settings/admins/error.tsx renders this message + a retry button.",
+  },
+  ADMIN_EMAIL_RE_ADD_PROMPT: {
+    code: "ADMIN_EMAIL_RE_ADD_PROMPT",
+    dougFacing: "<email> was previously revoked. Re-add this email to restore admin access?",
+    crewFacing: null,
+    followUp: "Doug -> confirm re-add or cancel",
+    helpfulContext: "The submitted email matches a row with revoked_at set. UI surfaces this as a confirmation prompt; submitting the same form with confirm_re_add=true re-activates the row per amendment §5.4.",
+  },
+  ADMIN_FORBIDDEN: {
+    code: "ADMIN_FORBIDDEN",
+    dougFacing: "Your admin session cannot access this action. Sign in again and retry.",
+    crewFacing: null,
+    followUp: "Doug -> sign in again",
+    helpfulContext: "Admin-only endpoints return this when the request does not carry a valid admin session.",
   },
   ADMIN_SESSION_LOOKUP_FAILED: {
     code: "ADMIN_SESSION_LOOKUP_FAILED",
@@ -171,19 +948,195 @@ export const MESSAGE_CATALOG = {
     followUp: "Eric -> investigate admin/session lookup",
     helpfulContext: null,
   },
-  /**
-   * R22 F3 (round-22 §B MEDIUM): redeem-link contention retry signal.
-   *
-   * The redeem-link route uses an in-process advisory lock with "try"
-   * mode (R22 F3 changed from "block" — block-mode held a postgres
-   * connection per blocked waiter and could exhaust the pool under
-   * venue-scale bursts of users redeeming links for the same show
-   * within seconds of each other). When the lock is contended, losers
-   * receive a 503 with this code and the client retries with jittered
-   * exponential backoff. Same shape as bootstrapMint's R8 #2 retry
-   * loop. M6 admin sync routes can also surface this to Doug when a
-   * show-level sync lock is contended.
-   */
+  AGENDA_ASSET_LOOKUP_FAILED: {
+    code: "AGENDA_ASSET_LOOKUP_FAILED",
+    dougFacing: "The agenda PDF could not be loaded. Refresh and try again.",
+    crewFacing: "This agenda could not be loaded. Ask Doug if it keeps happening.",
+    followUp: "Doug -> retry; if persistent, Eric",
+    helpfulContext: "The agenda asset route could not resolve or stream the linked Drive PDF for the show.",
+  },
+  APPLY_STATUS_NOT_FOUND: {
+    code: "APPLY_STATUS_NOT_FOUND",
+    dougFacing: "That apply job is no longer available. Refresh the show and check the current status.",
+    crewFacing: null,
+    followUp: "Doug -> refresh the admin view",
+    helpfulContext: "The apply-status endpoint could not find the requested show, apply id, or pending sync row.",
+  },
+  CLEANUP_REQUIRES_STALE_SESSION: {
+    code: "CLEANUP_REQUIRES_STALE_SESSION",
+    dougFacing: "Cleanup is only available for stale setup sessions.",
+    crewFacing: null,
+    followUp: "Doug -> wait or finish setup; Eric if the session is stuck",
+    helpfulContext: "Abandoned finalize cleanup is guarded by a stale-session check and a finalize-recency check so it cannot interrupt an active setup publish.",
+  },
+  CONCURRENT_FINALIZE_IN_FLIGHT: {
+    code: "CONCURRENT_FINALIZE_IN_FLIGHT",
+    dougFacing: "Setup publishing is already running in another tab.",
+    crewFacing: null,
+    followUp: "Doug -> wait for the active setup tab",
+    helpfulContext: "Only one finalize worker can hold the wizard finalize advisory lock for a session. A second request returns this code instead of racing the first.",
+  },
+  DIAGRAM_ASSET_LOOKUP_FAILED: {
+    code: "DIAGRAM_ASSET_LOOKUP_FAILED",
+    dougFacing: "A diagram could not be loaded. Refresh and try again.",
+    crewFacing: "This diagram could not be loaded. Ask Doug if it keeps happening.",
+    followUp: "Doug -> retry; if persistent, Eric",
+    helpfulContext: "The diagram asset route could not resolve or stream the stored immutable diagram revision.",
+  },
+  DRIVE_METADATA_MISSING: {
+    code: "DRIVE_METADATA_MISSING",
+    dougFacing: "Google Drive did not return the sheet revision metadata we need to sync safely.",
+    crewFacing: null,
+    followUp: "Eric -> inspect Drive metadata response",
+    helpfulContext: "The sync engine requires a head revision id so markdown export, enrichment, and final apply all describe the same sheet revision.",
+  },
+  EMBEDDED_ASSET_DRIFTED: {
+    code: "EMBEDDED_ASSET_DRIFTED",
+    dougFacing: "An embedded diagram changed after staging. Crew see a placeholder for that image until a new sheet edit re-stages it.",
+    crewFacing: null,
+    followUp: "Doug -> re-edit the sheet to re-stage the diagram",
+    helpfulContext: "Apply re-checks the spreadsheet revision, object id, and embedded-image fingerprint before downloading bytes. A mismatch leaves the prior approved content live and marks the image for recovery or re-stage.",
+  },
+  FOLDER_NOT_FOUND: {
+    code: "FOLDER_NOT_FOUND",
+    dougFacing: "We could not find that Drive folder.",
+    crewFacing: null,
+    followUp: "Doug -> check the link or restore the folder",
+    helpfulContext: "Drive returned missing, deleted, or trashed for the folder ID in the link. Confirm the folder still exists, that the URL points to the folder itself, and that it has not been moved to trash.",
+  },
+  FOLDER_NOT_SHARED: {
+    code: "FOLDER_NOT_SHARED",
+    dougFacing: "This folder is not shared with the sync account yet.",
+    crewFacing: null,
+    followUp: "Doug -> share the folder with the FXAV service account, then retry",
+    helpfulContext: "The app reads show sheets through a Google service account. Share the Drive folder with that account using Viewer access, then click Verify again. If the folder is in a shared drive, make sure the service account can see that shared drive too.",
+  },
+  INVALID_FOLDER_URL: {
+    code: "INVALID_FOLDER_URL",
+    dougFacing: "Paste a Google Drive folder link.",
+    crewFacing: null,
+    followUp: "Doug -> paste the folder link from Drive",
+    helpfulContext: "The setup wizard needs the URL for a Google Drive folder, usually shaped like drive.google.com/drive/folders/<folder-id>. Open the folder in Drive, copy the browser URL, and paste that full link here.",
+  },
+  INVALID_JSON: {
+    code: "INVALID_JSON",
+    dougFacing: null,
+    crewFacing: "The request was not valid JSON.",
+    followUp: null,
+    helpfulContext: null,
+  },
+  LAST_ADMIN_LOCKOUT_REFUSED: {
+    code: "LAST_ADMIN_LOCKOUT_REFUSED",
+    dougFacing: "You can't revoke the last administrator. Add another admin first, then revoke this one.",
+    crewFacing: null,
+    followUp: "Doug -> add another admin first",
+    helpfulContext: "Self-revoke of the only active administrator is refused at the Server Action layer to prevent admin lockout. Other-revoke (rogue admin revoking peers) is by-design allowed; see the spec amendment §5.5 + §11 anti-goal.",
+  },
+  LEAKED_LINK_REVOCATION_FAILED: {
+    code: "LEAKED_LINK_REVOCATION_FAILED",
+    dougFacing: "A signed crew link was detected in a URL but couldn't be revoked. The leaked link may still work until this is resolved — Eric has been notified.",
+    crewFacing: null,
+    followUp: "Eric -> investigate revoke_leaked_link_atomic + DB connectivity, then re-run the compromise flow",
+    helpfulContext: "When a magic-link token appears in the URL query string instead of being redeemed normally, the middleware treats it as a credential compromise and atomically revokes the underlying token version. This alert means that revocation RPC itself failed, so the leaked link could still be redeemed by an attacker until an operator clears the token version manually.",
+  },
+  LINKED_FOLDER_OVERFLOW_TRUNCATED: {
+    code: "LINKED_FOLDER_OVERFLOW_TRUNCATED",
+    dougFacing: "The linked diagram folder has more images than this release can publish. Crew see the first 60 images.",
+    crewFacing: null,
+    followUp: "Doug -> trim or split the folder if omitted images matter",
+    helpfulContext: "Linked-folder diagram freezing caps the combined embedded and linked gallery at 60 assets.",
+  },
+  OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA: {
+    code: "OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA",
+    dougFacing: "Drive returned an incomplete folder response. Try again in a moment.",
+    crewFacing: null,
+    followUp: "Doug -> retry; Eric if this repeats",
+    helpfulContext: "The app reached Google Drive, but the metadata response did not include the fields needed to prove the link is a readable folder. This is usually transient. If it repeats, the developer should inspect the Drive API response and service-account configuration.",
+  },
+  OPERATOR_ERROR_NOT_FOLDER: {
+    code: "OPERATOR_ERROR_NOT_FOLDER",
+    dougFacing: "That link points to a file, not a folder.",
+    crewFacing: null,
+    followUp: "Doug -> open the parent folder and copy that folder link",
+    helpfulContext: "The wizard scans every sheet inside one folder. A direct Google Sheet link cannot be used for setup because it does not tell the app which sibling sheets belong in the same onboarding run.",
+  },
+  PENDING_SNAPSHOT_DELETE_STUCK: {
+    code: "PENDING_SNAPSHOT_DELETE_STUCK",
+    dougFacing: "Old diagram snapshot cleanup is stuck. Crew pages are still protected, but storage cleanup needs repair.",
+    crewFacing: null,
+    followUp: "Doug -> run snapshot repair; if persistent, Eric",
+    helpfulContext: "A pending snapshot upload row is marked for deletion but the storage prefix has not been reclaimed.",
+  },
+  PENDING_SNAPSHOT_NOT_STUCK: {
+    code: "PENDING_SNAPSHOT_NOT_STUCK",
+    dougFacing: "That diagram snapshot does not need repair.",
+    crewFacing: null,
+    followUp: "Doug -> refresh the admin view",
+    helpfulContext: "The repair endpoint only accepts pending snapshot rows that started promotion and exceeded the repair threshold.",
+  },
+  PENDING_SNAPSHOT_PROMOTE_IN_FLIGHT: {
+    code: "PENDING_SNAPSHOT_PROMOTE_IN_FLIGHT",
+    dougFacing: "That diagram snapshot is still being promoted. Check again in a few minutes.",
+    crewFacing: null,
+    followUp: "Doug -> wait, then refresh",
+    helpfulContext: "Promotion repair is blocked until the promote_started_at threshold has elapsed.",
+  },
+  PENDING_SYNC_NOT_FOUND: {
+    code: "PENDING_SYNC_NOT_FOUND",
+    dougFacing: "That staged sync is no longer available.",
+    crewFacing: null,
+    followUp: "Doug -> refresh the admin page",
+    helpfulContext: "The admin page renders staged-sync rows by id. When you clicked Apply or Discard, the server looked up that id and didn't find a row — usually because another browser tab acted on the same staged sync between when the page loaded and when you clicked. Refresh the admin page to see the current state and act on whatever's still pending.",
+  },
+  REEL_ASSET_LOOKUP_FAILED: {
+    code: "REEL_ASSET_LOOKUP_FAILED",
+    dougFacing: "The opening reel could not be loaded. Refresh and try again.",
+    crewFacing: "This video could not be loaded. Ask Doug if it keeps happening.",
+    followUp: "Doug -> retry; if persistent, Eric",
+    helpfulContext: "The reel asset route could not resolve or stream the immutable Drive revision for the show.",
+  },
+  REPORT_DUPLICATE_LIVE_MATCHES: {
+    code: "REPORT_DUPLICATE_LIVE_MATCHES",
+    dougFacing: "Multiple live GitHub issues were found for one report submission. Recovery is paused until Eric reviews the duplicates.",
+    crewFacing: null,
+    followUp: "Eric -> inspect duplicate report issues and close the incorrect one",
+    helpfulContext: "The recovery scan found more than one non-orphan issue with the same bug-report marker. The system fails closed instead of choosing a winner.",
+  },
+  REPORT_HORIZON_EXPIRED: {
+    code: "REPORT_HORIZON_EXPIRED",
+    dougFacing: "This report attempt has expired (older than 24 hours). If the issue still applies, please file a fresh report.",
+    crewFacing: "This report attempt has expired. Please open a fresh report if the issue still applies.",
+    followUp: "Doug or crew -> start a fresh report if still needed",
+    helpfulContext: "Bug-report retry recovery only runs within 24 hours of the original attempt. Older unresolved rows are handled by the reaper.",
+  },
+  REPORT_LOOKUP_INCONCLUSIVE: {
+    code: "REPORT_LOOKUP_INCONCLUSIVE",
+    dougFacing: "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
+    crewFacing: "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
+    followUp: "Eric -> review GitHub issue lookup and retry state",
+    helpfulContext: "The bug-report recovery path could not conclusively list recent GitHub issues for this idempotency key, so it refused to create a duplicate issue.",
+  },
+  REPORT_OPEN_ORPHAN_LABEL: {
+    code: "REPORT_OPEN_ORPHAN_LABEL",
+    dougFacing: "An open GitHub issue carries the orphan-cleanup label. Eric needs to review and either re-close the issue or remove the label.",
+    crewFacing: null,
+    followUp: "Eric -> inspect the labeled issue",
+    helpfulContext: "Orphan cleanup should close issues with state_reason=not_planned. Seeing the orphan label on an open issue indicates manual intervention or an unexpected GitHub state.",
+  },
+  REPORT_PIPELINE_FAILED: {
+    code: "REPORT_PIPELINE_FAILED",
+    dougFacing: "The report system hit a server error before it could finish. Please try again in a few minutes.",
+    crewFacing: "The report system hit a server error before it could finish. Please try again in a few minutes.",
+    followUp: "Eric -> inspect report pipeline logs and database connectivity",
+    helpfulContext: "The report route caught a typed infrastructure failure from the report submission or reaper path and returned a cataloged 500 response instead of crashing.",
+  },
+  SESSION_NOT_FOUND: {
+    code: "SESSION_NOT_FOUND",
+    dougFacing: null,
+    crewFacing: "Open the original link Doug shared again.",
+    followUp: "Crew -> reopen link",
+    helpfulContext: null,
+  },
   SHOW_BUSY_RETRY: {
     code: "SHOW_BUSY_RETRY",
     dougFacing: "That show is already syncing. Try again in a moment.",
@@ -191,703 +1144,54 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug -> retry after the current sync finishes",
     helpfulContext: "Another sync is holding the per-show advisory lock; retry with backoff.",
   },
-  STALE_WRITE_ABORTED: {
-    code: "STALE_WRITE_ABORTED",
-    dougFacing: "A newer sync already won. Refresh to see the latest staged or applied data.",
+  SHOW_REALTIME_TOKEN_MISCONFIGURED: {
+    code: "SHOW_REALTIME_TOKEN_MISCONFIGURED",
+    dougFacing: null,
     crewFacing: null,
-    followUp: "Doug -> refresh the admin page",
-    helpfulContext: "The cron worker refused to write an older parse over a newer Drive revision.",
+    followUp: "Eric -> configure realtime JWT env",
+    helpfulContext: null,
   },
-  STALE_PUSH_ABORTED: {
-    code: "STALE_PUSH_ABORTED",
-    dougFacing: "A newer sync already won. The push notification was ignored.",
-    crewFacing: null,
-    followUp: "Doug -> refresh if the admin view looks stale",
-    helpfulContext: "A Google Drive push event tried to apply data older than the current row.",
-  },
-  STALE_MANUAL_REPLAY_ABORTED: {
-    code: "STALE_MANUAL_REPLAY_ABORTED",
-    dougFacing:
-      "That manual sync was based on an older sheet revision. Refresh and run sync again if needed.",
-    crewFacing: null,
-    followUp: "Doug -> refresh, then retry",
-    helpfulContext:
-      "Manual sync allows same-revision replay, but it still refuses to apply a strictly older revision.",
-  },
-  CONCURRENT_SYNC_SKIPPED: {
-    code: "CONCURRENT_SYNC_SKIPPED",
-    dougFacing: "Another sync is already running for this show. Try again in a moment.",
-    crewFacing: null,
-    followUp: "Doug -> retry shortly",
-    helpfulContext:
-      "The per-show advisory lock was busy, so this attempt skipped instead of waiting.",
-  },
-  ASSET_RECOVERY_BYTES_EXCEEDED: {
-    code: "ASSET_RECOVERY_BYTES_EXCEEDED",
-    dougFacing:
-      "This show's diagram set is too large to recover automatically. Crew may see placeholders for missing diagrams.",
-    crewFacing: null,
-    followUp: "Doug -> trim the gallery or ask Eric if the recovery ceiling needs to be raised",
-    helpfulContext:
-      "Asset recovery stops above 60 images, above 50MB for one image, or above 3GB per run so the per-show lock stays short.",
-  },
-  ASSET_RECOVERY_REVISION_DRIFT: {
-    code: "ASSET_RECOVERY_REVISION_DRIFT",
-    dougFacing:
-      "Diagram recovery raced a newer approved snapshot and paused briefly before retrying.",
-    crewFacing: null,
-    followUp: "Doug -> no action unless this repeats; Eric -> inspect recovery cooldowns",
-    helpfulContext:
-      "Asset recovery raced a newer Apply and aborted without mutating the show; the next cron pass re-evaluates the current revision after cooldown.",
-  },
-  ASSET_RECOVERY_DRIFT_COOLDOWN: {
-    code: "ASSET_RECOVERY_DRIFT_COOLDOWN",
-    dougFacing:
-      "Diagram recovery is backing off because this snapshot recently changed during repair.",
-    crewFacing: null,
-    followUp: "Doug -> wait for the next sync or run a manual re-sync",
-    helpfulContext:
-      "Asset recovery skipped this pass because the same show/revision recently drifted; manual re-sync bypasses the cooldown gate.",
-  },
-  ADMIN_FORBIDDEN: {
-    code: "ADMIN_FORBIDDEN",
-    dougFacing: "Your admin session cannot access this action. Sign in again and retry.",
-    crewFacing: null,
-    followUp: "Doug -> sign in again",
-    helpfulContext:
-      "Admin-only endpoints return this when the request does not carry a valid admin session.",
-  },
-  // M9 C9 / M2-D1 — admin allow-list runtime-mutable. Catalog rows for
-  // the /admin/settings/admins surface (per amendment §5.8 + brief §8).
-  LAST_ADMIN_LOCKOUT_REFUSED: {
-    code: "LAST_ADMIN_LOCKOUT_REFUSED",
-    dougFacing:
-      "You can't revoke the last administrator. Add another admin first, then revoke this one.",
-    crewFacing: null,
-    followUp: "Doug -> add another admin first",
-    helpfulContext:
-      "Self-revoke of the only active administrator is refused at the Server Action layer to prevent admin lockout. Other-revoke (rogue admin revoking peers) is by-design allowed; see the spec amendment §5.5 + §11 anti-goal.",
-  },
-  ADMIN_EMAIL_INVALID: {
-    code: "ADMIN_EMAIL_INVALID",
-    dougFacing: "Enter a valid email address.",
-    crewFacing: null,
-    followUp: "Doug -> retype the email",
-    helpfulContext:
-      "The submitted email failed canonicalization or HTML5 type=email validation.",
-  },
-  ADMIN_EMAIL_ALREADY_ACTIVE: {
-    code: "ADMIN_EMAIL_ALREADY_ACTIVE",
-    dougFacing: "<email> is already an administrator.",
+  SHOW_VERSION_AUTH_FAILED: {
+    code: "SHOW_VERSION_AUTH_FAILED",
+    dougFacing: null,
     crewFacing: null,
     followUp: null,
-    helpfulContext:
-      "Idempotent re-add of an already-active admin email. Not a destructive condition; the row is unchanged.",
+    helpfulContext: null,
   },
-  ADMIN_EMAIL_LIST_FAILED: {
-    code: "ADMIN_EMAIL_LIST_FAILED",
-    dougFacing:
-      "We can't load the administrator list right now. Refresh in a moment; if the problem continues, check the database connection.",
+  SHOW_VERSION_TOKEN_RPC_FAILED: {
+    code: "SHOW_VERSION_TOKEN_RPC_FAILED",
+    dougFacing: null,
     crewFacing: null,
-    followUp: "Doug -> retry; if persistent, check Supabase admin_emails RLS + grants",
-    helpfulContext:
-      "AdminEmailsInfraError thrown from listAdminEmails() — typically RLS denial, missing grant, schema-cache skew, or network fault. The route-level error boundary at app/admin/settings/admins/error.tsx renders this message + a retry button.",
+    followUp: "Eric -> investigate version-token RPC",
+    helpfulContext: null,
   },
-  ADMIN_EMAIL_RE_ADD_PROMPT: {
-    code: "ADMIN_EMAIL_RE_ADD_PROMPT",
-    dougFacing:
-      "<email> was previously revoked. Re-add this email to restore admin access?",
-    crewFacing: null,
-    followUp: "Doug -> confirm re-add or cancel",
-    helpfulContext:
-      "The submitted email matches a row with revoked_at set. UI surfaces this as a confirmation prompt; submitting the same form with confirm_re_add=true re-activates the row per amendment §5.4.",
-  },
-  APPLY_STATUS_NOT_FOUND: {
-    code: "APPLY_STATUS_NOT_FOUND",
-    dougFacing:
-      "That apply job is no longer available. Refresh the show and check the current status.",
-    crewFacing: null,
-    followUp: "Doug -> refresh the admin view",
-    helpfulContext:
-      "The apply-status endpoint could not find the requested show, apply id, or pending sync row.",
-  },
-  STAGED_PARSE_REVISION_RACE: {
-    code: "STAGED_PARSE_REVISION_RACE",
-    dougFacing:
-      "The sheet changed while we were reading it. We'll retry from the new revision on the next sync.",
-    crewFacing: null,
-    followUp: "Doug -> wait for the next sync or retry after editing pauses",
-    helpfulContext:
-      "Markdown export, enrichment, and Drive metadata must all describe the same revision.",
-  },
-  STAGED_PARSE_REVISION_RACE_COOLDOWN: {
-    code: "STAGED_PARSE_REVISION_RACE_COOLDOWN",
-    dougFacing: "The sheet keeps changing mid-sync, so retries are temporarily backing off.",
-    crewFacing: null,
-    followUp: "Doug -> pause edits briefly or retry manually",
-    helpfulContext:
-      "Repeated same-revision binding races are cooled down to protect Drive API quota.",
-  },
-  STAGED_PARSE_SOURCE_OUT_OF_SCOPE: {
-    code: "STAGED_PARSE_SOURCE_OUT_OF_SCOPE",
-    dougFacing: "This staged sheet is no longer in the watched Drive folder.",
-    crewFacing: null,
-    followUp: "Doug -> move the sheet back or discard the staged parse",
-    helpfulContext:
-      "Between staging and Apply, the sheet was moved out of the watched folder. Anything outside the watched folder is invisible to the sync pipeline by design. Move the sheet back in and the next sync will produce a new staged parse.",
-  },
-  STAGED_PARSE_SOURCE_GONE: {
-    code: "STAGED_PARSE_SOURCE_GONE",
-    dougFacing: "This Drive sheet is unavailable or was deleted.",
-    crewFacing: null,
-    followUp: "Doug -> restore the sheet or discard the staged parse",
-    helpfulContext:
-      "Between staging and Apply, the source sheet was deleted, trashed, or unshared in Drive. Without a sheet to read, we can't apply the staged parse. Restore the sheet (or re-share it) and the next sync will produce a new staged parse.",
-  },
-  STAGED_PARSE_OUTDATED: {
-    code: "STAGED_PARSE_OUTDATED",
-    dougFacing: "A newer sheet revision exists. Refresh and review the latest staged parse.",
-    crewFacing: null,
-    followUp: "Doug -> refresh",
-    helpfulContext:
-      "Doug saved another edit to the sheet after the version you were reviewing was staged. The staged version is no longer the most recent state, so we discarded it. The next sync will produce a fresh staged parse to review.",
-  },
-  STAGED_PARSE_RESTAGED_INLINE: {
-    code: "STAGED_PARSE_RESTAGED_INLINE",
-    dougFacing: "The sheet changed during review, so we restaged it from the latest revision.",
-    crewFacing: null,
-    followUp: "Doug -> review the updated parse",
-    helpfulContext:
-      "The wizard re-parsed the sheet inside your current setup session because Doug edited it after the original scan. Review the refreshed parse — any decisions you made on the prior version were discarded.",
-  },
-  STAGED_PARSE_SUPERSEDED: {
-    code: "STAGED_PARSE_SUPERSEDED",
-    dougFacing: "The staged parse you were viewing was replaced by a newer sync.",
-    crewFacing: null,
-    followUp: "Doug -> refresh and review the latest staged parse",
-    helpfulContext:
-      "A newer parse was applied (probably by a different admin or a cron run) before your Apply landed. Refresh the admin page to see the current state.",
-  },
-  STALE_DISCARD_REJECTED: {
-    code: "STALE_DISCARD_REJECTED",
-    dougFacing:
-      "The staged parse you were viewing was replaced by a newer sync. Refresh and review the latest version before deciding.",
-    crewFacing: null,
-    followUp: "Doug -> refresh",
-    helpfulContext:
-      "A newer parse was staged for this sheet between when you opened the review and when you clicked Discard. Refresh the admin page to see the latest version before deciding.",
-  },
-  WIZARD_SESSION_SUPERSEDED: {
-    code: "WIZARD_SESSION_SUPERSEDED",
-    dougFacing: "This onboarding scan was replaced by a newer scan.",
-    crewFacing: null,
-    followUp: "Doug -> continue from the latest onboarding scan",
-    helpfulContext:
-      "Setup wizards run one at a time. While your tab was open, another wizard was started (probably from a second browser tab or device) and your session was retired. Refresh and start setup over in a single tab; whatever the other wizard scanned is the new state.",
-  },
-  // ===== M10-§A codes (Codex) =====
-  INVALID_FOLDER_URL: {
-    code: "INVALID_FOLDER_URL",
-    dougFacing: "Paste a Google Drive folder link.",
-    crewFacing: null,
-    followUp: "Doug -> paste the folder link from Drive",
-    helpfulContext:
-      "The setup wizard needs the URL for a Google Drive folder, usually shaped like drive.google.com/drive/folders/<folder-id>. Open the folder in Drive, copy the browser URL, and paste that full link here.",
-  },
-  FOLDER_NOT_SHARED: {
-    code: "FOLDER_NOT_SHARED",
-    dougFacing: "This folder is not shared with the sync account yet.",
-    crewFacing: null,
-    followUp: "Doug -> share the folder with the FXAV service account, then retry",
-    helpfulContext:
-      "The app reads show sheets through a Google service account. Share the Drive folder with that account using Viewer access, then click Verify again. If the folder is in a shared drive, make sure the service account can see that shared drive too.",
-  },
-  FOLDER_NOT_FOUND: {
-    code: "FOLDER_NOT_FOUND",
-    dougFacing: "We could not find that Drive folder.",
-    crewFacing: null,
-    followUp: "Doug -> check the link or restore the folder",
-    helpfulContext:
-      "Drive returned missing, deleted, or trashed for the folder ID in the link. Confirm the folder still exists, that the URL points to the folder itself, and that it has not been moved to trash.",
-  },
-  OPERATOR_ERROR_NOT_FOLDER: {
-    code: "OPERATOR_ERROR_NOT_FOLDER",
-    dougFacing: "That link points to a file, not a folder.",
-    crewFacing: null,
-    followUp: "Doug -> open the parent folder and copy that folder link",
-    helpfulContext:
-      "The wizard scans every sheet inside one folder. A direct Google Sheet link cannot be used for setup because it does not tell the app which sibling sheets belong in the same onboarding run.",
-  },
-  OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA: {
-    code: "OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA",
-    dougFacing: "Drive returned an incomplete folder response. Try again in a moment.",
-    crewFacing: null,
-    followUp: "Doug -> retry; Eric if this repeats",
-    helpfulContext:
-      "The app reached Google Drive, but the metadata response did not include the fields needed to prove the link is a readable folder. This is usually transient. If it repeats, the developer should inspect the Drive API response and service-account configuration.",
-  },
-  PENDING_INGESTION_NOT_FOUND: {
-    code: "PENDING_INGESTION_NOT_FOUND",
-    dougFacing: "That pending sheet is no longer waiting for action.",
-    crewFacing: null,
-    followUp: "Doug -> refresh the admin page",
-    helpfulContext:
-      "The pending-ingestion row was gone by the time the action ran, usually because another admin action or sync already transitioned it.",
-  },
-  PENDING_INGESTION_TRANSITIONED: {
-    code: "PENDING_INGESTION_TRANSITIONED",
-    dougFacing: "That pending sheet changed before the action could run.",
-    crewFacing: null,
-    followUp: "Doug -> refresh the admin page",
-    helpfulContext:
-      "The route found the row before locking, then it was changed or removed before the locked re-check. Refresh to see the current state.",
-  },
-  LIVE_ROW_REQUIRED: {
-    code: "LIVE_ROW_REQUIRED",
-    dougFacing: "Use the onboarding action for this wizard-scoped pending sheet.",
-    crewFacing: null,
-    followUp: "Doug -> refresh and use the setup wizard panel",
-    helpfulContext:
-      "The live pending-ingestions action only accepts rows outside the onboarding wizard. This row belongs to an active wizard session.",
-  },
-  MISSING_PENDING_INGESTION_MODTIME: {
-    code: "MISSING_PENDING_INGESTION_MODTIME",
-    dougFacing: "That pending sheet is missing the Drive modified time needed to defer it.",
-    crewFacing: null,
-    followUp: "Eric -> inspect pending_ingestions.last_seen_modified_time",
-    helpfulContext:
-      "Deferring until modified requires a baseline modified time. The database row did not have one, so the route refused to create a broken deferral.",
-  },
-  ALERT_REQUIRES_SHOW_SCOPED_RESOLVE: {
-    code: "ALERT_REQUIRES_SHOW_SCOPED_RESOLVE",
-    dougFacing: "Resolve this alert from the show page so the show context is visible.",
-    crewFacing: null,
-    followUp: "Doug -> open the show-specific alert link",
-    helpfulContext:
-      "Global alert resolution intentionally refuses show-scoped alerts. The route returns a show-scoped resolve URL when it can resolve the show slug.",
-  },
-  ADMIN_ALERT_NOT_FOUND: {
-    code: "ADMIN_ALERT_NOT_FOUND",
-    dougFacing: "That alert is no longer available.",
-    crewFacing: null,
-    followUp: "Doug -> refresh the admin page",
-    helpfulContext:
-      "The alert may already have been resolved or may belong to a different show. Show-scoped resolve routes return this same code for cross-show probes.",
-  },
-  WIZARD_FINALIZE_BATCHES_PENDING: {
-    code: "WIZARD_FINALIZE_BATCHES_PENDING",
-    dougFacing: "Setup publishing still has batches to finish before final publish.",
-    crewFacing: null,
-    followUp: "Doug -> keep the setup tab open until the batch step completes",
-    helpfulContext:
-      "The final CAS publish step only runs after every approved onboarding row has been processed and no unresolved review rows remain.",
-  },
-  WIZARD_FINALIZE_CHECKPOINT_MISSING: {
-    code: "WIZARD_FINALIZE_CHECKPOINT_MISSING",
-    dougFacing: "The setup publish checkpoint is missing or no longer active.",
-    crewFacing: null,
-    followUp: "Doug -> refresh setup; Eric if this repeats",
-    helpfulContext:
-      "Finalize routes are driven by a server-owned checkpoint row for the active wizard session. This code means the expected row/session pair was not present.",
-  },
-  CONCURRENT_FINALIZE_IN_FLIGHT: {
-    code: "CONCURRENT_FINALIZE_IN_FLIGHT",
-    dougFacing: "Setup publishing is already running in another tab.",
-    crewFacing: null,
-    followUp: "Doug -> wait for the active setup tab",
-    helpfulContext:
-      "Only one finalize worker can hold the wizard finalize advisory lock for a session. A second request returns this code instead of racing the first.",
-  },
-  STAGED_PARSE_REVISION_RACE_DURING_FINALIZE: {
-    code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
-    dougFacing: "A sheet changed after review and needs to be reviewed again before publishing.",
-    crewFacing: null,
-    followUp: "Doug -> re-apply that sheet in setup",
-    helpfulContext:
-      "Finalize re-checks the Drive head modified time before committing each reviewed row. A mismatch demotes the row back to staged review.",
-  },
-  STAGED_PARSE_OUTDATED_AT_PHASE_D: {
-    code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
-    dougFacing: "A live show changed after setup staged its publish changes.",
-    crewFacing: null,
-    followUp: "Doug -> re-run setup review for that sheet before final publish",
-    helpfulContext:
-      "Finalize Phase D only promotes shadow changes when the live show has not advanced past the wizard-staged modified time.",
+  SLUG_REQUIRED: {
+    code: "SLUG_REQUIRED",
+    dougFacing: null,
+    crewFacing: "A show slug is required.",
+    followUp: null,
+    helpfulContext: null,
   },
   STAGED_PARSE_FAILED: {
     code: "STAGED_PARSE_FAILED",
     dougFacing: "That sheet could not be parsed during retry.",
     crewFacing: null,
     followUp: "Doug -> open the sheet and fix its structure, then retry",
-    helpfulContext:
-      "The live first-seen retry path fetched the sheet but the parser could not convert it into a show payload.",
+    helpfulContext: "The live first-seen retry path fetched the sheet but the parser could not convert it into a show payload.",
   },
-  WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED: {
-    code: "WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED",
-    dougFacing: "This reviewed setup decision came from an older or newer form version.",
+  STAGED_PARSE_OUTDATED_AT_PHASE_D: {
+    code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+    dougFacing: "A live show changed after setup staged its publish changes.",
     crewFacing: null,
-    followUp: "Doug -> refresh setup and apply the sheet again",
-    helpfulContext:
-      "Reviewer choices are versioned so finalize can safely replay them. This row needs a fresh apply from the current UI version.",
+    followUp: "Doug -> re-run setup review for that sheet before final publish",
+    helpfulContext: "Finalize Phase D only promotes shadow changes when the live show has not advanced past the wizard-staged modified time.",
   },
-  SLUG_COLLISION_EXHAUSTED: {
-    code: "SLUG_COLLISION_EXHAUSTED",
-    dougFacing: "We could not create a unique show URL for that sheet.",
+  STALE_ORPHAN_REPORT: {
+    code: "STALE_ORPHAN_REPORT",
+    dougFacing: "A stale bug-report reservation expired before it could create a GitHub issue. No user action is needed unless this repeats.",
     crewFacing: null,
-    followUp: "Eric -> inspect show slug allocation",
-    helpfulContext:
-      "The first-seen publish path retried slug suffixes and still hit unique conflicts. This should be rare unless many sheets produce the same title/date slug.",
-  },
-  CLEANUP_REQUIRES_STALE_SESSION: {
-    code: "CLEANUP_REQUIRES_STALE_SESSION",
-    dougFacing: "Cleanup is only available for stale setup sessions.",
-    crewFacing: null,
-    followUp: "Doug -> wait or finish setup; Eric if the session is stuck",
-    helpfulContext:
-      "Abandoned finalize cleanup is guarded by a stale-session check and a finalize-recency check so it cannot interrupt an active setup publish.",
-  },
-  ONBOARDING_NOT_RESOLVED: {
-    code: "ONBOARDING_NOT_RESOLVED",
-    dougFacing: "Resolve all setup review items before final publish.",
-    crewFacing: null,
-    followUp: "Doug -> review, retry, defer, or ignore every unresolved setup row",
-    helpfulContext:
-      "Finalize cannot complete while the onboarding manifest still contains staged, hard-failed, retryable discard, or live-conflict rows.",
-  },
-  // ===== /M10-§A codes =====
-  // ===== M10-§B codes (Opus) =====
-  ONBOARDING_OPERATOR_ERROR: {
-    code: "ONBOARDING_OPERATOR_ERROR",
-    dougFacing:
-      "The wizard cannot read its service-account credentials. Please contact the developer to fix this before continuing.",
-    crewFacing: null,
-    followUp: "Eric -> inspect server logs / restore service-account credentials",
-    helpfulContext:
-      "The onboarding wizard could not read its service-account credentials, so the share-with-this-email screen has no email to display. This is a server configuration problem, not anything Doug did. The developer (Eric) needs to restore the GOOGLE_SERVICE_ACCOUNT_JSON environment variable. Once that is back in place, Doug can refresh the wizard and continue. Spec §9.0 step 2 reserves a paired Sentry alert plus an admin-visible banner for the operator-error path; that durable notification path is wired in a later milestone alongside the rest of the operator-banner surface — Phase 1 surfaces the failure inline only, which is why the Doug-facing copy does not claim the developer has already been notified.",
-  },
-  // ===== /M10-§B codes =====
-  WIZARD_SESSION_SUPERSEDED_DURING_SCAN: {
-    code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
-    dougFacing: "A newer onboarding scan started before this one finished.",
-    crewFacing: null,
-    followUp: "Doug -> use the latest scan",
-    helpfulContext:
-      "Setup wizards run one at a time per folder. While your scan was still running, someone (probably you, in a second tab) started a fresh scan against the same folder, which retires the in-flight one. Close this tab and continue from the wizard tab that holds the newer scan.",
-  },
-  WIZARD_ISOLATION_INDEXES_MISSING: {
-    code: "WIZARD_ISOLATION_INDEXES_MISSING",
-    dougFacing:
-      "Onboarding isolation indexes are missing. Stop onboarding until the database migration is fixed.",
-    crewFacing: null,
-    followUp: "Eric -> verify pending_syncs and pending_ingestions partition indexes",
-    helpfulContext:
-      "The setup wizard scans your folder by writing per-session staging rows into the same tables the live sync writes to (pending_syncs, pending_ingestions, onboarding_scan_manifest). To keep wizard rows from colliding with live rows, the database has four partial unique indexes that route writes to the right slot. The scan checks for those indexes before writing anything; if any are missing, the wizard aborts cleanly rather than risk a partial scan against a half-migrated schema. Eric is automatically notified to apply the migration; once that's done, click Re-run Setup to retry.",
-  },
-  LIVE_ROW_CONFLICT: {
-    code: "LIVE_ROW_CONFLICT",
-    dougFacing:
-      "A live show row conflicted with the staged sync. The developer needs to reconcile it before applying.",
-    crewFacing: null,
-    followUp: "Eric -> reconcile the live row and staged parse",
-    helpfulContext:
-      "Setup tried to stage a parse for a sheet that the live folder sync is already processing. We skipped the wizard's stage to avoid clobbering the live row. Resolve the live row from the dashboard — either Apply or Discard it — then re-run setup if you still need to.",
-  },
-  ROLE_FLAGS_NOTICE: {
-    code: "ROLE_FLAGS_NOTICE",
-    severity: "info",
-    dougFacing:
-      "A non-Lead crew capability changed and was applied automatically. Review the updated crew row if anything looks off.",
-    crewFacing: null,
-    followUp: "Doug -> no action needed unless the role is wrong",
-    helpfulContext:
-      "LEAD additions or removals still require review. Non-Lead role flag changes sync automatically and are recorded here for visibility.",
-  },
-  SHOW_FIRST_PUBLISHED: {
-    code: "SHOW_FIRST_PUBLISHED",
-    severity: "info",
-    dougFacing:
-      "_<sheet-name>_ is now live for crew. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** [Click here to unpublish](signed-link) within 24h.",
-    crewFacing: null,
-    followUp: null,
-    helpfulContext:
-      "We auto-published this show because the parse looked clean — all the safety checks passed. The crew page is now live and signed links you send out will work. If you dragged in the wrong sheet or weren't ready, click 'Unpublish' in this email within 24 hours and we'll archive it and kill any links you've already sent.",
-  },
-  SHOW_UNPUBLISHED: {
-    code: "SHOW_UNPUBLISHED",
-    dougFacing:
-      "_<sheet-name>_ has been unpublished. Crew links no longer work. Drag the sheet back into your watched folder when you're ready to publish again.",
-    crewFacing: null,
-    followUp: "Doug → optionally re-share when ready",
-    helpfulContext:
-      "You clicked Unpublish on a recently-published show. The show is now archived, any signed links you sent in the last 24h have been revoked, and crew can no longer reach the page. Nothing is lost — your sheet is unchanged. Drag it back into the watched folder when you're ready to publish for real.",
-  },
-  UNPUBLISH_TOKEN_CONSUMED: {
-    code: "UNPUBLISH_TOKEN_CONSUMED",
-    dougFacing:
-      "That unpublish link was already used. The show is already unpublished or the undo window has been closed.",
-    crewFacing: null,
-    followUp: "Doug -> no action if the show is already archived",
-    helpfulContext:
-      "Unpublish undo tokens are single-use. A second click on the same email link returns this code instead of running link revocation twice.",
-  },
-  UNPUBLISH_TOKEN_EXPIRED: {
-    code: "UNPUBLISH_TOKEN_EXPIRED",
-    dougFacing:
-      "That unpublish link has expired. Use the normal admin archive flow if the show still needs to come down.",
-    crewFacing: null,
-    followUp: "Doug -> archive from admin if needed",
-    helpfulContext:
-      "First-seen auto-publish undo links are valid for 24 hours. After that, wrong-publish recovery uses the regular admin archive workflow.",
-  },
-  FINALIZE_OWNED_SHOW: {
-    code: "FINALIZE_OWNED_SHOW",
-    dougFacing: "This onboarding finalize step tried to take over an existing owned show.",
-    crewFacing: null,
-    followUp: "Doug -> review the existing show before finalizing",
-    helpfulContext:
-      "This show is currently being published as part of a setup wizard's multi-batch finalize. Until the wizard's final-publish step commits, the row is held with `published = false` and admin write actions (Re-sync, Archive, Apply/Discard staged changes) are gated to prevent races against the in-flight finalize. Wait for the wizard tab to finish — the dashboard 'Publishing…' badge clears the moment the final-publish step commits, after which this action will succeed.",
-  },
-  WEBHOOK_HEADERS_MISSING: {
-    code: "WEBHOOK_HEADERS_MISSING",
-    dougFacing: "A Drive webhook request was missing required Google headers.",
-    crewFacing: null,
-    followUp: "Eric -> inspect webhook delivery",
-    helpfulContext:
-      "Google Drive's push notifications carry a fixed set of headers identifying the channel, resource, and verification token. A request reached our webhook endpoint without those headers — usually that means a stale subscription is still firing or someone's probing the endpoint. The developer has been notified; no action is needed unless this keeps appearing.",
-  },
-  WEBHOOK_NOOP_ALREADY_SYNCED: {
-    code: "WEBHOOK_NOOP_ALREADY_SYNCED",
-    dougFacing: "This Drive notification was already synced.",
-    crewFacing: null,
-    followUp: null,
-    helpfulContext:
-      "Google Drive sometimes redelivers the same push notification (network hiccups or Google's own retries). When the notification's revision was already processed, we skip the sync to avoid duplicate work and record this so the admin log shows why the webhook returned early. No action is needed.",
-  },
-  EMBEDDED_RECOVERY_REQUIRES_RESTAGE: {
-    code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
-    dougFacing:
-      "Embedded diagram recovery could not complete from the current revision. Edit or re-save the sheet so it can restage.",
-    crewFacing: null,
-    followUp: "Doug -> make a small sheet edit, then sync again",
-    helpfulContext:
-      "The current approved diagram snapshot stays live until a fresh revision can be captured.",
-  },
-  LINKED_ASSET_DRIFTED: {
-    code: "LINKED_ASSET_DRIFTED",
-    dougFacing: "A linked Drive asset changed after staging and needs review.",
-    crewFacing: null,
-    followUp: "Doug -> review linked assets before applying",
-    helpfulContext:
-      "A diagram in the linked Google Drive folder was edited after the staged parse was reviewed. Crew see a placeholder where that diagram should be — we won't show drifted bytes that an operator hasn't approved. Save the sheet again (any edit advances the version) to re-stage the new diagram.",
-  },
-  REEL_DRIFTED: {
-    code: "REEL_DRIFTED",
-    dougFacing: "The opening reel changed after staging and needs review.",
-    crewFacing: null,
-    followUp: "Doug -> review the reel before applying",
-    helpfulContext:
-      "The opening-reel video was replaced or edited in Drive after the staged parse was reviewed. Crew see the text status only (e.g., 'YES') without the inline video until you save the sheet again to re-stage the new reel.",
-  },
-  OPENING_REEL_PERMISSION_DENIED: {
-    code: "OPENING_REEL_PERMISSION_DENIED",
-    dougFacing:
-      "The opening reel can no longer be accessed. The show will publish without the video until access is restored and re-synced.",
-    crewFacing: null,
-    followUp: "Doug -> restore Drive access to the reel, then sync again",
-    helpfulContext:
-      "Apply clears all opening-reel pins when Drive returns permission denied so the crew page falls back to text only.",
-  },
-  OPENING_REEL_NOT_VIDEO: {
-    code: "OPENING_REEL_NOT_VIDEO",
-    dougFacing:
-      "The opening reel link points to a non-video file. The show will publish without the video.",
-    crewFacing: null,
-    followUp: "Doug -> replace the opening reel link with a video file and sync again",
-    helpfulContext: "The reel route only serves Drive files whose MIME type starts with video/.",
-  },
-  DIAGRAMS_TAB_MISSING: {
-    code: "DIAGRAMS_TAB_MISSING",
-    dougFacing: null,
-    crewFacing: null,
-    followUp: "none",
-    helpfulContext: null,
-  },
-  DIAGRAMS_EMBEDDED_NONE_FOUND: {
-    code: "DIAGRAMS_EMBEDDED_NONE_FOUND",
-    dougFacing:
-      "The DIAGRAMS tab returned no embedded images. Confirm before replacing the current gallery, or paste in the images and sync again.",
-    crewFacing: null,
-    followUp: "Doug -> confirm the empty gallery or add images",
-    helpfulContext:
-      "A sheet that appears configured for embedded diagrams produced zero embedded objects and no linked-folder URL. Existing approved galleries stay live until an operator confirms the empty result.",
-  },
-  DIAGRAMS_EMBEDDED_CAP_EXCEEDED: {
-    code: "DIAGRAMS_EMBEDDED_CAP_EXCEEDED",
-    dougFacing:
-      "The DIAGRAMS tab has more than 60 images. Only the first 60 will be shown to crew.",
-    crewFacing: null,
-    followUp: "Doug -> trim the gallery if the omitted images matter",
-    helpfulContext:
-      "The embedded diagram extractor caps galleries at 60 images to keep sync and storage bounded.",
-  },
-  DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE: {
-    code: "DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE",
-    dougFacing:
-      "This sheet's diagrams could not be safely captured this sync. The previous version of those images is still showing.",
-    crewFacing: null,
-    followUp: "Eric -> inspect Drive revisions; Doug -> optionally report",
-    helpfulContext:
-      "Drive did not return a usable spreadsheet revision token for embedded-image freezing. Apply preserves the prior approved diagram snapshot instead of replacing it with an unsafe result.",
-  },
-  DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE: {
-    code: "DIAGRAMS_EMBEDDED_OBJECT_INACCESSIBLE",
-    dougFacing:
-      "An image embedded in the DIAGRAMS tab could not be downloaded. Crew see a placeholder where it should be.",
-    crewFacing: null,
-    followUp: "Doug -> re-paste the image, or tell Eric if it keeps happening",
-    helpfulContext:
-      "The Sheets API described an embedded image, but its download URL was inaccessible to the service account.",
-  },
-  LINKED_FOLDER_OVERFLOW_TRUNCATED: {
-    code: "LINKED_FOLDER_OVERFLOW_TRUNCATED",
-    dougFacing:
-      "The linked diagram folder has more images than this release can publish. Crew see the first 60 images.",
-    crewFacing: null,
-    followUp: "Doug -> trim or split the folder if omitted images matter",
-    helpfulContext:
-      "Linked-folder diagram freezing caps the combined embedded and linked gallery at 60 assets.",
-  },
-  EMBEDDED_ASSET_DRIFTED: {
-    code: "EMBEDDED_ASSET_DRIFTED",
-    dougFacing:
-      "An embedded diagram changed after staging. Crew see a placeholder for that image until a new sheet edit re-stages it.",
-    crewFacing: null,
-    followUp: "Doug -> re-edit the sheet to re-stage the diagram",
-    helpfulContext:
-      "Apply re-checks the spreadsheet revision, object id, and embedded-image fingerprint before downloading bytes. A mismatch leaves the prior approved content live and marks the image for recovery or re-stage.",
-  },
-  DIAGRAM_ASSET_LOOKUP_FAILED: {
-    code: "DIAGRAM_ASSET_LOOKUP_FAILED",
-    dougFacing: "A diagram could not be loaded. Refresh and try again.",
-    crewFacing: "This diagram could not be loaded. Ask Doug if it keeps happening.",
-    followUp: "Doug -> retry; if persistent, Eric",
-    helpfulContext:
-      "The diagram asset route could not resolve or stream the stored immutable diagram revision.",
-  },
-  REEL_ASSET_LOOKUP_FAILED: {
-    code: "REEL_ASSET_LOOKUP_FAILED",
-    dougFacing: "The opening reel could not be loaded. Refresh and try again.",
-    crewFacing: "This video could not be loaded. Ask Doug if it keeps happening.",
-    followUp: "Doug -> retry; if persistent, Eric",
-    helpfulContext:
-      "The reel asset route could not resolve or stream the immutable Drive revision for the show.",
-  },
-  AGENDA_ASSET_LOOKUP_FAILED: {
-    code: "AGENDA_ASSET_LOOKUP_FAILED",
-    dougFacing: "The agenda PDF could not be loaded. Refresh and try again.",
-    crewFacing: "This agenda could not be loaded. Ask Doug if it keeps happening.",
-    followUp: "Doug -> retry; if persistent, Eric",
-    helpfulContext:
-      "The agenda asset route could not resolve or stream the linked Drive PDF for the show.",
-  },
-  AGENDA_GONE_FOR_CREW: {
-    code: "AGENDA_GONE_FOR_CREW",
-    dougFacing: null,
-    crewFacing: "This agenda isn't available anymore. Ask Doug for a fresh link.",
-    followUp: "Crew -> message Doug",
-    helpfulContext: null,
-  },
-  AGENDA_UNAUTHENTICATED: {
-    code: "AGENDA_UNAUTHENTICATED",
-    dougFacing: null,
-    crewFacing: "Your link to this agenda expired. Reopen Doug's latest message to view it.",
-    followUp: "Crew -> reopen signed link",
-    helpfulContext: null,
-  },
-  PENDING_SNAPSHOT_ROLLBACK_STUCK: {
-    code: "PENDING_SNAPSHOT_ROLLBACK_STUCK",
-    dougFacing:
-      "A diagram snapshot rollback is stuck. Use the repair action before applying this show again.",
-    crewFacing: null,
-    followUp: "Doug -> run snapshot repair; if persistent, Eric",
-    helpfulContext:
-      "A pending diagram snapshot entered rollback cleanup but did not finish deleting its temporary prefix.",
-  },
-  PENDING_SNAPSHOT_PROMOTE_STUCK: {
-    code: "PENDING_SNAPSHOT_PROMOTE_STUCK",
-    dougFacing:
-      "A diagram snapshot promotion is stuck. Use the repair action so the approved diagrams can go live.",
-    crewFacing: null,
-    followUp: "Doug -> run snapshot repair",
-    helpfulContext:
-      "A pending diagram snapshot started promotion but did not complete the storage move and current/pending cutover.",
-  },
-  PENDING_SNAPSHOT_DELETE_STUCK: {
-    code: "PENDING_SNAPSHOT_DELETE_STUCK",
-    dougFacing:
-      "Old diagram snapshot cleanup is stuck. Crew pages are still protected, but storage cleanup needs repair.",
-    crewFacing: null,
-    followUp: "Doug -> run snapshot repair; if persistent, Eric",
-    helpfulContext:
-      "A pending snapshot upload row is marked for deletion but the storage prefix has not been reclaimed.",
-  },
-  PENDING_SNAPSHOT_NOT_STUCK: {
-    code: "PENDING_SNAPSHOT_NOT_STUCK",
-    dougFacing: "That diagram snapshot does not need repair.",
-    crewFacing: null,
-    followUp: "Doug -> refresh the admin view",
-    helpfulContext:
-      "The repair endpoint only accepts pending snapshot rows that started promotion and exceeded the repair threshold.",
-  },
-  PENDING_SNAPSHOT_PROMOTE_IN_FLIGHT: {
-    code: "PENDING_SNAPSHOT_PROMOTE_IN_FLIGHT",
-    dougFacing: "That diagram snapshot is still being promoted. Check again in a few minutes.",
-    crewFacing: null,
-    followUp: "Doug -> wait, then refresh",
-    helpfulContext:
-      "Promotion repair is blocked until the promote_started_at threshold has elapsed.",
-  },
-  MISSING_REVIEWER_CHOICE: {
-    code: "MISSING_REVIEWER_CHOICE",
-    dougFacing:
-      "We need your decision for every item — looks like one was skipped. Refresh and try again.",
-    crewFacing: null,
-    followUp: "Doug → refresh admin",
-    helpfulContext:
-      "When you Apply a sheet, every triggered review item needs your decision. Your submission was missing a decision for at least one item — usually because the form's state got out of sync with the items the server was tracking. Refresh the admin page (the panel will re-render with the current items) and re-submit your decisions.",
-  },
-  EXTRA_REVIEWER_CHOICE: {
-    code: "EXTRA_REVIEWER_CHOICE",
-    dougFacing:
-      "Something doesn't match between what you reviewed and what we have on file. Refresh and try again.",
-    crewFacing: null,
-    followUp: "Doug → refresh admin",
-    helpfulContext:
-      "Your Apply submission carried a decision for an item the server isn't tracking — usually because the staged parse you were viewing was replaced between when the page loaded and when you clicked Apply. Refresh the admin page so the panel re-renders against the current staged parse, then re-submit your decisions.",
-  },
-  DUPLICATE_REVIEWER_CHOICE: {
-    code: "DUPLICATE_REVIEWER_CHOICE",
-    dougFacing: "We got the same decision twice for one item. Refresh and try again.",
-    crewFacing: null,
-    followUp: "Doug → refresh admin",
-    helpfulContext:
-      "Your Apply submission carried two decisions for the same item id. The form should normally prevent this; you've reached this code via a stale or duplicated form state. Refresh the admin page and re-submit your decisions cleanly.",
-  },
-  INVALID_REVIEWER_ACTION: {
-    code: "INVALID_REVIEWER_ACTION",
-    dougFacing: "That action isn't valid for this item. Refresh and try again.",
-    crewFacing: null,
-    followUp: "Doug → refresh admin",
-    helpfulContext:
-      "Each review item has a fixed list of valid decisions (apply / reject / rename / independent, depending on the item's invariant). Your submission carried an action value that isn't in the allowed list for one of the items — usually because the form was hand-edited or the page is running a stale build. Refresh the admin page and re-submit using the form controls.",
-  },
-  PENDING_SYNC_NOT_FOUND: {
-    code: "PENDING_SYNC_NOT_FOUND",
-    dougFacing: "That staged sync is no longer available.",
-    crewFacing: null,
-    followUp: "Doug -> refresh the admin page",
-    helpfulContext:
-      "The admin page renders staged-sync rows by id. When you clicked Apply or Discard, the server looked up that id and didn't find a row — usually because another browser tab acted on the same staged sync between when the page loaded and when you clicked. Refresh the admin page to see the current state and act on whatever's still pending.",
+    followUp: "Eric -> inspect report-reaper logs if this recurs",
+    helpfulContext: "The report reaper deleted an unresolved report row older than the 24-hour recovery horizon after its processing lease had expired.",
   },
   SYNC_FILE_FAILED: {
     code: "SYNC_FILE_FAILED",
@@ -901,301 +1205,21 @@ export const MESSAGE_CATALOG = {
     dougFacing: "A sync infrastructure step failed. The rest of the folder continued.",
     crewFacing: null,
     followUp: "Eric -> inspect sync_log payload",
-    helpfulContext:
-      "A database or Supabase boundary returned an infrastructure error. The structured log payload keeps the original operation and error class for debugging.",
+    helpfulContext: "A database or Supabase boundary returned an infrastructure error. The structured log payload keeps the original operation and error class for debugging.",
   },
   SYNC_STEP_TIMEOUT: {
     code: "SYNC_STEP_TIMEOUT",
     dougFacing: "A Drive sync step timed out. We'll retry on the next run.",
     crewFacing: null,
     followUp: "Eric -> inspect Drive latency if recurring",
-    helpfulContext:
-      "A Drive read or enrichment step exceeded the per-step timeout while the show sync lock was held.",
+    helpfulContext: "A Drive read or enrichment step exceeded the per-step timeout while the show sync lock was held.",
   },
-  DRIVE_METADATA_MISSING: {
-    code: "DRIVE_METADATA_MISSING",
-    dougFacing: "Google Drive did not return the sheet revision metadata we need to sync safely.",
+  WEBHOOK_HEADERS_MISSING: {
+    code: "WEBHOOK_HEADERS_MISSING",
+    dougFacing: "A Drive webhook request was missing required Google headers.",
     crewFacing: null,
-    followUp: "Eric -> inspect Drive metadata response",
-    helpfulContext:
-      "The sync engine requires a head revision id so markdown export, enrichment, and final apply all describe the same sheet revision.",
-  },
-  SHEET_UNAVAILABLE: {
-    code: "SHEET_UNAVAILABLE",
-    dougFacing:
-      "_<sheet-name>_ isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back.",
-    crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
-    followUp: "Doug -> re-share sheet",
-    helpfulContext:
-      "We expected to find this sheet in your watched folder but it's not there anymore. Either someone moved it to a different folder, the share was removed, or the file was deleted. Crew see the last good version we have on file. Re-share or move the sheet back into the folder and we'll pick it up on the next sync.",
-  },
-  DRIVE_FETCH_FAILED: {
-    code: "DRIVE_FETCH_FAILED",
-    dougFacing:
-      "We couldn't fetch this sheet from Google Drive. Could be a transient network issue, or the sheet's been moved or unshared. We'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
-    crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
-    followUp: "Doug -> check share / Retry",
-    helpfulContext:
-      "Google Drive temporarily blocked or refused our request to read this sheet. The most common cause is a transient network or permissions hiccup; we keep retrying automatically. If this stays for more than an hour, double-check that the folder is still shared with the service account email and that the sheet hasn't been moved out of the watched folder.",
-  },
-  PARSE_ERROR_LAST_GOOD: {
-    code: "PARSE_ERROR_LAST_GOOD",
-    dougFacing:
-      "_<sheet-name>_'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail.",
-    crewFacing:
-      // NB: matches §12.4 spec line 2721 verbatim. The trailing `*` after
-      // `_<time>` (instead of a closing `_`) appears to be a spec typo
-      // (mismatched markdown emphasis markers), but spec is canonical
-      // per AGENTS.md §1.7 — surface for amendment rather than silently
-      // fix. M9 C0 round-10 verifier flagged this as the last spec drift.
-      "We couldn't read the latest edit to Doug's sheet. Showing what we had at _<time>*.",
-    followUp: "Doug -> fix sheet (see parse panel); Crew -> mention to Doug",
-    helpfulContext:
-      "A recent edit to the sheet introduced something the parser couldn't read, but we kept the previously approved version live so crew aren't blocked. Open the per-show parse panel to see the specific MI-N code explaining what went wrong, fix it in the sheet, and the next sync will replace the stale data.",
-  },
-  SYNC_DELAYED_MODERATE: {
-    code: "SYNC_DELAYED_MODERATE",
-    dougFacing: null,
-    crewFacing: "Last synced *<time>* ago. Check with Doug if anything looks off.",
-    followUp: "Crew -> mention to Doug",
-    helpfulContext: null,
-  },
-  SYNC_DELAYED_SEVERE: {
-    code: "SYNC_DELAYED_SEVERE",
-    dougFacing:
-      "*<sheet-name>*: crew page hasn't synced from Drive in over 6 hours. Push or cron is stalled — check the dashboard.",
-    crewFacing: "Couldn't sync recently — contact Doug.",
-    followUp: "Crew -> text Doug; Doug -> check dashboard",
-    helpfulContext:
-      "The crew page hasn't synced from Drive in over six hours. That's well past the normal cron interval, so something is stalled. Open the dashboard to check whether push subscriptions are healthy and whether the cron job is running.",
-  },
-  LOCK_OWNERSHIP_ASSERTION_FAILED: {
-    code: "LOCK_OWNERSHIP_ASSERTION_FAILED",
-    dougFacing: "A sync attempted to write without proving it owned the show lock.",
-    crewFacing: null,
-    followUp: "Eric -> stop sync and inspect lock topology",
-    helpfulContext:
-      "Every show write must happen under exactly one advisory lock keyed by the Drive file id.",
-  },
-  /**
-   * R21 F2 (round-21 §B MEDIUM): leaked-link revocation failure.
-   *
-   * The middleware compromise handler tried to revoke a signed link that
-   * was leaked into the URL (?t=...) but the SECURITY DEFINER RPC failed
-   * (DB outage, network, RLS misconfiguration). The leaked link MAY
-   * still be usable until the operator intervenes — this is the highest-
-   * severity admin alert in the catalog because it is the recovery path
-   * for a confirmed credential compromise.
-   *
-   * Pre-fix middleware reused ADMIN_SESSION_LOOKUP_FAILED for the alert
-   * row, but that catalog entry has dougFacing:null so the AlertBanner
-   * (surface="admin") rendered an empty shell with just a Resolve
-   * button — Doug got no signal what to act on.
-   */
-  LEAKED_LINK_REVOCATION_FAILED: {
-    code: "LEAKED_LINK_REVOCATION_FAILED",
-    dougFacing:
-      "A signed crew link was detected in a URL but couldn't be revoked. The leaked link may still work until this is resolved — Eric has been notified.",
-    crewFacing: null,
-    followUp:
-      "Eric -> investigate revoke_leaked_link_atomic + DB connectivity, then re-run the compromise flow",
-    helpfulContext:
-      "When a magic-link token appears in the URL query string instead of being redeemed normally, the middleware treats it as a credential compromise and atomically revokes the underlying token version. This alert means that revocation RPC itself failed, so the leaked link could still be redeemed by an attacker until an operator clears the token version manually.",
-  },
-  WATCH_CHANNEL_ORPHANED: {
-    code: "WATCH_CHANNEL_ORPHANED",
-    dougFacing:
-      "A push subscription couldn't be confirmed. We'll fall back to cron until it's resolved.",
-    crewFacing: null,
-    followUp: "Eric -> reconcile / retry",
-    helpfulContext:
-      "We tried to register a real-time push subscription with Google Drive and didn't get a confirmation back. The cron job will keep this show in sync on its normal schedule.",
-  },
-  WEBHOOK_TOKEN_INVALID: {
-    code: "WEBHOOK_TOKEN_INVALID",
-    dougFacing:
-      "A push notification from Google Drive failed verification - possible spoofing or misconfiguration. The developer has been notified.",
-    crewFacing: null,
-    followUp: "Eric -> investigate",
-    helpfulContext:
-      "A push notification arrived from Google Drive carrying the wrong verification token. This usually means a stale subscription is still firing or someone's spoofing the endpoint. The developer has been notified and will rotate the token if needed.",
-  },
-  REPORT_ORPHANED_LOST_LEASE: {
-    code: "REPORT_ORPHANED_LOST_LEASE",
-    dougFacing:
-      "An orphaned bug-report issue was created during a retry race and auto-closed. Click through to verify the issue closed correctly. If this code recurs frequently, increase the lease window.",
-    crewFacing: null,
-    followUp: "Eric -> review orphan, tune lease window if recurring",
-    helpfulContext:
-      "Two retries of the same bug-report submission both succeeded in creating GitHub issues. We auto-closed the duplicate. Click through to confirm.",
-  },
-  IDEMPOTENCY_IN_FLIGHT: {
-    code: "IDEMPOTENCY_IN_FLIGHT",
-    dougFacing:
-      "That report is already being processed. Wait a moment, then refresh if the issue does not appear.",
-    crewFacing:
-      "That report is already being processed. Wait a moment, then try again if needed.",
-    followUp: "Doug or crew -> wait for the in-flight report attempt to finish",
-    helpfulContext:
-      "A report with the same idempotency key currently has a live processing lease. The backend returns a conflict instead of creating a duplicate GitHub issue.",
-  },
-  REPORT_RATE_LIMITED_ADMIN: {
-    code: "REPORT_RATE_LIMITED_ADMIN",
-    dougFacing:
-      "Too many admin bug reports were sent recently. Wait a bit, then try again.",
-    crewFacing: null,
-    followUp: "Doug -> retry after the rate-limit window",
-    helpfulContext:
-      "Admin bug-report submissions are rate-limited separately from crew submissions to protect GitHub and the app from accidental repeated sends.",
-  },
-  REPORT_RATE_LIMITED_CREW: {
-    code: "REPORT_RATE_LIMITED_CREW",
-    dougFacing: null,
-    crewFacing:
-      "Too many reports were sent recently. Please wait a bit, then try again.",
-    followUp: "Crew -> retry after the rate-limit window",
-    helpfulContext: null,
-  },
-  REPORT_LOOKUP_INCONCLUSIVE: {
-    code: "REPORT_LOOKUP_INCONCLUSIVE",
-    dougFacing:
-      "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
-    crewFacing:
-      "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
-    followUp: "Eric -> review GitHub issue lookup and retry state",
-    helpfulContext:
-      "The bug-report recovery path could not conclusively list recent GitHub issues for this idempotency key, so it refused to create a duplicate issue.",
-  },
-  REPORT_PIPELINE_FAILED: {
-    code: "REPORT_PIPELINE_FAILED",
-    dougFacing:
-      "The report system hit a server error before it could finish. Please try again in a few minutes.",
-    crewFacing:
-      "The report system hit a server error before it could finish. Please try again in a few minutes.",
-    followUp: "Eric -> inspect report pipeline logs and database connectivity",
-    helpfulContext:
-      "The report route caught a typed infrastructure failure from the report submission or reaper path and returned a cataloged 500 response instead of crashing.",
-  },
-  REPORT_HORIZON_EXPIRED: {
-    code: "REPORT_HORIZON_EXPIRED",
-    dougFacing:
-      "This report attempt has expired (older than 24 hours). If the issue still applies, please file a fresh report.",
-    crewFacing:
-      "This report attempt has expired. Please open a fresh report if the issue still applies.",
-    followUp: "Doug or crew -> start a fresh report if still needed",
-    helpfulContext:
-      "Bug-report retry recovery only runs within 24 hours of the original attempt. Older unresolved rows are handled by the reaper.",
-  },
-  REPORT_DUPLICATE_LIVE_MATCHES: {
-    code: "REPORT_DUPLICATE_LIVE_MATCHES",
-    dougFacing:
-      "Multiple live GitHub issues were found for one report submission. Recovery is paused until Eric reviews the duplicates.",
-    crewFacing: null,
-    followUp: "Eric -> inspect duplicate report issues and close the incorrect one",
-    helpfulContext:
-      "The recovery scan found more than one non-orphan issue with the same bug-report marker. The system fails closed instead of choosing a winner.",
-  },
-  REPORT_OPEN_ORPHAN_LABEL: {
-    code: "REPORT_OPEN_ORPHAN_LABEL",
-    dougFacing:
-      "An open GitHub issue carries the orphan-cleanup label. Eric needs to review and either re-close the issue or remove the label.",
-    crewFacing: null,
-    followUp: "Eric -> inspect the labeled issue",
-    helpfulContext:
-      "Orphan cleanup should close issues with state_reason=not_planned. Seeing the orphan label on an open issue indicates manual intervention or an unexpected GitHub state.",
-  },
-  GITHUB_BOT_LOGIN_MISSING: {
-    code: "GITHUB_BOT_LOGIN_MISSING",
-    dougFacing:
-      "GitHub bot login is unconfigured - the report-recovery path is degraded. Set `GITHUB_BOT_LOGIN` env var to the bot's GitHub username.",
-    crewFacing: null,
-    followUp: "Eric -> configure env var",
-    helpfulContext:
-      "The bug-report recovery path needs to know the GitHub username of the bot account so it can find issues created by previous attempts.",
-  },
-  REPORT_LEASE_THRASHING: {
-    code: "REPORT_LEASE_THRASHING",
-    dougFacing:
-      "Bug-report processing is thrashing on this show - retries are racing against leases. Check Eric's status; this usually means the lease window needs tuning.",
-    crewFacing:
-      "We're hitting heavy contention on the report system. Please try again in a moment.",
-    followUp: "Eric -> tune lease window",
-    helpfulContext:
-      "Bug-report submissions for this show are racing against their own leases - too many retries firing inside the lease window.",
-  },
-  STALE_ORPHAN_REPORT: {
-    code: "STALE_ORPHAN_REPORT",
-    dougFacing:
-      "A stale bug-report reservation expired before it could create a GitHub issue. No user action is needed unless this repeats.",
-    crewFacing: null,
-    followUp: "Eric -> inspect report-reaper logs if this recurs",
-    helpfulContext:
-      "The report reaper deleted an unresolved report row older than the 24-hour recovery horizon after its processing lease had expired.",
-  },
-  TILE_SERVER_RENDER_FAILED: {
-    code: "TILE_SERVER_RENDER_FAILED",
-    dougFacing:
-      "*<sheet-name>*: a section couldn't load on the server. The page will keep trying — refresh in a minute. Tell the developer if this keeps happening.",
-    crewFacing: "This section couldn't load — last good data shown.",
-    followUp: "Doug -> refresh / Report; Eric -> investigate",
-    helpfulContext:
-      "One of the page sections crashed while the server was rendering it. The rest of the page rendered normally. The page will keep retrying — refresh in a minute. If this keeps happening, click 'Report' so the developer can investigate.",
-  },
-  INVALID_JSON: {
-    code: "INVALID_JSON",
-    dougFacing: null,
-    crewFacing: "The request was not valid JSON.",
-    followUp: null,
-    helpfulContext: null,
-  },
-  SLUG_REQUIRED: {
-    code: "SLUG_REQUIRED",
-    dougFacing: null,
-    crewFacing: "A show slug is required.",
-    followUp: null,
-    helpfulContext: null,
-  },
-  SHOW_REALTIME_BROADCAST_AUTH_FAILED: {
-    code: "SHOW_REALTIME_BROADCAST_AUTH_FAILED",
-    dougFacing: null,
-    crewFacing: null,
-    followUp: "none",
-    helpfulContext: null,
-  },
-  SHOW_REALTIME_CROSS_SHOW_FORBIDDEN: {
-    code: "SHOW_REALTIME_CROSS_SHOW_FORBIDDEN",
-    dougFacing: null,
-    crewFacing: null,
-    followUp: "none",
-    helpfulContext: null,
-  },
-  SHOW_REALTIME_TOKEN_MISCONFIGURED: {
-    code: "SHOW_REALTIME_TOKEN_MISCONFIGURED",
-    dougFacing: null,
-    crewFacing: null,
-    followUp: "Eric -> configure realtime JWT env",
-    helpfulContext: null,
-  },
-  SHOW_VERSION_AUTH_FAILED: {
-    code: "SHOW_VERSION_AUTH_FAILED",
-    dougFacing: null,
-    crewFacing: null,
-    followUp: "none",
-    helpfulContext: null,
-  },
-  SHOW_VERSION_CROSS_SHOW_FORBIDDEN: {
-    code: "SHOW_VERSION_CROSS_SHOW_FORBIDDEN",
-    dougFacing: null,
-    crewFacing: null,
-    followUp: "none",
-    helpfulContext: null,
-  },
-  SHOW_VERSION_TOKEN_RPC_FAILED: {
-    code: "SHOW_VERSION_TOKEN_RPC_FAILED",
-    dougFacing: null,
-    crewFacing: null,
-    followUp: "Eric -> investigate version-token RPC",
-    helpfulContext: null,
+    followUp: "Eric -> inspect webhook delivery",
+    helpfulContext: "Google Drive's push notifications carry a fixed set of headers identifying the channel, resource, and verification token. A request reached our webhook endpoint without those headers — usually that means a stale subscription is still firing or someone's probing the endpoint. The developer has been notified; no action is needed unless this keeps appearing.",
   },
 } as const satisfies Record<string, MessageCatalogEntry>;
 
