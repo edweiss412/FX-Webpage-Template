@@ -128,11 +128,11 @@ export function ActiveShowsPanel({ rows }: ActiveShowsPanelProps) {
                     <p className="text-sm text-text-subtle tabular-nums">{dates}</p>
                   ) : null}
                 </div>
-                <p className="text-sm text-text-subtle tabular-nums sm:min-w-[7rem]">
+                <p className="text-sm text-text-subtle tabular-nums sm:min-w-28">
                   {row.crewCount ?? 0} crew
                 </p>
                 <p
-                  className={`text-sm tabular-nums ${toneClass(glyph.tone)} sm:min-w-[10rem]`}
+                  className={`text-sm tabular-nums ${toneClass(glyph.tone)} sm:min-w-40`}
                 >
                   {formatRelative(row.lastSyncedAt)} · {glyph.label}
                 </p>

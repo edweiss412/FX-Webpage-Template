@@ -106,7 +106,10 @@ export function Step2Verify() {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
-      setElapsedSeconds(0);
+      // No setState here — the next submit's handleSubmit resets the
+      // counter via setElapsedSeconds(0) before flipping state to
+      // 'submitting'. Resetting synchronously inside the effect
+      // triggers a cascading render that the linter flags.
       return;
     }
     intervalRef.current = setInterval(() => {
@@ -123,6 +126,7 @@ export function Step2Verify() {
     event.preventDefault();
     const trimmed = folderUrl.trim();
     if (!trimmed) return;
+    setElapsedSeconds(0);
     setState({ kind: "submitting", startedAt: Date.now(), folderUrl: trimmed });
     try {
       const response = await fetch("/api/admin/onboarding/scan", {
@@ -205,7 +209,7 @@ export function Step2Verify() {
           type="url"
           value={folderUrl}
           onChange={(e) => setFolderUrl(e.target.value)}
-          placeholder="https://drive.google.com/drive/folders/..."
+          placeholder="Paste your Drive folder URL"
           autoComplete="off"
           spellCheck={false}
           disabled={isSubmitting}
