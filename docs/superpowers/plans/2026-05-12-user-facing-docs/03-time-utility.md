@@ -113,7 +113,7 @@ describe("lib/time/now — three-precondition gate (test #15)", () => {
     expect((await nowDate()).toISOString()).toBe(realNow.toISOString());
   });
 
-  it("header value is parseable but NOT canonical ISO 8601 (e.g., `03/24/2026`) → gate refuses per AC-12.37", async () => {
+  it("header value is parseable but NOT canonical ISO 8601 (e.g., `03/24/2026`) → gate refuses per AC-11.37", async () => {
     // r8 → r9 fix per C-r7 finding 4 (refined per C-r8 finding 2):
     // `new Date("03/24/2026")` is parseable implementation-dependently, but
     // the spec requires canonical ISO 8601 / RFC3339. Regex-screen catches
@@ -217,7 +217,7 @@ Expected: FAIL — module `@/lib/time/now` not found. This is the genuine red st
 ```ts
 // lib/time/now.ts
 //
-// M12 Phase C.1 — request-scoped time utility.
+// M11 Phase C.1 — request-scoped time utility.
 //
 // Returns the frozen instant when ALL THREE preconditions hold:
 //   (a) request carries `X-Screenshot-Frozen-Now: <ISO>` header
@@ -280,7 +280,7 @@ export async function nowDate(): Promise<Date> {
   if (authz !== `Bearer ${expectedSecret}`) return new Date();
 
   // r8 → r9 fix per C-r7 finding 4 (refined per C-r8 finding 2): spec r13
-  // AC-12.37 requires a valid ISO 8601 / RFC3339 timestamp. JavaScript's
+  // AC-11.37 requires a valid ISO 8601 / RFC3339 timestamp. JavaScript's
   // `new Date(str)` is permissive — it accepts implementation-dependent
   // forms like `03/24/2026` or `Wed, 24 Mar 2026 15:00:00 GMT`. Round-trip
   // alone is too strict (rejects valid `2026-03-24T15:00:00Z` without ms).
@@ -323,7 +323,7 @@ git commit -m "feat(time): lib/time/now.ts request-scoped time utility with head
 **Files:**
 - Modify: `app/show/[slug]/page.tsx` (replace `const today = new Date()` with `const today = await nowDate()`)
 
-Per spec §3.6.2 server-time migration inventory + AC-12.38. The reviewer-identified call site at line 646 renders "today" for schedule highlighting on the crew page — captured indirectly via the `/admin/show/<slug>/preview/<crew-id>` impersonation manifest entry.
+Per spec §3.6.2 server-time migration inventory + AC-11.38. The reviewer-identified call site at line 646 renders "today" for schedule highlighting on the crew page — captured indirectly via the `/admin/show/<slug>/preview/<crew-id>` impersonation manifest entry.
 
 - [ ] **Step 1: Read the existing call site**
 
@@ -341,7 +341,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-describe("app/show/[slug]/page.tsx — render-side time migration (AC-12.38)", () => {
+describe("app/show/[slug]/page.tsx — render-side time migration (AC-11.38)", () => {
   const src = readFileSync(join(process.cwd(), "app/show/[slug]/page.tsx"), "utf8");
 
   it("imports from @/lib/time/now", () => {
@@ -544,7 +544,7 @@ git commit -m "refactor(show): migrate render-side new Date() to nowDate() utili
 **Files:**
 - Modify: `tests/time/now.test.ts` (add capture-boundary + alt-style envelope coverage on top of C.1's gate tests)
 
-Per spec §7.1 test 15 / AC-12.37. **r2 restructure per C-r1 finding 1 (HIGH):** C.1 already commits the full three-precondition gate test suite (6 cases covering each precondition individually plus a defense-in-depth malformed-ISO case). C.3 was originally written as a duplicate of C.1's tests, which would commit green-only. r2 narrows C.3 to genuinely-new test-#15 envelope coverage that C.1 did NOT cover: capture-boundary (a frozen header returns byte-identical ISO across simulated 60+s wall clock) + alt-style fixtures (alternate Bearer encodings, header casing tolerance). Each new assertion has a defensible red state — the capture-boundary in particular would FAIL against a naive implementation that re-reads Date.now() on every call.
+Per spec §7.1 test 15 / AC-11.37. **r2 restructure per C-r1 finding 1 (HIGH):** C.1 already commits the full three-precondition gate test suite (6 cases covering each precondition individually plus a defense-in-depth malformed-ISO case). C.3 was originally written as a duplicate of C.1's tests, which would commit green-only. r2 narrows C.3 to genuinely-new test-#15 envelope coverage that C.1 did NOT cover: capture-boundary (a frozen header returns byte-identical ISO across simulated 60+s wall clock) + alt-style fixtures (alternate Bearer encodings, header casing tolerance). Each new assertion has a defensible red state — the capture-boundary in particular would FAIL against a naive implementation that re-reads Date.now() on every call.
 
 **Verify-red-via-restore protocol (mandatory per AGENTS.md invariant #1, cross-phase pattern from B.5):** before committing, temporarily break the C.1 implementation in one minimal way (e.g., make the capture-boundary assertion test return a fresh `Date.now()` even when frozen). Run the new C.3 tests, observe FAIL on the boundary test, restore C.1's implementation, re-run green. Document the observed failure in the commit message body. This proves the new C.3 assertions would catch a regression in C.1's gate implementation.
 
@@ -664,7 +664,7 @@ Restored and re-ran -> PASS."
 **Files:**
 - Create: `tests/help/_metaServerTimeGuard.test.ts`
 
-Per spec §7.1 test 16 / AC-12.38. Greps server-side `.ts`/`.tsx` under route directories derived from the screenshot manifest (per r9 tightening). Per-line waiver rule. **r2 fix per C-r1 finding 4 — uses non-global regex** so a forbidden call on column 60 cannot suppress a forbidden call on column 8 of the next line.
+Per spec §7.1 test 16 / AC-11.38. Greps server-side `.ts`/`.tsx` under route directories derived from the screenshot manifest (per r9 tightening). Per-line waiver rule. **r2 fix per C-r1 finding 4 — uses non-global regex** so a forbidden call on column 60 cannot suppress a forbidden call on column 8 of the next line.
 
 Add a self-test fixture to lock in the multi-violation behavior:
 
@@ -706,7 +706,7 @@ import { join, relative } from "node:path";
  * Derive scan roots from the screenshot manifest if it exists; fall back
  * to the spec-named roots (`app/show`, `app/admin`) until Phase F lands.
  *
- * Per AC-12.36 / spec §7.1 test 16 r9 tightening: roots are derived from
+ * Per AC-11.36 / spec §7.1 test 16 r9 tightening: roots are derived from
  * `scripts/help-screenshots.manifest.ts`, not hard-coded. When the manifest
  * lands in Phase F, switch the discovery to read its `entry.route` slugs
  * and collapse to unique top-level segments (e.g., "/admin/dashboard" →
@@ -717,7 +717,7 @@ function discoverScanRoots(): string[] {
   // components imported BY those routes. The live `app/show/[slug]/page.tsx`
   // imports `components/layout/Footer.tsx` and `components/shared/StaleFooter.tsx`,
   // both of which contain render-time `new Date()` calls. Without scanning
-  // `components/`, AC-12.38 can pass while screenshots still drift with the
+  // `components/`, AC-11.38 can pass while screenshots still drift with the
   // wall clock. Always include `components/` (it's the project's UI primitive
   // root) in addition to manifest-derived app routes.
   const roots = new Set<string>(["components"]);
@@ -815,7 +815,7 @@ function isClientComponent(src: string): boolean {
   return /^["']use client["'][ \t]*(?:;|$|\r?\n)/.test(rest);
 }
 
-describe("Server-side time-call grep guard (test #16 — AC-12.38)", () => {
+describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
   const scanRoots = discoverScanRoots();
   it(`has at least one scan root (got ${scanRoots.join(", ")})`, () => {
     expect(scanRoots.length).toBeGreaterThan(0);

@@ -7,28 +7,25 @@ This directory holds the implementation plans for the FXAV crew-pages project. E
 | Plan dir | Effort | Status | Depends on | Notes |
 | --- | --- | --- | --- | --- |
 | [`2026-04-30-fxav-crew-pages-design/`](./2026-04-30-fxav-crew-pages-design/) | **FXAV crew pages v1** (M0–M10 + X.\*) | M0–M10 closed (tag `m10-completed`); **X.\* next** | — | The core product implementation: parser, schema, tiles, auth, sync, assets, bug-report pipeline, polish, onboarding wizard, plus cross-cutting audits. Spec: [`docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md`](../specs/2026-04-30-fxav-crew-pages-design.md). |
-| [`2026-05-12-user-facing-docs/`](./2026-05-12-user-facing-docs/) | **User-facing docs (M12)** | Plan drafted r1; spec ratified through 10 rounds of adversarial review; **execution unblocked once X.\* picks a model+harness rhythm** | M10 (closed) | In-app wiki at `/help` for Doug. 13 pages + screenshot harness + §9.0.1 affordance retrofit. Spec (canonical markdown): [`docs/superpowers/specs/2026-05-12-user-facing-docs-design.md`](../specs/2026-05-12-user-facing-docs-design.md). Companion stakeholder HTML: [`2026-05-12-user-facing-docs-design.html`](../specs/2026-05-12-user-facing-docs-design.html). |
+| [`2026-05-12-user-facing-docs/`](./2026-05-12-user-facing-docs/) | **User-facing docs (M11)** | Plan drafted r1; spec ratified through 10 rounds of adversarial review; **execution unblocked once X.\* picks a model+harness rhythm**. Originally drafted as "Milestone 12"; renumbered to M11 on 2026-05-19 since no real M11 existed (see [`BACKLOG.md`](./BACKLOG.md) for the speculative work the old "M11 ops-hardening" label aliased). | M10 (closed) | In-app wiki at `/help` for Doug. 13 pages + screenshot harness + §9.0.1 affordance retrofit. Spec (canonical markdown): [`docs/superpowers/specs/2026-05-12-user-facing-docs-design.md`](../specs/2026-05-12-user-facing-docs-design.md). Companion stakeholder HTML: [`2026-05-12-user-facing-docs-design.html`](../specs/2026-05-12-user-facing-docs-design.html). |
 
-## Hypothetical (not yet planned)
+## Possible future work (not yet planned milestones)
 
-| Effort | Why it's not a real plan | Current home |
-| --- | --- | --- |
-| **M11 (post-v1 ops-hardening)** — operator-log sink, Sentry integration, admin-banner producers, observability tooling | No spec, no plan dir. Referenced informally in DEFERRED.md entries (M10-D-PHASE1-1, M5-D9/D10/D11) routed there. The first step toward landing any "M11" item is to **scope and plan the milestone** (spec + plan tree analogous to the two above), not to implement the deferred item directly. | [`2026-04-30-fxav-crew-pages-design/DEFERRED.md`](./2026-04-30-fxav-crew-pages-design/DEFERRED.md) header "Note on milestone numbering" |
-| Push notifications (M11+ or post-v1) | Out of v1 scope per design memo. Depends on real Doug-workflow data + email-provider integration. | Same DEFERRED.md (entry M6-D1) |
+Lives in [`BACKLOG.md`](./BACKLOG.md). Three current backlog clusters: operator-log sink + producers (was M5-D9/D10/D11 + M10-D-PHASE1-1), push notifications (was M6-D1), private-image-pipeline migration (was M7-D3). None have a spec or plan tree; promotion to a real milestone requires the standard spec + brainstorming + planning cycle.
 
 ## Dependency graph (current)
 
 ```
 M0 → M1 → M2 → M3 → M4 → M5 → M6 → M6.5 (coda) → M7 → M8 → M9 → M10  ✅ closed
                                                                     ↓
-                                                                   X.*  ⏳ next (cross-cutting)
+                                                                   X.*  ⏳ next (cross-cutting audits)
                                                                     ↓
-                                                                   M12  ⏳ unblocked (depends only on M10)
+                                                                   M11  ⏳ unblocked (user-facing docs; depends only on M10)
                                                                     ↓
-                                                                   M11  ❓ not yet planned (post-v1 ops-hardening)
+                                                                  BACKLOG.md  ❓ speculative post-v1 work (ops-log, push, image-pipeline)
 ```
 
-X.\* and M12 are **independent** — they can run in parallel or sequentially. The X.\* cross-cutting tasks audit and harden the FXAV crew-pages codebase; M12 builds the `/help` documentation site. They share no source-file surfaces other than `lib/messages/catalog.ts` (X.1 catalog parity audit; M12 Phase B catalog extension), which can coordinate through ordering or pin-stops if both touch it concurrently.
+X.\* and M11 are **independent** — they can run in parallel or sequentially. The X.\* cross-cutting tasks audit and harden the FXAV crew-pages codebase; M11 builds the `/help` documentation site. They share no source-file surfaces other than `lib/messages/catalog.ts` (X.1 catalog parity audit; M11 Phase B catalog extension), which can coordinate through ordering or pin-stops if both touch it concurrently.
 
 ## Convention reminders
 

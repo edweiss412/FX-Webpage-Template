@@ -31,7 +31,7 @@ Per spec §3.6.1 — the manifest is the single source of truth. `<Screenshot na
 - Create: `scripts/help-screenshots-fixture-range.ts`
 - Create: `tests/help/fixture-range-parser.test.ts`
 
-Per spec §3.6.2 (r10 corrected) + AC-12.34. Parse raw fixture's INFO tab DATES rows; derive `[SET earliest .. STRIKE latest]`. Two layouts: flat `fixtures/shows/raw/<fixture>.md` (multi-tab) and pdf-only split `fixtures/shows/pdf-only/<fixture>__INFO.md`.
+Per spec §3.6.2 (r10 corrected) + AC-11.34. Parse raw fixture's INFO tab DATES rows; derive `[SET earliest .. STRIKE latest]`. Two layouts: flat `fixtures/shows/raw/<fixture>.md` (multi-tab) and pdf-only split `fixtures/shows/pdf-only/<fixture>__INFO.md`.
 
 - [ ] Step 1: Inspect one fixture to confirm DATES shape: `grep -A20 -i "dates" fixtures/shows/raw/2026-03-rpas-central-four-seasons.md | head -25`. Note: heading prefix, row format (ISO `2026-03-22` vs US `3/22/26`).
 - [ ] Step 2: Write failing test asserting `parseFixtureDateRange(src)` returns `{earliest, latest}` matching the known dates for: (a) `2026-03-rpas-central-four-seasons.md` → 2026-03-22 to 2026-03-26, (b) every file under `fixtures/shows/raw/*.md` parses without throwing, (c) `parseFixtureDateRangeFromPath()` handles the pdf-only split form.
@@ -142,7 +142,7 @@ Per spec §3.6.2. Dedicated Playwright project with own `webServer` env (`ENABLE
 
 Per spec §3.6.3 — CI runs `pnpm screenshot:help` against a clean checkout, then `git diff --exit-code public/help/screenshots/`. Non-zero exit fails the PR.
 
-**r2 fix per F-r1 finding 1 (CRITICAL):** the r1 draft made `screenshot:help` a direct `tsx scripts/help-screenshots.ts` invocation. The Playwright `webServer` declared in F.4 is started ONLY by `playwright test`, not by an arbitrary tsx invocation. On a clean CI runner the script would connect to nothing; locally it might silently capture against a stale dev server that lacks the test-auth env, violating AC-12.19/12.26 (and silently corrupting the WebP corpus).
+**r2 fix per F-r1 finding 1 (CRITICAL):** the r1 draft made `screenshot:help` a direct `tsx scripts/help-screenshots.ts` invocation. The Playwright `webServer` declared in F.4 is started ONLY by `playwright test`, not by an arbitrary tsx invocation. On a clean CI runner the script would connect to nothing; locally it might silently capture against a stale dev server that lacks the test-auth env, violating AC-11.19/12.26 (and silently corrupting the WebP corpus).
 
 Two options to fix this; pick (a) to inherit F.4's webServer + setup-project + env automatically:
 
@@ -187,7 +187,7 @@ Two options to fix this; pick (a) to inherit F.4's webServer + setup-project + e
 **Files:**
 - Create: `tests/help/screenshot-picture-contract.test.tsx` (promotes the test from Task D.4 to a manifest-aware variant)
 
-Per spec §7.1 test 10 / AC-12.25.
+Per spec §7.1 test 10 / AC-11.25.
 
 **r2 — TDD ordering fix (B-r8 finding 3, cross-phase verify-red sweep per B-r7 finding 1):** the r1 task said "Run test — should PASS immediately (Task D.4 implemented the component correctly)." That is green-only commit and violates AGENTS.md invariant #1. r2 adds a Step 0 verify-red that temporarily breaks the `<Screenshot>` `<picture>` shape, observes the new test FAIL, restores, then commits green — same restore protocol as B.5 / Phase H.
 
@@ -319,9 +319,9 @@ This split honors AGENTS.md plan-wide invariant #1 (TDD: every commit green). r4
 **Files:**
 - Create: `tests/e2e/help-screenshots-clock-pipeline.spec.ts`
 
-Per spec §7.1 test 18 / AC-12.39. Captures the `preview-as-crew-banner` manifest entry TWICE with two different `frozenClockInstant` values; asserts WebP bytes differ — proving the header reaches the server's render path.
+Per spec §7.1 test 18 / AC-11.39. Captures the `preview-as-crew-banner` manifest entry TWICE with two different `frozenClockInstant` values; asserts WebP bytes differ — proving the header reaches the server's render path.
 
-**r2 fix per Phase-C-r8 finding 1 (HIGH, CROSS-PHASE):** the r1 test varied BOTH `context.clock` AND `X-Screenshot-Frozen-Now`, then asserted final-WebP-byte difference. That passes even if the server header path is broken, because client components like `RightNowCard` read browser `Date` under `context.clock` and would produce different output regardless. r2 isolates the server header by **keeping the browser clock fixed** and varying ONLY the server header, AND adds a primary assertion against a **server-rendered marker** (the `data-today` attribute on the schedule tile) extracted from the initial HTML response BEFORE any client hydration. This pins AC-12.39's contract: the header reaches server render.
+**r2 fix per Phase-C-r8 finding 1 (HIGH, CROSS-PHASE):** the r1 test varied BOTH `context.clock` AND `X-Screenshot-Frozen-Now`, then asserted final-WebP-byte difference. That passes even if the server header path is broken, because client components like `RightNowCard` read browser `Date` under `context.clock` and would produce different output regardless. r2 isolates the server header by **keeping the browser clock fixed** and varying ONLY the server header, AND adds a primary assertion against a **server-rendered marker** (the `data-today` attribute on the schedule tile) extracted from the initial HTML response BEFORE any client hydration. This pins AC-11.39's contract: the header reaches server render.
 
 - [ ] Step 1: Write the test:
   - Uses `@playwright/test` `test` / `expect`.
@@ -376,8 +376,8 @@ Per spec §7.1 test 18 / AC-12.39. Captures the `preview-as-crew-banner` manifes
   ```bash
   ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture pnpm exec playwright test --project screenshots-help
   ```
-  PASS confirms BOTH the server header is consumed AND the full pipeline produces distinct outputs. The PRIMARY (server-only) assertion specifically pins AC-12.39's "request-scoped header reaches server render" contract — a broken server path fails this assertion even if WebP bytes happen to differ.
-- [ ] Step 3: Commit: `test(playwright): E2E clock-pipeline proof for AC-12.39 — server-rendered marker + byte diff (Task F.9 — test #18)`
+  PASS confirms BOTH the server header is consumed AND the full pipeline produces distinct outputs. The PRIMARY (server-only) assertion specifically pins AC-11.39's "request-scoped header reaches server render" contract — a broken server path fails this assertion even if WebP bytes happen to differ.
+- [ ] Step 3: Commit: `test(playwright): E2E clock-pipeline proof for AC-11.39 — server-rendered marker + byte diff (Task F.9 — test #18)`
 
 ---
 

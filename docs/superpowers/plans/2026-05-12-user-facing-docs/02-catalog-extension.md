@@ -6,7 +6,7 @@
 
 **Tasks:** B.1 → B.5 (5 tasks). Task order **r3-reordered** so the parser (now B.2) lands before the catalog-alignment subtask (now B.3) — the alignment is driven by the parser's derived set, not a hand-list:
 
-1. **B.1** — extend `MessageCatalogEntry` + seed all entries with `null` M12 fields.
+1. **B.1** — extend `MessageCatalogEntry` + seed all entries with `null` M11 fields.
 2. **B.2** — `scripts/extract-admin-log-only-codes.ts` parser + unit tests (was B.3 in r2).
 3. **B.3** — catalog-alignment subtask (was B.2 in r2). Now derives the canonical set from B.2's parser output; aligns existing entries to null AND adds null-stub entries for derived codes that are absent from live `lib/messages/catalog.ts`. **Hard gate** — B.3 close-out requires every derived code to either be aligned or null-stubbed.
 4. **B.4** — `lib/messages/catalogDocsValidator.ts` + catalog meta-test #2 (forced-fixture coverage; live-catalog assertion deferred to E.13).
@@ -22,7 +22,7 @@
 - Modify: `lib/messages/catalog.ts` (extend `MessageCatalogEntry` type; do NOT mutate any existing entries' user-facing copy yet — that's Task B.3 in the r3 reordering)
 - Modify: `lib/messages/lookup.ts` (re-export remains unchanged; widened return type travels automatically)
 
-Per spec §5.2 / AC-12.5: the additive extension keeps `messageFor` signature identical; every existing caller compiles unchanged.
+Per spec §5.2 / AC-11.5: the additive extension keeps `messageFor` signature identical; every existing caller compiles unchanged.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -32,7 +32,7 @@ Create `tests/messages/catalog-schema-extension.test.ts`:
 import { describe, it, expect, expectTypeOf } from "vitest";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 
-describe("MessageCatalogEntry M12 extension", () => {
+describe("MessageCatalogEntry M11 extension", () => {
   it("type declares title, longExplanation, helpHref as `string | null`", () => {
     expectTypeOf<MessageCatalogEntry["title"]>().toEqualTypeOf<string | null>();
     expectTypeOf<MessageCatalogEntry["longExplanation"]>().toEqualTypeOf<string | null>();
@@ -67,9 +67,9 @@ export type MessageCatalogEntry = {
   crewFacing: string | null;
   followUp: string | null;
   helpfulContext: string | null;
-  title: string | null;             // NEW in M12 (Phase B.1) — short heading on /help/errors#<code>
-  longExplanation: string | null;   // NEW in M12 (Phase B.1) — body on /help/errors#<code>
-  helpHref: string | null;          // NEW in M12 (Phase B.1) — deep-link to /help/...
+  title: string | null;             // NEW in M11 (Phase B.1) — short heading on /help/errors#<code>
+  longExplanation: string | null;   // NEW in M11 (Phase B.1) — body on /help/errors#<code>
+  helpHref: string | null;          // NEW in M11 (Phase B.1) — deep-link to /help/...
 };
 ```
 
@@ -80,7 +80,7 @@ This is the **mechanical seed** — every existing entry gets `null` for all thr
 Use a small migration script — do NOT hand-edit 100+ entries. Create `scripts/seed-m12-catalog-fields.ts`:
 
 ```ts
-// scripts/seed-m12-catalog-fields.ts — M12 Phase B.1 one-shot
+// scripts/seed-m12-catalog-fields.ts — M11 Phase B.1 one-shot
 //
 // Reads lib/messages/catalog.ts and adds `title: null, longExplanation: null,
 // helpHref: null` to every entry that doesn't already have them. Idempotent —
@@ -192,7 +192,7 @@ git commit -m "feat(messages): extend MessageCatalogEntry with title/longExplana
 - Create: `scripts/extract-admin-log-only-codes.ts`
 - Create: `tests/messages/extract-admin-log-only-codes.test.ts`
 
-Per spec AC-12.35 derivation rule + r10 normalization clarification + **r2 fix**: parse master-spec §12.4 markdown and emit the canonical admin-log-only set.
+Per spec AC-11.35 derivation rule + r10 normalization clarification + **r2 fix**: parse master-spec §12.4 markdown and emit the canonical admin-log-only set.
 
 **r2 fix — table shape (CRITICAL):** the master-spec §12.4 table is **5 columns**, not 4:
 
@@ -311,7 +311,7 @@ Expected: FAIL (module not found).
 ```ts
 // scripts/extract-admin-log-only-codes.ts
 //
-// M12 Phase B.2 — parses master-spec §12.4 markdown and returns the canonical
+// M11 Phase B.2 — parses master-spec §12.4 markdown and returns the canonical
 // admin-log-only code set per master-spec line 2691.
 //
 // r2 fixes:
@@ -444,7 +444,7 @@ git commit -m "feat(messages): admin-log-only derivation parser for master-spec 
 
 3. **Do NOT remove existing entries** — they exist for `sync_log` structured logging even when nulled.
 
-This makes B.5's `expect(entry).toBeDefined()` assertion satisfiable for every derived code at Phase B close-out. No follow-up commits are needed for the M12 admin-scope (Phase 2 may amend master-spec for the operator-only / crew-facing edge cases like `LINK_CROSS_SHOW_REUSE`, which the parser correctly does not derive).
+This makes B.5's `expect(entry).toBeDefined()` assertion satisfiable for every derived code at Phase B close-out. No follow-up commits are needed for the M11 admin-scope (Phase 2 may amend master-spec for the operator-only / crew-facing edge cases like `LINK_CROSS_SHOW_REUSE`, which the parser correctly does not derive).
 
 **Known examples** (from running B.2's parser against the live master-spec as of `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` r-latest):
 
@@ -452,9 +452,9 @@ This makes B.5's `expect(entry).toBeDefined()` assertion satisfiable for every d
 
 - **New entries to add as null stubs (~8, verified):** `UNEXPECTED_PARENT`, `TYPO_NORMALIZED`, `WIZARD_FINALIZE_BATCHES_PENDING`, `SHOW_REALTIME_SUBSCRIPTION_FAILED`, `SHOW_REALTIME_JWT_RENEWED`, `SLUG_COLLISION_EXHAUSTED`, `BRANCH_PROTECTION_DRIFT`, `BRANCH_PROTECTION_MONITOR_AUTH_FAILED`. (Plus any others the parser derives — the implementer runs the parser at execution time and aligns whatever it returns. The escaped-pipe parser fix in r6 specifically ensures `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` is derived; without it the parser missed this code.)
 
-**Explicitly NOT in scope** (master-spec drift, out of M12):
+**Explicitly NOT in scope** (master-spec drift, out of M11):
 
-- `LINK_CROSS_SHOW_REUSE` — master-spec Doug cell starts with `(operator log only` (line 2846), which is NON-canonical per master-spec line 2692. The parser correctly does not derive it. M12 does NOT add or modify this entry. A future commit may amend master-spec to use `(admin log only` if appropriate.
+- `LINK_CROSS_SHOW_REUSE` — master-spec Doug cell starts with `(operator log only` (line 2846), which is NON-canonical per master-spec line 2692. The parser correctly does not derive it. M11 does NOT add or modify this entry. A future commit may amend master-spec to use `(admin log only` if appropriate.
 - `STALE_MANUAL_REPLAY_ABORTED` — master-spec line 2724 carries explicit Doug-facing copy. The parser correctly does not derive it. Phase E gives it `title` / `longExplanation` / `helpHref` like other Doug-facing entries (see spec r11 amendment in §5.2).
 
 - [ ] **Step 1: Write the failing test**
@@ -594,9 +594,9 @@ git commit -m "feat(messages): align all derived admin-log-only codes (existing+
 - Create: `lib/messages/catalogDocsValidator.ts` (NEW — the validator module the meta-test imports)
 - Create: `tests/messages/_metaErrorCatalogDocs.test.ts`
 
-Per spec §7.1 test 2 — full contract gate: predicate-entries must have all three M12 fields non-null AND helpHref shape `/help/*`; non-predicate-entries must have all three M12 fields **null**. The contract has two halves; the biconditional `predicate ↔ allM12FieldsNonNull` is necessary but NOT sufficient.
+Per spec §7.1 test 2 — full contract gate: predicate-entries must have all three M11 fields non-null AND helpHref shape `/help/*`; non-predicate-entries must have all three M11 fields **null**. The contract has two halves; the biconditional `predicate ↔ allM12FieldsNonNull` is necessary but NOT sufficient.
 
-**r3 fix — biconditional alone is too weak (Codex r2 finding):** the r2 forced fixture "crew-only entry with helpHref populated" had `crewFacing` set, `helpHref` set, but `title` and `longExplanation` null. `predicate(e)` is false (crew-only). `allM12FieldsNonNull(e)` is also false (title/longExplanation null). The biconditional `false === false` trivially holds, even though the entry violates the contract (a non-predicate entry must have ALL THREE M12 fields null, not just two of three). r3 replaces the biconditional helper with a `contractViolations(entry): string[]` function that returns the specific violation messages for both halves, and fixtures assert exact violations.
+**r3 fix — biconditional alone is too weak (Codex r2 finding):** the r2 forced fixture "crew-only entry with helpHref populated" had `crewFacing` set, `helpHref` set, but `title` and `longExplanation` null. `predicate(e)` is false (crew-only). `allM12FieldsNonNull(e)` is also false (title/longExplanation null). The biconditional `false === false` trivially holds, even though the entry violates the contract (a non-predicate entry must have ALL THREE M11 fields null, not just two of three). r3 replaces the biconditional helper with a `contractViolations(entry): string[]` function that returns the specific violation messages for both halves, and fixtures assert exact violations.
 
 **r2 carryover — real red→green TDD:** the original r1 task defined the predicate functions *inside* the test file, so the test passed immediately once B.1's type extension existed (no source-of-truth module to fail). r2 extracts the predicate logic into `lib/messages/catalogDocsValidator.ts`; the test imports it; first run fails with module-not-found (the genuine red state). Step 3 implements the module minimally.
 
@@ -645,7 +645,7 @@ function makeEntry(overrides: Partial<MessageCatalogEntry>): MessageCatalogEntry
 }
 
 describe("Catalog meta-test (test #2 — predicate-entry contract)", () => {
-  it("predicate-entry with all three M12 fields populated + valid helpHref → no violations", () => {
+  it("predicate-entry with all three M11 fields populated + valid helpHref → no violations", () => {
     const e = makeEntry({
       severity: "warning",
       dougFacing: "Refresh.",
@@ -714,7 +714,7 @@ describe("Catalog meta-test (test #2 — predicate-entry contract)", () => {
 });
 
 describe("Catalog meta-test (test #2 — non-predicate-entry contract: ALL THREE must be null)", () => {
-  it("crew-only entry with all three M12 fields null → no violations", () => {
+  it("crew-only entry with all three M11 fields null → no violations", () => {
     const e = makeEntry({ crewFacing: "Crew message." });
     expect(predicate(e)).toBe(false);
     expect(contractViolations(e)).toEqual([]);
@@ -792,7 +792,7 @@ Expected: FAIL with "Cannot find module '@/lib/messages/catalogDocsValidator'" o
 ```ts
 // lib/messages/catalogDocsValidator.ts
 //
-// M12 Phase B.4 — full contract validator for the catalog-docs meta-tests
+// M11 Phase B.4 — full contract validator for the catalog-docs meta-tests
 // (test #2 at B.4, live-catalog assertion at E.13).
 //
 // Centralized here so:
@@ -806,7 +806,7 @@ Expected: FAIL with "Cannot find module '@/lib/messages/catalogDocsValidator'" o
 
 import type { MessageCatalogEntry } from "@/lib/messages/catalog";
 
-/** /help/* hrefs are the only shape M12 accepts. */
+/** /help/* hrefs are the only shape M11 accepts. */
 export const HELP_HREF_RE = /^\/help\/.+/;
 
 /** Spec §5.2 predicate: an entry is "Doug-facing" for /help/ purposes when severity is NOT info AND dougFacing is populated. */
@@ -814,7 +814,7 @@ export function predicate(entry: MessageCatalogEntry): boolean {
   return entry.severity !== "info" && entry.dougFacing !== null;
 }
 
-/** Convenience: all three M12 docs fields populated. Used as the predicate-side check in `contractViolations`. */
+/** Convenience: all three M11 docs fields populated. Used as the predicate-side check in `contractViolations`. */
 export function allM12FieldsNonNull(entry: MessageCatalogEntry): boolean {
   return (
     entry.title !== null &&
@@ -834,9 +834,9 @@ export function helpHrefShapeOk(href: string | null): boolean {
  * spec §5.2 contract. Returns one or more violation strings (specific to each
  * field) otherwise.
  *
- * Predicate-entries (Doug-facing) must have all three M12 fields non-null AND
+ * Predicate-entries (Doug-facing) must have all three M11 fields non-null AND
  * helpHref matching /help/*. Non-predicate-entries (crew-only, info-tier, or
- * admin-log-only) must have all three M12 fields exactly `null`.
+ * admin-log-only) must have all three M11 fields exactly `null`.
  */
 export function contractViolations(entry: MessageCatalogEntry): string[] {
   const violations: string[] = [];

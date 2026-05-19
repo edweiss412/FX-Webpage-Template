@@ -295,7 +295,7 @@ git commit -m "feat(help): ScreenshotPlaceholder draft component (Task D.3)"
 **Files:**
 - Create: `app/help/_components/Screenshot.tsx`
 
-Per spec §6.2 / AC-12.25 — renders `<picture>` with light/dark WebP sources from `public/help/screenshots/<name>-{light,dark}.webp`. The `name` value must exist in the screenshot manifest (Phase F). The `<picture>`-contract test is Phase F Task F.6.
+Per spec §6.2 / AC-11.25 — renders `<picture>` with light/dark WebP sources from `public/help/screenshots/<name>-{light,dark}.webp`. The `name` value must exist in the screenshot manifest (Phase F). The `<picture>`-contract test is Phase F Task F.6.
 
 **r2 fix per D-r1 finding 1 (CRITICAL):** the r1 draft used `<Screenshot name="...">`. `key` is a React reserved attribute — it's consumed by React's reconciler and never reaches component props. The r1 implementation destructured `key: screenshotKey` from props, but React strips `key` BEFORE props arrive, so `screenshotKey` would always be `undefined` and every page would render `/help/screenshots/undefined-light.webp`. Renaming the public prop to **`name`** is cross-phase: Phase D component + Phase E MDX call sites + Phase F manifest walker test (F.6) + Phase F.10 retrofit + Phase F.8 coverage + manifest meta-test references all migrate from `key=` to `name=`.
 
@@ -624,7 +624,7 @@ import { describe, it, expect } from "vitest";
 import { useMDXComponents } from "@/mdx-components";
 
 describe("mdx-components.tsx registration (Task D.7)", () => {
-  it("registers all six M12 components", () => {
+  it("registers all six M11 components", () => {
     const components = useMDXComponents({});
     expect(typeof components.Callout).toBe("function");
     expect(typeof components.Step).toBe("function");

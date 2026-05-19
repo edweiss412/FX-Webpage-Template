@@ -805,7 +805,7 @@ Commit: `feat(help): /help/tour page (Task E.12)`
 **Files:**
 - Create: `app/help/errors/page.tsx`
 
-Per spec §4.3 / AC-12.11. This is the ONE page that's TSX (not MDX) because it iterates the catalog. Each entry matching the AC-12.6 predicate becomes a `<RefAnchor id={code}>` section with `entry.title` heading + `entry.longExplanation` body + a "If this keeps happening, tell Eric →" trailing CTA (NOT a Learn-more link per AC-12.11 r10 correction).
+Per spec §4.3 / AC-11.11. This is the ONE page that's TSX (not MDX) because it iterates the catalog. Each entry matching the AC-11.6 predicate becomes a `<RefAnchor id={code}>` section with `entry.title` heading + `entry.longExplanation` body + a "If this keeps happening, tell Eric →" trailing CTA (NOT a Learn-more link per AC-11.11 r10 correction).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -821,7 +821,7 @@ import { join } from "node:path";
 const src = readFileSync(join(process.cwd(), "app/help/errors/page.tsx"), "utf8");
 
 // r3 fix per E-r2 finding 4: page renders entries that ALSO have all three
-// M12 fields populated. Use the same predicate the page itself uses (mirrors
+// M11 fields populated. Use the same predicate the page itself uses (mirrors
 // `isRenderable()` in app/help/errors/page.tsx). Without this alignment, the
 // test would dereference null `entry.title` or fail for the wrong reason when
 // the live biconditional finds a Doug-facing entry without title.
@@ -850,7 +850,7 @@ describe("/help/errors (E.13)", () => {
     expect(src).not.toContain('"use client"');
   });
 
-  it("trailing CTA is 'tell Eric' (NOT 'Learn more') per AC-12.11 r10", () => {
+  it("trailing CTA is 'tell Eric' (NOT 'Learn more') per AC-11.11 r10", () => {
     expect(src).toMatch(/tell Eric/i);
     expect(src).not.toMatch(/Learn more/i); // the destination page never self-links
   });
@@ -878,7 +878,7 @@ Expected: FAIL.
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 import { RefAnchor } from "@/app/help/_components/RefAnchor";
 
-// AC-12.6 predicate: severity !== "info" AND dougFacing != null AND all three M12 fields non-null.
+// AC-11.6 predicate: severity !== "info" AND dougFacing != null AND all three M11 fields non-null.
 function isRenderable(entry: MessageCatalogEntry): boolean {
   return (
     entry.severity !== "info" &&
@@ -934,7 +934,7 @@ import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 // r3 fix: import the single-source-of-truth validator from Phase B.4 instead
 // of redefining the predicate inline. This keeps the live-catalog assertion
 // in lockstep with B.4's forced fixtures — any update to the contract
-// (e.g., adding a new M12 field) propagates to both surfaces automatically.
+// (e.g., adding a new M11 field) propagates to both surfaces automatically.
 import { contractViolations } from "@/lib/messages/catalogDocsValidator";
 
 describe("Catalog meta-test (test #2 — live-catalog full contract, added in E.13 per r6)", () => {

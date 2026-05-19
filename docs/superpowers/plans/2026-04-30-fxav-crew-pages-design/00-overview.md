@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Sibling plan:** [M12 — User-Facing Docs](../2026-05-12-user-facing-docs/) builds the in-app `/help` wiki for Doug. M12 depends on M10 (already closed) and is **independent of X.\***; the two can run in parallel or sequentially. Shared file surface: only `lib/messages/catalog.ts` (X.1 catalog parity audit ↔ M12 Phase B catalog extension) — coordinate ordering. See [`../README.md`](../README.md) for the full plan catalog.
+> **Sibling plan:** [M11 — User-Facing Docs](../2026-05-12-user-facing-docs/) builds the in-app `/help` wiki for Doug. M11 depends on M10 (already closed) and is **independent of X.\***; the two can run in parallel or sequentially. Shared file surface: only `lib/messages/catalog.ts` (X.1 catalog parity audit ↔ M11 Phase B catalog extension) — coordinate ordering. See [`../README.md`](../README.md) for the full plan catalog. Speculative post-v1 work lives in [`../BACKLOG.md`](../BACKLOG.md), not DEFERRED.
 
 **Goal:** Build a Next.js + Supabase web app that turns Doug Larson's per-show Google Sheets into per-crew-member, mobile-first webpages, with sub-second sync via Drive push notifications, role-based field hiding, signed-link sharing, and a full admin/onboarding/bug-report surface — implementing the spec at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md`.
 

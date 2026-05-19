@@ -1,6 +1,6 @@
-# M12 Handoff — Template
+# M11 Handoff — Template
 
-Copy this template to `handoffs/M12-help.md` (or per-session `handoffs/M12-help-<YYYY-MM-DD>.md` if execution spans multiple sessions) and fill in every section.
+Copy this template to `handoffs/M11-help.md` (or per-session `handoffs/M11-help-<YYYY-MM-DD>.md` if execution spans multiple sessions) and fill in every section.
 
 ---
 
@@ -51,16 +51,16 @@ List every spec §X reference touched in this session:
 
 | AC | Status | Notes |
 | --- | --- | --- |
-| AC-12.1 | PASS / DEFERRED / N/A | |
-| AC-12.2 | | |
-| AC-12.3 | | |
-| ... (every AC-12.* through AC-12.39) | | |
+| AC-11.1 | PASS / DEFERRED / N/A | |
+| AC-11.2 | | |
+| AC-11.3 | | |
+| ... (every AC-11.* through AC-11.39) | | |
 
 ---
 
 ## §5 Amendments in scope
 
-**None for M12** at plan-write time. Any amendments ratified during execution land here per the project's existing amendment pattern (`docs/superpowers/specs/amendments/`).
+**None for M11** at plan-write time. Any amendments ratified during execution land here per the project's existing amendment pattern (`docs/superpowers/specs/amendments/`).
 
 ---
 
@@ -68,7 +68,7 @@ List every spec §X reference touched in this session:
 
 Per AGENTS.md "Same-vector recurrence" rule, record any class-vector that surfaced during this session so the next milestone is pre-loaded:
 
-- **Catalog drift** — master-spec §12.4 admin-log-only enumeration evolves; M12's `_metaCatalogAdminLogOnlyAlignment` test (#17) catches future drift, but downstream catalog adds need to flag admin-log-only entries explicitly.
+- **Catalog drift** — master-spec §12.4 admin-log-only enumeration evolves; M11's `_metaCatalogAdminLogOnlyAlignment` test (#17) catches future drift, but downstream catalog adds need to flag admin-log-only entries explicitly.
 - **Clock pipeline** — every new render-side `Date.now()`/`new Date()` must consume `lib/time/now.ts` or carry a per-line waiver. Test #16 grep guard catches additions; new screenshot manifest entries widen the scan.
 - **Affordance retrofit** — every new `?` tooltip / "Take the tour" / "Learn more →" affordance in `/admin/*` MUST add a matrix row in the same PR. Test #13 reverse-direction check catches violations.
 
@@ -108,7 +108,7 @@ Expected: all green at session close.
 | R1 | | | | | |
 | R2 | | | | | |
 | ... | | | | | |
-| Final | | APPROVE | — | — | M12 ships |
+| Final | | APPROVE | — | — | M11 ships |
 
 ---
 
@@ -136,7 +136,7 @@ Capture baseline `pnpm build` artifact sizes before Phase A starts, then compare
 
 Any content authored as a stub or explicitly deferred to a later milestone:
 
-- Crew-facing pages (`/help/crew/*`) — phase 2; not in M12 scope per spec §1.1
+- Crew-facing pages (`/help/crew/*`) — phase 2; not in M11 scope per spec §1.1
 - Other deferrals:
 
 ---
@@ -147,4 +147,4 @@ Any content authored as a stub or explicitly deferred to a later milestone:
 - [ ] Reviewer (Codex cross-CLI): APPROVE on date __
 - [ ] User review: __ date __
 
-M12 marked **closed** in `ROUTING.md`.
+M11 marked **closed** in `ROUTING.md`.

@@ -253,7 +253,7 @@ test.describe("/help AdminInfraError mapping (test #3 r10)", () => {
   // mutation actually works.
 
   test("when requireAdmin throws AdminInfraError, /help renders cataloged 500-class surface", async ({ page, request }) => {
-    // r7 (round-6 finding 2): NO SKIP allowed. AC-12.24 requires this test to
+    // r7 (round-6 finding 2): NO SKIP allowed. AC-11.24 requires this test to
     // run unconditionally. The infra-fail trigger is implemented as part of
     // H.2 (see Step 2 below) — a test-only HEADER `X-Help-Force-Infra-Fail: 1`
     // (r9 corrected from r7's URL-search-param approach which couldn't reach
@@ -292,7 +292,7 @@ test.describe("/help AdminInfraError mapping (test #3 r10)", () => {
     await expect(page.locator("body")).toContainText(expected);
 
     // Defense-in-depth: the raw error code MUST NOT appear in visible UI
-    // (per AGENTS.md invariant #5 + AC-12.24 catalog-only rendering).
+    // (per AGENTS.md invariant #5 + AC-11.24 catalog-only rendering).
     await expect(page.locator("body")).not.toContainText("ADMIN_SESSION_LOOKUP_FAILED");
   });
 });
@@ -417,7 +417,7 @@ Then run the e2e:
 ENABLE_TEST_AUTH=true TEST_AUTH_SECRET=test-secret-fixture pnpm exec playwright test --project=help-docs tests/e2e/help-auth.spec.ts
 ```
 (per F-r3 — runner env + help-docs project on port 3004)
-Expected: all 10 tests PASS (9 base auth + 1 AdminInfraError mapping). **No skip path** per AC-12.24.
+Expected: all 10 tests PASS (9 base auth + 1 AdminInfraError mapping). **No skip path** per AC-11.24.
 
 ```bash
 # IMPORTANT: stage BOTH the test AND the layout file (r8 fix to round-7

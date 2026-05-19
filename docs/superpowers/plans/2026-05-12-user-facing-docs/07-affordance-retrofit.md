@@ -2,7 +2,7 @@
 
 **Scope:** Build the `affordanceMatrix.ts` registry as the typed source of truth for §5.6's affordance matrix. Implement the render-side gate (admin-context detection with the preview-as-crew exception). Wire `Learn more →` links into existing components via `messageFor(code).helpHref`. Retrofit M3/M9/M10 source surfaces with the documented `data-testid` attributes. Ship the deep-link walker (#13) and error-renderer gate (#12).
 
-**Prereqs:** Phase F complete (strict sequential per 00-overview.md — implies A through F also complete). Catalog with `helpHref` populated (Phase B + Phase E backfill); target pages exist (Phase E); manifest entries with WebPs (Phase F). M3/M9/M10 source components must exist — confirmed by M10 close-out (AC-12.22).
+**Prereqs:** Phase F complete (strict sequential per 00-overview.md — implies A through F also complete). Catalog with `helpHref` populated (Phase B + Phase E backfill); target pages exist (Phase E); manifest entries with WebPs (Phase F). M3/M9/M10 source components must exist — confirmed by M10 close-out (AC-11.22).
 
 **Tasks:** G.0 → G.6 (7 tasks). G.0 (pre-execution discovery) MUST land before any other G.* commit because G.3 and G.4 both edit M9/M10-owned components whose concrete paths aren't pinned in the plan inventory yet. G.0 → G.1 → G.2 → G.3 → G.4 → G.5 → G.6 are linear.
 
@@ -13,7 +13,7 @@
 **Files:**
 - Modify: `docs/superpowers/plans/2026-05-12-user-facing-docs/00-overview.md` (replace the file-inventory placeholder rows with concrete paths)
 
-Per r4 (addresses round-3 finding 2): G.3 and G.4 both edit components whose paths are placeholder entries in 00-overview.md's file inventory. The placeholders exist because M9/M10 components hadn't shipped at plan-write time. G.0 runs at M10 close-out (the AC-12.22 gate) and pins every remaining placeholder to a real path.
+Per r4 (addresses round-3 finding 2): G.3 and G.4 both edit components whose paths are placeholder entries in 00-overview.md's file inventory. The placeholders exist because M9/M10 components hadn't shipped at plan-write time. G.0 runs at M10 close-out (the AC-11.22 gate) and pins every remaining placeholder to a real path.
 
 - [ ] **Step 1: Grep the live tree for each matrix row's source surface text**
 
@@ -429,11 +429,11 @@ Per spec §7.1 test 13 (r10 row-class split, r11 split between G.4 and G.5 per B
 
 - [ ] Step 1a: **Add the first-seen-review walker assertion + its red→green proof** (r9 — owns the row G.4 deferred per B-r9 finding 2):
   - Extend the concrete-row filter in `tests/e2e/deep-link-walker.spec.ts` to ALSO include the first-seen-review row (i.e., remove G.4's `!row.sourceRoute.includes("STAGED_ID_PLACEHOLDER")` exclusion for this step).
-  - The test REQUIRES a known staged_id from the seeded fixture (NOT optional — r6 per round-5 finding 4). If `pnpm db:seed` doesn't produce a `pending_syncs` row that yields a staged_id, extend the seed script (or G.5's per-spec setup hook) to insert a deterministic test-fixture staged row. AC-12.30 requires every concrete matrix row wired, with no opt-out for missing fixtures.
+  - The test REQUIRES a known staged_id from the seeded fixture (NOT optional — r6 per round-5 finding 4). If `pnpm db:seed` doesn't produce a `pending_syncs` row that yields a staged_id, extend the seed script (or G.5's per-spec setup hook) to insert a deterministic test-fixture staged row. AC-11.30 requires every concrete matrix row wired, with no opt-out for missing fixtures.
   - **Verify-red proof:** before adding the seed extension, run the extended walker. Expected RED — the test fails to resolve `STAGED_ID_PLACEHOLDER` to a real staged_id. Capture the failure in the commit message body.
   - Add the seed extension. Re-run — concrete walker (including first-seen) PASSES.
   - The test FAILS (not skips) if the fixture is absent — first-seen review is one of Doug's highest-friction surfaces per master spec §9.1.1.
-- [ ] Step 2: **Template-family row** — unit-level test. Imports `MESSAGE_CATALOG`; iterates entries matching the AC-12.6 predicate (`severity !== "info"` AND `dougFacing != null` AND M12 fields non-null); for each entry calls the rendering helper from G.3 directly (mock the route as `/admin/show/x`); asserts the output contains:
+- [ ] Step 2: **Template-family row** — unit-level test. Imports `MESSAGE_CATALOG`; iterates entries matching the AC-11.6 predicate (`severity !== "info"` AND `dougFacing != null` AND M11 fields non-null); for each entry calls the rendering helper from G.3 directly (mock the route as `/admin/show/x`); asserts the output contains:
   - `data-testid` matching `testidForErrorCode(code)`
   - `<a>` with `href` matching `targetForErrorCode(code)` (which equals `messageFor(code).helpHref` for the error-code family)
 - [ ] Step 3: **Negative row** — Playwright spec navigates to `/show/<slug>` as a signed-link viewer (not admin) and asserts `page.locator('[data-testid^="help-affordance--"]')` has count 0.

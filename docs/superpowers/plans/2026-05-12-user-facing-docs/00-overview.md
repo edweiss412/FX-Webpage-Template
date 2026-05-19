@@ -1,4 +1,4 @@
-# M12 — User-Facing Docs Implementation Plan (Overview)
+# M11 — User-Facing Docs Implementation Plan (Overview)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -19,7 +19,7 @@
 
 ## How to use this plan
 
-1. **Spec is canonical**, with no ratified amendments at M12 plan-write time. Every task references a spec section (`§5.2`) or AC (`AC-12.5`). When a task and the spec disagree, the spec wins — open a question, do not silently fix in the plan (AGENTS.md invariant #7).
+1. **Spec is canonical**, with no ratified amendments at M11 plan-write time. Every task references a spec section (`§5.2`) or AC (`AC-11.5`). When a task and the spec disagree, the spec wins — open a question, do not silently fix in the plan (AGENTS.md invariant #7).
 2. **Work phase-by-phase, top-to-bottom within each file.** Phase order is **strictly sequential** A → B → C → D → E → F → G → H → I (r2 — no parallelization). Rationale: Phase G's affordance retrofit needs Phase F's manifest entries to be in place so the §5.6 matrix's screenshot-bearing rows resolve to real WebPs; Phase F's WebP capture exercises pages from Phase E with components from Phase D referencing catalog content from Phase B with time utility from Phase C and chrome from Phase A. The earlier-draft claim that "F + G can run in parallel" is removed. Earlier-draft soft-start permission for B/C/D before A is also removed (see "Sequencing dependency on M10" below).
 3. **TDD per task** (AGENTS.md invariant #1). Each task: failing test → minimal implementation → passing test → commit. Never write implementation before its test.
 4. **Commit per task** (AGENTS.md invariant #6). Conventional-commits style `<type>(help): <summary>` — common types: `feat`, `fix`, `test`, `docs`, `refactor`, `chore`. Scope `help` for content/components; `messages` for catalog work; `time` for the time utility; `screenshots` for the harness.
@@ -28,9 +28,9 @@
 
 ## Sequencing dependency on M10
 
-**AC-12.22 forbids M12 from beginning until M10 close-out.** Justification: real screenshots require the documented UI surfaces (`/admin` dashboard, per-show panel, preview-as-crew, onboarding wizard) to exist and be stable. M3/M4/M9/M10 own those surfaces. Additionally, Phase B mutates the shared message catalog (sets `dougFacing: null` on master-spec admin-log-only entries currently rendered by M9 AlertBanner), and Phase D creates new UI files under `app/help/` — both interact with assumptions M9/M10 are still establishing.
+**AC-11.22 forbids M11 from beginning until M10 close-out.** Justification: real screenshots require the documented UI surfaces (`/admin` dashboard, per-show panel, preview-as-crew, onboarding wizard) to exist and be stable. M3/M4/M9/M10 own those surfaces. Additionally, Phase B mutates the shared message catalog (sets `dougFacing: null` on master-spec admin-log-only entries currently rendered by M9 AlertBanner), and Phase D creates new UI files under `app/help/` — both interact with assumptions M9/M10 are still establishing.
 
-**No soft-start.** Earlier plan drafts permitted Phases B/C/D to begin before M10 close-out. **That permission is removed (r2):** AC-12.22 is unconditional, and pre-M10 commits to the catalog or `app/help/` risk invalidating the assumption that screenshot capture (Phase F) and affordance retrofit (Phase G) run against stable M10 surfaces. If the schedule warrants earlier work, the right path is to ratify a spec amendment to AC-12.22 — not silently start work.
+**No soft-start.** Earlier plan drafts permitted Phases B/C/D to begin before M10 close-out. **That permission is removed (r2):** AC-11.22 is unconditional, and pre-M10 commits to the catalog or `app/help/` risk invalidating the assumption that screenshot capture (Phase F) and affordance retrofit (Phase G) run against stable M10 surfaces. If the schedule warrants earlier work, the right path is to ratify a spec amendment to AC-11.22 — not silently start work.
 
 **Routing note for plan execution:** Per the project's "UI work is always Opus" hard rule (AGENTS.md), every task in this plan is Opus/Claude Code territory. Codex (cross-CLI) runs adversarial review only.
 
@@ -38,11 +38,11 @@
 
 ## Ratified spec amendments
 
-**None at plan-write time (2026-05-12).** The spec went through 8 rounds of cross-CLI adversarial review (r1 → r10) and was committed at r10 (commit `fc26d8b`). Any amendments ratified during M12 execution must be recorded here in the same shape as the existing crew-pages plan's amendment list (`docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/00-overview.md`).
+**None at plan-write time (2026-05-12).** The spec went through 8 rounds of cross-CLI adversarial review (r1 → r10) and was committed at r10 (commit `fc26d8b`). Any amendments ratified during M11 execution must be recorded here in the same shape as the existing crew-pages plan's amendment list (`docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/00-overview.md`).
 
 ---
 
-## Plan-wide invariants (M12-specific, layered on AGENTS.md global)
+## Plan-wide invariants (M11-specific, layered on AGENTS.md global)
 
 These extend AGENTS.md's 9 plan-wide invariants. Violating any is a P0 bug regardless of test status.
 
@@ -52,10 +52,10 @@ These extend AGENTS.md's 9 plan-wide invariants. Violating any is a P0 bug regar
 4. **No raw error codes in user-visible UI** (AGENTS.md #5) — `/help/errors` renders codes as URL fragments only; visible heading is `entry.title`.
 5. **impeccable v3 UI gate** (AGENTS.md #8) — every `/help/*` page goes through `/impeccable critique` + `/impeccable audit` before Phase I close-out.
 6. **Supabase call-boundary discipline** (AGENTS.md #9) — applies via `requireAdmin()`. `lib/auth/requireAdmin.ts` is already registered in `tests/auth/_metaInfraContract.test.ts`; no new registry entry required, but grep to confirm post-implementation.
-7. **MessageCatalogEntry additive extension** (M12-specific) — `messageFor` signature stays unchanged; the return type widens with three new nullable fields. Existing callers compile unchanged. Verified by Task B.1.
-8. **Catalog-master-spec alignment** (M12-specific) — **r3-reordered: Task B.2 (parser) → Task B.3 (alignment)**. Task B.2 implements `scripts/extract-admin-log-only-codes.ts`, which parses master-spec §12.4 and returns the canonical admin-log-only set. Task B.3 then runs that parser, sets `dougFacing: null`, `crewFacing: null`, `helpfulContext: null` on every existing entry that the parser derives AND adds null-stub entries for derived codes that are absent from `lib/messages/catalog.ts`. B.3 is the hard gate — no follow-up commits are deferred. AlertBanner stops surfacing those codes — master-spec-correct behavior. Tests that exercised the drifted behavior break; M12 owns those updates.
-9. **`lib/time/now.ts` is the only server-side render-time source** (M12-specific) — every server component reachable from a screenshot manifest route that calls `new Date()` / `Date.now()` for render-side output MUST migrate to this utility (or carry a per-line `// not-render-side: <reason>` waiver). Enforced by test #16.
-10. **§5.6 affordance matrix is the §9.0.1 retrofit contract** (M12-specific) — every M3/M9/M10 component that owns a §9.0.1 affordance MUST carry the documented `data-testid` from the matrix in the same PR that adds the affordance text. Test #13 walks the matrix; the reverse-direction check catches affordances added without matrix rows.
+7. **MessageCatalogEntry additive extension** (M11-specific) — `messageFor` signature stays unchanged; the return type widens with three new nullable fields. Existing callers compile unchanged. Verified by Task B.1.
+8. **Catalog-master-spec alignment** (M11-specific) — **r3-reordered: Task B.2 (parser) → Task B.3 (alignment)**. Task B.2 implements `scripts/extract-admin-log-only-codes.ts`, which parses master-spec §12.4 and returns the canonical admin-log-only set. Task B.3 then runs that parser, sets `dougFacing: null`, `crewFacing: null`, `helpfulContext: null` on every existing entry that the parser derives AND adds null-stub entries for derived codes that are absent from `lib/messages/catalog.ts`. B.3 is the hard gate — no follow-up commits are deferred. AlertBanner stops surfacing those codes — master-spec-correct behavior. Tests that exercised the drifted behavior break; M11 owns those updates.
+9. **`lib/time/now.ts` is the only server-side render-time source** (M11-specific) — every server component reachable from a screenshot manifest route that calls `new Date()` / `Date.now()` for render-side output MUST migrate to this utility (or carry a per-line `// not-render-side: <reason>` waiver). Enforced by test #16.
+10. **§5.6 affordance matrix is the §9.0.1 retrofit contract** (M11-specific) — every M3/M9/M10 component that owns a §9.0.1 affordance MUST carry the documented `data-testid` from the matrix in the same PR that adds the affordance text. Test #13 walks the matrix; the reverse-direction check catches affordances added without matrix rows.
 
 ---
 
@@ -84,24 +84,24 @@ The spec's §11 already documents the round-1 through round-8 adversarial-review
 
 | Contract | Pre-resolved by | Cite |
 | --- | --- | --- |
-| `/help/*` is dynamic, not statically prerendered | r4 fix | spec §3.4, §3.2, AC-12.1, AC-12.31 |
-| `MessageCatalogEntry` extension is additive (three new nullable fields), not a new API | r3 / r4 fixes | spec §5.2, AC-12.5 |
+| `/help/*` is dynamic, not statically prerendered | r4 fix | spec §3.4, §3.2, AC-11.1, AC-11.31 |
+| `MessageCatalogEntry` extension is additive (three new nullable fields), not a new API | r3 / r4 fixes | spec §5.2, AC-11.5 |
 | Predicate is `severity !== "info"` AND `dougFacing != null` — no `selfContainedAction` flag (retired r8) | r3 / r4 / r5 / r6 / r7 / r8 fixes | spec §5.2 |
-| Catalog alignment (setting `dougFacing: null` on master-spec admin-log-only codes) is M12's responsibility, NOT a separate milestone | r8 / r9 fixes | spec §5.2 distinction note + AC-12.35 |
+| Catalog alignment (setting `dougFacing: null` on master-spec admin-log-only codes) is M11's responsibility, NOT a separate milestone | r8 / r9 fixes | spec §5.2 distinction note + AC-11.35 |
 | Server-side clock pin uses request-scoped header (`X-Screenshot-Frozen-Now`), NOT an env var | r6 / r7 fixes | spec §3.6.2 Fixed clock row |
 | Fixture corpus layout is flat single-file `fixtures/shows/raw/<fixture>.md` + pdf-only split `__INFO.md` | r10 fix | spec §3.6.2 Frozen-instant validation row |
 | Preview-as-crew is CREW context for the renderer, despite living on `/admin/*` URL | r10 fix | spec §5.2 admin-context allowlist exception |
-| `/help/errors` trailing CTA is "If this keeps happening, tell Eric →", NOT a self-linking `Learn more →` | r10 fix | spec §4.3, AC-12.11 |
+| `/help/errors` trailing CTA is "If this keeps happening, tell Eric →", NOT a self-linking `Learn more →` | r10 fix | spec §4.3, AC-11.11 |
 
 ---
 
 ## Same-vector recurrence policy
 
-Per AGENTS.md "Same-vector recurrence triggers comprehensive re-analysis": if three adversarial-review rounds on the M12 PLAN identify findings on the same vector (e.g., catalog drift, clock determinism, affordance discovery), the next round's preparation MUST include a comprehensive re-analysis of that vector before the next review fires. This rule is what closed the catalog-drift class at spec r8 and the clock-determinism class at spec r7; M12 plan execution should apply the same discipline.
+Per AGENTS.md "Same-vector recurrence triggers comprehensive re-analysis": if three adversarial-review rounds on the M11 PLAN identify findings on the same vector (e.g., catalog drift, clock determinism, affordance discovery), the next round's preparation MUST include a comprehensive re-analysis of that vector before the next review fires. This rule is what closed the catalog-drift class at spec r8 and the clock-determinism class at spec r7; M11 plan execution should apply the same discipline.
 
 ---
 
-## File structure (created or modified by M12)
+## File structure (created or modified by M11)
 
 This list is reconciled exhaustively against the `Files:` blocks in every phase file (r2 — earlier draft had drift). Files marked **(create)** are net-new; **(modify)** edits an existing file.
 
@@ -149,7 +149,7 @@ components/admin/ParsePanel.tsx                           # Phase G.4 (testid re
 components/admin/ReSyncButton.tsx                         # Phase G.4 (testid retrofit per §5.6 matrix: sync-health header sibling)
 components/admin/StagedReviewCard.tsx                     # Phase G.4 (testid retrofit per §5.6 matrix: per-show staged-review card; first-seen variant if M9 ships it separately)
 components/messages/ErrorExplainer.tsx                    # Phase G.3 — confirmed live at r4 (verified: ls components/messages/ → ErrorExplainer.tsx exists). The §9.0.1 "What does this mean?" expansion component; G.3 wires the Learn-more link inside it via shouldEmitLearnMore.
-components/admin/<dashboard-row-component>.tsx            # Phase G.4 — M9-owned, dashboard "Active Shows" + "Sheets we couldn't auto-apply" panel headers and the "Review staged changes" status badge. Concrete path resolves via Phase G.0 pre-execution discovery (r4); per AC-12.22 sequencing, M10 close-out gates M12 execution.
+components/admin/<dashboard-row-component>.tsx            # Phase G.4 — M9-owned, dashboard "Active Shows" + "Sheets we couldn't auto-apply" panel headers and the "Review staged changes" status badge. Concrete path resolves via Phase G.0 pre-execution discovery (r4); per AC-11.22 sequencing, M10 close-out gates M11 execution.
 components/<onboarding-wizard>.tsx                        # Phase G.4 — M10-owned, three wizard step headers carrying help-affordance--wizard-step{1,2,3}--tooltip testids. Concrete path resolves via Phase G.0 pre-execution discovery (r4).
 next.config.ts                                            # Phase A.1 (add withMDX + pageExtensions ['ts','tsx','mdx'])
 package.json + pnpm-lock.yaml                             # Phase A.1 (@next/mdx + loaders) + F.3 (sharp) + F.5 (screenshot:help script)

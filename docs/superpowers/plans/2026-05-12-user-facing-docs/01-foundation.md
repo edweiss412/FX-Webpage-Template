@@ -1,8 +1,8 @@
 # Phase A — Foundation
 
-**Scope:** Land the MDX pipeline, the gated `/help` layout, the nav registry, and the page-chrome components (`<Sidebar>`, `<Header>`, `<Breadcrumb>`). Phase A unblocks everything else; it does NOT depend on any other M12 phase.
+**Scope:** Land the MDX pipeline, the gated `/help` layout, the nav registry, and the page-chrome components (`<Sidebar>`, `<Header>`, `<Breadcrumb>`). Phase A unblocks everything else; it does NOT depend on any other M11 phase.
 
-**Prereqs:** M10 close-out (per AC-12.22). No M11 dependency.
+**Prereqs:** M10 close-out (per AC-11.22). No M11 dependency.
 
 **Tasks:** A.1 → A.7 (7 tasks). Linear order; intra-phase parallelization not recommended (each task depends on the previous task's commits).
 
@@ -70,7 +70,7 @@ The `@types/mdx` dev dep is required for `import type { MDXComponents } from "md
 import type { MDXComponents } from "mdx/types";
 
 /**
- * M12 Phase A — required by @next/mdx App Router integration.
+ * M11 Phase A — required by @next/mdx App Router integration.
  *
  * Returns the global MDX component overrides used by every .mdx file under
  * app/help/. Phase D will add the help-specific components (Callout, Step,
@@ -308,7 +308,7 @@ Expected: FAIL (module not found).
 - [ ] **Step 3: Create `app/help/_nav.ts`**
 
 ```ts
-// app/help/_nav.ts — M12 Phase A.3
+// app/help/_nav.ts — M11 Phase A.3
 //
 // Single source of truth for the /help sidebar nav, breadcrumb derivation, and
 // the nav-consistency meta-test (Phase A.7). Spec §3.3 + §4.1–§4.3.
@@ -554,7 +554,7 @@ describe("<Header>", () => {
     expect(screen.getByTestId("help-header-brand")).toBeInTheDocument();
   });
 
-  it("renders the theme toggle (AC-12.4)", () => {
+  it("renders the theme toggle (AC-11.4)", () => {
     // r2 (Phase A round-1 finding 2): the Header MUST render the existing
     // components/layout/ThemeToggle. Test asserts presence so the toggle
     // can't silently drop out in a future Header edit.
@@ -583,7 +583,7 @@ export function Header() {
         FXAV Help
       </Link>
       <div className="flex items-center gap-4">
-        {/* r2 — round-1 finding 2: ThemeToggle is REQUIRED per AC-12.4.
+        {/* r2 — round-1 finding 2: ThemeToggle is REQUIRED per AC-11.4.
             The component lives at components/layout/ThemeToggle.tsx
             (verified at plan-write time via `find components -name ThemeToggle`). */}
         <ThemeToggle />
@@ -805,7 +805,7 @@ Per AGENTS.md plan-wide invariant #1, every task commits in a green state. A.7 m
 Create each of the 12 stub files. Each stub is a single line of MDX:
 
 ```mdx
-{/* M12 Phase A.7 stub — Phase E task E.<N> replaces the entire body. */}
+{/* M11 Phase A.7 stub — Phase E task E.<N> replaces the entire body. */}
 
 # <Page Title>
 ```
@@ -830,7 +830,7 @@ app/help/errors/page.tsx                 # E.13 (TSX, not MDX — see below)
 For `app/help/errors/page.tsx` specifically (it's TSX iterating the catalog, not MDX), the stub is:
 
 ```tsx
-// M12 Phase A.7 stub — Phase E.13 replaces with the catalog-iterating implementation.
+// M11 Phase A.7 stub — Phase E.13 replaces with the catalog-iterating implementation.
 export default function ErrorsPage() {
   return <h1>Errors</h1>;
 }

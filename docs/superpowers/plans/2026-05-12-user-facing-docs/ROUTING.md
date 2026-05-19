@@ -1,9 +1,9 @@
-# M12 (User-Facing Docs) Phase Routing
+# M11 (User-Facing Docs) Phase Routing
 
 **Decision date:** 2026-05-19
-**Inputs:** M12 spec at `docs/superpowers/specs/2026-05-12-user-facing-docs-design.md`; plan phases A–I in this dir; project-wide routing rules from the FXAV crew-pages plan ([`../2026-04-30-fxav-crew-pages-design/ROUTING.md`](../2026-04-30-fxav-crew-pages-design/ROUTING.md)); UI hard rule from `AGENTS.md`; lessons from M0–M10 + M6.5.
+**Inputs:** M11 spec at `docs/superpowers/specs/2026-05-12-user-facing-docs-design.md`; plan phases A–I in this dir; project-wide routing rules from the FXAV crew-pages plan ([`../2026-04-30-fxav-crew-pages-design/ROUTING.md`](../2026-04-30-fxav-crew-pages-design/ROUTING.md)); UI hard rule from `AGENTS.md`; lessons from M0–M10 + M6.5.
 
-M12's phase structure (A–I) replaces FXAV's milestone numbering. Routing is decided per-phase, not per-task, because phases are the natural execution + close-out boundary in this plan (each phase has its own pre/post tests + checkpoint).
+M11's phase structure (A–I) replaces FXAV's milestone numbering. Routing is decided per-phase, not per-task, because phases are the natural execution + close-out boundary in this plan (each phase has its own pre/post tests + checkpoint).
 
 This file is the per-phase analog of FXAV's ROUTING.md. The same rules apply:
 - **UI work is always Opus / Claude Code.** Any file under `app/help/` (the new docs site), any new `components/` files, any `*.mdx` content file, or any change to design tokens.
@@ -24,7 +24,7 @@ This file is the per-phase analog of FXAV's ROUTING.md. The same rules apply:
 | **F — Screenshot harness** (Tasks F.1–F.11) | Manifest, fixture-range parser, Playwright capture script, `screenshots-help` project, `sharp` encoder, CI drift gate, meta-tests #8/#9/#10/#14/#18 | **GPT-5.5 / Codex** | Opus | Pure tooling: Playwright scripts, image encoder, CI gate, test infrastructure. No UI authoring — the harness CAPTURES UI but doesn't WRITE UI. Codex-owned territory same as M6's Drive sync engine. |
 | **G — Affordance retrofit** (Tasks G.0–G.6) | `affordanceMatrix.ts` registry, render-side gate with preview-as-crew exception, `Learn more →` link wiring via `messageFor().helpHref`, retrofit `data-testid` on M3/M9/M10 source components, walker + error-renderer-gate tests | **Split-mode: §A Codex / §B Opus** | Opus | Two-surface phase: backend (`lib/help/affordanceMatrix.ts`, gate logic, catalog `helpHref` population) + UI retrofit (`Learn more →` JSX additions + `data-testid` retrofit on existing M3/M9/M10 components). Single pin-stop on the matrix + gate contract; §B starts after the pin and runs in parallel with §A's catalog-population tail. Pattern matches M5/M6/M8 splits. |
 | **H — Auth + integration tests** (Tasks H.1–H.5) | Anchor resolver test, auth + AdminInfraError mapping test, MDX smoke test, mobile-layout Playwright, no-placeholder lint | **GPT-5.5 / Codex** | Opus | Test infrastructure. Mobile-layout Playwright IS a UI-shaped test but it's authoring TEST code, not UI code. Codex-owned same as M6's Playwright suite. |
-| **I — Close-out** (Tasks I.1–I.3) | `/impeccable critique` + `/impeccable audit` per page; cross-CLI adversarial review of plan execution; M12 handoff doc final | **Opus / Claude Code (orchestrator)** | Codex (cross-CLI review) | `/impeccable` is Opus-loaded; close-out is by definition Opus orchestrator territory. The cross-CLI review of plan execution invokes Codex via the `/codex:adversarial-review` slash command per `feedback_adversarial_review_canonical_invocation.md`. |
+| **I — Close-out** (Tasks I.1–I.3) | `/impeccable critique` + `/impeccable audit` per page; cross-CLI adversarial review of plan execution; M11 handoff doc final | **Opus / Claude Code (orchestrator)** | Codex (cross-CLI review) | `/impeccable` is Opus-loaded; close-out is by definition Opus orchestrator territory. The cross-CLI review of plan execution invokes Codex via the `/codex:adversarial-review` slash command per `feedback_adversarial_review_canonical_invocation.md`. |
 
 ---
 
@@ -50,8 +50,8 @@ Both phases have a single pin-stop where the backend signature stabilizes before
 
 ## Handoff template
 
-Use [`HANDOFF-TEMPLATE.md`](./HANDOFF-TEMPLATE.md) in this dir per phase or per-execution-session. The template is M12-specific (already in place); follows the same shape as the FXAV one.
+Use [`HANDOFF-TEMPLATE.md`](./HANDOFF-TEMPLATE.md) in this dir per phase or per-execution-session. The template is M11-specific (already in place); follows the same shape as the FXAV one.
 
 ## Cross-plan note
 
-X.\* (the FXAV cross-cutting tasks) and M12 share one file surface: `lib/messages/catalog.ts`. X.1's catalog-parity audit and M12's Phase B catalog extension both touch this file. **Coordinate ordering** — finish X.1 catalog parity audit before M12 Phase B starts, OR pin Phase B's catalog-row additions against the X.1 audit baseline so the parity assertion sees a known-good starting state. If both run in parallel, the X.* implementer and the M12 Phase B implementer should agree on the sequence at handoff time.
+X.\* (the FXAV cross-cutting tasks) and M11 share one file surface: `lib/messages/catalog.ts`. X.1's catalog-parity audit and M11's Phase B catalog extension both touch this file. **Coordinate ordering** — finish X.1 catalog parity audit before M11 Phase B starts, OR pin Phase B's catalog-row additions against the X.1 audit baseline so the parity assertion sees a known-good starting state. If both run in parallel, the X.* implementer and the M11 Phase B implementer should agree on the sequence at handoff time.
