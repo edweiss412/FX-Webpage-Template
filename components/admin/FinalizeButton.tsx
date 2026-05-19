@@ -42,12 +42,20 @@ type PerRowFailure = {
   re_apply_url: string;
 };
 
+type PerRowOk = {
+  drive_file_id: string;
+  wizard_session_id: string;
+  code: "OK";
+};
+
+type PerRowEntry = PerRowFailure | PerRowOk;
+
 type FinalizeBatchResponse = {
   status: "batch_complete" | "all_batches_complete";
   wizard_session_id: string;
   remaining_count: number;
   unresolved_manifest_count: number;
-  per_row: PerRowFailure[];
+  per_row: PerRowEntry[];
 };
 
 type FinalizeErrorResponse = { ok: false; code: string };
@@ -112,16 +120,28 @@ export function FinalizeButton({ wizardSessionId, disabled }: FinalizeButtonProp
         return;
       }
       const batchBody = body as FinalizeBatchResponse;
+      // Per-row failures can land on EITHER batch_complete OR
+      // all_batches_complete (Pin-2 FinalizeResponse — a row that races
+      // mid-batch surfaces with status='batch_complete' AND a non-OK
+      // entry in per_row alongside the OK entries for the rest of the
+      // batch). Inspect per_row BEFORE branching on status; if any row
+      // is non-OK, stop the loop and render the re-apply links from
+      // THIS response's pre-built re_apply_url. Looping past a failure
+      // response would lose the actionable re-apply links and strand
+      // the operator.
+      const failedRows = (batchBody.per_row ?? []).filter(
+        (r): r is PerRowFailure => r.code !== "OK",
+      );
+      if (failedRows.length > 0) {
+        setState({ kind: "race_row", failures: failedRows });
+        return;
+      }
       if (batchBody.status === "batch_complete") {
         batchIndex += 1;
         setState({ kind: "running", phase: "batch", batchIndex });
         continue;
       }
       if (batchBody.status === "all_batches_complete") {
-        if (batchBody.per_row.length > 0) {
-          setState({ kind: "race_row", failures: batchBody.per_row });
-          return;
-        }
         break;
       }
       setState({ kind: "error", copy: GENERIC_ERROR });

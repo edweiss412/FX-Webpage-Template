@@ -29,12 +29,20 @@ type PerRowFailure = {
   re_apply_url: string;
 };
 
+type PerRowOk = {
+  drive_file_id: string;
+  wizard_session_id: string;
+  code: "OK";
+};
+
+type PerRowEntry = PerRowFailure | PerRowOk;
+
 type FinalizeBatchResponse = {
   status: "batch_complete" | "all_batches_complete";
   wizard_session_id: string;
   remaining_count: number;
   unresolved_manifest_count: number;
-  per_row: PerRowFailure[];
+  per_row: PerRowEntry[];
 };
 
 type FinalizeErrorResponse = { ok: false; code: string };
@@ -81,8 +89,13 @@ export function ResumeFinalizeButton({ sessionId: _sessionId }: ResumeFinalizeBu
         return;
       }
       const batchBody = body as FinalizeBatchResponse;
-      if (batchBody.per_row && batchBody.per_row.length > 0) {
-        setState({ kind: "race_row", failures: batchBody.per_row });
+      // Filter to only non-OK per_row entries; OK entries are reported
+      // for successfully-promoted rows in the same batch.
+      const failedRows = (batchBody.per_row ?? []).filter(
+        (r): r is PerRowFailure => r.code !== "OK",
+      );
+      if (failedRows.length > 0) {
+        setState({ kind: "race_row", failures: failedRows });
         return;
       }
       setState({ kind: "idle" });

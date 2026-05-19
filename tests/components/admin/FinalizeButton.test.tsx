@@ -148,6 +148,50 @@ describe("FinalizeButton", () => {
     expect(urls[3]).toBe("/api/admin/onboarding/finalize-cas");
   });
 
+  test("F-Codex-R2-2: per_row failures on a batch_complete response stop the loop (not just all_batches_complete)", async () => {
+    // The first batch returns status='batch_complete' with a non-OK per_row
+    // entry AND remaining work. The UI MUST surface the failure and stop;
+    // looping past it would lose the actionable re_apply_url.
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({
+        status: "batch_complete",
+        wizard_session_id: WIZARD_SESSION_ID,
+        remaining_count: 100,
+        unresolved_manifest_count: 1,
+        per_row: [
+          {
+            drive_file_id: "drive-ok-1",
+            wizard_session_id: WIZARD_SESSION_ID,
+            code: "OK",
+          },
+          {
+            drive_file_id: "drive-failed-mid-batch",
+            wizard_session_id: WIZARD_SESSION_ID,
+            code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
+            re_apply_url: `/admin/onboarding/staged/${WIZARD_SESSION_ID}/drive-failed-mid-batch`,
+          },
+        ],
+      }),
+    );
+    const { getByTestId } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // Re-apply link present from the FIRST batch (no looping past the failure).
+    expect(
+      getByTestId("wizard-finalize-reapply-drive-failed-mid-batch").getAttribute(
+        "href",
+      ),
+    ).toBe(
+      `/admin/onboarding/staged/${WIZARD_SESSION_ID}/drive-failed-mid-batch`,
+    );
+    // No second /finalize call, no /finalize-cas.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   test("race-row gate: per_row failures stop the loop and render re-apply links — /finalize-cas is NOT called", async () => {
     fetchMock.mockResolvedValueOnce(
       mockJsonResponse({
