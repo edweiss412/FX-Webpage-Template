@@ -99,7 +99,10 @@ async function authenticateReportRequest(
     try {
       const admin = await deps.requireAdminIdentity();
       return { ok: true, auth: { kind: "admin", email: admin.email } };
-    } catch {
+    } catch (error) {
+      if (error instanceof AdminInfraError) {
+        return { ok: false, status: 500, body: { ok: false, code: error.code } };
+      }
       return { ok: false, status: 403, body: { ok: false } };
     }
   }

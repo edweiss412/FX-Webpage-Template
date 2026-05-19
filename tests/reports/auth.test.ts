@@ -56,6 +56,7 @@ vi.mock("@/lib/reports/submit", async (importOriginal) => {
 });
 
 const { POST } = await import("@/app/api/report/route");
+const { AdminInfraError } = await import("@/lib/auth/requireAdmin");
 
 const validBody = {
   idempotency_key: "018f2f4c-8f54-4c28-9f56-f0f1b2c3d4e5",
@@ -199,6 +200,23 @@ describe("POST /api/report auth skeleton", () => {
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({ ok: false });
     expect(authMock.requireAdminIdentity).toHaveBeenCalledOnce();
+    expect(authMock.validateLinkSession).not.toHaveBeenCalled();
+    expect(authMock.validateGoogleSession).not.toHaveBeenCalled();
+    expect(authMock.submitReport).not.toHaveBeenCalled();
+  });
+
+  test("admin surface preserves admin auth infra failures as cataloged 500 responses", async () => {
+    authMock.requireAdminIdentity.mockRejectedValueOnce(
+      new AdminInfraError("requireAdmin: getUser failed"),
+    );
+
+    const response = await POST(request({ ...validBody, surface: "admin" }));
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      code: "ADMIN_SESSION_LOOKUP_FAILED",
+    });
     expect(authMock.validateLinkSession).not.toHaveBeenCalled();
     expect(authMock.validateGoogleSession).not.toHaveBeenCalled();
     expect(authMock.submitReport).not.toHaveBeenCalled();
