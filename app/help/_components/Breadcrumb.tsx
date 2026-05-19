@@ -11,7 +11,7 @@ export function Breadcrumb() {
     <nav aria-label="Breadcrumb" className="text-sm text-text-subtle mb-4">
       <ol className="flex items-center gap-2">
         <li>
-          <Link href="/help" className="hover:text-text-strong">Help</Link>
+          <Link href="/help" className="text-text hover:text-text-strong">Help</Link>
         </li>
         {entry && (
           <>
