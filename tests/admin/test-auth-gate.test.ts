@@ -43,8 +43,28 @@
  * direct-import tests for the two missing gates AND moves all gate-
  * rejection coverage into the always-deterministic layer.
  */
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { admin } from "../e2e/helpers/supabaseAdmin";
+
+// Layer 2's pre-clean needs a REAL Supabase admin client against the live DB.
+// The vi.mock("@supabase/supabase-js") below stubs createClient for Layer 1
+// assertions, so we must obtain the real client via vi.importActual before the
+// mock takes effect (vi.importActual bypasses the module mock at call time).
+let realAdmin: Awaited<ReturnType<typeof import("@supabase/supabase-js").createClient>>;
+
+beforeAll(async () => {
+  const real = await vi.importActual<typeof import("@supabase/supabase-js")>(
+    "@supabase/supabase-js",
+  );
+  const supabaseUrl =
+    process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
+  const serviceKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ??
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
+  realAdmin = real.createClient(supabaseUrl, serviceKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+});
 import { TEST_AUTH_SECRET, TEST_AUTH_BASE_URL } from "../e2e/helpers/testAuthConfig";
 
 // =============================================================================
@@ -474,12 +494,14 @@ describe.skipIf(!isReachable)(
       const adminEmail = "edweiss412@gmail.com";
       // Paginate through all auth.users pages — local Supabase auth.users
       // can exceed 200 rows from accumulated fixture state across runs.
+      // NOTE: use realAdmin (vi.importActual) not admin — admin is the mocked
+      // client whose listUsers always returns [] (Layer 1 stub).
       for (let page = 1; page <= 50; page++) {
-        const allUsers = await admin.auth.admin.listUsers({ page, perPage: 200 });
+        const allUsers = await realAdmin.auth.admin.listUsers({ page, perPage: 200 });
         const users = allUsers.data?.users ?? [];
         for (const u of users) {
           if ((u.email ?? "").toLowerCase() === adminEmail) {
-            await admin.auth.admin.deleteUser(u.id);
+            await realAdmin.auth.admin.deleteUser(u.id);
           }
         }
         if (users.length < 200) break;
@@ -508,12 +530,14 @@ describe.skipIf(!isReachable)(
     test("POST with valid secret + non-admin email + client isAdmin=true → 200, server derives isAdmin=false", async () => {
       const crewEmail = "crew-non-admin@fxav.test";
       // Paginate through all auth.users pages — same residue-protection as adminEmail above.
+      // NOTE: use realAdmin (vi.importActual) not admin — admin is the mocked
+      // client whose listUsers always returns [] (Layer 1 stub).
       for (let page = 1; page <= 50; page++) {
-        const allUsers = await admin.auth.admin.listUsers({ page, perPage: 200 });
+        const allUsers = await realAdmin.auth.admin.listUsers({ page, perPage: 200 });
         const users = allUsers.data?.users ?? [];
         for (const u of users) {
           if ((u.email ?? "").toLowerCase() === crewEmail) {
-            await admin.auth.admin.deleteUser(u.id);
+            await realAdmin.auth.admin.deleteUser(u.id);
           }
         }
         if (users.length < 200) break;
