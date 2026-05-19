@@ -83,19 +83,25 @@ export async function AlertBanner() {
   // appended when there is something to exclude. PostgREST `.not('code',
   // 'in', '(...)')` requires a non-empty value list; appending an empty
   // `()` clause throws on the server.
-  let query = supabase
-    .from("admin_alerts")
-    .select("id, code, raised_at, show_id, context, shows(slug)")
-    .is("resolved_at", null);
-  if (INFO_SEVERITY_CODES.length > 0) {
-    query = query.not(
-      "code",
-      "in",
-      `(${INFO_SEVERITY_CODES.map((code) => `"${code}"`).join(",")})`,
-    );
-  }
+  //
+  // Codex R3 fix: builder construction (.from(...).select(...).is(...))
+  // is INSIDE the try block — `.from()` can throw synchronously (the
+  // §1.9 meta-test models this exact case), and a sync throw outside
+  // the try would have crashed the admin layout despite the await
+  // being wrapped.
   let data: Array<Record<string, unknown>> | null;
   try {
+    let query = supabase
+      .from("admin_alerts")
+      .select("id, code, raised_at, show_id, context, shows(slug)")
+      .is("resolved_at", null);
+    if (INFO_SEVERITY_CODES.length > 0) {
+      query = query.not(
+        "code",
+        "in",
+        `(${INFO_SEVERITY_CODES.map((code) => `"${code}"`).join(",")})`,
+      );
+    }
     const result = await query.order("raised_at", { ascending: false }).limit(1);
     if (result.error) {
       // I3 fix: distinguish DB error from empty result. Empty (no unresolved
@@ -125,22 +131,26 @@ export async function AlertBanner() {
   // exact count via head:true so no row payload comes back. The chip
   // renders only when (count - 1) >= 1, i.e., there are alerts beyond
   // the topmost shown.
-  let countQuery = supabase
-    .from("admin_alerts")
-    .select("id", { count: "exact", head: true })
-    .is("resolved_at", null);
-  if (INFO_SEVERITY_CODES.length > 0) {
-    countQuery = countQuery.not(
-      "code",
-      "in",
-      `(${INFO_SEVERITY_CODES.map((code) => `"${code}"`).join(",")})`,
-    );
-  }
-  // C4 R2 fix: invariant 9 (Supabase call-boundary discipline) requires
-  // every call destructure `{ data, error }`. head:true makes the data
-  // payload null but the binding shape stays uniform across the codebase.
+  //
+  // Codex R3 fix: countQuery construction is INSIDE the try block (see
+  // the SELECT block above for the same rationale — `.from()` is a
+  // synchronous throw site that the §1.9 meta-test exercises).
   let queueDepth: number | null = null;
   try {
+    let countQuery = supabase
+      .from("admin_alerts")
+      .select("id", { count: "exact", head: true })
+      .is("resolved_at", null);
+    if (INFO_SEVERITY_CODES.length > 0) {
+      countQuery = countQuery.not(
+        "code",
+        "in",
+        `(${INFO_SEVERITY_CODES.map((code) => `"${code}"`).join(",")})`,
+      );
+    }
+    // C4 R2 fix: invariant 9 (Supabase call-boundary discipline) requires
+    // every call destructure `{ data, error }`. head:true makes the data
+    // payload null but the binding shape stays uniform across the codebase.
     const { data: _countData, count, error: countError } = await countQuery;
     void _countData;
     if (countError) {

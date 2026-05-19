@@ -415,4 +415,27 @@ describe("META §B Supabase call-boundary contract", () => {
       );
     });
   });
+
+  // AlertBanner is the admin-layout-mounted banner. Codex R3 caught that
+  // builder construction (`.from(...).select(...).is(...)`) was OUTSIDE
+  // the try block, so a synchronous `.from()` throw would have crashed
+  // the admin layout despite the await being wrapped. These behavioral
+  // tests pin the contract: throws (construction OR builder OR await)
+  // resolve to null and do NOT propagate.
+  describe("AlertBanner", () => {
+    test("server-client construction throw → resolves to null (banner hides)", async () => {
+      infraMock.throwOnConstruct = true;
+      const { AlertBanner } = await import("@/components/admin/AlertBanner");
+      const result = await AlertBanner();
+      expect(result).toBeNull();
+    });
+
+    test("from() throw on SELECT builder construction → resolves to null", async () => {
+      infraMock.throwOnFrom = true;
+      const { AlertBanner } = await import("@/components/admin/AlertBanner");
+      // The component should NOT propagate the synchronous .from() throw;
+      // it must catch and log + return null.
+      await expect(AlertBanner()).resolves.toBeNull();
+    });
+  });
 });
