@@ -174,23 +174,23 @@ Pulled forward from X.1 R1–R3 + X.2 R1 + X.3 R1 close-out + new 2026-05-19 mem
 
 ## 8. Exit criteria
 
-- [ ] All sub-steps in `11-cross-cutting.md` Task X.4 (Steps 1–4) checked off.
-- [ ] AC-X.4 has at least one passing test asserting each named surface: layer 1 (schema), layer 2 (token-aware AST), layer 3 semantic provenance check, layer 3 coverage sweep, layer 3 display-only check, layer 4 DDL trigger.
-- [ ] `scripts/extract-watermark-symbols.ts` derives `AUTHORITATIVE_GATING_WATERMARKS` + `DISPLAY_ONLY_TIMESTAMPS` + `SYNC_ENTRY_POINTS` from spec §X.4 prose at audit-execution time. Hardcoded symbol arrays in the audit code are a P0.
-- [ ] `lib/audit/watermark-symbols.generated.ts` is committed with `// @generated` header; `pnpm gen:watermark-symbols && git diff --exit-code` passes; CI regenerate is byte-identical; `eslint.config.js` override entry exists.
-- [ ] All ~25 regression fixtures under `tests/cross-cutting/fixtures/no-global-cursor*/` exist and behave as specified. Spot-check the M10-R3-style canonical bug: `bad-app-settings-cursor.ts` (singleton-table read with column name `processed_at` slips past layers 1–2 but fails layer 3 with the canonical `forbidden source 'app_settings.processed_at'` error).
-- [ ] Entry-point precheck fires on all four entry-point regression fixtures (`bad-missing-entry-point` for cron + apply + discard + ambiguous variant).
-- [ ] JSONB-path expression normalization handled — `good-asset-route-cas-revision-id.fixture` passes; spec ↔ plan parity assertion's drift fixture fails with named diff.
-- [ ] Three X.3 helper-refactor surfaces closed: `sameFixtureFamily`, `inferFixtureDomain`, `findRequestEntries` path-substring discrimination → AST-aware or unique-key-based. ALL 28 X.3 tests still green after refactor.
-- [ ] Postgres DDL event trigger at `supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql` applies cleanly; rejects a synthetic watermark-named column on `app_settings`; allows a column when its `(table_name, column_name)` pair is pre-inserted into `_allowed_watermark_columns`.
-- [ ] M6-era advisory `! rg "lastPollAt"` is retired OR explicitly noted as superseded (whichever fits the current workflow; the literal grep MAY remain as defense-in-depth per plan ~line 1634).
-- [ ] CI exposes `x4-no-global-cursor` verbatim. Spot-check `.github/workflows/x-audits.yml`. Artifact name uses canonical pattern. BOTH freshness gates run BEFORE the audit step.
-- [ ] `pretypecheck` / `prelint` / `pretest` / `prebuild` ALL chained to BOTH `gen:admin-tables` AND `gen:watermark-symbols` in `package.json`.
-- [ ] `pnpm typecheck && pnpm lint && pnpm test` exits 0 with no new warnings.
-- [ ] No new `// TODO` or `// FIXME` lines.
+- [x] All sub-steps in `11-cross-cutting.md` Task X.4 (Steps 1–4) checked off.
+- [x] AC-X.4 has at least one passing test asserting each named surface: layer 1 (schema), layer 2 (token-aware AST), layer 3 semantic provenance check, layer 3 coverage sweep, layer 3 display-only check, layer 4 DDL trigger.
+- [x] `scripts/extract-watermark-symbols.ts` derives `AUTHORITATIVE_GATING_WATERMARKS` + `DISPLAY_ONLY_TIMESTAMPS` + `SYNC_ENTRY_POINTS` from spec §X.4 prose at audit-execution time. Hardcoded symbol arrays in the audit code are a P0.
+- [x] `lib/audit/watermark-symbols.generated.ts` is committed with `// @generated` header; `pnpm gen:watermark-symbols && git diff --exit-code` passes; CI regenerate is byte-identical; `eslint.config.js` override entry exists.
+- [x] All ~25 regression fixtures under `tests/cross-cutting/fixtures/no-global-cursor*/` exist and behave as specified. Spot-check the M10-R3-style canonical bug: `bad-app-settings-cursor.ts` (singleton-table read with column name `processed_at` slips past layers 1–2 but fails layer 3 with the canonical `forbidden source 'app_settings.processed_at'` error).
+- [x] Entry-point precheck fires on all four entry-point regression fixtures (`bad-missing-entry-point` for cron + apply + discard + ambiguous variant).
+- [x] JSONB-path expression normalization handled — `good-asset-route-cas-revision-id.fixture` passes; spec ↔ plan parity assertion's drift fixture fails with named diff.
+- [x] Three X.3 helper-refactor surfaces closed: `sameFixtureFamily`, `inferFixtureDomain`, `findRequestEntries` path-substring discrimination → AST-aware or unique-key-based. ALL 28 X.3 tests still green after refactor.
+- [x] Postgres DDL event trigger at `supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql` applies cleanly; rejects a synthetic watermark-named column on `app_settings`; allows a column when its `(table_name, column_name)` pair is pre-inserted into `_allowed_watermark_columns`.
+- [x] M6-era advisory `! rg "lastPollAt"` is retired OR explicitly noted as superseded (whichever fits the current workflow; the literal grep MAY remain as defense-in-depth per plan ~line 1634).
+- [x] CI exposes `x4-no-global-cursor` verbatim. Spot-check `.github/workflows/x-audits.yml`. Artifact name uses canonical pattern. BOTH freshness gates run BEFORE the audit step.
+- [x] `pretypecheck` / `prelint` / `pretest` / `prebuild` ALL chained to BOTH `gen:admin-tables` AND `gen:watermark-symbols` in `package.json`.
+- [x] `pnpm typecheck && pnpm lint && pnpm test` exits 0 with no new warnings.
+- [x] No new `// TODO` or `// FIXME` lines.
 - [ ] Adversarial review converged to APPROVE (Opus reviewer; expected R1–R2 per lineage trend).
-- [ ] All commits follow `<type>(<scope>): <summary>` format with one logical task per commit.
-- [ ] Convergence log at the bottom of this file is filled in.
+- [x] All commits follow `<type>(<scope>): <summary>` format with one logical task per commit.
+- [x] Convergence log at the bottom of this file is filled in.
 
 ## 9. Sandbox / git protocol
 
@@ -247,7 +247,17 @@ Declared at handoff time per memory `feedback_meta_test_at_plan_time_not_round_n
 
 ### Implementation ready for adversarial review
 
-- _(filled by Codex when implementation is staged and ready for review)_
+- **Implementation commit:** `fb01feb` (`test(cross-cutting): add no-global-cursor audit`). Handoff close-out commit follows this entry.
+- **Audit totals:** X.4 audit `tests/cross-cutting/no-global-cursor.test.ts` passes 10/10 tests; X.3 regression gate remains green at 28/28 tests after the helper refactor. Full verification chain also re-ran X.1 (69/69), X.2 (17/17), X.3 (28/28), X.4 (10/10), `tests/cross-cutting/auth.test.ts` (28/28), `verify:spec-amendment`, `typecheck`, `lint`, and full `pnpm test` (257 files passed / 1 skipped; 3455 tests passed / 5 skipped).
+- **Delivered:** `scripts/extract-watermark-symbols.ts` derives `AUTHORITATIVE_GATING_WATERMARKS`, `DISPLAY_ONLY_TIMESTAMPS`, `SYNC_ENTRY_POINTS`, and `BANNED_COMBOS` into `lib/audit/watermark-symbols.generated.ts`; `lib/audit/noGlobalCursor.ts` implements schema, token-aware AST, semantic provenance/coverage/display-only/precheck audits; `supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql` installs `_allowed_watermark_columns` and `no_global_cursor_columns`; `.github/workflows/x-audits.yml` adds `x4-no-global-cursor` with both freshness gates and canonical artifact naming.
+- **Regression fixtures:** 33 X.4 fixtures landed across `tests/cross-cutting/fixtures/no-global-cursor/` and `tests/cross-cutting/fixtures/no-global-cursor-semantic/`, including the required `bad-app-settings-cursor.ts`, JSONB-path positive, fresh-read CAS negatives, coverage-sweep negative, display-only negatives, and four entry-point precheck negatives.
+- **X.3 residuals closed:** `sameFixtureFamily` removed in favor of exact per-file allowlist entries; fixture domain inference moved to explicit sidecar metadata; App Router entry-kind detection no longer branches on fixture filename substrings. Negative regression: disabling dynamic `.from` allowlist recognition made the known-good allowlisted fixture fail; restored green.
+- **DDL verification:** Applied the migration locally against Supabase/Postgres 17. Verified `ALTER TABLE public.app_settings ADD COLUMN last_processed_at timestamptz` rejects via the event trigger, and verified a synthetic watermark-shaped column on `public.x4_allowed_probe` succeeds only after inserting its `(table_name, column_name)` pair into `_allowed_watermark_columns`.
+- **Drift findings:** No shipped sync code needed behavioral changes. DDL verification surfaced existing non-cursor columns matching the trigger heuristic (`shows.last_sync_status`, `shows.last_sync_error`, `pending_syncs.prior_last_sync_status`, `pending_syncs.prior_last_sync_error`, `pending_ingestions.last_seen_modified_time`, `wizard_finalize_checkpoints.last_processed_at`, `wizard_finalize_checkpoints.last_processed_drive_file_id`); resolved by adding them to the explicit out-of-scope allowlist so future unallowlisted cursor-shaped columns still fail closed.
+- **Spec extractor round-trip:** `pnpm gen:watermark-symbols && git diff --exit-code lib/audit/watermark-symbols.generated.ts` passes byte-identically. The extractor filters stale explanatory names (`shows.snapshot_revision_id`, `shows.base_modified_time`) and normalizes `shows.diagrams ->> 'snapshot_revision_id'` to `shows.diagrams->>snapshot_revision_id`.
+- **X.2 substring residual avoided:** X.4 tokenizes AST identifiers and literals before checking `BANNED_COMBOS`; the lastPollAt defense-in-depth path uses exact literal/node values, not substring scans over file text.
+- **Workflow lint:** `actionlint` is not installed locally; `.github/workflows/x-audits.yml` was manually reviewed for the verbatim job name, both freshness gates before audit, and canonical artifact name.
+- **No UI surface:** No shipped `app/`/`components/` UI files were edited. The only `app/` paths mentioned are scanned by audit/test output.
 
 ### Adversarial review
 
