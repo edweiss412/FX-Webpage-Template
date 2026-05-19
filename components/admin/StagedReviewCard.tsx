@@ -334,6 +334,26 @@ export function StagedReviewCard({
         | { ok: boolean; error?: string }
         | { status: string }
         | { ok: false; code: string };
+      // AC-10.6 wizard inline rescan: the route detected a Drive modtime
+      // drift, re-parsed the sheet inside this wizard session, and
+      // returned a fresh staged row. Clear local reviewer choices so the
+      // re-rendered card starts clean, surface the catalog notice, and
+      // let the parent re-fetch the new staged parse via router.refresh.
+      // STAGED_PARSE_RESTAGED_INLINE is an informational catalog code
+      // (not a true error), but the ErrorExplainer is the project's
+      // canonical catalog renderer per invariant 5 — every dougFacing
+      // code surfaces through the same path.
+      if (
+        isWizardMode &&
+        "status" in json &&
+        (json as { status: string }).status === "restaged_inline"
+      ) {
+        setChoices(new Map());
+        setErrorCode("STAGED_PARSE_RESTAGED_INLINE");
+        onMutated?.();
+        router.refresh();
+        return;
+      }
       const succeeded = isWizardMode
         ? "status" in json && (json as { status: string }).status === "reapplied"
         : isFirstSeenMode

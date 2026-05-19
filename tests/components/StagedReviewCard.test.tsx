@@ -315,6 +315,46 @@ describe("StagedReviewCard", () => {
     resolve(okResponse());
   });
 
+  test("wizard restaged_inline response surfaces STAGED_PARSE_RESTAGED_INLINE notice + refreshes (AC-10.6)", async () => {
+    // Spec AC-10.6: wizard apply detects Drive modtime drift, runs an
+    // inline rescan, and returns 200 {status: 'restaged_inline', staged_id, ...}
+    // with code STAGED_PARSE_RESTAGED_INLINE. The card must surface the
+    // catalog dougFacing (informational notice), call onMutated +
+    // router.refresh so the parent re-fetches the fresh staged parse,
+    // and NOT treat the response as an error.
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({
+        status: "restaged_inline",
+        wizard_session_id: "ws-1",
+        drive_file_id: "drive-1",
+        staged_id: "22222222-2222-4222-8222-222222222222",
+        staged_modified_time: "2026-05-10T12:00:00Z",
+        code: "STAGED_PARSE_RESTAGED_INLINE",
+      }),
+    } as unknown as Response);
+    const onMutated = vi.fn();
+    const row: StagedRow = {
+      ...baseRow,
+      triggeredReviewItems: [{ id: "mi6", invariant: "MI-6" }],
+    };
+    const { getByTestId } = render(
+      <StagedReviewCard
+        row={row}
+        mode="wizard_failed_reapply"
+        wizardSessionId="ws-1"
+        onMutated={onMutated}
+      />,
+    );
+    fireEvent.click(getByTestId("staged-review-apply"));
+    await waitFor(() => expect(onMutated).toHaveBeenCalled());
+    expect(refreshMock).toHaveBeenCalled();
+    // Anti-tautology: assert against the literal catalog dougFacing
+    // (never messageFor() — a round-trip self-check).
+    expect(getByTestId("staged-review-card-error").textContent ?? "").toContain(
+      MESSAGE_CATALOG.STAGED_PARSE_RESTAGED_INLINE.dougFacing!,
+    );
+  });
+
   test("encodes drive_file_id with special characters in URL", async () => {
     fetchMock.mockResolvedValue(okResponse());
     const row: StagedRow = {
