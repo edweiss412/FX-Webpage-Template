@@ -226,6 +226,12 @@ describe("META §B Supabase call-boundary contract", () => {
           }
         }
       });
+      // Run chain-walk to fixpoint AND collect every chain-assignment
+      // line index — including SAME-NAME reassignments like
+      // `query = query.not(...)`. Codex R5 #2 caught that the prior
+      // version added the line to builderAssignLines only when the LHS
+      // was a NEW name; same-name reassignments matched chainRe but
+      // never got pinned, leaving a regression hole.
       let prevSize = -1;
       while (prevSize !== builderNames.size) {
         prevSize = builderNames.size;
@@ -237,11 +243,11 @@ describe("META §B Supabase call-boundary contract", () => {
         );
         lines.forEach((line, idx) => {
           for (const m of line.matchAll(chainRe)) {
-            if (m[1] && !builderNames.has(m[1])) {
+            if (m[1]) {
               builderNames.add(m[1]);
-              builderAssignLines.push(idx);
-            } else if (m[1] === undefined) {
-              // matchAll always populates groups for capturing groups; no-op.
+              if (!builderAssignLines.includes(idx)) {
+                builderAssignLines.push(idx);
+              }
             }
           }
         });
