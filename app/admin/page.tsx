@@ -44,7 +44,6 @@ import {
   isCheckpointStale,
   isInfraError,
 } from "@/app/admin/_finalizeCheckpoint";
-import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin · FXAV" };
@@ -52,51 +51,6 @@ export const metadata = { title: "Admin · FXAV" };
 type AdminPageProps = {
   searchParams: Promise<{ step?: string; show_finalize?: string }>;
 };
-
-function DashboardPhase1Placeholder() {
-  return (
-    <main
-      data-testid="admin-dashboard-placeholder"
-      className="mx-auto flex max-w-2xl flex-col gap-section-gap"
-    >
-      <header className="flex flex-col gap-2">
-        <p
-          className="text-xs font-medium uppercase text-text-subtle"
-          style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-        >
-          Admin
-        </p>
-        <h2 className="text-2xl font-semibold text-text-strong">
-          Setup is complete
-        </h2>
-        <p className="max-w-prose text-base text-text-subtle">
-          Your Drive folder is connected and the live sync is running.
-          Dashboard is coming in the next phase.
-        </p>
-      </header>
-      <div className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad">
-        <h3 className="text-lg font-semibold text-text-strong">
-          What you can do today
-        </h3>
-        <ul className="flex flex-col gap-2 text-base text-text">
-          <li>
-            <Link
-              href="/admin/settings"
-              data-testid="admin-dashboard-placeholder-settings-link"
-              className="text-accent-on-bg underline-offset-2 hover:underline"
-            >
-              Open settings
-            </Link>
-            <span className="text-text-subtle">
-              {" "}
-              to re-run setup or manage administrators.
-            </span>
-          </li>
-        </ul>
-      </div>
-    </main>
-  );
-}
 
 function CheckpointInfraErrorPlaceholder() {
   return (
