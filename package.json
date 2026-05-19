@@ -21,6 +21,9 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@mdx-js/loader": "^3.1.1",
+    "@mdx-js/react": "^3.1.1",
+    "@next/mdx": "^16.2.6",
     "@octokit/rest": "^22.0.1",
     "@sentry/nextjs": "^10.51.0",
     "@supabase/ssr": "^0.10.2",
@@ -45,6 +48,7 @@
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@types/mdx": "^2.0.13",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
