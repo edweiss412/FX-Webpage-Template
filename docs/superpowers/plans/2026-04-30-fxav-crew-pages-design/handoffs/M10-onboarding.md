@@ -749,6 +749,13 @@ If "None applies because <reason>," say so explicitly — empty cells silently l
 
 (Append per cluster / per round below; oldest at top.)
 
+### Whole-milestone close-out adversarial review (in progress)
+
+- **2026-05-18, R1A (mechanical pass — orchestrator-driven).** First Codex dispatch + retry both stalled at ~5-8min on broad multi-pattern rg sweeps (Codex's verifying-phase exploration produced too much context for the model to process). Pivoted to hybrid: orchestrator (Opus) runs mechanical axes (A AC-coverage + B invariants + C Amendment 9 + L gates) in-session; Codex R1B handles judgment axes D-K with R1A results inlined to prevent re-exploration.
+  - **R1A mechanical results:** A1 AC-10.1 APPROVE (onboarding-wizard-step1.spec.ts); A2 AC-10.2 APPROVE (scanRoute + Step2Verify); A3 AC-10.3 APPROVE (Step3Review.test enumerates all 6 manifest statuses); **A4 AC-10.4 MINOR** — rerunSetup tests verify rotation but no explicit `watched_folder_id` preservation assertion (by-construction safe via sessionLifecycle helper UPDATEs pending_* only); **A5 AC-10.5 HIGH** — no test asserts "cron continues using watched_folder_id during mid-wizard abandonment"; **A6 AC-10.6 HIGH** — STAGED_PARSE_RESTAGED_INLINE in catalog but no test pins wizard-side rescan-inline flow; B.1-B.9 invariants ALL APPROVE; C1+C2 Amendment 9 fixtures both present in scanRoute.test; L1/L2/L3 gates clean (typecheck/lint 6 M9 carry-forward/test 3334 pass).
+  - **R1A findings routed:** all 3 are §B test-coverage gaps (test files only — no implementation bugs).
+- **2026-05-18, R1B dispatched** (judgment axes D-K). Codex job `review-mpc4ihpg-pg0c1v`. R1A findings inlined as pre-computed context so Codex skips mechanical re-verification.
+
 ### Post-Pin-3 hotfix M10-D-PHASE3-1 (§A Codex)
 
 - **2026-05-18, hotfix cleared at SHA range a514daf..a53afc6 (resolved at e54babe).** §A shipped `/api/report` auth-precedence fix: when `surface === "admin"`, `requireAdminIdentity()` runs FIRST; admin success builds `auth = { kind: "admin", email }` regardless of any link/Google session also present; admin denial returns 403 (no crew fallthrough); `AdminInfraError` remains cataloged 500 `ADMIN_SESSION_LOOKUP_FAILED`. Non-admin surfaces preserve the existing link → Google → admin order. Class-sweep: no peer request-body-surface identity-selection routes found. Cross-CLI Opus review: 3 rounds → APPROVE (R1 HIGH `AdminInfraError` masked as 403 → fixed at e54babe; R2/R3 APPROVE). DEFERRED.md M10-D-PHASE3-1 moved to Resolved. Verification: 3339/3344 tests pass; 0 lint errors (6 M9 carry-forward warnings); typecheck clean.
