@@ -242,12 +242,15 @@ function withFakeTx(tx: FakeLifecycleTx) {
 describe("onboarding session lifecycle helpers", () => {
   test("purgeAndRotateOnboardingSession rotates and purges wizard rows in one transaction", async () => {
     const tx = new FakeLifecycleTx();
+    tx.settingsRow = settings({ watched_folder_id: "preserved-folder-id" });
     const result = await purgeAndRotateOnboardingSession({
       randomUUID: () => W2,
       withTx: withFakeTx(tx),
     });
 
     expect(result).toEqual({ settings: { ...tx.settingsRow }, rotated: true });
+    expect(result.settings.watched_folder_id).toBe("preserved-folder-id");
+    expect(tx.settingsRow.watched_folder_id).toBe("preserved-folder-id");
     expect(tx.settingsRow.pending_wizard_session_id).toBe(W2);
     expect(tx.pendingSyncSessions).toEqual(new Set([null]));
     expect(tx.pendingIngestionSessions).toEqual(new Set([null]));
@@ -280,6 +283,24 @@ describe("onboarding session lifecycle helpers", () => {
     expect(tx.pendingSyncSessions).toEqual(new Set([null]));
     expect(tx.deferredIngestionSessions).toEqual(new Set([null]));
     vi.useRealTimers();
+  });
+
+  test("purgeAndRotateIfStale preserves watched_folder_id across stale rotation (AC-10.5)", async () => {
+    const tx = new FakeLifecycleTx();
+    tx.settingsRow = settings({
+      watched_folder_id: "preserved-folder-id",
+      pending_wizard_session_at: "2026-05-15T00:00:00.000Z",
+    });
+    tx.staleByDbClock = true;
+
+    const result = await purgeAndRotateIfStale({ randomUUID: () => W2, withTx: withFakeTx(tx) });
+
+    expect(result.rotated).toBe(true);
+    expect(result.settings.watched_folder_id).toBe("preserved-folder-id");
+    const selected = await tx.query<AppSettingsRow>(
+      "select * from public.app_settings where id = 'default'",
+    );
+    expect(selected.rows[0]?.watched_folder_id).toBe("preserved-folder-id");
   });
 
   test("purgeAndRotateIfStale rotates at the exact 24h boundary when the DB predicate matches", async () => {
