@@ -63,7 +63,7 @@ function statusGlyph(status: string | null, published: boolean): {
     case "sheet_unavailable":
       return { label: "✗ Needs attention", tone: "err" };
     default:
-      return { label: "—", tone: "ok" };
+      return { label: "·", tone: "ok" };
   }
 }
 

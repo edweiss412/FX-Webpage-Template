@@ -89,9 +89,9 @@ function badgeForStatus(status: Step3ManifestStatus): {
     case "staged":
       return { label: "Ready for review", tone: "info" };
     case "hard_failed":
-      return { label: "Couldn't parse", tone: "warn" };
+      return { label: "Couldn’t parse", tone: "warn" };
     case "skipped_non_sheet":
-      return { label: "Skipped — not a Google Sheet", tone: "info" };
+      return { label: "Skipped: not a Google Sheet", tone: "info" };
     case "applied":
       return { label: "Applied", tone: "ok" };
     case "defer_until_modified":
@@ -99,7 +99,7 @@ function badgeForStatus(status: Step3ManifestStatus): {
     case "permanent_ignore":
       return { label: "Permanently ignored", tone: "ok" };
     case "discard_retryable":
-      return { label: "Set aside — try again next sync", tone: "warn" };
+      return { label: "Set aside (try again next sync)", tone: "warn" };
     case "live_row_conflict":
       return { label: "Live row conflict", tone: "blocked" };
   }

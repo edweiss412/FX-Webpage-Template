@@ -241,8 +241,8 @@ export function Step2Verify() {
             data-testid="wizard-step2-elapsed"
           >
             {elapsedSeconds} second{elapsedSeconds === 1 ? "" : "s"} so far. We
-            keep going until we have read every sheet — large folders can take
-            a minute.
+            keep going until we have read every sheet. Large folders can take a
+            minute.
           </p>
         </div>
       ) : null}

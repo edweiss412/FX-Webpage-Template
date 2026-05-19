@@ -20,6 +20,18 @@ import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolv
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 
+function formatRelative(iso: string): string {
+  const parsed = Date.parse(iso);
+  if (Number.isNaN(parsed)) return iso;
+  const minutes = Math.floor((Date.now() - parsed) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 type AdminAlertRow = {
   id: string;
   code: string;
@@ -104,7 +116,7 @@ export async function PerShowAlertSection({
     <section
       data-testid="per-show-alert-section"
       aria-labelledby="per-show-alert-section-heading"
-      className="flex flex-col gap-3 rounded-md border border-warning-text bg-warning-bg p-tile-pad text-warning-text"
+      className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
     >
       <h2
         id="per-show-alert-section-heading"
@@ -121,7 +133,7 @@ export async function PerShowAlertSection({
               key={alert.id}
               data-testid={`per-show-alert-${alert.id}`}
               aria-current={isHighlighted ? "true" : undefined}
-              className={`flex flex-col gap-2 rounded-sm border border-warning-text bg-surface p-3 text-text ${
+              className={`flex flex-col gap-2 rounded-sm border border-border bg-surface p-3 text-text ${
                 isHighlighted ? "ring-2 ring-focus-ring ring-offset-2" : ""
               }`}
             >
@@ -131,7 +143,7 @@ export async function PerShowAlertSection({
               <p className="text-xs text-text-subtle tabular-nums">
                 Raised{" "}
                 <time dateTime={alert.raised_at} suppressHydrationWarning>
-                  {alert.raised_at}
+                  {formatRelative(alert.raised_at)}
                 </time>
               </p>
               <PerShowAlertResolveButton alertId={alert.id} slug={slug} />

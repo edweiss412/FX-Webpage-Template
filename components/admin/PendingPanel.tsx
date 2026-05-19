@@ -22,6 +22,14 @@
 import Link from "next/link";
 import { PendingPanelRetryButton } from "@/components/admin/PendingPanelRetryButton";
 import { PendingPanelDiscardButtons } from "@/components/admin/PendingPanelDiscardButtons";
+import { messageFor } from "@/lib/messages/lookup";
+import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+
+function lookupDougFacing(code: string | undefined | null): string | null {
+  if (!code) return null;
+  if (!(code in MESSAGE_CATALOG)) return null;
+  return messageFor(code as MessageCode).dougFacing ?? null;
+}
 
 export type PendingIngestionRow = {
   id: string;
@@ -113,8 +121,8 @@ export function PendingPanel({
                   {row.driveFileName ?? row.driveFileId}
                 </p>
                 <p className="text-sm text-text-subtle">
-                  {row.errorMessage ??
-                    row.errorCode ??
+                  {lookupDougFacing(row.errorCode) ??
+                    row.errorMessage ??
                     "We could not parse this sheet."}
                 </p>
                 <p className="text-xs text-text-subtle tabular-nums">
