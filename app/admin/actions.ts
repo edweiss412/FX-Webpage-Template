@@ -105,8 +105,16 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
     // I1 fix: do NOT call revalidatePath when the UPDATE failed (network
     // blip, RLS denial, misconfiguration). Silently revalidating would show
     // the admin a "resolved" UI while the row remains unresolved on the DB.
-    console.error("[resolveAdminAlertFormAction] UPDATE failed:", updateError.message);
-    return;
+    //
+    // §1.9 + Codex R5: the prior `return;` here silently swallowed the
+    // returned UPDATE error — the form re-enables controls, the alert
+    // stays unresolved on the DB, and the operator gets no signal. That
+    // contradicts the not-subject-to-meta exemption's "propagation IS
+    // the contract" rule. Throw so the Next.js error boundary renders,
+    // matching the getUser returned-error fix above.
+    throw new Error(
+      `[resolveAdminAlertFormAction] admin_alerts UPDATE failed: ${updateError.message}`,
+    );
   }
 
   // Re-render the admin layout so the AlertBanner re-runs its SELECT

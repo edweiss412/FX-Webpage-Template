@@ -161,10 +161,18 @@ describe("resolveAdminAlertFormAction", () => {
 
   // ============ I1: DB UPDATE error path ============
 
-  test("I1: DB UPDATE returns error → console.error fires and revalidatePath does NOT", async () => {
+  test("I1 + R6 §B Codex R5 #1: DB UPDATE returns error → THROW and revalidatePath does NOT fire", async () => {
+    // R6 §B Codex R5 #1: previously this branch did `console.error +
+    // return;` which silently swallowed the returned UPDATE error — the
+    // alert stayed unresolved on the DB but the form re-enabled controls
+    // with no operator signal. Per AGENTS.md §1.9 not-subject-to-meta
+    // exemption ("propagation IS the contract"), the action now throws,
+    // routing to the Next.js error boundary instead of silent return.
     mockState.chainResult = { error: { message: "rls denied" } };
 
-    await resolveAdminAlertFormAction(fd({ id: VALID_UUID }));
+    await expect(resolveAdminAlertFormAction(fd({ id: VALID_UUID }))).rejects.toThrow(
+      /UPDATE failed.*rls denied/,
+    );
 
     // The .update() chain WAS invoked (we got far enough to attempt the write).
     expect(mockState.updateSpy).toHaveBeenCalledTimes(1);
@@ -172,16 +180,6 @@ describe("resolveAdminAlertFormAction", () => {
     // Revalidation MUST NOT have fired — the row was not changed, so the
     // admin must not see a "resolved" UI on next render.
     expect(revalidatePathSpy).not.toHaveBeenCalled();
-
-    // The error MUST have been logged so an operator tailing logs has a
-    // signal that the resolve path is broken.
-    expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-    const call = consoleErrorSpy.mock.calls[0];
-    if (!call) throw new Error("expected console.error to have been called");
-    const [logMsg, errArg] = call;
-    expect(String(logMsg)).toContain("[resolveAdminAlertFormAction]");
-    expect(String(logMsg)).toContain("UPDATE failed");
-    expect(String(errArg)).toContain("rls denied");
   });
 
   test("scope hardening: action resolves only global alerts", async () => {
