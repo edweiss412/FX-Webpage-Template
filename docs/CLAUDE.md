@@ -20,10 +20,9 @@ HTML is acceptable — and encouraged — and assumes the primary reader is a no
 
 Good fits for HTML in this repo:
 
-- **Stakeholder-facing summaries** of what a milestone shipped, where a markdown handoff doc would be too dense
+- **Stakeholder-facing summaries**
 - **Visual explainers** of how a feature works (crew page flow, ingestion pipeline, auth sequence) — diagrams in SVG, color-coded states, annotated screenshots
 - **Design exploration & comparison** — multiple variants side-by-side in a grid for a non-engineer reviewer
-- **Reports for the project sponsor** (e.g., Doug Larson) — readable on phone, shareable as a single file, no markdown renderer required
 - **Custom one-off editing interfaces** — throwaway HTML tools with sliders/forms/drag-and-drop that export structured data back as a paste-able prompt or JSON
 
 These HTML artifacts are *net-new content* aimed at a different audience than the canonical markdown — not translations of it.
