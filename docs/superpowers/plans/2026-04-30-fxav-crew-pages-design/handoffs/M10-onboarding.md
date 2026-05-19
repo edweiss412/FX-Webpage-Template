@@ -386,6 +386,45 @@ export type LiveFirstSeenStagedDiscardResponse =
   | { ok: false; code: "STALE_DISCARD_REJECTED" | "CONCURRENT_SYNC_SKIPPED" };
 ```
 
+### Pinned contract @ f74a1ed (Pin-stop 3 — 2026-05-18)
+
+```ts
+// app/api/admin/onboarding/finalize-cas/route.ts
+// Post-Pin-2 hotfix F-Codex-R2-1:
+// - If any Phase D shadow row returns a non-OK code, the route returns 409.
+// - Successful per-row shadow applications remain committed and their own
+//   shows_pending_changes rows are cleared inside those row transactions.
+// - The blocked shadow rows remain in shows_pending_changes.
+// - The final destructive Phase D operations do NOT run while blocked:
+//   deleteShadowRows, publishAppliedWizardShows, deleteWizardDeferrals,
+//   promoteSettings, markFinalCasDone.
+export type FinalizeCasBlockedResponse = {
+  ok: false;
+  code: "STAGED_PARSE_OUTDATED_AT_PHASE_D";
+  per_row: Array<
+    | { drive_file_id: string; code: "OK" }
+    | { drive_file_id: string; code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" }
+  >;
+};
+
+// lib/data/getShowForViewer.ts
+// Pin-3 extension for Task 10.8 preview-as. The helper remains identity-only:
+// callers pass no role flags, no pre-derived role object, and no impersonate
+// payload. admin_preview resolves identically to crew inside this helper by
+// re-reading crew_members.role_flags for (crewMemberId, showId) and failing
+// closed with LINK_NO_CREW_MATCH on cross-show IDs. The admin auth gate remains
+// the responsibility of the §B preview route before it calls this helper.
+export type Viewer =
+  | { kind: "crew"; crewMemberId: string }
+  | { kind: "admin" }
+  | { kind: "admin_preview"; crewMemberId: string };
+
+export declare function getShowForViewer(
+  showId: string,
+  viewer: Viewer,
+): Promise<ShowForViewer>;
+```
+
 ### Re-pin / rebase coordination protocol
 
 Two coordinated terminals running against the same branch creates two scenarios this protocol must address:
