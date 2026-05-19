@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Sibling plan:** [M12 — User-Facing Docs](../2026-05-12-user-facing-docs/) builds the in-app `/help` wiki for Doug. M12 depends on M10 (already closed) and is **independent of X.\***; the two can run in parallel or sequentially. Shared file surface: only `lib/messages/catalog.ts` (X.1 catalog parity audit ↔ M12 Phase B catalog extension) — coordinate ordering. See [`../README.md`](../README.md) for the full plan catalog.
+
 **Goal:** Build a Next.js + Supabase web app that turns Doug Larson's per-show Google Sheets into per-crew-member, mobile-first webpages, with sub-second sync via Drive push notifications, role-based field hiding, signed-link sharing, and a full admin/onboarding/bug-report surface — implementing the spec at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md`.
 
 **Architecture:** Next.js 16 App Router on Vercel; Supabase Postgres for data, Auth for crew login, Realtime for push-to-viewer; Drive `files.watch` push + 5-min cron reconciliation; two-phase sync (parse + invariant check, then destructive snapshot replacement under per-show advisory lock); JWT-bearing signed links exchanged for HTTP-only session cookies; LEAD-only fields physically isolated in `shows_internal` with three layers of defense; diagram images snapshotted into Supabase Storage at every Apply with revision-versioned URLs; bug reports go to GitHub Issues via reserve-then-call idempotency.
