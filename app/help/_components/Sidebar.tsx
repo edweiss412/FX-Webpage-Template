@@ -1,10 +1,13 @@
 "use client";
+import { useState, useId } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { NAV, NAV_GROUP_TITLES, type NavGroup } from "../_nav";
 
 export function Sidebar() {
   const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const navListId = useId();
   const grouped: Record<NavGroup, typeof NAV[number][]> = {
     "get-started": [],
     "admin-surface": [],
@@ -15,23 +18,29 @@ export function Sidebar() {
   return (
     <nav aria-label="Help navigation" className="md:w-60 md:shrink-0 md:pr-6">
       {/*
-        Single <details> wrapping the nav list.
-        - On mobile (<768px): closed by default; <summary> provides tap-to-expand.
-        - On desktop (md+): CSS forces open via `md:block` on the inner content
-          and hides the <summary>. The <details> acts as a plain wrapper.
-        This keeps a single copy of NavList in the DOM so tests see no duplicates.
-        spec §6.1 mobile-collapse requirement.
+        Button-controlled disclosure (Codex R2): no <details>/<summary>.
+        - On mobile (<768px): <button aria-expanded aria-controls> toggles
+          the sibling <div id={navListId}> via React state.
+        - On desktop (md+): button is `md:hidden`; the nav list is forced
+          visible via `md:block`. Desktop AT users see no disclosure widget
+          at all — matches AC-11.3 / §6.1 "normal sidebar that collapses to
+          a disclosure ONLY under 768 px."
       */}
-      <details className="group list-none [&::-webkit-details-marker]:hidden [&_summary]:list-none">
-        <summary className="cursor-pointer min-h-tap-min text-base font-semibold py-2 md:hidden">
-          Browse help pages
-        </summary>
-        {/* On mobile: only visible when <details> is open (default browser behaviour).
-            On desktop: always visible via `md:block` override. */}
-        <div className="hidden group-open:block md:block">
-          <NavList grouped={grouped} pathname={pathname} />
-        </div>
-      </details>
+      <button
+        type="button"
+        aria-expanded={mobileOpen}
+        aria-controls={navListId}
+        onClick={() => setMobileOpen((v) => !v)}
+        className="md:hidden cursor-pointer min-h-tap-min text-base font-semibold py-2 w-full text-left mb-4 text-text"
+      >
+        Browse help pages
+      </button>
+      <div
+        id={navListId}
+        className={`${mobileOpen ? "block" : "hidden"} md:block`}
+      >
+        <NavList grouped={grouped} pathname={pathname} />
+      </div>
     </nav>
   );
 }
