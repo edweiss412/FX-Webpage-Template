@@ -53,7 +53,9 @@ type FetchResult =
   | { kind: "not_found" }
   | { kind: "infra_error"; message: string };
 
-async function fetchLiveFirstSeenRow(stagedId: string): Promise<FetchResult> {
+// Exported for tests/admin/_metaInfraContract.test.ts — registry row
+// for the §B Supabase call-boundary contract (AGENTS.md §1.9).
+export async function fetchLiveFirstSeenRow(stagedId: string): Promise<FetchResult> {
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
@@ -63,22 +65,34 @@ async function fetchLiveFirstSeenRow(stagedId: string): Promise<FetchResult> {
       message: `supabase client failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  const { data, error } = await supabase
-    .from("pending_syncs")
-    .select(
-      "staged_id, drive_file_id, staged_modified_time, base_modified_time, parse_result, triggered_review_items, source_kind",
-    )
-    .eq("staged_id", stagedId)
-    .is("wizard_session_id", null)
-    .maybeSingle();
-  if (error) {
+
+  // AGENTS.md §1.9: every Supabase await wraps in try/catch so a thrown
+  // infra fault surfaces as the same typed `infra_error` result as the
+  // returned `.error` branch — never as an uncaught framework exception.
+  let row: LiveFirstSeenRow;
+  try {
+    const { data, error } = await supabase
+      .from("pending_syncs")
+      .select(
+        "staged_id, drive_file_id, staged_modified_time, base_modified_time, parse_result, triggered_review_items, source_kind",
+      )
+      .eq("staged_id", stagedId)
+      .is("wizard_session_id", null)
+      .maybeSingle();
+    if (error) {
+      return {
+        kind: "infra_error",
+        message: `pending_syncs query failed: ${error.message}`,
+      };
+    }
+    if (!data) return { kind: "not_found" };
+    row = data as unknown as LiveFirstSeenRow;
+  } catch (err) {
     return {
       kind: "infra_error",
-      message: `pending_syncs query failed: ${error.message}`,
+      message: `pending_syncs query threw: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  if (!data) return { kind: "not_found" };
-  const row = data as unknown as LiveFirstSeenRow;
 
   // Existing-show staged rows MUST redirect to the canonical per-show
   // review surface (/admin/show/<slug>?review=<stagedId>). The first-seen
@@ -86,23 +100,34 @@ async function fetchLiveFirstSeenRow(stagedId: string): Promise<FetchResult> {
   // a live re-stage of an already-live show would otherwise be opened
   // with first-time copy + first-seen apply/discard endpoints instead of
   // the per-show context the operator expects (plan §M10 Task 10.10).
-  const showLookup = await supabase
-    .from("shows")
-    .select("slug")
-    .eq("drive_file_id", row.drive_file_id)
-    .maybeSingle();
-  if (showLookup.error) {
+  let showLookupSlug: string | null = null;
+  try {
+    const showLookup = await supabase
+      .from("shows")
+      .select("slug")
+      .eq("drive_file_id", row.drive_file_id)
+      .maybeSingle();
+    if (showLookup.error) {
+      return {
+        kind: "infra_error",
+        message: `shows lookup failed: ${showLookup.error.message}`,
+      };
+    }
+    if (
+      showLookup.data &&
+      typeof (showLookup.data as { slug?: string }).slug === "string"
+    ) {
+      showLookupSlug = (showLookup.data as { slug: string }).slug;
+    }
+  } catch (err) {
     return {
       kind: "infra_error",
-      message: `shows lookup failed: ${showLookup.error.message}`,
+      message: `shows lookup threw: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  if (showLookup.data && typeof (showLookup.data as { slug?: string }).slug === "string") {
-    return {
-      kind: "redirect_to_show",
-      slug: (showLookup.data as { slug: string }).slug,
-      stagedId,
-    };
+
+  if (showLookupSlug !== null) {
+    return { kind: "redirect_to_show", slug: showLookupSlug, stagedId };
   }
 
   return { kind: "row", row };
