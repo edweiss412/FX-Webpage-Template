@@ -50,24 +50,31 @@ export async function readFinalizeCheckpoint(
       message: `readFinalizeCheckpoint: server client construction failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  const { data, error } = await supabase
-    .from("wizard_finalize_checkpoints")
-    .select("status, batches_completed, last_processed_drive_file_id, last_processed_at")
-    .eq("wizard_session_id", sessionId)
-    .maybeSingle();
-  if (error) {
+  try {
+    const { data, error } = await supabase
+      .from("wizard_finalize_checkpoints")
+      .select("status, batches_completed, last_processed_drive_file_id, last_processed_at")
+      .eq("wizard_session_id", sessionId)
+      .maybeSingle();
+    if (error) {
+      return {
+        kind: "infra_error",
+        message: `readFinalizeCheckpoint: query failed: ${error.message}`,
+      };
+    }
+    if (!data) return null;
+    return {
+      status: data.status as FinalizeCheckpointStatus,
+      batches_completed: data.batches_completed as number,
+      last_processed_drive_file_id: data.last_processed_drive_file_id as string | null,
+      last_processed_at: data.last_processed_at as string | null,
+    };
+  } catch (err) {
     return {
       kind: "infra_error",
-      message: `readFinalizeCheckpoint: query failed: ${error.message}`,
+      message: `readFinalizeCheckpoint: query threw: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  if (!data) return null;
-  return {
-    status: data.status as FinalizeCheckpointStatus,
-    batches_completed: data.batches_completed as number,
-    last_processed_drive_file_id: data.last_processed_drive_file_id as string | null,
-    last_processed_at: data.last_processed_at as string | null,
-  };
 }
 
 const STALENESS_HORIZON_MS = 24 * 3600 * 1000;
