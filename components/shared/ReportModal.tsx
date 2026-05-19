@@ -34,6 +34,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { messageFor, type MessageCode } from "@/lib/messages/lookup";
+import { HelpAffordance } from "@/components/admin/HelpAffordance";
 
 export type ReportSurface = "crew" | "admin";
 
@@ -562,6 +563,9 @@ export function ReportModal(props: ReportModalProps) {
             <p className="text-base font-medium text-text-strong">
               {errorCopy ?? "This report attempt has expired."}
             </p>
+            {surface === "admin" && error && error.kind === "code" ? (
+              <HelpAffordance code={error.code} />
+            ) : null}
             <button
               type="button"
               onClick={handleStartFreshConfirm}
@@ -593,14 +597,17 @@ export function ReportModal(props: ReportModalProps) {
                 style={{ maxHeight: "40vh" }}
               />
               {error && status === "failed-retryable" ? (
-                <p
+                <div
                   data-testid="report-modal-error"
                   role="alert"
                   aria-live="polite"
-                  className="mt-2 text-sm text-warning-text"
+                  className="mt-2 flex flex-col gap-1 text-sm text-warning-text"
                 >
-                  {errorCopy ?? GENERIC_NETWORK_COPY}
-                </p>
+                  <p>{errorCopy ?? GENERIC_NETWORK_COPY}</p>
+                  {surface === "admin" && error.kind === "code" ? (
+                    <HelpAffordance code={error.code} />
+                  ) : null}
+                </div>
               ) : null}
               {status === "submitting" ? (
                 <p
