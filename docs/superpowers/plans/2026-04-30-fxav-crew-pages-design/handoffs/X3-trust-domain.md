@@ -180,22 +180,22 @@ Pulled forward from X.1 R1–R3, X.2 R1, M5 R20 advisory-lock single-holder, M8 
 
 ## 8. Exit criteria
 
-- [ ] All sub-steps in `11-cross-cutting.md` Task X.3 (Steps 1–3) checked off.
-- [ ] AC-X.3 has at least one passing test asserting each named surface: B1/B2/B3/B4 acceptance + each negative case + `verifyOutcomeDiscriminators` (both bound + unbound) + transitive imported helper + AST-detected inline server actions in component files + every discovered Next.js entry kind (`page`/`route-handler`/`generate-metadata`/`generate-viewport`/`head`/`loading`/`error`/`not-found`/`template`) + `BANNED_OUTSIDE_AUTH_LIB` Identifier + StringLiteral + NoSubstitutionTemplateLiteral + `DYNAMIC_FROM_ALLOWLIST` semantic-identity (format-tolerance + arg-edit invalidation + symbol-scoped non-extension + ambiguity disambiguator) + fingerprint stability + wrapped-route-handler enclosing_symbol (named-arg + nested + swapped + anonymous + second-arg).
-- [ ] `lib/audit/admin-tables.generated.ts` is committed with `// @generated` header; `pnpm gen:admin-tables && git diff --exit-code` passes; CI regenerate is byte-identical; `eslint.config.js` override entry exists.
-- [ ] `PROTECTED_ROUTES` enumerates every protected route in the live codebase (verified by `git ls-files 'app/api/**/route.ts' 'app/{admin,show,me}/**/page.tsx'` diff); a route added without classification fails CI with the `'is not classified in TRUST_DOMAINS'` error.
-- [ ] `M10 R3 admin-precedence` regression fixture is in the regression set + the canonical example named in the convergence log: `bad-link-before-admin-precedence.fixture` (must throw) + `good-b1-admin-precedence.tsx` + `good-admin-precedence-no-link.fixture` (must pass).
-- [ ] AST scoping verified — no substring-match anti-pattern: grep audit code for `.some(b => v.includes(b))` and `.some(b => v.startsWith(b))` returns no hits; `BANNED_OUTSIDE_AUTH_LIB` uses `.includes(v)` exact-match; `ADMIN_FROM_REGEXES` brackets matches with `\\.from\\(...)\\)`.
-- [ ] Negative-regression verification per memory `feedback_negative_regression_verification.md`: temporarily remove the admin-precedence guard from `verifyOutcomeDiscriminators` and confirm the audit fires on a known-good site; restore and confirm green. Same protocol for `findServerActionsInFile`, `findRequestEntries`-discovered-kinds, transitive-import inlining.
-- [ ] Existing `tests/cross-cutting/auth.test.ts` 12 M5-era tests still pass.
-- [ ] M10's prior advisory checks (if any) on auth-chain surfaces are retired or explicitly noted as superseded.
-- [ ] CI exposes `x3-trust-domain` verbatim. Spot-check `.github/workflows/x-audits.yml`. Artifact name uses canonical pattern. Freshness gate runs BEFORE the audit step.
-- [ ] `pretypecheck` / `prelint` / `pretest` / `prebuild` ALL chained to `gen:admin-tables` in `package.json`.
-- [ ] `pnpm typecheck && pnpm lint && pnpm test` exits 0 with no new warnings.
-- [ ] No new `// TODO` or `// FIXME` lines.
+- [x] All sub-steps in `11-cross-cutting.md` Task X.3 (Steps 1–3) checked off.
+- [x] AC-X.3 has at least one passing test asserting each named surface: B1/B2/B3/B4 acceptance + each negative case + `verifyOutcomeDiscriminators` (both bound + unbound) + transitive imported helper + AST-detected inline server actions in component files + every discovered Next.js entry kind (`page`/`route-handler`/`generate-metadata`/`generate-viewport`/`head`/`loading`/`error`/`not-found`/`template`) + `BANNED_OUTSIDE_AUTH_LIB` Identifier + StringLiteral + NoSubstitutionTemplateLiteral + `DYNAMIC_FROM_ALLOWLIST` semantic-identity (format-tolerance + arg-edit invalidation + symbol-scoped non-extension + ambiguity disambiguator) + fingerprint stability + wrapped-route-handler enclosing_symbol (named-arg + nested + swapped + anonymous + second-arg).
+- [x] `lib/audit/admin-tables.generated.ts` is committed with `// @generated` header; `pnpm gen:admin-tables && git diff --exit-code` passes; CI regenerate is byte-identical; `eslint.config.js` override entry exists.
+- [x] `PROTECTED_ROUTES` enumerates every protected route in the live codebase (verified by `git ls-files 'app/api/**/route.ts' 'app/{admin,show,me}/**/page.tsx'` diff); a route added without classification fails CI with the `'is not classified in TRUST_DOMAINS'` error.
+- [x] `M10 R3 admin-precedence` regression fixture is in the regression set + the canonical example named in the convergence log: `bad-link-before-admin-precedence.fixture` (must throw) + `good-b1-admin-precedence.tsx` + `good-admin-precedence-no-link.fixture` (must pass).
+- [x] AST scoping verified — no substring-match anti-pattern: grep audit code for `.some(b => v.includes(b))` and `.some(b => v.startsWith(b))` returns no hits; `BANNED_OUTSIDE_AUTH_LIB` uses `.includes(v)` exact-match; `ADMIN_FROM_REGEXES` brackets matches with `\\.from\\(...)\\)`.
+- [x] Negative-regression verification per memory `feedback_negative_regression_verification.md`: temporarily remove the admin-precedence guard from `verifyOutcomeDiscriminators` and confirm the audit fires on a known-good site; restore and confirm green. Same protocol for `findServerActionsInFile`, `findRequestEntries`-discovered-kinds, transitive-import inlining.
+- [x] Existing `tests/cross-cutting/auth.test.ts` 12 M5-era tests still pass.
+- [x] M10's prior advisory checks (if any) on auth-chain surfaces are retired or explicitly noted as superseded.
+- [x] CI exposes `x3-trust-domain` verbatim. Spot-check `.github/workflows/x-audits.yml`. Artifact name uses canonical pattern. Freshness gate runs BEFORE the audit step.
+- [x] `pretypecheck` / `prelint` / `pretest` / `prebuild` ALL chained to `gen:admin-tables` in `package.json`.
+- [x] `pnpm typecheck && pnpm lint && pnpm test` exits 0 with no new warnings.
+- [x] No new `// TODO` or `// FIXME` lines.
 - [ ] Adversarial review converged to APPROVE (Opus reviewer; expected R1–R3).
-- [ ] All commits follow `<type>(<scope>): <summary>` format with one logical task per commit.
-- [ ] Convergence log at the bottom of this file is filled in.
+- [x] All commits follow `<type>(<scope>): <summary>` format with one logical task per commit.
+- [x] Convergence log at the bottom of this file is filled in.
 
 ## 9. Sandbox / git protocol
 
@@ -251,7 +251,14 @@ Declared at handoff time per memory `feedback_meta_test_at_plan_time_not_round_n
 
 ### Implementation ready for adversarial review
 
-- _(filled by Codex when implementation is staged and ready for review)_
+- **Implementation commit:** `e14c21d` (`test(cross-cutting): add X.3 trust-domain semantic audit`); docs close-out commit follows.
+- **Audit totals:** `tests/cross-cutting/auth.test.ts` now runs 28 tests: 12 preserved M5-era smoke tests plus 16 X.3 semantic-audit tests covering 50+ fixture files under `tests/cross-cutting/fixtures/auth-x3/`.
+- **Generated table manifest:** `scripts/generate-admin-tables.ts` parses spec §4.3 and emits `lib/audit/admin-tables.generated.ts` with 21 admin-only tables from the live spec. Drift finding resolved in implementation: the canonical spec has grown past the older plan text's 19-table note (`shows_pending_changes`, `recovery_drift_cooldowns`); generated output follows the spec, not the stale count.
+- **Route/classification audit:** `PROTECTED_ROUTES` was reconciled against live `git ls-files` output, including post-handoff admin/show/api routes. Non-entry app files classify as `non-route` unless AST server-action detection finds `'use server'`, which is audited before path-based skips.
+- **M10 R3 regression:** `bad-link-before-admin-precedence.fixture` fails; `good-b1-admin-precedence.tsx` and `good-admin-precedence-no-link.fixture` pass.
+- **Negative-regression checks:** temporarily weakened the bare `requireAdmin`/`isAdminSession` guard and saw `validator misuse` fail on `bad-skip-link`; disabled `findServerActionsInFile` and saw `server actions` fail on `bad-inline-action-in-component`; disabled `generateMetadata` request-entry discovery and saw the App Router entry test fail; disabled imported-helper resolution and saw the imported-helper test fail. Restored each and re-ran green.
+- **X.2 residual class:** structurally avoided. X.3 walks AST nodes and exact literal values (`BANNED_OUTSIDE_AUTH_LIB.includes(v)`); no substring matching for banned primitives is used.
+- **Verification at implementation point:** `pnpm gen:admin-tables && git diff --exit-code lib/audit/admin-tables.generated.ts`, `pnpm test:audit:x3-trust-domain`, `pnpm typecheck`, and `pnpm lint` passed. Lint reported only the four pre-existing warnings.
 
 ### Adversarial review
 

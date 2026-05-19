@@ -479,7 +479,7 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
 3. Validator calls in unreachable branches (early-returned, conditional-false-only) do NOT count.
 4. Helper functions called from the handler are inlined into the analysis (transitive flow): if `handler → fetchShow → from('shows_internal')` and `fetchShow` is defined locally, the audit walks into `fetchShow` rather than treating it as opaque.
 
-- [ ] **Step 1: Author the protected-routes allowlist** with per-route **valid terminal-success paths**. The auth chain has **OR semantics**: success at ANY validator TERMINATES the chain, and subsequent validators do NOT run. The allowlist therefore declares a SET of `ValidPath`s; each is the ordered list of validators that must all be CALLED on that runtime path AND whose LAST entry is the validator that produces terminal success on that path. The audit accepts the actual control-flow if it matches ANY single `ValidPath`: (1) every validator on the path is called, (2) in declared order, (3) the path ends at the last validator's call site as the terminal-success producer, (4) sinks fire AFTER that last validator (sinks before, or paths whose terminating validator differs from the one that actually returned success, are rejected).
+- [x] **Step 1: Author the protected-routes allowlist** with per-route **valid terminal-success paths**. The auth chain has **OR semantics**: success at ANY validator TERMINATES the chain, and subsequent validators do NOT run. The allowlist therefore declares a SET of `ValidPath`s; each is the ordered list of validators that must all be CALLED on that runtime path AND whose LAST entry is the validator that produces terminal success on that path. The audit accepts the actual control-flow if it matches ANY single `ValidPath`: (1) every validator on the path is called, (2) in declared order, (3) the path ends at the last validator's call site as the terminal-success producer, (4) sinks fire AFTER that last validator (sinks before, or paths whose terminating validator differs from the one that actually returned success, are rejected).
 
   ```ts
   type ChainStep =
@@ -571,7 +571,7 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
 
   Every protected route in the codebase MUST appear in this list. Step 2's audit fails on any unlisted route under `app/api/`, `app/show/`, `app/me/`, or `app/admin/`.
 
-- [ ] **Step 2: Failing semantic-audit test** via `ts-morph`:
+- [x] **Step 2: Failing semantic-audit test** via `ts-morph`:
 
   ````ts
   import { Project, SyntaxKind, Node } from 'ts-morph';
@@ -1418,7 +1418,7 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
   - **(e)** any new file in `app/api/`, `app/admin/`, `app/show/`, or `app/me/` that isn't classified in `TRUST_DOMAINS` fails CI immediately, forcing the engineer to declare its trust domain explicitly;
   - **(f)** every validator's discriminated-union outcome is INSPECTED before any sink fires. A route that calls `validateLinkSession` and IGNORES the `{ kind: 'continue' }` result, then touches a protected sink, is rejected even though presence + order + sink-after-call all pass. The terminal validator's `kind === 'success'` discriminator MUST be checked before the sink; each preceding validator's `kind === 'continue'` discriminator MUST be checked before falling through to the next validator.
 
-- [ ] **Step 2: Regression fixtures** in `tests/cross-cutting/fixtures/auth-x3/`:
+- [x] **Step 2: Regression fixtures** in `tests/cross-cutting/fixtures/auth-x3/`:
   - `bad-import-only.tsx`: imports `validateLinkSession` but never calls it; queries `shows_internal` — must throw.
   - `bad-access-before-validate.tsx`: queries `shows_internal` then later calls `validateLinkSession` — must throw.
   - `bad-direct-link-sessions.ts`: a route file outside the allowlist that does `from('link_sessions')` — must throw.
@@ -1454,7 +1454,7 @@ Every `app/**` file MUST appear in exactly one classification entry. Adding a ne
       - `wrapped-route-handler-nested-wrappers.fixture` — `export const POST = withAdmin(withRateLimit(async (req) => { /* dynamic .from */ }))`. Test asserts symbol `<file>::POST->withAdmin[0]->withRateLimit[0]` (the inline arrow is the 0th arg of the inner `withRateLimit`; `withRateLimit` itself is the 0th arg of the outer `withAdmin`). A swapped-wrapper sibling `export const PUT = withRateLimit(withAdmin(async (req) => { /* dynamic .from */ }))` MUST emit a different symbol `<file>::PUT->withRateLimit[0]->withAdmin[0]` — proving wrapper-order changes are detected (a refactor that reorders wrappers should invalidate the allowlist entry, not silently inherit the old exemption). Also includes a non-zero argIndex variant: `export const PATCH = withRateLimit(60, async (req) => { /* dynamic .from */ })` MUST emit `<file>::PATCH->withRateLimit[1]` (the inline function is the 1st arg, after the literal `60`), proving argIndex tracks the inline function's actual position.
       - `wrapped-route-handler-anonymous-deep.fixture` — top-level `mountRoute('/api/foo', withAdmin(async (req) => { /* dynamic .from */ }))` where the outer call is a statement (not bound to an `export const`). Test asserts symbol `<file>::<module>->mountRoute[1]->withAdmin[0].body[N]` where `N` is the 0-indexed top-level statement index of the `mountRoute(...)` statement. A second `mountRoute(...)` statement later in the same file emits `body[M]` with `M !== N` — proving statement-level disambiguation works without a binding name.
       - **Format-tolerance siblings** (one per fixture above): re-render each fixture with different formatter outputs (single-quote vs double-quote, 2-space vs 4-space, line-broken arg list vs single-line). Test asserts `getEnclosingSymbol` returns a bit-equal string across all formatter outputs. Catches a future regression where line/column data leaks into the wrapped symbol — without this guard, every route handler in the repo would generate false-stale CI failures on a `prettier` config bump.
-- [ ] **Step 3: Commit** `test(cross-cutting): single auth-entry-point semantic audit (AC-X.3)`.
+- [x] **Step 3: Commit** `test(cross-cutting): single auth-entry-point semantic audit (AC-X.3)`.
 
 ### Task X.4: No global cursor — positive invariant audit (AC-X.4)
 
