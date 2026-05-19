@@ -64,6 +64,18 @@ type FooterProps = {
   lastSyncedAt?: string | null;
   /** `shows.last_sync_status`. Pairs with lastSyncedAt — see above. */
   lastSyncStatus?: string | null;
+  /**
+   * Override the report button surface and per-instance scope when the
+   * footer is rendered inside the admin preview-as flow (M10 §B Task
+   * 10.8 / §9.3). Without this, the footer's ReportButton hardcodes
+   * `surface="crew"` and a per-slug surfaceId, which would silently
+   * file admin-side preview reports as crew reports lacking the
+   * crewPreview autocapture context. When provided, the footer mounts
+   * the report button with the supplied surface + surfaceId so the
+   * /api/report POST body carries the right audience and identity.
+   */
+  reportSurfaceOverride?: "admin" | "crew";
+  reportSurfaceIdOverride?: string;
 };
 
 /** Render an ISO timestamp as a short "as of …" line. */
@@ -87,12 +99,16 @@ export function Footer({
   reportAutocapture,
   lastSyncedAt,
   lastSyncStatus,
+  reportSurfaceOverride,
+  reportSurfaceIdOverride,
 }: FooterProps) {
   const year = new Date().getUTCFullYear();
   // surfaceId scope: one stable id per crew-page slug so sessionStorage
   // hydration finds the right persisted attempt across tab refresh.
   // Falls back to a generic id when no slug is in scope (defensive).
-  const reportSurfaceId = showSlug ? `footer-crew-${showSlug}` : "footer-crew";
+  const reportSurface = reportSurfaceOverride ?? "crew";
+  const reportSurfaceId =
+    reportSurfaceIdOverride ?? (showSlug ? `footer-crew-${showSlug}` : "footer-crew");
   return (
     <footer data-testid="page-footer" className="mt-auto border-t border-border bg-bg">
       <div className="mx-auto flex w-full max-w-300 flex-col items-start gap-3 px-4 py-6 text-xs text-text-subtle sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-8 sm:py-7">
@@ -121,7 +137,7 @@ export function Footer({
         </p>
         {showId ? (
           <ReportButton
-            surface="crew"
+            surface={reportSurface}
             surfaceId={reportSurfaceId}
             showId={showId}
             {...(reportAutocapture ? { autocapture: reportAutocapture } : {})}

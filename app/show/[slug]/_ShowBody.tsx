@@ -445,7 +445,31 @@ export function ShowBody({ slug, showId, viewer, data }: ShowBodyProps): ReactNo
         asOf={null}
         showId={showId}
         showSlug={slug}
-        reportAutocapture={{ rightNowState: rightNowCtx }}
+        // M10 §B / Cluster I-5 (Codex R5): when the body is mounted
+        // under the admin preview-as route, the footer's report button
+        // must file as admin AND carry the previewed-viewer context
+        // (crewPreview). Otherwise an admin scrolling to the footer
+        // and tapping "Something looks wrong?" would silently submit a
+        // crew-surface report with no preview context, defeating the
+        // triage purpose of preview-as (role-filtering bugs).
+        reportAutocapture={
+          viewer.kind === "admin_preview"
+            ? {
+                rightNowState: rightNowCtx,
+                crewPreview: {
+                  crewMemberId: viewer.crewMemberId,
+                  name: ctx.viewerName,
+                  role: ctx.viewerCrew?.role ?? null,
+                },
+              }
+            : { rightNowState: rightNowCtx }
+        }
+        reportSurfaceOverride={viewer.kind === "admin_preview" ? "admin" : "crew"}
+        {...(viewer.kind === "admin_preview"
+          ? {
+              reportSurfaceIdOverride: `admin-preview-footer-${slug}-${viewer.crewMemberId}`,
+            }
+          : {})}
         lastSyncedAt={data.lastSyncedAt}
         lastSyncStatus={data.lastSyncStatus}
       />
