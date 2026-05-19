@@ -210,15 +210,22 @@ describe("META §B Supabase call-boundary contract", () => {
       const lines = source.split("\n");
 
       // 1. Identify builder-variable names assigned from `supabase` (or
-      //    chain-assigned from an already-known builder name).
+      //    chain-assigned from an already-known builder name). Capture
+      //    the line indices of every assignment for the synchronous-throw
+      //    check (Codex R4: `<ident> = supabase.from(...)` must also be
+      //    inside try/catch because `.from()` is a synchronous throw site).
       const builderNames = new Set<string>();
+      const builderAssignLines: number[] = [];
       const directBuilderRe =
         /\b(?:let|const|var)\s+([A-Za-z_$][\w$]*)\s*=\s*supabase\b/g;
-      for (const line of lines) {
+      lines.forEach((line, idx) => {
         for (const m of line.matchAll(directBuilderRe)) {
-          if (m[1]) builderNames.add(m[1]);
+          if (m[1]) {
+            builderNames.add(m[1]);
+            builderAssignLines.push(idx);
+          }
         }
-      }
+      });
       let prevSize = -1;
       while (prevSize !== builderNames.size) {
         prevSize = builderNames.size;
@@ -228,11 +235,16 @@ describe("META §B Supabase call-boundary contract", () => {
           `\\b([A-Za-z_$][\\w$]*)\\s*=\\s*(?:${namesAlt})\\b`,
           "g",
         );
-        for (const line of lines) {
+        lines.forEach((line, idx) => {
           for (const m of line.matchAll(chainRe)) {
-            if (m[1]) builderNames.add(m[1]);
+            if (m[1] && !builderNames.has(m[1])) {
+              builderNames.add(m[1]);
+              builderAssignLines.push(idx);
+            } else if (m[1] === undefined) {
+              // matchAll always populates groups for capturing groups; no-op.
+            }
           }
-        }
+        });
       }
 
       // 2. Find every line awaiting a supabase-derived expression.
@@ -255,6 +267,7 @@ describe("META §B Supabase call-boundary contract", () => {
         `${entry.surface} should contain at least one supabase-derived await`,
       ).toBeGreaterThan(0);
 
+      // 3. Assert every supabase-derived await is inside a try/catch.
       for (const lineIdx of awaitLineNumbers) {
         const back = lines.slice(Math.max(0, lineIdx - 20), lineIdx).join("\n");
         const forward = lines
@@ -265,6 +278,26 @@ describe("META §B Supabase call-boundary contract", () => {
         expect(
           hasTryBefore && hasCatchAfter,
           `${entry.surface}: supabase-derived await at line ${lineIdx + 1} (${lines[lineIdx]?.trim()}) is not inside a try/catch (try-before=${hasTryBefore}, catch-after=${hasCatchAfter})`,
+        ).toBe(true);
+      }
+
+      // 4. Codex R4 #1: every BUILDER ASSIGNMENT line is ALSO inside a
+      //    try/catch, because `.from()` can throw synchronously and a
+      //    throw at the assignment bypasses any wrapping that exists
+      //    only around the later await. The grep-shape rule had a blind
+      //    spot here — the COUNT-construction regression Codex flagged
+      //    would have re-introduced an unwrapped `supabase.from(...)`
+      //    despite the await staying inside its try.
+      for (const lineIdx of builderAssignLines) {
+        const back = lines.slice(Math.max(0, lineIdx - 20), lineIdx).join("\n");
+        const forward = lines
+          .slice(lineIdx + 1, Math.min(lines.length, lineIdx + 30))
+          .join("\n");
+        const hasTryBefore = /\btry\s*\{/.test(back);
+        const hasCatchAfter = /\}\s*catch\s*\(/.test(forward);
+        expect(
+          hasTryBefore && hasCatchAfter,
+          `${entry.surface}: supabase builder assignment at line ${lineIdx + 1} (${lines[lineIdx]?.trim()}) is not inside a try/catch (try-before=${hasTryBefore}, catch-after=${hasCatchAfter}). \`.from()\` is a synchronous throw site; the assignment MUST be inside the try, not just the eventual await.`,
         ).toBe(true);
       }
     }
