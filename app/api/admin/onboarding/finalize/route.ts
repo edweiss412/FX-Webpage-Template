@@ -476,8 +476,11 @@ async function finalizeBatchTailResponse(input: {
   unresolvedManifestCount: number;
   perRow: PerRowResult[];
 }): Promise<Response> {
+  const hasPerRowFailures = input.perRow.some((row) => row.code !== OK_CODE);
   const status =
-    input.remainingCount === 0 ? "all_batches_complete" : "batch_complete";
+    input.remainingCount === 0 && input.unresolvedManifestCount === 0 && !hasPerRowFailures
+      ? "all_batches_complete"
+      : "batch_complete";
   await advanceCheckpoint(
     input.tx,
     input.wizardSessionId,
@@ -598,7 +601,8 @@ export async function handleOnboardingFinalize(
     }
 
     const approvedRows = await selectApprovedRows(tx, wizardSessionId, runtime.batchCap);
-    if (checkpoint.status === "all_batches_complete" && approvedRows.length === 0) {
+    const unresolved = await unresolvedManifestCount(tx, wizardSessionId);
+    if (checkpoint.status === "all_batches_complete" && approvedRows.length === 0 && unresolved === 0) {
       return NextResponse.json({
         status: "all_batches_complete",
         wizard_session_id: wizardSessionId,
@@ -607,7 +611,6 @@ export async function handleOnboardingFinalize(
         per_row: [],
       });
     }
-    const unresolved = await unresolvedManifestCount(tx, wizardSessionId);
     if (approvedRows.length === 0 && unresolved > 0) {
       return errorResponse(409, "ONBOARDING_NOT_RESOLVED", {
         unresolved_manifest_count: unresolved,
@@ -638,11 +641,12 @@ export async function handleOnboardingFinalize(
     }
 
     const remainingCount = await countApprovedRows(tx, wizardSessionId);
+    const unresolvedAfterBatch = await unresolvedManifestCount(tx, wizardSessionId);
     return await finalizeBatchTailResponse({
       tx,
       wizardSessionId,
       remainingCount,
-      unresolvedManifestCount: unresolved,
+      unresolvedManifestCount: unresolvedAfterBatch,
       perRow,
     });
   });
