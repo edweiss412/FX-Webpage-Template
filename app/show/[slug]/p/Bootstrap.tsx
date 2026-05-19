@@ -74,6 +74,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { bootstrapMint } from "./actions";
+import { messageFor } from "@/lib/messages/lookup";
 
 type BootstrapProps = {
   /**
@@ -105,36 +106,25 @@ type UiState =
 
 const STILL_WORKING_TIMEOUT_MS = 6_000;
 
-// M9 C7 / M5-D8 — These two inline strings remain inline by deliberate
-// scope decision, NOT by oversight:
-//
-//   GENERIC_ERROR_COPY is a catch-all rendered when the bootstrap layer
-//   has caught a §A error from multiple underlying codes (CSRF_DENIED,
-//   CSRF_NONCE_EXPIRED, LINK_REVOKED_FLOOR, LINK_REDEEM_KEY_ROTATED,
-//   LINK_VERSION_MISMATCH, LINK_NO_CREW_MATCH, …). The bootstrap state
-//   machine intentionally collapses them so the user-visible copy stays
-//   stable across the variants — but no single catalog code semantically
-//   covers "any of the above bootstrap §A failures." Adding a dedicated
-//   BOOTSTRAP_GENERIC catalog row requires a spec amendment per
-//   AGENTS.md §1.7; deferred to a spec-amendment session.
-//
-//   NO_FRAGMENT_COPY is NOT an error — it's a wayfinding message when
-//   the user lands at /show/<slug>/p without `#t=<jwt>`. No §12.4
-//   catalog code covers "wayfinding fragment-missing".
-//
-// not-subject:M5-D8 — both strings are deliberate inline catch-alls,
-// per the above. The meta-test below treats inline literal-string copy
-// in this file as exempt via the `not-subject:` annotation.
-// not-subject:M5-D8 (callsite-scoped — applies to both literals below)
+// Bootstrap error rendering routes through the §12.4 catalog as
+// `BOOTSTRAP_GENERIC` — the consolidated catch-all for §A failures the
+// bootstrap layer can't safely surface to crew (CSRF_DENIED,
+// CSRF_NONCE_EXPIRED, LINK_REVOKED_FLOOR, LINK_REDEEM_KEY_ROTATED,
+// LINK_VERSION_MISMATCH, LINK_NO_CREW_MATCH, …). The spec-amendment
+// session that added the row closed M5-D8 for this site. Doug sees the
+// underlying §A code via its own admin surface; this surface is
+// crew-only. The lookup happens inline at the JSX render site below;
+// no module-level const so the catalog stays the single source of truth.
 //
 // M9 C3 / M5-D5 (shape brief 2026-05-14-auth-flow-polish.md §5.2):
-// the brief replaced both copy strings to align with the M5-D5 self-serve
-// fallback path. Error → 'sign in instead' nudge points the user at the
-// page-level [Sign in with Google instead] CTA below; no_fragment uses
-// 'go to your shows' wayfinding that pairs with the [Go to my shows] link.
-const GENERIC_ERROR_COPY = "Couldn't reach the server. Try signing in instead.";
+// error state pairs the catalog copy with a [Sign in with Google instead]
+// primary CTA so crew can self-recover without re-opening the original link.
 
-// not-subject:M5-D8 — wayfinding, not an error
+// Wayfinding, not an error; no §12.4 catalog code covers "user landed
+// at /show/<slug>/p without `#t=<jwt>`". The no_fragment branch pairs
+// this copy with a [Go to my shows] wayfinding link below so the user
+// can recover into the signed-in flow.
+// not-subject:M5-D8
 const NO_FRAGMENT_COPY =
   "This link is incomplete. If you already have a session, go to your shows.";
 
@@ -555,7 +545,7 @@ export function Bootstrap({ showId, slug }: BootstrapProps) {
         // can self-recover without re-opening the original link.
         <div data-testid="bootstrap-error-block" className="flex flex-col gap-3">
           <p data-testid="bootstrap-error" className="text-base text-warning-text">
-            {GENERIC_ERROR_COPY}
+            {messageFor("BOOTSTRAP_GENERIC").crewFacing}
           </p>
           <Link
             data-testid="bootstrap-error-fallback"

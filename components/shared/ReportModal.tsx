@@ -151,17 +151,15 @@ function copyForCode(code: MessageCode, surface: ReportSurface): string | null {
   return surface === "admin" ? entry.dougFacing : entry.crewFacing;
 }
 
-// GENERIC_NETWORK_COPY is the offline / fetch-failed fallback
-// rendered when the POST to /api/report didn't reach the server.
-// No §12.4 catalog code currently maps to "network is down between
-// the client and our origin"; adding one requires a spec amendment
-// per AGENTS.md §1.7. Deferred to a future spec-amendment session.
-// The other ReportModal error branches DO route through
-// messageFor(parsed.code) via getCatalogMessage — only the
-// pre-server-reach network failure carries inline copy.
-// not-subject:M5-D8 — see rationale above
-const GENERIC_NETWORK_COPY =
-  "Couldn't reach the server. Check your connection and try again.";
+// Network-failure rendering routes through the §12.4 catalog as
+// `NETWORK_UNREACHABLE` — the client-side-fetch-failed case where the
+// POST never reaches the server (TypeError on fetch, offline, DNS,
+// captive portal, CORS-blocked, extension-intercepted). The
+// spec-amendment session that added the row closed M5-D8 for this site.
+// Lookups happen inline at the call sites below via copyForCode so Doug
+// gets the operator-flavored "no admin trail" framing and crew gets the
+// bare recovery prompt; no module-level const so the catalog stays the
+// single source of truth.
 
 export function ReportModal(props: ReportModalProps) {
   const {
@@ -421,7 +419,7 @@ export function ReportModal(props: ReportModalProps) {
 
   const errorCopy: string | null = (() => {
     if (!error) return null;
-    if (error.kind === "network") return GENERIC_NETWORK_COPY;
+    if (error.kind === "network") return copyForCode("NETWORK_UNREACHABLE", surface);
     return copyForCode(error.code, surface);
   })();
 
@@ -630,7 +628,7 @@ export function ReportModal(props: ReportModalProps) {
                   aria-live="polite"
                   className="mt-2 flex flex-col gap-1 text-sm text-warning-text"
                 >
-                  <p>{errorCopy ?? GENERIC_NETWORK_COPY}</p>
+                  <p>{errorCopy ?? copyForCode("NETWORK_UNREACHABLE", surface)}</p>
                   {surface === "admin" && error.kind === "code" ? (
                     <HelpAffordance code={error.code} />
                   ) : null}

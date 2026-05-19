@@ -75,6 +75,22 @@ export const MESSAGE_CATALOG = {
     helpfulContext:
       "While you were using the app, the developer rotated the secret key the app uses to verify CSRF tokens. The token your browser was holding was minted under the old key, so it was rejected to keep stale tokens from authorizing actions after the rotation. Refresh the page and click your link again to mint a fresh CSRF token.",
   },
+  BOOTSTRAP_GENERIC: {
+    code: "BOOTSTRAP_GENERIC",
+    dougFacing: null,
+    crewFacing: "Couldn't reach the server. Try signing in instead.",
+    followUp: "Crew -> try /auth/sign-in",
+    helpfulContext: null,
+  },
+  NETWORK_UNREACHABLE: {
+    code: "NETWORK_UNREACHABLE",
+    dougFacing:
+      "Couldn't reach the server. Check your connection and try again — there's no admin trail because the request never arrived.",
+    crewFacing: "Couldn't reach the server. Check your connection and try again.",
+    followUp: "Either -> check connection, retry; persistent -> Eric",
+    helpfulContext:
+      "The client-side fetch failed before reaching the server — typically the user's device is offline, DNS is failing, a captive portal is blocking the request, or a browser extension is intercepting the call. Because the request never arrived, no §A code was emitted and no admin trail exists; the only signal is the user-facing one. Recovery is the same regardless of audience: check connectivity and retry. If this code recurs against a known-online network, suspect a same-origin browser extension or a CSP block.",
+  },
   GOOGLE_NO_CREW_MATCH: {
     code: "GOOGLE_NO_CREW_MATCH",
     dougFacing: null,
