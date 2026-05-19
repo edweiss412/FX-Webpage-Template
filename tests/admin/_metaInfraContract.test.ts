@@ -156,11 +156,12 @@ const infraRegistry = [
   },
 ];
 
-// Every helper file gets a grep-shape assertion that EVERY `await supabase`
-// line in the file (not just the first one reachable when `.from()` throws)
-// is enclosed in try/catch. This closes Codex R1 finding #1 — without the
-// structural pin, the behavioral tests below short-circuit at the first
-// query and a regression in any LATER query would slip through.
+// Every helper file gets a grep-shape assertion that EVERY supabase-derived
+// await (including builder variables like `await query`) is enclosed in
+// try/catch. This closes Codex R1 #1 (behavioral test short-circuits at the
+// first failing query, missing regressions in later queries) AND Codex R2
+// #1 (grep rule missing builder-variable awaits like AlertBanner's
+// `await query.order(...)` and `await countQuery`).
 const grepShapeRegistry = [
   ...infraRegistry.map((r) => ({
     surface: r.path,
@@ -170,6 +171,11 @@ const grepShapeRegistry = [
     surface: "app/admin/show/[slug]/page.tsx",
     contract:
       "supabase client construction + shows/pending_syncs/crew_members awaits each wrapped in try/catch",
+  },
+  {
+    surface: "components/admin/AlertBanner.tsx",
+    contract:
+      "supabase client construction + admin_alerts SELECT + count probe (builder-variable awaits) each wrapped in try/catch",
   },
 ];
 
@@ -184,24 +190,71 @@ describe("META §B Supabase call-boundary contract", () => {
     }
   });
 
-  test("every grep-shape surface has every `await supabase` enclosed in try/catch", () => {
-    // Heuristic: for each `await supabase` line, require BOTH a `try {`
-    // within the preceding 20 lines AND a `} catch` within the following
-    // 30 lines. Brace-counting against TypeScript would need a real parser
-    // to handle destructuring braces; the proximity rule is robust enough
-    // to catch the R6 bug shape (raw await with no try wrapper) while
-    // tolerating the existing helper file styles.
+  test("every grep-shape surface has every supabase-derived await enclosed in try/catch", () => {
+    // Heuristic: for each AWAIT-OF-SUPABASE-DERIVED-VALUE line, require
+    // BOTH a `try {` within the preceding 20 lines AND a `} catch` within
+    // the following 30 lines. Brace-counting against TypeScript would
+    // need a real parser to handle destructuring braces; the proximity
+    // rule is robust enough to catch the R6 bug shape (raw await with no
+    // try wrapper) while tolerating the existing helper file styles.
+    //
+    // Codex R6 R2 update: the rule originally matched only literal
+    // `await supabase` — that missed AlertBanner's `await query` and
+    // `await countQuery` builder-variable pattern. The rule now also
+    // matches `await <ident>` where `<ident>` is a query-builder
+    // variable assigned from `supabase.from(...).<...>` or from a
+    // prior builder variable in the same file (fixpoint walk catches
+    // chained reassignments).
     for (const entry of grepShapeRegistry) {
       const source = read(entry.surface);
       const lines = source.split("\n");
+
+      // 1. Identify builder-variable names assigned from `supabase` (or
+      //    chain-assigned from an already-known builder name).
+      const builderNames = new Set<string>();
+      const directBuilderRe =
+        /\b(?:let|const|var)\s+([A-Za-z_$][\w$]*)\s*=\s*supabase\b/g;
+      for (const line of lines) {
+        for (const m of line.matchAll(directBuilderRe)) {
+          if (m[1]) builderNames.add(m[1]);
+        }
+      }
+      let prevSize = -1;
+      while (prevSize !== builderNames.size) {
+        prevSize = builderNames.size;
+        const namesAlt = Array.from(builderNames).join("|");
+        if (!namesAlt) break;
+        const chainRe = new RegExp(
+          `\\b([A-Za-z_$][\\w$]*)\\s*=\\s*(?:${namesAlt})\\b`,
+          "g",
+        );
+        for (const line of lines) {
+          for (const m of line.matchAll(chainRe)) {
+            if (m[1]) builderNames.add(m[1]);
+          }
+        }
+      }
+
+      // 2. Find every line awaiting a supabase-derived expression.
       const awaitLineNumbers: number[] = [];
+      const builderAwaitRe =
+        builderNames.size > 0
+          ? new RegExp(`\\bawait\\s+(?:${Array.from(builderNames).join("|")})\\b`)
+          : null;
       lines.forEach((line, idx) => {
-        if (/\bawait\s+supabase\b/.test(line)) awaitLineNumbers.push(idx);
+        if (/\bawait\s+supabase\b/.test(line)) {
+          awaitLineNumbers.push(idx);
+          return;
+        }
+        if (builderAwaitRe && builderAwaitRe.test(line)) {
+          awaitLineNumbers.push(idx);
+        }
       });
       expect(
         awaitLineNumbers.length,
-        `${entry.surface} should contain at least one await supabase`,
+        `${entry.surface} should contain at least one supabase-derived await`,
       ).toBeGreaterThan(0);
+
       for (const lineIdx of awaitLineNumbers) {
         const back = lines.slice(Math.max(0, lineIdx - 20), lineIdx).join("\n");
         const forward = lines
@@ -211,7 +264,7 @@ describe("META §B Supabase call-boundary contract", () => {
         const hasCatchAfter = /\}\s*catch\s*\(/.test(forward);
         expect(
           hasTryBefore && hasCatchAfter,
-          `${entry.surface}: await supabase at line ${lineIdx + 1} is not inside a try/catch (try-before=${hasTryBefore}, catch-after=${hasCatchAfter})`,
+          `${entry.surface}: supabase-derived await at line ${lineIdx + 1} (${lines[lineIdx]?.trim()}) is not inside a try/catch (try-before=${hasTryBefore}, catch-after=${hasCatchAfter})`,
         ).toBe(true);
       }
     }
