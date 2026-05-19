@@ -34,6 +34,7 @@ type CheckpointRow = {
 };
 
 type ShadowRow = {
+  wizard_session_id: string;
   drive_file_id: string;
   show_id: string;
   applied_by_email: string;
@@ -207,7 +208,7 @@ async function unresolvedManifestCount(
 async function readShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string): Promise<ShadowRow[]> {
   const { rows } = await tx.query<ShadowRow>(
     `
-      select drive_file_id, show_id, applied_by_email, applied_at_intent, payload
+      select wizard_session_id, drive_file_id, show_id, applied_by_email, applied_at_intent, payload
        from public.shows_pending_changes
        where wizard_session_id = $1::uuid
        order by drive_file_id
@@ -224,12 +225,26 @@ async function deleteShadowRows(tx: FinalizeCasRouteTx, wizardSessionId: string)
   );
 }
 
+async function deleteAppliedShadowRow(tx: FinalizeCasRouteTx, row: ShadowRow): Promise<void> {
+  await tx.query(
+    `
+      delete from public.shows_pending_changes
+       where wizard_session_id = $1::uuid
+         and drive_file_id = $2
+    `,
+    [row.wizard_session_id, row.drive_file_id],
+  );
+}
+
 async function applyShadow(
   tx: FinalizeCasRouteTx,
   row: ShadowRow,
 ): Promise<ShadowApplyResult> {
   const parseResult = row.payload.parse_result;
-  if (!parseResult) return { drive_file_id: row.drive_file_id, code: OK_CODE };
+  if (!parseResult) {
+    await deleteAppliedShadowRow(tx, row);
+    return { drive_file_id: row.drive_file_id, code: OK_CODE };
+  }
   const applied = await tx.query<{ applied: boolean }>(
     `
       update public.shows
@@ -280,6 +295,7 @@ async function applyShadow(
     return { drive_file_id: row.drive_file_id, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" };
   }
   await insertShadowAudit(tx, row);
+  await deleteAppliedShadowRow(tx, row);
   return { drive_file_id: row.drive_file_id, code: OK_CODE };
 }
 
@@ -427,6 +443,9 @@ async function runFinalizeCas(
     shadowResults.push(await deps.withRowTx(row.drive_file_id, (rowTx) => applyShadow(rowTx, row)));
   }
   const blocked = shadowResults.filter((row) => row.code !== "OK");
+  if (blocked.length > 0) {
+    return errorResponse(409, "STAGED_PARSE_OUTDATED_AT_PHASE_D", { per_row: shadowResults });
+  }
   await deleteShadowRows(tx, wizardSessionId);
   await publishAppliedWizardShows(tx, wizardSessionId);
   await deleteWizardDeferrals(tx, wizardSessionId);

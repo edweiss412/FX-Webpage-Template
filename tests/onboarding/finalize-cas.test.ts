@@ -4,6 +4,7 @@ import type {
   FinalizeCasRouteTx,
 } from "@/app/api/admin/onboarding/finalize-cas/route";
 import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
+import { handleWizardStagedApply } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route";
 
 const W1 = "11111111-1111-4111-8111-111111111111";
 
@@ -48,6 +49,7 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
   approvedCount = 0;
   unresolvedManifestCount = 0;
   shadowRows: Array<{
+    wizard_session_id: string;
     drive_file_id: string;
     show_id: string;
     applied_by_email: string;
@@ -56,7 +58,7 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
   }> = [];
   appliedShadows: string[] = [];
   auditRows: string[] = [];
-  phaseDCasFails = false;
+  phaseDCasFailDriveIds = new Set<string>();
   published = false;
   deletedWizardDeferrals = false;
   operations: string[] = [];
@@ -89,7 +91,7 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
       };
     }
 
-    if (normalized.startsWith("select wizard_session_id")) {
+    if (normalized.startsWith("select wizard_session_id from public.wizard_finalize_checkpoints")) {
       return {
         rows: this.checkpoint?.status === "final_cas_done" ? [{ wizard_session_id: W1 } as T] : [],
         rowCount: this.checkpoint?.status === "final_cas_done" ? 1 : 0,
@@ -107,13 +109,14 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
       };
     }
 
-    if (normalized.startsWith("select drive_file_id")) {
+    if (normalized.startsWith("select wizard_session_id, drive_file_id")) {
       return { rows: this.shadowRows as T[], rowCount: this.shadowRows.length };
     }
 
     if (normalized.startsWith("update public.shows") && normalized.includes("set title")) {
-      if (this.phaseDCasFails) return { rows: [], rowCount: 0 };
-      this.appliedShadows.push(params[0] as string);
+      const driveFileId = params[0] as string;
+      if (this.phaseDCasFailDriveIds.has(driveFileId)) return { rows: [], rowCount: 0 };
+      this.appliedShadows.push(driveFileId);
       return { rows: [{ applied: true } as T], rowCount: 1 };
     }
 
@@ -123,7 +126,9 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
     }
 
     if (normalized.startsWith("delete from public.shows_pending_changes")) {
-      const driveFileId = params[1] as string | undefined;
+      const driveFileId = params.find((param) => typeof param === "string" && param.startsWith("existing-")) as
+        | string
+        | undefined;
       this.shadowRows = driveFileId
         ? this.shadowRows.filter((row) => row.drive_file_id !== driveFileId)
         : [];
@@ -163,7 +168,7 @@ class FakeFinalizeCasDb implements FinalizeCasRouteTx {
     if (sql.startsWith("select pending_wizard_session_id")) return "read-session";
     if (sql.includes("pg_try_advisory_xact_lock(hashtext('finalize:'")) return "try-finalize-lock";
     if (sql.startsWith("select status, batches_completed")) return "read-checkpoint";
-    if (sql.startsWith("select drive_file_id, payload")) return "read-shadows";
+    if (sql.startsWith("select wizard_session_id, drive_file_id")) return "read-shadows";
     if (sql.startsWith("update public.shows") && sql.includes("set title")) return "apply-shadow";
     if (sql.startsWith("update public.shows")) return "publish";
     if (sql.startsWith("delete from public.deferred_ingestions")) return "delete-deferrals";
@@ -191,6 +196,7 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
   test("commits Phase D atomically then subscribes to the watched folder after commit", async () => {
     const db = new FakeFinalizeCasDb();
     db.shadowRows = [{
+      wizard_session_id: W1,
       drive_file_id: "existing-1",
       show_id: "22222222-2222-4222-8222-222222222222",
       applied_by_email: "apply-admin@example.com",
@@ -217,50 +223,112 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
     expect(db.operations.at(-1)).toBe("mark-final-cas-done");
   });
 
-  test("Phase D bulk-clears shadows and completes promotion when later rows CAS-block", async () => {
+  test("Phase D blocks final CAS when one shadow row is outdated, preserving recovery state until re-apply", async () => {
     const db = new FakeFinalizeCasDb();
-    db.shadowRows = [
-      {
-        drive_file_id: "existing-1",
-        show_id: "22222222-2222-4222-8222-222222222222",
-        applied_by_email: "apply-admin@example.com",
-        applied_at_intent: "2026-05-08T12:00:00.000Z",
-        payload: { parse_result: parseResult(), staged_modified_time: "2026-05-08T12:00:00.000Z" },
-      },
-      {
-        drive_file_id: "existing-2",
-        show_id: "33333333-3333-4333-8333-333333333333",
-        applied_by_email: "apply-admin@example.com",
-        applied_at_intent: "2026-05-08T12:00:00.000Z",
-        payload: { parse_result: parseResult(), staged_modified_time: "2026-05-08T12:00:00.000Z" },
-      },
-    ];
-    const routeDeps = deps(db, {
-      withRowTx: async (driveFileId, fn) => {
-        if (driveFileId === "existing-2") db.phaseDCasFails = true;
-        return fn(db);
-      },
-    });
+    db.shadowRows = Array.from({ length: 5 }, (_, index) => ({
+      wizard_session_id: W1,
+      drive_file_id: `existing-${index + 1}`,
+      show_id: `22222222-2222-4222-8222-22222222222${index}`,
+      applied_by_email: "apply-admin@example.com",
+      applied_at_intent: "2026-05-08T12:00:00.000Z",
+      payload: { parse_result: parseResult(), staged_modified_time: "2026-05-08T12:00:00.000Z" },
+    }));
+    db.phaseDCasFailDriveIds.add("existing-3");
+    const routeDeps = deps(db);
 
-    const response = await handleOnboardingFinalizeCas(request(), routeDeps);
+    const blockedResponse = await handleOnboardingFinalizeCas(request(), routeDeps);
 
-    expect(response.status).toBe(200);
-    expect(await json(response)).toMatchObject({
-      status: "finalize_complete",
+    expect(blockedResponse.status).toBe(409);
+    expect(await json(blockedResponse)).toEqual({
+      ok: false,
+      code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
       per_row: [
         { drive_file_id: "existing-1", code: "OK" },
-        { drive_file_id: "existing-2", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" },
+        { drive_file_id: "existing-2", code: "OK" },
+        { drive_file_id: "existing-3", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" },
+        { drive_file_id: "existing-4", code: "OK" },
+        { drive_file_id: "existing-5", code: "OK" },
       ],
     });
-    expect(db.auditRows).toEqual(["existing-1"]);
+    expect(db.appliedShadows).toEqual(["existing-1", "existing-2", "existing-4", "existing-5"]);
+    expect(db.auditRows).toEqual(["existing-1", "existing-2", "existing-4", "existing-5"]);
+    expect(db.shadowRows.map((row) => row.drive_file_id)).toEqual(["existing-3"]);
+    expect(db.published).toBe(false);
+    expect(db.deletedWizardDeferrals).toBe(false);
+    expect(db.watchedFolderId).toBeNull();
+    expect(db.checkpoint?.status).toBe("all_batches_complete");
+    expect(routeDeps.subscribeToWatchedFolder).not.toHaveBeenCalled();
+    expect(db.operations).not.toContain("publish");
+    expect(db.operations).not.toContain("delete-deferrals");
+    expect(db.operations).not.toContain("promote-settings");
+    expect(db.operations).not.toContain("mark-final-cas-done");
+
+    const reapplyResponse = await handleWizardStagedApply(
+      new Request(`https://crew.fxav.test/api/admin/onboarding/staged/${W1}/existing-3/apply`, {
+        method: "POST",
+        body: JSON.stringify({
+          stagedId: "33333333-3333-4333-8333-333333333333",
+          reviewerChoicesVersion: 1,
+          reviewerChoices: [],
+        }),
+        headers: { "content-type": "application/json" },
+      }),
+      { params: Promise.resolve({ wizardSessionId: W1, driveFileId: "existing-3" }) },
+      {
+        requireAdminIdentity: routeDeps.requireAdminIdentity,
+        withRowTx: async (_driveFileId, fn) => fn(db),
+        applyStagedUnlocked: async () => {
+          db.phaseDCasFailDriveIds.delete("existing-3");
+          db.shadowRows = [
+            {
+              wizard_session_id: W1,
+              drive_file_id: "existing-3",
+              show_id: "22222222-2222-4222-8222-222222222222",
+              applied_by_email: "apply-admin@example.com",
+              applied_at_intent: "2026-05-08T12:00:00.000Z",
+              payload: {
+                parse_result: parseResult(),
+                staged_id: "33333333-3333-4333-8333-333333333333",
+                staged_modified_time: "2026-05-08T12:00:00.000Z",
+              },
+            },
+          ];
+          return {
+            outcome: "wizard_applied" as const,
+            wizardSessionId: W1,
+            stagedId: "33333333-3333-4333-8333-333333333333",
+          };
+        },
+      },
+    );
+    expect(reapplyResponse.status).toBe(200);
+    expect(await json(reapplyResponse)).toEqual({
+      status: "reapplied",
+      wizard_session_id: W1,
+      drive_file_id: "existing-3",
+    });
+
+    const successResponse = await handleOnboardingFinalizeCas(request(), routeDeps);
+
+    expect(successResponse.status).toBe(200);
+    expect(await json(successResponse)).toEqual({
+      status: "finalize_complete",
+      wizard_session_id: W1,
+      watched_folder_id: "folder-1",
+    });
     expect(db.shadowRows).toEqual([]);
     expect(db.published).toBe(true);
+    expect(db.deletedWizardDeferrals).toBe(true);
+    expect(db.watchedFolderId).toBe("folder-1");
+    expect(db.checkpoint?.status).toBe("final_cas_done");
+    expect(routeDeps.subscribeToWatchedFolder).toHaveBeenCalledWith("folder-1");
   });
 
-  test("reports Phase D shadow rows whose live show advanced after Phase B", async () => {
+  test("reports Phase D shadow rows whose live show advanced after Phase B without final cleanup", async () => {
     const db = new FakeFinalizeCasDb();
-    db.phaseDCasFails = true;
+    db.phaseDCasFailDriveIds.add("existing-1");
     db.shadowRows = [{
+      wizard_session_id: W1,
       drive_file_id: "existing-1",
       show_id: "22222222-2222-4222-8222-222222222222",
       applied_by_email: "apply-admin@example.com",
@@ -270,15 +338,18 @@ describe("POST /api/admin/onboarding/finalize-cas", () => {
 
     const response = await handleOnboardingFinalizeCas(request(), deps(db));
 
-    expect(response.status).toBe(200);
-    expect(await json(response)).toMatchObject({
-      status: "finalize_complete",
+    expect(response.status).toBe(409);
+    expect(await json(response)).toEqual({
+      ok: false,
+      code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
       per_row: [
         { drive_file_id: "existing-1", code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" },
       ],
     });
-    expect(db.shadowRows).toHaveLength(0);
-    expect(db.published).toBe(true);
+    expect(db.shadowRows.map((row) => row.drive_file_id)).toEqual(["existing-1"]);
+    expect(db.published).toBe(false);
+    expect(db.deletedWizardDeferrals).toBe(false);
+    expect(db.checkpoint?.status).toBe("all_batches_complete");
   });
 
   test("is idempotent after settings were already promoted", async () => {
