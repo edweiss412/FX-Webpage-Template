@@ -1,0 +1,6 @@
+export async function applyStagedParse(db: QueryClient, reviewedStagedId: string) {
+  const pending = await db.from("pending_syncs").select("staged_id").eq("staged_id", reviewedStagedId).single();
+  if (pending.data.staged_id === reviewedStagedId) {
+    await db.from("shows").update({ title: "updated" });
+  }
+}

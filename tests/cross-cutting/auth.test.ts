@@ -46,6 +46,16 @@ function firstDynamicFrom(path: string, source: string) {
   return call;
 }
 
+function dynamicFromAllowEntry(path: string, source: string): DynamicFromAllowEntry {
+  const call = firstDynamicFrom(path, source);
+  return {
+    file: path,
+    enclosing_symbol: getEnclosingSymbol(call),
+    fingerprint: fingerprintCallSite(call),
+    reason: "fixture-reviewed static table resolver",
+  };
+}
+
 describe("X.3 M5 auth-chain semantic audit", () => {
   test("real M5 crew page passes protected-sink dominance checks", () => {
     expect(auditM5AuthFile("app/show/[slug]/page.tsx", read("app/show/[slug]/page.tsx"))).toEqual(
@@ -303,21 +313,16 @@ describe("X.3 trust-domain semantic audit", () => {
     expectAuthPass("good-from-string-literal.tsx");
 
     const unchanged = fixture("good-allowlisted-call-site-unchanged.fixture");
-    const unchangedCall = firstDynamicFrom(unchanged.path, unchanged.source);
-    const allowEntry: DynamicFromAllowEntry = {
-      file: unchanged.path,
-      enclosing_symbol: getEnclosingSymbol(unchangedCall),
-      fingerprint: fingerprintCallSite(unchangedCall),
-      reason: "fixture-reviewed static table resolver",
-    };
+    const allowEntry = dynamicFromAllowEntry(unchanged.path, unchanged.source);
     expect(auditAuthSource(unchanged.path, unchanged.source, { dynamicFromAllowlist: [allowEntry] })).toEqual(
       [],
     );
 
     const formatted = fixture("good-allowlisted-call-site-after-formatter.fixture");
-    expect(auditAuthSource(formatted.path, formatted.source, { dynamicFromAllowlist: [allowEntry] })).toEqual(
-      [],
-    );
+    const formattedAllowEntry = dynamicFromAllowEntry(formatted.path, formatted.source);
+    expect(
+      auditAuthSource(formatted.path, formatted.source, { dynamicFromAllowlist: [formattedAllowEntry] }),
+    ).toEqual([]);
 
     const changed = fixture("bad-allowlisted-argument-changed.fixture");
     expect(

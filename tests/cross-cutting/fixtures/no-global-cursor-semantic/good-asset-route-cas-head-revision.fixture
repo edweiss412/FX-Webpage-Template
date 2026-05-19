@@ -1,0 +1,5 @@
+export async function assetRecovery(db: QueryClient, fileMeta: FileMeta, pinnedRevisionId: string) {
+  if (fileMeta.headRevisionId === pinnedRevisionId) {
+    await db.from("shows").update({ diagrams: {} });
+  }
+}

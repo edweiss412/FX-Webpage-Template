@@ -1464,7 +1464,7 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
 
 **Files:** Test: `tests/cross-cutting/no-global-cursor.test.ts`. Migration: `supabase/migrations/20260501004000_no_global_cursor_event_trigger.sql`.
 
-- [ ] **Step 1: Authored allowlist** — enumerate the only watermark-shaped fields that may participate in sync decisions. ** Fix 3 amendment**: the allowlist is now SPLIT into two named sets so the semantic layer (Step 2 layer 3) can fail the audit when a sync-decision comparison reads a display-only value:
+- [x] **Step 1: Authored allowlist** — enumerate the only watermark-shaped fields that may participate in sync decisions. ** Fix 3 amendment**: the allowlist is now SPLIT into two named sets so the semantic layer (Step 2 layer 3) can fail the audit when a sync-decision comparison reads a display-only value:
 
   **AUTHORITATIVE_GATING_WATERMARKS — valid as the RHS of a sync-decision comparison (Drive-derived per-row sources only):**
   - `shows.last_seen_modified_time` (per-show; spec §4.1, §5.2)
@@ -1494,7 +1494,7 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
 
   Anything outside this list with a watermark-shape name (matches `/last_(seen|sync|poll|processed|run|cursor)|watermark|cursor/i`) is a violation.
 
-- [ ] **Step 2: Failing test — three layers of audit:**
+- [x] **Step 2: Failing test — three layers of audit:**
   1. **Schema audit (positive allowlist over `information_schema.columns`):**
      ```sql
      SELECT table_name, column_name FROM information_schema.columns
@@ -1930,8 +1930,8 @@ The earlier draft of this task was a defensive grep for the literal `lastPollAt`
      - Attempting `ALTER TABLE shows ADD COLUMN last_seen_modified_time timestamptz` (already allowlisted) → expect success (the allowlist exempts the existing column shape).
        This catches DDL-time additions on **any** table, not just `app_settings`.
 
-- [ ] **Step 3: Run** — FAIL initially because the event trigger and migration haven't been added yet. Add the migration. Re-run, expect PASS.
-- [ ] **Step 4: Commit** `test(cross-cutting): no global cursor — AST audit + event-trigger DDL guard (AC-X.4)`.
+- [x] **Step 3: Run** — FAIL initially because the event trigger and migration haven't been added yet. Add the migration. Re-run, expect PASS.
+- [x] **Step 4: Commit** `test(cross-cutting): no global cursor — AST audit + event-trigger DDL guard (AC-X.4)`.
 
 ### Task X.5: Email canonicalization at every boundary (AC-X.5)
 

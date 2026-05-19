@@ -1,0 +1,7 @@
+export async function applyStagedParse(db: QueryClient, showId: string) {
+  const show = await db.from("shows").select("diagrams").eq("id", showId).single();
+  const fresh = await db.from("shows").select("diagrams").eq("id", showId).single();
+  if (sql`(shows.diagrams ->> 'snapshot_revision_id')::uuid = ${fresh.data.diagrams.snapshot_revision_id}`) {
+    await db.from("shows").update({ diagrams: show.data.diagrams });
+  }
+}

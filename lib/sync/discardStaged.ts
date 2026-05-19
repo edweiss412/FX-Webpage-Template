@@ -483,3 +483,5 @@ export async function discardStaged(
     { tryOnly: false },
   );
 }
+
+export const discardStagedParse = discardStaged;

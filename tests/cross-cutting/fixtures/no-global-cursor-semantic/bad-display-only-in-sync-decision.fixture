@@ -1,0 +1,6 @@
+export async function applyStagedParse(db: QueryClient, reviewedTimestamp: string, showId: string) {
+  const show = await db.from("shows").select("last_synced_at").eq("id", showId).single();
+  if (show.data.last_synced_at === reviewedTimestamp) {
+    await db.from("shows").update({ title: "updated" }).eq("id", showId);
+  }
+}

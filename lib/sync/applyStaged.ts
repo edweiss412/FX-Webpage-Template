@@ -1661,3 +1661,5 @@ export async function applyStaged(
     `unsupported Apply source scope: ${(args as { sourceScope: string }).sourceScope}`,
   );
 }
+
+export const applyStagedParse = applyStaged;

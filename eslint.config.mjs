@@ -24,6 +24,8 @@ const eslintConfig = defineConfig([
     // every source file and OOM the eslint process when bare `pnpm lint`
     // runs from the main checkout.
     ".claude/**",
+    "tests/cross-cutting/fixtures/no-global-cursor/**",
+    "tests/cross-cutting/fixtures/no-global-cursor-semantic/**",
   ]),
   // ── Tailwind v4 canonical-class enforcement ─────────────────────────────
   // Implements the Tailwind PR-19059 canonical-class suggestions (same logic
@@ -65,7 +67,7 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    files: ["lib/audit/admin-tables.generated.ts"],
+    files: ["lib/audit/admin-tables.generated.ts", "lib/audit/watermark-symbols.generated.ts"],
     rules: {},
   },
   // Must be last: disables ESLint rules that conflict with Prettier formatting.

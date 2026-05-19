@@ -282,23 +282,20 @@ export function findRequestEntries(sf: SourceFile): RequestEntry[] {
   const defaultNode = defaultExportNode(sf);
   if (defaultNode) {
     const text = defaultNode.getText().slice(0, 120);
-    const lowerPath = path.toLowerCase();
     const namedKind =
-      /function\s+Loading\b/.test(text) || lowerPath.includes("bad-loading") || base.startsWith("loading.")
+      /function\s+Loading\b/.test(text) || base.startsWith("loading.")
         ? "loading"
-        : /function\s+Error\b/.test(text) || lowerPath.includes("bad-error") || base.startsWith("error.")
+        : /function\s+Error\b/.test(text) || base.startsWith("error.")
           ? "error"
-          : /function\s+NotFound\b/.test(text) || lowerPath.includes("bad-not-found") || base.startsWith("not-found.")
+          : /function\s+NotFound\b/.test(text) || base.startsWith("not-found.")
             ? "not-found"
-            : /function\s+Head\b/.test(text) || lowerPath.includes("bad-head") || base.startsWith("head.")
+            : /function\s+Head\b/.test(text) || base.startsWith("head.")
               ? "head"
-              : /function\s+Template\b/.test(text) || lowerPath.includes("bad-template") || base.startsWith("template.")
+              : /function\s+Template\b/.test(text) || base.startsWith("template.")
                 ? "template"
                 : base.startsWith("page.") ||
-                    lowerPath.includes("/page.") ||
-                    lowerPath.startsWith("tests/") ||
-                    lowerPath.includes("good-me") ||
-                    lowerPath.includes("bad-me")
+                    path.toLowerCase().includes("/page.") ||
+                    path.toLowerCase().startsWith("tests/")
                   ? "page"
                   : null;
     if (namedKind) entries.push({ kind: namedKind, name: "default", node: defaultNode });
@@ -469,14 +466,10 @@ function dynamicFromAllowlistFinding(
   const file = repoPath(sf.getFilePath());
   const symbol = getEnclosingSymbol(call);
   const fingerprint = fingerprintCallSite(call);
-  const allowlistPaths = allowlist.map((entry) => repoPath(entry.file)).join("\n");
-  const sameFixtureFamily =
-    file.includes("good-allowlisted-call-site-") &&
-    allowlistPaths.includes("good-allowlisted-call-site-");
   const candidates = allowlist.filter(
     (entry) =>
-      (repoPath(entry.file) === file || sameFixtureFamily) &&
-      entry.enclosing_symbol.replace(entry.file, file) === symbol &&
+      repoPath(entry.file) === file &&
+      entry.enclosing_symbol === symbol &&
       entry.fingerprint === fingerprint,
   );
   if (candidates.length === 0) {
@@ -726,15 +719,20 @@ function auditEntry(
   return findings;
 }
 
+function readFixtureDomain(path: string): TrustDomain | null {
+  const metaPath = `${path}.meta.json`;
+  if (!existsSync(metaPath)) return null;
+  const parsed = JSON.parse(readFileSync(metaPath, "utf8")) as { domain?: TrustDomain };
+  return parsed.domain ?? null;
+}
+
 function inferFixtureDomain(path: string): TrustDomain {
-  if (path.includes("-me-") || path.includes("good-me") || path.includes("bad-me")) return "me";
-  if (path.includes("module-use-server")) return "admin";
-  return "crew-session";
+  return readFixtureDomain(path) ?? "crew-session";
 }
 
 function inheritedActionDomain(path: string): TrustDomain {
   const normalized = repoPath(path);
-  if (normalized.includes("module-use-server")) return "admin";
+  if (normalized.startsWith("tests/")) return readFixtureDomain(path) ?? "crew-session";
   if (normalized.startsWith("app/admin/")) return "admin";
   if (normalized.startsWith("app/me/")) return "me";
   return "crew-session";

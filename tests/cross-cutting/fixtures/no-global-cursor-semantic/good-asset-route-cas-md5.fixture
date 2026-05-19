@@ -1,0 +1,5 @@
+export async function assetRecovery(db: QueryClient, fileMeta: FileMeta, pinnedChecksum: string) {
+  if (fileMeta.md5Checksum === pinnedChecksum) {
+    await db.from("shows").update({ diagrams: {} });
+  }
+}

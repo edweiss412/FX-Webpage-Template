@@ -1,0 +1,14 @@
+export async function applyStagedParse(
+  db: QueryClient,
+  reviewedStagedId: string,
+  reviewedBaseModifiedTime: string,
+) {
+  const pending = await db
+    .from("pending_syncs")
+    .select("staged_id, base_modified_time")
+    .eq("staged_id", reviewedStagedId)
+    .single();
+  if (pending.data.staged_id === reviewedStagedId && pending.data.base_modified_time === reviewedBaseModifiedTime) {
+    await db.from("shows").update({ title: "updated" });
+  }
+}

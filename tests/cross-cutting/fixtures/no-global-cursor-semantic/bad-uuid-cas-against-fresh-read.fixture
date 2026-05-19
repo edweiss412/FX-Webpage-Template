@@ -1,0 +1,7 @@
+export async function applyStagedParse(db: QueryClient, driveFileId: string) {
+  const pending = await db.from("pending_syncs").select("staged_id").eq("drive_file_id", driveFileId).single();
+  const fresh = await db.from("pending_syncs").select("staged_id").eq("drive_file_id", driveFileId).single();
+  if (pending.data.staged_id === fresh.data.staged_id) {
+    await db.from("shows").update({ title: "updated" });
+  }
+}

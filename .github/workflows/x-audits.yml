@@ -102,3 +102,41 @@ jobs:
           path: |
             x3-trust-domain-generated.diff
             x3-trust-domain.log
+
+  x4-no-global-cursor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm gen:admin-tables
+      - name: Check generated admin-table manifest
+        run: |
+          git diff -- lib/audit/admin-tables.generated.ts > x4-admin-tables-generated.diff
+          git diff --exit-code lib/audit/admin-tables.generated.ts
+      - run: pnpm gen:watermark-symbols
+      - name: Check generated watermark-symbol manifest
+        run: |
+          git diff -- lib/audit/watermark-symbols.generated.ts > x4-no-global-cursor-generated.diff
+          git diff --exit-code lib/audit/watermark-symbols.generated.ts
+      - name: Run X.4 no-global-cursor audit
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test:audit:x4-no-global-cursor 2>&1 | tee x4-no-global-cursor.log
+      - name: Upload X.4 no-global-cursor audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x4-no-global-cursor-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          if-no-files-found: warn
+          path: |
+            x4-admin-tables-generated.diff
+            x4-no-global-cursor-generated.diff
+            x4-no-global-cursor.log
