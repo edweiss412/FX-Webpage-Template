@@ -23,7 +23,7 @@
  * /admin/onboarding/staged/[wizardSessionId]/[driveFileId] (Cluster I-7
  * earlier commit).
  */
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -47,9 +47,13 @@ type LiveFirstSeenRow = {
   source_kind: "cron" | "push" | "manual" | "onboarding_scan";
 };
 
-async function fetchLiveFirstSeenRow(
-  stagedId: string,
-): Promise<LiveFirstSeenRow | null | { kind: "infra_error"; message: string }> {
+type FetchResult =
+  | { kind: "row"; row: LiveFirstSeenRow }
+  | { kind: "redirect_to_show"; slug: string; stagedId: string }
+  | { kind: "not_found" }
+  | { kind: "infra_error"; message: string };
+
+async function fetchLiveFirstSeenRow(stagedId: string): Promise<FetchResult> {
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
     supabase = await createSupabaseServerClient();
@@ -73,8 +77,35 @@ async function fetchLiveFirstSeenRow(
       message: `pending_syncs query failed: ${error.message}`,
     };
   }
-  if (!data) return null;
-  return data as unknown as LiveFirstSeenRow;
+  if (!data) return { kind: "not_found" };
+  const row = data as unknown as LiveFirstSeenRow;
+
+  // Existing-show staged rows MUST redirect to the canonical per-show
+  // review surface (/admin/show/<slug>?review=<stagedId>). The first-seen
+  // page is for staged rows whose drive_file_id has NO `shows` row yet;
+  // a live re-stage of an already-live show would otherwise be opened
+  // with first-time copy + first-seen apply/discard endpoints instead of
+  // the per-show context the operator expects (plan §M10 Task 10.10).
+  const showLookup = await supabase
+    .from("shows")
+    .select("slug")
+    .eq("drive_file_id", row.drive_file_id)
+    .maybeSingle();
+  if (showLookup.error) {
+    return {
+      kind: "infra_error",
+      message: `shows lookup failed: ${showLookup.error.message}`,
+    };
+  }
+  if (showLookup.data && typeof (showLookup.data as { slug?: string }).slug === "string") {
+    return {
+      kind: "redirect_to_show",
+      slug: (showLookup.data as { slug: string }).slug,
+      stagedId,
+    };
+  }
+
+  return { kind: "row", row };
 }
 
 function summaryFromParseResult(
@@ -91,7 +122,7 @@ export default async function LiveFirstSeenStagedPage({ params }: PageProps) {
 
   const result = await fetchLiveFirstSeenRow(stagedId);
 
-  if (result !== null && typeof result === "object" && "kind" in result && result.kind === "infra_error") {
+  if (result.kind === "infra_error") {
     return (
       <main
         data-testid="live-first-seen-staged-infra-error"
@@ -110,11 +141,17 @@ export default async function LiveFirstSeenStagedPage({ params }: PageProps) {
     );
   }
 
-  if (result === null) {
+  if (result.kind === "redirect_to_show") {
+    redirect(
+      `/admin/show/${encodeURIComponent(result.slug)}?review=${encodeURIComponent(result.stagedId)}`,
+    );
+  }
+
+  if (result.kind === "not_found") {
     notFound();
   }
 
-  const row = result as LiveFirstSeenRow;
+  const row = result.row;
 
   const stagedRow: StagedRow = {
     driveFileId: row.drive_file_id,
