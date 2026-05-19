@@ -1,6 +1,5 @@
-import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, relative } from "node:path";
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export type SpecCodePayload = {
@@ -30,6 +29,11 @@ const OUTPUT_PATH = "lib/messages/__generated__/spec-codes.ts";
 const HELP_CONTEXT_ANCHOR = "<!-- §12.4 helpfulContext appendix";
 const CODE_RE = /^[A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)*$/;
 const PSEUDO_NULL_SENTINELS = new Set(["null", "none", "n/a", "na"]);
+const RENDERED_CONTEXT_ROOTS = ["app", "lib", "components", "middleware.ts"] as const;
+const RENDERED_MESSAGE_FOR_RE =
+  /messageFor\(\s*["'`]([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+)["'`][\s\S]{0,160}?\)\.dougFacing/g;
+const RENDERED_ERROR_EXPLAINER_RE =
+  /<ErrorExplainer[^>\n]+code=["'`]([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+)["'`]/g;
 
 function stripOuterQuotes(value: string): string {
   const trimmed = value.trim();
@@ -261,28 +265,47 @@ function diffPayload(
     .map((field) => `${field}: ${JSON.stringify(left[field])} != ${JSON.stringify(right[field])}`);
 }
 
-function renderedHelpfulContextSites(): Array<{ code: string; fileName: string; line: number }> {
-  const pattern = String.raw`messageFor\(\s*['"\`][A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+['"\`][\s\S]{0,160}\)\.dougFacing|<ErrorExplainer[^>\n]+code=['"\`][A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+['"\`]`;
-  let output = "";
-  try {
-    output = execFileSync("rg", ["--line-number", "--no-heading", pattern, "app", "lib", "components", "middleware.ts"], {
-      encoding: "utf8",
-    });
-  } catch (error) {
-    const status = typeof error === "object" && error !== null && "status" in error ? error.status : null;
-    if (status === 1) return [];
-    throw error;
-  }
+function walkSourceFiles(roots: readonly string[]): string[] {
+  const files: string[] = [];
+  const walk = (path: string) => {
+    const stats = statSync(path);
+    if (!stats.isDirectory()) {
+      if (/\.(ts|tsx)$/.test(path)) files.push(path);
+      return;
+    }
 
+    for (const entry of readdirSync(path)) {
+      const child = join(path, entry);
+      if (entry === "__generated__") continue;
+      walk(child);
+    }
+  };
+
+  for (const root of roots) {
+    walk(root);
+  }
+  return files.sort();
+}
+
+function lineNumberAt(source: string, index: number): number {
+  return source.slice(0, index).split(/\r?\n/).length;
+}
+
+function renderedHelpfulContextSites(): Array<{ code: string; fileName: string; line: number }> {
   const sites: Array<{ code: string; fileName: string; line: number }> = [];
-  for (const rawLine of output.split(/\r?\n/)) {
-    if (!rawLine.trim()) continue;
-    const [fileName, lineText, ...rest] = rawLine.split(":");
-    const line = Number(lineText);
-    const text = rest.join(":");
-    const codeMatch = text.match(/['"`]([A-Z][A-Za-z0-9_-]*(?:_[A-Za-z0-9_-]+)+)['"`]/);
-    if (fileName && Number.isFinite(line) && codeMatch?.[1]) {
-      sites.push({ code: codeMatch[1], fileName, line });
+  for (const fileName of walkSourceFiles(RENDERED_CONTEXT_ROOTS)) {
+    const source = readFileSync(fileName, "utf8");
+    for (const pattern of [RENDERED_MESSAGE_FOR_RE, RENDERED_ERROR_EXPLAINER_RE]) {
+      pattern.lastIndex = 0;
+      for (const match of source.matchAll(pattern)) {
+        if (match[1]) {
+          sites.push({
+            code: match[1],
+            fileName,
+            line: lineNumberAt(source, match.index ?? 0),
+          });
+        }
+      }
     }
   }
   return sites;
@@ -347,7 +370,9 @@ function stableObjectLiteral(value: unknown, indent = 0): string {
     return `[${value.map((item) => stableObjectLiteral(item, indent)).join(", ")}]`;
   }
 
-  const entries = Object.entries(value as Record<string, unknown>);
+  const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
   if (entries.length === 0) return "{}";
   return [
     "{",

@@ -21,7 +21,7 @@ describe("§12.4 spec-code extractor", () => {
       SHEET_UNAVAILABLE: {
         dougFacing: "Doug copy.",
         crewFacing: "Crew copy.",
-        followUp: "Doug -> fix sheet",
+        followUp: "Doug → fix sheet",
         helpfulContext: "Helpful context.",
       },
       ADMIN_LOG_ONLY: {

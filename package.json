@@ -12,7 +12,7 @@
     "gen:spec-codes": "tsx scripts/extract-spec-codes.ts",
     "typecheck": "tsc --noEmit",
     "verify:spec-amendment": "scripts/verify-spec-amendment-3.sh",
-    "test:audit:x1-catalog": "pnpm gen:spec-codes && vitest run tests/cross-cutting/",
+    "test:audit:x1-catalog-parity": "pnpm gen:spec-codes && vitest run tests/cross-cutting/",
     "db:seed": "pnpm dlx tsx supabase/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest",

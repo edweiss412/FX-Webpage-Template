@@ -21,4 +21,4 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm gen:spec-codes
       - run: git diff --exit-code lib/messages/__generated__/spec-codes.ts
-      - run: pnpm test:audit:x1-catalog
+      - run: pnpm test:audit:x1-catalog-parity
