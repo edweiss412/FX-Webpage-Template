@@ -33,7 +33,7 @@ const STEPS: ReadonlyArray<TourStep> = [
   {
     title: "Your dashboard",
     body:
-      "This is your home page. Active shows live in the top list. Anything that needs a second look — a sheet we couldn't read, or a new sheet we have not seen before — drops into the panel below.",
+      "This is your home page. Active shows live in the top list. Anything that needs a second look (a sheet we could not read, or a new sheet we have not seen before) drops into the panel below.",
   },
   {
     title: "Per-show review",
@@ -48,7 +48,7 @@ const STEPS: ReadonlyArray<TourStep> = [
   {
     title: "If something looks wrong",
     body:
-      "Every error message has a What does this mean link. Tap it for a plain-language explanation. If you still need help, use the Report this view button on any page.",
+      "Every admin error message has a &ldquo;What does this mean?&rdquo; link. Tap it for a plain-language explanation. If you still need help, use the Report this view button on any page.",
   },
 ];
 
@@ -80,13 +80,28 @@ export function Tour() {
   useEffect(() => {
     // Hydration-safe read of a client-only persistence store: render once
     // with `null` on the server, then sync to the persisted value on
-    // mount. The setState-in-effect is intentional — there is no
+    // mount. The setState-in-effect is intentional: there is no
     // server-side fallback for localStorage, and `useSyncExternalStore`
     // would require subscribing to a non-existent event source for what
     // is a read-once-on-mount value.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCompleted(readStored());
   }, []);
+
+  // Escape-key closes the modal. Standard WAI-ARIA dialog contract;
+  // separately from any focus-trap library, this restores the keyboard
+  // exit affordance that aria-modal="true" implies to screen readers.
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open]);
 
   const step = STEPS[stepIndex];
   const isFirst = stepIndex === 0;
@@ -133,7 +148,7 @@ export function Tour() {
           aria-modal="true"
           aria-labelledby="admin-tour-heading"
           data-testid="admin-tour-dialog"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-overlay-scrim p-4"
         >
           <div className="flex max-h-full w-full max-w-md flex-col gap-4 overflow-y-auto rounded-md border border-border bg-surface p-tile-pad text-text shadow-(--shadow-tile)">
             <div className="flex items-center justify-between">

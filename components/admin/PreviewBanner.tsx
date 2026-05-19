@@ -20,30 +20,48 @@
  * Server Component (no 'use client').
  */
 import Link from "next/link";
+import { ReportButton } from "@/components/shared/ReportButton";
 
 export type PreviewBannerProps = {
   /** Crew member display name resolved from `crew_members.name`. */
   crewMemberName: string;
   /**
-   * Optional role label (e.g., "A1", "LEAD", "Crew"). Rendered as a
-   * trailing chip after the name. When null the banner shows only the
-   * name.
+   * Display role from `crew_members.role` (e.g., "A1", "Stage Manager",
+   * "Lighting"). This is the human-readable role label, NOT the
+   * capability flag array (`role_flags`) — flags drive authorization
+   * and tile visibility, role drives the banner identity copy.
+   * Optional; the banner renders only the name when null.
    */
   crewMemberRoleLabel?: string | null;
   /** The host show's slug. Used to compose the Exit link target. */
   slug: string;
+  /**
+   * `shows.id` UUID for the previewed show. Threaded into the embedded
+   * ReportButton so a "Report this view" submission carries the right
+   * show context (§13 admin report flow).
+   */
+  showId: string;
+  /** Crew member id; included in the ReportButton surfaceId so a stale
+   * sessionStorage entry can't leak between preview targets. */
+  crewMemberId: string;
 };
 
 export function PreviewBanner({
   crewMemberName,
   crewMemberRoleLabel,
   slug,
+  showId,
+  crewMemberId,
 }: PreviewBannerProps) {
   return (
+    // `role="status"` (not `role="region"`) avoids planting a duplicate
+    // landmark above the page's `<header>` (Header.tsx:46) which is
+    // already the canonical banner-landmark for the show.
     <aside
       data-testid="admin-preview-banner"
       data-slug={slug}
-      role="region"
+      role="status"
+      aria-live="polite"
       aria-label="Admin preview banner"
       // Sticky + z-100 per §9.3. Yellow tint via warning-bg / warning-text
       // tokens makes impersonation unmistakable; the banner sits above
@@ -55,7 +73,7 @@ export function PreviewBanner({
         <p className="flex flex-1 flex-wrap items-center gap-2 text-sm sm:text-base">
           <span
             data-testid="admin-preview-banner-label"
-            className="font-semibold uppercase tabular-nums"
+            className="font-semibold uppercase"
             style={{ letterSpacing: "var(--tracking-eyebrow)" }}
           >
             Previewing as
@@ -69,7 +87,7 @@ export function PreviewBanner({
           {crewMemberRoleLabel ? (
             <span
               data-testid="admin-preview-banner-role"
-              className="inline-flex items-center rounded-pill border border-border-strong bg-surface px-2 py-0.5 text-xs font-semibold uppercase text-text-strong tabular-nums"
+              className="inline-flex items-center rounded-pill border border-border-strong bg-surface px-2 py-0.5 text-xs font-semibold uppercase text-text-strong"
               style={{ letterSpacing: "var(--tracking-eyebrow)" }}
             >
               {crewMemberRoleLabel}
@@ -77,17 +95,17 @@ export function PreviewBanner({
           ) : null}
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          <Link
-            data-testid="admin-preview-banner-report"
-            href={`/admin/show/${encodeURIComponent(slug)}?report=preview`}
-            className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-          >
-            Report this view
-          </Link>
+          <ReportButton
+            surface="admin"
+            surfaceId={`admin-preview-${slug}-${crewMemberId}`}
+            showId={showId}
+            label="Report this view"
+            variant="text"
+          />
           <Link
             data-testid="admin-preview-banner-exit"
             href={`/admin/show/${encodeURIComponent(slug)}`}
-            className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:bg-warning-text/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
           >
             Exit preview
           </Link>

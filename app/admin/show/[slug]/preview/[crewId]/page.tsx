@@ -33,11 +33,17 @@
  */
 import { notFound, redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
-import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getShowForViewer, type ShowForViewer } from "@/lib/data/getShowForViewer";
-import { messageFor } from "@/lib/messages/lookup";
 import { PreviewBanner } from "@/components/admin/PreviewBanner";
 import { ShowBody } from "@/app/show/[slug]/_ShowBody";
+
+const INFRA_ERROR_COPY =
+  // not-subject:M5-D8 — admin-only infra-fallback copy. `ADMIN_SESSION_LOOKUP_FAILED`
+  // in the catalog is crew-facing (dougFacing is null); this surface is admin-only
+  // so the literal below is the canonical Doug copy for the infra-error path until a
+  // dedicated `ADMIN_PREVIEW_LOAD_FAILED` catalog entry lands in §A.
+  "We could not load this preview. Try again in a moment, or contact the developer if this keeps happening.";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Preview as crew member · Admin · FXAV" };
@@ -53,7 +59,11 @@ type ShowLookup =
 
 async function lookupShow(slug: string): Promise<ShowLookup> {
   try {
-    const supabase = createSupabaseServiceRoleClient();
+    // Session-bound server client (not service-role): keeps RLS engaged
+    // so this surface cannot read shows the admin's session would
+    // otherwise be denied. requireAdmin() already gated the route; this
+    // is defense-in-depth on the data layer.
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from("shows")
       .select("id")
@@ -74,25 +84,21 @@ type CrewLookup =
   | { kind: "not_found" }
   | { kind: "infra_error" };
 
-function deriveRoleLabel(roleFlags: unknown): string | null {
-  if (!Array.isArray(roleFlags) || roleFlags.length === 0) return null;
-  // Prefer the most specific known flag. LEAD is the only privileged
-  // role we render in the banner; otherwise display the first
-  // alphabetically-stable flag the row carries. Banner copy stays short.
-  if (roleFlags.includes("LEAD")) return "LEAD";
-  const first = roleFlags.find((f) => typeof f === "string" && f.length > 0);
-  return typeof first === "string" ? first : null;
-}
-
 async function lookupCrewMember(
   showId: string,
   crewMemberId: string,
 ): Promise<CrewLookup> {
   try {
-    const supabase = createSupabaseServiceRoleClient();
+    // Session-bound server client. The banner's identity label reads
+    // from `crew_members.role` (display label like "A1", "Stage
+    // Manager") — NOT the capability `role_flags` array. Per spec §9.3
+    // the banner shows "<Name> (<Role>)" so operators recognize the
+    // viewer they are previewing; role_flags drive auth and tile
+    // visibility separately inside getShowForViewer.
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from("crew_members")
-      .select("name, role_flags")
+      .select("name, role")
       .eq("id", crewMemberId)
       .eq("show_id", showId)
       .maybeSingle();
@@ -102,11 +108,10 @@ async function lookupCrewMember(
     if (typeof name !== "string" || name.length === 0) {
       return { kind: "not_found" };
     }
-    return {
-      kind: "found",
-      name,
-      roleLabel: deriveRoleLabel((data as { role_flags?: unknown }).role_flags),
-    };
+    const rawRole = (data as { role?: unknown }).role;
+    const roleLabel =
+      typeof rawRole === "string" && rawRole.length > 0 ? rawRole : null;
+    return { kind: "found", name, roleLabel };
   } catch {
     return { kind: "infra_error" };
   }
@@ -119,18 +124,15 @@ export default async function AdminPreviewAsPage({ params }: PageProps) {
   const showLookup = await lookupShow(slug);
   if (showLookup.kind === "not_found") notFound();
   if (showLookup.kind === "infra_error") {
-    const entry = messageFor("ADMIN_SESSION_LOOKUP_FAILED" as never);
     return (
       <main
         data-testid="admin-preview-infra-error"
         className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
       >
         <h1 className="text-2xl font-bold text-text-strong">
-          We&rsquo;re having trouble loading this preview
+          We could not load this preview
         </h1>
-        <p className="mt-4 text-base text-text-subtle">
-          {entry.dougFacing ?? "Please try again in a moment."}
-        </p>
+        <p className="mt-4 text-base text-text-subtle">{INFRA_ERROR_COPY}</p>
         <a
           href={`/admin/show/${encodeURIComponent(slug)}`}
           className="mt-section-gap inline-flex min-h-tap-min items-center px-4 py-2 text-base text-text-strong underline underline-offset-2"
@@ -165,18 +167,15 @@ export default async function AdminPreviewAsPage({ params }: PageProps) {
     if (message === "LINK_NO_CREW_MATCH") {
       notFound();
     }
-    const entry = messageFor("ADMIN_SESSION_LOOKUP_FAILED" as never);
     return (
       <main
         data-testid="admin-preview-data-failure"
         className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-section-gap text-center text-text"
       >
         <h1 className="text-2xl font-bold text-text-strong">
-          We&rsquo;re having trouble loading this preview
+          We could not load this preview
         </h1>
-        <p className="mt-4 text-base text-text-subtle">
-          {entry.dougFacing ?? "Please try again in a moment."}
-        </p>
+        <p className="mt-4 text-base text-text-subtle">{INFRA_ERROR_COPY}</p>
         <a
           href={`/admin/show/${encodeURIComponent(slug)}`}
           className="mt-section-gap inline-flex min-h-tap-min items-center px-4 py-2 text-base text-text-strong underline underline-offset-2"
@@ -193,6 +192,8 @@ export default async function AdminPreviewAsPage({ params }: PageProps) {
         crewMemberName={crewLookup.name}
         crewMemberRoleLabel={crewLookup.roleLabel}
         slug={slug}
+        showId={showId}
+        crewMemberId={crewId}
       />
       <ShowBody
         slug={slug}

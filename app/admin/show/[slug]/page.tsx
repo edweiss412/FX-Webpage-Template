@@ -16,6 +16,7 @@
  * Server Component (no 'use client'); the Re-sync button and review
  * cards are Client Components mounted as children.
  */
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -127,6 +128,19 @@ export default async function AdminShowPage({
     return summary ? { ...base, parseSummaryLine: summary } : base;
   });
 
+  // M10 §B Phase 3 / Cluster I-5: list crew members so each row can carry a
+  // "Preview as" entry point to /admin/show/[slug]/preview/[crewId] (§9.3).
+  // The lookup is admin-RLS gated by the surrounding requireAdmin + the
+  // crew_members policy; failures fall through to an empty list and a small
+  // explanatory note rather than blocking the page.
+  const { data: crewRows, error: crewError } = await supabase
+    .from("crew_members")
+    .select("id, name, role")
+    .eq("show_id", show.id)
+    .order("name", { ascending: true });
+  const crewLookupFailed = crewError !== null;
+  const crew = crewLookupFailed ? [] : (crewRows ?? []);
+
   return (
     <main data-testid="admin-show-page" className="space-y-section-gap">
       <header className="space-y-2">
@@ -150,6 +164,73 @@ export default async function AdminShowPage({
       />
 
       <ReSyncButton slug={show.slug} />
+
+      <section
+        data-testid="admin-show-preview-as-section"
+        aria-labelledby="admin-show-preview-as-heading"
+        className="flex flex-col gap-3"
+      >
+        <h2
+          id="admin-show-preview-as-heading"
+          className="text-lg font-semibold text-text-strong"
+        >
+          Preview as a crew member
+        </h2>
+        <p className="max-w-prose text-sm text-text-subtle">
+          Open the crew page the way one of these crew members sees it.
+          A yellow banner at the top will remind you that you are
+          previewing.
+        </p>
+        {crewLookupFailed ? (
+          <p
+            data-testid="admin-show-preview-as-error"
+            className="rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
+          >
+            We could not load the crew list right now. Refresh the
+            page; if the problem repeats, contact the developer.
+          </p>
+        ) : crew.length === 0 ? (
+          <p
+            data-testid="admin-show-preview-as-empty"
+            className="text-sm text-text-subtle"
+          >
+            This show has no crew members yet. Once a sync brings them
+            in, they will appear here.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {crew.map((member) => {
+              const id = (member as { id?: string }).id ?? "";
+              const name = (member as { name?: string }).name ?? "";
+              const role = (member as { role?: string }).role ?? null;
+              if (!id || !name) return null;
+              return (
+                <li
+                  key={id}
+                  data-testid={`admin-show-preview-as-row-${id}`}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface p-tile-pad"
+                >
+                  <div className="flex flex-col">
+                    <span className="text-base font-semibold text-text-strong">
+                      {name}
+                    </span>
+                    {role ? (
+                      <span className="text-xs text-text-subtle">{role}</span>
+                    ) : null}
+                  </div>
+                  <Link
+                    data-testid={`admin-show-preview-as-link-${id}`}
+                    href={`/admin/show/${encodeURIComponent(show.slug)}/preview/${encodeURIComponent(id)}`}
+                    className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                  >
+                    Preview as
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
 
       <ParsePanel rows={rows} showId={show.id} />
     </main>
