@@ -91,23 +91,29 @@ export async function deleteFixtureUserByEmail(email: string): Promise<void> {
   // Inline trim().toLowerCase() would be a duplicate implementation.
   const lowered = canonicalize(email);
   if (!lowered) return; // empty/null email → nothing to delete
-  // listUsers paginates; perPage:200 covers our fixture set with room.
-  const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
-  if (error) {
-    throw new Error(`deleteFixtureUserByEmail.listUsers failed: ${error.message}`);
-  }
-  for (const u of data?.users ?? []) {
-    if (canonicalize(u.email ?? null) === lowered) {
-      const { error: deleteErr } = await admin.auth.admin.deleteUser(u.id);
-      if (deleteErr) {
-        // Tolerate races: another concurrent test (across Playwright projects
-        // or workers) may have just deleted the same fixture user. The desired
-        // post-condition (user absent) holds either way.
-        if (/not[_ ]found|user.*not.*exist/i.test(deleteErr.message)) {
-          continue;
+  // Paginate through all auth.users pages — local Supabase auth.users can
+  // exceed 200 rows from accumulated fixture state across runs; single-page
+  // scan misses paged-off emails and leaves residue that breaks create-only.
+  for (let page = 1; page <= 50; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error) {
+      throw new Error(`deleteFixtureUserByEmail.listUsers failed: ${error.message}`);
+    }
+    const users = data?.users ?? [];
+    for (const u of users) {
+      if (canonicalize(u.email ?? null) === lowered) {
+        const { error: deleteErr } = await admin.auth.admin.deleteUser(u.id);
+        if (deleteErr) {
+          // Tolerate races: another concurrent test (across Playwright projects
+          // or workers) may have just deleted the same fixture user. The desired
+          // post-condition (user absent) holds either way.
+          if (/not[_ ]found|user.*not.*exist/i.test(deleteErr.message)) {
+            continue;
+          }
+          throw new Error(`deleteFixtureUserByEmail.deleteUser failed: ${deleteErr.message}`);
         }
-        throw new Error(`deleteFixtureUserByEmail.deleteUser failed: ${deleteErr.message}`);
       }
     }
+    if (users.length < 200) break;
   }
 }

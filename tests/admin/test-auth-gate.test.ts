@@ -472,11 +472,17 @@ describe.skipIf(!isReachable)(
       // Pre-clean: drop any existing test-fixture user so create-only
       // doesn't trip on residue from prior runs.
       const adminEmail = "edweiss412@gmail.com";
-      const allUsers = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
-      for (const u of allUsers.data?.users ?? []) {
-        if ((u.email ?? "").toLowerCase() === adminEmail) {
-          await admin.auth.admin.deleteUser(u.id);
+      // Paginate through all auth.users pages — local Supabase auth.users
+      // can exceed 200 rows from accumulated fixture state across runs.
+      for (let page = 1; page <= 50; page++) {
+        const allUsers = await admin.auth.admin.listUsers({ page, perPage: 200 });
+        const users = allUsers.data?.users ?? [];
+        for (const u of users) {
+          if ((u.email ?? "").toLowerCase() === adminEmail) {
+            await admin.auth.admin.deleteUser(u.id);
+          }
         }
+        if (users.length < 200) break;
       }
 
       // Submit isAdmin=false in the body — the server MUST ignore this
@@ -501,11 +507,16 @@ describe.skipIf(!isReachable)(
 
     test("POST with valid secret + non-admin email + client isAdmin=true → 200, server derives isAdmin=false", async () => {
       const crewEmail = "crew-non-admin@fxav.test";
-      const allUsers = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
-      for (const u of allUsers.data?.users ?? []) {
-        if ((u.email ?? "").toLowerCase() === crewEmail) {
-          await admin.auth.admin.deleteUser(u.id);
+      // Paginate through all auth.users pages — same residue-protection as adminEmail above.
+      for (let page = 1; page <= 50; page++) {
+        const allUsers = await admin.auth.admin.listUsers({ page, perPage: 200 });
+        const users = allUsers.data?.users ?? [];
+        for (const u of users) {
+          if ((u.email ?? "").toLowerCase() === crewEmail) {
+            await admin.auth.admin.deleteUser(u.id);
+          }
         }
+        if (users.length < 200) break;
       }
 
       const res = await fetch(`${TEST_AUTH_BASE_URL}/api/test-auth/set-session`, {
