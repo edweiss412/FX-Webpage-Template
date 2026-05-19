@@ -156,12 +156,16 @@ const infraRegistry = [
   },
 ];
 
-// Surfaces that don't export a testable helper but still must comply.
-// We verify by reading the file source and asserting every `await supabase`
-// is enclosed in a try/catch block. This catches the bug shape that R6
-// found (visible `.error` branch, missing throw-path handler) without
-// requiring the file to expose its internals.
+// Every helper file gets a grep-shape assertion that EVERY `await supabase`
+// line in the file (not just the first one reachable when `.from()` throws)
+// is enclosed in try/catch. This closes Codex R1 finding #1 — without the
+// structural pin, the behavioral tests below short-circuit at the first
+// query and a regression in any LATER query would slip through.
 const grepShapeRegistry = [
+  ...infraRegistry.map((r) => ({
+    surface: r.path,
+    contract: r.contract,
+  })),
   {
     surface: "app/admin/show/[slug]/page.tsx",
     contract:
