@@ -33,8 +33,40 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: x1-catalog-parity
+          name: x1-catalog-parity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
           if-no-files-found: warn
           path: |
             x1-catalog-parity-generated.diff
             x1-catalog-parity.log
+
+  x2-no-raw-codes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm gen:internal-code-enums
+      - name: Check generated internal-code manifest
+        run: |
+          git diff -- lib/messages/__generated__/internal-code-enums.ts > x2-no-raw-codes-generated.diff
+          git diff --exit-code lib/messages/__generated__/internal-code-enums.ts
+      - name: Run X.2 no raw codes audit
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test:audit:x2-no-raw-codes 2>&1 | tee x2-no-raw-codes.log
+      - name: Upload X.2 no raw codes audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x2-no-raw-codes-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          if-no-files-found: warn
+          path: |
+            x2-no-raw-codes-generated.diff
+            x2-no-raw-codes.log

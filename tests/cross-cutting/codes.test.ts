@@ -163,7 +163,7 @@ describe("AC-X.1 §12.4 catalog parity", () => {
     expect(workflow).toContain("pnpm gen:spec-codes");
     expect(workflow).toContain("uses: actions/upload-artifact@v4");
     expect(workflow).toContain("if: always()");
-    expect(workflow).toContain("name: x1-catalog-parity");
+    expect(workflow).toContain("name: x1-catalog-parity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}");
     expect(workflow).toContain("x1-catalog-parity-generated.diff");
     expect(workflow).toContain("x1-catalog-parity.log");
   });
