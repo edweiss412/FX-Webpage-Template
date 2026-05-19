@@ -53,7 +53,9 @@ function safeDougFacing(code: string): string | null {
   return messageFor(code as MessageCode).dougFacing ?? null;
 }
 
-async function fetchPerShowAlerts(
+// Exported for tests/admin/_metaInfraContract.test.ts — registry row
+// for the §B Supabase call-boundary contract (AGENTS.md §1.9).
+export async function fetchPerShowAlerts(
   showId: string,
 ): Promise<AdminAlertRow[] | { kind: "infra_error"; message: string }> {
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
@@ -65,24 +67,31 @@ async function fetchPerShowAlerts(
       message: `supabase client failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  const { data, error } = await supabase
-    .from("admin_alerts")
-    .select("id, code, context, raised_at")
-    .eq("show_id", showId)
-    .is("resolved_at", null)
-    .order("raised_at", { ascending: false });
-  if (error) {
+  try {
+    const { data, error } = await supabase
+      .from("admin_alerts")
+      .select("id, code, context, raised_at")
+      .eq("show_id", showId)
+      .is("resolved_at", null)
+      .order("raised_at", { ascending: false });
+    if (error) {
+      return {
+        kind: "infra_error",
+        message: `admin_alerts query failed: ${error.message}`,
+      };
+    }
+    return (data ?? []).map((row) => ({
+      id: row.id as string,
+      code: row.code as string,
+      context: (row.context as Record<string, unknown> | null) ?? null,
+      raised_at: row.raised_at as string,
+    }));
+  } catch (err) {
     return {
       kind: "infra_error",
-      message: `admin_alerts query failed: ${error.message}`,
+      message: `admin_alerts query threw: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
-  return (data ?? []).map((row) => ({
-    id: row.id as string,
-    code: row.code as string,
-    context: (row.context as Record<string, unknown> | null) ?? null,
-    raised_at: row.raised_at as string,
-  }));
 }
 
 export async function PerShowAlertSection({
