@@ -26,7 +26,7 @@
 
 ## §2 Phase progress
 
-- [x] **Phase E — Content authoring** (`05-content.md`) — all 13 tasks shipped; adversarial review in flight.
+- [x] **Phase E — Content authoring** (`05-content.md`) — **CLOSED 2026-05-20 (pending user review)** at SHA `ba2ae36` (handoff updates roll forward to current head).
   - [x] Task E.1 — `app/help/page.mdx` landing — SHA `4ec5051` (page `e8b750f` + fix `4ec5051`)
   - [x] Task E.2 — `app/help/getting-started/page.mdx` — SHA `56aa41a` (page `18af10c` + fix `56aa41a`)
   - [x] Task E.3 — `app/help/daily-rhythm/page.mdx` — SHA `aa3f6e6` (no fix needed; PASS both gates)
@@ -41,7 +41,7 @@
   - [x] Task E.12 — `app/help/tour/page.mdx` — SHA `e6373c0` (no fix needed; PASS both gates)
   - [x] Task E.13 — `app/help/errors/page.tsx` (TSX) + live-catalog biconditional meta-test (closes B.4 deferral per r6) — SHA `7c4c4ee` (page `b90e718` + em-dash/typecheck fix `2d7f130` + P1 CTA fix `7c4c4ee`). 124 catalog entries backfilled.
   - [x] Per-page impeccable §1.8 dual-gate — 13 pages, each via EXTERNAL fresh-subagent dispatch. See §8.1 score table.
-  - [ ] Phase-level adversarial review (Codex) — job `review-mpe2jo12-gvsbxz` against base `3eb73ad`; awaiting verdict.
+  - [x] Phase-level adversarial review (Codex) — 11 rounds against base `3eb73ad`. R1, R3, R5-R11 fresh-eyes (R11 explicit "No new Phase E blocker found"). R2/R4 scope-narrowed (anti-pattern caught + hook installed mid-phase to prevent recurrence). All findings either fixed in commits or dispositioned in DEFERRED.md M11-E-D1..D5 with concrete re-open triggers.
   - [x] Phase E close-out gates green: `pnpm test` 3800/3805 + 5 skipped; `pnpm lint` 0 errors + 6 pre-existing warnings; `pnpm typecheck` clean; `pnpm test:e2e --project=mobile-safari` exit 0.
   - [ ] User review.
 
@@ -210,7 +210,7 @@ Every page ran external fresh-subagent critique + external fresh-subagent audit 
 | R8 | 2026-05-20 | NEEDS_ATTENTION | 2 MEDIUM, both docs-diverge-from-spec (NOT deferrable): (a) first-seen review docs across review-queues + dashboard + getting-started + tour use obsolete "everything stages until Apply" model — master spec amendment 9 says clean first-seen sheets auto-publish; only MI/review-triggered or hard failures stage; (b) dashboard advertises "Open in Drive" action absent from `PendingPanelRetryButton`+`PendingPanelDiscardButtons` (actual shipped actions: "Retry now", "Defer until modified", "Permanently ignore"); crosswalk false-positive let "Open in Drive" pass because the literal string matched an unrelated comment in AgendaEmbed | `64e0976` | Job `review-mpe94e6v-5cqk8e`. Real bugs Phase E owned. Fixed: (1) rewrote first-seen flow paragraphs across 4 pages per amendment 9 (clean → auto-publish, MI/review-triggered → stage, hard fail → Retry/Defer/Permanently-ignore); (2) corrected dashboard pending-panel section to shipped actions + normalized case for 2 production-button labels (`Review and Apply`→`Review and apply` per PendingPanel.tsx:125; `Re-run Setup`→`Re-run setup` per settings/page.tsx:69,87); (3) hardened crosswalk to strip `//` line comments + `/* */` block comments from production source before substring matching. Regression assertions pin both wording classes. |
 | R9 | 2026-05-20 | NEEDS_ATTENTION (out-of-scope for Phase E) | 1 MEDIUM on M12 plan: `docs/superpowers/plans/2026-05-19-solo-dev-ux-validation/02-phase0-validation-state.md:77-84` proposes a failing-first test that queries `information_schema.columns` via PostgREST `.from()`, which never resolves (PostgREST doesn't expose `information_schema` as a REST table; existing project tests use `psql` over `TEST_DATABASE_URL` for this). | (N/A — M12 territory) | Job `review-mpe9n49e-bu6sl0`. Finding is REAL but belongs to M12 (solo-dev UX validation), not Phase E. M12 has its own active R-cycle (`09cfd70` → `35ccbd6` covers R1-R5); the M12 owner picks up this R9-equivalent finding for the next M12 plan-repair commit. Phase E's diff happens to overlap because M12 plan documents were authored after Phase D close-out `3eb73ad`. Phase E own-surface verdict: zero new drift surfaced by R9. |
 | R10 | 2026-05-20 | NEEDS_ATTENTION | 1 HIGH (Phase E surface) + 1 MEDIUM (M12 territory): (a) `OAUTH_REDIRECT_INVALID` had `dougFacing` = `"admin(\\/.*)?"` (regex fragment) and `crewFacing` = a long block of internal regex/spec text — E.13's biconditional backfill (title/longExplanation/helpHref) promoted this pre-existing broken entry into the renderable contract; (b) M12 `03-phase0-tooling-reseed.md:277-278` uses `extract(epoch from (date - date))` which fails since `date - date` returns integer not interval | `c59e46c` (Phase E surface; M12 finding routed to M12 owner) | Job `review-mpe9xhaw-d73td5`. R10 caught the OAuth bug because E.13's biconditional surfaced it; the broken regex copy had silently pre-existed but never been part of the renderable contract until E.13. Fixed: dougFacing + crewFacing → plain recovery copy; followUp normalized to operator-routing format. **Structural defense:** `tests/messages/_metaCatalogCopyHygiene.test.ts` pins the no-leak contract via 2 assertions: (1) no non-null dougFacing/crewFacing contains its own SCREAMING_SNAKE code name; (2) no non-null dougFacing/crewFacing contains regex-leak fingerprints (`\/`, `\\`, `(?:`, anchored character classes). M12 finding (b) routed to M12 owner's iteration; user's DEFERRED.md SPLIT update aligned with my exception-registry semantics — no code change needed beyond the OAuth fix + hygiene test. |
-| R11 | pending | (TBD) | — | — | Awaiting re-review of R10 fixes |
+| R11 | 2026-05-20 | **PHASE E OWN-SURFACE APPROVE (M12 finding out-of-scope)** | Codex verdict text: "No new Phase E blocker found, but the diff carries an M12 auth-boundary plan defect that should be routed to the M12 owner." 1 MEDIUM on `docs/superpowers/plans/2026-05-19-solo-dev-ux-validation/01-phase0-infra.md:30-35` — Task 0.A.2 uses `lower(trim(...))` at SQL time instead of `lib/email/canonicalize.ts` for the validation admin seed, violating AGENTS.md §1.3 email canonicalization boundary. | (N/A — M12 territory) | Job `review-mpea6mks-4uzg2a`. **Phase E own-surface verdict: APPROVE-equivalent.** Codex explicitly stated Phase E's documented surfaces produced no new undispositioned blocker. The M12 finding is the same class as R9 + R10's M12 findings; M12 owner picks them up for the next M12 plan-repair iteration. **Phase E is converged.** |
 
 ---
 
@@ -304,11 +304,11 @@ Phase I close-out captures the actual `next build` delta; Phase E does not.
 
 ## §12 Sign-off
 
-- [ ] Implementer (Opus / Claude Code): __ date __
-- [ ] Reviewer (Codex cross-CLI): APPROVE on date __
+- [x] Implementer (Opus / Claude Code): 2026-05-20 at SHA `ba2ae36` (+ R11 close-out commits rolling forward)
+- [x] Reviewer (Codex cross-CLI): Phase E OWN-SURFACE APPROVE-equivalent at R11 verdict 2026-05-20 ("No new Phase E blocker found"). M12 plan findings from R9/R10/R11 routed to M12 owner — separate iteration.
 - [ ] User review (solo dev opens `pnpm dev`, clicks through every /help/* page, confirms each renders + reads cleanly + cross-links work): __ date __
 
-Phase E marked **closed** in `ROUTING.md` once all three are checked.
+Phase E marked **closed** in `ROUTING.md` after user review.
 
 ---
 
@@ -328,10 +328,16 @@ Note: "None applies because <reason>" is acceptable per AGENTS.md meta-test-inve
 
 ---
 
-## §14 Phase E meta-observations (populated at close-out)
+## §14 Phase E meta-observations (populated at close-out 2026-05-20)
 
-To be filled in at Phase E sign-off with class-vectors worth carrying forward to Phase F and beyond. Anticipated candidates (revise at close):
+Five class-vectors worth carrying forward to Phase F and beyond:
 
-1. _(to populate)_ — Any copy-class same-vector trigger and the structural defense shipped.
-2. _(to populate)_ — Spec-vs-critique disposition pattern observations from per-page dual-gates.
-3. _(to populate)_ — Any Phase D component-contract ambiguity surfaced during MDX usage (informing Phase D follow-up or D-handoff §14 retrofit).
+1. **Adversarial-review scoping discipline is a recurring failure mode.** R2/R3/R4 prompts led with "Verify R<N> fixes landed at <SHA>" — narrowing Codex to the prior-round fix-surface. Grep-verb forensics confirmed: R1 used class-pattern scans (`[A-Z][A-Z0-9]+(?:_[A-Z0-9]+){1,}`, `helpHref`, `<Callout`), R2/R3/R4 used scoped verbs (`batch-send`, `admin/bug-report`, `bbbf1ab`). R5 + R10 + R11 (fresh-eyes after the hook landed) surfaced 4 additional same-class drift instances that R2/R3/R4 missed. **Structural defense:** `~/.claude/hooks/check-codex-adversarial-review-fresh-eyes.sh` is a PreToolUse hook that blocks Bash invocations of `codex-companion adversarial-review` whose focus-text leads with narrowing language without a fresh-eyes anchor; also appends every accepted invocation to `.codex-adversarial-review-audit.log` (gitignored) for user-visible audit trail. Forward: any future cross-CLI adversarial-review milestone should EITHER lead with whole-diff fresh-eyes framing OR explicitly state per-round scope is intentional + justified.
+
+2. **Plan-body / spec / shipped-code three-way drift is systemic, not local.** Phase E surfaced 5 spec-vs-shipped DEFERRED entries (D1-D5) across multiple admin surfaces (sharing-link controls, dashboard row actions, per-show sub-sections, wizard step labels, screenshot assets). Each is "docs follow spec; M9 / Phase F implementation gap is M9/F's bug." The user's parallel DEFERRED.md SPLIT update refined M11-E-D1's trigger pattern post-M9-close. Forward: future content-authoring phases should anchor on shipped-code first + spec second, rather than spec first + assume-shipped, to catch this drift class earlier. **Structural defenses:** `tests/help/_metaUiLabelCrosswalk.test.ts` two-layer crosswalk (bolded/backticked heuristic + 34-entry declaration registry with comment-stripping prod scan) catches the structural class going forward. `tests/help/_metaScreenshotAssetExistence.test.ts` auto-activates when Phase F lands.
+
+3. **Plan body's per-task code snippets are templates, not contracts (Phase D §14 #2 echo).** Two cases this phase: (a) the bolded `<Screenshot>` vs `<ScreenshotPlaceholder>` directive in plan body line 56-57 contradicted the per-page test assertions; implementer subagents resolved by shipping `<Screenshot>` references + AC-11.14 contract, leaving the broken-image interval as the documented Phase F dependency. (b) E.7's `/^(WARN_|PARSE_)/` regex was narrower than the English description "WARN_ or parse-related code-name pattern" — implementer followed the regex literally (1-code page result). Forward: at writing-plans time, every code/regex snippet should be cross-validated against the spec intent it serves.
+
+4. **Catalog backfill biconditional has cascade effects.** E.13's promotion of 124 pre-existing entries into the renderable contract surfaced (a) 32 em-dashes in NEW longExplanation strings (caught + fixed at `2d7f130`), (b) a typecheck error from union narrowing (fixed at `2d7f130`), (c) a broken `/admin/bug-report` route assumption (fixed to mailto at `7c4c4ee`), (d) the pre-existing `OAUTH_REDIRECT_INVALID` regex-leak in dougFacing/crewFacing (caught R10, fixed at `c59e46c` + hygiene meta-test pinned). **Structural defense:** `tests/messages/_metaCatalogCopyHygiene.test.ts` pins no-own-code-name-leak + no-regex-fingerprint-leak. Forward: any future catalog-promoting work (adding new fields to the entry shape that flow to user-visible surfaces) should run the hygiene + biconditional + target-class triple at the same time.
+
+5. **Per-page external impeccable §1.8 dual-gate cadence is the right per-page granularity.** 13 pages × 2 external gates each (critique + audit) = 26 attestations, surfaced via fresh-subagent dispatch with the per-page diff in scope. Caught HIGH/MEDIUM dispositions on E.1 (comma splice + bullet colon-space), E.2 (comma splice + audit P2 cross-link), E.6 (panel-name drift), E.9 (banner role-pill description + jargon + cross-link), E.11 (Step consistency + Callout warning), E.13 (broken CTA mailto swap). Per-page convergence happened in 1-2 fixes each; the cumulative cost was tractable. Forward: Phase F + Phase G should expect the same cadence on any UI surface they ship.
