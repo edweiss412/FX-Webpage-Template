@@ -28,9 +28,9 @@ Discard is one-way for the staged candidate, but it does not touch your sheet. T
 
 A re-stage happens when you edit a show that's already live and the edit tripped a review rule. The app catches it, holds the new version in staging, and keeps serving the prior approved version to crew. The crew page does not flicker, and stale data does not go out.
 
-Re-stage rows don't show up in the Sheets-we-couldn't-auto-apply panel. They appear as a yellow **Review staged changes** badge on the affected show's row in the **Active Shows** panel. The row's primary action becomes **Review staged changes**, which takes you straight to the per-show parse panel with the staged review at the top.
+Re-stage rows don't show up in the **Sheets we couldn't auto-apply** panel. They appear as a yellow **Review staged changes** badge on the affected show's row in the **Active Shows** panel. The row's primary action becomes **Review staged changes**, which takes you straight to the per-show parse panel with the staged review at the top.
 
-Common triggers (the full list is in the master spec, §9.1.1):
+Common triggers:
 
 - Crew row count dropped from one sync to the next, or a crew identity drifted.
 - A schedule note, lead role, or position assignment changed in a way the parser wants you to confirm.
