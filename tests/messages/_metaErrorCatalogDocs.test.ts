@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { type MessageCatalogEntry } from "@/lib/messages/catalog";
+import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
+// r3 fix: import the single-source-of-truth validator from Phase B.4 instead
+// of redefining the predicate inline. This keeps the live-catalog assertion
+// in lockstep with B.4's forced fixtures — any update to the contract
+// (e.g., adding a new M11 field) propagates to both surfaces automatically.
 import {
   predicate,
   allM12FieldsNonNull,
@@ -192,5 +196,18 @@ describe("Catalog meta-test (test #2 — helpHref shape sanity)", () => {
     expect(contractViolations(entry)).toEqual([]);
     expect(HELP_HREF_RE).toBeInstanceOf(RegExp);
     expect("/help/x".match(HELP_HREF_RE)).not.toBeNull();
+  });
+});
+
+describe("Catalog meta-test (test #2 — live-catalog full contract, added in E.13 per r6)", () => {
+  it("every live entry satisfies the spec §5.2 full contract", () => {
+    const lines: string[] = [];
+    for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
+      const violations = contractViolations(entry);
+      if (violations.length > 0) {
+        for (const v of violations) lines.push(`${code}: ${v}`);
+      }
+    }
+    expect(lines, lines.join("\n")).toEqual([]);
   });
 });
