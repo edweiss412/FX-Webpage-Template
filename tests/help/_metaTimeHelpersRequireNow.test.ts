@@ -50,8 +50,20 @@ type Violation = {
   reason: string;
 };
 
+type FunctionLikeNode =
+  | ts.FunctionDeclaration
+  | ts.FunctionExpression
+  | ts.ArrowFunction;
+
+function hasModifier(
+  node: { modifiers?: ts.NodeArray<ts.ModifierLike> },
+  kind: ts.SyntaxKind,
+): boolean {
+  return node.modifiers?.some((m) => m.kind === kind) ?? false;
+}
+
 function checkFunctionLike(
-  node: ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction,
+  node: FunctionLikeNode,
   sf: ts.SourceFile,
   fnName: string,
   filename: string,
@@ -134,6 +146,51 @@ function checkFunctionLike(
   }
 }
 
+function scanSource(src: string, filename: string): Violation[] {
+  const sf = ts.createSourceFile(
+    filename,
+    src,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+  );
+  const violations: Violation[] = [];
+
+  sf.forEachChild((node) => {
+    if (ts.isFunctionDeclaration(node)) {
+      if (!hasModifier(node, ts.SyntaxKind.ExportKeyword)) return;
+      const isDefault = hasModifier(node, ts.SyntaxKind.DefaultKeyword);
+      const name = node.name?.text ?? (isDefault ? "(default)" : "(anonymous)");
+      checkFunctionLike(node, sf, name, filename, violations);
+      return;
+    }
+
+    if (ts.isVariableStatement(node)) {
+      if (!hasModifier(node, ts.SyntaxKind.ExportKeyword)) return;
+      for (const decl of node.declarationList.declarations) {
+        const initializer = decl.initializer;
+        if (!initializer) continue;
+        if (
+          !ts.isArrowFunction(initializer) &&
+          !ts.isFunctionExpression(initializer)
+        ) {
+          continue;
+        }
+        const name = ts.isIdentifier(decl.name) ? decl.name.text : "(destructured)";
+        checkFunctionLike(initializer, sf, name, filename, violations);
+      }
+      return;
+    }
+
+    if (ts.isExportAssignment(node) && !node.isExportEquals) {
+      const expr = node.expression;
+      if (!ts.isArrowFunction(expr) && !ts.isFunctionExpression(expr)) return;
+      checkFunctionLike(expr, sf, "(default)", filename, violations);
+    }
+  });
+
+  return violations;
+}
+
 function collectViolations(): Violation[] {
   const violations: Violation[] = [];
   const entries = readdirSync(LIB_TIME_DIR).filter(
@@ -143,22 +200,7 @@ function collectViolations(): Violation[] {
   for (const filename of entries) {
     const fullPath = join(LIB_TIME_DIR, filename);
     const src = readFileSync(fullPath, "utf8");
-    const sf = ts.createSourceFile(
-      fullPath,
-      src,
-      ts.ScriptTarget.Latest,
-      /* setParentNodes */ true,
-    );
-
-    sf.forEachChild((node) => {
-      if (!ts.isFunctionDeclaration(node)) return;
-      const isExported = node.modifiers?.some(
-        (m) => m.kind === ts.SyntaxKind.ExportKeyword,
-      );
-      if (!isExported) return;
-      const name = node.name?.text ?? "(anonymous)";
-      checkFunctionLike(node, sf, name, filename, violations);
-    });
+    violations.push(...scanSource(src, filename));
   }
 
   return violations;
@@ -178,47 +220,77 @@ describe("lib/time/* helpers must require a `now: Date` parameter (R2 structural
     // parameter as a violation. Pins the test mechanism so a future
     // refactor cannot accidentally turn the meta-test into a tautology.
     const synthetic = `export function leaky(now: Date = new Date()): number { return now.getTime(); }\n`;
-    const sf = ts.createSourceFile("synthetic.ts", synthetic, ts.ScriptTarget.Latest, true);
-    const found: Violation[] = [];
-    sf.forEachChild((node) => {
-      if (!ts.isFunctionDeclaration(node)) return;
-      checkFunctionLike(node, sf, node.name?.text ?? "?", "synthetic.ts", found);
-    });
+    const found = scanSource(synthetic, "synthetic.ts");
     expect(found.length).toBeGreaterThan(0);
     expect(found.some((v) => /wall-clock default/.test(v.reason))).toBe(true);
   });
 
   it("the meta-test predicate ACCEPTS a compliant helper (required, non-defaulted, Date-typed)", () => {
     const compliant = `export function strict(iso: string, now: Date): number { return now.getTime(); }\n`;
-    const sf = ts.createSourceFile("compliant.ts", compliant, ts.ScriptTarget.Latest, true);
-    const found: Violation[] = [];
-    sf.forEachChild((node) => {
-      if (!ts.isFunctionDeclaration(node)) return;
-      checkFunctionLike(node, sf, node.name?.text ?? "?", "compliant.ts", found);
-    });
+    const found = scanSource(compliant, "compliant.ts");
     expect(found).toEqual([]);
   });
 
   it("the meta-test predicate REJECTS a helper whose body calls `new Date()` without a `now` parameter", () => {
     const synthetic = `export function bodyLeak(iso: string): number { return new Date().getTime() - 1; }\n`;
-    const sf = ts.createSourceFile("synthetic.ts", synthetic, ts.ScriptTarget.Latest, true);
-    const found: Violation[] = [];
-    sf.forEachChild((node) => {
-      if (!ts.isFunctionDeclaration(node)) return;
-      checkFunctionLike(node, sf, node.name?.text ?? "?", "synthetic.ts", found);
-    });
+    const found = scanSource(synthetic, "synthetic.ts");
     expect(found.length).toBeGreaterThan(0);
     expect(found.some((v) => /function body calls/.test(v.reason))).toBe(true);
   });
 
   it("the meta-test predicate REJECTS an optional `now?: Date` parameter", () => {
     const synthetic = `export function optional(iso: string, now?: Date): number { return (now ?? new Date()).getTime(); }\n`;
-    const sf = ts.createSourceFile("synthetic.ts", synthetic, ts.ScriptTarget.Latest, true);
-    const found: Violation[] = [];
-    sf.forEachChild((node) => {
-      if (!ts.isFunctionDeclaration(node)) return;
-      checkFunctionLike(node, sf, node.name?.text ?? "?", "synthetic.ts", found);
-    });
+    const found = scanSource(synthetic, "synthetic.ts");
     expect(found.some((v) => /optional/.test(v.reason))).toBe(true);
+  });
+
+  it("flags exported arrow with wall-clock default (`export const leaky = (now: Date = new Date()) => ...`)", () => {
+    const src = `export const leaky = (now: Date = new Date()): number => now.getTime();\n`;
+    const findings = scanSource(src, "synthetic-arrow-default.ts");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      fn: "leaky",
+      reason: expect.stringContaining("default"),
+    });
+  });
+
+  it("flags exported arrow with body-level Date.now() and no now param (`export const bodyLeak = () => Date.now()`)", () => {
+    const src = `export const bodyLeak = (): number => Date.now();\n`;
+    const findings = scanSource(src, "synthetic-arrow-bodyleak.ts");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      fn: "bodyLeak",
+      reason: expect.stringContaining("now"),
+    });
+  });
+
+  it("flags exported function-expression with wall-clock default", () => {
+    const src = `export const expr = function (now: Date = new Date()): number { return now.getTime(); };\n`;
+    const findings = scanSource(src, "synthetic-fnexpr-default.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags exported default arrow with body-level new Date()", () => {
+    const src = `export default () => new Date().getTime();\n`;
+    const findings = scanSource(src, "synthetic-default-arrow.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags exported default function-declaration with wall-clock default", () => {
+    const src = `export default function defaultLeaky(now: Date = new Date()) { return now.getTime(); }\n`;
+    const findings = scanSource(src, "synthetic-default-fn.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("does NOT flag exported arrow with required `now: Date` parameter (positive control)", () => {
+    const src = `export const ok = (now: Date): number => now.getTime();\n`;
+    const findings = scanSource(src, "synthetic-arrow-ok.ts");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("does NOT flag module-local arrow (no `export` keyword) — out of scope", () => {
+    const src = `const localLeaky = (now: Date = new Date()) => now.getTime();\nexport const wrap = (n: Date) => localLeaky(n);\n`;
+    const findings = scanSource(src, "synthetic-local.ts");
+    expect(findings).toHaveLength(0);
   });
 });
