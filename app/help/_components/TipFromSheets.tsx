@@ -7,7 +7,7 @@ export function TipFromSheets({ children }: { children: ReactNode }) {
       <span className="block text-xs uppercase tracking-wider font-bold text-text-strong mb-1">
         From Sheets
       </span>
-      <div className="leading-relaxed text-sm">{children}</div>
+      <div className="text-sm/relaxed">{children}</div>
     </aside>
   );
 }
