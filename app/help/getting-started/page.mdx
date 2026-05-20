@@ -1,3 +1,29 @@
-{/* M11 Phase A.7 stub — Phase E task E.2 replaces the entire body. */}
-
 # First-time setup
+
+You do this once. After that, every new show sheet you drop into your folder shows up in the admin dashboard within about five minutes.
+
+<Step n={1}>
+**In Google Drive, find or make the folder where you keep your show sheets.** Then click **Share** on that folder and paste the app's service-account email (shown on `/admin` when no folder is configured yet) into the "Add people and groups" field. Give it **Viewer** access.
+</Step>
+
+<Step n={2}>
+**Return to `/admin` and click "I've shared the folder."** The app polls the folder every minute or so. The manual click just speeds up the first scan.
+</Step>
+
+<Step n={3}>
+**Wait about five minutes.** Sheets in the folder will appear in the dashboard's Active Shows list. If a sheet's parse hits something unusual it'll land in the "Sheets we couldn't auto-apply" panel. That's normal for first-seen sheets; open it from there and click "Review and Apply."
+</Step>
+
+<TipFromSheets>
+You're already used to organizing your shows in a Drive folder. This step just gives the app *read-only* access to that same folder. Nothing changes about how you organize your sheets.
+</TipFromSheets>
+
+<Callout type="note">
+**What's the email I'm sharing with?** It's the app's identity in your Drive. It can only see what you share with it, and only the folder you choose. It's not a person; it's a robot account used solely to read your sheets.
+</Callout>
+
+## If something doesn't appear
+
+- **Sheet doesn't show up in the dashboard.** Confirm the folder is shared with the service-account email (not your personal email), and that the sheet sits *inside* that folder (not a sibling).
+- **Sheet appears but parse fails.** Open it from the "Sheets we couldn't auto-apply" panel and click "Review and Apply." The Doug-facing parse warnings explain exactly what to fix.
+- **Need to start over.** Unshare the folder, then re-share it. The app re-scans automatically.
