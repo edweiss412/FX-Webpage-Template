@@ -242,6 +242,20 @@ CREATE POLICY admin_only ON public.validation_state
 -- because they're admin-authenticated.
 ```
 
+**R14 amendment — policy creation must be idempotent too.** The R10 DDL used unconditional `CREATE POLICY admin_only ...`, which fails on second apply with `duplicate_object`. The corrected DDL replaces the bare `CREATE POLICY` with the drop-and-recreate pattern below:
+
+```sql
+-- R14 amendment — apply-twice safe for the policy as well.
+DROP POLICY IF EXISTS admin_only ON public.validation_state;
+CREATE POLICY admin_only ON public.validation_state
+  FOR ALL
+  TO anon, authenticated
+  USING (public.is_admin())
+  WITH CHECK (public.is_admin());
+```
+
+The same `DROP POLICY IF EXISTS + CREATE POLICY` pattern is used in `supabase/migrations/` for policies that may be re-applied (verified pattern). The GRANT statements above are inherently idempotent (`GRANT` is a no-op when privileges are already held), so no DROP guard is needed for grants.
+
 **Master-spec discipline mapping (per AGENTS.md project-scoped additions):**
 
 | Dimension | Treatment |
@@ -418,7 +432,7 @@ No candidate row may be silently dropped. The plan's task close-out asserts that
 | **C. Auth surfaces** | Google sign-in (fresh + return sessions exercised separately). Sign-out. Signed-link redemption (fragment-token canonical path). Expired-link surface. Revoked-link surface. "Not on crew list" surface. 401 / 403 paths. **Query-token compromise path** — hitting `/show/<slug>?t=…` (the non-canonical query form) MUST trigger the compromise/revoke path per master spec §7; this is a negative-auth surface that gets its own row. |
 | **D. Help surfaces (M11)** | All 13 `/help` pages + the catalog-driven `/help/errors` page + `<RefAnchor>` rendering + `<Screenshot>` light/dark variant switching. |
 | **E. Cross-cutting affordances** | Every `?` tooltip / "Learn more →" link from §9.0.1 surface affordance matrix (M11 §5.6). Every catalog-driven error message rendered through `messageFor()` — **both admin-facing AND crew-facing** (an earlier draft restricted this band to `/admin/*` only; corrected per Codex R1 P0 — crew-facing catalog-driven messages like `LINK_EXPIRED`, "not on crew list", and rate-limit copy are equally in scope). AlertBanner row rendering for each non-info-severity admin catalog code. |
-| **F. Report-pipeline surfaces (M8)** | Master spec §13.1 enumerates 4 report entry points (admin parse-panel button, preview/banner button, crew footer "Something looks wrong?" modal, and the §13 admin surfaces); each is a surface in the matrix. Submission outcome surfaces also walked: success confirmation, in-flight idempotency (`IDEMPOTENCY_IN_FLIGHT`), rate-limit hit (429 for admin and crew), GitHub-lookup-inconclusive (502), lease-expired (`REPORT_HORIZON_EXPIRED` 410), `REPORT_ORPHANED_LOST_LEASE`. Each outcome is a catalog-driven UI state and validated end-to-end against the report-pipeline contract from master spec §13.2.3 amendments. |
+| **F. Report-pipeline surfaces (M8)** | Master spec §13.1 enumerates 4 report entry points (admin parse-panel button, preview/banner button, crew footer "Something looks wrong?" modal, and the §13 admin surfaces); each is a surface in the matrix. Submission outcome surfaces also walked: success confirmation, in-flight idempotency (`IDEMPOTENCY_IN_FLIGHT`), rate-limit hit (429 for admin and crew). **R14 amendment for materializability:** the deep-failure outcomes (GitHub-lookup-inconclusive 502, `REPORT_HORIZON_EXPIRED` 410, `REPORT_ORPHANED_LOST_LEASE`) require GitHub API faults / lease-timing races that are NOT deterministically reproducible against a live prod-equivalent stack without a fault-injection harness. Each is dispositioned in MATRIX-INVENTORY.md as either:<br/><br/>**(a) INCLUDED-via-harness** — Phase 0 sub-task adds a fault-injection harness `scripts/validation-report-fixtures.ts` that materializes the named failure state in `reports` / `feedback_inbox` rows directly (bypassing the real GitHub call) so the UI rendering of the outcome state can be exercised. The harness uses the service-role to INSERT the right row shape per master spec §13.2.3 contracts.<br/><br/>**(b) EXCLUDED-rely-on-structural** — for outcomes where the UI rendering is identical to a simpler outcome already covered (e.g., `REPORT_ORPHANED_LOST_LEASE` UI ≡ a generic admin-alerts surface), the row is dispositioned EXCLUDED with a cite to the structural test that already pins the contract (e.g., `tests/report/orphaned-lease.test.ts`). The plan picks per-row at plan-writing time. Default is (a) — harness-materialized — for any outcome whose UI state is not otherwise covered. |
 
 ### 4.3 Excluded surfaces
 
@@ -442,7 +456,17 @@ Edit a published sheet to trigger MI staging events. Pick MI-6 (crew shrinkage) 
 
 ### 5.3 J3 — Signed-link crew end-to-end (real device leg)
 
-Generate a signed link from admin. The canonical URL form is `/show/<slug>/p#t=<jwt>` (master spec §7 — fragment token; Vercel does NOT log fragments, so this is the safe form). Open the canonical URL on the dev's real iPhone (not Playwright) in Safari. Browse every documented tile. Verify role-hiding for at least one non-LEAD scope variant (e.g., A1) per §3.2. Verify LEAD role sees full content including `shows_internal.financials`. Test expired-link path (manually expire via admin tooling or wait for TTL). Test revoked-link path (admin revokes; old link 401s with "not on crew list" surface).
+Generate a signed link from admin. The canonical URL form is `/show/<slug>/p#t=<jwt>` (master spec §7 — fragment token; Vercel does NOT log fragments, so this is the safe form). Open the canonical URL on the dev's real iPhone (not Playwright) in Safari. Browse every documented tile. Verify role-hiding for at least one non-LEAD scope variant (e.g., A1) per §3.2. Verify LEAD role sees full content including `shows_internal.financials`.
+
+**Expired-link fixture contract (R14 amendment).** "Waiting for TTL" is not viable — the live signed-link JWT has a 90-day default expiry. The re-seed script materializes pre-expired link sessions via the companion `pnpm validation:mint-link --combo <combo> --alias <alias> --expires-in <seconds-relative>` command (negative values mint already-expired JWTs):
+
+| Scenario | Command | Expected outcome |
+|---|---|---|
+| Already-expired link (J3 expired-link path) | `pnpm validation:mint-link --combo R1 --alias alias_5a_lead --expires-in -60` | Link redemption returns 401 with `LINK_EXPIRED` surface |
+| Revoked link (J3 revoked-link path) | `pnpm validation:mint-link --combo R1 --alias alias_5a_lead` (mint fresh), then run `pnpm validation:revoke-link <link_session_id>` which sets `revoked_at = now()` in `revoked_links` | Link redemption returns 401 with "not on crew list" surface per master spec §7 |
+| Valid baseline (control) | `pnpm validation:mint-link --combo R1 --alias alias_5a_lead` | Link redemption renders crew page |
+
+The mint-link and revoke-link commands are plan-time deliverables added to the validation tooling alongside the re-seed script. The `check-seed` command additionally verifies that at least one expired and one revoked link_session exist in the prod-equivalent Supabase before J3's expired/revoked legs run (otherwise the dev's J3 walk would have no fixture for those legs).
 
 **Additionally — query-token compromise leg.** Take a valid fragment token, rewrite the URL to the non-canonical query form `/show/<slug>?t=<jwt>`, and confirm the compromise path triggers per master spec §7 (token revoked, "compromise detected" surface). This is a negative-auth test that exercises band C's compromise row.
 
@@ -967,3 +991,18 @@ Verdict: `needs-attention`. Two P1 findings. All accepted and addressed.
 **Class-sweep additions during R13 repair:**
 
 - **Generator-implementation cross-reference** — `scripts/generate-admin-tables.ts:31-34` was the source-of-truth verification. The spec's atomic checklist now matches the generator's actual contract, not just its stated purpose. Future admin-only table additions should verify against the live generator code, not the spec wording about how the generator works.
+
+### 15.14 Round 14 (Codex 2026-05-19)
+
+Verdict: `needs-attention`. Three P1 findings. All accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — Band F required report-pipeline failure outcomes (lookup-inconclusive, lease-expired, horizon-expired, orphaned-lost-lease) but provided no fault-injection harness for the prod-equivalent stack. These outcomes require GitHub API faults / lease-timing races that don't naturally occur during a walk. Plan could only validate happy-path + rate-limit. | P1 / high | Fixed. Band F row split: outcomes get dispositioned (a) INCLUDED-via-harness with new `scripts/validation-report-fixtures.ts` materializing each failure-state row directly via service role (UI rendering exercised without real GitHub fault), OR (b) EXCLUDED-rely-on-structural with cite to the structural test that pins the contract. Plan picks per-row. Default is harness-materialized. | §4.2 band F row (substantially rewritten) |
+| F2 — `CREATE POLICY admin_only` was unconditional in the DDL. Apply-twice would fail with duplicate_object on the policy creation, despite the DDL block's comment claiming apply-twice safety. | P1 / high | Fixed. Added explicit `DROP POLICY IF EXISTS admin_only ON public.validation_state;` before `CREATE POLICY ...` (pattern verified in `supabase/migrations/` for re-applied policies). GRANT statements are inherently idempotent so no DROP guard added there. Migration-idempotency prose updated. | §3.3.2 DDL block, §3.3.2 idempotency row |
+| F3 — J3 expired-link leg said "manually expire via admin tooling or wait for TTL" — but TTL is 90 days; waiting is impractical. No fixture contract for materializing pre-expired or revoked links. The expired-link surface and revoked-link surface would be unvalidated. | P1 / high | Fixed. New `pnpm validation:mint-link --combo <combo> --alias <alias> --expires-in <s>` command (negative s mints already-expired JWT) + `pnpm validation:revoke-link <link_session_id>` (sets revoked_at via service role). check-seed verifies at least one expired + one revoked link_session exists before J3 expired/revoked legs run. | §5.3 J3 (expired-link / revoked-link contract added) |
+
+**Class-sweep additions during R14 repair:**
+
+- **Apply-twice policy idempotency** — a general rule emerged: CREATE POLICY in the DDL must use the `DROP POLICY IF EXISTS + CREATE POLICY` pattern when the migration may be reapplied. Future admin-only table migrations should follow this pattern.
+- **Fault-injection harness as a fixture pattern** — for outcomes that depend on transient/error states the live stack can't deterministically produce, the canonical approach is a service-role harness that materializes the failure-state row shape directly. This is a general pattern; `scripts/validation-report-fixtures.ts` is its first instance.
