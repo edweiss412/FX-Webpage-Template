@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParseResult } from "@/lib/parser/types";
 import {
+  makeSnapshotAssetsForApply,
+  type SnapshotAssetsApplyTx,
+} from "@/lib/sync/defaultSnapshotAssetsForApply";
+import {
   assertShowLockHeld,
   type LockedShowTx,
 } from "@/lib/sync/lockedShowTx";
@@ -16,6 +20,9 @@ import {
 } from "@/lib/sync/phase2";
 
 export type RunManualStageForFirstSeenTx = Phase2Tx & {
+  readShowId?(driveFileId: string): Promise<string | null>;
+  insertPendingSnapshotUpload?: SnapshotAssetsApplyTx["insertPendingSnapshotUpload"];
+  markPendingSnapshotDeleteStarted?: SnapshotAssetsApplyTx["markPendingSnapshotDeleteStarted"];
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
   deleteLivePendingIngestion(driveFileId: string): Promise<void>;
   upsertLivePendingSync(
@@ -63,12 +70,26 @@ async function toResult(
   }
   if (result.outcome === "pass") return { outcome: "parsed" };
   if (result.outcome === "auto_publish_ready") {
+    const snapshotAssetsForApply = await (async () => {
+      if (!tx.insertPendingSnapshotUpload) return undefined;
+      const showId = await tx.readShowId?.(driveFileId);
+      return showId
+        ? makeSnapshotAssetsForApply(showId, tx as Parameters<typeof makeSnapshotAssetsForApply>[1])
+        : undefined;
+    })();
+    const snapshotAssetsForApplyForShowId = tx.insertPendingSnapshotUpload
+      ? (showId: string) =>
+          makeSnapshotAssetsForApply(showId, tx as Parameters<typeof makeSnapshotAssetsForApply>[1])
+      : undefined;
     const phase2 = await (deps.runPhase2 ?? runPhase2)(tx, {
       driveFileId,
       mode: "manual",
       fileMeta: args.fileMeta,
       parseResult: args.parseResult,
       binding: args.binding,
+      ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
+      ...(snapshotAssetsForApplyForShowId ? { snapshotAssetsForApplyForShowId } : {}),
+      verifyReelOnApply: false,
       autoPublishFirstSeen: {
         unpublishToken: (deps.createUnpublishToken ?? randomUUID)(),
         unpublishTokenExpiresAt: addHours((deps.now ?? (() => new Date()))(), 24).toISOString(),

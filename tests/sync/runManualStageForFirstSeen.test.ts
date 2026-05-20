@@ -1,6 +1,35 @@
 import { describe, expect, test, vi } from "vitest";
 import type { RunManualStageForFirstSeenTx } from "@/lib/sync/runManualStageForFirstSeen";
 import { runManualStageForFirstSeen } from "@/lib/sync/runManualStageForFirstSeen";
+import type { ParseResult } from "@/lib/parser/types";
+
+const snapshotAssetMock = vi.hoisted(() => ({
+  factoryCalls: [] as Array<{ showId: string }>,
+  snapshotCalls: [] as Array<{ driveFileId: string; diagrams: ParseResult["diagrams"] }>,
+}));
+
+vi.mock("@/lib/sync/defaultSnapshotAssetsForApply", () => ({
+  makeSnapshotAssetsForApply: vi.fn((showId: string) => {
+    snapshotAssetMock.factoryCalls.push({ showId });
+    return async (args: { driveFileId: string; diagrams: ParseResult["diagrams"] }) => {
+      snapshotAssetMock.snapshotCalls.push(args);
+      return {
+        snapshotRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        runUuid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        tempPrefix: `diagram-snapshots/shows/${showId}/_pending/run-1/`,
+        warnings: [],
+        pending: {
+          revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          snapshot_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          snapshot_status: "complete",
+          linkedFolder: args.diagrams.linkedFolder,
+          embeddedImages: [],
+          linkedFolderItems: [],
+        },
+      };
+    };
+  }),
+}));
 
 class FakeManualStageTx implements RunManualStageForFirstSeenTx {
   held = true;
@@ -12,6 +41,8 @@ class FakeManualStageTx implements RunManualStageForFirstSeenTx {
     driveFileId: string;
     triggeredReviewItems: Array<{ invariant: string }>;
   }> = [];
+  pendingSnapshotUploads: unknown[] = [];
+  diagramSnapshot: ParseResult["diagrams"] | null = null;
   async queryOne<T>(sql: string) {
     if (/pg_locks/i.test(sql)) return { held: this.held } as T;
     return { held: this.held } as T;
@@ -29,6 +60,16 @@ class FakeManualStageTx implements RunManualStageForFirstSeenTx {
       triggeredReviewItems: row.triggeredReviewItems,
     });
     return { stagedId: "staged-forced" };
+  }
+  async readShowId() {
+    return null;
+  }
+  async insertPendingSnapshotUpload(row: unknown) {
+    this.pendingSnapshotUploads.push(row);
+  }
+  async applyDiagramSnapshot(_driveFileId: string, diagrams: ParseResult["diagrams"]) {
+    this.operations.push("applyDiagramSnapshot");
+    this.diagramSnapshot = diagrams;
   }
   async applyShowSnapshot(args: {
     driveFileId: string;
@@ -199,6 +240,83 @@ describe("runManualStageForFirstSeen", () => {
       unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z",
     });
     expect(tx.stagedRows).toEqual([]);
+  });
+
+  test("auto-published first-seen retry snapshots diagram assets after show creation", async () => {
+    snapshotAssetMock.factoryCalls.length = 0;
+    snapshotAssetMock.snapshotCalls.length = 0;
+    const tx = new FakeManualStageTx();
+    const diagrams: ParseResult["diagrams"] = {
+      linkedFolder: null,
+      embeddedImages: [
+        {
+          sheetTab: "DIAGRAMS",
+          objectId: "obj-1",
+          mimeType: "image/png",
+          sheetsRevisionId: "sheet-rev-1",
+          embeddedFingerprint: "fingerprint",
+          recovery_disposition: "normal",
+          snapshotPath: null,
+        },
+      ],
+      linkedFolderItems: [],
+    };
+
+    const result = await runManualStageForFirstSeen(tx as never, "file-1", {
+      fileMeta: {
+        driveFileId: "file-1",
+        name: "file-1.xlsx",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        parents: ["folder-1"],
+      },
+      parseResult: {
+        show: {
+          title: "First Seen",
+          client_label: "Client",
+          client_contact: null,
+          template_version: "v4",
+          venue: null,
+          dates: { travelIn: null, set: "2026-05-08", showDays: [], travelOut: null },
+          schedule_phases: {},
+          event_details: {},
+          agenda_links: [],
+          coi_status: null,
+          po: null,
+          proposal: null,
+          invoice: null,
+          invoice_notes: null,
+        },
+        crewMembers: [],
+        hotelReservations: [],
+        rooms: [],
+        transportation: null,
+        contacts: [],
+        pullSheet: null,
+        diagrams,
+        openingReel: null,
+        raw_unrecognized: [],
+        warnings: [],
+        hardErrors: [],
+      },
+      runPhase1: vi.fn(async () => ({ outcome: "auto_publish_ready" as const })),
+      binding: {
+        bindingToken: "rev-1",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+      },
+      createUnpublishToken: () => "11111111-1111-4111-8111-111111111111",
+      now: () => new Date("2026-05-08T12:00:00.000Z"),
+    });
+
+    expect(result).toEqual({ outcome: "applied", showId: "show-1" });
+    expect(snapshotAssetMock.factoryCalls).toEqual([{ showId: "show-1" }]);
+    expect(snapshotAssetMock.snapshotCalls).toEqual([{ driveFileId: "file-1", diagrams }]);
+    expect(tx.operations).toContain("applyDiagramSnapshot");
+    expect(tx.diagramSnapshot).toMatchObject({
+      pending: expect.objectContaining({
+        snapshot_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      }),
+    });
   });
 
   test("preserves Phase 1 debounce as deferred rather than hard failed", async () => {
