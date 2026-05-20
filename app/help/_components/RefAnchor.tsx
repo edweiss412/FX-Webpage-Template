@@ -1,3 +1,5 @@
+"use client";
+
 import type { ReactNode } from "react";
 
 const VALID_ID = /^[A-Z][A-Z0-9_]*$/;
@@ -31,11 +33,27 @@ export function RefAnchor({
     as === "h2"
       ? "mt-10 mb-3 text-xl font-semibold text-text-strong group flex items-center gap-2"
       : "mt-8 mb-2 text-lg font-semibold text-text-strong group flex items-center gap-2";
+
+  // Codex R2 MEDIUM fix: spec §6.2 / aria-label contract advertises copy-to-
+  // clipboard. ADD navigator.clipboard.writeText; do NOT preventDefault so
+  // the fragment navigation still fires (middle-click "open in new tab"
+  // continues to work). Clipboard is gated on https/localhost, so wrap in
+  // try/catch — fallback is the default <a href> navigation.
+  const handleCopyClick = () => {
+    try {
+      const url = `${window.location.origin}${window.location.pathname}#${id}`;
+      void navigator.clipboard?.writeText?.(url);
+    } catch {
+      // Clipboard unavailable; the default <a href> navigation still fires.
+    }
+  };
+
   return (
     <Tag id={id} className={className}>
       {children}
       <a
         href={`#${id}`}
+        onClick={handleCopyClick}
         aria-label="Copy link to this section"
         className="inline-flex h-11 w-11 -my-2 items-center justify-center rounded text-text opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity text-sm"
       >

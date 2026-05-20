@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { RefAnchor } from "@/app/help/_components/RefAnchor";
 
@@ -39,5 +39,24 @@ describe("<RefAnchor>", () => {
     expect(() =>
       render(<RefAnchor id="X" as={"h4" as "h2" | "h3"}>x</RefAnchor>)
     ).toThrow(/as.*h2.*h3/i);
+  });
+
+  it("copies permalink to clipboard on click (spec §6.2 / aria-label contract; Codex R2 finding)", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    // Provide a deterministic location:
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { origin: "http://localhost:3000", pathname: "/help/errors", hash: "" },
+    });
+
+    render(<RefAnchor id="REPORT_HORIZON_EXPIRED">x</RefAnchor>);
+    const linkBtn = screen.getByRole("link", { name: /copy link to this section/i });
+    linkBtn.click();
+
+    expect(writeText).toHaveBeenCalledWith("http://localhost:3000/help/errors#REPORT_HORIZON_EXPIRED");
   });
 });
