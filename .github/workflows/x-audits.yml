@@ -266,7 +266,9 @@ jobs:
             x5-email-canonicalization.log
 
   verify-branch-protection:
-    if: github.event_name == 'push' || github.event_name == 'schedule'
+    # X6-D-1: solo-dev variant — branch protection removed, no team workflow.
+    # See DEFERRED.md §X6-D-1 for re-enable triggers (second admin joins, etc.).
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -294,6 +296,9 @@ jobs:
           path: artifacts/branch-protection-report.json
 
   verify-branch-protection-status:
+    # X6-D-1: solo-dev variant — branch protection removed, no team workflow.
+    # Reader is dormant until the privileged job re-enables; see DEFERRED.md §X6-D-1.
+    if: false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
