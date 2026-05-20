@@ -168,7 +168,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → refresh admin",
     helpfulContext: "You clicked 'Sync' against a version that's already been superseded by a newer parse. No work was lost — just refresh the admin page to see the current state and try again from there if needed.",
     title: "Manual sync already superseded",
-    longExplanation: "You clicked Sync against a version that has already been replaced by a newer parse. Nothing was lost — refresh the admin page to see the current state and act from there.",
+    longExplanation: "You clicked Sync against a version that has already been replaced by a newer parse. Nothing was lost. Refresh the admin page to see the current state and act from there.",
     helpHref: "/help/errors#STALE_MANUAL_REPLAY_ABORTED",
   },
   STALE_PUSH_ABORTED: {
@@ -188,7 +188,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → restart wizard",
     helpfulContext: "Setup wizards run one at a time. While your tab was open, another wizard was started (probably from a second browser tab or device) and your session was retired. Refresh and start setup over in a single tab; whatever the other wizard scanned is the new state.",
     title: "Setup wizard superseded",
-    longExplanation: "Setup wizards run one at a time. Another wizard was started — probably from a different tab or device — and your session was retired. Refresh and start setup over in a single tab.",
+    longExplanation: "Setup wizards run one at a time. Another wizard was started (probably from a different tab or device) and your session was retired. Refresh and start setup over in a single tab.",
     helpHref: "/help/errors#WIZARD_SESSION_SUPERSEDED",
   },
   WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED: {
@@ -368,7 +368,7 @@ export const MESSAGE_CATALOG = {
     followUp: "User → re-open original signed link",
     helpfulContext: "While you were finishing sign-in, the developer rotated the secret key the app uses to verify signed links — usually because a possible secret leak was being mitigated. Your link was minted under the old key, so the redemption was rejected to keep the old key from authorizing any new sessions after the rotation. Open the original signed link Doug shared again — the bootstrap step will mint a fresh proof under the new key, and sign-in will complete normally.",
     title: "Link signing key rotated",
-    longExplanation: "While you were finishing sign-in, the secret key the app uses to verify signed links was rotated — usually because a possible secret leak was being mitigated. Open your original signed link again to mint a fresh proof under the new key.",
+    longExplanation: "While you were finishing sign-in, the secret key the app uses to verify signed links was rotated, usually because a possible secret leak was being mitigated. Open your original signed link again to mint a fresh proof under the new key.",
     helpHref: "/help/errors#LINK_REDEEM_KEY_ROTATED",
   },
   STAGED_PARSE_SOURCE_GONE: {
@@ -398,7 +398,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → re-edit sheet to re-stage",
     helpfulContext: "A diagram in the linked Google Drive folder was edited after the staged parse was reviewed. Crew see a placeholder where that diagram should be — we won't show drifted bytes that an operator hasn't approved. Save the sheet again (any edit advances the version) to re-stage the new diagram.",
     title: "Linked diagram drifted",
-    longExplanation: "A diagram in the linked Drive folder was edited after the staged parse was reviewed. Crew see a placeholder where that diagram should be — we won't show drifted bytes that haven't been approved. Save the sheet again to re-stage the new diagram.",
+    longExplanation: "A diagram in the linked Drive folder was edited after the staged parse was reviewed. Crew see a placeholder where that diagram should be, because we won't show drifted bytes that haven't been approved. Save the sheet again to re-stage the new diagram.",
     helpHref: "/help/errors#LINKED_ASSET_DRIFTED",
   },
   REEL_DRIFTED: {
@@ -418,7 +418,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → re-edit sheet",
     helpfulContext: "The opening-reel cell in your sheet contains a Drive URL, but the file behind it isn't a video — it's a Google Doc, Slides deck, image, PDF, or some other file type. Crew see the text status only (e.g., 'YES', 'BACKUP ONLY') without an inline player, because we won't try to embed a non-video file in a `<video>` element. To enable inline playback, replace the link with a video file URL (the file's MIME type must start with `video/`).",
     title: "Opening reel link is not a video",
-    longExplanation: "The opening-reel cell points to a Drive file that isn't a video — most likely a Google Doc, image, or PDF. Crew see the text status only without an inline player. To enable inline playback, replace the link with a video file URL.",
+    longExplanation: "The opening-reel cell points to a Drive file that isn't a video (most likely a Google Doc, image, or PDF). Crew see the text status only without an inline player. To enable inline playback, replace the link with a video file URL.",
     helpHref: "/help/errors#OPENING_REEL_NOT_VIDEO",
   },
   OPENING_REEL_PERMISSION_DENIED: {
@@ -438,7 +438,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → save sheet to advance version",
     helpfulContext: "A diagram in your sheet can't be re-downloaded automatically because it doesn't have a content-derived approval token. The fix is to save the sheet — any edit advances the version and lets us mint a fresh approval token on the next sync, which restores the diagram for crew.",
     title: "Diagram needs sheet re-save to recover",
-    longExplanation: "A diagram in this sheet can't be re-downloaded automatically because it lacks a content-derived approval token. Save the sheet — any edit advances the version and lets us mint a fresh token on the next sync, which restores the diagram.",
+    longExplanation: "A diagram in this sheet can't be re-downloaded automatically because it lacks a content-derived approval token. Save the sheet. Any edit advances the version and lets us mint a fresh token on the next sync, which restores the diagram.",
     helpHref: "/help/errors#EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
   },
   AGENDA_GONE_FOR_CREW: {
@@ -528,7 +528,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → refresh",
     helpfulContext: "A newer parse was applied (probably by a different admin or a cron run) before your Apply landed. Refresh the admin page to see the current state.",
     title: "Newer parse already applied",
-    longExplanation: "A newer parse was applied — probably by a different admin or a cron run — before your Apply landed. Refresh the admin page to see the current state.",
+    longExplanation: "A newer parse was applied (probably by a different admin or a cron run) before your Apply landed. Refresh the admin page to see the current state.",
     helpHref: "/help/errors#STAGED_PARSE_SUPERSEDED",
   },
   "MI-1_VERSION_DETECTION_FAILED": {
@@ -548,7 +548,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → fix sheet",
     helpfulContext: "Every show needs a title — we read it from the CLIENT row in your sheet. Make sure the CLIENT cell is filled in with the show's title, then save the sheet.",
     title: "Show title missing",
-    longExplanation: "Every show needs a title — we read it from the CLIENT row. The CLIENT cell is empty or unreadable. Fill it in with the show's title and save the sheet.",
+    longExplanation: "Every show needs a title, which we read from the CLIENT row. The CLIENT cell is empty or unreadable. Fill it in with the show's title and save the sheet.",
     helpHref: "/help/errors#MI-2_TITLE_MISSING",
   },
   "MI-3_NO_PARSEABLE_DATE": {
@@ -568,7 +568,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → fix sheet",
     helpfulContext: "Every show needs at least one crew member — we read names from the CREW block. The block exists but no rows have parseable names. Add at least one person to the CREW block.",
     title: "No crew rows",
-    longExplanation: "Every show needs at least one crew member — we read names from the CREW block. The block exists but no rows have parseable names. Add at least one person to the CREW block.",
+    longExplanation: "Every show needs at least one crew member, which we read from the CREW block. The block exists but no rows have parseable names. Add at least one person to the CREW block.",
     helpHref: "/help/errors#MI-4_NO_CREW",
   },
   "MI-5_NO_ROOMS": {
@@ -578,7 +578,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → fix sheet",
     helpfulContext: "Every show needs at least one room — we read rooms from the General Session, Breakouts, and Additional Rooms blocks. None of those blocks had a row with both a setup and a time. Make sure your room blocks have those fields filled in.",
     title: "No rooms found",
-    longExplanation: "Every show needs at least one room — we read rooms from General Session, Breakouts, and Additional Rooms. None of those blocks had a row with both a setup and a time. Fill those fields in.",
+    longExplanation: "Every show needs at least one room, which we read from General Session, Breakouts, and Additional Rooms. None of those blocks had a row with both a setup and a time. Fill those fields in.",
     helpHref: "/help/errors#MI-5_NO_ROOMS",
   },
   "MI-5a_DUPLICATE_CREW_NAME": {
@@ -588,7 +588,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → fix sheet",
     helpfulContext: "Two rows in the CREW block have identical names, which means the app can't reliably tell which schedule belongs to which person. Disambiguate them — for example, change one 'John' to 'John C.' or 'John Carleo'.",
     title: "Two crew rows share a name",
-    longExplanation: "Two rows in the CREW block have identical names, which means the app can't reliably tell which schedule belongs to which person. Disambiguate them — for example, change one 'John' to 'John C.' or 'John Carleo'.",
+    longExplanation: "Two rows in the CREW block have identical names, which means the app can't reliably tell which schedule belongs to which person. Disambiguate them: for example, change one 'John' to 'John C.' or 'John Carleo'.",
     helpHref: "/help/errors#MI-5a_DUPLICATE_CREW_NAME",
   },
   "MI-5b_DUPLICATE_CREW_EMAIL": {
@@ -628,7 +628,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → review staged",
     helpfulContext: "More than one crew member was removed from the sheet since the last approved sync. We hold the change for review because crew shrinkage is sometimes accidental (a paste over the wrong cell range). Open the staged review to confirm the removals are intentional before applying.",
     title: "Crew rows shrunk",
-    longExplanation: "More than one crew member was removed from the sheet since the last approved sync. We hold the change for review because crew shrinkage is sometimes accidental — a paste over the wrong cell range. Confirm the removals are intentional before applying.",
+    longExplanation: "More than one crew member was removed from the sheet since the last approved sync. We hold the change for review because crew shrinkage is sometimes accidental (a paste over the wrong cell range). Confirm the removals are intentional before applying.",
     helpHref: "/help/errors#MI-6_CREW_SHRINKAGE",
   },
   "MI-7_SECTION_SHRINKAGE": {
@@ -648,7 +648,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → review staged",
     helpfulContext: "A specific named entry — a particular hotel, room, or contact — that was in the sheet last sync is no longer there. We hold the change for review because keyed entries usually represent committed bookings or relationships. Confirm before applying.",
     title: "Named entry removed",
-    longExplanation: "A specific named entry — a particular hotel, room, or contact — that was in the sheet last sync is no longer there. We hold the change for review because keyed entries usually represent committed bookings or relationships.",
+    longExplanation: "A specific named entry (a particular hotel, room, or contact) that was in the sheet last sync is no longer there. We hold the change for review because keyed entries usually represent committed bookings or relationships.",
     helpHref: "/help/errors#MI-7b_KEYED_PRESERVATION",
   },
   "MI-8_FINANCIAL_FIELD_COLLAPSE": {
@@ -740,7 +740,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → optionally re-share when ready",
     helpfulContext: "You clicked Unpublish on a recently-published show. The show is now archived, any signed links you sent in the last 24h have been revoked, and crew can no longer reach the page. Nothing is lost — your sheet is unchanged. Drag it back into the watched folder when you're ready to publish for real.",
     title: "Show unpublished",
-    longExplanation: "You clicked Unpublish on a recently-published show. The show is archived, signed links from the last 24 hours have been revoked, and crew can no longer reach the page. Nothing is lost — drag the sheet back into the watched folder when you're ready to publish again.",
+    longExplanation: "You clicked Unpublish on a recently-published show. The show is archived, signed links from the last 24 hours have been revoked, and crew can no longer reach the page. Nothing is lost. Drag the sheet back into the watched folder when you're ready to publish again.",
     helpHref: "/help/errors#SHOW_UNPUBLISHED",
   },
   UNPUBLISH_TOKEN_CONSUMED: {
@@ -780,7 +780,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → optional Report",
     helpfulContext: "The parser scans every row of your sheet and matches each label against the canonical block list (CLIENT, DATES, CREW, MAIN/SECONDARY, etc.). Anything that doesn't match is captured into the show's `raw_unrecognized` map and surfaced here so you can decide whether it's noise (a typo, a one-off note) or a sign that your template is drifting. Nothing is broken either way — the row is preserved verbatim. If you'd like the developer to handle the row going forward, click Report; if it's intentional one-off content, ignore the warning.",
     title: "Unrecognized row in sheet",
-    longExplanation: "The parser scans every row of your sheet and matches each label against the canonical block list. Anything that doesn't match is captured and surfaced here. Nothing is broken — the row is preserved verbatim. Report it if you'd like the developer to handle the row going forward.",
+    longExplanation: "The parser scans every row of your sheet and matches each label against the canonical block list. Anything that doesn't match is captured and surfaced here. Nothing is broken; the row is preserved verbatim. Report it if you'd like the developer to handle the row going forward.",
     helpHref: "/help/errors#UNKNOWN_FIELD",
   },
   UNKNOWN_DAY_RESTRICTION: {
@@ -820,7 +820,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → optional Report",
     helpfulContext: "The PULL SHEET tab parses one row per case. For each row we extract the case label, the QTY column, and the per-item lines. When QTY can't be parsed (blank, non-numeric, range like `1-2`) or a critical column is missing, we keep the case in the manifest with `qty: null` and render the row's raw text on the crew page so techs still see what's in that case. Only the affected rows degrade — the rest of the manifest is unaffected. If you'd like the developer to handle the format you used, click Report.",
     title: "Pull sheet rows partially parsed",
-    longExplanation: "Some PULL SHEET rows couldn't be fully parsed — usually because QTY is blank, non-numeric, or a range like '1-2'. We keep those cases in the manifest and render the row's raw text on the crew page so techs still see what's in that case. Only the affected rows degrade.",
+    longExplanation: "Some PULL SHEET rows couldn't be fully parsed, usually because QTY is blank, non-numeric, or a range like '1-2'. We keep those cases in the manifest and render the row's raw text on the crew page so techs still see what's in that case. Only the affected rows degrade.",
     helpHref: "/help/errors#PULL_SHEET_PARSE_PARTIAL",
   },
   PULL_SHEET_AMBIGUOUS_FORMAT: {
@@ -990,7 +990,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → wait; Eric → fix",
     helpfulContext: "Something on our end (not your sheet, not your folder) failed during the wizard. The developer has been notified and will fix the underlying issue. Try again in a few minutes; if it persists, message Eric.",
     title: "Setup hit an internal error",
-    longExplanation: "Something on our end — not your sheet, not your folder — failed during the wizard. The developer has been notified and will fix the underlying issue. Try again in a few minutes.",
+    longExplanation: "Something on our end (not your sheet, not your folder) failed during the wizard. The developer has been notified and will fix the underlying issue. Try again in a few minutes.",
     helpHref: "/help/errors#ONBOARDING_OPERATOR_ERROR",
   },
   ONBOARDING_NOT_RESOLVED: {
@@ -1040,7 +1040,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Crew → re-click signed link; Doug → refresh and re-click",
     helpfulContext: "Signed-in links go through a small bootstrap step that proves your browser actually rendered the link's start page in the last 30 seconds. If the rendered page sits open longer than 30 seconds before you complete sign-in (phone-locked, slow network, you got distracted), or you opened a lot of bootstrap pages back-to-back in different tabs, the bootstrap proof expires. Refresh the page and click the link again — the bootstrap proof renews instantly when the page reloads. This protects your sign-in from being hijacked by a malicious page in another tab; the time limit is part of the protection, not a bug.",
     title: "Sign-in link expired",
-    longExplanation: "Signed-in links go through a small bootstrap step that proves your browser rendered the start page in the last 30 seconds. If the page sits open longer than that before you complete sign-in, the bootstrap proof expires. Refresh the page and click the link again — the proof renews instantly.",
+    longExplanation: "Signed-in links go through a small bootstrap step that proves your browser rendered the start page in the last 30 seconds. If the page sits open longer than that before you complete sign-in, the bootstrap proof expires. Refresh the page and click the link again; the proof renews instantly.",
     helpHref: "/help/errors#CSRF_NONCE_EXPIRED",
   },
   CSRF_KEY_ROTATED: {
@@ -1090,7 +1090,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → resolve live row from dashboard, then re-run setup",
     helpfulContext: "Setup tried to stage a parse for a sheet that the live folder sync is already processing. We skipped the wizard's stage to avoid clobbering the live row. Resolve the live row from the dashboard — either Apply or Discard it — then re-run setup if you still need to.",
     title: "Live sync owns this sheet",
-    longExplanation: "Setup tried to stage a parse for a sheet that the live folder sync is already processing. We skipped the wizard's stage to avoid clobbering the live row. Resolve the live row from the dashboard — either Apply or Discard it — then re-run setup if you still need to.",
+    longExplanation: "Setup tried to stage a parse for a sheet that the live folder sync is already processing. We skipped the wizard's stage to avoid clobbering the live row. Resolve the live row from the dashboard (either Apply or Discard it), then re-run setup if you still need to.",
     helpHref: "/help/errors#LIVE_ROW_CONFLICT",
   },
   WIZARD_ISOLATION_INDEXES_MISSING: {
@@ -1130,7 +1130,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Eric → restore branch protection per X.6 contract",
     helpfulContext: "The privileged branch-protection monitor queried GitHub and found that the main-branch protection no longer matches the X.6 contract: one of the seven required checks is missing, reviews are not required, stale reviews are not dismissed, admin enforcement is off, or force pushes/deletions are allowed. Restore the branch protection settings for main so pull requests cannot merge without the full X.* audit suite.",
     title: "Branch protection drift",
-    longExplanation: "The branch-protection monitor found that the main-branch protection no longer matches the X.6 contract — a required check is missing, reviews are not required, stale reviews are not dismissed, admin enforcement is off, or force pushes / deletions are allowed. Restore the settings so pull requests cannot merge without the full audit suite.",
+    longExplanation: "The branch-protection monitor found that the main-branch protection no longer matches the X.6 contract: a required check is missing, reviews are not required, stale reviews are not dismissed, admin enforcement is off, or force pushes / deletions are allowed. Restore the settings so pull requests cannot merge without the full audit suite.",
     helpHref: "/help/errors#BRANCH_PROTECTION_DRIFT",
   },
   BRANCH_PROTECTION_MONITOR_AUTH_FAILED: {
@@ -1150,7 +1150,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → refresh dashboard",
     helpfulContext: "The dashboard's pending-sheet panel renders rows by id. When you clicked Retry or Discard, the server looked up that id and didn't find a row — it had already been resolved (probably from another browser tab) between the time the panel rendered and your click. Refresh the dashboard to load the current state, then act on whatever's still pending.",
     title: "Pending sheet already resolved",
-    longExplanation: "When you clicked Retry or Discard, the server looked up the pending sheet by id and didn't find a row — it had already been resolved, probably from another browser tab. Refresh the dashboard to load the current state.",
+    longExplanation: "When you clicked Retry or Discard, the server looked up the pending sheet by id and didn't find a row; it had already been resolved, probably from another browser tab. Refresh the dashboard to load the current state.",
     helpHref: "/help/errors#PENDING_INGESTION_NOT_FOUND",
   },
   LIVE_ROW_REQUIRED: {
@@ -1170,7 +1170,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Eric → investigate; Doug → use Permanently ignore as workaround",
     helpfulContext: "Defer-until-modified needs to know the file's current `modifiedTime` so cron knows when to resume processing. Every place that creates a pending-sheet row (Phase 1 hard-fails, Drive-fetch failures, retry handlers) populates this column. If you're seeing this code, something we wrote produced a row without it — the developer has been notified. As a workaround you can use Permanently ignore (which doesn't need the watermark).",
     title: "Tracking watermark missing",
-    longExplanation: "Defer-until-modified needs the file's current modified time so cron knows when to resume processing. This pending row was created without one — something we wrote produced a bad row. The developer has been notified. You can use 'Permanently ignore' to dismiss the row.",
+    longExplanation: "Defer-until-modified needs the file's current modified time so cron knows when to resume processing. This pending row was created without one, because something we wrote produced a bad row. The developer has been notified. You can use 'Permanently ignore' to dismiss the row.",
     helpHref: "/help/errors#MISSING_PENDING_INGESTION_MODTIME",
   },
   PENDING_INGESTION_TRANSITIONED: {
@@ -1220,7 +1220,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Crew → reopen the link; Eric if persistent",
     helpfulContext: "Google OAuth uses a one-time security token (the `state` parameter) to make sure the sign-in callback came from the request your browser actually started. The token was missing, expired, or didn't match — most often because you started sign-in in one window and clicked the callback in another, or the cookie storing the expected value was cleared. Click the original link from Doug again to start fresh.",
     title: "Sign-in interrupted",
-    longExplanation: "Google OAuth uses a one-time security token to make sure the callback came from the request your browser actually started. The token was missing, expired, or didn't match — most often because you started sign-in in one window and clicked the callback in another. Click the original link again to start fresh.",
+    longExplanation: "Google OAuth uses a one-time security token to make sure the callback came from the request your browser actually started. The token was missing, expired, or didn't match, most often because you started sign-in in one window and clicked the callback in another. Click the original link again to start fresh.",
     helpHref: "/help/errors#OAUTH_STATE_INVALID",
   },
   OAUTH_REDIRECT_INVALID: {
@@ -1250,7 +1250,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Crew → text Doug; Doug → check dashboard",
     helpfulContext: "The crew page hasn't synced from Drive in over six hours. That's well past the normal cron interval, so something is stalled. Open the dashboard to check whether push subscriptions are healthy and whether the cron job is running.",
     title: "Sync stalled for more than 6 hours",
-    longExplanation: "The crew page hasn't synced from Drive in over six hours — well past the normal cron interval, so something is stalled. Open the dashboard to check whether push subscriptions are healthy and whether the cron job is running.",
+    longExplanation: "The crew page hasn't synced from Drive in over six hours, well past the normal cron interval, so something is stalled. Open the dashboard to check whether push subscriptions are healthy and whether the cron job is running.",
     helpHref: "/help/errors#SYNC_DELAYED_SEVERE",
   },
   TILE_SERVER_RENDER_FAILED: {
@@ -1260,7 +1260,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → refresh / Report; Eric → investigate",
     helpfulContext: "One of the page sections crashed while the server was rendering it. The rest of the page rendered normally. The page will keep retrying — refresh in a minute. If this keeps happening, click 'Report' so the developer can investigate.",
     title: "Page section failed to render",
-    longExplanation: "One of the page sections crashed while the server was rendering it. The rest of the page rendered normally. The page will keep retrying — refresh in a minute. If this keeps happening, click Report so the developer can investigate.",
+    longExplanation: "One of the page sections crashed while the server was rendering it. The rest of the page rendered normally. The page will keep retrying; refresh in a minute. If this keeps happening, click Report so the developer can investigate.",
     helpHref: "/help/errors#TILE_SERVER_RENDER_FAILED",
   },
   STALE_DISCARD_REJECTED: {
@@ -1290,7 +1290,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Eric → review orphan, tune lease window if recurring",
     helpfulContext: "Two retries of the same bug-report submission both succeeded in creating GitHub issues — a lease race condition. We auto-closed the duplicate. Click through to confirm; if this code keeps appearing, the developer needs to extend the lease window.",
     title: "Duplicate report issue auto-closed",
-    longExplanation: "Two retries of the same bug-report submission both succeeded in creating GitHub issues — a lease race condition. We auto-closed the duplicate. Click through to confirm; if this keeps appearing, the developer needs to extend the lease window.",
+    longExplanation: "Two retries of the same bug-report submission both succeeded in creating GitHub issues (a lease race condition). We auto-closed the duplicate. Click through to confirm; if this keeps appearing, the developer needs to extend the lease window.",
     helpHref: "/help/errors#REPORT_ORPHANED_LOST_LEASE",
   },
   GITHUB_BOT_LOGIN_MISSING: {
@@ -1310,7 +1310,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Eric → tune lease window",
     helpfulContext: "Bug-report submissions for this show are racing against their own leases — too many retries firing inside the lease window. Usually means the lease window is shorter than the GitHub API's response time under current conditions. The developer needs to tune the window.",
     title: "Bug-report leases thrashing",
-    longExplanation: "Bug-report submissions for this show are racing against their own leases — too many retries firing inside the lease window. Usually this means the lease window is shorter than the GitHub API's response time under current conditions. The developer needs to tune the window.",
+    longExplanation: "Bug-report submissions for this show are racing against their own leases, with too many retries firing inside the lease window. Usually this means the lease window is shorter than the GitHub API's response time under current conditions. The developer needs to tune the window.",
     helpHref: "/help/errors#REPORT_LEASE_THRASHING",
   },
   ADMIN_EMAIL_ALREADY_ACTIVE: {
@@ -1340,7 +1340,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → retry; if persistent, check Supabase admin_emails RLS + grants",
     helpfulContext: "AdminEmailsInfraError thrown from listAdminEmails() — typically RLS denial, missing grant, schema-cache skew, or network fault. The route-level error boundary at app/admin/settings/admins/error.tsx renders this message + a retry button.",
     title: "Couldn't load administrator list",
-    longExplanation: "We couldn't load the list of administrators — usually a transient database or permissions issue. Refresh in a moment; if it keeps failing, the developer needs to check the database connection.",
+    longExplanation: "We couldn't load the list of administrators, usually a transient database or permissions issue. Refresh in a moment; if it keeps failing, the developer needs to check the database connection.",
     helpHref: "/help/errors#ADMIN_EMAIL_LIST_FAILED",
   },
   ADMIN_EMAIL_RE_ADD_PROMPT: {
@@ -1390,7 +1390,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → refresh the admin view",
     helpfulContext: "The apply-status endpoint could not find the requested show, apply id, or pending sync row.",
     title: "Apply job not found",
-    longExplanation: "That apply job is no longer available — usually because it has already completed or the staged sync row has been resolved. Refresh the show and check the current status.",
+    longExplanation: "That apply job is no longer available, usually because it has already completed or the staged sync row has been resolved. Refresh the show and check the current status.",
     helpHref: "/help/errors#APPLY_STATUS_NOT_FOUND",
   },
   CLEANUP_REQUIRES_STALE_SESSION: {
@@ -1540,7 +1540,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → run snapshot repair; if persistent, Eric",
     helpfulContext: "A pending snapshot upload row is marked for deletion but the storage prefix has not been reclaimed.",
     title: "Snapshot cleanup stuck",
-    longExplanation: "Old diagram snapshot cleanup is stuck — a pending row is marked for deletion but the storage prefix hasn't been reclaimed. Crew pages are still protected, but storage cleanup needs repair.",
+    longExplanation: "Old diagram snapshot cleanup is stuck: a pending row is marked for deletion but the storage prefix hasn't been reclaimed. Crew pages are still protected, but storage cleanup needs repair.",
     helpHref: "/help/errors#PENDING_SNAPSHOT_DELETE_STUCK",
   },
   PENDING_SNAPSHOT_NOT_STUCK: {
@@ -1570,7 +1570,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Doug → refresh the admin page",
     helpfulContext: "The admin page renders staged-sync rows by id. When you clicked Apply or Discard, the server looked up that id and didn't find a row — usually because another browser tab acted on the same staged sync between when the page loaded and when you clicked. Refresh the admin page to see the current state and act on whatever's still pending.",
     title: "Staged sync no longer available",
-    longExplanation: "When you clicked Apply or Discard, the server looked up the staged sync by id and didn't find a row — usually because another browser tab acted on it between when the page loaded and when you clicked. Refresh the admin page to see the current state.",
+    longExplanation: "When you clicked Apply or Discard, the server looked up the staged sync by id and didn't find a row, usually because another browser tab acted on it between when the page loaded and when you clicked. Refresh the admin page to see the current state.",
     helpHref: "/help/errors#PENDING_SYNC_NOT_FOUND",
   },
   REEL_ASSET_LOOKUP_FAILED: {
@@ -1760,7 +1760,7 @@ export const MESSAGE_CATALOG = {
     followUp: "Eric → inspect webhook delivery",
     helpfulContext: "Google Drive's push notifications carry a fixed set of headers identifying the channel, resource, and verification token. A request reached our webhook endpoint without those headers — usually that means a stale subscription is still firing or someone's probing the endpoint. The developer has been notified; no action is needed unless this keeps appearing.",
     title: "Drive webhook missing headers",
-    longExplanation: "Google Drive's push notifications carry a fixed set of headers identifying the channel, resource, and verification token. A request reached our webhook endpoint without those headers — usually a stale subscription is still firing or someone is probing the endpoint. The developer has been notified.",
+    longExplanation: "Google Drive's push notifications carry a fixed set of headers identifying the channel, resource, and verification token. A request reached our webhook endpoint without those headers, usually because a stale subscription is still firing or someone is probing the endpoint. The developer has been notified.",
     helpHref: "/help/errors#WEBHOOK_HEADERS_MISSING",
   },
 } as const satisfies Record<string, MessageCatalogEntry>;

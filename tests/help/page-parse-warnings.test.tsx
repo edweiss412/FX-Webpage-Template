@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { MDXProvider } from "@mdx-js/react";
 import { useMDXComponents } from "@/mdx-components";
-import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 
 const src = readFileSync(
   join(process.cwd(), "app/help/admin/parse-warnings/page.mdx"),
@@ -20,7 +20,12 @@ const src = readFileSync(
 // by code-name pattern (WARN_ or PARSE_ prefix per the M9 parse-pipeline
 // naming convention) AND Doug-facing.
 const PARSE_CODE_PATTERN = /^(WARN_|PARSE_)/;
-const warningCodes = Object.values(MESSAGE_CATALOG).filter(
+// Cast through MessageCatalogEntry[] mirrors tests/help/page-errors.test.tsx;
+// without it, TypeScript narrows the union to variants that lack `severity`
+// (entries that default the field) and the property access errors.
+const warningCodes = (
+  Object.values(MESSAGE_CATALOG) as MessageCatalogEntry[]
+).filter(
   (e) =>
     e.severity !== "info" &&
     e.dougFacing !== null &&
