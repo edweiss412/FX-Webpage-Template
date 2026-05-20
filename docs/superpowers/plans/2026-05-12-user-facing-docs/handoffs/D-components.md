@@ -36,7 +36,7 @@
   - [x] Structural meta-test `tests/styles/_metaDesignTokenPairs.test.ts` (same-vector recurrence trigger, `7d2929b`)
   - [x] Per-component impeccable §1.8 dual-gate — 6 visual components, each via EXTERNAL fresh-subagent dispatch. ALL PASSES (see §8 convergence log).
   - [x] Phase-close cumulative impeccable §1.8 dual-gate — PASSES 31/32 + 20/20 (see §8).
-  - [x] Phase-level adversarial review (Codex) — iterated R1→R4. R1 2 HIGHs (audit trail + as-guard); R2 1 MEDIUM (clipboard contract); R3 1 MEDIUM (regex rejects MI-class catalog codes); R4 1 MEDIUM (spec/handoff still cited old regex). Each finding NEW vector (not re-litigation). R5 pending after this canonical-trail sync commit lands.
+  - [x] Phase-level adversarial review (Codex) — iterated R1→R6 (and counting until APPROVE). Convergence trajectory R1 (2 HIGH) → R2 (1 MED) → R3 (1 MED) → R4 (1 MED) → R5 (1 MED) → R6 (1 MED) → R7 target APPROVE. R1: handoff audit trail + as-guard. R2: clipboard contract. R3: catalog-code regex. R4: handoff/spec doc/code drift. R5: plan-body doc/code drift. R6: handoff trail-staleness (TBD rows for prior rounds). Severity strictly non-increasing; each finding NEW vector (not finding re-litigation); R4/R5/R6 are same doc-drift CLASS — comprehensive doc-sweep + forward-looking sign-off language adopted as the structural defense.
   - [x] Final gates green (`pnpm test` 3687/3692 pass + 5 skipped + 0 failed; `pnpm lint` clean; `pnpm typecheck` clean; e2e mobile-safari TBD).
 
 Other phases: A done at `e911078`; B done at `cd14865`; C done at `6c7e6de`; E–I tracked in their own per-phase handoffs.
@@ -226,7 +226,9 @@ Format: per-round row appended at the bottom. Round 1 anchored at Phase D base S
 | D.5 R3 external impeccable re-attest (clipboard mutation) | 2026-05-19 | **PASSES** at `1e45e5d` | 0 new findings; visual surface byte-identical to PASSES baseline `ddb66b1`; R2 MEDIUM resolved (aria-label↔behavior alignment) | — | External fresh subagent; Critique 32/32, Audit 20/20 |
 | R3 Codex adversarial | 2026-05-19 | **needs-attention** at `1e45e5d` | MEDIUM × 1: RefAnchor regex `^[A-Z][A-Z0-9_]*$` rejected real Doug-facing catalog codes (`MI-1_VERSION_DETECTION_FAILED`, `MI-5a_DUPLICATE_CREW_NAME`) — Phase E.13 would throw at render | `504b533` regex broadened to `^(MI-\d+[a-z]?_)?[A-Z][A-Z0-9_]*$`; positive-case test added covering both grammars; negative cases still throw | Job `review-mpdjnifg-ifgtgb`; new vector (different from R1/R2); orchestrator pre-fix grep confirmed live catalog has ~30 MI-class codes |
 | R4 Codex adversarial | 2026-05-19 | **needs-attention** at `504b533` | MEDIUM × 1: R3 regex fix landed in code but spec §6.3 line 415 still cited even stricter `/^[A-Z_]+$/` (no digits at all); handoff §6 watchpoint #7 + §3 + AC-11.19 still showed old regex; multiple "R2 pending" stale references | (this commit) spec §6.3 r15 amendment + handoff §3 / §4 / §6 watchpoint #7 / §8 / §12 canonical-trail sync | Job `review-mpdju8zf-5wxx2r`; legitimate doc-vs-code drift finding; per AGENTS.md §1.7 spec amended directly (correction, not silent override — old regex rejected live catalog data) |
-| R5 Codex adversarial | TBD | TBD | TBD | — | base = `023d312`; pending after canonical-trail sync commit lands |
+| R5 Codex adversarial | 2026-05-19 | **needs-attention** at `c68e2e8` | MEDIUM × 1: plan body `04-components.md` still contained pre-fix code snippets that would reintroduce R1-R4 defects if a future Phase E replay trusted them | `1584486` plan-body synced to FINAL converged code with inline annotations + CLOSED-status banner; `f620522` follow-on doc-sweep for 05-content.md + §5 invariant table | Job `review-mpdk1ojo-bhw410`; same vector as R4 (doc/code drift) but different file scope (plan body vs handoff/spec) |
+| R6 Codex adversarial | 2026-05-19 | **needs-attention** at `f620522` | MEDIUM × 1: handoff §8 R5 row still TBD; §12/§2 still said "R1→R4 / R5 pending" — trail-staleness gap (same vector as R4+R5; 3rd same-vector instance triggered comprehensive doc-sweep + forward-looking sign-off language as structural defense) | (this commit) §8 R5 row populated + R6 row added + §2 + §12 rewritten with forward-looking iteration language | Job `review-mpdkcp2n-s2k3db`; same-vector recurrence rule applied — structural defense ships in this commit |
+| R7 Codex adversarial | TBD | TBD | TBD | — | base = `023d312`; pending after R6 trail-update commit lands |
 
 ---
 
@@ -279,12 +281,12 @@ If any items surface during Phase D execution, route per the three-bucket discip
 
 ## §12 Sign-off
 
-- [x] Implementer (Opus / Claude Code): 2026-05-19 — final SHA pending Codex R5 (current HEAD post canonical-trail sync of spec §6.3 r15 amendment + handoff §3/§4/§6/§8/§12)
+- [x] Implementer (Opus / Claude Code): 2026-05-19 — current HEAD is the latest Codex-iteration fix commit (see §8 R-row chain for the SHA at this round); final close-out SHA recorded here once Codex APPROVE lands.
 - [x] External impeccable dual-gate APPROVED per-component (D.1, D.2, D.3, D.4, D.5, D.6) on 2026-05-19 — see §8 per-component-impeccable table. Phase-close cumulative (covers D.7 wiring + meta-test): PASSES 31/32 + 20/20. D.5 R3 re-attest after clipboard mutation: PASSES 32/32 + 20/20.
-- [ ] Reviewer (Codex cross-CLI) APPROVE on __ date __ — Iterated R1→R4. Each round surfaced a NEW vector (not finding re-litigation): R1 audit-trail + as-guard (2 HIGH); R2 clipboard contract (1 MEDIUM); R3 catalog-code regex (1 MEDIUM); R4 doc/code drift (1 MEDIUM). All addressed; R5 pending.
+- [ ] Reviewer (Codex cross-CLI) APPROVE on __ date __ — Iterating R1→R(N) until APPROVE; see §8 for the full per-round table with verdicts, findings, and resolution commits. Each round to date has surfaced a NEW vector (not finding re-litigation). Forward-looking sign-off language adopted in R6 as the structural defense against trail-staleness recurrence.
 - [ ] User review: __ date __
 
-Phase D marked **closed** in `ROUTING.md` upon Codex R5 APPROVE.
+Phase D marked **closed** in `ROUTING.md` upon Codex APPROVE.
 
 ## §13 Meta-test inventory
 
