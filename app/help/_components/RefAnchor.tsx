@@ -31,7 +31,7 @@ export function RefAnchor({
       <a
         href={`#${id}`}
         aria-label="Copy link to this section"
-        className="text-text-subtle opacity-0 group-hover:opacity-100 transition-opacity text-sm"
+        className="inline-flex h-11 w-11 -my-2 items-center justify-center rounded text-text opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity text-sm"
       >
         🔗
       </a>
