@@ -123,7 +123,22 @@ The day-of-walk uses **wall-clock + fixture-data engineering**, NOT the M11 `X-S
 3. **No code path changes.** This approach changes data, not code. The application reads `now()` from `lib/time/now.ts` which in production returns the real system clock. No test-auth bypass; no production-unsafe headers.
 4. **Phase 0 verification.** Phase 0 smoke test 5 (added in R3) verifies the re-seed mechanism by setting a fixture to `viewer_off_day` state and confirming the Right Now card renders the off-day copy. This proves the data-engineering approach actually drives the state transitions before Phase 1 starts.
 
-5. **Walk-session gate (added R4).** Before every walk session — initial sweep (§7.2 step 2), targeted re-exercise (§7.2 step 5), or final sweep (§7.2 step 7) — the dev MUST run the re-seed script (or verify the seed-date stamp matches the current local date). Stale fixtures block walk progression. The re-seed script writes a `validation_seed_date` row that the dev verifies before each session start; if the stamp's date ≠ today, the dev re-seeds before walking. This eliminates the "Tuesday seed used on Wednesday walk" failure mode named in Codex R4 F1.
+5. **Walk-session gate (added R4, contract specified R5).** Before every walk session — initial sweep (§7.2 step 2), targeted re-exercise (§7.2 step 5), or final sweep (§7.2 step 7) — the dev MUST run the re-seed script (or verify the seed-date stamp matches the current local date). Stale fixtures block walk progression.
+
+**Re-seed script contract (R5 amendment).** The script and its CLI contract are concrete deliverables, not plan-time TBDs:
+
+| Aspect | Contract |
+|---|---|
+| Script path | `scripts/validation-reseed.ts` (TypeScript, executed via `tsx`) |
+| Invocation | `pnpm validation:reseed [--combo <R1\|R2\|R3\|R4\|R5\|R6\|R7\|R8\|SW-PRE_TRAVEL\|SW-TRAVEL_IN\|SW-SHOW_1\|SW-SHOW_N\|SW-POST_SHOW\|all>]` |
+| Default behavior | `--combo all` — materializes all 8 R-combos + 5 show-wide states' fixtures with date columns aligned to today's local date |
+| Idempotency | Re-running with the same args on the same day is a no-op. Re-running with a different date updates every fixture's date columns. |
+| Storage of `validation_seed_date` stamp | New table `validation_state` (single row): `last_seed_date DATE NOT NULL, combos_materialized TEXT[] NOT NULL, seeded_by TEXT NOT NULL`. The script writes to this table at the end of a successful seed. |
+| Verification command | `pnpm validation:check-seed` returns exit 0 if `last_seed_date = today` AND `combos_materialized` covers what the next walk needs; returns exit 1 otherwise. The dev runs this at the start of every walk session per §3.3 step 5 above. |
+| Owned fixture mappings | One fixture per R-combo + one fixture per show-wide state, materialized in the prod Supabase. The script holds the canonical mapping table inline (R-combo or state → `{showName, date_restriction, stage_restriction, dates.travelIn, dates.travelOut, expected_today_state}`). |
+| Plan-time deliverable | The M12 plan's Phase 0 includes a sub-task that authors `scripts/validation-reseed.ts` + the `validation_state` migration BEFORE any matrix walk. Phase 0 smoke test 5 verifies the script's correctness end-to-end. |
+
+This contract closes the Codex R5 F1 finding: re-seed mechanism is no longer hand-wavy; it's a concrete plan-time deliverable with named path, CLI, idempotency contract, storage schema, and verification command.
 
 ### 3.3.1 Right Now show-wide state inventory (orthogonal to restriction)
 
@@ -372,11 +387,37 @@ A fix to a band-E catalog-driven affordance (e.g., `messageFor('LINK_EXPIRED').d
 | `app/globals.css` or `tailwind.config.*` design-token change | All surfaces consuming the changed token, identified by grep. | The change re-runs the impeccable v3 critique + audit on every affected UI surface (invariant 8), then matrix re-exercise on those surfaces. |
 | Component file under `components/` change | Grep for `import.*<ComponentName>` across `app/` and `components/`. | Every importer route gets re-walked. |
 | Single-page change (e.g., a fix to a single `app/admin/<route>/page.tsx`) | Direct only. | The single surface gets re-walked. |
-| Schema migration / Supabase migration | Every read-side route that queries the changed table. Plus a Phase 0 smoke re-run if the migration touches admin_alerts or shows tables. | Listed routes + smoke. |
+| Schema migration / Supabase migration | Multi-vector grep recipe (R5 amendment — see §7.2.2.1 below for the full enumeration recipe). Plus a Phase 0 smoke re-run if the migration touches `admin_alerts`, `shows`, or any §4.3 admin-only table. | Listed routes from the multi-vector grep + smoke. |
 
-**Escalation rule.** If the enumeration's matched-row count exceeds 25% of MATRIX-INVENTORY's total row count, the re-exercise auto-expands to a full sweep instead of targeted re-exercise. Rationale: targeted re-exercise of half the matrix isn't materially cheaper than a full sweep, and full sweep catches regressions in unmatched rows that the dev might have miscategorized.
+**Escalation rule.** If the enumeration's matched-row count exceeds 25% of MATRIX-INVENTORY's total row count, the re-exercise auto-expands to a full sweep instead of targeted re-exercise. Rationale: targeted re-exercise of half the matrix isn't materially cheaper than a full sweep, and full sweep catches regressions in unmatched rows that the dev might have miscategorized. Note that catalog and auth changes will routinely cross this threshold (catalog drives many surfaces; auth gates most routes); the rule is intentionally biased toward full sweep in those cases — the dev's time is not the constraint, the milestone's correctness is.
 
 This rule prevents the "targeted re-exercise misses a transitively-affected surface" failure mode named in Codex R1 P0 (originally a class-sweep finding) and Codex R4 F4.
+
+#### 7.2.2.1 Schema-migration consumer-enumeration recipe (R5 amendment)
+
+Schema migrations affect more vectors than file-import grep can find. The recipe is a multi-vector sweep, run in this order, with results unioned into the consumer list:
+
+| Vector | Search command (template) | What it catches |
+|---|---|---|
+| Supabase JS `.from()` calls | `rg -n "\\.from\\(['\\\"]<table_name>['\\\"]\\)" app/ lib/ components/` | Direct table reads from JS layer |
+| Supabase JS `.rpc()` calls (if migration adds/changes an RPC) | `rg -n "\\.rpc\\(['\\\"]<rpc_name>['\\\"]\\)" app/ lib/ components/` | Direct RPC consumers |
+| Server-side SQL string references | `rg -n "<table_name>" app/api/ lib/db/ supabase/migrations/ supabase/functions/` | Raw SQL queries, migration cross-references, edge function refs |
+| Generated TypeScript types | `rg -n "<TableNameInPascalCase>" lib/types/ supabase/types/` | Type-only references in TS that imply usage |
+| Helper wrappers | `rg -n "<table_name>" lib/data/ lib/auth/ lib/sync/` | Domain-helper wrappers around the table |
+| Test fixtures | `rg -n "<table_name>" tests/ fixtures/` | Test suites that depend on the table — these are non-validation-walk consumers but flag them for awareness |
+
+Every match from rows 1–5 is mapped to a MATRIX-INVENTORY row (or flagged as EXCLUDED if it's an internal-only path that doesn't render UI). Row 6 (tests) is informational.
+
+**Worked example.** A migration adds a column to the `shows` table:
+
+1. `rg -n "\\.from\\(['\\\"]shows['\\\"]\\)" app/ lib/ components/` returns N read sites in admin pages, sync helpers, crew page renderers.
+2. `rg -n "shows" app/api/ lib/db/ supabase/migrations/` returns the migration itself + admin RPC callers.
+3. `rg -n "ShowsRow" lib/types/` returns type-import sites.
+4. The dev maps each match: admin page → MATRIX-INVENTORY row IDs A-DASHBOARD, A-PER-SHOW, etc.; crew renderers → B-* rows; etc.
+5. Union of rows → re-exercise scope.
+6. If count > 25% of total MATRIX-INVENTORY rows → auto-escalate to full sweep per the rule above.
+
+The recipe is intentionally explicit — without it, "list every read-side route" devolves into hand-wavy dev judgement, which is the failure mode Codex R5 F2 named.
 
 ### 7.3 Disposition rules (SHOULD / NICE routing)
 
@@ -431,7 +472,7 @@ Phase 0 stands up the infrastructure the exercise runs against. Phase 1 (the exe
 
 ### 9.2 Phase 0 exit criterion
 
-Phase 0 closes when **all four** smoke tests pass — only after all four does Phase 1 start. A seeded DB alone is not sufficient evidence the prod-equivalent stack is wired end-to-end; each smoke test exercises a distinct integration axis.
+Phase 0 closes when **all five** smoke tests pass — only after all five does Phase 1 start. A seeded DB alone is not sufficient evidence the prod-equivalent stack is wired end-to-end; each smoke test exercises a distinct integration axis.
 
 1. **Admin sign-in.** The dev signs in via Google to the deployed production URL (`*.vercel.app`, no custom domain) and lands as admin on `/admin`. Verifies: Supabase auth + admin role-check + RLS read path.
 2. **Signed-link real-iPhone render.** A signed link generated from `/admin` on the production URL (canonical `/show/<slug>/p#t=<jwt>` form per master spec §7), opened on the dev's real iPhone in Safari, renders a fixture crew page correctly. Verifies: signed-link mint + redeem + crew-page render against real prod Supabase data.
@@ -439,7 +480,9 @@ Phase 0 closes when **all four** smoke tests pass — only after all four does P
 4. **Admin alert write + AlertBanner render.** A fixture-induced staging event (e.g., editing the seeded fixture to trigger MI-6 crew shrinkage) causes a row to land in `admin_alerts` AND the AlertBanner on `/admin` renders that row on a fresh page load. Verifies: write path to `admin_alerts` + AlertBanner read query + crew-page propagation behavior end-to-end.
 5. **Wall-clock + fixture-data clock control.** Seed a fixture into the prod Supabase with `date_restriction.days = [<a date that is NOT today>]` and a known `dates.travelIn/travelOut` window that includes today. Generate a signed-link, open on the Vercel `*.vercel.app` production URL, and confirm the Right Now card renders `viewer_off_day` copy (per master spec §8 line 2413). Verifies: the production stack reads wall-clock + fixture data correctly without test-auth bypass; the §3.3 wall-clock approach is genuinely available.
 
-Failing any of the five re-opens Phase 0 — the spec does not allow Phase 1 to start against a partial stand-up. The class-sweep here mirrors the Codex R1 P1 and R3 P1 findings: a seeded DB can satisfy a browser-only smoke test while the cron/alert plumbing is broken OR the clock-control mechanism is broken, and Phase 1 would only catch that days later when J2 (pending-sync triage) or R3-R6 restriction-combo walks try to exercise it.
+Phase 0 closes when **all five** smoke tests pass — only after all five does Phase 1 start. Failing any of the five re-opens Phase 0. (R5 amendment: the wording previously said "all four" in one place and "all five" in another, contradicting itself; this paragraph is the authoritative count — five.)
+
+The class-sweep here mirrors the Codex R1 P1 and R3 P1 findings: a seeded DB can satisfy a browser-only smoke test while the cron/alert plumbing is broken OR the clock-control mechanism is broken, and Phase 1 would only catch that days later when J2 (pending-sync triage) or R3-R6 restriction-combo walks try to exercise it.
 
 ---
 
@@ -532,7 +575,7 @@ This section is the inline self-review per the project's spec-self-review checkl
 | CHECK / enum migration | N/A | No DB constraint change. |
 | Flag lifecycle | N/A | No new boolean config field. |
 | Pay-engine grain | N/A | No pay-engine touch. |
-| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **8 viewer-restriction combinations (§3.3 R1–R8 — added R2)**, **5 show-wide Right Now states (§3.3.1 — added R4)**, **9 role×restriction sampled pairs (§3.4.1 — added R4)**, **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **5 Phase 0 smoke tests (§9.2 — R3 added smoke test 5 for clock control)**, **5 transitive-consumer file classes (§7.2.2 — added R4)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
+| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **8 viewer-restriction combinations (§3.3 R1–R8 — added R2)**, **5 show-wide Right Now states (§3.3.1 — added R4)**, **9 role×restriction sampled pairs (§3.4.1 — added R4)**, **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **5 Phase 0 smoke tests (§9.2 — R3 added smoke test 5; R5 corrected one stale "all four" wording)**, **6 transitive-consumer file classes (§7.2.2 — added R4; catalog, auth, design tokens, components, single-page, schema; R5 normalized stale "5" claim)**, **6-vector schema-migration enumeration recipe (§7.2.2.1 — added R5)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
 | Disagreement-loop preempt | Applied | §11.2 ("intentionally absent") names the "no artifact" decision as deliberate, with rationale, so reviewers don't relitigate it. §1.5 names "no real-user testing" as deliberate, with rationale. §2 enumerates explicit deferrals so reviewers don't surface them as gaps. |
 | Build-vs-runtime gate explicitness | Applies | Phase 0 §9 names the build target (Vercel `*.vercel.app` production deployment, no custom domain); §9.2 names the runtime smoke tests that gate Phase 1 (real Google sign-in + real iPhone signed-link render). The seven CI gates in §9.1 are build-time gates; the alert path is a runtime path. |
 
@@ -621,3 +664,17 @@ Verdict: `needs-attention`. Four findings (2 P1, 2 P2). All accepted and address
 
 - **Time-budget hedging** (§3.4 estimate) — earlier draft said "2–4 weeks". R4 widened to 3–8 weeks with explicit per-cell rate range (10–30 cells/hour). The optimistic earlier number was not justified by per-step costs (cooldown, real-iPhone IO, mode-switching, triage time).
 - **Show-wide state inventory cross-link** (§3.3.1) — added explicit MATRIX-INVENTORY disposition rule for show-wide states so the §4.1.1 derivation captures them.
+
+### 15.5 Round 5 (Codex `019e43d4-c820-7e43-8733-cf9d37a54308`, 2026-05-19)
+
+Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — Walk-session gate depended on an undefined re-seed script: no path, CLI contract, storage schema, or owned fixture mappings | P1 / high | Fixed. §3.3 step 5 now specifies the re-seed contract concretely: script path `scripts/validation-reseed.ts`, CLI `pnpm validation:reseed [--combo …]`, storage schema (`validation_state` table), verification command `pnpm validation:check-seed`. Authoring the script is a plan-time deliverable in Phase 0; smoke test 5 verifies it. | §3.3 step 5 |
+| F2 — Schema-migration consumer enumeration in §7.2.2 was not actionable; "every read-side route" gave no discovery mechanism for `.from()` / `.rpc()` / SQL strings / generated types / helpers | P1 / high | Fixed. New §7.2.2.1 specifies a 6-vector grep recipe with template commands and a worked example. Every match unions into the consumer list and maps to MATRIX-INVENTORY rows. | §7.2.2 (schema row), new §7.2.2.1 |
+| F3 — Stale gate counts: §9.2 said "all four" in one place and "all five" in another (contradiction); §12 self-review claimed "5 transitive-consumer file classes" but §7.2.2 table has 6 rows | P2 / medium | Fixed. §9.2 normalized to "all five" in both places. §12 self-review updated to "6 transitive-consumer file classes". | §9.2 (both wording instances), §12 numeric self-check |
+
+**Class-sweep additions during R5 repair:**
+
+- **Escalation-rule rationale** (§7.2.2) — added an explicit note that catalog/auth changes will routinely exceed the 25% threshold, and the rule intentionally biases toward full sweep in those cases. This was implicit before; making it explicit clarifies that the escalation is a feature, not a degenerate case.
