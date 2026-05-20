@@ -1,3 +1,5 @@
+**Status: COMPLETED 2026-05-19.** Adversarial review converged at **R1 APPROVE** on SHA `4a8c242` (milestone base `d026919`; handoff close at `ef483dc`). Codex's R1 shipped the spec amendment renaming `x5-rls-coverage` → `x5-email-canonicalization` (spec §17.2 lines 2839 + 3693 + 3697; plan `11-cross-cutting.md` at all five named-check usages) — the X.5-surfaced drift reconciled in X.6's commit range per the canonical regression-fixture contract. Trust-boundary split intact: privileged `verify-branch-protection` gated to `push: main` + `schedule: '0 9 * * 1'` only; reader `verify-branch-protection-status` uses only auto-injected `GITHUB_TOKEN`; `pull_request_target` absent from `.github/`. All 12 branch-protection test cases present with anti-tautology spy-payload assertions. Workflow-fails-on-bad-fixture evidence captured: PR https://github.com/edweiss412/FX-Webpage-Template/pull/1, run 26137112146, failing `traceability-audit` job 76874626728 (throwaway branch + PR closed after capture). Seven PR-required CI status checks now wired verbatim: `traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-email-canonicalization`, `verify-branch-protection-status`. **Complexity-hypothesis third data point: WEAKENED.** X.4 R1→R2 + X.5 R1→R2 both took two rounds; X.6 is the heaviest of the X.* set (three concurrent surfaces + GitHub API + secret handling + spec amendment surfacing) and closed at R1 APPROVE. The "heavy audits need ≥2 rounds" hypothesis does NOT codify as memory — the better generalization is likely that audit complexity alone doesn't predict round count; what predicted X.4/X.5 round counts may have been the specific class of trap (text-regex shortcuts; hardcoded TS literals) that Codex's R1 self-review missed, not raw complexity. **FXAV crew-pages v1 X.* set is structurally complete.** Manual admin step (configure required-checks in GitHub Settings) is the only operator follow-up; programmatically verified by subsequent privileged runs. See "Convergence log" below.
+
 # Handoff — X.6: Spec-to-implementation traceability + branch-protection drift-detector + cross-cutting parity assertions (AC-X.6)
 
 **Handed off:** 2026-05-19 by Eric Weiss
@@ -205,7 +207,7 @@ Pulled forward from X.1 R1–R3 + X.2 R1 + X.3 R1 + X.4 R1–R2 + X.5 R1–R2 cl
 - [ ] No new `// TODO` or `// FIXME` lines.
 - [ ] **AC-X.5-body-vs-list drift disposition recorded in convergence log** — either (a) spec amendment landed in X.6 commit range with verbatim file:line citations, OR (b) drift surfaced as a finding for a follow-up amendment. NOT acceptable: silent rename of AC-X.5's body to match the list; silent dropping of the parity assertion.
 - [ ] **Manual admin step recorded as follow-up** — the one-time branch-protection settings configuration (Settings → Branches → Branch protection rules → `main` → add all seven check names verbatim) is documented in the convergence log as a post-merge operator task. Subsequent runs of `scripts/verify-branch-protection.ts` programmatically verify it landed correctly.
-- [ ] Adversarial review converged to APPROVE (Opus reviewer, anchored to milestone base `d026919` — X.5 close-out SHA — on R2+ per memory `feedback_adversarial_review_full_milestone_scope.md`).
+- [x] Adversarial review converged to APPROVE at **R1** (2026-05-19, Opus reviewer; anchored to milestone base `d026919`; zero P0/H1/P1/P2 findings; two minor non-blocking observations recorded below).
 - [ ] All commits follow `<type>(<scope>): <summary>` format with one logical task per commit.
 - [ ] Convergence log at the bottom of this file is filled in with R1 + any subsequent rounds + complexity-hypothesis third data point.
 
@@ -317,11 +319,65 @@ Complexity-hypothesis self-assessment: I expect Opus to find at least one R1 iss
 
 ### Adversarial review
 
-_(Filled in after each round. Required content per round: reviewer SHA anchor, finding count by severity, per-finding closure verification with file:line citations, fresh-eyes W1–W17 sweep result, same-vector recurrence check result, negative-regression stash SHAs.)_
+#### Round 1 — APPROVE (2026-05-19, Opus reviewer)
 
-### Complexity-hypothesis data point
+**Anchor:** milestone base `d026919` (X.5 R2 APPROVE close-out); review scope `4a8c242` (impl) + `ef483dc` (handoff close-out). M11 Phase C commits `7e789f5` + `c06352b` in the range explicitly excluded — those are M11 Phase C R3/R4 work on `tests/help/_metaTimeHelpersRequireNow.test.ts`, not X.6 territory.
 
-_(Filled in after final APPROVE. X.6 is the THIRD data point in the hypothesis test codified post-X.5: heavy audit surfaces requiring real ts-morph symbol resolution OR spec-prose derivation OR multi-surface integration reliably need ≥2 review rounds. X.4 R1→R2 = REQUEST_CHANGES then APPROVE; X.5 R1→R2 = REQUEST_CHANGES then APPROVE. If X.6 closes at R1 APPROVE despite three concurrent surfaces + GitHub API + secret handling, hypothesis weakens substantially. If R2+, codifies as memory `feedback_heavy_audit_milestones_budget_two_rounds.md`.)_
+**Verdict:** APPROVE. **Zero P0 / H1 / P1 / P2 findings.** Two minor non-blocking observations recorded below.
+
+**Fresh-eyes W1–W17 sweep:**
+
+- **W1 derive-from-spec** ✓ — `loadRequiredChecksFromSpec()` parses spec at runtime; tests consume the returned array; no hardcoded check-name TS literals in audit code.
+- **W2 markdown-parser scoping** ✓ — `scripts/generate-traceability.ts` walks spec headings + `<!-- spec-id: ... -->` HTML-comment anchors via anchored regex (not bare grep).
+- **W3 plan-side exclusion list** ✓ — self-review / review-history / glossary / how-to-use / round-N-notes sections excluded from coverage extraction.
+- **W4 `<!-- coverage: -->` is sole authoritative mapping** ✓ — free-form prose mentions don't count; fixture `plan-freeform-mention.md` verifies the negative case.
+- **W5 trust-boundary split intact** ✓ — `verify-branch-protection` gated to `push || schedule` (`.github/workflows/x-audits.yml:269`); reader uses only `GH_TOKEN: ${{ github.token }}` (`:302`); `pull_request_target` absent across entire `.github/`. `parseWorkflowFindings` is a structural helper exercised against mutated-source fixtures.
+- **W6 8-day freshness window** ✓ — `MAX_AGE_SECONDS=$((8 * 24 * 60 * 60))` at workflow `:326`.
+- **W7 recursive-bootstrap** ✓ — privileged script asserts reader is in required-checks set; reader asserts privileged job succeeded recently.
+- **W8 AC-body-vs-list catches X.5 drift on first run** ✓ — spec amendment landed verbatim; drift test reconstructs the old state via `String.replace` and asserts `+ac_body_list_drift:AC-X.5` (test lines 56–65); zero `x5-rls-coverage` matches in spec/plan body (preserved only in regression-test fixtures + historical handoff/BACKLOG).
+- **W9 dual API support** ✓ — `legacyFailures` + `rulesetFailures` branches + both happy-path fixtures pass.
+- **W10 all four auth-failure shapes** ✓ — `no-token`, `gh-app-token-401`, `pat-403`, `expired-token` all present (test line 167 `test.each`).
+- **W11 same-vector recurrence rule** N/A — preconditions not met (no 3+ rounds at R1).
+- **W12 CI artifact-naming + freshness gates** ✓ — canonical `<job>-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}` on all new jobs; `pretypecheck`/`prelint`/`pretest`/`prebuild` chained to all four generators (`gen:admin-tables` + `gen:watermark-symbols` + `gen:email-boundaries` + `gen:traceability`).
+- **W13 iterate until APPROVE** — review-meta; N/A.
+- **W14 class-sweep before patching** N/A — no per-instance patches surfaced in R1.
+- **W15 verify against external API spec** N/A — no GitHub API misdiagnosis surfaced.
+- **W16 workflow-fails-on-bad-fixture evidence captured** ✓ — PR https://github.com/edweiss412/FX-Webpage-Template/pull/1; run 26137112146; failing `traceability-audit` job 76874626728. Throwaway branch + PR closed after capture.
+- **W17 complexity-hypothesis data point** — **HYPOTHESIS WEAKENED.** X.6 R1 produced zero blocking findings despite being the heaviest of the X.* set. See `### Complexity-hypothesis data point` block below.
+
+**Negative-regression verification:** The traceability + verify-branch-protection tests exercise positive + negative fixtures inline (spec mutation via `replace`; workflow mutation via `replace`; `legacyProtection` overrides for each drift case). Negative regressions live in source rather than as ephemeral stashes — acceptable per memory `feedback_negative_regression_verification.md` (the contract is "production-side break makes the audit fail," satisfied by the parameterized in-test mutations).
+
+**12 branch-protection test cases — all present** with anti-tautology spy-payload assertions (`expect(insertSpy).toHaveBeenCalledWith({ code: 'BRANCH_PROTECTION_DRIFT', context: expect.objectContaining({ failures: expect.arrayContaining([diff]), repo: 'owner/repo' }), severity: 'high' })`): missing-check-name, insufficient-review-count, enforce-admins-disabled, strict-false, dismiss-stale-disabled, allow-force-push-enabled, legacy-protection-happy-path, ruleset-only-happy-path, no-token, gh-app-token-401, pat-403, expired-token.
+
+**Spec-id anchor prerequisite** ✓ — 7/7 initial slugs inserted.
+
+**Minor non-blocking observations (not findings, not blocking APPROVE):**
+
+1. `expired-token` and `gh-app-token-401` fixtures are functionally identical (same env, same 401 response). Future hardening could distinguish via `WWW-Authenticate: ... error="invalid_token"` header or body marker, but the contract "alert fires on all four shapes" is met since both route through the same code path correctly.
+2. `rulesetFailures` uses `bypass_actors.length > 0` as a proxy for `enforce_admins:false` — defensible for the Rulesets API model (no direct `enforce_admins` field) but worth a comment citing the GitHub API doc; not a correctness issue.
+
+Both observations could be polished in a follow-up commit; neither is a regression risk and neither blocks X.6 close.
+
+### Complexity-hypothesis data point — HYPOTHESIS WEAKENED, NOT CODIFIED
+
+Three data points in series:
+
+- **X.4** R1 REQUEST_CHANGES → R2 APPROVE. Semantic data-flow surface (no-global-cursor audit). R1 regressed to text-regex shortcuts where `sourceFromHelperCall` was contractually required.
+- **X.5** R1 REQUEST_CHANGES → R2 APPROVE. DB introspection + cross-file boundary tracking (email canonicalization). R1 hardcoded TS literals where spec derivation was contractually required; name-string shortcuts in ts-morph symbol resolution.
+- **X.6** R1 APPROVE. THREE concurrent surfaces (traceability walker + branch-protection drift-detector + cross-cutting parity assertions) + GitHub API integration + secret handling + spec amendment surfacing.
+
+**X.6 is the heaviest of the three by every objective measure** (LOC delta, file count, integration partners, security-relevant code, external API surface) yet closed at R1 with zero blocking findings. The "heavy audits need ≥2 rounds" hypothesis does NOT codify as memory `feedback_heavy_audit_milestones_budget_two_rounds.md`.
+
+**Better-supported generalization (NOT yet codified — needs more data points):** the round-count predictor for X.* audits may not be raw complexity but rather the presence of specific failure modes that text-regex and hardcoded-literal traps invite:
+
+- X.4 R1's text-regex regression — pattern: implementer reaches for `string.includes` / regex when symbol resolution is contractually required. Avoidable via "ts-morph symbol resolution, not identifier-name regex" watchpoint upfront.
+- X.5 R1's hardcoded-TS-literals trap — pattern: implementer hardcodes a list of names/checks instead of parsing the canonical source. Avoidable via "derive from spec at audit-execution time" watchpoint upfront.
+
+Both X.4 and X.5 watchpoints were ADDED to handoff §6 BEFORE the next milestone fired. X.6's handoff inherited both plus 15 others (17 watchpoints total). The R1 APPROVE may reflect the cumulative watchpoint scaffolding working as intended: the pre-emptive self-audit specifically called out at handoff §6 watchpoint 8 ("highest-risk pre-emptable failure modes — verify before claiming done") may have closed the round-1-finding window for the THIRD-most-watchpoint-laden milestone in the series, not the LEAST complex.
+
+**Recommendation:** do NOT codify either direction yet. Run M11 / M12 close-outs as additional data points. The pattern to watch: does pre-emptive watchpoint inheritance compound? Does a Codex implementation that inherits N+ watchpoints from prior milestones converge faster than one that doesn't, holding complexity constant? If yes, the codifying memory is `feedback_watchpoint_inheritance_compounds_convergence.md` (or similar), not `feedback_heavy_audit_milestones_budget_two_rounds.md`.
+
+For X.6 specifically: this is a single APPROVE-at-R1 data point against complexity-predicts-rounds. Sufficient to leave the hypothesis uncodified; insufficient to inverse-codify "complexity does NOT predict rounds" (one counter-example is not a theory).
 
 ### AC-X.5-body-vs-list drift disposition
 
