@@ -109,7 +109,7 @@ The plan exercises at minimum the following restriction combinations across crew
 |---|---|---|---|---|
 | R1 | `none` | `none` | Set day | All tiles render with no role/restriction filter; pack-list visible (set day) |
 | R2 | `explicit` (today included) | `none` | Set day | Schedule shows assigned days; Right Now shows assigned-day state; pack-list visible |
-| R3 | `explicit` (today excluded) | `none` | Set day → `viewer_off_day` | Right Now card renders `viewer_off_day` copy; pack-list NOT visible (date filter overrides) |
+| R3 | `explicit` (today excluded) | `none` | Set day → `viewer_off_day` | Right Now card renders `viewer_off_day` copy. **Pack-list VISIBLE** (R24 corrected from earlier draft — dateRestriction affects only Right Now + Schedule per live code; pack-list visibility is governed by `stage_restriction` + day-phase only, per master spec line 2395. Date restriction does NOT hide the pack-list tile). Scope tiles: role-only (none in this fixture since R3 uses LEAD-baseline). |
 | R4 | `unknown_asterisk` | `none` | Any day → `viewer_unconfirmed` | Right Now card renders `viewer_unconfirmed` copy regardless of show-wide state |
 | R5 | `explicit` (today before first assigned day) | `none` | Pre-show day → `viewer_off_day_pre` | Right Now card renders pre-first-assignment copy with day countdown |
 | R6 | `explicit` (today after last assigned day) | `none` | Post-show day → `viewer_after_last_day` | Right Now card renders "assignment complete" copy |
@@ -164,14 +164,20 @@ The mutation is performed inside the per-show advisory lock (`pg_advisory_xact_l
 
 **J3/J4 signed-link & preview-link generation contract (R12 amendment — picked DB-backed alias map).** J3 generates signed links via the admin link-mint surface using the per-variant `crew_id` resolved by alias. J4 uses the same `crew_id` to render `/admin/show/<slug>/preview/<crew-id>` directly. The aliases let the dev generate links by alias rather than UUID hunting.
 
-**Alias-map storage (R12 — single mechanism, no implementer ambiguity; R13 nested-by-combo).** The re-seed script writes `alias_map` as a JSONB object into the `validation_state` singleton row. The map is **combo-scoped, not flat** (R13 amendment — earlier flat shape couldn't distinguish `alias_5a_lead` for R1 vs R7b's `alias_5a_lead`, so seeded crew_ids would collide):
+**Alias-map storage (R12 + R13 + R23/R24 amendments).** The re-seed script writes `alias_map` as a JSONB object into the `validation_state` singleton row. The map is combo-scoped (nested) so each R-combo's aliases don't collide with other combos':
 
 ```json
 {
-  "R1":  { "alias_5a_lead": "<uuid>", "alias_5b_lead_a1": "<uuid>", ..., "alias_6f_empty": "<uuid>" },
-  "R2":  { ... },
+  "R1":  {
+    "alias_5a_lead": "<uuid>", "alias_5b_lead_a1": "<uuid>", "alias_5c_bo_lead": "<uuid>",
+    "alias_6a_a1": "<uuid>",   "alias_6b_v1": "<uuid>",      "alias_6c_l1": "<uuid>",
+    "alias_6d_bo": "<uuid>",   "alias_6e_a1_l1": "<uuid>",   "alias_6f_empty": "<uuid>",
+    "alias_5a_lead_for_revoke": "<uuid>",            // R22 — J3 revoke leg
+    "alias_5a_lead_for_query_compromise": "<uuid>"   // R23 — J3 query-compromise leg
+  },
+  "R2":  { ...11 alias keys... },
   ...
-  "R8b": { ... },
+  "R8b": { ...11 alias keys... },
   "SW-PRE_TRAVEL":   { "alias_5a_lead": "<uuid>" },
   "SW-TRAVEL_IN":    { "alias_5a_lead": "<uuid>" },
   "SW-SHOW_1":       { "alias_5a_lead": "<uuid>" },
@@ -181,9 +187,9 @@ The mutation is performed inside the per-show advisory lock (`pg_advisory_xact_l
 }
 ```
 
-Each R-combo key (R1–R6 + R7a/R7b/R8a/R8b) carries 9 alias entries (one per §3.2 role variant 5a–5c + 6a–6f). Each SW-* key carries 1 alias entry (LEAD only, per §3.3.1). Total alias entries: 10 × 9 + 6 × 1 = **96 aliases**.
+Each R-combo key (R1–R6 + R7a/R7b/R8a/R8b — 10 combos) carries **11 alias entries** (9 role variants 5a–5c + 6a–6f, plus the two J3-isolation aliases). Each SW-* key (6 states) carries 1 alias entry (LEAD only). **Total alias entries: 10 × 11 + 6 × 1 = 116 aliases** (R24 corrected from R13's stale 96).
 
-The dev's wrapper command `pnpm validation:resolve-alias <combo> <alias>` reads the nested map and prints the resolved UUID (e.g., `pnpm validation:resolve-alias R7b alias_5a_lead`). `check-seed` fails if (a) `alias_map` is missing any of the 10 R-combo keys, (b) any R-combo key is missing any of the 9 alias entries, (c) any SW-* key is missing `alias_5a_lead`. Total required keys: 10 + 6 = 16; total required leaf entries: 96. |
+The dev's wrapper command `pnpm validation:resolve-alias <combo> <alias>` reads the nested map and prints the resolved UUID. `check-seed` fails if (a) `alias_map` is missing any of the 10 R-combo keys, (b) any R-combo key is missing any of the **11** alias entries (R24 corrected from 9), (c) any SW-* key is missing `alias_5a_lead`. Total required keys: 10 + 6 = 16 combo-level; total required leaf entries: 116 (R24). |
 | Plan-time deliverable | The M12 plan's Phase 0 includes a sub-task that authors `scripts/validation-reseed.ts` + the `validation_state` migration BEFORE any matrix walk. Phase 0 smoke test 5 verifies the script's correctness end-to-end. |
 
 This contract closes the Codex R5 F1 finding: re-seed mechanism is no longer hand-wavy; it's a concrete plan-time deliverable with named path, CLI, idempotency contract, storage schema, and verification command.
@@ -692,7 +698,7 @@ Phase 0 has expanded substantially across R5–R22 (validation tooling: 6 CLIs +
 | 0.B | Author + apply `validation_state` migration atomically with master spec §4.3 amendment, §4.1 CREATE TABLE block, admin-tables generator regen, test baseline updates per §3.3.2 step 6. | 0.5–1 day | Yes — re-seed depends on the table. |
 | 0.C | Author `scripts/validation-reseed.ts` + `validation:check-seed` + `validation:resolve-alias`. Run reseed --combo all + check-seed against the prod-equivalent stack. | 1–2 days | Yes — fixtures must exist before mint/revoke/smoke 6. |
 | 0.D | Author `scripts/validation-mint-link.ts` + `validation:revoke-link`. Implement the three-env-var mapping (§5.3) and the query-compromise / revoke alias isolation per §3.3 + R22/R23. | 0.5–1 day | Required for smoke 6. |
-| 0.E | Author `scripts/validation-report-fixtures.ts`. | 0.5 day | Not strictly blocking smoke tests 1-6 (band F walks happen in Phase 1). |
+| 0.E | Author `scripts/validation-report-fixtures.ts`. | 0.5 day | **R24: BLOCKING Phase 1 unless MATRIX-INVENTORY.md pre-dispositions every "deep" report-pipeline outcome (lookup-inconclusive, lease-expired, horizon-expired, orphaned-lost-lease) as `EXCLUDED-rely-on-structural` per §4.2 band F. Default is INCLUDED-via-harness, so by default this task IS blocking. To unblock without authoring the harness, the dev MUST commit a MATRIX-INVENTORY.md with every deep-outcome row dispositioned EXCLUDED + cite to the structural test that pins each contract.** Add Phase 0 smoke test 7 (new): run `pnpm validation:report-fixtures --outcome lookup-inconclusive` and verify the report-failure UI row renders. If the dev chooses the EXCLUDED-rely-on-structural path, smoke 7 is skipped. |
 | 0.F | Run all 6 Phase 0 smoke tests per §9.2. | 0.5–1 day | Yes — passes gate Phase 1. |
 
 **Total Phase 0 estimate: 3.5–6.5 days.** Phase 0 should not exceed 1.5 weeks; if it does, the dev should pause and reduce tooling scope rather than continue.
@@ -1230,3 +1236,19 @@ Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addres
 
 - **Multi-test-leg fixture isolation requires N aliases per test, not just N+1** — when a test step writes durable state (revoked_links, raised revoked_below_version), the alias for that step must be unique to that step AND have a cleanup contract specific to its mutation. R22's revoke + R23's query-compromise are TWO separate negative-auth surfaces, each needing its own alias.
 - **Phase 0 sizing discipline** — when tooling deliverables accumulate during spec rounds, the spec must explicitly say what's negotiable. Without §9.0's "defer / split / re-scope" decision matrix, the dev would have no way to recover from a Phase 0 overrun without ad-hoc judgement.
+
+### 15.24 Round 24 (Codex 2026-05-19)
+
+Verdict: `needs-attention`. Three findings (2 P1, 1 P2).
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — alias_map JSON example + check-seed still said "9 aliases per R-combo, 96 leaves total" after R23 added two J3-isolation aliases bringing the count to 11/116. Implementer following the JSON example could omit the J3 aliases while check-seed passed; J3 legs unresolvable. | P1 / high | Fixed. JSON example expanded to show 11 keys per R-combo with explicit comments marking the two R22/R23 J3-isolation entries. Leaf-count corrected from 96 to 116. check-seed predicate (b) updated from "9 alias entries" to "11 alias entries". | §3.3 alias-map storage paragraph (JSON + count + check-seed) |
+| F2 — §3.3 R-combo table R3 still said "pack-list NOT visible (date filter overrides)" — same factual error R19 caught in §3.4.1 pair 4. dateRestriction affects only Right Now + Schedule per `lib/visibility/scopeTiles.ts`; pack-list is stage/phase gated per master spec line 2395. | P1 / high | Fixed. R3 expected outcome rewritten: pack-list VISIBLE on set day with stage_restriction=none; date restriction does not hide pack-list. Cross-reference to live code + master spec line. | §3.3 R-combo table R3 row |
+| F3 — Phase 0 task 0.E (validation-report-fixtures) was labeled "Not strictly blocking smoke tests 1-6", but band F defaults to INCLUDED-via-harness — needing the harness. Phase 0 could close on 6 smokes WITHOUT the harness, then Phase 1 would have band F's deep report outcomes unwalkable. | P2 / medium | Fixed. 0.E now BLOCKING by default. To unblock, dev MUST commit MATRIX-INVENTORY.md with every deep-outcome row dispositioned EXCLUDED-rely-on-structural + cite each pinning structural test. New Phase 0 smoke test 7: run `validation:report-fixtures --outcome lookup-inconclusive` and verify UI renders. Smoke 7 is skipped if EXCLUDED path is taken. | §9.0 task 0.E row |
+
+**Class-sweep additions during R24 repair:**
+
+- **Alias-map JSON synced with crew-member contract** — JSON examples MUST be updated whenever the seed contract count changes. R24 caught this because R22/R23 updated the crew-member count but the JSON example stayed at 9.
+- **§3.3 R-combo table cross-checked against §3.4.1 pair table** — both tables describe the same restriction-behavior contracts; they must stay in sync. R3's pack-list was correct in §3.4.1 (R19 fix) but stale in §3.3 (R-combos table). Future spec edits to one MUST sweep the other.
+- **Default-INCLUDED-with-harness implies blocking** — Phase 0 task ordering for tooling tasks must align with the Band's default. Band F default = INCLUDED-via-harness ⇒ harness must exist before Phase 1.
