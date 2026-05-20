@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 const VALID_ID = /^[A-Z][A-Z0-9_]*$/;
+const VALID_AS: Set<string> = new Set(["h2", "h3"]);
 
 // r5 fix per D-r4 finding 1: RefAnchor defaults to h2 (Phase E uses it as
 // section heading for help pages). /help/errors uses h3 for per-code entries
@@ -17,6 +18,11 @@ export function RefAnchor({
   if (!VALID_ID.test(id)) {
     throw new Error(
       `<RefAnchor id="${id}"> — id must match /^[A-Z][A-Z0-9_]*$/ (catalog code shape).`,
+    );
+  }
+  if (!VALID_AS.has(as)) {
+    throw new Error(
+      `<RefAnchor as="${as}"> — as must be "h2" or "h3" (MDX call sites are not typechecked).`,
     );
   }
   const Tag = as;

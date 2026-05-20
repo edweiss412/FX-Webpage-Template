@@ -32,4 +32,12 @@ describe("<RefAnchor>", () => {
     expect(() => render(<RefAnchor id="bad-id">x</RefAnchor>)).toThrow();
     expect(() => render(<RefAnchor id="123_NUMERIC_LEAD">x</RefAnchor>)).toThrow();
   });
+
+  it("throws when as is anything other than 'h2' or 'h3' (MDX runtime guard, Codex R1 finding)", () => {
+    // Cast simulates a typo'd MDX call site; MDX files are not typechecked,
+    // so the TS union alone is insufficient.
+    expect(() =>
+      render(<RefAnchor id="X" as={"h4" as "h2" | "h3"}>x</RefAnchor>)
+    ).toThrow(/as.*h2.*h3/i);
+  });
 });
