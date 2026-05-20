@@ -7,15 +7,22 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { loadRequiredChecksFromSpec } from "./generate-traceability";
 
 type AlertPayload = {
-  code: "BRANCH_PROTECTION_DRIFT" | "BRANCH_PROTECTION_MONITOR_AUTH_FAILED";
-  context: Record<string, unknown>;
-  severity: "high";
+  p_show_id: null;
+  p_code: "BRANCH_PROTECTION_DRIFT" | "BRANCH_PROTECTION_MONITOR_AUTH_FAILED";
+  p_context: Record<string, unknown>;
+};
+
+type AdminAlertClient = {
+  rpc: (
+    name: "upsert_admin_alert",
+    params: AlertPayload,
+  ) => Promise<{ data: unknown; error: { message?: string } | null }>;
 };
 
 type VerifyOptions = {
   env?: Record<string, string | undefined>;
   fetchImpl?: typeof fetch;
-  insertAdminAlert?: (payload: AlertPayload) => Promise<unknown>;
+  adminAlertClient?: AdminAlertClient;
   writeReport?: boolean;
   reportPath?: string;
   requiredStatusChecks?: readonly string[];
@@ -44,10 +51,10 @@ function writeJsonReport(path: string, body: unknown): void {
   writeFileSync(path, `${JSON.stringify(body, null, 2)}\n`);
 }
 
-async function defaultInsertAdminAlert(payload: AlertPayload): Promise<unknown> {
-  const supabase = createSupabaseServiceRoleClient();
+async function defaultUpsertAdminAlert(payload: AlertPayload, client?: AdminAlertClient): Promise<unknown> {
+  const supabase = client ?? (createSupabaseServiceRoleClient() as unknown as AdminAlertClient);
   // not-subject-to-meta: one-shot privileged CI script; failure surface is the X.6 workflow exit code and JSON report.
-  const { data, error } = await supabase.from("admin_alerts").insert(payload);
+  const { data, error } = await supabase.rpc("upsert_admin_alert", payload);
   if (error) throw error;
   return data;
 }
@@ -156,14 +163,13 @@ function rulesetFailures(body: Record<string, unknown>, requiredStatusChecks: re
   return failures;
 }
 
-async function emitAlert(insertAdminAlert: (payload: AlertPayload) => Promise<unknown>, payload: AlertPayload): Promise<void> {
-  await insertAdminAlert(payload);
+async function emitAlert(client: AdminAlertClient | undefined, payload: AlertPayload): Promise<void> {
+  await defaultUpsertAdminAlert(payload, client);
 }
 
 export async function verifyBranchProtection(options: VerifyOptions = {}): Promise<VerifyResult> {
   const env = options.env ?? process.env;
   const fetchImpl = options.fetchImpl ?? fetch;
-  const insertAdminAlert = options.insertAdminAlert ?? defaultInsertAdminAlert;
   const repo = repoFromEnv(env);
   const [owner, repoName] = repo.split("/");
   const reportPath = options.reportPath ?? DEFAULT_REPORT_PATH;
@@ -178,10 +184,10 @@ export async function verifyBranchProtection(options: VerifyOptions = {}): Promi
       last_successful_auth: null,
       repo,
     };
-    await emitAlert(insertAdminAlert, {
-      code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
-      context,
-      severity: "high",
+    await emitAlert(options.adminAlertClient, {
+      p_show_id: null,
+      p_code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+      p_context: context,
     });
     if (options.writeReport !== false) writeJsonReport(reportPath, { status: "auth_failed", context });
     return { ok: false, failures: ["auth_failed"], authFailure: true };
@@ -197,10 +203,10 @@ export async function verifyBranchProtection(options: VerifyOptions = {}): Promi
       last_successful_auth: null,
       repo,
     };
-    await emitAlert(insertAdminAlert, {
-      code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
-      context,
-      severity: "high",
+    await emitAlert(options.adminAlertClient, {
+      p_show_id: null,
+      p_code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+      p_context: context,
     });
     if (options.writeReport !== false) writeJsonReport(reportPath, { status: "auth_failed", context });
     return { ok: false, failures: ["auth_failed"], authFailure: true };
@@ -219,10 +225,10 @@ export async function verifyBranchProtection(options: VerifyOptions = {}): Promi
         last_successful_auth: null,
         repo,
       };
-      await emitAlert(insertAdminAlert, {
-        code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
-        context,
-        severity: "high",
+      await emitAlert(options.adminAlertClient, {
+        p_show_id: null,
+        p_code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+        p_context: context,
       });
       if (options.writeReport !== false) writeJsonReport(reportPath, { status: "auth_failed", context });
       return { ok: false, failures: ["auth_failed"], authFailure: true };
@@ -232,10 +238,10 @@ export async function verifyBranchProtection(options: VerifyOptions = {}): Promi
 
   if (failures.length > 0) {
     const context = { failures, repo, ts: new Date().toISOString() };
-    await emitAlert(insertAdminAlert, {
-      code: "BRANCH_PROTECTION_DRIFT",
-      context,
-      severity: "high",
+    await emitAlert(options.adminAlertClient, {
+      p_show_id: null,
+      p_code: "BRANCH_PROTECTION_DRIFT",
+      p_context: context,
     });
     if (options.writeReport !== false) writeJsonReport(reportPath, { status: "drift", failures, repo });
     return { ok: false, failures };
@@ -256,5 +262,8 @@ async function main(): Promise<void> {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  void main();
+  main().catch((error: unknown) => {
+    console.error("[verify-branch-protection] unhandled error:", error);
+    process.exitCode = 1;
+  });
 }

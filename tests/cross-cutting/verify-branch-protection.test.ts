@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { loadRequiredChecksFromSpec } from "@/scripts/generate-traceability";
 import { verifyBranchProtection } from "@/scripts/verify-branch-protection";
 
@@ -80,14 +81,19 @@ function makeFetch({
 }
 
 async function runCase(options: Parameters<typeof makeFetch>[0], env: Record<string, string> = {}) {
-  const insert = vi.fn(async () => ({ data: null, error: null }));
-  const result = await verifyBranchProtection({
+  const rpc = vi.fn(async () => ({ data: "alert-id", error: null }));
+  const verifyOptions: Parameters<typeof verifyBranchProtection>[0] & {
+    adminAlertClient: { rpc: typeof rpc };
+  } = {
     env: { GITHUB_REPOSITORY: "owner/repo", GH_APP_TOKEN: "token", ...env },
     fetchImpl: makeFetch(options),
-    insertAdminAlert: insert,
+    adminAlertClient: { rpc },
     writeReport: false,
+  };
+  const result = await verifyBranchProtection({
+    ...verifyOptions,
   });
-  return { result, insert };
+  return { result, rpc };
 }
 
 describe("X.6 branch-protection verifier", () => {
@@ -134,34 +140,34 @@ describe("X.6 branch-protection verifier", () => {
       "allow_force_pushes:true",
     ],
   ])("%s emits BRANCH_PROTECTION_DRIFT with the specific named diff", async (_name, legacy, diff) => {
-    const { result, insert } = await runCase({ legacy });
+    const { result, rpc } = await runCase({ legacy });
 
     expect(result.ok).toBe(false);
-    expect(insert).toHaveBeenCalledWith({
-      code: "BRANCH_PROTECTION_DRIFT",
-      context: expect.objectContaining({
+    expect(rpc).toHaveBeenCalledWith("upsert_admin_alert", {
+      p_show_id: null,
+      p_code: "BRANCH_PROTECTION_DRIFT",
+      p_context: expect.objectContaining({
         failures: expect.arrayContaining([diff]),
         repo: "owner/repo",
       }),
-      severity: "high",
     });
   });
 
   test("legacy-protection-happy-path exits cleanly without admin alert", async () => {
-    const { result, insert } = await runCase({ legacy: legacyProtection() });
+    const { result, rpc } = await runCase({ legacy: legacyProtection() });
 
     expect(result.ok).toBe(true);
-    expect(insert).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   test("ruleset-only-happy-path exits cleanly without admin alert", async () => {
-    const { result, insert } = await runCase({
+    const { result, rpc } = await runCase({
       legacy: null,
       rulesets: rulesetProtection(),
     });
 
     expect(result.ok).toBe(true);
-    expect(insert).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled();
   });
 
   test.each([
@@ -172,25 +178,62 @@ describe("X.6 branch-protection verifier", () => {
   ])(
     "%s emits BRANCH_PROTECTION_MONITOR_AUTH_FAILED with auth context",
     async (_name, env, status, appSet, patSet) => {
-      const insert = vi.fn(async () => ({ data: null, error: null }));
-      const result = await verifyBranchProtection({
+      const rpc = vi.fn(async () => ({ data: "alert-id", error: null }));
+      const verifyOptions: Parameters<typeof verifyBranchProtection>[0] & {
+        adminAlertClient: { rpc: typeof rpc };
+      } = {
         env: { GITHUB_REPOSITORY: "owner/repo", ...env },
         fetchImpl: makeFetch({ status: status ?? 200 }),
-        insertAdminAlert: insert,
+        adminAlertClient: { rpc },
         writeReport: false,
-      });
+      };
+      const result = await verifyBranchProtection(verifyOptions);
 
       expect(result.ok).toBe(false);
-      expect(insert).toHaveBeenCalledWith({
-        code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
-        context: expect.objectContaining({
+      expect(rpc).toHaveBeenCalledWith("upsert_admin_alert", {
+        p_show_id: null,
+        p_code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+        p_context: expect.objectContaining({
           gh_app_token_set: appSet,
           pat_set: patSet,
           http_status: status,
           repo: "owner/repo",
         }),
-        severity: "high",
       });
     },
   );
+
+  test("live Supabase admin_alerts producer uses the idempotent RPC path", async () => {
+    const supabase = createSupabaseServiceRoleClient();
+    await supabase
+      .from("admin_alerts")
+      .delete()
+      .eq("code", "BRANCH_PROTECTION_DRIFT")
+      .is("show_id", null);
+
+    const fetchImpl = makeFetch({ legacy: null, rulesets: { rulesets: [] } });
+    const env = { GITHUB_REPOSITORY: "owner/repo", GH_APP_TOKEN: "token" };
+    await verifyBranchProtection({ env, fetchImpl, writeReport: false });
+    await verifyBranchProtection({ env, fetchImpl, writeReport: false });
+
+    const { data, error } = await supabase
+      .from("admin_alerts")
+      .select("code, occurrence_count")
+      .eq("code", "BRANCH_PROTECTION_DRIFT")
+      .is("show_id", null)
+      .is("resolved_at", null)
+      .single();
+
+    expect(error).toBeNull();
+    expect(data).toEqual({
+      code: "BRANCH_PROTECTION_DRIFT",
+      occurrence_count: 2,
+    });
+
+    await supabase
+      .from("admin_alerts")
+      .delete()
+      .eq("code", "BRANCH_PROTECTION_DRIFT")
+      .is("show_id", null);
+  }, 15000);
 });
