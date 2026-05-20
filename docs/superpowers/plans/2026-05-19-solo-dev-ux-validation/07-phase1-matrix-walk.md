@@ -6,12 +6,12 @@
 
 ---
 
-### Task 1.0: Derive MATRIX-INVENTORY.md from 7 sources (plan-time, frozen before walk)
+### Task 1.0: EXTEND MATRIX-INVENTORY.md with bands A–E (band F slice already exists from Phase 0.E.0; MERGE not OVERWRITE)
 
 **Files:**
-- Create: `docs/superpowers/plans/2026-05-19-solo-dev-ux-validation/MATRIX-INVENTORY.md`
+- Modify: `docs/superpowers/plans/2026-05-19-solo-dev-ux-validation/MATRIX-INVENTORY.md` (R2 amendment — was "create"; Phase 0.E.0 already authored band F slice)
 
-Per spec §4.1.1. This task generates the matrix row inventory from 7 explicit sources, with every candidate row dispositioned INCLUDED / EXCLUDED / BAND-OVERLAP. No silent drops.
+Per spec §4.1.1. This task EXTENDS the existing MATRIX-INVENTORY.md (which already contains the band F report-pipeline rows + dispositions committed in Phase 0.E.0) with bands A through E from 6 derivation sources (the 7th — band F report-pipeline — is already complete). Every candidate row dispositioned INCLUDED / EXCLUDED / BAND-OVERLAP. No silent drops. **CRITICAL: do NOT overwrite the band F section.** Append bands A–E rows; preserve every band F row + its committed disposition.
 
 - [ ] **Step 1: Walk master spec heading inventory.** Use `grep -n "^##\\|^###" docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` to enumerate every section heading. For each heading that names a UI surface (Active Shows panel, /admin dashboard, RightNowCard, etc.), generate one candidate matrix row. Disposition each row: INCLUDED (most surfaces) / EXCLUDED with reason (e.g., "spec section is non-UI internals") / BAND-OVERLAP with another row.
 
@@ -23,7 +23,7 @@ Per spec §4.1.1. This task generates the matrix row inventory from 7 explicit s
 
 - [ ] **Step 5: Walk catalog inventory:** parse `lib/messages/catalog.ts`; one row per entry with `dougFacing != null` OR `crewFacing != null`. Group by rendering surface (admin pages render admin-facing; crew pages render crew-facing; both render via band B/E composition).
 
-- [ ] **Step 6: Walk report-pipeline outcomes** per master spec §13.2 + §13.2.3: success, in-flight idempotency, rate-limit-admin, rate-limit-crew, lookup-inconclusive, lease-expired, horizon-expired, orphaned-lost-lease. Disposition each per Phase 0.E decision (INCLUDED-via-harness or EXCLUDED-rely-on-structural).
+- [ ] **Step 6: Band F report-pipeline outcomes — ALREADY DONE in Phase 0.E.0.** Skip this source in Task 1.0; the dispositions are already committed. Verify the band F section still exists with all rows + dispositions by `grep -c "band F\|F-OUTCOME\|REPORT_" MATRIX-INVENTORY.md` after this task's edits. If band F section is missing, REVERT the file from the Phase 0.E.0 commit and re-extend.
 
 - [ ] **Step 7: Walk §9.0.1 affordance matrix** from M11 §5.6 (the 13+ affordances enumerated by `data-testid`). Each → one row.
 
@@ -35,18 +35,28 @@ Per spec §4.1.1. This task generates the matrix row inventory from 7 explicit s
   - **Coverage class** (FULL / PAIRWISE / SMOKE-SAMPLE per §3.4 axis-applicability policy)
   - **Disposition** (INCLUDED / EXCLUDED w/ reason / BAND-OVERLAP w/ link)
 
-- [ ] **Step 9: Save** to `MATRIX-INVENTORY.md`. Commit:
+- [ ] **Step 9: Verify the band F section is intact + commit the EXTENDED file:**
 
 ```bash
+# Pre-flight: confirm band F rows survived the edits
+grep -c "band F\|F-OUTCOME\|REPORT_" docs/superpowers/plans/2026-05-19-solo-dev-ux-validation/MATRIX-INVENTORY.md
+# (Should be ≥ Phase 0.E.0's original row count.)
+
 git add docs/superpowers/plans/2026-05-19-solo-dev-ux-validation/MATRIX-INVENTORY.md
 git commit -m "$(cat <<'EOF'
-docs(m12): MATRIX-INVENTORY.md derivation per spec §4.1.1
+docs(m12): MATRIX-INVENTORY.md extended with bands A-E per spec §4.1.1
 
-Walks 7 sources (master spec headings + spec-id anchors + M11 pages +
-route inventory + catalog inventory + report-pipeline outcomes + §9.0.1
-affordance matrix). Every candidate dispositioned. Coverage class +
-persona × surface mapping set. Plan-time frozen artifact (per spec
-§11.3.1 — distinct from exercise-time tracking which is prohibited).
+Band F (report-pipeline outcomes) was authored in Phase 0.E.0 and is
+preserved verbatim. This commit adds bands A (admin) + B (crew) + C
+(auth) + D (M11 /help) + E (cross-cutting affordances) from 6
+derivation sources (master spec headings + spec-IDs + M11 pages +
+routes + catalog + §9.0.1 affordance matrix). Every candidate
+dispositioned (INCLUDED / EXCLUDED / BAND-OVERLAP). Coverage class +
+persona × surface mapping set per §3.4 axis-applicability policy.
+
+R2 amendment: this task extends rather than overwrites the file.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```

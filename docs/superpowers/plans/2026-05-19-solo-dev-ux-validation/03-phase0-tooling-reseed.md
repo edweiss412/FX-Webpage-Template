@@ -166,8 +166,12 @@ describe("mint_validation_fixture_atomic RPC", () => {
 ```sql
 -- supabase/migrations/<timestamp>_mint_validation_fixture_atomic.sql
 -- Per M12 spec invariant 2 (per-show advisory lock) + plan R1 P0 amendment.
--- Atomic UPSERT of show + crew_members + crew_member_auth + validation_state.alias_map
--- inside the per-show advisory-lock transaction.
+-- R2 amendment: SQL sketch verified against live schema
+-- (supabase/migrations/20260501000000_initial_public_schema.sql:3-47):
+-- shows columns: drive_file_id NOT NULL UNIQUE, slug NOT NULL UNIQUE, title NOT NULL,
+--   client_label NOT NULL, template_version NOT NULL, plus nullable jsonb fields.
+-- crew_members columns: show_id NOT NULL, name NOT NULL, email (canonicalized),
+--   role NOT NULL, role_flags NOT NULL DEFAULT '{}'.
 
 CREATE OR REPLACE FUNCTION public.mint_validation_fixture_atomic(
   p_combo text,
@@ -180,48 +184,85 @@ SET search_path = public
 AS $$
 DECLARE
   v_drive_file_id text;
+  v_slug text;
   v_show_id uuid;
   v_alias_map_slice jsonb := '{}'::jsonb;
   v_crew_member jsonb;
   v_crew_id uuid;
+  v_crew_name text;
+  v_crew_role_flags text[];
 BEGIN
-  -- 1. Resolve drive_file_id and acquire advisory lock BEFORE any write.
+  -- 1. Resolve drive_file_id (stable per-combo synthetic ID) and acquire advisory lock.
   v_drive_file_id := 'validation_' || p_combo;
+  v_slug := 'validation-' || lower(replace(p_combo, '_', '-'));
   PERFORM pg_advisory_xact_lock(hashtext('show:' || v_drive_file_id));
 
-  -- 2. UPSERT show (synthesizes per-combo show with proper dates).
-  --    Full implementation: see commit history; abbreviated here for plan brevity.
-  INSERT INTO public.shows (drive_file_id, show_name, dates, /* ... */)
-    VALUES (v_drive_file_id, p_fixture_payload->>'showName', p_fixture_payload->'dates', /* ... */)
-    ON CONFLICT (drive_file_id) DO UPDATE SET
-      show_name = EXCLUDED.show_name,
-      dates = EXCLUDED.dates
-    RETURNING id INTO v_show_id;
+  -- 2. UPSERT show with all NOT NULL columns populated.
+  INSERT INTO public.shows (
+    drive_file_id, slug, title, client_label, template_version,
+    dates, archived, published, last_seen_modified_time
+  )
+  VALUES (
+    v_drive_file_id,
+    v_slug,
+    p_fixture_payload->>'showName',
+    'M12 Validation',                -- client_label NOT NULL
+    'v4',                            -- template_version NOT NULL
+    p_fixture_payload->'dates',
+    false,
+    true,
+    now()
+  )
+  ON CONFLICT (drive_file_id) DO UPDATE SET
+    title = EXCLUDED.title,
+    dates = EXCLUDED.dates,
+    last_seen_modified_time = now()
+  RETURNING id INTO v_show_id;
 
-  -- 3. Per crew_member in payload: UPSERT crew_members + crew_member_auth, collect alias→id.
+  -- 3. Per crew_member: UPSERT crew_members + crew_member_auth, collect alias→id.
   FOR v_crew_member IN SELECT * FROM jsonb_array_elements(p_fixture_payload->'crewMembers') LOOP
-    INSERT INTO public.crew_members (show_id, name, email, role_flags)
-      VALUES (v_show_id, v_crew_member->>'name', v_crew_member->>'email', ARRAY(SELECT jsonb_array_elements_text(v_crew_member->'roleFlags')))
-      ON CONFLICT (show_id, name) DO UPDATE SET
-        email = EXCLUDED.email,
-        role_flags = EXCLUDED.role_flags
-      RETURNING id INTO v_crew_id;
+    v_crew_name := v_crew_member->>'name';
+    v_crew_role_flags := ARRAY(SELECT jsonb_array_elements_text(v_crew_member->'roleFlags'));
+    INSERT INTO public.crew_members (
+      show_id, name, email, role, role_flags
+    )
+    VALUES (
+      v_show_id,
+      v_crew_name,
+      lower(trim(v_crew_member->>'email')),          -- email canonicalized per CHECK constraint
+      v_crew_member->>'displayRole',                  -- role NOT NULL — payload provides display string per fixture
+      v_crew_role_flags
+    )
+    ON CONFLICT (show_id, name) DO UPDATE SET
+      email = EXCLUDED.email,
+      role = EXCLUDED.role,
+      role_flags = EXCLUDED.role_flags
+    RETURNING id INTO v_crew_id;
 
     INSERT INTO public.crew_member_auth (show_id, crew_name, current_token_version, revoked_below_version)
-      VALUES (v_show_id, v_crew_member->>'name', 1, 0)
+      VALUES (v_show_id, v_crew_name, 1, 0)
       ON CONFLICT (show_id, crew_name) DO NOTHING;   -- preserve existing current_token_version per spec §3.3
 
     v_alias_map_slice := v_alias_map_slice || jsonb_build_object(v_crew_member->>'alias', v_crew_id);
   END LOOP;
 
-  -- 4. UPDATE validation_state.alias_map[combo] = alias_map_slice (UPSERT singleton).
-  INSERT INTO public.validation_state (key, last_seed_date, combos_materialized, alias_map, seeded_by, seeded_supabase_project_ref)
-    VALUES ('validation_seed', current_date, ARRAY[p_combo], jsonb_build_object(p_combo, v_alias_map_slice), p_fixture_payload->>'seededBy', p_fixture_payload->>'seededProjectRef')
-    ON CONFLICT (key) DO UPDATE SET
-      last_seed_date = current_date,
-      combos_materialized = (SELECT array_agg(DISTINCT c) FROM unnest(public.validation_state.combos_materialized || ARRAY[p_combo]) c),
-      alias_map = public.validation_state.alias_map || jsonb_build_object(p_combo, v_alias_map_slice),
-      seeded_supabase_project_ref = EXCLUDED.seeded_supabase_project_ref;
+  -- 4. UPSERT validation_state singleton: merge alias_map[combo] = slice; append combo to combos_materialized.
+  INSERT INTO public.validation_state (
+    key, last_seed_date, combos_materialized, alias_map, seeded_by, seeded_supabase_project_ref
+  )
+  VALUES (
+    'validation_seed',
+    current_date,
+    ARRAY[p_combo],
+    jsonb_build_object(p_combo, v_alias_map_slice),
+    p_fixture_payload->>'seededBy',
+    p_fixture_payload->>'seededProjectRef'
+  )
+  ON CONFLICT (key) DO UPDATE SET
+    last_seed_date = current_date,
+    combos_materialized = (SELECT array_agg(DISTINCT c) FROM unnest(public.validation_state.combos_materialized || ARRAY[p_combo]) c),
+    alias_map = public.validation_state.alias_map || jsonb_build_object(p_combo, v_alias_map_slice),
+    seeded_supabase_project_ref = EXCLUDED.seeded_supabase_project_ref;
 
   RETURN jsonb_build_object('show_id', v_show_id, 'alias_map_slice', v_alias_map_slice);
 END;
@@ -231,7 +272,91 @@ REVOKE ALL ON FUNCTION public.mint_validation_fixture_atomic(text, jsonb) FROM p
 GRANT EXECUTE ON FUNCTION public.mint_validation_fixture_atomic(text, jsonb) TO service_role;
 ```
 
-- [ ] **Step 4: Author a companion `validation_cleanup_atomic` RPC** for the `--combo all` cleanup path (DELETE validation-tagged revoked_links + structural reset of query-compromise aliases). Same advisory-lock pattern. Single transaction.
+- [ ] **Step 4: Author the companion `validation_cleanup_atomic` RPC** (R2 amendment — explicit sketch + single-entry-point clarification: the `__cleanup__` pseudo-combo on `mint_validation_fixture_atomic` is RETRACTED; cleanup goes through this separate RPC):
+
+```sql
+-- supabase/migrations/<timestamp>_validation_cleanup_atomic.sql
+-- Per spec §3.3 R22 + R23. Cleans validation-induced revoked_links rows AND
+-- structurally resets every query-compromise alias's auth state. Per-show
+-- advisory lock acquired for EACH affected show (one lock per validation show).
+--
+-- Validation-only predicate: revoked_links.revoked_reason LIKE 'validation:%'
+-- OR (for the structural reset path) the row's (show_id, crew_name) matches
+-- a query-compromise alias's identity AND the show is a validation show
+-- (drive_file_id LIKE 'validation_%').
+
+CREATE OR REPLACE FUNCTION public.validation_cleanup_atomic(
+  p_validation_project_ref text  -- safety: aborts if mismatched
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_state_ref text;
+  v_show record;
+  v_qc_crew_name text;
+  v_deleted_revoked_links int := 0;
+  v_reset_auth int := 0;
+BEGIN
+  -- 0. Safety: confirm caller's project_ref matches what's stamped in validation_state.
+  SELECT seeded_supabase_project_ref INTO v_state_ref FROM public.validation_state WHERE key = 'validation_seed';
+  IF v_state_ref IS NULL OR v_state_ref <> p_validation_project_ref THEN
+    RAISE EXCEPTION 'validation_cleanup_atomic: project_ref mismatch (expected %, got %)', v_state_ref, p_validation_project_ref;
+  END IF;
+
+  -- 1. For each validation show, hold its advisory lock + do the cleanup writes.
+  FOR v_show IN
+    SELECT id AS show_id, drive_file_id
+    FROM public.shows
+    WHERE drive_file_id LIKE 'validation\_%' ESCAPE '\'
+  LOOP
+    PERFORM pg_advisory_xact_lock(hashtext('show:' || v_show.drive_file_id));
+
+    -- 1a. Validation-tagged revoked_links cleanup (spec §3.3 R22).
+    WITH d AS (
+      DELETE FROM public.revoked_links
+      WHERE show_id = v_show.show_id
+        AND revoked_reason LIKE 'validation:%'
+      RETURNING 1
+    )
+    SELECT v_deleted_revoked_links + count(*) INTO v_deleted_revoked_links FROM d;
+
+    -- 1b. Structural reset of query-compromise alias auth (spec §3.3 R23):
+    --     For every alias_5a_lead_for_query_compromise crew_member in this show:
+    --     DELETE all revoked_links rows for that (show_id, crew_name) regardless of revoked_reason
+    --     AND bump current_token_version + 1 AND zero revoked_below_version.
+    FOR v_qc_crew_name IN
+      SELECT cm.name
+      FROM public.crew_members cm
+      WHERE cm.show_id = v_show.show_id
+        AND cm.name LIKE '%_alias_5a_lead_for_query_compromise'
+    LOOP
+      DELETE FROM public.revoked_links
+        WHERE show_id = v_show.show_id AND crew_name = v_qc_crew_name;
+      UPDATE public.crew_member_auth
+        SET current_token_version = current_token_version + 1,
+            revoked_below_version = 0
+        WHERE show_id = v_show.show_id AND crew_name = v_qc_crew_name;
+      v_reset_auth := v_reset_auth + 1;
+    END LOOP;
+  END LOOP;
+
+  RETURN jsonb_build_object(
+    'deleted_revoked_links', v_deleted_revoked_links,
+    'reset_query_compromise_aliases', v_reset_auth
+  );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.validation_cleanup_atomic(text) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.validation_cleanup_atomic(text) TO service_role;
+```
+
+The reseed script calls this RPC only for `--combo all` (NOT for single-combo reseed) since query-compromise reset would otherwise blow away the J3 leg's revocation mid-test.
+
+- [ ] **Step 5: Confirm `mint_validation_fixture_atomic` does NOT handle a `__cleanup__` pseudo-combo** — that responsibility lives ONLY in `validation_cleanup_atomic`. (R2 amendment — removes the dual-entry-point ambiguity from R1's first draft.)
 
 - [ ] **Step 5: Apply both migrations** to prod-equivalent Supabase. Re-run the failing test — expect PASS.
 
