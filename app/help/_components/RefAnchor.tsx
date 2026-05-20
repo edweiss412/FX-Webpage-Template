@@ -1,0 +1,40 @@
+import type { ReactNode } from "react";
+
+const VALID_ID = /^[A-Z][A-Z0-9_]*$/;
+
+// r5 fix per D-r4 finding 1: RefAnchor defaults to h2 (Phase E uses it as
+// section heading for help pages). /help/errors uses h3 for per-code entries
+// beneath the page's own h1/h2; pass `as="h3"` for that case.
+export function RefAnchor({
+  id,
+  as = "h2",
+  children,
+}: {
+  id: string;
+  as?: "h2" | "h3";
+  children: ReactNode;
+}) {
+  if (!VALID_ID.test(id)) {
+    throw new Error(
+      `<RefAnchor id="${id}"> — id must match /^[A-Z][A-Z0-9_]*$/ (catalog code shape).`,
+    );
+  }
+  const Tag = as;
+  // h2 is larger; h3 smaller. Style accordingly.
+  const className =
+    as === "h2"
+      ? "mt-10 mb-3 text-xl font-semibold text-text-strong group flex items-center gap-2"
+      : "mt-8 mb-2 text-lg font-semibold text-text-strong group flex items-center gap-2";
+  return (
+    <Tag id={id} className={className}>
+      {children}
+      <a
+        href={`#${id}`}
+        aria-label="Copy link to this section"
+        className="text-text-subtle opacity-0 group-hover:opacity-100 transition-opacity text-sm"
+      >
+        🔗
+      </a>
+    </Tag>
+  );
+}
