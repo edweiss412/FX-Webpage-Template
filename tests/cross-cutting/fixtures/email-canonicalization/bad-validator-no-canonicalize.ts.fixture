@@ -1,0 +1,3 @@
+export async function validate(service: { from(table: string): { select(q: string): { eq(column: string, value: string | undefined): unknown } } }, user: { email?: string }) {
+  return service.from("crew_members").select("id,email").eq("email", user.email);
+}

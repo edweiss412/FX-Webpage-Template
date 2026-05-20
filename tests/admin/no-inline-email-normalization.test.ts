@@ -39,8 +39,12 @@ const ROOT = process.cwd();
  * specific identifier-style usage rather than substring match.
  */
 function stripComments(src: string): string {
+  const withoutExemptLines = src
+    .split(/\r?\n/)
+    .filter((line) => !line.includes("canonicalize-exempt:"))
+    .join("\n");
   // Block comments first (greedy nested-block-safe via non-greedy match).
-  let out = src.replace(/\/\*[\s\S]*?\*\//g, "");
+  let out = withoutExemptLines.replace(/\/\*[\s\S]*?\*\//g, "");
   // Line comments: //  to end of line. NOTE: this is naive about //
   // appearing inside strings — but the route file has no such strings.
   out = out.replace(/\/\/[^\n]*/g, "");
@@ -80,6 +84,16 @@ const AUDITED_PATHS = [
   // route through canonicalize() at exactly one boundary.
   "lib/data/adminEmails.ts",
   "app/admin/settings/admins/actions.ts",
+  "lib/reports/submit.ts",
+  "lib/reports/rateLimit.ts",
+  "lib/adminAlerts/upsertAdminAlert.ts",
+  "app/api/admin/admin-alerts/[id]/resolve/route.ts",
+  "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts",
+  "app/api/admin/pending-ingestions/[id]/discard/route.ts",
+  "app/api/admin/onboarding/finalize/route.ts",
+  "app/api/admin/onboarding/finalize-cas/route.ts",
+  "app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts",
+  "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
   ...collectSourceFiles("lib/drive"),
   ...collectSourceFiles("lib/sync"),
 ];

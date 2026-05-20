@@ -1,0 +1,12 @@
+import { canonicalize } from "@/lib/email/canonicalize";
+
+export async function alert(upsertAdminAlert: (input: unknown) => Promise<void>, rawEmail: string) {
+  await upsertAdminAlert({
+    showId: "show",
+    code: "AMBIGUOUS_EMAIL_BINDING",
+    context: {
+      matchedEmail: canonicalize(rawEmail),
+      payload: { collidingEmails: [canonicalize(rawEmail)] },
+    },
+  });
+}

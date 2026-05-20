@@ -1,0 +1,6 @@
+import { canonicalize } from "@/lib/email/canonicalize";
+
+export async function validate(service: { from(table: string): { select(q: string): { eq(column: string, value: string | null): unknown } } }, user: { email?: string }) {
+  const email = canonicalize(user.email);
+  return service.from("crew_members").select("id,email").eq("email", email);
+}

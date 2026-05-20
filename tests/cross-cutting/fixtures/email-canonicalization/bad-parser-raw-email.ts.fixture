@@ -1,0 +1,6 @@
+export function parseCrew(row: { Email: string }) {
+  return {
+    name: "Alice",
+    email: row.Email,
+  };
+}

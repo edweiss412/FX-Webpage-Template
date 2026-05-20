@@ -1,0 +1,8 @@
+import { canonicalize } from "@/lib/email/canonicalize";
+
+export function parseCrew(row: { Email: string }) {
+  return {
+    name: "Alice",
+    email: canonicalize(row.Email),
+  };
+}

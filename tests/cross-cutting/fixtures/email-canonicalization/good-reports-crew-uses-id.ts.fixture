@@ -1,0 +1,6 @@
+export async function report(db: { from(table: string): { insert(row: unknown): Promise<void> } }, crewMemberId: string) {
+  await db.from("reports").insert({
+    reported_by_kind: "crew",
+    reported_by: crewMemberId.toString(),
+  });
+}

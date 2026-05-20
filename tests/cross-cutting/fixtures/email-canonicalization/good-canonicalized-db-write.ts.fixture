@@ -1,0 +1,8 @@
+import { canonicalize } from "@/lib/email/canonicalize";
+
+export async function writeCrew(db: { from(table: string): { insert(row: unknown): Promise<void> } }, rawEmail: string) {
+  await db.from("crew_members").insert({
+    name: "Alice",
+    email: canonicalize(rawEmail),
+  });
+}
