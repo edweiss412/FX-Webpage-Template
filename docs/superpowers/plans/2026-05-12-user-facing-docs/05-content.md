@@ -611,7 +611,7 @@ Commit: `feat(help): /help/admin/parse-warnings + catalog backfill for every Dou
 5. H2 "Parse warnings" — short pointer to `/help/admin/parse-warnings`
 6. H2 "Crew preview links" — what these are + how to use Preview as Crew
 
-(Note: **r6 fix per D-r5 finding 2** — `<RefAnchor>` is exclusively for catalog-code-shaped IDs (`/^[A-Z][A-Z0-9_]*$/` per D.5). Non-catalog section anchors MUST use plain heading IDs like `<h2 id="sync-health">`. The earlier draft offered an "expand the regex" option — that's RETIRED. D.5's regex is the hardened contract; do not widen it. Non-catalog kebab anchors live on plain `<h2>` / `<h3>` elements.)
+(Note: **r6 fix per D-r5 finding 2** — `<RefAnchor>` is exclusively for catalog-code-shaped IDs (`/^(MI-\d+[a-z]?_)?[A-Z][A-Z0-9_]*$/` per D.5; **spec §6.3 r15 amendment, broadened in Phase D Codex R3 fix `504b533`** to cover the ~30 MI-class catalog codes — `MI-1_VERSION_DETECTION_FAILED`, `MI-5a_DUPLICATE_CREW_NAME`, etc.). Non-catalog section anchors MUST use plain heading IDs like `<h2 id="sync-health">`. The earlier draft offered an "expand the regex" option — RETIRED. D.5's regex is the hardened contract; the r15 amendment is the ONLY widening; do not widen further. Non-catalog kebab anchors live on plain `<h2>` / `<h3>` elements.)
 
 **r2 fix per E-r1 finding 3 (HIGH) — explicit TDD per task:** the shared pattern at the top of Phase E (steps 1-7) applies in full. Concretely:
 
@@ -642,7 +642,7 @@ Commit: `feat(help): /help/admin/per-show-panel page (Task E.8)`
 1. H1: "Preview as crew"
 2. Intro: what impersonation is and why it exists
 3. `<Screenshot name="preview-as-crew-banner" alt="...">` showing the sticky banner
-4. H2 `<h2 id="impersonation-banner">` — the banner UX (sticky, yellow, Exit button) — note this is the `?` icon target per §5.6 matrix. **r4 fix per D-r3 finding 1:** use a plain `<h2>` with kebab-case `id` here rather than `<RefAnchor>`, because `<RefAnchor>` is reserved for catalog-code-shaped anchors (`/^[A-Z][A-Z0-9_]*$/` per D.5). Non-catalog section anchors live on plain heading elements; the H.1 anchor-resolver already accepts both `<RefAnchor id="...">` AND plain `id="..."` attributes per its `containsAnchor()` helper.
+4. H2 `<h2 id="impersonation-banner">` — the banner UX (sticky, yellow, Exit button) — note this is the `?` icon target per §5.6 matrix. **r4 fix per D-r3 finding 1:** use a plain `<h2>` with kebab-case `id` here rather than `<RefAnchor>`, because `<RefAnchor>` is reserved for catalog-code-shaped anchors (`/^(MI-\d+[a-z]?_)?[A-Z][A-Z0-9_]*$/` per D.5 + spec §6.3 r15 amendment, Phase D Codex R3 fix `504b533`). Non-catalog section anchors live on plain heading elements; the H.1 anchor-resolver already accepts both `<RefAnchor id="...">` AND plain `id="..."` attributes per its `containsAnchor()` helper.
 5. H2 "What to verify" — bulleted checklist (call time correct, hotel info present, role-restricted info hidden as expected)
 6. H2 "Why some fields are hidden" — short explanation of role-based filtering; reassures Doug that not-seeing-a-field is correct behavior, not a bug
 
