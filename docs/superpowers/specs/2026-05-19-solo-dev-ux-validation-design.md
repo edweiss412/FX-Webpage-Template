@@ -144,7 +144,26 @@ The day-of-walk uses **wall-clock + fixture-data engineering**, NOT the M11 `X-S
 
 **J3/J4 signed-link & preview-link generation contract (R12 amendment — picked DB-backed alias map).** J3 generates signed links via the admin link-mint surface using the per-variant `crew_id` resolved by alias. J4 uses the same `crew_id` to render `/admin/show/<slug>/preview/<crew-id>` directly. The aliases let the dev generate links by alias rather than UUID hunting.
 
-**Alias-map storage (R12 — single mechanism, no implementer ambiguity).** The re-seed script writes `alias_map` as a JSONB object into the `validation_state` singleton row: `{ "alias_5a_lead": "<crew_uuid>", "alias_5b_lead_a1": "<crew_uuid>", ..., "alias_6f_empty": "<crew_uuid>" }`. The dev's wrapper command `pnpm validation:resolve-alias <alias>` reads the `alias_map` column from validation_state and prints the resolved UUID. `check-seed` additionally fails if `alias_map` is missing any of the 9 required alias keys for any R-combo fixture (per the §3.3 owned-fixture-mappings contract). The earlier "or validation-aliases.json file" alternative is retracted — DB storage is canonical so alias state is target-consistent with the rest of validation_state. |
+**Alias-map storage (R12 — single mechanism, no implementer ambiguity; R13 nested-by-combo).** The re-seed script writes `alias_map` as a JSONB object into the `validation_state` singleton row. The map is **combo-scoped, not flat** (R13 amendment — earlier flat shape couldn't distinguish `alias_5a_lead` for R1 vs R7b's `alias_5a_lead`, so seeded crew_ids would collide):
+
+```json
+{
+  "R1":  { "alias_5a_lead": "<uuid>", "alias_5b_lead_a1": "<uuid>", ..., "alias_6f_empty": "<uuid>" },
+  "R2":  { ... },
+  ...
+  "R8b": { ... },
+  "SW-PRE_TRAVEL":   { "alias_5a_lead": "<uuid>" },
+  "SW-TRAVEL_IN":    { "alias_5a_lead": "<uuid>" },
+  "SW-SHOW_1":       { "alias_5a_lead": "<uuid>" },
+  "SW-SHOW_INTERIOR":{ "alias_5a_lead": "<uuid>" },
+  "SW-SHOW_LAST":    { "alias_5a_lead": "<uuid>" },
+  "SW-POST_SHOW":    { "alias_5a_lead": "<uuid>" }
+}
+```
+
+Each R-combo key (R1–R6 + R7a/R7b/R8a/R8b) carries 9 alias entries (one per §3.2 role variant 5a–5c + 6a–6f). Each SW-* key carries 1 alias entry (LEAD only, per §3.3.1). Total alias entries: 10 × 9 + 6 × 1 = **96 aliases**.
+
+The dev's wrapper command `pnpm validation:resolve-alias <combo> <alias>` reads the nested map and prints the resolved UUID (e.g., `pnpm validation:resolve-alias R7b alias_5a_lead`). `check-seed` fails if (a) `alias_map` is missing any of the 10 R-combo keys, (b) any R-combo key is missing any of the 9 alias entries, (c) any SW-* key is missing `alias_5a_lead`. Total required keys: 10 + 6 = 16; total required leaf entries: 96. |
 | Plan-time deliverable | The M12 plan's Phase 0 includes a sub-task that authors `scripts/validation-reseed.ts` + the `validation_state` migration BEFORE any matrix walk. Phase 0 smoke test 5 verifies the script's correctness end-to-end. |
 
 This contract closes the Codex R5 F1 finding: re-seed mechanism is no longer hand-wavy; it's a concrete plan-time deliverable with named path, CLI, idempotency contract, storage schema, and verification command.
@@ -242,7 +261,9 @@ Specifically the same Phase 0 commit/PR MUST include:
 
 1. **Migration** creating `validation_state` (DDL above).
 2. **Script + package.json wiring** — `scripts/validation-reseed.ts` + the `pnpm validation:reseed` + `pnpm validation:check-seed` entries in `package.json` scripts.
-3. **Master spec §4.3 amendment** — `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` line 605 (verified live): the bullet listing 21 admin-only tables grows to 22 with `validation_state` appended; the trailing `(**21 tables**...)` parenthetical updates to `(**22 tables**...)`. M12 has authority to amend master spec for the M12-introduced table; the amendment is a cross-document edit committed in lockstep with the migration.
+3. **Master spec §4.3 amendment (TWO edits — R13 amendment)** —
+   - **§4.3 bullet list** — `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` line 605 (verified live): the bullet listing 21 admin-only tables grows to 22 with `validation_state` appended; the trailing `(**21 tables**...)` parenthetical updates to `(**22 tables**...)`.
+   - **§4.1 schema section — `create table validation_state` definition** (R13 amendment): the master spec's schema section (where every admin-only table has a `create table` block — e.g., `shows_internal`, `sync_log`, etc.) MUST gain a matching `create table validation_state` definition. **The live generator `scripts/generate-admin-tables.ts:31-34` filters extracted §4.3 names to tables with a matching `create table ...` in master spec; without the master-spec CREATE TABLE block, regenerating `lib/audit/admin-tables.generated.ts` (step 5 below) silently drops `validation_state` and the X.3/X.6 parity tests fail.** The master-spec CREATE TABLE block mirrors the §3.3.2 DDL (sans the `IF NOT EXISTS` and `DO $$` blocks — master spec uses simple `create table` form per the existing pattern). M12 has authority to amend master spec for this M12-introduced table; the amendment is a cross-document edit committed in lockstep with the migration.
 4. **Master spec AC-2.5 amendment** — `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` line 3489 (verified live): the per-table list grows to include `validation_state`; the **21 tables × 4 verbs = 84 assertions** literal updates to **22 tables × 4 verbs = 88 assertions**.
 5. **Admin-tables generator regen** — `scripts/generate-admin-tables.ts` is the generator (verified live; line 43 emits `ADMIN_TABLES`). Re-run the generator so `lib/audit/admin-tables.generated.ts` includes `validation_state`. The generator reads §4.3 — step 3's master spec edit drives step 5's regen.
 6. **Hardcoded test-baseline updates** (each verified live):
@@ -933,3 +954,16 @@ Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addres
 
 - **Enum-drift discipline** — the CHECK constraint pattern (`DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT`) is the canonical drift-safe pattern, distinct from the `duplicate_object` pattern used for table creation where the constraint definition doesn't change. Future admin-only tables with CHECK enums that may grow should use this drop-and-recreate pattern.
 - **Single-mechanism rule for alias storage** — picking DB-backed over file-backed eliminates the "either-or" ambiguity that lets implementers diverge. This is a general principle: spec contracts should not offer choices that produce incompatible plan implementations.
+
+### 15.13 Round 13 (Codex `019e43...` thread reused, 2026-05-19)
+
+Verdict: `needs-attention`. Two P1 findings. All accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — Flat `alias_map` couldn't address per-combo crew fixtures. Each R-combo seeds 9 crew_members but a flat map `{alias_5a_lead: uuid, ...}` only has 9 keys total — `alias_5a_lead` for R1 would collide with `alias_5a_lead` for R7b. Either later seeds overwrote earlier, or implementer seeded only 9 total violating the per-combo contract. J3/J4 + role-restriction pairs could silently use wrong crew_ids. | P1 / high | Fixed. Alias map made **combo-scoped (nested)**: `{R1: {alias_5a_lead: uuid, ...}, R2: {...}, ..., SW-SHOW_LAST: {alias_5a_lead: uuid}}`. Total leaf entries: 10×9 + 6×1 = 96 aliases. `pnpm validation:resolve-alias <combo> <alias>` now takes a combo arg. check-seed validates: (a) all 10 R-combo keys present, (b) each R-combo has all 9 alias entries, (c) each SW-* key has `alias_5a_lead`. | §3.3 J3/J4 alias-map paragraph (nested shape), check-seed semantics |
+| F2 — Atomic-checklist step 3 amended only master spec §4.3 bullet list, but live generator `scripts/generate-admin-tables.ts:31-34` filters §4.3 names to tables with matching `create table ...` blocks in master spec. Without adding `create table validation_state` to the master spec schema section, the regenerated `admin-tables.generated.ts` silently drops `validation_state` and X.3/X.6 parity fails. | P1 / high | Fixed. Step 3 now requires TWO master spec edits: (a) §4.3 bullet list (was already there), AND (b) master spec §4.1 schema section gains `create table validation_state` definition matching the §3.3.2 DDL minus the IF NOT EXISTS / DO blocks. Without (b) the generator can't pick up the new table even with §4.3 amended. | §3.3.2 step 3 (split into two edits) |
+
+**Class-sweep additions during R13 repair:**
+
+- **Generator-implementation cross-reference** — `scripts/generate-admin-tables.ts:31-34` was the source-of-truth verification. The spec's atomic checklist now matches the generator's actual contract, not just its stated purpose. Future admin-only table additions should verify against the live generator code, not the spec wording about how the generator works.
