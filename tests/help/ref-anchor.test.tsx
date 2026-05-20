@@ -33,6 +33,15 @@ describe("<RefAnchor>", () => {
     expect(() => render(<RefAnchor id="123_NUMERIC_LEAD">x</RefAnchor>)).toThrow();
   });
 
+  it("accepts real catalog code shapes (standard + MI-class) per /help/errors plan", () => {
+    // Standard SCREAMING_SNAKE_CASE
+    expect(() => render(<RefAnchor id="STALE_WRITE_ABORTED">x</RefAnchor>)).not.toThrow();
+    // MI-class with numeric prefix
+    expect(() => render(<RefAnchor id="MI-1_VERSION_DETECTION_FAILED">x</RefAnchor>)).not.toThrow();
+    // MI-class with lowercase suffix letter
+    expect(() => render(<RefAnchor id="MI-5a_DUPLICATE_CREW_NAME">x</RefAnchor>)).not.toThrow();
+  });
+
   it("throws when as is anything other than 'h2' or 'h3' (MDX runtime guard, Codex R1 finding)", () => {
     // Cast simulates a typo'd MDX call site; MDX files are not typechecked,
     // so the TS union alone is insufficient.

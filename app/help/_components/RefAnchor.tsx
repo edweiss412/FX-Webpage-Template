@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 
-const VALID_ID = /^[A-Z][A-Z0-9_]*$/;
+const VALID_ID = /^(MI-\d+[a-z]?_)?[A-Z][A-Z0-9_]*$/;
 const VALID_AS: Set<string> = new Set(["h2", "h3"]);
 
 // r5 fix per D-r4 finding 1: RefAnchor defaults to h2 (Phase E uses it as
@@ -19,7 +19,7 @@ export function RefAnchor({
 }) {
   if (!VALID_ID.test(id)) {
     throw new Error(
-      `<RefAnchor id="${id}"> — id must match /^[A-Z][A-Z0-9_]*$/ (catalog code shape).`,
+      `<RefAnchor id="${id}"> — id must match /^(MI-\\d+[a-z]?_)?[A-Z][A-Z0-9_]*$/ (catalog code shape: standard \`SCREAMING_SNAKE\` or MI-class \`MI-N[a-z]_BODY\`).`,
     );
   }
   if (!VALID_AS.has(as)) {
