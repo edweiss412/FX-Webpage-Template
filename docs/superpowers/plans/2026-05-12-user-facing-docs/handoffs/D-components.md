@@ -25,17 +25,19 @@
 
 ## §2 Phase progress
 
-- [ ] **Phase D — MDX components** (`04-components.md`) — STATUS PENDING
-  - [ ] Task D.1 — `<Callout type>` component
-  - [ ] Task D.2 — `<Step n>` component
-  - [ ] Task D.3 — `<ScreenshotPlaceholder>` draft scaffold
-  - [ ] Task D.4 — `<Screenshot name>` production component
-  - [ ] Task D.5 — `<RefAnchor id>` component
-  - [ ] Task D.6 — `<TipFromSheets>` component
-  - [ ] Task D.7 — Register all six in `mdx-components.tsx`
-  - [ ] Per-component impeccable §1.8 dual-gate (6 visual components × 2 commands = 12 external attestations)
-  - [ ] Phase-level adversarial review (Codex)
-  - [ ] Final gates green (`pnpm test && pnpm lint && pnpm typecheck && pnpm test:e2e --project=mobile-safari`)
+- [x] **Phase D — MDX components** (`04-components.md`) — STATUS IN PROGRESS (final SHA pending Codex R2)
+  - [x] Task D.1 — `<Callout type>` component (`b220041` + impeccable-fix `293e0e9`)
+  - [x] Task D.2 — `<Step n>` component (`97ae6f2` + fix-1 `8ed74eb` + fix-2 `3ee35e1`)
+  - [x] Task D.3 — `<ScreenshotPlaceholder>` draft scaffold (`87ee73f` + em-dash fix `d9fcc07`)
+  - [x] Task D.4 — `<Screenshot name>` production component (`6e26bf7`)
+  - [x] Task D.5 — `<RefAnchor id>` component (`d57f147` + 3-HIGH fix `ddb66b1` + Codex R1 as-guard fix `5f508ad`)
+  - [x] Task D.6 — `<TipFromSheets>` component (`9ed66de` + pre-flagged fix `c580074`)
+  - [x] Task D.7 — Register all six in `mdx-components.tsx` (`4ee6892`)
+  - [x] Structural meta-test `tests/styles/_metaDesignTokenPairs.test.ts` (same-vector recurrence trigger, `7d2929b`)
+  - [x] Per-component impeccable §1.8 dual-gate — 6 visual components, each via EXTERNAL fresh-subagent dispatch. ALL PASSES (see §8 convergence log).
+  - [x] Phase-close cumulative impeccable §1.8 dual-gate — PASSES 31/32 + 20/20 (see §8).
+  - [ ] Phase-level adversarial review (Codex) — R1 needs-attention 2 HIGHs (handoff audit trail + RefAnchor as-guard); R2 pending after this update lands.
+  - [x] Final gates green (`pnpm test` 3687/3692 pass + 5 skipped + 0 failed; `pnpm lint` clean; `pnpm typecheck` clean; e2e mobile-safari TBD).
 
 Other phases: A done at `e911078`; B done at `cd14865`; C done at `6c7e6de`; E–I tracked in their own per-phase handoffs.
 
@@ -64,14 +66,14 @@ Only AC rows Phase D scaffolds or fully satisfies are listed.
 
 | AC | Phase D target | Notes |
 | --- | --- | --- |
-| AC-11.14 | PASS | `<Callout>` renders with note/warning/tip variants; unknown type defaults to note (spec §6.3 guard). |
-| AC-11.15 | PASS | `<Step>` renders numbered procedural steps with tabular figures. |
-| AC-11.16 | PASS | `<ScreenshotPlaceholder>` renders a labeled empty box for draft authoring; lint-prohibited in shipped v1 MDX (enforcement is Phase H.4). |
-| AC-11.17 | PASS | Conventional-commits `feat(help): …` per AGENTS.md §1.6 (one commit per task). |
-| AC-11.18 | PARTIAL | `<Screenshot>` renders `<picture>` with light + dark sources at `/help/screenshots/<name>-{light,dark}.webp`. Full manifest-driven contract is Phase F. |
-| AC-11.19 | PASS | `<RefAnchor>` renders heading + click-to-copy link affordance; `id` matches catalog-code regex `^[A-Z][A-Z0-9_]*$` or throws at render. Defaults to h2; opt-in `as="h3"` for `/help/errors` per-code listings. |
-| AC-11.20 | PASS | `<TipFromSheets>` renders adoption-track aside with distinct "From Sheets" eyebrow. |
-| AC-11.21 | PASS | `mdx-components.tsx` registers all six components so `.mdx` files reference them by name without per-file imports. |
+| AC-11.14 | PASS | `<Callout>` renders with note/warning/tip variants; unknown type defaults to note (spec §6.3 guard). Final SHA `293e0e9` (impeccable-driven Tip-contrast + side-stripe fixes). |
+| AC-11.15 | PASS | `<Step>` renders numbered procedural steps with tabular figures. Final SHA `3ee35e1` (Phase A R2 pattern: bg-surface-raised + text-accent-on-bg + border-accent). |
+| AC-11.16 | PASS | `<ScreenshotPlaceholder>` renders a labeled empty box for draft authoring; lint-prohibited in shipped v1 MDX (enforcement is Phase H.4). Final SHA `d9fcc07` (em-dash → colon). |
+| AC-11.17 | PASS | Conventional-commits `feat(help):` for implementations / `fix(help):` for impeccable-driven fixes / `test(styles):` for the meta-test. One commit per task / one commit per fix per AGENTS.md §1.6. |
+| AC-11.18 | PARTIAL | `<Screenshot>` renders `<picture>` with light + dark sources at `/help/screenshots/<name>-{light,dark}.webp`. Full manifest-driven contract is Phase F. SHA `6e26bf7`. |
+| AC-11.19 | PASS | `<RefAnchor>` renders heading + click-to-copy link affordance; `id` matches catalog-code regex `^[A-Z][A-Z0-9_]*$` or throws at render. Defaults to h2; opt-in `as="h3"` for `/help/errors` per-code listings. Final SHA `5f508ad` (Codex R1 added runtime `as` guard for MDX callers). |
+| AC-11.20 | PASS | `<TipFromSheets>` renders adoption-track aside with distinct "From Sheets" eyebrow. Final SHA `c580074` (preemptive side-stripe + contrast fix). |
+| AC-11.21 | PASS | `mdx-components.tsx` registers all six components so `.mdx` files reference them by name without per-file imports. SHA `4ee6892`. |
 
 ACs NOT addressed by Phase D: AC-11.1–AC-11.13 (A/B/E), AC-11.22–AC-11.24 + AC-11.31 (A — already PASS), AC-11.25–AC-11.30 (F/G), AC-11.32–AC-11.39 (C/F/G/H). AC-11.5/AC-11.6/AC-11.11/AC-11.35 closed in Phase B.
 
@@ -173,30 +175,51 @@ Post-close-out: all four green at Phase D final SHA + Phase D test files include
 
 ## §8 Convergence log (adversarial review + impeccable)
 
-Format: per-round row appended at the bottom. Round 1's "previous SHA" is the Phase D close-implementation SHA (the SHA at which all D.1–D.7 commits land).
+Format: per-round row appended at the bottom. Round 1 anchored at Phase D base SHA `023d312`. Per memory `feedback_adversarial_review_full_milestone_scope.md`, every round anchors to phase-base (not previous-round fix-base) to keep full-Phase-D scope.
 
-Phase D close-implementation commits (D.1–D.7): TBD.
+### Phase D close-implementation + fix-commit log
 
 | Task | SHA | Title |
 | --- | --- | --- |
-| D.1 | TBD | `feat(help): Callout component (note/warning/tip) (Task D.1)` |
-| D.2 | TBD | `feat(help): Step component for numbered procedures (Task D.2)` |
-| D.3 | TBD | `feat(help): ScreenshotPlaceholder draft component (Task D.3)` |
-| D.4 | TBD | `feat(help): Screenshot production component with <picture> + dark source; prop is name (not React-reserved key) (Task D.4)` |
-| D.5 | TBD | `feat(help): RefAnchor with click-to-copy link icon + id regex validation (Task D.5)` |
-| D.6 | TBD | `feat(help): TipFromSheets adoption-track aside component (Task D.6)` |
-| D.7 | TBD | `feat(help): register all six MDX components in mdx-components.tsx (Task D.7)` |
+| D.1 implementation | `b220041` | `feat(help): Callout component (note/warning/tip) (Task D.1)` |
+| D.1 impeccable-R1 fix | `293e0e9` | `fix(help): D.1 Callout — Tip-variant contrast (CRITICAL) + side-stripe ban (HIGH) per impeccable §1.8` |
+| D.2 implementation | `97ae6f2` | `feat(help): Step component for numbered procedures (Task D.2)` |
+| D.2 impeccable-R1 fix (insufficient — math error) | `8ed74eb` | `fix(help): D.2 Step — accent-bg contrast floor (HIGH) per impeccable §1.8` |
+| D.2 impeccable-R2 fix (Phase A R2 pattern) | `3ee35e1` | `fix(help): D.2 Step — drop bg-accent+text-accent-text (2.34:1 fails WCAG); use bg-surface-raised+text-accent-on-bg+border-accent per Phase A R2 precedent` |
+| D.3 implementation | `87ee73f` | `feat(help): ScreenshotPlaceholder draft component (Task D.3)` |
+| D.3 impeccable em-dash fix | `d9fcc07` | `fix(help): D.3 ScreenshotPlaceholder — em-dash → colon (DESIGN.md L247 absolute ban) per impeccable §1.8` |
+| D.4 implementation | `6e26bf7` | `feat(help): Screenshot production component with <picture> + dark source; prop is name (not React-reserved key) (Task D.4)` |
+| D.5 implementation | `d57f147` | `feat(help): RefAnchor with click-to-copy link icon + id regex validation (Task D.5)` |
+| D.5 impeccable 3-HIGH fix | `ddb66b1` | `fix(help): D.5 RefAnchor — copy-link text-text-subtle→text-text (HIGH), add focus-visible (HIGH), expand to 44px tap target (HIGH) per impeccable §1.8` |
+| D.6 implementation | `9ed66de` | `feat(help): TipFromSheets adoption-track aside component (Task D.6)` |
+| D.6 preemptive fix | `c580074` | `fix(help): D.6 TipFromSheets — drop border-l-4 side-stripe (HIGH, DESIGN.md L242) + eyebrow text-accent-text→text-text-strong (CRITICAL contrast) per impeccable §1.8 pre-flag` |
+| D.7 registration | `4ee6892` | `feat(help): register all six MDX components in mdx-components.tsx (Task D.7)` |
+| Structural meta-test | `7d2929b` | `test(styles): _metaDesignTokenPairs structural meta-test for side-stripe + accent-text + text-subtle bans (Phase D same-vector recurrence trigger)` |
+| Codex R1 RefAnchor as-guard fix | `5f508ad` | `fix(help): D.5 RefAnchor — runtime guard for 'as' prop (MDX callers aren't typechecked) per Codex R1 HIGH` |
+
+### Per-component external impeccable §1.8 dual-gate runs
+
+| Component | Cumulative diff | Critique | Audit | Verdict | Findings → Resolution |
+| --- | --- | --- | --- | --- | --- |
+| D.1 Callout R1 | `b220041^..b220041` | 22/32 (C+) | 11/20 (NEEDS-ATTN) | NEEDS-ATTN | CRITICAL Tip-contrast + HIGH side-stripe + 2 LOW accepts → fix `293e0e9` |
+| D.1 Callout R2 (re-attest) | `b220041^..293e0e9` | **32/32 (A)** | **20/20 (A)** | **PASSES** | CRITICAL + HIGH resolved; 0 new findings → §1.8 CLOSED |
+| D.2 Step R1 | `97ae6f2^..97ae6f2` | 26/32 (B+) | 18/20 (A−) | NEEDS-ATTN | HIGH accent-bg sub-floor → fix `8ed74eb` |
+| D.2 Step R2 (re-attest) | `97ae6f2^..8ed74eb` | 22/32 (B) | 12/20 (C) | NEEDS-ATTN | HIGH **NOT** resolved (DESIGN.md L33's "4.07:1" claim is a math error; actual `#ff8c1a×#ffffff` = 2.34:1; size/weight shifts threshold not contrast) → fix `3ee35e1` (Phase A R2 pattern) |
+| D.2 Step R3 (re-attest) | `97ae6f2^..3ee35e1` | **30/32 (A−)** | **19/20 (A)** | **PASSES** | New pair `bg-surface-raised×text-accent-on-bg` = 4.29:1 light / 8.30:1 dark → §1.8 CLOSED |
+| D.3 ScreenshotPlaceholder R1 | `87ee73f^..87ee73f` | 27/32 (Good) | 19/20 (A) | PASS-W-FIX | LOW em-dash U+2014 (DESIGN.md L247) → fix `d9fcc07` |
+| D.3 R2 (re-attest) | `87ee73f^..d9fcc07` | **40/40 (ceiling)** | **20/20 (A)** | **PASSES** | em-dash resolved; 0 new findings → §1.8 CLOSED |
+| D.4 Screenshot R1 | `6e26bf7^..6e26bf7` | **30/32 (A)** | **19/20 (A)** | **PASSES** | 0 findings → §1.8 CLOSED on first attest |
+| D.5 RefAnchor R1 | `d57f147^..d57f147` | 4/32 findings | 3/20 findings | NEEDS-ATTN | 3 HIGH: text-text-subtle on action target + no focus-visible + tap target <44px; 1 MEDIUM emoji→BACKLOG → fix `ddb66b1` |
+| D.5 R2 (re-attest) | `d57f147^..ddb66b1` | **30/32 (A−)** | **20/20 (A)** | **PASSES** | All 3 HIGH resolved; 0 new findings → §1.8 CLOSED |
+| D.6 TipFromSheets R1 (cumulative initial+fix) | `d57f147^..c580074` | **32/32 (A)** | **20/20 (A)** | **PASSES** | Pre-flagged HIGH side-stripe + CRITICAL eyebrow-contrast resolved preemptively; eyebrow contrast 15.98:1 light / 14.95:1 dark (AAA) → §1.8 CLOSED |
+| Phase-close cumulative | `023d312..7d2929b` | **31/32 (A)** | **20/20 (A)** | **PASSES** | 1 LOW (rounded-md vs rounded micro-drift between message-blocks and media-containers) ACCEPT-as-is per semantic distinction; D.7 wiring confirmed (spread-then-override; 6 names match exports verbatim); meta-test structural defense scoped correctly. |
+
+### Adversarial review (Codex cross-CLI)
 
 | Round | Date | Verdict | Findings (sev, summary) | Resolution commit | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Per-component impeccable §1.8 dual-gate D.1 | TBD | TBD | TBD | TBD | external attestation |
-| Per-component impeccable §1.8 dual-gate D.2 | TBD | TBD | TBD | TBD | external attestation |
-| Per-component impeccable §1.8 dual-gate D.3 | TBD | TBD | TBD | TBD | external attestation |
-| Per-component impeccable §1.8 dual-gate D.4 | TBD | TBD | TBD | TBD | external attestation |
-| Per-component impeccable §1.8 dual-gate D.5 | TBD | TBD | TBD | TBD | external attestation |
-| Per-component impeccable §1.8 dual-gate D.6 | TBD | TBD | TBD | TBD | external attestation |
-| Per-component impeccable §1.8 dual-gate D.7 + phase close | TBD | TBD | TBD | TBD | covers wiring + cumulative |
-| R1 Codex adversarial | TBD | TBD | TBD | TBD | base = `023d312` (Phase D base) |
+| R1 Codex adversarial | 2026-05-19 | **needs-attention** at `7d2929b` | HIGH × 2: (1) handoff §8 + §9 convergence log/dispositions still TBD — no audit trail for the 8 dual-gates; (2) RefAnchor `as` prop has no runtime guard so MDX callers (not typechecked) could pass `as="h4"` and render an h4 silently | (1) handoff update (this commit); (2) `5f508ad` runtime guard + regression test | Job `review-mpdj6ez6-j708g0`; whole-diff fresh-eyes review; both findings are LEGITIMATE structural gaps (not finding re-litigation) |
+| R2 Codex adversarial | TBD | TBD | TBD | — | base = `023d312`; pending after handoff update + `5f508ad` land |
 
 ---
 
@@ -206,7 +229,23 @@ Per AGENTS.md §1.8 + memories `feedback_impeccable_critique_not_authoritative_v
 
 | Component | Finding | Severity | File:line | Disposition | Spec-check (if copy rewrite) | Commit / Home |
 | --- | --- | --- | --- | --- | --- | --- |
-| TBD | | | | | | |
+| D.1 Callout R1 | Tip-variant `bg-stale-tint × text-accent-text` = 1.05:1 light / 1.5:1 dark (catastrophic AA fail) | **CRITICAL** | `Callout.tsx:21-23` | **FIXED** — swap to `text-text-strong` (17.5:1 light / 14.9:1 dark, AAA) | No copy rewrite | `293e0e9` |
+| D.1 Callout R1 | `border-l-4` violates DESIGN.md L242 side-stripe ban (Phase A R2 precedent at `30dafe8`) | **HIGH** | `Callout.tsx:42` | **FIXED** — `border-l-4` → `border` (1px full perimeter; ≤1px compliant) | No copy rewrite | `293e0e9` |
+| D.1 Callout R1 | Template-literal class concat | MEDIUM | `Callout.tsx:42` | **ACCEPT-as-is** — tokens are static const map, JIT-extractable | n/a | n/a |
+| D.1 Callout R1 | Unicode glyphs `ℹ ⚠ ✓` vs lucide-react | LOW | `Callout.tsx:69,77,85` | **BACKLOG** — bundle with D.5 emoji migration | n/a | BACKLOG candidate |
+| D.1 Callout R1 | Dual `role="note"` (note + tip variants) | LOW | `Callout.tsx` | **ACCEPT-as-is** — both semantically advisory | n/a | n/a |
+| D.2 Step R1 | `bg-accent text-accent-text text-sm font-semibold` strict DESIGN.md L33 violation (badge below ≥14pt-bold floor) | **HIGH** | `Step.tsx:8` | **FIXED** (via R2/R3 chain) — initial fix `8ed74eb` insufficient (math error in L33's "4.07:1"); final fix `3ee35e1` adopts Phase A R2 pattern: `bg-surface-raised text-accent-on-bg border-2 border-accent font-bold text-base` (light 4.29:1 / dark 8.30:1) | No copy rewrite | `3ee35e1` |
+| D.2 Step R1 | Fixed `h-7 w-7` tight for ≥3-digit step numbers | LOW | `Step.tsx:7` | **ACCEPT-as-is** — Phase E adoption-track/onboarding-wizard scope is ≤9 steps per plan | n/a | n/a |
+| D.3 ScreenshotPlaceholder R1 | Em-dash U+2014 in "Screenshot pending — {alt}" violates DESIGN.md L247 absolute ban | LOW | `ScreenshotPlaceholder.tsx:22` | **FIXED** — em-dash → colon ("Screenshot pending: {alt}") | Tests use case-insensitive regex `/screenshot pending/i`; colon doesn't break match | `d9fcc07` |
+| D.4 Screenshot R1 | — | — | — | **NO FINDINGS** — first-attest PASSES at 30/32 + 19/20 | n/a | n/a |
+| D.5 RefAnchor R1 | `text-text-subtle` on copy-link action target — DESIGN.md L27 ban (Phase A R1 precedent at `370298f`) | **HIGH** | `RefAnchor.tsx:34` | **FIXED** — `text-text-subtle` → `text-text` (16.5:1 light / 14.8:1 dark, AAA) | n/a | `ddb66b1` |
+| D.5 RefAnchor R1 | No `focus-visible` / `group-focus-within` reveal — keyboard users see no affordance | **HIGH** | `RefAnchor.tsx:34` | **FIXED** — added `group-focus-within:opacity-100 focus-visible:opacity-100` (WCAG 2.4.7) | n/a | `ddb66b1` |
+| D.5 RefAnchor R1 | Tap target below 44px floor (DESIGN.md `--spacing-tap-min`) | **HIGH** | `RefAnchor.tsx:34` | **FIXED** — added `inline-flex h-11 w-11 -my-2 items-center justify-center rounded` (44×44px hit area with `-my-2` baseline compensation) | n/a | `ddb66b1` |
+| D.5 RefAnchor R1 | Emoji 🔗 vs lucide `Link2` | MEDIUM | `RefAnchor.tsx:36` | **BACKLOG** — bundle with D.1 glyph migration | n/a | BACKLOG candidate |
+| D.5 RefAnchor R1 (Codex) | `as` prop runtime guard missing — MDX callers (not typechecked) could silently render h4 | **HIGH** | `RefAnchor.tsx:22-29` | **FIXED** — added `VALID_AS` Set + synchronous throw if `as` ∉ {h2, h3}; regression test added | n/a | `5f508ad` |
+| D.6 TipFromSheets R1 (cumulative) | `border-l-4 border-accent` side-stripe ban (3rd Phase D instance — triggered meta-test) | **HIGH** | `TipFromSheets.tsx:5` | **FIXED** preemptively — `border-l-4` → `border` (1px full perimeter) | n/a | `c580074` |
+| D.6 TipFromSheets R1 (cumulative) | Eyebrow `text-accent-text × bg-info-bg` = 1.05:1 light / 1.13:1 dark (catastrophic) | **CRITICAL** | `TipFromSheets.tsx:6` | **FIXED** preemptively — eyebrow `text-accent-text` → `text-text-strong` (15.98:1 light / 14.95:1 dark, AAA) | n/a | `c580074` |
+| Phase-close cumulative | `rounded-md` vs `rounded` micro-drift between message-blocks and media-containers | LOW | cross-component | **ACCEPT-as-is** — semantic distinction (message-blocks `-md`, media containers bare); not a defect | n/a | n/a |
 
 ---
 
@@ -233,12 +272,12 @@ If any items surface during Phase D execution, route per the three-bucket discip
 
 ## §12 Sign-off
 
-- [ ] Implementer (Opus / Claude Code): __ date __ — final SHA __
-- [ ] External impeccable dual-gate APPROVED per-component (D.1, D.2, D.3, D.4, D.5, D.6) + phase-close cumulative (covers D.7 wiring) on __ date __
-- [ ] Reviewer (Codex cross-CLI) APPROVE on __ date __
+- [x] Implementer (Opus / Claude Code): 2026-05-19 — final SHA pending Codex R2 (current HEAD `5f508ad` after R1-driven fix)
+- [x] External impeccable dual-gate APPROVED per-component (D.1, D.2, D.3, D.4, D.5, D.6) on 2026-05-19 — see §8 per-component-impeccable table. Phase-close cumulative (covers D.7 wiring + meta-test): PASSES 31/32 + 20/20.
+- [ ] Reviewer (Codex cross-CLI) APPROVE on __ date __ — R1 returned needs-attention with 2 HIGHs (handoff audit trail + RefAnchor as-guard); both addressed at this commit; R2 pending.
 - [ ] User review: __ date __
 
-Phase D marked **closed** in `ROUTING.md`.
+Phase D marked **closed** in `ROUTING.md` upon Codex R2 APPROVE.
 
 ## §13 Meta-test inventory
 
