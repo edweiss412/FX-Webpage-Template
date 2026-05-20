@@ -1,5 +1,7 @@
 # Phase D — MDX components
 
+> **Status: CLOSED at SHA c68e2e8.** This plan body has been synced to match the final converged implementation (Codex R5 MEDIUM fix — see `handoffs/D-components.md` §8 for the R1→R5 convergence log). The code blocks below show the FINAL implementation, not the original r5-converged plan. Pre-fix snippets are preserved as inline comments showing what was rejected by impeccable §1.8 dual-gates or Codex adversarial review. **For future implementations / replays:** prefer `app/help/_components/*` and `tests/help/*` as canonical sources; this document is a synced reference.
+
 **Scope:** Build the 6 MDX-injected components: `<Callout>`, `<Step>`, `<ScreenshotPlaceholder>` (draft scaffold), `<Screenshot>` (production), `<RefAnchor>`, `<TipFromSheets>`. Register them in `mdx-components.tsx` so they're available inside every `.mdx` file under `app/help/`.
 
 **Prereqs:** Phase C complete (strict sequential per 00-overview.md). Phase A's `mdx-components.tsx` and Phase B's catalog schema extension are the practical interactions; Phase C's time utility is a no-op interaction but the strict-sequential ordering applies.
@@ -58,7 +60,13 @@ Expected: FAIL.
 - [ ] **Step 3: Implement `Callout`**
 
 ```tsx
-// app/help/_components/Callout.tsx
+// FINAL (post-impeccable §1.8 R1 fix, commit 293e0e9): Tip variant uses
+// text-text-strong (AAA on bg-stale-tint); wrapper uses uniform 1px `border`
+// (no >1px side-stripe per DESIGN.md L242). Canonical source: app/help/_components/Callout.tsx
+//
+// Pre-fix baseline (rejected by impeccable §1.8 dual-gate):
+//   tip.text: "text-accent-text"  // 1.05:1 catastrophic contrast on bg-stale-tint
+//   wrapper:  "border-l-4"        // DESIGN.md L242 side-stripe ban
 import type { ReactNode } from "react";
 
 const VARIANTS = {
@@ -81,7 +89,7 @@ const VARIANTS = {
   tip: {
     bg: "bg-stale-tint",
     border: "border-accent",
-    text: "text-accent-text",
+    text: "text-text-strong",
     role: "note" as const,
     icon: "✓",
     iconTestid: "callout-icon-tip",
@@ -100,7 +108,7 @@ export function Callout({
   return (
     <div
       role={v.role}
-      className={`my-4 flex gap-3 rounded-md border-l-4 px-4 py-3 ${v.bg} ${v.border} ${v.text}`}
+      className={`my-4 flex gap-3 rounded-md border px-4 py-3 ${v.bg} ${v.border} ${v.text}`}
     >
       <span data-testid={v.iconTestid} className="font-bold shrink-0">
         {v.icon}
@@ -167,14 +175,18 @@ Expected: FAIL.
 - [ ] **Step 3: Implement `Step`**
 
 ```tsx
-// app/help/_components/Step.tsx
+// FINAL (post-impeccable §1.8 R2 fix, commit 3ee35e1): badge uses
+// bg-surface-raised + text-accent-on-bg + border-2 border-accent + font-bold text-base
+// (Phase A R2 pattern; light 4.29:1 / dark 8.30:1; DESIGN.md L33 contract satisfied).
+// Pre-fix baseline: "bg-accent text-accent-text font-semibold text-sm" — 2.34:1 WCAG fail.
+// Canonical source: app/help/_components/Step.tsx
 import type { ReactNode } from "react";
 
 export function Step({ n, children }: { n: number; children: ReactNode }) {
   return (
     <div className="my-3 flex gap-3 items-start">
       <span
-        className="shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent text-accent-text font-semibold text-sm tabular-nums"
+        className="shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-full bg-surface-raised text-accent-on-bg border-2 border-accent font-bold text-base tabular-nums leading-none"
         aria-hidden="true"
       >
         {n}
@@ -242,7 +254,9 @@ Expected: FAIL.
 - [ ] **Step 3: Implement `ScreenshotPlaceholder`**
 
 ```tsx
-// app/help/_components/ScreenshotPlaceholder.tsx
+// FINAL (post-impeccable §1.8 em-dash fix, commit d9fcc07): "Screenshot pending: {alt}"
+// uses ASCII colon (not U+2014 em-dash per DESIGN.md L247).
+// Canonical source: app/help/_components/ScreenshotPlaceholder.tsx
 //
 // DRAFT-ONLY component. Phase H Task H.4 enforces zero references in shipped
 // v1 MDX. Use during Phase E content authoring before Phase F captures real
@@ -263,7 +277,7 @@ export function ScreenshotPlaceholder({
         className="aspect-video w-full rounded border-2 border-dashed border-border-strong bg-surface-raised flex items-center justify-center text-center p-4"
       >
         <span className="text-sm italic text-text-subtle">
-          Screenshot pending — {alt}
+          Screenshot pending: {alt}
         </span>
       </div>
       {caption && (
@@ -365,7 +379,8 @@ Expected: FAIL (module not found).
 - [ ] **Step 3: Implement `Screenshot`**
 
 ```tsx
-// app/help/_components/Screenshot.tsx
+// FINAL (passed impeccable §1.8 on first attest, commit 6e26bf7): no post-implementation
+// fixes needed. Canonical source: app/help/_components/Screenshot.tsx
 
 const BASE = "/help/screenshots";
 
@@ -440,17 +455,21 @@ git commit -m "feat(help): Screenshot production component with <picture> + dark
 **Files:**
 - Create: `app/help/_components/RefAnchor.tsx`
 
-Per spec §6.2 / §5.4 (slug-stability invariant). Renders a heading with `id={id}` and a click-to-copy link icon. `id` must match `/^[A-Z][A-Z0-9_]*$/` (catalog code shape).
+Per spec §6.2 / §5.4 (slug-stability invariant). Renders a heading with `id={id}` and a click-to-copy link icon. `id` must match `/^(MI-\d+[a-z]?_)?[A-Z][A-Z0-9_]*$/` (catalog code shape — standard `SCREAMING_SNAKE` or MI-class `MI-N[a-z]_BODY` per spec §6.3 r15 amendment).
 
 - [ ] **Step 1: Write the failing test**
 
 ```tsx
+// FINAL (post-Codex R1 as-guard, R2 clipboard, R3 broadened regex — see tests/help/ref-anchor.test.tsx):
+// Adds three new tests beyond the original four: MI-class regex positive cases,
+// `as` runtime guard, and clipboard write contract. Canonical source: tests/help/ref-anchor.test.tsx
 // @vitest-environment jsdom
-// tests/help/ref-anchor.test.tsx
 import "@testing-library/jest-dom/vitest";
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
 import { RefAnchor } from "@/app/help/_components/RefAnchor";
+
+afterEach(() => cleanup());
 
 describe("<RefAnchor>", () => {
   it("renders an h2 with id={id} by default (Phase E pages use it as section heading)", () => {
@@ -478,6 +497,42 @@ describe("<RefAnchor>", () => {
     expect(() => render(<RefAnchor id="bad-id">x</RefAnchor>)).toThrow();
     expect(() => render(<RefAnchor id="123_NUMERIC_LEAD">x</RefAnchor>)).toThrow();
   });
+
+  it("accepts real catalog code shapes (standard + MI-class) per /help/errors plan", () => {
+    // Standard SCREAMING_SNAKE_CASE
+    expect(() => render(<RefAnchor id="STALE_WRITE_ABORTED">x</RefAnchor>)).not.toThrow();
+    // MI-class with numeric prefix
+    expect(() => render(<RefAnchor id="MI-1_VERSION_DETECTION_FAILED">x</RefAnchor>)).not.toThrow();
+    // MI-class with lowercase suffix letter
+    expect(() => render(<RefAnchor id="MI-5a_DUPLICATE_CREW_NAME">x</RefAnchor>)).not.toThrow();
+  });
+
+  it("throws when as is anything other than 'h2' or 'h3' (MDX runtime guard, Codex R1 finding)", () => {
+    // Cast simulates a typo'd MDX call site; MDX files are not typechecked,
+    // so the TS union alone is insufficient.
+    expect(() =>
+      render(<RefAnchor id="X" as={"h4" as "h2" | "h3"}>x</RefAnchor>)
+    ).toThrow(/as.*h2.*h3/i);
+  });
+
+  it("copies permalink to clipboard on click (spec §6.2 / aria-label contract; Codex R2 finding)", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    // Provide a deterministic location:
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { origin: "http://localhost:3000", pathname: "/help/errors", hash: "" },
+    });
+
+    render(<RefAnchor id="REPORT_HORIZON_EXPIRED">x</RefAnchor>);
+    const linkBtn = screen.getByRole("link", { name: /copy link to this section/i });
+    linkBtn.click();
+
+    expect(writeText).toHaveBeenCalledWith("http://localhost:3000/help/errors#REPORT_HORIZON_EXPIRED");
+  });
 });
 ```
 
@@ -489,10 +544,24 @@ Expected: FAIL.
 - [ ] **Step 3: Implement `RefAnchor`**
 
 ```tsx
-// app/help/_components/RefAnchor.tsx
+// FINAL (post-impeccable §1.8 3-HIGH fix at ddb66b1, Codex R1 as-guard at 5f508ad,
+// R2 clipboard at 1e45e5d, R3 broadened regex at 504b533):
+//   - Regex broadened to /^(MI-\d+[a-z]?_)?[A-Z][A-Z0-9_]*$/ (spec §6.3 r15 amendment)
+//   - VALID_AS Set + runtime throw guard for MDX callers (MDX not typechecked)
+//   - "use client" + handleCopyClick using navigator.clipboard.writeText (spec §6.2 contract)
+//   - Copy-link <a>: text-text (not text-text-subtle), inline-flex h-11 w-11 -my-2 (44px tap),
+//     group-focus-within:opacity-100 focus-visible:opacity-100 (WCAG 2.4.7)
+// Pre-fix baseline: VALID_ID = /^[A-Z][A-Z0-9_]*$/ (rejected MI-class codes); no `as`
+// runtime guard; copy-link "text-text-subtle opacity-0 group-hover:opacity-100
+// transition-opacity text-sm" (action-target ban + no focus-visible + sub-44px tap);
+// no clipboard handler despite aria-label "Copy link to this section".
+// Canonical source: app/help/_components/RefAnchor.tsx
+"use client";
+
 import type { ReactNode } from "react";
 
-const VALID_ID = /^[A-Z][A-Z0-9_]*$/;
+const VALID_ID = /^(MI-\d+[a-z]?_)?[A-Z][A-Z0-9_]*$/;
+const VALID_AS: Set<string> = new Set(["h2", "h3"]);
 
 // r5 fix per D-r4 finding 1: RefAnchor defaults to h2 (Phase E uses it as
 // section heading for help pages). /help/errors uses h3 for per-code entries
@@ -508,7 +577,12 @@ export function RefAnchor({
 }) {
   if (!VALID_ID.test(id)) {
     throw new Error(
-      `<RefAnchor id="${id}"> — id must match /^[A-Z][A-Z0-9_]*$/ (catalog code shape).`,
+      `<RefAnchor id="${id}"> — id must match /^(MI-\\d+[a-z]?_)?[A-Z][A-Z0-9_]*$/ (catalog code shape: standard \`SCREAMING_SNAKE\` or MI-class \`MI-N[a-z]_BODY\`).`,
+    );
+  }
+  if (!VALID_AS.has(as)) {
+    throw new Error(
+      `<RefAnchor as="${as}"> — as must be "h2" or "h3" (MDX call sites are not typechecked).`,
     );
   }
   const Tag = as;
@@ -517,13 +591,29 @@ export function RefAnchor({
     as === "h2"
       ? "mt-10 mb-3 text-xl font-semibold text-text-strong group flex items-center gap-2"
       : "mt-8 mb-2 text-lg font-semibold text-text-strong group flex items-center gap-2";
+
+  // Codex R2 MEDIUM fix: spec §6.2 / aria-label contract advertises copy-to-
+  // clipboard. ADD navigator.clipboard.writeText; do NOT preventDefault so
+  // the fragment navigation still fires (middle-click "open in new tab"
+  // continues to work). Clipboard is gated on https/localhost, so wrap in
+  // try/catch — fallback is the default <a href> navigation.
+  const handleCopyClick = () => {
+    try {
+      const url = `${window.location.origin}${window.location.pathname}#${id}`;
+      void navigator.clipboard?.writeText?.(url);
+    } catch {
+      // Clipboard unavailable; the default <a href> navigation still fires.
+    }
+  };
+
   return (
     <Tag id={id} className={className}>
       {children}
       <a
         href={`#${id}`}
+        onClick={handleCopyClick}
         aria-label="Copy link to this section"
-        className="text-text-subtle opacity-0 group-hover:opacity-100 transition-opacity text-sm"
+        className="inline-flex h-11 w-11 -my-2 items-center justify-center rounded text-text opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity text-sm"
       >
         🔗
       </a>
@@ -580,13 +670,18 @@ Expected: FAIL.
 - [ ] **Step 3: Implement `TipFromSheets`**
 
 ```tsx
-// app/help/_components/TipFromSheets.tsx
+// FINAL (post-impeccable §1.8 preemptive fix, commit c580074):
+//   - Wrapper uses uniform 1px `border border-accent` (no >1px side-stripe per DESIGN.md L242)
+//   - Eyebrow uses text-text-strong (15.98:1 light / 14.95:1 dark on bg-info-bg, AAA)
+// Pre-fix baseline: "border-l-4 border-accent" + "text-accent-text" on bg-info-bg
+// (1.05:1 catastrophic contrast).
+// Canonical source: app/help/_components/TipFromSheets.tsx
 import type { ReactNode } from "react";
 
 export function TipFromSheets({ children }: { children: ReactNode }) {
   return (
-    <aside className="my-4 rounded-md border-l-4 border-accent bg-info-bg px-4 py-3">
-      <span className="block text-xs uppercase tracking-wider font-bold text-accent-text mb-1">
+    <aside className="my-4 rounded-md border border-accent bg-info-bg px-4 py-3">
+      <span className="block text-xs uppercase tracking-wider font-bold text-text-strong mb-1">
         From Sheets
       </span>
       <div className="leading-relaxed text-sm">{children}</div>
