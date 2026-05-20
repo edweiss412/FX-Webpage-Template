@@ -1,4 +1,6 @@
-**Status: READY FOR R3 REVIEW at `aff1195` (H1-4: Supabase-optional drift-detector repaired).** R2 APPROVE at `8f7d2de` is preserved as archival; the R1-retroactive P0s are still structurally closed and not at issue. R3 was opened when the post-R2 operator-bootstrap workflow run (`26139070002`) surfaced an environment-availability gap — FXAV has no production Supabase project (verified via Supabase MCP `list_projects` 2026-05-20), so the drift-detector's admin-alert RPC connection refuses on CI. User chose 2026-05-20 the "Make drift-detector Supabase-optional" path: graceful degradation when Supabase is unreachable. Codex R3 repair landed in commits `5104992` + `b419b00` + `aff1195`; see convergence-log §"Round 3 repair (Codex)." Branch-protection PUT (handoff §8 operator step) remains blocked until R3 closes APPROVE.
+**Status: COMPLETED 2026-05-20 at R3 APPROVE on SHA `41b3576`.** Three review rounds total: R1 APPROVE 2026-05-19 → retroactively REVERSED 2026-05-20 (3 P0s from live-integration bootstrap; mocked-only methodology was tautological); R2 APPROVE 2026-05-20 on `8f7d2de` (P0s closed structurally via canonical `upsert_admin_alert` RPC + meta-test + live-integration smoke test); R3 APPROVE 2026-05-20 on `41b3576` (H1-4 Supabase-optional drift-detector closed structurally — `defaultUpsertAdminAlert` detects unset/empty/127.0.0.1/localhost URLs and throws before client construction; `emitAlert` catches with stderr skip-message; JSON report STILL lands; exit 1 on drift STILL authoritative; spec §17.2.1 amended with one-sentence Supabase-optional contract; 15/15 audit cases pass — 13 R2 inheritance + 2 new graceful-degradation). R3 Opus fresh-eyes whole-diff sweep anchored to milestone base `d026919` returned APPROVE with zero new findings; all 4 unreachable-Supabase scenarios mentally-traced clean; all R2 closures preserved intact. **Complexity-hypothesis FOURTH data point — REFINEMENT to codified memory `feedback_mocked_only_tests_invite_tautological_approve.md`:** live-integration tests must include the environment-FAILURE mode, not just the happy-path environment. Branch-protection bootstrap (handoff §8 operator step) is now UNBLOCKED. **FXAV crew-pages v1 X.* set is structurally complete (this time really).** See "Convergence log" below.
+
+~~**Status: READY FOR R3 REVIEW at `aff1195` (H1-4: Supabase-optional drift-detector repaired).**~~ Superseded by COMPLETED above.
 
 ~~**Status: COMPLETED 2026-05-20 at R2 APPROVE on SHA `8f7d2de`.**~~ Superseded by REOPENED above; preserved here for archival. R1 APPROVE at `4a8c242` was retroactively REVERSED on 2026-05-20 when the operator-bootstrap step surfaced 3 P0 findings the mocked-only methodology missed; Codex's R2 repair (commits `0fe229c` + `efedcba` + `e3a1faa` + `8f7d2de`) closed all three structurally — `void main()` now `.catch()`-wrapped; admin-alert producer uses canonical `upsert_admin_alert` RPC pattern from `lib/adminAlerts/upsertAdminAlert.ts:35`; plan Task X.6 Step 3c clause 4 amended verbatim; new structural meta-test `tests/messages/_metaAdminAlertProducer.test.ts` walks `scripts/`+`lib/`+`app/` via `walkSourceFiles` (code-shape-based, not name-list); new live-integration smoke test at `tests/cross-cutting/verify-branch-protection.test.ts:206-238` exercises the real Supabase service-role client + RPC + idempotency-via-occurrence_count contract; W18 watchpoint inherits forward. R2 Opus fresh-eyes whole-diff sweep anchored to milestone base `d026919` returned APPROVE with zero new findings. **Complexity-hypothesis third data point: CONFIRMED across X.4 R2, X.5 R2, X.6 R2** — all three heaviest X.* milestones required two rounds; the round-count predictor is not raw complexity but the presence of a live-integration surface that mocks cannot exercise. Codifies as memory `feedback_heavy_audit_milestones_budget_two_rounds.md` (and sibling `feedback_mocked_only_tests_invite_tautological_approve.md`). **FXAV crew-pages v1 X.* set is now structurally complete.** Branch-protection bootstrap (handoff §8 operator step) resumes immediately post-close.
 
@@ -215,7 +217,7 @@ Pulled forward from X.1 R1–R3 + X.2 R1 + X.3 R1 + X.4 R1–R2 + X.5 R1–R2 cl
 - [ ] No new `// TODO` or `// FIXME` lines.
 - [ ] **AC-X.5-body-vs-list drift disposition recorded in convergence log** — either (a) spec amendment landed in X.6 commit range with verbatim file:line citations, OR (b) drift surfaced as a finding for a follow-up amendment. NOT acceptable: silent rename of AC-X.5's body to match the list; silent dropping of the parity assertion.
 - [ ] **Manual admin step recorded as follow-up** — the one-time branch-protection settings configuration (Settings → Branches → Branch protection rules → `main` → add all seven check names verbatim) is documented in the convergence log as a post-merge operator task. Subsequent runs of `scripts/verify-branch-protection.ts` programmatically verify it landed correctly.
-- [ ] Adversarial review converged to APPROVE. R2 APPROVE on 2026-05-20 closed R1-retroactive P0s (preserved as archival) but R3 opened the same day on H1-4 (Supabase-optional drift-detector — environment-availability gap surfaced by post-R2 operator-bootstrap workflow run `26139070002`). Codex R3 repair pending; see convergence-log §"Round 3 — REQUEST_CHANGES".
+- [x] Adversarial review converged to APPROVE at **R3** (2026-05-20, Opus reviewer; anchored to milestone base `d026919`; zero new findings; H1-4 closed structurally; R2 closures preserved intact). Three-round history: R1 APPROVE 2026-05-19 → retroactively REVERSED 2026-05-20 (3 P0s) → R2 APPROVE 2026-05-20 (`8f7d2de`) → R3 APPROVE 2026-05-20 (`41b3576`). See convergence-log §"Round 3 repair (Codex)" + §"Round 3 — APPROVE".
 - [ ] All commits follow `<type>(<scope>): <summary>` format with one logical task per commit.
 - [ ] Convergence log at the bottom of this file is filled in with R1 + any subsequent rounds + complexity-hypothesis third data point.
 
@@ -645,3 +647,66 @@ The top-of-file status banner currently reads "COMPLETED 2026-05-20 at R2 APPROV
 - `pnpm test` → 271 files passed / 1 skipped; 3663 tests passed / 5 skipped.
 
 **Notes:** R3 did not reopen the R1-retroactive P0s. The R2 structural meta-test and live RPC idempotency smoke remain intact. This repair adds the missing environment-failure mode required by the refined W18 lesson: live-integration checks must cover both reachable and unreachable external surfaces.
+
+#### Round 3 — APPROVE (2026-05-20, Opus reviewer)
+
+**Anchor:** milestone base `d026919` (X.5 R2 APPROVE close-out) per memory `feedback_adversarial_review_full_milestone_scope.md` — NOT the R2 fix-base, so fresh-eyes drift outside the R3 fix surface is detected. **Review scope:** `git diff d026919..41b3576` with M11 Phase C commits (`7e789f5`, `c06352b`, `648d22a`, `6c7e6de`) AND M11 Phase D Task D.1 commits (`1a10d97`, `b220041`) explicitly excluded.
+
+**Verdict:** APPROVE. **Zero new findings.** H1-4 closed structurally; all R2 closures preserved intact; spec §17.2.1 amendment correct; handoff integrity intact; 15/15 test cases verified.
+
+**H1-4 closure — mental trace of all four unreachable-Supabase scenarios:**
+
+1. `SUPABASE_URL` unset + drift detected → `localSupabaseReason` returns "unset or empty" → `defaultUpsertAdminAlert` throws before client construction → `emitAlert` catches + logs the spec-mandated stderr prefix `[verify-branch-protection] admin_alerts insertion skipped:` → `writeJsonReport` lands → exit 1. ✓
+2. `SUPABASE_URL=http://127.0.0.1:54321` + drift → "local dev URL" reason → same path. ✓
+3. `SUPABASE_URL=http://prod.supabase.co` + RPC throws (network error / 500) → client constructed, RPC call throws → caught by `emitAlert` → same. ✓
+4. Reachable production Supabase + RPC succeeds + drift detected → admin_alert lands → JSON report lands → exit 1. ✓
+
+All four scenarios produce the correct stderr + JSON report + exit-1 contract. The script no longer crashes on missing/local Supabase.
+
+**Verification of structural details:**
+
+- `scripts/verify-branch-protection.ts:55-67` `defaultUpsertAdminAlert` uses try-side gate detecting unset/empty/127.0.0.1/localhost URLs via `localSupabaseReason` (lines 69-81); throws before client construction when no client is injected and the URL is unavailable — preventing the R1/R2 ECONNREFUSED crash class.
+- `scripts/verify-branch-protection.ts:195-203` `emitAlert` try/catch logs the exact spec-mandated stderr prefix. Never re-throws. All four `emitAlert` call sites (lines 222, 241, 263, 276) precede `writeJsonReport` + return paths.
+- `scripts/verify-branch-protection.ts:291` `main()` still sets `process.exitCode = 1` on `!result.ok`. R2 `main().catch(...)` wrapper at line 300 preserved.
+- `scripts/verify-branch-protection.ts:64` RPC still uses canonical `upsert_admin_alert` (R2 P0-2 closure intact).
+
+**R2 closure preservation (verified):**
+
+- P0-1 `main().catch(...)` wrapper at line 300 — intact.
+- P0-2 every RPC call goes through canonical `upsert_admin_alert`; no raw `.from("admin_alerts").insert(...)` introduced anywhere by R3.
+- P0-3 plan amendment at `11-cross-cutting.md:2307-2319` — RPC-shaped, untouched by R3.
+- Meta-test `tests/messages/_metaAdminAlertProducer.test.ts` — still walks `scripts/`+`lib/`+`app/` via `walkSourceFiles`; allowlist still empty; untouched by R3.
+- Live-integration smoke test at `tests/cross-cutting/verify-branch-protection.test.ts:220-255` (R2's positive-case real-RPC + occurrence_count=2 idempotency) — PRESERVED intact, coexisting with R3's new graceful-degradation cases.
+
+**Spec amendment verification:**
+
+`docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md:3697` adds the canonical sentence as an ADDITION to §17.2.1 (not a replacement): "The privileged drift-detector emits `BRANCH_PROTECTION_DRIFT` to `admin_alerts` as best-effort observability; when Supabase is unreachable the script logs to stderr, writes the JSON report, and exits 1 on drift. The exit-code-on-drift + JSON-report contract continues to be authoritative even without admin-alert delivery." Surrounding trust-boundary + split-mode prose unchanged.
+
+**Test count verification:**
+
+`pnpm test:audit:branch-protection` reports 15/15 passing per Codex's verification gate. Composition matches the canonical count: 6 parametric drift + 2 happy-path (legacy + ruleset) + 4 parametric auth + 1 R2 live-integration smoke + 2 NEW R3 graceful-degradation = 15.
+
+**Negative-regression verification:**
+
+Codex's recorded stash SHA `44d981078beb20354b184dde7d9fbfa796a46395` removes the `emitAlert` wrapper. `pnpm test:audit:branch-protection` fails on the same crash-before-report class that produced workflow run `26139070002`'s failure. Restored wrapper returns green. The stash exercises the actual failure mode H1-4 was opened on.
+
+**Drift sweep result:**
+
+No R3-introduced regressions. R3 touched: `scripts/verify-branch-protection.ts` (graceful degradation), `tests/cross-cutting/verify-branch-protection.test.ts` (2 new cases + type tightening), `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md:3697` (one-sentence amendment), `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/handoffs/X6-traceability.md` (banner + R3 repair log). M11 Phase C/D commits in the range (`b220041`, `1a10d97`) are independent + correctly NOT claimed by X.6 R3.
+
+**Lint sanity:** the 6-warning count vs the X.5/R2 5-warning baseline is M11 Phase D `tests/help/callout.test.tsx:3` unused `vi` import — not X.6 R3's lint debt.
+
+**Complexity-hypothesis FOURTH data point — REFINEMENT to codified memory:**
+
+X.6 took THREE review rounds total (R1 retroactive REVERSAL counts; R2 APPROVE; R3 APPROVE). The R3 round was triggered NOT by a regression in R2's fix but by a DIFFERENT class of live-integration gap: the environment-availability class. R2 added a live-integration smoke test (R2 P0-2 closure), but the smoke test only exercised the HAPPY PATH (Supabase reachable + RPC working). The R3 finding exposed that the test suite needed BOTH:
+
+- Happy-path smoke test (R2 — exercises producer pattern against real schema).
+- Environment-failure smoke test (R3 — exercises graceful degradation when surface is unreachable).
+
+This is a REFINEMENT to the codified memory `feedback_mocked_only_tests_invite_tautological_approve.md`. The updated guidance is:
+
+> **Live-integration smoke tests must include the environment-FAILURE mode**, not just the happy-path environment. A test suite that only exercises "external surface reachable + working" is incomplete — it misses the "external surface unreachable" failure mode, which produces the same R1-style tautological APPROVE pattern at a different granularity. For ANY external-integration script, R1 self-review must explicitly enumerate the environment-failure modes (DB unreachable, API returning 5xx, secret missing, etc.) and confirm at least one test exists per mode.
+
+R3 also reinforces W18 watchpoint: live-integration probes MUST cover both reachable AND unreachable external surfaces. Updating memory body after this commit lands.
+
+**Closure summary:** H1-4 closed structurally — `defaultUpsertAdminAlert` detects unset/empty/local-dev URLs and throws before client construction; `emitAlert` catches with stderr skip-reason; JSON report STILL lands; exit 1 on drift STILL authoritative. R2 closures preserved intact. Spec §17.2.1 amended. Handoff status banner + exit criteria accurate. 15/15 audit cases pass. Branch-protection bootstrap (handoff §8 operator step) is UNBLOCKED. **FXAV crew-pages v1 X.* set is now structurally complete (this time really).** The next operator action is the branch-protection PUT against GitHub's REST API.
