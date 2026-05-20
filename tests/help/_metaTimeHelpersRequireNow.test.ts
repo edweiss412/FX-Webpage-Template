@@ -160,6 +160,16 @@ type LocalFunctionBinding = {
   node: FunctionLikeNode;
 };
 
+type LocalFunctionEntry =
+  | {
+      kind: "function";
+      binding: LocalFunctionBinding;
+    }
+  | {
+      kind: "alias";
+      target: string;
+    };
+
 /*
  * Export-function shape ceiling for this meta-test.
  *
@@ -211,6 +221,24 @@ type LocalFunctionBinding = {
  * identifiers not declared in the same file are not flagged; the source helper
  * lives in another module and is independently scanned if it falls in lib/time/.
  *
+ * Identifier-alias chains (R7 - resolveLocal with cycle guard):
+ * Local declarations that are themselves identifier aliases, such as
+ * `const alias = impl`, are tracked in localFunctions as alias targets. The
+ * resolveLocal helper follows that chain with a visited-set cycle guard until
+ * it reaches a function declaration / arrow / function-expression, or returns
+ * null if the chain dead-ends at an imported binding, global, or non-helper.
+ *
+ * This covers all three lookup sites:
+ * - `export { alias }` where alias is itself an alias of impl.
+ * - `export default alias` where alias is itself an alias.
+ * - `export const alias = impl`, an exported variable whose initializer is an
+ *   Identifier instead of an ArrowFunction / FunctionExpression.
+ *
+ * Combined with R5 ts.skipOuterExpressions, alias chains through type casts /
+ * parens / non-null assertions / satisfies reduce to a bare Identifier and
+ * flow through resolveLocal. Cycle guard: `const a = a` and multi-step cycles
+ * terminate via the visited set with no helper found.
+ *
  * Wrappers deliberately not unwrapped because they produce computed values,
  * not declarative helpers:
  * - CallExpression - IIFE: `(() => ...)()` produces the result, not the function.
@@ -218,6 +246,8 @@ type LocalFunctionBinding = {
  * - ConditionalExpression - `cond ? a : b` is a runtime helper choice.
  * - BinaryExpression (CommaToken) - `(sideEffect(), expr)` is a sequence.
  * - SpreadElement / array-element extraction - contortions outside this contract.
+ * - MemberExpression / element access - `obj.method` and `obj["method"]`.
+ * - Call-expression initializers - computed runtime values, not helpers.
  *
  * If a future helper exports through a compound-expression wrapper, the
  * production-side review is the catcher: such helpers are unusual enough that
@@ -231,32 +261,52 @@ function scanSource(src: string, filename: string): Violation[] {
     /* setParentNodes */ true,
   );
   const violations: Violation[] = [];
-  const localFunctions = new Map<string, LocalFunctionBinding>();
+  const localFunctions = new Map<string, LocalFunctionEntry>();
+
+  const resolveLocal = (
+    name: string,
+    seen = new Set<string>(),
+  ): LocalFunctionBinding | null => {
+    if (seen.has(name)) return null;
+    seen.add(name);
+    const entry = localFunctions.get(name);
+    if (!entry) return null;
+    if (entry.kind === "function") return entry.binding;
+    return resolveLocal(entry.target, seen);
+  };
 
   sf.forEachChild((node) => {
     if (ts.isFunctionDeclaration(node)) {
       if (hasModifier(node, ts.SyntaxKind.ExportKeyword)) return;
       if (!node.name) return;
-      localFunctions.set(node.name.text, { name: node.name.text, node });
+      localFunctions.set(node.name.text, {
+        kind: "function",
+        binding: { name: node.name.text, node },
+      });
       return;
     }
 
     if (ts.isVariableStatement(node)) {
-      if (hasModifier(node, ts.SyntaxKind.ExportKeyword)) return;
       for (const decl of node.declarationList.declarations) {
+        if (!ts.isIdentifier(decl.name)) continue;
         const initializer = decl.initializer ? unwrap(decl.initializer) : undefined;
         if (!initializer) continue;
-        if (
-          !ts.isArrowFunction(initializer) &&
-          !ts.isFunctionExpression(initializer)
-        ) {
+        if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) {
+          localFunctions.set(decl.name.text, {
+            kind: "function",
+            binding: {
+              name: decl.name.text,
+              node: initializer,
+            },
+          });
           continue;
         }
-        if (!ts.isIdentifier(decl.name)) continue;
-        localFunctions.set(decl.name.text, {
-          name: decl.name.text,
-          node: initializer,
-        });
+        if (ts.isIdentifier(initializer)) {
+          localFunctions.set(decl.name.text, {
+            kind: "alias",
+            target: initializer.text,
+          });
+        }
       }
     }
   });
@@ -276,13 +326,25 @@ function scanSource(src: string, filename: string): Violation[] {
         const initializer = decl.initializer ? unwrap(decl.initializer) : undefined;
         if (!initializer) continue;
         if (
-          !ts.isArrowFunction(initializer) &&
-          !ts.isFunctionExpression(initializer)
+          ts.isArrowFunction(initializer) ||
+          ts.isFunctionExpression(initializer)
         ) {
+          const name = ts.isIdentifier(decl.name) ? decl.name.text : "(destructured)";
+          checkFunctionLike(initializer, sf, name, filename, violations);
           continue;
         }
-        const name = ts.isIdentifier(decl.name) ? decl.name.text : "(destructured)";
-        checkFunctionLike(initializer, sf, name, filename, violations);
+        if (ts.isIdentifier(initializer)) {
+          const binding = resolveLocal(initializer.text);
+          if (!binding) continue;
+          checkFunctionLike(
+            binding.node,
+            sf,
+            binding.name,
+            filename,
+            violations,
+            ` (via \`export const ${decl.name.getText(sf)} = <identifier>\`)`,
+          );
+        }
       }
       return;
     }
@@ -294,7 +356,7 @@ function scanSource(src: string, filename: string): Violation[] {
         return;
       }
       if (ts.isIdentifier(expr)) {
-        const binding = localFunctions.get(expr.text);
+        const binding = resolveLocal(expr.text);
         if (!binding) return;
         checkFunctionLike(
           binding.node,
@@ -314,7 +376,7 @@ function scanSource(src: string, filename: string): Violation[] {
       if (!clause || !ts.isNamedExports(clause)) return;
       for (const spec of clause.elements) {
         const localName = (spec.propertyName ?? spec.name).text;
-        const binding = localFunctions.get(localName);
+        const binding = resolveLocal(localName);
         if (!binding) continue;
         checkFunctionLike(
           binding.node,
@@ -607,6 +669,104 @@ export default external;
   it("does NOT flag default export of identifier not in local map (`export default Math.random;`) — global, out of scope", () => {
     const src = `export default Math.random;\n`;
     const findings = scanSource(src, "synthetic-iddefault-global.ts");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("flags exported alias of local arrow helper (`const impl = (): number => Date.now(); export const alias = impl;`)", () => {
+    const src = `
+const impl = (): number => Date.now();
+export const alias = impl;
+`;
+    const findings = scanSource(src, "synthetic-alias-export-const.ts");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ fn: "impl" });
+  });
+
+  it("flags exported alias of local function declaration", () => {
+    const src = `
+function impl(now: Date = new Date()): number { return now.getTime(); }
+export const alias = impl;
+`;
+    const findings = scanSource(src, "synthetic-alias-export-const-fndecl.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags export-list alias chain (`const impl = ...; const alias = impl; export { alias };`)", () => {
+    const src = `
+const impl = (): number => Date.now();
+const alias = impl;
+export { alias };
+`;
+    const findings = scanSource(src, "synthetic-alias-exportlist.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags multi-level alias chain (`const a = ...; const b = a; const c = b; export { c };`)", () => {
+    const src = `
+const impl = (): number => Date.now();
+const lvl1 = impl;
+const lvl2 = lvl1;
+export { lvl2 };
+`;
+    const findings = scanSource(src, "synthetic-alias-multilevel.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags default-export of alias (`const impl = ...; const alias = impl; export default alias;`)", () => {
+    const src = `
+const impl = (): number => Date.now();
+const alias = impl;
+export default alias;
+`;
+    const findings = scanSource(src, "synthetic-alias-default.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags renamed alias re-export (`const impl = ...; const alias = impl; export { alias as renamed };`)", () => {
+    const src = `
+const impl = (): number => Date.now();
+const alias = impl;
+export { alias as renamed };
+`;
+    const findings = scanSource(src, "synthetic-alias-renamed.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags alias with type cast (`const impl = ...; export const alias = (impl as () => number);`) — R5 unwrap reduces to identifier", () => {
+    const src = `
+const impl = (): number => Date.now();
+export const alias = (impl as () => number);
+`;
+    const findings = scanSource(src, "synthetic-alias-cast.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("does NOT cycle on self-referencing alias (`const a = a; export { a };`) — cycle guard", () => {
+    // Cycle guard ensures the walker terminates. The alias resolves to nothing
+    // (not a helper) so there are no findings.
+    const src = `
+const a: any = a;
+export { a };
+`;
+    const findings = scanSource(src, "synthetic-alias-cycle.ts");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("does NOT flag exported alias of imported binding (`import { foo } from './x'; export const alias = foo;`) — source in other module", () => {
+    const src = `
+import { external } from "./other";
+export const alias = external;
+`;
+    const findings = scanSource(src, "synthetic-alias-import.ts");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("does NOT flag exported alias of helper WITHOUT body-Date.now and WITHOUT wall-clock default (positive control)", () => {
+    const src = `
+const impl = (now: Date): number => now.getTime();
+export const alias = impl;
+`;
+    const findings = scanSource(src, "synthetic-alias-ok.ts");
     expect(findings).toHaveLength(0);
   });
 });
