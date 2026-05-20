@@ -129,3 +129,41 @@ describe("lib/time/now — three-precondition gate (test #15)", () => {
     }
   });
 });
+
+describe("lib/time/now — capture-boundary + alt-style envelope (test #15)", () => {
+  it("capture-boundary: same frozen header returns byte-identical ISO across 60+s wall clock", async () => {
+    headerStore["x-screenshot-frozen-now"] = FROZEN;
+    headerStore.authorization = `Bearer ${SECRET}`;
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = SECRET;
+
+    const { now } = await import("@/lib/time/now");
+    const first = await now();
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 61_000);
+    const second = await now();
+
+    expect(first).toBe(FROZEN);
+    expect(second).toBe(FROZEN);
+    expect(second).toBe(first);
+  });
+
+  it("alt-style: header casing tolerance — frozen returned for `X-SCREENSHOT-FROZEN-NOW`", async () => {
+    headerStore["x-screenshot-frozen-now"] = FROZEN;
+    headerStore.authorization = `Bearer ${SECRET}`;
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = SECRET;
+
+    const { nowDate } = await import("@/lib/time/now");
+    expect((await nowDate()).toISOString()).toBe(FROZEN);
+  });
+
+  it("alt-style: Bearer prefix is case-sensitive (`bearer ...` rejected — defense-in-depth)", async () => {
+    headerStore["x-screenshot-frozen-now"] = FROZEN;
+    headerStore.authorization = `bearer ${SECRET}`;
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = SECRET;
+
+    await expectRealNow();
+  });
+});
