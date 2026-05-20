@@ -25,7 +25,7 @@
 
 ## §2 Phase progress
 
-- [x] **Phase D — MDX components** (`04-components.md`) — STATUS IN PROGRESS (final SHA pending Codex R2)
+- [x] **Phase D — MDX components** (`04-components.md`) — STATUS: implementation + impeccable §1.8 dual-gates complete; awaiting Codex APPROVE; final SHA recorded on approval
   - [x] Task D.1 — `<Callout type>` component (`b220041` + impeccable-fix `293e0e9`)
   - [x] Task D.2 — `<Step n>` component (`97ae6f2` + fix-1 `8ed74eb` + fix-2 `3ee35e1`)
   - [x] Task D.3 — `<ScreenshotPlaceholder>` draft scaffold (`87ee73f` + em-dash fix `d9fcc07`)
@@ -36,8 +36,8 @@
   - [x] Structural meta-test `tests/styles/_metaDesignTokenPairs.test.ts` (same-vector recurrence trigger, `7d2929b`)
   - [x] Per-component impeccable §1.8 dual-gate — 6 visual components, each via EXTERNAL fresh-subagent dispatch. ALL PASSES (see §8 convergence log).
   - [x] Phase-close cumulative impeccable §1.8 dual-gate — PASSES 31/32 + 20/20 (see §8).
-  - [x] Phase-level adversarial review (Codex) — iterated R1→R6 (and counting until APPROVE). Convergence trajectory R1 (2 HIGH) → R2 (1 MED) → R3 (1 MED) → R4 (1 MED) → R5 (1 MED) → R6 (1 MED) → R7 target APPROVE. R1: handoff audit trail + as-guard. R2: clipboard contract. R3: catalog-code regex. R4: handoff/spec doc/code drift. R5: plan-body doc/code drift. R6: handoff trail-staleness (TBD rows for prior rounds). Severity strictly non-increasing; each finding NEW vector (not finding re-litigation); R4/R5/R6 are same doc-drift CLASS — comprehensive doc-sweep + forward-looking sign-off language adopted as the structural defense.
-  - [x] Final gates green (`pnpm test` 3687/3692 pass + 5 skipped + 0 failed; `pnpm lint` clean; `pnpm typecheck` clean; e2e mobile-safari TBD).
+  - [x] Phase-level adversarial review (Codex) — iterating until APPROVE; see §8 R-row table for the per-round verdicts and resolutions. Severity strictly non-increasing across rounds; each finding NEW vector (not finding re-litigation).
+  - [x] Final gates green: `pnpm test` 3687/3692 pass + 5 skipped + 0 failed; `pnpm lint` clean; `pnpm typecheck` clean; `pnpm test:e2e --project=mobile-safari` 85/236 pass + 151 skipped + 0 failed (after re-run of 2 documented sub-pixel-jitter flakes per Phase A watchpoint #11).
 
 Other phases: A done at `e911078`; B done at `cd14865`; C done at `6c7e6de`; E–I tracked in their own per-phase handoffs.
 
@@ -193,7 +193,11 @@ Format: per-round row appended at the bottom. Round 1 anchored at Phase D base S
 | D.5 impeccable 3-HIGH fix | `ddb66b1` | `fix(help): D.5 RefAnchor — copy-link text-text-subtle→text-text (HIGH), add focus-visible (HIGH), expand to 44px tap target (HIGH) per impeccable §1.8` |
 | D.5 Codex R2 fix | `1e45e5d` | `fix(help): D.5 RefAnchor — implement copy-to-clipboard onClick handler per spec §6.2 aria-label contract (Codex R2 MEDIUM)` |
 | D.5 Codex R3 fix | `504b533` | `fix(help): D.5 RefAnchor — broaden id regex to accept MI-class catalog codes (Codex R3 MEDIUM; Phase E.13 unblocker)` |
-| D.5 Codex R4 fix (this commit) | TBD | `docs(handoff,spec): D.5 RefAnchor — spec §6.3 r15 amendment + handoff canonical-trail sync per Codex R4 MEDIUM` |
+| D.5 Codex R4 fix | `c68e2e8` | `docs(handoff,spec): D.5 RefAnchor — spec §6.3 r15 amendment + handoff canonical-trail sync per Codex R4 MEDIUM` |
+| D.5 Codex R5 fix (plan-body sync) | `1584486` | `docs(plan): D-components.md plan body synced to final implementation per Codex R5 MEDIUM` |
+| D.5 Codex R5 follow-on doc-sweep | `f620522` | `docs(plans): final stale-regex sweep — 05-content.md + handoff §5 invariant` |
+| D.5 Codex R6 fix (handoff R5 row + forward-looking §12) | `ab854c4` | `docs(handoff): R6 trail-update — populate R5 row + add R6 row + forward-looking sign-off` |
+| D.5 Codex R7 fix (this commit — exhaustive sweep) | TBD | `docs(handoff): R7 exhaustive sweep — §2 top-level status + §13 meta-test inventory + clear all remaining round-pinned language` |
 | D.6 implementation | `9ed66de` | `feat(help): TipFromSheets adoption-track aside component (Task D.6)` |
 | D.6 preemptive fix | `c580074` | `fix(help): D.6 TipFromSheets — drop border-l-4 side-stripe (HIGH, DESIGN.md L242) + eyebrow text-accent-text→text-text-strong (CRITICAL contrast) per impeccable §1.8 pre-flag` |
 | D.7 registration | `4ee6892` | `feat(help): register all six MDX components in mdx-components.tsx (Task D.7)` |
@@ -228,7 +232,8 @@ Format: per-round row appended at the bottom. Round 1 anchored at Phase D base S
 | R4 Codex adversarial | 2026-05-19 | **needs-attention** at `504b533` | MEDIUM × 1: R3 regex fix landed in code but spec §6.3 line 415 still cited even stricter `/^[A-Z_]+$/` (no digits at all); handoff §6 watchpoint #7 + §3 + AC-11.19 still showed old regex; multiple "R2 pending" stale references | (this commit) spec §6.3 r15 amendment + handoff §3 / §4 / §6 watchpoint #7 / §8 / §12 canonical-trail sync | Job `review-mpdju8zf-5wxx2r`; legitimate doc-vs-code drift finding; per AGENTS.md §1.7 spec amended directly (correction, not silent override — old regex rejected live catalog data) |
 | R5 Codex adversarial | 2026-05-19 | **needs-attention** at `c68e2e8` | MEDIUM × 1: plan body `04-components.md` still contained pre-fix code snippets that would reintroduce R1-R4 defects if a future Phase E replay trusted them | `1584486` plan-body synced to FINAL converged code with inline annotations + CLOSED-status banner; `f620522` follow-on doc-sweep for 05-content.md + §5 invariant table | Job `review-mpdk1ojo-bhw410`; same vector as R4 (doc/code drift) but different file scope (plan body vs handoff/spec) |
 | R6 Codex adversarial | 2026-05-19 | **needs-attention** at `f620522` | MEDIUM × 1: handoff §8 R5 row still TBD; §12/§2 still said "R1→R4 / R5 pending" — trail-staleness gap (same vector as R4+R5; 3rd same-vector instance triggered comprehensive doc-sweep + forward-looking sign-off language as structural defense) | (this commit) §8 R5 row populated + R6 row added + §2 + §12 rewritten with forward-looking iteration language | Job `review-mpdkcp2n-s2k3db`; same-vector recurrence rule applied — structural defense ships in this commit |
-| R7 Codex adversarial | TBD | TBD | TBD | — | base = `023d312`; pending after R6 trail-update commit lands |
+| R7 Codex adversarial | 2026-05-19 | **needs-attention** at `ab854c4` | MEDIUM × 2: (1) §2 top-level Phase D status still pinned "STATUS IN PROGRESS (final SHA pending Codex R2)"; (2) §13 meta-test inventory still said "Phase D CREATES: none expected" despite `7d2929b` landing `_metaDesignTokenPairs.test.ts` | (this commit) §2 top-level status rewritten to round-neutral language; §13 fully rewritten to declare the meta-test as CREATED + describe enforced scope; exhaustive grep-sweep across the handoff to clear ALL remaining stale-round language | Job `review-mpdkgtlm-yyh0r6`; same vector as R4/R5/R6 (4th consecutive doc-drift round); per `feedback_same_vector_recurrence_triggers_comprehensive_reanalysis.md` — comprehensive re-analysis performed (full-handoff grep sweep + structural defense reinforcement) |
+| R8 Codex adversarial | TBD | TBD | TBD | — | base = `023d312`; pending after R7 comprehensive sweep lands |
 
 ---
 
@@ -292,14 +297,17 @@ Phase D marked **closed** in `ROUTING.md` upon Codex APPROVE.
 
 Per AGENTS.md writing-plans additions: declare which structural meta-tests this phase CREATES or EXTENDS.
 
-**Phase D CREATES:** none expected. The six per-component unit tests + the D.7 registration test ARE the surface tests; they are not structural meta-tests (they assert behavior of specific files, not invariants across a registry).
+**Phase D CREATES — `tests/styles/_metaDesignTokenPairs.test.ts`** (commit `7d2929b`). Triggered by the 3+ same-vector recurrence rule (`feedback_same_vector_recurrence_triggers_comprehensive_reanalysis.md`): Phase A R2 Sidebar side-stripe (fixed) + Phase D D.1 Callout side-stripe (fixed at `293e0e9`) + Phase D D.6 TipFromSheets side-stripe (fixed at `c580074`) = 3 instances of the side-stripe class. The meta-test is a Node-environment Vitest file with three sub-scans across `app/help/_components/*.tsx`:
 
-**Phase D EXTENDS:** none expected.
+1. **Side-stripe ban (DESIGN.md L242):** asserts no `border-(l|r|t|b)-[2-9]|\d{2,}|\[` pattern (allows `border-l` / `border-r` 1px form; bans ≥2px directional borders).
+2. **`text-accent-text` only on `bg-accent`:** asserts every className containing `text-accent-text` also contains `bg-accent` on the same line (catches the D.1 Tip-variant + D.6 eyebrow class that paired accent-text with bg-stale-tint and bg-info-bg).
+3. **`text-text-subtle` not on action targets:** asserts every className containing `text-text-subtle` does NOT appear on the same line as `href=`, `onClick`, `<a `, `<button`, or `<Link` (catches the D.5 RefAnchor + Phase A R1 Sidebar pre-fix class).
 
-**Phase D candidate registrations** (if a same-vector recurrence triggers a structural defensive layer per watchpoint #1):
-- `tests/styles/_metaDesignTokenPairs.test.ts` — DEFERRED candidate from Phase A §14.1 sketch. If a third same-vector finding lands on the side-stripe class OR the accent-text-on-accent-bg class OR the text-subtle-on-action class during Phase D adversarial review, promote that meta-test to landed code in Phase D and add it to this registry.
+Each sub-scan was red-via-temp-violation verified at commit time (3 distinct violations introduced + reverted; see commit `7d2929b` body). Scope is `app/help/_components/` only; pre-existing violations elsewhere in `components/` are out of scope (BACKLOG candidate for project-wide sweep).
 
-**Justification for not pre-creating the meta-test in Phase D:** the `feedback_meta_contract_test_for_recurring_bug_class.md` rule fires after **3+ consecutive review rounds** of the same vector. Phase A surfaced 2 instances (side-stripe + text-subtle-on-actions). Phase D plan body has 2 anticipated instances of side-stripe (Callout + TipFromSheets) and 1 anticipated instance of accent-text-on-accent-bg (Step) and 1 anticipated instance of text-subtle-on-action (RefAnchor copy-link). If all four surface in adversarial review, the side-stripe class will be at 4 instances total (across Phase A + Phase D) — that crosses the threshold and the meta-test lands in Phase D. If only some surface, the threshold may not be crossed yet, in which case the meta-test remains deferred per `feedback_deferral_discipline.md`.
+**Phase D EXTENDS:** none. (The Phase D meta-test is a NEW structural defense, not an extension of an existing registry. Existing registries — `tests/auth/_metaInfraContract.test.ts`, `tests/components/tiles/_metaSentinelHidingContract.test.ts`, `tests/messages/_metaAdminAlertCatalog.test.ts`, `tests/auth/advisoryLockRpcDeadlock.test.ts`, `tests/admin/no-inline-email-normalization.test.ts` — were N/A for Phase D scope.)
+
+**Forward-pointer for Phase E+:** when a Phase E content brief introduces a NEW DESIGN.md absolute-ban class (e.g., a 4th token-pair pattern), extend `_metaDesignTokenPairs.test.ts` with an additional `it()` sub-scan rather than per-instance whack-a-mole. Project-wide sweep (`components/**` outside `app/help/`) is a BACKLOG candidate when the Phase A R1 + cross-cutting precedent codes are touched again.
 
 ## §14 Phase D meta-observations (populated at close-out)
 
