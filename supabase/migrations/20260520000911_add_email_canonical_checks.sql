@@ -52,6 +52,37 @@ alter table public.reports
 
 alter table public.report_rate_limits
   drop constraint if exists report_rate_limits_admin_identity_email_canonical;
+-- Pre-merge duplicate admin buckets that would collide on the (kind, identity, hour_bucket)
+-- primary key after canonicalization (e.g. 'Doug@x.com' and 'doug@x.com' in the same hour).
+-- Sum the counts onto whichever row has the canonical identity, deleting the non-canonical
+-- collision partner. After this, any remaining non-canonical admin rows have no canonical
+-- companion in the same hour and the in-place UPDATE below is collision-free.
+with collisions as (
+  select n.kind, n.identity as old_id, lower(trim(n.identity)) as new_id, n.hour_bucket, n.count
+    from public.report_rate_limits n
+   where n.kind = 'admin'
+     and n.identity is distinct from lower(trim(n.identity))
+     and exists (
+       select 1 from public.report_rate_limits r
+        where r.kind = n.kind
+          and r.identity = lower(trim(n.identity))
+          and r.hour_bucket = n.hour_bucket
+     )
+),
+merged as (
+  update public.report_rate_limits r
+     set count = r.count + c.count
+    from collisions c
+   where r.kind = c.kind
+     and r.identity = c.new_id
+     and r.hour_bucket = c.hour_bucket
+   returning r.kind, r.identity, r.hour_bucket
+)
+delete from public.report_rate_limits r
+ using collisions c
+ where r.kind = c.kind
+   and r.identity = c.old_id
+   and r.hour_bucket = c.hour_bucket;
 update public.report_rate_limits
    set identity = lower(trim(identity))
  where kind = 'admin'
@@ -101,6 +132,34 @@ begin
        and reported_by is distinct from lower(trim(reported_by));
   end if;
   if to_regclass('dev.report_rate_limits') is not null then
+    -- Same pre-merge as public.report_rate_limits above: coalesce admin buckets
+    -- that would collide on the (kind, identity, hour_bucket) PK after canonicalization.
+    with collisions as (
+      select n.kind, n.identity as old_id, lower(trim(n.identity)) as new_id, n.hour_bucket, n.count
+        from dev.report_rate_limits n
+       where n.kind = 'admin'
+         and n.identity is distinct from lower(trim(n.identity))
+         and exists (
+           select 1 from dev.report_rate_limits r
+            where r.kind = n.kind
+              and r.identity = lower(trim(n.identity))
+              and r.hour_bucket = n.hour_bucket
+         )
+    ),
+    merged as (
+      update dev.report_rate_limits r
+         set count = r.count + c.count
+        from collisions c
+       where r.kind = c.kind
+         and r.identity = c.new_id
+         and r.hour_bucket = c.hour_bucket
+       returning r.kind, r.identity, r.hour_bucket
+    )
+    delete from dev.report_rate_limits r
+     using collisions c
+     where r.kind = c.kind
+       and r.identity = c.old_id
+       and r.hour_bucket = c.hour_bucket;
     update dev.report_rate_limits
        set identity = lower(trim(identity))
      where kind = 'admin'

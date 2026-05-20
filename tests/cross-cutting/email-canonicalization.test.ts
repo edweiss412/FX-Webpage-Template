@@ -416,6 +416,84 @@ describe("X.5 email canonicalization audit", () => {
     });
   }, 15000);
 
+  test.skipIf(!livePsqlReachable)(
+    "canonical CHECK migration coalesces report_rate_limits PK collisions before constraint validation",
+    () => {
+      // Failure mode: two admin rows that differ only by email casing in the same hour
+      // collide on the (kind, identity, hour_bucket) PK when both get canonicalized.
+      // The backfill must merge them by summing counts and deleting the non-canonical row.
+      const output = runPsql(`
+        begin;
+
+        create schema if not exists dev;
+        create table if not exists dev.report_rate_limits (like public.report_rate_limits including all);
+
+        -- Drop the canonical CHECK constraints so we can seed the pre-fix mixed-case shape
+        -- on both schemas. The migration we invoke below will re-add them after the backfill.
+        alter table if exists public.report_rate_limits
+          drop constraint if exists report_rate_limits_admin_identity_email_canonical;
+        alter table if exists dev.report_rate_limits
+          drop constraint if exists report_rate_limits_admin_identity_email_canonical;
+
+        delete from public.report_rate_limits
+         where kind = 'admin'
+           and identity ilike '%collide@example.com%';
+        delete from dev.report_rate_limits
+         where kind = 'admin'
+           and identity ilike '%dev.collide@example.com%';
+
+        -- Public: two admin rows differing only by case, same hour_bucket.
+        insert into public.report_rate_limits (kind, identity, hour_bucket, count) values
+          ('admin', ' Admin.Collide@Example.COM ', '2026-05-20T00:00:00Z'::timestamptz, 3),
+          ('admin', 'admin.collide@example.com', '2026-05-20T00:00:00Z'::timestamptz, 5);
+
+        -- Dev: same collision shape.
+        insert into dev.report_rate_limits (kind, identity, hour_bucket, count) values
+          ('admin', ' Dev.Collide@Example.COM ', '2026-05-20T00:00:00Z'::timestamptz, 7),
+          ('admin', 'dev.collide@example.com', '2026-05-20T00:00:00Z'::timestamptz, 11);
+
+        \\i supabase/migrations/20260520000911_add_email_canonical_checks.sql
+
+        select jsonb_build_object(
+          'public_count', (
+            select count from public.report_rate_limits
+             where kind = 'admin'
+               and identity = 'admin.collide@example.com'
+               and hour_bucket = '2026-05-20T00:00:00Z'::timestamptz
+          ),
+          'public_rows', (
+            select count(*) from public.report_rate_limits
+             where kind = 'admin'
+               and identity ilike '%collide@example.com%'
+               and hour_bucket = '2026-05-20T00:00:00Z'::timestamptz
+          ),
+          'dev_count', (
+            select count from dev.report_rate_limits
+             where kind = 'admin'
+               and identity = 'dev.collide@example.com'
+               and hour_bucket = '2026-05-20T00:00:00Z'::timestamptz
+          ),
+          'dev_rows', (
+            select count(*) from dev.report_rate_limits
+             where kind = 'admin'
+               and identity ilike '%dev.collide@example.com%'
+               and hour_bucket = '2026-05-20T00:00:00Z'::timestamptz
+          )
+        )::text;
+
+        rollback;
+      `);
+
+      expect(JSON.parse(output)).toEqual({
+        public_count: 8,
+        public_rows: 1,
+        dev_count: 18,
+        dev_rows: 1,
+      });
+    },
+    15000,
+  );
+
   test.skipIf(!livePsqlReachable)("live project satisfies all seven AC-X.5 audit layers", () => {
     expect(auditLiveEmailCanonicalization()).toEqual([]);
   }, 15000);
