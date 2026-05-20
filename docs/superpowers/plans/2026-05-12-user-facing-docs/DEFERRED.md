@@ -17,6 +17,30 @@ Per `feedback_deferral_discipline.md` — items here are work that **will be don
 - **Spec status:** Spec §7.2 / §5.2 canonical. M9 plan tree owns implementation.
 - **Re-open trigger:** M9 ships the four signed-link control labels.
 
+### M11-E-D3: `/help/admin/dashboard` documents Active Shows row actions (`Open`, `Preview as`, `Re-sync`, `Archive`) that aren't in shipped `components/admin/ActiveShowsPanel.tsx`
+
+- **Severity:** MEDIUM (Codex R5 fresh-eyes finding)
+- **File:line:** `app/help/admin/dashboard/page.mdx` (Active Shows section) ↔ `components/admin/ActiveShowsPanel.tsx`
+- **Symptom:** Dashboard help page documents per-row actions on the Active Shows panel: `Open`, `Preview as`, `Re-sync`, `Archive`. Grep of `components/admin/ActiveShowsPanel.tsx` returns ZERO matches for any of those labels. Component renders show title link + crew count + sync-status text only. No row-level action affordances.
+- **Why deferred (same disposition pattern as M11-E-D1):** Per AGENTS.md §1.7, spec is canonical. Phase E docs the per-spec admin surface; M9 (per-show panel + dashboard row actions) was scoped to ship these per master-spec §9.1, and the implementation gap is M9's deferred work. User decision recorded at R3: docs follow spec; M9 gap is M9's bug. Same rule applies to R5 findings in this class.
+- **Concrete fix path (NOT Phase E scope):** M9 follow-up session — wire the four row-action controls in `components/admin/ActiveShowsPanel.tsx`. When labels ship, no Phase E follow-up is needed.
+- **Why not BACKLOG.md:** M9 is a real planned milestone with shipped commits; this is a known incomplete surface, not a speculative future-feature.
+- **Spec status:** Master spec §9.1 (admin dashboard reading) documents row actions. M9 plan tree owns implementation.
+- **Re-open trigger:** M9 ships the four Active Shows row-action labels.
+
+### M11-E-D4: `/help/admin/per-show-panel` documents sync-health-last-5 + parse-warnings sections absent from shipped `app/admin/show/[slug]/page.tsx`
+
+- **Severity:** MEDIUM (Codex R5 fresh-eyes finding)
+- **File:line:** `app/help/admin/per-show-panel/page.mdx` (Sync health + Parse warnings sections) ↔ `app/admin/show/[slug]/page.tsx`
+- **Symptom:** Per-show help page documents a sync-health section showing the last 5 sync attempts and a parse-warnings list from the most recent sync. Shipped `app/admin/show/[slug]/page.tsx` imports `PerShowAlertSection`, `ReSyncButton`, `ParsePanel`, `HelpTooltip` — no `SyncHealth` component, no last-5-sync-attempts query/view, no separate parse-warnings history section (parse warnings live inside `ParsePanel` over `pending_syncs`).
+- **Why deferred:** Same pattern as M11-E-D3 + M11-E-D1. Per AGENTS.md §1.7 spec-canonical, docs follow spec; M9 gap is M9's bug.
+- **Concrete fix path (NOT Phase E scope):** M9 follow-up — ship the sync-health-history + dedicated parse-warnings-history sections in `app/admin/show/[slug]/page.tsx` per master-spec §9.2.
+- **Why not BACKLOG.md:** Real M9 incomplete surface, not speculative.
+- **Spec status:** Master spec §9.2 (per-show panel reading) documents these sub-sections.
+- **Re-open trigger:** M9 ships sync-health-history + parse-warnings-history sections in the per-show panel.
+
+---
+
 ### M11-E-D2: `/help/getting-started` walkthrough is a SHORT-NARRATIVE summary of the full §9.0 wizard documented in detail at `/help/admin/onboarding-wizard`
 
 - **Severity:** HIGH (Codex R3 adversarial finding — flagged as "skips required onboarding steps")
