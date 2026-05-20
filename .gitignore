@@ -55,3 +55,6 @@ playwright/.cache/
 
 # MCP playwright tool transient artifacts (console logs, page YAML snapshots).
 .playwright-mcp/
+
+# Hook audit log for codex-companion adversarial-review prompts (~/.claude/hooks/check-codex-adversarial-review-fresh-eyes.sh)
+.codex-adversarial-review-audit.log
