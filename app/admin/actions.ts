@@ -94,7 +94,7 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
   const { error: updateError } = await supabase
     .from("admin_alerts")
     .update({
-      resolved_at: new Date().toISOString(),
+      resolved_at: new Date().toISOString(), // not-render-side: mutation timestamp (resolved_at write)
       resolved_by: resolvedBy,
     })
     .eq("id", id)

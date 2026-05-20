@@ -142,7 +142,7 @@ export async function parseAndStage(
       headRevisionId: `mock-rev-${filename.replace(/[^a-zA-Z0-9]/g, "")}`,
       md5Checksum: "f".repeat(32),
       mimeType: "application/vnd.google-apps.spreadsheet",
-      modifiedTime: new Date().toISOString(),
+      modifiedTime: new Date().toISOString(), // not-render-side: mutation timestamp (modifiedTime write)
     },
   });
 
@@ -201,7 +201,7 @@ export async function parseAndStage(
     p_hard_error_message: effectiveOutcome === "hard_fail" ? finalHardMessage : null,
     p_warnings: parseResult.warnings as unknown as Record<string, unknown>[],
     p_warning_summary: warningSummary,
-    p_staged_modified_time: new Date().toISOString(),
+    p_staged_modified_time: new Date().toISOString(), // not-render-side: mutation timestamp (p_staged_modified_time write)
   });
 
   if (error) {

@@ -139,7 +139,7 @@ export async function bootstrapMint(showId: string): Promise<BootstrapMintResult
   // requirement and matches the redeem-link route's session-token mint.
   const nonce = randomUUID();
   const nonceHash = createHash("sha256").update(nonce).digest("hex");
-  const issuedAt = new Date().toISOString();
+  const issuedAt = new Date().toISOString(); // not-render-side: mutation timestamp (issuedAt write)
 
   const supabase = createSupabaseServiceRoleClient();
   const mint = (await supabase.rpc("mint_bootstrap_nonce_atomic", {
