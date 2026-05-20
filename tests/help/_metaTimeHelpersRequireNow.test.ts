@@ -62,6 +62,14 @@ function hasModifier(
   return node.modifiers?.some((m) => m.kind === kind) ?? false;
 }
 
+type TypeScriptWithSkipOuterExpressions = typeof ts & {
+  skipOuterExpressions: (node: ts.Expression) => ts.Expression;
+};
+
+function unwrap(node: ts.Expression): ts.Expression {
+  return (ts as TypeScriptWithSkipOuterExpressions).skipOuterExpressions(node);
+}
+
 function checkFunctionLike(
   node: FunctionLikeNode,
   sf: ts.SourceFile,
@@ -178,6 +186,29 @@ type LocalFunctionBinding = {
  *     separate helper pattern and deserve their own meta-test if introduced.
  * 16. export namespace Foo { ... } - rare in modern TS and intentionally deferred.
  * 17. export = ... - TS CommonJS interop and intentionally out of scope.
+ *
+ * Outer-expression unwrapping (R5 - ts.skipOuterExpressions):
+ * The walker calls ts.skipOuterExpressions on every initializer/expression
+ * before checking arrow/function-expression kind. This makes the following
+ * wrappers transparent; the underlying function is matched regardless:
+ * - ParenthesizedExpression - `(expr)`
+ * - TypeAssertionExpression - `<T>expr`
+ * - AsExpression - `expr as T`
+ * - NonNullExpression - `expr!`
+ * - SatisfiesExpression - `expr satisfies T`
+ * - PartiallyEmittedExpression - internal TS
+ *
+ * Wrappers deliberately not unwrapped because they produce computed values,
+ * not declarative helpers:
+ * - CallExpression - IIFE: `(() => ...)()` produces the result, not the function.
+ * - AwaitExpression - `await (() => ...)` produces an awaited value.
+ * - ConditionalExpression - `cond ? a : b` is a runtime helper choice.
+ * - BinaryExpression (CommaToken) - `(sideEffect(), expr)` is a sequence.
+ * - SpreadElement / array-element extraction - contortions outside this contract.
+ *
+ * If a future helper exports through a compound-expression wrapper, the
+ * production-side review is the catcher: such helpers are unusual enough that
+ * adversarial review should flag the call site.
  */
 function scanSource(src: string, filename: string): Violation[] {
   const sf = ts.createSourceFile(
@@ -200,7 +231,7 @@ function scanSource(src: string, filename: string): Violation[] {
     if (ts.isVariableStatement(node)) {
       if (hasModifier(node, ts.SyntaxKind.ExportKeyword)) return;
       for (const decl of node.declarationList.declarations) {
-        const initializer = decl.initializer;
+        const initializer = decl.initializer ? unwrap(decl.initializer) : undefined;
         if (!initializer) continue;
         if (
           !ts.isArrowFunction(initializer) &&
@@ -229,7 +260,7 @@ function scanSource(src: string, filename: string): Violation[] {
     if (ts.isVariableStatement(node)) {
       if (!hasModifier(node, ts.SyntaxKind.ExportKeyword)) return;
       for (const decl of node.declarationList.declarations) {
-        const initializer = decl.initializer;
+        const initializer = decl.initializer ? unwrap(decl.initializer) : undefined;
         if (!initializer) continue;
         if (
           !ts.isArrowFunction(initializer) &&
@@ -244,7 +275,7 @@ function scanSource(src: string, filename: string): Violation[] {
     }
 
     if (ts.isExportAssignment(node) && !node.isExportEquals) {
-      const expr = node.expression;
+      const expr = unwrap(node.expression);
       if (!ts.isArrowFunction(expr) && !ts.isFunctionExpression(expr)) return;
       checkFunctionLike(expr, sf, "(default)", filename, violations);
       return;
@@ -435,6 +466,63 @@ const ok = (now: Date): number => now.getTime();
 export { ok };
 `;
     const findings = scanSource(src, "synthetic-exportlist-ok.ts");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("flags parenthesized default arrow (`export default (() => Date.now());`)", () => {
+    const src = `export default (() => Date.now());\n`;
+    const findings = scanSource(src, "synthetic-paren-default-arrow.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags parenthesized default function-expression (`export default (function () { ... });`)", () => {
+    const src = `export default (function () { return Date.now(); });\n`;
+    const findings = scanSource(src, "synthetic-paren-default-fnexpr.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags parenthesized const-export arrow (`export const foo = (() => Date.now());`)", () => {
+    const src = `export const foo = (() => Date.now());\n`;
+    const findings = scanSource(src, "synthetic-paren-const-arrow.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags parenthesized export-list arrow (`const foo = (() => Date.now()); export { foo };`)", () => {
+    const src = `const foo = (() => Date.now());\nexport { foo };\n`;
+    const findings = scanSource(src, "synthetic-paren-exportlist-arrow.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags double-parens (`export default ((() => Date.now()));`) — ts.skipOuterExpressions recursive", () => {
+    const src = `export default ((() => Date.now()));\n`;
+    const findings = scanSource(src, "synthetic-double-paren.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags `as` cast around exported arrow (`export const foo = ((() => Date.now()) as () => number);`)", () => {
+    const src = `export const foo = ((() => Date.now()) as () => number);\n`;
+    const findings = scanSource(src, "synthetic-as-cast.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags satisfies expression around exported arrow (`export const foo = ((() => Date.now()) satisfies () => number);`)", () => {
+    // satisfies is TS 4.9+; ts.skipOuterExpressions handles it.
+    const src = `export const foo = ((() => Date.now()) satisfies () => number);\n`;
+    const findings = scanSource(src, "synthetic-satisfies.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("does NOT flag IIFE-returning-arrow (`export default ((() => Date.now())())`) — call-expression produces value, not helper (out of scope)", () => {
+    // The outer call makes the exported value a number, not a helper.
+    // ts.skipOuterExpressions does NOT unwrap CallExpression.
+    const src = `export default ((() => Date.now())());\n`;
+    const findings = scanSource(src, "synthetic-iife-call.ts");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("does NOT flag conditional expression (`export default cond ? () => Date.now() : () => 0;`) — conditional value, not a helper (out of scope)", () => {
+    const src = `declare const cond: boolean;\nexport default cond ? () => Date.now() : () => 0;\n`;
+    const findings = scanSource(src, "synthetic-conditional.ts");
     expect(findings).toHaveLength(0);
   });
 });
