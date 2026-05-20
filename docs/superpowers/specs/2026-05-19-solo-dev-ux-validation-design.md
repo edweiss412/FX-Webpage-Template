@@ -230,11 +230,17 @@ END $$;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.validation_state TO anon, authenticated;
 GRANT ALL PRIVILEGES ON TABLE public.validation_state TO service_role;
 ALTER TABLE public.validation_state ENABLE ROW LEVEL SECURITY;
+
+-- R15 amendment — DROP POLICY IF EXISTS folded inline so the primary DDL
+-- block is the ONLY canonical migration body (no separate amendment snippet
+-- that an implementer could miss). Apply-twice safe.
+DROP POLICY IF EXISTS admin_only ON public.validation_state;
 CREATE POLICY admin_only ON public.validation_state
   FOR ALL
   TO anon, authenticated
   USING (public.is_admin())
   WITH CHECK (public.is_admin());
+
 -- The validation script runs under the service role (which bypasses RLS), so
 -- this admin_only policy does not block the script's writes. The policy
 -- satisfies the §4.3 admin-only contract: non-admin Supabase sessions are
@@ -242,19 +248,7 @@ CREATE POLICY admin_only ON public.validation_state
 -- because they're admin-authenticated.
 ```
 
-**R14 amendment — policy creation must be idempotent too.** The R10 DDL used unconditional `CREATE POLICY admin_only ...`, which fails on second apply with `duplicate_object`. The corrected DDL replaces the bare `CREATE POLICY` with the drop-and-recreate pattern below:
-
-```sql
--- R14 amendment — apply-twice safe for the policy as well.
-DROP POLICY IF EXISTS admin_only ON public.validation_state;
-CREATE POLICY admin_only ON public.validation_state
-  FOR ALL
-  TO anon, authenticated
-  USING (public.is_admin())
-  WITH CHECK (public.is_admin());
-```
-
-The same `DROP POLICY IF EXISTS + CREATE POLICY` pattern is used in `supabase/migrations/` for policies that may be re-applied (verified pattern). The GRANT statements above are inherently idempotent (`GRANT` is a no-op when privileges are already held), so no DROP guard is needed for grants.
+**Migration idempotency at a glance.** The DDL block above is the canonical and complete migration body. Every statement is apply-twice safe: `CREATE TABLE IF NOT EXISTS`, `DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT` (drift-safe per R12), `ADD COLUMN IF NOT EXISTS` (alias_map idempotency), inherently-idempotent `GRANT`s, and `DROP POLICY IF EXISTS + CREATE POLICY` (R15 fold-in). No standalone amendment snippets — implementers apply the block as-is.
 
 **Master-spec discipline mapping (per AGENTS.md project-scoped additions):**
 
@@ -432,7 +426,7 @@ No candidate row may be silently dropped. The plan's task close-out asserts that
 | **C. Auth surfaces** | Google sign-in (fresh + return sessions exercised separately). Sign-out. Signed-link redemption (fragment-token canonical path). Expired-link surface. Revoked-link surface. "Not on crew list" surface. 401 / 403 paths. **Query-token compromise path** — hitting `/show/<slug>?t=…` (the non-canonical query form) MUST trigger the compromise/revoke path per master spec §7; this is a negative-auth surface that gets its own row. |
 | **D. Help surfaces (M11)** | All 13 `/help` pages + the catalog-driven `/help/errors` page + `<RefAnchor>` rendering + `<Screenshot>` light/dark variant switching. |
 | **E. Cross-cutting affordances** | Every `?` tooltip / "Learn more →" link from §9.0.1 surface affordance matrix (M11 §5.6). Every catalog-driven error message rendered through `messageFor()` — **both admin-facing AND crew-facing** (an earlier draft restricted this band to `/admin/*` only; corrected per Codex R1 P0 — crew-facing catalog-driven messages like `LINK_EXPIRED`, "not on crew list", and rate-limit copy are equally in scope). AlertBanner row rendering for each non-info-severity admin catalog code. |
-| **F. Report-pipeline surfaces (M8)** | Master spec §13.1 enumerates 4 report entry points (admin parse-panel button, preview/banner button, crew footer "Something looks wrong?" modal, and the §13 admin surfaces); each is a surface in the matrix. Submission outcome surfaces also walked: success confirmation, in-flight idempotency (`IDEMPOTENCY_IN_FLIGHT`), rate-limit hit (429 for admin and crew). **R14 amendment for materializability:** the deep-failure outcomes (GitHub-lookup-inconclusive 502, `REPORT_HORIZON_EXPIRED` 410, `REPORT_ORPHANED_LOST_LEASE`) require GitHub API faults / lease-timing races that are NOT deterministically reproducible against a live prod-equivalent stack without a fault-injection harness. Each is dispositioned in MATRIX-INVENTORY.md as either:<br/><br/>**(a) INCLUDED-via-harness** — Phase 0 sub-task adds a fault-injection harness `scripts/validation-report-fixtures.ts` that materializes the named failure state in `reports` / `feedback_inbox` rows directly (bypassing the real GitHub call) so the UI rendering of the outcome state can be exercised. The harness uses the service-role to INSERT the right row shape per master spec §13.2.3 contracts.<br/><br/>**(b) EXCLUDED-rely-on-structural** — for outcomes where the UI rendering is identical to a simpler outcome already covered (e.g., `REPORT_ORPHANED_LOST_LEASE` UI ≡ a generic admin-alerts surface), the row is dispositioned EXCLUDED with a cite to the structural test that already pins the contract (e.g., `tests/report/orphaned-lease.test.ts`). The plan picks per-row at plan-writing time. Default is (a) — harness-materialized — for any outcome whose UI state is not otherwise covered. |
+| **F. Report-pipeline surfaces (M8)** | Master spec §13.1 enumerates 4 report entry points (admin parse-panel button, preview/banner button, crew footer "Something looks wrong?" modal, and the §13 admin surfaces); each is a surface in the matrix. Submission outcome surfaces also walked: success confirmation, in-flight idempotency (`IDEMPOTENCY_IN_FLIGHT`), rate-limit hit (429 for admin and crew). **R14 amendment for materializability (R15 corrected):** the deep-failure outcomes (GitHub-lookup-inconclusive 502, `REPORT_HORIZON_EXPIRED` 410, `REPORT_ORPHANED_LOST_LEASE`) require GitHub API faults / lease-timing races not deterministically reproducible against a live prod-equivalent stack without a fault-injection harness. Each is dispositioned in MATRIX-INVENTORY.md as either:<br/><br/>**(a) INCLUDED-via-harness** — Phase 0 sub-task adds a fault-injection harness `scripts/validation-report-fixtures.ts` that materializes the named failure state in the `reports` table (the only v1 admin-only table in this domain — verified per master spec §4.3) by writing row shapes per master spec §13.2.3 contracts. R15 amendment: an earlier draft listed `feedback_inbox` as a target table, but `feedback_inbox` is BACKLOG-only (`BL-PUSH-NOTIFICATIONS` notification-design-memo), not in v1 schema; harness targets ONLY `reports`. If a future milestone adds `feedback_inbox` to v1, the harness contract is extended in that milestone's plan.<br/><br/>**(b) EXCLUDED-rely-on-structural** — for outcomes where the UI rendering is identical to a simpler outcome already covered, the row is dispositioned EXCLUDED with a cite to the structural test that already pins the contract (e.g., `tests/report/orphaned-lease.test.ts`). The plan picks per-row at plan-writing time. Default is (a) — harness-materialized — for any outcome whose UI state is not otherwise covered. |
 
 ### 4.3 Excluded surfaces
 
@@ -467,6 +461,15 @@ Generate a signed link from admin. The canonical URL form is `/show/<slug>/p#t=<
 | Valid baseline (control) | `pnpm validation:mint-link --combo R1 --alias alias_5a_lead` | Link redemption renders crew page |
 
 The mint-link and revoke-link commands are plan-time deliverables added to the validation tooling alongside the re-seed script. The `check-seed` command additionally verifies that at least one expired and one revoked link_session exist in the prod-equivalent Supabase before J3's expired/revoked legs run (otherwise the dev's J3 walk would have no fixture for those legs).
+
+**Signing-key contract for validation tooling (R15 amendment).** The live signed-link mint path uses `lib/auth/jwt.ts:42` reading `process.env.JWT_SIGNING_SECRET` AND `lib/auth/validateLinkSession.ts:87-93` reading `app_settings.active_signing_key_id` from Supabase. For `pnpm validation:mint-link` to produce JWTs the Vercel production deployment will accept, the local CLI MUST:
+
+| Aspect | Contract |
+|---|---|
+| Required env var | `VALIDATION_JWT_SIGNING_SECRET` (distinct from local `JWT_SIGNING_SECRET` to prevent accidental signing with wrong key). Must equal the Vercel project's `JWT_SIGNING_SECRET` value for the production-target deployment. Phase 0 sub-task: dev copies the Vercel env var into local `.env.local` AND `.env.local.example` documents `VALIDATION_JWT_SIGNING_SECRET` as a placeholder. |
+| Active signing key id | Read at mint time from the prod-equivalent Supabase (`VALIDATION_SUPABASE_URL` + service key) via `select active_signing_key_id from app_settings` — same source the live runtime uses. The CLI uses this id for the JWT's `signing_key_id` claim so `validateLinkSession`'s key-rotation check passes. |
+| Phase 0 smoke test 6 (new) | Mint a valid link locally via `pnpm validation:mint-link --combo R1 --alias alias_5a_lead --expires-in 60` (positive 60s — short-lived but valid). Open the URL on dev's iPhone against the Vercel `*.vercel.app` URL. Confirm crew page renders. This proves the mint tooling's secret + key id align with the deployed runtime. Add to §9.2 Phase 0 exit list. |
+| Failure modes guarded | (a) If `VALIDATION_JWT_SIGNING_SECRET` unset → mint-link aborts before signing. (b) If `select active_signing_key_id` returns null or differs from a stored expectation → mint-link aborts with diagnostic. (c) Phase 0 smoke test 6 fails if mint+redeem round-trip doesn't render → Phase 0 blocked. |
 
 **Additionally — query-token compromise leg.** Take a valid fragment token, rewrite the URL to the non-canonical query form `/show/<slug>?t=<jwt>`, and confirm the compromise path triggers per master spec §7 (token revoked, "compromise detected" surface). This is a negative-auth test that exercises band C's compromise row.
 
@@ -668,15 +671,16 @@ Phase 0 sub-task: confirm the production-target Vercel deployment branch has all
 
 ### 9.2 Phase 0 exit criterion
 
-Phase 0 closes when **all five** smoke tests pass — only after all five does Phase 1 start. A seeded DB alone is not sufficient evidence the prod-equivalent stack is wired end-to-end; each smoke test exercises a distinct integration axis.
+Phase 0 closes when **all six** smoke tests pass — only after all six does Phase 1 start. A seeded DB alone is not sufficient evidence the prod-equivalent stack is wired end-to-end; each smoke test exercises a distinct integration axis.
 
 1. **Admin sign-in.** The dev signs in via Google to the deployed production URL (`*.vercel.app`, no custom domain) and lands as admin on `/admin`. Verifies: Supabase auth + admin role-check + RLS read path.
 2. **Signed-link real-iPhone render.** A signed link generated from `/admin` on the production URL (canonical `/show/<slug>/p#t=<jwt>` form per master spec §7), opened on the dev's real iPhone in Safari, renders a fixture crew page correctly. Verifies: signed-link mint + redeem + crew-page render against real prod Supabase data.
 3. **Cron + Drive integration.** A fixture sheet placed in the prod-tier Drive watched folder is detected by the cron path (Vercel Cron → fetch from Drive service account → parse → propagate) within one cron interval. The new show appears in `/admin` Active Shows panel. Verifies: cron schedule firing + Drive service-account credentials + parser end-to-end + DB write under per-show advisory lock.
 4. **Admin alert write + AlertBanner render.** A fixture-induced staging event (e.g., editing the seeded fixture to trigger MI-6 crew shrinkage) causes a row to land in `admin_alerts` AND the AlertBanner on `/admin` renders that row on a fresh page load. Verifies: write path to `admin_alerts` + AlertBanner read query + crew-page propagation behavior end-to-end.
 5. **Wall-clock + fixture-data clock control.** Seed a fixture into the prod Supabase with `date_restriction.days = [<a date that is NOT today>]` and a known `dates.travelIn/travelOut` window that includes today. Generate a signed-link, open on the Vercel `*.vercel.app` production URL, and confirm the Right Now card renders `viewer_off_day` copy (per master spec §8 line 2413). Verifies: the production stack reads wall-clock + fixture data correctly without test-auth bypass; the §3.3 wall-clock approach is genuinely available.
+6. **Mint-redeem round-trip (R15 amendment).** Mint a short-lived valid link via `pnpm validation:mint-link --combo R1 --alias alias_5a_lead --expires-in 60`. Open the URL on the dev's real iPhone against the Vercel `*.vercel.app` URL. Confirm the crew page renders. Verifies: the validation tooling's `VALIDATION_JWT_SIGNING_SECRET` + `active_signing_key_id` (read from prod-equivalent Supabase) align with the deployed Vercel runtime so locally-minted links pass `validateLinkSession` end-to-end. Without this smoke, mint-link's expired/revoked legs (J3 §5.3) could appear to work locally while silently failing redeemability in prod.
 
-Phase 0 closes when **all five** smoke tests pass — only after all five does Phase 1 start. Failing any of the five re-opens Phase 0. (R5 amendment: the wording previously said "all four" in one place and "all five" in another, contradicting itself; this paragraph is the authoritative count — five.)
+Phase 0 closes when **all six** smoke tests pass — only after all six does Phase 1 start. Failing any of the six re-opens Phase 0. (R15 amendment: incremented from five to six with the addition of smoke test 6 — mint-redeem round-trip — to prove the signing-key contract.)
 
 The class-sweep here mirrors the Codex R1 P1 and R3 P1 findings: a seeded DB can satisfy a browser-only smoke test while the cron/alert plumbing is broken OR the clock-control mechanism is broken, and Phase 1 would only catch that days later when J2 (pending-sync triage) or R3-R6 restriction-combo walks try to exercise it.
 
@@ -1006,3 +1010,18 @@ Verdict: `needs-attention`. Three P1 findings. All accepted and addressed.
 
 - **Apply-twice policy idempotency** — a general rule emerged: CREATE POLICY in the DDL must use the `DROP POLICY IF EXISTS + CREATE POLICY` pattern when the migration may be reapplied. Future admin-only table migrations should follow this pattern.
 - **Fault-injection harness as a fixture pattern** — for outcomes that depend on transient/error states the live stack can't deterministically produce, the canonical approach is a service-role harness that materializes the failure-state row shape directly. This is a general pattern; `scripts/validation-report-fixtures.ts` is its first instance.
+
+### 15.15 Round 15 (Codex 2026-05-19)
+
+Verdict: `needs-attention`. Three P1 findings. All accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — Report fixture harness named `feedback_inbox` as a target table, but `feedback_inbox` is BACKLOG-only (per BL-PUSH-NOTIFICATIONS), not a v1 admin-only table. Harness would fail on INSERT or implementer would invent unreviewed table outside admin-only contract. | P1 / high | Fixed. Band F harness narrowed to target ONLY `reports` (the v1 admin-only table). Explicit note that future `feedback_inbox` extension is out of scope for M12 and would be handled by the milestone that adds the table. | §4.2 band F |
+| F2 — DDL block still contained bare `CREATE POLICY admin_only ...` despite the R14 "amendment snippet" added later — implementers copying the primary block would hit duplicate_object on second apply. R14's fix lived in a separate snippet, leaving the primary block contradicted. | P1 / high | Fixed. Folded `DROP POLICY IF EXISTS admin_only ON public.validation_state;` directly into the primary DDL block immediately before `CREATE POLICY`. Removed the standalone R14 "amendment" snippet so there's ONE canonical migration body. Added "Migration idempotency at a glance" summary listing every apply-twice safe construct in the block. | §3.3.2 DDL block (folded), §3.3.2 idempotency summary added |
+| F3 — `validation:mint-link` had no signing-key contract. Live signer uses `JWT_SIGNING_SECRET` + `app_settings.active_signing_key_id`. Without these in the validation tooling, locally-minted JWTs would not validate against the Vercel runtime — J3 expired/revoked legs would appear to work locally but silently fail during the walk. | P1 / high | Fixed. New "Signing-key contract for validation tooling" paragraph in §5.3 J3: required env var `VALIDATION_JWT_SIGNING_SECRET` (Phase 0 syncs from Vercel), active signing key id read from prod-equivalent Supabase at mint time. New Phase 0 smoke test 6: mint-redeem round-trip on real iPhone to prove the contract works end-to-end. Phase 0 closure incremented from 5 → 6 smoke tests. | §5.3 J3 (signing-key contract), §9.2 (smoke test 6 added; both "all five" wordings normalized to "all six") |
+
+**Class-sweep additions during R15 repair:**
+
+- **One-canonical-DDL-block rule** — separate "amendment snippets" after the main DDL block invite implementer drift. The R14 separate snippet was technically correct but easily missed; folding into the main block prevents this class. Future DDL amendments should rewrite the main block, not append.
+- **Local-to-Vercel secret-sync acknowledgement** — `VALIDATION_JWT_SIGNING_SECRET` must equal Vercel's `JWT_SIGNING_SECRET`. Phase 0 sub-task explicitly: "dev copies the Vercel env var into local .env.local". Future validation-tooling commands signing or verifying against prod runtime should follow this sync pattern.
