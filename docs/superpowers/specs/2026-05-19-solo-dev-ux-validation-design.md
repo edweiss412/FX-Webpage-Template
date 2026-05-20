@@ -135,7 +135,8 @@ The day-of-walk uses **wall-clock + fixture-data engineering**, NOT the M11 `X-S
 |---|---|
 | Script path | `scripts/validation-reseed.ts` (TypeScript, executed via `tsx`) |
 | Invocation | `pnpm validation:reseed [--combo <R1\|R2\|R3\|R4\|R5\|R6\|R7a\|R7b\|R8a\|R8b\|SW-PRE_TRAVEL\|SW-TRAVEL_IN\|SW-SHOW_1\|SW-SHOW_N\|SW-POST_SHOW\|all>]` |
-| Default behavior | `--combo all` — materializes all 8 R-combos + 5 show-wide states' fixtures with date columns aligned to today's local date |
+| Default behavior | `--combo all` — materializes all **10** R-combos (R1–R6 + R7a/R7b/R8a/R8b after R8 split) + 5 show-wide states' fixtures with date columns aligned to today's local date |
+| Target selection (R9 amendment) | Script requires the prod-equivalent Supabase target — NOT local. Reads `VALIDATION_SUPABASE_URL` + `VALIDATION_SUPABASE_SERVICE_KEY` (distinct env vars from local `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` to prevent accidental cross-target operation). If `VALIDATION_SUPABASE_URL` matches `localhost`, `127.0.0.1`, or `::1` the script aborts with non-zero exit unless `--allow-local-override` is passed (intentional override gate; not used during M12 walks). Phase 0 sub-task adds these env vars to the dev's local `.env.local` and to the Vercel project's env settings if any reseed-from-Vercel mode is needed (not in v1; reseed runs from the dev's local machine targeting prod-equivalent Supabase). The Supabase project ref is stamped in `validation_state.seeded_supabase_project_ref` (new column added in §3.3.2 DDL update below) so check-seed can verify target consistency. |
 | Idempotency | Re-running with the same args on the same day is a no-op. Re-running with a different date updates every fixture's date columns. |
 | Storage of `validation_seed_date` stamp | New table `validation_state` (single row), admin-only per §3.3.2 below. Schema specified in §3.3.2. The script writes to this table at the end of a successful seed. |
 | Verification command | `pnpm validation:check-seed` returns exit 0 if `last_seed_date = today` AND `combos_materialized` covers what the next walk needs; returns exit 1 otherwise. The dev runs this at the start of every walk session per §3.3 step 5 above. |
@@ -155,11 +156,12 @@ The `validation_state` table introduced by §3.3 step 5 is a DB-touching deliver
 -- a random UUID PK which permitted multiple rows; check-seed semantics would
 -- have been ambiguous against multi-row state).
 CREATE TABLE validation_state (
-  key                    text PRIMARY KEY CHECK (key = 'validation_seed'),
-  last_seed_date         date NOT NULL,
-  combos_materialized    text[] NOT NULL,
-  seeded_by              text NOT NULL,             -- script user/process identity
-  seeded_at              timestamptz NOT NULL DEFAULT now(),
+  key                              text PRIMARY KEY CHECK (key = 'validation_seed'),
+  last_seed_date                   date NOT NULL,
+  combos_materialized              text[] NOT NULL,
+  seeded_by                        text NOT NULL,             -- script user/process identity
+  seeded_supabase_project_ref      text NOT NULL,             -- R9 amendment — verifies target consistency
+  seeded_at                        timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT validation_state_combos_check CHECK (
     combos_materialized <@ ARRAY[
       'R1','R2','R3','R4','R5','R6','R7a','R7b','R8a','R8b',
@@ -168,10 +170,21 @@ CREATE TABLE validation_state (
   )
 );
 
--- Admin-only: no end-user session has any RLS path that returns rows from this table.
+-- Admin-only per master spec §4.3 pattern (R9 amendment — earlier draft said
+-- "no policies, service-role-only" but that contradicts the admin_only FOR ALL
+-- contract every admin-only table is tested against in tests/db/rls.test.ts
+-- and tests/db/admin-rls-runtime.test.ts).
 ALTER TABLE validation_state ENABLE ROW LEVEL SECURITY;
--- No policies created → default-deny under RLS. Service-role bypasses RLS for the
--- script. Admin reads (e.g., a future audit UI) go through SECURITY DEFINER RPCs.
+CREATE POLICY admin_only ON validation_state
+  FOR ALL
+  TO authenticated
+  USING (is_admin())
+  WITH CHECK (is_admin());
+-- The validation script runs under the service role (which bypasses RLS), so
+-- this admin_only policy does not block the script's writes. The policy exists
+-- to satisfy the §4.3 admin-only contract: a non-admin Supabase session must
+-- receive an RLS denial across all four verbs. Admin reads (e.g., a future
+-- audit UI) are explicitly permitted because they're admin-authenticated.
 ```
 
 **Master-spec discipline mapping (per AGENTS.md project-scoped additions):**
@@ -179,13 +192,13 @@ ALTER TABLE validation_state ENABLE ROW LEVEL SECURITY;
 | Dimension | Treatment |
 |---|---|
 | Tier × domain | Admin-only (operational tooling). Should be added to the master spec's §4.3 admin-only tables list at the moment this migration lands. |
-| CHECK constraint | `validation_state_combos_check` enumerates the allowed combo names (8 R-combos + 5 show-wide states). Adding a new combo requires migrating the CHECK constraint AND extending the script's mapping table in lockstep. |
+| CHECK constraint | `validation_state_combos_check` enumerates the allowed combo names (10 R-combos after R8 split: R1–R6 + R7a/R7b/R8a/R8b, plus 5 show-wide states). Adding a new combo requires migrating the CHECK constraint AND extending the script's mapping table in lockstep. |
 | Migration idempotency | The migration uses `CREATE TABLE IF NOT EXISTS` + `DO $$ ... EXCEPTION WHEN duplicate_object THEN NULL END $$` for the CHECK to satisfy AGENTS.md apply-twice idempotency rule. |
-| RLS | Enabled, no policies (default-deny under RLS) → only service-role can read/write. Same posture as the master spec's other admin-only ops tables (per master spec §4.1). |
+| RLS | Enabled with `admin_only FOR ALL` policy (R9 amendment — matches master spec §4.3 contract for all admin-only tables; service role bypasses RLS so the script writes work; admin session reads work for any future audit UI; non-admin sessions denied across all 4 verbs as AC-2.5 requires). |
 | Supabase call-boundary | Script's `{ data, error }` destructure is mandatory per AGENTS.md invariant 9. The check-seed command uses `select`'s error branch to distinguish "table not present" (Phase 0 incomplete) from "table empty / stale" (re-seed required). |
 | Meta-test | If a `tests/db/` test enumerates admin-only tables, `validation_state` is added to that registry per the AGENTS.md meta-test inventory rule. The M12 plan declares this in its meta-test inventory section. |
 
-**Singleton write semantics.** The re-seed script writes the singleton via `INSERT INTO validation_state (key, ...) VALUES ('validation_seed', ...) ON CONFLICT (key) DO UPDATE SET ...` (upsert). The `validation:check-seed` command reads exactly the `key = 'validation_seed'` row and fails if zero rows OR if the row exists but `last_seed_date != current_date` OR if `combos_materialized` doesn't cover the combos needed by the next walk.
+**Singleton write semantics.** The re-seed script writes the singleton via `INSERT INTO validation_state (key, ...) VALUES ('validation_seed', ...) ON CONFLICT (key) DO UPDATE SET ...` (upsert). The `validation:check-seed` command reads exactly the `key = 'validation_seed'` row and fails if (a) zero rows, (b) `last_seed_date != current_date`, (c) `combos_materialized` doesn't cover the combos needed by the next walk, OR (d) `seeded_supabase_project_ref != $VALIDATION_SUPABASE_PROJECT_REF` (R9 amendment — target-consistency check; prevents the "local seed, prod walk" failure mode).
 
 **Plan-time deliverable — atomic with master-spec amendment (R7+R8 amendment).** The M12 plan's Phase 0 sub-task that authors the re-seed script ALSO authors the `validation_state` migration AND atomically updates the master spec + admin-tables registry + every hardcoded baseline. R8 corrected the soft "should add" / "if applicable" wording in this checklist to concrete edits with verified line/count deltas.
 
@@ -217,7 +230,7 @@ Impeccable v3 doesn't apply — this is a DB migration, not UI — but the proje
 
 ### 3.3.1 Right Now show-wide state inventory (orthogonal to restriction)
 
-Master spec §8 names additional Right Now card states that are show-wide (independent of viewer restriction): `pre_travel`, `travel_in_day`, `show_day_N` (N = 1, 2, 3...), `post_show`. These are not covered by R1–R8 (which focus on viewer-restriction states). The matrix exercises each show-wide state at least once with restriction = `none`:
+Master spec §8 names additional Right Now card states that are show-wide (independent of viewer restriction): `pre_travel`, `travel_in_day`, `show_day_N` (N = 1, 2, 3...), `post_show`. These are not covered by R1–R6 + R7a/R7b/R8a/R8b (which focus on viewer-restriction states). The matrix exercises each show-wide state at least once with restriction = `none`:
 
 | Show-wide state | Fixture configuration | When walked |
 |---|---|---|
@@ -227,7 +240,7 @@ Master spec §8 names additional Right Now card states that are show-wide (indep
 | `show_day_N` (N≥2) | Today = an interior show day | Mid-show day |
 | `post_show` | Today is after fixture's `dates.travelOut` | Post-show day |
 
-Show-wide states are walked once each (SMOKE-SAMPLE per §3.4) for the LEAD persona on the Right Now card surface. Combined with R1–R8 viewer-restriction states, the Right Now card has 8 + 5 = 13 day-state walks per persona. MATRIX-INVENTORY.md dispositions each state explicitly so future readers see why it was included.
+Show-wide states are walked once each (SMOKE-SAMPLE per §3.4) for the LEAD persona on the Right Now card surface. Combined with the 10 viewer-restriction combos (R1–R6 + R7a/R7b/R8a/R8b after R8 split), the Right Now card has **10 + 5 = 15 day-state walks** per persona. MATRIX-INVENTORY.md dispositions each state explicitly so future readers see why it was included.
 
 ### 3.4 Axis applicability + sampling policy (bounded matrix)
 
@@ -249,18 +262,18 @@ After R1+R2 expansion, the validation has multiple axes: persona (8), surface (v
 | **Color mode (light/dark)** | FULL | Both modes per cell — non-negotiable per DESIGN.md. |
 | **Viewport (mobile/desktop)** | FULL | Both viewports per cell. |
 | **Role variant (5a–5c + 6a–6f)** | SMOKE-SAMPLE on most surfaces; SMOKE-SAMPLE with explicit pair selection on Right Now / schedule / pack-list | Role variants affect crew-page tile visibility specifically. The matrix exercises each role variant ONCE on the crew page surface (one walk per variant = 9 cells). Role × restriction interaction is SAMPLED (not full pairwise) — see §3.4.1 for the explicit pair-selection rule. Role variants are NOT crossed with admin surfaces, /help, or report surfaces (those don't change by crew role). |
-| **Restriction combo (R1–R8)** | SMOKE-SAMPLE on most surfaces; SMOKE-SAMPLE with explicit pair selection with role on Right Now / schedule / pack-list | Restriction combos affect Right Now state, schedule filtering, and pack-list visibility. Each combo exercised ONCE on each of those three tiles with LEAD role. Role-restriction interaction sampled per §3.4.1. |
+| **Restriction combo (R1–R6 + R7a/R7b + R8a/R8b — 10 total after R8 split)** | SMOKE-SAMPLE on most surfaces; SMOKE-SAMPLE with explicit pair selection with role on Right Now / schedule / pack-list | Restriction combos affect Right Now state, schedule filtering, and pack-list visibility. Each combo exercised ONCE on each of those three tiles with LEAD role. Role-restriction interaction sampled per §3.4.1. |
 | **Real-device-vs-emulated** | SMOKE-SAMPLE | Real iPhone only for the curated subset named in §3.1 (Right Now, schedule, signed-link redemption, sign-in, expired-link, revoked-link, `/me`) for personas 5/6/7/8. Other cells emulate. |
 
 **Bounded estimate:**
 
 - Surface × persona × mode × viewport (base matrix): ≈ N_surfaces × 8 personas × 4 mode-combos, BUT bounded by applicability — most surfaces apply to 1–3 personas. Practical estimate: ~200–400 cells.
 - Role variant × crew-page tiles × mode (orthogonal pass): 9 variants × ~6 tiles × 4 mode-combos ≈ 216 cells.
-- Restriction combo × restriction-sensitive tiles × mode (orthogonal pass): 8 combos × 3 tiles × 4 mode-combos = 96 cells.
-- Pairwise role × restriction on Right Now: 8 pairs × 4 mode-combos = 32 cells.
+- Restriction combo × restriction-sensitive tiles × mode (orthogonal pass): **10 combos × 3 tiles × 4 mode-combos = 120 cells** (was 96 before R8 split).
+- Sampled role × restriction on Right Now: **9 pairs × 4 mode-combos = 36 cells** (the 9-pair selection per §3.4.1 — earlier rough estimate said 8 pairs).
 - Real-device pass on curated subset: ~10 cells × 4 personas × 1 mode-combo ≈ 40 cells.
 
-**Total upper-bound estimate: ≈ 600–800 cells.** Walking this at a coarse rate of ~10–30 cells/hour (the range reflects per-cell variance: a quick visual confirmation runs faster, a real-iPhone leg or a cold-start step runs slower; triage time per finding adds further variance) = roughly 20–80 hours of pure exercise. Spread across the iteration loop with fix cycles, a realistic milestone duration is **3–8 weeks**, not 2–4 weeks (R4 revision — earlier estimate was optimistic).
+**Total upper-bound estimate: ≈ 650–850 cells** (R9 amendment — was 600–800 before R8 split added 24 cells; +24 from restriction-tile expansion + role-pair refinement). Walking this at a coarse rate of ~10–30 cells/hour (the range reflects per-cell variance: a quick visual confirmation runs faster, a real-iPhone leg or a cold-start step runs slower; triage time per finding adds further variance) = roughly 20–80 hours of pure exercise. Spread across the iteration loop with fix cycles, a realistic milestone duration is **3–8 weeks**, not 2–4 weeks (R4 revision — earlier estimate was optimistic).
 
 **MATRIX-INVENTORY.md records coverage class per row.** Every row's coverage class (FULL / PAIRWISE / SMOKE-SAMPLE) is set in the plan-time derivation per §4.1.1. The dev's exercise walks each row at the coverage level specified.
 
@@ -670,7 +683,7 @@ This section is the inline self-review per the project's spec-self-review checkl
 | CHECK / enum migration | Applies (R6 amendment) | `validation_state_combos_check` CHECK constraint enumerates the 8 R-combos + 5 show-wide state combo names in §3.3.2. New combo additions require migrating CHECK + extending the script mapping in lockstep. Migration uses `CREATE TABLE IF NOT EXISTS` + `DO $$ EXCEPTION ... END $$` for apply-twice idempotency per AGENTS.md. |
 | Flag lifecycle | N/A | No new boolean config field. |
 | Pay-engine grain | N/A | No pay-engine touch. |
-| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **10 viewer-restriction combinations (§3.3 R1–R6 + R7a/R7b + R8a/R8b — R8 split R7 and R8 each into a/b sub-combos for set-vs-strike day coverage; was 8)**, **5 show-wide Right Now states (§3.3.1 — added R4)**, **9 role×restriction sampled pairs (§3.4.1 — added R4)**, **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **5 Phase 0 smoke tests (§9.2 — R3 added smoke test 5; R5 corrected one stale "all four" wording)**, **6 transitive-consumer file classes (§7.2.2 — added R4; catalog, auth, design tokens, components, single-page, schema; R5 normalized stale "5" claim)**, **8-vector schema-migration enumeration recipe (§7.2.2.1 — added R5; R6 expanded from 6 to 8 vectors adding schema-qualified literal + non-literal + helper-by-import)**, **7 canonical CI gates (§9.1.1 — added R6; R7 corrected gate #7 name from `verify-branch-protection` to `verify-branch-protection-status`)**, **22 admin-only tables after `validation_state` lands (§3.3.2 — R8 verified live deltas: master spec §4.3 line 605 21→22; AC-2.5 line 3489 21→22 / 84→88)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
+| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **10 viewer-restriction combinations (§3.3 R1–R6 + R7a/R7b + R8a/R8b — R8 split R7 and R8 each into a/b sub-combos for set-vs-strike day coverage; R9 swept body references that still said "8 combos" / "R1–R8")**, **15 day-state walks per persona** (10 R-combos + 5 show-wide; §3.3.1 — was 13 pre-R8 split), **5 show-wide Right Now states (§3.3.1 — added R4)**, **9 role×restriction sampled pairs (§3.4.1 — added R4)**, **120 restriction-tile cells + 36 role-pair cells** (§3.4 estimates — corrected R9 from 96 and 32 respectively), **650–850 total upper-bound cells** (§3.4 — corrected R9 from 600–800), **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **5 Phase 0 smoke tests (§9.2 — R3 added smoke test 5; R5 corrected one stale "all four" wording)**, **6 transitive-consumer file classes (§7.2.2 — added R4; catalog, auth, design tokens, components, single-page, schema; R5 normalized stale "5" claim)**, **8-vector schema-migration enumeration recipe (§7.2.2.1 — added R5; R6 expanded from 6 to 8 vectors)**, **7 canonical CI gates (§9.1.1 — added R6; R7 corrected gate #7 name to `verify-branch-protection-status`)**, **22 admin-only tables after `validation_state` lands (§3.3.2 — R8 verified live deltas: master spec §4.3 line 605 21→22; AC-2.5 line 3489 21→22 / 84→88)**, **validation_state RLS = admin_only FOR ALL (R9 correction)**, **dedicated VALIDATION_SUPABASE_* env vars for target-selection (R9 addition)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
 | Disagreement-loop preempt | Applied | §11.2 ("intentionally absent") names the "no artifact" decision as deliberate, with rationale, so reviewers don't relitigate it. §1.5 names "no real-user testing" as deliberate, with rationale. §2 enumerates explicit deferrals so reviewers don't surface them as gaps. |
 | Build-vs-runtime gate explicitness | Applies | Phase 0 §9 names the build target (Vercel `*.vercel.app` production deployment, no custom domain); §9.2 names the five runtime smoke tests that gate Phase 1. The seven CI gates (§9.1.1) are PR-time + main-branch build-time gates; the alert path is a runtime path. R6 amendment: stale "preview build" wording corrected to "production deployment" in this row. |
 
@@ -817,3 +830,17 @@ Verdict: `needs-attention`. Two findings (1 P1, 1 P2). All accepted and addresse
 
 - **Expected outcome column** (§3.3) — added to the R-combo table as a structural improvement (R8 F1 also surfaced that R1–R6 had implicit expected outcomes; making them explicit removes interpretation gaps).
 - **Hardcoded-baseline inventory** (§3.3.2 step 6) — enumerated every hardcoded count in the live test suite that needs updating in lockstep with the migration. Future admin-only table additions in any milestone should follow the same enumeration pattern.
+
+### 15.9 Round 9 (Codex `019e43dd-7688-...` thread reused — 2026-05-19)
+
+Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — `validation_state` RLS posture contradicted the §4.3 admin-table contract. Spec said "RLS enabled, no policies, service-role-only" but the atomic checklist adds the table to §4.3 and the existing admin-table tests (`tests/db/rls.test.ts`, `tests/db/admin-rls-runtime.test.ts`) assert `admin_only FOR ALL` policy for every admin-only table. Following the DDL fails the updated tests; adding admin policy violates the service-role-only posture. Internal contradiction. | P1 / high | Fixed. DDL now includes `CREATE POLICY admin_only FOR ALL TO authenticated USING (is_admin()) WITH CHECK (is_admin())`. Service role bypasses RLS so script writes still work; admin reads work; non-admin sessions denied per AC-2.5 (matching every other admin-only table's pattern). | §3.3.2 DDL block, §3.3.2 RLS discipline-mapping row |
+| F2 — Re-seed / check-seed could pass against local Supabase while the walk uses the prod-equivalent Vercel deployment. Default `SUPABASE_URL=http://127.0.0.1:54321` would let script seed local DB, check-seed pass locally, but prod Supabase be stale or unseeded. | P1 / high | Fixed. Re-seed contract now requires dedicated `VALIDATION_SUPABASE_URL` + `VALIDATION_SUPABASE_SERVICE_KEY` env vars (distinct from local). Localhost/`127.0.0.1`/`::1` rejected unless `--allow-local-override`. New column `seeded_supabase_project_ref` stamped on every seed. `check-seed` verifies project_ref matches `$VALIDATION_SUPABASE_PROJECT_REF` env. | §3.3 step 5 "Target selection" row (new), §3.3.2 DDL (new column), §3.3.2 check-seed semantics |
+| F3 — R7/R8 split (R8 F1) left stale "8 R-combos" / "R1–R8" / "8+5=13" / "96 cells" / "32 cells" / "8 combos" references across the body | P2 / medium | Fixed. Swept: §3.3.2 CHECK row (8→10 combos), §3.3.1 R-band reference (R1–R8 → R1–R6 + R7a/R7b/R8a/R8b), §3.3.1 total walks (8+5=13 → 10+5=15), §3.4 axis policy row (R1–R8 → 10 total), §3.4 cell estimates (96 → 120; 32 → 36 using 9-pair selection), total upper-bound estimate (600-800 → 650-850 cells). Audit-trail references to R1–R8 and "8 pairs" left intact as historical context. | §3.3.2, §3.3.1, §3.4, §3.4 estimates |
+
+**Class-sweep additions during R9 repair:**
+
+- **Cell estimate correction** — earlier estimate "8 pairs × 4 = 32 cells" was already stale even before R8 (the §3.4.1 9-pair selection landed in R4). R9 sweep caught this latent error too.
