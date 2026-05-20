@@ -140,3 +140,47 @@ jobs:
             x4-admin-tables-generated.diff
             x4-no-global-cursor-generated.diff
             x4-no-global-cursor.log
+
+  x5-email-canonicalization:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm gen:admin-tables
+      - name: Check generated admin-table manifest
+        run: |
+          git diff -- lib/audit/admin-tables.generated.ts > x5-admin-tables-generated.diff
+          git diff --exit-code lib/audit/admin-tables.generated.ts
+      - run: pnpm gen:watermark-symbols
+      - name: Check generated watermark-symbol manifest
+        run: |
+          git diff -- lib/audit/watermark-symbols.generated.ts > x5-watermark-symbols-generated.diff
+          git diff --exit-code lib/audit/watermark-symbols.generated.ts
+      - run: pnpm gen:email-boundaries
+      - name: Check generated email-boundary manifest
+        run: |
+          git diff -- lib/audit/email-boundaries.generated.ts > x5-email-canonicalization-generated.diff
+          git diff --exit-code lib/audit/email-boundaries.generated.ts
+      - name: Run X.5 email-canonicalization audit
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test:audit:x5-email-canonicalization 2>&1 | tee x5-email-canonicalization.log
+      - name: Upload X.5 email-canonicalization audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x5-email-canonicalization-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          if-no-files-found: warn
+          path: |
+            x5-admin-tables-generated.diff
+            x5-watermark-symbols-generated.diff
+            x5-email-canonicalization-generated.diff
+            x5-email-canonicalization.log
