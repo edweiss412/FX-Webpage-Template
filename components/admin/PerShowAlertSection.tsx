@@ -16,16 +16,17 @@
  * pinned to that row).
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { nowDate } from "@/lib/time/now";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 
-function formatRelative(iso: string): string {
+function formatRelative(iso: string, now: Date): string {
   const parsed = Date.parse(iso);
   if (Number.isNaN(parsed)) return iso;
-  const minutes = Math.floor((Date.now() - parsed) / 60000);
+  const minutes = Math.floor((now.getTime() - parsed) / 60000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes} min ago`;
   const hours = Math.floor(minutes / 60);
@@ -123,6 +124,11 @@ export async function PerShowAlertSection({
     return null;
   }
 
+  // M11 Phase C (C.2 extension): request-scoped wall-clock instant for
+  // relative-time labels, hoisted past the early-return so we only pay
+  // for the time read when alerts actually render.
+  const now = await nowDate();
+
   return (
     <section
       data-testid="per-show-alert-section"
@@ -170,7 +176,7 @@ export async function PerShowAlertSection({
               <p className="text-xs text-text-subtle tabular-nums">
                 Raised{" "}
                 <time dateTime={alert.raised_at} suppressHydrationWarning>
-                  {formatRelative(alert.raised_at)}
+                  {formatRelative(alert.raised_at, now)}
                 </time>
               </p>
               <PerShowAlertResolveButton alertId={alert.id} slug={slug} />

@@ -15,6 +15,7 @@
  */
 import Link from "next/link";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { nowDate } from "@/lib/time/now";
 import {
   ActiveShowsPanel,
   type ActiveShowRow,
@@ -235,6 +236,10 @@ export async function fetchDashboardData(): Promise<
 
 export async function Dashboard() {
   const result = await fetchDashboardData();
+  // M11 Phase C (C.2 extension): hoist request-scoped wall-clock instant
+  // and thread into <ActiveShowsPanel /> so the panel's relative-time
+  // labels honor screenshot-frozen-now.
+  const now = await nowDate();
 
   if ("kind" in result) {
     return (
@@ -288,7 +293,7 @@ export async function Dashboard() {
         </p>
       </header>
 
-      <ActiveShowsPanel rows={result.shows} />
+      <ActiveShowsPanel rows={result.shows} now={now} />
       <PendingPanel
         pendingIngestions={result.pendingIngestions}
         firstSeenStaged={result.firstSeenStaged}

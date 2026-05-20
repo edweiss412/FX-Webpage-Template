@@ -30,6 +30,7 @@ import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { resolveAdminAlertFormAction } from "@/app/admin/actions";
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
+import { nowDate } from "@/lib/time/now";
 
 import { ResolveAlertButton } from "./ResolveAlertButton";
 
@@ -169,6 +170,10 @@ export async function AlertBanner() {
   }
   const moreCount = typeof queueDepth === "number" && queueDepth > 1 ? queueDepth - 1 : 0;
 
+  // M11 Phase C (C.2 extension): request-scoped wall-clock instant for
+  // the relative-time suffix. Hoisted here (after early returns) so the
+  // banner only pays the time-utility cost when it will actually render.
+  const now = await nowDate();
   const alert = data[0] as AlertRow;
   const show = Array.isArray(alert.shows) ? alert.shows[0] : alert.shows;
   const showSlug = show?.slug ?? null;
@@ -225,7 +230,7 @@ export async function AlertBanner() {
         <p data-testid="admin-alert-raised-at" className="tabular-nums">
           Raised{" "}
           <time dateTime={alert.raised_at} title={absoluteRaisedAt(alert.raised_at)}>
-            {raisedAtSuffix(alert.raised_at, new Date())}
+            {raisedAtSuffix(alert.raised_at, now)}
           </time>
         </p>
         {moreCount > 0 && (

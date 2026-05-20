@@ -44,6 +44,7 @@ import {
   isCheckpointStale,
   isInfraError,
 } from "@/app/admin/_finalizeCheckpoint";
+import { nowDate } from "@/lib/time/now";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Admin · FXAV" };
@@ -106,7 +107,11 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         );
       }
       if (checkpoint.status === "all_batches_complete") {
-        if (isCheckpointStale(checkpoint.last_processed_at)) {
+        // M11 Phase C (C.2 extension): render-side staleness decision
+        // honors the request-scoped time utility so screenshot-frozen-now
+        // requests produce deterministic surface choice.
+        const now = await nowDate();
+        if (isCheckpointStale(checkpoint.last_processed_at, now)) {
           return (
             <StaleReadyToPublish
               sessionId={settings.pending_wizard_session_id}

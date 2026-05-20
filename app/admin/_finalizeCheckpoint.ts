@@ -87,10 +87,20 @@ const STALENESS_HORIZON_MS = 24 * 3600 * 1000;
  * DB-clock CAS is the authoritative gate (Task 10.1 finding 1 helper guards
  * 3 + 4). App-vs-DB clock skew at the 24h boundary can flicker the rendered
  * surface but cannot let a fresh checkpoint be cleaned up.
+ *
+ * M11 Phase C (C.2 extension): `now` is threaded in from the caller so the
+ * render-time wall-clock decision honors the request-scoped time utility
+ * (`@/lib/time/now`) under screenshot-frozen-now request scopes. The
+ * dispatcher (app/admin/page.tsx) hoists `await nowDate()` once and passes
+ * the same instant in here. Mutation-side staleness still uses the DB clock
+ * via the helper's CAS — this branch only affects which surface renders.
  */
-export function isCheckpointStale(lastProcessedAt: string | null): boolean {
+export function isCheckpointStale(
+  lastProcessedAt: string | null,
+  now: Date,
+): boolean {
   if (!lastProcessedAt) return false;
   const parsed = Date.parse(lastProcessedAt);
   if (Number.isNaN(parsed)) return false;
-  return Date.now() - parsed > STALENESS_HORIZON_MS;
+  return now.getTime() - parsed > STALENESS_HORIZON_MS;
 }

@@ -56,11 +56,11 @@ vi.mock("@/app/admin/_finalizeCheckpoint", () => ({
     typeof result === "object" &&
     "kind" in (result as Record<string, unknown>) &&
     (result as Record<string, unknown>).kind === "infra_error",
-  isCheckpointStale: (lastProcessedAt: string | null): boolean => {
+  isCheckpointStale: (lastProcessedAt: string | null, now: Date): boolean => {
     if (!lastProcessedAt) return false;
     const parsed = Date.parse(lastProcessedAt);
     if (Number.isNaN(parsed)) return false;
-    return Date.now() - parsed > 24 * 3600 * 1000;
+    return now.getTime() - parsed > 24 * 3600 * 1000;
   },
 }));
 

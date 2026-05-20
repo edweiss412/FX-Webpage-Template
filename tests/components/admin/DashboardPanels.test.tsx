@@ -48,13 +48,14 @@ function mockJsonResponse(body: unknown, init: { status?: number } = {}) {
 
 describe("ActiveShowsPanel", () => {
   test("empty state surfaces the share-the-folder hint", () => {
-    const { getByTestId } = render(<ActiveShowsPanel rows={[]} />);
+    const { getByTestId } = render(<ActiveShowsPanel rows={[]} now={new Date()} />);
     expect(getByTestId("admin-active-shows-empty").textContent ?? "").toMatch(
       /share/i,
     );
   });
 
   test("renders one row per show with title + crew count", () => {
+    const now = new Date();
     const rows: ActiveShowRow[] = [
       {
         id: "show-1",
@@ -63,12 +64,12 @@ describe("ActiveShowsPanel", () => {
         showDateStart: "2026-03-22",
         showDateEnd: "2026-03-26",
         crewCount: 4,
-        lastSyncedAt: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
+        lastSyncedAt: new Date(now.getTime() - 12 * 60 * 1000).toISOString(),
         lastSyncStatus: "ok",
         published: true,
       },
     ];
-    const { getByTestId } = render(<ActiveShowsPanel rows={rows} />);
+    const { getByTestId } = render(<ActiveShowsPanel rows={rows} now={now} />);
     const row = getByTestId("admin-active-show-row-rpas-central-2026");
     expect(row.textContent ?? "").toContain("RPAS Central 2026");
     expect(row.textContent ?? "").toContain("4 crew");
@@ -89,7 +90,7 @@ describe("ActiveShowsPanel", () => {
         published: false,
       },
     ];
-    const { getByTestId } = render(<ActiveShowsPanel rows={rows} />);
+    const { getByTestId } = render(<ActiveShowsPanel rows={rows} now={new Date()} />);
     expect(
       getByTestId("admin-active-show-row-interim").textContent ?? "",
     ).toContain("Publishing");

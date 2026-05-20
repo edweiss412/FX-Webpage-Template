@@ -23,6 +23,13 @@ export type ActiveShowRow = {
 
 type ActiveShowsPanelProps = {
   rows: ActiveShowRow[];
+  /**
+   * M11 Phase C (C.2 extension): request-scoped wall-clock instant
+   * threaded from <Dashboard /> via `await nowDate()`. The panel is
+   * deliberately kept synchronous (Option B) so it stays trivially
+   * renderable in jsdom tests; the caller hoists the time read.
+   */
+  now: Date;
 };
 
 function formatDateRange(start: string | null, end: string | null): string | null {
@@ -36,11 +43,11 @@ function formatDateRange(start: string | null, end: string | null): string | nul
   return toShort((start ?? end)!);
 }
 
-function formatRelative(iso: string | null): string {
+function formatRelative(iso: string | null, now: Date): string {
   if (!iso) return "never";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const minutes = Math.floor((Date.now() - d.getTime()) / 60000);
+  const minutes = Math.floor((now.getTime() - d.getTime()) / 60000);
   if (minutes < 1) return "just now";
   if (minutes < 60) return `${minutes} min ago`;
   const hours = Math.floor(minutes / 60);
@@ -81,7 +88,7 @@ function toneClass(tone: "ok" | "warn" | "err" | "publishing"): string {
   }
 }
 
-export function ActiveShowsPanel({ rows }: ActiveShowsPanelProps) {
+export function ActiveShowsPanel({ rows, now }: ActiveShowsPanelProps) {
   return (
     <section
       data-testid="admin-active-shows-panel"
@@ -148,7 +155,7 @@ export function ActiveShowsPanel({ rows }: ActiveShowsPanelProps) {
                 <p
                   className={`text-sm tabular-nums ${toneClass(glyph.tone)} sm:min-w-40`}
                 >
-                  {formatRelative(row.lastSyncedAt)} · {glyph.label}
+                  {formatRelative(row.lastSyncedAt, now)} · {glyph.label}
                 </p>
               </li>
             );
