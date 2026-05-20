@@ -947,6 +947,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
       args.modifiedTime,
       args.parseResult.show.coi_status,
       JSON.stringify(args.parseResult.pullSheet),
+      args.autoPublishFirstSeen?.unpublishToken ?? null,
+      args.autoPublishFirstSeen?.unpublishTokenExpiresAt ?? null,
     ];
 
     const updated = existing
