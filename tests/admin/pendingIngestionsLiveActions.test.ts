@@ -164,7 +164,7 @@ describe("live pending-ingestions actions", () => {
       runManualStageForFirstSeen: vi.fn(async () => ({
         outcome: "applied",
         showId: "show-1",
-      })) as unknown as LivePendingIngestionRouteDeps["runManualStageForFirstSeen"],
+      })) as unknown as NonNullable<LivePendingIngestionRouteDeps["runManualStageForFirstSeen"]>,
     });
 
     const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
