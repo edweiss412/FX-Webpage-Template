@@ -140,14 +140,23 @@ The day-of-walk uses **wall-clock + fixture-data engineering**, NOT the M11 `X-S
 | Idempotency | Re-running with the same args on the same day is a no-op. Re-running with a different date updates every fixture's date columns. **R18 clarification: `--combo <single>` is UPSERT-ONLY for the target combo and its associated alias_map entries — it does NOT touch other combos' fixtures, crew_members, or alias_map keys. To re-seed everything from scratch use `--combo all`.** |
 | Storage of `validation_seed_date` stamp | New table `validation_state` (single row), admin-only per §3.3.2 below. Schema specified in §3.3.2. The script writes to this table at the end of a successful seed. |
 | Verification command | `pnpm validation:check-seed` returns exit 0 if `last_seed_date = today` AND `combos_materialized` covers what the next walk needs; returns exit 1 otherwise. The dev runs this at the start of every walk session per §3.3 step 5 above. |
-| Owned fixture mappings (R11 + R21 amendments) | One fixture per R-combo + one fixture per show-wide state. The canonical mapping table inline: R-combo or state → `{showName, date_restriction, stage_restriction, dates, expected_today_state, crew_members: [{alias, name, email, role_flags}]}`. **Crew-member contract per fixture:** every R-combo fixture seeds **at least 9 crew_members**, one per §3.2 role variant (5a/5b/5c + 6a/6b/6c/6d/6e/6f), with stable aliases (`alias_5a_lead`, `alias_5b_lead_a1`, ..., `alias_6f_empty`) and predictable emails (e.g., `validation+5a@example.com`). Each crew_member carries the role_flags per §3.2. Restriction combos (date / stage) apply to ALL 9 crew_members in the fixture, so the dev can walk any role variant against any R-combo by picking the right alias. **Show-wide state fixtures** seed only the LEAD crew_member (5a) — show-wide states are LEAD-only per §3.3.1.
+| Owned fixture mappings (R11 + R21 amendments) | One fixture per R-combo + one fixture per show-wide state. The canonical mapping table inline: R-combo or state → `{showName, date_restriction, stage_restriction, dates, expected_today_state, crew_members: [{alias, name, email, role_flags}]}`. **Crew-member contract per fixture (R22 + R23 amendments):** every R-combo fixture seeds **11 crew_members** (R23 corrected — was "9" in earlier draft; R22 added the revoke-test alias making 10; R23 adds the query-compromise-test alias making 11). The 11 aliases:
+
+- **9 role-variant aliases** per §3.2: `alias_5a_lead`, `alias_5b_lead_a1`, `alias_5c_bo_lead`, `alias_6a_a1`, `alias_6b_v1`, `alias_6c_l1`, `alias_6d_bo`, `alias_6e_a1_l1`, `alias_6f_empty`
+- **`alias_5a_lead_for_revoke`** (R22) — dedicated LEAD identity for the J3 revoke leg; isolates revocation from baseline
+- **`alias_5a_lead_for_query_compromise`** (R23) — dedicated LEAD identity for the J3 query-token-compromise leg; the live compromise path tags `revoked_reason = 'leaked_query_token'` and raises `revoked_below_version`, neither of which validation-tagged cleanup catches. Isolation prevents baseline poisoning.
+
+Each crew_member carries the role_flags per §3.2 (the two extra LEAD-clone aliases share `["LEAD"]` flags with 5a). Predictable emails: `validation+5a@example.com`, `validation+5a-for-revoke@example.com`, `validation+5a-for-query-compromise@example.com`, etc. Restriction combos (date / stage) apply to ALL 11 crew_members. **Show-wide state fixtures** seed only the LEAD crew_member (5a) — show-wide states are LEAD-only per §3.3.1.
+
+**Total alias_map leaf entries (R23 corrected):** 10 R-combos × 11 aliases + 6 SW-states × 1 alias = **116 aliases** (was 96 before R22/R23 additions).
 
 **R21 amendment — crew_member_auth lockstep contract.** mint-link requires `current_token_version` from `crew_member_auth (show_id, crew_name, current_token_version, revoked_below_version, ...)`. The redemption path (`app/api/auth/redeem-link/route.ts:297-318`) rejects with `LINK_VERSION_MISMATCH` if `crew_member_auth` is missing the matching row OR `verified.payload.tokenVersion !== authRow.current_token_version` OR `verified.payload.tokenVersion <= authRow.revoked_below_version`. The re-seed script MUST therefore UPSERT a `crew_member_auth` row for every seeded crew_member, in lockstep:
-- For every R-combo fixture: **10** `crew_member_auth` rows — **R22: 9 role-variant aliases + 1 dedicated revoke-test alias `alias_5a_lead_for_revoke`** (a separate LEAD identity used only for the J3 revoke leg so revocation doesn't poison the baseline control).
+- For every R-combo fixture: **11** `crew_member_auth` rows — **R22 + R23: 9 role-variant aliases + 1 revoke-test alias + 1 query-compromise-test alias** (two separate LEAD identities for J3's two negative-auth legs so neither poisons the baseline).
 - For every SW-state fixture: 1 `crew_member_auth` row (LEAD only).
 - Initial `current_token_version = 1`; `revoked_below_version = 0`.
 - Re-seed UPSERTs preserve `current_token_version` if it's already set (so subsequent `revoke-link` operations that bump the version aren't reverted by re-seed).
 - **R22: Re-seed DELETEs `revoked_links` rows tagged `revoked_reason LIKE 'validation:%'`** so prior J3 revocations don't poison subsequent walks. The revoke-link CLI tags every INSERT with `revoked_reason = 'validation:j3-revoked-link-leg'` so re-seed can selectively clean only validation-induced revocations.
+- **R23 amendment — query-compromise cleanup is structural, not tag-based.** The live compromise RPC inserts `revoked_reason = 'leaked_query_token'` (a runtime-tagged reason, NOT validation-tagged) AND raises `crew_member_auth.revoked_below_version` for the affected `(show_id, crew_name)`. Re-seed CANNOT use `revoked_reason LIKE 'validation:%'` to catch these. Instead, re-seed RESETS the dedicated query-compromise alias's state structurally: (a) DELETEs ALL `revoked_links` rows matching the alias's `(show_id, crew_name)` regardless of `revoked_reason`, AND (b) UPDATEs `crew_member_auth SET revoked_below_version = 0, current_token_version = current_token_version + 1` (bumps the version to invalidate any straggler revocations that match an even-older version). The query-compromise alias is the ONLY alias subject to this structural reset — all other aliases are protected from accidental over-cleanup.
 
 The mutation is performed inside the per-show advisory lock (`pg_advisory_xact_lock(hashtext('show:' || drive_file_id))`) per project invariant 2.
 
@@ -671,6 +680,33 @@ If between sign-off and the v1-launch milestone the dev encounters a MUST-FIX th
 
 ## 9. Phase 0 — prod-equivalent infra setup
 
+### 9.0 Phase 0 scope, ordering, and budget gate (R23 amendment)
+
+Phase 0 has expanded substantially across R5–R22 (validation tooling: 6 CLIs + DB migration + master spec amendments + test baselines). R23 recognized that Phase 0 alone could consume the same 3-8 week budget §3.4 estimates for the whole milestone if left unsequenced. This section establishes Phase 0 task ordering and a budget gate so the bulk of M12's time goes to Phase 1's actual walk, not Phase 0's tooling build.
+
+**Phase 0 canonical task order:**
+
+| # | Task | Estimate | Blocks the next task? |
+|---|---|---|---|
+| 0.A | Stand up Vercel project (production-target, no custom domain), Supabase prod project, Drive service account + watched folder. Set VALIDATION_* env vars in Vercel + locally. | 0.5–1 day | Yes — every later task needs the infrastructure. |
+| 0.B | Author + apply `validation_state` migration atomically with master spec §4.3 amendment, §4.1 CREATE TABLE block, admin-tables generator regen, test baseline updates per §3.3.2 step 6. | 0.5–1 day | Yes — re-seed depends on the table. |
+| 0.C | Author `scripts/validation-reseed.ts` + `validation:check-seed` + `validation:resolve-alias`. Run reseed --combo all + check-seed against the prod-equivalent stack. | 1–2 days | Yes — fixtures must exist before mint/revoke/smoke 6. |
+| 0.D | Author `scripts/validation-mint-link.ts` + `validation:revoke-link`. Implement the three-env-var mapping (§5.3) and the query-compromise / revoke alias isolation per §3.3 + R22/R23. | 0.5–1 day | Required for smoke 6. |
+| 0.E | Author `scripts/validation-report-fixtures.ts`. | 0.5 day | Not strictly blocking smoke tests 1-6 (band F walks happen in Phase 1). |
+| 0.F | Run all 6 Phase 0 smoke tests per §9.2. | 0.5–1 day | Yes — passes gate Phase 1. |
+
+**Total Phase 0 estimate: 3.5–6.5 days.** Phase 0 should not exceed 1.5 weeks; if it does, the dev should pause and reduce tooling scope rather than continue.
+
+**Phase 0 budget gate (R23 amendment).** If Phase 0 has not closed within 10 calendar days of starting (excluding standard infrastructure-provisioning latency — Supabase project creation, Drive service account approval, Vercel project setup), the dev MUST stop and decide:
+
+1. **Defer non-essential validation tooling.** `validation:report-fixtures` is the most-deferrable item — if the dev decides report-pipeline failure outcomes can be EXCLUDED-rely-on-structural per §4.2 band F, the harness can be skipped and band F validates only success / in-flight / rate-limit via real walks.
+2. **Split Phase 0 into its own prerequisite milestone.** Re-number the validation work as "M12a — Validation tooling" and the exercise as "M12b — Walk". Both stay under the v1-launch umbrella but each has its own close-out and budget.
+3. **Re-scope the walk.** If tooling is genuinely consuming the budget AND the dev is unwilling to defer or split, the walk's coverage policy (§3.4) can be tightened — fewer R-combos, fewer role variants, fewer journeys. This is the LAST-resort lever because it weakens the validation gate's purpose.
+
+**The decision is captured in `SIGN-OFF.md` appendix** if option 2 or 3 is taken, so the v1-launch milestone knows what's deferred.
+
+
+
 Phase 0 stands up the infrastructure the exercise runs against. Phase 1 (the exercise proper) does not start until Phase 0 verifies.
 
 ### 9.1 Components to stand up
@@ -1179,3 +1215,18 @@ Verdict: `needs-attention`. Three P1 findings. All accepted and addressed.
 - **Process-env indirection covers ALL transitively-read vars** — not just the obvious primary one. signLinkJwt reads JWT_SIGNING_SECRET; its caller (createSupabaseServiceRoleClient) reads SUPABASE_URL + SUPABASE_SECRET_KEY. CLI tooling that wraps direct-call lib functions must map every transitive process.env read. Future tooling: trace the full read graph.
 - **Surgical revocation has fixture-isolation implications** — the live revoked_links contract is keyed by (show_id, crew_name, token_version). Any fixture that uses the same key tuple as a tested-revocation will be permanently denied. Separate aliases (or version bumps) are required when the SAME test step both revokes AND tests positive behavior.
 - **Validation-tagged cleanup pattern** — `revoked_reason = 'validation:%'` lets re-seed selectively clean only validation-induced state without affecting other rows. Future validation-tooling INSERTs should follow this tagging convention.
+
+### 15.23 Round 23 (Codex 2026-05-19)
+
+Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — R22 added `alias_5a_lead_for_revoke` to §5.3 but didn't promote it into the §3.3 seed contract or §3.3.2 check-seed. mint-link would fail unresolvable for the dedicated alias. | P1 / high | Fixed. Seed contract bumped from 10→11 crew_members per R-combo (9 role variants + revoke-test + query-compromise-test aliases). alias_map leaf count 96→116. Crew_member_auth row count per R-combo: 9→11. check-seed predicates updated. | §3.3 crew-member contract paragraph, §3.3 alias_map total, §3.3 crew_member_auth lockstep |
+| F2 — Query-token compromise leg (J3) inserts `revoked_links` rows tagged `revoked_reason = 'leaked_query_token'` AND raises `revoked_below_version` on `crew_member_auth`. R22's validation-tagged cleanup wouldn't catch this; the baseline alias would be permanently poisoned across re-seeds. | P1 / high | Fixed. New dedicated `alias_5a_lead_for_query_compromise` alias (R23 — 11th per R-combo). Re-seed STRUCTURALLY resets this alias's state: DELETEs ALL revoked_links matching its (show_id, crew_name) regardless of reason, AND bumps current_token_version + zeros revoked_below_version. This alias is the ONLY one subject to structural reset — others stay protected. | §3.3 crew-member contract, §3.3 cleanup contract (new R23 paragraph) |
+| F3 — Phase 0 had ballooned to a multi-week implementation project (6 CLIs + migration + master spec amendments + test updates) without ordering or budget gate. The 3-8 week milestone budget could be consumed entirely by Phase 0 with no Phase 1 walk. | P2 / medium | Fixed. New §9.0 specifies canonical Phase 0 task order (0.A–0.F, 3.5-6.5 days total), a 10-calendar-day budget gate, and three documented options if the gate trips: defer report-fixtures harness / split Phase 0 into M12a tooling milestone / re-scope walk coverage. Decision recorded in SIGN-OFF.md appendix. | New §9.0 |
+
+**Class-sweep additions during R23 repair:**
+
+- **Multi-test-leg fixture isolation requires N aliases per test, not just N+1** — when a test step writes durable state (revoked_links, raised revoked_below_version), the alias for that step must be unique to that step AND have a cleanup contract specific to its mutation. R22's revoke + R23's query-compromise are TWO separate negative-auth surfaces, each needing its own alias.
+- **Phase 0 sizing discipline** — when tooling deliverables accumulate during spec rounds, the spec must explicitly say what's negotiable. Without §9.0's "defer / split / re-scope" decision matrix, the dev would have no way to recover from a Phase 0 overrun without ad-hoc judgement.
