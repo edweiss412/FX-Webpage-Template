@@ -21,7 +21,7 @@
     "pretest": "pnpm gen:admin-tables && pnpm gen:watermark-symbols && pnpm gen:email-boundaries && pnpm gen:traceability",
     "prebuild": "pnpm gen:admin-tables && pnpm gen:watermark-symbols && pnpm gen:email-boundaries && pnpm gen:traceability",
     "verify:spec-amendment": "scripts/verify-spec-amendment-3.sh",
-    "test:audit:x1-catalog-parity": "pnpm gen:spec-codes && vitest run tests/cross-cutting/",
+    "test:audit:x1-catalog-parity": "pnpm gen:spec-codes && vitest run tests/cross-cutting/codes.test.ts tests/cross-cutting/extract-spec-codes.test.ts",
     "test:audit:x2-no-raw-codes": "pnpm gen:internal-code-enums && vitest run tests/cross-cutting/no-raw-codes.test.ts",
     "test:audit:x3-trust-domain": "pnpm gen:admin-tables && vitest run tests/cross-cutting/auth.test.ts",
     "test:audit:x4-no-global-cursor": "pnpm gen:watermark-symbols && vitest run tests/cross-cutting/no-global-cursor.test.ts",
