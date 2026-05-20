@@ -211,15 +211,37 @@ BEGIN
     );
 END $$;
 
--- R12 amendment — alias_map is also schema-evolution-safe via ADD COLUMN IF NOT
--- EXISTS for the case where validation_state was created before this column
--- was added (e.g., the R10 DDL committed before R12's amendment).
+-- R12 amendment + R16 drift-repair — alias_map is schema-evolution-safe.
+-- ADD COLUMN IF NOT EXISTS handles the missing-column case. R16 adds explicit
+-- normalization of type/nullability/default so an early-draft column with
+-- different shape gets corrected rather than left in place.
+ALTER TABLE public.validation_state
+  ADD COLUMN IF NOT EXISTS alias_map jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+-- R16 drift repair — if an early manual run created alias_map with the wrong
+-- type/nullability/default, normalize it. Each ALTER is idempotent.
+ALTER TABLE public.validation_state
+  ALTER COLUMN alias_map SET DEFAULT '{}'::jsonb;
+ALTER TABLE public.validation_state
+  ALTER COLUMN alias_map SET NOT NULL;
+
+-- R16 type-drift fail-loud — if column type isn't jsonb, fail with a clear
+-- diagnostic rather than silently mis-behaving downstream.
 DO $$
+DECLARE
+  col_type text;
 BEGIN
-  ALTER TABLE public.validation_state
-    ADD COLUMN IF NOT EXISTS alias_map jsonb NOT NULL DEFAULT '{}'::jsonb;
-EXCEPTION
-  WHEN duplicate_column THEN NULL;
+  SELECT data_type INTO col_type
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'validation_state'
+      AND column_name = 'alias_map';
+  IF col_type IS NULL THEN
+    RAISE EXCEPTION 'validation_state.alias_map column missing after ADD COLUMN — investigate';
+  END IF;
+  IF col_type <> 'jsonb' THEN
+    RAISE EXCEPTION 'validation_state.alias_map has wrong type % (expected jsonb) — manual corrective migration required', col_type;
+  END IF;
 END $$;
 
 -- Admin-only per master spec §4.3 pattern (R9 amendment + R10 correction —
@@ -255,7 +277,7 @@ CREATE POLICY admin_only ON public.validation_state
 | Dimension | Treatment |
 |---|---|
 | Tier × domain | Admin-only (operational tooling). Should be added to the master spec's §4.3 admin-only tables list at the moment this migration lands. |
-| CHECK constraint | `validation_state_combos_check` enumerates the allowed combo names (10 R-combos after R8 split: R1–R6 + R7a/R7b/R8a/R8b, plus 5 show-wide states). Adding a new combo requires migrating the CHECK constraint AND extending the script's mapping table in lockstep. |
+| CHECK constraint | `validation_state_combos_check` enumerates the allowed combo names (10 R-combos after R8 split: R1–R6 + R7a/R7b/R8a/R8b, plus 6 show-wide states after R11 split: SW-PRE_TRAVEL / SW-TRAVEL_IN / SW-SHOW_1 / SW-SHOW_INTERIOR / SW-SHOW_LAST / SW-POST_SHOW). Adding a new combo requires migrating the CHECK constraint (using the R12 DROP+ADD drift-safe pattern) AND extending the script's mapping table in lockstep. |
 | Migration idempotency | The DDL block above uses `CREATE TABLE IF NOT EXISTS` for the table, `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` (R12 amendment — drift-safe; the R11 duplicate_object pattern only handled "constraint already present" but didn't migrate enum drift), and `ADD COLUMN IF NOT EXISTS` for the alias_map column. Apply-twice safe AND enum-drift safe per AGENTS.md. |
 | RLS | Enabled with `admin_only FOR ALL` policy (R9 amendment — matches master spec §4.3 contract for all admin-only tables; service role bypasses RLS so the script writes work; admin session reads work for any future audit UI; non-admin sessions denied across all 4 verbs as AC-2.5 requires). |
 | Supabase call-boundary | Script's `{ data, error }` destructure is mandatory per AGENTS.md invariant 9. The check-seed command uses `select`'s error branch to distinguish "table not present" (Phase 0 incomplete) from "table empty / stale" (re-seed required). |
@@ -456,7 +478,7 @@ Generate a signed link from admin. The canonical URL form is `/show/<slug>/p#t=<
 
 | Scenario | Command | Expected outcome |
 |---|---|---|
-| Already-expired link (J3 expired-link path) | `pnpm validation:mint-link --combo R1 --alias alias_5a_lead --expires-in -60` | Link redemption returns 401 with `LINK_EXPIRED` surface |
+| Already-expired link (J3 expired-link path) | `pnpm validation:mint-link --combo R1 --alias alias_5a_lead --expires-in -3600` | Link redemption returns 401 with `LINK_EXPIRED` surface. R16: expiry widened from -60s to -3600s (1 hour past) to absorb local-vs-Vercel clock skew that could otherwise leave a "-60s" link borderline-valid. |
 | Revoked link (J3 revoked-link path) | `pnpm validation:mint-link --combo R1 --alias alias_5a_lead` (mint fresh), then run `pnpm validation:revoke-link <link_session_id>` which sets `revoked_at = now()` in `revoked_links` | Link redemption returns 401 with "not on crew list" surface per master spec §7 |
 | Valid baseline (control) | `pnpm validation:mint-link --combo R1 --alias alias_5a_lead` | Link redemption renders crew page |
 
@@ -466,7 +488,7 @@ The mint-link and revoke-link commands are plan-time deliverables added to the v
 
 | Aspect | Contract |
 |---|---|
-| Required env var | `VALIDATION_JWT_SIGNING_SECRET` (distinct from local `JWT_SIGNING_SECRET` to prevent accidental signing with wrong key). Must equal the Vercel project's `JWT_SIGNING_SECRET` value for the production-target deployment. Phase 0 sub-task: dev copies the Vercel env var into local `.env.local` AND `.env.local.example` documents `VALIDATION_JWT_SIGNING_SECRET` as a placeholder. |
+| Required env var | `VALIDATION_JWT_SIGNING_SECRET` (distinct from local `JWT_SIGNING_SECRET` to prevent accidental signing with wrong key). **R16 amendment: must equal the Vercel project's `JWT_SIGNING_SECRET` value scoped to the Vercel "Production" environment (not "Preview" or "Development") for the exact project backing the `*.vercel.app` production deployment.** Vercel env vars can differ across the three environment scopes; the validation tooling only works against the Production scope's value. Phase 0 sub-task: dev copies the Vercel **Production-environment** env var into local `.env.local` AND `.env.local.example` documents `VALIDATION_JWT_SIGNING_SECRET` with the inline note "must equal Vercel Production-scope JWT_SIGNING_SECRET". |
 | Active signing key id | Read at mint time from the prod-equivalent Supabase (`VALIDATION_SUPABASE_URL` + service key) via `select active_signing_key_id from app_settings` — same source the live runtime uses. The CLI uses this id for the JWT's `signing_key_id` claim so `validateLinkSession`'s key-rotation check passes. |
 | Phase 0 smoke test 6 (new) | Mint a valid link locally via `pnpm validation:mint-link --combo R1 --alias alias_5a_lead --expires-in 60` (positive 60s — short-lived but valid). Open the URL on dev's iPhone against the Vercel `*.vercel.app` URL. Confirm crew page renders. This proves the mint tooling's secret + key id align with the deployed runtime. Add to §9.2 Phase 0 exit list. |
 | Failure modes guarded | (a) If `VALIDATION_JWT_SIGNING_SECRET` unset → mint-link aborts before signing. (b) If `select active_signing_key_id` returns null or differs from a stored expectation → mint-link aborts with diagnostic. (c) Phase 0 smoke test 6 fails if mint+redeem round-trip doesn't render → Phase 0 blocked. |
@@ -678,7 +700,7 @@ Phase 0 closes when **all six** smoke tests pass — only after all six does Pha
 3. **Cron + Drive integration.** A fixture sheet placed in the prod-tier Drive watched folder is detected by the cron path (Vercel Cron → fetch from Drive service account → parse → propagate) within one cron interval. The new show appears in `/admin` Active Shows panel. Verifies: cron schedule firing + Drive service-account credentials + parser end-to-end + DB write under per-show advisory lock.
 4. **Admin alert write + AlertBanner render.** A fixture-induced staging event (e.g., editing the seeded fixture to trigger MI-6 crew shrinkage) causes a row to land in `admin_alerts` AND the AlertBanner on `/admin` renders that row on a fresh page load. Verifies: write path to `admin_alerts` + AlertBanner read query + crew-page propagation behavior end-to-end.
 5. **Wall-clock + fixture-data clock control.** Seed a fixture into the prod Supabase with `date_restriction.days = [<a date that is NOT today>]` and a known `dates.travelIn/travelOut` window that includes today. Generate a signed-link, open on the Vercel `*.vercel.app` production URL, and confirm the Right Now card renders `viewer_off_day` copy (per master spec §8 line 2413). Verifies: the production stack reads wall-clock + fixture data correctly without test-auth bypass; the §3.3 wall-clock approach is genuinely available.
-6. **Mint-redeem round-trip (R15 amendment).** Mint a short-lived valid link via `pnpm validation:mint-link --combo R1 --alias alias_5a_lead --expires-in 60`. Open the URL on the dev's real iPhone against the Vercel `*.vercel.app` URL. Confirm the crew page renders. Verifies: the validation tooling's `VALIDATION_JWT_SIGNING_SECRET` + `active_signing_key_id` (read from prod-equivalent Supabase) align with the deployed Vercel runtime so locally-minted links pass `validateLinkSession` end-to-end. Without this smoke, mint-link's expired/revoked legs (J3 §5.3) could appear to work locally while silently failing redeemability in prod.
+6. **Mint-redeem round-trip (R15 amendment; R16 hardened).** **Prerequisite (R16):** before smoke 6 runs, the dev MUST first run `pnpm validation:reseed --combo R1` followed by `pnpm validation:check-seed --combo R1`. This ensures `validation_state.alias_map` carries the R1 entry and the R1 fixture's crew_members exist. Smoke 6 then mints a 15-minute-TTL valid link via `pnpm validation:mint-link --combo R1 --alias alias_5a_lead --expires-in 900` (R16: TTL widened from 60s → 900s/15min to absorb human delay, QR/share friction, local-vs-Vercel clock skew). Open the URL on the dev's real iPhone against the Vercel `*.vercel.app` URL within the 15-minute window. Confirm the crew page renders. Verifies: the validation tooling's `VALIDATION_JWT_SIGNING_SECRET` + `active_signing_key_id` (read from prod-equivalent Supabase) align with the deployed Vercel runtime so locally-minted links pass `validateLinkSession` end-to-end. If smoke 6 fails, the failure-isolation procedure is: (a) re-run `validation:check-seed` to rule out seed staleness, (b) re-verify env vars match Vercel Production scope, (c) re-mint with a fresh 15-min TTL.
 
 Phase 0 closes when **all six** smoke tests pass — only after all six does Phase 1 start. Failing any of the six re-opens Phase 0. (R15 amendment: incremented from five to six with the addition of smoke test 6 — mint-redeem round-trip — to prove the signing-key contract.)
 
@@ -772,12 +794,12 @@ This section is the inline self-review per the project's spec-self-review checkl
 | Transition inventory | N/A | No multi-state UI components introduced. |
 | Existing-code citations | Applies | Spec cites master spec by section, M11 spec by section, file paths (`scripts/with-admin-dev-flag.mjs`, `lib/messages/lookup.ts`), and memory entries (`feedback_deferral_discipline.md`) where load-bearing. |
 | Tier × domain matrix | Applies (R6 + R10 amendments) | `validation_state` table is admin-only operational tooling — Tier × domain treatment in §3.3.2: admin-only RLS via `public.is_admin()` + `admin_only FOR ALL TO anon, authenticated` policy + explicit grants (matches canonical pattern from `supabase/migrations/20260501002000_rls_policies.sql`). Atomically added to master spec §4.3 admin-only list per atomic-commit rule in §3.3.2. Read/write paths: re-seed script (write, service-role), check-seed command (read, service-role), admin sessions (read/write via policy), no v1 UI read path. |
-| CHECK / enum migration | Applies (R6 + R10 amendments) | `validation_state_combos_check` CHECK constraint enumerates the 10 R-combos (R1–R6 + R7a/R7b/R8a/R8b after R8 split) + 5 show-wide state combo names in §3.3.2. New combo additions require migrating CHECK + extending the script mapping in lockstep. Migration uses `CREATE TABLE IF NOT EXISTS` + `DO $$ EXCEPTION ... END $$` for apply-twice idempotency per AGENTS.md. |
+| CHECK / enum migration | Applies (R6 + R10 + R11 + R12 amendments) | `validation_state_combos_check` CHECK constraint enumerates the 10 R-combos (R1–R6 + R7a/R7b/R8a/R8b after R8 split) + 6 show-wide state combo names (R11 added SW-SHOW_LAST). New combo additions require migrating CHECK + extending the script mapping in lockstep. Migration uses `CREATE TABLE IF NOT EXISTS` + `DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT` (R12 drift-safe drop-and-recreate pattern) + `DROP POLICY IF EXISTS + CREATE POLICY` (R14/R15 policy idempotency) + `ADD COLUMN IF NOT EXISTS` + post-add drift-repair `ALTER COLUMN SET DEFAULT/NOT NULL` + type-drift fail-loud (R16). Apply-twice safe AND enum-drift safe per AGENTS.md. |
 | Flag lifecycle | N/A | No new boolean config field. |
 | Pay-engine grain | N/A | No pay-engine touch. |
-| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **10 viewer-restriction combinations (§3.3 R1–R6 + R7a/R7b + R8a/R8b — R8 split R7 and R8 each into a/b sub-combos for set-vs-strike day coverage; R9 swept body references that still said "8 combos" / "R1–R8")**, **16 day-state walks per persona** (10 R-combos + 6 show-wide; §3.3.1 — R8 split bumped 13→15; R11 added SW-SHOW_LAST bumping to 16), **6 show-wide Right Now states (§3.3.1 — added R4; R11 split show_day_N into show_day_interior + show_day_last after Codex caught the isLast Strike-copy branch)**, **11 role×restriction sampled pairs (§3.4.1 — added R4; R10 expanded from 9 to 11 to cover R7b and R8b after R8 split)**, **120 restriction-tile cells + 44 role-pair cells** (§3.4 estimates — R9 corrected from 96/32; R10 corrected role-pair from 36 to 44 after R7b/R8b pairs added), **650–850 total upper-bound cells** (§3.4 — corrected R9 from 600–800), **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **5 Phase 0 smoke tests (§9.2 — R3 added smoke test 5; R5 corrected one stale "all four" wording)**, **6 transitive-consumer file classes (§7.2.2 — added R4; catalog, auth, design tokens, components, single-page, schema; R5 normalized stale "5" claim)**, **8-vector schema-migration enumeration recipe (§7.2.2.1 — added R5; R6 expanded from 6 to 8 vectors)**, **7 canonical CI gates (§9.1.1 — added R6; R7 corrected gate #7 name to `verify-branch-protection-status`)**, **22 admin-only tables after `validation_state` lands (§3.3.2 — R8 verified live deltas: master spec §4.3 line 605 21→22; AC-2.5 line 3489 21→22 / 84→88)**, **validation_state RLS = admin_only FOR ALL (R9 correction)**, **dedicated VALIDATION_SUPABASE_* env vars for target-selection (R9 addition)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
+| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **10 viewer-restriction combinations (§3.3 R1–R6 + R7a/R7b + R8a/R8b — R8 split R7 and R8 each into a/b sub-combos for set-vs-strike day coverage; R9 swept body references that still said "8 combos" / "R1–R8")**, **16 day-state walks per persona** (10 R-combos + 6 show-wide; §3.3.1 — R8 split bumped 13→15; R11 added SW-SHOW_LAST bumping to 16), **6 show-wide Right Now states (§3.3.1 — added R4; R11 split show_day_N into show_day_interior + show_day_last after Codex caught the isLast Strike-copy branch)**, **11 role×restriction sampled pairs (§3.4.1 — added R4; R10 expanded from 9 to 11 to cover R7b and R8b after R8 split)**, **120 restriction-tile cells + 44 role-pair cells** (§3.4 estimates — R9 corrected from 96/32; R10 corrected role-pair from 36 to 44 after R7b/R8b pairs added), **650–850 total upper-bound cells** (§3.4 — corrected R9 from 600–800), **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **6 Phase 0 smoke tests (§9.2 — R3 added smoke test 5 clock control; R15 added smoke test 6 mint-redeem round-trip; R5 corrected one stale "all four" wording)**, **6 transitive-consumer file classes (§7.2.2 — added R4; catalog, auth, design tokens, components, single-page, schema; R5 normalized stale "5" claim)**, **8-vector schema-migration enumeration recipe (§7.2.2.1 — added R5; R6 expanded from 6 to 8 vectors)**, **7 canonical CI gates (§9.1.1 — added R6; R7 corrected gate #7 name to `verify-branch-protection-status`)**, **22 admin-only tables after `validation_state` lands (§3.3.2 — R8 verified live deltas: master spec §4.3 line 605 21→22; AC-2.5 line 3489 21→22 / 84→88)**, **validation_state RLS = admin_only FOR ALL (R9 correction)**, **dedicated VALIDATION_SUPABASE_* env vars for target-selection (R9 addition)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
 | Disagreement-loop preempt | Applied | §11.2 ("intentionally absent") names the "no artifact" decision as deliberate, with rationale, so reviewers don't relitigate it. §1.5 names "no real-user testing" as deliberate, with rationale. §2 enumerates explicit deferrals so reviewers don't surface them as gaps. |
-| Build-vs-runtime gate explicitness | Applies | Phase 0 §9 names the build target (Vercel `*.vercel.app` production deployment, no custom domain); §9.2 names the five runtime smoke tests that gate Phase 1. The seven CI gates (§9.1.1) are PR-time + main-branch build-time gates; the alert path is a runtime path. R6 amendment: stale "preview build" wording corrected to "production deployment" in this row. |
+| Build-vs-runtime gate explicitness | Applies | Phase 0 §9 names the build target (Vercel `*.vercel.app` production deployment, no custom domain); §9.2 names the six runtime smoke tests that gate Phase 1 (R15 added the mint-redeem round-trip as smoke #6). The seven CI gates (§9.1.1) are PR-time + main-branch build-time gates; the alert path is a runtime path. R6 amendment: stale "preview build" wording corrected to "production deployment" in this row. |
 
 ---
 
@@ -1025,3 +1047,20 @@ Verdict: `needs-attention`. Three P1 findings. All accepted and addressed.
 
 - **One-canonical-DDL-block rule** — separate "amendment snippets" after the main DDL block invite implementer drift. The R14 separate snippet was technically correct but easily missed; folding into the main block prevents this class. Future DDL amendments should rewrite the main block, not append.
 - **Local-to-Vercel secret-sync acknowledgement** — `VALIDATION_JWT_SIGNING_SECRET` must equal Vercel's `JWT_SIGNING_SECRET`. Phase 0 sub-task explicitly: "dev copies the Vercel env var into local .env.local". Future validation-tooling commands signing or verifying against prod runtime should follow this sync pattern.
+
+### 15.16 Round 16 (Codex `019e4406-1d4a-7033-b052-631acc0f2b96`, 2026-05-19)
+
+Verdict: `needs-attention`. Five findings (3 P1, 2 P2). All accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — Smoke 6 mint-redeem assumed seed/alias_map already in place but Phase 0 closure didn't require `validation:reseed --combo R1` + `check-seed` before smoke 6 ran. Partial Phase 0 re-runs could fail smoke 6 from stale alias state, misdiagnosed as signing-key issue. | P1 / high | Fixed. Smoke 6 prerequisite explicit: dev MUST run `validation:reseed --combo R1` + `validation:check-seed --combo R1` immediately before minting. Failure-isolation procedure added (check-seed → env-var → re-mint). | §9.2 smoke 6 (R16-hardened) |
+| F2 — `VALIDATION_JWT_SIGNING_SECRET` contract said "must equal the Vercel project's JWT_SIGNING_SECRET" without naming the environment scope. Vercel stores separate values per Production/Preview/Development; wrong-scope copy would silently fail the round-trip. | P1 / medium | Fixed. Contract explicit: "the Vercel **Production** environment scope" of the project backing the production deployment (not Preview or Development). `.env.local.example` documentation note added. | §5.3 signing-key contract |
+| F3 — Mint-redeem smoke 6 used a 60-second TTL; J3 expired link used `-60`. Both make the gate flaky under local-vs-Vercel clock skew + human delay + QR/share friction. | P1 / medium | Fixed. Valid TTL widened from 60s → 900s (15 min); expired TTL from -60s → -3600s (1 hour past). Tolerance margin absorbs typical NTP drift + share-flow delay. | §9.2 smoke 6 (TTL = 900); §5.3 expired-link command (-3600) |
+| F4 — `ADD COLUMN IF NOT EXISTS` for `alias_map` handled missing-column case only. If an early manual run created the column with wrong type/default/nullability, the migration silently left bad shape; later tooling assuming `jsonb NOT NULL DEFAULT '{}'::jsonb` would misbehave. | P2 / medium | Fixed. Drift repair added: `ALTER COLUMN alias_map SET DEFAULT '{}'::jsonb` + `SET NOT NULL` (both idempotent), AND a `DO $$ ... RAISE EXCEPTION IF data_type <> 'jsonb' END $$` block that fails loudly on type-drift with a clear "manual corrective migration required" message. | §3.3.2 DDL alias_map block |
+| F5 — §12 self-review still said "5 show-wide states", "5 Phase 0 smoke tests", "five runtime smoke tests", and stale "duplicate_object" idempotency mention — all of which conflicted with the body's repaired state after R11/R12/R15. | P2 / low | Fixed. Sweep applied: CHECK row → "6 show-wide states", smoke-test count → 6, idempotency description → "DROP CONSTRAINT IF EXISTS + ADD" (drift-safe), build-vs-runtime row → "six runtime smoke tests". §3.3.2 CHECK row also updated. | §3.3.2 CHECK row, §12 CHECK/enum row, §12 build-vs-runtime row, §12 numeric self-check |
+
+**Class-sweep additions during R16 repair:**
+
+- **Smoke-test prerequisite explicitness** — when a smoke test depends on script-managed state, the prerequisite invocation MUST be in the smoke's own paragraph (not implied from earlier smokes). Phase 0 re-runs from a partial-failure state must be deterministic.
+- **Drift-repair-not-just-IF-NOT-EXISTS** — when a DDL block needs to be apply-twice safe AGAINST EVOLVED STATE (not just "first apply vs re-apply with same schema"), the pattern is `ADD COLUMN IF NOT EXISTS` + explicit `ALTER COLUMN ... SET ...` for each invariant + fail-loud type check. The R12 `ADD COLUMN IF NOT EXISTS` alone wasn't enough.
