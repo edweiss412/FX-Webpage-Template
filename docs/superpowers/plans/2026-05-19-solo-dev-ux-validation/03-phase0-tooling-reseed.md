@@ -223,25 +223,37 @@ BEGIN
   FOR v_crew_member IN SELECT * FROM jsonb_array_elements(p_fixture_payload->'crewMembers') LOOP
     v_crew_name := v_crew_member->>'name';
     v_crew_role_flags := ARRAY(SELECT jsonb_array_elements_text(v_crew_member->'roleFlags'));
+    -- R4 P0 amendment: include date_restriction + stage_restriction columns (jsonb)
+    -- from payload. The R-combo matrix depends entirely on these axes; omitting them
+    -- would seed every fixture as unrestricted, falsifying the walk.
+    -- R4 P0 amendment: email is already canonicalized by the TypeScript script via
+    -- lib/email/canonicalize.ts BEFORE landing in the payload — the RPC writes the
+    -- supplied value as-is (AGENTS.md invariant 3: canonicalize.ts is the only
+    -- function that touches raw emails). The CHECK constraint still acts as a
+    -- safety net; mismatches raise an error rather than silently being re-canonicalized.
     INSERT INTO public.crew_members (
-      show_id, name, email, role, role_flags
+      show_id, name, email, role, role_flags, date_restriction, stage_restriction
     )
     VALUES (
       v_show_id,
       v_crew_name,
-      lower(trim(v_crew_member->>'email')),          -- email canonicalized per CHECK constraint
+      v_crew_member->>'email',                       -- already canonicalized in TS
       -- R3 amendment: derive role (NOT NULL) from role_flags per master spec §6.6
       -- compound-role convention (e.g. ["LEAD","A1"] → "LEAD / A1"; [] → "Validation Crew").
       CASE
         WHEN array_length(v_crew_role_flags, 1) IS NULL THEN 'Validation Crew'
         ELSE array_to_string(v_crew_role_flags, ' / ')
       END,
-      v_crew_role_flags
+      v_crew_role_flags,
+      v_crew_member->'dateRestriction',              -- R4: jsonb {kind, days?} per master spec §6.6 + spec §3.3
+      v_crew_member->'stageRestriction'              -- R4: jsonb {kind, stages?} per master spec §6.6 + spec §3.3
     )
     ON CONFLICT (show_id, name) DO UPDATE SET
       email = EXCLUDED.email,
       role = EXCLUDED.role,
-      role_flags = EXCLUDED.role_flags
+      role_flags = EXCLUDED.role_flags,
+      date_restriction = EXCLUDED.date_restriction,
+      stage_restriction = EXCLUDED.stage_restriction
     RETURNING id INTO v_crew_id;
 
     INSERT INTO public.crew_member_auth (show_id, crew_name, current_token_version, revoked_below_version)
@@ -444,18 +456,44 @@ GRANT EXECUTE ON FUNCTION public.validation_finalize_all_atomic(text[]) TO servi
 
 - [ ] **Step 8: Verify {data, error} destructuring** at every Supabase call site (per AGENTS.md invariant 9).
 
-- [ ] **Step 9: Run integration test — expect PASS.** Commit:
+- [ ] **Step 9: Run integration test — expect PASS.** Commit (THREE migrations now — R4 added finalize_all_atomic; R4 also added failing-first test for predicate (i) — make sure all three migrations + tests are staged):
 
 ```bash
-git add supabase/migrations/<timestamp>_mint_validation_fixture_atomic.sql supabase/migrations/<timestamp>_validation_cleanup_atomic.sql scripts/validation-reseed.ts tests/db/mint-validation-fixture-atomic.test.ts tests/scripts/validation-reseed-integration.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts
-git commit -m "feat(validation): mint_validation_fixture_atomic + cleanup RPCs with per-show advisory lock
+git add \
+  supabase/migrations/<timestamp>_mint_validation_fixture_atomic.sql \
+  supabase/migrations/<timestamp>_validation_cleanup_atomic.sql \
+  supabase/migrations/<timestamp>_validation_finalize_all_atomic.sql \
+  scripts/validation-reseed.ts \
+  tests/db/mint-validation-fixture-atomic.test.ts \
+  tests/db/validation-finalize-all-atomic.test.ts \
+  tests/scripts/validation-reseed-integration.test.ts \
+  tests/scripts/validation-partial-reseed.test.ts \
+  tests/auth/advisoryLockRpcDeadlock.test.ts
+git commit -m "feat(validation): three atomic RPCs + reseed script (advisory-lock + per-combo seeded_dates + TZ-pinned today)
 
-Per M12 spec invariant 2 + plan R1 P0 fix. All show/crew/crew_member_auth/
-validation_state writes happen inside a single Postgres transaction
-that holds pg_advisory_xact_lock(hashtext('show:' || drive_file_id)).
-PostgREST direct writes can't span the lock; SECURITY DEFINER RPC is the
-canonical pattern (matches mint_link_session_atomic + revoke_leaked_link
-_atomic). Advisory-lock topology test extended."
+Per M12 spec invariant 2 + plan R1-R4 amendments. ALL show/crew/auth/
+validation_state writes go through SECURITY DEFINER RPCs that hold the
+per-show advisory lock. Three RPCs:
+- mint_validation_fixture_atomic(p_combo, p_fixture_payload): per-combo
+  UPSERT (includes date_restriction + stage_restriction columns from
+  payload, R4 P0).
+- validation_cleanup_atomic(p_project_ref): --combo all cleanup
+  (validation-tagged revoked_links + structural query-compromise reset
+  with max_issued_version bump preserving current ≤ max invariant).
+- validation_finalize_all_atomic(p_required_combos): promotes
+  last_seed_date ONLY after every required combo's seeded date matches
+  validationTodayIso. Prevents partial --combo all from falsifying gate.
+
+Reseed script canonicalizes emails via lib/email/canonicalize.ts BEFORE
+RPC call (AGENTS.md invariant 3). validationTodayIso is the canonical
+'today' value passed to all RPCs (TZ-pinned, prevents Postgres-vs-
+script TZ skew).
+
+Failing-first tests cover: predicate (i) partial-reseed detection,
+restriction column persistence, max_issued_version invariant.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+"
 ```
 
 - [ ] **Step 1: Write a failing integration test** at `tests/scripts/validation-reseed-integration.test.ts`. Requires VALIDATION_SUPABASE_* env vars. Runs `pnpm validation:reseed --combo R1` and asserts: 1 row in shows for R1, 11 in crew_members, 11 in crew_member_auth, validation_state row with `combos_materialized` containing 'R1', `alias_map.R1` containing all 11 alias keys.
@@ -463,6 +501,31 @@ _atomic). Advisory-lock topology test extended."
 - [ ] **Step 2: Run — expect FAIL** (no seed logic yet).
 
 - [ ] **Step 3: Implement** the seed logic per the outline above. Use `@supabase/supabase-js` createClient with the service role key. All Supabase calls destructure `{ data, error }` per AGENTS.md invariant 9.
+
+**R4 P0 amendment — email canonicalization in TS (AGENTS.md invariant 3):** The reseed script MUST canonicalize fixture emails via `lib/email/canonicalize.ts` BEFORE building the RPC payload. The RPC writes the supplied canonical value as-is; never use `lower(trim(...))` in SQL (that would create a new canonicalization boundary outside the registered helper). Example:
+
+```ts
+import { canonicalizeEmail } from "@/lib/email/canonicalize";
+
+const crewMembers = fixture.crewMembers.map((c) => ({
+  alias: c.alias,
+  name: c.name,
+  email: canonicalizeEmail(c.email),                  // ← canonicalize HERE, not in SQL
+  roleFlags: c.roleFlags,
+  dateRestriction: fixture.dateRestriction,           // R4 P0: passed through to RPC
+  stageRestriction: fixture.stageRestriction,         // R4 P0: passed through to RPC
+}));
+```
+
+**R4 P1 amendment — timezone-aware "today":** The script computes ONE `validationTodayIso` value (YYYY-MM-DD, UTC) and passes it into mint/finalize/check-seed. The RPCs use `validationTodayIso` for combos_seeded_dates / last_seed_date INSTEAD of `current_date`. The RPC validates the value is parseable + within ±1 day of Postgres's `current_date` (rejects extreme clock skew). Example:
+
+```ts
+const validationTodayIso = new Date().toISOString().slice(0, 10);
+const payload = { ...fixtureBody, validationTodayIso };
+await supabase.rpc("mint_validation_fixture_atomic", { p_combo, p_fixture_payload: payload });
+```
+
+The RPC sketch in step 3 above MUST be updated to read `p_fixture_payload->>'validationTodayIso'` instead of `current_date`. Same for `validation_finalize_all_atomic` and check-seed.
 
 - [ ] **Step 4: Verify {data, error} destructuring pattern is used at every call site** by grepping after implementation:
 

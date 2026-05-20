@@ -88,10 +88,15 @@ describe("validation_state", () => {
     expect(colMap.key?.data_type).toBe("text");
     expect(colMap.last_seed_date?.data_type).toBe("date");
     expect(colMap.combos_materialized?.data_type).toBe("ARRAY");
+    expect(colMap.combos_seeded_dates?.data_type).toBe("jsonb");   // R4: per-combo seeded-date tracking (added R3)
+    expect(colMap.combos_seeded_dates?.is_nullable).toBe("NO");
     expect(colMap.alias_map?.data_type).toBe("jsonb");
+    expect(colMap.alias_map?.is_nullable).toBe("NO");
     expect(colMap.seeded_by?.data_type).toBe("text");
     expect(colMap.seeded_supabase_project_ref?.data_type).toBe("text");
     expect(colMap.seeded_at?.data_type).toBe("timestamp with time zone");
+    // R4 amendment: confirm total column count = 8 (was 7 pre-R3 combos_seeded_dates).
+    expect(Object.keys(colMap)).toHaveLength(8);
   });
 });
 ```
@@ -271,6 +276,7 @@ create table public.validation_state (
   key                              text primary key check (key = 'validation_seed'),
   last_seed_date                   date not null,
   combos_materialized              text[] not null,
+  combos_seeded_dates              jsonb not null default '{}'::jsonb,    -- R4 amendment: per-combo seeded dates
   alias_map                        jsonb not null default '{}'::jsonb,
   seeded_by                        text not null,
   seeded_supabase_project_ref      text not null,
