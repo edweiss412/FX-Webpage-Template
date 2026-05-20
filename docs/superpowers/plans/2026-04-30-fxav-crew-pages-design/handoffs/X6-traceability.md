@@ -1,4 +1,4 @@
-**Status: REOPENED 2026-05-20 → R3 in flight (H1-4: Supabase-optional drift-detector).** R2 APPROVE at `8f7d2de` is preserved as archival; the R1-retroactive P0s are still structurally closed and not at issue. R3 was opened when the post-R2 operator-bootstrap workflow run (`26139070002`) surfaced an environment-availability gap — FXAV has no production Supabase project (verified via Supabase MCP `list_projects` 2026-05-20), so the drift-detector's admin-alert RPC connection refuses on CI. User chose 2026-05-20 the "Make drift-detector Supabase-optional" path: graceful degradation when Supabase is unreachable. Codex repair pending; see convergence-log §"Round 3 — REQUEST_CHANGES." Branch-protection PUT (handoff §8 operator step) remains blocked until R3 closes APPROVE.
+**Status: READY FOR R3 REVIEW at `aff1195` (H1-4: Supabase-optional drift-detector repaired).** R2 APPROVE at `8f7d2de` is preserved as archival; the R1-retroactive P0s are still structurally closed and not at issue. R3 was opened when the post-R2 operator-bootstrap workflow run (`26139070002`) surfaced an environment-availability gap — FXAV has no production Supabase project (verified via Supabase MCP `list_projects` 2026-05-20), so the drift-detector's admin-alert RPC connection refuses on CI. User chose 2026-05-20 the "Make drift-detector Supabase-optional" path: graceful degradation when Supabase is unreachable. Codex R3 repair landed in commits `5104992` + `b419b00` + `aff1195`; see convergence-log §"Round 3 repair (Codex)." Branch-protection PUT (handoff §8 operator step) remains blocked until R3 closes APPROVE.
 
 ~~**Status: COMPLETED 2026-05-20 at R2 APPROVE on SHA `8f7d2de`.**~~ Superseded by REOPENED above; preserved here for archival. R1 APPROVE at `4a8c242` was retroactively REVERSED on 2026-05-20 when the operator-bootstrap step surfaced 3 P0 findings the mocked-only methodology missed; Codex's R2 repair (commits `0fe229c` + `efedcba` + `e3a1faa` + `8f7d2de`) closed all three structurally — `void main()` now `.catch()`-wrapped; admin-alert producer uses canonical `upsert_admin_alert` RPC pattern from `lib/adminAlerts/upsertAdminAlert.ts:35`; plan Task X.6 Step 3c clause 4 amended verbatim; new structural meta-test `tests/messages/_metaAdminAlertProducer.test.ts` walks `scripts/`+`lib/`+`app/` via `walkSourceFiles` (code-shape-based, not name-list); new live-integration smoke test at `tests/cross-cutting/verify-branch-protection.test.ts:206-238` exercises the real Supabase service-role client + RPC + idempotency-via-occurrence_count contract; W18 watchpoint inherits forward. R2 Opus fresh-eyes whole-diff sweep anchored to milestone base `d026919` returned APPROVE with zero new findings. **Complexity-hypothesis third data point: CONFIRMED across X.4 R2, X.5 R2, X.6 R2** — all three heaviest X.* milestones required two rounds; the round-count predictor is not raw complexity but the presence of a live-integration surface that mocks cannot exercise. Codifies as memory `feedback_heavy_audit_milestones_budget_two_rounds.md` (and sibling `feedback_mocked_only_tests_invite_tautological_approve.md`). **FXAV crew-pages v1 X.* set is now structurally complete.** Branch-protection bootstrap (handoff §8 operator step) resumes immediately post-close.
 
@@ -615,3 +615,33 @@ This is a refinement to memory `feedback_mocked_only_tests_invite_tautological_a
 ##### Status banner update needed
 
 The top-of-file status banner currently reads "COMPLETED 2026-05-20 at R2 APPROVE." With R3 in flight, the banner should update to "REOPENED 2026-05-20 → R3 in flight; R2 APPROVE preserved as archival; R3 surfaced an environment-availability gap (FXAV has no production Supabase)." Codex's R3 repair should flip the banner appropriately AND, on R3 APPROVE, append a fresh COMPLETED banner.
+
+#### Round 3 repair (Codex)
+
+**Repair commits:**
+
+- `5104992` — `fix(audit): graceful-degrade branch protection alert delivery`
+- `b419b00` — `docs(spec): make branch protection admin alerts best effort`
+- `aff1195` — `test(audit): type branch protection smoke client`
+
+**H1-4 closure:**
+
+- `scripts/verify-branch-protection.ts:55-80` now treats missing / empty `SUPABASE_URL` and local dev URLs (`127.0.0.1` / `localhost`) as unavailable for the default CI alert producer before constructing the Supabase client. Injected test clients still exercise the real RPC path.
+- `scripts/verify-branch-protection.ts:195-202` wraps alert delivery in a best-effort boundary. Any client-construction failure, RPC error object, rejected RPC promise, or local/unset Supabase URL logs `[verify-branch-protection] admin_alerts insertion skipped: Supabase unreachable (<reason>); JSON report + exit code remain authoritative` and does not throw. The existing drift/auth result still writes `artifacts/branch-protection-report.json` and returns `ok: false`, so `main()` still exits 1.
+- `tests/cross-cutting/verify-branch-protection.test.ts:257-282` covers an injected admin-alert producer that throws and proves the drift report is still written.
+- `tests/cross-cutting/verify-branch-protection.test.ts:284-307` covers the environment-failure path with `SUPABASE_URL=http://127.0.0.1:1`, proving the JSON report is written and the skip reason is logged.
+- The positive live smoke remains at `tests/cross-cutting/verify-branch-protection.test.ts:220-255`; it injects the real service-role client so the R2 idempotent RPC contract is still tested when local Supabase is available.
+- Spec §17.2.1 now documents the Supabase-optional contract at `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md:3697`: admin-alert delivery is best-effort observability; exit-code-on-drift + JSON report are authoritative without admin-alert delivery.
+
+**Negative-regression verification:**
+
+- Stash `44d981078beb20354b184dde7d9fbfa796a46395` removes the `emitAlert` try/catch wrapper. `pnpm test:audit:branch-protection` fails in the same class as workflow run `26139070002`: the injected-producer test throws `synthetic admin_alerts outage`, and the unreachable-Supabase test throws `SUPABASE_URL points to local dev URL http://127.0.0.1:1` before report assertions can pass. Restored wrapper → `pnpm test:audit:branch-protection` green (15/15).
+
+**Verification gate:**
+
+- `pnpm test:audit:branch-protection` → 15/15 passing.
+- `pnpm typecheck` → clean.
+- `pnpm lint` → exits 0. Warning count is 6 in this shared worktree because concurrent commit `b220041` (`feat(help): Callout component (note/warning/tip) (Task D.1)`) added `tests/help/callout.test.tsx:3` unused `vi`; the original X.5/X.6 five-warning baseline remains otherwise unchanged. No X.6 repair file adds a warning.
+- `pnpm test` → 271 files passed / 1 skipped; 3663 tests passed / 5 skipped.
+
+**Notes:** R3 did not reopen the R1-retroactive P0s. The R2 structural meta-test and live RPC idempotency smoke remain intact. This repair adds the missing environment-failure mode required by the refined W18 lesson: live-integration checks must cover both reachable and unreachable external surfaces.
