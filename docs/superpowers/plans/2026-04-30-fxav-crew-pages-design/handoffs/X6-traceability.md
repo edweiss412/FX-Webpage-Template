@@ -112,7 +112,7 @@ Of the three ratified §13.2.3 amendments (per `00-overview.md` and `AGENTS.md`)
   - `scripts/generate-traceability.ts` — walks spec headings + spec-id anchors + AC rows + plan task blocks; parses `<!-- coverage: ... -->` markers; emits `docs/superpowers/plans/coverage.md`.
   - `scripts/verify-branch-protection.ts` — privileged drift-detector. Reads `GH_APP_TOKEN` / `BRANCH_PROTECTION_PAT` + `SUPABASE_SECRET_KEY` / `SUPABASE_URL`; calls GitHub Branch Protection + Rulesets APIs; emits `BRANCH_PROTECTION_DRIFT` / `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` admin-alerts; writes `artifacts/branch-protection-report.json`.
   - `tests/cross-cutting/traceability.test.ts` — runs the generator + asserts all matrix invariants per §2 above.
-  - `tests/cross-cutting/verify-branch-protection.test.ts` — mocks GitHub API + `admin_alerts` insert spy; 12 required test cases per plan Task X.6 Step 3c.
+  - `tests/cross-cutting/verify-branch-protection.test.ts` — mocks GitHub API + `upsert_admin_alert` RPC spy; 12 required mocked test cases per plan Task X.6 Step 3c plus a live Supabase smoke test for the real admin-alert producer path.
   - `tests/cross-cutting/fixtures/traceability/` — `good-all-anchors-covered.md`, `bad-missing-anchor.md`, `bad-anchor-without-coverage.md`, `bad-self-review-shouldnt-count.md`, plus AC-body-vs-list drift fixture pair.
   - `docs/superpowers/plans/coverage.md` — generator output (committed).
   - `.github/workflows/x-audits.yml` extension — `traceability-audit`, `verify-branch-protection`, `verify-branch-protection-status` jobs + `schedule:` cron trigger + `if: github.event_name != 'schedule'` guards on X.1–X.5 audit jobs.
@@ -139,11 +139,11 @@ Of the three ratified §13.2.3 amendments (per `00-overview.md` and `AGENTS.md`)
   - `chore(workflow-verification): capture bad-fixture PR evidence (Task X.6 Step 3b)`
 - [x] **Spec is canonical** (invariant 7) — **X.6 IS the canonical structural enforcement.** The traceability walker, the cross-cutting parity assertions, and the AC-body-vs-list parity audit ALL derive from spec at audit-execution time. Hardcoded TS arrays anywhere in X.6 audit code are a P0.
 - [ ] **UI quality gate / impeccable dual-gate** (invariant 8) — **N/A — no UI surface.** X.6 touches `scripts/`, `tests/cross-cutting/`, `.github/workflows/`, `docs/superpowers/specs/` (spec-id anchor insertion + optional rename), `docs/superpowers/plans/coverage.md` (generator output), `package.json`. No file under `app/` outside `app/api/**`, `components/`, `app/globals.css`, `DESIGN.md`, `tailwind.config.*`.
-- [x] **Supabase call-boundary discipline** (invariant 9) — **PARTIAL.** `scripts/verify-branch-protection.ts` invokes `supabaseAdmin.from('admin_alerts').insert(...)` via the service-role client. Per AGENTS.md §1.9, the helper MUST destructure `{ data, error }`, distinguish returned-error from thrown-error, and surface infra faults discriminably. EITHER add a row to `tests/auth/_metaInfraContract.test.ts` for `scripts/verify-branch-protection.ts` OR carry an inline `// not-subject-to-meta: <reason>` comment on the helper (likely justified: it's a one-shot CLI script whose failure mode is the workflow-job failure surface, not a typed-result contract). Codex picks and records the choice.
+- [x] **Supabase call-boundary discipline** (invariant 9) — **PARTIAL.** `scripts/verify-branch-protection.ts` emits global admin alerts through `supabaseAdmin.rpc("upsert_admin_alert", { p_show_id: null, p_code, p_context })`, matching the canonical recurrence pattern at `lib/adminAlerts/upsertAdminAlert.ts:35`. Per AGENTS.md §1.9, the helper destructures `{ data, error }`, distinguishes returned-error from thrown-error, and carries an inline `// not-subject-to-meta: <reason>` comment because this is a one-shot privileged CI script whose failure surface is the workflow-job exit code and JSON report.
 
 ## 6. Watchpoints from prior adversarial review
 
-Pulled forward from X.1 R1–R3 + X.2 R1 + X.3 R1 + X.4 R1–R2 + X.5 R1–R2 close + 2026-05-19 memories. **17 watchpoints — X.6 is the largest cross-cutting task.**
+Pulled forward from X.1 R1–R3 + X.2 R1 + X.3 R1 + X.4 R1–R2 + X.5 R1–R2 close + 2026-05-19 memories. **18 watchpoints — X.6 is the largest cross-cutting task.**
 
 1. **Derive from spec at audit-execution time, NOT from handoff arrays** (memory `feedback_audit_derives_from_spec_not_handoff.md`, codified 2026-05-19 from X.3's 21-vs-19 drift; honored in X.4 + X.5; **X.6 is the final form**). Every list X.6 compares (admin-only tables, watermark symbols, required-checks names, AC bodies, §16 task presence, spec-id anchor set) is parsed from spec/plan source at audit-execution time. Reviewer verifies that editing spec §4.3 / plan Task X.4 / plan Task X.6 + re-running the audit produces a diff in the audit output; reverting + re-running produces no diff. Hardcoded TS arrays anywhere are a P0.
 
@@ -179,6 +179,8 @@ Pulled forward from X.1 R1–R3 + X.2 R1 + X.3 R1 + X.4 R1–R2 + X.5 R1–R2 cl
 
 17. **Complexity-hypothesis third data point.** Record in convergence log at what round Opus surfaces the first finding Codex self-review missed. X.6 is the most complex (three concurrent surfaces + GitHub API + secret handling). If R1 is APPROVE despite the complexity, the hypothesis ("heavy audits need ≥2 rounds") weakens substantially. If R1 is REQUEST_CHANGES, the hypothesis is confirmed across three data points (X.4, X.5, X.6) and codifies as memory `feedback_heavy_audit_milestones_budget_two_rounds.md`.
 
+18. **Mocks-only tests are insufficient for audit / drift-detector scripts.** Every PR-required check whose CI manifestation is "run the script live against the real surface" MUST have at least one test that exercises the actual surface (real Supabase test client, real fetch shape, or checked-in fixture replay). X.6 R1's mocked `admin_alerts` insert spy missed both the non-existent `severity` column and the missing RPC recurrence contract; R2 pins the real Supabase `upsert_admin_alert` path with an idempotency smoke test.
+
 ## 7. Test commands
 
 - **X.6 traceability audit:** `pnpm test tests/cross-cutting/traceability.test.ts` (or `pnpm test:audit:traceability` after the package.json script entry lands).
@@ -198,7 +200,7 @@ Pulled forward from X.1 R1–R3 + X.2 R1 + X.3 R1 + X.4 R1–R2 + X.5 R1–R2 cl
 - [ ] `scripts/generate-traceability.ts` derives the matrix from spec headings + spec-id anchors + AC rows + plan task blocks at audit-execution time. Hardcoded TS arrays in the audit code are a P0.
 - [ ] `scripts/verify-branch-protection.ts` handles BOTH legacy branch-protection and rulesets API; auth-failure path emits `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` on all four shapes; drift emits `BRANCH_PROTECTION_DRIFT` with named-diff `failures` array.
 - [ ] All ~5 traceability fixtures + the AC-body-vs-list drift fixture pair under `tests/cross-cutting/fixtures/traceability/` exist and behave as specified.
-- [ ] All 12 branch-protection test cases under `tests/cross-cutting/verify-branch-protection.test.ts` pass with anti-tautology assertions scoped to the spy call payload.
+- [ ] All 12 mocked branch-protection test cases under `tests/cross-cutting/verify-branch-protection.test.ts` pass with anti-tautology assertions scoped to the RPC spy payload, and the live Supabase smoke test proves the default producer emits `BRANCH_PROTECTION_DRIFT` through `upsert_admin_alert` with `occurrence_count = 2` after two runs.
 - [ ] **Negative regression verification** (memory `feedback_negative_regression_verification.md`): for EACH cross-cutting parity assertion (a)–(f) in §2, stash a synthesized production-side break, confirm the audit FAILS with the named diff, restore, confirm green. Document each stash SHA in the convergence log.
 - [ ] CI exposes `traceability-audit` + `verify-branch-protection` + `verify-branch-protection-status` verbatim. Spot-check `.github/workflows/x-audits.yml`. Privileged job gated to `push: main` + `schedule:` only. Reader uses only `GITHUB_TOKEN`. No `pull_request_target` anywhere. Canonical artifact-naming pattern. ALL FOUR freshness gates (admin-tables, watermark-symbols, email-boundaries, traceability) before the audit step.
 - [ ] `pretypecheck` / `prelint` / `pretest` / `prebuild` ALL chained to ALL FOUR generators (`gen:admin-tables` + `gen:watermark-symbols` + `gen:email-boundaries` + `gen:traceability`) in `package.json`.
@@ -493,3 +495,31 @@ Landed in implementation commit `4a8c242`. Citations: spec §12.4 row at `docs/s
 ### Manual admin step follow-up
 
 Post-merge operator task: Settings → Branches → Branch protection rules → `main` → enable "Require status checks to pass before merging" → add these seven required checks verbatim: `traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-email-canonicalization`, `verify-branch-protection-status`. The seventh check is the lightweight reader, not the privileged job. If this step is skipped or reverted, `scripts/verify-branch-protection.ts` emits `BRANCH_PROTECTION_DRIFT` with `+missing_check:<name>` in the admin-alert context.
+
+### Round 1 repair (Codex)
+
+**Repair commits:** `0fe229c` (`fix(audit): route branch-protection alerts through RPC`), `efedcba` (`test(messages): guard admin-alert producers against raw Supabase writes`), `e3a1faa` (`docs(plan): amend X.6 branch-protection alert producer contract`).
+
+**Finding closure:**
+
+- **P0-1 (`void main()` swallowed rejections):** fixed in `0fe229c`. `scripts/verify-branch-protection.ts:264-268` now calls `main().catch(...)`, prints `[verify-branch-protection] unhandled error:`, and exits 1.
+- **P0-2 (raw `admin_alerts.insert` + bogus `severity`):** fixed in `0fe229c`. `scripts/verify-branch-protection.ts:9-19` models the RPC payload shape, `:54-59` calls `supabase.rpc("upsert_admin_alert", { p_show_id, p_code, p_context })`, and `tests/cross-cutting/verify-branch-protection.test.ts:142-203` asserts the mocked drift/auth cases against the RPC call shape with no `severity`.
+- **P0-3 (plan prescribed broken insert):** fixed in `e3a1faa`. `11-cross-cutting.md:2307-2319` now prescribes `supabaseAdmin.rpc("upsert_admin_alert", { p_show_id: null, p_code, p_context })`, cites `lib/adminAlerts/upsertAdminAlert.ts:35`, and explicitly forbids the raw `admin_alerts.insert` shape.
+- **Meta-test gap:** fixed in `efedcba`. `tests/messages/_metaAdminAlertProducer.test.ts:22-35` walks every TS/TSX file under `scripts/`, `lib/`, and `app/`, failing any non-allowlisted `.from("admin_alerts").insert(...)` or `.upsert(...)` producer.
+- **Live-integration smoke test gap:** fixed in `0fe229c`. `tests/cross-cutting/verify-branch-protection.test.ts:206-238` uses the real Supabase service-role test client, forces drift through a 404/empty-rulesets GitHub fetch mock, then confirms the unresolved global `BRANCH_PROTECTION_DRIFT` row reaches `occurrence_count = 2` after two calls.
+- **W18 watchpoint:** added in this handoff repair at §6 watchpoint 18. Future PR-required audit/drift-detector scripts must include at least one test exercising the real integration surface, not mocks only.
+
+**Negative-regression verification:**
+
+- **Producer meta-test:** stash `f9b58bcb75cce46e8c0bfa36361cf7d51b59bdfa` added `scripts/x6-negative-admin-alert-insert.ts` with a raw `.from("admin_alerts").insert(...)`. `pnpm vitest run tests/messages/_metaAdminAlertProducer.test.ts --reporter=verbose` failed with `scripts/x6-negative-admin-alert-insert.ts:4:raw_admin_alert_supabase_write`; after stashing the fixture, the same command passed.
+- **Live smoke / RPC idempotency:** stash object `7b75107ad382636355945c48e6e0bfb64adac6c9` temporarily replaced the RPC producer with a raw `.from("admin_alerts").insert({ ..., severity: "high" })`. `pnpm test:audit:branch-protection` failed, including the live smoke error `Could not find the 'severity' column of 'admin_alerts' in the schema cache`; after restoring the RPC producer, `pnpm test:audit:branch-protection` passed.
+
+**Verification gate output:**
+
+- `pnpm test:audit:branch-protection` → 13/13 passing (12 mocked cases + live Supabase smoke).
+- `pnpm vitest run tests/messages/_metaAdminAlertProducer.test.ts --reporter=verbose` → 1/1 passing.
+- `pnpm typecheck` → clean.
+- `pnpm lint` → clean with the existing 5-warning baseline only (`react-hooks/exhaustive-deps` + unused-var/unused-disable set unchanged).
+- `pnpm test` → 271 files passed, 1 skipped; 3661 tests passed, 5 skipped.
+
+**Ready for R2 review:** Codex repair is complete; do not configure the branch-protection required checks until Opus R2 converges because the bootstrap path was the live-integration failure surface.
