@@ -68,6 +68,7 @@ function checkFunctionLike(
   fnName: string,
   filename: string,
   violations: Violation[],
+  reasonSuffix = "",
 ): void {
   // 1. Forbid wall-clock defaults on ANY parameter.
   for (const p of node.parameters) {
@@ -78,7 +79,7 @@ function checkFunctionLike(
       violations.push({
         file: filename,
         fn: fnName,
-        reason: `parameter \`${paramName}\` has wall-clock default (\`= ${initText.trim()}\`) — must be required (no default)`,
+        reason: `parameter \`${paramName}\` has wall-clock default (\`= ${initText.trim()}\`) — must be required (no default)${reasonSuffix}`,
       });
     }
   }
@@ -98,13 +99,13 @@ function checkFunctionLike(
       violations.push({
         file: filename,
         fn: fnName,
-        reason: "function body calls `new Date()` / `Date.now()` and has no `now` parameter — thread `now: Date` from caller",
+        reason: `function body calls \`new Date()\` / \`Date.now()\` and has no \`now\` parameter — thread \`now: Date\` from caller${reasonSuffix}`,
       });
     } else {
       violations.push({
         file: filename,
         fn: fnName,
-        reason: "function body calls `new Date()` / `Date.now()` despite having a `now` parameter — consume `now` instead",
+        reason: `function body calls \`new Date()\` / \`Date.now()\` despite having a \`now\` parameter — consume \`now\` instead${reasonSuffix}`,
       });
     }
   }
@@ -119,14 +120,14 @@ function checkFunctionLike(
       violations.push({
         file: filename,
         fn: fnName,
-        reason: `\`now\` parameter type must include Date (got: ${typeText || "<no type>"})`,
+        reason: `\`now\` parameter type must include Date (got: ${typeText || "<no type>"})${reasonSuffix}`,
       });
     }
     if (nowParam.questionToken) {
       violations.push({
         file: filename,
         fn: fnName,
-        reason: "`now` parameter is optional (`now?: Date`) — must be required",
+        reason: `\`now\` parameter is optional (\`now?: Date\`) — must be required${reasonSuffix}`,
       });
     }
     // Default-initializer case is already caught by check #1 above (any
@@ -139,13 +140,45 @@ function checkFunctionLike(
         violations.push({
           file: filename,
           fn: fnName,
-          reason: `\`now\` parameter has a default initializer (\`= ${initText.trim()}\`) — must be required`,
+          reason: `\`now\` parameter has a default initializer (\`= ${initText.trim()}\`) — must be required${reasonSuffix}`,
         });
       }
     }
   }
 }
 
+type LocalFunctionBinding = {
+  name: string;
+  node: FunctionLikeNode;
+};
+
+/*
+ * Export-function shape ceiling for this meta-test.
+ *
+ * In scope:
+ * 1. export function foo() {}
+ * 2. export default function foo() {}
+ * 3. export default function() {}
+ * 4. export const foo = () => ...
+ * 5. export const foo = function() {}
+ * 6. export default () => ...
+ * 7. export default function() {} as an ExportAssignment FunctionExpression
+ * 8. const foo = () => ...; export { foo };
+ * 9. function foo() {}; export { foo };
+ * 10. const foo = () => ...; export { foo as bar }; local binding is checked.
+ *
+ * Out of scope:
+ * 11. export { foo } from "./other" - cross-file re-export; if "./other"
+ *     is in lib/time it is independently scanned, otherwise it is not this
+ *     helper-contract surface.
+ * 12. export * from "./other" - same cross-file resolution boundary.
+ * 13. export type Foo = ... - not callable, no render-side time risk.
+ * 14. module.exports = ... - CommonJS is not used by this ESM repo.
+ * 15. export class Foo { static bar = () => ... } - class methods are a
+ *     separate helper pattern and deserve their own meta-test if introduced.
+ * 16. export namespace Foo { ... } - rare in modern TS and intentionally deferred.
+ * 17. export = ... - TS CommonJS interop and intentionally out of scope.
+ */
 function scanSource(src: string, filename: string): Violation[] {
   const sf = ts.createSourceFile(
     filename,
@@ -154,6 +187,35 @@ function scanSource(src: string, filename: string): Violation[] {
     /* setParentNodes */ true,
   );
   const violations: Violation[] = [];
+  const localFunctions = new Map<string, LocalFunctionBinding>();
+
+  sf.forEachChild((node) => {
+    if (ts.isFunctionDeclaration(node)) {
+      if (hasModifier(node, ts.SyntaxKind.ExportKeyword)) return;
+      if (!node.name) return;
+      localFunctions.set(node.name.text, { name: node.name.text, node });
+      return;
+    }
+
+    if (ts.isVariableStatement(node)) {
+      if (hasModifier(node, ts.SyntaxKind.ExportKeyword)) return;
+      for (const decl of node.declarationList.declarations) {
+        const initializer = decl.initializer;
+        if (!initializer) continue;
+        if (
+          !ts.isArrowFunction(initializer) &&
+          !ts.isFunctionExpression(initializer)
+        ) {
+          continue;
+        }
+        if (!ts.isIdentifier(decl.name)) continue;
+        localFunctions.set(decl.name.text, {
+          name: decl.name.text,
+          node: initializer,
+        });
+      }
+    }
+  });
 
   sf.forEachChild((node) => {
     if (ts.isFunctionDeclaration(node)) {
@@ -185,6 +247,26 @@ function scanSource(src: string, filename: string): Violation[] {
       const expr = node.expression;
       if (!ts.isArrowFunction(expr) && !ts.isFunctionExpression(expr)) return;
       checkFunctionLike(expr, sf, "(default)", filename, violations);
+      return;
+    }
+
+    if (ts.isExportDeclaration(node)) {
+      if (node.moduleSpecifier) return;
+      const clause = node.exportClause;
+      if (!clause || !ts.isNamedExports(clause)) return;
+      for (const spec of clause.elements) {
+        const localName = (spec.propertyName ?? spec.name).text;
+        const binding = localFunctions.get(localName);
+        if (!binding) continue;
+        checkFunctionLike(
+          binding.node,
+          sf,
+          binding.name,
+          filename,
+          violations,
+          " (via `export { ... }`)",
+        );
+      }
     }
   });
 
@@ -291,6 +373,68 @@ describe("lib/time/* helpers must require a `now: Date` parameter (R2 structural
   it("does NOT flag module-local arrow (no `export` keyword) — out of scope", () => {
     const src = `const localLeaky = (now: Date = new Date()) => now.getTime();\nexport const wrap = (n: Date) => localLeaky(n);\n`;
     const findings = scanSource(src, "synthetic-local.ts");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("flags export-list arrow with wall-clock default (`const foo = (now: Date = new Date()) => ...; export { foo };`)", () => {
+    const src = `
+const leaky = (now: Date = new Date()): number => now.getTime();
+export { leaky };
+`;
+    const findings = scanSource(src, "synthetic-exportlist-arrow-default.ts");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      fn: "leaky",
+      reason: expect.stringContaining("default"),
+    });
+  });
+
+  it("flags export-list arrow with body-level Date.now() (`const foo = () => Date.now(); export { foo };`)", () => {
+    const src = `
+const bodyLeak = (): number => Date.now();
+export { bodyLeak };
+`;
+    const findings = scanSource(src, "synthetic-exportlist-arrow-bodyleak.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags export-list function declaration with wall-clock default (`function foo(now: Date = new Date()) {...}; export { foo };`)", () => {
+    const src = `
+function fnLeaky(now: Date = new Date()): number { return now.getTime(); }
+export { fnLeaky };
+`;
+    const findings = scanSource(src, "synthetic-exportlist-fndecl-default.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags renamed export-list arrow (`const local = (...) => ...; export { local as renamed };`) — checks LOCAL binding", () => {
+    const src = `
+const local = (now: Date = new Date()): number => now.getTime();
+export { local as renamed };
+`;
+    const findings = scanSource(src, "synthetic-exportlist-renamed.ts");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({ fn: "local" });
+  });
+
+  it("does NOT flag cross-file re-export (`export { foo } from './other'`) — out of scope, cannot resolve target without project-graph", () => {
+    const src = `export { foo } from "./other";\n`;
+    const findings = scanSource(src, "synthetic-exportlist-crossfile.ts");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("does NOT flag wildcard re-export (`export * from './other'`) — out of scope", () => {
+    const src = `export * from "./other";\n`;
+    const findings = scanSource(src, "synthetic-exportlist-wildcard.ts");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("does NOT flag export-list of a helper that DOES have required `now: Date` (positive control)", () => {
+    const src = `
+const ok = (now: Date): number => now.getTime();
+export { ok };
+`;
+    const findings = scanSource(src, "synthetic-exportlist-ok.ts");
     expect(findings).toHaveLength(0);
   });
 });
