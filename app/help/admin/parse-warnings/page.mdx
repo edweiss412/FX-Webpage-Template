@@ -1,3 +1,21 @@
-{/* M11 Phase A.7 stub — Phase E task E.7 replaces the entire body. */}
-
 # Parse warnings
+
+A parse warning means the app read your sheet successfully and is willing to publish, but something specific looks off or was substituted with a fallback. The crew page is live (or the previous approved version is still serving crew); the warning is telling you what to fix in the sheet so the next sync is clean.
+
+Each section below corresponds to one warning code. Open the per-show parse panel to see which codes fired for a given sheet, then jump to the matching section here.
+
+<RefAnchor id="PARSE_ERROR_LAST_GOOD">Latest edit didn't parse</RefAnchor>
+
+A recent edit to the sheet introduced something the parser couldn't read. To avoid blanking crew, the app kept the previously approved version live and surfaced this warning on the admin dashboard instead of pushing the broken edit.
+
+What to do:
+
+- Open the per-show parse panel for this show. The panel shows the specific underlying error (an MI-class code) with the row or section that triggered it.
+- Edit the sheet to fix what the panel describes (most often a malformed crew row, a missing required field, or a typo in a header).
+- Save the sheet. The next sync will re-parse it; once the parse succeeds, the freshly approved version replaces the stale one and the warning clears.
+
+If the panel error doesn't match what you see in the sheet, or if a fix doesn't clear the warning on the next sync, Tell Eric.
+
+<Callout type="note">
+If you've tried the suggested fix and the warning is still there after the next sync, Tell Eric. Include the show name and the warning code from the per-show parse panel so the cause can be tracked down quickly.
+</Callout>
