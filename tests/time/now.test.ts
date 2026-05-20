@@ -106,14 +106,13 @@ describe("lib/time/now — three-precondition gate (test #15)", () => {
     expect((await nowDate()).toISOString()).toBe(FROZEN);
   });
 
-  it("header value with explicit +00:00 offset -> gate accepts", async () => {
+  it("header value with explicit +00:00 offset -> gate refuses (Z-only canonical screenshot shape)", async () => {
     headerStore["x-screenshot-frozen-now"] = "2026-03-24T15:00:00+00:00";
     headerStore.authorization = `Bearer ${SECRET}`;
     process.env.ENABLE_TEST_AUTH = "true";
     process.env.TEST_AUTH_SECRET = SECRET;
 
-    const { nowDate } = await import("@/lib/time/now");
-    expect((await nowDate()).toISOString()).toBe(FROZEN);
+    await expectRealNow();
   });
 
   it("parseable but non-canonical date strings -> gate refuses per AC-11.37", async () => {
@@ -127,6 +126,73 @@ describe("lib/time/now — three-precondition gate (test #15)", () => {
       vi.useRealTimers();
       vi.resetModules();
     }
+  });
+
+  it("header value is shape-valid but calendar-impossible (February 31) -> gate refuses", async () => {
+    headerStore["x-screenshot-frozen-now"] = "2026-02-31T00:00:00.000Z";
+    headerStore.authorization = `Bearer ${SECRET}`;
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = SECRET;
+
+    await expectRealNow();
+  });
+
+  it("header value has month 13 -> gate refuses", async () => {
+    headerStore["x-screenshot-frozen-now"] = "2026-13-01T00:00:00.000Z";
+    headerStore.authorization = `Bearer ${SECRET}`;
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = SECRET;
+
+    await expectRealNow();
+  });
+
+  it("header value has day 31 in April -> gate refuses", async () => {
+    headerStore["x-screenshot-frozen-now"] = "2026-04-31T00:00:00.000Z";
+    headerStore.authorization = `Bearer ${SECRET}`;
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = SECRET;
+
+    await expectRealNow();
+  });
+
+  it("header value has hour 24 -> gate refuses", async () => {
+    headerStore["x-screenshot-frozen-now"] = "2026-03-24T24:00:00.000Z";
+    headerStore.authorization = `Bearer ${SECRET}`;
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = SECRET;
+
+    await expectRealNow();
+  });
+
+  it("header value has minute 60 -> gate refuses", async () => {
+    headerStore["x-screenshot-frozen-now"] = "2026-03-24T15:60:00.000Z";
+    headerStore.authorization = `Bearer ${SECRET}`;
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = SECRET;
+
+    await expectRealNow();
+  });
+
+  it("header value is shape-valid and calendar-valid leap day -> gate accepts", async () => {
+    const leapDay = "2024-02-29T00:00:00.000Z";
+    headerStore["x-screenshot-frozen-now"] = leapDay;
+    headerStore.authorization = `Bearer ${SECRET}`;
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = SECRET;
+
+    const { nowDate } = await import("@/lib/time/now");
+    expect((await nowDate()).toISOString()).toBe(leapDay);
+  });
+
+  it("header value is shape-valid and calendar-valid Dec 31 -> gate accepts", async () => {
+    const yearEnd = "2026-12-31T23:59:59.999Z";
+    headerStore["x-screenshot-frozen-now"] = yearEnd;
+    headerStore.authorization = `Bearer ${SECRET}`;
+    process.env.ENABLE_TEST_AUTH = "true";
+    process.env.TEST_AUTH_SECRET = SECRET;
+
+    const { nowDate } = await import("@/lib/time/now");
+    expect((await nowDate()).toISOString()).toBe(yearEnd);
   });
 });
 

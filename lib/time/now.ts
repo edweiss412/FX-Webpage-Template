@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 
 const ISO_8601_RE =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?Z$/;
 
 /**
  * Returns the current instant as an ISO string.
@@ -48,12 +48,25 @@ export async function nowDate(): Promise<Date> {
     return new Date();
   }
 
-  if (!ISO_8601_RE.test(frozen)) {
+  const match = ISO_8601_RE.exec(frozen);
+  if (!match) {
     return new Date();
   }
+  const [, yyyy = "", MM = "", dd = "", hh = "", mm = "", ss = ""] = match;
 
   const parsed = new Date(frozen);
   if (Number.isNaN(parsed.getTime())) {
+    return new Date();
+  }
+
+  if (
+    parsed.getUTCFullYear() !== Number(yyyy) ||
+    parsed.getUTCMonth() + 1 !== Number(MM) ||
+    parsed.getUTCDate() !== Number(dd) ||
+    parsed.getUTCHours() !== Number(hh) ||
+    parsed.getUTCMinutes() !== Number(mm) ||
+    parsed.getUTCSeconds() !== Number(ss)
+  ) {
     return new Date();
   }
 
