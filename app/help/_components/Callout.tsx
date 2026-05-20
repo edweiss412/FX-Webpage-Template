@@ -20,7 +20,7 @@ const VARIANTS = {
   tip: {
     bg: "bg-stale-tint",
     border: "border-accent",
-    text: "text-accent-text",
+    text: "text-text-strong",
     role: "note" as const,
     icon: "✓",
     iconTestid: "callout-icon-tip",
@@ -39,7 +39,7 @@ export function Callout({
   return (
     <div
       role={v.role}
-      className={`my-4 flex gap-3 rounded-md border-l-4 px-4 py-3 ${v.bg} ${v.border} ${v.text}`}
+      className={`my-4 flex gap-3 rounded-md border px-4 py-3 ${v.bg} ${v.border} ${v.text}`}
     >
       <span data-testid={v.iconTestid} className="font-bold shrink-0">
         {v.icon}
