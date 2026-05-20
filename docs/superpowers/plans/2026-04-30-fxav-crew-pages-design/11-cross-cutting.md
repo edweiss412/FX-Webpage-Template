@@ -2304,34 +2304,35 @@ The earlier draft was a string-grep over `INSERT .. email`. That misses JSONB fi
      - `required_pull_request_reviews.dismiss_stale_reviews === true` (so a force-push doesn't preserve old approvals).
      - `enforce_admins === true` (admins cannot bypass the gate).
      - `allow_force_pushes.enabled === false` AND `allow_deletions.enabled === false` on `main`.
-  4. **On drift**: emits the JSON report (one entry per failed assertion), prints a human-readable summary to stdout, AND inserts a row into the `admin_alerts` table:
+  4. **On drift**: emits the JSON report (one entry per failed assertion), prints a human-readable summary to stdout, AND emits the global `admin_alerts` row through the canonical recurrence RPC (same shape as `lib/adminAlerts/upsertAdminAlert.ts:35`):
      ```ts
-     await supabaseAdmin.from("admin_alerts").insert({
-       code: "BRANCH_PROTECTION_DRIFT",
-       context: {
+     await supabaseAdmin.rpc("upsert_admin_alert", {
+       p_show_id: null,
+       p_code: "BRANCH_PROTECTION_DRIFT",
+       p_context: {
          failures: failedAssertions,
          repo: `${owner}/${repo}`,
-         ts: new Date.toISOString(),
+         ts: new Date().toISOString(),
        },
-       severity: "high",
      });
      ```
-     Then exits non-zero (workflow job fails; required-check status surfaces in the `verify-branch-protection` job and any cron-only run also fails its check). Insertion uses the Supabase service-role client (`SUPABASE_SECRET_KEY`) since CI runs outside any user session; the workflow injects the secret via env (see Step 3a's `verify-branch-protection` job env block).
+     Then exits non-zero (workflow job fails; required-check status surfaces in the `verify-branch-protection` job and any cron-only run also fails its check). The RPC uses the Supabase service-role client (`SUPABASE_SECRET_KEY`) since CI runs outside any user session; the workflow injects the secret via env (see Step 3a's `verify-branch-protection` job env block). The raw `admin_alerts.insert` shape is forbidden here because it bypasses the partial-index recurrence contract and the table has no `severity` column.
   5. **On success**: emits a green report (`{ status: 'ok', checks: [...] }`) and exits zero.
-     Test (`tests/cross-cutting/verify-branch-protection.test.ts`) — the script's behavior is exercised against mocked GitHub API responses (`nock` or `msw` intercepts the REST calls; `supabaseAdmin.from('admin_alerts').insert` is mocked to a Vitest spy). Required cases:
-  - `missing-check-name` fixture: API response omits `x3-trust-domain` from `contexts` → script exits 1, `admin_alerts` insert called with `code: 'BRANCH_PROTECTION_DRIFT'` and `context.failures` includes `+missing_check:x3-trust-domain`.
+     Test (`tests/cross-cutting/verify-branch-protection.test.ts`) — the script's behavior is exercised against mocked GitHub API responses (`nock` or `msw` intercepts the REST calls; `supabaseAdmin.rpc('upsert_admin_alert', ...)` is mocked to a Vitest spy) plus one live Supabase smoke test for the default producer path. Required cases:
+  - `missing-check-name` fixture: API response omits `x3-trust-domain` from `contexts` → script exits 1, `upsert_admin_alert` RPC called with `p_code: 'BRANCH_PROTECTION_DRIFT'`, `p_show_id: null`, and `p_context.failures` includes `+missing_check:x3-trust-domain`.
   - `insufficient-review-count` fixture: API returns `required_approving_review_count: 0` → exits 1, named diff `review_count:0 < 1`.
   - `enforce-admins-disabled` fixture: API returns `enforce_admins.enabled: false` → exits 1, named diff `enforce_admins:false`.
   - `strict-false` fixture: API returns `required_status_checks.strict: false` → exits 1, named diff `strict:false`.
   - `dismiss-stale-disabled` fixture: API returns `dismiss_stale_reviews: false` → exits 1, named diff.
   - `allow-force-push-enabled` fixture: API returns `allow_force_pushes.enabled: true` → exits 1, named diff.
-  - `ruleset-only-happy-path` fixture: legacy branch-protection 404, Rulesets API returns a `ref_name=main` ruleset with all six checks + admin enforcement + 1 review required → exits 0, no `admin_alerts` insert.
-  - `legacy-protection-happy-path` fixture: legacy branch-protection returns full passing config → exits 0, no `admin_alerts` insert.
-  - `no-token` fixture: neither `GH_APP_TOKEN` nor `BRANCH_PROTECTION_PAT` set → exits 1 AND `admin_alerts` insert called with `code: 'BRANCH_PROTECTION_MONITOR_AUTH_FAILED'` and `context.gh_app_token_set === false` AND `context.pat_set === false` AND `context.http_status === null`. Auth failure is now treated as an alertable control failure, NOT a silent operator misconfiguration, because a verifier that goes blind cannot detect downstream drift.
-  - `gh-app-token-401` fixture: `GH_APP_TOKEN` set but expired; protection-API call returns 401 → exits 1 AND `admin_alerts` insert called with `code: 'BRANCH_PROTECTION_MONITOR_AUTH_FAILED'` and `context.http_status === 401` and `context.gh_app_token_set === true`.
-  - `pat-403` fixture: PAT set but lacks `repo` scope; API call returns 403 → exits 1 AND `admin_alerts` insert with `code: 'BRANCH_PROTECTION_MONITOR_AUTH_FAILED'` and `context.http_status === 403` and `context.pat_set === true`.
-  - `expired-token` fixture: API returns the GitHub-specific expired-token signal (401 with body `{ "message": "Bad credentials" }` or `X-GitHub-SSO` re-auth header) → exits 1 AND `admin_alerts` insert with `code: 'BRANCH_PROTECTION_MONITOR_AUTH_FAILED'` and `context.http_status === 401`.
-  - **Anti-tautology**: each test scopes its assertion to the specific spy call's payload (`expect(insertSpy).toHaveBeenCalledWith({ code: 'BRANCH_PROTECTION_DRIFT', context: expect.objectContaining({ failures: expect.arrayContaining([...]) }), severity: 'high' })`), NOT to "exit code is non-zero" alone — the latter would pass for any thrown error and not prove the alert mechanism works.
+  - `ruleset-only-happy-path` fixture: legacy branch-protection 404, Rulesets API returns a `ref_name=main` ruleset with all seven checks + admin enforcement + 1 review required → exits 0, no `upsert_admin_alert` RPC.
+  - `legacy-protection-happy-path` fixture: legacy branch-protection returns full passing config → exits 0, no `upsert_admin_alert` RPC.
+  - `no-token` fixture: neither `GH_APP_TOKEN` nor `BRANCH_PROTECTION_PAT` set → exits 1 AND `upsert_admin_alert` RPC called with `p_code: 'BRANCH_PROTECTION_MONITOR_AUTH_FAILED'` and `p_context.gh_app_token_set === false` AND `p_context.pat_set === false` AND `p_context.http_status === null`. Auth failure is now treated as an alertable control failure, NOT a silent operator misconfiguration, because a verifier that goes blind cannot detect downstream drift.
+  - `gh-app-token-401` fixture: `GH_APP_TOKEN` set but expired; protection-API call returns 401 → exits 1 AND `upsert_admin_alert` RPC called with `p_code: 'BRANCH_PROTECTION_MONITOR_AUTH_FAILED'` and `p_context.http_status === 401` and `p_context.gh_app_token_set === true`.
+  - `pat-403` fixture: PAT set but lacks `repo` scope; API call returns 403 → exits 1 AND `upsert_admin_alert` RPC called with `p_code: 'BRANCH_PROTECTION_MONITOR_AUTH_FAILED'` and `p_context.http_status === 403` and `p_context.pat_set === true`.
+  - `expired-token` fixture: API returns the GitHub-specific expired-token signal (401 with body `{ "message": "Bad credentials" }` or `X-GitHub-SSO` re-auth header) → exits 1 AND `upsert_admin_alert` RPC called with `p_code: 'BRANCH_PROTECTION_MONITOR_AUTH_FAILED'` and `p_context.http_status === 401`.
+  - `live-supabase-admin-alert-producer` smoke test: mocked GitHub fetch returns 404 / empty rulesets to force `BRANCH_PROTECTION_DRIFT`; default Supabase service-role client writes through `upsert_admin_alert`; second invocation increments the same unresolved global row to `occurrence_count = 2`.
+  - **Anti-tautology**: each mocked test scopes its assertion to the specific RPC spy call's payload (`expect(rpcSpy).toHaveBeenCalledWith("upsert_admin_alert", { p_show_id: null, p_code: 'BRANCH_PROTECTION_DRIFT', p_context: expect.objectContaining({ failures: expect.arrayContaining([...]) }) })`), NOT to "exit code is non-zero" alone — the latter would pass for any thrown error and not prove the alert mechanism works.
     Add `pnpm test:audit:branch-protection` to `package.json` (runs the test file). The Step 3a workflow's `verify-branch-protection` job runs the SCRIPT (live API call); the test file runs against the mocks.
 - [ ] **Step 4: Commit** `feat(cross-cutting): machine-generated traceability matrix + §16 coverage gate + x-audits.yml workflow + verify-branch-protection (AC-X.6)`.
 
