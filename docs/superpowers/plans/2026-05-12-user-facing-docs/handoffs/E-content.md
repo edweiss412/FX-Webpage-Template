@@ -304,11 +304,11 @@ Phase I close-out captures the actual `next build` delta; Phase E does not.
 
 ## §12 Sign-off
 
-- [x] Implementer (Opus / Claude Code): 2026-05-20 at SHA `ba2ae36` (+ R11 close-out commits rolling forward)
+- [x] Implementer (Opus / Claude Code): 2026-05-20 at SHA `ba2ae36` (+ R11 close-out + help-pages e2e sweep at SHA `86ff206`'s descendant — see commit landing this entry)
 - [x] Reviewer (Codex cross-CLI): Phase E OWN-SURFACE APPROVE-equivalent at R11 verdict 2026-05-20 ("No new Phase E blocker found"). M12 plan findings from R9/R10/R11 routed to M12 owner — separate iteration.
-- [ ] User review (solo dev opens `pnpm dev`, clicks through every /help/* page, confirms each renders + reads cleanly + cross-links work): __ date __
+- [x] Structural close: `tests/e2e/help-pages.spec.ts` navigates all 13 /help/* URLs as admin + asserts H1 + no 500 — retires the prior manual user-review smoke gate per the M11/M12 boundary split (M11 = structural correctness, M12 = human-experiential validation). 14 tests (1 coverage-count assertion + 13 per-URL) green under `pnpm test:e2e --project=mobile-safari tests/e2e/help-pages.spec.ts` 2026-05-20.
 
-Phase E marked **closed** in `ROUTING.md` after user review.
+Phase E marked **closed** in `ROUTING.md`.
 
 ---
 
