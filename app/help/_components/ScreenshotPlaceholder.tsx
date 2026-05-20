@@ -19,7 +19,7 @@ export function ScreenshotPlaceholder({
         className="aspect-video w-full rounded border-2 border-dashed border-border-strong bg-surface-raised flex items-center justify-center text-center p-4"
       >
         <span className="text-sm italic text-text-subtle">
-          Screenshot pending — {alt}
+          Screenshot pending: {alt}
         </span>
       </div>
       {caption && (
