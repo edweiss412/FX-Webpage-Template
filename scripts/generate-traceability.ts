@@ -254,13 +254,16 @@ export function parseWorkflowFindings(workflow: string, requiredChecks = loadReq
 
   const privileged = parseJobBlock(workflow, "verify-branch-protection");
   if (!privileged) findings.push("+missing_job:verify-branch-protection");
-  if (privileged && !privileged.includes("github.event_name == 'push' || github.event_name == 'schedule'")) {
+  const privilegedDeferred = privileged ? /^\s*if:\s*false\b/m.test(privileged) : false;
+  if (privileged && !privilegedDeferred
+    && !privileged.includes("github.event_name == 'push' || github.event_name == 'schedule'")) {
     findings.push("+privileged_job_bad_if");
   }
 
   const reader = parseJobBlock(workflow, "verify-branch-protection-status");
   if (!reader) findings.push("+missing_job:verify-branch-protection-status");
-  if (reader) {
+  const readerDeferred = reader ? /^\s*if:\s*false\b/m.test(reader) : false;
+  if (reader && !readerDeferred) {
     for (const match of reader.matchAll(/([A-Z_]+):\s*\$\{\{\s*secrets\./g)) {
       findings.push(`+reader_uses_secret:${match[1]}`);
     }
