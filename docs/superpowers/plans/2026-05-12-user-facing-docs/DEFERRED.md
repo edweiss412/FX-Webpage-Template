@@ -28,6 +28,21 @@ Per `feedback_deferral_discipline.md` — items here are work that **will be don
 - **Spec status:** Master spec §9.1 (admin dashboard reading) documents row actions. M9 plan tree owns implementation.
 - **Re-open trigger:** M9 ships the four Active Shows row-action labels.
 
+### M11-E-D5: `<Screenshot name="X">` references on 3 docs pages resolve to WebP URLs that don't exist until Phase F (screenshot harness) ships
+
+- **Severity:** MEDIUM (Codex R6 fresh-eyes finding)
+- **File:line:** `app/help/admin/dashboard/page.mdx:5` (`dashboard-overview`), `app/help/admin/review-queues/page.mdx:7` (`review-queues-side-by-side`), `app/help/admin/preview-as-crew/page.mdx:5` (`preview-as-crew-banner`)
+- **Symptom:** `<Screenshot name="X">` renders `<picture>` with `src="/help/screenshots/X-light.webp"` + `srcset="/help/screenshots/X-dark.webp"`. `public/help/screenshots/` does NOT exist on disk because Phase F (the screenshot harness, Codex-owned backend phase per ROUTING.md) hasn't shipped yet. Production build between Phase E close and Phase F close would render broken `<img>` URLs on 3 docs pages.
+- **Why deferred (Phase F dependency by design):** Per plan body line 56-57: _"Every `<Screenshot name="...">` reference resolves to a manifest entry (Phase F will add these; until then, use `<ScreenshotPlaceholder>` and convert during Phase F.11)."_ Phase E shipped the `<Screenshot>` references instead of `<ScreenshotPlaceholder>` because the per-page tests assert no placeholders (per AC-11.14 / Phase H.4 lint). The interval-window broken-images cost is the documented plan trade-off: Phase E ships its content surface; Phase F ships its asset surface; they integrate at Phase F.11.
+- **Concrete fix path (Phase F scope):** Phase F.6 + F.7 + F.8 + F.10 author the screenshot manifest (`scripts/help-screenshots.manifest.ts`), capture script (`scripts/help-screenshots.ts`), `<picture>`-contract test (§7.1 test 10), and CI drift gate. Phase F.10 produces the WebPs in `public/help/screenshots/`. Phase F's `pnpm screenshot:help` populates the 3 referenced names: `dashboard-overview`, `review-queues-side-by-side`, `preview-as-crew-banner`.
+- **Structural defense already in place:** `tests/help/_metaScreenshotAssetExistence.test.ts` (NEW, this commit) enumerates every `<Screenshot name="X">` reference + asserts light + dark WebP existence. The assertion is wrapped in `it.skip` until `public/help/screenshots/` contains at least one WebP, at which point it auto-activates and pins the contract. No manual unlock required when Phase F lands.
+- **Why not BACKLOG.md:** Phase F is a real planned milestone next in the M11 phase sequence per ROUTING.md.
+- **Spec status:** Spec §3.6 (screenshot harness) + AC-11.18 / AC-11.19 / AC-11.20 / AC-11.25 / AC-11.26 are canonical. M11 plan tree Phase F owns implementation.
+- **Re-open trigger:** Phase F creates `public/help/screenshots/` with at least one `.webp` — the new meta-test auto-activates and pins the asset coverage. **Production deployment of Phase E should wait for Phase F.10 to land** so admins don't see broken-image URLs during the interval.
+- **Operational note:** if Phase E content needs to deploy to production BEFORE Phase F lands (e.g., for early review), convert the 3 `<Screenshot>` references to `<ScreenshotPlaceholder>` per plan body line 57 + temporarily relax the per-page no-placeholder assertion. Phase F.11 reverts.
+
+---
+
 ### M11-E-D4: `/help/admin/per-show-panel` documents sync-health-last-5 + parse-warnings sections absent from shipped `app/admin/show/[slug]/page.tsx`
 
 - **Severity:** MEDIUM (Codex R5 fresh-eyes finding)
