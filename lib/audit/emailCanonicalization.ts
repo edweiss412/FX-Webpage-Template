@@ -1,6 +1,5 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { basename } from "node:path";
 import {
   type ArrayLiteralExpression,
   CallExpression,
@@ -15,6 +14,7 @@ import {
   SyntaxKind,
 } from "ts-morph";
 
+import { EMAIL_BOUNDARIES } from "@/lib/audit/email-boundaries.generated";
 import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 
 export type AuditSource = { path: string; source: string };
@@ -22,93 +22,7 @@ export type AuditSource = { path: string; source: string };
 const databaseUrl =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
-const EMAIL_TABLE_COLUMNS = new Map<string, Set<string>>([
-  ["crew_members", new Set(["email"])],
-  ["transportation", new Set(["driver_email"])],
-  ["contacts", new Set(["email"])],
-  ["reports", new Set(["reported_by"])],
-  ["report_rate_limits", new Set(["identity"])],
-  ["sync_audit", new Set(["applied_by", "applied_by_email"])],
-  ["pending_syncs", new Set(["wizard_approved_by_email"])],
-  ["app_settings", new Set(["watched_folder_set_by_email", "pending_folder_set_by_email"])],
-  ["deferred_ingestions", new Set(["deferred_by_email"])],
-  ["admin_alerts", new Set(["resolved_by", "context"])],
-]);
-
-const REQUIRED_CHECKS: Array<{ table: string; column: string; constraint: string; definition: string }> = [
-  {
-    table: "crew_members",
-    column: "email",
-    constraint: "crew_members_email_canonical",
-    definition: "CHECK (((email IS NULL) OR (email = lower(TRIM(BOTH FROM email)))))",
-  },
-  {
-    table: "transportation",
-    column: "driver_email",
-    constraint: "transportation_driver_email_canonical",
-    definition:
-      "CHECK (((driver_email IS NULL) OR (driver_email = lower(TRIM(BOTH FROM driver_email)))))",
-  },
-  {
-    table: "contacts",
-    column: "email",
-    constraint: "contacts_email_canonical",
-    definition: "CHECK (((email IS NULL) OR (email = lower(TRIM(BOTH FROM email)))))",
-  },
-  {
-    table: "sync_audit",
-    column: "applied_by",
-    constraint: "sync_audit_applied_by_email_canonical",
-    definition: "CHECK ((applied_by = lower(TRIM(BOTH FROM applied_by))))",
-  },
-  {
-    table: "app_settings",
-    column: "watched_folder_set_by_email",
-    constraint: "app_settings_watched_folder_set_by_email_canonical",
-    definition:
-      "CHECK (((watched_folder_set_by_email IS NULL) OR (watched_folder_set_by_email = lower(TRIM(BOTH FROM watched_folder_set_by_email)))))",
-  },
-  {
-    table: "app_settings",
-    column: "pending_folder_set_by_email",
-    constraint: "app_settings_pending_folder_set_by_email_canonical",
-    definition:
-      "CHECK (((pending_folder_set_by_email IS NULL) OR (pending_folder_set_by_email = lower(TRIM(BOTH FROM pending_folder_set_by_email)))))",
-  },
-  {
-    table: "deferred_ingestions",
-    column: "deferred_by_email",
-    constraint: "deferred_ingestions_deferred_by_email_canonical",
-    definition:
-      "CHECK (((deferred_by_email IS NULL) OR (deferred_by_email = lower(TRIM(BOTH FROM deferred_by_email)))))",
-  },
-  {
-    table: "admin_alerts",
-    column: "resolved_by",
-    constraint: "admin_alerts_resolved_by_email_canonical",
-    definition: "CHECK (((resolved_by IS NULL) OR (resolved_by = lower(TRIM(BOTH FROM resolved_by)))))",
-  },
-  {
-    table: "reports",
-    column: "reported_by",
-    constraint: "reports_admin_reported_by_email_canonical",
-    definition:
-      "CHECK (((reported_by_kind <> 'admin'::text) OR (reported_by = lower(TRIM(BOTH FROM reported_by)))))",
-  },
-  {
-    table: "report_rate_limits",
-    column: "identity",
-    constraint: "report_rate_limits_admin_identity_email_canonical",
-    definition: "CHECK (((kind <> 'admin'::text) OR (identity = lower(TRIM(BOTH FROM identity)))))",
-  },
-  {
-    table: "pending_syncs",
-    column: "wizard_approved_by_email",
-    constraint: "pending_syncs_wizard_approved_by_email_canonical",
-    definition:
-      "CHECK (((wizard_approved_by_email IS NULL) OR (wizard_approved_by_email = lower(TRIM(BOTH FROM wizard_approved_by_email)))))",
-  },
-];
+type CheckSource = { table: string; column: string; constraint: string; body: string };
 
 export function diffEmailBoundaryParity(
   specBoundaryKeys: readonly string[],
@@ -124,6 +38,130 @@ export function diffEmailBoundaryParity(
     if (!spec.has(value)) diffs.push(`-extra_in_plan:${value}`);
   }
   return diffs.sort();
+}
+
+function addColumn(map: Map<string, Set<string>>, table: string, column: string): void {
+  const columns = map.get(table) ?? new Set<string>();
+  columns.add(column);
+  map.set(table, columns);
+}
+
+function deriveEmailTableColumns(): Map<string, Set<string>> {
+  const columns = new Map<string, Set<string>>();
+  for (const boundary of EMAIL_BOUNDARIES) {
+    const text = `${boundary.path} ${boundary.boundaryCheck}`;
+    for (const match of text.matchAll(/\b([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\b/g)) {
+      const table = match[1];
+      const column = match[2];
+      if (!table || !column) continue;
+      if (column === "ts" || column === "id") continue;
+      if (isEmailLikeDbColumn(column) || table === "admin_alerts" && column === "context") {
+        addColumn(columns, table, column);
+      }
+    }
+  }
+  for (const source of defaultSchemaCheckSources()) {
+    for (const check of parseEmailCheckSources([source])) {
+      addColumn(columns, check.table, check.column);
+    }
+  }
+  return columns;
+}
+
+function defaultSchemaCheckSources(): AuditSource[] {
+  return [
+    "supabase/migrations/20260501000000_initial_public_schema.sql",
+    "supabase/migrations/20260520000911_add_email_canonical_checks.sql",
+  ].map((path) => ({ path, source: readFileSync(path, "utf8") }));
+}
+
+function stripSqlComments(sql: string): string {
+  return sql.replace(/--.*$/gm, "");
+}
+
+function matchingParenBody(sql: string, openParen: number): string | null {
+  let depth = 0;
+  for (let index = openParen; index < sql.length; index++) {
+    const char = sql[index];
+    if (char === "(") depth++;
+    if (char === ")") {
+      depth--;
+      if (depth === 0) return sql.slice(openParen + 1, index);
+    }
+  }
+  return null;
+}
+
+function tableAtOffset(sql: string, offset: number): string | null {
+  const prefix = sql.slice(0, offset);
+  const alterMatches = Array.from(prefix.matchAll(/alter\s+table(?:\s+if\s+exists)?\s+(?:(?:public|dev)\.)?([a-z_][a-z0-9_]*)/gi));
+  const createMatches = Array.from(prefix.matchAll(/create\s+table(?:\s+if\s+not\s+exists)?\s+(?:(?:public|dev)\.)?([a-z_][a-z0-9_]*)/gi));
+  const alter = alterMatches.at(-1);
+  const create = createMatches.at(-1);
+  const alterIndex = alter?.index ?? -1;
+  const createIndex = create?.index ?? -1;
+  return alterIndex > createIndex ? alter?.[1] ?? null : create?.[1] ?? null;
+}
+
+function columnFromCheckBody(body: string): string | null {
+  const equalsCanonical = body.match(/\b([a-z_][a-z0-9_]*)\s*=\s*lower\s*\(\s*(?:btrim|trim)\s*\(\s*(?:both\s+from\s+)?\1\s*\)\s*\)/i);
+  if (equalsCanonical?.[1]) return equalsCanonical[1];
+  return null;
+}
+
+function columnFromConstraint(table: string, constraint: string): string | null {
+  if (constraint === "admin_alerts_resolved_by_email_canonical") return "resolved_by";
+  if (constraint === "reports_admin_reported_by_email_canonical") return "reported_by";
+  if (constraint === "report_rate_limits_admin_identity_email_canonical") return "identity";
+  if (constraint === "sync_audit_applied_by_email_canonical") return "applied_by";
+  const prefix = `${table}_`;
+  const suffixes = ["_canonical"];
+  for (const suffix of suffixes) {
+    if (constraint.startsWith(prefix) && constraint.endsWith(suffix)) {
+      return constraint.slice(prefix.length, -suffix.length);
+    }
+  }
+  return null;
+}
+
+function parseEmailCheckSources(sources: readonly AuditSource[]): CheckSource[] {
+  const checks: CheckSource[] = [];
+  for (const source of sources) {
+    const sql = stripSqlComments(source.source);
+    for (const match of sql.matchAll(/\b(?:add\s+)?constraint\s+([a-z_][a-z0-9_]*)\s+check\s*\(/gi)) {
+      const constraint = match[1];
+      if (!constraint?.includes("email_canonical")) continue;
+      const openParen = (match.index ?? 0) + match[0].length - 1;
+      const body = matchingParenBody(sql, openParen);
+      const table = tableAtOffset(sql, match.index ?? 0);
+      const column = body && table && (columnFromCheckBody(body) ?? columnFromConstraint(table, constraint));
+      if (!body || !table || !column) continue;
+      checks.push({ table, column, constraint, body });
+    }
+  }
+  return checks;
+}
+
+function canonicalCheckPattern(column: string): RegExp {
+  const escaped = column.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `\\b${escaped}\\b\\s*=\\s*lower\\s*\\(\\s*(?:btrim|trim)\\s*\\(\\s*(?:both\\s+from\\s+)?\\b${escaped}\\b\\s*\\)\\s*\\)`,
+    "i",
+  );
+}
+
+function checkBodyIsCanonical(body: string, column: string): boolean {
+  return canonicalCheckPattern(column).test(normalizeDefinition(body));
+}
+
+export function auditEmailSchemaCheckSources(sources: readonly AuditSource[]): string[] {
+  const findings: string[] = [];
+  for (const check of parseEmailCheckSources(sources)) {
+    if (!checkBodyIsCanonical(check.body, check.column)) {
+      findings.push(`+wrong_check_source:${check.table}.${check.column}`);
+    }
+  }
+  return findings.sort();
 }
 
 function makeProject(sources: readonly AuditSource[]): { project: Project; files: SourceFile[] } {
@@ -166,20 +204,19 @@ function unwrap(expr: Expression): Expression {
 }
 
 function declarationIsCanonicalize(declaration: Node): boolean {
-  if (Node.isFunctionDeclaration(declaration)) {
-    return declaration.getName() === "canonicalize" && declaration.getSourceFile().getFilePath().endsWith("lib/email/canonicalize.ts");
-  }
-  if (Node.isImportSpecifier(declaration)) {
-    const imported = declaration.getNameNode().getText();
-    const moduleSpecifier = declaration.getImportDeclaration().getModuleSpecifierValue();
-    return imported === "canonicalize" && moduleSpecifier.includes("email/canonicalize");
-  }
-  return false;
+  return (
+    Node.isFunctionDeclaration(declaration) &&
+    declaration.getSourceFile().getFilePath().endsWith("lib/email/canonicalize.ts")
+  );
 }
 
 function callTargetsCanonicalize(call: CallExpression): boolean {
   const callee = call.getExpression();
-  const symbol = callee.getSymbol() ?? (Node.isIdentifier(callee) ? callee.getDefinitions()[0]?.getDeclarationNode()?.getSymbol() : undefined);
+  const directSymbol = callee.getSymbol();
+  const symbol =
+    directSymbol?.getAliasedSymbol() ??
+    directSymbol ??
+    (Node.isIdentifier(callee) ? callee.getDefinitions()[0]?.getDeclarationNode()?.getSymbol() : undefined);
   const declarations = symbol?.getDeclarations() ?? [];
   return declarations.some(declarationIsCanonicalize);
 }
@@ -194,7 +231,13 @@ function initializerForIdentifier(identifier: Identifier): Expression | null {
   return null;
 }
 
-function isCanonicalizedExpression(expr: Expression, seen = new Set<Node>()): boolean {
+type CanonicalizationMode = "email" | "report-identity";
+
+function isCanonicalizedExpression(
+  expr: Expression,
+  seen = new Set<Node>(),
+  mode: CanonicalizationMode = "email",
+): boolean {
   const current = unwrap(expr);
   if (seen.has(current)) return false;
   seen.add(current);
@@ -202,23 +245,26 @@ function isCanonicalizedExpression(expr: Expression, seen = new Set<Node>()): bo
   if (Node.isCallExpression(current)) {
     if (callTargetsCanonicalize(current)) return true;
     const callee = current.getExpression();
-    if (Node.isPropertyAccessExpression(callee) && callee.getName() === "toString") return true;
+    if (mode === "report-identity" && Node.isPropertyAccessExpression(callee) && callee.getName() === "toString") {
+      return true;
+    }
     return false;
   }
   if (Node.isIdentifier(current)) {
     const initializer = initializerForIdentifier(current);
-    return initializer ? isCanonicalizedExpression(initializer, seen) : false;
+    return initializer ? isCanonicalizedExpression(initializer, seen, mode) : false;
   }
   if (Node.isConditionalExpression(current)) {
     return (
-      isCanonicalizedExpression(current.getWhenTrue(), seen) ||
-      isCanonicalizedExpression(current.getWhenFalse(), seen)
+      isCanonicalizedExpression(current.getWhenTrue(), seen, mode) ||
+      isCanonicalizedExpression(current.getWhenFalse(), seen, mode)
     );
   }
   return false;
 }
 
 function isEmailProperty(name: string): boolean {
+  if (name.includes(".")) return false;
   return /^email$/.test(name) || /_email$/.test(name) || /_by_email$/.test(name);
 }
 
@@ -263,6 +309,7 @@ function tableForWriteCall(call: CallExpression): string | null {
 
 function auditObjectWrite(path: string, table: string, object: ObjectLiteralExpression): string[] {
   const findings: string[] = [];
+  const emailTableColumns = deriveEmailTableColumns();
   for (const prop of object.getProperties()) {
     if (!Node.isPropertyAssignment(prop) && !Node.isShorthandPropertyAssignment(prop)) continue;
     const name = propertyName(prop);
@@ -274,12 +321,12 @@ function auditObjectWrite(path: string, table: string, object: ObjectLiteralExpr
       continue;
     }
     if (table === "reports" && name === "reported_by") {
-      if (!isCanonicalizedExpression(expr)) {
+      if (!isCanonicalizedExpression(expr, new Set<Node>(), "report-identity")) {
         findings.push(`${path}: raw_reported_by_email:${prop.getStartLineNumber()}`);
       }
       continue;
     }
-    if (EMAIL_TABLE_COLUMNS.get(table)?.has(name) || isEmailLikeDbColumn(name)) {
+    if (emailTableColumns.get(table)?.has(name) || isEmailLikeDbColumn(name)) {
       if (!isCanonicalizedExpression(expr)) {
         findings.push(`${path}: raw_email_db_write:${table}.${name}:${prop.getStartLineNumber()}`);
       }
@@ -351,27 +398,42 @@ function parseUpdateColumns(sql: string): { table: string; columnsByParam: Map<n
   return { table: match[1], columnsByParam };
 }
 
+function parseDoUpdateColumns(sql: string, insertTable: string | null): { table: string; columnsByParam: Map<number, string> } | null {
+  const match = sql.match(/\bon\s+conflict[\s\S]*?\bdo\s+update\s+set\s+([\s\S]*?)(?:\s+where|\s+returning|$)/i);
+  if (!match?.[1]) return null;
+  const columnsByParam = new Map<number, string>();
+  for (const assignment of splitTopLevelCsv(match[1])) {
+    const col = assignment.match(/^\s*([a-z_][a-z0-9_]*)\s*=/i)?.[1];
+    const param = assignment.match(/\$(\d+)/)?.[1];
+    if (col && param) columnsByParam.set(Number(param), col);
+  }
+  return insertTable ? { table: insertTable, columnsByParam } : null;
+}
+
 function auditSqlWrite(path: string, call: CallExpression): string[] {
   const sql = sqlText(call.getArguments()[0] as Expression | undefined);
   const params = arrayArg(call);
   if (!sql || !params) return [];
   const findings: string[] = [];
+  const emailTableColumns = deriveEmailTableColumns();
   const insert = parseInsertColumns(sql);
   if (insert) {
     for (const [paramIndex, column] of insert.columnsByParam) {
       if (column === "context") continue;
-      if (!EMAIL_TABLE_COLUMNS.get(insert.table)?.has(column) && !isEmailLikeDbColumn(column)) continue;
+      if (!emailTableColumns.get(insert.table)?.has(column) && !isEmailLikeDbColumn(column)) continue;
       const arg = params.getElements()[paramIndex - 1] as Expression | undefined;
       if (arg && !isCanonicalizedExpression(arg)) {
         findings.push(`${path}: raw_email_db_write:${insert.table}.${column}:${call.getStartLineNumber()}`);
       }
     }
   }
-  const update = parseUpdateColumns(sql);
-  if (update) {
+  const updateColumns = parseUpdateColumns(sql);
+  const doUpdate = parseDoUpdateColumns(sql, insert?.table ?? null);
+  for (const update of [updateColumns, doUpdate]) {
+    if (!update) continue;
     for (const [paramIndex, column] of update.columnsByParam) {
       if (column === "context") continue;
-      if (!EMAIL_TABLE_COLUMNS.get(update.table)?.has(column) && !isEmailLikeDbColumn(column)) continue;
+      if (!emailTableColumns.get(update.table)?.has(column) && !isEmailLikeDbColumn(column)) continue;
       const arg = params.getElements()[paramIndex - 1] as Expression | undefined;
       if (arg && !isCanonicalizedExpression(arg)) {
         findings.push(`${path}: raw_email_db_write:${update.table}.${column}:${call.getStartLineNumber()}`);
@@ -418,12 +480,10 @@ function auditContextExpression(path: string, expr: Expression, trail: string[])
 }
 
 function auditParserAssignments(file: SourceFile): string[] {
-  if (!file.getFilePath().includes("lib/parser/") && !basename(file.getFilePath()).includes("parser")) {
-    return [];
-  }
   const findings: string[] = [];
   for (const prop of file.getDescendantsOfKind(SyntaxKind.PropertyAssignment)) {
     const object = prop.getFirstAncestorByKind(SyntaxKind.ObjectLiteralExpression);
+    if (object?.getProperty("invariant")) continue;
     const call = object?.getParentIfKind(SyntaxKind.CallExpression);
     const callee = call?.getExpression();
     if (
@@ -456,8 +516,17 @@ function auditWrites(file: SourceFile): string[] {
   for (const call of file.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const table = tableForWriteCall(call);
     const first = call.getArguments()[0];
-    if (table && Node.isObjectLiteralExpression(first)) {
-      findings.push(...auditObjectWrite(file.getFilePath(), table, first));
+    if (table) {
+      if (Node.isObjectLiteralExpression(first)) {
+        findings.push(...auditObjectWrite(file.getFilePath(), table, first));
+      }
+      if (Node.isArrayLiteralExpression(first)) {
+        for (const element of first.getElements()) {
+          if (Node.isObjectLiteralExpression(element)) {
+            findings.push(...auditObjectWrite(file.getFilePath(), table, element));
+          }
+        }
+      }
     }
     findings.push(...auditSqlWrite(file.getFilePath(), call));
   }
@@ -506,21 +575,9 @@ function auditReportIdentityObjects(file: SourceFile): string[] {
       const name = propertyName(prop);
       const value = prop.getInitializer();
       if (!value || (name !== "identity" && name !== "reportedBy")) continue;
-      if (!isCanonicalizedExpression(value)) {
+      if (!isCanonicalizedExpression(value, new Set<Node>(), "report-identity")) {
         findings.push(`${file.getFilePath()}: raw_reported_by_email:${prop.getStartLineNumber()}`);
       }
-    }
-  }
-  return findings;
-}
-
-function auditInlineNormalization(file: SourceFile): string[] {
-  const findings: string[] = [];
-  for (const call of file.getDescendantsOfKind(SyntaxKind.CallExpression)) {
-    const callee = call.getExpression();
-    if (!Node.isPropertyAccessExpression(callee)) continue;
-    if (["toLowerCase", "toLocaleLowerCase", "trim", "trimStart", "trimEnd"].includes(callee.getName())) {
-      findings.push(`${file.getFilePath()}: inline_email_normalization:${callee.getName()}:${call.getStartLineNumber()}`);
     }
   }
   return findings;
@@ -529,13 +586,13 @@ function auditInlineNormalization(file: SourceFile): string[] {
 export function auditEmailCanonicalizationSources(sources: readonly AuditSource[]): string[] {
   const { files } = makeProject(sources);
   return files.flatMap((file) => [
-    ...auditParserAssignments(file),
+    ...(file.getFilePath().includes("/lib/parser/") ||
+    file.getFilePath().includes("fixtures/email-canonicalization")
+      ? auditParserAssignments(file)
+      : []),
     ...auditWrites(file),
     ...auditReadPredicates(file),
     ...auditReportIdentityObjects(file),
-    ...(file.getFilePath().includes("fixtures/email-canonicalization")
-      ? auditInlineNormalization(file)
-      : []),
   ]);
 }
 
@@ -544,6 +601,7 @@ function sqlString(value: string): string {
 }
 
 function runPsql(sql: string): string {
+  // not-subject-to-meta: psql shell-out; no Supabase client involved
   return execFileSync("psql", [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"], {
     input: sql,
     encoding: "utf8",
@@ -556,7 +614,9 @@ function normalizeDefinition(value: string): string {
 
 function auditSchemaChecks(): string[] {
   const findings: string[] = [];
-  for (const expected of REQUIRED_CHECKS) {
+  const expectedChecks = parseEmailCheckSources(defaultSchemaCheckSources());
+  findings.push(...auditEmailSchemaCheckSources(defaultSchemaCheckSources()));
+  for (const expected of expectedChecks) {
     const actual = runPsql(`
       select pg_get_constraintdef(c.oid)
         from pg_constraint c
@@ -571,7 +631,7 @@ function auditSchemaChecks(): string[] {
       findings.push(`+missing_check:${expected.table}.${expected.column}`);
       continue;
     }
-    if (normalizeDefinition(actual) !== normalizeDefinition(expected.definition)) {
+    if (!checkBodyIsCanonical(actual, expected.column)) {
       findings.push(`+wrong_check:${expected.table}.${expected.column}`);
     }
   }
@@ -625,7 +685,7 @@ function auditRlsHelpers(): string[] {
 
 export function auditLiveEmailCanonicalization(): string[] {
   const sourcePaths = [
-    ...walkSourceFiles(["lib/parser/blocks"]),
+    ...walkSourceFiles(["lib/parser"]),
     ...walkSourceFiles(["lib/sync", "lib/reports", "lib/auth", "lib/data", "lib/adminAlerts"]),
     ...walkSourceFiles(["app/api/admin"]),
   ];

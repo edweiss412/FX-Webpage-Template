@@ -5,6 +5,7 @@ import { describe, expect, test } from "vitest";
 import { EMAIL_BOUNDARIES } from "@/lib/audit/email-boundaries.generated";
 import {
   auditEmailCanonicalizationSources,
+  auditEmailSchemaCheckSources,
   auditLiveEmailCanonicalization,
   diffEmailBoundaryParity,
 } from "@/lib/audit/emailCanonicalization";
@@ -53,10 +54,62 @@ describe("X.5 email canonicalization audit", () => {
     );
   });
 
+  test("boundary parity emits named diffs when spec AC-X.5 adds a boundary absent from the plan", () => {
+    // Failure mode: spec-side boundary extraction is a hardcoded TS list and ignores new AC-X.5 codespans.
+    const extracted = extractEmailBoundariesFromDocs(
+      read(specPath).replace(
+        "admin_alerts.resolved_by`, AND read-side",
+        "admin_alerts.resolved_by`, `webhook_audit.requester_email`, AND read-side",
+      ),
+      read(planPath),
+    );
+    expect(diffEmailBoundaryParity(extracted.specBoundaryKeys, extracted.planBoundaryKeys)).toContain(
+      "+missing_in_plan:DB write:webhook_audit.requester_email",
+    );
+  });
+
+  test("canonicalize detection resolves the imported function symbol, not an import-name substring", () => {
+    // Failure mode: an alias import of canonicalize is treated as raw because the audit compares import text.
+    expect(auditEmailCanonicalizationSources([
+      {
+        path: join(fixtureRoot, "good-canonicalize-alias.ts.fixture"),
+        source: [
+          'import { canonicalize as cz } from "@/lib/email/canonicalize";',
+          "export async function writeCrew(db: { from(table: string): { insert(row: unknown): Promise<void> } }, rawEmail: string) {",
+          '  await db.from("crew_members").insert({ email: cz(rawEmail) });',
+          "}",
+        ].join("\n"),
+      },
+    ])).toEqual([]);
+
+    // Failure mode: a lookalike module path passes because the audit checks `includes("email/canonicalize")`.
+    expect(auditEmailCanonicalizationSources([
+      {
+        path: join(fixtureRoot, "bad-canonicalize-lookalike.ts.fixture"),
+        source: [
+          'import { canonicalize } from "@/lib/email/canonicalizeStrict";',
+          "export async function writeCrew(db: { from(table: string): { insert(row: unknown): Promise<void> } }, rawEmail: string) {",
+          '  await db.from("crew_members").insert({ email: canonicalize(rawEmail) });',
+          "}",
+        ].join("\n"),
+      },
+    ]).join("\n")).toMatch(/raw_email_db_write:crew_members\.email/);
+  });
+
   test("parser layer requires canonicalize before emitted email fields", () => {
     // Failure mode: parser emits `email: rawCell`, bypassing the only allowed raw-email helper.
     expectFixtureFail("bad-parser-raw-email.ts.fixture", /raw_email_assignment:.*email/);
     expectFixturePass("good-canonicalized-parser.ts.fixture");
+  });
+
+  test("parser layer walks the whole lib/parser subtree, not only lib/parser/blocks", () => {
+    // Failure mode: a new parser normalizer under lib/parser/** emits raw email outside blocks/.
+    expect(auditEmailCanonicalizationSources([
+      {
+        path: "lib/parser/normalizers/email.ts",
+        source: "export const normalized = { email: rawEmail };",
+      },
+    ]).join("\n")).toMatch(/lib\/parser\/normalizers\/email\.ts: raw_email_assignment:email:1/);
   });
 
   test("DB write layer requires defensive canonicalization at email persistence sinks", () => {
@@ -65,10 +118,58 @@ describe("X.5 email canonicalization audit", () => {
     expectFixturePass("good-canonicalized-db-write.ts.fixture");
   });
 
+  test("DB write layer audits array-form Supabase upserts", () => {
+    // Failure mode: `.upsert([{ email: raw }])` bypasses object-write inspection.
+    expect(auditEmailCanonicalizationSources([
+      {
+        path: join(fixtureRoot, "bad-array-upsert-raw-email.ts.fixture"),
+        source: [
+          "export async function writeCrew(db: { from(table: string): { upsert(row: unknown): Promise<void> } }, rawEmail: string) {",
+          '  await db.from("crew_members").upsert([{ email: rawEmail }]);',
+          "}",
+        ].join("\n"),
+      },
+    ]).join("\n")).toMatch(/raw_email_db_write:crew_members\.email/);
+  });
+
+  test("SQL write parser audits ON CONFLICT DO UPDATE email assignments", () => {
+    // Failure mode: INSERT is canonicalized but the conflict UPDATE branch writes a raw email parameter.
+    expect(auditEmailCanonicalizationSources([
+      {
+        path: join(fixtureRoot, "bad-sql-on-conflict-update-raw-email.ts.fixture"),
+        source: [
+          "export async function write(db: { query(sql: string, params: readonly unknown[]): Promise<void> }, email: string, reason: string) {",
+          "  await db.query(`",
+          "    insert into public.deferred_ingestions (drive_file_id, deferred_by_email, reason)",
+          "    values ($1, lower(trim($2)), $3)",
+          "    on conflict (drive_file_id) do update set",
+          "      deferred_by_email = $2,",
+          "      reason = excluded.reason",
+          "  `, ['drive', email, reason]);",
+          "}",
+        ].join("\n"),
+      },
+    ]).join("\n")).toMatch(/raw_email_db_write:deferred_ingestions\.deferred_by_email/);
+  });
+
   test("admin_alerts.context layer recursively rejects raw email JSONB fields", () => {
     // Failure mode: nested JSONB email fields bypass column-level CHECK constraints.
     expectFixtureFail("bad-jsonb-context-raw-email.ts.fixture", /raw_email_jsonb_context:.*matchedEmail/);
     expectFixturePass("good-canonicalized-jsonb-context.ts.fixture");
+  });
+
+  test("admin_alerts.context layer does not treat arbitrary toString calls as canonical email", () => {
+    // Failure mode: the Layer 6 crew-id carve-out globally lets `rawEmail.toString()` through JSONB email contexts.
+    expect(auditEmailCanonicalizationSources([
+      {
+        path: join(fixtureRoot, "bad-jsonb-context-to-string-email.ts.fixture"),
+        source: [
+          "export function alert(rawEmail: string) {",
+          "  return { context: { matchedEmail: rawEmail.toString() } };",
+          "}",
+        ].join("\n"),
+      },
+    ]).join("\n")).toMatch(/raw_email_jsonb_context:context\.matchedEmail/);
   });
 
   test("validator/read layer requires canonicalize before crew_members.email predicates", () => {
@@ -83,9 +184,19 @@ describe("X.5 email canonicalization audit", () => {
     expectFixturePass("good-reports-crew-uses-id.ts.fixture");
   });
 
-  test("inline-normalization fixture proves the defense-in-depth guard sees forbidden chains", () => {
-    // Failure mode: a parallel .toLowerCase().trim() branch creeps in beside canonicalize().
-    expectFixtureFail("bad-inline-toLowerCase.ts.fixture", /inline_email_normalization/);
+  test("schema CHECK audit fails when a migration weakens the canonical form", () => {
+    // Failure mode: the audit byte-compares a hardcoded pg_get_constraintdef string and never checks source SQL drift.
+    const findings = auditEmailSchemaCheckSources([
+      {
+        path: "supabase/migrations/20260520000911_add_email_canonical_checks.sql",
+        source: [
+          "alter table public.admin_alerts",
+          "  add constraint admin_alerts_resolved_by_email_canonical",
+          "    check (resolved_by is null or resolved_by <> '');",
+        ].join("\n"),
+      },
+    ]);
+    expect(findings).toContain("+wrong_check_source:admin_alerts.resolved_by");
   });
 
   test("live project satisfies all seven AC-X.5 audit layers", () => {

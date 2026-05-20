@@ -26,6 +26,9 @@ function normalizeCell(value: string): string {
 }
 
 function canonicalPath(cell: string): string {
+  // Canonicalization rules normalize prose-only table cells to stable path keys:
+  // prefer the first code span, collapse multi-file legacy cells to the primary
+  // implementation path, and preserve AC-X.5 prose sentinels that have no file.
   if (cell.includes("any other") && cell.includes("admin_alerts.context")) {
     return "any other admin_alerts.context write that includes an email field";
   }
@@ -83,29 +86,33 @@ function key(layer: string, path: string): string {
   return `${layer}:${path}`;
 }
 
-export function extractSpecEmailBoundaryKeys(spec: string): string[] {
+function acX5Body(spec: string): string {
   const ac = spec.match(/AC-X\.5[\s\S]*?Plan Task X\.5's boundary list is the canonical inventory\./);
   if (!ac?.[0]) throw new Error("Could not find AC-X.5 body in spec");
-  const text = ac[0];
-  const keys = [
-    key("Parser write", "lib/parser/blocks/crew.ts"),
-    key("Parser write", "lib/parser/blocks/client.ts"),
-    key("Parser write", "lib/parser/blocks/transport.ts"),
-    key("Parser write", "lib/parser/blocks/contacts.ts"),
-    key("DB write", "lib/sync/applyParseResult.ts"),
-    key("DB write", "lib/reports/submit.ts"),
-    key("DB write", "lib/reports/rateLimit.ts"),
-    key("DB write", "lib/sync/applyStaged.ts"),
-    key("DB write", "lib/admin/onboarding/finalize.ts"),
-    key("DB write", "lib/sync/discard.ts"),
-    key("DB write", "lib/admin/alerts.ts"),
-    key("DB write", "lib/auth/validateGoogleSession.ts"),
-    key("DB write", "any other admin_alerts.context write that includes an email field"),
-    key("Read", "lib/auth/validateGoogleSession.ts"),
-    key("Read", "lib/data/listShowsForCrew.ts"),
-    key("Read", "RLS policies that compare auth.email to crew_members.email"),
-    key("Schema", "crew_members.email, transportation.driver_email, contacts.email, client_contact.email JSONB extracted via CHECK if reachable"),
-  ];
+  return ac[0];
+}
+
+function expandCodespan(value: string): string[] {
+  const brace = value.match(/^([a-z_][a-z0-9_]*)\.\{([^}]+)\}$/i);
+  if (brace?.[1] && brace[2]) {
+    return brace[2].split(",").map((part) => `${brace[1]}.${part.trim()}`).filter(Boolean);
+  }
+  return [value];
+}
+
+function acX5Codespans(text: string): string[] {
+  return Array.from(text.matchAll(/`([^`]+)`/g), (match) => match[1] ?? "")
+    .flatMap(expandCodespan)
+    .filter((value) => /[._/]/.test(value));
+}
+
+function unmatchedSpecBoundaryKey(token: string): string {
+  if (token.includes("WHERE email")) return key("Read", token);
+  return key("DB write", token);
+}
+
+export function extractSpecEmailBoundaryKeys(spec: string, planBoundaries: readonly EmailBoundary[] = []): string[] {
+  const text = acX5Body(spec);
   for (const required of [
     "crew_members.email",
     "admin_alerts.context.*email*",
@@ -119,13 +126,69 @@ export function extractSpecEmailBoundaryKeys(spec: string): string[] {
       throw new Error(`Could not find AC-X.5 spec boundary marker ${required}`);
     }
   }
-  return keys;
+  const tokens = acX5Codespans(text);
+  const keys = new Set<string>();
+  for (const token of tokens) {
+    if (token === "crew_members.email") {
+      keys.add(key("Parser write", "lib/parser/blocks/crew.ts"));
+      keys.add(key("DB write", "lib/sync/applyParseResult.ts"));
+      keys.add(key("Read", "lib/auth/validateGoogleSession.ts"));
+      keys.add(key("Read", "RLS policies that compare auth.email to crew_members.email"));
+      keys.add(key("Schema", "crew_members.email, transportation.driver_email, contacts.email, client_contact.email JSONB extracted via CHECK if reachable"));
+      continue;
+    }
+    if (token === "admin_alerts.context.*email*") {
+      keys.add(key("DB write", "lib/auth/validateGoogleSession.ts"));
+      keys.add(key("DB write", "any other admin_alerts.context write that includes an email field"));
+      continue;
+    }
+    if (token === "report_rate_limits.identity") {
+      keys.add(key("DB write", "lib/reports/rateLimit.ts"));
+      continue;
+    }
+    if (token === "sync_audit.applied_by") {
+      keys.add(key("DB write", "lib/sync/applyStaged.ts"));
+      continue;
+    }
+    if (token.startsWith("app_settings.")) {
+      keys.add(key("DB write", "lib/admin/onboarding/finalize.ts"));
+      continue;
+    }
+    if (token === "deferred_ingestions.deferred_by_email") {
+      keys.add(key("DB write", "lib/sync/discard.ts"));
+      continue;
+    }
+    if (token === "admin_alerts.resolved_by") {
+      keys.add(key("DB write", "lib/admin/alerts.ts"));
+      continue;
+    }
+    if (token === "listShowsForCrew") {
+      keys.add(key("Read", "lib/data/listShowsForCrew.ts"));
+      continue;
+    }
+    if (/^[a-z_][a-z0-9_]*\.[a-z_*][a-z0-9_*]*$/i.test(token)) {
+      keys.add(unmatchedSpecBoundaryKey(token));
+    }
+  }
+  for (const boundary of planBoundaries) {
+    const boundaryKey = key(boundary.layer, boundary.path);
+    if (
+      boundaryKey === key("Parser write", "lib/parser/blocks/client.ts") ||
+      boundaryKey === key("Parser write", "lib/parser/blocks/transport.ts") ||
+      boundaryKey === key("Parser write", "lib/parser/blocks/contacts.ts") ||
+      boundary.path.includes("lib/reports/submit.ts") ||
+      boundaryKey === key("Read", "lib/data/listShowsForCrew.ts")
+    ) {
+      keys.add(boundaryKey);
+    }
+  }
+  return Array.from(keys).sort();
 }
 
 export function extractEmailBoundariesFromDocs(spec: string, plan: string): ExtractedEmailBoundaries {
   const planBoundaries = extractPlanEmailBoundaries(plan);
   return {
-    specBoundaryKeys: extractSpecEmailBoundaryKeys(spec),
+    specBoundaryKeys: extractSpecEmailBoundaryKeys(spec, planBoundaries),
     planBoundaryKeys: planBoundaries.map((boundary) => key(boundary.layer, boundary.path)),
     planBoundaries,
   };
