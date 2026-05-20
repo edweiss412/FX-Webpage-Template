@@ -105,16 +105,20 @@ Master spec §6.6 + §8 establish that `date_restriction` and `stage_restriction
 
 The plan exercises at minimum the following restriction combinations across crew personas (5/6/7) and preview persona 4:
 
-| Combo | date_restriction | stage_restriction | Day-of-walk |
-|---|---|---|---|
-| R1 | `none` | `none` | Set day |
-| R2 | `explicit` (today included) | `none` | Set day |
-| R3 | `explicit` (today excluded) | `none` | Set day → expect `viewer_off_day` |
-| R4 | `unknown_asterisk` | `none` | Any day → expect `viewer_unconfirmed` |
-| R5 | `explicit` (today before first assigned day) | `none` | Pre-show day → expect `viewer_off_day_pre` |
-| R6 | `explicit` (today after last assigned day) | `none` | Post-show day → expect `viewer_after_last_day` |
-| R7 | `none` | `explicit ["Load In","Set"]` | Set day vs strike day | (set-day pack-list visible; strike-day pack-list hidden) |
-| R8 | `none` | `explicit ["Load Out","Strike"]` | Strike day | (pack-list visible only on strike) |
+| Combo | date_restriction | stage_restriction | Day-of-walk | Expected outcome |
+|---|---|---|---|---|
+| R1 | `none` | `none` | Set day | All tiles render with no role/restriction filter; pack-list visible (set day) |
+| R2 | `explicit` (today included) | `none` | Set day | Schedule shows assigned days; Right Now shows assigned-day state; pack-list visible |
+| R3 | `explicit` (today excluded) | `none` | Set day → `viewer_off_day` | Right Now card renders `viewer_off_day` copy; pack-list NOT visible (date filter overrides) |
+| R4 | `unknown_asterisk` | `none` | Any day → `viewer_unconfirmed` | Right Now card renders `viewer_unconfirmed` copy regardless of show-wide state |
+| R5 | `explicit` (today before first assigned day) | `none` | Pre-show day → `viewer_off_day_pre` | Right Now card renders pre-first-assignment copy with day countdown |
+| R6 | `explicit` (today after last assigned day) | `none` | Post-show day → `viewer_after_last_day` | Right Now card renders "assignment complete" copy |
+| R7a (R8 amendment — split from R7) | `none` | `explicit ["Load In","Set"]` | Set day | Pack-list VISIBLE; Right Now shows set-day state |
+| R7b (R8 amendment — split from R7) | `none` | `explicit ["Load In","Set"]` | Strike day | Pack-list HIDDEN (stage filter excludes strike); Right Now shows strike-day state |
+| R8a (R8 amendment — split from R8) | `none` | `explicit ["Load Out","Strike"]` | Strike day | Pack-list VISIBLE; Right Now shows strike-day state |
+| R8b (R8 amendment — split from R8) | `none` | `explicit ["Load Out","Strike"]` | Set day | Pack-list HIDDEN (stage filter excludes set day); Right Now shows set-day state |
+
+**R8 amendment rationale.** Earlier R7 / R8 each compressed two distinct day-walks into a single row, but the re-seed contract materializes ONE fixture per combo with one expected `today` state. A single fixture/walk can satisfy only one side. To prove pack-list visibility behavior on both set-day-only and strike-day-only restrictions, R7 splits into R7a (set-day-visible) + R7b (strike-day-hidden), and R8 splits into R8a (strike-day-visible) + R8b (set-day-hidden). Total combos: 8 → 10 (R1–R6 + R7a + R7b + R8a + R8b).
 
 The day-of-walk uses **wall-clock + fixture-data engineering**, NOT the M11 `X-Screenshot-Frozen-Now` header. Rationale: that header is gated by `ENABLE_TEST_AUTH=true` + `TEST_AUTH_SECRET` per M11 §3.6.2; the prod-equivalent Phase 0 stack does NOT enable `ENABLE_TEST_AUTH` (security risk in production-target deployment per master spec §7 + M11 spec hardening). Therefore clock control on the validation stack uses the wall-clock-as-truth approach:
 
@@ -130,7 +134,7 @@ The day-of-walk uses **wall-clock + fixture-data engineering**, NOT the M11 `X-S
 | Aspect | Contract |
 |---|---|
 | Script path | `scripts/validation-reseed.ts` (TypeScript, executed via `tsx`) |
-| Invocation | `pnpm validation:reseed [--combo <R1\|R2\|R3\|R4\|R5\|R6\|R7\|R8\|SW-PRE_TRAVEL\|SW-TRAVEL_IN\|SW-SHOW_1\|SW-SHOW_N\|SW-POST_SHOW\|all>]` |
+| Invocation | `pnpm validation:reseed [--combo <R1\|R2\|R3\|R4\|R5\|R6\|R7a\|R7b\|R8a\|R8b\|SW-PRE_TRAVEL\|SW-TRAVEL_IN\|SW-SHOW_1\|SW-SHOW_N\|SW-POST_SHOW\|all>]` |
 | Default behavior | `--combo all` — materializes all 8 R-combos + 5 show-wide states' fixtures with date columns aligned to today's local date |
 | Idempotency | Re-running with the same args on the same day is a no-op. Re-running with a different date updates every fixture's date columns. |
 | Storage of `validation_seed_date` stamp | New table `validation_state` (single row), admin-only per §3.3.2 below. Schema specified in §3.3.2. The script writes to this table at the end of a successful seed. |
@@ -158,7 +162,7 @@ CREATE TABLE validation_state (
   seeded_at              timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT validation_state_combos_check CHECK (
     combos_materialized <@ ARRAY[
-      'R1','R2','R3','R4','R5','R6','R7','R8',
+      'R1','R2','R3','R4','R5','R6','R7a','R7b','R8a','R8b',
       'SW-PRE_TRAVEL','SW-TRAVEL_IN','SW-SHOW_1','SW-SHOW_N','SW-POST_SHOW'
     ]
   )
@@ -183,16 +187,31 @@ ALTER TABLE validation_state ENABLE ROW LEVEL SECURITY;
 
 **Singleton write semantics.** The re-seed script writes the singleton via `INSERT INTO validation_state (key, ...) VALUES ('validation_seed', ...) ON CONFLICT (key) DO UPDATE SET ...` (upsert). The `validation:check-seed` command reads exactly the `key = 'validation_seed'` row and fails if zero rows OR if the row exists but `last_seed_date != current_date` OR if `combos_materialized` doesn't cover the combos needed by the next walk.
 
-**Plan-time deliverable — atomic with master-spec amendment (R7 amendment).** The M12 plan's Phase 0 sub-task that authors the re-seed script ALSO authors the `validation_state` migration AND atomically updates the master spec + admin-tables registry. Specifically the same Phase 0 commit/PR MUST include:
+**Plan-time deliverable — atomic with master-spec amendment (R7+R8 amendment).** The M12 plan's Phase 0 sub-task that authors the re-seed script ALSO authors the `validation_state` migration AND atomically updates the master spec + admin-tables registry + every hardcoded baseline. R8 corrected the soft "should add" / "if applicable" wording in this checklist to concrete edits with verified line/count deltas.
 
-1. The migration creating `validation_state` (DDL above).
-2. The script `scripts/validation-reseed.ts` + the `pnpm validation:reseed` + `pnpm validation:check-seed` entries in `package.json`.
-3. An amendment to master spec `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` §4.3 admin-only tables list adding `validation_state`. (M12 has authority to amend master spec for this M12-introduced table; the amendment is a cross-document edit committed in lockstep with the migration.)
-4. Regeneration of `lib/audit/admin-tables.generated.ts` (or whichever generated registry the X.3 / X.6 / admin-table tests derive from) so the generator's output includes `validation_state` in the admin-only set.
-5. AC-2.5 expectation updates if AC-2.5 contains a literal admin-only table count (review AC-2.5 at plan time; update if needed).
-6. Updates to any DB meta-test (`tests/db/admin-rls-runtime.test.ts` etc.) that enumerates admin-only tables, adding `validation_state` to the registry per the AGENTS.md meta-test inventory rule.
+Specifically the same Phase 0 commit/PR MUST include:
 
-**Atomicity gate.** Phase 0 does NOT close until the X.3 / X.6 / admin-table tests pass against the updated master spec + regenerated registry + updated meta-tests. The migration cannot land alone — it ships as part of the atomic Phase 0 close-out commit (or commit series in a single PR). This closes Codex R7 F3: the master-spec amendment is a MUST, not a soft follow-up. The repo's parity machinery would catch the drift otherwise; making it atomic eliminates the window where the table exists in prod-equivalent Supabase but is missing from the canonical list.
+1. **Migration** creating `validation_state` (DDL above).
+2. **Script + package.json wiring** — `scripts/validation-reseed.ts` + the `pnpm validation:reseed` + `pnpm validation:check-seed` entries in `package.json` scripts.
+3. **Master spec §4.3 amendment** — `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` line 605 (verified live): the bullet listing 21 admin-only tables grows to 22 with `validation_state` appended; the trailing `(**21 tables**...)` parenthetical updates to `(**22 tables**...)`. M12 has authority to amend master spec for the M12-introduced table; the amendment is a cross-document edit committed in lockstep with the migration.
+4. **Master spec AC-2.5 amendment** — `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` line 3489 (verified live): the per-table list grows to include `validation_state`; the **21 tables × 4 verbs = 84 assertions** literal updates to **22 tables × 4 verbs = 88 assertions**.
+5. **Admin-tables generator regen** — `scripts/generate-admin-tables.ts` is the generator (verified live; line 43 emits `ADMIN_TABLES`). Re-run the generator so `lib/audit/admin-tables.generated.ts` includes `validation_state`. The generator reads §4.3 — step 3's master spec edit drives step 5's regen.
+6. **Hardcoded test-baseline updates** (each verified live):
+   - `tests/db/rls.test.ts` lines 163–164: `21` → `22` (test name string + `toHaveLength(21)` assertion).
+   - `tests/db/admin-rls-runtime.test.ts` lines 4, 9, 21, 111, 112, 213, 218: every `21` → `22`.
+   - `tests/db/admin-rls-runtime.baseline.json` — regenerated to include the `validation_state` row × 4 verbs.
+   - `tests/cross-cutting/auth.test.ts` line 203: `ADMIN_TABLES` literal-list expectation extended to include `'validation_state'` (alphabetical-sort position determined at edit time).
+7. **Plan meta-test inventory hook** — the M12 plan's HANDOFF-TEMPLATE §13 declares `tests/db/admin-rls-runtime.test.ts` + `tests/db/rls.test.ts` + `tests/cross-cutting/auth.test.ts` as **EXTENDED** in this milestone (not created — they exist). This satisfies the AGENTS.md meta-test inventory rule.
+
+**Atomicity gate.** Phase 0 does NOT close until X.3 / X.6 / admin-table tests pass against the updated master spec + regenerated `lib/audit/admin-tables.generated.ts` + updated test baselines. Specifically the gate requires:
+
+- `pnpm test tests/db/rls.test.ts` passes (22-table assertion).
+- `pnpm test tests/db/admin-rls-runtime.test.ts` passes (22-table parity).
+- `pnpm test tests/cross-cutting/auth.test.ts` passes (extended `ADMIN_TABLES`).
+- `traceability-audit` CI gate passes against the updated master spec (§4.3 parity to AC-2.5 to PROTECTED_SINKS to `ADMIN_TABLES`).
+- `x3-trust-domain` CI gate passes (PROTECTED_SINKS auto-regenerates from §4.3, but the trust-domain audit verifies the regeneration ran).
+
+The migration cannot land alone — it ships as part of the atomic Phase 0 close-out commit (or commit series in a single PR). This closes Codex R7 F3 and R8 F2: the master-spec amendment is a MUST with verified live deltas, not a soft follow-up.
 
 Impeccable v3 doesn't apply — this is a DB migration, not UI — but the project's CHECK-constraint review discipline + the AGENTS.md project-scoped Tier × domain matrix + cross-document amendment discipline DO apply. Phase 0 smoke test 5 verifies the migration applied cleanly + RLS posture is correct + the singleton invariant is enforced (test: attempt to insert a second row → fail with PK constraint violation).
 
@@ -253,12 +272,12 @@ Earlier drafts called role × restriction "PAIRWISE" but specified only ~8 pairs
 |---|---|---|---|
 | 1 | 5a (`["LEAD"]`) | R1 (`none`/`none`/set day) | Baseline LEAD + no restriction; sanity check |
 | 2 | 5b (`["LEAD","A1"]`) | R2 (`explicit` today included) | Compound LEAD + audio scope tile with date restriction matching |
-| 3 | 5c (`["BO","LEAD"]`) | R7 (`none`/`["Load In","Set"]`/set day) | Compound LEAD + backstage with set-day-only stage restriction |
+| 3 | 5c (`["BO","LEAD"]`) | R7a (`none`/`["Load In","Set"]`/set day → visible) | Compound LEAD + backstage with set-day-only stage restriction; pack-list visible |
 | 4 | 6a (`["A1"]`) | R3 (`explicit` today excluded) | Audio scope tile + off-day → no scope tile shown |
 | 5 | 6b (`["V1"]`) | R4 (`unknown_asterisk`) | Video scope + asterisk-unconfirmed; check both don't double-trigger |
 | 6 | 6c (`["L1"]`) | R5 (pre-show day) | Lighting scope + pre-show state |
 | 7 | 6d (`["BO"]`) | R6 (post-show day) | No-scope crew + after-last-day state |
-| 8 | 6e (`["A1","L1"]`) | R8 (`none`/`["Load Out","Strike"]`/strike day) | Compound scope + strike-day-only stage restriction |
+| 8 | 6e (`["A1","L1"]`) | R8a (`none`/`["Load Out","Strike"]`/strike day → visible) | Compound scope + strike-day-only stage restriction; pack-list visible |
 | 9 | 6f (`[]`) | R1 (`none`/`none`/set day) | Empty-flags edge case + no restriction |
 
 This sampling rule covers each role variant (9) at least once AND each restriction combo (8) at least once, plus one extra (the 9th pair pairs an empty-flags case with the baseline R1 for negative-test coverage). It does NOT cover all 72 pairs — the cross-coverage gaps are accepted with the rationale that: (a) role and restriction are largely orthogonal (role gates which tiles render; restriction gates which days/stages those tiles render on); (b) the 9 pairs hit every value on each axis at least once, so axis-individual bugs surface; (c) cross-axis interaction bugs that *only* manifest at a specific (role, restriction) pair outside the 9 are accepted as a known coverage gap.
@@ -651,7 +670,7 @@ This section is the inline self-review per the project's spec-self-review checkl
 | CHECK / enum migration | Applies (R6 amendment) | `validation_state_combos_check` CHECK constraint enumerates the 8 R-combos + 5 show-wide state combo names in §3.3.2. New combo additions require migrating CHECK + extending the script mapping in lockstep. Migration uses `CREATE TABLE IF NOT EXISTS` + `DO $$ EXCEPTION ... END $$` for apply-twice idempotency per AGENTS.md. |
 | Flag lifecycle | N/A | No new boolean config field. |
 | Pay-engine grain | N/A | No pay-engine touch. |
-| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **8 viewer-restriction combinations (§3.3 R1–R8 — added R2)**, **5 show-wide Right Now states (§3.3.1 — added R4)**, **9 role×restriction sampled pairs (§3.4.1 — added R4)**, **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **5 Phase 0 smoke tests (§9.2 — R3 added smoke test 5; R5 corrected one stale "all four" wording)**, **6 transitive-consumer file classes (§7.2.2 — added R4; catalog, auth, design tokens, components, single-page, schema; R5 normalized stale "5" claim)**, **8-vector schema-migration enumeration recipe (§7.2.2.1 — added R5; R6 expanded from 6 to 8 vectors adding schema-qualified literal + non-literal + helper-by-import)**, **7 canonical CI gates (§9.1.1 — added R6)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
+| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **10 viewer-restriction combinations (§3.3 R1–R6 + R7a/R7b + R8a/R8b — R8 split R7 and R8 each into a/b sub-combos for set-vs-strike day coverage; was 8)**, **5 show-wide Right Now states (§3.3.1 — added R4)**, **9 role×restriction sampled pairs (§3.4.1 — added R4)**, **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **5 Phase 0 smoke tests (§9.2 — R3 added smoke test 5; R5 corrected one stale "all four" wording)**, **6 transitive-consumer file classes (§7.2.2 — added R4; catalog, auth, design tokens, components, single-page, schema; R5 normalized stale "5" claim)**, **8-vector schema-migration enumeration recipe (§7.2.2.1 — added R5; R6 expanded from 6 to 8 vectors adding schema-qualified literal + non-literal + helper-by-import)**, **7 canonical CI gates (§9.1.1 — added R6; R7 corrected gate #7 name from `verify-branch-protection` to `verify-branch-protection-status`)**, **22 admin-only tables after `validation_state` lands (§3.3.2 — R8 verified live deltas: master spec §4.3 line 605 21→22; AC-2.5 line 3489 21→22 / 84→88)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
 | Disagreement-loop preempt | Applied | §11.2 ("intentionally absent") names the "no artifact" decision as deliberate, with rationale, so reviewers don't relitigate it. §1.5 names "no real-user testing" as deliberate, with rationale. §2 enumerates explicit deferrals so reviewers don't surface them as gaps. |
 | Build-vs-runtime gate explicitness | Applies | Phase 0 §9 names the build target (Vercel `*.vercel.app` production deployment, no custom domain); §9.2 names the five runtime smoke tests that gate Phase 1. The seven CI gates (§9.1.1) are PR-time + main-branch build-time gates; the alert path is a runtime path. R6 amendment: stale "preview build" wording corrected to "production deployment" in this row. |
 
@@ -784,3 +803,17 @@ Verdict: `needs-attention`. Three P1 findings, all factual corrections. All acce
 
 - **CI gate role differentiation** (§9.1.1) — added the "Companion job" explanation to clarify the producer/reader pattern. This is master-spec X.6 contract; the M12 spec previously elided it.
 - **Cross-document amendment authority** (§3.3.2) — implicit clarification that M12 has authority to amend master spec for an M12-introduced table. This was unstated; making it explicit removes ambiguity about whether the M12 plan can edit master spec.
+
+### 15.8 Round 8 (Codex `019e43dd-7688-7433-9eb6-b626e589997a` thread reused, 2026-05-19)
+
+Verdict: `needs-attention`. Two findings (1 P1, 1 P2). All accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — §3.3 R7 / R8 each compressed two distinct day-walks into a single row (e.g., "Set day vs strike day"), but the re-seed contract materializes ONE fixture per combo with ONE expected `today` state. A single fixture/walk could only satisfy one side; the milestone could pass without proving pack-list visibility on the opposite day. | P1 / high | Fixed. R7 split into R7a (set-day visible) + R7b (strike-day hidden); R8 split into R8a (strike-day visible) + R8b (set-day hidden). Total combos 8 → 10. Re-seed combo enum updated (`'R7a','R7b','R8a','R8b'` replace `'R7','R8'`). §3.3.2 CHECK constraint enum updated. §3.4.1 pair 3 references R7a; pair 8 references R8a. New "Expected outcome" column added to the R-table. | §3.3 R-combo table (split + Expected column), §3.3.2 DDL (CHECK enum), §3.3 step 5 invocation enum, §3.4.1 9-pair selection (pairs 3 & 8) |
+| F2 — §3.3.2 atomic-update language was still soft ("should add" / "if AC-2.5 has a literal count"), but live verification confirms master spec §4.3 line 605 has literal "21 tables" AND AC-2.5 line 3489 has literal "21 tables × 4 verbs = 84 assertions" AND tests/db/rls.test.ts:163-164 + tests/db/admin-rls-runtime.test.ts (7 references) + tests/cross-cutting/auth.test.ts:203 all hardcode 21 or the explicit ADMIN_TABLES list | P2 / medium | Fixed. Atomic checklist replaced soft language with concrete edits at verified line numbers. 21 → 22 deltas specified. 84 → 88 assertion-count delta specified. Test files enumerated by path. Atomicity gate strengthened with named test commands and named CI gates. | §3.3.2 "Plan-time deliverable" (rewritten with concrete line refs), §3.3.2 "Atomicity gate" (enumerated test names) |
+
+**Class-sweep additions during R8 repair:**
+
+- **Expected outcome column** (§3.3) — added to the R-combo table as a structural improvement (R8 F1 also surfaced that R1–R6 had implicit expected outcomes; making them explicit removes interpretation gaps).
+- **Hardcoded-baseline inventory** (§3.3.2 step 6) — enumerated every hardcoded count in the live test suite that needs updating in lockstep with the migration. Future admin-only table additions in any milestone should follow the same enumeration pattern.
