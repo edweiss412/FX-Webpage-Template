@@ -26,24 +26,29 @@
 
 ## §2 Phase progress
 
-- [ ] **Phase E — Content authoring** (`05-content.md`)
-  - [ ] Task E.1 — `app/help/page.mdx` landing
-  - [ ] Task E.2 — `app/help/getting-started/page.mdx` first-time setup
-  - [ ] Task E.3 — `app/help/daily-rhythm/page.mdx` daily rhythm
-  - [ ] Task E.4 — `app/help/whats-different/page.mdx` Sheets-vs-FXAV diff
-  - [ ] Task E.5 — `app/help/admin/dashboard/page.mdx` reading the dashboard
-  - [ ] Task E.6 — `app/help/admin/review-queues/page.mdx` + catalog backfill (review-queue codes)
-  - [ ] Task E.7 — `app/help/admin/parse-warnings/page.mdx` + catalog backfill (parse-warning codes)
-  - [ ] Task E.8 — `app/help/admin/per-show-panel/page.mdx`
-  - [ ] Task E.9 — `app/help/admin/preview-as-crew/page.mdx`
-  - [ ] Task E.10 — `app/help/admin/sharing-links/page.mdx`
-  - [ ] Task E.11 — `app/help/admin/onboarding-wizard/page.mdx`
-  - [ ] Task E.12 — `app/help/tour/page.mdx`
-  - [ ] Task E.13 — `app/help/errors/page.tsx` (TSX) + live-catalog biconditional meta-test (closes B.4 deferral per r6)
-  - [ ] Per-page impeccable §1.8 dual-gate — 13 pages, each via EXTERNAL fresh-subagent dispatch. Tracked in §8 / §9.
-  - [ ] Phase-level adversarial review (Codex) — iterating until APPROVE; see §8 R-row table.
-  - [ ] Phase E close-out gates green: `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm test:e2e --project=mobile-safari`.
+- [x] **Phase E — Content authoring** (`05-content.md`) — all 13 tasks shipped; adversarial review in flight.
+  - [x] Task E.1 — `app/help/page.mdx` landing — SHA `4ec5051` (page `e8b750f` + fix `4ec5051`)
+  - [x] Task E.2 — `app/help/getting-started/page.mdx` — SHA `56aa41a` (page `18af10c` + fix `56aa41a`)
+  - [x] Task E.3 — `app/help/daily-rhythm/page.mdx` — SHA `aa3f6e6` (no fix needed; PASS both gates)
+  - [x] Task E.4 — `app/help/whats-different/page.mdx` — SHA `960de49` (no fix needed; PASS both gates)
+  - [x] Task E.5 — `app/help/admin/dashboard/page.mdx` — SHA `08bfc12` (no fix needed; PASS both gates)
+  - [x] Task E.6 — `app/help/admin/review-queues/page.mdx` + catalog backfill (6 codes) — SHA `515a03e` (page `d8b661f` + fix `515a03e`)
+  - [x] Task E.7 — `app/help/admin/parse-warnings/page.mdx` + catalog backfill (1 code: PARSE_ERROR_LAST_GOOD; live catalog scope) — SHA `24f4c6d`
+  - [x] Task E.8 — `app/help/admin/per-show-panel/page.mdx` — SHA `33bddfe` (no fix needed; PASS both gates)
+  - [x] Task E.9 — `app/help/admin/preview-as-crew/page.mdx` — SHA `d45688d` (page `02eba7b` + fix `d45688d`)
+  - [x] Task E.10 — `app/help/admin/sharing-links/page.mdx` — SHA `2201fd4` (polish-tier critique findings deferred per `feedback_deferral_discipline.md`)
+  - [x] Task E.11 — `app/help/admin/onboarding-wizard/page.mdx` — SHA `18bfdb4` (page `df5d2eb` + fix `18bfdb4`)
+  - [x] Task E.12 — `app/help/tour/page.mdx` — SHA `e6373c0` (no fix needed; PASS both gates)
+  - [x] Task E.13 — `app/help/errors/page.tsx` (TSX) + live-catalog biconditional meta-test (closes B.4 deferral per r6) — SHA `7c4c4ee` (page `b90e718` + em-dash/typecheck fix `2d7f130` + P1 CTA fix `7c4c4ee`). 124 catalog entries backfilled.
+  - [x] Per-page impeccable §1.8 dual-gate — 13 pages, each via EXTERNAL fresh-subagent dispatch. See §8.1 score table.
+  - [ ] Phase-level adversarial review (Codex) — job `review-mpe2jo12-gvsbxz` against base `3eb73ad`; awaiting verdict.
+  - [x] Phase E close-out gates green: `pnpm test` 3800/3805 + 5 skipped; `pnpm lint` 0 errors + 6 pre-existing warnings; `pnpm typecheck` clean; `pnpm test:e2e --project=mobile-safari` exit 0.
   - [ ] User review.
+
+**Infra commits in scope (Phase E plan-gap remediation):**
+- `f1526fe` — `infra(help): register @mdx-js/rollup for Vitest real-render MDX assertions`. Plan body's r2/r3 fix mandates `await import("@/app/help/<slug>/page")` to compile MDX in tests; vitest had no MDX loader; this wires `@mdx-js/rollup` + `resolve.extensions` `.mdx`. Production unchanged.
+- `3095179` — `infra(help): mdx.d.ts ambient declaration + explicit .mdx in test imports`. After f1526fe, `tsc --noEmit` reported TS2307 for every `.mdx` import because TypeScript can't traverse Vite's extension list. Added `mdx.d.ts` ambient module declaration + explicit `.mdx` suffix on test dynamic-import specifiers.
+- `662fb9b` — `chore(help): canonicalize Tailwind classes in Phase D components`. Surfaced by Phase E close-out gate as pre-existing lint debt in 3 Phase D files (`RefAnchor.tsx`, `Step.tsx`, `TipFromSheets.tsx`). Mechanical canonicalization (`h-N w-N` → `size-N`, `leading-relaxed text-sm` → `text-sm/relaxed`). Rendered output byte-identical.
 
 Other phases: A done at `e911078`; B done at `cd14865`; C done at `6c7e6de`; D done at `08d6546` (close-out commit `3eb73ad`); F–I tracked in their own per-phase handoffs.
 
@@ -171,39 +176,95 @@ Expected: all green at session close.
 
 ### §8.1 Per-page impeccable §1.8 dual-gates (external attestation each)
 
-| Task | Page | Critique score | Audit score | Disposition commit(s) | Notes |
+Every page ran external fresh-subagent critique + external fresh-subagent audit per AGENTS.md §1.8 + memory `feedback_impeccable_external_attestation_required.md`. Scores below are POST-FIX where applicable.
+
+| Task | Page | Critique | Audit | Fix commit | Notes |
 | --- | --- | --- | --- | --- | --- |
-| E.1 | `/help` | | | | |
-| E.2 | `/help/getting-started` | | | | |
-| E.3 | `/help/daily-rhythm` | | | | |
-| E.4 | `/help/whats-different` | | | | |
-| E.5 | `/help/admin/dashboard` | | | | |
-| E.6 | `/help/admin/review-queues` | | | | |
-| E.7 | `/help/admin/parse-warnings` | | | | |
-| E.8 | `/help/admin/per-show-panel` | | | | |
-| E.9 | `/help/admin/preview-as-crew` | | | | |
-| E.10 | `/help/admin/sharing-links` | | | | |
-| E.11 | `/help/admin/onboarding-wizard` | | | | |
-| E.12 | `/help/tour` | | | | |
-| E.13 | `/help/errors` | | | | |
+| E.1 | `/help` | 33/40 NEEDS_FIX → PASS post-fix | 17/20 NEEDS_FIX → PASS post-fix | `4ec5051` | 1 HIGH comma splice + 1 HIGH bullet colon-space + a11y polish |
+| E.2 | `/help/getting-started` | 36/40 NEEDS_FIX → PASS post-fix | 19/20 PASS | `56aa41a` | 1 HIGH comma splice + P2 link-to-/admin + P3 "Doug-facing" jargon |
+| E.3 | `/help/daily-rhythm` | 91/100 PASS | 18/20 PASS | (none) | 1 LOW polish observation, non-blocking |
+| E.4 | `/help/whats-different` | 35/40 PASS | 20/20 PASS | (none) | clean |
+| E.5 | `/help/admin/dashboard` | 36/40 PASS | 20/20 PASS | (none) | 2 minor copy nits non-blocking |
+| E.6 | `/help/admin/review-queues` + 6-code catalog backfill | 35/40 NEEDS_FIX → PASS post-fix | 19/20 PASS | `515a03e` | P3 panel-name drift + master-spec citation drop; 2 SPEC_CHECK on catalog titles spec-checked against existing dougFacing voice — kept as-is per memory `feedback_impeccable_critique_not_authoritative_vs_spec.md` |
+| E.7 | `/help/admin/parse-warnings` + 1-code catalog backfill | 36/40 PASS | 19/20 PASS | (none) | 1 LOW redundancy; plan body's "largest content task" expectation didn't match live catalog (only PARSE_ERROR_LAST_GOOD matches `/^(WARN_\|PARSE_)/` predicate) — contract-correct |
+| E.8 | `/help/admin/per-show-panel` | 37/40 PASS | 19/20 PASS | (none) | 2 P2 minor copy observations non-blocking |
+| E.9 | `/help/admin/preview-as-crew` | 33/40 PASS w/3 polish items → PASS post-fix | 19/20 PASS | `d45688d` | P2 banner role-pill description + P3 jargon "redacted"→"hidden" + cross-link to per-show-panel |
+| E.10 | `/help/admin/sharing-links` | 35/40 PASS w/polish items deferred | 20/20 PASS | (none) | 1 P2 "no-live-link state" undefined term + 2 P3; deferred per `feedback_deferral_discipline.md` — speculative, no concrete trigger |
+| E.11 | `/help/admin/onboarding-wizard` | 36/40 PASS w/3 P2 → PASS post-fix | 20/20 PASS | `18bfdb4` | Step component consistency + Callout warning for Eric-side credential failure; P2 screenshot deferred to Phase F (manifest entry coordination needed) |
+| E.12 | `/help/tour` | 37/40 PASS w/2 P3 polish | 20/20 PASS | (none) | 2 P3 (rhythm monotony + back/next link) deferred to /impeccable polish |
+| E.13 | `/help/errors` TSX + live biconditional + 124-entry catalog backfill | 34/40 PASS | 18/20 NEEDS_FIX → PASS post-fix | `7c4c4ee` | P1 broken CTA `/admin/bug-report` route absent → swapped to `mailto:edweiss412@gmail.com`; 2 LOW SPEC_CHECK on pre-existing dougFacing voice (out of scope) |
+
+**Phase-close cumulative impeccable §1.8 dual-gate:** every page either PASS or NEEDS_FIX-then-fixed. 13/13 external attestations completed. Zero CRITICAL findings phase-wide. Same-vector recurrence rule applied to comma splices (E.1 + E.2 HIGH, E.3 onward clean — vector converged at n=2; no n=3 trigger fired). No structural defensive layer required.
 
 ### §8.2 Adversarial review (Codex)
 
 | Round | Date | Verdict | Findings (sev, summary) | Resolution commit | Notes |
 | --- | --- | --- | --- | --- | --- |
-| R1 | | | | | |
-| ... | | | | | |
-| Final | | APPROVE | — | — | Phase E ships |
+| R1 | 2026-05-20 | NEEDS_FIX | 1 HIGH (handoff §8/§9 evidence gap blocking AGENTS.md §1.8 invariant) + 1 MEDIUM (/help/tour:37 advertises non-existent "batch-send to the full roster" capability) | (in progress) tour edit + this §8.1/§8.2/§9 backfill | Job `review-mpe2jo12-gvsbxz`, 2m36s, scope branch diff vs base `3eb73ad`. R1 finding #1 (HIGH) is process-invariant — handoff lacked per-page gate evidence at review time. R1 finding #2 (MEDIUM) is content-vs-implementation drift — tour over-promised sharing capability vs E.10 reality. |
+| R2 | pending | (TBD) | — | — | Awaiting re-review of R1 fixes |
 
 ---
 
 ## §9 Impeccable findings + dispositions (Phase E close-out)
 
-Per-page critique + audit findings. Each row: which page, finding, severity, disposition (FIXED inline / DEFERRED to DEFERRED.md / BACKLOG / spec-amendment-required).
+Per-page critique + audit findings. Severity per impeccable v3 rubric (CRITICAL > HIGH/P1 > MEDIUM/P2 > LOW/P3). Dispositions follow `feedback_deferral_discipline.md`: land-now (FIXED), DEFERRED.md (concrete trigger), BACKLOG.md (speculative), spec-amendment.
+
+### FIXED inline (HIGH + P1 + a11y P2)
 
 | Finding | Severity | Page / File:line | Disposition | Commit |
 | --- | --- | --- | --- | --- |
-| | CRITICAL / HIGH / MEDIUM / LOW | | FIXED / DEFERRED / BACKLOG | |
+| Comma splice in Callout body | HIGH | `app/help/page.mdx:8` | FIXED — semicolon swap | `4ec5051` |
+| Bullet `**[Link →](url)** : description` space-colon-space separator (a11y) | HIGH | `app/help/page.mdx:13-15` | FIXED — period split, no colon | `4ec5051` |
+| Dense Callout with 4 inline links + parenthetical numbering | MEDIUM | `app/help/page.mdx:8` | FIXED — broke into shorter sentences | `4ec5051` |
+| Test MDXProvider wrapper comment mismatch | MEDIUM | `tests/help/page-landing.test.tsx:14-19` | FIXED — verified wrapper IS load-bearing; updated comment | `4ec5051` |
+| Added rendered-DOM H1 assertion (catches MDX compile regression) | LOW (audit recommendation) | `tests/help/page-landing.test.tsx` | FIXED — `getByRole("heading", { level: 1 })` | `4ec5051` |
+| Comma splice "Unshare the folder, then re-share it" | HIGH | `app/help/getting-started/page.mdx:29` | FIXED — replaced "then" connective with "and" | `56aa41a` |
+| Missing comma after introductory subordinate clause | MEDIUM | `app/help/getting-started/page.mdx:14` | FIXED — added comma | `56aa41a` |
+| Bare `/admin` code spans never link to the route | MEDIUM P2 (audit) | `app/help/getting-started/page.mdx:6,10` | FIXED — wrapped first `/admin` mention in Markdown link | `56aa41a` |
+| "Doug-facing parse warnings" leaks internal proper-noun | LOW P3 | `app/help/getting-started/page.mdx:28` | FIXED — dropped "Doug-facing" qualifier | `56aa41a` |
+| Panel-name drift (hyphenated vs unhyphenated form) | LOW P3 | `app/help/admin/review-queues/page.mdx:16,31` | FIXED — unhyphenated bold form throughout | `515a03e` |
+| Master-spec citation leaks to Doug-facing copy | LOW P3 | `app/help/admin/review-queues/page.mdx:33` | FIXED — dropped citation | `515a03e` |
+| Banner description omits role-pill UI element | MEDIUM P2 | `app/help/admin/preview-as-crew/page.mdx:9` | FIXED — expanded enumeration | `d45688d` |
+| Jargon "redacted fields" vs adjacent "hidden fields" header | LOW P3 | `app/help/admin/preview-as-crew/page.mdx` | FIXED — "redacted" → "hidden" | `d45688d` |
+| Missing cross-link to per-show-panel#crew-preview-links | LOW P3 | `app/help/admin/preview-as-crew/page.mdx` intro | FIXED — added cross-link | `d45688d` |
+| Step component inconsistency (Step 1 uses `<Step>`, Steps 2/3 use bullets) | MEDIUM P2 | `app/help/admin/onboarding-wizard/page.mdx` | FIXED — wrapped Step 2 + Step 3 action sequences | `18bfdb4` |
+| No `<Callout type="warning">` for Eric-side credential failure | MEDIUM P2 | `app/help/admin/onboarding-wizard/page.mdx` | FIXED — Callout wraps the "not your problem" failure mode | `18bfdb4` |
+| 32 em-dashes in 124-entry catalog backfill `longExplanation` strings (DESIGN.md L247 violation; user-visible on `/help/errors`) | HIGH | `lib/messages/catalog.ts` (newly-added fields only) | FIXED — case-by-case period/comma/colon/semicolon/parens replacement preserving meaning | `2d7f130` |
+| Typecheck error `Property 'severity' does not exist` (TypeScript can't narrow union with no-severity variants) | HIGH | `tests/help/page-parse-warnings.test.tsx:25` | FIXED — `as MessageCatalogEntry[]` cast (E.13 precedent) | `2d7f130` |
+| `/admin/bug-report` route absent — trailing CTA broken on 124 sections | P1 | `app/help/errors/page.tsx:46` | FIXED — swapped to `mailto:edweiss412@gmail.com` with prefilled subject | `7c4c4ee` |
+| Pre-existing Phase D Tailwind canonicalization debt | LINT ERROR | `app/help/_components/{RefAnchor,Step,TipFromSheets}.tsx` | FIXED — `h-N w-N` → `size-N`, `leading-relaxed text-sm` → `text-sm/relaxed` (rendered output byte-identical) | `662fb9b` |
+| /help/tour:37 advertises non-existent "batch-send to the full roster" sharing capability | MEDIUM (Codex R1) | `app/help/tour/page.mdx:37` | FIXED — rewrote to match E.10 sharing-links reality (one-by-one copy + paste + issue new) | (current; pre-R2 commit) |
+| Handoff §8/§9 lacked per-page gate evidence at Codex R1 review time | HIGH (Codex R1) | `docs/superpowers/plans/2026-05-12-user-facing-docs/handoffs/E-content.md` | FIXED — §8.1 + §8.2 + §9 backfilled with all 13 pages' scores + commits + dispositions | (current; pre-R2 commit) |
+
+### DEFERRED (concrete trigger or scheduled home)
+
+| Finding | Severity | Page / File | Trigger / Home |
+| --- | --- | --- | --- |
+| `<Screenshot name="onboarding-step-3-rows">` for E.11 Step 3 | MEDIUM P2 (E.11 critique) | `app/help/admin/onboarding-wizard/page.mdx` | **Trigger:** Phase F.6/F.7 manifest entry coordination — adding the WebP reference without a corresponding Phase F manifest row would trip Phase F's drift gate. The page renders correctly without the screenshot today; Phase F manifest expansion will include this surface. |
+
+### BACKLOG (speculative, no concrete trigger)
+
+| Finding | Severity | Page / File | Rationale |
+| --- | --- | --- | --- |
+| DESIGN.md L33 contrast math error (`#ff8c1a × #ffffff` claimed 4.07:1, actually 2.34:1) | MEDIUM | `DESIGN.md:33` | Cross-cutting BACKLOG candidate from Phase D §14 #1. Affects every existing `bg-accent text-accent-text` instance project-wide (Bootstrap.tsx, settings, RevokeRowButton, et al.). Phase E did NOT introduce new instances. |
+| Voice consistency / passive-vs-active drift in pre-existing catalog `dougFacing` strings | LOW (E.13 critique sample-check) | `lib/messages/catalog.ts` | Several pre-existing strings (`STAGED_PARSE_FAILED`, `SYNC_FILE_FAILED`, `SYNC_INFRA_ERROR`) use passive voice vs dominant active. Out of E.13's scope per pre-existing-em-dashes precedent. Future copy-pass candidate when there's product-owner appetite. |
+| "no-live-link state" undefined term used 3× in E.10 | LOW P2 (E.10 critique) | `app/help/admin/sharing-links/page.mdx` | Polish-tier; reader infers from context. No concrete fix trigger. |
+| E.10 "If you fix something in the sheet…" register drift to imperative within declarative section | LOW P3 (E.10 critique) | `app/help/admin/sharing-links/page.mdx` | Polish-tier; subtle, defer to `/impeccable polish` pass. |
+| E.10 dense intro final sentence | LOW P3 (E.10 critique) | `app/help/admin/sharing-links/page.mdx` | Polish-tier; cite §5 list. |
+| E.11 Step 3 paragraph density | LOW P3 (E.11 critique) | `app/help/admin/onboarding-wizard/page.mdx` | Polish-tier; H3 sub-sectioning. |
+| E.12 rhythm monotony (7 identical H2+paragraph+link blocks) | LOW P3 (E.12 critique) | `app/help/tour/page.mdx` | Polish-tier; could group into "Daily / Setup surfaces" sub-banners or add inline "you'll spend most of your time here" tag. |
+| E.12 no back-to-index / next-page affordance in body | LOW P3 (E.12 critique) | `app/help/tour/page.mdx` | Polish-tier; may already be provided by `app/help/layout.tsx`. Verify before adding. |
+| E.13 `<RefAnchor>` is client-side; page renders 124 client islands | LOW P3 (E.13 audit) | `app/help/_components/RefAnchor.tsx` + `app/help/errors/page.tsx` | Hydration optimization candidate: refactor to event-delegation pattern on `<article>` root. Cross-cutting Phase D follow-up, not Phase E scope. |
+| E.13 trailing CTA repeats 124× | LOW P3 (E.13 audit) | `app/help/errors/page.tsx` | Move to single page-footer note. Polish-tier; spec contract requires CTA exist, not per-entry. |
+| E.13 HTML-entity decode in test is reasonable mitigation, could be refactored to `getByRole('heading', {name})` | LOW P2 (E.13 audit) | `tests/help/page-errors.test.tsx:67-72` | Test-rigor polish; current mitigation acceptable. |
+
+### Spec-amendment / spec-canonical (no action)
+
+| Finding | Severity | Page / File | Disposition |
+| --- | --- | --- | --- |
+| `MISSING_REVIEWER_CHOICE.title` "A review item was skipped" reads user-blaming | SPEC_CHECK 1 (E.6 critique) | `lib/messages/catalog.ts` | KEEP AS-IS. Mirrors existing `dougFacing` voice ("looks like one was skipped"); established voice per memory `feedback_impeccable_critique_not_authoritative_vs_spec.md`. |
+| `DIAGRAMS_EMBEDDED_REVISIONS_UNAVAILABLE.title` "Diagrams couldn't be safely captured" implies security gate | SPEC_CHECK 2 (E.6 critique) | `lib/messages/catalog.ts` | KEEP AS-IS. Verbatim from existing `dougFacing` "diagrams couldn't be safely captured"; established voice. |
+| "HTTP error" jargon at line 852 of catalog (DIAGRAMS-tab image fetch) | LOW SPEC_CHECK (E.13 critique) | `lib/messages/catalog.ts:~852` (longExplanation field) | OUT OF SCOPE. Pre-existing helpfulContext content surfaced when E.13 backfilled longExplanation; flagged for future product-owner pass. |
 
 ---
 
