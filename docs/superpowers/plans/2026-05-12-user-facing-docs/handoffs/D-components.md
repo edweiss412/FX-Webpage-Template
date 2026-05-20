@@ -36,7 +36,7 @@
   - [x] Structural meta-test `tests/styles/_metaDesignTokenPairs.test.ts` (same-vector recurrence trigger, `7d2929b`)
   - [x] Per-component impeccable §1.8 dual-gate — 6 visual components, each via EXTERNAL fresh-subagent dispatch. ALL PASSES (see §8 convergence log).
   - [x] Phase-close cumulative impeccable §1.8 dual-gate — PASSES 31/32 + 20/20 (see §8).
-  - [ ] Phase-level adversarial review (Codex) — R1 needs-attention 2 HIGHs (handoff audit trail + RefAnchor as-guard); R2 pending after this update lands.
+  - [x] Phase-level adversarial review (Codex) — iterated R1→R4. R1 2 HIGHs (audit trail + as-guard); R2 1 MEDIUM (clipboard contract); R3 1 MEDIUM (regex rejects MI-class catalog codes); R4 1 MEDIUM (spec/handoff still cited old regex). Each finding NEW vector (not re-litigation). R5 pending after this canonical-trail sync commit lands.
   - [x] Final gates green (`pnpm test` 3687/3692 pass + 5 skipped + 0 failed; `pnpm lint` clean; `pnpm typecheck` clean; e2e mobile-safari TBD).
 
 Other phases: A done at `e911078`; B done at `cd14865`; C done at `6c7e6de`; E–I tracked in their own per-phase handoffs.
@@ -48,7 +48,7 @@ Other phases: A done at `e911078`; B done at `cd14865`; C done at `6c7e6de`; E�
 - **§3** — MDX pipeline contract (`@next/mdx` registration via `mdx-components.tsx`; Phase A scaffolded the empty export, D.7 extends it).
 - **§5** — Component shape definitions for each of the six components (`<Callout>`, `<Step>`, `<ScreenshotPlaceholder>`, `<Screenshot>`, `<RefAnchor>`, `<TipFromSheets>`).
 - **§6.2** — Per-component visual / palette / icon / role specifications.
-- **§6.3** — Defensive guards (Callout unknown `type` → defaults to `note`; Screenshot empty `name` → build-fail; RefAnchor id regex `^[A-Z][A-Z0-9_]*$`).
+- **§6.3** — Defensive guards (Callout unknown `type` → defaults to `note`; Screenshot empty `name` → build-fail; RefAnchor id regex `^(MI-\d+[a-z]?_)?[A-Z][A-Z0-9_]*$` — spec §6.3 r15 amendment for MI-class catalog codes per commit `504b533`; RefAnchor `as` prop union `"h2" | "h3"` + runtime guard per commit `5f508ad`).
 - **§7.1 test #10** — `<picture>` contract for `<Screenshot>` (D.4 ships the minimal unit assertion; the full coverage + manifest meta-test land in Phase F).
 
 Out of scope for Phase D (deferred to later phases):
@@ -71,7 +71,7 @@ Only AC rows Phase D scaffolds or fully satisfies are listed.
 | AC-11.16 | PASS | `<ScreenshotPlaceholder>` renders a labeled empty box for draft authoring; lint-prohibited in shipped v1 MDX (enforcement is Phase H.4). Final SHA `d9fcc07` (em-dash → colon). |
 | AC-11.17 | PASS | Conventional-commits `feat(help):` for implementations / `fix(help):` for impeccable-driven fixes / `test(styles):` for the meta-test. One commit per task / one commit per fix per AGENTS.md §1.6. |
 | AC-11.18 | PARTIAL | `<Screenshot>` renders `<picture>` with light + dark sources at `/help/screenshots/<name>-{light,dark}.webp`. Full manifest-driven contract is Phase F. SHA `6e26bf7`. |
-| AC-11.19 | PASS | `<RefAnchor>` renders heading + click-to-copy link affordance; `id` matches catalog-code regex `^[A-Z][A-Z0-9_]*$` or throws at render. Defaults to h2; opt-in `as="h3"` for `/help/errors` per-code listings. Final SHA `5f508ad` (Codex R1 added runtime `as` guard for MDX callers). |
+| AC-11.19 | PASS | `<RefAnchor>` renders heading + click-to-copy link affordance with real `navigator.clipboard.writeText()` handler per spec §6.2 (Codex R2 fix `1e45e5d`); `id` matches catalog-code regex `^(MI-\d+[a-z]?_)?[A-Z][A-Z0-9_]*$` (spec §6.3 r15 amendment, Codex R3 fix `504b533`) or throws at render. Defaults to h2; opt-in `as="h3"` for `/help/errors` per-code listings with runtime guard for MDX callers (Codex R1 fix `5f508ad`). Final D.5 SHA `504b533`. |
 | AC-11.20 | PASS | `<TipFromSheets>` renders adoption-track aside with distinct "From Sheets" eyebrow. Final SHA `c580074` (preemptive side-stripe + contrast fix). |
 | AC-11.21 | PASS | `mdx-components.tsx` registers all six components so `.mdx` files reference them by name without per-file imports. SHA `4ee6892`. |
 
@@ -119,7 +119,7 @@ Per AGENTS.md "Same-vector recurrence" + Disagreement-loop preempt rules. Pre-lo
 
 6. **RefAnchor `as` prop for `/help/errors` per-code h3 listings (D.5 plan body §r5 fix per D-r4 finding 1).** Plan body supports `as="h2"` (default, Phase E section-heading usage) and `as="h3"` (Phase E.13 per-code listings under an h2 page heading). **Watchpoint:** if an implementer drops the union type and uses raw `string`, the heading-level discipline weakens. Hold the union.
 
-7. **RefAnchor id regex throw (D.5 build-time invariant).** The component throws synchronously when `id` does not match `^[A-Z][A-Z0-9_]*$`. **Watchpoint:** the test asserts `expect(() => render(...)).toThrow()`. React 19's strict mode + concurrent rendering can mask sync throws in some test configurations; verify the throw fires in the unit-render path (jsdom-environment is sync, no concurrent batching).
+7. **RefAnchor id regex throw (D.5 build-time invariant — broadened in R3).** The component throws synchronously when `id` does not match `^(MI-\d+[a-z]?_)?[A-Z][A-Z0-9_]*$`. **r15 amendment (commit `504b533`, Codex R3):** original strict regex `^[A-Z][A-Z0-9_]*$` rejected ~30 MI-class catalog codes (`MI-1_VERSION_DETECTION_FAILED`, `MI-5a_DUPLICATE_CREW_NAME`, etc.) that Phase E.13 will render via `<RefAnchor id={entry.code} as="h3">`. Broadened to cover both standard SCREAMING_SNAKE and MI-class grammars. **Watchpoint:** the test asserts both positive cases (real catalog codes) AND negative cases (`bad-id`, `123_NUMERIC_LEAD`) throw. React 19's strict mode + concurrent rendering can mask sync throws in some test configurations; verify the throw fires in the unit-render path (jsdom-environment is sync, no concurrent batching). **r14 amendment (commit `5f508ad`, Codex R1):** added `as`-prop runtime guard (sync throw if not `h2`/`h3`) because MDX call sites are not typechecked.
 
 8. **vitest env discipline.** Phase A's watchpoint #8 — React DOM tests start with `// @vitest-environment jsdom` AND import `vi` explicitly. The plan body for D.1–D.7 already includes both directives. Implementer subagents inherit verbatim.
 
@@ -191,6 +191,9 @@ Format: per-round row appended at the bottom. Round 1 anchored at Phase D base S
 | D.4 implementation | `6e26bf7` | `feat(help): Screenshot production component with <picture> + dark source; prop is name (not React-reserved key) (Task D.4)` |
 | D.5 implementation | `d57f147` | `feat(help): RefAnchor with click-to-copy link icon + id regex validation (Task D.5)` |
 | D.5 impeccable 3-HIGH fix | `ddb66b1` | `fix(help): D.5 RefAnchor — copy-link text-text-subtle→text-text (HIGH), add focus-visible (HIGH), expand to 44px tap target (HIGH) per impeccable §1.8` |
+| D.5 Codex R2 fix | `1e45e5d` | `fix(help): D.5 RefAnchor — implement copy-to-clipboard onClick handler per spec §6.2 aria-label contract (Codex R2 MEDIUM)` |
+| D.5 Codex R3 fix | `504b533` | `fix(help): D.5 RefAnchor — broaden id regex to accept MI-class catalog codes (Codex R3 MEDIUM; Phase E.13 unblocker)` |
+| D.5 Codex R4 fix (this commit) | TBD | `docs(handoff,spec): D.5 RefAnchor — spec §6.3 r15 amendment + handoff canonical-trail sync per Codex R4 MEDIUM` |
 | D.6 implementation | `9ed66de` | `feat(help): TipFromSheets adoption-track aside component (Task D.6)` |
 | D.6 preemptive fix | `c580074` | `fix(help): D.6 TipFromSheets — drop border-l-4 side-stripe (HIGH, DESIGN.md L242) + eyebrow text-accent-text→text-text-strong (CRITICAL contrast) per impeccable §1.8 pre-flag` |
 | D.7 registration | `4ee6892` | `feat(help): register all six MDX components in mdx-components.tsx (Task D.7)` |
@@ -219,7 +222,11 @@ Format: per-round row appended at the bottom. Round 1 anchored at Phase D base S
 | Round | Date | Verdict | Findings (sev, summary) | Resolution commit | Notes |
 | --- | --- | --- | --- | --- | --- |
 | R1 Codex adversarial | 2026-05-19 | **needs-attention** at `7d2929b` | HIGH × 2: (1) handoff §8 + §9 convergence log/dispositions still TBD — no audit trail for the 8 dual-gates; (2) RefAnchor `as` prop has no runtime guard so MDX callers (not typechecked) could pass `as="h4"` and render an h4 silently | (1) handoff update (this commit); (2) `5f508ad` runtime guard + regression test | Job `review-mpdj6ez6-j708g0`; whole-diff fresh-eyes review; both findings are LEGITIMATE structural gaps (not finding re-litigation) |
-| R2 Codex adversarial | TBD | TBD | TBD | — | base = `023d312`; pending after handoff update + `5f508ad` land |
+| R2 Codex adversarial | 2026-05-19 | **needs-attention** at `d267955` | MEDIUM × 1: RefAnchor advertises "Copy link to this section" aria-label + spec §6.2 "click-to-copy link icon" but implementation was plain `<a href="#id">` with no clipboard handler — would ship a deceptive affordance | `1e45e5d` adds `"use client"` + `navigator.clipboard.writeText()` onClick handler (try/catch graceful degrade) + regression test mocking the clipboard API | Job `review-mpdjftt3-1anten`; new vector (not finding re-litigation); spec-vs-implementation gap from plan body |
+| D.5 R3 external impeccable re-attest (clipboard mutation) | 2026-05-19 | **PASSES** at `1e45e5d` | 0 new findings; visual surface byte-identical to PASSES baseline `ddb66b1`; R2 MEDIUM resolved (aria-label↔behavior alignment) | — | External fresh subagent; Critique 32/32, Audit 20/20 |
+| R3 Codex adversarial | 2026-05-19 | **needs-attention** at `1e45e5d` | MEDIUM × 1: RefAnchor regex `^[A-Z][A-Z0-9_]*$` rejected real Doug-facing catalog codes (`MI-1_VERSION_DETECTION_FAILED`, `MI-5a_DUPLICATE_CREW_NAME`) — Phase E.13 would throw at render | `504b533` regex broadened to `^(MI-\d+[a-z]?_)?[A-Z][A-Z0-9_]*$`; positive-case test added covering both grammars; negative cases still throw | Job `review-mpdjnifg-ifgtgb`; new vector (different from R1/R2); orchestrator pre-fix grep confirmed live catalog has ~30 MI-class codes |
+| R4 Codex adversarial | 2026-05-19 | **needs-attention** at `504b533` | MEDIUM × 1: R3 regex fix landed in code but spec §6.3 line 415 still cited even stricter `/^[A-Z_]+$/` (no digits at all); handoff §6 watchpoint #7 + §3 + AC-11.19 still showed old regex; multiple "R2 pending" stale references | (this commit) spec §6.3 r15 amendment + handoff §3 / §4 / §6 watchpoint #7 / §8 / §12 canonical-trail sync | Job `review-mpdju8zf-5wxx2r`; legitimate doc-vs-code drift finding; per AGENTS.md §1.7 spec amended directly (correction, not silent override — old regex rejected live catalog data) |
+| R5 Codex adversarial | TBD | TBD | TBD | — | base = `023d312`; pending after canonical-trail sync commit lands |
 
 ---
 
@@ -272,12 +279,12 @@ If any items surface during Phase D execution, route per the three-bucket discip
 
 ## §12 Sign-off
 
-- [x] Implementer (Opus / Claude Code): 2026-05-19 — final SHA pending Codex R2 (current HEAD `5f508ad` after R1-driven fix)
-- [x] External impeccable dual-gate APPROVED per-component (D.1, D.2, D.3, D.4, D.5, D.6) on 2026-05-19 — see §8 per-component-impeccable table. Phase-close cumulative (covers D.7 wiring + meta-test): PASSES 31/32 + 20/20.
-- [ ] Reviewer (Codex cross-CLI) APPROVE on __ date __ — R1 returned needs-attention with 2 HIGHs (handoff audit trail + RefAnchor as-guard); both addressed at this commit; R2 pending.
+- [x] Implementer (Opus / Claude Code): 2026-05-19 — final SHA pending Codex R5 (current HEAD post canonical-trail sync of spec §6.3 r15 amendment + handoff §3/§4/§6/§8/§12)
+- [x] External impeccable dual-gate APPROVED per-component (D.1, D.2, D.3, D.4, D.5, D.6) on 2026-05-19 — see §8 per-component-impeccable table. Phase-close cumulative (covers D.7 wiring + meta-test): PASSES 31/32 + 20/20. D.5 R3 re-attest after clipboard mutation: PASSES 32/32 + 20/20.
+- [ ] Reviewer (Codex cross-CLI) APPROVE on __ date __ — Iterated R1→R4. Each round surfaced a NEW vector (not finding re-litigation): R1 audit-trail + as-guard (2 HIGH); R2 clipboard contract (1 MEDIUM); R3 catalog-code regex (1 MEDIUM); R4 doc/code drift (1 MEDIUM). All addressed; R5 pending.
 - [ ] User review: __ date __
 
-Phase D marked **closed** in `ROUTING.md` upon Codex R2 APPROVE.
+Phase D marked **closed** in `ROUTING.md` upon Codex R5 APPROVE.
 
 ## §13 Meta-test inventory
 
