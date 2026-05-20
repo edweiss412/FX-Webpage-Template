@@ -66,11 +66,29 @@ The matrix is **personas × surfaces**. The full persona inventory:
 | 2 | Doug as admin — steady state | Signed in via Google, admin-role confirmed, watched folder populated, active shows present | Default `/admin` arrival; AlertBanner; staged-review cards |
 | 3 | Doug as admin — onboarding cold start | Signed in, watched folder NOT yet pointed | Onboarding wizard surfaces (M10) |
 | 4 | Admin previewing as crew | Admin session, `/admin/show/<slug>/preview/<crew-id>` path | Impersonation banner composed with crew-page content; role-filter applied |
-| 5 | Signed-link crew — LEAD role | Fresh `?token=…` URL, role=LEAD | Full content visible; no role-hiding |
-| 6 | Signed-link crew — A1 / non-LEAD role | Fresh `?token=…` URL, role≠LEAD | Role-filter sentinels active |
-| 7 | Google-signed-in crew | Google OAuth path (not signed-link) | Same crew-page surface, different session origin |
+| 5 | Signed-link crew — LEAD role | Fresh `/show/<slug>/p#t=<jwt>` (fragment token; master spec §7), role_flags includes `LEAD` | Full content visible including `shows_internal.financials`; no role-hiding |
+| 6 | Signed-link crew — non-LEAD scope variants | Fresh `/show/<slug>/p#t=<jwt>`, role_flags excludes `LEAD` | Role-filter sentinels active. **Multiple sub-variants exercised** — see §3.2 for the role-variant inventory. |
+| 7 | Google-signed-in crew (fresh + return) | Google OAuth path on `/show/[slug]` (NOT signed-link). Validates `validateGoogleSession` for show-bound surfaces AND `validateGoogleIdentity` for `/me` (master spec line 2266 — separate validators). | Same crew-page surface, different session origin. Fresh OAuth and return OAuth sessions exercised separately because the first-sign-in chrome differs from the subsequent-visit chrome. |
+| 8 | Signed-in identity cross-show — `/me` | Google OAuth session with no show binding | The cross-show "which shows do I belong to" surface (master spec §7.3). Distinct from persona 7 because the validator is different and the surface is not show-scoped. |
 
-**Persona 3 vs 2** is split because the UX changes shape (wizard vs steady state). **Personas 5 and 6** share the surface column for `/show/[slug]/p` but get separate matrix rows so role-hiding is exercised explicitly per role.
+**Persona 3 vs 2** is split because the UX changes shape (wizard vs steady state). **Personas 5 and 6** share the surface column for `/show/[slug]/p` but get separate matrix rows so role-hiding is exercised explicitly. **Persona 7** is split into fresh vs return OAuth sub-cases — the first-sign-in chrome (consent screen, fresh session establishment) differs from return-visit chrome and exercises different code paths. **Persona 8** is a distinct surface (`/me`) that uses a different validator (`validateGoogleIdentity`, not `validateGoogleSession`) per master spec line 2266; the audit allowlist X.3 explicitly enforces the separation, so this surface must be exercised independently.
+
+### 3.2 Non-LEAD role-variant inventory (Persona 6 sub-cases)
+
+Master spec §6.6 (lines 1417–1420) enumerates the canonical role_flags vocabulary: `LEAD`, `A1`, `A2`, `V1`, `L1`, `BO`, `GS`, `ONLY`, `CAM_OP`, `GAV`, `FLOATER`, `FLOOR`, `STREAM`, `PTZ`, `LED`, `SHOW_CALLER`, `GREEN_ROOM`, `OWNER`, `CONTENT_CREATION`. **LEAD is the only auth-bearing flag** — it gates `shows_internal.financials` visibility. The rest are department / scope-tile designators (line 1561 amendment 8): they don't change auth, but they DO change which scope-tiles render on the crew page (per plan tasks 4.6 / 4.12 capability predicates).
+
+Persona 6 is therefore not a single row but a family. The plan exercises **at minimum the following sub-variants**:
+
+| Sub-variant | role_flags fixture | What this catches |
+|---|---|---|
+| 6a — Audio scope | `["A1"]` | Audio scope-tile visibility (A1/A2 collapse via `hasA1` predicate) |
+| 6b — Video scope | `["V1"]` | Video scope-tile visibility |
+| 6c — Lighting scope | `["L1"]` | Lighting scope-tile visibility (`hasL1` predicate) |
+| 6d — Backstage-only / no scope | `["BO"]` | The non-LEAD with no scope-specific tile — confirms the no-tile case renders cleanly without empty-state crashes |
+| 6e — Compound non-LEAD | `["A1","L1"]` or `["GS","A1"]` | Compound atomic-flag rendering; both scope tiles visible |
+| 6f — Unrecognized role / `[]` | `[]` (no flags) | The empty-flags edge case; confirms the page does not crash or expose financials |
+
+The plan walks each 6a–6f variant for the crew page and for preview-as-crew (persona 4 with each role variant). Real-iPhone exercise (§3.1) is required for 6a + 6d + 6f as the highest-leverage sample; the rest are exercised on Vercel preview URL in desktop + emulated mobile.
 
 ### 3.1 Sub-dimensions per matrix cell
 
@@ -82,9 +100,9 @@ Each persona × surface cell is exercised in *both* color modes AND *both* viewp
 | Dark mode | Yes | Per DESIGN.md sunlit-loading-dock-vs-dim-backstage parity |
 | Mobile 390px viewport | Yes | Primary viewport per PRODUCT.md |
 | Desktop ≥1024px viewport | Yes | Per DESIGN.md `--bp-lg` |
-| Real iPhone Safari (Vercel preview URL) | Only for crew-facing surfaces (personas 5/6/7) on a curated subset of cells | The dev's actual phone; not Playwright |
+| Real iPhone Safari (Vercel preview URL) | Only for crew-facing surfaces (personas 5/6/7/8) on a curated subset of cells | The dev's actual phone; not Playwright |
 
-The "curated subset" for real-iPhone is enumerated at plan-writing time; defaults are the Right Now card, the schedule tile, signed-link redemption, sign-in flow, expired-link path.
+The "curated subset" for real-iPhone is enumerated at plan-writing time; defaults are the Right Now card, the schedule tile, signed-link redemption (fragment-token form), sign-in flow, expired-link path, revoked-link path, and the `/me` cross-show list.
 
 ---
 
@@ -99,10 +117,11 @@ The canonical source of "every documented surface" is the master spec (`docs/sup
 | Band | Contents (representative; plan-time walk is authoritative) |
 |---|---|
 | **A. Admin surfaces** | `/admin` dashboard (Active Shows panel, pending-ingestion panel, restage panel, footer "Take the tour", AlertBanner). `/admin/show/[slug]` (sync health, parse-warnings, crew preview links, staged-review cards). `/admin/show/staged/[stagedId]` (first-seen review). `/admin/show/[slug]/preview/[crew-id]` (impersonation banner + previewed crew content). Onboarding wizard steps. Theme toggle, header, footer. |
-| **B. Crew surfaces** | `/show/[slug]/p` (signed-link path). `/show/[slug]` (Google-sign-in path). Every documented tile (Right Now, schedule, hotel, transport, crew, contacts, diagrams gallery, etc.) with empty / loading / error states. Role-filter sentinel-hiding per role. |
-| **C. Auth surfaces** | Google sign-in. Sign-out. Signed-link redemption. Expired-link surface. Revoked-link surface. "Not on crew list" surface. 401 / 403 paths. |
+| **B. Crew surfaces** | `/show/[slug]/p` (signed-link fragment-token path — `#t=<jwt>` per master spec §7; the `?t=` / `?token=` query-token form is a separate auth-compromise surface tested under band C). `/show/[slug]` (Google-sign-in path). `/me` (cross-show signed-in identity surface — master spec §7.3, uses `validateGoogleIdentity` not `validateGoogleSession`). Every documented tile (Right Now, schedule, hotel, transport, crew, contacts, diagrams gallery, etc.) with empty / loading / error states. Role-filter sentinel-hiding per role per §3.2 sub-variants. Crew footer "Something looks wrong?" report-modal entry (per master spec §13.1 surface 4) — submission states covered in band F. |
+| **C. Auth surfaces** | Google sign-in (fresh + return sessions exercised separately). Sign-out. Signed-link redemption (fragment-token canonical path). Expired-link surface. Revoked-link surface. "Not on crew list" surface. 401 / 403 paths. **Query-token compromise path** — hitting `/show/<slug>?t=…` (the non-canonical query form) MUST trigger the compromise/revoke path per master spec §7; this is a negative-auth surface that gets its own row. |
 | **D. Help surfaces (M11)** | All 13 `/help` pages + the catalog-driven `/help/errors` page + `<RefAnchor>` rendering + `<Screenshot>` light/dark variant switching. |
-| **E. Cross-cutting affordances** | Every `?` tooltip / "Learn more →" link from §9.0.1 surface affordance matrix (M11 §5.6). Every catalog-driven error message rendered through `messageFor()` in `/admin/*`. AlertBanner row rendering for each non-info-severity catalog code. |
+| **E. Cross-cutting affordances** | Every `?` tooltip / "Learn more →" link from §9.0.1 surface affordance matrix (M11 §5.6). Every catalog-driven error message rendered through `messageFor()` — **both admin-facing AND crew-facing** (an earlier draft restricted this band to `/admin/*` only; corrected per Codex R1 P0 — crew-facing catalog-driven messages like `LINK_EXPIRED`, "not on crew list", and rate-limit copy are equally in scope). AlertBanner row rendering for each non-info-severity admin catalog code. |
+| **F. Report-pipeline surfaces (M8)** | Master spec §13.1 enumerates 4 report entry points (admin parse-panel button, preview/banner button, crew footer "Something looks wrong?" modal, and the §13 admin surfaces); each is a surface in the matrix. Submission outcome surfaces also walked: success confirmation, in-flight idempotency (`IDEMPOTENCY_IN_FLIGHT`), rate-limit hit (429 for admin and crew), GitHub-lookup-inconclusive (502), lease-expired (`REPORT_HORIZON_EXPIRED` 410), `REPORT_ORPHANED_LOST_LEASE`. Each outcome is a catalog-driven UI state and validated end-to-end against the report-pipeline contract from master spec §13.2.3 amendments. |
 
 ### 4.3 Excluded surfaces
 
@@ -126,7 +145,9 @@ Edit a published sheet to trigger MI staging events. Pick MI-6 (crew shrinkage) 
 
 ### 5.3 J3 — Signed-link crew end-to-end (real device leg)
 
-Generate a signed link from admin. Open it on the dev's real iPhone (not Playwright) in Safari. Browse every documented tile. Verify role-hiding for A1 role (generate a second link for an A1 crew member if needed). Verify LEAD role sees full content. Test expired-link path (manually expire via admin tooling or wait for TTL). Test revoked-link path (admin revokes; old link 401s with "not on crew list" surface).
+Generate a signed link from admin. The canonical URL form is `/show/<slug>/p#t=<jwt>` (master spec §7 — fragment token; Vercel does NOT log fragments, so this is the safe form). Open the canonical URL on the dev's real iPhone (not Playwright) in Safari. Browse every documented tile. Verify role-hiding for at least one non-LEAD scope variant (e.g., A1) per §3.2. Verify LEAD role sees full content including `shows_internal.financials`. Test expired-link path (manually expire via admin tooling or wait for TTL). Test revoked-link path (admin revokes; old link 401s with "not on crew list" surface).
+
+**Additionally — query-token compromise leg.** Take a valid fragment token, rewrite the URL to the non-canonical query form `/show/<slug>?t=<jwt>`, and confirm the compromise path triggers per master spec §7 (token revoked, "compromise detected" surface). This is a negative-auth test that exercises band C's compromise row.
 
 ### 5.4 J4 — Preview-as-crew double-check
 
@@ -167,9 +188,11 @@ A finding is classified at the moment the dev encounters it. **Borderline cases 
 
 | Tier | Definition | Example findings |
 |---|---|---|
-| **MUST-FIX** | Would damage Doug's first impression OR prevent him from doing his job. | 500 / 404 on a documented path. Broken Google sign-in. Broken signed-link redemption. Dashboard empty for a real show. A documented tile completely missing or unreadable. The first surface Doug lands on (dashboard, wizard step 1) reads as obviously-prototype. Tap target &lt;44px on a critical CTA. Light-mode body-text contrast below the DESIGN.md direct-sunlight floor (7:1). Cross-surface inconsistency that changes meaning between two surfaces describing the same show. |
-| **SHOULD-FIX** | Friction Doug would notice over repeated use but wouldn't damage first impression. | Error copy unclear-but-recoverable. Tile spacing off on a rare overflow case. Dark-mode contrast borderline-AA on a non-critical element. Transition jerky on a non-critical surface. A surface visibly less polished than its neighbors but not prototype-y. |
+| **MUST-FIX** | Would damage Doug's first impression OR prevent him from doing his job. **First impression = the first surface Doug lands on AND any surface he reaches within the first 5 minutes of normal use.** | 500 / 404 on a documented path. Broken Google sign-in. Broken signed-link redemption. Dashboard empty for a real show. A documented tile completely missing or unreadable. The first surface Doug lands on (dashboard, wizard step 1) reads as obviously-prototype. **A surface deeper into the journey (e.g., per-show panel, staged-review card) reads as so obviously-prototype that Doug's confidence in the product would be shaken** — even though it's not the first-landing surface. Tap target &lt;44px on a critical CTA. Light-mode body-text contrast below the DESIGN.md direct-sunlight floor (7:1). Cross-surface inconsistency that changes meaning between two surfaces describing the same show. |
+| **SHOULD-FIX** | Friction Doug would notice over repeated use but wouldn't damage first impression OR shake confidence. | Error copy unclear-but-recoverable. Tile spacing off on a rare overflow case. Dark-mode contrast borderline-AA on a non-critical element. Transition jerky on a non-critical surface. A surface visibly less polished than its neighbors but not prototype-y enough to shake confidence. A deep surface (one Doug reaches only after sustained use) that reads as mildly prototype-y without confidence-shake. |
 | **NICE-TO-FIX** | Dev-only polish; below the threshold any user would notice. | 1px alignment quirks. Subtle typography inconsistency requiring a developer's eye. Sub-optimal animation easing on micro-interactions. Minor aria-label naming inconsistencies. |
+
+**Boundary clarification (per Codex R1 P1).** "Prototype-y look on a non-load-bearing surface" was ambiguous in an earlier draft. The corrected rule: the test is *would Doug's confidence in the product be shaken if he encountered this?* That puts the boundary at confidence, not at surface-depth. A deeply-nested surface that looks bad enough to shake confidence is MUST. A non-first-landing surface that looks less polished but doesn't shake confidence is SHOULD. The default-up bias still applies — when the dev cannot decide if a finding shakes confidence or not, it goes MUST.
 
 ### 7.2 Iteration loop (step-by-step)
 
@@ -181,13 +204,34 @@ A finding is classified at the moment the dev encounters it. **Borderline cases 
    invariant 8 (impeccable critique + audit external attestation).
    Conventional-commits style per task.
 5. Targeted re-exercise — re-walk surfaces touched by the fixes;
-   re-run any journey that crosses them.
-6. Loop 3–5 until MUST-FIX list is empty.
+   re-run any journey that crosses them. "Touched by fixes" means: any
+   file under app/, components/, or app/globals.css edited by the fix
+   PR, plus any band-E catalog-driven affordance whose copy or helpHref
+   was modified, plus any surface that consumes a touched band-E entry
+   (transitive consumer expansion — see §7.2.1 below).
+6. Loop 3–5 until the working MUST-FIX list is empty after each
+   re-exercise.
 7. Final full sweep — re-walk full matrix; re-run J1–J4; re-run
    cold-start pass after another 24h cooldown.
+   If the final sweep surfaces ANY new MUST-FIX (e.g., a regression
+   introduced by a fix, a normalization-blind miss that surfaced
+   only after the cooldown), return to step 3. The final sweep must
+   produce ZERO new MUST-FIX before disposition/sign-off proceeds.
+   Sign-off is gated on a clean final sweep, not on arbitrary
+   completion of step 7's walk.
 8. Disposition SHOULD / NICE per §7.3.
 9. Sign-off (§8).
 ```
+
+#### 7.2.1 "Touched by fixes" — transitive consumer expansion
+
+A fix to a band-E catalog-driven affordance (e.g., `messageFor('LINK_EXPIRED').dougFacing` copy change) propagates to every consumer surface in band B or band F. The re-exercise scope therefore includes:
+
+- Direct: every file the fix PR modified.
+- Transitive: every surface that imports / consumes the changed export (e.g., a copy change to a catalog entry forces re-exercise of every band-B / band-F surface that renders that entry).
+- Cross-band composition: if J1–J4 cross any of the touched surfaces, the affected journey is re-run in full.
+
+This rule exists to prevent the "fix to a band-E affordance leaves a band-A consumer regression undetected" failure mode named in Codex R1 P0.
 
 ### 7.3 Disposition rules (SHOULD / NICE routing)
 
@@ -242,12 +286,14 @@ Phase 0 stands up the infrastructure the exercise runs against. Phase 1 (the exe
 
 ### 9.2 Phase 0 exit criterion
 
-Phase 0 closes when **both** smoke tests pass:
+Phase 0 closes when **all four** smoke tests pass — only after all four does Phase 1 start. A seeded DB alone is not sufficient evidence the prod-equivalent stack is wired end-to-end; each smoke test exercises a distinct integration axis.
 
-1. The dev signs in via Google to the deployed preview URL and lands as admin on `/admin`.
-2. A signed link generated from `/admin` on the preview URL, opened on the dev's real iPhone in Safari, renders a fixture crew page correctly.
+1. **Admin sign-in.** The dev signs in via Google to the deployed preview URL and lands as admin on `/admin`. Verifies: Supabase auth + admin role-check + RLS read path.
+2. **Signed-link real-iPhone render.** A signed link generated from `/admin` on the preview URL (canonical `/show/<slug>/p#t=<jwt>` form per master spec §7), opened on the dev's real iPhone in Safari, renders a fixture crew page correctly. Verifies: signed-link mint + redeem + crew-page render against real prod Supabase data.
+3. **Cron + Drive integration.** A fixture sheet placed in the prod-tier Drive watched folder is detected by the cron path (Vercel Cron → fetch from Drive service account → parse → propagate) within one cron interval. The new show appears in `/admin` Active Shows panel. Verifies: cron schedule firing + Drive service-account credentials + parser end-to-end + DB write under per-show advisory lock.
+4. **Admin alert write + AlertBanner render.** A fixture-induced staging event (e.g., editing the seeded fixture to trigger MI-6 crew shrinkage) causes a row to land in `admin_alerts` AND the AlertBanner on `/admin` renders that row on a fresh page load. Verifies: write path to `admin_alerts` + AlertBanner read query + crew-page propagation behavior end-to-end.
 
-Passing both gates the start of Phase 1. Failing either re-opens Phase 0.
+Failing any of the four re-opens Phase 0 — the spec does not allow Phase 1 to start against a partial stand-up. The class-sweep here mirrors the Codex R1 P1 finding: a seeded DB can satisfy a browser-only smoke test while the cron/alert plumbing is broken, and Phase 1 would only catch that days later when J2 (pending-sync triage) tries to exercise it.
 
 ---
 
@@ -327,7 +373,7 @@ This section is the inline self-review per the project's spec-self-review checkl
 | CHECK / enum migration | N/A | No DB constraint change. |
 | Flag lifecycle | N/A | No new boolean config field. |
 | Pay-engine grain | N/A | No pay-engine touch. |
-| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), 7 personas (§3 table), 5 surface bands (§4.2), 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), >=2 cold-start runs (§6 + §7.2 step 7). |
+| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, 6 non-LEAD scope sub-variants (§3.2 — added R1), **4 Phase 0 smoke tests (§9.2 — expanded R1 from 2 to 4)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
 | Disagreement-loop preempt | Applied | §11.2 ("intentionally absent") names the "no artifact" decision as deliberate, with rationale, so reviewers don't relitigate it. §1.5 names "no real-user testing" as deliberate, with rationale. §2 enumerates explicit deferrals so reviewers don't surface them as gaps. |
 | Build-vs-runtime gate explicitness | Applies | Phase 0 §9 names the build target (Vercel preview deployment); §9.2 names the runtime smoke tests that gate Phase 1 (real Google sign-in + real iPhone signed-link render). The seven CI gates in §9.1 are build-time gates; the alert path is a runtime path. |
 
@@ -348,4 +394,26 @@ This section is the inline self-review per the project's spec-self-review checkl
 
 ## 14. Open questions
 
-None at spec-write time. Spec is ready for adversarial review.
+None at spec-write time post-R1. Spec is ready for adversarial review round 2.
+
+---
+
+## 15. Adversarial-review audit trail
+
+### 15.1 Round 1 (Codex `019e43be-eee4-79f3-aaca-425df0feb746`, 2026-05-19)
+
+Verdict: `needs-attention`. Five findings, all accepted as legitimate and addressed in this revision.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — Signed-link persona used query token `?token=` instead of canonical fragment `/show/<slug>/p#t=<jwt>` per master spec §7 | P0 / critical | Fixed. All references corrected to fragment form. Negative-auth surface added for the query-token compromise path. | §3 personas 5/6, §4.2 bands B/C, §5.3 J3, §3.1 sub-checks |
+| F2 — Surface bands did not enumerate M8 report-pipeline surfaces (admin parse-panel report button, preview/banner report button, crew footer "Something looks wrong?" modal, submission success/failure, rate-limit, lookup-inconclusive, lease-expired states) | P0 / high | Fixed. New band F added for report-pipeline surfaces. Crew footer report-modal entry also added to band B. Band E broadened from `/admin/*` only to admin AND crew catalog-driven messages (class-sweep). | §4.2 bands B / E / F |
+| F3 — Iteration loop step 7 (final full sweep) did not loop back if a new MUST-FIX surfaced; sign-off could proceed with a known blocker | P0 / high | Fixed. Step 7 now requires zero new MUST-FIX before disposition/sign-off proceeds. New §7.2.1 defines "touched by fixes" with transitive consumer expansion. | §7.2, §7.2.1 |
+| F4 — Persona inventory collapsed multiple role/auth states (LEAD vs A1/A2/V1/L1/BO/etc.; Google fresh vs return; `/me` cross-show surface missing) | P1 / medium | Fixed. Persona inventory expanded from 7 to 8 (added `/me` as persona 8). Persona 7 split into fresh + return sub-cases. New §3.2 enumerates 6 non-LEAD scope sub-variants (6a–6f) the plan must exercise. | §3 table, §3.2 new |
+| F5 — Phase 0 exit criterion (2 smoke tests: admin sign-in + signed-link render) did not prove cron, Drive-watched-folder visibility, `admin_alerts` write, or AlertBanner read end-to-end | P1 / medium | Fixed. Phase 0 exit expanded to 4 smoke tests covering admin sign-in, signed-link real-iPhone render, cron + Drive integration, and admin-alert write + AlertBanner render. | §9.2 |
+
+**Class-sweep additions made during R1 repair (beyond the named findings):**
+
+- **Boundary clarification on triage rubric** (§7.1) — added per Codex's secondary concern about "prototype-y on a non-load-bearing surface" being ambiguous. The corrected rule anchors on *confidence-shake*, not surface-depth.
+- **Band E broadening** (§4.2) — Codex named the report-surface miss; the class-sweep revealed band E was scoped to `/admin/*` catalog messages and missed crew-facing catalog messages (e.g., `LINK_EXPIRED`). Broadened to cover both.
+- **`/me` page added** — Codex's F4 mentioned Google fresh-vs-return; the class-sweep revealed the master spec line 2266 `/me` cross-show surface uses a different validator (`validateGoogleIdentity` vs `validateGoogleSession`) and is not show-bound, making it a structurally distinct surface absent from the original draft. Added as persona 8 + surface row in band B.
