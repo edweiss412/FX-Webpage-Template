@@ -14,9 +14,7 @@ export type CreatedIssue = {
   issueNumber: number;
 };
 
-export type FoundIssue = {
-  htmlUrl: string;
-};
+export type FoundIssue = CreatedIssue;
 
 export type LookupInconclusiveCode =
   | "BOT_LOGIN_MISSING"
@@ -234,6 +232,9 @@ function candidateFromIssue(issue: IssueLike, marker: string, cutoffMs: number):
   if (typeof issue.html_url !== "string") {
     throw new LookupInconclusive("SHAPE_ERROR", "marker-bearing issue.html_url is not a string");
   }
+  if (typeof issue.number !== "number") {
+    throw new LookupInconclusive("SHAPE_ERROR", "marker-bearing issue.number is not a number");
+  }
 
   const labels = labelNames(issue.labels);
   if (issue.state === "closed" && issue.state_reason === "not_planned") return null;
@@ -243,7 +244,7 @@ function candidateFromIssue(issue: IssueLike, marker: string, cutoffMs: number):
       "open marker-bearing issue carries orphan cleanup label",
     );
   }
-  return { htmlUrl: issue.html_url };
+  return { htmlUrl: issue.html_url, issueNumber: issue.number, labels };
 }
 
 export async function findIssueByMarker(

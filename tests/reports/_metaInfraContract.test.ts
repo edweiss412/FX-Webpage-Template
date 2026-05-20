@@ -65,6 +65,7 @@ import {
   handleTailUpdateMiss,
   resolveStateGatedAlert,
   submitReport,
+  writeRecoveredIssueUrl,
 } from "@/lib/reports/submit";
 import {
   ReportReaperInfraError,
@@ -84,6 +85,7 @@ const REGISTERED_INFRA_EXPORTS = [
   "reserveQuota",
   "resolveStateGatedAlert",
   "handleTailUpdateMiss",
+  "writeRecoveredIssueUrl",
   "submitReport",
   "POST",
   "handleReport",
@@ -318,6 +320,22 @@ describe("META reports infra-failure contract", () => {
           labels: ["bug-report"],
         },
         baseAcquireInput.leaseHolder,
+        baseAcquireInput.showId,
+      ),
+    ).rejects.toBeInstanceOf(ReportSubmitInfraError);
+  });
+
+  test("writeRecoveredIssueUrl wraps DB throws as ReportSubmitInfraError", async () => {
+    await expect(
+      writeRecoveredIssueUrl(
+        throwingDb(),
+        { kind: "admin", email: "admin@example.com" },
+        baseAcquireInput.idempotencyKey,
+        {
+          htmlUrl: "https://github.com/edweiss412/FX-Webpage-Template/issues/99",
+          issueNumber: 99,
+          labels: ["bug-report"],
+        },
         baseAcquireInput.showId,
       ),
     ).rejects.toBeInstanceOf(ReportSubmitInfraError);

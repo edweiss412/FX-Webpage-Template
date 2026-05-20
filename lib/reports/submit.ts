@@ -9,6 +9,7 @@ import {
   LookupInconclusive,
   type LookupInconclusiveCode,
   type CreatedIssue,
+  type FoundIssue,
 } from "@/lib/github/issues";
 import { acquireReportLease, type ReportLeaseDb } from "@/lib/reports/leaseProtocol";
 import { enforceQuota, type QuotaResult, type ReportQuotaKind } from "@/lib/reports/rateLimit";
@@ -102,7 +103,11 @@ class QuotaDeniedRollback extends Error {
 
 // not-subject-to-meta: typed error class only; infra behavior is covered by submitReport/handleTailUpdateMiss registry rows.
 export class ReportSubmitInfraError extends Error {
-  readonly operation: "submitReport" | "handleTailUpdateMiss" | "lookupShowContext";
+  readonly operation:
+    | "submitReport"
+    | "handleTailUpdateMiss"
+    | "lookupShowContext"
+    | "writeRecoveredIssueUrl";
   readonly source: "returned_error" | "thrown_error";
   override readonly cause: unknown;
 
@@ -477,25 +482,61 @@ async function writeIssueUrl(
 async function reconcileBeforeCreate(
   idempotencyKey: string,
   cutoffIso: string,
-): Promise<{ htmlUrl: string } | null> {
+): Promise<FoundIssue | null> {
   return await findIssueByMarker(idempotencyKey, cutoffIso);
 }
 
-async function writeRecoveredIssueUrl(
+export async function writeRecoveredIssueUrl(
   db: ReportLeaseDb,
+  auth: ReportAuthContext,
   idempotencyKey: string,
-  issueUrl: string,
-): Promise<boolean> {
-  const { rows } = await db.query(
-    `UPDATE reports
+  issue: FoundIssue,
+  fallbackShowId: string | null,
+): Promise<SubmitReportResult> {
+  try {
+    const leaseHolder = randomUUID();
+    const { rows: claimRows } = await db.query(
+      `UPDATE reports
+        SET processing_lease_until = now() + interval '90 seconds',
+            lease_holder = $2::uuid
+      WHERE idempotency_key = $1::uuid
+        AND (processing_lease_until IS NULL OR processing_lease_until <= now())
+        AND github_issue_url IS NULL
+        AND created_at >= now() - interval '24 hours'
+      RETURNING show_id, lease_holder`,
+      [idempotencyKey, leaseHolder],
+    );
+
+    if (claimRows.length === 0) {
+      return await dispatchAfterMissedRecovery(db, auth, idempotencyKey);
+    }
+
+    const claimed = claimRows[0] as { show_id: string | null; lease_holder: string };
+    const { rows } = await db.query(
+      `UPDATE reports
         SET github_issue_url = $1
       WHERE idempotency_key = $2::uuid
         AND github_issue_url IS NULL
+        AND lease_holder = $3::uuid
         AND created_at >= now() - interval '24 hours'
       RETURNING id`,
-    [issueUrl, idempotencyKey],
-  );
-  return rows.length === 1;
+      [issue.htmlUrl, idempotencyKey, claimed.lease_holder],
+    );
+    if (rows.length === 1) {
+      return { status: 200, body: successBody(auth, "recovered", issue.htmlUrl) };
+    }
+    return await handleTailUpdateMiss(
+      db,
+      auth,
+      idempotencyKey,
+      issue,
+      claimed.lease_holder,
+      claimed.show_id ?? fallbackShowId,
+    );
+  } catch (cause) {
+    if (cause instanceof ReportSubmitInfraError) throw cause;
+    throw new ReportSubmitInfraError("writeRecoveredIssueUrl", cause);
+  }
 }
 
 async function dispatchAfterMissedRecovery(
@@ -754,7 +795,7 @@ async function expiredLeaseRetry(
     | undefined;
   if (!ageRow || !ageRow.within_horizon) return horizonExpiredResponse();
 
-  let found: { htmlUrl: string } | null;
+  let found: FoundIssue | null;
   try {
     found = await reconcileBeforeCreate(body.idempotency_key, ageRow.cutoff_iso);
   } catch (error) {
@@ -764,11 +805,13 @@ async function expiredLeaseRetry(
     throw error;
   }
   if (found) {
-    const wroteRecovered = await writeRecoveredIssueUrl(db, body.idempotency_key, found.htmlUrl);
-    if (wroteRecovered) {
-      return { status: 200, body: successBody(auth, "recovered", found.htmlUrl) };
-    }
-    return await dispatchAfterMissedRecovery(db, auth, body.idempotency_key);
+    return await writeRecoveredIssueUrl(
+      db,
+      auth,
+      body.idempotency_key,
+      found,
+      ageRow.show_id ?? body.show_id,
+    );
   }
 
   const retryLeaseHolder = randomUUID();
