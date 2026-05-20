@@ -6,6 +6,7 @@ import {
   CleanupRequiresStaleSessionError,
   type SessionLifecycleDeps,
 } from "@/lib/onboarding/sessionLifecycle";
+import { canonicalize } from "@/lib/email/canonicalize";
 
 export type CleanupAbandonedFinalizeRouteTx = {
   query<T>(
@@ -153,7 +154,7 @@ async function insertAudit(input: {
       input.sessionId,
       input.phase,
       input.status,
-      input.adminEmail,
+      canonicalize(input.adminEmail),
       input.auditId,
       input.reason ?? null,
       input.snapshot.applied_manifest_count,

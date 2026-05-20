@@ -12,6 +12,7 @@ import {
 } from "@/lib/github/issues";
 import { acquireReportLease, type ReportLeaseDb } from "@/lib/reports/leaseProtocol";
 import { enforceQuota, type QuotaResult, type ReportQuotaKind } from "@/lib/reports/rateLimit";
+import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 export type ReporterRoleSnapshot = string | null;
@@ -153,7 +154,9 @@ function reporterFor(auth: ReportAuthContext): {
   reportedBy: string;
 } {
   if (auth.kind === "admin") {
-    return { kind: "admin", identity: auth.email, reportedByKind: "admin", reportedBy: auth.email };
+    const email = canonicalize(auth.email);
+    if (!email) throw new ReportSubmitInfraError("submitReport", new Error("admin reporter email is empty"));
+    return { kind: "admin", identity: email, reportedByKind: "admin", reportedBy: email };
   }
   return {
     kind: "crew",
@@ -241,7 +244,7 @@ function formatWarnings(value: unknown[] | null | undefined): string {
 }
 
 function quoteMessage(message: string | null | undefined): string {
-  const text = message?.trim();
+  const text = message?.trim(); // canonicalize-exempt: report note formatting, not email normalization.
   if (!text) return "> No freeform note provided.";
   return text
     .split("\n")
@@ -250,8 +253,8 @@ function quoteMessage(message: string | null | undefined): string {
 }
 
 function showLine(body: RequestBody): string {
-  const title = body.showTitle?.trim();
-  const slug = body.showSlug?.trim();
+  const title = body.showTitle?.trim(); // canonicalize-exempt: report title formatting, not email normalization.
+  const slug = body.showSlug?.trim(); // canonicalize-exempt: report slug formatting, not email normalization.
   if (title && slug) return `${title} (\`${slug}\`) — ${body.show_id}`;
   if (title) return `${title} — ${body.show_id}`;
   if (slug) return `\`${slug}\` — ${body.show_id}`;
@@ -274,7 +277,7 @@ function showContextLine(body: RequestBody, showContext?: ReportShowContextInput
 function driveFileIdFromFieldRef(fieldRef: RequestBody["fieldRef"]): string | null {
   if (!fieldRef || typeof fieldRef !== "object") return null;
   const value = fieldRef.driveFileId ?? fieldRef.drive_file_id;
-  return typeof value === "string" && value.trim() ? value : null;
+  return typeof value === "string" && value.trim() ? value : null; // canonicalize-exempt: Drive file id formatting, not email normalization.
 }
 
 function showDriveFileId(

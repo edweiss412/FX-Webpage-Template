@@ -5,6 +5,7 @@ import {
   livePendingIngestionDepsWithDefaults,
   readLockedPendingIngestion,
 } from "../retry/route";
+import { canonicalize } from "@/lib/email/canonicalize";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -59,7 +60,7 @@ async function upsertLiveDeferral(
       row.drive_file_id,
       kind,
       kind === "defer_until_modified" ? row.last_seen_modified_time : null,
-      adminEmail,
+      canonicalize(adminEmail),
       `pending_ingestion:${kind}`,
     ],
   );

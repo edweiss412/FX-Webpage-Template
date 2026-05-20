@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import postgres from "postgres";
 import { subscribeToWatchedFolder as defaultSubscribeToWatchedFolder } from "@/lib/drive/watch";
+import { canonicalize } from "@/lib/email/canonicalize";
 import type { ParseResult } from "@/lib/parser/types";
 
 const OK_CODE = "OK" as const;
@@ -318,7 +319,7 @@ async function insertShadowAudit(tx: FinalizeCasRouteTx, row: ShadowRow): Promis
     [
       row.show_id,
       row.drive_file_id,
-      row.applied_by_email,
+      canonicalize(row.applied_by_email),
       row.payload.staged_id ?? null,
       JSON.stringify(row.payload.reviewer_choices ?? []),
       row.payload.parse_result?.show.title ?? null,

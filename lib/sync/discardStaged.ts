@@ -9,6 +9,7 @@ import {
   PENDING_SYNC_NOT_FOUND,
   WIZARD_SESSION_SUPERSEDED,
 } from "@/lib/sync/applyStaged";
+import { canonicalize } from "@/lib/email/canonicalize";
 
 export { INVALID_REVIEWER_ACTION, PENDING_SYNC_NOT_FOUND, WIZARD_SESSION_SUPERSEDED };
 export const STALE_DISCARD_REJECTED = "STALE_DISCARD_REJECTED" as const;
@@ -258,6 +259,8 @@ async function defaultUpsertLiveDeferral(
   tx: LockedShowTx<SyncPipelineTx>,
   row: LiveDeferralInput,
 ): Promise<void> {
+  const deferredByEmail = canonicalize(row.deferredByEmail);
+  if (!deferredByEmail) throw new Error("discardStaged: deferredByEmail must be canonicalizable");
   await tx.queryOne<{ upserted: boolean }>(
     `
       insert into public.deferred_ingestions (
@@ -278,7 +281,7 @@ async function defaultUpsertLiveDeferral(
       row.driveFileId,
       row.deferredKind,
       row.deferredAtModifiedTime,
-      row.deferredByEmail,
+      deferredByEmail,
       row.reason,
     ],
   );

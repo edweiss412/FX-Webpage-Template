@@ -25,6 +25,7 @@ import {
   withPostgresSyncPipelineLock,
 } from "@/lib/sync/runScheduledCronSync";
 import { makeSnapshotAssetsForApply } from "@/lib/sync/defaultSnapshotAssetsForApply";
+import { canonicalize } from "@/lib/email/canonicalize";
 import {
   runOnboardingScan,
   type OnboardingScanTx,
@@ -529,6 +530,8 @@ async function defaultApproveWizardPendingSync(
   tx: LockedShowTx<SyncPipelineTx>,
   row: Parameters<NonNullable<ApplyStagedDeps["approveWizardPendingSync"]>>[1],
 ): Promise<boolean> {
+  const appliedByEmail = canonicalize(row.appliedByEmail);
+  if (!appliedByEmail) throw new Error("applyStaged: appliedByEmail must be canonicalizable");
   const approved = await tx.queryOne<{ approved: boolean } | null>(
     `
       update public.pending_syncs
@@ -551,7 +554,7 @@ async function defaultApproveWizardPendingSync(
       row.driveFileId,
       row.wizardSessionId,
       row.stagedId,
-      row.appliedByEmail,
+      appliedByEmail,
       JSON.stringify(row.reviewerChoices),
     ],
   );
@@ -767,6 +770,8 @@ async function defaultInsertSyncAudit(
   tx: LockedShowTx<SyncPipelineTx>,
   row: Parameters<NonNullable<ApplyStagedDeps["insertSyncAudit"]>>[1],
 ): Promise<string | null> {
+  const appliedBy = canonicalize(row.appliedBy);
+  if (!appliedBy) throw new Error("applyStaged: sync audit appliedBy must be canonicalizable");
   const inserted = await tx.queryOne<{ id: string } | null>(
     `
       insert into public.sync_audit (
@@ -781,7 +786,7 @@ async function defaultInsertSyncAudit(
     [
       row.showId,
       row.driveFileId,
-      row.appliedBy,
+      appliedBy,
       row.stagedId,
       JSON.stringify(row.triggeredReviewItems),
       JSON.stringify(row.reviewerChoices),

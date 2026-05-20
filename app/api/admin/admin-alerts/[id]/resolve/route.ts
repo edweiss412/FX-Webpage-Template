@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import postgres from "postgres";
+import { canonicalize } from "@/lib/email/canonicalize";
 
 export type AdminAlertGlobalResolveTx = {
   queryOne<T>(sql: string, params: unknown[]): Promise<T | null>;
@@ -113,7 +114,7 @@ export async function handleAdminAlertGlobalResolve(
            and show_id is null
         returning id, show_id, null::text as slug, resolved_at
       `,
-      [id, admin.email],
+      [id, canonicalize(admin.email)],
     );
     if (!updated) return errorResponse(404, "ADMIN_ALERT_NOT_FOUND");
     return NextResponse.json({ status: "resolved", id, resolved_at: updated.resolved_at });

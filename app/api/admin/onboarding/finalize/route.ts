@@ -5,6 +5,7 @@ import { fetchDriveFileMetadata as defaultFetchDriveFileMetadata } from "@/lib/d
 import { deriveSlug } from "@/lib/parser/slug";
 import type { ParseResult } from "@/lib/parser/types";
 import { insertFirstSeenShowWithSlugRetry } from "@/lib/sync/runScheduledCronSync";
+import { canonicalize } from "@/lib/email/canonicalize";
 
 const BATCH_CAP = 100;
 const REVIEWER_CHOICES_VERSION = 1;
@@ -382,7 +383,7 @@ async function insertFinalizeAudit(
     [
       input.showId,
       input.row.drive_file_id,
-      input.appliedByEmail,
+      canonicalize(input.appliedByEmail),
       input.row.staged_id,
       JSON.stringify(input.row.wizard_reviewer_choices ?? []),
       input.row.parse_result.show.title,
@@ -428,7 +429,7 @@ async function stageExistingShowShadow(
       row.staged_modified_time,
       row.staged_id,
       JSON.stringify(row.wizard_reviewer_choices ?? []),
-      requireApprovedByEmail(row),
+      canonicalize(requireApprovedByEmail(row)),
     ],
   );
 }

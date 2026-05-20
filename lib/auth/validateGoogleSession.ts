@@ -39,7 +39,7 @@ async function upsertAmbiguousEmailAlert(input: {
     showId: input.showId,
     code: "AMBIGUOUS_EMAIL_BINDING",
     context: {
-      email: input.email,
+      email: canonicalize(input.email),
       crew_member_ids: input.crewMemberIds,
     },
   });

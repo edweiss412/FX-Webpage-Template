@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { canonicalize } from "@/lib/email/canonicalize";
 
 export type ReportQuotaKind = "admin" | "crew";
 
@@ -72,6 +73,10 @@ export async function enforceQuota(
   kind: ReportQuotaKind,
   identity: string,
 ): Promise<QuotaResult> {
+  const persistedIdentity = kind === "admin" ? canonicalize(identity) : identity;
+  if (!persistedIdentity) {
+    throw new ReportQuotaInfraError("enforceQuota", new Error("admin report quota identity is empty"));
+  }
   try {
     const { rows } = await db.query(
       `INSERT INTO report_rate_limits (kind, identity, hour_bucket, count)
@@ -79,7 +84,7 @@ export async function enforceQuota(
        ON CONFLICT (kind, identity, hour_bucket) DO UPDATE
          SET count = report_rate_limits.count + 1
        RETURNING count`,
-      [kind, identity],
+      [kind, persistedIdentity],
     );
     const count = Number((rows[0] as { count?: unknown } | undefined)?.count);
     if (!Number.isInteger(count) || count < 1) {
