@@ -154,6 +154,10 @@ export type SyncLogEntry = {
   payload?: Record<string, unknown>;
 };
 
+export type SyncPipelineTxBoundDeps = {
+  upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
+};
+
 export type CronLiveShowRow = {
   showId: string;
   driveFileId: string;
@@ -189,7 +193,10 @@ type CronRecoveryTx = SyncPipelineTx & {
 export type ProcessOneFileDeps = {
   withShowLock?: (
     driveFileId: string,
-    fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<ProcessOneFileResult> | ProcessOneFileResult,
+    fn: (
+      tx: LockedShowTx<SyncPipelineTx>,
+      txDeps?: SyncPipelineTxBoundDeps,
+    ) => Promise<ProcessOneFileResult> | ProcessOneFileResult,
     options?: Parameters<typeof withShowLock<SyncPipelineTx, ProcessOneFileResult>>[2],
   ) => Promise<ProcessOneFileResult | ConcurrentSyncSkipped>;
   perFileProcessor?: typeof perFileProcessor;
@@ -224,7 +231,7 @@ export type RunScheduledCronSyncDeps = {
   listLiveShows?: () => Promise<CronLiveShowRow[]>;
   withShowLock?: <R>(
     driveFileId: string,
-    fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<R> | R,
+    fn: (tx: LockedShowTx<SyncPipelineTx>, txDeps?: SyncPipelineTxBoundDeps) => Promise<R> | R,
     options?: Parameters<typeof withShowLock<SyncPipelineTx, R>>[2],
   ) => Promise<R | ConcurrentSyncSkipped>;
   processOneFile?: (
@@ -1272,7 +1279,7 @@ class SyncStepTimeoutError extends Error {
 
 export async function withPostgresSyncPipelineLock<R = ProcessOneFileResult>(
   driveFileId: string,
-  fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<R> | R,
+  fn: (tx: LockedShowTx<SyncPipelineTx>, txDeps?: SyncPipelineTxBoundDeps) => Promise<R> | R,
   options: { tryOnly?: boolean } = { tryOnly: true },
 ): Promise<R | ConcurrentSyncSkipped> {
   const sql = postgres(databaseUrl(), {
@@ -1284,10 +1291,17 @@ export async function withPostgresSyncPipelineLock<R = ProcessOneFileResult>(
   try {
     return (await sql.begin(async (rawTx) => {
       const tx = new PostgresPipelineTx(rawTx as unknown as PostgresTransaction);
-      return await withShowLock<SyncPipelineTx, R>(driveFileId, fn, {
-        tx,
-        tryOnly: options.tryOnly ?? true,
-      });
+      const txDeps: SyncPipelineTxBoundDeps = {
+        upsertAdminAlert: tx.upsertAdminAlert.bind(tx),
+      };
+      return await withShowLock<SyncPipelineTx, R>(
+        driveFileId,
+        (lockedTx) => fn(lockedTx, txDeps),
+        {
+          tx,
+          tryOnly: options.tryOnly ?? true,
+        },
+      );
     })) as R | ConcurrentSyncSkipped;
   } finally {
     await sql.end({ timeout: 5 });
@@ -1512,7 +1526,7 @@ type SyncLogDeps = {
 };
 
 type FirstPublishedNoticeDeps = {
-  upsertAdminAlert?: ProcessOneFileDeps["upsertAdminAlert"];
+  upsertAdminAlert: NonNullable<ProcessOneFileDeps["upsertAdminAlert"]>;
 };
 
 type SuccessfulPhase2TailDeps = SyncLogDeps &
@@ -1557,6 +1571,37 @@ export function errorPayload(error: unknown): Record<string, unknown> {
   return { message: String(error) };
 }
 
+function txBoundProcessDeps(
+  tx: LockedShowTx<SyncPipelineTx>,
+  deps: ProcessOneFileDeps,
+  injected?: SyncPipelineTxBoundDeps,
+): ProcessOneFileDeps {
+  if (!injected?.upsertAdminAlert && deps.upsertAdminAlert) return deps;
+
+  const txUpsertAdminAlert =
+    injected?.upsertAdminAlert ??
+    (typeof (tx as { upsertAdminAlert?: unknown }).upsertAdminAlert === "function"
+      ? ((
+          tx as unknown as { upsertAdminAlert: SyncPipelineTxBoundDeps["upsertAdminAlert"] }
+        ).upsertAdminAlert.bind(tx) as SyncPipelineTxBoundDeps["upsertAdminAlert"])
+      : undefined);
+
+  if (!txUpsertAdminAlert) return deps;
+  return { ...deps, upsertAdminAlert: txUpsertAdminAlert };
+}
+
+function requireTxBoundUpsertAdminAlert(
+  deps: ProcessOneFileDeps,
+  operation: string,
+): NonNullable<ProcessOneFileDeps["upsertAdminAlert"]> {
+  if (deps.upsertAdminAlert) return deps.upsertAdminAlert;
+  throw new SyncInfraError(
+    operation,
+    "thrown_error",
+    new Error("transaction-bound upsertAdminAlert is required inside sync pipeline transaction"),
+  );
+}
+
 async function emitDeferredRoleFlagsNotice(
   result: ProcessOneFileResult,
   deps: ProcessOneFileDeps,
@@ -1588,8 +1633,7 @@ async function emitFirstPublishedNotice(args: {
   unpublishToken: string;
   unpublishTokenExpiresAt: string;
 }): Promise<void> {
-  const upsertAdminAlert = args.deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
-  await upsertAdminAlert({
+  await args.deps.upsertAdminAlert({
     showId: args.result.showId,
     code: "SHOW_FIRST_PUBLISHED",
     context: {
@@ -1610,10 +1654,12 @@ export async function emitSuccessfulPhase2Tail(args: {
   driveFileId: string;
   fileMeta: DriveListedFile;
   parseResult: ParseResult;
-  autoPublishFirstSeen?: {
-    unpublishToken: string;
-    unpublishTokenExpiresAt: string;
-  } | undefined;
+  autoPublishFirstSeen?:
+    | {
+        unpublishToken: string;
+        unpublishTokenExpiresAt: string;
+      }
+    | undefined;
 }): Promise<void> {
   await args.tx.deleteRevisionRaceCooldowns?.(args.driveFileId);
   await args.deps.publishShowInvalidation?.(args.result.showId);
@@ -1868,8 +1914,15 @@ export async function processOneFile(
   }
 
   const lock = deps.withShowLock ?? withPostgresSyncPipelineLock;
-  const result = await lock(driveFileId, (lockedTx) =>
-    processOneFile_unlocked(lockedTx, driveFileId, mode, fileMeta, deps, prepared),
+  const result = await lock(driveFileId, (lockedTx, txDeps) =>
+    processOneFile_unlocked(
+      lockedTx,
+      driveFileId,
+      mode,
+      fileMeta,
+      txBoundProcessDeps(lockedTx, deps, txDeps),
+      prepared,
+    ),
   );
   if ("skipped" in result) {
     const skipped = { outcome: "skipped" as const, reason: CONCURRENT_SYNC_SKIPPED };
@@ -2090,6 +2143,7 @@ export async function processOneFile_unlocked(
   prepared?: PreparedProcessOneFile,
 ): Promise<ProcessOneFileResult> {
   await assertShowLockHeld(tx, driveFileId);
+  const txDeps = txBoundProcessDeps(tx, deps);
   if (!prepared) {
     throw new SyncInfraError(
       "processOneFile_unlocked",
@@ -2101,25 +2155,25 @@ export async function processOneFile_unlocked(
 
   const lockedDeferralSkip = await recheckLiveDeferralAfterLock(tx, driveFileId, mode, fileMeta);
   if (lockedDeferralSkip) {
-    await logSync(deps, driveFileId, lockedDeferralSkip);
+    await logSync(txDeps, driveFileId, lockedDeferralSkip);
     return lockedDeferralSkip;
   }
 
   if (pipeline.kind === "skip") {
-    await logSync(deps, driveFileId, pipeline.result, pipeline.payload);
+    await logSync(txDeps, driveFileId, pipeline.result, pipeline.payload);
     return pipeline.result;
   }
   if (pipeline.kind === "asset_recovery") {
-    await logSync(deps, driveFileId, pipeline.result);
+    await logSync(txDeps, driveFileId, pipeline.result);
     return pipeline.result;
   }
   if (pipeline.kind === "revision_race_cooldown") {
-    await logSync(deps, driveFileId, pipeline.result, pipeline.payload);
+    await logSync(txDeps, driveFileId, pipeline.result, pipeline.payload);
     return pipeline.result;
   }
   if (pipeline.kind === "revision_race") {
     await recordRevisionRaceCooldown(tx, driveFileId, pipeline.racedHeadRevisionId);
-    await logSync(deps, driveFileId, pipeline.result, pipeline.payload);
+    await logSync(txDeps, driveFileId, pipeline.result, pipeline.payload);
     return pipeline.result;
   }
   if (pipeline.kind === "fetch_failure") {
@@ -2142,21 +2196,21 @@ export async function processOneFile_unlocked(
       parseResult: pipeline.parseResult,
       binding: pipeline.binding,
     },
-    deps,
+    txDeps,
   );
   if (phase1.outcome === "hard_fail") {
     const result = { outcome: "hard_fail" as const, code: phase1.code };
-    await logSync(deps, driveFileId, result);
+    await logSync(txDeps, driveFileId, result);
     return result;
   }
   if (phase1.outcome === "stage") {
     const result = { outcome: "stage" as const, stagedId: phase1.stagedId };
-    await logSync(deps, driveFileId, result);
+    await logSync(txDeps, driveFileId, result);
     return result;
   }
   if (phase1.outcome === "defer") {
     const result = { outcome: "skipped" as const, reason: phase1.reason };
-    await logSync(deps, driveFileId, result, {
+    await logSync(txDeps, driveFileId, result, {
       kind: "mi8_debounce_skip",
       reason: phase1.reason,
     });
@@ -2196,12 +2250,12 @@ export async function processOneFile_unlocked(
       verifyReelOnApply: false,
       ...(autoPublishFirstSeen ? { autoPublishFirstSeen } : {}),
     },
-    deps,
+    txDeps,
   );
 
   if (phase2.outcome === "stale") {
     const result = { outcome: "stale" as const, code: phase2.code };
-    await logSync(deps, driveFileId, result);
+    await logSync(txDeps, driveFileId, result);
     return result;
   }
 
@@ -2214,7 +2268,10 @@ export async function processOneFile_unlocked(
   await emitSuccessfulPhase2Tail({
     tx,
     result,
-    deps,
+    deps: {
+      ...txDeps,
+      upsertAdminAlert: requireTxBoundUpsertAdminAlert(txDeps, "emitSuccessfulPhase2Tail"),
+    },
     driveFileId,
     fileMeta,
     parseResult: pipeline.parseResult,

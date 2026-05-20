@@ -1,23 +1,14 @@
 import { randomUUID } from "node:crypto";
+import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParseResult } from "@/lib/parser/types";
 import {
   makeSnapshotAssetsForApply,
   type SnapshotAssetsApplyTx,
 } from "@/lib/sync/defaultSnapshotAssetsForApply";
-import {
-  assertShowLockHeld,
-  type LockedShowTx,
-} from "@/lib/sync/lockedShowTx";
-import {
-  runPhase1,
-  type Phase1PendingSyncRow,
-  type Phase1Result,
-} from "@/lib/sync/phase1";
-import {
-  runPhase2,
-  type Phase2Tx,
-} from "@/lib/sync/phase2";
+import { assertShowLockHeld, type LockedShowTx } from "@/lib/sync/lockedShowTx";
+import { runPhase1, type Phase1PendingSyncRow, type Phase1Result } from "@/lib/sync/phase1";
+import { runPhase2, type Phase2Tx } from "@/lib/sync/phase2";
 import {
   emitSuccessfulPhase2Tail,
   type ProcessOneFileDeps,
@@ -30,6 +21,7 @@ export type RunManualStageForFirstSeenTx = Phase2Tx & {
   markPendingSnapshotDeleteStarted?: SnapshotAssetsApplyTx["markPendingSnapshotDeleteStarted"];
   deleteRevisionRaceCooldowns?(driveFileId: string): Promise<void>;
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
+  upsertAdminAlert(input: UpsertAdminAlertInput): Promise<string | null>;
   deleteLivePendingIngestion(driveFileId: string): Promise<void>;
   upsertLivePendingSync(
     row: Omit<Phase1PendingSyncRow, "stagedId"> & { stagedId?: string },
@@ -117,7 +109,10 @@ async function toResult(
     await emitSuccessfulPhase2Tail({
       tx,
       result: applied,
-      deps,
+      deps: {
+        ...deps,
+        upsertAdminAlert: deps.upsertAdminAlert ?? tx.upsertAdminAlert.bind(tx),
+      },
       driveFileId,
       fileMeta: args.fileMeta,
       parseResult: args.parseResult,
@@ -138,7 +133,9 @@ export async function runManualStageForFirstSeen(
 ): Promise<RunManualStageForFirstSeenResult> {
   await assertShowLockHeld(tx, driveFileId);
   if (!deps.fileMeta || !deps.parseResult || !deps.binding) {
-    throw new Error("runManualStageForFirstSeen requires pre-fetched fileMeta, parseResult, and binding");
+    throw new Error(
+      "runManualStageForFirstSeen requires pre-fetched fileMeta, parseResult, and binding",
+    );
   }
   const fileMeta = deps.fileMeta;
   const binding = deps.binding;
@@ -151,7 +148,8 @@ export async function runManualStageForFirstSeen(
     binding,
   });
   return (
-    (await toResult(tx, driveFileId, { fileMeta, parseResult, binding }, deps, result)) ??
-    { outcome: "parsed" }
+    (await toResult(tx, driveFileId, { fileMeta, parseResult, binding }, deps, result)) ?? {
+      outcome: "parsed",
+    }
   );
 }

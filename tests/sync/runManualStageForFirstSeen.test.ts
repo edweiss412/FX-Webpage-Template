@@ -34,9 +34,7 @@ vi.mock("@/lib/sync/defaultSnapshotAssetsForApply", () => ({
 class FakeManualStageTx implements RunManualStageForFirstSeenTx {
   held = true;
   operations: string[] = [];
-  autoPublishFirstSeen:
-    | { unpublishToken: string; unpublishTokenExpiresAt: string }
-    | undefined;
+  autoPublishFirstSeen: { unpublishToken: string; unpublishTokenExpiresAt: string } | undefined;
   stagedRows: Array<{
     driveFileId: string;
     triggeredReviewItems: Array<{ invariant: string }>;
@@ -47,6 +45,14 @@ class FakeManualStageTx implements RunManualStageForFirstSeenTx {
   async queryOne<T>(sql: string) {
     if (/pg_locks/i.test(sql)) return { held: this.held } as T;
     return { held: this.held } as T;
+  }
+  async upsertAdminAlert(input: {
+    showId: string | null;
+    code: string;
+    context: Record<string, unknown>;
+  }) {
+    this.alerts.push(input);
+    return "alert-1";
   }
   async deleteLivePendingIngestion(driveFileId = "file-1") {
     this.operations.push(`deleteLivePendingIngestion:${driveFileId}`);
@@ -176,15 +182,13 @@ describe("runManualStageForFirstSeen", () => {
   test("auto-publishes first-seen clean retry, alerts with undo payload, invalidates, and deletes the live pending ingestion", async () => {
     const tx = new FakeManualStageTx();
     const events: string[] = [];
-    const upsertAdminAlert = vi.fn(async (input: {
-      showId: string | null;
-      code: string;
-      context: Record<string, unknown>;
-    }) => {
-      events.push("alert:first-published");
-      tx.alerts.push(input);
-      return "alert-1";
-    });
+    const upsertAdminAlert = vi.fn(
+      async (input: { showId: string | null; code: string; context: Record<string, unknown> }) => {
+        events.push("alert:first-published");
+        tx.alerts.push(input);
+        return "alert-1";
+      },
+    );
     const publishShowInvalidation = vi.fn(async () => {
       events.push("broadcast");
     });
@@ -429,7 +433,10 @@ describe("runManualStageForFirstSeen", () => {
         warnings: [],
         hardErrors: [],
       },
-      runPhase1: vi.fn(async () => ({ outcome: "defer" as const, reason: "mi8_modtime_unstable" as const })),
+      runPhase1: vi.fn(async () => ({
+        outcome: "defer" as const,
+        reason: "mi8_modtime_unstable" as const,
+      })),
     });
 
     expect(result).toEqual({ outcome: "deferred", reason: "mi8_modtime_unstable" });

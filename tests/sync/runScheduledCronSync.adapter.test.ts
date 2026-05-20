@@ -9,49 +9,83 @@ type CrewAuthRow = {
 const calls = vi.hoisted(() => ({
   crewAuth: new Map<string, CrewAuthRow>(),
   sql: [] as string[],
+  txAdminAlerts: [] as Array<{
+    showId: string | null;
+    code: string;
+    context: Record<string, unknown>;
+  }>,
+  defaultAdminAlerts: [] as Array<unknown>,
+}));
+
+vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({
+  upsertAdminAlert: vi.fn(async (input: unknown) => {
+    calls.defaultAdminAlerts.push(input);
+    throw new Error("default upsertAdminAlert must not run inside sync pipeline transaction");
+  }),
 }));
 
 vi.mock("postgres", () => ({
-  default: vi.fn(() => ({
-    begin: async <T>(fn: (tx: { unsafe: (sql: string, params?: unknown[]) => Promise<unknown[]> }) => Promise<T>) =>
-      await fn({
-        unsafe: async (sql: string, params: unknown[] = []) => {
-          calls.sql.push(sql);
-          if (/pg_try_advisory_xact_lock/i.test(sql)) return [{ locked: true }];
-          if (/from pg_locks/i.test(sql)) return [{ held: true }];
+  default: vi.fn(() => {
+    const unsafe = async (sql: string, params: unknown[] = []) => {
+      calls.sql.push(sql);
+      if (/pg_try_advisory_xact_lock/i.test(sql)) return [{ locked: true }];
+      if (/from pg_locks/i.test(sql)) return [{ held: true }];
+      if (/from public\.deferred_ingestions/i.test(sql)) return [];
+      if (/from public\.revision_race_cooldowns/i.test(sql)) return [];
+      if (/delete from public\.revision_race_cooldowns/i.test(sql)) return [];
+      if (/select id from public\.shows where drive_file_id/i.test(sql)) return [];
+      if (/select public\.upsert_admin_alert/i.test(sql)) {
+        const [showId, code, context] = params as [string | null, string, string];
+        calls.txAdminAlerts.push({
+          showId,
+          code,
+          context: JSON.parse(context) as Record<string, unknown>,
+        });
+        return [{ id: "tx-alert-1" }];
+      }
 
-          if (/insert into public\.crew_member_auth/i.test(sql)) {
-            const [showId, crewName] = params as [string, string];
-            const key = `${showId}:${crewName}`;
-            if (!calls.crewAuth.has(key)) {
-              calls.crewAuth.set(key, {
-                current_token_version: 1,
-                max_issued_version: 1,
-                revoked_below_version: 0,
-              });
-            }
-            return [];
-          }
+      if (/insert into public\.crew_member_auth/i.test(sql)) {
+        const [showId, crewName] = params as [string, string];
+        const key = `${showId}:${crewName}`;
+        if (!calls.crewAuth.has(key)) {
+          calls.crewAuth.set(key, {
+            current_token_version: 1,
+            max_issued_version: 1,
+            revoked_below_version: 0,
+          });
+        }
+        return [];
+      }
 
-          if (/update public\.crew_member_auth/i.test(sql)) {
-            const [showId, names] = params as [string, string[]];
-            for (const crewName of names) {
-              const row = calls.crewAuth.get(`${showId}:${crewName}`);
-              if (!row) continue;
-              row.current_token_version = row.max_issued_version;
-              row.revoked_below_version = row.max_issued_version;
-            }
-            return [];
-          }
+      if (/update public\.crew_member_auth/i.test(sql)) {
+        const [showId, names] = params as [string, string[]];
+        for (const crewName of names) {
+          const row = calls.crewAuth.get(`${showId}:${crewName}`);
+          if (!row) continue;
+          row.current_token_version = row.max_issued_version;
+          row.revoked_below_version = row.max_issued_version;
+        }
+        return [];
+      }
 
-          throw new Error(`unexpected SQL: ${sql}`);
-        },
-      }),
-    end: async () => undefined,
-  })),
+      throw new Error(`unexpected SQL: ${sql}`);
+    };
+
+    return {
+      unsafe,
+      begin: async <T>(
+        fn: (tx: { unsafe: (sql: string, params?: unknown[]) => Promise<unknown[]> }) => Promise<T>,
+      ) =>
+        await fn({
+          unsafe,
+        }),
+      end: async () => undefined,
+    };
+  }),
 }));
 
-const { withPostgresSyncPipelineLock } = await import("@/lib/sync/runScheduledCronSync");
+const { processOneFile, withPostgresSyncPipelineLock } =
+  await import("@/lib/sync/runScheduledCronSync");
 
 describe("Postgres sync pipeline adapter", () => {
   test("provisionAddedCrewAuth leaves freshly added crew in no-live-link state", async () => {
@@ -72,5 +106,98 @@ describe("Postgres sync pipeline adapter", () => {
       max_issued_version: 1,
       revoked_below_version: 1,
     });
+  });
+
+  test("production cron shape auto-wires first-published alerts to the transaction client", async () => {
+    calls.sql.length = 0;
+    calls.txAdminAlerts.length = 0;
+    calls.defaultAdminAlerts.length = 0;
+
+    const result = await processOneFile(
+      "drive-file-first-seen",
+      "cron",
+      {
+        driveFileId: "drive-file-first-seen",
+        name: "First Seen Sheet",
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        parents: ["folder-1"],
+        headRevisionId: "head-1",
+      },
+      {
+        perFileProcessor: async () => ({ outcome: "proceed", mode: "cron" }),
+        captureBinding: async () => ({
+          bindingToken: "head-1",
+          modifiedTime: "2026-05-08T12:00:00.000Z",
+        }),
+        fetchMarkdownAtRevision: async () => "# v4\nShow",
+        parseSheet: () => ({
+          show: {
+            title: "Show",
+            client_label: "Client",
+            client_contact: null,
+            template_version: "v4",
+            venue: null,
+            dates: {
+              travelIn: null,
+              set: null,
+              showDays: ["2026-05-09"],
+              travelOut: null,
+            },
+            schedule_phases: {},
+            event_details: {},
+            agenda_links: [],
+            coi_status: null,
+            po: null,
+            proposal: null,
+            invoice: null,
+            invoice_notes: null,
+          },
+          crewMembers: [],
+          hotelReservations: [],
+          rooms: [],
+          transportation: null,
+          contacts: [],
+          pullSheet: null,
+          diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+          openingReel: null,
+          raw_unrecognized: [],
+          warnings: [],
+          hardErrors: [],
+        }),
+        enrichWithDrivePins: async (parsed) => ({
+          ...parsed,
+          diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+          openingReel: null,
+        }),
+        runPhase1: async () => ({ outcome: "auto_publish_ready" }),
+        runPhase2: async (_tx, args) => {
+          expect(args.autoPublishFirstSeen).toEqual({
+            unpublishToken: "11111111-1111-4111-8111-111111111111",
+            unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z",
+          });
+          return { outcome: "applied", showId: "show-1" };
+        },
+        createUnpublishToken: () => "11111111-1111-4111-8111-111111111111",
+        now: () => new Date("2026-05-08T12:00:00.000Z"),
+      },
+    );
+
+    expect(result).toEqual({ outcome: "applied", showId: "show-1" });
+    expect(calls.defaultAdminAlerts).toEqual([]);
+    expect(calls.txAdminAlerts).toEqual([
+      {
+        showId: "show-1",
+        code: "SHOW_FIRST_PUBLISHED",
+        context: {
+          drive_file_id: "drive-file-first-seen",
+          sheet_name: "First Seen Sheet",
+          crew_count: 0,
+          show_date: "2026-05-09",
+          unpublish_token: "11111111-1111-4111-8111-111111111111",
+          unpublish_token_expires_at: "2026-05-09T12:00:00.000Z",
+        },
+      },
+    ]);
   });
 });
