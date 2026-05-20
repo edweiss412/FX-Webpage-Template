@@ -77,10 +77,13 @@ The matrix is **personas × surfaces**. The full persona inventory:
 
 Master spec §6.6 (lines 1417–1420) enumerates the canonical role_flags vocabulary: `LEAD`, `A1`, `A2`, `V1`, `L1`, `BO`, `GS`, `ONLY`, `CAM_OP`, `GAV`, `FLOATER`, `FLOOR`, `STREAM`, `PTZ`, `LED`, `SHOW_CALLER`, `GREEN_ROOM`, `OWNER`, `CONTENT_CREATION`. **LEAD is the only auth-bearing flag** — it gates `shows_internal.financials` visibility. The rest are department / scope-tile designators (line 1561 amendment 8): they don't change auth, but they DO change which scope-tiles render on the crew page (per plan tasks 4.6 / 4.12 capability predicates).
 
-Persona 6 is therefore not a single row but a family. The plan exercises **at minimum the following sub-variants**:
+Persona 5 (LEAD) and persona 6 (non-LEAD) are therefore not single rows each but families. The plan exercises **at minimum the following sub-variants** across both:
 
 | Sub-variant | role_flags fixture | What this catches |
 |---|---|---|
+| 5a — Pure LEAD | `["LEAD"]` | LEAD financial visibility; no scope-tile coupling |
+| 5b — Compound LEAD + audio | `["LEAD","A1"]` | Compound LEAD+scope (master spec §6.6 line 1418 explicit example `LEAD / A1`). Validates that LEAD financials AND A1 scope tile coexist correctly. |
+| 5c — Compound LEAD + backstage | `["BO","LEAD"]` | Compound LEAD+BO (master spec line 1418 `BO - LEAD` example). Validates non-A1 LEAD compound. |
 | 6a — Audio scope | `["A1"]` | Audio scope-tile visibility (A1/A2 collapse via `hasA1` predicate) |
 | 6b — Video scope | `["V1"]` | Video scope-tile visibility |
 | 6c — Lighting scope | `["L1"]` | Lighting scope-tile visibility (`hasL1` predicate) |
@@ -88,7 +91,32 @@ Persona 6 is therefore not a single row but a family. The plan exercises **at mi
 | 6e — Compound non-LEAD | `["A1","L1"]` or `["GS","A1"]` | Compound atomic-flag rendering; both scope tiles visible |
 | 6f — Unrecognized role / `[]` | `[]` (no flags) | The empty-flags edge case; confirms the page does not crash or expose financials |
 
-The plan walks each 6a–6f variant for the crew page and for preview-as-crew (persona 4 with each role variant). Real-iPhone exercise (§3.1) is required for 6a + 6d + 6f as the highest-leverage sample; the rest are exercised on Vercel preview URL in desktop + emulated mobile.
+The plan walks each 5a–5c + 6a–6f variant for the crew page and for preview-as-crew (persona 4 with each role variant). Real-iPhone exercise (§3.1) is required for 5b + 6a + 6d + 6f as the highest-leverage sample; the rest are exercised on Vercel preview URL in desktop + emulated mobile.
+
+### 3.3 Date and stage restriction axes (orthogonal to role)
+
+Master spec §6.6 + §8 establish that `date_restriction` and `stage_restriction` are independent of `role_flags` and drive Right Now card state, schedule tile filtering, and pack-list tile visibility. These are validation-significant axes the role-only matrix would miss.
+
+| Axis | Variants the plan exercises | Surfaces that change |
+|---|---|---|
+| `date_restriction.kind` | `none` (default), `explicit` with subset of show days, `unknown_asterisk` (parsed from `ONLY***`) | Right Now card state (`viewer_unconfirmed`, `viewer_off_day`, `viewer_off_day_pre`, `viewer_after_last_day` per master spec §8 lines 2411–2414); schedule tile filtering (master spec §8 lines 2372–...) |
+| `stage_restriction.kind` | `none` (default), `explicit` with `["Load In", "Set"]` (set-only), `explicit` with `["Load Out", "Strike"]` (strike-only), `explicit` with all four stages (the `ONLY` flag with no subset) | Pack-list tile per-day visibility (master spec §8 line 2395) |
+| Today vs assigned-day | Today inside explicit days, today outside explicit days, today before first assigned day, today after last assigned day | Right Now card precedence rule "viewer date_restriction always takes precedence over show-wide state" (master spec line 2405) |
+
+The plan exercises at minimum the following restriction combinations across crew personas (5/6/7) and preview persona 4:
+
+| Combo | date_restriction | stage_restriction | Day-of-walk |
+|---|---|---|---|
+| R1 | `none` | `none` | Set day |
+| R2 | `explicit` (today included) | `none` | Set day |
+| R3 | `explicit` (today excluded) | `none` | Set day → expect `viewer_off_day` |
+| R4 | `unknown_asterisk` | `none` | Any day → expect `viewer_unconfirmed` |
+| R5 | `explicit` (today before first assigned day) | `none` | Pre-show day → expect `viewer_off_day_pre` |
+| R6 | `explicit` (today after last assigned day) | `none` | Post-show day → expect `viewer_after_last_day` |
+| R7 | `none` | `explicit ["Load In","Set"]` | Set day vs strike day | (set-day pack-list visible; strike-day pack-list hidden) |
+| R8 | `none` | `explicit ["Load Out","Strike"]` | Strike day | (pack-list visible only on strike) |
+
+The day-of-walk uses the same fixture-clock manipulation pattern M11 uses for screenshot reproducibility (`X-Screenshot-Frozen-Now` header per M11 §3.6.2), if the plan determines that mechanism is reusable for day-of-walk control; otherwise the plan describes an alternative (DB fixture day shift, system clock, etc.).
 
 ### 3.1 Sub-dimensions per matrix cell
 
@@ -110,7 +138,33 @@ The "curated subset" for real-iPhone is enumerated at plan-writing time; default
 
 ### 4.1 Inventory source
 
-The canonical source of "every documented surface" is the master spec (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md`) + the M11 spec (`docs/superpowers/specs/2026-05-12-user-facing-docs-design.md`). The implementation plan's first task walks both specs and produces the matrix's row inventory. This spec does NOT pre-enumerate every row, because the source has hundreds of references and would rot; the plan-time walk is authoritative.
+The canonical source of "every documented surface" is the master spec (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md`) + the M11 spec (`docs/superpowers/specs/2026-05-12-user-facing-docs-design.md`). This spec does NOT pre-enumerate every row, because the source has hundreds of references and would rot; the plan-time derivation is authoritative — and the derivation itself is structurally required (§4.1.1), not delegated.
+
+### 4.1.1 Matrix-inventory derivation (mandatory plan-time task)
+
+The M12 plan's **first task** generates a matrix-inventory file at `docs/superpowers/plans/<date>-solo-dev-ux-validation/MATRIX-INVENTORY.md`. The file is a PLAN-time artifact (one-shot derivation, not the per-cell exercise tracking the §8 "no artifact" rule rules out). Its purpose is to make "the matrix" structurally enumerable rather than informally delegated.
+
+**Required derivation sources** — every candidate matrix row must trace back to at least one of:
+
+| Source | What to walk | Output rows |
+|---|---|---|
+| Master spec heading inventory | Every `##` and `###` heading in `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` that names a UI surface | One row per heading naming a surface |
+| Master spec spec-id anchors | Every spec-ID (AC-X.Y, MI-N, §-references with UI content) | One row per spec-ID with an associated UI surface |
+| M11 spec page inventory | Every `/help/...` route enumerated in M11 §4 (the 13 pages) + the catalog-driven `/help/errors` rows | One row per `/help/...` route AND one row per catalog-driven error section |
+| Route inventory | Every `app/**/page.tsx` and `app/**/layout.tsx` not excluded by §4.3 | One row per route |
+| Catalog inventory | Every entry in `lib/messages/catalog.ts` with `dougFacing != null` OR `crewFacing != null` (admin AND crew per band E broadening) | One row per catalog code, grouped by rendering surface |
+| Report-pipeline outcomes | Every outcome state per master spec §13.2 (success, in-flight idempotency, rate-limit, lookup-inconclusive, lease-expired, horizon-expired, orphaned-lost-lease) | One row per outcome |
+| §9.0.1 affordance matrix | Every row in M11 §5.6 affordance matrix | One row per affordance with its target |
+
+**Disposition discipline.** Every candidate row produced by the derivation lands in MATRIX-INVENTORY.md with one of three dispositions:
+
+- `INCLUDED` — exercised in matrix walk. Mapped to one of bands A–F.
+- `EXCLUDED — <reason>` — explicitly out of scope. Reason cites §4.3 exclusion or a fresh reason added in the derivation.
+- `BAND-OVERLAP — <other row id>` — captured by another included row; cross-link to that row.
+
+No candidate row may be silently dropped. The plan's task close-out asserts that every candidate from each source is dispositioned.
+
+**Why this is in the spec and not just left to plan judgement.** The R1+R2 review identified that "plan-time walk is authoritative" was too informal — a free-form walk can silently miss hard-to-notice surfaces (stale states, asset routes, diagnostic outcomes, spec-id-only surfaces). Structurally requiring the derivation against explicit sources, with every candidate row dispositioned, makes the matrix's completeness inspectable rather than assumed. This mirrors the X.6 traceability pattern from the master plan.
 
 ### 4.2 Surface bands (high-level categorization)
 
@@ -346,13 +400,26 @@ This is acceptable because:
 
 ### 11.3 Implication for the M12 plan
 
-The implementation plan must NOT add structural artifacts that contradict the "no artifact" decision. Specifically:
+The implementation plan must NOT add structural artifacts that contradict the "no artifact" decision for the EXERCISE OUTPUT. Specifically:
 
 - The plan does NOT require per-cell check-marks in a committed matrix file.
 - The plan does NOT require per-surface screenshots in a committed folder.
 - The plan does NOT require session recordings.
 
-The plan MAY suggest informal working tools (a personal bug-list file, a personal matrix-tracker spreadsheet) — but cannot promote any of them to a required milestone output. The sign-off paragraph (§8.1) is the only required output.
+The plan MAY suggest informal working tools (a personal bug-list file, a personal matrix-tracker spreadsheet) — but cannot promote any of them to a required milestone output. The sign-off paragraph (§8.1) is the only required EXERCISE output.
+
+### 11.3.1 Distinction: PLAN-time artifacts vs EXERCISE-time artifacts
+
+The "no artifact" rule scopes the exercise's per-cell outputs. It does NOT prohibit plan-time enumeration artifacts that are one-shot, generated before the exercise begins, and not updated during the exercise. The matrix-inventory file (§4.1.1) is the canonical example: it's a derivation of WHAT to walk, produced at plan-time, frozen before Phase 1. It does not become an evidence trail of the dev's walk; it's the definition of the walk.
+
+| Artifact class | Allowed? | Examples |
+|---|---|---|
+| **Plan-time derivation** (one-shot, frozen before Phase 1) | ✅ Required | `MATRIX-INVENTORY.md` (§4.1.1) |
+| **Exercise-time per-cell tracking** (updated during the walk) | ❌ Prohibited | Per-cell check-marks, per-cell screenshots, session recordings |
+| **Informal dev working state** (the dev's private notes during iteration) | ➖ Allowed but not required | Personal bug-list, personal matrix-tracker spreadsheet — at the dev's discretion |
+| **Sign-off paragraph** (single required EXERCISE output) | ✅ Required (single artifact) | `SIGN-OFF.md` paragraph per §8.1 |
+
+The distinction is meaningful: plan-time artifacts define the *contract* of the milestone (what to walk); exercise-time artifacts would define the *audit trail* of the exercise (which cells the dev visited). The "no artifact" rule applies only to the latter.
 
 ---
 
@@ -373,7 +440,7 @@ This section is the inline self-review per the project's spec-self-review checkl
 | CHECK / enum migration | N/A | No DB constraint change. |
 | Flag lifecycle | N/A | No new boolean config field. |
 | Pay-engine grain | N/A | No pay-engine touch. |
-| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, 6 non-LEAD scope sub-variants (§3.2 — added R1), **4 Phase 0 smoke tests (§9.2 — expanded R1 from 2 to 4)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
+| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **8 restriction combinations (§3.3 — added R2)**, **7 matrix-derivation sources (§4.1.1 — added R2)**, **4 Phase 0 smoke tests (§9.2 — expanded R1 from 2 to 4)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
 | Disagreement-loop preempt | Applied | §11.2 ("intentionally absent") names the "no artifact" decision as deliberate, with rationale, so reviewers don't relitigate it. §1.5 names "no real-user testing" as deliberate, with rationale. §2 enumerates explicit deferrals so reviewers don't surface them as gaps. |
 | Build-vs-runtime gate explicitness | Applies | Phase 0 §9 names the build target (Vercel preview deployment); §9.2 names the runtime smoke tests that gate Phase 1 (real Google sign-in + real iPhone signed-link render). The seven CI gates in §9.1 are build-time gates; the alert path is a runtime path. |
 
@@ -417,3 +484,17 @@ Verdict: `needs-attention`. Five findings, all accepted as legitimate and addres
 - **Boundary clarification on triage rubric** (§7.1) — added per Codex's secondary concern about "prototype-y on a non-load-bearing surface" being ambiguous. The corrected rule anchors on *confidence-shake*, not surface-depth.
 - **Band E broadening** (§4.2) — Codex named the report-surface miss; the class-sweep revealed band E was scoped to `/admin/*` catalog messages and missed crew-facing catalog messages (e.g., `LINK_EXPIRED`). Broadened to cover both.
 - **`/me` page added** — Codex's F4 mentioned Google fresh-vs-return; the class-sweep revealed the master spec line 2266 `/me` cross-show surface uses a different validator (`validateGoogleIdentity` vs `validateGoogleSession`) and is not show-bound, making it a structurally distinct surface absent from the original draft. Added as persona 8 + surface row in band B.
+
+### 15.2 Round 2 (Codex `019e43c6-7021-7011-aa0c-3a459d93840c`, 2026-05-19)
+
+Verdict: `needs-attention`. Two P1 findings, both accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — Surface inventory delegation too informal: §4.1 said "plan-time walk is authoritative" but did not require an enumerable derivation method, risking silent omissions of hard-to-notice surfaces (stale states, asset routes, diagnostic outcomes, spec-id-only surfaces) | P1 / high | Fixed. New §4.1.1 mandates the M12 plan's first task generate a `MATRIX-INVENTORY.md` file derived from 7 explicit sources (master headings, master spec-IDs, M11 pages, route inventory, catalog inventory, report-pipeline outcomes, §9.0.1 affordance matrix). Every candidate row dispositioned INCLUDED / EXCLUDED / BAND-OVERLAP with reasoning. New §11.3.1 distinguishes plan-time derivation artifacts (allowed) from exercise-time per-cell tracking (prohibited). | §4.1 + new §4.1.1, new §11.3.1 |
+| F2 — Role matrix collapsed LEAD into a single generic row; missed compound LEAD+scope (e.g., `LEAD / A1` per master spec §6.6 line 1418) and date/stage restriction axes (master spec lines 2372/2395/2405–2414) | P1 / high | Fixed. §3.2 expanded from 6 non-LEAD variants to 9 total (3 LEAD compounds 5a–5c + 6 non-LEAD 6a–6f). New §3.3 enumerates 8 restriction combinations (R1–R8) crossing date_restriction × stage_restriction × today-vs-assigned-day. Right Now card state inventory cited (`viewer_unconfirmed`, `viewer_off_day`, `viewer_off_day_pre`, `viewer_after_last_day`). | §3.2, new §3.3 |
+
+**Class-sweep additions during R2 repair:**
+
+- **Real-iPhone sample expansion** (§3.1) — added 5b (LEAD compound) to the iPhone-required subset alongside 6a / 6d / 6f. Compound-LEAD on real iPhone catches the financials+scope-tile composition on the device class that matters most.
+- **Day-of-walk control mechanism** (§3.3) — cited M11's `X-Screenshot-Frozen-Now` header pattern as a reusable mechanism for fixture-clock manipulation during restriction-axis walks. Plan picks the concrete mechanism.
