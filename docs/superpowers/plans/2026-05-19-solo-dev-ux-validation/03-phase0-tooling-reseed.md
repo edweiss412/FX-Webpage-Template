@@ -230,7 +230,12 @@ BEGIN
       v_show_id,
       v_crew_name,
       lower(trim(v_crew_member->>'email')),          -- email canonicalized per CHECK constraint
-      v_crew_member->>'displayRole',                  -- role NOT NULL — payload provides display string per fixture
+      -- R3 amendment: derive role (NOT NULL) from role_flags per master spec §6.6
+      -- compound-role convention (e.g. ["LEAD","A1"] → "LEAD / A1"; [] → "Validation Crew").
+      CASE
+        WHEN array_length(v_crew_role_flags, 1) IS NULL THEN 'Validation Crew'
+        ELSE array_to_string(v_crew_role_flags, ' / ')
+      END,
       v_crew_role_flags
     )
     ON CONFLICT (show_id, name) DO UPDATE SET
@@ -247,20 +252,27 @@ BEGIN
   END LOOP;
 
   -- 4. UPSERT validation_state singleton: merge alias_map[combo] = slice; append combo to combos_materialized.
+  --    R3 amendment: ALSO stamp combos_seeded_dates[combo] = current_date::text so check-seed
+  --    can detect partial --combo all reseed (some combos today, others stale).
+  --    Do NOT update top-level last_seed_date here — that's set ONLY by validation_finalize_all_atomic
+  --    after every combo's mint succeeds.
   INSERT INTO public.validation_state (
-    key, last_seed_date, combos_materialized, alias_map, seeded_by, seeded_supabase_project_ref
+    key, last_seed_date, combos_materialized, combos_seeded_dates, alias_map,
+    seeded_by, seeded_supabase_project_ref
   )
   VALUES (
     'validation_seed',
-    current_date,
+    current_date,  -- initial; gets overwritten by finalize-all-atomic on full runs
     ARRAY[p_combo],
+    jsonb_build_object(p_combo, current_date::text),
     jsonb_build_object(p_combo, v_alias_map_slice),
     p_fixture_payload->>'seededBy',
     p_fixture_payload->>'seededProjectRef'
   )
   ON CONFLICT (key) DO UPDATE SET
-    last_seed_date = current_date,
+    -- last_seed_date is NOT updated here (R3 amendment); finalize-all-atomic owns it.
     combos_materialized = (SELECT array_agg(DISTINCT c) FROM unnest(public.validation_state.combos_materialized || ARRAY[p_combo]) c),
+    combos_seeded_dates = public.validation_state.combos_seeded_dates || jsonb_build_object(p_combo, current_date::text),
     alias_map = public.validation_state.alias_map || jsonb_build_object(p_combo, v_alias_map_slice),
     seeded_supabase_project_ref = EXCLUDED.seeded_supabase_project_ref;
 
@@ -335,9 +347,15 @@ BEGIN
     LOOP
       DELETE FROM public.revoked_links
         WHERE show_id = v_show.show_id AND crew_name = v_qc_crew_name;
+      -- R3 amendment: bump max_issued_version alongside current_token_version so the
+      -- invariant `current_token_version <= max_issued_version` (live auth semantics
+      -- monotonicity) is preserved. Otherwise current could exceed max and confuse
+      -- future admin-driven rotation paths.
       UPDATE public.crew_member_auth
-        SET current_token_version = current_token_version + 1,
-            revoked_below_version = 0
+        SET current_token_version = max_issued_version + 1,
+            max_issued_version = max_issued_version + 1,
+            revoked_below_version = 0,
+            last_changed_at = now()
         WHERE show_id = v_show.show_id AND crew_name = v_qc_crew_name;
       v_reset_auth := v_reset_auth + 1;
     END LOOP;
@@ -357,6 +375,62 @@ GRANT EXECUTE ON FUNCTION public.validation_cleanup_atomic(text) TO service_role
 The reseed script calls this RPC only for `--combo all` (NOT for single-combo reseed) since query-compromise reset would otherwise blow away the J3 leg's revocation mid-test.
 
 - [ ] **Step 5: Confirm `mint_validation_fixture_atomic` does NOT handle a `__cleanup__` pseudo-combo** — that responsibility lives ONLY in `validation_cleanup_atomic`. (R2 amendment — removes the dual-entry-point ambiguity from R1's first draft.)
+
+- [ ] **Step 6 (R3 amendment): Author the `validation_finalize_all_atomic` RPC** for the `--combo all` finalization. Per-combo mint stamps `combos_seeded_dates[combo] = today`; this RPC verifies every requested combo has today's date AND only THEN updates the top-level `last_seed_date`. Without this finalizer, a partial --combo all (some combos succeed, some fail) leaves combos_seeded_dates correct per-combo but last_seed_date could remain stale or be misleadingly set.
+
+```sql
+-- supabase/migrations/<timestamp>_validation_finalize_all_atomic.sql
+
+CREATE OR REPLACE FUNCTION public.validation_finalize_all_atomic(
+  p_required_combos text[]
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_combo text;
+  v_combo_date text;
+  v_missing text[] := ARRAY[]::text[];
+  v_stale text[]   := ARRAY[]::text[];
+  v_combos_dates jsonb;
+BEGIN
+  SELECT combos_seeded_dates INTO v_combos_dates FROM public.validation_state WHERE key = 'validation_seed';
+  IF v_combos_dates IS NULL THEN
+    RAISE EXCEPTION 'validation_state.combos_seeded_dates not initialized — run mint_validation_fixture_atomic first';
+  END IF;
+
+  FOREACH v_combo IN ARRAY p_required_combos LOOP
+    v_combo_date := v_combos_dates->>v_combo;
+    IF v_combo_date IS NULL THEN
+      v_missing := array_append(v_missing, v_combo);
+    ELSIF v_combo_date <> current_date::text THEN
+      v_stale := array_append(v_stale, v_combo || ':' || v_combo_date);
+    END IF;
+  END LOOP;
+
+  IF array_length(v_missing, 1) IS NOT NULL OR array_length(v_stale, 1) IS NOT NULL THEN
+    RAISE EXCEPTION 'validation_finalize_all_atomic: incomplete reseed (missing: %, stale: %)', v_missing, v_stale;
+  END IF;
+
+  -- All requested combos seeded today; safe to stamp top-level last_seed_date.
+  UPDATE public.validation_state
+    SET last_seed_date = current_date
+    WHERE key = 'validation_seed';
+
+  RETURN jsonb_build_object('finalized_combos', p_required_combos, 'last_seed_date', current_date);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.validation_finalize_all_atomic(text[]) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.validation_finalize_all_atomic(text[]) TO service_role;
+```
+
+- [ ] **Step 7 (R3 amendment): Update the reseed script's `--combo all` path** to:
+  - Loop through every combo, calling `mint_validation_fixture_atomic` per combo.
+  - At the end (no failures), call `validation_finalize_all_atomic(<the 16 combos>)`.
+  - If any per-combo mint fails, the finalizer is NOT called → top-level last_seed_date stays at its prior value → check-seed catches the partial seed (per Task 0.C.5 predicate update below).
 
 - [ ] **Step 5: Apply both migrations** to prod-equivalent Supabase. Re-run the failing test — expect PASS.
 
@@ -414,7 +488,7 @@ git commit -m "feat(validation): implement reseed with per-show lock + alias_map
 **Files:**
 - Modify: `scripts/validation-check-seed.ts`
 
-Per spec §3.3.2 singleton write semantics. 8 predicates (a-h):
+Per spec §3.3.2 singleton write semantics. **9 predicates (a-i)** (R3 amendment — predicate (i) added for per-combo seeded-date verification):
 - (a) `validation_state` row missing (zero rows for `key='validation_seed'`)
 - (b) `last_seed_date != current_date`
 - (c) `combos_materialized` doesn't cover the requested combo set
@@ -423,6 +497,7 @@ Per spec §3.3.2 singleton write semantics. 8 predicates (a-h):
 - (f) For any alias in alias_map, `crew_member_auth` is missing the matching `(show_id, crew_name)` row
 - (g) Any `current_token_version` is unset/null
 - (h) `revoked_links` has a row matching the baseline `alias_5a_lead`'s `(show_id, crew_name, current_token_version)` tagged `revoked_reason LIKE 'validation:%'`
+- (i) **R3 amendment:** for ANY combo in the requested set, `combos_seeded_dates[combo] != current_date::text`. Catches the partial-`--combo all` failure mode where some combos succeeded today and others stamped yesterday (or are missing). Without this predicate, alias_map being full + last_seed_date being today is insufficient evidence that EVERY combo's fixture is today's-date-aligned.
 
 - [ ] **Step 1: Write failing test:** check-seed returns exit 0 immediately after a fresh reseed; returns exit 1 if VALIDATION_SUPABASE_PROJECT_REF env var is set to a wrong value.
 

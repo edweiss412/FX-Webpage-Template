@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS public.validation_state (
   key                              text PRIMARY KEY CHECK (key = 'validation_seed'),
   last_seed_date                   date NOT NULL,
   combos_materialized              text[] NOT NULL,
+  combos_seeded_dates              jsonb NOT NULL DEFAULT '{}'::jsonb,    -- R3 amendment: per-combo seeded dates so partial --combo all reseed cannot falsify the gate
   alias_map                        jsonb NOT NULL DEFAULT '{}'::jsonb,
   seeded_by                        text NOT NULL,
   seeded_supabase_project_ref      text NOT NULL,
@@ -139,6 +140,14 @@ ALTER TABLE public.validation_state
   ALTER COLUMN alias_map SET DEFAULT '{}'::jsonb;
 ALTER TABLE public.validation_state
   ALTER COLUMN alias_map SET NOT NULL;
+
+-- R3 amendment: per-combo seeded dates so partial --combo all reseed cannot pass check-seed.
+ALTER TABLE public.validation_state
+  ADD COLUMN IF NOT EXISTS combos_seeded_dates jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE public.validation_state
+  ALTER COLUMN combos_seeded_dates SET DEFAULT '{}'::jsonb;
+ALTER TABLE public.validation_state
+  ALTER COLUMN combos_seeded_dates SET NOT NULL;
 
 DO $$
 DECLARE
