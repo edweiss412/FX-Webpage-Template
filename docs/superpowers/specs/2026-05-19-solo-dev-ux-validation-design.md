@@ -123,6 +123,22 @@ The day-of-walk uses **wall-clock + fixture-data engineering**, NOT the M11 `X-S
 3. **No code path changes.** This approach changes data, not code. The application reads `now()` from `lib/time/now.ts` which in production returns the real system clock. No test-auth bypass; no production-unsafe headers.
 4. **Phase 0 verification.** Phase 0 smoke test 5 (added in R3) verifies the re-seed mechanism by setting a fixture to `viewer_off_day` state and confirming the Right Now card renders the off-day copy. This proves the data-engineering approach actually drives the state transitions before Phase 1 starts.
 
+5. **Walk-session gate (added R4).** Before every walk session — initial sweep (§7.2 step 2), targeted re-exercise (§7.2 step 5), or final sweep (§7.2 step 7) — the dev MUST run the re-seed script (or verify the seed-date stamp matches the current local date). Stale fixtures block walk progression. The re-seed script writes a `validation_seed_date` row that the dev verifies before each session start; if the stamp's date ≠ today, the dev re-seeds before walking. This eliminates the "Tuesday seed used on Wednesday walk" failure mode named in Codex R4 F1.
+
+### 3.3.1 Right Now show-wide state inventory (orthogonal to restriction)
+
+Master spec §8 names additional Right Now card states that are show-wide (independent of viewer restriction): `pre_travel`, `travel_in_day`, `show_day_N` (N = 1, 2, 3...), `post_show`. These are not covered by R1–R8 (which focus on viewer-restriction states). The matrix exercises each show-wide state at least once with restriction = `none`:
+
+| Show-wide state | Fixture configuration | When walked |
+|---|---|---|
+| `pre_travel` | Today is more than 1 day before fixture's `dates.travelIn` | Pre-show day (data-engineered) |
+| `travel_in_day` | Today = fixture's `dates.travelIn` (the day before set day) | Travel-in day |
+| `show_day_1` | Today = first day of fixture's show dates | First show day |
+| `show_day_N` (N≥2) | Today = an interior show day | Mid-show day |
+| `post_show` | Today is after fixture's `dates.travelOut` | Post-show day |
+
+Show-wide states are walked once each (SMOKE-SAMPLE per §3.4) for the LEAD persona on the Right Now card surface. Combined with R1–R8 viewer-restriction states, the Right Now card has 8 + 5 = 13 day-state walks per persona. MATRIX-INVENTORY.md dispositions each state explicitly so future readers see why it was included.
+
 ### 3.4 Axis applicability + sampling policy (bounded matrix)
 
 After R1+R2 expansion, the validation has multiple axes: persona (8), surface (variable per band), role variant (9), restriction combo (8), color mode (2), viewport (2), real-device-vs-emulated (2 — but only for crew personas). Cross-multiplying every axis would produce thousands of cells; a solo dev cannot walk that in finite time. The spec defines per-axis coverage policy to keep the walk bounded.
@@ -142,8 +158,8 @@ After R1+R2 expansion, the validation has multiple axes: persona (8), surface (v
 | **Surface × Persona** | FULL (within applicability — see below) | Every surface × every persona that can reach it. Anonymous reaches only auth-error surfaces; admin reaches admin surfaces; signed-link crew reaches crew surfaces. Out-of-domain combinations (e.g., anonymous × admin dashboard) are dispositioned EXCLUDED in MATRIX-INVENTORY.md. |
 | **Color mode (light/dark)** | FULL | Both modes per cell — non-negotiable per DESIGN.md. |
 | **Viewport (mobile/desktop)** | FULL | Both viewports per cell. |
-| **Role variant (5a–5c + 6a–6f)** | SMOKE-SAMPLE on most surfaces; PAIRWISE with restriction on crew-page-tile surfaces | Role variants affect crew-page tile visibility specifically. The matrix exercises each role variant ONCE on the crew page surface (one walk per variant = 9 cells), AND pairwise with restriction combos on Right Now / schedule / pack-list specifically (the surfaces master spec calls out as restriction-sensitive). Role variants are NOT crossed with admin surfaces, /help, or report surfaces (those don't change by crew role). |
-| **Restriction combo (R1–R8)** | SMOKE-SAMPLE on most surfaces; PAIRWISE with role on Right Now / schedule / pack-list | Restriction combos affect Right Now state, schedule filtering, and pack-list visibility. Each combo exercised ONCE on each of those three tiles. Pairwise with role: at least one R combo × each role variant on the Right Now card (8 pairs minimum). |
+| **Role variant (5a–5c + 6a–6f)** | SMOKE-SAMPLE on most surfaces; SMOKE-SAMPLE with explicit pair selection on Right Now / schedule / pack-list | Role variants affect crew-page tile visibility specifically. The matrix exercises each role variant ONCE on the crew page surface (one walk per variant = 9 cells). Role × restriction interaction is SAMPLED (not full pairwise) — see §3.4.1 for the explicit pair-selection rule. Role variants are NOT crossed with admin surfaces, /help, or report surfaces (those don't change by crew role). |
+| **Restriction combo (R1–R8)** | SMOKE-SAMPLE on most surfaces; SMOKE-SAMPLE with explicit pair selection with role on Right Now / schedule / pack-list | Restriction combos affect Right Now state, schedule filtering, and pack-list visibility. Each combo exercised ONCE on each of those three tiles with LEAD role. Role-restriction interaction sampled per §3.4.1. |
 | **Real-device-vs-emulated** | SMOKE-SAMPLE | Real iPhone only for the curated subset named in §3.1 (Right Now, schedule, signed-link redemption, sign-in, expired-link, revoked-link, `/me`) for personas 5/6/7/8. Other cells emulate. |
 
 **Bounded estimate:**
@@ -154,9 +170,29 @@ After R1+R2 expansion, the validation has multiple axes: persona (8), surface (v
 - Pairwise role × restriction on Right Now: 8 pairs × 4 mode-combos = 32 cells.
 - Real-device pass on curated subset: ~10 cells × 4 personas × 1 mode-combo ≈ 40 cells.
 
-**Total upper-bound estimate: ≈ 600–800 cells.** Walking this at ~30 cells/hour (rough estimate including triage time) = 20–30 hours of pure exercise. Spread across the iteration loop with fix cycles, a realistic milestone duration is 2–4 weeks.
+**Total upper-bound estimate: ≈ 600–800 cells.** Walking this at a coarse rate of ~10–30 cells/hour (the range reflects per-cell variance: a quick visual confirmation runs faster, a real-iPhone leg or a cold-start step runs slower; triage time per finding adds further variance) = roughly 20–80 hours of pure exercise. Spread across the iteration loop with fix cycles, a realistic milestone duration is **3–8 weeks**, not 2–4 weeks (R4 revision — earlier estimate was optimistic).
 
 **MATRIX-INVENTORY.md records coverage class per row.** Every row's coverage class (FULL / PAIRWISE / SMOKE-SAMPLE) is set in the plan-time derivation per §4.1.1. The dev's exercise walks each row at the coverage level specified.
+
+### 3.4.1 Role × restriction pair-selection rule (R4 amendment — replaces "pairwise" misnomer)
+
+Earlier drafts called role × restriction "PAIRWISE" but specified only ~8 pairs, which is sampling not pairwise (true pairwise of 9 role × 8 restriction = 72 pairs). The corrected classification: this is **SMOKE-SAMPLE with explicit pair selection**, not pairwise. The selection rule:
+
+| Pair # | Role variant | Restriction combo | What this pair catches |
+|---|---|---|---|
+| 1 | 5a (`["LEAD"]`) | R1 (`none`/`none`/set day) | Baseline LEAD + no restriction; sanity check |
+| 2 | 5b (`["LEAD","A1"]`) | R2 (`explicit` today included) | Compound LEAD + audio scope tile with date restriction matching |
+| 3 | 5c (`["BO","LEAD"]`) | R7 (`none`/`["Load In","Set"]`/set day) | Compound LEAD + backstage with set-day-only stage restriction |
+| 4 | 6a (`["A1"]`) | R3 (`explicit` today excluded) | Audio scope tile + off-day → no scope tile shown |
+| 5 | 6b (`["V1"]`) | R4 (`unknown_asterisk`) | Video scope + asterisk-unconfirmed; check both don't double-trigger |
+| 6 | 6c (`["L1"]`) | R5 (pre-show day) | Lighting scope + pre-show state |
+| 7 | 6d (`["BO"]`) | R6 (post-show day) | No-scope crew + after-last-day state |
+| 8 | 6e (`["A1","L1"]`) | R8 (`none`/`["Load Out","Strike"]`/strike day) | Compound scope + strike-day-only stage restriction |
+| 9 | 6f (`[]`) | R1 (`none`/`none`/set day) | Empty-flags edge case + no restriction |
+
+This sampling rule covers each role variant (9) at least once AND each restriction combo (8) at least once, plus one extra (the 9th pair pairs an empty-flags case with the baseline R1 for negative-test coverage). It does NOT cover all 72 pairs — the cross-coverage gaps are accepted with the rationale that: (a) role and restriction are largely orthogonal (role gates which tiles render; restriction gates which days/stages those tiles render on); (b) the 9 pairs hit every value on each axis at least once, so axis-individual bugs surface; (c) cross-axis interaction bugs that *only* manifest at a specific (role, restriction) pair outside the 9 are accepted as a known coverage gap.
+
+If the dev encounters an unexpected behavior during the 9-pair walk that suggests cross-axis interaction, the spec authorizes the dev to expand to additional pairs at their discretion (the working bug-list, not a formal requirement). MATRIX-INVENTORY.md records the 9 pairs explicitly.
 
 ### 3.1 Sub-dimensions per matrix cell
 
@@ -322,10 +358,25 @@ A finding is classified at the moment the dev encounters it. **Borderline cases 
 A fix to a band-E catalog-driven affordance (e.g., `messageFor('LINK_EXPIRED').dougFacing` copy change) propagates to every consumer surface in band B or band F. The re-exercise scope therefore includes:
 
 - Direct: every file the fix PR modified.
-- Transitive: every surface that imports / consumes the changed export (e.g., a copy change to a catalog entry forces re-exercise of every band-B / band-F surface that renders that entry).
+- Transitive: every surface that imports / consumes the changed export.
 - Cross-band composition: if J1–J4 cross any of the touched surfaces, the affected journey is re-run in full.
 
-This rule exists to prevent the "fix to a band-E affordance leaves a band-A consumer regression undetected" failure mode named in Codex R1 P0.
+#### 7.2.2 Consumer-enumeration rule (R4 amendment)
+
+"Transitive consumer" is concrete: every fix that touches a shared file MUST produce a written consumer inventory before targeted re-exercise begins. The dev runs the inventory step as part of every fix PR's close-out, BEFORE step 5 of the iteration loop. The inventory is informal (a section in the dev's working notes; not a required milestone artifact per §11.3), but the *step* of producing it IS required:
+
+| Touched file class | Required enumeration | Re-exercise expansion |
+|---|---|---|
+| `lib/messages/catalog.ts` or `lib/messages/lookup.ts` (`messageFor`) entry change | Grep every TSX/TS file under `app/` and `components/` for the catalog code name. Cross-reference each match to a MATRIX-INVENTORY row. | Every matched MATRIX-INVENTORY row gets re-walked. If matches span ≥3 bands, escalate to full-band re-exercise for those bands. |
+| `lib/auth/*` change (validateGoogleSession, validateGoogleIdentity, validateLinkSession, requireAdmin) | List every route file under `app/` that imports the changed validator. | Every listed route gets re-walked. |
+| `app/globals.css` or `tailwind.config.*` design-token change | All surfaces consuming the changed token, identified by grep. | The change re-runs the impeccable v3 critique + audit on every affected UI surface (invariant 8), then matrix re-exercise on those surfaces. |
+| Component file under `components/` change | Grep for `import.*<ComponentName>` across `app/` and `components/`. | Every importer route gets re-walked. |
+| Single-page change (e.g., a fix to a single `app/admin/<route>/page.tsx`) | Direct only. | The single surface gets re-walked. |
+| Schema migration / Supabase migration | Every read-side route that queries the changed table. Plus a Phase 0 smoke re-run if the migration touches admin_alerts or shows tables. | Listed routes + smoke. |
+
+**Escalation rule.** If the enumeration's matched-row count exceeds 25% of MATRIX-INVENTORY's total row count, the re-exercise auto-expands to a full sweep instead of targeted re-exercise. Rationale: targeted re-exercise of half the matrix isn't materially cheaper than a full sweep, and full sweep catches regressions in unmatched rows that the dev might have miscategorized.
+
+This rule prevents the "targeted re-exercise misses a transitively-affected surface" failure mode named in Codex R1 P0 (originally a class-sweep finding) and Codex R4 F4.
 
 ### 7.3 Disposition rules (SHOULD / NICE routing)
 
@@ -481,7 +532,7 @@ This section is the inline self-review per the project's spec-self-review checkl
 | CHECK / enum migration | N/A | No DB constraint change. |
 | Flag lifecycle | N/A | No new boolean config field. |
 | Pay-engine grain | N/A | No pay-engine touch. |
-| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **8 restriction combinations (§3.3 — added R2)**, **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **5 Phase 0 smoke tests (§9.2 — R3 added smoke test 5 for clock control)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
+| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **8 viewer-restriction combinations (§3.3 R1–R8 — added R2)**, **5 show-wide Right Now states (§3.3.1 — added R4)**, **9 role×restriction sampled pairs (§3.4.1 — added R4)**, **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **5 Phase 0 smoke tests (§9.2 — R3 added smoke test 5 for clock control)**, **5 transitive-consumer file classes (§7.2.2 — added R4)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
 | Disagreement-loop preempt | Applied | §11.2 ("intentionally absent") names the "no artifact" decision as deliberate, with rationale, so reviewers don't relitigate it. §1.5 names "no real-user testing" as deliberate, with rationale. §2 enumerates explicit deferrals so reviewers don't surface them as gaps. |
 | Build-vs-runtime gate explicitness | Applies | Phase 0 §9 names the build target (Vercel `*.vercel.app` production deployment, no custom domain); §9.2 names the runtime smoke tests that gate Phase 1 (real Google sign-in + real iPhone signed-link render). The seven CI gates in §9.1 are build-time gates; the alert path is a runtime path. |
 
@@ -554,3 +605,19 @@ Verdict: `needs-attention`. Three findings (1 P0 critical Vercel-Cron fact, 2 P1
 
 - **Production vs preview terminology sweep** — fixed every "preview URL / preview deployment" reference for the validation stack. Persona 4 "admin previewing as crew" is a different sense (impersonation preview), not a Vercel preview deployment, and was deliberately not touched.
 - **Phase 0 smoke test count** updated to 5 (was 4 after R1).
+
+### 15.4 Round 4 (Codex `019e43d0-669b-7f40-9852-6a81cbccc0f3`, 2026-05-19)
+
+Verdict: `needs-attention`. Four findings (2 P1, 2 P2). All accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — Multi-day wall-clock walks can use stale fixture dates: iteration loop didn't require re-seed before each walk session | P1 / high | Fixed. New §3.3 step 5 "Walk-session gate" requires the dev run the re-seed script (or verify the `validation_seed_date` stamp matches today) BEFORE every initial walk, targeted re-exercise, or final sweep. Stale fixtures block progression. | §3.3 |
+| F2 — Role × restriction labeled "PAIRWISE" but specified only 8 pairs, which is sampling not pairwise (true pairwise = 72 pairs) | P1 / high | Fixed. Relabeled as **SMOKE-SAMPLE with explicit pair selection**. New §3.4.1 enumerates 9 specific pairs covering each role variant and each restriction at least once, with explicit acceptance of the cross-coverage gap. | §3.4 (terminology), new §3.4.1 |
+| F3 — Right Now state coverage omitted show-wide states (`pre_travel`, `travel_in_day`, `show_day_N`, `post_show`); R1–R8 only covered viewer-restriction states | P2 / medium | Fixed. New §3.3.1 "Right Now show-wide state inventory" enumerates 5 show-wide states walked once each (LEAD + restriction `none`). Combined with R1–R8, Right Now card has 13 day-state walks per persona. | New §3.3.1 |
+| F4 — §7.2.1 transitive consumer expansion didn't define how to enumerate consumers; "every surface that imports the change" was hand-wavy | P2 / medium | Fixed. New §7.2.2 "Consumer-enumeration rule" defines a per-touched-file-class enumeration table (catalog, auth, design tokens, components, schema). Required grep step before targeted re-exercise. Auto-escalate to full sweep if >25% of MATRIX-INVENTORY rows match. | New §7.2.2 |
+
+**Class-sweep additions during R4 repair:**
+
+- **Time-budget hedging** (§3.4 estimate) — earlier draft said "2–4 weeks". R4 widened to 3–8 weeks with explicit per-cell rate range (10–30 cells/hour). The optimistic earlier number was not justified by per-step costs (cooldown, real-iPhone IO, mode-switching, triage time).
+- **Show-wide state inventory cross-link** (§3.3.1) — added explicit MATRIX-INVENTORY disposition rule for show-wide states so the §4.1.1 derivation captures them.
