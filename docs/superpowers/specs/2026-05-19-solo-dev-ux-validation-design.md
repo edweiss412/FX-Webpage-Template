@@ -133,12 +133,52 @@ The day-of-walk uses **wall-clock + fixture-data engineering**, NOT the M11 `X-S
 | Invocation | `pnpm validation:reseed [--combo <R1\|R2\|R3\|R4\|R5\|R6\|R7\|R8\|SW-PRE_TRAVEL\|SW-TRAVEL_IN\|SW-SHOW_1\|SW-SHOW_N\|SW-POST_SHOW\|all>]` |
 | Default behavior | `--combo all` — materializes all 8 R-combos + 5 show-wide states' fixtures with date columns aligned to today's local date |
 | Idempotency | Re-running with the same args on the same day is a no-op. Re-running with a different date updates every fixture's date columns. |
-| Storage of `validation_seed_date` stamp | New table `validation_state` (single row): `last_seed_date DATE NOT NULL, combos_materialized TEXT[] NOT NULL, seeded_by TEXT NOT NULL`. The script writes to this table at the end of a successful seed. |
+| Storage of `validation_seed_date` stamp | New table `validation_state` (single row), admin-only per §3.3.2 below. Schema specified in §3.3.2. The script writes to this table at the end of a successful seed. |
 | Verification command | `pnpm validation:check-seed` returns exit 0 if `last_seed_date = today` AND `combos_materialized` covers what the next walk needs; returns exit 1 otherwise. The dev runs this at the start of every walk session per §3.3 step 5 above. |
 | Owned fixture mappings | One fixture per R-combo + one fixture per show-wide state, materialized in the prod Supabase. The script holds the canonical mapping table inline (R-combo or state → `{showName, date_restriction, stage_restriction, dates.travelIn, dates.travelOut, expected_today_state}`). |
 | Plan-time deliverable | The M12 plan's Phase 0 includes a sub-task that authors `scripts/validation-reseed.ts` + the `validation_state` migration BEFORE any matrix walk. Phase 0 smoke test 5 verifies the script's correctness end-to-end. |
 
 This contract closes the Codex R5 F1 finding: re-seed mechanism is no longer hand-wavy; it's a concrete plan-time deliverable with named path, CLI, idempotency contract, storage schema, and verification command.
+
+### 3.3.2 `validation_state` table — DB-touching deliverable (R6 amendment)
+
+The `validation_state` table introduced by §3.3 step 5 is a DB-touching deliverable in M12 and is subject to the master spec's admin-only / RLS / migration discipline. R6 surfaced that §12 had marked Tier × domain and CHECK/enum as N/A — that was correct when the spec did not introduce DB changes; it is no longer correct now that `validation_state` exists.
+
+**Schema:**
+
+```sql
+CREATE TABLE validation_state (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  last_seed_date         date NOT NULL,
+  combos_materialized    text[] NOT NULL,
+  seeded_by              text NOT NULL,             -- script user/process identity
+  seeded_at              timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT validation_state_combos_check CHECK (
+    combos_materialized <@ ARRAY[
+      'R1','R2','R3','R4','R5','R6','R7','R8',
+      'SW-PRE_TRAVEL','SW-TRAVEL_IN','SW-SHOW_1','SW-SHOW_N','SW-POST_SHOW'
+    ]
+  )
+);
+
+-- Admin-only: no end-user session has any RLS path that returns rows from this table.
+ALTER TABLE validation_state ENABLE ROW LEVEL SECURITY;
+-- No policies created → default-deny under RLS. Service-role bypasses RLS for the
+-- script. Admin reads (e.g., a future audit UI) go through SECURITY DEFINER RPCs.
+```
+
+**Master-spec discipline mapping (per AGENTS.md project-scoped additions):**
+
+| Dimension | Treatment |
+|---|---|
+| Tier × domain | Admin-only (operational tooling). Should be added to the master spec's §4.3 admin-only tables list at the moment this migration lands. |
+| CHECK constraint | `validation_state_combos_check` enumerates the allowed combo names (8 R-combos + 5 show-wide states). Adding a new combo requires migrating the CHECK constraint AND extending the script's mapping table in lockstep. |
+| Migration idempotency | The migration uses `CREATE TABLE IF NOT EXISTS` + `DO $$ ... EXCEPTION WHEN duplicate_object THEN NULL END $$` for the CHECK to satisfy AGENTS.md apply-twice idempotency rule. |
+| RLS | Enabled, no policies (default-deny under RLS) → only service-role can read/write. Same posture as the master spec's other admin-only ops tables (per master spec §4.1). |
+| Supabase call-boundary | Script's `{ data, error }` destructure is mandatory per AGENTS.md invariant 9. The check-seed command uses `select`'s error branch to distinguish "table not present" (Phase 0 incomplete) from "table empty / stale" (re-seed required). |
+| Meta-test | If a `tests/db/` test enumerates admin-only tables, `validation_state` is added to that registry per the AGENTS.md meta-test inventory rule. The M12 plan declares this in its meta-test inventory section. |
+
+**Plan-time deliverable.** The M12 plan's Phase 0 sub-task that authors the re-seed script ALSO authors the `validation_state` migration. The migration goes through the project's normal migration review (impeccable v3 doesn't apply — this is a DB migration, not UI — but the project's CHECK-constraint review discipline does). Phase 0 smoke test 5 verifies the migration applied cleanly + RLS posture is correct.
 
 ### 3.3.1 Right Now show-wide state inventory (orthogonal to restriction)
 
@@ -399,14 +439,16 @@ Schema migrations affect more vectors than file-import grep can find. The recipe
 
 | Vector | Search command (template) | What it catches |
 |---|---|---|
-| Supabase JS `.from()` calls | `rg -n "\\.from\\(['\\\"]<table_name>['\\\"]\\)" app/ lib/ components/` | Direct table reads from JS layer |
+| Supabase JS `.from()` literal calls | `rg -n "\\.from\\(['\\\"]<table_name>['\\\"]\\)" app/ lib/ components/` | Direct table reads with literal string |
+| Supabase JS `.from()` schema-qualified calls | `rg -n "\\.from\\(['\\\"][a-z_]+\\.<table_name>['\\\"]\\)" app/ lib/ components/` | Schema-qualified forms like `.from('public.shows')` |
+| Supabase JS `.from()` non-literal calls (template literals, variables) | `rg -n "\\.from\\(\`" app/ lib/ components/` AND `rg -n "\\.from\\([a-zA-Z_]" app/ lib/ components/` | Catches `.from(\`prefix_${dyn}\`)`, `.from(tableName)`, `.from(buildTableName())`. Each non-literal match MUST be manually classified — does the dynamic value resolve to the affected table? If undetermined, treat as affected (default-up bias). |
 | Supabase JS `.rpc()` calls (if migration adds/changes an RPC) | `rg -n "\\.rpc\\(['\\\"]<rpc_name>['\\\"]\\)" app/ lib/ components/` | Direct RPC consumers |
 | Server-side SQL string references | `rg -n "<table_name>" app/api/ lib/db/ supabase/migrations/ supabase/functions/` | Raw SQL queries, migration cross-references, edge function refs |
 | Generated TypeScript types | `rg -n "<TableNameInPascalCase>" lib/types/ supabase/types/` | Type-only references in TS that imply usage |
-| Helper wrappers | `rg -n "<table_name>" lib/data/ lib/auth/ lib/sync/` | Domain-helper wrappers around the table |
+| Helper wrappers — by import-grep | `rg -n "from ['\\\"]lib/data/<helper-or-domain>" app/ lib/ components/` for known domain helpers (e.g., `lib/data/getShowForViewer`, `lib/data/getCrewMember`); also `rg -n "<TableNameCamelCase>|<helper_name>" lib/data/ lib/auth/ lib/sync/` | Helper-wrapper call sites that don't mention the raw table name. Includes `getShowsByOwner()`, `loadCrewMembers()`-style wrappers. |
 | Test fixtures | `rg -n "<table_name>" tests/ fixtures/` | Test suites that depend on the table — these are non-validation-walk consumers but flag them for awareness |
 
-Every match from rows 1–5 is mapped to a MATRIX-INVENTORY row (or flagged as EXCLUDED if it's an internal-only path that doesn't render UI). Row 6 (tests) is informational.
+Every match from rows 1–7 is mapped to a MATRIX-INVENTORY row (or flagged as EXCLUDED if it's an internal-only path that doesn't render UI). Row 8 (tests) is informational. **Non-literal matches from row 3 are treated as affected unless the dev can prove the dynamic value never resolves to the affected table** — this is the default-up bias applied at the recipe level.
 
 **Worked example.** A migration adds a column to the `shows` table:
 
@@ -467,8 +509,24 @@ Phase 0 stands up the infrastructure the exercise runs against. Phase 1 (the exe
 | **Drive service account (prod-tier)** | A separate service account from the dev one. Its own watched folder. Populated with the same fixture sheets as the seed (so cron paths line up). |
 | **Vercel project** | Linked to the repo's `main` branch (or chosen branch). **Production-target deployment** (NOT preview) — Vercel Cron Jobs run only on production deployments per [Vercel Cron Jobs docs](https://vercel.com/docs/cron-jobs). **No custom domain; no DNS.** The `*.vercel.app` URL of the production deployment is the dev's working URL for the entire validation. R3 amendment: an earlier draft said "preview deployment"; corrected — preview deployments do not run cron and would falsify smoke test 3. |
 | **Env vars** | All required vars set in the Vercel project: Supabase URL / anon key / service key, Drive service account JSON, GitHub OAuth for the M8 report pipeline, any per-environment flags. |
-| **CI gates** | The full CI gate set active against the preview build. Each gate verified to actually fire — by deliberately tripping one (e.g., a known structural-test regression in a throwaway branch) and confirming the gate blocks the deploy. |
+| **CI gates** | The seven canonical CI gates from `.github/workflows/x-audits.yml` (per master spec X.* lineage) are required-blocking on the branch used for the production-target Vercel deployment. Each is verified to fire — by deliberately tripping one (e.g., a known structural-test regression in a throwaway branch) and confirming the gate blocks. Phase 0 verifies branch-protection has all seven set as required checks. The seven gates are enumerated in §9.1.1 below. |
 | **Alert paths** | `admin_alerts` table populates correctly under fixture-induced events. AlertBanner renders correctly from real rows in the prod Supabase. (Push is BACKLOG; alert path here is dashboard-only.) |
+
+### 9.1.1 Canonical CI gate inventory (R6 amendment)
+
+The "seven CI gates" referenced in §9.1 are concrete jobs in `.github/workflows/x-audits.yml`. Each is independently required-blocking on the branch protection rule for the branch used by the production-target Vercel deployment. Phase 0 verifies each is required and each fires correctly:
+
+| # | Gate (CI job name) | Purpose | Scope |
+|---|---|---|---|
+| 1 | `traceability-audit` | X.6 traceability: every AC-X.Y has a check + every check links to an AC | PR + main |
+| 2 | `x1-catalog-parity` | X.1 catalog parity: master spec §12.4 ↔ `lib/messages/catalog.ts` | PR + main |
+| 3 | `x2-no-raw-codes` | X.2 invariant 5: no raw error codes in user-visible UI | PR + main |
+| 4 | `x3-trust-domain` | X.3 trust-domain audit: validator chains correct per route | PR + main |
+| 5 | `x4-no-global-cursor` | X.4 no global sync cursor: per-show modtime model preserved | PR + main |
+| 6 | `x5-email-canonicalization` | X.5 email canonicalization at every boundary | PR + main |
+| 7 | `verify-branch-protection` | Branch protection drift detector: confirms required checks are wired | scheduled + main |
+
+Phase 0 sub-task: confirm the production-target Vercel deployment branch has all seven set as required-blocking checks in the GitHub branch-protection rule. The `verify-branch-protection-status` companion job (which ensures gate #7 has been run recently) is automatically covered by the seven listed above.
 
 ### 9.2 Phase 0 exit criterion
 
@@ -571,13 +629,13 @@ This section is the inline self-review per the project's spec-self-review checkl
 | Dimensional invariants | N/A | No fixed-dimension parents in this spec. |
 | Transition inventory | N/A | No multi-state UI components introduced. |
 | Existing-code citations | Applies | Spec cites master spec by section, M11 spec by section, file paths (`scripts/with-admin-dev-flag.mjs`, `lib/messages/lookup.ts`), and memory entries (`feedback_deferral_discipline.md`) where load-bearing. |
-| Tier × domain matrix | N/A | No DB-touching change. |
-| CHECK / enum migration | N/A | No DB constraint change. |
+| Tier × domain matrix | Applies (R6 amendment) | `validation_state` table is admin-only operational tooling — Tier × domain treatment in §3.3.2: admin-only RLS (default-deny, service-role-only), to be added to master spec §4.3 admin-only list when the migration lands. Read/write paths: re-seed script (write), check-seed command (read), no UI read path in v1. |
+| CHECK / enum migration | Applies (R6 amendment) | `validation_state_combos_check` CHECK constraint enumerates the 8 R-combos + 5 show-wide state combo names in §3.3.2. New combo additions require migrating CHECK + extending the script mapping in lockstep. Migration uses `CREATE TABLE IF NOT EXISTS` + `DO $$ EXCEPTION ... END $$` for apply-twice idempotency per AGENTS.md. |
 | Flag lifecycle | N/A | No new boolean config field. |
 | Pay-engine grain | N/A | No pay-engine touch. |
-| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **8 viewer-restriction combinations (§3.3 R1–R8 — added R2)**, **5 show-wide Right Now states (§3.3.1 — added R4)**, **9 role×restriction sampled pairs (§3.4.1 — added R4)**, **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **5 Phase 0 smoke tests (§9.2 — R3 added smoke test 5; R5 corrected one stale "all four" wording)**, **6 transitive-consumer file classes (§7.2.2 — added R4; catalog, auth, design tokens, components, single-page, schema; R5 normalized stale "5" claim)**, **6-vector schema-migration enumeration recipe (§7.2.2.1 — added R5)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
+| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **8 viewer-restriction combinations (§3.3 R1–R8 — added R2)**, **5 show-wide Right Now states (§3.3.1 — added R4)**, **9 role×restriction sampled pairs (§3.4.1 — added R4)**, **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **5 Phase 0 smoke tests (§9.2 — R3 added smoke test 5; R5 corrected one stale "all four" wording)**, **6 transitive-consumer file classes (§7.2.2 — added R4; catalog, auth, design tokens, components, single-page, schema; R5 normalized stale "5" claim)**, **8-vector schema-migration enumeration recipe (§7.2.2.1 — added R5; R6 expanded from 6 to 8 vectors adding schema-qualified literal + non-literal + helper-by-import)**, **7 canonical CI gates (§9.1.1 — added R6)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
 | Disagreement-loop preempt | Applied | §11.2 ("intentionally absent") names the "no artifact" decision as deliberate, with rationale, so reviewers don't relitigate it. §1.5 names "no real-user testing" as deliberate, with rationale. §2 enumerates explicit deferrals so reviewers don't surface them as gaps. |
-| Build-vs-runtime gate explicitness | Applies | Phase 0 §9 names the build target (Vercel `*.vercel.app` production deployment, no custom domain); §9.2 names the runtime smoke tests that gate Phase 1 (real Google sign-in + real iPhone signed-link render). The seven CI gates in §9.1 are build-time gates; the alert path is a runtime path. |
+| Build-vs-runtime gate explicitness | Applies | Phase 0 §9 names the build target (Vercel `*.vercel.app` production deployment, no custom domain); §9.2 names the five runtime smoke tests that gate Phase 1. The seven CI gates (§9.1.1) are PR-time + main-branch build-time gates; the alert path is a runtime path. R6 amendment: stale "preview build" wording corrected to "production deployment" in this row. |
 
 ---
 
@@ -678,3 +736,18 @@ Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addres
 **Class-sweep additions during R5 repair:**
 
 - **Escalation-rule rationale** (§7.2.2) — added an explicit note that catalog/auth changes will routinely exceed the 25% threshold, and the rule intentionally biases toward full sweep in those cases. This was implicit before; making it explicit clarifies that the escalation is a feature, not a degenerate case.
+
+### 15.6 Round 6 (Codex `019e43d8-90b9-72d0-b725-70344dca190b`, 2026-05-19)
+
+Verdict: `needs-attention`. Three findings (1 P1, 2 P2). All accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — `validation_state` new prod table introduced by R5 bypassed master spec's DB-touching discipline (RLS, admin-only classification, CHECK idempotency, meta-test inventory). §12 had marked Tier × domain and CHECK/enum as N/A — correct before R5, stale after. | P1 / high | Fixed. New §3.3.2 specifies the table's schema with admin-only RLS (default-deny + service-role bypass), CHECK constraint enumerating allowed combo names, apply-twice idempotency pattern, Supabase call-boundary expectation, and meta-test registry inclusion. §12 Tier × domain and CHECK/enum rows updated from N/A to "Applies". | §3.3 stamp row, new §3.3.2, §12 self-review (2 rows) |
+| F2 — §7.2.2.1 schema-migration grep recipe used literal-string matching only; missed `.from('public.shows')` schema-qualified forms, template-literal `.from(\`...\`)`, dynamic `.from(varName)`, and helper-wrappers whose call sites don't mention the raw table name | P2 / medium | Fixed. Recipe expanded from 6 vectors to 8: added schema-qualified literal match, non-literal call detection (with manual classification), and helper-by-import-grep. Non-literal matches are treated as affected unless dev proves otherwise (default-up bias at recipe level). | §7.2.2.1 (vectors expanded) |
+| F3 — Spec referenced "the seven CI gates" but never enumerated them; §12 said "preview build" (stale) and §9.1 said "full CI gate set" without names; Phase 0 had no way to verify each gate is required-blocking | P2 / medium | Fixed. New §9.1.1 enumerates the 7 canonical CI gates by job name from `.github/workflows/x-audits.yml` (`traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-email-canonicalization`, `verify-branch-protection`). Phase 0 verifies each is required-blocking on the deployment branch. §12 build-vs-runtime row corrected from "preview build" to "production deployment". | §9.1 (CI gates row), new §9.1.1, §12 self-review build-vs-runtime |
+
+**Class-sweep additions during R6 repair:**
+
+- **§4.3 admin-only tables forward-ref** (§3.3.2) — noted that `validation_state` should be added to master spec §4.3 admin-only tables list when the migration lands. This is a future-facing cross-cutting update; the M12 plan's first task lists it as a follow-up edit to the master spec.
+- **Meta-test inventory hook** (§3.3.2) — noted that if any future `tests/db/` test enumerates admin-only tables (per memory `feedback_meta_test_at_plan_time_not_round_n`), `validation_state` is added to that registry. The M12 plan's meta-test inventory declaration captures this.
