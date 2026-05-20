@@ -255,16 +255,59 @@ export function auditNoRawCodesInSourceFiles(
   return violations;
 }
 
+/**
+ * Static-route discovery for the AC-X.2 runtime no-raw-codes crawl.
+ *
+ * Excluded paths:
+ *  - `app/api/**` — API routes, no UI surface to crawl.
+ *  - `app/admin/dev/**` — build-gated dev surface (renamed-away in prod
+ *    builds via `scripts/with-admin-dev-flag.mjs`; not a real route in the
+ *    shipped binary).
+ *  - Dynamic routes (path contains `[`) — these need fixtures to navigate
+ *    and are exercised by their own per-feature e2e tests.
+ *  - `app/help/errors/page.tsx` — the M11 errors page (E.13) is the
+ *    canonical error catalog per AC-11.11; it deliberately renders every
+ *    Doug-facing §12.4 code as a `<RefAnchor id={CODE}>` anchor target so
+ *    operator-facing `Learn more →` affordances can deep-link to a
+ *    specific code's plain-language explainer. The runtime crawl would
+ *    correctly detect every catalog code in the rendered DOM and flag
+ *    them as raw-code leaks — but the leak class is exactly the page's
+ *    documented purpose. Treating this page as a leak source would force
+ *    a 124-entry allow-list that has no failure modes worth catching
+ *    (the page-errors.test.tsx + biconditional meta-test cover the
+ *    actual contract). M11-E close-out audit established this exclusion
+ *    after Codex R-cycle surfaced the AC-X.1 / AC-X.2 cross-cutting
+ *    audits both pre-dated the existence of /help/errors.
+ *  - `app/help/admin/parse-warnings/page.tsx` — same reasoning, narrower
+ *    scope: this page renders one `<RefAnchor id={CODE}>` per Doug-facing
+ *    parse-warning catalog entry (currently `PARSE_ERROR_LAST_GOOD`; auto-
+ *    grows as the catalog adds parse-warning rows). The deliberate
+ *    catalog-code anchor render trips the same leak detector.
+ *
+ * Future M11 documentation pages that render `<RefAnchor id={CODE}>` per
+ * AC-11.11 / spec §5.6 must be added to this exclusion list at the same
+ * time as the page lands. Phase G's affordance-matrix retrofit ships
+ * `Learn more →` link wiring that points AT `/help/errors#<CODE>`; the
+ * Phase G surfaces themselves (admin pages) do NOT render the raw codes
+ * — only the link href carries the code, and the rendered link text is
+ * "Learn more →" not the code.
+ */
+const HELP_DOCS_CATALOG_RENDER_PATHS = new Set([
+  "/help/errors",
+  "/help/admin/parse-warnings",
+]);
+
 export function discoverStaticAppRoutePaths(): string[] {
   return walkSourceFiles(["app"])
-    .filter((path) => path.endsWith("/page.tsx"))
+    .filter((path) => path.endsWith("/page.tsx") || path.endsWith("/page.mdx"))
     .filter((path) => !path.startsWith("app/api/"))
     .filter((path) => !path.startsWith("app/admin/dev/"))
     .filter((path) => !path.includes("["))
     .map((path) => {
-      const route = path.replace(/^app/, "").replace(/\/page\.tsx$/, "");
+      const route = path.replace(/^app/, "").replace(/\/page\.(tsx|mdx)$/, "");
       return route === "" ? "/" : route;
     })
+    .filter((route) => !HELP_DOCS_CATALOG_RENDER_PATHS.has(route))
     .sort();
 }
 
