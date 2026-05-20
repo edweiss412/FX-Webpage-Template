@@ -149,7 +149,7 @@ export const MESSAGE_CATALOG = {
     helpfulContext: "A recent edit to the sheet introduced something the parser couldn't read, but we kept the previously approved version live so crew aren't blocked. Open the per-show parse panel to see the specific MI-N code explaining what went wrong, fix it in the sheet, and the next sync will replace the stale data.",
     title: "Latest edit didn't parse",
     longExplanation: "A recent edit to the sheet introduced something the parser couldn't read. The previously approved version is still serving crew. Open the per-show parse panel for the specific underlying error, fix the sheet, and the next sync will replace the stale data.",
-    helpHref: "/help/errors#PARSE_ERROR_LAST_GOOD",
+    helpHref: "/help/admin/parse-warnings#PARSE_ERROR_LAST_GOOD",
   },
   STALE_WRITE_ABORTED: {
     code: "STALE_WRITE_ABORTED",

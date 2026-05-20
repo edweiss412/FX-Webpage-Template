@@ -211,3 +211,37 @@ describe("Catalog meta-test (test #2 — live-catalog full contract, added in E.
     expect(lines, lines.join("\n")).toEqual([]);
   });
 });
+
+// Codex R2 finding #1 — spec §5.6 carve-out: parse-warning catalog codes
+// (code-name pattern WARN_ or PARSE_) MUST point at the parse-warnings page
+// per the §5.6 matrix row for `/admin/show/<slug>` parse-warning rows. All
+// other Doug-facing catalog entries follow the default `/help/errors#<code>`
+// template-family target. This assertion catches target-class drift that the
+// generic shape-only meta-test (above) does not pin.
+describe("Catalog meta-test (helpHref target class — Codex R2 finding #1)", () => {
+  const PARSE_CODE_PATTERN = /^(WARN_|PARSE_)/;
+
+  it("every Doug-facing WARN_/PARSE_ catalog entry points at /help/admin/parse-warnings#<code>", () => {
+    const offenders: string[] = [];
+    for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
+      if (!predicate(entry)) continue;
+      if (!PARSE_CODE_PATTERN.test(entry.code)) continue;
+      if (!entry.helpHref?.startsWith("/help/admin/parse-warnings#")) {
+        offenders.push(`${code}: helpHref=${JSON.stringify(entry.helpHref)}`);
+      }
+    }
+    expect(offenders, offenders.join("\n")).toEqual([]);
+  });
+
+  it("every OTHER Doug-facing catalog entry points at /help/errors#<code> (preserves the canonical-for-default rule)", () => {
+    const offenders: string[] = [];
+    for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
+      if (!predicate(entry)) continue;
+      if (PARSE_CODE_PATTERN.test(entry.code)) continue;
+      if (!entry.helpHref?.startsWith("/help/errors#")) {
+        offenders.push(`${code}: helpHref=${JSON.stringify(entry.helpHref)}`);
+      }
+    }
+    expect(offenders, offenders.join("\n")).toEqual([]);
+  });
+});

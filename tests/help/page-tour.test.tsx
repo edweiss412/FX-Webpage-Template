@@ -72,4 +72,12 @@ describe("/help/tour (E.12)", () => {
     const prose = src.replace(/<RefAnchor\s+id=["'][^"']+["'][^>]*>/g, "");
     expect(prose).not.toMatch(/\b[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+\b/);
   });
+
+  it("does NOT describe review queues as row-level (E.6 reality: queues hold sheets / staged-versions, not rows — Codex R2 finding)", () => {
+    expect(src).not.toMatch(/the row lands in a review queue/i);
+  });
+
+  it("does NOT promise clear/ignore controls for parse warnings (E.7 reality: warnings clear on next clean sync, no UI control — Codex R2 finding)", () => {
+    expect(src).not.toMatch(/clear a warning|ignore (?:it|a warning)/i);
+  });
 });
