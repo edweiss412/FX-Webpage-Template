@@ -135,14 +135,16 @@ The day-of-walk uses **wall-clock + fixture-data engineering**, NOT the M11 `X-S
 |---|---|
 | Script path | `scripts/validation-reseed.ts` (TypeScript, executed via `tsx`) |
 | Invocation | `pnpm validation:reseed [--combo <R1\|R2\|R3\|R4\|R5\|R6\|R7a\|R7b\|R8a\|R8b\|SW-PRE_TRAVEL\|SW-TRAVEL_IN\|SW-SHOW_1\|SW-SHOW_INTERIOR\|SW-SHOW_LAST\|SW-POST_SHOW\|all>]` |
-| Default behavior | `--combo all` — materializes all **10** R-combos (R1–R6 + R7a/R7b/R8a/R8b after R8 split) + 5 show-wide states' fixtures with date columns aligned to today's local date |
+| Default behavior | `--combo all` — materializes all **16 combos**: 10 R-combos (R1–R6 + R7a/R7b/R8a/R8b after R8 split) + 6 show-wide states (SW-PRE_TRAVEL / SW-TRAVEL_IN / SW-SHOW_1 / SW-SHOW_INTERIOR / SW-SHOW_LAST / SW-POST_SHOW after R11 split) with date columns aligned to today's local date. `pnpm validation:check-seed --combo all` requires all 16 combo names present in `combos_materialized` to return exit 0. |
 | Target selection (R9 amendment + R11 correction) | Script requires the prod-equivalent Supabase target — NOT local. Reads **three** required env vars (aligned with repo convention from `.env.local.example:5` which uses `SUPABASE_SECRET_KEY` not `SERVICE_KEY`): **`VALIDATION_SUPABASE_URL`** + **`VALIDATION_SUPABASE_SECRET_KEY`** + **`VALIDATION_SUPABASE_PROJECT_REF`**. All three are mandatory; missing any aborts. If `VALIDATION_SUPABASE_URL` matches `localhost`, `127.0.0.1`, or `::1` the script aborts unless `--allow-local-override` is passed (intentional override gate; not used during M12 walks). Phase 0 sub-task adds all three to the dev's local `.env.local` AND extends `.env.local.example` with each as a documented placeholder. The Supabase project ref is stamped in `validation_state.seeded_supabase_project_ref` (added in §3.3.2 DDL) so check-seed can verify target consistency (`check-seed` fails if `seeded_supabase_project_ref != $VALIDATION_SUPABASE_PROJECT_REF`). |
 | Idempotency | Re-running with the same args on the same day is a no-op. Re-running with a different date updates every fixture's date columns. |
 | Storage of `validation_seed_date` stamp | New table `validation_state` (single row), admin-only per §3.3.2 below. Schema specified in §3.3.2. The script writes to this table at the end of a successful seed. |
 | Verification command | `pnpm validation:check-seed` returns exit 0 if `last_seed_date = today` AND `combos_materialized` covers what the next walk needs; returns exit 1 otherwise. The dev runs this at the start of every walk session per §3.3 step 5 above. |
 | Owned fixture mappings (R11 amendment — extended for role variants) | One fixture per R-combo + one fixture per show-wide state. The canonical mapping table inline: R-combo or state → `{showName, date_restriction, stage_restriction, dates, expected_today_state, crew_members: [{alias, name, email, role_flags}]}`. **Crew-member contract per fixture:** every R-combo fixture seeds **at least 9 crew_members**, one per §3.2 role variant (5a/5b/5c + 6a/6b/6c/6d/6e/6f), with stable aliases (`alias_5a_lead`, `alias_5b_lead_a1`, ..., `alias_6f_empty`) and predictable emails (e.g., `validation+5a@example.com`). Each crew_member carries the role_flags per §3.2. Restriction combos (date / stage) apply to ALL 9 crew_members in the fixture, so the dev can walk any role variant against any R-combo by picking the right alias. **Show-wide state fixtures** seed only the LEAD crew_member (5a) — show-wide states are LEAD-only per §3.3.1.
 
-**J3/J4 signed-link & preview-link generation contract.** J3 generates signed links via the admin link-mint surface using the per-variant `crew_id` resolved by alias. J4 uses the same `crew_id` to render `/admin/show/<slug>/preview/<crew-id>` directly. The aliases let the dev generate links by alias rather than UUID hunting, and the re-seed script outputs a JSON map (`validation-aliases.json` or stamped into the validation_state row as a TEXT[] or jsonb side-column — implementer's choice; plan picks) so the dev can scriptably resolve aliases to UUIDs without consulting the DB UI. |
+**J3/J4 signed-link & preview-link generation contract (R12 amendment — picked DB-backed alias map).** J3 generates signed links via the admin link-mint surface using the per-variant `crew_id` resolved by alias. J4 uses the same `crew_id` to render `/admin/show/<slug>/preview/<crew-id>` directly. The aliases let the dev generate links by alias rather than UUID hunting.
+
+**Alias-map storage (R12 — single mechanism, no implementer ambiguity).** The re-seed script writes `alias_map` as a JSONB object into the `validation_state` singleton row: `{ "alias_5a_lead": "<crew_uuid>", "alias_5b_lead_a1": "<crew_uuid>", ..., "alias_6f_empty": "<crew_uuid>" }`. The dev's wrapper command `pnpm validation:resolve-alias <alias>` reads the `alias_map` column from validation_state and prints the resolved UUID. `check-seed` additionally fails if `alias_map` is missing any of the 9 required alias keys for any R-combo fixture (per the §3.3 owned-fixture-mappings contract). The earlier "or validation-aliases.json file" alternative is retracted — DB storage is canonical so alias state is target-consistent with the rest of validation_state. |
 | Plan-time deliverable | The M12 plan's Phase 0 includes a sub-task that authors `scripts/validation-reseed.ts` + the `validation_state` migration BEFORE any matrix walk. Phase 0 smoke test 5 verifies the script's correctness end-to-end. |
 
 This contract closes the Codex R5 F1 finding: re-seed mechanism is no longer hand-wavy; it's a concrete plan-time deliverable with named path, CLI, idempotency contract, storage schema, and verification command.
@@ -164,13 +166,23 @@ CREATE TABLE IF NOT EXISTS public.validation_state (
   key                              text PRIMARY KEY CHECK (key = 'validation_seed'),
   last_seed_date                   date NOT NULL,
   combos_materialized              text[] NOT NULL,
-  seeded_by                        text NOT NULL,             -- script user/process identity
-  seeded_supabase_project_ref      text NOT NULL,             -- R9 amendment — verifies target consistency
+  alias_map                        jsonb NOT NULL DEFAULT '{}'::jsonb,   -- R12 amendment — alias→crew_id map for J3/J4 link generation
+  seeded_by                        text NOT NULL,                         -- script user/process identity
+  seeded_supabase_project_ref      text NOT NULL,                         -- R9 amendment — verifies target consistency
   seeded_at                        timestamptz NOT NULL DEFAULT now()
 );
 
+-- R12 amendment — CHECK constraint uses drop-and-recreate inside DO block.
+-- The R11 duplicate_object pattern was apply-twice safe ONLY for an unchanged
+-- constraint; if the enum list changes (e.g., new combo added in a future
+-- milestone), apply-twice would silently leave the old constraint in place,
+-- causing the script to fail at INSERT time or to write a combo the DB
+-- doesn't accept. DROP IF EXISTS + ADD ensures the constraint always reflects
+-- the current enum list.
 DO $$
 BEGIN
+  ALTER TABLE public.validation_state
+    DROP CONSTRAINT IF EXISTS validation_state_combos_check;
   ALTER TABLE public.validation_state
     ADD CONSTRAINT validation_state_combos_check CHECK (
       combos_materialized <@ ARRAY[
@@ -178,8 +190,17 @@ BEGIN
         'SW-PRE_TRAVEL','SW-TRAVEL_IN','SW-SHOW_1','SW-SHOW_INTERIOR','SW-SHOW_LAST','SW-POST_SHOW'
       ]
     );
+END $$;
+
+-- R12 amendment — alias_map is also schema-evolution-safe via ADD COLUMN IF NOT
+-- EXISTS for the case where validation_state was created before this column
+-- was added (e.g., the R10 DDL committed before R12's amendment).
+DO $$
+BEGIN
+  ALTER TABLE public.validation_state
+    ADD COLUMN IF NOT EXISTS alias_map jsonb NOT NULL DEFAULT '{}'::jsonb;
 EXCEPTION
-  WHEN duplicate_object THEN NULL;
+  WHEN duplicate_column THEN NULL;
 END $$;
 
 -- Admin-only per master spec §4.3 pattern (R9 amendment + R10 correction —
@@ -208,12 +229,12 @@ CREATE POLICY admin_only ON public.validation_state
 |---|---|
 | Tier × domain | Admin-only (operational tooling). Should be added to the master spec's §4.3 admin-only tables list at the moment this migration lands. |
 | CHECK constraint | `validation_state_combos_check` enumerates the allowed combo names (10 R-combos after R8 split: R1–R6 + R7a/R7b/R8a/R8b, plus 5 show-wide states). Adding a new combo requires migrating the CHECK constraint AND extending the script's mapping table in lockstep. |
-| Migration idempotency | The DDL block above uses `CREATE TABLE IF NOT EXISTS` for the table AND `ALTER TABLE ... ADD CONSTRAINT` inside a `DO $$ ... EXCEPTION WHEN duplicate_object THEN NULL END $$` block for the CHECK constraint. Apply-twice safe per AGENTS.md. (R11 amendment — earlier prose contradicted the DDL block which used plain `CREATE TABLE`; now DDL and prose match.) |
+| Migration idempotency | The DDL block above uses `CREATE TABLE IF NOT EXISTS` for the table, `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` (R12 amendment — drift-safe; the R11 duplicate_object pattern only handled "constraint already present" but didn't migrate enum drift), and `ADD COLUMN IF NOT EXISTS` for the alias_map column. Apply-twice safe AND enum-drift safe per AGENTS.md. |
 | RLS | Enabled with `admin_only FOR ALL` policy (R9 amendment — matches master spec §4.3 contract for all admin-only tables; service role bypasses RLS so the script writes work; admin session reads work for any future audit UI; non-admin sessions denied across all 4 verbs as AC-2.5 requires). |
 | Supabase call-boundary | Script's `{ data, error }` destructure is mandatory per AGENTS.md invariant 9. The check-seed command uses `select`'s error branch to distinguish "table not present" (Phase 0 incomplete) from "table empty / stale" (re-seed required). |
 | Meta-test | If a `tests/db/` test enumerates admin-only tables, `validation_state` is added to that registry per the AGENTS.md meta-test inventory rule. The M12 plan declares this in its meta-test inventory section. |
 
-**Singleton write semantics.** The re-seed script writes the singleton via `INSERT INTO validation_state (key, ...) VALUES ('validation_seed', ...) ON CONFLICT (key) DO UPDATE SET ...` (upsert). The `validation:check-seed` command reads exactly the `key = 'validation_seed'` row and fails if (a) zero rows, (b) `last_seed_date != current_date`, (c) `combos_materialized` doesn't cover the combos needed by the next walk, OR (d) `seeded_supabase_project_ref != $VALIDATION_SUPABASE_PROJECT_REF` (R9 amendment — target-consistency check; prevents the "local seed, prod walk" failure mode).
+**Singleton write semantics.** The re-seed script writes the singleton via `INSERT INTO validation_state (key, ...) VALUES ('validation_seed', ...) ON CONFLICT (key) DO UPDATE SET ...` (upsert). The `validation:check-seed` command reads exactly the `key = 'validation_seed'` row and fails if (a) zero rows, (b) `last_seed_date != current_date`, (c) `combos_materialized` doesn't cover the combos needed by the next walk (16 combos for `--combo all`), (d) `seeded_supabase_project_ref != $VALIDATION_SUPABASE_PROJECT_REF` (R9 amendment — target-consistency), OR (e) `alias_map` is missing any of the 9 required alias keys per R-combo fixture (R12 amendment — J3/J4 link generation depends on full alias map).
 
 **Plan-time deliverable — atomic with master-spec amendment (R7+R8 amendment).** The M12 plan's Phase 0 sub-task that authors the re-seed script ALSO authors the `validation_state` migration AND atomically updates the master spec + admin-tables registry + every hardcoded baseline. R8 corrected the soft "should add" / "if applicable" wording in this checklist to concrete edits with verified line/count deltas.
 
@@ -896,4 +917,19 @@ Verdict: `needs-attention`. Four findings (2 P1, 2 P2). All accepted and address
 **Class-sweep additions during R11 repair:**
 
 - **`.env.local.example` extension noted** — Phase 0 sub-task must extend `.env.local.example` to document the three validation env vars. Future devs cloning the repo for M12 work see the required vars in the example file rather than discovering them in the spec.
-- **Alias-resolution side-output** (§3.3 owned-fixture-mappings) — re-seed script outputs `validation-aliases.json` or stamps into validation_state. This is a NEW plan-time artifact; added to §11.3.1 artifact taxonomy in the same R11 pass (the spec's artifact taxonomy is implicitly extended; explicit table refresh deferred to a subsequent round if needed).
+- **Alias-resolution side-output** (§3.3 owned-fixture-mappings) — re-seed script outputs `validation-aliases.json` or stamps into validation_state. (R12 amendment: alternative retracted; DB-backed `alias_map` jsonb column is the single canonical mechanism.)
+
+### 15.12 Round 12 (Codex `019e43f5-96b9-7de1-835c-72caaf6585c4`, 2026-05-19)
+
+Verdict: `needs-attention`. Three findings (2 P1, 1 P2). All accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — `--combo all` invocation still said "10 R-combos + 5 show-wide fixtures" after R11 added SW-SHOW_LAST making it 6 show-wide; the last-show-day Strike-copy branch could be silently skipped during seed | P1 / high | Fixed. Default-behavior row updated: "all 16 combos: 10 R-combos + 6 show-wide states" with the 6 SW combo names listed inline. `check-seed --combo all` now requires all 16 combo names. | §3.3 step 5 "Default behavior" row |
+| F2 — CHECK constraint idempotency used `DO $$ ... duplicate_object ... END $$` which masks enum-drift. If a future combo adds, apply-twice would silently leave the old constraint in place; new combo would fail INSERT or be silently absent | P1 / high | Fixed. CHECK constraint now uses `DROP CONSTRAINT IF EXISTS validation_state_combos_check` followed by `ADD CONSTRAINT ... CHECK (...)` inside a `DO $$ ... END $$` block. Always re-creates with the current enum list. Drift-safe. | §3.3.2 DDL block |
+| F3 — Alias-map storage allowed EITHER `validation-aliases.json` OR a validation_state side-column, but no column existed in the schema. Plan implementer would either invent unreviewed DDL or have ambiguous file-vs-DB lifecycle semantics. | P2 / medium | Fixed. DB-backed mechanism committed: `alias_map jsonb NOT NULL DEFAULT '{}'::jsonb` column added to validation_state DDL with `ADD COLUMN IF NOT EXISTS` idempotency. `pnpm validation:resolve-alias <alias>` resolves UUIDs from the column. check-seed validates all 9 required alias keys per R-combo. File-based alternative explicitly retracted. | §3.3.2 DDL (new alias_map column), §3.3 J3/J4 paragraph (file-alt retracted), §3.3.2 check-seed (added alias_map validation) |
+
+**Class-sweep additions during R12 repair:**
+
+- **Enum-drift discipline** — the CHECK constraint pattern (`DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT`) is the canonical drift-safe pattern, distinct from the `duplicate_object` pattern used for table creation where the constraint definition doesn't change. Future admin-only tables with CHECK enums that may grow should use this drop-and-recreate pattern.
+- **Single-mechanism rule for alias storage** — picking DB-backed over file-backed eliminates the "either-or" ambiguity that lets implementers diverge. This is a general principle: spec contracts should not offer choices that produce incompatible plan implementations.
