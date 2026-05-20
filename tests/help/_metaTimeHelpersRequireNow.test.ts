@@ -196,7 +196,20 @@ type LocalFunctionBinding = {
  * - AsExpression - `expr as T`
  * - NonNullExpression - `expr!`
  * - SatisfiesExpression - `expr satisfies T`
+ * - ExpressionWithTypeArguments - `expr<T>`
  * - PartiallyEmittedExpression - internal TS
+ *
+ * Identifier-reference exports (R6 - local map lookup):
+ * The walker resolves identifier-reference exports against a map of top-level
+ * local function declarations plus variable function initializers. This covers:
+ * - `export { foo }` and `export { foo as bar }` (R4 - ExportDeclaration)
+ * - `export default foo` (R6 - ExportAssignment with Identifier expression)
+ *
+ * Parenthesized / type-cast / non-null / satisfies identifiers reduce to a bare
+ * Identifier via ts.skipOuterExpressions before lookup, so they flow through
+ * the same path automatically. Identifier references to imported bindings or
+ * identifiers not declared in the same file are not flagged; the source helper
+ * lives in another module and is independently scanned if it falls in lib/time/.
  *
  * Wrappers deliberately not unwrapped because they produce computed values,
  * not declarative helpers:
@@ -276,8 +289,22 @@ function scanSource(src: string, filename: string): Violation[] {
 
     if (ts.isExportAssignment(node) && !node.isExportEquals) {
       const expr = unwrap(node.expression);
-      if (!ts.isArrowFunction(expr) && !ts.isFunctionExpression(expr)) return;
-      checkFunctionLike(expr, sf, "(default)", filename, violations);
+      if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) {
+        checkFunctionLike(expr, sf, "(default)", filename, violations);
+        return;
+      }
+      if (ts.isIdentifier(expr)) {
+        const binding = localFunctions.get(expr.text);
+        if (!binding) return;
+        checkFunctionLike(
+          binding.node,
+          sf,
+          binding.name,
+          filename,
+          violations,
+          " (via `export default <identifier>`)",
+        );
+      }
       return;
     }
 
@@ -523,6 +550,63 @@ export { ok };
   it("does NOT flag conditional expression (`export default cond ? () => Date.now() : () => 0;`) — conditional value, not a helper (out of scope)", () => {
     const src = `declare const cond: boolean;\nexport default cond ? () => Date.now() : () => 0;\n`;
     const findings = scanSource(src, "synthetic-conditional.ts");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("flags identifier-reference default export of arrow with wall-clock default (`const foo = (now: Date = new Date()) => ...; export default foo;`)", () => {
+    const src = `
+const idDefaultArrow = (now: Date = new Date()): number => now.getTime();
+export default idDefaultArrow;
+`;
+    const findings = scanSource(src, "synthetic-iddefault-arrow.ts");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      fn: "idDefaultArrow",
+      reason: expect.stringContaining("default"),
+    });
+  });
+
+  it("flags identifier-reference default export of arrow with body Date.now() (`const foo = () => Date.now(); export default foo;`)", () => {
+    const src = `
+const idDefaultBody = (): number => Date.now();
+export default idDefaultBody;
+`;
+    const findings = scanSource(src, "synthetic-iddefault-body.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags identifier-reference default export of function declaration (`function foo(now: Date = new Date()) {...}; export default foo;`)", () => {
+    const src = `
+function idDefaultFn(now: Date = new Date()): number { return now.getTime(); }
+export default idDefaultFn;
+`;
+    const findings = scanSource(src, "synthetic-iddefault-fndecl.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("flags parenthesized identifier-reference default export (`export default (foo)`)", () => {
+    // R5 unwrap reduces `(foo)` to bare Identifier `foo`, then R6 local lookup
+    // applies the same exported-helper contract.
+    const src = `
+const idDefaultParen = (): number => Date.now();
+export default (idDefaultParen);
+`;
+    const findings = scanSource(src, "synthetic-iddefault-paren.ts");
+    expect(findings).toHaveLength(1);
+  });
+
+  it("does NOT flag default export of imported identifier (`import { foo } from './x'; export default foo;`) — out of scope, source in other module", () => {
+    const src = `
+import { external } from "./other";
+export default external;
+`;
+    const findings = scanSource(src, "synthetic-iddefault-import.ts");
+    expect(findings).toHaveLength(0);
+  });
+
+  it("does NOT flag default export of identifier not in local map (`export default Math.random;`) — global, out of scope", () => {
+    const src = `export default Math.random;\n`;
+    const findings = scanSource(src, "synthetic-iddefault-global.ts");
     expect(findings).toHaveLength(0);
   });
 });
