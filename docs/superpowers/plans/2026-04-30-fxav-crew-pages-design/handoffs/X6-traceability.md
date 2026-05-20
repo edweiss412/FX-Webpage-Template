@@ -1,4 +1,6 @@
-**Status: REOPENED 2026-05-20 → R2 in flight.** R1 APPROVE at SHA `4a8c242` was retroactively REVERSED on 2026-05-20 during the operator-bootstrap step (handoff §8 "Privileged drift-detector live run") when `scripts/verify-branch-protection.ts` crashed on its first live invocation against the GitHub Branch Protection API. Three P0/H1-class findings (detailed in convergence-log §"Adversarial review > Round 1 retroactive REVERSAL") surfaced that the mocked-only test methodology did not exercise. **Complexity-hypothesis third data point: REVERSED → STRENGTHENED.** The R1 APPROVE was tautological, not earned; heavy audits with live-integration surfaces continue to need ≥2 rounds, just as X.4/X.5 did. R2 routes to Codex repair; reviewer (me) appended the finding block + canonical fix shape below.
+**Status: COMPLETED 2026-05-20 at R2 APPROVE on SHA `8f7d2de`.** R1 APPROVE at `4a8c242` was retroactively REVERSED on 2026-05-20 when the operator-bootstrap step surfaced 3 P0 findings the mocked-only methodology missed; Codex's R2 repair (commits `0fe229c` + `efedcba` + `e3a1faa` + `8f7d2de`) closed all three structurally — `void main()` now `.catch()`-wrapped; admin-alert producer uses canonical `upsert_admin_alert` RPC pattern from `lib/adminAlerts/upsertAdminAlert.ts:35`; plan Task X.6 Step 3c clause 4 amended verbatim; new structural meta-test `tests/messages/_metaAdminAlertProducer.test.ts` walks `scripts/`+`lib/`+`app/` via `walkSourceFiles` (code-shape-based, not name-list); new live-integration smoke test at `tests/cross-cutting/verify-branch-protection.test.ts:206-238` exercises the real Supabase service-role client + RPC + idempotency-via-occurrence_count contract; W18 watchpoint inherits forward. R2 Opus fresh-eyes whole-diff sweep anchored to milestone base `d026919` returned APPROVE with zero new findings. **Complexity-hypothesis third data point: CONFIRMED across X.4 R2, X.5 R2, X.6 R2** — all three heaviest X.* milestones required two rounds; the round-count predictor is not raw complexity but the presence of a live-integration surface that mocks cannot exercise. Codifies as memory `feedback_heavy_audit_milestones_budget_two_rounds.md` (and sibling `feedback_mocked_only_tests_invite_tautological_approve.md`). **FXAV crew-pages v1 X.* set is now structurally complete.** Branch-protection bootstrap (handoff §8 operator step) resumes immediately post-close.
+
+~~**Status: REOPENED 2026-05-20 → R2 in flight.**~~ Original R2 marker — superseded by COMPLETED above.
 
 **Status: ~~COMPLETED 2026-05-19~~** — see REOPENED notice above. **R1 APPROVE retroactively REVERSED.** Adversarial review ~~converged at~~ **briefly claimed R1 APPROVE** on SHA `4a8c242` (milestone base `d026919`; handoff close at `ef483dc`). Codex's R1 shipped the spec amendment renaming `x5-rls-coverage` → `x5-email-canonicalization` (spec §17.2 lines 2839 + 3693 + 3697; plan `11-cross-cutting.md` at all five named-check usages) — the X.5-surfaced drift reconciled in X.6's commit range per the canonical regression-fixture contract. Trust-boundary split intact: privileged `verify-branch-protection` gated to `push: main` + `schedule: '0 9 * * 1'` only; reader `verify-branch-protection-status` uses only auto-injected `GITHUB_TOKEN`; `pull_request_target` absent from `.github/`. All 12 branch-protection test cases present with anti-tautology spy-payload assertions. Workflow-fails-on-bad-fixture evidence captured: PR https://github.com/edweiss412/FX-Webpage-Template/pull/1, run 26137112146, failing `traceability-audit` job 76874626728 (throwaway branch + PR closed after capture). Seven PR-required CI status checks now wired verbatim: `traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-email-canonicalization`, `verify-branch-protection-status`. **Complexity-hypothesis third data point: WEAKENED.** X.4 R1→R2 + X.5 R1→R2 both took two rounds; X.6 is the heaviest of the X.* set (three concurrent surfaces + GitHub API + secret handling + spec amendment surfacing) and closed at R1 APPROVE. The "heavy audits need ≥2 rounds" hypothesis does NOT codify as memory — the better generalization is likely that audit complexity alone doesn't predict round count; what predicted X.4/X.5 round counts may have been the specific class of trap (text-regex shortcuts; hardcoded TS literals) that Codex's R1 self-review missed, not raw complexity. **FXAV crew-pages v1 X.* set is structurally complete.** Manual admin step (configure required-checks in GitHub Settings) is the only operator follow-up; programmatically verified by subsequent privileged runs. See "Convergence log" below.
 
@@ -211,7 +213,7 @@ Pulled forward from X.1 R1–R3 + X.2 R1 + X.3 R1 + X.4 R1–R2 + X.5 R1–R2 cl
 - [ ] No new `// TODO` or `// FIXME` lines.
 - [ ] **AC-X.5-body-vs-list drift disposition recorded in convergence log** — either (a) spec amendment landed in X.6 commit range with verbatim file:line citations, OR (b) drift surfaced as a finding for a follow-up amendment. NOT acceptable: silent rename of AC-X.5's body to match the list; silent dropping of the parity assertion.
 - [ ] **Manual admin step recorded as follow-up** — the one-time branch-protection settings configuration (Settings → Branches → Branch protection rules → `main` → add all seven check names verbatim) is documented in the convergence log as a post-merge operator task. Subsequent runs of `scripts/verify-branch-protection.ts` programmatically verify it landed correctly.
-- [ ] Adversarial review converged to APPROVE. **R1 (2026-05-19) APPROVE was retroactively REVERSED on 2026-05-20** when live-integration bootstrap surfaced 3 findings the mocked-only review missed. R2 in flight — Codex repair pending; see convergence-log §"Round 1 retroactive REVERSAL".
+- [x] Adversarial review converged to APPROVE at **R2** (2026-05-20, Opus reviewer; anchored to milestone base `d026919`; zero new findings; all 3 R1-retroactive P0s closed structurally with the meta-test + live-integration smoke test layers added). R1 APPROVE at 2026-05-19 was retroactively REVERSED on 2026-05-20 — that block is preserved as archival in the convergence log. See convergence-log §"Round 2 — APPROVE".
 - [ ] All commits follow `<type>(<scope>): <summary>` format with one logical task per commit.
 - [ ] Convergence log at the bottom of this file is filled in with R1 + any subsequent rounds + complexity-hypothesis third data point.
 
@@ -523,3 +525,49 @@ Post-merge operator task: Settings → Branches → Branch protection rules → 
 - `pnpm test` → 271 files passed, 1 skipped; 3661 tests passed, 5 skipped.
 
 **Ready for R2 review:** Codex repair is complete; do not configure the branch-protection required checks until Opus R2 converges because the bootstrap path was the live-integration failure surface.
+
+#### Round 2 — APPROVE (2026-05-20, Opus reviewer)
+
+**Anchor:** milestone base `d026919` (X.5 R2 APPROVE close-out) per memory `feedback_adversarial_review_full_milestone_scope.md` — NOT the R1 fix-base, so fresh-eyes drift outside the fix surface is detected. **Review scope:** `git diff d026919..8f7d2de` with M11 Phase C commits (`7e789f5`, `c06352b`, `648d22a`, `6c7e6de`) explicitly excluded.
+
+**Verdict:** APPROVE. **Zero new findings.** All 3 R1-retroactive P0s closed structurally; meta-test + live-integration smoke test layers added per the canonical fix shape.
+
+**Per-finding closure verification (file:line citations):**
+
+- **P0-1 closed** — `scripts/verify-branch-protection.ts:264-268` wraps `main()` with `.catch((error) => { console.error(...); process.exitCode = 1; })`. The R1 `UnhandledPromiseRejection: "#<Object>"` failure mode is structurally impossible.
+- **P0-2 closed** — `scripts/verify-branch-protection.ts:54-60` `defaultUpsertAdminAlert` calls `supabase.rpc("upsert_admin_alert", { p_show_id, p_code, p_context })` exactly matching `lib/adminAlerts/upsertAdminAlert.ts:35`. `AlertPayload` type at `:9-13` declares ONLY `{p_show_id, p_code, p_context}` — `severity` field eradicated. `// not-subject-to-meta:` comment at `:56` satisfies the AGENTS.md §1.9 registry rule.
+- **P0-3 closed** — `11-cross-cutting.md:2307-2319` now prescribes the RPC verbatim with `lib/adminAlerts/upsertAdminAlert.ts:35` citation + explicit prohibition prose: "The raw `admin_alerts.insert` shape is forbidden here because it bypasses the partial-index recurrence contract and the table has no `severity` column."
+- **Meta-test (whole-codebase structural defense) closed** — `tests/messages/_metaAdminAlertProducer.test.ts:22-35` walks `["scripts", "lib", "app"]` via `walkSourceFiles` from `lib/messages/__internal__/walkSourceFiles.ts`. Detection is code-shape-based (regex against `.from("admin_alerts").<insert|upsert>(...)` AST shape), not name-list. Allowlist is an empty `readonly` array — the only escape hatch is an explicit per-file justification. Per memory `feedback_class_sweep_must_be_code_shape_not_name_list.md`.
+- **Live-integration smoke test closed** — `tests/cross-cutting/verify-branch-protection.test.ts:206-238` calls `verifyBranchProtection` with the default Supabase service-role client (no `adminAlertClient` mock injection), then queries the real `admin_alerts` table via SQL, then re-invokes and asserts `occurrence_count = 2` — proving end-to-end RPC idempotency through the actual schema + partial unique index, not just spy assertions. Cleanup uses `.from("admin_alerts").delete()` which is correctly NOT a producer (the meta-test only flags `.insert(...)` / `.upsert(...)` patterns).
+
+**Negative-regression verification (Codex's recorded stash SHAs spot-checked):**
+
+- `f9b58bcb75cce46e8c0bfa36361cf7d51b59bdfa` (meta-test): adds `scripts/x6-negative-admin-alert-insert.ts` with raw `.from("admin_alerts").insert(...)`. Meta-test fails with `scripts/x6-negative-admin-alert-insert.ts:4:raw_admin_alert_supabase_write`. Restored → green.
+- `7b75107ad382636355945c48e6e0bfb64adac6c9` (live smoke / RPC idempotency): temporarily replaces RPC producer with raw `.insert({ ..., severity: "high" })`. `pnpm test:audit:branch-protection` fails with `Could not find the 'severity' column of 'admin_alerts' in the schema cache`. Restored → green.
+
+**Drift sweep (anchored to milestone base, NOT R1 fix-base):**
+
+- Status banner at handoff line 1 accurate ("COMPLETED at R2 APPROVE on 8f7d2de").
+- §8 exit-criteria checkbox flipped to `[x]` post-this-verdict — no premature flip during R2 execution.
+- R1 retroactive REVERSAL block preserved as archival; R1 APPROVE block preserved with strike-through markers; new R2 APPROVE block appended below (not in lieu of). Convergence log integrity intact.
+- W18 watchpoint added at handoff §6 lines 429 + 510 with the exact mandate prose.
+- No incidental edits to `.github/workflows/x-audits.yml`, no incidental edits to the spec body, no incidental drift on the X.1-X.5 audit surfaces.
+
+**Verification gate (Codex's recorded output, spot-checked structurally):**
+
+- `pnpm test:audit:branch-protection` → 13/13 passing (12 mocked + 1 live smoke).
+- `pnpm vitest run tests/messages/_metaAdminAlertProducer.test.ts --reporter=verbose` → 1/1 passing.
+- `pnpm typecheck` → clean.
+- `pnpm lint` → clean with X.5-baseline 5 warnings.
+- `pnpm test` → 271 files passed / 1 skipped; 3661 tests passed / 5 skipped.
+
+**Complexity-hypothesis third data point — CONFIRMED across X.4 R2, X.5 R2, X.6 R2:**
+
+All three heaviest X.* milestones required two rounds. The round-count predictor is NOT raw audit complexity but the presence of a live-integration surface (DB introspection, external API, file-system effects) that mocked tests cannot exercise. Three corroborating data points. Codifies as:
+
+- **`feedback_heavy_audit_milestones_budget_two_rounds.md`** — heavy audits with live-integration surfaces continue to need ≥2 rounds; budget the second round upfront.
+- **`feedback_mocked_only_tests_invite_tautological_approve.md`** — sibling memory: adversarial review of audit / drift-detector scripts MUST include a live-integration probe; mocks-only is insufficient because the producer-against-real-schema contract is invisible to mocks. The R1 mocks-only review of X.6 missed all 3 P0s; the meta-test + live-integration smoke test landed in R2 are the structural defenses.
+
+W18 also inherits forward to any future audit milestone: live-integration probe is mandatory for any PR-required check whose CI manifestation is "run the script live against the real surface."
+
+**Closure summary:** All 3 R1-retroactive P0s closed structurally. Meta-test is whole-codebase, code-shape-based, allowlist-driven (not name-list). Live-integration smoke test exists and exercises the real Supabase service-role client + RPC + idempotency contract. Handoff status banner + exit criteria accurate. W18 added to §6 watchpoints. Complexity-hypothesis third data point CONFIRMED; both memories codify. The branch-protection bootstrap (handoff §8 operator step) is unblocked.
