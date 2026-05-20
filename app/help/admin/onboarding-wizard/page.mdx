@@ -30,13 +30,26 @@ A "Start over" link sits at the bottom of every wizard step while you're in onbo
 
 <h2 id="step-2">Step 2: Verify access</h2>
 
-The second screen asks for the folder URL (or just the folder ID) and checks in real time that the app can actually see it. There are three outcomes:
+The second screen asks for the folder URL (or just the folder ID) and checks in real time that the app can actually see it.
 
-- **Green check, with the folder name and a sheet count.** The app reached the folder, can read its contents, and counted the sheets inside. The screen reads something like "Found N sheets in your folder, ready to bring them in?" Click the button and you move to step 3.
+What you do on this step:
+
+<Step n={1}>
+**Paste the folder URL (or just the folder ID) into the wizard's input.** The app checks access in real time; you don't click a "Verify" button separately.
+</Step>
+
+<Step n={2}>
+**When you see the green check with the folder name and sheet count, click the button to move to step 3.** The screen reads something like "Found N sheets in your folder, ready to bring them in?"
+</Step>
+
+If the check doesn't come back green, one of these is why:
+
 - **"That doesn't look like a Google Drive folder URL."** What you pasted isn't a Drive folder link. Drive folder URLs look like `https://drive.google.com/drive/folders/...`. Grab the URL from your browser's address bar while the folder is open in Drive, not a link copied from somewhere else.
 - **"We can't see this folder yet."** The folder exists, but the service-account email doesn't have access to it. Go back to Drive, double-check that you shared the folder with the email exactly as shown in step 1, and try again. The most common cause is sharing a different folder by accident, or pasting the email into a "Notify people" field instead of the "Share" field.
 
+<Callout type="warning">
 There's a fourth, rare outcome where the app's own credentials are misconfigured. If that happens, the wizard tells you "Something is wrong on our end. The developer has been notified." That's an Eric-side problem, not a Doug-side problem; the wizard will not move forward until it's fixed, and you don't have to do anything from your end.
+</Callout>
 
 The wizard never shows raw error codes on this step. If a screen ever does, that's a bug, not a feature.
 
@@ -51,9 +64,19 @@ Each row has one of four statuses:
 - **Skipped.** Gray badge. The folder contained something that isn't a Google Sheet (a doc, a PDF, an image). The app ignores it; you don't need to do anything.
 - **Already in live sync.** Red warning. This only happens in an unusual recovery situation where the same sheet exists in your live data already; the wizard won't promote it again. You resolve the live row from the dashboard, then re-run the wizard.
 
-You walk each "Parsed and ready" sheet through review and either approve or discard it. Approving stages the sheet for promotion; discarding has three flavors (try again next sync, defer until the sheet changes, or permanently ignore). The wizard will not let you finish until every row reaches a resolved state.
+What you do on this step:
 
-When every row is resolved, the Finalize button activates. Tapping it promotes every approved sheet into the live system, makes them visible to crew, and points cron at the folder for ongoing sync. From that moment on, the dashboard at `/admin` replaces the wizard, and your day-to-day work happens there.
+<Step n={1}>
+**Open each row and review what the parser extracted.** "Parsed and ready" rows are the ones that need your eyeballs; the other statuses are informational.
+</Step>
+
+<Step n={2}>
+**Approve or discard each row.** Approving stages the sheet for promotion; discarding has three flavors (try again next sync, defer until the sheet changes, or permanently ignore). The wizard will not let you finish until every row reaches a resolved state.
+</Step>
+
+<Step n={3}>
+**Click Finalize once every row is resolved.** This promotes every approved sheet into the live system, makes them visible to crew, and points cron at the folder for ongoing sync. From that moment on, the dashboard at `/admin` replaces the wizard, and your day-to-day work happens there.
+</Step>
 
 If something goes wrong during finalize (the most common cause is someone editing one of the sheets in Drive between approval and finalize), the wizard tells you which specific rows failed and gives you a link to re-approve them. The rest of the batch still goes through; you don't have to start over.
 
