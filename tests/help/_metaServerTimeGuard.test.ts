@@ -43,39 +43,61 @@ function walkTsTsx(dir: string, found: string[] = []): string[] {
 }
 
 function stripComments(src: string): string {
+  type Frame =
+    | { mode: "code" | "single" | "double" | "template" | "line" | "block" }
+    | { mode: "templateExpression"; braceDepth: number };
+
   const out: string[] = [];
   let i = 0;
-  let mode: "code" | "single" | "double" | "template" | "line" | "block" = "code";
+  const stack: Frame[] = [{ mode: "code" }];
+  const top = (): Frame => stack[stack.length - 1] ?? { mode: "code" };
 
   while (i < src.length) {
     const c = src[i];
     const next = src[i + 1];
+    const frame = top();
 
-    if (mode === "code") {
+    if (frame.mode === "code" || frame.mode === "templateExpression") {
       if (c === "/" && next === "/") {
-        mode = "line";
+        stack.push({ mode: "line" });
         i += 2;
         continue;
       }
       if (c === "/" && next === "*") {
-        mode = "block";
+        stack.push({ mode: "block" });
         i += 2;
         continue;
       }
       if (c === "'") {
-        mode = "single";
+        stack.push({ mode: "single" });
         out.push(c);
         i++;
         continue;
       }
       if (c === '"') {
-        mode = "double";
+        stack.push({ mode: "double" });
         out.push(c);
         i++;
         continue;
       }
       if (c === "`") {
-        mode = "template";
+        stack.push({ mode: "template" });
+        out.push(c);
+        i++;
+        continue;
+      }
+      if (frame.mode === "templateExpression" && c === "{") {
+        frame.braceDepth++;
+        out.push(c);
+        i++;
+        continue;
+      }
+      if (frame.mode === "templateExpression" && c === "}") {
+        if (frame.braceDepth > 0) {
+          frame.braceDepth--;
+        } else {
+          stack.pop();
+        }
         out.push(c);
         i++;
         continue;
@@ -85,18 +107,18 @@ function stripComments(src: string): string {
       continue;
     }
 
-    if (mode === "line") {
+    if (frame.mode === "line") {
       if (c === "\n") {
         out.push("\n");
-        mode = "code";
+        stack.pop();
       }
       i++;
       continue;
     }
 
-    if (mode === "block") {
+    if (frame.mode === "block") {
       if (c === "*" && next === "/") {
-        mode = "code";
+        stack.pop();
         i += 2;
         continue;
       }
@@ -105,40 +127,46 @@ function stripComments(src: string): string {
       continue;
     }
 
-    if (mode === "single") {
+    if (frame.mode === "single") {
       if (c === "\\") {
         out.push(c ?? "");
         if (next) out.push(next);
         i += 2;
         continue;
       }
-      if (c === "'") mode = "code";
+      if (c === "'") stack.pop();
       out.push(c ?? "");
       i++;
       continue;
     }
 
-    if (mode === "double") {
+    if (frame.mode === "double") {
       if (c === "\\") {
         out.push(c);
         if (next) out.push(next);
         i += 2;
         continue;
       }
-      if (c === '"') mode = "code";
+      if (c === '"') stack.pop();
       out.push(c ?? "");
       i++;
       continue;
     }
 
-    if (mode === "template") {
+    if (frame.mode === "template") {
       if (c === "\\") {
         out.push(c);
         if (next) out.push(next);
         i += 2;
         continue;
       }
-      if (c === "`") mode = "code";
+      if (c === "$" && next === "{") {
+        out.push(c, next);
+        stack.push({ mode: "templateExpression", braceDepth: 0 });
+        i += 2;
+        continue;
+      }
+      if (c === "`") stack.pop();
       out.push(c ?? "");
       i++;
     }
@@ -265,6 +293,24 @@ describe("Server-side time-call grep guard (test #16 — AC-11.38)", () => {
 
   it("real // comment after a string literal IS stripped", () => {
     const synthetic = 'const url = "https://example.test"; // a comment with new Date()\n';
+
+    expect(/\bnew Date\(\s*\)/.test(stripComments(synthetic))).toBe(false);
+  });
+
+  it("template-literal interpolation: `${new Date()}` IS flagged", () => {
+    const synthetic = "const label = `${new Date()}`;\n";
+
+    expect(/\bnew Date\(\s*\)/.test(stripComments(synthetic))).toBe(true);
+  });
+
+  it("template-literal interpolation: nested template inside `${...}` works recursively", () => {
+    const synthetic = "const label = `outer ${`inner ${new Date()}`} done`;\n";
+
+    expect(/\bnew Date\(\s*\)/.test(stripComments(synthetic))).toBe(true);
+  });
+
+  it("template-literal interpolation: comment inside `${...}` IS stripped", () => {
+    const synthetic = "const label = `${ /* mention new Date() */ realCall() }`;\n";
 
     expect(/\bnew Date\(\s*\)/.test(stripComments(synthetic))).toBe(false);
   });
