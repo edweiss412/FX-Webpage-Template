@@ -18,6 +18,31 @@ When picking up a deferred item:
 
 ## Open
 
+### X6-D-1 — Branch-protection drift-detector + 7th required check deferred until team workflow exists
+
+**Status:** Deferred 2026-05-20. **Suggested home:** post-v1 milestone *if/when* FXAV onboards a second developer/admin.
+
+**Context.** X.6 shipped the privileged `verify-branch-protection` drift-detector + the PR-required `verify-branch-protection-status` reader as the 7th audit check. Three review rounds (R2 R1-retroactive REVERSAL; R3 Supabase-optional; R4 in flight as of 2026-05-20) closed environment-shape gaps as they surfaced. R4 in particular exposed that the drift-detector hardcodes a team-workflow contract (`required_approving_review_count >= 1` + `dismiss_stale_reviews = true`) that doesn't fit a solo-developer repo: the user's chosen solo-dev variant (`review_count = 0` + `dismiss_stale = false` + `enforce_admins = true`) is a legitimate protection configuration but causes the drift-detector to exit 1 permanently → reader fails closed → merge deadlock.
+
+The R4 finding is REAL — the drift-detector contract needs an `BRANCH_PROTECTION_VARIANT=solo|team` env gate to support both. But the user is currently a solo developer on this repo with no near-term team plans. The X.6 gate's VALUE-ADD (audit checks block merges + protection cannot be silently weakened by a co-admin) doesn't apply when there is no co-admin to silently weaken anything. Implementing R4's variant gate solves a problem the user does not have.
+
+**Resolution (2026-05-20).** Branch protection removed via `gh api -X DELETE repos/edweiss412/FX-Webpage-Template/branches/main/protection`. The 6 audit checks (`traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-email-canonicalization`) STILL run on every PR + push to main and surface red checks in the GitHub UI; they just no longer BLOCK merges. The privileged `verify-branch-protection` job continues to exist in `.github/workflows/x-audits.yml` but its admin-alert path is dormant (no production Supabase per X.6 R3 finding; no protection to evaluate per this deferral). The `verify-branch-protection-status` reader continues to exist but always passes (no required-checks gate to fail closed against).
+
+**Trigger to resume.** Pick this back up if/when ANY of these become true:
+1. A second developer or admin gains write access to `edweiss412/FX-Webpage-Template`.
+2. FXAV crew-pages is forked / moved to a team org.
+3. The user explicitly wants drift detection on their solo configuration for audit / compliance reasons.
+
+**Concrete work to land at that point:**
+- R4 Codex repair: env-gated `BRANCH_PROTECTION_VARIANT` (solo|team, default team) in `scripts/verify-branch-protection.ts` + tests for both variants + spec §17.2.1 amendment + plan Task X.6 Step 3c amendment + workflow YAML reads variant from gh vars.
+- Re-PUT branch protection with the 7 required checks + the appropriate variant.
+- Set `gh variable set BRANCH_PROTECTION_VARIANT --body 'solo'` (or `'team'` per the new workflow shape).
+- Trigger a privileged workflow run; confirm exit 0; confirm reader passes; confirm merges work.
+
+**Memory codification (post-deferral 2026-05-20).** This is the FIFTH X.6 round (R1 → R1-retroactive → R2 → R3 → R4 deferred). The pattern of "spec assumed team workflow; user is solo; environment-shape gap; live integration surfaces it post-bootstrap" recurs across X.6 R3 (Supabase-availability) + R4 (workflow-shape). Refinement candidate for memory `feedback_mocked_only_tests_invite_tautological_approve.md`: "BEFORE specifying any 'must-have' contract value (review_count ≥ N, dismiss_stale = true, etc.), interrogate WHO the user actually is. Solo-dev repos break team-workflow assumptions just as silently as the no-prod-Supabase environment broke X.6 R2's admin_alerts contract." Codifying this requires one more data point; until then, the lesson is captured here.
+
+**Cost-of-tracking acknowledged.** Per memory `feedback_deferral_discipline.md`, aspirational future homes are NOT real homes. The trigger above (a second admin joins) is concrete; the suggested-home is appropriately "post-v1 IF that happens." If the user is still a solo developer in 12 months, this entry stays Open without urgency. If FXAV never becomes a team project, this entry stays Open forever — which is a correct outcome, not a failure.
+
 ### M10-D-PHASE2-1 — Cluster I-5 impersonation / preview-as — **RESOLVED 2026-05-19**
 
 **Status:** **Resolved.** Shipped in M10 Phase 3 §B at SHA `9a36419` (`feat(admin): preview-as impersonation via identity-only admin_preview kind (§9.3)`). §A Pin-3 contract extension (Viewer kind `'admin_preview'`) landed at `f74a1ed` + `84a8bed`. Phase 3 §B convergence-log entry documents the full implementation; Codex cross-CLI adversarial review (7 rounds) APPROVE'd the §B slice at R7 with one routed §A finding (M10-D-PHASE3-1) which itself resolved at `e54babe`.
