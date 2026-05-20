@@ -59,6 +59,7 @@ import {
   transportVisibleForToday,
   type TodayTileId,
 } from "@/lib/show/selectTodayTiles";
+import { nowDate } from "@/lib/time/now";
 import { selectRightNowState } from "@/lib/time/rightNow";
 import { isPackListVisibleToday } from "@/lib/visibility/packList";
 
@@ -69,7 +70,12 @@ export type ShowBodyProps = {
   data: ShowForViewer;
 };
 
-export function ShowBody({ slug, showId, viewer, data }: ShowBodyProps): ReactNode {
+export async function ShowBody({
+  slug,
+  showId,
+  viewer,
+  data,
+}: ShowBodyProps): Promise<ReactNode> {
   // Per-viewer context computed once and threaded into the hero card and
   // the tile grid below.
   const ctx = resolveViewerContext(viewer, data);
@@ -80,7 +86,11 @@ export function ShowBody({ slug, showId, viewer, data }: ShowBodyProps): ReactNo
     contacts: data.contacts,
   });
 
-  const today = new Date();
+  // M11 Phase C Task C.2 / AC-11.38: render-time "today" reads through the
+  // request-scoped time utility so screenshot capture can pin the clock via
+  // the `X-Screenshot-Frozen-Now` header. In production (no header /
+  // ENABLE_TEST_AUTH unset) this short-circuits to `new Date()`.
+  const today = await nowDate();
   const todayState = selectRightNowState(today, rightNowCtx.dates, rightNowCtx.dateRestriction, {
     timezone: rightNowCtx.timezone,
   });

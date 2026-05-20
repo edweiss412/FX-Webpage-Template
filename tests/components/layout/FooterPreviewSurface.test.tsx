@@ -11,6 +11,7 @@
  * addressed, leaked through the second report entry point on the same
  * surface.
  */
+import type React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render, screen, fireEvent } from "@testing-library/react";
 import { Footer } from "@/components/layout/Footer";
@@ -51,21 +52,22 @@ afterEach(() => {
 
 describe("Footer report-button override (admin preview surface)", () => {
   test("admin_preview override: report-button is surface=admin, preview-scoped surfaceId, carries crewPreview autocapture", async () => {
-    render(
-      <Footer
-        showId={SHOW_ID}
-        showSlug={SLUG}
-        reportSurfaceOverride="admin"
-        reportSurfaceIdOverride={`admin-preview-footer-${SLUG}-${CREW_ID}`}
-        reportAutocapture={{
-          crewPreview: {
-            crewMemberId: CREW_ID,
-            name: "Eric Weiss",
-            role: "A1",
-          },
-        }}
-      />,
-    );
+    // Footer is an async Server Component (M11 Phase C Task C.2) — resolve
+    // its element before passing to RTL's render() so children mount.
+    const element = (await Footer({
+      showId: SHOW_ID,
+      showSlug: SLUG,
+      reportSurfaceOverride: "admin",
+      reportSurfaceIdOverride: `admin-preview-footer-${SLUG}-${CREW_ID}`,
+      reportAutocapture: {
+        crewPreview: {
+          crewMemberId: CREW_ID,
+          name: "Eric Weiss",
+          role: "A1",
+        },
+      },
+    })) as React.ReactElement;
+    render(element);
     const trigger = screen.getByTestId("report-button-trigger");
     expect(trigger.getAttribute("data-surface")).toBe("admin");
 
@@ -91,7 +93,8 @@ describe("Footer report-button override (admin preview surface)", () => {
   });
 
   test("default (no override) preserves the crew-surface contract", async () => {
-    render(<Footer showId={SHOW_ID} showSlug={SLUG} />);
+    const element = (await Footer({ showId: SHOW_ID, showSlug: SLUG })) as React.ReactElement;
+    render(element);
     const trigger = screen.getByTestId("report-button-trigger");
     expect(trigger.getAttribute("data-surface")).toBe("crew");
 

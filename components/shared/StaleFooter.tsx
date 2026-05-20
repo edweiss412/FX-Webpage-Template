@@ -24,8 +24,15 @@ import { formatRelative } from "@/lib/time/relative";
 type StaleFooterProps = {
   lastSyncedAt: Date | string | null;
   lastSyncStatus: string | null | undefined;
-  /** Override for deterministic testing; defaults to new Date() at render. */
-  now?: Date;
+  /**
+   * Required as of M11 Phase C Task C.2 (AC-11.38). Every caller MUST pass
+   * the current instant explicitly so the render is deterministic under
+   * screenshot capture (`X-Screenshot-Frozen-Now` is honored by the
+   * server-side `lib/time/now.ts` utility; callers thread the resolved
+   * value here). Removing the previous `?? new Date()` default closes the
+   * wall-clock-bound drift surface for catalogged stale-data copy.
+   */
+  now: Date;
 };
 
 type Tier = "subtle" | "subtle-dot" | "yellow" | "red";
@@ -69,9 +76,8 @@ export function StaleFooter({ lastSyncedAt, lastSyncStatus, now }: StaleFooterPr
   if (!lastSyncedAt) return null;
 
   const t = typeof lastSyncedAt === "string" ? new Date(lastSyncedAt) : lastSyncedAt;
-  const currentNow = now ?? new Date();
-  const ageMs = currentNow.getTime() - t.getTime();
-  const relative = formatRelative(t, currentNow);
+  const ageMs = now.getTime() - t.getTime();
+  const relative = formatRelative(t, now);
   const { code, tier } = selectCodeAndTier(lastSyncStatus, ageMs);
 
   if (!code) {

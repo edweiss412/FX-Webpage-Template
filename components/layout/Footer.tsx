@@ -27,6 +27,7 @@
 import { ThemeToggle } from "./ThemeToggle";
 import { ReportButton } from "@/components/shared/ReportButton";
 import { StaleFooter } from "@/components/shared/StaleFooter";
+import { nowDate } from "@/lib/time/now";
 
 type FooterProps = {
   /**
@@ -92,7 +93,7 @@ function formatAsOf(iso: string): string {
   });
 }
 
-export function Footer({
+export async function Footer({
   asOf,
   showId,
   showSlug,
@@ -102,7 +103,11 @@ export function Footer({
   reportSurfaceOverride,
   reportSurfaceIdOverride,
 }: FooterProps) {
-  const year = new Date().getUTCFullYear();
+  // M11 Phase C Task C.2 / AC-11.38: single request-scoped "now" reused by
+  // both the copyright year and the <StaleFooter> child. Production
+  // behavior (no X-Screenshot-Frozen-Now header) is identical to new Date().
+  const currentNow = await nowDate();
+  const year = currentNow.getUTCFullYear();
   // surfaceId scope: one stable id per crew-page slug so sessionStorage
   // hydration finds the right persisted attempt across tab refresh.
   // Falls back to a generic id when no slug is in scope (defensive).
@@ -114,7 +119,11 @@ export function Footer({
       <div className="mx-auto flex w-full max-w-300 flex-col items-start gap-3 px-4 py-6 text-xs text-text-subtle sm:flex-row sm:items-center sm:justify-between sm:gap-6 sm:px-8 sm:py-7">
         <div data-testid="page-footer-as-of" className="min-w-0">
           {lastSyncedAt ? (
-            <StaleFooter lastSyncedAt={lastSyncedAt} lastSyncStatus={lastSyncStatus ?? null} />
+            <StaleFooter
+              lastSyncedAt={lastSyncedAt}
+              lastSyncStatus={lastSyncStatus ?? null}
+              now={currentNow}
+            />
           ) : asOf ? (
             <p>
               <span className="text-text-faint">as of </span>
