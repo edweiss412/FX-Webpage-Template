@@ -25,7 +25,7 @@
 
 ## §2 Phase progress
 
-- [x] **Phase D — MDX components** (`04-components.md`) — STATUS: implementation + impeccable §1.8 dual-gates complete; awaiting Codex APPROVE; final SHA recorded on approval
+- [x] **Phase D — MDX components** (`04-components.md`) — **CLOSED 2026-05-19 at SHA `08d6546`** (final SHA pending sign-off commit). Codex APPROVE on R8 (job `review-mpdkm05a-t63bts`).
   - [x] Task D.1 — `<Callout type>` component (`b220041` + impeccable-fix `293e0e9`)
   - [x] Task D.2 — `<Step n>` component (`97ae6f2` + fix-1 `8ed74eb` + fix-2 `3ee35e1`)
   - [x] Task D.3 — `<ScreenshotPlaceholder>` draft scaffold (`87ee73f` + em-dash fix `d9fcc07`)
@@ -197,7 +197,8 @@ Format: per-round row appended at the bottom. Round 1 anchored at Phase D base S
 | D.5 Codex R5 fix (plan-body sync) | `1584486` | `docs(plan): D-components.md plan body synced to final implementation per Codex R5 MEDIUM` |
 | D.5 Codex R5 follow-on doc-sweep | `f620522` | `docs(plans): final stale-regex sweep — 05-content.md + handoff §5 invariant` |
 | D.5 Codex R6 fix (handoff R5 row + forward-looking §12) | `ab854c4` | `docs(handoff): R6 trail-update — populate R5 row + add R6 row + forward-looking sign-off` |
-| D.5 Codex R7 fix (this commit — exhaustive sweep) | TBD | `docs(handoff): R7 exhaustive sweep — §2 top-level status + §13 meta-test inventory + clear all remaining round-pinned language` |
+| D.5 Codex R7 fix (exhaustive sweep) | `08d6546` | `docs(handoff): R7 exhaustive sweep — §2 top-level status + §13 meta-test inventory + clear all remaining round-pinned language` |
+| Phase D close-out sign-off (this commit) | TBD | `docs(handoff): M11 Phase D CLOSED at 08d6546 — Codex APPROVE on R8 after 8-round convergence` |
 | D.6 implementation | `9ed66de` | `feat(help): TipFromSheets adoption-track aside component (Task D.6)` |
 | D.6 preemptive fix | `c580074` | `fix(help): D.6 TipFromSheets — drop border-l-4 side-stripe (HIGH, DESIGN.md L242) + eyebrow text-accent-text→text-text-strong (CRITICAL contrast) per impeccable §1.8 pre-flag` |
 | D.7 registration | `4ee6892` | `feat(help): register all six MDX components in mdx-components.tsx (Task D.7)` |
@@ -233,7 +234,7 @@ Format: per-round row appended at the bottom. Round 1 anchored at Phase D base S
 | R5 Codex adversarial | 2026-05-19 | **needs-attention** at `c68e2e8` | MEDIUM × 1: plan body `04-components.md` still contained pre-fix code snippets that would reintroduce R1-R4 defects if a future Phase E replay trusted them | `1584486` plan-body synced to FINAL converged code with inline annotations + CLOSED-status banner; `f620522` follow-on doc-sweep for 05-content.md + §5 invariant table | Job `review-mpdk1ojo-bhw410`; same vector as R4 (doc/code drift) but different file scope (plan body vs handoff/spec) |
 | R6 Codex adversarial | 2026-05-19 | **needs-attention** at `f620522` | MEDIUM × 1: handoff §8 R5 row still TBD; §12/§2 still said "R1→R4 / R5 pending" — trail-staleness gap (same vector as R4+R5; 3rd same-vector instance triggered comprehensive doc-sweep + forward-looking sign-off language as structural defense) | (this commit) §8 R5 row populated + R6 row added + §2 + §12 rewritten with forward-looking iteration language | Job `review-mpdkcp2n-s2k3db`; same-vector recurrence rule applied — structural defense ships in this commit |
 | R7 Codex adversarial | 2026-05-19 | **needs-attention** at `ab854c4` | MEDIUM × 2: (1) §2 top-level Phase D status still pinned "STATUS IN PROGRESS (final SHA pending Codex R2)"; (2) §13 meta-test inventory still said "Phase D CREATES: none expected" despite `7d2929b` landing `_metaDesignTokenPairs.test.ts` | (this commit) §2 top-level status rewritten to round-neutral language; §13 fully rewritten to declare the meta-test as CREATED + describe enforced scope; exhaustive grep-sweep across the handoff to clear ALL remaining stale-round language | Job `review-mpdkgtlm-yyh0r6`; same vector as R4/R5/R6 (4th consecutive doc-drift round); per `feedback_same_vector_recurrence_triggers_comprehensive_reanalysis.md` — comprehensive re-analysis performed (full-handoff grep sweep + structural defense reinforcement) |
-| R8 Codex adversarial | TBD | TBD | TBD | — | base = `023d312`; pending after R7 comprehensive sweep lands |
+| R8 Codex adversarial | 2026-05-19 | **APPROVE** at `08d6546` | — | — | Job `review-mpdkm05a-t63bts`; "No blocking finding. R7's two doc-drift issues are resolved at 08d6546, the R7 commit is docs-only against ab854c4, and I did not find remaining stale round-pinned language outside the historical §8 rows and the intentional R8 placeholder." Phase D converged after 8 Codex rounds. |
 
 ---
 
@@ -286,12 +287,12 @@ If any items surface during Phase D execution, route per the three-bucket discip
 
 ## §12 Sign-off
 
-- [x] Implementer (Opus / Claude Code): 2026-05-19 — current HEAD is the latest Codex-iteration fix commit (see §8 R-row chain for the SHA at this round); final close-out SHA recorded here once Codex APPROVE lands.
+- [x] Implementer (Opus / Claude Code): 2026-05-19 — final SHA `08d6546` (R8 APPROVE base) + this sign-off commit.
 - [x] External impeccable dual-gate APPROVED per-component (D.1, D.2, D.3, D.4, D.5, D.6) on 2026-05-19 — see §8 per-component-impeccable table. Phase-close cumulative (covers D.7 wiring + meta-test): PASSES 31/32 + 20/20. D.5 R3 re-attest after clipboard mutation: PASSES 32/32 + 20/20.
-- [ ] Reviewer (Codex cross-CLI) APPROVE on __ date __ — Iterating R1→R(N) until APPROVE; see §8 for the full per-round table with verdicts, findings, and resolution commits. Each round to date has surfaced a NEW vector (not finding re-litigation). Forward-looking sign-off language adopted in R6 as the structural defense against trail-staleness recurrence.
+- [x] Reviewer (Codex cross-CLI) **APPROVE** on 2026-05-19 — converged at R8 (job `review-mpdkm05a-t63bts`) after 8 rounds. Convergence trajectory: R1 2 HIGH → R2 1 MED → R3 1 MED → R4 1 MED → R5 1 MED → R6 1 MED → R7 2 MED → **R8 APPROVE**. Severity strictly non-increasing. Each round surfaced a NEW vector (not finding re-litigation). R4-R7 were same-class doc-drift findings; R7's exhaustive sweep + structural defense (forward-looking §2/§12 language + single-source-of-truth §8 R-table + accurate §13 meta-test inventory) closed the class.
 - [ ] User review: __ date __
 
-Phase D marked **closed** in `ROUTING.md` upon Codex APPROVE.
+Phase D marked **closed** in `ROUTING.md` (this commit updates the M11 row).
 
 ## §13 Meta-test inventory
 
@@ -311,4 +312,10 @@ Each sub-scan was red-via-temp-violation verified at commit time (3 distinct vio
 
 ## §14 Phase D meta-observations (populated at close-out)
 
-TBD. Track meta-observations from Phase D's review iterations worth carrying forward to Phase E and beyond.
+Three meta-observations from Phase D's 8-round Codex convergence worth carrying forward to Phase E and beyond:
+
+1. **DESIGN.md line 33 contains a math error** that must be resolved at the project level (cross-cutting BACKLOG candidate, NOT Phase D scope). The doc states `#ff8c1a` × `#ffffff` = 4.07:1 ("AA at ≥18pt or ≥14pt-bold"); D.2 R2 re-attest computed actual contrast = 2.34:1 — fails BOTH WCAG-large 3:1 AND AA-body 4.5:1 at every size/weight. Phase A R2 + D.2 R2 + project-wide pre-existing usage (Bootstrap.tsx, settings, RevokeRowButton — auditor's grep) imply EITHER `--color-accent-text-runtime` light value needs to change from `#ffffff` to a dark on-accent OR every `bg-accent text-accent-text` instance needs the Phase A R2 pattern (bg-surface-raised + text-accent-on-bg + border-accent). Phase D fixed only its own instances per AGENTS.md §1.7 spec-canonical discipline + per-instance Phase A precedent; **cross-cutting sweep is BACKLOG**.
+
+2. **Plan-body code-as-prescription anti-pattern.** D.1, D.2, D.5, D.6 plan-body code snippets shipped impeccable-violating patterns that subagents faithfully reproduced verbatim per AGENTS.md §1.7 — then the per-component dual-gate + Codex review caught and fixed each in convergence rounds. R5 surfaced the inverse: a future Phase E replay would re-walk the plan body and reintroduce the defects. R5 fix synced the plan body to the FINAL converged state. **Forward-pointer:** when authoring a plan that ships code in prose, either (a) author the spec contract + let implementers derive code OR (b) commit to keeping the plan body in sync with every impeccable/Codex-driven fix during execution. Phase D adopted (b) at R5.
+
+3. **Same-vector recurrence rule has a "process drift" sub-class** (R4 → R5 → R6 → R7 doc-drift). The original rule (`feedback_same_vector_recurrence_triggers_comprehensive_reanalysis.md`) was authored for CODE bug classes (e.g., advisory-lock holders, range-request edge cases). Phase D extended it to PROCESS bug classes: every round of trail/doc updates by the orchestrator missed something the next round caught. The structural defense that finally worked (R7) was rewriting §2/§12 to **single-source-of-truth via §8 R-row table** + accurate §13 + round-neutral language. **Forward-pointer for Phase E orchestrator:** when iterating on handoff updates, the round-N commit should reference §8 as the source of truth for round status and avoid re-statements that go stale.
