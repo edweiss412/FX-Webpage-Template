@@ -1,4 +1,6 @@
-**Status: COMPLETED 2026-05-19.** Adversarial review converged at **R1 APPROVE** on SHA `4a8c242` (milestone base `d026919`; handoff close at `ef483dc`). Codex's R1 shipped the spec amendment renaming `x5-rls-coverage` → `x5-email-canonicalization` (spec §17.2 lines 2839 + 3693 + 3697; plan `11-cross-cutting.md` at all five named-check usages) — the X.5-surfaced drift reconciled in X.6's commit range per the canonical regression-fixture contract. Trust-boundary split intact: privileged `verify-branch-protection` gated to `push: main` + `schedule: '0 9 * * 1'` only; reader `verify-branch-protection-status` uses only auto-injected `GITHUB_TOKEN`; `pull_request_target` absent from `.github/`. All 12 branch-protection test cases present with anti-tautology spy-payload assertions. Workflow-fails-on-bad-fixture evidence captured: PR https://github.com/edweiss412/FX-Webpage-Template/pull/1, run 26137112146, failing `traceability-audit` job 76874626728 (throwaway branch + PR closed after capture). Seven PR-required CI status checks now wired verbatim: `traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-email-canonicalization`, `verify-branch-protection-status`. **Complexity-hypothesis third data point: WEAKENED.** X.4 R1→R2 + X.5 R1→R2 both took two rounds; X.6 is the heaviest of the X.* set (three concurrent surfaces + GitHub API + secret handling + spec amendment surfacing) and closed at R1 APPROVE. The "heavy audits need ≥2 rounds" hypothesis does NOT codify as memory — the better generalization is likely that audit complexity alone doesn't predict round count; what predicted X.4/X.5 round counts may have been the specific class of trap (text-regex shortcuts; hardcoded TS literals) that Codex's R1 self-review missed, not raw complexity. **FXAV crew-pages v1 X.* set is structurally complete.** Manual admin step (configure required-checks in GitHub Settings) is the only operator follow-up; programmatically verified by subsequent privileged runs. See "Convergence log" below.
+**Status: REOPENED 2026-05-20 → R2 in flight.** R1 APPROVE at SHA `4a8c242` was retroactively REVERSED on 2026-05-20 during the operator-bootstrap step (handoff §8 "Privileged drift-detector live run") when `scripts/verify-branch-protection.ts` crashed on its first live invocation against the GitHub Branch Protection API. Three P0/H1-class findings (detailed in convergence-log §"Adversarial review > Round 1 retroactive REVERSAL") surfaced that the mocked-only test methodology did not exercise. **Complexity-hypothesis third data point: REVERSED → STRENGTHENED.** The R1 APPROVE was tautological, not earned; heavy audits with live-integration surfaces continue to need ≥2 rounds, just as X.4/X.5 did. R2 routes to Codex repair; reviewer (me) appended the finding block + canonical fix shape below.
+
+**Status: ~~COMPLETED 2026-05-19~~** — see REOPENED notice above. **R1 APPROVE retroactively REVERSED.** Adversarial review ~~converged at~~ **briefly claimed R1 APPROVE** on SHA `4a8c242` (milestone base `d026919`; handoff close at `ef483dc`). Codex's R1 shipped the spec amendment renaming `x5-rls-coverage` → `x5-email-canonicalization` (spec §17.2 lines 2839 + 3693 + 3697; plan `11-cross-cutting.md` at all five named-check usages) — the X.5-surfaced drift reconciled in X.6's commit range per the canonical regression-fixture contract. Trust-boundary split intact: privileged `verify-branch-protection` gated to `push: main` + `schedule: '0 9 * * 1'` only; reader `verify-branch-protection-status` uses only auto-injected `GITHUB_TOKEN`; `pull_request_target` absent from `.github/`. All 12 branch-protection test cases present with anti-tautology spy-payload assertions. Workflow-fails-on-bad-fixture evidence captured: PR https://github.com/edweiss412/FX-Webpage-Template/pull/1, run 26137112146, failing `traceability-audit` job 76874626728 (throwaway branch + PR closed after capture). Seven PR-required CI status checks now wired verbatim: `traceability-audit`, `x1-catalog-parity`, `x2-no-raw-codes`, `x3-trust-domain`, `x4-no-global-cursor`, `x5-email-canonicalization`, `verify-branch-protection-status`. **Complexity-hypothesis third data point: WEAKENED.** X.4 R1→R2 + X.5 R1→R2 both took two rounds; X.6 is the heaviest of the X.* set (three concurrent surfaces + GitHub API + secret handling + spec amendment surfacing) and closed at R1 APPROVE. The "heavy audits need ≥2 rounds" hypothesis does NOT codify as memory — the better generalization is likely that audit complexity alone doesn't predict round count; what predicted X.4/X.5 round counts may have been the specific class of trap (text-regex shortcuts; hardcoded TS literals) that Codex's R1 self-review missed, not raw complexity. **FXAV crew-pages v1 X.* set is structurally complete.** Manual admin step (configure required-checks in GitHub Settings) is the only operator follow-up; programmatically verified by subsequent privileged runs. See "Convergence log" below.
 
 # Handoff — X.6: Spec-to-implementation traceability + branch-protection drift-detector + cross-cutting parity assertions (AC-X.6)
 
@@ -207,7 +209,7 @@ Pulled forward from X.1 R1–R3 + X.2 R1 + X.3 R1 + X.4 R1–R2 + X.5 R1–R2 cl
 - [ ] No new `// TODO` or `// FIXME` lines.
 - [ ] **AC-X.5-body-vs-list drift disposition recorded in convergence log** — either (a) spec amendment landed in X.6 commit range with verbatim file:line citations, OR (b) drift surfaced as a finding for a follow-up amendment. NOT acceptable: silent rename of AC-X.5's body to match the list; silent dropping of the parity assertion.
 - [ ] **Manual admin step recorded as follow-up** — the one-time branch-protection settings configuration (Settings → Branches → Branch protection rules → `main` → add all seven check names verbatim) is documented in the convergence log as a post-merge operator task. Subsequent runs of `scripts/verify-branch-protection.ts` programmatically verify it landed correctly.
-- [x] Adversarial review converged to APPROVE at **R1** (2026-05-19, Opus reviewer; anchored to milestone base `d026919`; zero P0/H1/P1/P2 findings; two minor non-blocking observations recorded below).
+- [ ] Adversarial review converged to APPROVE. **R1 (2026-05-19) APPROVE was retroactively REVERSED on 2026-05-20** when live-integration bootstrap surfaced 3 findings the mocked-only review missed. R2 in flight — Codex repair pending; see convergence-log §"Round 1 retroactive REVERSAL".
 - [ ] All commits follow `<type>(<scope>): <summary>` format with one logical task per commit.
 - [ ] Convergence log at the bottom of this file is filled in with R1 + any subsequent rounds + complexity-hypothesis third data point.
 
@@ -319,11 +321,116 @@ Complexity-hypothesis self-assessment: I expect Opus to find at least one R1 iss
 
 ### Adversarial review
 
-#### Round 1 — APPROVE (2026-05-19, Opus reviewer)
+#### Round 1 retroactive REVERSAL — REQUEST_CHANGES (2026-05-20, Opus reviewer, post-live-integration discovery)
+
+**TL;DR:** The R1 APPROVE recorded below was **retroactively reversed on 2026-05-20** when the operator-bootstrap step (handoff §8 "Privileged drift-detector live run" — marked "operator runs once after workflow first lands on main") surfaced three findings the R1 mocked-only review methodology could not have caught. The R1 verdict has been preserved below for archival; treat the **REVERSAL block here as authoritative** until R2 closes.
+
+**Trigger event.** Empty-commit `f4a7688` pushed to main 2026-05-20 02:36 UTC triggered workflow run `26137802521` with all three secrets (`GH_APP_TOKEN`/`BRANCH_PROTECTION_PAT`, `SUPABASE_SECRET_KEY`, `SUPABASE_URL`) freshly landed. The privileged `verify-branch-protection` job crashed at `scripts/verify-branch-protection.ts:259` with `UnhandledPromiseRejection: "#<Object>"` — no admin-alert emitted, no JSON report written, exit code 1. Log: https://github.com/edweiss412/FX-Webpage-Template/actions/runs/26137802521/job/76876655649.
+
+**Verdict:** REQUEST_CHANGES. **3 P0 findings.** Mocked tests pass; live integration breaks.
+
+##### P0-1: `void main()` swallows the actual error
+
+**Site:** `scripts/verify-branch-protection.ts:258-260`:
+```ts
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  void main();
+}
+```
+**Failure mode.** `void main()` silently swallows promise rejections from `verifyBranchProtection()` and `defaultInsertAdminAlert()`. The live run surfaced this as `UnhandledPromiseRejection` with no context — no admin-alert emission, no JSON report, no useful error text. The spec contract at §17.2.1 says auth failure / drift "is treated as an alertable control failure" — the script's actual behavior is "crashes silently."
+
+**Canonical fix shape:**
+```ts
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error("[verify-branch-protection] unhandled error:", error);
+    process.exitCode = 1;
+  });
+}
+```
+
+##### P0-2: Script uses raw `.insert()` with non-existent `severity` column instead of canonical `upsert_admin_alert` RPC
+
+**Sites:** 
+- `scripts/verify-branch-protection.ts:50` — `supabase.from("admin_alerts").insert(payload)`
+- `scripts/verify-branch-protection.ts:9-13` — `AlertPayload` type declares `severity: "high"` field
+- All callers populating `severity: "high"` on the insert payload throughout the script
+
+**Failure mode.** The `admin_alerts` table schema at `supabase/migrations/20260501001000_internal_and_admin.sql:268-278` defines columns `{id, show_id, code, context, raised_at, last_seen_at, occurrence_count, resolved_at, resolved_by}`. **No `severity` column exists.** The insert would fail with a Postgres `column "severity" of relation "admin_alerts" does not exist` error. Even if `severity` is silently ignored by PostgREST, the raw `.insert()` bypasses the canonical idempotency contract — running the script twice on the same drift hits the partial unique index `admin_alerts_one_unresolved_idx` (`coalesce(show_id::text, ''), code` WHERE `resolved_at is null`) and the second insert fails.
+
+The canonical pattern across the entire codebase (verified via grep across `lib/`, `scripts/`, `app/`) is **`lib/adminAlerts/upsertAdminAlert.ts:35`** which calls:
+```ts
+supabase.rpc("upsert_admin_alert", {
+  p_show_id: <uuid or null>,
+  p_code: <code>,
+  p_context: <jsonb>,
+});
+```
+
+The RPC is defined at `supabase/migrations/20260505000000_upsert_admin_alert.sql:3-21` with idempotency built in: `ON CONFLICT ... DO UPDATE SET last_seen_at = now(), occurrence_count = occurrence_count + 1, context = excluded.context`. **Every other admin-alert producer in the codebase uses this RPC.** The X.6 script is the only divergent caller.
+
+**Canonical fix shape:**
+1. Update `AlertPayload` type to drop `severity` field; rename to match the RPC argument names (`p_show_id`, `p_code`, `p_context`).
+2. Replace `defaultInsertAdminAlert` body with `supabase.rpc("upsert_admin_alert", { p_show_id: null, p_code: payload.code, p_context: payload.context })` (note: `show_id: null` because BRANCH_PROTECTION_* alerts are global, not per-show — consistent with the global slot in the unique index).
+3. Update all 12 test fixtures in `tests/cross-cutting/verify-branch-protection.test.ts` to assert against `.rpc("upsert_admin_alert", ...)` shape, NOT `.from("admin_alerts").insert(...)`.
+4. Drop the `severity` field from every test assertion that checks payload shape.
+
+##### P0-3: Plan Task X.6 Step 3c clause 4 prescribes the broken pattern verbatim — spec needs amendment
+
+**Site:** `docs/superpowers/plans/2026-04-30-fxav-crew-pages-design/11-cross-cutting.md:2303-2313`:
+```ts
+await supabaseAdmin.from("admin_alerts").insert({
+  code: "BRANCH_PROTECTION_DRIFT",
+  context: {
+    failures: failedAssertions,
+    repo: `${owner}/${repo}`,
+    ts: new Date.toISOString(),
+  },
+  severity: "high",
+});
+```
+**Failure mode.** The plan prescribes the exact broken pattern the script implements. Codex correctly followed the plan; the plan was wrong. The 12 mocked test cases asserted against the broken shape because they read the plan as the source of truth. R1 review didn't catch it because the watchpoints didn't include "test against live schema" or "use canonical admin-alert pattern."
+
+**Canonical fix shape:** amend the plan Task X.6 Step 3c clause 4 verbatim to prescribe `supabase.rpc("upsert_admin_alert", { p_show_id: null, p_code: ..., p_context: ... })`. Cite `lib/adminAlerts/upsertAdminAlert.ts:35` as the canonical pattern. No spec body amendment needed (AC-X.6 / §17.2.1 don't prescribe the insert mechanism; the spec body talks about the alert code emission, not the API call shape).
+
+##### Meta-test gap exposed (NOT a finding, but the root cause of why R1 missed P0-1/P0-2/P0-3)
+
+Handoff §13 N/A'd Supabase call-boundary discipline with the rationale "likely justified — one-shot CLI script, failure surface IS the workflow-job exit code." That rationale was wrong: the script is a producer site for `admin_alerts` rows and is subject to the **canonical-producer-pattern** discipline established by `lib/adminAlerts/upsertAdminAlert.ts`. The cure for the recurring class is a structural meta-test that asserts **every admin-alert producer in the codebase calls `upsert_admin_alert` RPC, not raw `.insert("admin_alerts")`** (i.e., extends `tests/messages/_metaAdminAlertCatalog.test.ts` with a "producer pattern" check, or creates a sibling `tests/messages/_metaAdminAlertProducer.test.ts`).
+
+This is the structural defensive layer that would have caught P0-2 at the X.6 R1 round. Per memory `feedback_meta_test_at_plan_time_not_round_n.md`, the meta-test should land as part of R2 repair — NOT deferred. Without it, future admin-alert producers can re-introduce the same drift.
+
+##### Live-integration smoke test (NEW, MUST be added as part of R2 repair)
+
+The mocked-only test methodology is the proximate cause of all three findings landing at the live-integration stage. R2 MUST add an integration smoke test that:
+
+1. Runs against a real Supabase test client (the same harness `tests/cross-cutting/email-canonicalization.test.ts` Layer 3 uses for `pg_get_constraintdef` introspection).
+2. Calls `verifyBranchProtection({ env: { GH_APP_TOKEN: '<test-token>', GITHUB_REPOSITORY: 'test/repo' }, fetchImpl: <real-fetch-shape mock that returns 404 to force drift path>, insertAdminAlert: <undefined-so-default-runs> })`.
+3. Asserts an `admin_alerts` row with `code='BRANCH_PROTECTION_DRIFT'` exists post-call.
+4. Runs idempotency check: invokes again, asserts the row's `occurrence_count = 2` (proving the RPC upsert path works).
+
+##### Complexity-hypothesis third data point — REVERSED → STRENGTHENED
+
+Per the X.5 close-out, the complexity-hypothesis third data point was provisional pending X.6's outcome. The R1 APPROVE conclusion ("X.6 closed at R1 despite being the heaviest of the X.* set → hypothesis weakens") was based on test methodology that didn't exercise the actual integration. With the retroactive REVERSAL, the data points now read:
+
+- X.4: 2 rounds (live integration via project-tree audit).
+- X.5: 2 rounds (live integration via Postgres introspection at Layer 3 + 4).
+- **X.6: 2 rounds (live integration via GitHub REST + Supabase admin_alerts producer — surfaced retroactively).**
+
+Three consecutive data points all confirming heavy-audits-with-live-integration-surfaces need ≥2 rounds. **Memory `feedback_heavy_audit_milestones_budget_two_rounds.md` IS warranted to codify**, with the refined framing: "the round-count predictor is not raw complexity but the presence of a live-integration surface (DB, external API, file system effects) that mocks cannot exercise; tests must include at least one path that runs against the real surface, or R1 APPROVE is tautological."
+
+This is also a sibling memory candidate: `feedback_mocked_only_tests_invite_tautological_approve.md` — adversarial review of audit / drift-detector scripts MUST include a live-integration probe; mocks-only is insufficient.
+
+##### Routing
+
+Per memory `feedback_adversarial_review_repair_routing.md`: reviewer never fixes; route by file ownership. All three P0s are Codex's repair (scripts/, tests/, plan/) — no UI surface. Dispatch via `/codex:adversarial-review --fresh` with the verdict + finding text inlined; FIRST repair of a round uses `--fresh`.
+
+**R2 review (post-repair) MUST exercise the live integration**, not just re-read the mocks. The handoff §6 watchpoint inventory inherits a new W18: "Mocks-only tests are insufficient for audit / drift-detector scripts. Every PR-required check whose CI manifestation is 'run the script live against the real surface' MUST have at least one test that exercises the actual surface (the same Supabase test client, an HTTP mock that matches the real fetch shape, or a checked-in fixture replay)."
+
+#### Round 1 — APPROVE (2026-05-19, Opus reviewer) — RETROACTIVELY REVERSED
 
 **Anchor:** milestone base `d026919` (X.5 R2 APPROVE close-out); review scope `4a8c242` (impl) + `ef483dc` (handoff close-out). M11 Phase C commits `7e789f5` + `c06352b` in the range explicitly excluded — those are M11 Phase C R3/R4 work on `tests/help/_metaTimeHelpersRequireNow.test.ts`, not X.6 territory.
 
-**Verdict:** APPROVE. **Zero P0 / H1 / P1 / P2 findings.** Two minor non-blocking observations recorded below.
+**Verdict:** ~~APPROVE~~ **RETROACTIVELY REVERSED 2026-05-20.** ~~Zero P0 / H1 / P1 / P2 findings.~~ Three P0 findings landed at the live-integration step (see "Round 1 retroactive REVERSAL" block above). The closure-summary text below is preserved for archival but should be read as "what the mocks-only review observed," not "what the live integration confirmed."
 
 **Fresh-eyes W1–W17 sweep:**
 
