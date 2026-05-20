@@ -52,6 +52,7 @@
     ".next-build-artifact-gate-test",
     "tests/cross-cutting/fixtures/auth-x3",
     "tests/cross-cutting/fixtures/no-global-cursor",
-    "tests/cross-cutting/fixtures/no-global-cursor-semantic"
+    "tests/cross-cutting/fixtures/no-global-cursor-semantic",
+    "tests/cross-cutting/fixtures/email-canonicalization"
   ]
 }

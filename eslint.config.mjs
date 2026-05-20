@@ -26,6 +26,7 @@ const eslintConfig = defineConfig([
     ".claude/**",
     "tests/cross-cutting/fixtures/no-global-cursor/**",
     "tests/cross-cutting/fixtures/no-global-cursor-semantic/**",
+    "tests/cross-cutting/fixtures/email-canonicalization/**",
   ]),
   // ── Tailwind v4 canonical-class enforcement ─────────────────────────────
   // Implements the Tailwind PR-19059 canonical-class suggestions (same logic
@@ -67,7 +68,11 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    files: ["lib/audit/admin-tables.generated.ts", "lib/audit/watermark-symbols.generated.ts"],
+    files: [
+      "lib/audit/admin-tables.generated.ts",
+      "lib/audit/watermark-symbols.generated.ts",
+      "lib/audit/email-boundaries.generated.ts",
+    ],
     rules: {},
   },
   // Must be last: disables ESLint rules that conflict with Prettier formatting.
