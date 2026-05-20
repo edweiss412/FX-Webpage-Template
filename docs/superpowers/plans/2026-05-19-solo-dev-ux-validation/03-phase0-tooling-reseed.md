@@ -127,22 +127,137 @@ git commit -m "feat(validation): canonical fixture mapping — 16 combos × 11 =
 
 ---
 
-### Task 0.C.4: Implement `validation-reseed` core seed logic
+### Task 0.C.4: Author + apply `mint_validation_fixture_atomic` RPC (advisory-lock-held single transaction)
 
 **Files:**
-- Modify: `scripts/validation-reseed.ts`
+- Create: `supabase/migrations/<timestamp>_mint_validation_fixture_atomic.sql`
+- Create: `tests/db/mint-validation-fixture-atomic.test.ts`
 
-Per spec §3.3 owned-fixture-mappings + §3.3 crew_member_auth lockstep contract + spec invariant 2 (per-show advisory lock).
+Per spec invariant 2 (per-show advisory lock). **R1 P0 amendment:** the reseed script cannot acquire the lock and then do writes through `@supabase/supabase-js` PostgREST — those writes wouldn't share the transaction with the lock. Per project pattern (`supabase/migrations/20260504000003_mint_link_session_atomic.sql`, `20260504000004_revoke_leaked_link_atomic_advisory_lock.sql`), advisory-lock-protected mutations run inside a SECURITY DEFINER RPC.
 
-Implementation outline:
-1. UPSERT show (synthesizes a stable `drive_file_id` from `combo + showName`).
-2. Compute `date_restriction.days` from `datesRelative` relative to today.
-3. Acquire per-show advisory lock: `SELECT pg_advisory_xact_lock(hashtext('show:' || $driveFileId));`
-4. UPSERT crew_members for each crewMember in fixture.crewMembers (keyed by `(show_id, name)`).
-5. UPSERT crew_member_auth for each (current_token_version preserved if set; initial = 1; revoked_below_version = 0).
-6. UPDATE `validation_state.alias_map[combo] = { alias_X: crew_id, ... }` (jsonb merge).
-7. UPSERT `validation_state` singleton: set `last_seed_date = current_date`, append `combo` to `combos_materialized` (deduped), set `seeded_supabase_project_ref` from env, `seeded_by` from process owner.
-8. For `--combo all`: DELETE `revoked_links WHERE revoked_reason LIKE 'validation:%'` (spec §3.3 R22) AND structurally reset every `alias_5a_lead_for_query_compromise` per spec §3.3 R23 (DELETE all matching revoked_links + UPDATE crew_member_auth bumping `current_token_version + 1` and `revoked_below_version = 0`).
+- [ ] **Step 1: Write failing test** that confirms `mint_validation_fixture_atomic(combo, payload)` does NOT exist yet:
+
+```ts
+import { describe, it, expect } from "vitest";
+import { createClient } from "@supabase/supabase-js";
+describe("mint_validation_fixture_atomic RPC", () => {
+  it("exists and writes show/crew/crew_member_auth + alias_map atomically", async () => {
+    const supabase = createClient(process.env.VALIDATION_SUPABASE_URL!, process.env.VALIDATION_SUPABASE_SECRET_KEY!);
+    const { data, error } = await supabase.rpc("mint_validation_fixture_atomic", {
+      p_combo: "R1",
+      p_fixture_payload: { /* per the function signature */ },
+    });
+    expect(error).toBeNull();
+    expect(data).toBeDefined();
+  });
+});
+```
+
+- [ ] **Step 2: Run — expect FAIL** (function does not exist).
+
+- [ ] **Step 3: Author the RPC migration.** The function:
+  - Takes `(p_combo text, p_fixture_payload jsonb)` — payload contains showName, dates, date_restriction, stage_restriction, crew_members array, R-combo cleanup flags.
+  - Synthesizes a stable `drive_file_id = 'validation_' || p_combo` deterministically.
+  - Acquires `pg_advisory_xact_lock(hashtext('show:' || drive_file_id))` BEFORE any mutation.
+  - INSIDE THE SAME TRANSACTION: UPSERT shows, UPSERT crew_members per payload, UPSERT crew_member_auth per crew_member (preserving current_token_version if already set), UPDATE validation_state.alias_map[combo] merge.
+  - For `p_combo = '__cleanup__'` (special pseudo-combo): DELETE `revoked_links WHERE revoked_reason LIKE 'validation:%'` + structural reset of every R-combo's `alias_5a_lead_for_query_compromise` (DELETE matching revoked_links + crew_member_auth version bump).
+  - Returns `jsonb` with the alias_map slice it wrote + the show_id.
+
+```sql
+-- supabase/migrations/<timestamp>_mint_validation_fixture_atomic.sql
+-- Per M12 spec invariant 2 (per-show advisory lock) + plan R1 P0 amendment.
+-- Atomic UPSERT of show + crew_members + crew_member_auth + validation_state.alias_map
+-- inside the per-show advisory-lock transaction.
+
+CREATE OR REPLACE FUNCTION public.mint_validation_fixture_atomic(
+  p_combo text,
+  p_fixture_payload jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_drive_file_id text;
+  v_show_id uuid;
+  v_alias_map_slice jsonb := '{}'::jsonb;
+  v_crew_member jsonb;
+  v_crew_id uuid;
+BEGIN
+  -- 1. Resolve drive_file_id and acquire advisory lock BEFORE any write.
+  v_drive_file_id := 'validation_' || p_combo;
+  PERFORM pg_advisory_xact_lock(hashtext('show:' || v_drive_file_id));
+
+  -- 2. UPSERT show (synthesizes per-combo show with proper dates).
+  --    Full implementation: see commit history; abbreviated here for plan brevity.
+  INSERT INTO public.shows (drive_file_id, show_name, dates, /* ... */)
+    VALUES (v_drive_file_id, p_fixture_payload->>'showName', p_fixture_payload->'dates', /* ... */)
+    ON CONFLICT (drive_file_id) DO UPDATE SET
+      show_name = EXCLUDED.show_name,
+      dates = EXCLUDED.dates
+    RETURNING id INTO v_show_id;
+
+  -- 3. Per crew_member in payload: UPSERT crew_members + crew_member_auth, collect alias→id.
+  FOR v_crew_member IN SELECT * FROM jsonb_array_elements(p_fixture_payload->'crewMembers') LOOP
+    INSERT INTO public.crew_members (show_id, name, email, role_flags)
+      VALUES (v_show_id, v_crew_member->>'name', v_crew_member->>'email', ARRAY(SELECT jsonb_array_elements_text(v_crew_member->'roleFlags')))
+      ON CONFLICT (show_id, name) DO UPDATE SET
+        email = EXCLUDED.email,
+        role_flags = EXCLUDED.role_flags
+      RETURNING id INTO v_crew_id;
+
+    INSERT INTO public.crew_member_auth (show_id, crew_name, current_token_version, revoked_below_version)
+      VALUES (v_show_id, v_crew_member->>'name', 1, 0)
+      ON CONFLICT (show_id, crew_name) DO NOTHING;   -- preserve existing current_token_version per spec §3.3
+
+    v_alias_map_slice := v_alias_map_slice || jsonb_build_object(v_crew_member->>'alias', v_crew_id);
+  END LOOP;
+
+  -- 4. UPDATE validation_state.alias_map[combo] = alias_map_slice (UPSERT singleton).
+  INSERT INTO public.validation_state (key, last_seed_date, combos_materialized, alias_map, seeded_by, seeded_supabase_project_ref)
+    VALUES ('validation_seed', current_date, ARRAY[p_combo], jsonb_build_object(p_combo, v_alias_map_slice), p_fixture_payload->>'seededBy', p_fixture_payload->>'seededProjectRef')
+    ON CONFLICT (key) DO UPDATE SET
+      last_seed_date = current_date,
+      combos_materialized = (SELECT array_agg(DISTINCT c) FROM unnest(public.validation_state.combos_materialized || ARRAY[p_combo]) c),
+      alias_map = public.validation_state.alias_map || jsonb_build_object(p_combo, v_alias_map_slice),
+      seeded_supabase_project_ref = EXCLUDED.seeded_supabase_project_ref;
+
+  RETURN jsonb_build_object('show_id', v_show_id, 'alias_map_slice', v_alias_map_slice);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.mint_validation_fixture_atomic(text, jsonb) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.mint_validation_fixture_atomic(text, jsonb) TO service_role;
+```
+
+- [ ] **Step 4: Author a companion `validation_cleanup_atomic` RPC** for the `--combo all` cleanup path (DELETE validation-tagged revoked_links + structural reset of query-compromise aliases). Same advisory-lock pattern. Single transaction.
+
+- [ ] **Step 5: Apply both migrations** to prod-equivalent Supabase. Re-run the failing test — expect PASS.
+
+- [ ] **Step 6: Modify `scripts/validation-reseed.ts`** to call ONLY these RPCs (no direct PostgREST mutation of shows / crew_members / crew_member_auth). The script:
+  - Loops over the requested combos in `FIXTURES`.
+  - Computes per-fixture payload (showName, dates relative to today, crew_members array).
+  - Calls `supabase.rpc("mint_validation_fixture_atomic", { p_combo, p_fixture_payload })` for each.
+  - For `--combo all`: also calls `supabase.rpc("validation_cleanup_atomic", { /* args */ })`.
+
+- [ ] **Step 7: Extend `tests/auth/advisoryLockRpcDeadlock.test.ts`** (the canonical advisory-lock topology test per AGENTS.md invariant 2) to include the two new RPCs — proves only ONE lock-holder layer per hashkey.
+
+- [ ] **Step 8: Verify {data, error} destructuring** at every Supabase call site (per AGENTS.md invariant 9).
+
+- [ ] **Step 9: Run integration test — expect PASS.** Commit:
+
+```bash
+git add supabase/migrations/<timestamp>_mint_validation_fixture_atomic.sql supabase/migrations/<timestamp>_validation_cleanup_atomic.sql scripts/validation-reseed.ts tests/db/mint-validation-fixture-atomic.test.ts tests/scripts/validation-reseed-integration.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts
+git commit -m "feat(validation): mint_validation_fixture_atomic + cleanup RPCs with per-show advisory lock
+
+Per M12 spec invariant 2 + plan R1 P0 fix. All show/crew/crew_member_auth/
+validation_state writes happen inside a single Postgres transaction
+that holds pg_advisory_xact_lock(hashtext('show:' || drive_file_id)).
+PostgREST direct writes can't span the lock; SECURITY DEFINER RPC is the
+canonical pattern (matches mint_link_session_atomic + revoke_leaked_link
+_atomic). Advisory-lock topology test extended."
+```
 
 - [ ] **Step 1: Write a failing integration test** at `tests/scripts/validation-reseed-integration.test.ts`. Requires VALIDATION_SUPABASE_* env vars. Runs `pnpm validation:reseed --combo R1` and asserts: 1 row in shows for R1, 11 in crew_members, 11 in crew_member_auth, validation_state row with `combos_materialized` containing 'R1', `alias_map.R1` containing all 11 alias keys.
 

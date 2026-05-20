@@ -305,19 +305,12 @@ Expected: count update visible.
 **Files:**
 - Modify (regenerated): `lib/audit/admin-tables.generated.ts`
 
-- [ ] **Step 1: Find the regeneration command.**
-
-```bash
-grep -n "^\"\\(scripts\\.\\)\\?generate-admin-tables" package.json
-# OR: grep -n "generate-admin-tables" scripts/
-```
-
-Expected: either a `pnpm` script entry OR the `scripts/generate-admin-tables.ts` script directly invocable via `pnpm tsx scripts/generate-admin-tables.ts`.
+- [ ] **Step 1: Confirm the canonical command** (R1 P2 amendment — verified live `package.json:13`): `pnpm gen:admin-tables`. (This runs `tsx scripts/generate-admin-tables.ts`.)
 
 - [ ] **Step 2: Run the regenerator:**
 
 ```bash
-pnpm tsx scripts/generate-admin-tables.ts  # or whatever the canonical command is
+pnpm gen:admin-tables
 ```
 
 - [ ] **Step 3: Verify `lib/audit/admin-tables.generated.ts` now includes `validation_state`:**
@@ -384,17 +377,13 @@ sed -i.bak -e '4s/21/22/' -e '9s/21/22/' -e '21s/21/22/' -e '111s/21/22/' -e '11
 **Files:**
 - Modify (regenerated): `tests/db/admin-rls-runtime.baseline.json`
 
-- [ ] **Step 1: Find how the baseline is generated.** Look for a "regenerate baseline" command or comment in the test file:
+- [ ] **Step 1: Find how the baseline is generated** (check the test file for instructions or grep for a regenerate command):
 
 ```bash
-grep -n "baseline\|regenerat" tests/db/admin-rls-runtime.test.ts | head -5
+grep -n "baseline\|UPDATE_BASELINE\|--update" tests/db/admin-rls-runtime.test.ts package.json | head -10
 ```
 
-- [ ] **Step 2: Regenerate** (the exact command depends on the project — likely `UPDATE_BASELINE=1 pnpm vitest run tests/db/admin-rls-runtime.test.ts` or similar):
-
-```bash
-UPDATE_BASELINE=1 pnpm vitest run tests/db/admin-rls-runtime.test.ts
-```
+- [ ] **Step 2: Regenerate** using whichever mechanism the test file documents (commonly `UPDATE_BASELINE=1` env var OR a dedicated `pnpm` script). If neither is in place, the dev re-creates the baseline manually by running the test once and copying the actual values from the failure diff into the baseline file. Confirm exact procedure before mass-editing the JSON.
 
 - [ ] **Step 3: Verify the baseline now has 22 entries × 4 verbs = 88 rows:**
 
@@ -450,10 +439,10 @@ Per spec §3.3.2 atomicity gate: Phase 0.B does NOT close until these all pass.
 - [ ] **Step 1: Run rls.test.ts:** `pnpm vitest run tests/db/rls.test.ts` — expect PASS (22 tables).
 - [ ] **Step 2: Run admin-rls-runtime.test.ts:** `pnpm vitest run tests/db/admin-rls-runtime.test.ts` — expect PASS (88 assertions).
 - [ ] **Step 3: Run auth.test.ts:** `pnpm vitest run tests/cross-cutting/auth.test.ts` — expect PASS (ADMIN_TABLES literal matches generated registry).
-- [ ] **Step 4: Run X.6 traceability locally** (if possible, the CI gate's equivalent):
+- [ ] **Step 4: Run X.6 traceability locally** (R1 P2 amendment — verified live `package.json` script name):
 
 ```bash
-pnpm tsx scripts/traceability-audit.ts  # or whatever the X.6 script is
+pnpm test:audit:traceability
 ```
 
 Expected: no `MISSING` rows; parity assertions pass against the updated master spec §4.3 + AC-2.5.
@@ -461,10 +450,10 @@ Expected: no `MISSING` rows; parity assertions pass against the updated master s
 - [ ] **Step 5: Run X.3 trust-domain audit:**
 
 ```bash
-pnpm tsx scripts/x3-trust-domain-audit.ts  # or whatever the X.3 script is
+pnpm test:audit:x3-trust-domain
 ```
 
-Expected: PROTECTED_SINKS regenerated to include validation_state (auto from §4.3).
+Expected: PROTECTED_SINKS regenerated to include validation_state (auto from §4.3 via `pnpm gen:admin-tables` which the script chains).
 
 - [ ] **Step 6: If any gate fails, repair the missing piece and re-run.** Do NOT commit until all gates pass.
 
