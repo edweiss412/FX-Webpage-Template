@@ -8,25 +8,39 @@ Per `feedback_deferral_discipline.md` — items here are work that **will be don
 
 ### M11-E-D1: `/help/admin/sharing-links` documents M9-spec-canonical signed-link controls that M9 hasn't shipped
 
-- **Severity:** HIGH (Codex R3 adversarial finding)
+**STATUS (2026-05-20): SPLIT.** Post-M9-close-out audit (M9 completed at SHA `7931420`, tag `m9-completed`) reclassified the four documented labels by v1-status:
+
+- **"Revoke all links" + "Issue new link"** — v1-blocking (security/recovery). **Re-routed to M9.5** — see [`../2026-04-30-fxav-crew-pages-design/handoffs/M9.5-signed-link-controls.md`](../2026-04-30-fxav-crew-pages-design/handoffs/M9.5-signed-link-controls.md). Re-open trigger for this subset: **M9.5 ships AC-9.5-1 through AC-9.5-6** (per-show panel crew section with two-tap Revoke + Issue-new affordances).
+- **"Issue first link"** — already shipped via the onboarding-wizard Finalize step. The "first" vs "new" label rendering branches on `max_issued_version` per spec line 1100; M9.5 ships the single labeled affordance with both branches. No additional work for `/help/admin/sharing-links` once M9.5 lands.
+- **"Copy share link"** — post-v1 polish. **Re-routed to [BACKLOG.md `BL-COPY-SHARE-LINK`](../BACKLOG.md)**. No concrete trigger date; promotion depends on FXAV operator feedback OR a v1.x admin-UX polish milestone bundle.
+
+Phase E docs at `app/help/admin/sharing-links/page.mdx` continue to document the spec-canonical labels — when M9.5 ships, three of the four labels stop being spec-vs-shipped gaps; the fourth (Copy share link) becomes a documented-but-not-yet-built affordance until BL-COPY-SHARE-LINK promotes. The Phase I `/impeccable harden` pass may want to add a `<Callout type="not-yet-built">` annotation on the copy-share section until then.
+
+---
+
+- **Severity (at filing):** HIGH (Codex R3 adversarial finding)
 - **File:line:** `app/help/admin/sharing-links/page.mdx` (entire page)
 - **Symptom:** Page documents UI controls per FXAV master spec §7.2 / §5.2: "Issue first link", "Issue new link", "Revoke all links", "Copy share link". These labels are extensively documented in `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` at lines 239, 241, 374, 1091, 1100, 1110, 1953, 1959, 1971, 1975. Grep of `app/` + `components/` for these labels returns **zero matches** — M9 was supposed to ship the controls but the labels are not in shipped code.
 - **Why deferred (NOT Phase E's surface):** Per AGENTS.md §1.7 (spec is canonical), Phase E documented the spec. The implementation gap is M9's deferred work. Phase E plan body specifically called out these labels per spec §5.2 / §7.2. Rewriting Phase E to describe shipped state would deviate from the spec-canonical rule AND from the plan body content brief.
-- **Concrete fix path (NOT Phase E scope):** M9 follow-up session — wire the four labeled controls in the per-show panel crew section (`app/admin/show/[slug]/` + corresponding `components/admin/`). When labels ship, no Phase E follow-up is needed; the docs already match.
-- **Why not BACKLOG.md:** M9 is a real planned milestone with shipped commits; this is a known incomplete surface, not a speculative future-feature.
-- **Spec status:** Spec §7.2 / §5.2 canonical. M9 plan tree owns implementation.
-- **Re-open trigger:** M9 ships the four signed-link control labels.
+- **Concrete fix path (NOT Phase E scope; superseded by 2026-05-20 SPLIT above):** Originally framed as "M9 follow-up session." Now: v1-blocking subset (Revoke + Issue-new) lands in M9.5 coda; copy-share routes to BACKLOG.
+- **Why not BACKLOG.md (original framing, partially superseded):** M9 was a real planned milestone with shipped commits; the v1-blocking subset is a known incomplete surface, not a speculative future-feature. Copy-share has been re-classified as speculative per the SPLIT.
+- **Spec status:** Spec §7.2 / §5.2 canonical. Implementation now split across M9.5 (Revoke + Issue-new) and BACKLOG (copy-share).
+- **Re-open trigger (original):** "M9 ships the four signed-link control labels." **Superseded** by the SPLIT above.
 
 ### M11-E-D3: `/help/admin/dashboard` documents Active Shows row actions (`Open`, `Preview as`, `Re-sync`, `Archive`) that aren't in shipped `components/admin/ActiveShowsPanel.tsx`
 
-- **Severity:** MEDIUM (Codex R5 fresh-eyes finding)
+**STATUS (2026-05-20): RE-ROUTED TO BACKLOG.** Post-M9-close-out audit reclassified the four documented row actions as post-v1 convenience/surfacing, not v1-blocking ops gap. None close a functional ops gap — Doug can already accomplish all four actions by drilling into the per-show page (Re-sync directly via `<ReSyncButton>` at `app/admin/show/[slug]/page.tsx`; Open and Preview-as via navigation; Archive doesn't exist in any surface but spec §9.1 doesn't require it for v1). Re-routed to [BACKLOG.md `BL-ADMIN-DASHBOARD-ROW-ACTIONS`](../BACKLOG.md). Phase E docs at `app/help/admin/dashboard/page.mdx` may want a `<Callout type="not-yet-built">` annotation on the row-actions section until BL-ADMIN-DASHBOARD-ROW-ACTIONS promotes; Phase I `/impeccable harden` pass is the natural home for that annotation.
+
+---
+
+- **Severity (at filing):** MEDIUM (Codex R5 fresh-eyes finding)
 - **File:line:** `app/help/admin/dashboard/page.mdx` (Active Shows section) ↔ `components/admin/ActiveShowsPanel.tsx`
 - **Symptom:** Dashboard help page documents per-row actions on the Active Shows panel: `Open`, `Preview as`, `Re-sync`, `Archive`. Grep of `components/admin/ActiveShowsPanel.tsx` returns ZERO matches for any of those labels. Component renders show title link + crew count + sync-status text only. No row-level action affordances.
-- **Why deferred (same disposition pattern as M11-E-D1):** Per AGENTS.md §1.7, spec is canonical. Phase E docs the per-spec admin surface; M9 (per-show panel + dashboard row actions) was scoped to ship these per master-spec §9.1, and the implementation gap is M9's deferred work. User decision recorded at R3: docs follow spec; M9 gap is M9's bug. Same rule applies to R5 findings in this class.
-- **Concrete fix path (NOT Phase E scope):** M9 follow-up session — wire the four row-action controls in `components/admin/ActiveShowsPanel.tsx`. When labels ship, no Phase E follow-up is needed.
-- **Why not BACKLOG.md:** M9 is a real planned milestone with shipped commits; this is a known incomplete surface, not a speculative future-feature.
-- **Spec status:** Master spec §9.1 (admin dashboard reading) documents row actions. M9 plan tree owns implementation.
-- **Re-open trigger:** M9 ships the four Active Shows row-action labels.
+- **Why deferred (original — same disposition pattern as M11-E-D1):** Per AGENTS.md §1.7, spec is canonical. Phase E docs the per-spec admin surface; M9 (per-show panel + dashboard row actions) was scoped to ship these per master-spec §9.1, and the implementation gap is M9's deferred work. User decision recorded at R3: docs follow spec; M9 gap is M9's bug. Same rule applies to R5 findings in this class.
+- **Concrete fix path (original):** M9 follow-up session — wire the four row-action controls in `components/admin/ActiveShowsPanel.tsx`. **Superseded** by RE-ROUTED TO BACKLOG above.
+- **Why not BACKLOG.md (original framing, since superseded):** M9 was framed as a real planned milestone with shipped commits. The 2026-05-20 audit reclassified this work as not-v1 (functional equivalents exist), making BACKLOG the correct home.
+- **Spec status:** Master spec §9.1 (admin dashboard reading) documents row actions. v1-status post-audit: convenience surfacing, not ops requirement.
+- **Re-open trigger (original):** "M9 ships the four Active Shows row-action labels." **Superseded** by BACKLOG `BL-ADMIN-DASHBOARD-ROW-ACTIONS` — re-open when (a) FXAV operator feedback surfaces dashboard-level friction OR (b) a v1.x admin-UX polish milestone bundles this with other BL-ADMIN-* entries.
 
 ### M11-E-D5: `<Screenshot name="X">` references on 3 docs pages resolve to WebP URLs that don't exist until Phase F (screenshot harness) ships
 
@@ -45,14 +59,18 @@ Per `feedback_deferral_discipline.md` — items here are work that **will be don
 
 ### M11-E-D4: `/help/admin/per-show-panel` documents sync-health-last-5 + parse-warnings sections absent from shipped `app/admin/show/[slug]/page.tsx`
 
-- **Severity:** MEDIUM (Codex R5 fresh-eyes finding)
+**STATUS (2026-05-20): RE-ROUTED TO BACKLOG.** Post-M9-close-out audit reclassified the sync-health-history + parse-warnings-history sections as post-v1 observability polish, not v1-blocking ops gap. Doug has `admin_alerts` for high-signal failure notification (active, surfaced above the page chrome via `app/admin/layout.tsx`); the historical-aggregate diagnostics are observability nice-to-have, not ops requirement. Both sections also need schema/data-model work (new `sync_history` table vs derived view over `pending_syncs` vs append-only `shows_internal.parse_warnings` column) that's outside small mechanical fix scope — a real brainstorming session is required, not a quick wire-up. Re-routed to [BACKLOG.md `BL-ADMIN-PER-SHOW-HISTORY`](../BACKLOG.md). Phase E docs may want a `<Callout type="not-yet-built">` annotation on the affected sections until BL-ADMIN-PER-SHOW-HISTORY promotes; Phase I `/impeccable harden` pass is the natural home.
+
+---
+
+- **Severity (at filing):** MEDIUM (Codex R5 fresh-eyes finding)
 - **File:line:** `app/help/admin/per-show-panel/page.mdx` (Sync health + Parse warnings sections) ↔ `app/admin/show/[slug]/page.tsx`
 - **Symptom:** Per-show help page documents a sync-health section showing the last 5 sync attempts and a parse-warnings list from the most recent sync. Shipped `app/admin/show/[slug]/page.tsx` imports `PerShowAlertSection`, `ReSyncButton`, `ParsePanel`, `HelpTooltip` — no `SyncHealth` component, no last-5-sync-attempts query/view, no separate parse-warnings history section (parse warnings live inside `ParsePanel` over `pending_syncs`).
-- **Why deferred:** Same pattern as M11-E-D3 + M11-E-D1. Per AGENTS.md §1.7 spec-canonical, docs follow spec; M9 gap is M9's bug.
-- **Concrete fix path (NOT Phase E scope):** M9 follow-up — ship the sync-health-history + dedicated parse-warnings-history sections in `app/admin/show/[slug]/page.tsx` per master-spec §9.2.
-- **Why not BACKLOG.md:** Real M9 incomplete surface, not speculative.
-- **Spec status:** Master spec §9.2 (per-show panel reading) documents these sub-sections.
-- **Re-open trigger:** M9 ships sync-health-history + parse-warnings-history sections in the per-show panel.
+- **Why deferred (original):** Same pattern as M11-E-D3 + M11-E-D1. Per AGENTS.md §1.7 spec-canonical, docs follow spec; M9 gap is M9's bug.
+- **Concrete fix path (original):** M9 follow-up — ship the sync-health-history + dedicated parse-warnings-history sections in `app/admin/show/[slug]/page.tsx` per master-spec §9.2. **Superseded** by RE-ROUTED TO BACKLOG above.
+- **Why not BACKLOG.md (original framing, since superseded):** Originally framed as a real M9 incomplete surface. The 2026-05-20 audit reclassified as not-v1 (observability polish + needs data-model brainstorm), making BACKLOG the correct home.
+- **Spec status:** Master spec §9.2 (per-show panel reading) documents these sub-sections. v1-status post-audit: observability polish, not ops requirement.
+- **Re-open trigger (original):** "M9 ships sync-health-history + parse-warnings-history sections in the per-show panel." **Superseded** by BACKLOG `BL-ADMIN-PER-SHOW-HISTORY` — re-open when (a) FXAV operator feedback surfaces "I can't tell if sync has been silently failing" pattern (real observability gap) OR (b) a v1.x admin-UX or admin-observability milestone bundles this with BL-OPS-LOG.
 
 ---
 
