@@ -4,6 +4,31 @@ Per `feedback_deferral_discipline.md` — items here are work that **will be don
 
 ---
 
+## Phase E close-out (2026-05-20) — Codex R3 spec-vs-shipped findings
+
+### M11-E-D1: `/help/admin/sharing-links` documents M9-spec-canonical signed-link controls that M9 hasn't shipped
+
+- **Severity:** HIGH (Codex R3 adversarial finding)
+- **File:line:** `app/help/admin/sharing-links/page.mdx` (entire page)
+- **Symptom:** Page documents UI controls per FXAV master spec §7.2 / §5.2: "Issue first link", "Issue new link", "Revoke all links", "Copy share link". These labels are extensively documented in `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` at lines 239, 241, 374, 1091, 1100, 1110, 1953, 1959, 1971, 1975. Grep of `app/` + `components/` for these labels returns **zero matches** — M9 was supposed to ship the controls but the labels are not in shipped code.
+- **Why deferred (NOT Phase E's surface):** Per AGENTS.md §1.7 (spec is canonical), Phase E documented the spec. The implementation gap is M9's deferred work. Phase E plan body specifically called out these labels per spec §5.2 / §7.2. Rewriting Phase E to describe shipped state would deviate from the spec-canonical rule AND from the plan body content brief.
+- **Concrete fix path (NOT Phase E scope):** M9 follow-up session — wire the four labeled controls in the per-show panel crew section (`app/admin/show/[slug]/` + corresponding `components/admin/`). When labels ship, no Phase E follow-up is needed; the docs already match.
+- **Why not BACKLOG.md:** M9 is a real planned milestone with shipped commits; this is a known incomplete surface, not a speculative future-feature.
+- **Spec status:** Spec §7.2 / §5.2 canonical. M9 plan tree owns implementation.
+- **Re-open trigger:** M9 ships the four signed-link control labels.
+
+### M11-E-D2: `/help/getting-started` walkthrough is a SHORT-NARRATIVE summary of the full §9.0 wizard documented in detail at `/help/admin/onboarding-wizard`
+
+- **Severity:** HIGH (Codex R3 adversarial finding — flagged as "skips required onboarding steps")
+- **File:line:** `app/help/getting-started/page.mdx:9-14`
+- **Symptom:** Codex R3 reading: the quick-start page tells Doug to share folder + click "I've shared the folder" + wait, but the actual wizard requires folder URL verification + first-sheets review + Finalize before the folder becomes the live sync source. Operator could stop after Step 1 and the sync never happens.
+- **Why deferred:** The DETAILED onboarding flow lives on `/help/admin/onboarding-wizard` (E.11), which fully documents the 3-step §9.0 wizard including Finalize (per the post-E.11 fix at `18bfdb4` which added `<Step>` consistency + `<Callout>` for Eric-side credential failure). E.2's `/help/getting-started` was scoped per plan body lines 170-286 as a SHORT first-time setup narrative + troubleshooting, NOT as a complete wizard walkthrough — that's what the dedicated `/help/admin/onboarding-wizard` page is for. The two pages cross-link.
+- **Disposition:** TRIAGED — recommended action is to add a cross-link on `/help/getting-started` pointing to `/help/admin/onboarding-wizard` for "complete wizard steps". If R3's reading is that the short narrative actively misleads, a 1-line addition resolves. Logged here for follow-up rather than fix-now because the scope distinction (`/help/getting-started` = quick orientation; `/help/admin/onboarding-wizard` = reference) is correct per spec §4.1 / §4.2 and the plan body brief.
+- **Why not BACKLOG.md:** Real M11 plan tree item, not speculative.
+- **Re-open trigger:** Phase I `/impeccable harden` pass OR a follow-up commit can land the cross-link reference inline before Phase E sign-off.
+
+---
+
 ## Phase A close-out (2026-05-19) — impeccable v3 dual-gate dispositions
 
 ### M11-A-D1: Sidebar `<details>` semantic-vs-visual divergence on desktop
