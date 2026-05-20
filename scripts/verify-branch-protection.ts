@@ -35,6 +35,7 @@ type VerifyResult = {
 };
 
 const DEFAULT_REPORT_PATH = "artifacts/branch-protection-report.json";
+const ADMIN_ALERT_SKIP_PREFIX = "[verify-branch-protection] admin_alerts insertion skipped:";
 
 function configuredToken(env: Record<string, string | undefined>): { token: string | null; source: "app" | "pat" | null } {
   if (env.GH_APP_TOKEN) return { token: env.GH_APP_TOKEN, source: "app" };
@@ -52,11 +53,39 @@ function writeJsonReport(path: string, body: unknown): void {
 }
 
 async function defaultUpsertAdminAlert(payload: AlertPayload, client?: AdminAlertClient): Promise<unknown> {
+  if (!client) {
+    const unavailableReason = localSupabaseReason(process.env.SUPABASE_URL);
+    if (unavailableReason) {
+      throw new Error(unavailableReason);
+    }
+  }
   const supabase = client ?? (createSupabaseServiceRoleClient() as unknown as AdminAlertClient);
   // not-subject-to-meta: one-shot privileged CI script; failure surface is the X.6 workflow exit code and JSON report.
   const { data, error } = await supabase.rpc("upsert_admin_alert", payload);
   if (error) throw error;
   return data;
+}
+
+function localSupabaseReason(rawUrl: string | undefined): string | null {
+  const value = rawUrl?.trim();
+  if (!value) return "SUPABASE_URL is unset or empty";
+  try {
+    const url = new URL(value);
+    if (url.hostname === "127.0.0.1" || url.hostname === "localhost") {
+      return `SUPABASE_URL points to local dev URL ${url.origin}`;
+    }
+  } catch {
+    return `SUPABASE_URL is invalid (${value})`;
+  }
+  return null;
+}
+
+function errorReason(error: unknown): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "object" && error && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+  return String(error);
 }
 
 async function requestJson(
@@ -164,7 +193,13 @@ function rulesetFailures(body: Record<string, unknown>, requiredStatusChecks: re
 }
 
 async function emitAlert(client: AdminAlertClient | undefined, payload: AlertPayload): Promise<void> {
-  await defaultUpsertAdminAlert(payload, client);
+  try {
+    await defaultUpsertAdminAlert(payload, client);
+  } catch (error) {
+    console.error(
+      `${ADMIN_ALERT_SKIP_PREFIX} Supabase unreachable (${errorReason(error)}); JSON report + exit code remain authoritative`,
+    );
+  }
 }
 
 export async function verifyBranchProtection(options: VerifyOptions = {}): Promise<VerifyResult> {

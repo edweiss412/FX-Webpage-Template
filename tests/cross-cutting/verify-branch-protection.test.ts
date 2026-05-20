@@ -1,10 +1,24 @@
-import { describe, expect, test, vi } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { loadRequiredChecksFromSpec } from "@/scripts/generate-traceability";
 import { verifyBranchProtection } from "@/scripts/verify-branch-protection";
 
 const REQUIRED_STATUS_CHECKS = loadRequiredChecksFromSpec();
+const ORIGINAL_SUPABASE_URL = process.env.SUPABASE_URL;
+
+afterEach(() => {
+  if (ORIGINAL_SUPABASE_URL === undefined) {
+    delete process.env.SUPABASE_URL;
+  } else {
+    process.env.SUPABASE_URL = ORIGINAL_SUPABASE_URL;
+  }
+  vi.restoreAllMocks();
+});
 
 function legacyProtection(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -213,8 +227,11 @@ describe("X.6 branch-protection verifier", () => {
 
     const fetchImpl = makeFetch({ legacy: null, rulesets: { rulesets: [] } });
     const env = { GITHUB_REPOSITORY: "owner/repo", GH_APP_TOKEN: "token" };
-    await verifyBranchProtection({ env, fetchImpl, writeReport: false });
-    await verifyBranchProtection({ env, fetchImpl, writeReport: false });
+    const adminAlertClient = supabase as unknown as NonNullable<
+      Parameters<typeof verifyBranchProtection>[0]["adminAlertClient"]
+    >;
+    await verifyBranchProtection({ env, fetchImpl, adminAlertClient, writeReport: false });
+    await verifyBranchProtection({ env, fetchImpl, adminAlertClient, writeReport: false });
 
     const { data, error } = await supabase
       .from("admin_alerts")
@@ -236,4 +253,56 @@ describe("X.6 branch-protection verifier", () => {
       .eq("code", "BRANCH_PROTECTION_DRIFT")
       .is("show_id", null);
   }, 15000);
+
+  test("admin-alert producer failure still writes drift report and returns failure", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "x6-branch-protection-"));
+    const reportPath = join(dir, "branch-protection-report.json");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const rpc = vi.fn(async () => {
+      throw new Error("synthetic admin_alerts outage");
+    });
+
+    try {
+      const result = await verifyBranchProtection({
+        env: { GITHUB_REPOSITORY: "owner/repo", GH_APP_TOKEN: "token" },
+        fetchImpl: makeFetch({ legacy: null, rulesets: { rulesets: [] } }),
+        adminAlertClient: { rpc },
+        reportPath,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain("+missing_main_ruleset");
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining("[verify-branch-protection] admin_alerts insertion skipped:"),
+      );
+      expect(readFileSync(reportPath, "utf8")).toContain('"status": "drift"');
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  test("unreachable Supabase URL still writes drift report and returns failure", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "x6-branch-protection-"));
+    const reportPath = join(dir, "branch-protection-report.json");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    process.env.SUPABASE_URL = "http://127.0.0.1:1";
+
+    try {
+      const result = await verifyBranchProtection({
+        env: { GITHUB_REPOSITORY: "owner/repo", GH_APP_TOKEN: "token", SUPABASE_URL: "http://127.0.0.1:1" },
+        fetchImpl: makeFetch({ legacy: null, rulesets: { rulesets: [] } }),
+        reportPath,
+      });
+
+      expect(result.ok).toBe(false);
+      expect(result.failures).toContain("+missing_main_ruleset");
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining("[verify-branch-protection] admin_alerts insertion skipped:"),
+      );
+      expect(existsSync(reportPath)).toBe(true);
+      expect(readFileSync(reportPath, "utf8")).toContain('"status": "drift"');
+    } finally {
+      rmSync(dir, { force: true, recursive: true });
+    }
+  });
 });
