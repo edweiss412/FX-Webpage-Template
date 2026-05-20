@@ -1225,9 +1225,9 @@ export const MESSAGE_CATALOG = {
   },
   OAUTH_REDIRECT_INVALID: {
     code: "OAUTH_REDIRECT_INVALID",
-    dougFacing: "Sign-in landed somewhere we don't recognize. Click the original sign-in link again to start over.",
+    dougFacing: "Sign-in landed somewhere we don't recognize. Please click the original link from Doug again to start over.",
     crewFacing: "Sign-in landed somewhere we don't recognize. Please click the original link from Doug again to start over.",
-    followUp: "Crew → click the original link again; Eric if persistent",
+    followUp: "Crew → reopen the link; Eric if persistent",
     helpfulContext: "The Google OAuth callback's `next` parameter pointed somewhere outside the allowed list of post-sign-in destinations (the canonical site origin + `/show/<slug>`, `/admin`, or `/me` paths — note: `/show/<slug>/p` is NOT a valid destination because the bootstrap surface requires a `#t=<jwt>` fragment that does not survive the OAuth round-trip). Without this guard, an attacker could trick the round-trip into landing on a malicious origin or onto the bootstrap shell with no fragment, while we were still minting your session cookie. Click the original link from Doug again.",
     title: "Sign-in redirect rejected",
     longExplanation: "The Google OAuth callback's destination pointed outside the allowed list of post-sign-in pages. Without this guard, an attacker could trick the round-trip into landing on a malicious origin or onto a bootstrap shell missing its required fragment, while we were minting your session cookie. Click the original link from Doug again.",
