@@ -257,7 +257,31 @@ Declared at handoff time per memory `feedback_meta_test_at_plan_time_not_round_n
 
 ### Implementation ready for adversarial review
 
-- _Pending Codex delivery. Codex appends an `Implementation summary` block here with the final SHA, AC sub-criteria satisfied, the AC-X.6 drift-finding entry, and verification gate results before handing off to Opus._
+- **Implementation summary (Codex, 2026-05-19).** Implementation SHA: `cea392d`.
+- **Commit sequence:** `c8e7564` (`scripts(audit): derive X.5 email boundary manifest`), `a86350a` (`test(cross-cutting): add X.5 email canonicalization audit`), `7b29c18` (`fix(email): canonicalize boundary persistence writes`), `cea392d` (`ci(audits): add X.5 email canonicalization gate`).
+- **AC sub-criteria satisfied:**
+  - Boundary generator: `scripts/extract-email-boundaries.ts` emits `lib/audit/email-boundaries.generated.ts`; freshness gate is idempotent.
+  - Layer 1 parser-write audit: ts-morph detects raw `email` / `*_email` parser assignments and symbol-resolves `canonicalize`.
+  - Layer 2 DB-write audit: write-object and SQL-param email fields are checked for canonicalized sources, including API route attribution writes.
+  - Layer 3 schema CHECK audit: Postgres constraints are introspected with `pg_get_constraintdef`; migration `20260520000911_add_email_canonical_checks.sql` adds missing canonical CHECK coverage.
+  - Layer 4 RLS-helper audit: `is_admin`, `auth_email_canonical`, and `canonicalize_email` are checked by name, arity, and canonical body shape.
+  - Layer 5 validator/read audit: `validateGoogleSession`, `validateGoogleIdentity`, and `listShowsForCrew` read predicates require canonical email sources.
+  - Layer 6 reports audit: admin `reportedBy` / `identity` are canonicalized; crew path remains ID-based.
+  - Layer 7 `admin_alerts.context` audit: recursive JSONB email-field traversal catches nested email-bearing context fields.
+  - Spec ↔ plan parity assertion: generated boundary inventory asserts named drift diffs (`+missing_in_plan:` / `-extra_in_plan:`).
+  - M3 guard extension: `tests/admin/no-inline-email-normalization.test.ts` keeps the M3 shape and extends `AUDITED_PATHS` for the X.5 boundary surface.
+- **Negative-regression verification stash SHAs:**
+  - Layer 1 parser raw-email assignment: `160df9e4a0e9a50b0571b828d70537d2f416ed80`; audit failed with `raw_email_assignment:email:242`; restored green.
+  - Layer 2 DB-write raw email: `38ab4768639942a63ad21ac2264bcc7357e9c2be`; audit failed with `raw_email_db_write:sync_audit.applied_by:775`; restored green.
+  - Layer 3 schema CHECK missing: `952d3bceb503500e64538565f0db92c69e5d7608`; audit failed with `+missing_check:sync_audit.applied_by`; restored green.
+  - Layer 4 RLS helper weakened: `166bcfe5f836990d68ff78addf65d4b05afa3c35`; audit failed with `+wrong_rls_helper:auth_email_canonical`; restored green.
+  - Layer 5 validator/read predicate raw email: `73b11f60ab106ab770a9bbde703018eb5fc4f73b`; audit failed with `raw_email_read_predicate:crew_members.email:125`; restored green.
+  - Layer 6 reports admin raw email: `99a21b8055bff321709d21701af726c1a5f6e6d6`; audit failed with `raw_reported_by_email:159`; restored green.
+  - Layer 7 JSONB context raw email: `0c1b789fe365ff3e6f87f9b384d32398d8e47dcc`; audit failed with `raw_email_jsonb_context:context.email:42`; restored green.
+  - Defense-in-depth inline normalization guard: `30afad5f5e31d23dddd2050abc8632381f721801`; M3 guard failed on synthetic `.toLowerCase().trim()`; restored green.
+- **Verification gate:** Opus re-ran the full gate against `4cb6d82` plus X.5 working-tree changes before commit; Codex re-ran the X.1-X.5 audit gates, X.3/X.4 focused suites, `pnpm verify:spec-amendment`, `pnpm typecheck`, and `pnpm lint` before committing. Final reported full-gate status: generator freshness checks clean; X.1 `81/81`; X.2 `17/17`; X.3 `28/28`; X.4 `13/13`; X.5 `9/9`; M3 inline-normalization `52/52`; auth focused `28/28`; no-global-cursor focused `13/13`; spec amendment invariants present; typecheck clean; lint preserved the 5-warning X.4 baseline; full `pnpm test` `267` files / `3581` tests passed, `1` file / `2` tests skipped, `0` failures.
+- **Live-tree drift findings:** X.5 surfaced missing email-canonical CHECK coverage and raw email persistence writes in admin API attribution, reports admin attribution/rate-limit identity, sync audit attribution, deferred ingestion attribution, and `admin_alerts.context.email`. These were fixed in `7b29c18`; no deferrals were opened.
+- **Supabase call-boundary note:** X.5 introspection is isolated in the audit helper and returns typed finding strings; no app runtime Supabase helper was added outside the existing audit/test surface.
 
 ### Adversarial review
 
@@ -265,8 +289,8 @@ Declared at handoff time per memory `feedback_meta_test_at_plan_time_not_round_n
 
 ### Complexity-hypothesis data point (X.4 retrospective continuation)
 
-- _Pending. Record the round at which Opus surfaces the first finding Codex self-review missed. X.5 surface complexity: DB introspection + ts-morph symbol resolution + cross-file boundary tracking (between X.3 medium and X.4 heavy). Updates the working hypothesis "same-model self-review accuracy decays with audit complexity (pattern matching > AST resolution > data-flow analysis)."_
+- **Pre-review data point:** Codex self-review reached ready-for-review at `cea392d`; Opus's independent verification rerun found the prior gate stop was a false alarm and did not surface an X.5 implementation finding before adversarial review. The hypothesis remains pending until R1 adversarial review: an R1 APPROVE weakens "same-model self-review accuracy decays with audit complexity"; an R1 REQUEST_CHANGES strengthens it.
 
 ### AC-X.6 required-checks-list drift (surfaced for X.6)
 
-- _Pending. X.5 records the drift here verbatim with citations: spec §17.2 line 3676 (AC-X.5 body = email canonicalization), spec §17.2 lines 2831/3677/3681 (AC-X.6 required-checks list names `x5-rls-coverage`), plan `11-cross-cutting.md:2057,2167,2181,2289,2297` (named-check usages). X.5 ships under `x5-email-canonicalization`; X.6's cross-cutting parity audit owns the structural detection + reporting. Per AGENTS.md §1.7 + memory `feedback_audit_derives_from_spec_not_handoff.md` (applied recursively to spec internal consistency), X.5 does NOT pre-emptively amend the spec — letting X.6 surface the drift through its designed audit is the load-bearing path._
+- **Finding surfaced for X.6:** Spec §17.2 line 3676 defines AC-X.5 as email canonicalization at every persistence boundary, while spec §17.2 lines 2831, 3677, and 3681 name the required check as `x5-rls-coverage`. Plan `11-cross-cutting.md:2057,2167,2181,2289,2297` carries the same named-check drift. X.5 ships and CI exposes `x5-email-canonicalization`, matching the AC-X.5 body. X.5 did **not** pre-emptively amend the spec or plan; X.6's cross-cutting parity audit owns the structural detection and downstream rename.
