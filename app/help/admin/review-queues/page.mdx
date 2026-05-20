@@ -1,8 +1,10 @@
 # Review queues
 
-Two queues hold sheets the app won't publish on its own. The first-seen queue catches brand-new sheets that need your blessing before crew can see them. The re-stage queue catches edits to a show that's already live, when those edits tripped a review rule.
+Most new sheets in your Drive folder publish on their own. Dropping a clean sheet into the folder is the deliberate publish action; the app parses it, mints a show row, and crew can see the page right away. If you ever drop the wrong sheet, the confirmation email you receive carries a one-click 24-hour unpublish button as a safety net.
 
-Both queues are durable. Nothing here clears itself, and nothing here goes to crew until you Apply it.
+Two queues exist for the cases where the app cannot publish on its own. The first-seen queue catches brand-new sheets that the app held for your sign-off because something in the parse looked unusual, or that hard-failed before they could become a show. The re-stage queue catches edits to a show that's already live, when those edits tripped a review rule.
+
+Both queues are durable. Nothing here clears itself.
 
 <Screenshot
   name="review-queues-side-by-side"
@@ -11,13 +13,13 @@ Both queues are durable. Nothing here clears itself, and nothing here goes to cr
 
 <h2 id="first-seen">First-seen review</h2>
 
-A first-seen sheet is one the app has never published. It might be brand new in your Drive folder, or it might have been there for a while but only just parsed cleanly enough to reach you. Either way, no crew page exists for it yet.
+A first-seen sheet is one the app has never published. Most first-seen sheets in your watched folder publish on their own, and you see them in the Active Shows panel right away (with the 24-hour email-undo for mistakes). A first-seen sheet only lands in this queue when the parse tripped a review rule (a crew count that shrank unexpectedly, a LEAD status that toggled, an email that moved between rows, a diagram tab that came back empty, and so on), or when you discovered the sheet through the onboarding wizard's scan step (which always routes to you before activating sync).
 
-You'll find first-seen rows in the **Sheets we couldn't auto-apply** panel on the dashboard. Each row shows the candidate title and dates the parser pulled out of the sheet, plus the list of items that need your decision.
+You'll find first-seen review rows in the **Sheets we couldn't auto-apply** panel on the dashboard. Each row shows the candidate title and dates the parser pulled out of the sheet, plus the list of items that need your decision.
 
 Two actions are available:
 
-- **Review and Apply.** Opens the staged-review surface. You confirm each decision, then Apply mints the show row and publishes the crew page. A crew link exists from that moment forward.
+- **Review and apply.** Opens the staged-review surface. You confirm each decision, then Apply mints the show row and publishes the crew page. A crew link exists from that moment forward.
 - **Discard.** Drops the candidate. No crew link is ever created.
 
 <Callout type="warning">

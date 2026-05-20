@@ -67,4 +67,16 @@ describe("/help/admin/dashboard (E.5)", () => {
   it("does NOT reference <ScreenshotPlaceholder> (v1 ships real screenshots — Phase H.4 lint enforces)", () => {
     expect(src).not.toContain("<ScreenshotPlaceholder");
   });
+
+  it("does NOT claim an 'Open in Drive' action on pending-row UI (Codex R8 regression — real actions are Retry now / Defer until modified / Permanently ignore)", () => {
+    // The shipped PendingPanelRetryButton + PendingPanelDiscardButtons render
+    // three actions: "Retry now", "Defer until modified", "Permanently ignore".
+    // "Open in Drive" appears only in unrelated AgendaEmbed JSDoc + an asset
+    // route comment — never as a pending-row button. Pin docs against drift.
+    expect(src).not.toMatch(/\bOpen in Drive\b/);
+    // Positive: the three real action labels are documented.
+    expect(src).toContain("Retry now");
+    expect(src).toContain("Defer until modified");
+    expect(src).toContain("Permanently ignore");
+  });
 });

@@ -239,12 +239,33 @@ function extractCandidates(filePath: string, content: string): Candidate[] {
 // Production-source label search
 // ──────────────────────────────────────────────────────────────────────────
 
+/**
+ * Strip line and block comments from a TS/TSX/JS/JSX source string before
+ * haystack inclusion. Phase E R8 finding: a literal substring that ONLY
+ * appears inside a comment (e.g., the legacy "Open in Drive" reference inside
+ * components/agenda/AgendaEmbed.tsx JSDoc) used to satisfy the crosswalk and
+ * let a false-positive UI-label claim ride through. Real UI labels live in
+ * JSX text, prop values, or string literals, never in comments.
+ *
+ * Simple regex strip: removes line comments (slash-slash to EOL) and block
+ * comments (slash-star to star-slash) non-greedy. Edge cases like double-slash
+ * inside string literals are intentionally not handled: the FXAV codebase does
+ * not author UI labels inside such literals, and any false-negative on a real
+ * shipped label would surface as a test failure (rather than the silent
+ * false-positive class this strip eliminates).
+ */
+export function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/[^\n]*$/gm, "$1");
+}
+
 function buildProductionHaystack(): string {
   const files = productionSourceFiles();
   let haystack = "";
   for (const f of files) {
     try {
-      haystack += "\n" + readFileSync(f, "utf8");
+      haystack += "\n" + stripComments(readFileSync(f, "utf8"));
     } catch {
       // skip unreadable files
     }
@@ -435,5 +456,40 @@ describe("Help MDX UI-label crosswalk — declared registry layer", () => {
         `DECLARED_UI_LABELS entry must reference a file under app/help/: ${entry.file}`
       ).toBe(true);
     }
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Comment-stripping regression (Phase E R8)
+// ──────────────────────────────────────────────────────────────────────────
+//
+// Pins the contract that a label string appearing ONLY inside a comment is
+// NOT treated as in-production. Without comment-stripping, the "Open in Drive"
+// JSDoc reference in components/agenda/AgendaEmbed.tsx silently satisfied the
+// crosswalk's substring match, allowing a docs-vs-shipped drift to ride
+// through. See Codex R8 + the stripComments function above.
+
+describe("Help MDX UI-label crosswalk: comment-stripping regression (R8)", () => {
+  it("a label that appears ONLY in a comment is not counted as in-production", () => {
+    const synthetic = [
+      "// This is a fake label only in a comment: UniqueFakeLabelXYZ",
+      "/* Another comment with UniqueFakeLabelXYZ */",
+      "export const realThing = 'something-else';",
+    ].join("\n");
+    expect(synthetic).toContain("UniqueFakeLabelXYZ");
+    expect(stripComments(synthetic)).not.toContain("UniqueFakeLabelXYZ");
+  });
+
+  it("a label that appears in JSX text / string literal IS preserved by the strip", () => {
+    const synthetic = [
+      "// commented-out RealShippedLabel reference",
+      "export function Btn() { return <button>RealShippedLabel</button>; }",
+    ].join("\n");
+    expect(stripComments(synthetic)).toContain("RealShippedLabel");
+  });
+
+  it('URL-style "https://" inside a string literal survives the line-comment strip', () => {
+    const synthetic = "export const url = 'https://example.com/x';";
+    expect(stripComments(synthetic)).toContain("https://example.com/x");
   });
 });

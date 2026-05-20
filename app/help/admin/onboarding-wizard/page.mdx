@@ -2,7 +2,7 @@
 
 The first time you open `/admin` on a brand-new install, the app shows a three-step wizard instead of the usual dashboard. The wizard walks you from "I have a Google Sheet" to "the app is showing my crew their pages." You only see it once per setup; most of the time you'll never come back to this page. It exists for the two times you might: the first run, and a future re-run if you ever start over from scratch.
 
-You'll see the wizard automatically when the app has no folder configured and no shows in the database. After onboarding succeeds, the wizard disappears from `/admin` and the usual dashboard takes its place. If you ever need to point the app at a different Drive folder, you start a new wizard run from `/admin/settings` `→` Re-run Setup; the live folder keeps running until the new wizard finalizes.
+You'll see the wizard automatically when the app has no folder configured and no shows in the database. After onboarding succeeds, the wizard disappears from `/admin` and the usual dashboard takes its place. If you ever need to point the app at a different Drive folder, you start a new wizard run from `/admin/settings` `→` Re-run setup; the live folder keeps running until the new wizard finalizes.
 
 The three steps below are what the wizard asks you to do, in order. Each step has a `?` tooltip on the screen itself that links back to the matching section here for the longer explanation.
 
@@ -26,7 +26,7 @@ What you do on this step:
 
 If you want to know more about the email itself, the wizard has a small "What's this email?" disclosure inline; it's the same explanation as the first paragraph of this section.
 
-A "Start over" link sits at the bottom of every wizard step while you're in onboarding mode. Tap it if you closed the tab mid-flow yesterday and want a fresh run with no leftover state. The link disappears once onboarding succeeds; after that, the equivalent reset lives in `/admin/settings` `→` Re-run Setup.
+A "Start over" link sits at the bottom of every wizard step while you're in onboarding mode. Tap it if you closed the tab mid-flow yesterday and want a fresh run with no leftover state. The link disappears once onboarding succeeds; after that, the equivalent reset lives in `/admin/settings` `→` Re-run setup.
 
 <h2 id="step-2">Step 2: Verify access</h2>
 
@@ -80,4 +80,4 @@ What you do on this step:
 
 If something goes wrong during finalize (the most common cause is someone editing one of the sheets in Drive between approval and finalize), the wizard tells you which specific rows failed and gives you a link to re-approve them. The rest of the batch still goes through; you don't have to start over.
 
-If you ever want to abandon a wizard run completely, the "Start over" link at the bottom of any step purges all the staged state and drops you back at step 1. After onboarding succeeds, the equivalent action is "Re-run Setup" in `/admin/settings`.
+If you ever want to abandon a wizard run completely, the "Start over" link at the bottom of any step purges all the staged state and drops you back at step 1. After onboarding succeeds, the equivalent action is "Re-run setup" in `/admin/settings`.

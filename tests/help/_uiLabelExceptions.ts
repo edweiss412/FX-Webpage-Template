@@ -72,9 +72,9 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
     note: "Wizard step-1 advance affordance — components/admin/wizard/Step1Share.tsx (uses curly apostrophe via &rsquo;; normalized at compare time).",
   },
   {
-    label: "Review and Apply",
+    label: "Review and apply",
     file: "app/help/getting-started/page.mdx",
-    note: "Pending-panel action — components/admin/PendingPanel.tsx route comment.",
+    note: "Pending-panel action — components/admin/PendingPanel.tsx:125 rendered button text.",
   },
 
   // ─── app/help/daily-rhythm/page.mdx ───
@@ -118,19 +118,24 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
   // auto-apply" (no hyphens) is declared on the review-queues page where it
   // appears in prose; no dashboard entry needed.
   {
-    label: "Open in Drive",
-    file: "app/help/admin/dashboard/page.mdx",
-    note: "First-seen pending-row action — referenced in components/agenda/AgendaEmbed.tsx + asset route comment.",
-  },
-  {
     label: "Retry now",
     file: "app/help/admin/dashboard/page.mdx",
     note: "Pending-panel action button — components/admin/PendingPanelRetryButton.tsx:72.",
   },
   {
-    label: "Review and Apply",
+    label: "Defer until modified",
     file: "app/help/admin/dashboard/page.mdx",
-    note: "Pending-panel action — components/admin/PendingPanel.tsx route comment.",
+    note: "Pending-panel discard action — components/admin/PendingPanelDiscardButtons.tsx:85.",
+  },
+  {
+    label: "Permanently ignore",
+    file: "app/help/admin/dashboard/page.mdx",
+    note: "Pending-panel discard action — components/admin/PendingPanelDiscardButtons.tsx:96.",
+  },
+  {
+    label: "Review and apply",
+    file: "app/help/admin/dashboard/page.mdx",
+    note: "Pending-panel action — components/admin/PendingPanel.tsx:125 rendered button text.",
   },
   {
     label: "Open",
@@ -171,7 +176,7 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
     note: "Wizard pre-onboarding form — components/admin/OnboardingWizard.tsx:8.",
   },
   {
-    label: "Re-run Setup",
+    label: "Re-run setup",
     file: "app/help/admin/onboarding-wizard/page.mdx",
     note: "Settings page action — app/admin/settings/page.tsx:5 (case-insensitive 'Re-run setup' button at line 69; 'Re-run Setup' string in file comment).",
   },
@@ -216,9 +221,9 @@ export const DECLARED_UI_LABELS: readonly DeclaredUiLabel[] = [
 
   // ─── app/help/admin/review-queues/page.mdx ───
   {
-    label: "Review and Apply",
+    label: "Review and apply",
     file: "app/help/admin/review-queues/page.mdx",
-    note: "Pending-panel action — components/admin/PendingPanel.tsx route comment.",
+    note: "Pending-panel action — components/admin/PendingPanel.tsx:125 rendered button text.",
   },
   {
     label: "Discard",

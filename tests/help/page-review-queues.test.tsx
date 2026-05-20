@@ -79,4 +79,17 @@ describe("/help/admin/review-queues (E.6)", () => {
     // are exempt because they are lowercase.
     expect(src).not.toMatch(/\b[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+\b/);
   });
+
+  it("does NOT carry the pre-amendment-9 obsolete first-seen wording (Codex R8 regression — clean first-seen sheets auto-publish; only review-rule trips and onboarding-scan first-seen stage)", () => {
+    // Amendment 9 (spec §5.2 / §9.1.1 / triggered-review-items table):
+    // live-folder first-seen sheets passing MI-1..MI-14 auto-apply with a
+    // 24h unpublish-undo email; only MI-trip first-seen and onboarding-scan
+    // first-seen route through this queue. Pin against drift back to the
+    // pre-amendment "everything stages until Apply" framing.
+    expect(src).not.toMatch(/need(?:s)? your blessing/i);
+    expect(src).not.toMatch(/nothing here goes to crew until you apply/i);
+    expect(src).not.toMatch(/nothing goes to crew until apply/i);
+    // Positive: must reference the auto-publish path + the 24h undo safety net.
+    expect(src.toLowerCase()).toContain("24-hour");
+  });
 });
