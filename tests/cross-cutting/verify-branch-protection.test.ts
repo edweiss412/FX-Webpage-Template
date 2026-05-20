@@ -228,7 +228,7 @@ describe("X.6 branch-protection verifier", () => {
     const fetchImpl = makeFetch({ legacy: null, rulesets: { rulesets: [] } });
     const env = { GITHUB_REPOSITORY: "owner/repo", GH_APP_TOKEN: "token" };
     const adminAlertClient = supabase as unknown as NonNullable<
-      Parameters<typeof verifyBranchProtection>[0]["adminAlertClient"]
+      NonNullable<Parameters<typeof verifyBranchProtection>[0]>["adminAlertClient"]
     >;
     await verifyBranchProtection({ env, fetchImpl, adminAlertClient, writeReport: false });
     await verifyBranchProtection({ env, fetchImpl, adminAlertClient, writeReport: false });
