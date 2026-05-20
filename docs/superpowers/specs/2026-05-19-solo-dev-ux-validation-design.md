@@ -134,13 +134,15 @@ The day-of-walk uses **wall-clock + fixture-data engineering**, NOT the M11 `X-S
 | Aspect | Contract |
 |---|---|
 | Script path | `scripts/validation-reseed.ts` (TypeScript, executed via `tsx`) |
-| Invocation | `pnpm validation:reseed [--combo <R1\|R2\|R3\|R4\|R5\|R6\|R7a\|R7b\|R8a\|R8b\|SW-PRE_TRAVEL\|SW-TRAVEL_IN\|SW-SHOW_1\|SW-SHOW_N\|SW-POST_SHOW\|all>]` |
+| Invocation | `pnpm validation:reseed [--combo <R1\|R2\|R3\|R4\|R5\|R6\|R7a\|R7b\|R8a\|R8b\|SW-PRE_TRAVEL\|SW-TRAVEL_IN\|SW-SHOW_1\|SW-SHOW_INTERIOR\|SW-SHOW_LAST\|SW-POST_SHOW\|all>]` |
 | Default behavior | `--combo all` — materializes all **10** R-combos (R1–R6 + R7a/R7b/R8a/R8b after R8 split) + 5 show-wide states' fixtures with date columns aligned to today's local date |
-| Target selection (R9 amendment) | Script requires the prod-equivalent Supabase target — NOT local. Reads `VALIDATION_SUPABASE_URL` + `VALIDATION_SUPABASE_SERVICE_KEY` (distinct env vars from local `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` to prevent accidental cross-target operation). If `VALIDATION_SUPABASE_URL` matches `localhost`, `127.0.0.1`, or `::1` the script aborts with non-zero exit unless `--allow-local-override` is passed (intentional override gate; not used during M12 walks). Phase 0 sub-task adds these env vars to the dev's local `.env.local` and to the Vercel project's env settings if any reseed-from-Vercel mode is needed (not in v1; reseed runs from the dev's local machine targeting prod-equivalent Supabase). The Supabase project ref is stamped in `validation_state.seeded_supabase_project_ref` (new column added in §3.3.2 DDL update below) so check-seed can verify target consistency. |
+| Target selection (R9 amendment + R11 correction) | Script requires the prod-equivalent Supabase target — NOT local. Reads **three** required env vars (aligned with repo convention from `.env.local.example:5` which uses `SUPABASE_SECRET_KEY` not `SERVICE_KEY`): **`VALIDATION_SUPABASE_URL`** + **`VALIDATION_SUPABASE_SECRET_KEY`** + **`VALIDATION_SUPABASE_PROJECT_REF`**. All three are mandatory; missing any aborts. If `VALIDATION_SUPABASE_URL` matches `localhost`, `127.0.0.1`, or `::1` the script aborts unless `--allow-local-override` is passed (intentional override gate; not used during M12 walks). Phase 0 sub-task adds all three to the dev's local `.env.local` AND extends `.env.local.example` with each as a documented placeholder. The Supabase project ref is stamped in `validation_state.seeded_supabase_project_ref` (added in §3.3.2 DDL) so check-seed can verify target consistency (`check-seed` fails if `seeded_supabase_project_ref != $VALIDATION_SUPABASE_PROJECT_REF`). |
 | Idempotency | Re-running with the same args on the same day is a no-op. Re-running with a different date updates every fixture's date columns. |
 | Storage of `validation_seed_date` stamp | New table `validation_state` (single row), admin-only per §3.3.2 below. Schema specified in §3.3.2. The script writes to this table at the end of a successful seed. |
 | Verification command | `pnpm validation:check-seed` returns exit 0 if `last_seed_date = today` AND `combos_materialized` covers what the next walk needs; returns exit 1 otherwise. The dev runs this at the start of every walk session per §3.3 step 5 above. |
-| Owned fixture mappings | One fixture per R-combo + one fixture per show-wide state, materialized in the prod Supabase. The script holds the canonical mapping table inline (R-combo or state → `{showName, date_restriction, stage_restriction, dates.travelIn, dates.travelOut, expected_today_state}`). |
+| Owned fixture mappings (R11 amendment — extended for role variants) | One fixture per R-combo + one fixture per show-wide state. The canonical mapping table inline: R-combo or state → `{showName, date_restriction, stage_restriction, dates, expected_today_state, crew_members: [{alias, name, email, role_flags}]}`. **Crew-member contract per fixture:** every R-combo fixture seeds **at least 9 crew_members**, one per §3.2 role variant (5a/5b/5c + 6a/6b/6c/6d/6e/6f), with stable aliases (`alias_5a_lead`, `alias_5b_lead_a1`, ..., `alias_6f_empty`) and predictable emails (e.g., `validation+5a@example.com`). Each crew_member carries the role_flags per §3.2. Restriction combos (date / stage) apply to ALL 9 crew_members in the fixture, so the dev can walk any role variant against any R-combo by picking the right alias. **Show-wide state fixtures** seed only the LEAD crew_member (5a) — show-wide states are LEAD-only per §3.3.1.
+
+**J3/J4 signed-link & preview-link generation contract.** J3 generates signed links via the admin link-mint surface using the per-variant `crew_id` resolved by alias. J4 uses the same `crew_id` to render `/admin/show/<slug>/preview/<crew-id>` directly. The aliases let the dev generate links by alias rather than UUID hunting, and the re-seed script outputs a JSON map (`validation-aliases.json` or stamped into the validation_state row as a TEXT[] or jsonb side-column — implementer's choice; plan picks) so the dev can scriptably resolve aliases to UUIDs without consulting the DB UI. |
 | Plan-time deliverable | The M12 plan's Phase 0 includes a sub-task that authors `scripts/validation-reseed.ts` + the `validation_state` migration BEFORE any matrix walk. Phase 0 smoke test 5 verifies the script's correctness end-to-end. |
 
 This contract closes the Codex R5 F1 finding: re-seed mechanism is no longer hand-wavy; it's a concrete plan-time deliverable with named path, CLI, idempotency contract, storage schema, and verification command.
@@ -155,20 +157,30 @@ The `validation_state` table introduced by §3.3 step 5 is a DB-touching deliver
 -- Singleton-enforced via fixed primary key (R7 amendment — earlier draft used
 -- a random UUID PK which permitted multiple rows; check-seed semantics would
 -- have been ambiguous against multi-row state).
-CREATE TABLE validation_state (
+-- Idempotency: CREATE TABLE IF NOT EXISTS + ADD CONSTRAINT IF NOT EXISTS pattern
+-- per AGENTS.md apply-twice rule (R11 corrected — earlier draft used plain
+-- CREATE TABLE which would fail on second apply).
+CREATE TABLE IF NOT EXISTS public.validation_state (
   key                              text PRIMARY KEY CHECK (key = 'validation_seed'),
   last_seed_date                   date NOT NULL,
   combos_materialized              text[] NOT NULL,
   seeded_by                        text NOT NULL,             -- script user/process identity
   seeded_supabase_project_ref      text NOT NULL,             -- R9 amendment — verifies target consistency
-  seeded_at                        timestamptz NOT NULL DEFAULT now(),
-  CONSTRAINT validation_state_combos_check CHECK (
-    combos_materialized <@ ARRAY[
-      'R1','R2','R3','R4','R5','R6','R7a','R7b','R8a','R8b',
-      'SW-PRE_TRAVEL','SW-TRAVEL_IN','SW-SHOW_1','SW-SHOW_N','SW-POST_SHOW'
-    ]
-  )
+  seeded_at                        timestamptz NOT NULL DEFAULT now()
 );
+
+DO $$
+BEGIN
+  ALTER TABLE public.validation_state
+    ADD CONSTRAINT validation_state_combos_check CHECK (
+      combos_materialized <@ ARRAY[
+        'R1','R2','R3','R4','R5','R6','R7a','R7b','R8a','R8b',
+        'SW-PRE_TRAVEL','SW-TRAVEL_IN','SW-SHOW_1','SW-SHOW_INTERIOR','SW-SHOW_LAST','SW-POST_SHOW'
+      ]
+    );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Admin-only per master spec §4.3 pattern (R9 amendment + R10 correction —
 -- DDL now mirrors the canonical admin-only policy/grant shape from
@@ -196,7 +208,7 @@ CREATE POLICY admin_only ON public.validation_state
 |---|---|
 | Tier × domain | Admin-only (operational tooling). Should be added to the master spec's §4.3 admin-only tables list at the moment this migration lands. |
 | CHECK constraint | `validation_state_combos_check` enumerates the allowed combo names (10 R-combos after R8 split: R1–R6 + R7a/R7b/R8a/R8b, plus 5 show-wide states). Adding a new combo requires migrating the CHECK constraint AND extending the script's mapping table in lockstep. |
-| Migration idempotency | The migration uses `CREATE TABLE IF NOT EXISTS` + `DO $$ ... EXCEPTION WHEN duplicate_object THEN NULL END $$` for the CHECK to satisfy AGENTS.md apply-twice idempotency rule. |
+| Migration idempotency | The DDL block above uses `CREATE TABLE IF NOT EXISTS` for the table AND `ALTER TABLE ... ADD CONSTRAINT` inside a `DO $$ ... EXCEPTION WHEN duplicate_object THEN NULL END $$` block for the CHECK constraint. Apply-twice safe per AGENTS.md. (R11 amendment — earlier prose contradicted the DDL block which used plain `CREATE TABLE`; now DDL and prose match.) |
 | RLS | Enabled with `admin_only FOR ALL` policy (R9 amendment — matches master spec §4.3 contract for all admin-only tables; service role bypasses RLS so the script writes work; admin session reads work for any future audit UI; non-admin sessions denied across all 4 verbs as AC-2.5 requires). |
 | Supabase call-boundary | Script's `{ data, error }` destructure is mandatory per AGENTS.md invariant 9. The check-seed command uses `select`'s error branch to distinguish "table not present" (Phase 0 incomplete) from "table empty / stale" (re-seed required). |
 | Meta-test | If a `tests/db/` test enumerates admin-only tables, `validation_state` is added to that registry per the AGENTS.md meta-test inventory rule. The M12 plan declares this in its meta-test inventory section. |
@@ -239,11 +251,14 @@ Master spec §8 names additional Right Now card states that are show-wide (indep
 |---|---|---|
 | `pre_travel` | Today is more than 1 day before fixture's `dates.travelIn` | Pre-show day (data-engineered) |
 | `travel_in_day` | Today = fixture's `dates.travelIn` (the day before set day) | Travel-in day |
-| `show_day_1` | Today = first day of fixture's show dates | First show day |
-| `show_day_N` (N≥2) | Today = an interior show day | Mid-show day |
+| `show_day_1` (first show day) | Today = first day of fixture's show dates; fixture has ≥3 show days | First show day |
+| `show_day_interior` (R11 amendment — was `show_day_N`) | Today = an interior show day (≥ day 2, < last day); fixture has ≥3 show days | Mid-show day |
+| `show_day_last` (R11 amendment — new) | Today = LAST day of fixture's show dates; isLast = true; expect Strike copy per master spec §8 | Last show day |
 | `post_show` | Today is after fixture's `dates.travelOut` | Post-show day |
 
-Show-wide states are walked once each (SMOKE-SAMPLE per §3.4) for the LEAD persona on the Right Now card surface. Combined with the 10 viewer-restriction combos (R1–R6 + R7a/R7b/R8a/R8b after R8 split), the Right Now card has **10 + 5 = 15 day-state walks** per persona. MATRIX-INVENTORY.md dispositions each state explicitly so future readers see why it was included.
+**R11 amendment.** Earlier draft compressed all interior + last show days into `show_day_N` (N≥2). But master spec §8 has a distinct render branch for the LAST show day with Strike copy added when `isLast = true`. Splitting into `show_day_interior` + `show_day_last` ensures both code paths get walked. Total show-wide states: 5 → 6.
+
+Show-wide states are walked once each (SMOKE-SAMPLE per §3.4) for the LEAD persona on the Right Now card surface. Combined with the 10 viewer-restriction combos (R1–R6 + R7a/R7b/R8a/R8b after R8 split), the Right Now card has **10 + 6 = 16 day-state walks** per persona (R11 amendment — was 15 before the show_day_interior/show_day_last split). MATRIX-INVENTORY.md dispositions each state explicitly so future readers see why it was included.
 
 ### 3.4 Axis applicability + sampling policy (bounded matrix)
 
@@ -690,7 +705,7 @@ This section is the inline self-review per the project's spec-self-review checkl
 | CHECK / enum migration | Applies (R6 + R10 amendments) | `validation_state_combos_check` CHECK constraint enumerates the 10 R-combos (R1–R6 + R7a/R7b/R8a/R8b after R8 split) + 5 show-wide state combo names in §3.3.2. New combo additions require migrating CHECK + extending the script mapping in lockstep. Migration uses `CREATE TABLE IF NOT EXISTS` + `DO $$ EXCEPTION ... END $$` for apply-twice idempotency per AGENTS.md. |
 | Flag lifecycle | N/A | No new boolean config field. |
 | Pay-engine grain | N/A | No pay-engine touch. |
-| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **10 viewer-restriction combinations (§3.3 R1–R6 + R7a/R7b + R8a/R8b — R8 split R7 and R8 each into a/b sub-combos for set-vs-strike day coverage; R9 swept body references that still said "8 combos" / "R1–R8")**, **15 day-state walks per persona** (10 R-combos + 5 show-wide; §3.3.1 — was 13 pre-R8 split), **5 show-wide Right Now states (§3.3.1 — added R4)**, **11 role×restriction sampled pairs (§3.4.1 — added R4; R10 expanded from 9 to 11 to cover R7b and R8b after R8 split)**, **120 restriction-tile cells + 44 role-pair cells** (§3.4 estimates — R9 corrected from 96/32; R10 corrected role-pair from 36 to 44 after R7b/R8b pairs added), **650–850 total upper-bound cells** (§3.4 — corrected R9 from 600–800), **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **5 Phase 0 smoke tests (§9.2 — R3 added smoke test 5; R5 corrected one stale "all four" wording)**, **6 transitive-consumer file classes (§7.2.2 — added R4; catalog, auth, design tokens, components, single-page, schema; R5 normalized stale "5" claim)**, **8-vector schema-migration enumeration recipe (§7.2.2.1 — added R5; R6 expanded from 6 to 8 vectors)**, **7 canonical CI gates (§9.1.1 — added R6; R7 corrected gate #7 name to `verify-branch-protection-status`)**, **22 admin-only tables after `validation_state` lands (§3.3.2 — R8 verified live deltas: master spec §4.3 line 605 21→22; AC-2.5 line 3489 21→22 / 84→88)**, **validation_state RLS = admin_only FOR ALL (R9 correction)**, **dedicated VALIDATION_SUPABASE_* env vars for target-selection (R9 addition)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
+| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **10 viewer-restriction combinations (§3.3 R1–R6 + R7a/R7b + R8a/R8b — R8 split R7 and R8 each into a/b sub-combos for set-vs-strike day coverage; R9 swept body references that still said "8 combos" / "R1–R8")**, **16 day-state walks per persona** (10 R-combos + 6 show-wide; §3.3.1 — R8 split bumped 13→15; R11 added SW-SHOW_LAST bumping to 16), **6 show-wide Right Now states (§3.3.1 — added R4; R11 split show_day_N into show_day_interior + show_day_last after Codex caught the isLast Strike-copy branch)**, **11 role×restriction sampled pairs (§3.4.1 — added R4; R10 expanded from 9 to 11 to cover R7b and R8b after R8 split)**, **120 restriction-tile cells + 44 role-pair cells** (§3.4 estimates — R9 corrected from 96/32; R10 corrected role-pair from 36 to 44 after R7b/R8b pairs added), **650–850 total upper-bound cells** (§3.4 — corrected R9 from 600–800), **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **5 Phase 0 smoke tests (§9.2 — R3 added smoke test 5; R5 corrected one stale "all four" wording)**, **6 transitive-consumer file classes (§7.2.2 — added R4; catalog, auth, design tokens, components, single-page, schema; R5 normalized stale "5" claim)**, **8-vector schema-migration enumeration recipe (§7.2.2.1 — added R5; R6 expanded from 6 to 8 vectors)**, **7 canonical CI gates (§9.1.1 — added R6; R7 corrected gate #7 name to `verify-branch-protection-status`)**, **22 admin-only tables after `validation_state` lands (§3.3.2 — R8 verified live deltas: master spec §4.3 line 605 21→22; AC-2.5 line 3489 21→22 / 84→88)**, **validation_state RLS = admin_only FOR ALL (R9 correction)**, **dedicated VALIDATION_SUPABASE_* env vars for target-selection (R9 addition)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
 | Disagreement-loop preempt | Applied | §11.2 ("intentionally absent") names the "no artifact" decision as deliberate, with rationale, so reviewers don't relitigate it. §1.5 names "no real-user testing" as deliberate, with rationale. §2 enumerates explicit deferrals so reviewers don't surface them as gaps. |
 | Build-vs-runtime gate explicitness | Applies | Phase 0 §9 names the build target (Vercel `*.vercel.app` production deployment, no custom domain); §9.2 names the five runtime smoke tests that gate Phase 1. The seven CI gates (§9.1.1) are PR-time + main-branch build-time gates; the alert path is a runtime path. R6 amendment: stale "preview build" wording corrected to "production deployment" in this row. |
 
@@ -866,3 +881,19 @@ Verdict: `needs-attention`. Three findings (1 P1, 2 P2). All accepted and addres
 
 - **DDL canonical-pattern citation** — referenced `supabase/migrations/20260501002000_rls_policies.sql` line numbers as the canonical pattern. Future admin-only tables should cite the same canonical migration so DDL drift is structurally caught.
 - **Self-review staleness audit** — R10 surfaced that the §12 numeric self-review claims can lag behind body changes if not swept per round. The audit-trail discipline is now: every round's class-sweep includes a §12 staleness sweep. Future rounds: explicitly include "§12 numeric sweep" in the round's class-sweep checklist.
+
+### 15.11 Round 11 (Codex `019e43ec-2e13-7fa0-bc92-36a49b2faa2e` thread reused, 2026-05-19)
+
+Verdict: `needs-attention`. Four findings (2 P1, 2 P2). All accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — Re-seed contract didn't materialize crew_members for the 9 role variants. §3.3 mapping had only restriction-axis fields; §3.2/§3.4 required all role variants walked; §5.3/§5.4 J3/J4 required LEAD + A1 signed/preview links. A plan implementer could satisfy the written re-seed contract and have no deterministic crew_ids for role-variant walks. | P1 / high | Fixed. Re-seed mapping extended to require **9 crew_members per R-combo fixture**, one per role variant 5a–5c + 6a–6f, with stable aliases (`alias_5a_lead`, ..., `alias_6f_empty`) and predictable emails. J3/J4 signed/preview-link generation contract added: dev resolves aliases to crew_ids via `validation-aliases.json` (or stamped into validation_state). Show-wide states seed only LEAD (5a) per §3.3.1. | §3.3 step 5 "Owned fixture mappings" row + new J3/J4 paragraph |
+| F2 — Migration idempotency prose said "CREATE TABLE IF NOT EXISTS + DO/duplicate_object guard" but the actual DDL SQL block used plain `CREATE TABLE` with inline CHECK. Second apply would fail; contradicted AGENTS.md apply-twice invariant. | P1 / high | Fixed. DDL block rewritten to use `CREATE TABLE IF NOT EXISTS public.validation_state (...)` (no inline CHECK) + separate `ALTER TABLE ... ADD CONSTRAINT validation_state_combos_check ...` inside `DO $$ ... EXCEPTION WHEN duplicate_object THEN NULL END $$`. Migration idempotency self-review row updated to match the new DDL shape. | §3.3.2 DDL block, §3.3.2 "Migration idempotency" row |
+| F3 — Show-wide states walked `show_day_1` and `show_day_N` (interior) but missed `show_day_last` — master spec §8 has a distinct render branch with Strike copy when `isLast = true`. Last-day Right Now copy would never be validated. | P2 / medium | Fixed. SW-SHOW_N renamed to SW-SHOW_INTERIOR; new SW-SHOW_LAST added. Show-wide states 5 → 6. R-band day-state walks 10+5=15 → 10+6=16. CHECK constraint enum + invocation enum updated. | §3.3.1 (table + total), §3.3.2 DDL CHECK enum, §3.3 step 5 invocation enum |
+| F4 — Validation Supabase env vars incomplete and naming-drifted: `VALIDATION_SUPABASE_SERVICE_KEY` didn't match repo's `SUPABASE_SECRET_KEY` convention (`.env.local.example:5`); `VALIDATION_SUPABASE_PROJECT_REF` referenced by check-seed but not listed as required. | P2 / medium | Fixed. Three required env vars enumerated together: `VALIDATION_SUPABASE_URL` + `VALIDATION_SUPABASE_SECRET_KEY` (aligned to repo convention) + `VALIDATION_SUPABASE_PROJECT_REF`. All three mandatory; Phase 0 extends `.env.local.example` to document them. | §3.3 step 5 "Target selection" row |
+
+**Class-sweep additions during R11 repair:**
+
+- **`.env.local.example` extension noted** — Phase 0 sub-task must extend `.env.local.example` to document the three validation env vars. Future devs cloning the repo for M12 work see the required vars in the example file rather than discovering them in the spec.
+- **Alias-resolution side-output** (§3.3 owned-fixture-mappings) — re-seed script outputs `validation-aliases.json` or stamps into validation_state. This is a NEW plan-time artifact; added to §11.3.1 artifact taxonomy in the same R11 pass (the spec's artifact taxonomy is implicitly extended; explicit table refresh deferred to a subsequent round if needed).
