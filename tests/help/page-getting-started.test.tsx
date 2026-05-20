@@ -21,7 +21,7 @@ describe("/help/getting-started (E.2)", () => {
     // compile to `undefined` and `render()` throws (verified during E.1 fix
     // pass 2026-05-20). The wrapper is load-bearing for the Vitest pipeline;
     // it is not needed in production where Next.js auto-injects the same map.
-    const Mod = await import("@/app/help/getting-started/page");
+    const Mod = await import("@/app/help/getting-started/page.mdx");
     const Page = Mod.default;
     const components = useMDXComponents({});
     expect(() =>
@@ -34,7 +34,7 @@ describe("/help/getting-started (E.2)", () => {
   });
 
   it("renders the canonical H1 into the DOM (catches MDX compiler/component-map regression where source has H1 but rendered output drops it)", async () => {
-    const Mod = await import("@/app/help/getting-started/page");
+    const Mod = await import("@/app/help/getting-started/page.mdx");
     const Page = Mod.default;
     const components = useMDXComponents({});
     const { container } = render(

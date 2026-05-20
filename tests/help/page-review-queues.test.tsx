@@ -14,7 +14,7 @@ const src = readFileSync(
 
 describe("/help/admin/review-queues (E.6)", () => {
   it("renders without throwing through the real MDX pipeline (E.5 precedent — MDXProvider load-bearing for Screenshot / Callout / etc.)", async () => {
-    const Mod = await import("@/app/help/admin/review-queues/page");
+    const Mod = await import("@/app/help/admin/review-queues/page.mdx");
     const Page = Mod.default;
     const components = useMDXComponents({});
     expect(() =>
@@ -27,7 +27,7 @@ describe("/help/admin/review-queues (E.6)", () => {
   });
 
   it("renders the canonical H1 into the DOM (catches MDX compiler/component-map regression where source has H1 but rendered output drops it)", async () => {
-    const Mod = await import("@/app/help/admin/review-queues/page");
+    const Mod = await import("@/app/help/admin/review-queues/page.mdx");
     const Page = Mod.default;
     const components = useMDXComponents({});
     const { container } = render(
