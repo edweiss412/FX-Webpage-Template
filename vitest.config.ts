@@ -1,8 +1,20 @@
 import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
+import mdx from "@mdx-js/rollup";
 
+// M11 Phase E real-render assertions: per-page smoke tests `await import`
+// the .mdx page module. Without an MDX→JS transformer in the Vitest graph
+// those imports fail to resolve. `@mdx-js/rollup` plugs into Vitest's Vite
+// pipeline; `@next/mdx` is the production build path and stays separate.
+// Production runtime is unchanged.
 export default defineConfig({
+  plugins: [
+    mdx({
+      jsxImportSource: "react",
+      providerImportSource: "@mdx-js/react",
+    }),
+  ],
   test: {
     environment: "node",
     globals: false,
@@ -20,5 +32,11 @@ export default defineConfig({
     // 3s → 10s on a clean run, which is well inside the local-TDD budget.
     fileParallelism: false,
   },
-  resolve: { alias: { "@": dirname(fileURLToPath(import.meta.url)) } },
+  resolve: {
+    alias: { "@": dirname(fileURLToPath(import.meta.url)) },
+    // Allow `await import("@/app/help/<slug>/page")` to resolve `.mdx`
+    // without a literal extension in the import specifier. Mirrors
+    // next.config.ts's `pageExtensions` registration of `mdx`.
+    extensions: [".mjs", ".js", ".mts", ".ts", ".jsx", ".tsx", ".json", ".mdx"],
+  },
 });
