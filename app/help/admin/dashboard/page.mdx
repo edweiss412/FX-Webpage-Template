@@ -1,3 +1,40 @@
-{/* M11 Phase A.7 stub — Phase E task E.5 replaces the entire body. */}
-
 # Reading the dashboard
+
+The admin dashboard is where you start each morning. Two stacked panels tell you whether anything needs your attention. On a quiet day, you scan it and move on.
+
+<Screenshot
+  name="dashboard-overview"
+  alt="The admin dashboard with the Active Shows panel on top and the Sheets-we-couldn't-auto-apply panel below it."
+/>
+
+<h2 id="active-shows">The Active Shows panel</h2>
+
+One row per show. The columns are:
+
+- **Title.** The show name, exactly as it appears in your sheet.
+- **Dates.** Load-in through load-out, formatted `3/22 → 3/26/26`.
+- **Crew.** How many crew rows the latest applied sync produced.
+- **Last sync.** When the app last polled the sheet, plus a status badge (see below).
+- **Actions.** Open, Preview as, Re-sync, Archive.
+
+The **Last sync** badge is the column that matters most. Four states:
+
+- **Green check (✓).** The sheet polled cleanly and any edits were auto-applied. Nothing for you to do.
+- **Yellow Review staged changes badge (⚠).** The sheet has new edits that tripped a review rule, so the app staged them instead of auto-applying. The crew still sees the prior approved version. The row's primary action becomes **Review staged changes** and takes you to the per-show panel. See [Review queues](/help/admin/review-queues#re-stage) for what to do next.
+- **Yellow warnings badge (⚠ N warnings).** The sync applied, but the parser flagged things worth a look (a soft warning, not a hard failure). Open the show to see them.
+- **Red error indicator (✗ parse error).** The most recent sync hard-failed. The crew page still serves the last good version. Open the show, read the error message, fix the sheet, and re-sync.
+
+The empty state (no shows yet) tells you to share your Drive folder with the service-account email and gives you a one-click copy button for that email.
+
+<h2 id="pending-ingestion">The Sheets-we-couldn't-auto-apply panel</h2>
+
+This panel only fills up when something new lands that the app can't process on its own. Two kinds of rows show up here:
+
+- **First-seen sheets that hard-failed.** A new sheet appeared in your Drive folder, but the fetch or parse failed before it could become a show. Each row shows the file name, when it was first seen, how many times the app has tried, and the error message. Your options are **Open in Drive** (so you can fix the sheet) and **Retry now** (so the app tries again). Retry never auto-applies a first-seen sheet, even when everything passes. It can only move the row into the queue below, where you Apply it explicitly.
+- **First-seen sheets waiting for your approval.** The parse passed, but because this is the sheet's first time, it always routes to you before crew can see it. Each row shows the candidate title and dates the app pulled out, plus a list of what tripped the review. Your options are **Review and Apply** (opens the staged-review surface, where you confirm the show goes live) and **Discard** (drops the candidate without ever creating a public crew link).
+
+A row stays in this panel until you act on it. Nothing here clears itself.
+
+## Staged-changes review
+
+Edits to an already-live show don't appear here. They show up as a yellow **Review staged changes** badge on the show's row in the Active Shows panel above. The handling is the same idea, just in a different place. For the full walkthrough see [Review queues](/help/admin/review-queues#re-stage).
