@@ -119,9 +119,16 @@ This milestone EXTENDS the following existing structural meta-tests:
 | `tests/db/rls.test.ts` | 0.B | Task 0.B.6 | Lines 163-164: `21` → `22` (admin-only table count assertion) |
 | `tests/db/admin-rls-runtime.test.ts` | 0.B | Task 0.B.7 | 7 references on lines 4 / 9 / 21 / 111 / 112 / 213 / 218: `21` → `22` |
 | `tests/db/admin-rls-runtime.baseline.json` | 0.B | Task 0.B.8 | Regenerated to include `validation_state` × 4 verbs (4 new rows) |
-| `tests/cross-cutting/auth.test.ts` | 0.B | Task 0.B.9 | Line 203 (`ADMIN_TABLES` literal expectation): extend the list to include `'validation_state'` in alphabetical position (between `recovery_drift_cooldowns` and `report_rate_limits`, or where the sort lands) |
+| `tests/cross-cutting/auth.test.ts` | 0.B | Task 0.B.9 | Line 203 (`ADMIN_TABLES` literal expectation): extend the list to include `'validation_state'` in alphabetical position |
+| `tests/cross-cutting/email-canonicalization.test.ts` | 0.C | Task 0.C.4 (R5 amendment) | The existing email-boundary audit MUST be extended to flag `lower(...)` / `trim(...)` in `scripts/validation-*.ts` files unless adjacent to a `canonicalize()` call from `lib/email/canonicalize.ts`. Closes the recurring vector: scripts/validation-reseed.ts is now in the registry; future validation-tooling scripts that write emails MUST canonicalize via the registered helper. |
 
-This milestone does NOT CREATE new structural meta-tests — `validation_state`'s admin-only contract is enforced by EXISTING meta-tests once the registry is updated. Per AGENTS.md "Meta-test inventory (mandatory)" rule, this declaration is the formal statement.
+This milestone CREATES the following structural meta-test (R5 amendment — vector declared unresolved, structural defense required):
+
+| Meta-test (new) | Phase | Created in task | Purpose |
+| --- | --- | --- | --- |
+| `tests/cross-cutting/validation-tooling-tz-pin.test.ts` | 0.C | Task 0.C.4 (R5 amendment) | Greps every `.sql` migration AND every `.ts` script in `scripts/validation-*.ts` for the string `current_date` (lowercase, plain match). Each match MUST be either (a) inside the bounded-skew sanity check (`abs(extract(epoch from (...::date - current_date))) > 86400`), OR (b) carry an inline `// not-validation-today-iso: <reason>` waiver comment. The default is "TZ-pinned validationTodayIso wins; current_date is for skew-check only". Catches the recurring class where a future M12 plan amendment slips a `current_date` back into a seed/finalize path. |
+
+**Per AGENTS.md "Meta-test inventory" rule** + the R5 "vector unresolved" declaration: these structural defenses replace per-instance live-code-fidelity patching. After this round, drift in either email canonicalization or TZ-pinned dates fails CI rather than requiring another adversarial-review round to catch.
 
 ---
 

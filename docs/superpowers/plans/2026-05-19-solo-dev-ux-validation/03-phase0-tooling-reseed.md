@@ -264,19 +264,30 @@ BEGIN
   END LOOP;
 
   -- 4. UPSERT validation_state singleton: merge alias_map[combo] = slice; append combo to combos_materialized.
-  --    R3 amendment: ALSO stamp combos_seeded_dates[combo] = current_date::text so check-seed
-  --    can detect partial --combo all reseed (some combos today, others stale).
-  --    Do NOT update top-level last_seed_date here — that's set ONLY by validation_finalize_all_atomic
-  --    after every combo's mint succeeds.
+  --    R5 amendment: ALL seeded-date stamps come from p_fixture_payload->>'validationTodayIso' (TZ-pinned UTC,
+  --    NOT current_date). RPC validates within ±1 day of server current_date for sanity but does NOT use
+  --    current_date directly. Eliminates Postgres-vs-script TZ skew and UTC-midnight crossing race.
+  DECLARE
+    v_validation_today_iso text;
+  BEGIN
+    v_validation_today_iso := p_fixture_payload->>'validationTodayIso';
+    IF v_validation_today_iso IS NULL OR v_validation_today_iso !~ '^\d{4}-\d{2}-\d{2}$' THEN
+      RAISE EXCEPTION 'mint_validation_fixture_atomic: validationTodayIso required (YYYY-MM-DD), got %', v_validation_today_iso;
+    END IF;
+    IF abs(extract(epoch from (v_validation_today_iso::date - current_date))) > 86400 THEN
+      RAISE EXCEPTION 'mint_validation_fixture_atomic: validationTodayIso % differs from server current_date % by >1 day (extreme clock skew)', v_validation_today_iso, current_date;
+    END IF;
+  END;
+
   INSERT INTO public.validation_state (
     key, last_seed_date, combos_materialized, combos_seeded_dates, alias_map,
     seeded_by, seeded_supabase_project_ref
   )
   VALUES (
     'validation_seed',
-    current_date,  -- initial; gets overwritten by finalize-all-atomic on full runs
+    (p_fixture_payload->>'validationTodayIso')::date,  -- initial; gets overwritten by finalize-all-atomic on full runs
     ARRAY[p_combo],
-    jsonb_build_object(p_combo, current_date::text),
+    jsonb_build_object(p_combo, p_fixture_payload->>'validationTodayIso'),
     jsonb_build_object(p_combo, v_alias_map_slice),
     p_fixture_payload->>'seededBy',
     p_fixture_payload->>'seededProjectRef'
@@ -284,7 +295,7 @@ BEGIN
   ON CONFLICT (key) DO UPDATE SET
     -- last_seed_date is NOT updated here (R3 amendment); finalize-all-atomic owns it.
     combos_materialized = (SELECT array_agg(DISTINCT c) FROM unnest(public.validation_state.combos_materialized || ARRAY[p_combo]) c),
-    combos_seeded_dates = public.validation_state.combos_seeded_dates || jsonb_build_object(p_combo, current_date::text),
+    combos_seeded_dates = public.validation_state.combos_seeded_dates || jsonb_build_object(p_combo, p_fixture_payload->>'validationTodayIso'),
     alias_map = public.validation_state.alias_map || jsonb_build_object(p_combo, v_alias_map_slice),
     seeded_supabase_project_ref = EXCLUDED.seeded_supabase_project_ref;
 
@@ -394,7 +405,8 @@ The reseed script calls this RPC only for `--combo all` (NOT for single-combo re
 -- supabase/migrations/<timestamp>_validation_finalize_all_atomic.sql
 
 CREATE OR REPLACE FUNCTION public.validation_finalize_all_atomic(
-  p_required_combos text[]
+  p_required_combos text[],
+  p_validation_today_iso text   -- R5 amendment — pinned UTC date passed in from the script
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -408,6 +420,14 @@ DECLARE
   v_stale text[]   := ARRAY[]::text[];
   v_combos_dates jsonb;
 BEGIN
+  -- R5 amendment: validate p_validation_today_iso shape + within ±1 day of server current_date.
+  IF p_validation_today_iso IS NULL OR p_validation_today_iso !~ '^\d{4}-\d{2}-\d{2}$' THEN
+    RAISE EXCEPTION 'validation_finalize_all_atomic: p_validation_today_iso required (YYYY-MM-DD), got %', p_validation_today_iso;
+  END IF;
+  IF abs(extract(epoch from (p_validation_today_iso::date - current_date))) > 86400 THEN
+    RAISE EXCEPTION 'validation_finalize_all_atomic: p_validation_today_iso % differs from server current_date % by >1 day', p_validation_today_iso, current_date;
+  END IF;
+
   SELECT combos_seeded_dates INTO v_combos_dates FROM public.validation_state WHERE key = 'validation_seed';
   IF v_combos_dates IS NULL THEN
     RAISE EXCEPTION 'validation_state.combos_seeded_dates not initialized — run mint_validation_fixture_atomic first';
@@ -417,7 +437,7 @@ BEGIN
     v_combo_date := v_combos_dates->>v_combo;
     IF v_combo_date IS NULL THEN
       v_missing := array_append(v_missing, v_combo);
-    ELSIF v_combo_date <> current_date::text THEN
+    ELSIF v_combo_date <> p_validation_today_iso THEN
       v_stale := array_append(v_stale, v_combo || ':' || v_combo_date);
     END IF;
   END LOOP;
@@ -426,17 +446,17 @@ BEGIN
     RAISE EXCEPTION 'validation_finalize_all_atomic: incomplete reseed (missing: %, stale: %)', v_missing, v_stale;
   END IF;
 
-  -- All requested combos seeded today; safe to stamp top-level last_seed_date.
+  -- All requested combos seeded today; safe to stamp top-level last_seed_date using the PINNED date.
   UPDATE public.validation_state
-    SET last_seed_date = current_date
+    SET last_seed_date = p_validation_today_iso::date
     WHERE key = 'validation_seed';
 
-  RETURN jsonb_build_object('finalized_combos', p_required_combos, 'last_seed_date', current_date);
+  RETURN jsonb_build_object('finalized_combos', p_required_combos, 'last_seed_date', p_validation_today_iso);
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.validation_finalize_all_atomic(text[]) FROM public, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.validation_finalize_all_atomic(text[]) TO service_role;
+REVOKE ALL ON FUNCTION public.validation_finalize_all_atomic(text[], text) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.validation_finalize_all_atomic(text[], text) TO service_role;
 ```
 
 - [ ] **Step 7 (R3 amendment): Update the reseed script's `--combo all` path** to:
@@ -505,16 +525,22 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 **R4 P0 amendment — email canonicalization in TS (AGENTS.md invariant 3):** The reseed script MUST canonicalize fixture emails via `lib/email/canonicalize.ts` BEFORE building the RPC payload. The RPC writes the supplied canonical value as-is; never use `lower(trim(...))` in SQL (that would create a new canonicalization boundary outside the registered helper). Example:
 
 ```ts
-import { canonicalizeEmail } from "@/lib/email/canonicalize";
+import { canonicalize } from "@/lib/email/canonicalize";   // R5 corrected — live helper is `canonicalize`, NOT `canonicalizeEmail`
 
-const crewMembers = fixture.crewMembers.map((c) => ({
-  alias: c.alias,
-  name: c.name,
-  email: canonicalizeEmail(c.email),                  // ← canonicalize HERE, not in SQL
-  roleFlags: c.roleFlags,
-  dateRestriction: fixture.dateRestriction,           // R4 P0: passed through to RPC
-  stageRestriction: fixture.stageRestriction,         // R4 P0: passed through to RPC
-}));
+const crewMembers = fixture.crewMembers.map((c) => {
+  const canonicalEmail = canonicalize(c.email);
+  if (canonicalEmail === null) {
+    throw new Error(`Fixture crew_member ${c.alias} has invalid email: ${c.email}`);
+  }
+  return {
+    alias: c.alias,
+    name: c.name,
+    email: canonicalEmail,                            // ← canonicalize HERE, not in SQL
+    roleFlags: c.roleFlags,
+    dateRestriction: fixture.dateRestriction,         // R4 P0: passed through to RPC
+    stageRestriction: fixture.stageRestriction,       // R4 P0: passed through to RPC
+  };
+});
 ```
 
 **R4 P1 amendment — timezone-aware "today":** The script computes ONE `validationTodayIso` value (YYYY-MM-DD, UTC) and passes it into mint/finalize/check-seed. The RPCs use `validationTodayIso` for combos_seeded_dates / last_seed_date INSTEAD of `current_date`. The RPC validates the value is parseable + within ±1 day of Postgres's `current_date` (rejects extreme clock skew). Example:
@@ -560,7 +586,7 @@ Per spec §3.3.2 singleton write semantics. **9 predicates (a-i)** (R3 amendment
 - (f) For any alias in alias_map, `crew_member_auth` is missing the matching `(show_id, crew_name)` row
 - (g) Any `current_token_version` is unset/null
 - (h) `revoked_links` has a row matching the baseline `alias_5a_lead`'s `(show_id, crew_name, current_token_version)` tagged `revoked_reason LIKE 'validation:%'`
-- (i) **R3 amendment:** for ANY combo in the requested set, `combos_seeded_dates[combo] != current_date::text`. Catches the partial-`--combo all` failure mode where some combos succeeded today and others stamped yesterday (or are missing). Without this predicate, alias_map being full + last_seed_date being today is insufficient evidence that EVERY combo's fixture is today's-date-aligned.
+- (i) **R3+R5 amendment:** for ANY combo in the requested set, `combos_seeded_dates[combo] != $VALIDATION_TODAY_ISO` (where `$VALIDATION_TODAY_ISO` is the canonical UTC YYYY-MM-DD value the script computes, NOT `current_date`). check-seed accepts the date as an env var or CLI flag; defaults to `new Date().toISOString().slice(0,10)`. Catches the partial-`--combo all` failure mode where some combos succeeded on day X and others stamped day Y (UTC midnight crossed mid-run). Without this predicate AND TZ-pinned comparison, alias_map being full + last_seed_date being recent is insufficient evidence that EVERY combo's fixture is today's-date-aligned.
 
 - [ ] **Step 1: Write failing test:** check-seed returns exit 0 immediately after a fresh reseed; returns exit 1 if VALIDATION_SUPABASE_PROJECT_REF env var is set to a wrong value.
 
