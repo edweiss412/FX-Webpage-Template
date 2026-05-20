@@ -21,7 +21,10 @@
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
-import { UI_LABEL_EXCEPTIONS } from "./_uiLabelExceptions";
+import {
+  DECLARED_UI_LABELS,
+  UI_LABEL_EXCEPTIONS,
+} from "./_uiLabelExceptions";
 
 const REPO_ROOT = process.cwd();
 
@@ -249,6 +252,19 @@ function buildProductionHaystack(): string {
   return haystack;
 }
 
+/**
+ * Normalize a string for cross-source label comparison. The DECLARED_UI_LABELS
+ * registry layer is hand-authored against MDX prose (straight ASCII quotes),
+ * but production JSX often encodes apostrophes/quotes as HTML entities
+ * (`&rsquo;`, `&quot;`) or curly Unicode characters. Normalize both sides to
+ * straight ASCII so equivalent labels match.
+ */
+function normalizeForCompare(s: string): string {
+  return s
+    .replace(/&rsquo;|&lsquo;|&apos;|[‘’‚‛]/g, "'")
+    .replace(/&rdquo;|&ldquo;|&quot;|[“”„‟]/g, '"');
+}
+
 function buildExceptionIndex(): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>();
   for (const ex of UI_LABEL_EXCEPTIONS) {
@@ -326,6 +342,97 @@ describe("Help MDX UI-label crosswalk (Phase E meta-test)", () => {
       expect(
         content.includes(ex.label),
         `Stale exception: "${ex.label}" no longer appears in ${ex.file} — remove the exception entry.`
+      ).toBe(true);
+    }
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// Declared-registry layer (Phase E structural-defense extension)
+// ──────────────────────────────────────────────────────────────────────────
+//
+// The heuristic layer above catches bolded `**Label**` and backticked
+// `` `Label` `` UI-label candidates. It does NOT catch labels mentioned in
+// plain prose, `##` headings, or quoted strings — those would balloon false
+// positives. This layer adds an EXPLICIT per-page declaration: every Phase E
+// MDX page lists its UI-control claims here, and the test asserts each is
+// either shipped in production or exempted via UI_LABEL_EXCEPTIONS citing
+// a DEFERRED.md M11-E-D<N> ID. This catches D2/D3/D4-shape drift the
+// heuristic misses (prose-only mentions of "Open", "Re-sync", etc.).
+// See AGENTS.md §1.7 and the Phase E plan retrospective.
+
+describe("Help MDX UI-label crosswalk — declared registry layer", () => {
+  it("every declared UI label is either shipped in production OR exempted", () => {
+    const haystack = buildProductionHaystack();
+    const normalizedHaystack = normalizeForCompare(haystack);
+    const exceptions = buildExceptionIndex();
+    const normalizedExceptions = new Map<string, Set<string>>();
+    for (const [file, labels] of exceptions.entries()) {
+      const ns = new Set<string>();
+      for (const l of labels) ns.add(normalizeForCompare(l));
+      normalizedExceptions.set(file, ns);
+    }
+
+    const findings: string[] = [];
+    for (const entry of DECLARED_UI_LABELS) {
+      const normLabel = normalizeForCompare(entry.label);
+      if (normalizedHaystack.includes(normLabel)) continue;
+      const exemptionsForFile = normalizedExceptions.get(entry.file);
+      if (exemptionsForFile && exemptionsForFile.has(normLabel)) continue;
+      findings.push(
+        `  ${entry.file}: declared label "${entry.label}" is not in production source AND not exempted in UI_LABEL_EXCEPTIONS`
+      );
+    }
+
+    if (findings.length > 0) {
+      throw new Error(
+        `Declared UI labels failing crosswalk:\n${findings.join("\n")}\n\n` +
+          `Add a UI_LABEL_EXCEPTIONS entry citing a DEFERRED.md M11-E-D<N> ID, ` +
+          `or remove the label from DECLARED_UI_LABELS if it's not actually documented.`
+      );
+    }
+  });
+
+  it("stale-entry guard: every declared label still appears in its claimed MDX file", () => {
+    const findings: string[] = [];
+    for (const entry of DECLARED_UI_LABELS) {
+      const absPath = join(REPO_ROOT, entry.file);
+      let exists = true;
+      try {
+        statSync(absPath);
+      } catch {
+        exists = false;
+      }
+      if (!exists) {
+        findings.push(
+          `  ${entry.file}: file does not exist (stale entry — remove from DECLARED_UI_LABELS)`
+        );
+        continue;
+      }
+      const content = readFileSync(absPath, "utf8");
+      // Normalize both sides: MDX prose uses straight quotes, but if a future
+      // editor pass swaps to curly/typographic quotes the entry shouldn't
+      // become stale for a purely typographic reason.
+      const normalizedContent = normalizeForCompare(content);
+      const normalizedLabel = normalizeForCompare(entry.label);
+      if (!normalizedContent.includes(normalizedLabel)) {
+        findings.push(
+          `  ${entry.file}: declared label "${entry.label}" no longer appears in the MDX (stale entry; remove from DECLARED_UI_LABELS)`
+        );
+      }
+    }
+    if (findings.length > 0) {
+      throw new Error(
+        `Stale DECLARED_UI_LABELS entries:\n${findings.join("\n")}`
+      );
+    }
+  });
+
+  it("DECLARED_UI_LABELS file paths are all under app/help/", () => {
+    for (const entry of DECLARED_UI_LABELS) {
+      expect(
+        entry.file.startsWith("app/help/"),
+        `DECLARED_UI_LABELS entry must reference a file under app/help/: ${entry.file}`
       ).toBe(true);
     }
   });
