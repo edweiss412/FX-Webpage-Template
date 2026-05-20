@@ -118,15 +118,15 @@ export const SPEC_CODES = {
   },
   "BRANCH_PROTECTION_DRIFT": {
     "crewFacing": null,
-    "dougFacing": null,
+    "dougFacing": "Branch protection no longer matches the X.6 contract. Restore the required checks and review settings before merging.",
     "followUp": "Eric → restore branch protection per X.6 contract",
-    "helpfulContext": null,
+    "helpfulContext": "The privileged branch-protection monitor queried GitHub and found that the main-branch protection no longer matches the X.6 contract: one of the seven required checks is missing, reviews are not required, stale reviews are not dismissed, admin enforcement is off, or force pushes/deletions are allowed. Restore the branch protection settings for main so pull requests cannot merge without the full X.* audit suite.",
   },
   "BRANCH_PROTECTION_MONITOR_AUTH_FAILED": {
     "crewFacing": null,
-    "dougFacing": null,
+    "dougFacing": "Branch-protection monitoring cannot authenticate with GitHub. Rotate the GH App token or PAT within 24 hours.",
     "followUp": "Eric → rotate GH App / PAT within 24h",
-    "helpfulContext": null,
+    "helpfulContext": "The privileged branch-protection monitor could not authenticate to GitHub, so it cannot prove the merge gate is still enforcing the required X.* checks. Rotate the GitHub App token or fallback PAT, then confirm the scheduled branch-protection job succeeds again; otherwise drift could go undetected until the reader check's freshness window expires.",
   },
   "CLEANUP_REQUIRES_STALE_SESSION": {
     "crewFacing": null,

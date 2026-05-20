@@ -81,6 +81,8 @@ const ADMIN_ALERTS_CODES = [
   "REPORT_LEASE_THRASHING", //          M8 repeated retry/lease race fail-closed recovery
   "STALE_ORPHAN_REPORT", //             M8 report reaper stale reservation audit
   "TILE_SERVER_RENDER_FAILED", //       M9 Task 9.2: per-tile server-render failure
+  "BRANCH_PROTECTION_DRIFT", //         X.6 branch-protection drift detector
+  "BRANCH_PROTECTION_MONITOR_AUTH_FAILED", // X.6 branch-protection monitor auth failure
 ] as const;
 
 const ADMIN_ALERTS_WRITE_SITES: Record<
@@ -202,6 +204,14 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   TILE_SERVER_RENDER_FAILED: {
     path: "components/shared/TileServerFallback.tsx",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"TILE_SERVER_RENDER_FAILED"/,
+  },
+  BRANCH_PROTECTION_DRIFT: {
+    path: "scripts/verify-branch-protection.ts",
+    pattern: /code:\s*"BRANCH_PROTECTION_DRIFT"/,
+  },
+  BRANCH_PROTECTION_MONITOR_AUTH_FAILED: {
+    path: "scripts/verify-branch-protection.ts",
+    pattern: /code:\s*"BRANCH_PROTECTION_MONITOR_AUTH_FAILED"/,
   },
 };
 

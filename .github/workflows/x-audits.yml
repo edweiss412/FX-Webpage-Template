@@ -5,9 +5,12 @@ on:
   push:
     branches:
       - main
+  schedule:
+    - cron: "0 9 * * 1"
 
 jobs:
-  x1-catalog-parity:
+  traceability-audit:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,6 +22,68 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Verify generated admin tables file is fresh
+        if: github.event_name != 'schedule'
+        run: |
+          pnpm gen:admin-tables
+          git diff -- lib/audit/admin-tables.generated.ts > traceability-admin-tables-generated.diff
+          git diff --exit-code lib/audit/admin-tables.generated.ts
+      - name: Verify generated watermark-symbol file is fresh
+        if: github.event_name != 'schedule'
+        run: |
+          pnpm gen:watermark-symbols
+          git diff -- lib/audit/watermark-symbols.generated.ts > traceability-watermark-symbols-generated.diff
+          git diff --exit-code lib/audit/watermark-symbols.generated.ts
+      - name: Verify generated email-boundary file is fresh
+        if: github.event_name != 'schedule'
+        run: |
+          pnpm gen:email-boundaries
+          git diff -- lib/audit/email-boundaries.generated.ts > traceability-email-boundaries-generated.diff
+          git diff --exit-code lib/audit/email-boundaries.generated.ts
+      - name: Verify traceability coverage matrix is fresh
+        if: github.event_name != 'schedule'
+        run: |
+          pnpm gen:traceability
+          git diff -- docs/superpowers/plans/coverage.md > traceability-coverage-generated.diff
+          git diff --exit-code docs/superpowers/plans/coverage.md
+      - name: Run X.6 traceability audit
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test:audit:traceability 2>&1 | tee traceability-audit.log
+      - name: Upload X.6 traceability audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: traceability-audit-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          if-no-files-found: warn
+          path: |
+            traceability-admin-tables-generated.diff
+            traceability-watermark-symbols-generated.diff
+            traceability-email-boundaries-generated.diff
+            traceability-coverage-generated.diff
+            traceability-audit.log
+            docs/superpowers/plans/coverage.md
+
+  x1-catalog-parity:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify generated admin tables file is fresh
+        if: github.event_name != 'schedule'
+        run: |
+          pnpm gen:admin-tables
+          git diff -- lib/audit/admin-tables.generated.ts > x1-admin-tables-generated.diff
+          git diff --exit-code lib/audit/admin-tables.generated.ts
       - run: pnpm gen:spec-codes
       - name: Check generated spec-code manifest
         run: |
@@ -36,10 +101,12 @@ jobs:
           name: x1-catalog-parity-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
           if-no-files-found: warn
           path: |
+            x1-admin-tables-generated.diff
             x1-catalog-parity-generated.diff
             x1-catalog-parity.log
 
   x2-no-raw-codes:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +118,12 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Verify generated admin tables file is fresh
+        if: github.event_name != 'schedule'
+        run: |
+          pnpm gen:admin-tables
+          git diff -- lib/audit/admin-tables.generated.ts > x2-admin-tables-generated.diff
+          git diff --exit-code lib/audit/admin-tables.generated.ts
       - run: pnpm gen:internal-code-enums
       - name: Check generated internal-code manifest
         run: |
@@ -68,10 +141,12 @@ jobs:
           name: x2-no-raw-codes-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
           if-no-files-found: warn
           path: |
+            x2-admin-tables-generated.diff
             x2-no-raw-codes-generated.diff
             x2-no-raw-codes.log
 
   x3-trust-domain:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,9 +158,10 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm gen:admin-tables
-      - name: Check generated admin-table manifest
+      - name: Verify generated admin tables file is fresh
+        if: github.event_name != 'schedule'
         run: |
+          pnpm gen:admin-tables
           git diff -- lib/audit/admin-tables.generated.ts > x3-trust-domain-generated.diff
           git diff --exit-code lib/audit/admin-tables.generated.ts
       - name: Run X.3 trust-domain audit
@@ -104,6 +180,7 @@ jobs:
             x3-trust-domain.log
 
   x4-no-global-cursor:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -115,9 +192,10 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm gen:admin-tables
-      - name: Check generated admin-table manifest
+      - name: Verify generated admin tables file is fresh
+        if: github.event_name != 'schedule'
         run: |
+          pnpm gen:admin-tables
           git diff -- lib/audit/admin-tables.generated.ts > x4-admin-tables-generated.diff
           git diff --exit-code lib/audit/admin-tables.generated.ts
       - run: pnpm gen:watermark-symbols
@@ -142,6 +220,7 @@ jobs:
             x4-no-global-cursor.log
 
   x5-email-canonicalization:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -153,9 +232,10 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm gen:admin-tables
-      - name: Check generated admin-table manifest
+      - name: Verify generated admin tables file is fresh
+        if: github.event_name != 'schedule'
         run: |
+          pnpm gen:admin-tables
           git diff -- lib/audit/admin-tables.generated.ts > x5-admin-tables-generated.diff
           git diff --exit-code lib/audit/admin-tables.generated.ts
       - run: pnpm gen:watermark-symbols
@@ -184,3 +264,75 @@ jobs:
             x5-watermark-symbols-generated.diff
             x5-email-canonicalization-generated.diff
             x5-email-canonicalization.log
+
+  verify-branch-protection:
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run privileged branch-protection drift detector
+        run: pnpm tsx scripts/verify-branch-protection.ts
+        env:
+          GH_APP_TOKEN: ${{ secrets.GH_APP_TOKEN }}
+          BRANCH_PROTECTION_PAT: ${{ secrets.BRANCH_PROTECTION_PAT }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      - name: Upload branch-protection audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-branch-protection-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          if-no-files-found: warn
+          path: artifacts/branch-protection-report.json
+
+  verify-branch-protection-status:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert recent successful verify-branch-protection run on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST_RUN_JSON=$(gh run list \
+            --workflow=x-audits.yml \
+            --branch=main \
+            --status=success \
+            --limit=1 \
+            --json databaseId,createdAt,headSha)
+          echo "$LATEST_RUN_JSON"
+          LATEST_RUN_ID=$(echo "$LATEST_RUN_JSON" | jq -r '.[0].databaseId // empty')
+          LATEST_RUN_AT=$(echo "$LATEST_RUN_JSON" | jq -r '.[0].createdAt // empty')
+          if [ -z "$LATEST_RUN_ID" ]; then
+            echo "::error::No successful x-audits.yml run on main found."
+            exit 1
+          fi
+          JOB_CONCLUSION=$(gh run view "$LATEST_RUN_ID" --json jobs \
+            | jq -r '.jobs[] | select(.name=="verify-branch-protection") | .conclusion')
+          if [ "$JOB_CONCLUSION" != "success" ]; then
+            echo "::error::Latest x-audits.yml run had verify-branch-protection conclusion=$JOB_CONCLUSION."
+            exit 1
+          fi
+          NOW_EPOCH=$(date -u +%s)
+          RUN_EPOCH=$(date -u -d "$LATEST_RUN_AT" +%s)
+          AGE_SECONDS=$((NOW_EPOCH - RUN_EPOCH))
+          MAX_AGE_SECONDS=$((8 * 24 * 60 * 60))
+          if [ "$AGE_SECONDS" -gt "$MAX_AGE_SECONDS" ]; then
+            echo "::error::Latest verify-branch-protection success is stale: $AGE_SECONDS seconds."
+            exit 1
+          fi
+          echo "OK: verify-branch-protection succeeded $AGE_SECONDS seconds ago."
+      - name: Upload branch-protection-status artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-branch-protection-status-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          if-no-files-found: ignore
+          path: artifacts/branch-protection-status-report.json

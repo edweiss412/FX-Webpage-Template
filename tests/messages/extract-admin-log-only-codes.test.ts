@@ -77,6 +77,9 @@ describe("extractAdminLogOnlyCodes — live master spec", () => {
     // pending-snapshot stuck rows, so they are not admin-log-only.
     expect(codes).not.toContain("PENDING_SNAPSHOT_PROMOTE_STUCK");
     expect(codes).not.toContain("PENDING_SNAPSHOT_ROLLBACK_STUCK");
-    expect(codes).toContain("BRANCH_PROTECTION_MONITOR_AUTH_FAILED");
+    // X.6 branch-protection alerts carry real Doug-facing copy, so they are
+    // operator alerts but not admin-log-only §12.4 rows.
+    expect(codes).not.toContain("BRANCH_PROTECTION_DRIFT");
+    expect(codes).not.toContain("BRANCH_PROTECTION_MONITOR_AUTH_FAILED");
   });
 });

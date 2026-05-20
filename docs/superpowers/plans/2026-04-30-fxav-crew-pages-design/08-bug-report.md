@@ -1137,6 +1137,8 @@ The reaper uses **`reports.created_at`** as the horizon, NOT `processing_lease_u
 
 ### Task 8.3g: Spec patch — sync §13.2.3 with plan amendments (recovery + reaper + lease_holder)
 
+<!-- coverage: -40-reports-lease-amendment, section-13-2-3-lease-holder-protocol -->
+
 **STATUS: SPEC PATCH ALREADY APPLIED during the adversarial-review loop (rounds 24+).** `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` §13.2.3 has been rewritten and §4.1 reports table now declares `lease_holder uuid`, `idempotency_key`, and `processing_lease_until` inline; §14.3 env-var table includes `GITHUB_BOT_LOGIN`. **This task is now verification-only:** Steps 1 and 2 below were performed during the loop; Steps 3a/3b (author + run `scripts/verify-spec-amendment-3.sh`) MUST run to confirm the patch satisfies every invariant before M8 implementation begins.
 
 **Files:** Modify: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` §13.2.3 (already done). Create: `scripts/verify-spec-amendment-3.sh` (still to do).

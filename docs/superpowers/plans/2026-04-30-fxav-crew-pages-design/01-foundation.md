@@ -251,6 +251,8 @@ The parser is a pure function `parseSheet(markdown: string): ParseResult` with n
 
 ### Task 1.1: ParseResult, ParseWarning, ParseError types
 
+<!-- coverage: -parsedsheet-parseresult-split -->
+
 **Files:** Create: `lib/parser/types.ts`. Test: `tests/parser/types.test.ts` (just imports — types compile).
 
 - [ ] **Step 1: Write the types** verbatim from spec §6.7 (`ParseResult`, `ParseWarning`, `ParseError`) plus the row types they reference. Includes: `ShowRow`, `CrewMemberRow`, `HotelReservationRow`, `RoomRow`, `TransportationRow`, `ContactRow`, `PullSheetCase`, `PullSheetItem`. Add explicit `kind` discriminators on `date_restriction` (`'explicit' | 'unknown_asterisk' | 'none'`) and `stage_restriction`.
