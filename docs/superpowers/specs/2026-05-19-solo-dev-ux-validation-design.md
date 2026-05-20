@@ -45,7 +45,7 @@ This is also why the milestone is *not* extended to include Doug-data, Doug-feed
 
 ## 2. Out of scope (explicit deferrals)
 
-- **Custom domain / DNS / public launch.** This milestone uses a `*.vercel.app` preview URL throughout. Domain + launch is a separate follow-on milestone (v1 launch).
+- **Custom domain / DNS / public launch.** This milestone uses a `*.vercel.app` production deployment URL (no custom domain) throughout. Domain + launch is a separate follow-on milestone (v1 launch).
 - **Doug, real crew, or any third-party touching the product.** Per §1.5.
 - **Push notifications, outbound email, SMS.** Tracked in `BACKLOG.md` (BL-PUSH-NOTIFICATIONS). Alert paths in M12 are dashboard-only.
 - **New product features.** M12 fixes what's there; it does not extend the product.
@@ -91,7 +91,7 @@ Persona 5 (LEAD) and persona 6 (non-LEAD) are therefore not single rows each but
 | 6e — Compound non-LEAD | `["A1","L1"]` or `["GS","A1"]` | Compound atomic-flag rendering; both scope tiles visible |
 | 6f — Unrecognized role / `[]` | `[]` (no flags) | The empty-flags edge case; confirms the page does not crash or expose financials |
 
-The plan walks each 5a–5c + 6a–6f variant for the crew page and for preview-as-crew (persona 4 with each role variant). Real-iPhone exercise (§3.1) is required for 5b + 6a + 6d + 6f as the highest-leverage sample; the rest are exercised on Vercel preview URL in desktop + emulated mobile.
+The plan walks each 5a–5c + 6a–6f variant for the crew page and for preview-as-crew (persona 4 with each role variant). Real-iPhone exercise (§3.1) is required for 5b + 6a + 6d + 6f as the highest-leverage sample; the rest are exercised on Vercel `*.vercel.app` production URL in desktop + emulated mobile.
 
 ### 3.3 Date and stage restriction axes (orthogonal to role)
 
@@ -116,7 +116,47 @@ The plan exercises at minimum the following restriction combinations across crew
 | R7 | `none` | `explicit ["Load In","Set"]` | Set day vs strike day | (set-day pack-list visible; strike-day pack-list hidden) |
 | R8 | `none` | `explicit ["Load Out","Strike"]` | Strike day | (pack-list visible only on strike) |
 
-The day-of-walk uses the same fixture-clock manipulation pattern M11 uses for screenshot reproducibility (`X-Screenshot-Frozen-Now` header per M11 §3.6.2), if the plan determines that mechanism is reusable for day-of-walk control; otherwise the plan describes an alternative (DB fixture day shift, system clock, etc.).
+The day-of-walk uses **wall-clock + fixture-data engineering**, NOT the M11 `X-Screenshot-Frozen-Now` header. Rationale: that header is gated by `ENABLE_TEST_AUTH=true` + `TEST_AUTH_SECRET` per M11 §3.6.2; the prod-equivalent Phase 0 stack does NOT enable `ENABLE_TEST_AUTH` (security risk in production-target deployment per master spec §7 + M11 spec hardening). Therefore clock control on the validation stack uses the wall-clock-as-truth approach:
+
+1. **Fixture-data calendar alignment.** The plan engineers each restriction-combo fixture's `dates.travelIn / dates.travelOut / date_restriction.days` relative to the dev's intended walk day. E.g., for R3 (today excluded from explicit days), the fixture is seeded with `date_restriction.days = ["<yesterday>", "<tomorrow>"]` and `today` becomes the off-day naturally. For R5 (pre-show), the fixture's `dates.travelIn` is two days in the future. For R6 (post-show), the fixture's `dates.travelOut` is yesterday.
+2. **Re-seeding between walks (cheap).** When the dev's walk day changes (e.g., the validation milestone spans multiple real days), the plan provides a re-seed script that adjusts fixture dates relative to `now()`. The script is idempotent and re-runnable.
+3. **No code path changes.** This approach changes data, not code. The application reads `now()` from `lib/time/now.ts` which in production returns the real system clock. No test-auth bypass; no production-unsafe headers.
+4. **Phase 0 verification.** Phase 0 smoke test 5 (added in R3) verifies the re-seed mechanism by setting a fixture to `viewer_off_day` state and confirming the Right Now card renders the off-day copy. This proves the data-engineering approach actually drives the state transitions before Phase 1 starts.
+
+### 3.4 Axis applicability + sampling policy (bounded matrix)
+
+After R1+R2 expansion, the validation has multiple axes: persona (8), surface (variable per band), role variant (9), restriction combo (8), color mode (2), viewport (2), real-device-vs-emulated (2 — but only for crew personas). Cross-multiplying every axis would produce thousands of cells; a solo dev cannot walk that in finite time. The spec defines per-axis coverage policy to keep the walk bounded.
+
+**Three coverage classes:**
+
+| Class | Policy | When applied |
+|---|---|---|
+| **FULL** | Every value on this axis × every value on the partner axis (Cartesian) | Mandatory axes whose values interact non-trivially |
+| **PAIRWISE** | Every PAIR of axis-values appears at least once, but full Cartesian is not required (covering array) | Axes that interact but exhaustive crossing is impractical |
+| **SMOKE-SAMPLE** | A representative subset of axis-values (the values the plan judges highest-leverage) | Axes whose interaction with others is low-risk OR redundantly covered by a partner axis |
+
+**Per-axis policy for the M12 matrix:**
+
+| Axis | Policy | Detail |
+|---|---|---|
+| **Surface × Persona** | FULL (within applicability — see below) | Every surface × every persona that can reach it. Anonymous reaches only auth-error surfaces; admin reaches admin surfaces; signed-link crew reaches crew surfaces. Out-of-domain combinations (e.g., anonymous × admin dashboard) are dispositioned EXCLUDED in MATRIX-INVENTORY.md. |
+| **Color mode (light/dark)** | FULL | Both modes per cell — non-negotiable per DESIGN.md. |
+| **Viewport (mobile/desktop)** | FULL | Both viewports per cell. |
+| **Role variant (5a–5c + 6a–6f)** | SMOKE-SAMPLE on most surfaces; PAIRWISE with restriction on crew-page-tile surfaces | Role variants affect crew-page tile visibility specifically. The matrix exercises each role variant ONCE on the crew page surface (one walk per variant = 9 cells), AND pairwise with restriction combos on Right Now / schedule / pack-list specifically (the surfaces master spec calls out as restriction-sensitive). Role variants are NOT crossed with admin surfaces, /help, or report surfaces (those don't change by crew role). |
+| **Restriction combo (R1–R8)** | SMOKE-SAMPLE on most surfaces; PAIRWISE with role on Right Now / schedule / pack-list | Restriction combos affect Right Now state, schedule filtering, and pack-list visibility. Each combo exercised ONCE on each of those three tiles. Pairwise with role: at least one R combo × each role variant on the Right Now card (8 pairs minimum). |
+| **Real-device-vs-emulated** | SMOKE-SAMPLE | Real iPhone only for the curated subset named in §3.1 (Right Now, schedule, signed-link redemption, sign-in, expired-link, revoked-link, `/me`) for personas 5/6/7/8. Other cells emulate. |
+
+**Bounded estimate:**
+
+- Surface × persona × mode × viewport (base matrix): ≈ N_surfaces × 8 personas × 4 mode-combos, BUT bounded by applicability — most surfaces apply to 1–3 personas. Practical estimate: ~200–400 cells.
+- Role variant × crew-page tiles × mode (orthogonal pass): 9 variants × ~6 tiles × 4 mode-combos ≈ 216 cells.
+- Restriction combo × restriction-sensitive tiles × mode (orthogonal pass): 8 combos × 3 tiles × 4 mode-combos = 96 cells.
+- Pairwise role × restriction on Right Now: 8 pairs × 4 mode-combos = 32 cells.
+- Real-device pass on curated subset: ~10 cells × 4 personas × 1 mode-combo ≈ 40 cells.
+
+**Total upper-bound estimate: ≈ 600–800 cells.** Walking this at ~30 cells/hour (rough estimate including triage time) = 20–30 hours of pure exercise. Spread across the iteration loop with fix cycles, a realistic milestone duration is 2–4 weeks.
+
+**MATRIX-INVENTORY.md records coverage class per row.** Every row's coverage class (FULL / PAIRWISE / SMOKE-SAMPLE) is set in the plan-time derivation per §4.1.1. The dev's exercise walks each row at the coverage level specified.
 
 ### 3.1 Sub-dimensions per matrix cell
 
@@ -128,7 +168,7 @@ Each persona × surface cell is exercised in *both* color modes AND *both* viewp
 | Dark mode | Yes | Per DESIGN.md sunlit-loading-dock-vs-dim-backstage parity |
 | Mobile 390px viewport | Yes | Primary viewport per PRODUCT.md |
 | Desktop ≥1024px viewport | Yes | Per DESIGN.md `--bp-lg` |
-| Real iPhone Safari (Vercel preview URL) | Only for crew-facing surfaces (personas 5/6/7/8) on a curated subset of cells | The dev's actual phone; not Playwright |
+| Real iPhone Safari (Vercel `*.vercel.app` production URL) | Only for crew-facing surfaces (personas 5/6/7/8) on a curated subset of cells | The dev's actual phone; not Playwright |
 
 The "curated subset" for real-iPhone is enumerated at plan-writing time; defaults are the Right Now card, the schedule tile, signed-link redemption (fragment-token form), sign-in flow, expired-link path, revoked-link path, and the `/me` cross-show list.
 
@@ -191,7 +231,7 @@ Four end-to-end journeys; each crosses multiple surfaces and catches the cross-s
 
 ### 5.1 J1 — Cold-start admin via /help
 
-Fresh browser profile, deployed preview URL. Sign in via Google. Land on `/admin`. From `/admin`, follow the "Take the tour" link into `/help`. Read `/help/getting-started` and `/help/daily-rhythm`. Use only the /help docs as the map — *do not navigate by dev memory*. Drop a fixture sheet into the watched folder. See cron pick it up (or wait the cron interval). See first-seen auto-publish per master-spec amendment 9. Open the preview link, see crew page render. Generate a signed link.
+Fresh browser profile, deployed production URL (`*.vercel.app`, no custom domain). Sign in via Google. Land on `/admin`. From `/admin`, follow the "Take the tour" link into `/help`. Read `/help/getting-started` and `/help/daily-rhythm`. Use only the /help docs as the map — *do not navigate by dev memory*. Drop a fixture sheet into the watched folder. See cron pick it up (or wait the cron interval). See first-seen auto-publish per master-spec amendment 9. Open the crew preview link, see crew page render. Generate a signed link.
 
 ### 5.2 J2 — Pending-sync triage
 
@@ -333,7 +373,7 @@ Phase 0 stands up the infrastructure the exercise runs against. Phase 1 (the exe
 |---|---|
 | **Supabase prod project** | Distinct from the dev project. All migrations applied via `supabase db push` (or equivalent). Seeded with a representative fixture set — NOT Doug's real data; sanitized derivatives or repo fixtures only. |
 | **Drive service account (prod-tier)** | A separate service account from the dev one. Its own watched folder. Populated with the same fixture sheets as the seed (so cron paths line up). |
-| **Vercel project** | Linked to the repo's `main` branch (or chosen branch). Preview deployments configured. **No custom domain; no DNS.** The `*.vercel.app` URL is the dev's working URL for the entire validation. |
+| **Vercel project** | Linked to the repo's `main` branch (or chosen branch). **Production-target deployment** (NOT preview) — Vercel Cron Jobs run only on production deployments per [Vercel Cron Jobs docs](https://vercel.com/docs/cron-jobs). **No custom domain; no DNS.** The `*.vercel.app` URL of the production deployment is the dev's working URL for the entire validation. R3 amendment: an earlier draft said "preview deployment"; corrected — preview deployments do not run cron and would falsify smoke test 3. |
 | **Env vars** | All required vars set in the Vercel project: Supabase URL / anon key / service key, Drive service account JSON, GitHub OAuth for the M8 report pipeline, any per-environment flags. |
 | **CI gates** | The full CI gate set active against the preview build. Each gate verified to actually fire — by deliberately tripping one (e.g., a known structural-test regression in a throwaway branch) and confirming the gate blocks the deploy. |
 | **Alert paths** | `admin_alerts` table populates correctly under fixture-induced events. AlertBanner renders correctly from real rows in the prod Supabase. (Push is BACKLOG; alert path here is dashboard-only.) |
@@ -342,12 +382,13 @@ Phase 0 stands up the infrastructure the exercise runs against. Phase 1 (the exe
 
 Phase 0 closes when **all four** smoke tests pass — only after all four does Phase 1 start. A seeded DB alone is not sufficient evidence the prod-equivalent stack is wired end-to-end; each smoke test exercises a distinct integration axis.
 
-1. **Admin sign-in.** The dev signs in via Google to the deployed preview URL and lands as admin on `/admin`. Verifies: Supabase auth + admin role-check + RLS read path.
-2. **Signed-link real-iPhone render.** A signed link generated from `/admin` on the preview URL (canonical `/show/<slug>/p#t=<jwt>` form per master spec §7), opened on the dev's real iPhone in Safari, renders a fixture crew page correctly. Verifies: signed-link mint + redeem + crew-page render against real prod Supabase data.
+1. **Admin sign-in.** The dev signs in via Google to the deployed production URL (`*.vercel.app`, no custom domain) and lands as admin on `/admin`. Verifies: Supabase auth + admin role-check + RLS read path.
+2. **Signed-link real-iPhone render.** A signed link generated from `/admin` on the production URL (canonical `/show/<slug>/p#t=<jwt>` form per master spec §7), opened on the dev's real iPhone in Safari, renders a fixture crew page correctly. Verifies: signed-link mint + redeem + crew-page render against real prod Supabase data.
 3. **Cron + Drive integration.** A fixture sheet placed in the prod-tier Drive watched folder is detected by the cron path (Vercel Cron → fetch from Drive service account → parse → propagate) within one cron interval. The new show appears in `/admin` Active Shows panel. Verifies: cron schedule firing + Drive service-account credentials + parser end-to-end + DB write under per-show advisory lock.
 4. **Admin alert write + AlertBanner render.** A fixture-induced staging event (e.g., editing the seeded fixture to trigger MI-6 crew shrinkage) causes a row to land in `admin_alerts` AND the AlertBanner on `/admin` renders that row on a fresh page load. Verifies: write path to `admin_alerts` + AlertBanner read query + crew-page propagation behavior end-to-end.
+5. **Wall-clock + fixture-data clock control.** Seed a fixture into the prod Supabase with `date_restriction.days = [<a date that is NOT today>]` and a known `dates.travelIn/travelOut` window that includes today. Generate a signed-link, open on the Vercel `*.vercel.app` production URL, and confirm the Right Now card renders `viewer_off_day` copy (per master spec §8 line 2413). Verifies: the production stack reads wall-clock + fixture data correctly without test-auth bypass; the §3.3 wall-clock approach is genuinely available.
 
-Failing any of the four re-opens Phase 0 — the spec does not allow Phase 1 to start against a partial stand-up. The class-sweep here mirrors the Codex R1 P1 finding: a seeded DB can satisfy a browser-only smoke test while the cron/alert plumbing is broken, and Phase 1 would only catch that days later when J2 (pending-sync triage) tries to exercise it.
+Failing any of the five re-opens Phase 0 — the spec does not allow Phase 1 to start against a partial stand-up. The class-sweep here mirrors the Codex R1 P1 and R3 P1 findings: a seeded DB can satisfy a browser-only smoke test while the cron/alert plumbing is broken OR the clock-control mechanism is broken, and Phase 1 would only catch that days later when J2 (pending-sync triage) or R3-R6 restriction-combo walks try to exercise it.
 
 ---
 
@@ -440,9 +481,9 @@ This section is the inline self-review per the project's spec-self-review checkl
 | CHECK / enum migration | N/A | No DB constraint change. |
 | Flag lifecycle | N/A | No new boolean config field. |
 | Pay-engine grain | N/A | No pay-engine touch. |
-| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **8 restriction combinations (§3.3 — added R2)**, **7 matrix-derivation sources (§4.1.1 — added R2)**, **4 Phase 0 smoke tests (§9.2 — expanded R1 from 2 to 4)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
+| Self-consistency sweep | Applied | Numeric claims cross-checked: 4 journeys (§5.1–§5.4), **8 personas (§3 table — expanded R1 to add `/me` cross-show as persona 8)**, **6 surface bands (§4.2 A–F — band F report-pipeline added R1)**, **9 role sub-variants (§3.2 — 3 LEAD + 6 non-LEAD; LEAD compounds added R2)**, **8 restriction combinations (§3.3 — added R2)**, **7 matrix-derivation sources (§4.1.1 — added R2)**, **3 coverage classes (§3.4 FULL/PAIRWISE/SMOKE-SAMPLE — added R3)**, **5 Phase 0 smoke tests (§9.2 — R3 added smoke test 5 for clock control)**, 13 /help pages (per M11 §4), MUST/SHOULD/NICE triage tiers (§7.1), 24h cooldown (§6), ≥2 cold-start runs (§6 + §7.2 step 7). |
 | Disagreement-loop preempt | Applied | §11.2 ("intentionally absent") names the "no artifact" decision as deliberate, with rationale, so reviewers don't relitigate it. §1.5 names "no real-user testing" as deliberate, with rationale. §2 enumerates explicit deferrals so reviewers don't surface them as gaps. |
-| Build-vs-runtime gate explicitness | Applies | Phase 0 §9 names the build target (Vercel preview deployment); §9.2 names the runtime smoke tests that gate Phase 1 (real Google sign-in + real iPhone signed-link render). The seven CI gates in §9.1 are build-time gates; the alert path is a runtime path. |
+| Build-vs-runtime gate explicitness | Applies | Phase 0 §9 names the build target (Vercel `*.vercel.app` production deployment, no custom domain); §9.2 names the runtime smoke tests that gate Phase 1 (real Google sign-in + real iPhone signed-link render). The seven CI gates in §9.1 are build-time gates; the alert path is a runtime path. |
 
 ---
 
@@ -497,4 +538,19 @@ Verdict: `needs-attention`. Two P1 findings, both accepted and addressed.
 **Class-sweep additions during R2 repair:**
 
 - **Real-iPhone sample expansion** (§3.1) — added 5b (LEAD compound) to the iPhone-required subset alongside 6a / 6d / 6f. Compound-LEAD on real iPhone catches the financials+scope-tile composition on the device class that matters most.
-- **Day-of-walk control mechanism** (§3.3) — cited M11's `X-Screenshot-Frozen-Now` header pattern as a reusable mechanism for fixture-clock manipulation during restriction-axis walks. Plan picks the concrete mechanism.
+- **Day-of-walk control mechanism** (§3.3) — initially cited M11's `X-Screenshot-Frozen-Now` header pattern as a reusable mechanism; **R3 amendment retracted this** — that header requires `ENABLE_TEST_AUTH` which is production-unsafe. The corrected mechanism is wall-clock + fixture-data engineering (§3.3 R3-amended).
+
+### 15.3 Round 3 (Codex `019e43cb-3d40-7130-8bf4-35f13a377d32`, 2026-05-19)
+
+Verdict: `needs-attention`. Three findings (1 P0 critical Vercel-Cron fact, 2 P1 matrix-bounds + clock-control). All accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — Phase 0 used Vercel preview deployment, but Vercel Cron Jobs run only on production deployments per Vercel docs; smoke test 3 (cron + Drive integration) would be impossible to run on a preview | P0 / critical | Fixed. §9.1 Vercel project row corrected to "production-target deployment" with `*.vercel.app` URL (no custom domain). All "preview URL" / "preview deployment" references throughout the spec swept and replaced with "production URL" / "production deployment" where they referred to the validation stack. (Persona 4 "admin previewing as crew" wording unchanged — different sense of "preview".) | §2 out-of-scope, §3.1 sub-checks, §3.2 closing paragraph, §5.1 J1, §9.1 Vercel row, §12 self-review build-vs-runtime |
+| F2 — Expanded matrix had no bounded crossing rule; 9 role × 8 restriction × N surface × 4 mode could explode to 1000+ cells with no policy for sampling vs full crossing | P1 / high | Fixed. New §3.4 "Axis applicability + sampling policy" defines three coverage classes (FULL / PAIRWISE / SMOKE-SAMPLE) and assigns a policy per axis. Bounded estimate ≈ 600–800 cells (20–30 exercise hours; realistic 2–4 week milestone). MATRIX-INVENTORY.md (§4.1.1) now records coverage class per row. | New §3.4 |
+| F3 — §3.3 clock-control mechanism cited M11's `X-Screenshot-Frozen-Now` header, but that header is gated by `ENABLE_TEST_AUTH` which is production-unsafe; the prod-equivalent Phase 0 stack cannot enable it | P1 / high | Fixed. §3.3 rewritten to use **wall-clock + fixture-data engineering** instead of the header. Re-seed script aligns fixture dates relative to `now()`. No code-path bypass. Phase 0 smoke test 5 (new) verifies the re-seed mechanism produces the expected `viewer_off_day` state before Phase 1. | §3.3 (rewritten clock mechanism), §9.2 (added smoke test 5) |
+
+**Class-sweep additions during R3 repair:**
+
+- **Production vs preview terminology sweep** — fixed every "preview URL / preview deployment" reference for the validation stack. Persona 4 "admin previewing as crew" is a different sense (impersonation preview), not a Vercel preview deployment, and was deliberately not touched.
+- **Phase 0 smoke test count** updated to 5 (was 4 after R1).
