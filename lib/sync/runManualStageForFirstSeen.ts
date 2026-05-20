@@ -18,11 +18,17 @@ import {
   runPhase2,
   type Phase2Tx,
 } from "@/lib/sync/phase2";
+import {
+  emitSuccessfulPhase2Tail,
+  type ProcessOneFileDeps,
+  type ProcessOneFileResult,
+} from "@/lib/sync/runScheduledCronSync";
 
 export type RunManualStageForFirstSeenTx = Phase2Tx & {
   readShowId?(driveFileId: string): Promise<string | null>;
   insertPendingSnapshotUpload?: SnapshotAssetsApplyTx["insertPendingSnapshotUpload"];
   markPendingSnapshotDeleteStarted?: SnapshotAssetsApplyTx["markPendingSnapshotDeleteStarted"];
+  deleteRevisionRaceCooldowns?(driveFileId: string): Promise<void>;
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
   deleteLivePendingIngestion(driveFileId: string): Promise<void>;
   upsertLivePendingSync(
@@ -45,6 +51,9 @@ export type RunManualStageForFirstSeenDeps = {
   runPhase2?: typeof runPhase2;
   createUnpublishToken?: () => string;
   now?: () => Date;
+  upsertAdminAlert?: ProcessOneFileDeps["upsertAdminAlert"];
+  publishShowInvalidation?: ProcessOneFileDeps["publishShowInvalidation"];
+  logSync?: ProcessOneFileDeps["logSync"];
 };
 
 function addHours(date: Date, hours: number): Date {
@@ -70,6 +79,10 @@ async function toResult(
   }
   if (result.outcome === "pass") return { outcome: "parsed" };
   if (result.outcome === "auto_publish_ready") {
+    const autoPublishFirstSeen = {
+      unpublishToken: (deps.createUnpublishToken ?? randomUUID)(),
+      unpublishTokenExpiresAt: addHours((deps.now ?? (() => new Date()))(), 24).toISOString(),
+    };
     const snapshotAssetsForApply = await (async () => {
       if (!tx.insertPendingSnapshotUpload) return undefined;
       const showId = await tx.readShowId?.(driveFileId);
@@ -90,14 +103,26 @@ async function toResult(
       ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
       ...(snapshotAssetsForApplyForShowId ? { snapshotAssetsForApplyForShowId } : {}),
       verifyReelOnApply: false,
-      autoPublishFirstSeen: {
-        unpublishToken: (deps.createUnpublishToken ?? randomUUID)(),
-        unpublishTokenExpiresAt: addHours((deps.now ?? (() => new Date()))(), 24).toISOString(),
-      },
+      autoPublishFirstSeen,
     });
     if (phase2.outcome === "stale") {
       return { outcome: "hard_failed", errorCode: phase2.code };
     }
+    const applied: Extract<ProcessOneFileResult, { outcome: "applied" }> = {
+      outcome: "applied",
+      showId: phase2.showId,
+    };
+    if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
+    if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;
+    await emitSuccessfulPhase2Tail({
+      tx,
+      result: applied,
+      deps,
+      driveFileId,
+      fileMeta: args.fileMeta,
+      parseResult: args.parseResult,
+      autoPublishFirstSeen,
+    });
     return { outcome: "applied", showId: phase2.showId };
   }
   if (result.outcome === "defer") {

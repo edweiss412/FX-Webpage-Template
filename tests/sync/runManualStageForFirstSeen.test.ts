@@ -41,6 +41,7 @@ class FakeManualStageTx implements RunManualStageForFirstSeenTx {
     driveFileId: string;
     triggeredReviewItems: Array<{ invariant: string }>;
   }> = [];
+  alerts: Array<{ showId: string | null; code: string; context: Record<string, unknown> }> = [];
   pendingSnapshotUploads: unknown[] = [];
   diagramSnapshot: ParseResult["diagrams"] | null = null;
   async queryOne<T>(sql: string) {
@@ -172,13 +173,26 @@ describe("runManualStageForFirstSeen", () => {
     );
   });
 
-  test("auto-publishes first-seen clean retry and deletes the live pending ingestion", async () => {
+  test("auto-publishes first-seen clean retry, alerts with undo payload, invalidates, and deletes the live pending ingestion", async () => {
     const tx = new FakeManualStageTx();
+    const events: string[] = [];
+    const upsertAdminAlert = vi.fn(async (input: {
+      showId: string | null;
+      code: string;
+      context: Record<string, unknown>;
+    }) => {
+      events.push("alert:first-published");
+      tx.alerts.push(input);
+      return "alert-1";
+    });
+    const publishShowInvalidation = vi.fn(async () => {
+      events.push("broadcast");
+    });
 
     const result = await runManualStageForFirstSeen(tx as never, "file-1", {
       fileMeta: {
         driveFileId: "file-1",
-        name: "file-1.xlsx",
+        name: "First Seen Sheet.xlsx",
         mimeType: "application/vnd.google-apps.spreadsheet",
         modifiedTime: "2026-05-08T12:00:00.000Z",
         parents: ["folder-1"],
@@ -200,7 +214,28 @@ describe("runManualStageForFirstSeen", () => {
           invoice: null,
           invoice_notes: null,
         },
-        crewMembers: [],
+        crewMembers: [
+          {
+            name: "Alex Crew",
+            email: "alex@example.com",
+            phone: null,
+            role: "A1",
+            role_flags: ["A1"],
+            date_restriction: { kind: "none" },
+            stage_restriction: { kind: "none" },
+            flight_info: null,
+          },
+          {
+            name: "Blair Crew",
+            email: "blair@example.com",
+            phone: null,
+            role: "V1",
+            role_flags: ["V1"],
+            date_restriction: { kind: "none" },
+            stage_restriction: { kind: "none" },
+            flight_info: null,
+          },
+        ],
         hotelReservations: [],
         rooms: [],
         transportation: null,
@@ -219,6 +254,8 @@ describe("runManualStageForFirstSeen", () => {
       },
       createUnpublishToken: () => "11111111-1111-4111-8111-111111111111",
       now: () => new Date("2026-05-08T12:00:00.000Z"),
+      upsertAdminAlert,
+      publishShowInvalidation,
     });
 
     expect(result).toEqual({ outcome: "applied", showId: "show-1" });
@@ -235,6 +272,34 @@ describe("runManualStageForFirstSeen", () => {
       "upsertShowsInternal",
       "deleteLivePendingIngestion:file-1",
     ]);
+    expect(publishShowInvalidation).toHaveBeenCalledWith("show-1");
+    expect(upsertAdminAlert).toHaveBeenCalledWith({
+      showId: "show-1",
+      code: "SHOW_FIRST_PUBLISHED",
+      context: {
+        drive_file_id: "file-1",
+        sheet_name: "First Seen Sheet.xlsx",
+        crew_count: 2,
+        show_date: "2026-05-08",
+        unpublish_token: "11111111-1111-4111-8111-111111111111",
+        unpublish_token_expires_at: "2026-05-09T12:00:00.000Z",
+      },
+    });
+    expect(tx.alerts).toEqual([
+      {
+        showId: "show-1",
+        code: "SHOW_FIRST_PUBLISHED",
+        context: {
+          drive_file_id: "file-1",
+          sheet_name: "First Seen Sheet.xlsx",
+          crew_count: 2,
+          show_date: "2026-05-08",
+          unpublish_token: "11111111-1111-4111-8111-111111111111",
+          unpublish_token_expires_at: "2026-05-09T12:00:00.000Z",
+        },
+      },
+    ]);
+    expect(events).toEqual(["broadcast", "alert:first-published"]);
     expect(tx.autoPublishFirstSeen).toEqual({
       unpublishToken: "11111111-1111-4111-8111-111111111111",
       unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z",
@@ -306,6 +371,7 @@ describe("runManualStageForFirstSeen", () => {
       },
       createUnpublishToken: () => "11111111-1111-4111-8111-111111111111",
       now: () => new Date("2026-05-08T12:00:00.000Z"),
+      upsertAdminAlert: vi.fn(async () => "alert-1"),
     });
 
     expect(result).toEqual({ outcome: "applied", showId: "show-1" });

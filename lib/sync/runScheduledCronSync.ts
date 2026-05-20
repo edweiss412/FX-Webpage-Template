@@ -1507,8 +1507,21 @@ function isSourceGone(error: unknown): boolean {
   return code === 404 && !isSpreadsheetBindingRace(error) && !isBinaryAssetRevisionRace(error);
 }
 
+type SyncLogDeps = {
+  logSync?: ProcessOneFileDeps["logSync"];
+};
+
+type FirstPublishedNoticeDeps = {
+  upsertAdminAlert?: ProcessOneFileDeps["upsertAdminAlert"];
+};
+
+type SuccessfulPhase2TailDeps = SyncLogDeps &
+  FirstPublishedNoticeDeps & {
+    publishShowInvalidation?: ProcessOneFileDeps["publishShowInvalidation"];
+  };
+
 async function logSync(
-  deps: ProcessOneFileDeps,
+  deps: SyncLogDeps,
   driveFileId: string,
   result: ProcessOneFileResult,
   payload?: Record<string, unknown>,
@@ -1568,7 +1581,7 @@ function showDateForAlert(parseResult: ParseResult): string | null {
 
 async function emitFirstPublishedNotice(args: {
   result: Extract<ProcessOneFileResult, { outcome: "applied" }>;
-  deps: ProcessOneFileDeps;
+  deps: FirstPublishedNoticeDeps;
   driveFileId: string;
   fileMeta: DriveListedFile;
   parseResult: ParseResult;
@@ -1588,6 +1601,34 @@ async function emitFirstPublishedNotice(args: {
       unpublish_token_expires_at: args.unpublishTokenExpiresAt,
     },
   });
+}
+
+export async function emitSuccessfulPhase2Tail(args: {
+  tx: Pick<SyncPipelineTx, "deleteRevisionRaceCooldowns">;
+  result: Extract<ProcessOneFileResult, { outcome: "applied" }>;
+  deps: SuccessfulPhase2TailDeps;
+  driveFileId: string;
+  fileMeta: DriveListedFile;
+  parseResult: ParseResult;
+  autoPublishFirstSeen?: {
+    unpublishToken: string;
+    unpublishTokenExpiresAt: string;
+  } | undefined;
+}): Promise<void> {
+  await args.tx.deleteRevisionRaceCooldowns?.(args.driveFileId);
+  await args.deps.publishShowInvalidation?.(args.result.showId);
+  if (args.autoPublishFirstSeen) {
+    await emitFirstPublishedNotice({
+      result: args.result,
+      deps: args.deps,
+      driveFileId: args.driveFileId,
+      fileMeta: args.fileMeta,
+      parseResult: args.parseResult,
+      unpublishToken: args.autoPublishFirstSeen.unpublishToken,
+      unpublishTokenExpiresAt: args.autoPublishFirstSeen.unpublishTokenExpiresAt,
+    });
+  }
+  await logSync(args.deps, args.driveFileId, args.result);
 }
 
 function shouldUseRevisionRaceCooldown(mode: SyncMode): boolean {
@@ -2170,20 +2211,15 @@ export async function processOneFile_unlocked(
   };
   if (phase2.roleFlagsNotice) result.roleFlagsNotice = phase2.roleFlagsNotice;
   if (phase2.snapshotRevisionId) result.snapshotRevisionId = phase2.snapshotRevisionId;
-  await tx.deleteRevisionRaceCooldowns?.(driveFileId);
-  await deps.publishShowInvalidation?.(phase2.showId);
-  if (autoPublishFirstSeen) {
-    await emitFirstPublishedNotice({
-      result,
-      deps,
-      driveFileId,
-      fileMeta,
-      parseResult: pipeline.parseResult,
-      unpublishToken: autoPublishFirstSeen.unpublishToken,
-      unpublishTokenExpiresAt: autoPublishFirstSeen.unpublishTokenExpiresAt,
-    });
-  }
-  await logSync(deps, driveFileId, result);
+  await emitSuccessfulPhase2Tail({
+    tx,
+    result,
+    deps,
+    driveFileId,
+    fileMeta,
+    parseResult: pipeline.parseResult,
+    autoPublishFirstSeen,
+  });
   return result;
 }
 
