@@ -13,6 +13,13 @@ function discoverScanRoots(): string[] {
   if (!existsSync(manifestPath)) {
     roots.add("app/show");
     roots.add("app/admin");
+    // R2 finding (M11 Phase C): app/me was missing from the fallback set;
+    // `MeShowSections` held a direct render-side `new Date()` that the
+    // guard never scanned. The manifest-derived path (Phase F) will
+    // include any route the screenshot harness captures, so this fallback
+    // becomes moot post-Phase F — but pre-Phase F we must enumerate
+    // every user-facing app/<segment>/ route here.
+    roots.add("app/me");
     return [...roots].sort();
   }
 

@@ -22,6 +22,7 @@
 import { listAdminEmails, type AdminEmailRow } from "@/lib/data/adminEmails";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
+import { nowDate } from "@/lib/time/now";
 import { formatRelative } from "@/lib/time/relative";
 
 import { AddAdminForm } from "./AddAdminForm";
@@ -39,6 +40,11 @@ export default async function AdminsPage() {
   const rows = await listAdminEmails();
   const active = rows.filter((r) => r.revoked_at === null);
   const revoked = rows.filter((r) => r.revoked_at !== null);
+  // R2 finding (M11 Phase C): consume the request-scoped time utility so
+  // RevokedRow + buildAddedLine receive a deterministic `now` rather than
+  // letting formatRelative default to `new Date()` (helper defaults were
+  // bypassing the C.4 grep guard).
+  const now = await nowDate();
 
   // Last-admin-self predicate for the disabled-on-client revoke button.
   // The Server Action is the authority; this just reduces UI noise.
@@ -72,6 +78,7 @@ export default async function AdminsPage() {
                 row={row}
                 isActor={row.email === actorCanonicalEmail}
                 isOnlyActiveAdmin={isOnlyActiveAdmin}
+                now={now}
               />
             ))}
           </ul>
@@ -93,7 +100,7 @@ export default async function AdminsPage() {
             </summary>
             <ul className="flex flex-col gap-2 px-tile-pad pb-tile-pad">
               {revoked.map((row) => (
-                <RevokedRow key={row.email} row={row} />
+                <RevokedRow key={row.email} row={row} now={now} />
               ))}
             </ul>
           </details>
@@ -107,10 +114,12 @@ function AdminRow({
   row,
   isActor,
   isOnlyActiveAdmin,
+  now,
 }: {
   row: AdminEmailRow;
   isActor: boolean;
   isOnlyActiveAdmin: boolean;
+  now: Date;
 }) {
   const isSeed = row.added_by === null;
   // Self-revoke + last-admin: client disables the button as a UX
@@ -147,7 +156,7 @@ function AdminRow({
             {row.email}
           </p>
         </div>
-        <p className="mt-1 text-xs text-text-subtle">{buildAddedLine(row, isSeed)}</p>
+        <p className="mt-1 text-xs text-text-subtle">{buildAddedLine(row, isSeed, now)}</p>
         {hasNote && (
           <p className="mt-1 text-xs italic text-text-subtle">
             &ldquo;{row.note?.trim()}&rdquo;
@@ -159,8 +168,8 @@ function AdminRow({
   );
 }
 
-function RevokedRow({ row }: { row: AdminEmailRow }) {
-  const revokedRelative = row.revoked_at ? formatRelative(row.revoked_at) : "";
+function RevokedRow({ row, now }: { row: AdminEmailRow; now: Date }) {
+  const revokedRelative = row.revoked_at ? formatRelative(row.revoked_at, now) : "";
   return (
     <li
       data-testid="admin-allowlist-revoked-row"
@@ -183,7 +192,7 @@ function RevokedRow({ row }: { row: AdminEmailRow }) {
  * (see AdminRow) so this returns just the seed-vs-actor-vs-relative
  * line with "Seed admin" italicized inline.
  */
-function buildAddedLine(row: AdminEmailRow, isSeed: boolean) {
+function buildAddedLine(row: AdminEmailRow, isSeed: boolean, now: Date) {
   if (isSeed) {
     return (
       <>
@@ -192,5 +201,5 @@ function buildAddedLine(row: AdminEmailRow, isSeed: boolean) {
       </>
     );
   }
-  return <>Added {formatRelative(row.added_at)}</>;
+  return <>Added {formatRelative(row.added_at, now)}</>;
 }

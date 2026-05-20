@@ -1,4 +1,4 @@
-export function formatRelative(timestamp: Date | string, now: Date = new Date()): string {
+export function formatRelative(timestamp: Date | string, now: Date): string {
   const t = typeof timestamp === "string" ? new Date(timestamp) : timestamp;
   const diffMs = now.getTime() - t.getTime();
   if (diffMs < 60_000) return "just now";
@@ -22,7 +22,7 @@ export function formatRelative(timestamp: Date | string, now: Date = new Date())
  * normalized to UTC midnight) so identical ISO inputs produce identical
  * chips regardless of the wall-clock execution time.
  */
-export function relativeDayChip(iso: string, now: Date = new Date()): string {
+export function relativeDayChip(iso: string, now: Date): string {
   const target = new Date(`${iso}T00:00:00Z`);
   const todayIso = now.toISOString().slice(0, 10);
   const todayUtc = new Date(`${todayIso}T00:00:00Z`);

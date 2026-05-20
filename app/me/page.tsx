@@ -51,6 +51,7 @@ import {
   resolveDisplayDate,
   type PartitionedMeShow,
 } from "@/lib/me/partitionMeShows";
+import { nowDate } from "@/lib/time/now";
 import { relativeDayChip } from "@/lib/time/relative";
 
 // R14 (codex finding): the local pickShowDate helper accepted any
@@ -142,6 +143,14 @@ export default async function MePage() {
     return renderTerminalFailure("ADMIN_SESSION_LOOKUP_FAILED");
   }
 
+  // R2 finding (M11 Phase C): resolve `now` once via the request-scoped
+  // time utility and prop-thread it through MeShowSections so partition
+  // + chip math share a single deterministic reference. Replaces the
+  // previous render-side `const now = new Date()` inside MeShowSections,
+  // which the C.4 grep guard had not yet covered (app/me was missing
+  // from the fallback scan roots).
+  const now = await nowDate();
+
   return (
     <main data-testid="me-page" className="mx-auto max-w-2xl px-4 py-section-gap text-text sm:px-8">
       <header data-testid="me-page-header" className="mb-section-gap">
@@ -169,7 +178,7 @@ export default async function MePage() {
           </p>
         </div>
       ) : (
-        <MeShowSections shows={shows} />
+        <MeShowSections shows={shows} now={now} />
       )}
     </main>
   );
@@ -181,8 +190,7 @@ export default async function MePage() {
  * resolved once here so all three sections share the same reference (chip
  * labels and partition use identical comparisons).
  */
-function MeShowSections({ shows }: { shows: readonly CrewShowSummary[] }) {
-  const now = new Date();
+function MeShowSections({ shows, now }: { shows: readonly CrewShowSummary[]; now: Date }) {
   const { featured, upcoming, past, undated } = partitionMeShows(shows, now);
 
   // R11 (codex finding): the only true empty state is shows.length === 0,

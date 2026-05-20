@@ -87,10 +87,16 @@ describe("relativeDayChip — input handling", () => {
     expect(relativeDayChip("2026-05-16", todayUtc)).toBe("Tomorrow");
   });
 
-  it("defaults to current Date when no `now` reference passed", () => {
-    // Sanity: helper should accept (iso) signature for ergonomic call sites.
-    // Just verify it doesn't throw and returns a non-empty label.
-    const todayIso = new Date().toISOString().slice(0, 10);
-    expect(relativeDayChip(todayIso)).toBe("Today");
+  it("requires an explicit `now: Date` (R2 finding — wall-clock defaults removed)", () => {
+    // R2 finding (M11 Phase C): `relativeDayChip` previously defaulted
+    // `now` to `new Date()`, which bypassed the C.4 grep guard. The
+    // default was removed; the helper now requires every caller to
+    // thread `now` explicitly (typically via `await nowDate()` in the
+    // surrounding Server Component). This test pins the new contract:
+    // identical ISO inputs with an explicit `now` always produce a
+    // deterministic label.
+    const todayUtc = new Date(Date.UTC(2026, 4, 15, 12, 0, 0));
+    const todayIso = "2026-05-15";
+    expect(relativeDayChip(todayIso, todayUtc)).toBe("Today");
   });
 });
