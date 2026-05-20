@@ -5,7 +5,7 @@ export function Step({ n, children }: { n: number; children: ReactNode }) {
   return (
     <div className="my-3 flex gap-3 items-start">
       <span
-        className="shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent text-accent-text font-semibold text-sm tabular-nums"
+        className="shrink-0 inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent text-accent-text font-bold text-xl tabular-nums leading-none"
         aria-hidden="true"
       >
         {n}
