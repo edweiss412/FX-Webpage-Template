@@ -147,8 +147,11 @@ The `validation_state` table introduced by §3.3 step 5 is a DB-touching deliver
 **Schema:**
 
 ```sql
+-- Singleton-enforced via fixed primary key (R7 amendment — earlier draft used
+-- a random UUID PK which permitted multiple rows; check-seed semantics would
+-- have been ambiguous against multi-row state).
 CREATE TABLE validation_state (
-  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  key                    text PRIMARY KEY CHECK (key = 'validation_seed'),
   last_seed_date         date NOT NULL,
   combos_materialized    text[] NOT NULL,
   seeded_by              text NOT NULL,             -- script user/process identity
@@ -178,7 +181,20 @@ ALTER TABLE validation_state ENABLE ROW LEVEL SECURITY;
 | Supabase call-boundary | Script's `{ data, error }` destructure is mandatory per AGENTS.md invariant 9. The check-seed command uses `select`'s error branch to distinguish "table not present" (Phase 0 incomplete) from "table empty / stale" (re-seed required). |
 | Meta-test | If a `tests/db/` test enumerates admin-only tables, `validation_state` is added to that registry per the AGENTS.md meta-test inventory rule. The M12 plan declares this in its meta-test inventory section. |
 
-**Plan-time deliverable.** The M12 plan's Phase 0 sub-task that authors the re-seed script ALSO authors the `validation_state` migration. The migration goes through the project's normal migration review (impeccable v3 doesn't apply — this is a DB migration, not UI — but the project's CHECK-constraint review discipline does). Phase 0 smoke test 5 verifies the migration applied cleanly + RLS posture is correct.
+**Singleton write semantics.** The re-seed script writes the singleton via `INSERT INTO validation_state (key, ...) VALUES ('validation_seed', ...) ON CONFLICT (key) DO UPDATE SET ...` (upsert). The `validation:check-seed` command reads exactly the `key = 'validation_seed'` row and fails if zero rows OR if the row exists but `last_seed_date != current_date` OR if `combos_materialized` doesn't cover the combos needed by the next walk.
+
+**Plan-time deliverable — atomic with master-spec amendment (R7 amendment).** The M12 plan's Phase 0 sub-task that authors the re-seed script ALSO authors the `validation_state` migration AND atomically updates the master spec + admin-tables registry. Specifically the same Phase 0 commit/PR MUST include:
+
+1. The migration creating `validation_state` (DDL above).
+2. The script `scripts/validation-reseed.ts` + the `pnpm validation:reseed` + `pnpm validation:check-seed` entries in `package.json`.
+3. An amendment to master spec `docs/superpowers/specs/2026-04-30-fxav-crew-pages-design.md` §4.3 admin-only tables list adding `validation_state`. (M12 has authority to amend master spec for this M12-introduced table; the amendment is a cross-document edit committed in lockstep with the migration.)
+4. Regeneration of `lib/audit/admin-tables.generated.ts` (or whichever generated registry the X.3 / X.6 / admin-table tests derive from) so the generator's output includes `validation_state` in the admin-only set.
+5. AC-2.5 expectation updates if AC-2.5 contains a literal admin-only table count (review AC-2.5 at plan time; update if needed).
+6. Updates to any DB meta-test (`tests/db/admin-rls-runtime.test.ts` etc.) that enumerates admin-only tables, adding `validation_state` to the registry per the AGENTS.md meta-test inventory rule.
+
+**Atomicity gate.** Phase 0 does NOT close until the X.3 / X.6 / admin-table tests pass against the updated master spec + regenerated registry + updated meta-tests. The migration cannot land alone — it ships as part of the atomic Phase 0 close-out commit (or commit series in a single PR). This closes Codex R7 F3: the master-spec amendment is a MUST, not a soft follow-up. The repo's parity machinery would catch the drift otherwise; making it atomic eliminates the window where the table exists in prod-equivalent Supabase but is missing from the canonical list.
+
+Impeccable v3 doesn't apply — this is a DB migration, not UI — but the project's CHECK-constraint review discipline + the AGENTS.md project-scoped Tier × domain matrix + cross-document amendment discipline DO apply. Phase 0 smoke test 5 verifies the migration applied cleanly + RLS posture is correct + the singleton invariant is enforced (test: attempt to insert a second row → fail with PK constraint violation).
 
 ### 3.3.1 Right Now show-wide state inventory (orthogonal to restriction)
 
@@ -524,9 +540,11 @@ The "seven CI gates" referenced in §9.1 are concrete jobs in `.github/workflows
 | 4 | `x3-trust-domain` | X.3 trust-domain audit: validator chains correct per route | PR + main |
 | 5 | `x4-no-global-cursor` | X.4 no global sync cursor: per-show modtime model preserved | PR + main |
 | 6 | `x5-email-canonicalization` | X.5 email canonicalization at every boundary | PR + main |
-| 7 | `verify-branch-protection` | Branch protection drift detector: confirms required checks are wired | scheduled + main |
+| 7 | `verify-branch-protection-status` | Required-blocking PR check: reads the latest privileged `verify-branch-protection` artifact and asserts it ran recently AND succeeded. This is the gate that actually blocks merges. | PR (required-blocking) |
 
-Phase 0 sub-task: confirm the production-target Vercel deployment branch has all seven set as required-blocking checks in the GitHub branch-protection rule. The `verify-branch-protection-status` companion job (which ensures gate #7 has been run recently) is automatically covered by the seven listed above.
+**Companion job (NOT the required gate, R7 amendment).** `verify-branch-protection` is the privileged producer job that runs on push/schedule and writes the branch-protection drift report. It is NOT a required PR check (privileged jobs cannot block PRs in this repo's setup). The PR-required gate is `verify-branch-protection-status` (gate #7 above), which reads the most-recent privileged-run artifact and fails if it's missing or stale. Earlier drafts of this spec named `verify-branch-protection` as the required gate; corrected per Codex R7 F1 — that contradicted master spec AC-X.6 which explicitly designates the `-status` reader as the merge-blocking check.
+
+Phase 0 sub-task: confirm the production-target Vercel deployment branch has all seven set as required-blocking checks in the GitHub branch-protection rule. The privileged `verify-branch-protection` push/scheduled job is verified to be writing artifacts that the `-status` reader can consume (no producer-side breakage that would silently mask a drift).
 
 ### 9.2 Phase 0 exit criterion
 
@@ -749,5 +767,20 @@ Verdict: `needs-attention`. Three findings (1 P1, 2 P2). All accepted and addres
 
 **Class-sweep additions during R6 repair:**
 
-- **§4.3 admin-only tables forward-ref** (§3.3.2) — noted that `validation_state` should be added to master spec §4.3 admin-only tables list when the migration lands. This is a future-facing cross-cutting update; the M12 plan's first task lists it as a follow-up edit to the master spec.
-- **Meta-test inventory hook** (§3.3.2) — noted that if any future `tests/db/` test enumerates admin-only tables (per memory `feedback_meta_test_at_plan_time_not_round_n`), `validation_state` is added to that registry. The M12 plan's meta-test inventory declaration captures this.
+- **§4.3 admin-only tables forward-ref** (§3.3.2) — noted that `validation_state` should be added to master spec §4.3 admin-only tables list when the migration lands. **R7 amendment: this was upgraded from "should add" to MUST and atomic with the migration; see §15.7 below.**
+- **Meta-test inventory hook** (§3.3.2) — noted that if any future `tests/db/` test enumerates admin-only tables (per memory `feedback_meta_test_at_plan_time_not_round_n`), `validation_state` is added to that registry. **R7 amendment: upgraded to atomic-update requirement.**
+
+### 15.7 Round 7 (Codex `019e43dd-7688-7433-9eb6-b626e589997a`, 2026-05-19)
+
+Verdict: `needs-attention`. Three P1 findings, all factual corrections. All accepted and addressed.
+
+| Finding | Severity | Disposition | Section(s) modified |
+|---|---|---|---|
+| F1 — §9.1.1 named `verify-branch-protection` as the 7th required-blocking CI gate. That contradicts master spec AC-X.6 — the PR-required gate is `verify-branch-protection-status` (the reader). `verify-branch-protection` (the privileged producer) runs only on push/schedule and CANNOT be a required PR check in this repo's setup. | P1 / high | Fixed. Gate #7 swapped to `verify-branch-protection-status`. Added explicit "Companion job (NOT the required gate)" note describing the privileged producer's role. Phase 0 sub-task updated to verify the producer is writing artifacts the reader consumes. | §9.1.1 |
+| F2 — `validation_state` DDL used random UUID PK, permitting multiple rows. Singleton semantics from §3.3 walk-session gate were therefore unenforced; multi-row state would make `validation:check-seed` ambiguous and break the walk-session gate's correctness. | P1 / high | Fixed. DDL changed to `key text PRIMARY KEY CHECK (key = 'validation_seed')`. Singleton write semantics specified explicitly: re-seed script uses `INSERT … ON CONFLICT (key) DO UPDATE`; check-seed reads the singleton row, fails if missing or stale. | §3.3.2 DDL block, new "Singleton write semantics" paragraph |
+| F3 — §3.3.2 said `validation_state` "should be added" to master spec §4.3 admin-only list "when the migration lands" — optional/soft language, but repo derives ADMIN_TABLES from §4.3 and AC-2.5 requires full parity. Soft language let the migration land alone, opening a drift window before the registry caught up. | P1 / high | Fixed. Hardened from "should add" to "MUST, atomic with the migration". The same Phase 0 commit (or single PR) MUST include the migration + script + master-spec §4.3 amendment + `lib/audit/admin-tables.generated.ts` regen + AC-2.5 update if needed + meta-test registry update. Atomicity gate: Phase 0 doesn't close until X.3 / X.6 / admin-table tests pass against the updated master + regenerated registry. | §3.3.2 "Plan-time deliverable" paragraph (rewritten as atomic) |
+
+**Class-sweep additions during R7 repair:**
+
+- **CI gate role differentiation** (§9.1.1) — added the "Companion job" explanation to clarify the producer/reader pattern. This is master-spec X.6 contract; the M12 spec previously elided it.
+- **Cross-document amendment authority** (§3.3.2) — implicit clarification that M12 has authority to amend master spec for an M12-introduced table. This was unstated; making it explicit removes ambiguity about whether the M12 plan can edit master spec.
