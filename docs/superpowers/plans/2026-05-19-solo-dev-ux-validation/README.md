@@ -29,3 +29,9 @@
 ## Quick start
 
 Read `00-overview.md` first. Then walk the phase files in order: 01 → 02 → 03 → 04 → 05 → 06 → 07 → 08. No parallelization.
+
+## HTML companion
+
+**None — and intentionally so.** Per `docs/CLAUDE.md`'s convention (HTML is for non-technical human stakeholders — clients, execs, designers, layperson reviewers), M12 does not warrant an HTML companion. The audience for every M12 artifact is either the dev (technical) or future agent sessions (Opus / Codex). Doug is the *subject* of the validation gate, not a reader of the M12 docs.
+
+If the v1-launch milestone (M13) ships with stakeholder communication, that's where HTML would belong — not here.
