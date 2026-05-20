@@ -43,7 +43,7 @@ export default function ErrorsPage() {
           <p>{entry.longExplanation}</p>
           <p className="text-sm text-text-subtle">
             <a
-              href="/admin/bug-report"
+              href="mailto:edweiss412@gmail.com?subject=FXAV%20bug%3A&body=What%20happened%3A%0A%0AWhich%20code%3A%0A"
               className="underline underline-offset-2"
             >
               If this keeps happening, tell Eric →
