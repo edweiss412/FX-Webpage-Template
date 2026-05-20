@@ -1,3 +1,47 @@
-{/* M11 Phase A.7 stub — Phase E task E.10 replaces the entire body. */}
-
 # Sharing crew links
+
+Each crew member on a show has their own signed link that opens their personal crew page on whatever phone they tap it from. There's no app to install and no password to remember: opening the link is the credential. You send links from the per-show panel, one per crew member, through whatever channel you already use (text, email, group thread). The link is scoped to one person on one show, and it stops working when the show closes, when you issue a new link for that person, or when you revoke all their links.
+
+## How to send a link
+
+<Step n={1}>
+**Open the per-show panel for the show you're staffing, and find the [crew preview links list](/help/admin/per-show-panel#crew-preview-links).** Each row is one crew member. Rows for people who don't have a live link yet show **Issue first link**; rows that already have a live link show **Copy share link**.
+</Step>
+
+<Step n={2}>
+**Tap Issue first link (for new crew) or Copy share link (for crew who already have one).** The link is copied to your clipboard. The format is `https://crew.fxav.show/show/<show-slug>/p#t=...`; the part after `#t=` is the credential, which is why the link is personal and shouldn't be forwarded.
+</Step>
+
+<Step n={3}>
+**Paste the link into a text, email, or whatever channel you use with that crew member, and send it.** They tap the link on their phone, the page loads, and they're in. They do not need to sign in, install anything, or enter a code.
+</Step>
+
+## What crew see
+
+When the crew member taps their link, the page redirects to a clean URL with no token in the address bar, and the crew page renders for them on their phone. They see their own call time, hotel and room (if applicable), schedule, and the contact info they need for their role. The page is mobile-first; it works on whatever browser is already on their phone.
+
+The link itself is single-person: it identifies who they are, but the page re-checks their role on every load. If you fix something in the sheet about that person's role between when you sent the link and when they open it, the page reflects the new role on the next refresh.
+
+## If a link gets shared with the wrong person
+
+Links are meant to be personal, but in practice a crew member sometimes forwards their link to someone else (a friend who's curious, a partner who's helping with logistics). If you find out a link has been shared beyond its intended recipient, the fix is to issue a new link for the original crew member: that immediately retires every copy of the old link, including the forwarded ones, and only the freshly issued link works going forward.
+
+You don't need to track down the forwarded copy or contact whoever received it. The act of issuing a new link is the revocation.
+
+To do this, open the per-show panel, find that crew member's row in the crew preview links list, and tap **Issue new link**. The button replaces the prior **Copy share link** affordance while the row is in the no-live-link state. Tap it once and the row immediately flips back to **Copy share link** with a fresh URL ready to send.
+
+## Link expiry + revocation
+
+Links don't have a fixed calendar expiry. They stay valid as long as the show is active and as long as you haven't issued a new link or revoked all links for that crew member. In practice that means a link sent for a tour stop keeps working through load-in, the show, and load-out without you doing anything.
+
+Three things retire a link:
+
+- **You tap Issue new link for that crew member.** The previously issued link stops working on the next tap. Send the freshly copied link in its place.
+- **You tap Revoke all links for that crew member** (less common; use this if you suspect the link has been compromised and you don't want a working link out there until you decide who to re-send to). The crew member's row enters the no-live-link state until you tap Issue new link.
+- **The crew member is removed from the show's sheet.** When sync applies a sheet change that removes someone, every link for that name immediately stops working. If the same name is re-added later, you'll need to tap Issue new link to send them a fresh one.
+
+When a crew member taps a retired link, they see a short page telling them the link is no longer valid and to ask Doug for a new one. There's no raw error code on the page, and no way for them to recover on their own; the recovery is for you to send a new link.
+
+<Callout type="note">
+**You can keep working without re-sending.** Issuing a new link for one crew member does not affect any other crew member's link, and it does not require you to re-share anything for the rest of the show. Only the affected person needs a new copy.
+</Callout>
