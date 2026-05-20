@@ -283,9 +283,19 @@ async function manualSyncResponse(
   return NextResponse.json({ status: "parsed" });
 }
 
-function firstSeenStageResponse(result: RunManualStageForFirstSeenResult): Response {
+async function firstSeenStageResponse(
+  tx: LivePendingIngestionRouteTx,
+  driveFileId: string,
+  result: RunManualStageForFirstSeenResult,
+): Promise<Response> {
   if (result.outcome === "parsed_pending_review") {
     return NextResponse.json({ status: "parsed_pending_review", stagedId: result.stagedId });
+  }
+  if (result.outcome === "applied") {
+    return NextResponse.json({
+      status: "applied",
+      slug: await readShowSlug(tx, driveFileId),
+    });
   }
   if (result.outcome === "hard_failed") {
     return NextResponse.json({ status: "still_failed", errorCode: result.errorCode });
@@ -362,7 +372,7 @@ export async function handleLivePendingIngestionRetry(
       return errorResponse(code === "DRIVE_FETCH_FAILED" ? 502 : 409, code);
     }
     const stageResult = await deps.runManualStageForFirstSeen(tx, row.drive_file_id, stageDeps);
-    return firstSeenStageResponse(stageResult);
+    return await firstSeenStageResponse(tx, row.drive_file_id, stageResult);
   });
   if ("skipped" in result) return errorResponse(409, "CONCURRENT_SYNC_SKIPPED");
   return result;

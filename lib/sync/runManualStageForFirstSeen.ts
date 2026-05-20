@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParseResult } from "@/lib/parser/types";
 import {
@@ -9,8 +10,12 @@ import {
   type Phase1PendingSyncRow,
   type Phase1Result,
 } from "@/lib/sync/phase1";
+import {
+  runPhase2,
+  type Phase2Tx,
+} from "@/lib/sync/phase2";
 
-export type RunManualStageForFirstSeenTx = {
+export type RunManualStageForFirstSeenTx = Phase2Tx & {
   queryOne<T>(sql: string, params: unknown[]): Promise<T>;
   deleteLivePendingIngestion(driveFileId: string): Promise<void>;
   upsertLivePendingSync(
@@ -22,6 +27,7 @@ export type RunManualStageForFirstSeenResult =
   | { outcome: "parsed_pending_review"; stagedId: string }
   | { outcome: "hard_failed"; errorCode: string }
   | { outcome: "deferred"; reason: "mi8_modtime_unstable" | "mi8b_modtime_unstable" }
+  | { outcome: "applied"; showId: string }
   | { outcome: "parsed"; stagedId?: string };
 
 export type RunManualStageForFirstSeenDeps = {
@@ -29,9 +35,26 @@ export type RunManualStageForFirstSeenDeps = {
   parseResult?: ParseResult;
   binding?: { bindingToken: string; modifiedTime: string };
   runPhase1?: typeof runPhase1;
+  runPhase2?: typeof runPhase2;
+  createUnpublishToken?: () => string;
+  now?: () => Date;
 };
 
-function toResult(result: Phase1Result): RunManualStageForFirstSeenResult | null {
+function addHours(date: Date, hours: number): Date {
+  return new Date(date.getTime() + hours * 60 * 60 * 1000);
+}
+
+async function toResult(
+  tx: LockedShowTx<RunManualStageForFirstSeenTx>,
+  driveFileId: string,
+  args: {
+    fileMeta: DriveListedFile;
+    parseResult: ParseResult;
+    binding: { bindingToken: string; modifiedTime: string };
+  },
+  deps: RunManualStageForFirstSeenDeps,
+  result: Phase1Result,
+): Promise<RunManualStageForFirstSeenResult | null> {
   if (result.outcome === "stage") {
     return { outcome: "parsed_pending_review", stagedId: result.stagedId };
   }
@@ -39,7 +62,23 @@ function toResult(result: Phase1Result): RunManualStageForFirstSeenResult | null
     return { outcome: "hard_failed", errorCode: result.code };
   }
   if (result.outcome === "pass") return { outcome: "parsed" };
-  if (result.outcome === "auto_publish_ready") return { outcome: "parsed" };
+  if (result.outcome === "auto_publish_ready") {
+    const phase2 = await (deps.runPhase2 ?? runPhase2)(tx, {
+      driveFileId,
+      mode: "manual",
+      fileMeta: args.fileMeta,
+      parseResult: args.parseResult,
+      binding: args.binding,
+      autoPublishFirstSeen: {
+        unpublishToken: (deps.createUnpublishToken ?? randomUUID)(),
+        unpublishTokenExpiresAt: addHours((deps.now ?? (() => new Date()))(), 24).toISOString(),
+      },
+    });
+    if (phase2.outcome === "stale") {
+      return { outcome: "hard_failed", errorCode: phase2.code };
+    }
+    return { outcome: "applied", showId: phase2.showId };
+  }
   if (result.outcome === "defer") {
     return { outcome: "deferred", reason: result.reason };
   }
@@ -65,5 +104,8 @@ export async function runManualStageForFirstSeen(
     parseResult,
     binding,
   });
-  return toResult(result) ?? { outcome: "parsed" };
+  return (
+    (await toResult(tx, driveFileId, { fileMeta, parseResult, binding }, deps, result)) ??
+    { outcome: "parsed" }
+  );
 }

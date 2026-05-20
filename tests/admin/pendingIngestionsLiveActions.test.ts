@@ -158,6 +158,22 @@ describe("live pending-ingestions actions", () => {
     );
   });
 
+  test("retry first-seen clean parse returns the created show slug", async () => {
+    const tx = new FakeLivePendingTx();
+    const routeDeps = deps(tx, {
+      runManualStageForFirstSeen: vi.fn(async () => ({
+        outcome: "applied",
+        showId: "show-1",
+      })) as unknown as LivePendingIngestionRouteDeps["runManualStageForFirstSeen"],
+    });
+
+    const response = await handleLivePendingIngestionRetry(req(), context, routeDeps);
+
+    expect(response.status).toBe(200);
+    expect(await json(response)).toEqual({ status: "applied", slug: "show-slug" });
+    expect(routeDeps.runManualSyncForShowUnlocked).not.toHaveBeenCalled();
+  });
+
   test("retry existing-show branch rejects files outside watched folder", async () => {
     const tx = new FakeLivePendingTx();
     tx.showExists = true;

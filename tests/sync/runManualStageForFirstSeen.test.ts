@@ -4,6 +4,10 @@ import { runManualStageForFirstSeen } from "@/lib/sync/runManualStageForFirstSee
 
 class FakeManualStageTx implements RunManualStageForFirstSeenTx {
   held = true;
+  operations: string[] = [];
+  autoPublishFirstSeen:
+    | { unpublishToken: string; unpublishTokenExpiresAt: string }
+    | undefined;
   stagedRows: Array<{
     driveFileId: string;
     triggeredReviewItems: Array<{ invariant: string }>;
@@ -12,7 +16,8 @@ class FakeManualStageTx implements RunManualStageForFirstSeenTx {
     if (/pg_locks/i.test(sql)) return { held: this.held } as T;
     return { held: this.held } as T;
   }
-  async deleteLivePendingIngestion() {
+  async deleteLivePendingIngestion(driveFileId = "file-1") {
+    this.operations.push(`deleteLivePendingIngestion:${driveFileId}`);
     return undefined;
   }
   async upsertLivePendingSync(row: {
@@ -24,6 +29,42 @@ class FakeManualStageTx implements RunManualStageForFirstSeenTx {
       triggeredReviewItems: row.triggeredReviewItems,
     });
     return { stagedId: "staged-forced" };
+  }
+  async applyShowSnapshot(args: {
+    driveFileId: string;
+    staleGuard: string;
+    autoPublishFirstSeen?: { unpublishToken: string; unpublishTokenExpiresAt: string };
+  }) {
+    this.operations.push(`applyShowSnapshot:${args.driveFileId}:${args.staleGuard}`);
+    this.autoPublishFirstSeen = args.autoPublishFirstSeen;
+    return { outcome: "updated" as const, showId: "show-1", previousCrewNames: [] };
+  }
+  async deleteCrewMembersNotIn() {
+    this.operations.push("deleteCrewMembersNotIn");
+  }
+  async upsertCrewMembers() {
+    this.operations.push("upsertCrewMembers");
+  }
+  async provisionAddedCrewAuth() {
+    this.operations.push("provisionAddedCrewAuth");
+  }
+  async revokeRemovedCrewAuth() {
+    this.operations.push("revokeRemovedCrewAuth");
+  }
+  async replaceHotelReservations() {
+    this.operations.push("replaceHotelReservations");
+  }
+  async replaceRooms() {
+    this.operations.push("replaceRooms");
+  }
+  async replaceTransportation() {
+    this.operations.push("replaceTransportation");
+  }
+  async replaceContacts() {
+    this.operations.push("replaceContacts");
+  }
+  async upsertShowsInternal() {
+    this.operations.push("upsertShowsInternal");
   }
 }
 
@@ -90,7 +131,7 @@ describe("runManualStageForFirstSeen", () => {
     );
   });
 
-  test("preserves first-seen auto-publish readiness without emitting retired FIRST_SEEN_REVIEW", async () => {
+  test("auto-publishes first-seen clean retry and deletes the live pending ingestion", async () => {
     const tx = new FakeManualStageTx();
 
     const result = await runManualStageForFirstSeen(tx as never, "file-1", {
@@ -135,9 +176,28 @@ describe("runManualStageForFirstSeen", () => {
         bindingToken: "rev-1",
         modifiedTime: "2026-05-08T12:00:00.000Z",
       },
+      createUnpublishToken: () => "11111111-1111-4111-8111-111111111111",
+      now: () => new Date("2026-05-08T12:00:00.000Z"),
     });
 
-    expect(result).toEqual({ outcome: "parsed" });
+    expect(result).toEqual({ outcome: "applied", showId: "show-1" });
+    expect(tx.operations).toEqual([
+      "applyShowSnapshot:file-1:less_than_or_equal",
+      "deleteCrewMembersNotIn",
+      "upsertCrewMembers",
+      "provisionAddedCrewAuth",
+      "revokeRemovedCrewAuth",
+      "replaceHotelReservations",
+      "replaceRooms",
+      "replaceTransportation",
+      "replaceContacts",
+      "upsertShowsInternal",
+      "deleteLivePendingIngestion:file-1",
+    ]);
+    expect(tx.autoPublishFirstSeen).toEqual({
+      unpublishToken: "11111111-1111-4111-8111-111111111111",
+      unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z",
+    });
     expect(tx.stagedRows).toEqual([]);
   });
 
