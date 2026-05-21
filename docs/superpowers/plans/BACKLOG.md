@@ -69,6 +69,8 @@ Design memo captures six load-bearing principles: push-not-pull, severity tierin
 
 **Promotion prerequisite:** spec amendment defining the new AC, OR a decision to reframe AC-X.5/X.6 to absorb RLS coverage. Either path is a real spec-amendment cycle with adversarial review, not a casual edit.
 
+### BL-PRIVATE-IMAGE-PIPELINE — Migrate diagrams gallery to `next/image` with auth-preserving pipeline
+
 **Origin:** DEFERRED entry M7-D3 (Diagrams gallery `<img>` → `next/image`). Re-deferred at M9 C6b 2026-05-13 after an in-cluster attempt failed P0 (auth cookies don't forward through `/_next/image`; private Cache-Control rewritten to public, breaking revocation propagation).
 
 **Scope:** Migrate `components/diagrams/Gallery.tsx` and `components/diagrams/GalleryLightbox.tsx` from `<img>` to `next/image` to gain LCP optimization on the mobile crew page. Currently they use `<img loading="lazy" decoding="async">` as the manual equivalent — works correctly but doesn't get Next's `/_next/image` optimizer benefits.
@@ -119,6 +121,27 @@ Open design questions:
 **Why backlog, not deferred:** The widening contract is correct and live in the schema; this is a coverage-completeness gap, not a behavioral bug. Picking it up requires a small design call (per-table rows vs cross-cutting parity), and the right home may be the existing `tests/cross-cutting/validation-tooling-tz-pin.test.ts` lineage (post-M12-R5 structural defenses) rather than scattered `tests/db` rows.
 
 **Promotion prerequisite:** Either (a) a future X.* cross-cutting touch surfaces the gap (e.g., a follow-on widening that introspects all canonical CHECKs at once), OR (b) explicit decision to add a parity meta-test under `tests/cross-cutting/`. Either path is small (under half a day) once scoped — but neither is in-scope for any currently planned milestone.
+
+### BL-ADMIN-POSTGREST-DML-LOCKDOWN — Revoke table-level DML on remaining admin-only tables so SECURITY DEFINER RPCs are the sole mutation gate
+
+**Origin:** Surfaced 2026-05-21 during M9.5 adversarial review R5+R6 (HIGH). The new `revoke_all_links` and `issue_new_link` RPCs correctly held the per-show advisory lock + did the active-roster `EXISTS` gate inside the RPC body, but `crew_member_auth` and `crew_members` retained `INSERT`/`UPDATE`/`DELETE` for the `authenticated` role — meaning any authenticated caller could bypass the RPC entirely by calling the table directly via PostgREST's `from('<table>').insert/update/delete` builder. M9.5 closed the hole for the two tables it touched (REVOKE migration + structural meta-test pinning the invariant). The same vector exists for every other admin-only table whose intended mutation gate is a SECURITY DEFINER RPC but whose DML grants were never explicitly revoked.
+
+**Scope (audit at promotion time, not from this snapshot):** candidates surfaced during R7 prep included `shows`, `pending_syncs`, `pending_ingestions`, `sync_audit`. The actual list MUST derive from the live spec §4.3 admin-only-tables enumeration AT promotion time (per `feedback_audit_derives_from_spec_not_handoff.md`), not from this BACKLOG snapshot — admin-only tables have been amended multiple times (e.g., X.3 caught §4.3 going from 19→21 tables post-handoff). The promotion plan must:
+
+- Walk every admin-only table from spec §4.3 at audit time.
+- For each table, determine whether its intended mutation gate is (a) a SECURITY DEFINER RPC (lockdown needed), (b) admin-only RLS with no service-role bypass needed (lockdown also reasonable as defense-in-depth), or (c) intentionally writable by some non-service role (NOT a lockdown candidate; document why).
+- For (a) and (b) candidates: ship a `REVOKE INSERT, UPDATE, DELETE ON <table> FROM authenticated` migration + extend the structural meta-test from M9.5 R5+R6 to pin the invariant. The meta-test pattern is the load-bearing defense; a one-line `GRANT` in a future migration silently re-opens the hole without it.
+- Audit: write a runtime probe that derives the candidate list from §4.3 + the SECURITY DEFINER function inventory, asserts each candidate table has the expected REVOKEs, and surfaces named diffs.
+
+**Why backlog, not deferred:** The exposure is real but not actively exploited (the M9.5 holes were caught at adversarial review, not in production), and the FXAV product surface is small — `authenticated` callers who could bypass the RPC are FXAV admins or signed-in crew members, not arbitrary internet users. No concrete trigger exists. Picking it up is genuine security-hardening polish; it requires a spec amendment ratifying the "all admin-only-table mutations flow through SECURITY DEFINER RPCs" contract OR a brainstorming session to define the gate-classification matrix table-by-table. Not in-scope for any currently planned milestone.
+
+**Promotion prerequisite:** Either (a) FXAV ops feedback or a security review surfaces an actual exposure path that warrants the work, OR (b) a v1.x security-hardening milestone bundles this with related lockdown work (e.g., RLS-coverage promotion under BL-RLS-COVERAGE-CROSSCUTTING). The structural meta-test pattern shipped at M9.5 R5+R6 is the template; extend the existing meta-test, don't write a parallel one.
+
+**Cross-references:**
+
+- Memory: `feedback_postgrest_dml_lockdown_for_rpc_gated_tables.md` documents the bug class + the planning-time checklist.
+- M9.5 R5+R6 commits (full SHAs in M9.5 §13 convergence log).
+- Related backlog: `BL-RLS-COVERAGE-CROSSCUTTING` covers the row-level half of the contract; this entry covers the statement-level half. A future v1.x security milestone may bundle both.
 
 ### BL-ADMIN-PER-SHOW-HISTORY — Sync-health-history + parse-warnings-history sections on per-show panel
 
