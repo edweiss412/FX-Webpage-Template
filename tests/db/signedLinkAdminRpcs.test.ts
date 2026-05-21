@@ -32,11 +32,14 @@ function jwtAdmin(email?: string): string {
 
 function seedShowAndCrewSql(driveFileId: string, crewName: string): string {
   // Seeds a show + an ACTIVE crew_members row + a matching crew_member_auth
-  // row. The Codex R1 M1 fix requires both RPCs to find the crew_members
-  // row before mutating auth — see seedOrphanAuthSql() below for the
-  // crew_member_auth-only ("orphan") seed shape that exercises the
-  // crew-removed-but-auth-row-persists edge.
+  // row. Codex R1 M1: RPCs require the crew_members row before mutating
+  // auth. Codex R5 HIGH-1: authenticated lost INSERT on crew_member_auth
+  // via migration 20260521000000_signed_link_admin_table_grants.sql; the
+  // seed therefore runs as the default (superuser) role + RESET ROLE
+  // before returning. Callers then set local role authenticated + jwt
+  // claims AFTER the seed.
   return `
+    reset role;
     insert into public.shows (title, slug, drive_file_id, client_label, template_version, published)
     values (
       'M9.5 test show',
@@ -58,13 +61,12 @@ function seedShowAndCrewSql(driveFileId: string, crewName: string): string {
 }
 
 function seedOrphanAuthSql(driveFileId: string, crewName: string): string {
-  // Crew_member_auth WITHOUT a matching crew_members row — the "orphan"
-  // shape that occurs when sync removes a crew member but the auth
-  // row persists (spec §5.2 — auth row is keyed on (show_id,
-  // crew_name) with no FK to crew_members; removal advances the floor
-  // but does NOT delete the auth row). Used to exercise the Codex
-  // R1 M1 active-roster gate.
+  // crew_member_auth WITHOUT a matching crew_members row — the "orphan"
+  // shape that occurs when sync removes a crew member but the auth row
+  // persists. Seed runs as superuser (same rationale as
+  // seedShowAndCrewSql).
   return `
+    reset role;
     insert into public.shows (title, slug, drive_file_id, client_label, template_version, published)
     values (
       'M9.5 test show',
@@ -324,6 +326,141 @@ describe("issue_new_link_rpc behavior", () => {
         rollback;
       `),
     ).toThrow(/permission denied/i);
+  });
+});
+
+describe("table-grant lockdown (Codex R5 HIGH-1 fix — RPCs are the canonical mutation surface)", () => {
+  // R5 HIGH-1: the SECURITY DEFINER RPCs gate every mutation on
+  // is_admin() + active crew_members + advisory lock + audit log.
+  // But the table itself retained authenticated INSERT/UPDATE/DELETE
+  // grants, so an admin could PostgREST-bypass the gates. The fix
+  // migration at supabase/migrations/20260521000000_signed_link_admin_
+  // table_grants.sql revokes those grants, leaving SELECT for read
+  // paths and service_role-only for write paths. These tests pin the
+  // posture so a future migration can't regress.
+
+  test("authenticated admin CANNOT direct-UPDATE crew_member_auth via PostgREST grants", () => {
+    const driveFileId = `m9_5_grant_${randomUUID()}`;
+    const crewName = `GrantBlocker ${randomUUID()}`;
+
+    expect(() =>
+      runPsql(`
+        begin;
+        set local request.jwt.claims = '${jwtAdmin()}';
+        ${seedShowAndCrewSql(driveFileId, crewName)}
+        -- Seed reset role to default; explicitly restore authenticated
+        -- so the UPDATE below runs in the role we're testing against
+        -- (without this, UPDATE would run as superuser and succeed).
+        set local role authenticated;
+        update public.crew_member_auth
+           set current_token_version = 999
+         where show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)})
+           and crew_name = ${sqlString(crewName)};
+        rollback;
+      `),
+    ).toThrow(/permission denied|insufficient privilege/i);
+  });
+
+  test("authenticated admin CANNOT direct-INSERT crew_member_auth via PostgREST grants", () => {
+    const driveFileId = `m9_5_grant_${randomUUID()}`;
+
+    expect(() =>
+      runPsql(`
+        begin;
+        set local role authenticated;
+        set local request.jwt.claims = '${jwtAdmin()}';
+        insert into public.shows (title, slug, drive_file_id, client_label, template_version, published)
+        values ('M9.5 grant test', ${sqlString(driveFileId)}, ${sqlString(driveFileId)}, 'FXAV', 'test', true);
+        -- This direct INSERT must be rejected by the table-level
+        -- privilege check, not just by RLS. The seed above succeeds
+        -- only because shows still grants insert; that's not what
+        -- this test pins.
+        insert into public.crew_member_auth (show_id, crew_name)
+        select id, 'forged'
+          from public.shows
+         where drive_file_id = ${sqlString(driveFileId)};
+        rollback;
+      `),
+    ).toThrow(/permission denied|insufficient privilege/i);
+  });
+
+  test("authenticated admin CANNOT direct-DELETE crew_member_auth via PostgREST grants", () => {
+    const driveFileId = `m9_5_grant_${randomUUID()}`;
+    const crewName = `GrantBlocker ${randomUUID()}`;
+
+    expect(() =>
+      runPsql(`
+        begin;
+        set local request.jwt.claims = '${jwtAdmin()}';
+        ${seedShowAndCrewSql(driveFileId, crewName)}
+        set local role authenticated;
+        delete from public.crew_member_auth
+         where show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)})
+           and crew_name = ${sqlString(crewName)};
+        rollback;
+      `),
+    ).toThrow(/permission denied|insufficient privilege/i);
+  });
+
+  test("authenticated admin CAN still SELECT crew_member_auth (loadShowCrewWithAuth read path)", () => {
+    const driveFileId = `m9_5_grant_${randomUUID()}`;
+    const crewName = `GrantReader ${randomUUID()}`;
+
+    const out = runPsql(`
+      begin;
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin()}';
+      ${seedShowAndCrewSql(driveFileId, crewName)}
+      select 'count=' || (
+        select count(*)::text from public.crew_member_auth
+         where show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)})
+      );
+      rollback;
+    `);
+    expect(out).toContain("count=1");
+  });
+
+  test("authenticated NON-admin CANNOT SELECT crew_member_auth (RLS gate still enforced for read)", () => {
+    const driveFileId = `m9_5_grant_${randomUUID()}`;
+    const crewName = `GrantNonAdmin ${randomUUID()}`;
+
+    const out = runPsql(`
+      begin;
+      ${seedShowAndCrewSql(driveFileId, crewName)}
+      set local role authenticated;
+      set local request.jwt.claims = '{"email":"random-non-admin-${randomUUID()}@example.com"}';
+      -- RLS admin_only policy denies SELECT for non-admins. The query
+      -- doesn't ERROR; it just returns 0 rows under the policy filter.
+      select 'count=' || (
+        select count(*)::text from public.crew_member_auth
+         where show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)})
+      );
+      rollback;
+    `);
+    expect(out).toContain("count=0");
+  });
+
+  test("RPCs (SECURITY DEFINER) still mutate the table even though authenticated lost DML — round-trip via issue_new_link_rpc", () => {
+    const driveFileId = `m9_5_grant_${randomUUID()}`;
+    const crewName = `GrantRoundTrip ${randomUUID()}`;
+
+    const out = runPsql(`
+      begin;
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin()}';
+      ${seedShowAndCrewSql(driveFileId, crewName)}
+      select 'result=' || (
+        public.issue_new_link_rpc(
+          (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
+          ${sqlString(crewName)}
+        )
+      )::text;
+      rollback;
+    `);
+    expect(out).toContain('"status": "ok"');
+    // The RPC's UPDATE bumped current_token_version to 2 (initial was 1
+    // from the default constructor on insert).
+    expect(out).toContain('"current_token_version": 2');
   });
 });
 
