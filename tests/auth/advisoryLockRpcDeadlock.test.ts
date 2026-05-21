@@ -19,6 +19,7 @@ function lockTakingRpcNames(): string[] {
     "supabase/migrations/20260505000001_redeem_link_locked_rpcs.sql",
     "supabase/migrations/20260505000002_mint_bootstrap_nonce_atomic.sql",
     "supabase/migrations/20260505000003_recheck_link_session_mint_auth_state.sql",
+    "supabase/migrations/20260520000000_signed_link_admin_rpcs.sql",
   ];
 
   const names = new Set<string>();
@@ -45,6 +46,8 @@ describe("advisory-lock RPC deadlock guard", () => {
     expect(lockTakingNames).toContain("consume_bootstrap_nonce_atomic");
     expect(lockTakingNames).toContain("mint_link_session_if_active_kid_matches");
     expect(lockTakingNames).toContain("mint_bootstrap_nonce_atomic");
+    expect(lockTakingNames).toContain("revoke_all_links_rpc");
+    expect(lockTakingNames).toContain("issue_new_link_rpc");
 
     const sourceFiles = [
       "app/api/auth/redeem-link/route.ts",
