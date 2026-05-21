@@ -63,10 +63,10 @@ describe("M9.5 signed-link admin RPCs (migration smoke)", () => {
       /pg_advisory_xact_lock\s*\(\s*hashtext\s*\(\s*'show:'\s*\|\|\s*v_show\.drive_file_id\s*\)\s*\)/i,
     );
     expect(sql).toMatch(
-      /grant\s+execute\s+on\s+function\s+public\.revoke_all_links_rpc.*to\s+authenticated/is,
+      /grant\s+execute\s+on\s+function\s+public\.revoke_all_links_rpc[\s\S]*to\s+authenticated/i,
     );
     expect(sql).toMatch(
-      /grant\s+execute\s+on\s+function\s+public\.issue_new_link_rpc.*to\s+authenticated/is,
+      /grant\s+execute\s+on\s+function\s+public\.issue_new_link_rpc[\s\S]*to\s+authenticated/i,
     );
   });
 });
