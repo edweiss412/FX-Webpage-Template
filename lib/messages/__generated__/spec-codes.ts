@@ -44,6 +44,36 @@ export const SPEC_CODES = {
     "followUp": "Doug → sign in again",
     "helpfulContext": "Admin-only endpoints return this when the request does not carry a valid admin session.",
   },
+  "ADMIN_LINK_CREW_NOT_FOUND": {
+    "crewFacing": null,
+    "dougFacing": "The crew member you tried to act on couldn't be found. Refresh and try again.",
+    "followUp": "Doug → refresh per-show admin page",
+    "helpfulContext": "The (show_id, crew_name) tuple didn't match any row in `public.crew_member_auth`. Likely the crew row was removed by a sync apply between page render and click.",
+  },
+  "ADMIN_LINK_ISSUED_OK": {
+    "crewFacing": null,
+    "dougFacing": "New link issued. Use the share affordance to send it.",
+    "followUp": "Doug → copy share link (when available) → send URL to crew member",
+    "helpfulContext": "Issue new link bumps both current_token_version and max_issued_version. The newly-minted JWT carries the bumped version and passes both the strict-equality and floor checks at the redemption path.",
+  },
+  "ADMIN_LINK_NO_LIVE_LINK": {
+    "crewFacing": null,
+    "dougFacing": "There's no live link to revoke for this crew member.",
+    "followUp": "Doug → Issue new link if you want to mint a fresh one",
+    "helpfulContext": "The crew member's auth row is in 'no live link' state — current_token_version equals revoked_below_version, so there's nothing for the Revoke-all action to invalidate.",
+  },
+  "ADMIN_LINK_REVOKED_OK": {
+    "crewFacing": null,
+    "dougFacing": "All links revoked. Click 'Issue new link' when you're ready to send a fresh one.",
+    "followUp": "Doug → Issue new link → send fresh URL to crew member",
+    "helpfulContext": "Revoking all links sets the revocation floor to the current token version. Every outstanding signed link for this crew member is now invalid. The row is in 'no live link' state until you issue a new one.",
+  },
+  "ADMIN_LINK_SHOW_NOT_FOUND": {
+    "crewFacing": null,
+    "dougFacing": "The show you tried to act on couldn't be found. Refresh and try again.",
+    "followUp": "Doug → refresh per-show admin page",
+    "helpfulContext": "The show ID in the form submission didn't match any row in `public.shows`. Likely the show was archived or deleted between page render and click.",
+  },
   "ADMIN_SESSION_LOOKUP_FAILED": {
     "crewFacing": "Something is misconfigured for this show. Doug has been notified.",
     "dougFacing": null,

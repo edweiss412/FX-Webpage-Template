@@ -66,7 +66,7 @@ function emitAuditLog(payload: AuditPayload): void {
   console.log(
     `[m9.5 signed-link admin] ${JSON.stringify({
       ...payload,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date().toISOString(), // not-render-side: audit-log mutation path emits real wall-clock per lib/time/now.ts §C.4 waiver
     })}`,
   );
 }

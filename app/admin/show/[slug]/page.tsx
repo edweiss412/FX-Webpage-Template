@@ -23,7 +23,9 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { ParsePanel } from "@/components/admin/ParsePanel";
 import { PerShowAlertSection } from "@/components/admin/PerShowAlertSection";
+import { PerShowCrewSection } from "@/components/admin/PerShowCrewSection";
 import { ReSyncButton } from "@/components/admin/ReSyncButton";
+import { loadShowCrewWithAuth } from "@/lib/data/loadShowCrewWithAuth";
 import type { StagedRow } from "@/components/admin/StagedReviewCard";
 import type { TriggeredReviewItem } from "@/lib/parser/types";
 
@@ -168,38 +170,20 @@ export default async function AdminShowPage({
 
   // M10 §B Phase 3 / Cluster I-5: list crew members so each row can carry a
   // "Preview as" entry point to /admin/show/[slug]/preview/[crewId] (§9.3).
-  // The lookup is admin-RLS gated by the surrounding requireAdmin + the
-  // crew_members policy; failures fall through to an empty list and a small
-  // explanatory note rather than blocking the page.
   //
-  // AGENTS.md §1.9: wrap the await so a thrown Supabase fault is folded
-  // into the same `crewLookupFailed=true` empty-list branch as the
-  // returned `.error` branch. The "graceful empty list" disposition is
-  // an intentional, scoped exception to the "fail closed" rule for the
-  // entire dashboard — losing the crew list only hides the Preview-as
-  // affordance, it doesn't show stale state, and the page still
-  // renders the staged-row review (the page's primary purpose).
-  let crewRows: Array<{ id: string; name: string; role: string | null }> | null;
-  let crewLookupFailed: boolean;
-  try {
-    const { data, error: crewError } = await supabase
-      .from("crew_members")
-      .select("id, name, role")
-      .eq("show_id", show.id)
-      .order("name", { ascending: true });
-    crewLookupFailed = crewError !== null;
-    crewRows = data as
-      | Array<{ id: string; name: string; role: string | null }>
-      | null;
-  } catch (err) {
-    console.error(
-      "[/admin/show/[slug]] crew_members lookup threw:",
-      err instanceof Error ? err.message : String(err),
-    );
-    crewLookupFailed = true;
-    crewRows = null;
-  }
-  const crew = crewLookupFailed ? [] : (crewRows ?? []);
+  // M9.5: the same crew list also drives the per-crew Issue-new /
+  // Revoke-all affordances rendered by <PerShowCrewSection>. The helper
+  // at lib/data/loadShowCrewWithAuth does a second SELECT against
+  // crew_member_auth to merge in current_token_version /
+  // max_issued_version / revoked_below_version, with a fail-closed
+  // contract (any returned-or-thrown error → crewLookupFailed=true +
+  // crew=[]). Both Preview-as below AND PerShowCrewSection consume the
+  // result. Fail-closed is intentional here — losing the crew list now
+  // also hides security-sensitive link-rotation controls.
+  const { crew, crewLookupFailed } = await loadShowCrewWithAuth(
+    supabase,
+    show.id,
+  );
 
   return (
     <main data-testid="admin-show-page" className="space-y-section-gap">
@@ -317,6 +301,12 @@ export default async function AdminShowPage({
       </section>
 
       <ParsePanel rows={rows} showId={show.id} />
+
+      <PerShowCrewSection
+        showId={show.id}
+        crew={crew}
+        crewLookupFailed={crewLookupFailed}
+      />
     </main>
   );
 }
