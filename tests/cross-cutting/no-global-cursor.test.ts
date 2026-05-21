@@ -217,5 +217,11 @@ describe("X.4 no-global-cursor audit", () => {
 
   test("live project has no global cursor findings", () => {
     expect(auditProjectNoGlobalCursor()).toEqual([]);
-  }, 20000);
+    // CI hygiene: local runs complete in ~5-8s; GitHub Actions
+    // runners are reliably 3-4x slower on this AST walk, pushing
+    // the audit into the 20-23s range. The prior 20000ms budget
+    // failed on every recent push (including pre-M9.5 commits like
+    // baa06aca, before this milestone began at 6d0bcbe). 45s gives
+    // 2x headroom over the slowest observed CI run.
+  }, 45000);
 });
