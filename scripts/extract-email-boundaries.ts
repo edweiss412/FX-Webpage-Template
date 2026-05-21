@@ -118,6 +118,8 @@ export function extractSpecEmailBoundaryKeys(spec: string, planBoundaries: reado
     "admin_alerts.context.*email*",
     "report_rate_limits.identity",
     "sync_audit.applied_by",
+    "pending_syncs.wizard_approved_by_email",
+    "shows_pending_changes.applied_by_email",
     "deferred_ingestions.deferred_by_email",
     "admin_alerts.resolved_by",
     "listShowsForCrew",
@@ -148,6 +150,14 @@ export function extractSpecEmailBoundaryKeys(spec: string, planBoundaries: reado
     }
     if (token === "sync_audit.applied_by") {
       keys.add(key("DB write", "lib/sync/applyStaged.ts"));
+      continue;
+    }
+    if (token === "pending_syncs.wizard_approved_by_email") {
+      keys.add(key("DB write", "lib/sync/applyStaged.ts"));
+      continue;
+    }
+    if (token === "shows_pending_changes.applied_by_email") {
+      keys.add(key("DB write", "app/api/admin/onboarding/finalize/route.ts"));
       continue;
     }
     if (token.startsWith("app_settings.")) {

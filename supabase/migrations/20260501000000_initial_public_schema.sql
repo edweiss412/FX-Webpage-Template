@@ -42,7 +42,7 @@ create table public.crew_members (
   last_changed_at timestamptz not null default now(),
   unique (show_id, name),
   constraint crew_members_email_canonical check (
-    email is null or email = lower(trim(email))
+    email is null or (email = lower(trim(email)) and email <> '')
   )
 );
 
@@ -97,7 +97,7 @@ create table public.transportation (
   schedule jsonb not null default '[]'::jsonb,
   notes text,
   constraint transportation_driver_email_canonical check (
-    driver_email is null or driver_email = lower(trim(driver_email))
+    driver_email is null or (driver_email = lower(trim(driver_email)) and driver_email <> '')
   )
 );
 
@@ -110,6 +110,6 @@ create table public.contacts (
   phone text,
   notes text,
   constraint contacts_email_canonical check (
-    email is null or email = lower(trim(email))
+    email is null or (email = lower(trim(email)) and email <> '')
   )
 );

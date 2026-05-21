@@ -114,6 +114,7 @@ function columnFromConstraint(table: string, constraint: string): string | null 
   if (constraint === "reports_admin_reported_by_email_canonical") return "reported_by";
   if (constraint === "report_rate_limits_admin_identity_email_canonical") return "identity";
   if (constraint === "sync_audit_applied_by_email_canonical") return "applied_by";
+  if (constraint === "shows_pending_changes_applied_by_email_canonical") return "applied_by_email";
   const prefix = `${table}_`;
   const suffixes = ["_canonical"];
   for (const suffix of suffixes) {
@@ -151,7 +152,12 @@ function canonicalCheckPattern(column: string): RegExp {
 }
 
 function checkBodyIsCanonical(body: string, column: string): boolean {
-  return canonicalCheckPattern(column).test(normalizeDefinition(body));
+  const normalized = normalizeDefinition(body);
+  const rejectsEmpty = new RegExp(
+    `(?:\\b${column}\\b\\s*<>\\s*''|''\\s*<>\\s*\\b${column}\\b)`,
+    "i",
+  );
+  return canonicalCheckPattern(column).test(normalized) && rejectsEmpty.test(normalized);
 }
 
 export function auditEmailSchemaCheckSources(sources: readonly AuditSource[]): string[] {

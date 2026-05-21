@@ -231,6 +231,21 @@ describe("X.5 email canonicalization audit", () => {
     expect(findings).toContain("+wrong_check_source:admin_alerts.resolved_by");
   });
 
+  test("schema CHECK audit rejects lowercase-trim checks that allow empty strings", () => {
+    // Failure mode: DB safety-net accepts '' even though canonicalize('   ') returns null, never ''.
+    const findings = auditEmailSchemaCheckSources([
+      {
+        path: "supabase/migrations/20260520000911_add_email_canonical_checks.sql",
+        source: [
+          "alter table public.admin_alerts",
+          "  add constraint admin_alerts_resolved_by_email_canonical",
+          "    check (resolved_by is null or resolved_by = lower(trim(resolved_by)));",
+        ].join("\n"),
+      },
+    ]);
+    expect(findings).toContain("+wrong_check_source:admin_alerts.resolved_by");
+  });
+
   test.skipIf(!livePsqlReachable)("canonical CHECK migration backfills historical mixed-case rows before validation", () => {
     // Failure mode: ALTER TABLE ... ADD CHECK validates before historical rows are canonicalized.
     const output = runPsql(`
@@ -244,6 +259,7 @@ describe("X.5 email canonicalization audit", () => {
       create table if not exists dev.reports (like public.reports including all);
       create table if not exists dev.report_rate_limits (like public.report_rate_limits including all);
       create table if not exists dev.pending_syncs (like public.pending_syncs including all);
+      create table if not exists dev.shows_pending_changes (like public.shows_pending_changes including all);
 
       alter table if exists public.sync_audit
         drop constraint if exists sync_audit_applied_by_email_canonical;
@@ -260,6 +276,8 @@ describe("X.5 email canonicalization audit", () => {
         drop constraint if exists report_rate_limits_admin_identity_email_canonical;
       alter table if exists public.pending_syncs
         drop constraint if exists pending_syncs_wizard_approved_by_email_canonical;
+      alter table if exists public.shows_pending_changes
+        drop constraint if exists shows_pending_changes_applied_by_email_canonical;
 
       alter table if exists dev.sync_audit
         drop constraint if exists sync_audit_applied_by_email_canonical;
@@ -276,9 +294,17 @@ describe("X.5 email canonicalization audit", () => {
         drop constraint if exists report_rate_limits_admin_identity_email_canonical;
       alter table if exists dev.pending_syncs
         drop constraint if exists pending_syncs_wizard_approved_by_email_canonical;
+      alter table if exists dev.shows_pending_changes
+        drop constraint if exists shows_pending_changes_applied_by_email_canonical;
 
       insert into public.app_settings (id) values ('default') on conflict do nothing;
       insert into dev.app_settings (id) values ('default') on conflict do nothing;
+      insert into public.shows (
+        drive_file_id, slug, title, client_label, template_version
+      ) values (
+        'email-backfill-public-show', 'email-backfill-public-show', 'Email Backfill Public Show', 'Client', 'v1'
+      )
+      on conflict (drive_file_id) do update set title = excluded.title;
 
       insert into public.sync_audit (
         drive_file_id, applied_by, staged_id, triggered_review_items, reviewer_choices,
@@ -320,6 +346,16 @@ describe("X.5 email canonicalization audit", () => {
         'email-backfill-public-pending', now(), '{}'::jsonb, 'onboarding_scan',
         gen_random_uuid(), true, ' Admin.Wizard@Example.COM ',
         now(), '{}'::jsonb, 1, ''
+      );
+      insert into public.shows_pending_changes (
+        wizard_session_id, drive_file_id, show_id, payload, applied_by_email, applied_at_intent
+      ) values (
+        gen_random_uuid(),
+        'email-backfill-public-show',
+        (select id from public.shows where drive_file_id = 'email-backfill-public-show'),
+        '{}'::jsonb,
+        ' Admin.PendingChange@Example.COM ',
+        now()
       );
 
       insert into dev.sync_audit (
@@ -363,6 +399,11 @@ describe("X.5 email canonicalization audit", () => {
         gen_random_uuid(), true, ' Dev.Wizard@Example.COM ',
         now(), '{}'::jsonb, 1, ''
       );
+      insert into dev.shows_pending_changes (
+        wizard_session_id, drive_file_id, show_id, payload, applied_by_email, applied_at_intent
+      ) values (
+        gen_random_uuid(), 'email-backfill-dev-show', gen_random_uuid(), '{}'::jsonb, ' Dev.PendingChange@Example.COM ', now()
+      );
 
       \\i supabase/migrations/20260520000911_add_email_canonical_checks.sql
 
@@ -377,6 +418,7 @@ describe("X.5 email canonicalization audit", () => {
         'public_admin_limit', (select identity from public.report_rate_limits where kind = 'admin' and identity ilike '%limit@example.com%'),
         'public_crew_limit', (select identity from public.report_rate_limits where kind = 'crew' and identity ilike '%limit@example.com%'),
         'public_pending', (select wizard_approved_by_email from public.pending_syncs where drive_file_id = 'email-backfill-public-pending'),
+        'public_pending_change', (select applied_by_email from public.shows_pending_changes where drive_file_id = 'email-backfill-public-show'),
         'dev_sync_audit', (select applied_by from dev.sync_audit where drive_file_id = 'email-backfill-dev-sync'),
         'dev_app_watched', (select watched_folder_set_by_email from dev.app_settings where id = 'default'),
         'dev_app_pending', (select pending_folder_set_by_email from dev.app_settings where id = 'default'),
@@ -386,7 +428,8 @@ describe("X.5 email canonicalization audit", () => {
         'dev_crew_report', (select reported_by from dev.reports where reported_by_kind = 'crew' and reported_by ilike '%dev.crew.report@example.com%' order by created_at desc limit 1),
         'dev_admin_limit', (select identity from dev.report_rate_limits where kind = 'admin' and identity ilike '%dev.limit@example.com%'),
         'dev_crew_limit', (select identity from dev.report_rate_limits where kind = 'crew' and identity ilike '%dev.crew.limit@example.com%'),
-        'dev_pending', (select wizard_approved_by_email from dev.pending_syncs where drive_file_id = 'email-backfill-dev-pending')
+        'dev_pending', (select wizard_approved_by_email from dev.pending_syncs where drive_file_id = 'email-backfill-dev-pending'),
+        'dev_pending_change', (select applied_by_email from dev.shows_pending_changes where drive_file_id = 'email-backfill-dev-show')
       )::text;
 
       rollback;
@@ -403,6 +446,7 @@ describe("X.5 email canonicalization audit", () => {
       public_admin_limit: "admin.limit@example.com",
       public_crew_limit: " Crew.Limit@Example.COM ",
       public_pending: "admin.wizard@example.com",
+      public_pending_change: "admin.pendingchange@example.com",
       dev_sync_audit: "dev.sync@example.com",
       dev_app_watched: "dev.watched@example.com",
       dev_app_pending: "dev.pending@example.com",
@@ -413,6 +457,7 @@ describe("X.5 email canonicalization audit", () => {
       dev_admin_limit: "dev.limit@example.com",
       dev_crew_limit: " Dev.Crew.Limit@Example.COM ",
       dev_pending: "dev.wizard@example.com",
+      dev_pending_change: "dev.pendingchange@example.com",
     });
   }, 15000);
 
