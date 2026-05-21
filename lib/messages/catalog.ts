@@ -1753,6 +1753,66 @@ export const MESSAGE_CATALOG = {
     longExplanation: "A Drive read or enrichment step exceeded its per-step timeout while the show sync lock was held. We'll retry on the next run.",
     helpHref: "/help/errors#SYNC_STEP_TIMEOUT",
   },
+  ADMIN_LINK_REVOKED_OK: {
+    code: "ADMIN_LINK_REVOKED_OK",
+    dougFacing: "All links revoked. Click 'Issue new link' when you're ready to send a fresh one.",
+    crewFacing: null,
+    followUp: "Doug → Issue new link → send fresh URL to crew member",
+    helpfulContext:
+      "Revoking all links sets the revocation floor to the current token version. Every outstanding signed link for this crew member is now invalid. The row is in 'no live link' state until you issue a new one.",
+    title: "Links revoked",
+    longExplanation:
+      "Revoke-all advances revoked_below_version to current_token_version. Per spec §5.2 floor mechanism, all JWTs carrying the previous version are rejected at the redemption path's floor check (§7.2 step 5). To restore access for this crew member, click 'Issue new link' — it bumps current_token_version above the floor and mints a usable token version.",
+    helpHref: "/help/errors#ADMIN_LINK_REVOKED_OK",
+  },
+  ADMIN_LINK_ISSUED_OK: {
+    code: "ADMIN_LINK_ISSUED_OK",
+    dougFacing: "New link issued. Use the share affordance to send it.",
+    crewFacing: null,
+    followUp: "Doug → copy share link (when available) → send URL to crew member",
+    helpfulContext:
+      "Issue new link bumps both current_token_version and max_issued_version. The newly-minted JWT carries the bumped version and passes both the strict-equality and floor checks at the redemption path.",
+    title: "Link issued",
+    longExplanation:
+      "Issue-new performs an atomic UPDATE: current_token_version = max_issued_version + 1, max_issued_version = max_issued_version + 1. Per spec §5.2, max_issued_version is a monotonic high-water mark; current_token_version follows it on the bump. Any prior signed links for this crew member are rejected by strict equality (the JWT's tokenVersion ≠ the row's new current_token_version).",
+    helpHref: "/help/errors#ADMIN_LINK_ISSUED_OK",
+  },
+  ADMIN_LINK_NO_LIVE_LINK: {
+    code: "ADMIN_LINK_NO_LIVE_LINK",
+    dougFacing: "There's no live link to revoke for this crew member.",
+    crewFacing: null,
+    followUp: "Doug → Issue new link if you want to mint a fresh one",
+    helpfulContext:
+      "The crew member's auth row is in 'no live link' state — current_token_version equals revoked_below_version, so there's nothing for the Revoke-all action to invalidate.",
+    title: "No live link to revoke",
+    longExplanation:
+      "Per spec §5.2 lines 1085-1091, the no-live-link state is reached when revoked_below_version equals current_token_version (e.g., after a prior Revoke-all, after onboarding-wizard Finalize for a fresh crew row, or after the leaked-link middleware auto-floor-bumps a compromised link). The Revoke-all action is a no-op in this state.",
+    helpHref: "/help/errors#ADMIN_LINK_NO_LIVE_LINK",
+  },
+  ADMIN_LINK_SHOW_NOT_FOUND: {
+    code: "ADMIN_LINK_SHOW_NOT_FOUND",
+    dougFacing: "The show you tried to act on couldn't be found. Refresh and try again.",
+    crewFacing: null,
+    followUp: "Doug → refresh per-show admin page",
+    helpfulContext:
+      "The show ID in the form submission didn't match any row in `public.shows`. Likely the show was archived or deleted between page render and click.",
+    title: "Show not found",
+    longExplanation:
+      "Server Action handed a show_id to the RPC that returned no match. Most likely cause: the page was open while the show was archived or unpublished elsewhere. Refresh the per-show admin page to see the current state.",
+    helpHref: "/help/errors#ADMIN_LINK_SHOW_NOT_FOUND",
+  },
+  ADMIN_LINK_CREW_NOT_FOUND: {
+    code: "ADMIN_LINK_CREW_NOT_FOUND",
+    dougFacing: "The crew member you tried to act on couldn't be found. Refresh and try again.",
+    crewFacing: null,
+    followUp: "Doug → refresh per-show admin page",
+    helpfulContext:
+      "The (show_id, crew_name) tuple didn't match any row in `public.crew_member_auth`. Likely the crew row was removed by a sync apply between page render and click.",
+    title: "Crew member not found",
+    longExplanation:
+      "Server Action handed a (show_id, crew_name) tuple that didn't match an auth row. Most likely cause: a Drive sync ran during the page session and removed this crew member, advancing the floor for the now-absent name (spec §5.2 line 1104-1110). Refresh to see the current roster.",
+    helpHref: "/help/errors#ADMIN_LINK_CREW_NOT_FOUND",
+  },
   WEBHOOK_HEADERS_MISSING: {
     code: "WEBHOOK_HEADERS_MISSING",
     dougFacing: "A Drive webhook request was missing required Google headers.",

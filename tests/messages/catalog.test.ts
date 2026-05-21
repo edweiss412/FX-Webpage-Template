@@ -234,3 +234,28 @@ describe("messageFor interpolation", () => {
     expect(entry.dougFacing).not.toContain("<sheet-name>");
   });
 });
+
+describe("M9.5 — ADMIN_LINK_* catalog rows", () => {
+  test.each([
+    ["ADMIN_LINK_REVOKED_OK"],
+    ["ADMIN_LINK_ISSUED_OK"],
+    ["ADMIN_LINK_NO_LIVE_LINK"],
+    ["ADMIN_LINK_SHOW_NOT_FOUND"],
+    ["ADMIN_LINK_CREW_NOT_FOUND"],
+  ])("%s exists with dougFacing copy + code matches key", (code) => {
+    const entry = (MESSAGE_CATALOG as Record<string, MessageCatalogEntry | undefined>)[code];
+    expect(entry, `${code} should be present in MESSAGE_CATALOG`).toBeDefined();
+    if (!entry) return;
+    expect(entry.code).toBe(code);
+    expect(entry.dougFacing).toBeTruthy();
+    expect(entry.crewFacing).toBeNull();
+  });
+
+  test("ok-outcome codes carry distinct dougFacing copy per action", () => {
+    const revoked = messageFor("ADMIN_LINK_REVOKED_OK" as MessageCode);
+    const issued = messageFor("ADMIN_LINK_ISSUED_OK" as MessageCode);
+    expect(revoked.dougFacing).not.toEqual(issued.dougFacing);
+    expect(revoked.dougFacing).toMatch(/revoked/i);
+    expect(issued.dougFacing).toMatch(/issued/i);
+  });
+});
