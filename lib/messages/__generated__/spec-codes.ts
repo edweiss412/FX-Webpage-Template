@@ -52,9 +52,9 @@ export const SPEC_CODES = {
   },
   "ADMIN_LINK_ISSUED_OK": {
     "crewFacing": null,
-    "dougFacing": "New link issued. Use the share affordance to send it.",
-    "followUp": "Doug → copy share link (when available) → send URL to crew member",
-    "helpfulContext": "Issue new link bumps both current_token_version and max_issued_version. The newly-minted JWT carries the bumped version and passes both the strict-equality and floor checks at the redemption path.",
+    "dougFacing": "New link issued. The crew member's link is now live at the bumped token version.",
+    "followUp": "Doug → share the crew page URL with the crew member via your usual channel",
+    "helpfulContext": "Issue new link bumps both current_token_version and max_issued_version. The newly-minted JWT carries the bumped version and passes both the strict-equality and floor checks at the redemption path. A dedicated 'Copy share link' affordance is not yet shipped (tracked as BL-COPY-SHARE-LINK); use your existing share path.",
   },
   "ADMIN_LINK_NO_LIVE_LINK": {
     "crewFacing": null,

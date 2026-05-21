@@ -94,6 +94,20 @@ describe.skipIf(!HAS_LIVE_INFRA)(
       const showId = showInsert.data.id as string;
       const crewName = `Realtime Alice ${randomUUID()}`;
 
+      // R2 HIGH-1 fix: the active-roster gate in both RPCs now requires
+      // a matching public.crew_members row inside the advisory lock
+      // (Codex R1 M1 — orphan-auth-row soundness). Seed the
+      // crew_members row BEFORE the crew_member_auth row so
+      // issue_new_link_rpc returns ok and the publish trigger fires.
+      const memberInsert = await admin
+        .from("crew_members")
+        .insert({ show_id: showId, name: crewName, role: "LEAD" });
+      if (memberInsert.error) {
+        throw new Error(
+          `crew_members seed failed: ${memberInsert.error.message}`,
+        );
+      }
+
       const authInsert = await admin
         .from("crew_member_auth")
         .insert({ show_id: showId, crew_name: crewName });

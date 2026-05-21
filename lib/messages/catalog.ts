@@ -1767,11 +1767,11 @@ export const MESSAGE_CATALOG = {
   },
   ADMIN_LINK_ISSUED_OK: {
     code: "ADMIN_LINK_ISSUED_OK",
-    dougFacing: "New link issued. Use the share affordance to send it.",
+    dougFacing: "New link issued. The crew member's link is now live at the bumped token version.",
     crewFacing: null,
-    followUp: "Doug → copy share link (when available) → send URL to crew member",
+    followUp: "Doug → share the crew page URL with the crew member via your usual channel",
     helpfulContext:
-      "Issue new link bumps both current_token_version and max_issued_version. The newly-minted JWT carries the bumped version and passes both the strict-equality and floor checks at the redemption path.",
+      "Issue new link bumps both current_token_version and max_issued_version. The newly-minted JWT carries the bumped version and passes both the strict-equality and floor checks at the redemption path. A dedicated 'Copy share link' affordance is not yet shipped (tracked as BL-COPY-SHARE-LINK); use your existing share path.",
     title: "Link issued",
     longExplanation:
       "Issue-new performs an atomic UPDATE: current_token_version = max_issued_version + 1, max_issued_version = max_issued_version + 1. Per spec §5.2, max_issued_version is a monotonic high-water mark; current_token_version follows it on the bump. Any prior signed links for this crew member are rejected by strict equality (the JWT's tokenVersion ≠ the row's new current_token_version).",
