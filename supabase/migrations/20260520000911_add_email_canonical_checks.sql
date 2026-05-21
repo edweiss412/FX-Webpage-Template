@@ -117,6 +117,49 @@ alter table public.shows_pending_changes
   add constraint shows_pending_changes_applied_by_email_canonical
     check (applied_by_email = lower(trim(applied_by_email)) and applied_by_email <> '');
 
+-- Pre-existing canonical CHECKs from earlier migrations (crew-side schema +
+-- admin_emails) used the lower/trim-only form without the `<> ''` rejection.
+-- Bring them onto the same canonicalize() contract used by the
+-- admin-attribution CHECKs above. Source-of-truth schema files have been
+-- updated to match; this DROP/ADD block migrates existing databases.
+alter table public.crew_members
+  drop constraint if exists crew_members_email_canonical;
+update public.crew_members
+   set email = nullif(lower(trim(email)), '')
+ where email is distinct from nullif(lower(trim(email)), '');
+alter table public.crew_members
+  add constraint crew_members_email_canonical
+    check (email is null or (email = lower(trim(email)) and email <> ''));
+
+alter table public.transportation
+  drop constraint if exists transportation_driver_email_canonical;
+update public.transportation
+   set driver_email = nullif(lower(trim(driver_email)), '')
+ where driver_email is distinct from nullif(lower(trim(driver_email)), '');
+alter table public.transportation
+  add constraint transportation_driver_email_canonical
+    check (driver_email is null or (driver_email = lower(trim(driver_email)) and driver_email <> ''));
+
+alter table public.contacts
+  drop constraint if exists contacts_email_canonical;
+update public.contacts
+   set email = nullif(lower(trim(email)), '')
+ where email is distinct from nullif(lower(trim(email)), '');
+alter table public.contacts
+  add constraint contacts_email_canonical
+    check (email is null or (email = lower(trim(email)) and email <> ''));
+
+alter table public.admin_emails
+  drop constraint if exists admin_emails_canonical_email;
+delete from public.admin_emails
+ where trim(email) = '';
+update public.admin_emails
+   set email = lower(trim(email))
+ where email is distinct from lower(trim(email));
+alter table public.admin_emails
+  add constraint admin_emails_canonical_email
+    check (email = lower(trim(email)) and email <> '');
+
 do $$
 begin
   if to_regclass('dev.sync_audit') is not null then
@@ -242,3 +285,53 @@ alter table if exists dev.shows_pending_changes
   drop constraint if exists shows_pending_changes_applied_by_email_canonical,
   add constraint shows_pending_changes_applied_by_email_canonical
     check (applied_by_email = lower(trim(applied_by_email)) and applied_by_email <> '');
+
+-- Dev mirrors of the crew-side / admin_emails CHECK migrations above. Source-of-truth
+-- dev_schema_clone + admin_emails initial migrations have been updated; this block
+-- migrates existing dev DBs whose tables already exist.
+do $$
+begin
+  if to_regclass('dev.crew_members') is not null then
+    update dev.crew_members
+       set email = nullif(lower(trim(email)), '')
+     where email is distinct from nullif(lower(trim(email)), '');
+    alter table dev.crew_members
+      drop constraint if exists crew_members_email_canonical;
+    alter table dev.crew_members
+      add constraint crew_members_email_canonical
+        check (email is null or (email = lower(trim(email)) and email <> ''));
+  end if;
+  if to_regclass('dev.transportation') is not null then
+    update dev.transportation
+       set driver_email = nullif(lower(trim(driver_email)), '')
+     where driver_email is distinct from nullif(lower(trim(driver_email)), '');
+    alter table dev.transportation
+      drop constraint if exists transportation_driver_email_canonical;
+    alter table dev.transportation
+      add constraint transportation_driver_email_canonical
+        check (driver_email is null or (driver_email = lower(trim(driver_email)) and driver_email <> ''));
+  end if;
+  if to_regclass('dev.contacts') is not null then
+    update dev.contacts
+       set email = nullif(lower(trim(email)), '')
+     where email is distinct from nullif(lower(trim(email)), '');
+    alter table dev.contacts
+      drop constraint if exists contacts_email_canonical;
+    alter table dev.contacts
+      add constraint contacts_email_canonical
+        check (email is null or (email = lower(trim(email)) and email <> ''));
+  end if;
+  if to_regclass('dev.admin_emails') is not null then
+    delete from dev.admin_emails
+     where trim(email) = '';
+    update dev.admin_emails
+       set email = lower(trim(email))
+     where email is distinct from lower(trim(email));
+    alter table dev.admin_emails
+      drop constraint if exists admin_emails_canonical_email;
+    alter table dev.admin_emails
+      add constraint admin_emails_canonical_email
+        check (email = lower(trim(email)) and email <> '');
+  end if;
+end
+$$;

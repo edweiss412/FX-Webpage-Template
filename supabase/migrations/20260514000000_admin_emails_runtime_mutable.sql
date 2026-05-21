@@ -26,7 +26,7 @@ create table if not exists public.admin_emails (
   revoked_at  timestamptz null,
   note        text null,
   constraint admin_emails_canonical_email
-    check (email = lower(trim(email))),
+    check (email = lower(trim(email)) and email <> ''),
   constraint admin_emails_revoke_atomicity
     check (
       (revoked_at is null and revoked_by is null)
