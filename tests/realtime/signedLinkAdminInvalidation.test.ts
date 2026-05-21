@@ -170,7 +170,18 @@ describe.skipIf(!HAS_LIVE_INFRA)(
           config: { broadcast: { self: false }, private: true },
         });
 
-        const eventReceived = new Promise<{ event: string }>(
+        // Codex R4 M-1 fix: assert the production payload contract,
+        // not just the event name. lib/realtime/subscribeToShow.ts
+        // ignores broadcasts unless payload.show_id matches and
+        // payload.version_token is a string. A regression that
+        // publishes 'invalidate' with a malformed payload would pass
+        // a name-only assertion while real viewers wouldn't refresh.
+        type BroadcastPayload = {
+          event: string;
+          show_id: string | null;
+          version_token: string | null;
+        };
+        const eventReceived = new Promise<BroadcastPayload>(
           (resolve, reject) => {
             const timeout = setTimeout(
               () =>
@@ -183,7 +194,18 @@ describe.skipIf(!HAS_LIVE_INFRA)(
             );
             channel.on("broadcast", { event: "invalidate" }, (payload) => {
               clearTimeout(timeout);
-              resolve({ event: payload.event ?? "(no event field)" });
+              const inner = (payload as { payload?: Record<string, unknown> })
+                .payload;
+              resolve({
+                event:
+                  (payload as { event?: string }).event ?? "(no event field)",
+                show_id:
+                  typeof inner?.show_id === "string" ? inner.show_id : null,
+                version_token:
+                  typeof inner?.version_token === "string"
+                    ? inner.version_token
+                    : null,
+              });
             });
             channel.subscribe((status, err) => {
               if (status === "SUBSCRIBED") {
@@ -193,7 +215,7 @@ describe.skipIf(!HAS_LIVE_INFRA)(
                     begin;
                     set local role authenticated;
                     set local request.jwt.claims = '${adminClaims()}';
-                    select 'result=' || (
+                    select (
                       public.issue_new_link_rpc(
                         ${sqlString(showId)}::uuid,
                         ${sqlString(crewName)}
@@ -210,11 +232,23 @@ describe.skipIf(!HAS_LIVE_INFRA)(
                   );
                   return;
                 }
-                if (!out.includes('"status" : "ok"')) {
+                // Codex R4 M-2 fix: parse jsonb output as JSON instead
+                // of substring-matching. PostgreSQL's jsonb-as-text
+                // output uses `"status": "ok"` (no space before colon)
+                // for compact mode but pretty-printing adds a space.
+                // Parse to be format-independent.
+                let rpcStatus: string | null = null;
+                try {
+                  const parsed = JSON.parse(out) as { status?: unknown };
+                  if (typeof parsed.status === "string") rpcStatus = parsed.status;
+                } catch {
+                  // Fall through with rpcStatus === null.
+                }
+                if (rpcStatus !== "ok") {
                   clearTimeout(timeout);
                   reject(
                     new Error(
-                      `RPC did not return ok status; psql output: ${out}`,
+                      `RPC did not return ok status (got ${JSON.stringify(rpcStatus)}); psql output: ${out}`,
                     ),
                   );
                 }
@@ -244,7 +278,15 @@ describe.skipIf(!HAS_LIVE_INFRA)(
         );
 
         const evt = await eventReceived;
+        // Codex R4 M-1 fix: assert the FULL production contract — name
+        // alone is insufficient.
         expect(evt.event).toBe("invalidate");
+        expect(evt.show_id).toBe(showId);
+        // version_token comes from public.shows.viewer_version_token (a
+        // text column populated by the bump trigger). It must be a
+        // non-empty string for production subscribeToShow to forward it.
+        expect(typeof evt.version_token).toBe("string");
+        expect(evt.version_token).not.toBe("");
       } finally {
         await admin.from("shows").delete().eq("id", showId);
       }
