@@ -1,4 +1,12 @@
-import { describe, expect, test, vi, beforeEach } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+  vi,
+} from "vitest";
 
 vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdminIdentity: vi.fn().mockResolvedValue({ email: "admin@example.com" }),
@@ -27,9 +35,28 @@ import {
 } from "@/lib/data/signedLinks";
 import { revalidatePath } from "next/cache";
 
+const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
+
+afterEach(() => {
+  consoleLogSpy.mockClear();
+});
+
+afterAll(() => {
+  consoleLogSpy.mockRestore();
+});
+
+const AUDIT_PREFIX = "[m9.5 signed-link admin] ";
+
+function parseAuditPayload(arg: unknown): Record<string, unknown> {
+  expect(typeof arg).toBe("string");
+  const s = arg as string;
+  expect(s.startsWith(AUDIT_PREFIX)).toBe(true);
+  return JSON.parse(s.slice(AUDIT_PREFIX.length)) as Record<string, unknown>;
+}
 
 function fd(showId: string | null, crewName: string | null): FormData {
   const f = new FormData();
@@ -102,6 +129,30 @@ describe("revokeAllLinksAction", () => {
     expect(result.kind).toBe("refused");
     expect(revokeAllLinks).not.toHaveBeenCalled();
   });
+
+  test("ok outcome emits structured Vercel-log audit row with action/show/crew/actor/new_floor", async () => {
+    vi.mocked(revokeAllLinks).mockResolvedValue({
+      kind: "ok",
+      row: { current_token_version: 3, max_issued_version: 3, revoked_below_version: 3 },
+    });
+    await revokeAllLinksAction(null, fd("show-uuid", "Alice"));
+    expect(consoleLogSpy).toHaveBeenCalledTimes(1);
+    const payload = parseAuditPayload(consoleLogSpy.mock.calls[0]?.[0]);
+    expect(payload).toMatchObject({
+      action: "revoke_all_links",
+      show_id: "show-uuid",
+      crew_name: "Alice",
+      actor_email: "admin@example.com",
+      new_floor: 3,
+    });
+    expect(typeof payload.timestamp).toBe("string");
+  });
+
+  test("refused outcomes DO NOT emit an audit row (audit is for successful mutations only)", async () => {
+    vi.mocked(revokeAllLinks).mockResolvedValue({ kind: "no_live_link" });
+    await revokeAllLinksAction(null, fd("show-uuid", "Alice"));
+    expect(consoleLogSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("issueNewLinkAction", () => {
@@ -144,5 +195,29 @@ describe("issueNewLinkAction", () => {
     const result = await issueNewLinkAction(null, new FormData());
     expect(result.kind).toBe("refused");
     expect(issueNewLink).not.toHaveBeenCalled();
+  });
+
+  test("ok outcome emits structured Vercel-log audit row with new_token_version", async () => {
+    vi.mocked(issueNewLink).mockResolvedValue({
+      kind: "ok",
+      row: { current_token_version: 4, max_issued_version: 4, revoked_below_version: 1 },
+    });
+    await issueNewLinkAction(null, fd("show-uuid", "Alice"));
+    expect(consoleLogSpy).toHaveBeenCalledTimes(1);
+    const payload = parseAuditPayload(consoleLogSpy.mock.calls[0]?.[0]);
+    expect(payload).toMatchObject({
+      action: "issue_new_link",
+      show_id: "show-uuid",
+      crew_name: "Alice",
+      actor_email: "admin@example.com",
+      new_token_version: 4,
+    });
+    expect(typeof payload.timestamp).toBe("string");
+  });
+
+  test("refused outcomes DO NOT emit an audit row", async () => {
+    vi.mocked(issueNewLink).mockResolvedValue({ kind: "show_not_found" });
+    await issueNewLinkAction(null, fd("missing", "Alice"));
+    expect(consoleLogSpy).not.toHaveBeenCalled();
   });
 });

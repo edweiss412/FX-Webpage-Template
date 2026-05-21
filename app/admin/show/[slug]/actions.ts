@@ -35,6 +35,42 @@ export type ShowLinkActionResult =
         | "ADMIN_LINK_CREW_NOT_FOUND";
     };
 
+/**
+ * Structured audit emission for successful link mutations.
+ *
+ * Why Server Action layer (not RPC body):
+ *   - admin_alerts.upsert is wrong here — its uniq index on
+ *     (show_id, code) where resolved_at is null would collapse repeated
+ *     revokes into occurrence_count bumps + clutter AlertBanner with
+ *     unresolved INFO-class rows Doug doesn't need to dismiss.
+ *   - PL/pgSQL structured logs don't land in the same Vercel surface
+ *     as Next.js function logs.
+ *   - Vercel function logs are durable (90-day retention on Pro),
+ *     queryable, and capture request context automatically.
+ *
+ * The "[m9.5 signed-link admin]" prefix is greppable in Vercel logs.
+ * The JSON payload shape is forward-compatible with the future
+ * operatorLog.emit() sink (BL-OPS-LOG); when that lands, this helper
+ * becomes a thin wrapper.
+ */
+type AuditPayload = {
+  action: "revoke_all_links" | "issue_new_link";
+  show_id: string;
+  crew_name: string;
+  actor_email: string;
+  new_floor?: number;
+  new_token_version?: number;
+};
+
+function emitAuditLog(payload: AuditPayload): void {
+  console.log(
+    `[m9.5 signed-link admin] ${JSON.stringify({
+      ...payload,
+      timestamp: new Date().toISOString(),
+    })}`,
+  );
+}
+
 function readShowAndCrew(
   formData: FormData,
 ): { showId: string; crewName: string } | null {
@@ -49,7 +85,7 @@ export async function revokeAllLinksAction(
   _prev: ShowLinkActionResult | null,
   formData: FormData,
 ): Promise<ShowLinkActionResult> {
-  await requireAdminIdentity();
+  const actor = await requireAdminIdentity();
 
   const input = readShowAndCrew(formData);
   if (!input) return { kind: "refused", code: "ADMIN_LINK_CREW_NOT_FOUND" };
@@ -61,6 +97,13 @@ export async function revokeAllLinksAction(
 
   switch (outcome.kind) {
     case "ok":
+      emitAuditLog({
+        action: "revoke_all_links",
+        show_id: input.showId,
+        crew_name: input.crewName,
+        actor_email: actor.email,
+        new_floor: outcome.row.revoked_below_version,
+      });
       revalidatePath("/admin/show/[slug]", "page");
       return { kind: "ok", code: "ADMIN_LINK_REVOKED_OK" };
     case "no_live_link":
@@ -76,7 +119,7 @@ export async function issueNewLinkAction(
   _prev: ShowLinkActionResult | null,
   formData: FormData,
 ): Promise<ShowLinkActionResult> {
-  await requireAdminIdentity();
+  const actor = await requireAdminIdentity();
 
   const input = readShowAndCrew(formData);
   if (!input) return { kind: "refused", code: "ADMIN_LINK_CREW_NOT_FOUND" };
@@ -88,6 +131,13 @@ export async function issueNewLinkAction(
 
   switch (outcome.kind) {
     case "ok":
+      emitAuditLog({
+        action: "issue_new_link",
+        show_id: input.showId,
+        crew_name: input.crewName,
+        actor_email: actor.email,
+        new_token_version: outcome.row.current_token_version,
+      });
       revalidatePath("/admin/show/[slug]", "page");
       return { kind: "ok", code: "ADMIN_LINK_ISSUED_OK" };
     case "show_not_found":
