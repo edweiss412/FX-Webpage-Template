@@ -369,4 +369,45 @@ describe("META infra-failure contract", () => {
       ).rejects.toBeInstanceOf(AdminEmailsInfraError);
     });
   });
+
+  // M9.5 — signed-link admin controls. These helpers are auth-surface
+  // mutations because a silent infra fault could be misreported as
+  // "links revoked" or "new link issued" while the DB row never changed.
+  describe("lib/data/signedLinks", () => {
+    test("revokeAllLinks: server-client construction throw → SignedLinksInfraError", async () => {
+      infraMock.throwOnConstruct = true;
+      const { revokeAllLinks, SignedLinksInfraError } = await import("@/lib/data/signedLinks");
+
+      await expect(
+        revokeAllLinks({ showId: "11111111-1111-4111-8111-111111111111", crewName: "Alice" }),
+      ).rejects.toBeInstanceOf(SignedLinksInfraError);
+    });
+
+    test("revokeAllLinks: rpc throw → SignedLinksInfraError", async () => {
+      infraMock.throwOnRpc = true;
+      const { revokeAllLinks, SignedLinksInfraError } = await import("@/lib/data/signedLinks");
+
+      await expect(
+        revokeAllLinks({ showId: "11111111-1111-4111-8111-111111111111", crewName: "Alice" }),
+      ).rejects.toBeInstanceOf(SignedLinksInfraError);
+    });
+
+    test("issueNewLink: server-client construction throw → SignedLinksInfraError", async () => {
+      infraMock.throwOnConstruct = true;
+      const { issueNewLink, SignedLinksInfraError } = await import("@/lib/data/signedLinks");
+
+      await expect(
+        issueNewLink({ showId: "11111111-1111-4111-8111-111111111111", crewName: "Alice" }),
+      ).rejects.toBeInstanceOf(SignedLinksInfraError);
+    });
+
+    test("issueNewLink: rpc throw → SignedLinksInfraError", async () => {
+      infraMock.throwOnRpc = true;
+      const { issueNewLink, SignedLinksInfraError } = await import("@/lib/data/signedLinks");
+
+      await expect(
+        issueNewLink({ showId: "11111111-1111-4111-8111-111111111111", crewName: "Alice" }),
+      ).rejects.toBeInstanceOf(SignedLinksInfraError);
+    });
+  });
 });

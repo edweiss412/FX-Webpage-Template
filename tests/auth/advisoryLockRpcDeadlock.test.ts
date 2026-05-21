@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = process.cwd();
+const SIGNED_LINK_ADMIN_RPC_MIGRATION =
+  "supabase/migrations/20260520000000_signed_link_admin_rpcs.sql";
 
 function stripComments(source: string): string {
   return source
@@ -19,7 +21,7 @@ function lockTakingRpcNames(): string[] {
     "supabase/migrations/20260505000001_redeem_link_locked_rpcs.sql",
     "supabase/migrations/20260505000002_mint_bootstrap_nonce_atomic.sql",
     "supabase/migrations/20260505000003_recheck_link_session_mint_auth_state.sql",
-    "supabase/migrations/20260520000000_signed_link_admin_rpcs.sql",
+    SIGNED_LINK_ADMIN_RPC_MIGRATION,
   ];
 
   const names = new Set<string>();
@@ -39,6 +41,16 @@ function lockTakingRpcNames(): string[] {
   return [...names].sort();
 }
 
+function signedLinkAdminRpcNames(): string[] {
+  const source = stripComments(readFileSync(join(ROOT, SIGNED_LINK_ADMIN_RPC_MIGRATION), "utf8"));
+  return [
+    ...source.matchAll(/create\s+(?:or\s+replace\s+)?function\s+public\.([a-z0-9_]+)\s*\(/gi),
+  ]
+    .map((match) => match[1])
+    .filter((name): name is string => Boolean(name))
+    .sort();
+}
+
 describe("advisory-lock RPC deadlock guard", () => {
   test("no Supabase RPC that takes a show advisory lock is called inside withShowAdvisoryLock", () => {
     const lockTakingNames = lockTakingRpcNames();
@@ -46,8 +58,12 @@ describe("advisory-lock RPC deadlock guard", () => {
     expect(lockTakingNames).toContain("consume_bootstrap_nonce_atomic");
     expect(lockTakingNames).toContain("mint_link_session_if_active_kid_matches");
     expect(lockTakingNames).toContain("mint_bootstrap_nonce_atomic");
-    expect(lockTakingNames).toContain("revoke_all_links_rpc");
-    expect(lockTakingNames).toContain("issue_new_link_rpc");
+
+    const signedLinkAdminNames = signedLinkAdminRpcNames();
+    expect(signedLinkAdminNames).toHaveLength(2);
+    for (const name of signedLinkAdminNames) {
+      expect(lockTakingNames).toContain(name);
+    }
 
     const sourceFiles = [
       "app/api/auth/redeem-link/route.ts",
