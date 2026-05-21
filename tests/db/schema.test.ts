@@ -104,7 +104,7 @@ describe("initial public schema migration", () => {
 
         expect(body).toMatch(/unique\s*\(\s*show_id\s*,\s*name\s*\)/i);
         expect(sql).toMatch(
-          /constraint\s+crew_members_email_canonical\s+check\s*\(\s*email\s+is\s+null\s+or\s+email\s*=\s*lower\s*\(\s*trim\s*\(\s*email\s*\)\s*\)\s*\)/i,
+          /constraint\s+crew_members_email_canonical\s+check\s*\(\s*email\s+is\s+null\s+or\s*\(\s*email\s*=\s*lower\s*\(\s*trim\s*\(\s*email\s*\)\s*\)\s+and\s+email\s*<>\s*''\s*\)\s*\)/i,
         );
         expect(sql).toMatch(
           /create\s+unique\s+index\s+crew_members_show_email_unique\s+on\s+(?:public\.)?crew_members\s*\(\s*show_id\s*,\s*email\s*\)\s+where\s+email\s+is\s+not\s+null\s*;/i,
@@ -176,7 +176,7 @@ describe("initial public schema migration", () => {
         expectColumn(body, "schedule", /jsonb\s+not\s+null\s+default\s+'\[\]'::jsonb/);
         expectColumn(body, "notes", /text/);
         expect(sql).toMatch(
-          /constraint\s+transportation_driver_email_canonical\s+check\s*\(\s*driver_email\s+is\s+null\s+or\s+driver_email\s*=\s*lower\s*\(\s*trim\s*\(\s*driver_email\s*\)\s*\)\s*\)/i,
+          /constraint\s+transportation_driver_email_canonical\s+check\s*\(\s*driver_email\s+is\s+null\s+or\s*\(\s*driver_email\s*=\s*lower\s*\(\s*trim\s*\(\s*driver_email\s*\)\s*\)\s+and\s+driver_email\s*<>\s*''\s*\)\s*\)/i,
         );
       });
 
@@ -195,7 +195,7 @@ describe("initial public schema migration", () => {
         expectColumn(body, "phone", /text/);
         expectColumn(body, "notes", /text/);
         expect(sql).toMatch(
-          /constraint\s+contacts_email_canonical\s+check\s*\(\s*email\s+is\s+null\s+or\s+email\s*=\s*lower\s*\(\s*trim\s*\(\s*email\s*\)\s*\)\s*\)/i,
+          /constraint\s+contacts_email_canonical\s+check\s*\(\s*email\s+is\s+null\s+or\s*\(\s*email\s*=\s*lower\s*\(\s*trim\s*\(\s*email\s*\)\s*\)\s+and\s+email\s*<>\s*''\s*\)\s*\)/i,
         );
       });
 

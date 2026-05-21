@@ -39,18 +39,20 @@ const requiredChecks: CheckExpectation[] = [
   {
     table: "crew_members",
     constraint: "crew_members_email_canonical",
-    definition: "CHECK (((email IS NULL) OR (email = lower(TRIM(BOTH FROM email)))))",
+    definition:
+      "CHECK (((email IS NULL) OR ((email = lower(TRIM(BOTH FROM email))) AND (email <> ''::text))))",
   },
   {
     table: "transportation",
     constraint: "transportation_driver_email_canonical",
     definition:
-      "CHECK (((driver_email IS NULL) OR (driver_email = lower(TRIM(BOTH FROM driver_email)))))",
+      "CHECK (((driver_email IS NULL) OR ((driver_email = lower(TRIM(BOTH FROM driver_email))) AND (driver_email <> ''::text))))",
   },
   {
     table: "contacts",
     constraint: "contacts_email_canonical",
-    definition: "CHECK (((email IS NULL) OR (email = lower(TRIM(BOTH FROM email)))))",
+    definition:
+      "CHECK (((email IS NULL) OR ((email = lower(TRIM(BOTH FROM email))) AND (email <> ''::text))))",
   },
   {
     table: "pending_syncs",
