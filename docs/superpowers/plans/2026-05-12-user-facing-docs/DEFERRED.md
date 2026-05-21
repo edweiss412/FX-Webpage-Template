@@ -54,6 +54,13 @@ Phase E docs at `app/help/admin/sharing-links/page.mdx` continue to document the
 - **Spec status:** Spec §3.6 (screenshot harness) + AC-11.18 / AC-11.19 / AC-11.20 / AC-11.25 / AC-11.26 are canonical. M11 plan tree Phase F owns implementation.
 - **Re-open trigger:** Phase F creates `public/help/screenshots/` with at least one `.webp` — the new meta-test auto-activates and pins the asset coverage. **Production deployment of Phase E should wait for Phase F.10 to land** so admins don't see broken-image URLs during the interval.
 - **Operational note:** if Phase E content needs to deploy to production BEFORE Phase F lands (e.g., for early review), convert the 3 `<Screenshot>` references to `<ScreenshotPlaceholder>` per plan body line 57 + temporarily relax the per-page no-placeholder assertion. Phase F.11 reverts.
+- **M9.5 pin-stop note (2026-05-20):** the `<ScreenshotPlaceholder>` stopgap is now reflected by `it.skip` on the six pre-existing red assertions that expected live `<Screenshot>` usage or no placeholders. Phase F.11 should remove the skips from:
+  - `tests/help/_metaScreenshotAssetExistence.test.ts` — `collector finds every <Screenshot name> on disk as of Phase E close`
+  - `tests/help/page-dashboard.test.tsx` — `does NOT reference <ScreenshotPlaceholder> (v1 ships real screenshots — Phase H.4 lint enforces)`
+  - `tests/help/page-preview-as-crew.test.tsx` — `renders a <Screenshot name="preview-as-crew-banner"> placeholder (Phase F populates WebP)`
+  - `tests/help/page-preview-as-crew.test.tsx` — `does NOT reference <ScreenshotPlaceholder> (v1 ships real screenshots — Phase H.4 lint enforces)`
+  - `tests/help/page-review-queues.test.tsx` — `includes the side-by-side Screenshot per content brief step 7`
+  - `tests/help/page-review-queues.test.tsx` — `does NOT reference <ScreenshotPlaceholder> (v1 ships real screenshots — Phase H.4 lint enforces)`
 
 ---
 
