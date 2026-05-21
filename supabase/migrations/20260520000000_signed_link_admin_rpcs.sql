@@ -31,6 +31,21 @@ begin
 
   perform pg_advisory_xact_lock(hashtext('show:' || v_show.drive_file_id));
 
+  -- Codex R1 M1 fix: crew_member_auth rows persist after crew removal
+  -- (no FK to crew_members; correlation is (show_id, crew_name) only).
+  -- A stale or forged admin submit can name a crew row that the sync
+  -- removed but whose auth row still exists. Require the active roster
+  -- row inside the advisory lock so revoke-all on an orphan auth row
+  -- returns crew_member_not_found rather than touching the row.
+  if not exists (
+    select 1
+      from public.crew_members
+     where show_id = p_show_id
+       and name = p_crew_name
+  ) then
+    return jsonb_build_object('status', 'crew_member_not_found');
+  end if;
+
   select * into v_row
     from public.crew_member_auth
    where show_id = p_show_id
@@ -84,6 +99,23 @@ begin
   end if;
 
   perform pg_advisory_xact_lock(hashtext('show:' || v_show.drive_file_id));
+
+  -- Codex R1 M1 fix: validate the active crew_members row exists for
+  -- (show_id, crew_name) BEFORE the UPDATE. Without this guard, a
+  -- stale UI form (or forged FormData) submitted after sync removes
+  -- a crew member would re-activate the orphaned auth row to a live
+  -- token version, emit an "issued" audit log, and diverge auth state
+  -- from the roster — even though there is no crew_members row to
+  -- receive a link. The check runs inside the per-show advisory lock
+  -- so it linearizes correctly against concurrent sync apply.
+  if not exists (
+    select 1
+      from public.crew_members
+     where show_id = p_show_id
+       and name = p_crew_name
+  ) then
+    return jsonb_build_object('status', 'crew_member_not_found');
+  end if;
 
   update public.crew_member_auth
      set current_token_version = max_issued_version + 1,
