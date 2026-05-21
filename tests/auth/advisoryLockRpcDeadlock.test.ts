@@ -71,6 +71,7 @@ describe("advisory-lock RPC deadlock guard", () => {
       "app/show/[slug]/p/actions.ts",
       "lib/realtime/showInvalidation.ts",
       "app/admin/dev/actions.ts",
+      "app/admin/show/[slug]/actions.ts", // M9.5
     ];
 
     for (const file of sourceFiles) {
