@@ -67,7 +67,11 @@ describe("X.6 traceability matrix", () => {
   test("workflow parity rejects pull_request_target and privileged secrets in the reader job", () => {
     const workflow = readFileSync(WORKFLOW_PATH, "utf8")
       .replace("pull_request:", "pull_request_target:")
-      .replace("GH_TOKEN: ${{ github.token }}", "GH_TOKEN: ${{ secrets.GH_APP_TOKEN }}");
+      .replace("GH_TOKEN: ${{ github.token }}", "GH_TOKEN: ${{ secrets.GH_APP_TOKEN }}")
+      .replace(
+        /(verify-branch-protection-status:\n(?:\s*#.*\n)*)\s*if:\s*false\s*\n/,
+        "$1",
+      ); // simulate reader re-enabled; remove when X6-D-1 closes
 
     expect(parseWorkflowFindings(workflow)).toEqual(
       expect.arrayContaining([
