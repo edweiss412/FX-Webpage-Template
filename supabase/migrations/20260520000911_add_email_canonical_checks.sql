@@ -52,37 +52,35 @@ alter table public.reports
 
 alter table public.report_rate_limits
   drop constraint if exists report_rate_limits_admin_identity_email_canonical;
--- Pre-merge duplicate admin buckets that would collide on the (kind, identity, hour_bucket)
--- primary key after canonicalization (e.g. 'Doug@x.com' and 'doug@x.com' in the same hour).
--- Sum the counts onto whichever row has the canonical identity, deleting the non-canonical
--- collision partner. After this, any remaining non-canonical admin rows have no canonical
--- companion in the same hour and the in-place UPDATE below is collision-free.
-with collisions as (
-  select n.kind, n.identity as old_id, lower(trim(n.identity)) as new_id, n.hour_bucket, n.count
-    from public.report_rate_limits n
-   where n.kind = 'admin'
-     and n.identity is distinct from lower(trim(n.identity))
-     and exists (
-       select 1 from public.report_rate_limits r
-        where r.kind = n.kind
-          and r.identity = lower(trim(n.identity))
-          and r.hour_bucket = n.hour_bucket
-     )
-),
-merged as (
-  update public.report_rate_limits r
-     set count = r.count + c.count
-    from collisions c
-   where r.kind = c.kind
-     and r.identity = c.new_id
-     and r.hour_bucket = c.hour_bucket
-   returning r.kind, r.identity, r.hour_bucket
-)
-delete from public.report_rate_limits r
- using collisions c
- where r.kind = c.kind
-   and r.identity = c.old_id
-   and r.hour_bucket = c.hour_bucket;
+-- Coalesce admin quota buckets that would collide on the (kind, identity, hour_bucket)
+-- primary key after canonicalization. Handles both shapes:
+--   (a) non-canonical + already-canonical in same hour ('Doug@x.com' + 'doug@x.com'),
+--   (b) two non-canonicals normalizing to the same key ('Admin@x.com' + ' admin@x.com ').
+-- A WITH ... DELETE ... INSERT pattern uses a single snapshot in PG, so the INSERT
+-- can collide on PK before the DELETE has visible effect. PL/pgSQL gives the needed
+-- per-statement sequencing: for each colliding group, delete every variant and then
+-- insert a single canonical row with the summed count. The UPDATE below renames the
+-- remaining non-canonical singletons (groups of size 1 with no canonical companion).
+do $$
+declare
+  g record;
+begin
+  for g in
+    select kind, lower(trim(identity)) as canonical_id, hour_bucket, sum(count) as total_count
+      from public.report_rate_limits
+     where kind = 'admin'
+     group by kind, lower(trim(identity)), hour_bucket
+    having count(*) > 1
+  loop
+    delete from public.report_rate_limits r
+     where r.kind = g.kind
+       and lower(trim(r.identity)) = g.canonical_id
+       and r.hour_bucket = g.hour_bucket;
+    insert into public.report_rate_limits (kind, identity, hour_bucket, count)
+    values (g.kind, g.canonical_id, g.hour_bucket, g.total_count);
+  end loop;
+end
+$$;
 update public.report_rate_limits
    set identity = lower(trim(identity))
  where kind = 'admin'
@@ -132,34 +130,29 @@ begin
        and reported_by is distinct from lower(trim(reported_by));
   end if;
   if to_regclass('dev.report_rate_limits') is not null then
-    -- Same pre-merge as public.report_rate_limits above: coalesce admin buckets
-    -- that would collide on the (kind, identity, hour_bucket) PK after canonicalization.
-    with collisions as (
-      select n.kind, n.identity as old_id, lower(trim(n.identity)) as new_id, n.hour_bucket, n.count
-        from dev.report_rate_limits n
-       where n.kind = 'admin'
-         and n.identity is distinct from lower(trim(n.identity))
-         and exists (
-           select 1 from dev.report_rate_limits r
-            where r.kind = n.kind
-              and r.identity = lower(trim(n.identity))
-              and r.hour_bucket = n.hour_bucket
-         )
-    ),
-    merged as (
-      update dev.report_rate_limits r
-         set count = r.count + c.count
-        from collisions c
-       where r.kind = c.kind
-         and r.identity = c.new_id
-         and r.hour_bucket = c.hour_bucket
-       returning r.kind, r.identity, r.hour_bucket
-    )
-    delete from dev.report_rate_limits r
-     using collisions c
-     where r.kind = c.kind
-       and r.identity = c.old_id
-       and r.hour_bucket = c.hour_bucket;
+    -- Coalesce admin quota buckets that would collide on the (kind, identity, hour_bucket)
+    -- primary key after canonicalization. Handles non-canonical+canonical AND
+    -- two-non-canonicals shapes. PL/pgSQL FOR loop is used (instead of a WITH ... DELETE
+    -- ... INSERT) because the latter shares a single snapshot in PG and the INSERT can
+    -- collide on PK before the DELETE has visible effect.
+    declare
+      g record;
+    begin
+      for g in
+        select kind, lower(trim(identity)) as canonical_id, hour_bucket, sum(count) as total_count
+          from dev.report_rate_limits
+         where kind = 'admin'
+         group by kind, lower(trim(identity)), hour_bucket
+        having count(*) > 1
+      loop
+        delete from dev.report_rate_limits r
+         where r.kind = g.kind
+           and lower(trim(r.identity)) = g.canonical_id
+           and r.hour_bucket = g.hour_bucket;
+        insert into dev.report_rate_limits (kind, identity, hour_bucket, count)
+        values (g.kind, g.canonical_id, g.hour_bucket, g.total_count);
+      end loop;
+    end;
     update dev.report_rate_limits
        set identity = lower(trim(identity))
      where kind = 'admin'

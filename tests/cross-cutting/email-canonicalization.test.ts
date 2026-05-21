@@ -437,47 +437,79 @@ describe("X.5 email canonicalization audit", () => {
 
         delete from public.report_rate_limits
          where kind = 'admin'
-           and identity ilike '%collide@example.com%';
+           and (identity ilike '%collide@example.com%' or identity ilike '%nocanon@example.com%');
         delete from dev.report_rate_limits
          where kind = 'admin'
-           and identity ilike '%dev.collide@example.com%';
+           and (identity ilike '%dev.collide@example.com%' or identity ilike '%dev.nocanon@example.com%');
 
-        -- Public: two admin rows differing only by case, same hour_bucket.
+        -- Public collision shape (a): non-canonical + already-canonical in same hour.
         insert into public.report_rate_limits (kind, identity, hour_bucket, count) values
           ('admin', ' Admin.Collide@Example.COM ', '2026-05-20T00:00:00Z'::timestamptz, 3),
           ('admin', 'admin.collide@example.com', '2026-05-20T00:00:00Z'::timestamptz, 5);
+        -- Public collision shape (b): two non-canonicals normalizing to same key, no canonical companion.
+        insert into public.report_rate_limits (kind, identity, hour_bucket, count) values
+          ('admin', 'Admin.NoCanon@Example.com', '2026-05-20T01:00:00Z'::timestamptz, 4),
+          ('admin', ' admin.nocanon@example.com ', '2026-05-20T01:00:00Z'::timestamptz, 6);
 
-        -- Dev: same collision shape.
+        -- Dev collision shape (a).
         insert into dev.report_rate_limits (kind, identity, hour_bucket, count) values
           ('admin', ' Dev.Collide@Example.COM ', '2026-05-20T00:00:00Z'::timestamptz, 7),
           ('admin', 'dev.collide@example.com', '2026-05-20T00:00:00Z'::timestamptz, 11);
+        -- Dev collision shape (b).
+        insert into dev.report_rate_limits (kind, identity, hour_bucket, count) values
+          ('admin', 'Dev.NoCanon@Example.com', '2026-05-20T01:00:00Z'::timestamptz, 9),
+          ('admin', ' dev.nocanon@example.com ', '2026-05-20T01:00:00Z'::timestamptz, 13);
 
         \\i supabase/migrations/20260520000911_add_email_canonical_checks.sql
 
         select jsonb_build_object(
-          'public_count', (
+          'public_collide_count', (
             select count from public.report_rate_limits
              where kind = 'admin'
                and identity = 'admin.collide@example.com'
                and hour_bucket = '2026-05-20T00:00:00Z'::timestamptz
           ),
-          'public_rows', (
+          'public_collide_rows', (
             select count(*) from public.report_rate_limits
              where kind = 'admin'
                and identity ilike '%collide@example.com%'
                and hour_bucket = '2026-05-20T00:00:00Z'::timestamptz
           ),
-          'dev_count', (
+          'public_nocanon_count', (
+            select count from public.report_rate_limits
+             where kind = 'admin'
+               and identity = 'admin.nocanon@example.com'
+               and hour_bucket = '2026-05-20T01:00:00Z'::timestamptz
+          ),
+          'public_nocanon_rows', (
+            select count(*) from public.report_rate_limits
+             where kind = 'admin'
+               and identity ilike '%nocanon@example.com%'
+               and hour_bucket = '2026-05-20T01:00:00Z'::timestamptz
+          ),
+          'dev_collide_count', (
             select count from dev.report_rate_limits
              where kind = 'admin'
                and identity = 'dev.collide@example.com'
                and hour_bucket = '2026-05-20T00:00:00Z'::timestamptz
           ),
-          'dev_rows', (
+          'dev_collide_rows', (
             select count(*) from dev.report_rate_limits
              where kind = 'admin'
                and identity ilike '%dev.collide@example.com%'
                and hour_bucket = '2026-05-20T00:00:00Z'::timestamptz
+          ),
+          'dev_nocanon_count', (
+            select count from dev.report_rate_limits
+             where kind = 'admin'
+               and identity = 'dev.nocanon@example.com'
+               and hour_bucket = '2026-05-20T01:00:00Z'::timestamptz
+          ),
+          'dev_nocanon_rows', (
+            select count(*) from dev.report_rate_limits
+             where kind = 'admin'
+               and identity ilike '%dev.nocanon@example.com%'
+               and hour_bucket = '2026-05-20T01:00:00Z'::timestamptz
           )
         )::text;
 
@@ -485,10 +517,14 @@ describe("X.5 email canonicalization audit", () => {
       `);
 
       expect(JSON.parse(output)).toEqual({
-        public_count: 8,
-        public_rows: 1,
-        dev_count: 18,
-        dev_rows: 1,
+        public_collide_count: 8,
+        public_collide_rows: 1,
+        public_nocanon_count: 10,
+        public_nocanon_rows: 1,
+        dev_collide_count: 18,
+        dev_collide_rows: 1,
+        dev_nocanon_count: 22,
+        dev_nocanon_rows: 1,
       });
     },
     15000,
