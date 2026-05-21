@@ -51,6 +51,23 @@ export async function revokeAllLinks(opts: {
   });
 }
 
+export async function issueNewLink(opts: {
+  showId: string;
+  crewName: string;
+}): Promise<IssueLinkOutcome> {
+  return wrapInfra("issueNewLink", async () => {
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase.rpc("issue_new_link_rpc", {
+      p_show_id: opts.showId,
+      p_crew_name: opts.crewName,
+    });
+    if (error) {
+      throw new SignedLinksInfraError(`issueNewLink.rpc: ${error.message}`);
+    }
+    return translateIssueResult(data);
+  });
+}
+
 type RpcEnvelope = {
   status?: unknown;
   row?: unknown;
@@ -72,6 +89,21 @@ function translateRevokeResult(data: unknown): RevokeAllLinksOutcome {
       throw new SignedLinksInfraError(
         `revokeAllLinks: unknown status from RPC: ${env.status}`,
       );
+  }
+}
+
+function translateIssueResult(data: unknown): IssueLinkOutcome {
+  const env = readEnvelope("issueNewLink", data);
+
+  switch (env.status) {
+    case "ok":
+      return { kind: "ok", row: readRowSnapshot("issueNewLink", env.row) };
+    case "show_not_found":
+      return { kind: "show_not_found" };
+    case "crew_member_not_found":
+      return { kind: "crew_member_not_found" };
+    default:
+      throw new SignedLinksInfraError(`issueNewLink: unknown status from RPC: ${env.status}`);
   }
 }
 
