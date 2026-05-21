@@ -182,3 +182,114 @@ describe("revoke_all_links_rpc behavior", () => {
     ).toThrow(/permission denied/i);
   });
 });
+
+describe("issue_new_link_rpc behavior", () => {
+  test("ok: bumps current_token_version and max_issued_version atomically", () => {
+    const driveFileId = `m9_5_rt_${randomUUID()}`;
+    const crewName = `Dave ${randomUUID()}`;
+
+    const out = runPsql(`
+      begin;
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin()}';
+      ${seedShowAndCrewSql(driveFileId, crewName)}
+      select 'result=' || (
+        public.issue_new_link_rpc(
+          (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
+          ${sqlString(crewName)}
+        )
+      )::text;
+      rollback;
+    `);
+
+    expect(out).toContain('"status": "ok"');
+    expect(out).toContain('"current_token_version": 2');
+    expect(out).toContain('"max_issued_version": 2');
+    expect(out).toContain('"revoked_below_version": 0');
+  });
+
+  test("ok: clears no-live-link state after revoke-all", () => {
+    const driveFileId = `m9_5_rt_${randomUUID()}`;
+    const crewName = `Eve ${randomUUID()}`;
+
+    const out = runPsql(`
+      begin;
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin()}';
+      ${seedShowAndCrewSql(driveFileId, crewName)}
+      select public.revoke_all_links_rpc(
+        (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
+        ${sqlString(crewName)}
+      );
+      select 'result=' || (
+        public.issue_new_link_rpc(
+          (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
+          ${sqlString(crewName)}
+        )
+      )::text;
+      rollback;
+    `);
+
+    expect(out).toContain('"status": "ok"');
+    expect(out).toContain('"current_token_version": 2');
+    expect(out).toContain('"max_issued_version": 2');
+    expect(out).toContain('"revoked_below_version": 1');
+  });
+
+  test("show_not_found: missing show_id returns the missing-show sentinel", () => {
+    const out = runPsql(`
+      begin;
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin()}';
+      select 'result=' || (
+        public.issue_new_link_rpc(
+          '00000000-0000-0000-0000-000000000000'::uuid,
+          'Nobody'
+        )
+      )::text;
+      rollback;
+    `);
+
+    expect(out).toContain('"status": "show_not_found"');
+  });
+
+  test("crew_member_not_found: missing crew_member_auth row returns sentinel", () => {
+    const driveFileId = `m9_5_rt_${randomUUID()}`;
+
+    const out = runPsql(`
+      begin;
+      set local role authenticated;
+      set local request.jwt.claims = '${jwtAdmin()}';
+      insert into public.shows (title, slug, drive_file_id, client_label, template_version, published)
+      values ('M9.5 test show', ${sqlString(driveFileId)}, ${sqlString(driveFileId)}, 'FXAV', 'test', true);
+      select 'result=' || (
+        public.issue_new_link_rpc(
+          (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
+          'NotASeededName'
+        )
+      )::text;
+      rollback;
+    `);
+
+    expect(out).toContain('"status": "crew_member_not_found"');
+  });
+
+  test("non-admin caller is denied at the is_admin() guard", () => {
+    const driveFileId = `m9_5_rt_${randomUUID()}`;
+    const crewName = `Frank ${randomUUID()}`;
+
+    expect(() =>
+      runPsql(`
+        begin;
+        ${seedShowAndCrewSql(driveFileId, crewName)}
+        set local role authenticated;
+        set local request.jwt.claims = '{"email":"random-non-admin-${randomUUID()}@example.com"}';
+        select public.issue_new_link_rpc(
+          (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
+          ${sqlString(crewName)}
+        );
+        rollback;
+      `),
+    ).toThrow(/permission denied/i);
+  });
+});
