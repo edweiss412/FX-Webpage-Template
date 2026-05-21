@@ -49,6 +49,42 @@ revoke insert, update, delete on table public.crew_member_auth
 -- inadvertently break the admin-page render path.
 grant select on table public.crew_member_auth to anon, authenticated;
 
+-- ----------------------------------------------------------------------
+-- Symmetric lockdown of public.crew_members (Codex R6 HIGH-1 fix).
+-- ----------------------------------------------------------------------
+--
+-- issue_new_link_rpc and revoke_all_links_rpc validate that an active
+-- public.crew_members row exists for (show_id, crew_name) inside the
+-- per-show advisory lock (Codex R1 M1). That predicate only linearizes
+-- against writers that ALSO hold the same lock.
+--
+-- The original RLS migration at
+-- supabase/migrations/20260501002000_rls_policies.sql granted
+-- authenticated INSERT/UPDATE/DELETE on crew_members directly. A
+-- compromised admin browser could therefore direct-DELETE a
+-- crew_members row outside the lock window, racing
+-- issue_new_link_rpc into issuing a live token version for a row
+-- that was just removed — recreating the orphan-auth-row class the
+-- R1 active-roster guard was supposed to close.
+--
+-- Production writers of crew_members all go through the sync
+-- pipeline (lib/sync/runScheduledCronSync.ts) which connects via
+-- DATABASE_URL pg.Pool as the superuser/postgres role, NOT through
+-- PostgREST. The onboarding wizard does not write crew_members
+-- directly either; its finalize path runs through the same sync apply
+-- (via DATABASE_URL).
+--
+-- Conclusion: authenticated does NOT need direct DML on crew_members.
+-- Lock it down with the same shape as crew_member_auth above.
+
+revoke insert, update, delete on table public.crew_members
+  from anon, authenticated;
+
+-- Preserve SELECT — the admin per-show page render
+-- (loadShowCrewWithAuth) AND viewer-side reads use crew_members
+-- via PostgREST.
+grant select on table public.crew_members to anon, authenticated;
+
 -- service_role is unaffected. The original RLS migration's
 -- `grant all privileges on table public.crew_member_auth to
--- service_role;` continues to apply.
+-- service_role;` continues to apply for both tables.

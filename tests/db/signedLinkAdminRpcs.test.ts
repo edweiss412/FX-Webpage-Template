@@ -440,6 +440,61 @@ describe("table-grant lockdown (Codex R5 HIGH-1 fix — RPCs are the canonical m
     expect(out).toContain("count=0");
   });
 
+  test("authenticated admin CANNOT direct-DELETE crew_members via PostgREST grants (Codex R6 HIGH-1 — symmetric lockdown)", () => {
+    const driveFileId = `m9_5_grant_${randomUUID()}`;
+    const crewName = `GrantBlocker ${randomUUID()}`;
+
+    expect(() =>
+      runPsql(`
+        begin;
+        set local request.jwt.claims = '${jwtAdmin()}';
+        ${seedShowAndCrewSql(driveFileId, crewName)}
+        set local role authenticated;
+        delete from public.crew_members
+         where show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)})
+           and name = ${sqlString(crewName)};
+        rollback;
+      `),
+    ).toThrow(/permission denied|insufficient privilege/i);
+  });
+
+  test("authenticated admin CANNOT direct-UPDATE crew_members.name via PostgREST grants (closes the rename-race vector)", () => {
+    const driveFileId = `m9_5_grant_${randomUUID()}`;
+    const crewName = `GrantBlocker ${randomUUID()}`;
+
+    expect(() =>
+      runPsql(`
+        begin;
+        set local request.jwt.claims = '${jwtAdmin()}';
+        ${seedShowAndCrewSql(driveFileId, crewName)}
+        set local role authenticated;
+        update public.crew_members
+           set name = 'renamed'
+         where show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)})
+           and name = ${sqlString(crewName)};
+        rollback;
+      `),
+    ).toThrow(/permission denied|insufficient privilege/i);
+  });
+
+  test("authenticated admin CAN still SELECT crew_members (loadShowCrewWithAuth read path preserved)", () => {
+    const driveFileId = `m9_5_grant_${randomUUID()}`;
+    const crewName = `GrantReader ${randomUUID()}`;
+
+    const out = runPsql(`
+      begin;
+      set local request.jwt.claims = '${jwtAdmin()}';
+      ${seedShowAndCrewSql(driveFileId, crewName)}
+      set local role authenticated;
+      select 'count=' || (
+        select count(*)::text from public.crew_members
+         where show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)})
+      );
+      rollback;
+    `);
+    expect(out).toContain("count=1");
+  });
+
   test("RPCs (SECURITY DEFINER) still mutate the table even though authenticated lost DML — round-trip via issue_new_link_rpc", () => {
     const driveFileId = `m9_5_grant_${randomUUID()}`;
     const crewName = `GrantRoundTrip ${randomUUID()}`;
