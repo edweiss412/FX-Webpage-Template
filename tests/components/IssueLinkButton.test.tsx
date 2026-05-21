@@ -87,8 +87,13 @@ describe("IssueLinkButton", () => {
     resolveAction({ kind: "ok", code: "ADMIN_LINK_ISSUED_OK" });
     await waitFor(() => {
       const ok = screen.getByTestId("per-show-crew-issue-ok");
-      expect(ok.textContent?.trim()).toBe("New link issued.");
+      // ok banner carries the catalog copy + a leading ✓ glyph
+      // (impeccable critique M-3 — distinguishes success from a
+      // neutral hint of identical chrome).
+      expect(ok.textContent?.trim()).toContain("New link issued.");
+      expect(ok.textContent?.trim()).toMatch(/^✓/);
       expect(ok.getAttribute("role")).toBe("status");
+      expect(ok.getAttribute("aria-live")).toBe("polite");
     });
   });
 

@@ -86,6 +86,13 @@ export function PerShowCrewSection({
       <ul className="flex flex-col gap-3">
         {crew.map((row) => {
           if (row.authMissing) {
+            // Impeccable critique M-4: don't render the affordance pair
+            // disabled in the authMissing branch — the diagnostic hint
+            // already explains why the row can't be acted on, and two
+            // greyed-out accent buttons of identical chrome are noise.
+            // The action layer remains the authoritative gate; even a
+            // forged submit reaches the data-layer's crew_member_not_
+            // found branch and refuses.
             return (
               <li
                 key={row.id}
@@ -104,19 +111,6 @@ export function PerShowCrewSection({
                   >
                     Auth row missing — cannot rotate or revoke. Investigate via sync logs.
                   </p>
-                </div>
-                <div className="flex flex-col items-end gap-2">
-                  <IssueLinkButton
-                    showId={showId}
-                    crewName={row.name}
-                    isFresh={false}
-                    disabled
-                  />
-                  <RevokeAllLinksButton
-                    showId={showId}
-                    crewName={row.name}
-                    disabled
-                  />
                 </div>
               </li>
             );
@@ -139,17 +133,22 @@ export function PerShowCrewSection({
                 <p className="text-base font-medium text-text-strong wrap-break-word">
                   {row.name}
                 </p>
-                {row.role !== null && (
-                  <p className="mt-1 text-xs uppercase tracking-wider text-text-subtle">
-                    {row.role}
-                  </p>
-                )}
+                {/* Impeccable critique L-5: no-live-link hint reads
+                 * as part of the row's status BEFORE the role label
+                 * (which is meta about the crew member, not the
+                 * row's auth state). Order: name → live state →
+                 * role. */}
                 {isNoLiveLink && (
                   <p
                     data-testid="per-show-crew-no-live-link-hint"
                     className="mt-1 text-xs text-text-subtle"
                   >
                     No live link.
+                  </p>
+                )}
+                {row.role !== null && (
+                  <p className="mt-1 text-xs text-text-faint">
+                    {row.role}
                   </p>
                 )}
               </div>

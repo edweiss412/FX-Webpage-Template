@@ -71,8 +71,10 @@ export function IssueLinkButton({
         <p
           data-testid="per-show-crew-issue-ok"
           role="status"
+          aria-live="polite"
           className="w-full rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
         >
+          <span aria-hidden="true" className="mr-1 font-semibold">✓</span>
           {okMessage}
         </p>
       )}

@@ -142,17 +142,18 @@ describe("PerShowCrewSection", () => {
     expect(screen.queryByText("Alice")).toBeNull();
   });
 
-  test("auth-missing row: both affordances disabled + diagnostic copy visible (Codex R1 HIGH-1 fix)", () => {
+  test("auth-missing row: affordances HIDDEN (impeccable critique M-4 fix); diagnostic copy visible; action layer remains authoritative gate", () => {
     render(<PerShowCrewSection showId="show-uuid" crew={[authMissingRow]} />);
     expect(
       screen.getByTestId("per-show-crew-auth-missing-hint"),
     ).toBeTruthy();
-    const issueBtn = screen.getByTestId("stub-issue-button") as HTMLButtonElement;
-    const revokeBtn = screen.getByTestId("stub-revoke-button") as HTMLButtonElement;
-    expect(issueBtn.disabled).toBe(true);
-    expect(revokeBtn.disabled).toBe(true);
-    // The diagnostic copy mentions the auth row is missing — the
-    // load-bearing signal that distinguishes this from a normal row.
+    // Impeccable critique M-4: two greyed-out accent buttons in the
+    // authMissing branch were noise — the hint already explains. The
+    // affordance pair is now omitted from the render entirely. The
+    // Server Action layer remains the authoritative gate (any forged
+    // submit hits the crew_member_not_found data-layer branch).
+    expect(screen.queryByTestId("stub-issue-button")).toBeNull();
+    expect(screen.queryByTestId("stub-revoke-button")).toBeNull();
     expect(
       screen
         .getByTestId("per-show-crew-auth-missing-hint")

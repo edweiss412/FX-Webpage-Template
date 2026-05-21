@@ -71,13 +71,16 @@ describe("RevokeAllLinksButton — two-tap state machine", () => {
     expect(getIdleButton().disabled).toBe(true);
   });
 
-  test("idle → click → confirm row appears with Confirm + Cancel siblings", () => {
+  test("idle → click → confirm row appears with Confirm + Cancel siblings + role=group + aria-label (impeccable audit L-3)", () => {
     render(
       <RevokeAllLinksButton showId="show-uuid" crewName="Alice" disabled={false} />,
     );
     fireEvent.click(getIdleButton());
     expect(getConfirmButton().textContent?.trim()).toBe("Confirm revoke");
     expect(getCancelButton().textContent?.trim()).toBe("Cancel");
+    const group = screen.getByTestId("per-show-crew-revoke-confirm-row");
+    expect(group.getAttribute("role")).toBe("group");
+    expect(group.getAttribute("aria-label")).toContain("Confirm revoking");
   });
 
   test("confirm → Cancel reverts to idle", () => {
@@ -119,8 +122,15 @@ describe("RevokeAllLinksButton — two-tap state machine", () => {
     resolveAction({ kind: "ok", code: "ADMIN_LINK_REVOKED_OK" });
     await waitFor(() => {
       const ok = screen.getByTestId("per-show-crew-revoke-ok");
-      expect(ok.textContent?.trim()).toBe("All links revoked.");
+      // Impeccable critique HIGH-1 + M-2 + M-3: banner carries
+      // "Last attempt:" prefix + ✓ glyph + the catalog copy. This
+      // visually links the banner to the destructive action that
+      // snapped back to idle.
+      expect(ok.textContent).toContain("All links revoked.");
+      expect(ok.textContent).toContain("Last attempt:");
+      expect(ok.textContent).toContain("✓");
       expect(ok.getAttribute("role")).toBe("status");
+      expect(ok.getAttribute("aria-live")).toBe("polite");
     });
   });
 
@@ -136,7 +146,8 @@ describe("RevokeAllLinksButton — two-tap state machine", () => {
     fireEvent.click(getConfirmButton());
     await waitFor(() => {
       const refused = screen.getByTestId("per-show-crew-revoke-refused");
-      expect(refused.textContent?.trim()).toBe("No live link to revoke.");
+      expect(refused.textContent).toContain("No live link to revoke.");
+      expect(refused.textContent).toContain("Last attempt:");
       expect(refused.getAttribute("role")).toBe("alert");
     });
     // R8 snap-to-idle: after refused result, ui returns to idle so the
