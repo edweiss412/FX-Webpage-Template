@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,6 +13,29 @@ function runPsql(sql: string): string {
     input: sql,
     encoding: "utf8",
   }).trim();
+}
+
+/**
+ * Run psql and capture BOTH stdout AND stderr. RAISE NOTICE emissions
+ * (used for the M9.5 R7 DB-side audit trail) land on stderr, so
+ * runPsql alone can't observe them. Used by the R7 audit-emission
+ * regression tests below.
+ */
+function runPsqlWithStderr(sql: string): { stdout: string; stderr: string } {
+  const result = spawnSync(
+    "psql",
+    [databaseUrl, "-v", "ON_ERROR_STOP=1", "-At"],
+    { input: sql, encoding: "utf8" },
+  );
+  if (result.status !== 0) {
+    throw new Error(
+      `psql exit ${result.status}: ${result.stderr?.trim() ?? "(no stderr)"}`,
+    );
+  }
+  return {
+    stdout: (result.stdout ?? "").trim(),
+    stderr: (result.stderr ?? "").trim(),
+  };
 }
 
 function sqlString(value: string): string {
@@ -516,6 +539,131 @@ describe("table-grant lockdown (Codex R5 HIGH-1 fix — RPCs are the canonical m
     // The RPC's UPDATE bumped current_token_version to 2 (initial was 1
     // from the default constructor on insert).
     expect(out).toContain('"current_token_version": 2');
+  });
+});
+
+describe("DB-side audit emission (Codex R7 HIGH-1 fix — direct-RPC audit bypass closed)", () => {
+  // R7 HIGH-1: the Next Server Action's emitAuditLog (Vercel function
+  // log) was the ONLY operator trail. An authenticated admin calling
+  // the RPC directly via PostgREST passed is_admin + advisory lock +
+  // active-roster gate, mutated the table, but never reached
+  // emitAuditLog. Fix: emit a RAISE NOTICE audit row from INSIDE the
+  // SECURITY DEFINER RPC body so both Server Action and direct-RPC
+  // paths produce a trail. The prefix '[m9.5 signed-link admin]'
+  // matches the Vercel log format so cross-surface grep tooling
+  // works. Server Action path emits BOTH (Vercel + PG log);
+  // direct-RPC path emits only the PG log — neither path is silent.
+
+  test("issue_new_link_rpc emits structured audit RAISE NOTICE on ok path (direct-RPC call observed)", () => {
+    const driveFileId = `m9_5_audit_${randomUUID()}`;
+    const crewName = `AuditTrail ${randomUUID()}`;
+    const actorEmail = `audit-actor-${randomUUID()}@example.com`;
+
+    const { stderr } = runPsqlWithStderr(`
+      begin;
+      set local request.jwt.claims = '${JSON.stringify({
+        sub: ADMIN_JWT_SUB,
+        email: actorEmail,
+        app_metadata: { role: "admin" },
+      })}';
+      ${seedShowAndCrewSql(driveFileId, crewName)}
+      select public.issue_new_link_rpc(
+        (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
+        ${sqlString(crewName)}
+      );
+      rollback;
+    `);
+
+    expect(stderr).toContain("[m9.5 signed-link admin]");
+    expect(stderr).toContain('"action": "issue_new_link"');
+    expect(stderr).toContain(`"crew_name": "${crewName}"`);
+    expect(stderr).toContain(`"actor_email": "${actorEmail}"`);
+    expect(stderr).toContain(`"actor_sub": "${ADMIN_JWT_SUB}"`);
+    expect(stderr).toContain('"new_token_version": 2');
+  });
+
+  test("revoke_all_links_rpc emits structured audit RAISE NOTICE on ok path", () => {
+    const driveFileId = `m9_5_audit_${randomUUID()}`;
+    const crewName = `AuditTrail ${randomUUID()}`;
+    const actorEmail = `audit-actor-${randomUUID()}@example.com`;
+
+    const { stderr } = runPsqlWithStderr(`
+      begin;
+      set local request.jwt.claims = '${JSON.stringify({
+        sub: ADMIN_JWT_SUB,
+        email: actorEmail,
+        app_metadata: { role: "admin" },
+      })}';
+      ${seedShowAndCrewSql(driveFileId, crewName)}
+      -- Force a live state on the auth row so revoke_all_links_rpc
+      -- takes the ok branch (default version state is no-live-link).
+      reset role;
+      update public.crew_member_auth
+         set current_token_version = 2,
+             max_issued_version = 2
+       where show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)})
+         and crew_name = ${sqlString(crewName)};
+      select public.revoke_all_links_rpc(
+        (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
+        ${sqlString(crewName)}
+      );
+      rollback;
+    `);
+
+    expect(stderr).toContain("[m9.5 signed-link admin]");
+    expect(stderr).toContain('"action": "revoke_all_links"');
+    expect(stderr).toContain(`"crew_name": "${crewName}"`);
+    expect(stderr).toContain(`"actor_email": "${actorEmail}"`);
+    expect(stderr).toContain('"new_floor": 2');
+  });
+
+  test("non-ok branches (crew_member_not_found, no_live_link, show_not_found) do NOT emit audit RAISE NOTICE", () => {
+    const driveFileId = `m9_5_audit_${randomUUID()}`;
+
+    // show_not_found: no audit row
+    const { stderr } = runPsqlWithStderr(`
+      begin;
+      set local request.jwt.claims = '${jwtAdmin("audit-noop@example.com")}';
+      select public.issue_new_link_rpc(
+        '00000000-0000-0000-0000-000000000000'::uuid,
+        'Nobody'
+      );
+      rollback;
+    `);
+    expect(stderr).not.toContain("[m9.5 signed-link admin]");
+  });
+
+  test("direct-RPC audit-bypass scenario: a forged psql call with admin JWT but NO Server Action still produces a PG-log trail", () => {
+    // This is the explicit R7 regression: the scenario where a
+    // compromised admin browser hits /rest/v1/rpc/issue_new_link_rpc
+    // directly. Even though the Next Server Action and its Vercel-log
+    // emitAuditLog are bypassed, the PG-side RAISE NOTICE captures
+    // the actor identity and mutation details.
+    const driveFileId = `m9_5_bypass_${randomUUID()}`;
+    const crewName = `Bypass ${randomUUID()}`;
+    const forgedActorEmail = `forged-${randomUUID()}@example.com`;
+
+    const { stderr } = runPsqlWithStderr(`
+      begin;
+      set local request.jwt.claims = '${JSON.stringify({
+        sub: ADMIN_JWT_SUB,
+        email: forgedActorEmail,
+        app_metadata: { role: "admin" },
+      })}';
+      ${seedShowAndCrewSql(driveFileId, crewName)}
+      select public.issue_new_link_rpc(
+        (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
+        ${sqlString(crewName)}
+      );
+      rollback;
+    `);
+
+    // The audit trail captures the forged caller's email regardless of
+    // whether they went through the Server Action — operators can
+    // grep '[m9.5 signed-link admin]' in DB logs and see every
+    // mutation with the actor identity.
+    expect(stderr).toContain(forgedActorEmail);
+    expect(stderr).toContain('"action": "issue_new_link"');
   });
 });
 

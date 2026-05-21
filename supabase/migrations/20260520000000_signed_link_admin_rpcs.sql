@@ -64,6 +64,24 @@ begin
      and crew_name = p_crew_name
    returning * into v_row;
 
+  -- Codex R7 HIGH-1 fix: emit audit trail INSIDE the SECURITY DEFINER
+  -- transaction so a direct PostgREST RPC call (bypassing the Next
+  -- Server Action's emitAuditLog) still produces an operator trail.
+  -- The prefix '[m9.5 signed-link admin]' matches the Vercel log
+  -- format emitted by app/admin/show/[slug]/actions.ts emitAuditLog
+  -- so the same log-aggregation grep tooling works across both
+  -- surfaces. Server Action path emits BOTH (Vercel + PG log);
+  -- direct-RPC path emits only this PG log. No path is silent.
+  raise notice '[m9.5 signed-link admin] %', jsonb_build_object(
+    'action', 'revoke_all_links',
+    'show_id', p_show_id,
+    'crew_name', p_crew_name,
+    'actor_email', (current_setting('request.jwt.claims', true)::jsonb)->>'email',
+    'actor_sub', (current_setting('request.jwt.claims', true)::jsonb)->>'sub',
+    'new_floor', v_row.revoked_below_version,
+    'timestamp', now()
+  )::text;
+
   return jsonb_build_object('status', 'ok', 'row', row_to_json(v_row));
 end;
 $$;
@@ -127,6 +145,19 @@ begin
   if not found then
     return jsonb_build_object('status', 'crew_member_not_found');
   end if;
+
+  -- Codex R7 HIGH-1 fix: DB-side audit emission (mirrors revoke RPC).
+  -- See revoke_all_links_rpc above for rationale + the cross-surface
+  -- log-prefix contract.
+  raise notice '[m9.5 signed-link admin] %', jsonb_build_object(
+    'action', 'issue_new_link',
+    'show_id', p_show_id,
+    'crew_name', p_crew_name,
+    'actor_email', (current_setting('request.jwt.claims', true)::jsonb)->>'email',
+    'actor_sub', (current_setting('request.jwt.claims', true)::jsonb)->>'sub',
+    'new_token_version', v_row.current_token_version,
+    'timestamp', now()
+  )::text;
 
   return jsonb_build_object('status', 'ok', 'row', row_to_json(v_row));
 end;
