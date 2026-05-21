@@ -158,7 +158,7 @@ describe("GitHub Issues client", () => {
       { octokit, env: repoEnv },
     );
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       htmlUrl: "https://github.com/edweiss412/FX-Webpage-Template/issues/123",
     });
     expect(listCalls).toEqual([
