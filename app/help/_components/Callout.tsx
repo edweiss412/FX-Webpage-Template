@@ -18,7 +18,12 @@ const VARIANTS = {
     iconTestid: "callout-icon-warning",
   },
   tip: {
-    bg: "bg-stale-tint",
+    // Was bg-stale-tint — that token's name describes the RightNowCard
+    // stale-data semantic (components/right-now/RightNowCard.tsx:520). Reusing
+    // it for a positive callout leaked domain language; bg-info-bg shares the
+    // same warm-cream neutral and the orange `border-accent` carries the tip
+    // identity. (Impeccable critique minor finding — Task I.1.)
+    bg: "bg-info-bg",
     border: "border-accent",
     text: "text-text-strong",
     role: "note" as const,
